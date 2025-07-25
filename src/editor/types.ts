@@ -11,6 +11,7 @@ export interface EditorState {
 
 export interface CursorState {
   readonly position: Position;
+  readonly lastUpdate: number;
 }
 
 export interface SelectionState {

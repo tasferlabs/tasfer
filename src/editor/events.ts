@@ -1,5 +1,6 @@
 import {
   clearSelection,
+  getBlockTextLength,
   moveCursorDown,
   moveCursorLeft,
   moveCursorRight,
@@ -78,7 +79,11 @@ function handleKeyDown(state: EditorState, event: Event): EditorState {
     case "Home":
       return moveCursorToPosition(state, 0, 0);
     case "End":
-      return moveCursorToPosition(state, state.page.blocks.length - 1, 0);
+      return moveCursorToPosition(
+        state,
+        state.page.blocks.length - 1,
+        getBlockTextLength(state.page.blocks[state.page.blocks.length - 1])
+      );
     case "Escape":
       return clearSelection(state);
   }

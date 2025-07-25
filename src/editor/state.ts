@@ -1,7 +1,9 @@
 import type { Block, Page } from "../deserializer/loadPage";
 import type {
+  CursorState,
   EditorMode,
   EditorState,
+  EditorStyles,
   PartialSelectionState,
   Position,
   ViewportState,
@@ -38,6 +40,7 @@ export const updateCursor = (
   cursor: position
     ? {
         position,
+        lastUpdate: Date.now(),
       }
     : null,
 });
@@ -87,6 +90,7 @@ export const createInitialCursorState = (state: EditorState): EditorState => {
         blockIndex: 0,
         textIndex: 0,
       },
+      lastUpdate: Date.now(),
     },
   };
 };
@@ -135,6 +139,22 @@ export const isCollapsedSelection = (
     selection.anchor.textIndex === selection.focus.textIndex
   );
 };
+
+export function isCursorBlinking(cursor: CursorState, styles: EditorStyles) {
+  // if the cursor has been recently updated, it should be visible
+  if (cursor.lastUpdate + styles.cursor.blinkInterval > Date.now()) {
+    return false;
+  }
+
+  // otherwise, it should blink
+  return (
+    Math.floor(
+      (Date.now() - styles.cursor.blinkInterval) / styles.cursor.blinkInterval
+    ) %
+      2 ===
+    0
+  );
+}
 
 // Cursor Movement Functions
 export const moveCursorToPosition = (

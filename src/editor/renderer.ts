@@ -1,5 +1,5 @@
 import type { Block } from "../deserializer/loadPage";
-import { getBlockTextContent } from "./state";
+import { getBlockTextContent, isCursorBlinking } from "./state";
 import { applyTextStyle, defaultStyles, getTextStyle } from "./styles";
 import type {
   EditorState,
@@ -140,12 +140,7 @@ export const renderBlock = (
       blockIndex === state.cursor.position.blockIndex &&
       state.cursor.position.textIndex >= lineStartIndex &&
       state.cursor.position.textIndex <= lineEndIndex &&
-      // Blink cursor
-      Math.floor(
-        (Date.now() - styles.cursor.blinkInterval) / styles.cursor.blinkInterval
-      ) %
-        2 ===
-        0;
+      !isCursorBlinking(state.cursor, styles);
 
     if (shouldRenderCursor) {
       // Calculate cursor position within this line
