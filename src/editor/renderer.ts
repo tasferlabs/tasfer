@@ -7,14 +7,20 @@ import type {
   RenderedBlock,
   RenderedLine,
   RenderingState,
+  CharacterMap,
 } from "./types";
+import {
+  createEmptyCharacterMap,
+  createCharacterKey,
+  isPositionInViewport,
+} from "./characterMap";
 
 // Rendering Functions
 export const renderState = (
   ctx: CanvasRenderingContext2D,
   state: EditorState,
   styles: EditorStyles = defaultStyles
-): RenderedBlock[] => {
+): { renderedBlocks: RenderedBlock[]; characterMap: CharacterMap } => {
   // Clear canvas
   ctx.fillStyle = styles.canvas.backgroundColor;
   ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
@@ -24,9 +30,10 @@ export const renderState = (
   const renderingState: RenderingState = {
     currentY,
     renderedBlocks: [],
+    characterMap: createEmptyCharacterMap(state.viewport),
   };
 
-  // Render each block with integrated cursor and selection
+  // Render each block
   for (let i = 0; i < state.page.blocks.length; i++) {
     const block = state.page.blocks[i];
     renderBlock(
@@ -42,7 +49,10 @@ export const renderState = (
     );
   }
 
-  return renderingState.renderedBlocks;
+  return {
+    renderedBlocks: renderingState.renderedBlocks,
+    characterMap: renderingState.characterMap,
+  };
 };
 
 export const renderBlock = (
@@ -69,7 +79,8 @@ export const renderBlock = (
   let textIndex = 0;
 
   // Render each line
-  for (const line of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
     const lineStartIndex = textIndex;
     const lineEndIndex = textIndex + line.length;
 
@@ -77,62 +88,62 @@ export const renderBlock = (
     const start = state.selection?.anchor;
     const end = state.selection?.focus;
 
-    const hasSelection =
-      !!start &&
-      !!end &&
-      blockIndex >= start.blockIndex &&
-      blockIndex <= end.blockIndex;
+    // Render the text
+    ctx.fillText(line, x, renderingState.currentY);
 
-    if (hasSelection) {
-      // Calculate selection bounds for this line
-      const selectionStart =
-        blockIndex === start.blockIndex
-          ? Math.max(0, start.textIndex - lineStartIndex)
-          : 0;
-      const selectionEnd =
-        blockIndex === end.blockIndex
-          ? Math.min(line.length, end.textIndex - lineStartIndex)
-          : line.length;
+    // Calculate character positions for mouse selection
+    const textMetrics = ctx.measureText(line);
+    const lineY = renderingState.currentY - textMetrics.actualBoundingBoxAscent;
+    const lineHeight =
+      textMetrics.actualBoundingBoxAscent +
+      textMetrics.actualBoundingBoxDescent;
 
-      if (selectionStart < selectionEnd) {
-        // Render selection background
-        const beforeText = line.substring(0, selectionStart);
-        const selectedText = line.substring(selectionStart, selectionEnd);
+    // Calculate character positions only for visible area (with overshoot)
+    for (let charIndex = 0; charIndex < line.length; charIndex++) {
+      const char = line[charIndex];
+      const textBeforeChar = line.substring(0, charIndex);
+      const charX = x + ctx.measureText(textBeforeChar).width;
+      const charWidth = ctx.measureText(char).width;
 
-        const beforeWidth = ctx.measureText(beforeText).width;
-        const selectedWidth = ctx.measureText(selectedText).width;
+      const charPosition = {
+        x: charX,
+        y: lineY,
+        width: charWidth,
+        height: lineHeight,
+        blockIndex,
+        textIndex: lineStartIndex + charIndex,
+        lineIndex,
+      };
 
-        // Save current fill style
-        const originalFillStyle = ctx.fillStyle;
-        const originalGlobalAlpha = ctx.globalAlpha;
-
-        // Render selection background
-        ctx.fillStyle = styles.selection.backgroundColor;
-        ctx.globalAlpha = styles.selection.opacity;
-
-        // Get text metrics for proper vertical alignment
-        const textMetrics = ctx.measureText(line);
-        const selectionY =
-          renderingState.currentY - textMetrics.actualBoundingBoxAscent;
-        const selectionHeight =
-          textMetrics.actualBoundingBoxAscent +
-          textMetrics.actualBoundingBoxDescent;
-
-        ctx.fillRect(
-          x + beforeWidth,
-          selectionY,
-          selectedWidth,
-          selectionHeight
-        );
-
-        // Restore fill style
-        ctx.fillStyle = originalFillStyle;
-        ctx.globalAlpha = originalGlobalAlpha;
+      // Only store character positions within viewport bounds (with overshoot)
+      if (
+        isPositionInViewport(
+          charPosition,
+          renderingState.characterMap.viewportBounds
+        )
+      ) {
+        const key = createCharacterKey(blockIndex, lineStartIndex + charIndex);
+        renderingState.characterMap.characters.set(key, charPosition);
       }
     }
 
-    // Render the text
-    ctx.fillText(line, x, renderingState.currentY);
+    // Update block character ranges for quick lookups
+    const blockStartKey = createCharacterKey(blockIndex, lineStartIndex);
+    const blockEndKey = createCharacterKey(blockIndex, lineEndIndex - 1);
+    const existingRange =
+      renderingState.characterMap.blockCharacterRanges.get(blockIndex);
+
+    if (!existingRange) {
+      renderingState.characterMap.blockCharacterRanges.set(blockIndex, {
+        start: blockStartKey,
+        end: blockEndKey,
+      });
+    } else {
+      renderingState.characterMap.blockCharacterRanges.set(blockIndex, {
+        start: existingRange.start,
+        end: blockEndKey,
+      });
+    }
 
     // Check if cursor should be rendered on this line
     const shouldRenderCursor =
@@ -168,6 +179,127 @@ export const renderBlock = (
       ctx.fillStyle = originalFillStyle;
     }
 
+    const hasSelection =
+      !!start &&
+      !!end &&
+      blockIndex >= start.blockIndex &&
+      blockIndex <= end.blockIndex;
+
+    if (hasSelection) {
+      // Determine selection boundaries for this line
+      const isStartBlock = blockIndex === start.blockIndex;
+      const isEndBlock = blockIndex === end.blockIndex;
+      const isSingleBlock = isStartBlock && isEndBlock;
+
+      let selectionStartIndex: number;
+      let selectionEndIndex: number;
+
+      if (isSingleBlock) {
+        // Selection is within a single block
+        const selectionStart = Math.min(start.textIndex, end.textIndex);
+        const selectionEnd = Math.max(start.textIndex, end.textIndex);
+        selectionStartIndex = Math.max(selectionStart - lineStartIndex, 0);
+        selectionEndIndex = Math.min(
+          selectionEnd - lineStartIndex,
+          line.length
+        );
+      } else if (isStartBlock) {
+        // This is the start block of a multi-block selection
+        selectionStartIndex = Math.max(
+          (state.selection.isForward ? start.textIndex : end.textIndex) -
+            lineStartIndex,
+          0
+        );
+        selectionEndIndex = line.length;
+      } else if (isEndBlock) {
+        // This is the end block of a multi-block selection
+        selectionStartIndex = 0;
+        selectionEndIndex = Math.min(
+          (state.selection.isForward ? end.textIndex : start.textIndex) -
+            lineStartIndex,
+          line.length
+        );
+      } else {
+        // This is a middle block - select entire line
+        selectionStartIndex = 0;
+        selectionEndIndex = line.length;
+      }
+
+      // Only render selection if there's actually text to select on this line
+      if (selectionStartIndex < selectionEndIndex && selectionEndIndex > 0) {
+        // Get character positions from character map for selection boundaries
+        const startCharKey = createCharacterKey(
+          blockIndex,
+          lineStartIndex + selectionStartIndex
+        );
+        const endCharKey = createCharacterKey(
+          blockIndex,
+          lineStartIndex + Math.max(0, selectionEndIndex - 1)
+        );
+
+        const startCharPos =
+          renderingState.characterMap.characters.get(startCharKey);
+        const endCharPos =
+          renderingState.characterMap.characters.get(endCharKey);
+
+        console.log(renderingState.characterMap, startCharKey, startCharPos);
+        if (startCharPos) {
+          let selectionStartX = startCharPos.x;
+          let selectionWidth: number;
+          let selectionY = startCharPos.y;
+          let selectionHeight = startCharPos.height;
+
+          if (endCharPos) {
+            // Both positions found in character map
+            selectionWidth = endCharPos.x + endCharPos.width - selectionStartX;
+          } else {
+            // End position not in map, find last available character position on this line
+            let lastCharPos: any = null;
+            const lineEndTextIndex = lineStartIndex + selectionEndIndex - 1;
+
+            // Look for the last character position we can find on this line
+            for (let i = lineEndTextIndex; i >= lineStartIndex; i--) {
+              const charKey = createCharacterKey(blockIndex, i);
+              const charPos =
+                renderingState.characterMap.characters.get(charKey);
+              if (charPos) {
+                lastCharPos = charPos;
+                break;
+              }
+            }
+
+            if (lastCharPos) {
+              selectionWidth =
+                lastCharPos.x + lastCharPos.width - selectionStartX;
+            } else {
+              // Fallback to character width estimation if no characters found
+              selectionWidth =
+                selectionEndIndex > selectionStartIndex
+                  ? (selectionEndIndex - selectionStartIndex) * 10
+                  : 0;
+            }
+          }
+
+          // Save current fill style
+          const originalFillStyle = ctx.fillStyle;
+          const originalGlobalAlpha = ctx.globalAlpha;
+
+          // Render selection background
+          ctx.fillStyle = styles.selection.backgroundColor;
+          ctx.globalAlpha = styles.selection.opacity;
+          ctx.fillRect(
+            selectionStartX,
+            selectionY,
+            selectionWidth,
+            selectionHeight
+          );
+
+          // Restore original styles
+          ctx.fillStyle = originalFillStyle;
+          ctx.globalAlpha = originalGlobalAlpha;
+        }
+      }
+    }
     renderedLines.push({
       text: line,
       x,
@@ -194,6 +326,7 @@ export const renderBlock = (
     },
     lines: renderedLines,
   });
+  return renderingState;
 };
 
 export const wrapText = (

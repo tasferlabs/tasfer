@@ -18,7 +18,7 @@ try {
 
   // Parse markdown into tokens and then into a tree structure
   const page = loadPage(content);
-  console.log("Parsed tree:", page);
+  // console.log("Parsed tree:", page);
 
   editor.start(page);
 } catch (error) {

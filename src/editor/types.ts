@@ -19,6 +19,7 @@ export interface SelectionState {
   readonly focus: Position;
   readonly isForward: boolean;
   readonly isCollapsed: boolean;
+  readonly lastUpdate: number;
 }
 
 export interface PartialSelectionState {
@@ -58,6 +59,7 @@ export interface BlockBounds {
 export interface RenderingState {
   currentY: number;
   readonly renderedBlocks: RenderedBlock[];
+  readonly characterMap: CharacterMap;
 }
 
 export interface RenderedLine {
@@ -132,4 +134,34 @@ export interface KeyboardEvent extends EditorEvent {
   readonly shiftKey: boolean;
   readonly ctrlKey: boolean;
   readonly altKey: boolean;
+}
+
+// Character Positioning Types for Mouse Selection
+export interface CharacterPosition {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly blockIndex: number;
+  readonly textIndex: number;
+  readonly lineIndex: number;
+}
+
+export interface RenderedCharacter {
+  readonly char: string;
+  readonly position: CharacterPosition;
+}
+
+export interface ViewportBounds {
+  readonly top: number;
+  readonly bottom: number;
+  readonly left: number;
+  readonly right: number;
+  readonly overshoot: number;
+}
+
+export interface CharacterMap {
+  readonly characters: Map<string, CharacterPosition>;
+  readonly viewportBounds: ViewportBounds;
+  readonly blockCharacterRanges: Map<number, { start: string; end: string }>;
 }

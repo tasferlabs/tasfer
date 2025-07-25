@@ -57,6 +57,7 @@ export const updateSelection = (
         focus: updates.focus,
         isForward: updates.isForward || isForwardSelection(updates),
         isCollapsed: updates.isCollapsed || isCollapsedSelection(updates),
+        lastUpdate: Date.now(),
       }
     : null,
 });

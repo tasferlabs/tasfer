@@ -1,0 +1,1 @@
+Google docs canvas like and notion block like text/note editor.

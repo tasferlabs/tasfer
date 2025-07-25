@@ -1,7 +1,7 @@
 import type { Page } from "../deserializer/loadPage";
 
 import { handleEvents } from "./events";
-import { renderState } from "./renderer";
+import { renderState as renderPage } from "./renderer";
 import { createInitialState } from "./state";
 import type { EditorState } from "./types";
 import { resizeCanvas } from "./utils";
@@ -26,8 +26,8 @@ export const createEditor = (canvas: HTMLCanvasElement): Editor => {
   // Render loop
   const render = () => {
     resizeCanvas(ctx, state.viewport);
-    state = handleEvents(state, eventsQueue);
-    renderState(ctx, state);
+    const { characterMap } = renderPage(ctx, state);
+    state = handleEvents(state, eventsQueue, characterMap);
     animationFrameId = requestAnimationFrame(render);
   };
 
@@ -39,9 +39,9 @@ export const createEditor = (canvas: HTMLCanvasElement): Editor => {
     state = createInitialState(page, canvas.width, canvas.height);
     render();
 
-    // canvas.addEventListener("mousedown", eventsHandler);
-    // canvas.addEventListener("mousemove", eventsHandler);
-    // canvas.addEventListener("mouseup", eventsHandler);
+    canvas.addEventListener("mousedown", eventsHandler);
+    canvas.addEventListener("mousemove", eventsHandler);
+    canvas.addEventListener("mouseup", eventsHandler);
     window.addEventListener("keydown", eventsHandler);
     // canvas.addEventListener("wheel", eventsHandler);
   }
@@ -55,9 +55,9 @@ export const createEditor = (canvas: HTMLCanvasElement): Editor => {
       cancelAnimationFrame(animationFrameId);
     }
 
-    // canvas.removeEventListener("mousedown", eventsHandler);
-    // canvas.removeEventListener("mousemove", eventsHandler);
-    // canvas.removeEventListener("mouseup", eventsHandler);
+    canvas.removeEventListener("mousedown", eventsHandler);
+    canvas.removeEventListener("mousemove", eventsHandler);
+    canvas.removeEventListener("mouseup", eventsHandler);
     window.removeEventListener("keydown", eventsHandler);
     // canvas.removeEventListener("wheel", eventsHandler);
   }
