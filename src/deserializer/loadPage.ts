@@ -2,10 +2,12 @@ import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
 
 export interface Heading {
+  type: "heading";
   level: number;
   content: Text[];
 }
 export interface Paragraph {
+  type: "paragraph";
   content: Text[];
 }
 

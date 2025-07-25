@@ -22,6 +22,7 @@ function generateEmptyTree(): Page {
 }
 function generateHeading(level: number, ...content: Text[]): Heading {
   return {
+    type: "heading",
     level,
     content: content || [],
   };
@@ -57,7 +58,9 @@ function parseBlock(context: ParserContext): Block {
 
 function parseHeading(context: ParserContext, level: number) {
   const content = parseText(context);
-  return generateHeading(level, ...content);
+  const heading = generateHeading(level, ...content);
+  match(context, NEWLINE);
+  return heading;
 }
 function parseText(context: ParserContext): Text[] {
   const text: Text[] = [];
@@ -73,8 +76,11 @@ function parseText(context: ParserContext): Text[] {
 }
 
 function paresParagraph(context: ParserContext): Paragraph {
+  const text = parseText(context);
+  match(context, NEWLINE);
   return {
-    content: parseText(context),
+    type: "paragraph",
+    content: text,
   };
 }
 
