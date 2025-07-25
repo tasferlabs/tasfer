@@ -6,6 +6,7 @@ import type {
   EditorStyles,
   RenderedBlock,
   RenderedLine,
+  RenderingState,
 } from "./types";
 
 // Rendering Functions
@@ -18,15 +19,20 @@ export const renderState = (
   ctx.fillStyle = styles.canvas.backgroundColor;
   ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-  const renderedBlocks: RenderedBlock[] = [];
   let currentY = styles.canvas.padding - state.viewport.scrollY;
+
+  const renderingState: RenderingState = {
+    currentY,
+    renderedBlocks: [],
+  };
 
   // Render each block with integrated cursor and selection
   for (let i = 0; i < state.page.blocks.length; i++) {
     const block = state.page.blocks[i];
-    const renderedBlock = renderBlock(
+    renderBlock(
       ctx,
       state,
+      renderingState,
       block,
       i,
       styles.canvas.padding,
@@ -34,29 +40,23 @@ export const renderState = (
       state.viewport.width - 2 * styles.canvas.padding,
       styles
     );
-
-    renderedBlocks.push(renderedBlock);
-    currentY += renderedBlock.bounds.height;
   }
 
-  return renderedBlocks;
+  return renderingState.renderedBlocks;
 };
 
 export const renderBlock = (
   ctx: CanvasRenderingContext2D,
   state: EditorState,
+  renderingState: RenderingState,
   block: Block,
   blockIndex: number,
   x: number,
   y: number,
   maxWidth: number,
   styles: EditorStyles
-): RenderedBlock => {
-  const blockType =
-    "level" in block
-      ? (`heading${block.level}` as "heading1" | "heading2" | "heading3")
-      : ("paragraph" as const);
-  const textStyle = getTextStyle(styles, blockType);
+) => {
+  const textStyle = getTextStyle(styles, block.type);
   const content = getBlockTextContent(block);
 
   applyTextStyle(ctx, textStyle);
@@ -66,7 +66,6 @@ export const renderBlock = (
   const lineHeight = textStyle.fontSize * textStyle.lineHeight;
 
   const renderedLines: RenderedLine[] = [];
-  let currentY = y;
   let textIndex = 0;
 
   // Render each line
@@ -113,7 +112,8 @@ export const renderBlock = (
 
         // Get text metrics for proper vertical alignment
         const textMetrics = ctx.measureText(line);
-        const selectionY = currentY - textMetrics.actualBoundingBoxAscent;
+        const selectionY =
+          renderingState.currentY - textMetrics.actualBoundingBoxAscent;
         const selectionHeight =
           textMetrics.actualBoundingBoxAscent +
           textMetrics.actualBoundingBoxDescent;
@@ -132,7 +132,7 @@ export const renderBlock = (
     }
 
     // Render the text
-    ctx.fillText(line, x, currentY);
+    ctx.fillText(line, x, renderingState.currentY);
 
     // Check if cursor should be rendered on this line
     const shouldRenderCursor =
@@ -156,7 +156,8 @@ export const renderBlock = (
 
       // Get text metrics for cursor height
       const textMetrics = ctx.measureText(line);
-      const cursorY = currentY - textMetrics.actualBoundingBoxAscent;
+      const cursorY =
+        renderingState.currentY - textMetrics.actualBoundingBoxAscent;
       const cursorHeight =
         textMetrics.actualBoundingBoxAscent +
         textMetrics.actualBoundingBoxDescent;
@@ -175,7 +176,7 @@ export const renderBlock = (
     renderedLines.push({
       text: line,
       x,
-      y: currentY,
+      y: renderingState.currentY,
       width: ctx.measureText(line).width,
       height: lineHeight,
       startIndex: lineStartIndex,
@@ -183,12 +184,12 @@ export const renderBlock = (
     });
 
     textIndex += line.length;
-    currentY += lineHeight;
+    renderingState.currentY += lineHeight;
   }
 
-  const totalHeight = lines.length * lineHeight;
-
-  return {
+  const totalHeight = renderedLines.length * lineHeight;
+  renderingState.currentY += textStyle.marginBottom;
+  renderingState.renderedBlocks.push({
     block,
     bounds: {
       x,
@@ -197,7 +198,7 @@ export const renderBlock = (
       height: totalHeight,
     },
     lines: renderedLines,
-  };
+  });
 };
 
 export const wrapText = (
@@ -228,45 +229,4 @@ export const wrapText = (
   }
 
   return lines.length > 0 ? lines : [""];
-};
-
-// Hit Testing Functions
-export const getPositionFromPoint = (
-  x: number,
-  y: number,
-  renderedBlocks: RenderedBlock[]
-): { blockIndex: number; textIndex: number } | null => {
-  for (let blockIndex = 0; blockIndex < renderedBlocks.length; blockIndex++) {
-    const block = renderedBlocks[blockIndex];
-
-    if (y >= block.bounds.y && y <= block.bounds.y + block.bounds.height) {
-      for (const line of block.lines) {
-        if (y >= line.y && y <= line.y + line.height) {
-          // Find closest character position in line
-          const ctx = document.createElement("canvas").getContext("2d")!;
-          let closestIndex = line.startIndex;
-          let closestDistance = Math.abs(x - line.x);
-
-          for (let i = 0; i <= line.text.length; i++) {
-            const partialText = line.text.substring(0, i);
-            const width = ctx.measureText(partialText).width;
-            const distance = Math.abs(x - (line.x + width));
-
-            if (distance < closestDistance) {
-              closestDistance = distance;
-              closestIndex = line.startIndex + i;
-            }
-          }
-
-          return { blockIndex, textIndex: closestIndex };
-        }
-      }
-
-      // Click was in block but not on a line, position at end of block
-      const blockContent = getBlockTextContent(block.block);
-      return { blockIndex, textIndex: blockContent.length };
-    }
-  }
-
-  return null;
 };

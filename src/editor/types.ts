@@ -54,6 +54,11 @@ export interface BlockBounds {
   readonly height: number;
 }
 
+export interface RenderingState {
+  currentY: number;
+  readonly renderedBlocks: RenderedBlock[];
+}
+
 export interface RenderedLine {
   readonly text: string;
   readonly x: number;
@@ -91,6 +96,7 @@ export interface TextStyle {
   readonly fontWeight: string;
   readonly color: string;
   readonly lineHeight: number;
+  readonly marginBottom: number;
 }
 
 export interface CursorStyles {

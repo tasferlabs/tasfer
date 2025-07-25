@@ -13,6 +13,7 @@ export const defaultStyles: EditorStyles = {
       fontWeight: "bold",
       color: "#1a1a1a",
       lineHeight: 1.2,
+      marginBottom: 6,
     },
     heading2: {
       fontSize: 24,
@@ -20,6 +21,7 @@ export const defaultStyles: EditorStyles = {
       fontWeight: "bold",
       color: "#1a1a1a",
       lineHeight: 1.3,
+      marginBottom: 6,
     },
     heading3: {
       fontSize: 20,
@@ -27,6 +29,7 @@ export const defaultStyles: EditorStyles = {
       fontWeight: "bold",
       color: "#1a1a1a",
       lineHeight: 1.4,
+      marginBottom: 6,
     },
     paragraph: {
       fontSize: 16,
@@ -34,6 +37,7 @@ export const defaultStyles: EditorStyles = {
       fontWeight: "normal",
       color: "#333333",
       lineHeight: 1.6,
+      marginBottom: 12,
     },
   },
   cursor: {

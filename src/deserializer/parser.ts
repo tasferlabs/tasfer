@@ -22,8 +22,7 @@ function generateEmptyTree(): Page {
 }
 function generateHeading(level: number, ...content: Text[]): Heading {
   return {
-    type: "heading",
-    level,
+    type: "heading" + level as "heading1" | "heading2" | "heading3",
     content: content || [],
   };
 }
