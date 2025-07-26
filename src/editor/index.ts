@@ -1,7 +1,8 @@
 import type { Page } from "../deserializer/loadPage";
+import { createEmptyCharacterMap } from "./characterMap";
 
 import { handleEvents } from "./events";
-import { renderState as renderPage } from "./renderer";
+import { renderPage } from "./renderer";
 import { createInitialState } from "./state";
 import type { EditorState } from "./types";
 import { resizeCanvas } from "./utils";
@@ -24,10 +25,16 @@ export const createEditor = (canvas: HTMLCanvasElement): Editor => {
   const eventsQueue: Event[] = [];
 
   // Render loop
+  let characterMap = createEmptyCharacterMap({
+    scrollY: 0,
+    height: canvas.clientHeight,
+    width: canvas.clientWidth,
+  });
   const render = () => {
     resizeCanvas(ctx, state.viewport);
-    const { characterMap } = renderPage(ctx, state);
     state = handleEvents(state, eventsQueue, characterMap);
+    const renderingState = renderPage(ctx, state);
+    characterMap = renderingState.characterMap;
     animationFrameId = requestAnimationFrame(render);
   };
 

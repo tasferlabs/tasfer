@@ -1,4 +1,9 @@
-export function resizeCanvas(ctx: CanvasRenderingContext2D, viewport: Viewport) {
+import type { ViewportState } from "./types";
+
+export function resizeCanvas(
+  ctx: CanvasRenderingContext2D,
+  viewport: ViewportState
+) {
   const canvas = ctx.canvas;
   // look up the size the canvas is being displayed
   const width = canvas.clientWidth;

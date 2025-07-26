@@ -16,7 +16,7 @@ import type {
 } from "./types";
 
 // Rendering Functions
-export const renderState = (
+export const renderPage = (
   ctx: CanvasRenderingContext2D,
   state: EditorState,
   styles: EditorStyles = defaultStyles

@@ -36,9 +36,9 @@ export interface Position {
 }
 
 export interface ViewportState {
-  readonly scrollY: number;
-  readonly width: number;
-  readonly height: number;
+  scrollY: number;
+  width: number;
+  height: number;
 }
 
 export type EditorMode = "edit" | "select" | "readonly";
