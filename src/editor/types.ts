@@ -25,6 +25,7 @@ export interface SelectionState {
 export interface PartialSelectionState {
   readonly anchor: Position;
   readonly focus: Position;
+  readonly lastUpdate?: number;
   readonly isForward?: boolean;
   readonly isCollapsed?: boolean;
 }

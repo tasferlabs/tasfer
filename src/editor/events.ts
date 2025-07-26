@@ -139,6 +139,17 @@ function handleMouseMove(
   let newState = updateSelectionFocus(state, position);
   newState = updateCursor(newState, position);
 
+  // if (newState !== null && newState.selection !== null) {
+  //   if (newState.selection.isForward) {
+  //     console.log(
+  //       `$anchor:${newState.selection.anchor.blockIndex}:${newState.selection.anchor.textIndex} focus: ${newState.selection.focus.blockIndex}:${newState.selection.focus.textIndex}`
+  //     );
+  //   } else {
+  //     console.log(
+  //       `$focus:${newState.selection.focus.blockIndex}:${newState.selection.focus.textIndex} anchor: ${newState.selection.anchor.blockIndex}:${newState.selection.focus.textIndex}`
+  //     );
+  //   }
+  // }
   return newState;
 }
 

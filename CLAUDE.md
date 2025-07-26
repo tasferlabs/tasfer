@@ -19,34 +19,10 @@ npm run build
 npm run preview
 ```
 
-## Architecture Overview
-
-The application follows a functional, immutable state architecture with three main layers:
-
-### 1. Deserializer (`src/deserializer/`)
-- **Tokenizer** (`tokenizer.ts`): Converts raw markdown into tokens (HEADING_1, HEADING_2, HEADING_3, NEWLINE, etc.)
-- **Parser** (`parser.ts`): Transforms tokens into an Abstract Syntax Tree (AST) with typed blocks
-- **LoadPage** (`loadPage.ts`): Main entry point that orchestrates tokenization and parsing
-
-### 2. Editor (`src/editor/`)
-- **Index** (`index.ts`): Main editor factory with event loop and render cycle
-- **State** (`state.ts`): Immutable state management for cursor, selection, and viewport
-- **Events** (`events.ts`): Event handling system for keyboard navigation (mouse events stubbed)
-- **Renderer** (`renderer.ts`): Canvas rendering engine with text wrapping and visual feedback
-- **Types** (`types.ts`): Complete type definitions for all editor components
-- **Styles** (`styles.ts`): Styling configuration for different block types
-- **Utils** (`utils.ts`): Canvas utilities and helper functions
-
-### 3. Main Application (`src/main.ts`)
-Entry point that:
-1. Fetches sample.md content
-2. Parses it through the deserializer
-3. Creates and initializes the editor
-4. Starts the render loop
-
 ## Key Data Structures
 
 ### Page Structure
+
 ```typescript
 interface Page {
   title: string;
@@ -57,7 +33,9 @@ type Block = Heading | Paragraph;
 ```
 
 ### Editor State
+
 The editor maintains immutable state containing:
+
 - `page`: The document content as blocks
 - `cursor`: Current cursor position (blockIndex, textIndex)
 - `selection`: Text selection state with anchor/focus positions

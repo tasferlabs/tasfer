@@ -1,19 +1,19 @@
 import type { Block } from "../deserializer/loadPage";
+import {
+  createCharacterKey,
+  createEmptyCharacterMap,
+  isPositionInViewport,
+} from "./characterMap";
 import { getBlockTextContent, isCursorBlinking } from "./state";
 import { applyTextStyle, defaultStyles, getTextStyle } from "./styles";
 import type {
+  CharacterMap,
   EditorState,
   EditorStyles,
   RenderedBlock,
   RenderedLine,
   RenderingState,
-  CharacterMap,
 } from "./types";
-import {
-  createEmptyCharacterMap,
-  createCharacterKey,
-  isPositionInViewport,
-} from "./characterMap";
 
 // Rendering Functions
 export const renderState = (
@@ -85,8 +85,13 @@ export const renderBlock = (
     const lineEndIndex = textIndex + line.length;
 
     // Check if this line has selection
-    const start = state.selection?.anchor;
-    const end = state.selection?.focus;
+    // Sort anchor and focus to ensure start is always before end
+    let start = state.selection?.isForward
+      ? state.selection?.anchor
+      : state.selection?.focus;
+    let end = state.selection?.isForward
+      ? state.selection?.focus
+      : state.selection?.anchor;
 
     // Render the text
     ctx.fillText(line, x, renderingState.currentY);
@@ -205,18 +210,13 @@ export const renderBlock = (
         );
       } else if (isStartBlock) {
         // This is the start block of a multi-block selection
-        selectionStartIndex = Math.max(
-          (state.selection.isForward ? start.textIndex : end.textIndex) -
-            lineStartIndex,
-          0
-        );
+        selectionStartIndex = Math.max(start.textIndex - lineStartIndex, 0);
         selectionEndIndex = line.length;
       } else if (isEndBlock) {
         // This is the end block of a multi-block selection
         selectionStartIndex = 0;
         selectionEndIndex = Math.min(
-          (state.selection.isForward ? end.textIndex : start.textIndex) -
-            lineStartIndex,
+          end.textIndex - lineStartIndex,
           line.length
         );
       } else {
@@ -242,7 +242,6 @@ export const renderBlock = (
         const endCharPos =
           renderingState.characterMap.characters.get(endCharKey);
 
-        console.log(renderingState.characterMap, startCharKey, startCharPos);
         if (startCharPos) {
           let selectionStartX = startCharPos.x;
           let selectionWidth: number;

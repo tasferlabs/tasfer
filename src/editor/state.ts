@@ -55,8 +55,8 @@ export const updateSelection = (
         ...state.selection,
         anchor: updates.anchor,
         focus: updates.focus,
-        isForward: updates.isForward || isForwardSelection(updates),
-        isCollapsed: updates.isCollapsed || isCollapsedSelection(updates),
+        isForward: isForwardSelection(updates),
+        isCollapsed: isCollapsedSelection(updates),
         lastUpdate: Date.now(),
       }
     : null,
@@ -269,8 +269,15 @@ export const updateSelectionFocus = (
   return updateSelection(state, {
     focus: position,
     anchor: state.selection.anchor,
-    isForward: state.selection.isForward,
-    isCollapsed: state.selection.isCollapsed,
+    lastUpdate: Date.now(),
+    isForward: isForwardSelection({
+      anchor: state.selection.anchor,
+      focus: position,
+    }),
+    isCollapsed: isCollapsedSelection({
+      anchor: state.selection.anchor,
+      focus: position,
+    }),
   });
 };
 
