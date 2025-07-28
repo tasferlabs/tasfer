@@ -1,4 +1,5 @@
-import type { EditorStyles } from "./types";
+import { getCurrentFontFamily } from "./fonts";
+import type { EditorStyles, TextStyle } from "./types";
 
 export const defaultStyles: EditorStyles = {
   canvas: {
@@ -9,35 +10,31 @@ export const defaultStyles: EditorStyles = {
   blocks: {
     heading1: {
       fontSize: 32,
-      fontFamily: "system-ui, -apple-system, sans-serif",
-      fontWeight: "bold",
+      fontWeight: "500",
       color: "#1a1a1a",
       lineHeight: 1.2,
-      marginBottom: 6,
+      paddingBottom: 4,
     },
     heading2: {
       fontSize: 24,
-      fontFamily: "system-ui, -apple-system, sans-serif",
-      fontWeight: "bold",
+      fontWeight: "500",
       color: "#1a1a1a",
       lineHeight: 1.3,
-      marginBottom: 6,
+      paddingBottom: 6,
     },
     heading3: {
       fontSize: 20,
-      fontFamily: "system-ui, -apple-system, sans-serif",
-      fontWeight: "bold",
+      fontWeight: "500",
       color: "#1a1a1a",
       lineHeight: 1.4,
-      marginBottom: 6,
+      paddingBottom: 6,
     },
     paragraph: {
       fontSize: 16,
-      fontFamily: "system-ui, -apple-system, sans-serif",
       fontWeight: "normal",
       color: "#333333",
       lineHeight: 1.6,
-      marginBottom: 12,
+      paddingBottom: 12,
     },
   },
   cursor: {
@@ -58,8 +55,13 @@ export const getTextStyle = (
   return styles.blocks[blockType];
 };
 
-export const applyTextStyle = (ctx: CanvasRenderingContext2D, style: any) => {
-  ctx.font = `${style.fontWeight} ${style.fontSize}px ${style.fontFamily}`;
+export const applyTextStyle = (
+  ctx: CanvasRenderingContext2D,
+  style: TextStyle
+) => {
+  ctx.font = `${style.fontWeight} ${
+    style.fontSize
+  }px ${getCurrentFontFamily()}`;
   ctx.fillStyle = style.color;
   ctx.textBaseline = "top";
 };

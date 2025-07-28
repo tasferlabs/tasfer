@@ -1,7 +1,4 @@
-import {
-  findCharacterAtPosition,
-  findNearestCharacterPosition,
-} from "./characterMap";
+import { getTextPositionFromViewport as getTextPositionFromViewport } from "./selection";
 import {
   clearSelection,
   getBlockTextLength,
@@ -15,12 +12,12 @@ import {
   updateMode,
   updateSelectionFocus,
 } from "./state";
-import type { CharacterMap, EditorState, MouseEvent, Position } from "./types";
+import type { EditorState, MouseEvent, ViewportState } from "./types";
 
 export function handleEvents(
   state: EditorState,
-  events: Event[],
-  characterMap: CharacterMap
+  viewport: ViewportState,
+  events: Event[]
 ): EditorState {
   if (events.length === 0) return state;
   for (const event of events) {
@@ -28,28 +25,24 @@ export function handleEvents(
       case "mousedown":
         state = handleMouseDown(
           state,
-          event as unknown as MouseEvent,
-          characterMap
+          viewport,
+          event as unknown as MouseEvent
         );
         break;
       case "mousemove":
         state = handleMouseMove(
           state,
-          event as unknown as MouseEvent,
-          characterMap
+          viewport,
+          event as unknown as MouseEvent
         );
         break;
       case "mouseup":
-        state = handleMouseUp(
-          state,
-          event as unknown as MouseEvent,
-          characterMap
-        );
+        state = handleMouseUp(state, viewport, event as unknown as MouseEvent);
         break;
       case "keydown":
-        state = handleKeyDown(state, event);
+        state = handleKeyDown(state, viewport, event);
         break;
-      case "wheel":
+      // case "wheel":
       // state = handleWheel(state, event);
       // break;
       // case "resize":
@@ -63,44 +56,29 @@ export function handleEvents(
   return state;
 }
 
-function getPositionFromCharMap(
-  x: number,
-  y: number,
-  characterMap: CharacterMap
-): Position | null {
-  // First try to find an exact character hit
-  const exactChar = findCharacterAtPosition(characterMap, x, y);
-  if (exactChar) {
-    return {
-      blockIndex: exactChar.blockIndex,
-      textIndex: exactChar.textIndex,
-    };
-  }
-
-  // If no exact hit, find the nearest character
-  const nearestChar = findNearestCharacterPosition(characterMap, x, y);
-  if (nearestChar) {
-    return {
-      blockIndex: nearestChar.blockIndex,
-      textIndex: nearestChar.textIndex,
-    };
-  }
-
-  // If no characters found at all, return null
-  return null;
-}
-
 function handleMouseDown(
   state: EditorState,
-  event: MouseEvent,
-  characterMap: CharacterMap
+  viewport: ViewportState,
+  event: MouseEvent
 ): EditorState {
-  const position = getPositionFromCharMap(event.x, event.y, characterMap);
+  // console.log(event.x, event.y, viewport.width, viewport.height);
+  const position = getTextPositionFromViewport(
+    event.x,
+    event.y,
+    state,
+    viewport
+  );
 
   if (!position) return state;
 
   // Set cursor position
   let newState = updateCursor(state, position);
+
+  // console.log(
+  //   "Cursor: ",
+  //   newState.cursor?.position.blockIndex,
+  //   newState.cursor?.position.textIndex
+  // );
 
   // If shift is held, extend selection; otherwise start new selection
   if (event.shiftKey && state.selection) {
@@ -117,20 +95,21 @@ function handleMouseDown(
 
 function handleMouseMove(
   state: EditorState,
-  event: MouseEvent,
-  characterMap: CharacterMap
+  viewport: ViewportState,
+  event: MouseEvent
 ): EditorState {
-  const mouseEvent = event;
-
-  // Only handle mouse move if we're in select mode and have an active selection
-  if (state.mode !== "select" || !state.selection) {
+  // Only handle mouse move if we're in select mode (dragging)
+  if (state.mode !== "select") {
     return state;
   }
 
-  const position = getPositionFromCharMap(
-    mouseEvent.x,
-    mouseEvent.y,
-    characterMap
+  const position = getTextPositionFromViewport(
+    event.x,
+    event.y,
+    state,
+    viewport,
+    undefined,
+    true // isDragSelection - excludes margin fallback
   );
 
   if (!position) return state;
@@ -155,8 +134,8 @@ function handleMouseMove(
 
 function handleMouseUp(
   state: EditorState,
-  event: MouseEvent,
-  characterMap: CharacterMap
+  viewport: ViewportState,
+  event: MouseEvent
 ): EditorState {
   // Exit select mode and return to edit mode
   if (state.mode === "select") {
@@ -166,7 +145,11 @@ function handleMouseUp(
   return state;
 }
 
-function handleKeyDown(state: EditorState, event: Event): EditorState {
+function handleKeyDown(
+  state: EditorState,
+  viewport: ViewportState,
+  event: Event
+): EditorState {
   const allowedKeys = [
     "ArrowLeft",
     "ArrowRight",
@@ -205,10 +188,10 @@ function handleKeyDown(state: EditorState, event: Event): EditorState {
   return state;
 }
 
-function handleWheel(state: EditorState, event: Event): EditorState {
-  return state;
-}
+// function handleWheel(state: EditorState, event: Event): EditorState {
+//   return state;
+// }
 
-function handleResize(state: EditorState, event: Event): EditorState {
-  return state;
-}
+// function handleResize(state: EditorState, event: Event): EditorState {
+//   return state;
+// }

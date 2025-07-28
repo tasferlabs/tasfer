@@ -1,11 +1,11 @@
 import type { Block, Page } from "../deserializer/loadPage";
+import type { FontFamily } from "./fonts";
 
 // Editor State Types
 export interface EditorState {
   readonly page: Page;
   readonly cursor: CursorState | null;
   readonly selection: SelectionState | null;
-  readonly viewport: ViewportState;
   readonly mode: EditorMode;
 }
 
@@ -39,6 +39,8 @@ export interface ViewportState {
   scrollY: number;
   width: number;
   height: number;
+  visibleBlocksStartIndex: number;
+  visibleBlocksEndIndex: number;
 }
 
 export type EditorMode = "edit" | "select" | "readonly";
@@ -55,12 +57,6 @@ export interface BlockBounds {
   readonly y: number;
   readonly width: number;
   readonly height: number;
-}
-
-export interface RenderingState {
-  currentY: number;
-  readonly renderedBlocks: RenderedBlock[];
-  readonly characterMap: CharacterMap;
 }
 
 export interface RenderedLine {
@@ -96,11 +92,10 @@ export interface BlockStyles {
 
 export interface TextStyle {
   readonly fontSize: number;
-  readonly fontFamily: string;
   readonly fontWeight: string;
   readonly color: string;
   readonly lineHeight: number;
-  readonly marginBottom: number;
+  readonly paddingBottom: number;
 }
 
 export interface CursorStyles {
@@ -136,33 +131,31 @@ export interface KeyboardEvent extends EditorEvent {
   readonly ctrlKey: boolean;
   readonly altKey: boolean;
 }
-
-// Character Positioning Types for Mouse Selection
-export interface CharacterPosition {
-  readonly x: number;
-  readonly y: number;
+export interface CharacterMetrics {
   readonly width: number;
   readonly height: number;
-  readonly blockIndex: number;
-  readonly textIndex: number;
-  readonly lineIndex: number;
 }
 
-export interface RenderedCharacter {
-  readonly char: string;
-  readonly position: CharacterPosition;
+export interface FontMetrics {
+  readonly fontSize: number;
+  readonly fontWeight: string;
+  readonly fontFamily: FontFamily;
+  readonly ascent: number;
+  readonly descent: number;
+  readonly characters: ReadonlyMap<string, CharacterMetrics>;
 }
 
-export interface ViewportBounds {
-  readonly top: number;
-  readonly bottom: number;
-  readonly left: number;
-  readonly right: number;
-  readonly overshoot: number;
+export interface WordMetrics {
+  readonly word: string;
+  readonly width: number;
+  readonly startIndex: number;
+  readonly endIndex: number;
 }
 
-export interface CharacterMap {
-  readonly characters: Map<string, CharacterPosition>;
-  readonly viewportBounds: ViewportBounds;
-  readonly blockCharacterRanges: Map<number, { start: string; end: string }>;
+export interface TextMeasurementResult {
+  readonly totalWidth: number;
+  readonly words: readonly WordMetrics[];
+}
+export default interface FontConfig {
+  readonly fontFamily: FontFamily;
 }

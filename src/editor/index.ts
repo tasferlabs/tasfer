@@ -1,11 +1,9 @@
 import type { Page } from "../deserializer/loadPage";
-import { createEmptyCharacterMap } from "./characterMap";
-
 import { handleEvents } from "./events";
 import { renderPage } from "./renderer";
-import { createInitialState } from "./state";
-import type { EditorState } from "./types";
-import { resizeCanvas } from "./utils";
+import { createInitialState, createInitialViewport } from "./state";
+import type { EditorState, ViewportState } from "./types";
+import { resizeCanvas as computeViewport } from "./viewport";
 
 export interface Editor {
   start: (page: Page) => void;
@@ -20,21 +18,16 @@ export const createEditor = (canvas: HTMLCanvasElement): Editor => {
   }
 
   let state: EditorState;
+  let viewport: ViewportState;
   let animationFrameId: number | null = null;
 
   const eventsQueue: Event[] = [];
 
   // Render loop
-  let characterMap = createEmptyCharacterMap({
-    scrollY: 0,
-    height: canvas.clientHeight,
-    width: canvas.clientWidth,
-  });
   const render = () => {
-    resizeCanvas(ctx, state.viewport);
-    state = handleEvents(state, eventsQueue, characterMap);
-    const renderingState = renderPage(ctx, state);
-    characterMap = renderingState.characterMap;
+    viewport = computeViewport(ctx, viewport);
+    state = handleEvents(state, viewport, eventsQueue);
+    renderPage(ctx, state, viewport);
     animationFrameId = requestAnimationFrame(render);
   };
 
@@ -43,7 +36,8 @@ export const createEditor = (canvas: HTMLCanvasElement): Editor => {
   }
 
   function start(page: Page) {
-    state = createInitialState(page, canvas.width, canvas.height);
+    viewport = createInitialViewport(ctx!.canvas.width, ctx!.canvas.height);
+    state = createInitialState(page);
     render();
 
     canvas.addEventListener("mousedown", eventsHandler);

@@ -10,15 +10,10 @@ import type {
 } from "./types";
 
 // State Creation Functions
-export const createInitialState = (
-  page: Page,
-  canvasWidth: number,
-  canvasHeight: number
-): EditorState => ({
+export const createInitialState = (page: Page): EditorState => ({
   page,
   cursor: null,
   selection: null,
-  viewport: createInitialViewport(canvasWidth, canvasHeight),
   mode: "edit" as EditorMode,
 });
 
@@ -29,6 +24,8 @@ export const createInitialViewport = (
   scrollY: 0,
   width,
   height,
+  visibleBlocksStartIndex: 0,
+  visibleBlocksEndIndex: 0,
 });
 
 // State Update Functions (Pure Functions)
@@ -60,17 +57,6 @@ export const updateSelection = (
         lastUpdate: Date.now(),
       }
     : null,
-});
-
-export const updateViewport = (
-  state: EditorState,
-  updates: Partial<ViewportState>
-): EditorState => ({
-  ...state,
-  viewport: {
-    ...state.viewport,
-    ...updates,
-  },
 });
 
 export const updateMode = (
@@ -142,8 +128,11 @@ export const isCollapsedSelection = (
 };
 
 export function isCursorBlinking(cursor: CursorState, styles: EditorStyles) {
+  const now = Date.now();
+  const untilNextBlink = now % styles.cursor.blinkInterval;
+  const endTime = cursor.lastUpdate + untilNextBlink;
   // if the cursor has been recently updated, it should be visible
-  if (cursor.lastUpdate + styles.cursor.blinkInterval > Date.now()) {
+  if (endTime > now) {
     return false;
   }
 
@@ -152,7 +141,7 @@ export function isCursorBlinking(cursor: CursorState, styles: EditorStyles) {
     Math.floor(
       (Date.now() - styles.cursor.blinkInterval) / styles.cursor.blinkInterval
     ) %
-      2 ===
+      2 !==
     0
   );
 }
