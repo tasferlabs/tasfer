@@ -17,16 +17,6 @@ export const createInitialState = (page: Page): EditorState => ({
   mode: "edit" as EditorMode,
 });
 
-export const createInitialViewport = (
-  width: number,
-  height: number
-): ViewportState => ({
-  scrollY: 0,
-  width,
-  height,
-  visibleBlocksStartIndex: 0,
-  visibleBlocksEndIndex: 0,
-});
 
 // State Update Functions (Pure Functions)
 export const updateCursor = (

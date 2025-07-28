@@ -7,6 +7,8 @@ export interface EditorState {
   readonly cursor: CursorState | null;
   readonly selection: SelectionState | null;
   readonly mode: EditorMode;
+  visibleBlocksStartIndex: number;
+  visibleBlocksEndIndex: number;
 }
 
 export interface CursorState {
@@ -36,11 +38,9 @@ export interface Position {
 }
 
 export interface ViewportState {
-  scrollY: number;
-  width: number;
-  height: number;
-  visibleBlocksStartIndex: number;
-  visibleBlocksEndIndex: number;
+  readonly scrollY: number;
+  readonly width: number;
+  readonly height: number;
 }
 
 export type EditorMode = "edit" | "select" | "readonly";

@@ -33,19 +33,19 @@ export const renderPage = (
   let currentY = styles.canvas.padding - viewport.scrollY;
   const renderedBlocks: RenderedBlock[] = [];
   const maxWidth = viewport.width - 2 * styles.canvas.padding;
-  viewport.visibleBlocksStartIndex = viewport.visibleBlocksEndIndex =
-    null as any;
+  state.visibleBlocksStartIndex = state.visibleBlocksEndIndex = null as any;
+  let documentHeight = 0;
 
   // Render each block
   for (let i = 0; i < state.page.blocks.length; i++) {
     const block = state.page.blocks[i];
     const blockHeight = calculateBlockHeight(block, maxWidth, styles);
-
+    documentHeight += blockHeight;
     // Only render if block is visible
     if (isBlockVisible(currentY, blockHeight, viewport)) {
       // console.log(i);
-      viewport.visibleBlocksStartIndex ??= i;
-      viewport.visibleBlocksEndIndex = i;
+      state.visibleBlocksStartIndex ??= i;
+      state.visibleBlocksEndIndex = i;
 
       const renderedBlock = renderBlock(
         ctx,
@@ -63,6 +63,7 @@ export const renderPage = (
     currentY += blockHeight;
   }
 
+  return documentHeight;
   // console.log(viewport.visibleBlocksStartIndex, viewport.visibleBlocksEndIndex);
 };
 
@@ -393,12 +394,10 @@ const isBlockVisible = (
 ): boolean => {
   const blockTop = blockY;
   const blockBottom = blockY + blockHeight;
-  const viewportTop = viewport.scrollY;
-  const viewportBottom = viewport.scrollY + viewport.height;
-
   // Add some buffer for smooth scrolling
-  const buffer = 100;
+  const buffer = 800;
   return (
-    blockBottom >= viewportTop - buffer && blockTop <= viewportBottom + buffer
+    // blockY is relative to canvas (already offset by scrollY), so viewport top is 0
+    blockBottom >= -buffer && blockTop <= viewport.height + buffer
   );
 };

@@ -1,18 +1,39 @@
-import { useEffect, useRef, useState } from "react";
-import { createEditor } from "../editor";
+import type { ViewportState } from "@/editor/types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import createEditor, { type Editor } from "../editor";
 import type { EditorHookState } from "./types";
 
-export function useEditor(
-  path: string
-): React.RefObject<HTMLCanvasElement | null> {
+interface UseEditorReturn {
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  editor: ReturnType<typeof createEditor> | null;
+  isInitialized: boolean;
+  isError: boolean;
+  updateViewport: (viewport: Partial<ViewportState>) => void;
+  viewport: ViewportState;
+  documentHeight: number;
+}
+
+export function useEditor(path: string): UseEditorReturn {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [documentHeight, setDocumentHeight] = useState<number>(0);
+  const [viewport, setViewport] = useState<ViewportState>({
+    width: 0,
+    height: 0,
+    scrollY: 0,
+  });
   const [state, setState] = useState<EditorHookState>({
     editor: null,
     isInitialized: false,
     isError: false,
   });
 
-  const editorRef = useRef<ReturnType<typeof createEditor> | null>(null);
+  const editorRef = useRef<Editor | null>(null);
+  const updateViewport = useCallback((viewport: Partial<ViewportState>) => {
+    if (editorRef.current) {
+      editorRef.current.updateViewport(viewport);
+      setViewport((prev) => ({ ...prev, ...viewport }));
+    }
+  }, []);
 
   // Initialize editor when canvas is available
   useEffect(() => {
@@ -28,12 +49,12 @@ export function useEditor(
           isInitialized: true,
           isError: false,
         });
-        editor.start();
+        editor.start(setDocumentHeight);
       });
     } catch (error) {
       setState((prev) => ({
         ...prev,
-        isEror: true,
+        isError: true,
       }));
     }
   }, [state.isInitialized]);
@@ -48,5 +69,15 @@ export function useEditor(
     };
   }, []);
 
-  return canvasRef;
+  // Removed window resize listener; ScrollableEditor now handles size updates
+
+  return {
+    canvasRef,
+    editor: editorRef.current,
+    isInitialized: state.isInitialized,
+    isError: state.isError,
+    updateViewport,
+    documentHeight,
+    viewport,
+  };
 }

@@ -1,18 +1,20 @@
 import { loadPage, type Page } from "../deserializer/loadPage";
 import { handleEvents } from "./events";
-import { renderPage } from "./renderer";
-import { createInitialState, createInitialViewport } from "./state";
+import { calculateBlockHeight, renderPage } from "./renderer";
+import { createInitialState } from "./state";
+import { defaultStyles } from "./styles";
 import type { EditorState, ViewportState } from "./types";
-import { resizeCanvas as computeViewport } from "./viewport";
 
 export interface Editor {
-  start: () => void;
+  start: (setDocumentHeight: (height: number) => void) => void;
   getState: () => EditorState;
   destroy: () => void;
   load: (path: string) => Promise<void>;
+  updateViewport: (viewport: Partial<ViewportState>) => void;
+  getDocumentHeight: () => number;
 }
 
-export const createEditor = (canvas: HTMLCanvasElement): Editor => {
+export default function createEditor(canvas: HTMLCanvasElement): Editor {
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     throw new Error("Could not get 2D context from canvas");
@@ -26,24 +28,28 @@ export const createEditor = (canvas: HTMLCanvasElement): Editor => {
   const eventsQueue: Event[] = [];
 
   // Render loop
-  const render = () => {
-    viewport = computeViewport(ctx, viewport);
+  const render = (setDocumentHeight: (height: number) => void) => {
     state = handleEvents(state, viewport, eventsQueue);
-    renderPage(ctx, state, viewport);
-    animationFrameId = requestAnimationFrame(render);
+    const documentHeight = renderPage(ctx, state, viewport);
+    setDocumentHeight(documentHeight);
+    animationFrameId = requestAnimationFrame(() => render(setDocumentHeight));
   };
 
   function eventsHandler(e: Event) {
     eventsQueue.push(e);
   }
 
-  function start() {
+  function start(setDocumentHeight: (height: number) => void) {
     if (!page) {
       throw new Error("Page not provided");
     }
-    viewport = createInitialViewport(ctx!.canvas.width, ctx!.canvas.height);
+    viewport = {
+      scrollY: 0,
+      width: canvas.width,
+      height: canvas.height,
+    };
     state = createInitialState(page);
-    render();
+    render(setDocumentHeight);
 
     canvas.addEventListener("mousedown", eventsHandler);
     canvas.addEventListener("mousemove", eventsHandler);
@@ -75,13 +81,31 @@ export const createEditor = (canvas: HTMLCanvasElement): Editor => {
     page = loadPage(content);
   }
 
+  function updateViewport(newViewport: Partial<ViewportState>) {
+    viewport = { ...viewport, ...newViewport };
+  }
+
+  function getDocumentHeight(): number {
+    if (!page || !state) return 0;
+
+    // Calculate total document height based on all blocks
+    const styles = defaultStyles;
+    const maxWidth = viewport.width - 2 * styles.canvas.padding;
+    let totalHeight = styles.canvas.padding;
+
+    for (const block of page.blocks) {
+      totalHeight += calculateBlockHeight(block, maxWidth, styles);
+    }
+
+    return totalHeight + styles.canvas.padding;
+  }
+
   return {
     start,
     getState,
     destroy,
     load,
+    updateViewport,
+    getDocumentHeight,
   };
-};
-
-// Export main function for use in main.ts
-export { createEditor as default };
+}
