@@ -1,4 +1,4 @@
-import type { Page } from "../deserializer/loadPage";
+import { loadPage, type Page } from "../deserializer/loadPage";
 import { handleEvents } from "./events";
 import { renderPage } from "./renderer";
 import { createInitialState, createInitialViewport } from "./state";
@@ -6,9 +6,10 @@ import type { EditorState, ViewportState } from "./types";
 import { resizeCanvas as computeViewport } from "./viewport";
 
 export interface Editor {
-  start: (page: Page) => void;
+  start: () => void;
   getState: () => EditorState;
   destroy: () => void;
+  load: (path: string) => Promise<void>;
 }
 
 export const createEditor = (canvas: HTMLCanvasElement): Editor => {
@@ -17,6 +18,7 @@ export const createEditor = (canvas: HTMLCanvasElement): Editor => {
     throw new Error("Could not get 2D context from canvas");
   }
 
+  let page: Page;
   let state: EditorState;
   let viewport: ViewportState;
   let animationFrameId: number | null = null;
@@ -35,7 +37,10 @@ export const createEditor = (canvas: HTMLCanvasElement): Editor => {
     eventsQueue.push(e);
   }
 
-  function start(page: Page) {
+  function start() {
+    if (!page) {
+      throw new Error("Page not provided");
+    }
     viewport = createInitialViewport(ctx!.canvas.width, ctx!.canvas.height);
     state = createInitialState(page);
     render();
@@ -63,10 +68,18 @@ export const createEditor = (canvas: HTMLCanvasElement): Editor => {
     // canvas.removeEventListener("wheel", eventsHandler);
   }
 
+  async function load(path: string) {
+    const response = await fetch(path);
+    const content = await response.text();
+
+    page = loadPage(content);
+  }
+
   return {
     start,
     getState,
     destroy,
+    load,
   };
 };
 

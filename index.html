@@ -5,41 +5,16 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cypher - Markdown Editor</title>
-    <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-      
-      body {
-        font-family: system-ui, -apple-system, sans-serif;
-        background-color: #f8f9fa;
-        overflow: hidden;
-      }
-      
-      #canvas {
-        display: block;
-        width: 100vw;
-        height: 100vh;
-        background-color: white;
-        cursor: text;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-      }
-      
-      /* Hide scrollbars but keep functionality */
-      body::-webkit-scrollbar {
-        display: none;
-      }
-      
-      body {
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-      }
-    </style>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="preload" href="{{ Vite::asset('@fontsource/poppins/400.css') }}" as="font" />
+    <link rel="preload" href="{{ Vite::asset('@fontsource/poppins/500.css') }}" as="font" />
+    <link rel="preload" href="{{ Vite::asset('@fontsource/poppins/600.css') }}" as="font" />
+    <link rel="preload" href="{{ Vite::asset('@fontsource/poppins/700.css') }}" as="font" />
+    <link rel="preload" href="{{ Vite::asset('@fontsource/merriweather/400.css') }}" as="font" />
+    <link rel="preload" href="{{ Vite::asset('@fontsource/merriweather/700.css') }}" as="font" />
   </head>
   <body>
-    <canvas id="canvas"></canvas>
+    <div id="root"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
