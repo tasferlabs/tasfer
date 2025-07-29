@@ -1,26 +1,37 @@
 import type { Block } from "../deserializer/loadPage";
-import { getCurrentFontFamily, getFontMetrics, measureChar, wrapText, type FontFamily } from "./fonts";
+import {
+  getCurrentFontFamily,
+  getFontMetrics,
+  measureChar,
+  wrapText,
+  type FontFamily,
+} from "./fonts";
 import { calculateBlockHeight } from "./renderer";
 import { getBlockTextContent } from "./state";
 import { defaultStyles, getTextStyle } from "./styles";
-import type { EditorState, EditorStyles, Position, TextStyle, ViewportState } from "./types";
-
+import type {
+  EditorState,
+  EditorStyles,
+  Position,
+  TextStyle,
+  ViewportState,
+} from "./types";
 
 export function getTextPositionFromViewport(
   x: number,
   y: number,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = defaultStyles,
-  isDragSelection: boolean = false
+  visibility: { start: number; end: number },
+  styles: EditorStyles = defaultStyles
 ): Position | null {
-  const padding = styles.canvas.padding;
-  let currentY = padding - viewport.scrollY;
-  const maxWidth = viewport.width - 2 * padding;
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
   // Only consider visible blocks for performance
-  const startIndex = viewport.visibleBlocksStartIndex ?? 0;
-  const endIndex = viewport.visibleBlocksEndIndex ?? state.page.blocks.length - 1;
+  const startIndex = visibility.start;
+  const endIndex = visibility.end;
 
   // Iterate through visible blocks to find the target block
   for (let blockIndex = startIndex; blockIndex <= endIndex; blockIndex++) {
@@ -35,7 +46,7 @@ export function getTextPositionFromViewport(
         blockIndex,
         block,
         currentY,
-        padding,
+        styles.canvas.paddingLeft,
         maxWidth,
         styles
       );
@@ -52,15 +63,18 @@ export function getTextPositionFromViewport(
 
     return {
       blockIndex: lastBlockIndex,
-      textIndex: content.length
+      textIndex: content.length,
     };
   }
 
   // If click is above all blocks, position at start of first block
-  if (y < padding - viewport.scrollY && state.page.blocks.length > 0) {
+  if (
+    y < styles.canvas.paddingTop - viewport.scrollY &&
+    state.page.blocks.length > 0
+  ) {
     return {
       blockIndex: 0,
-      textIndex: 0
+      textIndex: 0,
     };
   }
 
@@ -121,7 +135,7 @@ function getPositionWithinBlock(
       );
       return {
         blockIndex,
-        textIndex: position.textIndex
+        textIndex: position.textIndex,
       };
     }
 
@@ -144,14 +158,14 @@ function getPositionWithinBlock(
     );
     return {
       blockIndex,
-      textIndex: position.textIndex
+      textIndex: position.textIndex,
     };
   }
 
   // Empty block - position at start
   return {
     blockIndex,
-    textIndex: 0
+    textIndex: 0,
   };
 }
 /**
@@ -162,17 +176,17 @@ function getPositionWithinLine(
   x: number,
   line: string,
   lineStartIndex: number,
-  padding: number,
+  paddingLeft: number,
   textStyle: TextStyle,
   fontFamily: FontFamily
 ): Position {
-  const relativeX = x - padding;
+  const relativeX = x - paddingLeft;
 
   // If click is before the line start, position at line start
   if (relativeX <= 0) {
     return {
       blockIndex: 0, // Placeholder - will be overridden by caller
-      textIndex: lineStartIndex
+      textIndex: lineStartIndex,
     };
   }
 
@@ -203,6 +217,6 @@ function getPositionWithinLine(
 
   return {
     blockIndex: 0, // Placeholder - will be overridden by caller
-    textIndex: bestPosition
+    textIndex: bestPosition,
   };
 }

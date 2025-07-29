@@ -24,13 +24,17 @@ export default function createEditor(canvas: HTMLCanvasElement): Editor {
   let state: EditorState;
   let viewport: ViewportState;
   let animationFrameId: number | null = null;
+  let visibility = {
+    start: 0,
+    end: 0,
+  };
 
   const eventsQueue: Event[] = [];
 
   // Render loop
   const render = (setDocumentHeight: (height: number) => void) => {
-    state = handleEvents(state, viewport, eventsQueue);
-    const documentHeight = renderPage(ctx, state, viewport);
+    state = handleEvents(state, viewport, visibility, eventsQueue);
+    const documentHeight = renderPage(ctx, state, viewport, visibility);
     setDocumentHeight(documentHeight);
     animationFrameId = requestAnimationFrame(() => render(setDocumentHeight));
   };
@@ -90,14 +94,14 @@ export default function createEditor(canvas: HTMLCanvasElement): Editor {
 
     // Calculate total document height based on all blocks
     const styles = defaultStyles;
-    const maxWidth = viewport.width - 2 * styles.canvas.padding;
-    let totalHeight = styles.canvas.padding;
+    const maxWidth = viewport.width - 2 * styles.canvas.paddingLeft;
+    let totalHeight = styles.canvas.paddingTop;
 
     for (const block of page.blocks) {
       totalHeight += calculateBlockHeight(block, maxWidth, styles);
     }
 
-    return totalHeight + styles.canvas.padding;
+    return totalHeight + styles.canvas.paddingBottom;
   }
 
   return {

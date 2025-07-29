@@ -48,13 +48,9 @@ FastAPI has gained significant traction for building APIs, offering automatic AP
 
 The database landscape offers numerous options from traditional SQL databases like PostgreSQL and MySQL to NoSQL solutions like MongoDB and Redis. Choosing the right database depends on your application's specific requirements and data patterns.
 
-#### Relational Databases
-
 PostgreSQL stands out as a powerful, open-source relational database with advanced features like JSON support, full-text search, and custom data types. MySQL remains popular for web applications due to its simplicity and wide hosting support.
 
 SQLite is perfect for development, testing, and small applications due to its serverless nature and zero-configuration setup.
-
-#### NoSQL Solutions
 
 MongoDB leads the document database space, offering flexible schema design and horizontal scaling capabilities. Its aggregation pipeline provides powerful data processing capabilities.
 

@@ -17,6 +17,7 @@ import type { EditorState, MouseEvent, ViewportState } from "./types";
 export function handleEvents(
   state: EditorState,
   viewport: ViewportState,
+  visibility: { start: number; end: number },
   events: Event[]
 ): EditorState {
   if (events.length === 0) return state;
@@ -26,28 +27,29 @@ export function handleEvents(
         state = handleMouseDown(
           state,
           viewport,
-          event as unknown as MouseEvent
+          event as unknown as MouseEvent,
+          visibility
         );
         break;
       case "mousemove":
         state = handleMouseMove(
           state,
           viewport,
-          event as unknown as MouseEvent
+          event as unknown as MouseEvent,
+          visibility
         );
         break;
       case "mouseup":
-        state = handleMouseUp(state, viewport, event as unknown as MouseEvent);
+        state = handleMouseUp(
+          state,
+          viewport,
+          event as unknown as MouseEvent,
+          visibility
+        );
         break;
       case "keydown":
         state = handleKeyDown(state, viewport, event);
         break;
-      // case "wheel":
-      // state = handleWheel(state, event);
-      // break;
-      // case "resize":
-      //   state = handleResize(state, event);
-      //   break;
     }
 
     events.shift();
@@ -59,14 +61,16 @@ export function handleEvents(
 function handleMouseDown(
   state: EditorState,
   viewport: ViewportState,
-  event: MouseEvent
+  event: MouseEvent,
+  visibility: { start: number; end: number }
 ): EditorState {
   // console.log(event.x, event.y, viewport.width, viewport.height);
   const position = getTextPositionFromViewport(
     event.x,
     event.y,
     state,
-    viewport
+    viewport,
+    visibility
   );
 
   if (!position) return state;
@@ -96,7 +100,8 @@ function handleMouseDown(
 function handleMouseMove(
   state: EditorState,
   viewport: ViewportState,
-  event: MouseEvent
+  event: MouseEvent,
+  visibility: { start: number; end: number }
 ): EditorState {
   // Only handle mouse move if we're in select mode (dragging)
   if (state.mode !== "select") {
@@ -108,8 +113,7 @@ function handleMouseMove(
     event.y,
     state,
     viewport,
-    undefined,
-    true // isDragSelection - excludes margin fallback
+    visibility
   );
 
   if (!position) return state;
@@ -134,8 +138,9 @@ function handleMouseMove(
 
 function handleMouseUp(
   state: EditorState,
-  viewport: ViewportState,
-  event: MouseEvent
+  _viewport: ViewportState,
+  _event: MouseEvent,
+  _visibility: { start: number; end: number }
 ): EditorState {
   // Exit select mode and return to edit mode
   if (state.mode === "select") {
@@ -147,7 +152,7 @@ function handleMouseUp(
 
 function handleKeyDown(
   state: EditorState,
-  viewport: ViewportState,
+  _viewport: ViewportState,
   event: Event
 ): EditorState {
   const allowedKeys = [
@@ -187,11 +192,3 @@ function handleKeyDown(
 
   return state;
 }
-
-// function handleWheel(state: EditorState, event: Event): EditorState {
-//   return state;
-// }
-
-// function handleResize(state: EditorState, event: Event): EditorState {
-//   return state;
-// }

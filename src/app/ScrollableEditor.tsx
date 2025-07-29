@@ -1,8 +1,8 @@
-import React, { useEffect, useLayoutEffect, useRef } from "react";
+import LoadingScreen from "@/components/ui/loading-screen";
+import React, { useLayoutEffect, useRef } from "react";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { cn } from "../lib/utils";
 import { useEditor } from "./useEditor";
-import LoadingScreen from "@/components/ui/loading-screen";
 
 interface ScrollableEditorProps {
   path: string;
@@ -41,10 +41,12 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updateViewport]);
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, clientWidth, clientHeight } = e.currentTarget;
+
     updateViewport({
-      scrollY: e.currentTarget.scrollTop,
-      width: e.currentTarget.clientWidth,
-      height: e.currentTarget.clientHeight,
+      scrollY: scrollTop,
+      width: clientWidth,
+      height: clientHeight,
     });
   };
 
@@ -63,12 +65,10 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
           <canvas
             ref={canvasRef}
             style={{
-              top: viewport.scrollY,
-              left: 0,
               height: viewport.height,
               width: viewport.width,
             }}
-            className="absolute cursor-text w-full"
+            className="sticky top-0 left-0 cursor-text w-full"
             width={Math.max(viewport.width, 1)}
             height={Math.max(viewport.height, 1)}
           />

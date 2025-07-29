@@ -5,8 +5,7 @@ import type {
   EditorState,
   EditorStyles,
   PartialSelectionState,
-  Position,
-  ViewportState,
+  Position
 } from "./types";
 
 // State Creation Functions

@@ -24,16 +24,17 @@ export const renderPage = (
   ctx: CanvasRenderingContext2D,
   state: EditorState,
   viewport: ViewportState,
+  visibility: { start: number; end: number },
   styles: EditorStyles = defaultStyles
 ) => {
   // Clear canvas
   ctx.fillStyle = styles.canvas.backgroundColor;
   ctx.fillRect(0, 0, viewport.width, viewport.height);
 
-  let currentY = styles.canvas.padding - viewport.scrollY;
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const renderedBlocks: RenderedBlock[] = [];
-  const maxWidth = viewport.width - 2 * styles.canvas.padding;
-  state.visibleBlocksStartIndex = state.visibleBlocksEndIndex = null as any;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
   let documentHeight = 0;
 
   // Render each block
@@ -44,15 +45,15 @@ export const renderPage = (
     // Only render if block is visible
     if (isBlockVisible(currentY, blockHeight, viewport)) {
       // console.log(i);
-      state.visibleBlocksStartIndex ??= i;
-      state.visibleBlocksEndIndex = i;
+      visibility.start ??= i;
+      visibility.end = i;
 
       const renderedBlock = renderBlock(
         ctx,
         state,
         block,
         i,
-        styles.canvas.padding,
+        styles.canvas.paddingLeft,
         currentY,
         maxWidth,
         styles
@@ -62,6 +63,8 @@ export const renderPage = (
 
     currentY += blockHeight;
   }
+
+  documentHeight += styles.canvas.paddingBottom;
 
   return documentHeight;
   // console.log(viewport.visibleBlocksStartIndex, viewport.visibleBlocksEndIndex);

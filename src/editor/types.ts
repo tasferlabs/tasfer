@@ -7,8 +7,6 @@ export interface EditorState {
   readonly cursor: CursorState | null;
   readonly selection: SelectionState | null;
   readonly mode: EditorMode;
-  visibleBlocksStartIndex: number;
-  visibleBlocksEndIndex: number;
 }
 
 export interface CursorState {
@@ -79,7 +77,10 @@ export interface EditorStyles {
 
 export interface CanvasStyles {
   readonly backgroundColor: string;
-  readonly padding: number;
+  readonly paddingTop: number;
+  readonly paddingBottom: number;
+  readonly paddingLeft: number;
+  readonly paddingRight: number;
   readonly lineHeight: number;
 }
 

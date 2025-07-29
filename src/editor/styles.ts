@@ -4,7 +4,10 @@ import type { EditorStyles, TextStyle } from "./types";
 export const defaultStyles: EditorStyles = {
   canvas: {
     backgroundColor: "#ffffff",
-    padding: 40,
+    paddingTop: 40,
+    paddingBottom: 80,
+    paddingLeft: 40,
+    paddingRight: 40,
     lineHeight: 1.6,
   },
   blocks: {

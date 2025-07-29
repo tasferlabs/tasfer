@@ -69,8 +69,6 @@ export function useEditor(path: string): UseEditorReturn {
     };
   }, []);
 
-  // Removed window resize listener; ScrollableEditor now handles size updates
-
   return {
     canvasRef,
     editor: editorRef.current,
