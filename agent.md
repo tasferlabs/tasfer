@@ -1,10 +1,12 @@
-# CLAUDE.md
+# agent.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to new developers or agents when working with code in this repository.
 
 ## Project Overview
 
 Cypher is a canvas-based markdown text editor that combines Google Docs-like editing experience with Notion-style block architecture. The editor renders text directly on an HTML5 canvas and provides real-time editing capabilities with cursor navigation and text selection.
+
+> Everything in this document is work in progress, because the project is in active early development.
 
 ## Development Commands
 
@@ -45,6 +47,7 @@ The editor maintains immutable state containing:
 ## Canvas Rendering System
 
 The editor uses a custom canvas-based rendering system that:
+
 - Renders text with proper font styling per block type
 - Handles text wrapping based on viewport width
 - Renders cursor with blinking animation
