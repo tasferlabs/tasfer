@@ -240,17 +240,7 @@ function initializeCache(): void {
     throw error;
   }
 }
-// Initialize cache immediately
-if (typeof window !== "undefined") {
-  // Delay initialization slightly to allow fonts to load
-  setTimeout(() => {
-    try {
-      initializeCache();
-    } catch (error) {
-      console.warn("Text measurement cache initialization failed:", error);
-    }
-  }, 100);
-}
+
 // Get font metrics with caching
 
 export const getFontMetrics = (
@@ -371,3 +361,15 @@ let globalFontConfig: FontConfig = {
 // Get the current font family
 export const getCurrentFontFamily = (): FontFamily =>
   globalFontConfig.fontFamily;
+
+// Initialize cache immediately
+if (typeof window !== "undefined") {
+  // Wait for fonts to load before initializing metrics cache
+  loadFonts().then(() => {
+    try {
+      initializeCache();
+    } catch (error) {
+      console.warn("Text measurement cache initialization failed:", error);
+    }
+  });
+}

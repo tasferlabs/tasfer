@@ -8,19 +8,20 @@ interface UseEditorReturn {
   editor: ReturnType<typeof createEditor> | null;
   isInitialized: boolean;
   isError: boolean;
-  updateViewport: (viewport: Partial<ViewportState>) => void;
-  viewport: ViewportState;
+  updateViewport: (viewport: ViewportState) => void;
+  viewport: ViewportState | null;
   documentHeight: number;
 }
 
 export function useEditor(path: string): UseEditorReturn {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [documentHeight, setDocumentHeight] = useState<number>(0);
-  const [viewport, setViewport] = useState<ViewportState>({
-    width: 0,
-    height: 0,
-    scrollY: 0,
-  });
+  const viewportRef = useRef<ViewportState | null>(null);
+  const [viewport, setViewport] = useState<ViewportState | null>(null);
+  useEffect(() => {
+    viewportRef.current = viewport;
+  }, [viewport]);
+
   const [state, setState] = useState<EditorHookState>({
     editor: null,
     isInitialized: false,
@@ -28,19 +29,24 @@ export function useEditor(path: string): UseEditorReturn {
   });
 
   const editorRef = useRef<Editor | null>(null);
-  const updateViewport = useCallback((viewport: Partial<ViewportState>) => {
+  const updateViewport = useCallback((viewport: ViewportState) => {
+    setViewport((prev) => {
+      const data = { ...(prev || {}), ...viewport };
+      viewportRef.current = data;
+      return data;
+    });
     if (editorRef.current) {
       editorRef.current.updateViewport(viewport);
-      setViewport((prev) => ({ ...prev, ...viewport }));
     }
   }, []);
 
   // Initialize editor when canvas is available
   useEffect(() => {
-    if (!canvasRef.current || state.isInitialized) return;
+    if (!canvasRef.current || state.isInitialized || !viewportRef.current)
+      return;
 
     try {
-      const editor = createEditor(canvasRef.current);
+      const editor = createEditor(canvasRef.current, viewportRef.current);
       editorRef.current = editor;
 
       editor.load(path).then(() => {
@@ -57,7 +63,7 @@ export function useEditor(path: string): UseEditorReturn {
         isError: true,
       }));
     }
-  }, [state.isInitialized]);
+  }, [state.isInitialized, viewport]);
 
   // Cleanup on unmount
   useEffect(() => {

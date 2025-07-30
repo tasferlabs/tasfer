@@ -1,21 +1,27 @@
 import type { Block, Page } from "../deserializer/loadPage";
+import { initialUndoManagerState } from "./undo";
 import type {
   CursorState,
   EditorMode,
   EditorState,
   EditorStyles,
   PartialSelectionState,
-  Position
+  Position,
 } from "./types";
 
 // State Creation Functions
 export const createInitialState = (page: Page): EditorState => ({
+  undoManager: initialUndoManagerState,
   page,
   cursor: null,
   selection: null,
   mode: "edit" as EditorMode,
+  clickTracker: {
+    count: 0,
+    lastClickTime: 0,
+    lastClickPosition: null,
+  },
 });
-
 
 // State Update Functions (Pure Functions)
 export const updateCursor = (
@@ -259,6 +265,92 @@ export const updateSelectionFocus = (
   });
 };
 
-export const clearSelection = (state: EditorState): EditorState => {
-  return updateSelection(state, null);
+export const clearSelection = (state: EditorState): EditorState => ({
+  ...state,
+  selection: null,
+});
+
+// Selection Extension Functions (for Shift+Arrow keys)
+export const extendSelectionLeft = (state: EditorState): EditorState => {
+  if (!state.cursor) return state;
+
+  // If no selection exists, start one at current cursor position
+  if (!state.selection) {
+    const newState = startSelection(state, state.cursor.position);
+    const leftState = moveCursorLeft(newState);
+    if (leftState.cursor) {
+      return updateSelectionFocus(leftState, leftState.cursor.position);
+    }
+    return newState;
+  }
+
+  // Extend existing selection
+  const leftState = moveCursorLeft(state);
+  if (leftState.cursor) {
+    return updateSelectionFocus(leftState, leftState.cursor.position);
+  }
+  return state;
+};
+
+export const extendSelectionRight = (state: EditorState): EditorState => {
+  if (!state.cursor) return state;
+
+  // If no selection exists, start one at current cursor position
+  if (!state.selection) {
+    const newState = startSelection(state, state.cursor.position);
+    const rightState = moveCursorRight(newState);
+    if (rightState.cursor) {
+      return updateSelectionFocus(rightState, rightState.cursor.position);
+    }
+    return newState;
+  }
+
+  // Extend existing selection
+  const rightState = moveCursorRight(state);
+  if (rightState.cursor) {
+    return updateSelectionFocus(rightState, rightState.cursor.position);
+  }
+  return state;
+};
+
+export const extendSelectionUp = (state: EditorState): EditorState => {
+  if (!state.cursor) return state;
+
+  // If no selection exists, start one at current cursor position
+  if (!state.selection) {
+    const newState = startSelection(state, state.cursor.position);
+    const upState = moveCursorUp(newState);
+    if (upState.cursor) {
+      return updateSelectionFocus(upState, upState.cursor.position);
+    }
+    return newState;
+  }
+
+  // Extend existing selection
+  const upState = moveCursorUp(state);
+  if (upState.cursor) {
+    return updateSelectionFocus(upState, upState.cursor.position);
+  }
+  return state;
+};
+
+export const extendSelectionDown = (state: EditorState): EditorState => {
+  if (!state.cursor) return state;
+
+  // If no selection exists, start one at current cursor position
+  if (!state.selection) {
+    const newState = startSelection(state, state.cursor.position);
+    const downState = moveCursorDown(newState);
+    if (downState.cursor) {
+      return updateSelectionFocus(downState, downState.cursor.position);
+    }
+    return newState;
+  }
+
+  // Extend existing selection
+  const downState = moveCursorDown(state);
+  if (downState.cursor) {
+    return updateSelectionFocus(downState, downState.cursor.position);
+  }
+  return state;
 };

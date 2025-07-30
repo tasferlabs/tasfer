@@ -223,6 +223,17 @@ function renderCursor(
     }
   }
 
+  // For end-of-block selections (textIndex at content end), place cursor at end of last line
+  if (
+    state.cursor.position.textIndex === content.length &&
+    renderedLines.length > 0
+  ) {
+    const lastLine = renderedLines[renderedLines.length - 1];
+    cursorX = lastLine.x + lastLine.width;
+    cursorY = lastLine.y;
+    cursorHeight = lastLine.height;
+  }
+
   ctx.save();
   ctx.fillStyle = styles.cursor.color;
   ctx.fillRect(cursorX, cursorY, styles.cursor.width, cursorHeight);

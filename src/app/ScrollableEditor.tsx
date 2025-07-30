@@ -19,6 +19,9 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
   // Ref to the wrapper div to observe its size
   const wrapperRef = useRef<HTMLDivElement>(null);
 
+  // Ref to the scroll area to observe its scroll position
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+
   // Keep the viewport dimensions in sync with the wrapper size
   useLayoutEffect(() => {
     if (!wrapperRef.current) return;
@@ -28,6 +31,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       updateViewport({
         width: rect.width,
         height: rect.height,
+        scrollY: scrollAreaRef.current?.scrollTop || 0,
       });
     }
 
@@ -40,6 +44,18 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     return () => resizeObserver.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updateViewport]);
+
+  // Keep the viewport scroll position in sync with the scroll area
+  useLayoutEffect(() => {
+    if (!scrollAreaRef.current || !viewport) return;
+
+    if (scrollAreaRef.current.scrollTop !== viewport.scrollY) {
+      scrollAreaRef.current.scrollBy({
+        top: viewport.scrollY,
+      });
+    }
+  }, [viewport]);
+
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, clientWidth, clientHeight } = e.currentTarget;
 
@@ -60,17 +76,21 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       )}
 
       {/* Scrollable canvas area */}
-      <ScrollArea onScroll={handleScroll} className="h-full">
+      <ScrollArea
+        onScroll={handleScroll}
+        className="h-full"
+        ref={scrollAreaRef}
+      >
         <div style={{ height: documentHeight }} className="relative">
           <canvas
             ref={canvasRef}
             style={{
-              height: viewport.height,
-              width: viewport.width,
+              height: viewport?.height,
+              width: viewport?.width,
             }}
             className="sticky top-0 left-0 cursor-text w-full"
-            width={Math.max(viewport.width, 1)}
-            height={Math.max(viewport.height, 1)}
+            width={Math.max(viewport?.width || 0, 1)}
+            height={Math.max(viewport?.height || 0, 1)}
           />
         </div>
       </ScrollArea>

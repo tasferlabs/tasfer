@@ -37,7 +37,7 @@ export const defaultStyles: EditorStyles = {
       fontWeight: "normal",
       color: "#333333",
       lineHeight: 1.6,
-      paddingBottom: 12,
+      paddingBottom: 4,
     },
   },
   cursor: {

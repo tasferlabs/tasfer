@@ -14,7 +14,10 @@ export interface Editor {
   getDocumentHeight: () => number;
 }
 
-export default function createEditor(canvas: HTMLCanvasElement): Editor {
+export default function createEditor(
+  canvas: HTMLCanvasElement,
+  viewportProp: ViewportState
+): Editor {
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     throw new Error("Could not get 2D context from canvas");
@@ -22,7 +25,7 @@ export default function createEditor(canvas: HTMLCanvasElement): Editor {
 
   let page: Page;
   let state: EditorState;
-  let viewport: ViewportState;
+  let viewport = viewportProp;
   let animationFrameId: number | null = null;
   let visibility = {
     start: 0,
@@ -40,6 +43,14 @@ export default function createEditor(canvas: HTMLCanvasElement): Editor {
   };
 
   function eventsHandler(e: Event) {
+    if (
+      e instanceof KeyboardEvent &&
+      ["Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(
+        e.key
+      )
+    ) {
+      e.preventDefault();
+    }
     eventsQueue.push(e);
   }
 
@@ -47,11 +58,7 @@ export default function createEditor(canvas: HTMLCanvasElement): Editor {
     if (!page) {
       throw new Error("Page not provided");
     }
-    viewport = {
-      scrollY: 0,
-      width: canvas.width,
-      height: canvas.height,
-    };
+
     state = createInitialState(page);
     render(setDocumentHeight);
 

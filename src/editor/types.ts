@@ -2,11 +2,28 @@ import type { Block, Page } from "../deserializer/loadPage";
 import type { FontFamily } from "./fonts";
 
 // Editor State Types
-export interface EditorState {
+export interface ClickTracker {
+  count: number;
+  lastClickTime: number;
+  lastClickPosition: { x: number; y: number } | null;
+}
+
+
+export interface EditorModelState {
   readonly page: Page;
   readonly cursor: CursorState | null;
   readonly selection: SelectionState | null;
   readonly mode: EditorMode;
+  readonly clickTracker: ClickTracker;
+}
+
+export interface UndoManagerState {
+  readonly undoStack: readonly EditorModelState[];
+  readonly redoStack: readonly EditorModelState[];
+}
+
+export interface EditorState extends EditorModelState {
+  readonly undoManager: UndoManagerState;
 }
 
 export interface CursorState {
@@ -130,6 +147,7 @@ export interface KeyboardEvent extends EditorEvent {
   readonly code: string;
   readonly shiftKey: boolean;
   readonly ctrlKey: boolean;
+  readonly metaKey: boolean;
   readonly altKey: boolean;
 }
 export interface CharacterMetrics {
