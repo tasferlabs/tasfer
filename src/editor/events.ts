@@ -30,6 +30,18 @@ import {
   extendSelectionUp,
   extendSelectionDown,
 } from "./state";
+import {
+  isPointInScrollbar,
+  isPointInThumb,
+  updateScrollbarHover,
+  startScrollbarDrag,
+  endScrollbarDrag,
+  updateScrollFromThumbDrag,
+  updateScrollFromTrackClick,
+  updateScrollFromWheel,
+  updateScrollbarFadeOpacity,
+  applyMomentum,
+} from "./scrollbar";
 import type {
   EditorState,
   MouseEvent,
@@ -54,9 +66,42 @@ export function handleEvents(
   state: EditorState,
   viewport: ViewportState,
   visibility: { start: number; end: number },
-  events: Event[]
+  events: Event[],
+  documentHeight: number,
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
-  if (events.length === 0) return state;
+  // Apply momentum scrolling if active (even when no events)
+  if (state.momentum.isActive) {
+    const momentumResult = applyMomentum(
+      viewport.scrollY,
+      state.momentum,
+      documentHeight,
+      viewport.height
+    );
+
+    if (updateViewportCallback && momentumResult.scrollY !== viewport.scrollY) {
+      updateViewportCallback({ scrollY: momentumResult.scrollY });
+    }
+
+    state = {
+      ...state,
+      momentum: momentumResult.momentumState,
+      scrollbar: {
+        ...state.scrollbar,
+        lastInteraction: Date.now(),
+      },
+    };
+  }
+
+  if (events.length === 0) {
+    // Update scrollbar fade opacity even when no events
+    state = {
+      ...state,
+      scrollbar: updateScrollbarFadeOpacity(state.scrollbar),
+    };
+    return state;
+  }
+
   for (const event of events) {
     switch (event.type) {
       case "mousedown":
@@ -65,7 +110,9 @@ export function handleEvents(
           state,
           viewport,
           event as unknown as MouseEvent,
-          visibility
+          visibility,
+          documentHeight,
+          updateViewportCallback
         );
         break;
       case "mousemove":
@@ -74,7 +121,9 @@ export function handleEvents(
           state,
           viewport,
           event as unknown as MouseEvent,
-          visibility
+          visibility,
+          documentHeight,
+          updateViewportCallback
         );
         break;
       case "mouseup":
@@ -86,13 +135,56 @@ export function handleEvents(
           visibility
         );
         break;
+      case "pointercancel":
+        // Only cancel on pointercancel (not on leave)
+        state = handlePointerCancel(state);
+        break;
       case "keydown":
         state = handleKeyDown(state, viewport, event);
+        break;
+      case "wheel":
+        state = handleWheel(
+          state,
+          viewport,
+          event as WheelEvent,
+          documentHeight,
+          updateViewportCallback
+        );
+        break;
+      case "touchstart":
+        state = handleTouchStart(
+          state,
+          viewport,
+          event as TouchEvent,
+          documentHeight
+        );
+        break;
+      case "touchmove":
+        state = handleTouchMove(
+          state,
+          viewport,
+          event as TouchEvent,
+          documentHeight,
+          updateViewportCallback
+        );
+        break;
+      case "touchend":
+        state = handleTouchEnd(state, viewport, event as TouchEvent);
+        break;
+      case "touchcancel":
+        // Cancel touch interaction
+        state = handleTouchCancel(state);
         break;
     }
 
     events.shift();
   }
+
+  // Update scrollbar fade opacity
+  state = {
+    ...state,
+    scrollbar: updateScrollbarFadeOpacity(state.scrollbar),
+  };
 
   return state;
 }
@@ -101,8 +193,57 @@ function handleMouseDown(
   state: EditorState,
   viewport: ViewportState,
   event: MouseEvent,
-  visibility: { start: number; end: number }
+  visibility: { start: number; end: number },
+  documentHeight: number,
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
+  // Stop any momentum scrolling when user interacts
+  state = {
+    ...state,
+    momentum: {
+      velocity: 0,
+      lastTime: Date.now(),
+      isActive: false,
+    },
+  };
+
+  // Check if clicking on scrollbar
+  if (isPointInScrollbar(event.x, event.y, viewport, documentHeight)) {
+    // Check if clicking on thumb
+    if (
+      isPointInThumb(
+        event.x,
+        event.y,
+        viewport,
+        documentHeight,
+        state.scrollbar
+      )
+    ) {
+      return {
+        ...state,
+        scrollbar: startScrollbarDrag(state.scrollbar),
+      };
+    } else {
+      // Clicking on track - page scroll
+      const newScrollY = updateScrollFromTrackClick(
+        event.y,
+        viewport,
+        documentHeight,
+        state.scrollbar
+      );
+      if (updateViewportCallback) {
+        updateViewportCallback({ scrollY: newScrollY });
+      }
+      return {
+        ...state,
+        scrollbar: {
+          ...state.scrollbar,
+          lastInteraction: Date.now(),
+        },
+      };
+    }
+  }
+
   const position = getTextPositionFromViewport(
     event.x,
     event.y,
@@ -167,8 +308,38 @@ function handleMouseMove(
   state: EditorState,
   viewport: ViewportState,
   event: MouseEvent,
-  visibility: { start: number; end: number }
+  visibility: { start: number; end: number },
+  documentHeight: number,
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
+  // Handle scrollbar drag
+  if (state.scrollbar.isDragging) {
+    const newScrollY = updateScrollFromThumbDrag(
+      event.y,
+      viewport,
+      documentHeight,
+      state.scrollbar
+    );
+    if (updateViewportCallback) {
+      updateViewportCallback({ scrollY: newScrollY });
+    }
+    return state;
+  }
+
+  // Update scrollbar hover state
+  const isOverScrollbar = isPointInScrollbar(
+    event.x,
+    event.y,
+    viewport,
+    documentHeight
+  );
+  // Use entire scrollbar area (track + thumb) for hover detection
+  // This affects both cursor style and thumb visual feedback
+  state = {
+    ...state,
+    scrollbar: updateScrollbarHover(state.scrollbar, isOverScrollbar),
+  };
+
   // Only handle mouse move if we're in select mode (dragging)
   if (state.mode !== "select") {
     return state;
@@ -208,9 +379,35 @@ function handleMouseUp(
   _event: MouseEvent,
   _visibility: { start: number; end: number }
 ): EditorState {
+  // End scrollbar drag
+  if (state.scrollbar.isDragging) {
+    return {
+      ...state,
+      scrollbar: endScrollbarDrag(state.scrollbar),
+    };
+  }
+
   // Exit select mode and return to edit mode
   if (state.mode === "select") {
     return updateMode(state, "edit");
+  }
+
+  return state;
+}
+
+function handlePointerCancel(state: EditorState): EditorState {
+  // Only cancel on explicit pointer cancellation (not just leaving)
+  // End scrollbar drag if active
+  if (state.scrollbar.isDragging) {
+    state = {
+      ...state,
+      scrollbar: endScrollbarDrag(state.scrollbar),
+    };
+  }
+
+  // Exit select mode and return to edit mode
+  if (state.mode === "select") {
+    state = updateMode(state, "edit");
   }
 
   return state;
@@ -310,4 +507,266 @@ function handleKeyDown(
       }
       return state;
   }
+}
+
+function handleWheel(
+  state: EditorState,
+  viewport: ViewportState,
+  event: WheelEvent,
+  documentHeight: number,
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
+): EditorState {
+  // Stop momentum when using wheel
+  state = {
+    ...state,
+    momentum: {
+      velocity: 0,
+      lastTime: Date.now(),
+      isActive: false,
+    },
+  };
+
+  const { scrollY, scrollbarState } = updateScrollFromWheel(
+    event.deltaY,
+    viewport,
+    documentHeight,
+    state.scrollbar
+  );
+
+  if (updateViewportCallback) {
+    updateViewportCallback({ scrollY });
+  }
+
+  return {
+    ...state,
+    scrollbar: scrollbarState,
+  };
+}
+
+// Touch state storage (needs to be outside functions to persist between events)
+let touchState: {
+  startY: number;
+  startScrollY: number;
+  lastY: number;
+  lastTime: number;
+  velocityY: number;
+  velocityHistory: Array<{ velocity: number; time: number }>;
+  isScrollbarDrag: boolean;
+} | null = null;
+
+function handleTouchStart(
+  state: EditorState,
+  viewport: ViewportState,
+  event: TouchEvent,
+  documentHeight: number
+): EditorState {
+  if (event.touches.length === 1) {
+    const touch = event.touches[0];
+
+    // Check if touch is near the right edge of screen (where scrollbar is)
+    // Use a threshold (e.g., last 60px) to detect scrollbar area
+    const edgeThreshold = 60;
+    const isNearRightEdge = touch.clientX >= viewport.width - edgeThreshold;
+
+    // Also check if actually hitting scrollbar
+    const isScrollbarTouch =
+      isNearRightEdge &&
+      isPointInScrollbar(
+        touch.clientX,
+        touch.clientY,
+        viewport,
+        documentHeight
+      );
+
+    touchState = {
+      startY: touch.clientY,
+      startScrollY: viewport.scrollY,
+      lastY: touch.clientY,
+      lastTime: Date.now(),
+      velocityY: 0,
+      velocityHistory: [],
+      isScrollbarDrag: isScrollbarTouch,
+    };
+
+    // If touching scrollbar, start drag
+    if (isScrollbarTouch) {
+      state = {
+        ...state,
+        scrollbar: startScrollbarDrag(state.scrollbar),
+      };
+    }
+
+    // Stop any ongoing momentum
+    state = {
+      ...state,
+      momentum: {
+        velocity: 0,
+        lastTime: Date.now(),
+        isActive: false,
+      },
+    };
+  }
+
+  return {
+    ...state,
+    scrollbar: {
+      ...state.scrollbar,
+      lastInteraction: Date.now(),
+    },
+  };
+}
+
+function handleTouchMove(
+  state: EditorState,
+  viewport: ViewportState,
+  event: TouchEvent,
+  documentHeight: number,
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
+): EditorState {
+  if (event.touches.length === 1 && touchState) {
+    event.preventDefault();
+    const touch = event.touches[0];
+    const currentTime = Date.now();
+    const deltaTime = currentTime - touchState.lastTime;
+
+    // Skip if no time has passed
+    if (deltaTime === 0) return state;
+
+    // Handle scrollbar drag
+    if (touchState.isScrollbarDrag && state.scrollbar.isDragging) {
+      const newScrollY = updateScrollFromThumbDrag(
+        touch.clientY,
+        viewport,
+        documentHeight,
+        state.scrollbar
+      );
+      if (updateViewportCallback) {
+        updateViewportCallback({ scrollY: newScrollY });
+      }
+      return state;
+    }
+
+    const deltaY = touchState.lastY - touch.clientY;
+
+    // Calculate instantaneous velocity (pixels per millisecond)
+    const instantVelocity = deltaY / deltaTime;
+
+    // Only track velocity if there's actual movement (avoid diluting with zeros)
+    // This prevents touchmove events with no vertical movement from adding 0-velocity entries
+    if (Math.abs(instantVelocity) > 0.01) {
+      touchState.velocityHistory.push({
+        velocity: instantVelocity,
+        time: currentTime,
+      });
+    }
+
+    // Keep only last 150ms of velocity history (increased from 100ms to be more reliable)
+    touchState.velocityHistory = touchState.velocityHistory.filter(
+      (v) => currentTime - v.time < 150
+    );
+
+    // Always update velocity for momentum (use average if history exists)
+    if (touchState.velocityHistory.length > 0) {
+      const totalVelocity = touchState.velocityHistory.reduce(
+        (sum, v) => sum + v.velocity,
+        0
+      );
+      touchState.velocityY = totalVelocity / touchState.velocityHistory.length;
+    }
+    // Apply scroll speed multiplier for more responsive feel on mobile
+    // 1.5x makes scrolling feel more direct and responsive
+    const touchScrollMultiplier = 1.5;
+    const scrollDelta =
+      (touchState.startY - touch.clientY) * touchScrollMultiplier;
+
+    // Update scroll position with hard boundaries
+    const maxScroll = documentHeight - viewport.height;
+    const newScrollY = Math.max(
+      0,
+      Math.min(maxScroll, touchState.startScrollY + scrollDelta)
+    );
+
+    if (updateViewportCallback) {
+      updateViewportCallback({ scrollY: newScrollY });
+    }
+
+    touchState.lastY = touch.clientY;
+    touchState.lastTime = currentTime;
+  }
+
+  return {
+    ...state,
+    scrollbar: {
+      ...state.scrollbar,
+      lastInteraction: Date.now(),
+    },
+  };
+}
+
+function handleTouchEnd(
+  state: EditorState,
+  _viewport: ViewportState,
+  _event: TouchEvent
+): EditorState {
+  // End scrollbar drag if active
+  if (state.scrollbar.isDragging) {
+    state = {
+      ...state,
+      scrollbar: endScrollbarDrag(state.scrollbar),
+    };
+  }
+
+  // Implement momentum scrolling with the tracked velocity
+  // Only apply momentum if NOT dragging scrollbar
+  if (touchState && !touchState.isScrollbarDrag) {
+    // Use the average velocity from recent history
+    const avgVelocity = touchState.velocityY;
+
+    // Only apply momentum if velocity is significant
+    const minMomentumVelocity = 0.1; // pixels per ms
+    if (Math.abs(avgVelocity) > minMomentumVelocity) {
+      // Apply momentum multiplier for more natural feel
+      // Higher values = more "throw" distance
+      const momentumMultiplier = 1.2;
+      state = {
+        ...state,
+        momentum: {
+          velocity: avgVelocity * momentumMultiplier,
+          lastTime: Date.now(),
+          isActive: true,
+        },
+      };
+    }
+  }
+
+  touchState = null;
+
+  return {
+    ...state,
+    scrollbar: {
+      ...state.scrollbar,
+      lastInteraction: Date.now(),
+    },
+  };
+}
+
+function handleTouchCancel(state: EditorState): EditorState {
+  // End scrollbar drag if active
+  if (state.scrollbar.isDragging) {
+    state = {
+      ...state,
+      scrollbar: endScrollbarDrag(state.scrollbar),
+    };
+  }
+
+  // Clear touch state
+  touchState = null;
+
+  return {
+    ...state,
+    scrollbar: {
+      ...state.scrollbar,
+      lastInteraction: Date.now(),
+    },
+  };
 }

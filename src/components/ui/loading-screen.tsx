@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 export default function LoadingScreen() {
   const { t } = useTranslation("LoadingScreen");
   return (
-    <div className={cn("flex items-center justify-center h-screen w-screen")}>
+    <div className={cn("flex items-center justify-center h-screen-dvh w-screen-dvw")}>
       <img
         className={" animate-spin  "}
         src={"/spinner.png"}

@@ -119,3 +119,13 @@
   }
 }
 
+@layer utilities {
+  /* Use dynamic viewport height (dvh) instead of vh for mobile browser compatibility */
+  .h-screen-dvh {
+    height: 100dvh;
+  }
+  .w-screen-dvw {
+    width: 100dvw;
+  }
+}
+

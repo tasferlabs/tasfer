@@ -1,5 +1,6 @@
 import type { Block, Page } from "../deserializer/loadPage";
 import { initialUndoManagerState } from "./undo";
+import { createInitialScrollbarState, createInitialMomentumState } from "./scrollbar";
 import type {
   CursorState,
   EditorMode,
@@ -21,6 +22,8 @@ export const createInitialState = (page: Page): EditorState => ({
     lastClickTime: 0,
     lastClickPosition: null,
   },
+  scrollbar: createInitialScrollbarState(),
+  momentum: createInitialMomentumState(),
 });
 
 // State Update Functions (Pure Functions)

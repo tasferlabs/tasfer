@@ -1,5 +1,6 @@
 import type { Block, Page } from "../deserializer/loadPage";
 import type { FontFamily } from "./fonts";
+import type { ScrollbarState, MomentumState } from "./scrollbar";
 
 // Editor State Types
 export interface ClickTracker {
@@ -15,6 +16,8 @@ export interface EditorModelState {
   readonly selection: SelectionState | null;
   readonly mode: EditorMode;
   readonly clickTracker: ClickTracker;
+  readonly scrollbar: ScrollbarState;
+  readonly momentum: MomentumState;
 }
 
 export interface UndoManagerState {
@@ -56,6 +59,15 @@ export interface ViewportState {
   readonly scrollY: number;
   readonly width: number;
   readonly height: number;
+}
+
+export interface TouchState {
+  readonly startY: number;
+  readonly startScrollY: number;
+  readonly lastY: number;
+  readonly lastTime: number;
+  readonly velocity: number;
+  readonly isScrolling: boolean;
 }
 
 export type EditorMode = "edit" | "select" | "readonly";

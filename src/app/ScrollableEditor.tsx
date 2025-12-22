@@ -1,6 +1,5 @@
 import LoadingScreen from "@/components/ui/loading-screen";
 import React, { useLayoutEffect, useRef } from "react";
-import { ScrollArea } from "../components/ui/scroll-area";
 import { cn } from "../lib/utils";
 import { useEditor } from "./useEditor";
 
@@ -13,14 +12,11 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
   path,
   className = "",
 }) => {
-  const { canvasRef, updateViewport, documentHeight, isInitialized, viewport } =
+  const { canvasRef, updateViewport, isInitialized, viewport } =
     useEditor(path);
 
   // Ref to the wrapper div to observe its size
   const wrapperRef = useRef<HTMLDivElement>(null);
-
-  // Ref to the scroll area to observe its scroll position
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   // Keep the viewport dimensions in sync with the wrapper size
   useLayoutEffect(() => {
@@ -31,7 +27,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       updateViewport({
         width: rect.width,
         height: rect.height,
-        scrollY: scrollAreaRef.current?.scrollTop || 0,
+        scrollY: 0,
       });
     }
 
@@ -45,29 +41,14 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updateViewport]);
 
-  // Keep the viewport scroll position in sync with the scroll area
-  useLayoutEffect(() => {
-    if (!scrollAreaRef.current || !viewport) return;
-
-    if (scrollAreaRef.current.scrollTop !== viewport.scrollY) {
-      scrollAreaRef.current.scrollBy({
-        top: viewport.scrollY,
-      });
-    }
-  }, [viewport]);
-
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, clientWidth, clientHeight } = e.currentTarget;
-
-    updateViewport({
-      scrollY: scrollTop,
-      width: clientWidth,
-      height: clientHeight,
-    });
-  };
+  // Get device pixel ratio for high-DPI displays (iOS retina, etc.)
+  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 
   return (
-    <div ref={wrapperRef} className={cn("relative w-full h-full", className)}>
+    <div
+      ref={wrapperRef}
+      className={cn("relative w-full h-full overflow-hidden", className)}
+    >
       {/* Loading overlay */}
       {!isInitialized && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 backdrop-blur-sm">
@@ -75,25 +56,17 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
         </div>
       )}
 
-      {/* Scrollable canvas area */}
-      <ScrollArea
-        onScroll={handleScroll}
-        className="h-full"
-        ref={scrollAreaRef}
-      >
-        <div style={{ height: documentHeight }} className="relative">
-          <canvas
-            ref={canvasRef}
-            style={{
-              height: viewport?.height,
-              width: viewport?.width,
-            }}
-            className="sticky top-0 left-0 cursor-text w-full"
-            width={Math.max(viewport?.width || 0, 1)}
-            height={Math.max(viewport?.height || 0, 1)}
-          />
-        </div>
-      </ScrollArea>
+      {/* Canvas - now handles its own scrolling */}
+      <canvas
+        ref={canvasRef}
+        style={{
+          height: viewport?.height,
+          width: viewport?.width,
+        }}
+        className="w-full h-full"
+        width={Math.max((viewport?.width || 0) * dpr, 1)}
+        height={Math.max((viewport?.height || 0) * dpr, 1)}
+      />
     </div>
   );
 };

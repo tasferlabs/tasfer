@@ -8,6 +8,7 @@ import {
 } from "./fonts";
 import { getBlockTextContent, isCursorBlinking } from "./state";
 import { applyTextStyle, defaultStyles, getTextStyle } from "./styles";
+import { renderScrollbar, updateScrollbarFadeOpacity } from "./scrollbar";
 import type {
   BlockBounds,
   EditorState,
@@ -27,6 +28,19 @@ export const renderPage = (
   visibility: { start: number; end: number },
   styles: EditorStyles = defaultStyles
 ) => {
+  // Get device pixel ratio and scale canvas context for high-DPI displays
+  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+
+  // Save context state
+  ctx.save();
+
+  // Scale all drawing operations by DPR
+  ctx.scale(dpr, dpr);
+
+  // Enable text antialiasing for better quality on high-DPI screens
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
   // Clear canvas
   ctx.fillStyle = styles.canvas.backgroundColor;
   ctx.fillRect(0, 0, viewport.width, viewport.height);
@@ -65,6 +79,12 @@ export const renderPage = (
   }
 
   documentHeight += styles.canvas.paddingBottom;
+
+  // Render scrollbar
+  renderScrollbar(ctx, viewport, documentHeight, state.scrollbar);
+
+  // Restore context state (undo scaling)
+  ctx.restore();
 
   return documentHeight;
   // console.log(viewport.visibleBlocksStartIndex, viewport.visibleBlocksEndIndex);
