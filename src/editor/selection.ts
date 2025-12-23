@@ -17,6 +17,99 @@ import type {
   ViewportState,
 } from "./types";
 
+export function getCursorYPosition(
+  position: Position,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = defaultStyles
+): { top: number; bottom: number } | null {
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  
+  let currentY = styles.canvas.paddingTop;
+  
+  for (let i = 0; i < position.blockIndex; i++) {
+    const block = state.page.blocks[i];
+    currentY += calculateBlockHeight(block, maxWidth, styles);
+  }
+  
+  const block = state.page.blocks[position.blockIndex];
+  if (!block) return null;
+  
+  const textStyle = getTextStyle(styles, block.type);
+  const content = getBlockTextContent(block);
+  const fontFamily = getCurrentFontFamily();
+  const fontMetrics = getFontMetrics(
+    textStyle.fontSize,
+    textStyle.fontWeight,
+    fontFamily
+  );
+  const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
+  
+  const lines = wrapText(
+    content,
+    maxWidth,
+    textStyle.fontSize,
+    textStyle.fontWeight,
+    fontFamily
+  );
+  
+  let textIndex = 0;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
+    const lineEndIndex = textIndex + line.length;
+    
+    if (position.textIndex >= textIndex && position.textIndex <= lineEndIndex) {
+      return {
+        top: currentY,
+        bottom: currentY + lineHeight,
+      };
+    }
+    
+    textIndex += line.length;
+    if (lineIndex < lines.length - 1) {
+      textIndex += 1;
+    }
+    currentY += lineHeight;
+  }
+  
+  if (lines.length > 0) {
+    return {
+      top: currentY - lineHeight,
+      bottom: currentY,
+    };
+  }
+  
+  return {
+    top: currentY,
+    bottom: currentY + lineHeight,
+  };
+}
+
+export function scrollToMakeCursorVisible(
+  position: Position,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = defaultStyles
+): number | null {
+  const cursorPos = getCursorYPosition(position, state, viewport, styles);
+  if (!cursorPos) return null;
+  
+  const margin = 40;
+  const viewportTop = viewport.scrollY;
+  const viewportBottom = viewport.scrollY + viewport.height;
+  
+  if (cursorPos.top < viewportTop + margin) {
+    return Math.max(0, cursorPos.top - margin);
+  }
+  
+  if (cursorPos.bottom > viewportBottom - margin) {
+    return cursorPos.bottom - viewport.height + margin;
+  }
+  
+  return null;
+}
+
 export function getTextPositionFromViewport(
   x: number,
   y: number,

@@ -12,7 +12,7 @@ import {
   moveToLineStart,
   moveToLineEnd,
 } from "./commands";
-import { getTextPositionFromViewport } from "./selection";
+import { getTextPositionFromViewport, scrollToMakeCursorVisible } from "./selection";
 import {
   clearSelection,
   getBlockTextLength,
@@ -53,6 +53,11 @@ import { recordUndo, undoState, redoState } from "./undo";
 const DOUBLE_CLICK_TIME = 500; // ms
 const CLICK_DISTANCE_THRESHOLD = 5; // pixels
 const TAP_DISTANCE_THRESHOLD = 30; // pixels - larger for touch to account for finger movement
+const LONG_PRESS_DURATION = 400; // ms - time to wait before switching to text selection
+const MOVEMENT_THRESHOLD = 10; // pixels - movement that cancels long press detection
+const TAP_MAX_DURATION = 500; // ms - max duration for a gesture to count as a tap
+const EDGE_SCROLL_THRESHOLD = 80; // pixels - distance from edge to trigger auto-scroll
+const EDGE_SCROLL_SPEED = 8; // pixels per frame - base scroll speed
 
 function isTouchDevice(): boolean {
   return (
@@ -113,6 +118,64 @@ export function handleEvents(
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
+  // Apply auto-scroll and selection update during long press
+  if (autoScrollState.isActive && touchState?.isLongPress) {
+    const touch = { clientY: touchState.currentTouchY, clientX: touchState.currentTouchX };
+    let autoScrollDelta = 0;
+    
+    if (touch.clientY < 0) {
+      const distance = Math.abs(touch.clientY);
+      const speedMultiplier = Math.min(distance / 100, 3);
+      autoScrollDelta = -EDGE_SCROLL_SPEED * (1 + speedMultiplier);
+    } else if (touch.clientY < EDGE_SCROLL_THRESHOLD) {
+      const proximity = 1 - touch.clientY / EDGE_SCROLL_THRESHOLD;
+      autoScrollDelta = -EDGE_SCROLL_SPEED * proximity;
+    } else if (touch.clientY > viewport.height) {
+      const distance = touch.clientY - viewport.height;
+      const speedMultiplier = Math.min(distance / 100, 3);
+      autoScrollDelta = EDGE_SCROLL_SPEED * (1 + speedMultiplier);
+    } else if (touch.clientY > viewport.height - EDGE_SCROLL_THRESHOLD) {
+      const proximity = (touch.clientY - (viewport.height - EDGE_SCROLL_THRESHOLD)) / EDGE_SCROLL_THRESHOLD;
+      autoScrollDelta = EDGE_SCROLL_SPEED * proximity;
+    }
+    
+    if (autoScrollDelta !== 0 && updateViewportCallback) {
+      const maxScroll = documentHeight - viewport.height;
+      const newScrollY = Math.max(0, Math.min(maxScroll, viewport.scrollY + autoScrollDelta));
+      
+      if (newScrollY !== viewport.scrollY) {
+        updateViewportCallback({ scrollY: newScrollY });
+      }
+    }
+    
+    const position = getTextPositionFromViewport(
+      touch.clientX,
+      touch.clientY,
+      state,
+      viewport,
+      { start: 0, end: state.page.blocks.length - 1 }
+    );
+    
+    if (position) {
+      if (state.mode !== "select") {
+        state = updateCursor(state, position);
+        state = startSelection(state, position);
+        state = updateMode(state, "select");
+      } else {
+        state = updateSelectionFocus(state, position);
+        state = updateCursor(state, position);
+      }
+    }
+    
+    state = {
+      ...state,
+      scrollbar: {
+        ...state.scrollbar,
+        lastInteraction: Date.now(),
+      },
+    };
+  }
+  
   // Apply momentum scrolling if active (even when no events)
   if (state.momentum.isActive) {
     const momentumResult = applyMomentum(
@@ -189,7 +252,7 @@ export function handleEvents(
         state = handlePointerCancel(state);
         break;
       case "keydown":
-        state = handleKeyDown(state, viewport, event);
+        state = handleKeyDown(state, viewport, event, updateViewportCallback);
         break;
       case "wheel":
         if (isTouchDevice()) {
@@ -334,10 +397,10 @@ function handleMouseDown(
     return selectLineAtPosition(state, position);
   }
 
-  // If clicking inside a selection (single or double click), don't reset it (Apple Notes behavior)
-  if (isPositionWithinSelection(state, position)) {
-    return state;
-  }
+  // // If clicking inside a selection (single or double click), don't reset it (Apple Notes behavior)
+  // if (isPositionWithinSelection(state, position)) {
+  //   return state;
+  // }
 
   // Handle double-click: select word
   if (isMultiClick && state.clickTracker.count === 2) {
@@ -389,8 +452,6 @@ function handleMouseMove(
     viewport,
     documentHeight
   );
-  // Use entire scrollbar area (track + thumb) for hover detection
-  // This affects both cursor style and thumb visual feedback
   state = {
     ...state,
     scrollbar: updateScrollbarHover(state.scrollbar, isOverScrollbar),
@@ -411,21 +472,14 @@ function handleMouseMove(
 
   if (!position) return state;
 
-  // Update selection focus and cursor position
   let newState = updateSelectionFocus(state, position);
   newState = updateCursor(newState, position);
 
-  // if (newState !== null && newState.selection !== null) {
-  //   if (newState.selection.isForward) {
-  //     console.log(
-  //       `$anchor:${newState.selection.anchor.blockIndex}:${newState.selection.anchor.textIndex} focus: ${newState.selection.focus.blockIndex}:${newState.selection.focus.textIndex}`
-  //     );
-  //   } else {
-  //     console.log(
-  //       `$focus:${newState.selection.focus.blockIndex}:${newState.selection.focus.textIndex} anchor: ${newState.selection.anchor.blockIndex}:${newState.selection.focus.textIndex}`
-  //     );
-  //   }
-  // }
+  const newScrollY = scrollToMakeCursorVisible(position, newState, viewport);
+  if (newScrollY !== null && updateViewportCallback) {
+    updateViewportCallback({ scrollY: newScrollY });
+  }
+
   return newState;
 }
 
@@ -471,8 +525,9 @@ function handlePointerCancel(state: EditorState): EditorState {
 
 function handleKeyDown(
   state: EditorState,
-  _viewport: ViewportState,
-  event: Event
+  viewport: ViewportState,
+  event: Event,
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
   const keyEvent = event as unknown as KeyboardEvent;
   const key = keyEvent.key;
@@ -487,60 +542,64 @@ function handleKeyDown(
     return redoState(state);
   }
 
+  let newState = state;
+
   // Navigation & selection
   switch (key) {
     case "ArrowLeft":
       if (isCtrl && keyEvent.shiftKey) {
-        return extendSelectionWordLeft(state);
+        newState = extendSelectionWordLeft(state);
       } else if (keyEvent.shiftKey) {
-        return extendSelectionLeft(state);
+        newState = extendSelectionLeft(state);
       } else if (isCtrl) {
-        return moveToPreviousWord(clearSelection(state));
+        newState = moveToPreviousWord(clearSelection(state));
       } else {
-        return moveCursorLeft(clearSelection(state));
+        newState = moveCursorLeft(clearSelection(state));
       }
+      break;
     case "ArrowRight":
       if (isCtrl && keyEvent.shiftKey) {
-        return extendSelectionWordRight(state);
+        newState = extendSelectionWordRight(state);
       } else if (keyEvent.shiftKey) {
-        return extendSelectionRight(state);
+        newState = extendSelectionRight(state);
       } else if (isCtrl) {
-        return moveToNextWord(clearSelection(state));
+        newState = moveToNextWord(clearSelection(state));
       } else {
-        return moveCursorRight(clearSelection(state));
+        newState = moveCursorRight(clearSelection(state));
       }
+      break;
     case "ArrowUp":
       if (keyEvent.shiftKey) {
-        return extendSelectionUp(state);
+        newState = extendSelectionUp(state);
       } else {
-        return moveCursorUp(clearSelection(state));
+        newState = moveCursorUp(clearSelection(state));
       }
+      break;
     case "ArrowDown":
       if (keyEvent.shiftKey) {
-        return extendSelectionDown(state);
+        newState = extendSelectionDown(state);
       } else {
-        return moveCursorDown(clearSelection(state));
+        newState = moveCursorDown(clearSelection(state));
       }
+      break;
     case "Home":
       if (isCtrl) {
-        // Ctrl+Home: Go to document start
-        return moveCursorToPosition(state, 0, 0);
+        newState = moveCursorToPosition(state, 0, 0);
       } else {
-        // Home: Go to line start
-        return moveToLineStart(state);
+        newState = moveToLineStart(state);
       }
+      break;
     case "End":
       if (isCtrl) {
-        // Ctrl+End: Go to document end
-        return moveCursorToPosition(
+        newState = moveCursorToPosition(
           state,
           state.page.blocks.length - 1,
           getBlockTextLength(state.page.blocks[state.page.blocks.length - 1])
         );
       } else {
-        // End: Go to line end
-        return moveToLineEnd(state);
+        newState = moveToLineEnd(state);
       }
+      break;
     case "Escape":
       return clearSelection(state);
     case "Backspace":
@@ -563,6 +622,19 @@ function handleKeyDown(
       }
       return state;
   }
+
+  if (newState !== state && newState.cursor && updateViewportCallback) {
+    const newScrollY = scrollToMakeCursorVisible(
+      newState.cursor.position,
+      newState,
+      viewport
+    );
+    if (newScrollY !== null) {
+      updateViewportCallback({ scrollY: newScrollY });
+    }
+  }
+
+  return newState;
 }
 
 function handleWheel(
@@ -612,7 +684,15 @@ let touchState: {
   startTime: number;
   isLongPress: boolean;
   hasMoved: boolean;
+  currentTouchX: number;
+  currentTouchY: number;
 } | null = null;
+
+let autoScrollState: {
+  isActive: boolean;
+} = {
+  isActive: false,
+};
 
 // Touch tap tracking for double/triple tap detection (similar to clickTracker)
 let touchTapTracker: {
@@ -625,9 +705,13 @@ let touchTapTracker: {
   count: 0,
 };
 
-const LONG_PRESS_DURATION = 400; // ms - time to wait before switching to text selection
-const MOVEMENT_THRESHOLD = 10; // pixels - movement that cancels long press detection
-const TAP_MAX_DURATION = 500; // ms - max duration for a gesture to count as a tap
+function startAutoScroll() {
+  autoScrollState.isActive = true;
+}
+
+function stopAutoScroll() {
+  autoScrollState.isActive = false;
+}
 
 function handleTouchStart(
   state: EditorState,
@@ -666,6 +750,8 @@ function handleTouchStart(
       startTime: currentTime,
       isLongPress: false,
       hasMoved: false,
+      currentTouchX: touch.clientX,
+      currentTouchY: touch.clientY,
     };
 
     // If touching scrollbar, start drag
@@ -739,9 +825,16 @@ function handleTouchMove(
       timeSinceStart >= LONG_PRESS_DURATION &&
       totalMovement < MOVEMENT_THRESHOLD
     ) {
-      // User held finger down without moving - activate long press mode
       touchState.isLongPress = true;
+      
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
     }
+
+    // Update current touch position for auto-scroll
+    touchState.currentTouchX = touch.clientX;
+    touchState.currentTouchY = touch.clientY;
 
     // If moved beyond threshold, mark as moved (cancels potential long press)
     if (!touchState.hasMoved && totalMovement > MOVEMENT_THRESHOLD) {
@@ -750,26 +843,8 @@ function handleTouchMove(
 
     // Handle long press text selection mode
     if (touchState.isLongPress) {
-      // Get position for text selection
-      const position = getTextPositionFromViewport(
-        touch.clientX,
-        touch.clientY,
-        state,
-        viewport,
-        { start: 0, end: state.page.blocks.length - 1 }
-      );
-
-      if (position) {
-        // If not in select mode yet, start selection
-        if (state.mode !== "select") {
-          state = updateCursor(state, position);
-          state = startSelection(state, position);
-          state = updateMode(state, "select");
-        } else {
-          // Update selection focus
-          state = updateSelectionFocus(state, position);
-          state = updateCursor(state, position);
-        }
+      if (!autoScrollState.isActive) {
+        startAutoScroll();
       }
 
       touchState.lastY = touch.clientY;
@@ -848,6 +923,8 @@ function handleTouchEnd(
   viewport: ViewportState,
   _event: TouchEvent
 ): EditorState {
+  stopAutoScroll();
+  
   // End scrollbar drag if active
   if (state.scrollbar.isDragging) {
     state = {
@@ -971,6 +1048,8 @@ function handleTouchEnd(
 }
 
 function handleTouchCancel(state: EditorState): EditorState {
+  stopAutoScroll();
+  
   // End scrollbar drag if active
   if (state.scrollbar.isDragging) {
     state = {

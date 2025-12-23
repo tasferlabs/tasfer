@@ -15,3 +15,5 @@ Bugs list
 [x] cursor is rendering is moved one line down when when it is at the end of a line.
 [x] Rendering of cursor on second line does not work correctly, one first line it works but after moving down it becomse inacurate.
 [x] when moving with arrows keys the selection is not reseted if we do not have shift key pressed. Same thing with ctrl + arrows keys.
+[x] when selection going outside the screen the viewport should follow the selection.
+[x] hold press and selecting down on mobile does not work correctly because cursor is not moving down.
