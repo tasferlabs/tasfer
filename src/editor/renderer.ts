@@ -131,8 +131,8 @@ export const renderBlock = (
     const lineStartIndex = textIndex;
     const lineEndIndex = textIndex + line.length;
 
-    // Render the text
-    ctx.fillText(line, x, currentY);
+    // Render the text (with alphabetic baseline, add ascent to position text top at currentY)
+    ctx.fillText(line, x, currentY + fontMetrics.ascent);
 
     // Use font metrics for consistent positioning
     const textHeight = fontMetrics.ascent + fontMetrics.descent;
@@ -289,6 +289,8 @@ function renderSelection(
     ctx.fillStyle = styles.selection.backgroundColor;
     ctx.globalAlpha = styles.selection.opacity;
 
+    const lineHeight = textStyle.fontSize * textStyle.lineHeight;
+
     for (const line of renderedLines) {
       let selectionStartX = x;
       let selectionEndX = x + line.width;
@@ -381,7 +383,7 @@ function renderSelection(
           selectionStartX,
           line.y,
           selectionEndX - selectionStartX,
-          line.height
+          lineHeight
         );
       }
     }

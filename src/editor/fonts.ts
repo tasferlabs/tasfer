@@ -182,12 +182,13 @@ const calculateFontMetrics = (
     });
   }
 
+  // Use font bounding box metrics for consistent line height across all characters
   return {
     fontSize,
     fontWeight,
     fontFamily,
-    ascent: textMetrics.actualBoundingBoxAscent,
-    descent: textMetrics.actualBoundingBoxDescent,
+    ascent: textMetrics.fontBoundingBoxAscent,
+    descent: textMetrics.fontBoundingBoxDescent,
     characters: characters,
   };
 };

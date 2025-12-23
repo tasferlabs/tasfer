@@ -11,3 +11,4 @@ Bugs list
 [x] Can not expand the selection using ctrl + shift + arrow left and right
 [x] when triple clicking on block for selection the cursor is not at the end of the block.
 [x] when triple clicking at two lines or more block the cursor is not rendered. It is rendered at the at beginning of the block and not the end of the block.
+[x] Selection only covers middle part of text, not from top to bottom.

@@ -1,4 +1,4 @@
-import { getCurrentFontFamily } from "./fonts";
+import { getCurrentFontFamily, FONT_STACKS } from "./fonts";
 import type { EditorStyles, TextStyle } from "./types";
 
 export const defaultStyles: EditorStyles = {
@@ -15,14 +15,14 @@ export const defaultStyles: EditorStyles = {
       fontSize: 32,
       fontWeight: "500",
       color: "#1a1a1a",
-      lineHeight: 1.2,
+      lineHeight: 1.4,
       paddingBottom: 4,
     },
     heading2: {
       fontSize: 24,
       fontWeight: "500",
       color: "#1a1a1a",
-      lineHeight: 1.3,
+      lineHeight: 1.4,
       paddingBottom: 6,
     },
     heading3: {
@@ -62,9 +62,8 @@ export const applyTextStyle = (
   ctx: CanvasRenderingContext2D,
   style: TextStyle
 ) => {
-  ctx.font = `${style.fontWeight} ${
-    style.fontSize
-  }px ${getCurrentFontFamily()}`;
+  const fontStack = FONT_STACKS[getCurrentFontFamily()];
+  ctx.font = `${style.fontWeight} ${style.fontSize}px ${fontStack}`;
   ctx.fillStyle = style.color;
-  ctx.textBaseline = "top";
+  ctx.textBaseline = "alphabetic";
 };
