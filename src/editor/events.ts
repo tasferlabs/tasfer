@@ -1070,6 +1070,10 @@ function handleTouchEnd(
         state = updateCursor(state, position);
         state = updateMode(state, "edit");
       }
+    } else {
+      // Tapping outside editor area: clear selection
+      state = clearSelection(state);
+      state = updateMode(state, "edit");
     }
 
     touchState = null;

@@ -122,6 +122,11 @@ export function getTextPositionFromViewport(
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
+  // Check if click is in the left or right padding areas
+  if (x < styles.canvas.paddingLeft || x > styles.canvas.paddingLeft + maxWidth) {
+    return null;
+  }
+
   // Only consider visible blocks for performance
   const startIndex = visibility.start;
   const endIndex = visibility.end;
