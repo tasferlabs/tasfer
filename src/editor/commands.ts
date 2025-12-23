@@ -599,3 +599,21 @@ export function splitBlock(state: EditorState): EditorState {
   const newState = { ...state, page: newPage } as EditorState;
   return moveCursorToPosition(newState, blockIndex + 1, 0);
 }
+
+export function selectAll(state: EditorState): EditorState {
+  if (state.page.blocks.length === 0) return state;
+
+  const startPos: Position = { blockIndex: 0, textIndex: 0 };
+  const lastBlockIndex = state.page.blocks.length - 1;
+  const lastBlock = state.page.blocks[lastBlockIndex];
+  const lastBlockText = getBlockTextContent(lastBlock);
+  const endPos: Position = {
+    blockIndex: lastBlockIndex,
+    textIndex: lastBlockText.length,
+  };
+
+  let newState = moveCursorToPosition(state, endPos.blockIndex, endPos.textIndex);
+  newState = startSelection(newState, startPos);
+  newState = updateSelectionFocus(newState, endPos);
+  return updateMode(newState, "edit");
+}

@@ -13,6 +13,7 @@ import {
   selectLineAtPosition,
   moveToLineStart,
   moveToLineEnd,
+  selectAll,
 } from "./commands";
 import { getTextPositionFromViewport, scrollToMakeCursorVisible } from "./selection";
 import {
@@ -602,6 +603,11 @@ function handleKeyDown(
   }
   if (isCtrl && (keyLower === "y" || (keyEvent.shiftKey && keyLower === "z"))) {
     return redoState(state);
+  }
+
+  // Select All
+  if (isCtrl && keyLower === "a") {
+    return selectAll(state);
   }
 
   let newState = state;
