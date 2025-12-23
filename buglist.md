@@ -23,8 +23,9 @@ Bugs list
 [x] when writing withing headers the text is converted to paragraphs for some reason.
 [x] implement ctrl + A to select all text.
 [x] add placeholder on empty blocks when editing, on cursor position.
-[ ] empty blocks should be seen as they selected.
-[ ] when click in at the end page we should select the last line.
+[x] empty blocks should be seen as they selected.
 [ ] implement "/" functionality to open command palette.
+[ ] react native
+[ ] when click in at the end page we should select the last line.
 [ ] implement ctrl + C to copy text and ctrl + V to paste text and ctrl + X to cut text.
 [ ] when selection is active and we click arrow up or left then the cursot should go back to start of the selection.

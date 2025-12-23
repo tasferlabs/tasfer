@@ -172,6 +172,7 @@ export const renderBlock = (
       styles,
       renderedLines,
       x,
+      y,
       content,
       textStyle,
       fontFamily
@@ -184,7 +185,14 @@ export const renderBlock = (
     state.cursor.position.blockIndex === blockIndex &&
     content.length === 0
   ) {
-    renderPlaceholder(ctx, x, y + fontMetrics.ascent, styles, textStyle, block.type);
+    renderPlaceholder(
+      ctx,
+      x,
+      y + fontMetrics.ascent,
+      styles,
+      textStyle,
+      block.type
+    );
   }
 
   // Handle cursor rendering
@@ -237,17 +245,17 @@ function renderPlaceholder(
     FONT_STACKS[getCurrentFontFamily()]
   }`;
   ctx.textBaseline = "alphabetic";
-  
+
   const placeholderConfig = styles.placeholder[blockType];
   const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
   let placeholderText: string;
-  
+
   if (blockType === "paragraph" && isMobile) {
     placeholderText = styles.placeholder.paragraph.mobileText;
   } else {
     placeholderText = placeholderConfig.text;
   }
-  
+
   ctx.fillText(placeholderText, x, y);
   ctx.restore();
 }
@@ -312,6 +320,7 @@ function renderSelection(
   styles: EditorStyles,
   renderedLines: RenderedLine[],
   x: number,
+  y: number,
   content: string,
   textStyle: TextStyle,
   fontFamily: FontFamily
@@ -335,6 +344,25 @@ function renderSelection(
     ctx.globalAlpha = styles.selection.opacity;
 
     const lineHeight = textStyle.fontSize * textStyle.lineHeight;
+
+    // Handle empty blocks
+    if (
+      content.length === 0 &&
+      renderedLines.length === 1 &&
+      blockIndex !== state.cursor?.position.blockIndex
+    ) {
+      const fontMetrics = getFontMetrics(
+        textStyle.fontSize,
+        textStyle.fontWeight,
+        fontFamily
+      );
+      const emptyBlockHeight = fontMetrics.fontSize * textStyle.lineHeight;
+      const minSelectionWidth = textStyle.fontSize * 0.5;
+
+      ctx.fillRect(x, y, minSelectionWidth, emptyBlockHeight);
+      ctx.restore();
+      return;
+    }
 
     for (const line of renderedLines) {
       let selectionStartX = x;
