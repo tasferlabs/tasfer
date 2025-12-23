@@ -1,6 +1,8 @@
 import {
   deleteText,
   deleteForward,
+  deleteWordForward,
+  deleteWordBackward,
   insertText,
   splitBlock,
   extendSelectionWordLeft,
@@ -663,8 +665,14 @@ function handleKeyDown(
     case "Escape":
       return clearSelection(state);
     case "Backspace":
+      if (isCtrl) {
+        return deleteWordBackward(recordUndo(state));
+      }
       return deleteText(recordUndo(state));
     case "Delete":
+      if (isCtrl) {
+        return deleteWordForward(recordUndo(state));
+      }
       return deleteForward(recordUndo(state));
     case "Enter":
       return splitBlock(recordUndo(state));

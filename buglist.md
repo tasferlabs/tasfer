@@ -19,6 +19,7 @@ Bugs list
 [x] hold press and selecting down on mobile does not work correctly because cursor is not moving down.
 [x] when end edge scrolling we should open keyboard on mobile.
 [x] when clicking on the sides or outside the editor we should reset the selection.
+[x] ctrl + delete like vscode should work.
 [ ] when click in at the end page we should select the last line.
 [ ] add placeholder on empty blocks when editing, on cursor position.
 [ ] when writing withing headers the text is convert to paragraphs for some reason.
