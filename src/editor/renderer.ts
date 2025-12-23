@@ -155,6 +155,10 @@ export const renderBlock = (
     renderedLines.push(renderedLine);
 
     textIndex += line.length;
+    // Account for the space character consumed during text wrapping (if not last line)
+    if (lineIndex < lines.length - 1) {
+      textIndex += 1;
+    }
     currentY += lineHeight;
   }
 
@@ -240,6 +244,7 @@ function renderCursor(
         textStyle.fontWeight,
         fontFamily
       );
+      break;
     }
   }
 

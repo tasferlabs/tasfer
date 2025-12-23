@@ -140,6 +140,10 @@ function getPositionWithinBlock(
     }
 
     textIndex += line.length;
+    // Account for the space character consumed during text wrapping (if not last line)
+    if (lineIndex < lines.length - 1) {
+      textIndex += 1;
+    }
     currentLineY += lineHeight;
   }
 

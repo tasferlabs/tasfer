@@ -12,3 +12,5 @@ Bugs list
 [x] when triple clicking on block for selection the cursor is not at the end of the block.
 [x] when triple clicking at two lines or more block the cursor is not rendered. It is rendered at the at beginning of the block and not the end of the block.
 [x] Selection only covers middle part of text, not from top to bottom.
+[x] cursor is rendering is moved one line down when when it is at the end of a line.
+[x] Rendering of cursor on second line does not work correctly, one first line it works but after moving down it becomse inacurate.
