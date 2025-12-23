@@ -56,8 +56,10 @@ const TAP_DISTANCE_THRESHOLD = 30; // pixels - larger for touch to account for f
 const LONG_PRESS_DURATION = 400; // ms - time to wait before switching to text selection
 const MOVEMENT_THRESHOLD = 10; // pixels - movement that cancels long press detection
 const TAP_MAX_DURATION = 500; // ms - max duration for a gesture to count as a tap
-const EDGE_SCROLL_THRESHOLD = 80; // pixels - distance from edge to trigger auto-scroll
-const EDGE_SCROLL_SPEED = 8; // pixels per frame - base scroll speed
+const EDGE_SCROLL_THRESHOLD = 80;
+const EDGE_SCROLL_SPEED = 12;
+const EDGE_SCROLL_MAX_SPEED = 120;
+const EDGE_SCROLL_ACCELERATION_RATE = 2.5;
 
 function isTouchDevice(): boolean {
   return (
@@ -121,22 +123,30 @@ export function handleEvents(
   // Apply auto-scroll and selection update during long press
   if (autoScrollState.isActive && touchState?.isLongPress) {
     const touch = { clientY: touchState.currentTouchY, clientX: touchState.currentTouchX };
+    
+    const elapsedTime = Date.now() - autoScrollState.startTime;
+    const timeBasedMultiplier = Math.min(
+      Math.pow(EDGE_SCROLL_ACCELERATION_RATE, elapsedTime / 1000),
+      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED
+    );
+    autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
+    
     let autoScrollDelta = 0;
     
     if (touch.clientY < 0) {
       const distance = Math.abs(touch.clientY);
       const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta = -EDGE_SCROLL_SPEED * (1 + speedMultiplier);
+      autoScrollDelta = -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
     } else if (touch.clientY < EDGE_SCROLL_THRESHOLD) {
       const proximity = 1 - touch.clientY / EDGE_SCROLL_THRESHOLD;
-      autoScrollDelta = -EDGE_SCROLL_SPEED * proximity;
+      autoScrollDelta = -EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
     } else if (touch.clientY > viewport.height) {
       const distance = touch.clientY - viewport.height;
       const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta = EDGE_SCROLL_SPEED * (1 + speedMultiplier);
+      autoScrollDelta = EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
     } else if (touch.clientY > viewport.height - EDGE_SCROLL_THRESHOLD) {
       const proximity = (touch.clientY - (viewport.height - EDGE_SCROLL_THRESHOLD)) / EDGE_SCROLL_THRESHOLD;
-      autoScrollDelta = EDGE_SCROLL_SPEED * proximity;
+      autoScrollDelta = EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
     }
     
     if (autoScrollDelta !== 0 && updateViewportCallback) {
@@ -312,7 +322,8 @@ function handleMouseDown(
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
-  // Stop any momentum scrolling when user interacts
+  stopAutoScroll();
+  
   state = {
     ...state,
     momentum: {
@@ -431,7 +442,6 @@ function handleMouseMove(
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
-  // Handle scrollbar drag
   if (state.scrollbar.isDragging) {
     const newScrollY = updateScrollFromThumbDrag(
       event.y,
@@ -445,7 +455,6 @@ function handleMouseMove(
     return state;
   }
 
-  // Update scrollbar hover state
   const isOverScrollbar = isPointInScrollbar(
     event.x,
     event.y,
@@ -457,7 +466,6 @@ function handleMouseMove(
     scrollbar: updateScrollbarHover(state.scrollbar, isOverScrollbar),
   };
 
-  // Only handle mouse move if we're in select mode (dragging)
   if (state.mode !== "select") {
     return state;
   }
@@ -475,9 +483,61 @@ function handleMouseMove(
   let newState = updateSelectionFocus(state, position);
   newState = updateCursor(newState, position);
 
-  const newScrollY = scrollToMakeCursorVisible(position, newState, viewport);
-  if (newScrollY !== null && updateViewportCallback) {
-    updateViewportCallback({ scrollY: newScrollY });
+  let autoScrollDelta = 0;
+  const isNearEdge =
+    event.y < EDGE_SCROLL_THRESHOLD ||
+    event.y > viewport.height - EDGE_SCROLL_THRESHOLD ||
+    event.y < 0 ||
+    event.y > viewport.height;
+
+  if (isNearEdge) {
+    if (!autoScrollState.isActive) {
+      startAutoScroll();
+    }
+
+    const elapsedTime = Date.now() - autoScrollState.startTime;
+    const timeBasedMultiplier = Math.min(
+      Math.pow(EDGE_SCROLL_ACCELERATION_RATE, elapsedTime / 1000),
+      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED
+    );
+    autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
+
+    if (event.y < 0) {
+      const distance = Math.abs(event.y);
+      const speedMultiplier = Math.min(distance / 100, 3);
+      autoScrollDelta = -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
+    } else if (event.y < EDGE_SCROLL_THRESHOLD) {
+      const proximity = 1 - event.y / EDGE_SCROLL_THRESHOLD;
+      autoScrollDelta = -EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
+    } else if (event.y > viewport.height) {
+      const distance = event.y - viewport.height;
+      const speedMultiplier = Math.min(distance / 100, 3);
+      autoScrollDelta = EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
+    } else if (event.y > viewport.height - EDGE_SCROLL_THRESHOLD) {
+      const proximity = (event.y - (viewport.height - EDGE_SCROLL_THRESHOLD)) / EDGE_SCROLL_THRESHOLD;
+      autoScrollDelta = EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
+    }
+
+    if (autoScrollDelta !== 0 && updateViewportCallback) {
+      const maxScroll = documentHeight - viewport.height;
+      const newScrollY = Math.max(0, Math.min(maxScroll, viewport.scrollY + autoScrollDelta));
+      
+      if (newScrollY !== viewport.scrollY) {
+        updateViewportCallback({ scrollY: newScrollY });
+      }
+    }
+
+    newState = {
+      ...newState,
+      scrollbar: {
+        ...newState.scrollbar,
+        lastInteraction: Date.now(),
+      },
+    };
+  } else {
+    if (autoScrollState.isActive) {
+      stopAutoScroll();
+    }
   }
 
   return newState;
@@ -489,7 +549,8 @@ function handleMouseUp(
   _event: MouseEvent,
   _visibility: { start: number; end: number }
 ): EditorState {
-  // End scrollbar drag
+  stopAutoScroll();
+  
   if (state.scrollbar.isDragging) {
     return {
       ...state,
@@ -497,7 +558,6 @@ function handleMouseUp(
     };
   }
 
-  // Exit select mode and return to edit mode
   if (state.mode === "select") {
     return updateMode(state, "edit");
   }
@@ -506,8 +566,8 @@ function handleMouseUp(
 }
 
 function handlePointerCancel(state: EditorState): EditorState {
-  // Only cancel on explicit pointer cancellation (not just leaving)
-  // End scrollbar drag if active
+  stopAutoScroll();
+  
   if (state.scrollbar.isDragging) {
     state = {
       ...state,
@@ -515,7 +575,6 @@ function handlePointerCancel(state: EditorState): EditorState {
     };
   }
 
-  // Exit select mode and return to edit mode
   if (state.mode === "select") {
     state = updateMode(state, "edit");
   }
@@ -690,8 +749,12 @@ let touchState: {
 
 let autoScrollState: {
   isActive: boolean;
+  startTime: number;
+  currentSpeedMultiplier: number;
 } = {
   isActive: false,
+  startTime: 0,
+  currentSpeedMultiplier: 1,
 };
 
 // Touch tap tracking for double/triple tap detection (similar to clickTracker)
@@ -706,11 +769,17 @@ let touchTapTracker: {
 };
 
 function startAutoScroll() {
-  autoScrollState.isActive = true;
+  if (!autoScrollState.isActive) {
+    autoScrollState.isActive = true;
+    autoScrollState.startTime = Date.now();
+    autoScrollState.currentSpeedMultiplier = 1;
+  }
 }
 
 function stopAutoScroll() {
   autoScrollState.isActive = false;
+  autoScrollState.startTime = 0;
+  autoScrollState.currentSpeedMultiplier = 1;
 }
 
 function handleTouchStart(
