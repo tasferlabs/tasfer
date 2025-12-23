@@ -20,7 +20,10 @@ Bugs list
 [x] when end edge scrolling we should open keyboard on mobile.
 [x] when clicking on the sides or outside the editor we should reset the selection.
 [x] ctrl + delete like vscode should work.
+[x] when writing withing headers the text is converted to paragraphs for some reason.
 [ ] when click in at the end page we should select the last line.
 [ ] add placeholder on empty blocks when editing, on cursor position.
-[ ] when writing withing headers the text is convert to paragraphs for some reason.
 [ ] empty blocks should be seen as they selected.
+[ ] implement "/" functionality to open command palette.
+[ ] implement ctrl + A to select all text.
+[ ] implement ctrl + C to copy text and ctrl + V to paste text and ctrl + X to cut text.

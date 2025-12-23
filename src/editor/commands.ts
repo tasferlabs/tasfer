@@ -9,7 +9,7 @@ import {
   clearSelection,
 } from "./state";
 
-function applyMarkdownPrefix(block: Block): Block {
+function applyMarkdownPrefix(block: Block, preserveType: boolean = false): Block {
   const text = block.content.map((t) => t.content).join("");
   if (text.startsWith("### ")) {
     block.type = "heading3";
@@ -20,7 +20,7 @@ function applyMarkdownPrefix(block: Block): Block {
   } else if (text.startsWith("# ")) {
     block.type = "heading1";
     block.content = [{ content: text.slice(2) }];
-  } else {
+  } else if (!preserveType) {
     block.type = "paragraph";
     block.content = [{ content: text }];
   }
@@ -126,7 +126,7 @@ export function insertText(state: EditorState, input: string): EditorState {
   const newText =
     oldText.slice(0, textIndex) + input + oldText.slice(textIndex);
   const blockCopy: Block = { ...oldBlock, content: [{ content: newText }] };
-  applyMarkdownPrefix(blockCopy);
+  applyMarkdownPrefix(blockCopy, oldBlock.type !== "paragraph");
   const newBlocks = [
     ...state.page.blocks.slice(0, blockIndex),
     blockCopy,
