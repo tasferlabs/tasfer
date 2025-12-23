@@ -102,6 +102,7 @@ export interface EditorStyles {
   readonly blocks: BlockStyles;
   readonly selection: SelectionStyles;
   readonly cursor: CursorStyles;
+  readonly placeholder: PlaceholderStyles;
 }
 
 export interface CanvasStyles {
@@ -136,6 +137,24 @@ export interface CursorStyles {
 
 export interface SelectionStyles {
   readonly backgroundColor: string;
+  readonly opacity: number;
+}
+
+export interface PlaceholderStyles {
+  readonly heading1: {
+    readonly text: string;
+  };
+  readonly heading2: {
+    readonly text: string;
+  };
+  readonly heading3: {
+    readonly text: string;
+  };
+  readonly paragraph: {
+    readonly text: string;
+    readonly mobileText: string;
+  };
+  readonly color: string;
   readonly opacity: number;
 }
 

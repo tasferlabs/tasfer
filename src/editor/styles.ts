@@ -49,6 +49,23 @@ export const defaultStyles: EditorStyles = {
     backgroundColor: "#007acc",
     opacity: 0.2,
   },
+  placeholder: {
+    heading1: {
+      text: "Heading 1",
+    },
+    heading2: {
+      text: "Heading 2",
+    },
+    heading3: {
+      text: "Heading 3",
+    },
+    paragraph: {
+      text: "Type '/' for commands.",
+      mobileText: "Type something awesome...",
+    },
+    color: "#999999",
+    opacity: 0.6,
+  },
 };
 
 export const getTextStyle = (

@@ -22,7 +22,7 @@ Bugs list
 [x] ctrl + delete like vscode should work.
 [x] when writing withing headers the text is converted to paragraphs for some reason.
 [x] implement ctrl + A to select all text.
-[ ] add placeholder on empty blocks when editing, on cursor position.
+[x] add placeholder on empty blocks when editing, on cursor position.
 [ ] empty blocks should be seen as they selected.
 [ ] when click in at the end page we should select the last line.
 [ ] implement "/" functionality to open command palette.

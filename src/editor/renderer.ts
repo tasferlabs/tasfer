@@ -4,6 +4,7 @@ import {
   getFontMetrics,
   measureText,
   wrapText,
+  FONT_STACKS,
   type FontFamily,
 } from "./fonts";
 import { getBlockTextContent, isCursorBlinking } from "./state";
@@ -177,6 +178,15 @@ export const renderBlock = (
     );
   }
 
+  // Handle placeholder rendering
+  if (
+    state.cursor &&
+    state.cursor.position.blockIndex === blockIndex &&
+    content.length === 0
+  ) {
+    renderPlaceholder(ctx, x, y + fontMetrics.ascent, styles, textStyle, block.type);
+  }
+
   // Handle cursor rendering
   if (
     state.cursor &&
@@ -211,6 +221,36 @@ export const renderBlock = (
     lines: renderedLines,
   };
 }; // Calculate position from mouse coordinates dynamically
+
+function renderPlaceholder(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  styles: EditorStyles,
+  textStyle: TextStyle,
+  blockType: "heading1" | "heading2" | "heading3" | "paragraph"
+) {
+  ctx.save();
+  ctx.fillStyle = styles.placeholder.color;
+  ctx.globalAlpha = styles.placeholder.opacity;
+  ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${
+    FONT_STACKS[getCurrentFontFamily()]
+  }`;
+  ctx.textBaseline = "alphabetic";
+  
+  const placeholderConfig = styles.placeholder[blockType];
+  const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
+  let placeholderText: string;
+  
+  if (blockType === "paragraph" && isMobile) {
+    placeholderText = styles.placeholder.paragraph.mobileText;
+  } else {
+    placeholderText = placeholderConfig.text;
+  }
+  
+  ctx.fillText(placeholderText, x, y);
+  ctx.restore();
+}
 
 function renderCursor(
   x: number,
