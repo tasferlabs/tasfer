@@ -43,7 +43,7 @@ export const defaultScrollbarStyles: ScrollbarStyles = {
   borderRadius: 6,
   fadeDelay: 1000,
   fadeDuration: 300,
-  touchTargetWidth: 44, // Wider hit area for touch devices (invisible)
+  touchTargetWidth: 32, // Wider hit area for touch devices (invisible)
 };
 
 export function createInitialScrollbarState(): ScrollbarState {
@@ -346,7 +346,10 @@ export function updateScrollFromWheel(
   scrollbarState: ScrollbarState
 ): { scrollY: number; scrollbarState: ScrollbarState } {
   const maxScroll = documentHeight - viewport.height;
-  const newScrollY = Math.max(0, Math.min(maxScroll, viewport.scrollY + deltaY));
+  const newScrollY = Math.max(
+    0,
+    Math.min(maxScroll, viewport.scrollY + deltaY)
+  );
 
   return {
     scrollY: newScrollY,
@@ -430,7 +433,7 @@ export function applyMomentum(
 
   // Clamp to bounds - no rubber band
   newScrollY = Math.max(0, Math.min(maxScroll, newScrollY));
-  
+
   // Stop momentum if we hit a boundary
   if (newScrollY === 0 || newScrollY === maxScroll) {
     return {
@@ -450,4 +453,3 @@ export function applyMomentum(
     isActive: Math.abs(newVelocity) >= 0.01,
   };
 }
-
