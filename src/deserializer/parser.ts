@@ -22,7 +22,7 @@ function generateEmptyTree(): Page {
 }
 function generateHeading(level: number, ...content: Text[]): Heading {
   return {
-    type: "heading" + level as "heading1" | "heading2" | "heading3",
+    type: ("heading" + level) as "heading1" | "heading2" | "heading3",
     content: content || [],
   };
 }
@@ -48,17 +48,21 @@ function isEnd(context: ParserContext) {
   return context.tokens.length <= context.current;
 }
 function parseBlock(context: ParserContext): Block {
+  if (match(context, NEWLINE)) return emptyBlock();
   if (match(context, HEADING_1)) return parseHeading(context, 1);
   if (match(context, HEADING_2)) return parseHeading(context, 2);
   if (match(context, HEADING_3)) return parseHeading(context, 3);
-
   return paresParagraph(context);
 }
-
+function emptyBlock(): Block {
+  return {
+    type: "paragraph",
+    content: [],
+  };
+}
 function parseHeading(context: ParserContext, level: number) {
   const content = parseText(context);
   const heading = generateHeading(level, ...content);
-  match(context, NEWLINE);
   return heading;
 }
 function parseText(context: ParserContext): Text[] {
@@ -76,7 +80,6 @@ function parseText(context: ParserContext): Text[] {
 
 function paresParagraph(context: ParserContext): Paragraph {
   const text = parseText(context);
-  match(context, NEWLINE);
   return {
     type: "paragraph",
     content: text,

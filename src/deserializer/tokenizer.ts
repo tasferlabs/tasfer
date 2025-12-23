@@ -32,6 +32,15 @@ export default function tokenizePage(content: string) {
     const char = current(state);
     if (char === " ") {
       next(state);
+    } else if (char === "\r") {
+      next(state);
+      if (peek(state) === "\n") {
+        state.startOfLine = true;
+        tokens.push({
+          type: "newline",
+        });
+        next(state);
+      }
     } else if (char === "\n") {
       state.startOfLine = true;
       tokens.push({
