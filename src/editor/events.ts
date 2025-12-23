@@ -495,9 +495,9 @@ function handleKeyDown(
       } else if (keyEvent.shiftKey) {
         return extendSelectionLeft(state);
       } else if (isCtrl) {
-        return moveToPreviousWord(state);
+        return moveToPreviousWord(clearSelection(state));
       } else {
-        return moveCursorLeft(state);
+        return moveCursorLeft(clearSelection(state));
       }
     case "ArrowRight":
       if (isCtrl && keyEvent.shiftKey) {
@@ -505,21 +505,21 @@ function handleKeyDown(
       } else if (keyEvent.shiftKey) {
         return extendSelectionRight(state);
       } else if (isCtrl) {
-        return moveToNextWord(state);
+        return moveToNextWord(clearSelection(state));
       } else {
-        return moveCursorRight(state);
+        return moveCursorRight(clearSelection(state));
       }
     case "ArrowUp":
       if (keyEvent.shiftKey) {
         return extendSelectionUp(state);
       } else {
-        return moveCursorUp(state);
+        return moveCursorUp(clearSelection(state));
       }
     case "ArrowDown":
       if (keyEvent.shiftKey) {
         return extendSelectionDown(state);
       } else {
-        return moveCursorDown(state);
+        return moveCursorDown(clearSelection(state));
       }
     case "Home":
       if (isCtrl) {
