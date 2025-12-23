@@ -105,7 +105,6 @@ export function handleEvents(
   for (const event of events) {
     switch (event.type) {
       case "mousedown":
-      case "pointerdown":
         state = handleMouseDown(
           state,
           viewport,
@@ -116,7 +115,6 @@ export function handleEvents(
         );
         break;
       case "mousemove":
-      case "pointermove":
         state = handleMouseMove(
           state,
           viewport,
@@ -127,7 +125,6 @@ export function handleEvents(
         );
         break;
       case "mouseup":
-      case "pointerup":
         state = handleMouseUp(
           state,
           viewport,
@@ -552,7 +549,14 @@ let touchState: {
   velocityY: number;
   velocityHistory: Array<{ velocity: number; time: number }>;
   isScrollbarDrag: boolean;
+  startX: number;
+  startTime: number;
+  isLongPress: boolean;
+  hasMoved: boolean;
 } | null = null;
+
+const LONG_PRESS_DURATION = 500; // ms - time to wait before switching to text selection
+const MOVEMENT_THRESHOLD = 10; // pixels - movement that cancels long press detection
 
 function handleTouchStart(
   state: EditorState,
@@ -562,6 +566,7 @@ function handleTouchStart(
 ): EditorState {
   if (event.touches.length === 1) {
     const touch = event.touches[0];
+    const currentTime = Date.now();
 
     // Check if touch is near the right edge of screen (where scrollbar is)
     // Use a threshold (e.g., last 60px) to detect scrollbar area
@@ -582,10 +587,14 @@ function handleTouchStart(
       startY: touch.clientY,
       startScrollY: viewport.scrollY,
       lastY: touch.clientY,
-      lastTime: Date.now(),
+      lastTime: currentTime,
       velocityY: 0,
       velocityHistory: [],
       isScrollbarDrag: isScrollbarTouch,
+      startX: touch.clientX,
+      startTime: currentTime,
+      isLongPress: false,
+      hasMoved: false,
     };
 
     // If touching scrollbar, start drag
@@ -646,10 +655,69 @@ function handleTouchMove(
       return state;
     }
 
-    const deltaY = touchState.lastY - touch.clientY;
+    // Check if we've moved significantly from start position
+    const deltaX = Math.abs(touch.clientX - touchState.startX);
+    const deltaY = Math.abs(touch.clientY - touchState.startY);
+    const totalMovement = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+    // Detect long press: if user held still for LONG_PRESS_DURATION, switch to text selection
+    const timeSinceStart = currentTime - touchState.startTime;
+    if (
+      !touchState.hasMoved &&
+      !touchState.isLongPress &&
+      timeSinceStart >= LONG_PRESS_DURATION &&
+      totalMovement < MOVEMENT_THRESHOLD
+    ) {
+      // User held finger down without moving - activate long press mode
+      touchState.isLongPress = true;
+    }
+
+    // If moved beyond threshold, mark as moved (cancels potential long press)
+    if (!touchState.hasMoved && totalMovement > MOVEMENT_THRESHOLD) {
+      touchState.hasMoved = true;
+    }
+
+    // Handle long press text selection mode
+    if (touchState.isLongPress) {
+      // Get position for text selection
+      const position = getTextPositionFromViewport(
+        touch.clientX,
+        touch.clientY,
+        state,
+        viewport,
+        { start: 0, end: state.page.blocks.length - 1 }
+      );
+
+      if (position) {
+        // If not in select mode yet, start selection
+        if (state.mode !== "select") {
+          state = updateCursor(state, position);
+          state = startSelection(state, position);
+          state = updateMode(state, "select");
+        } else {
+          // Update selection focus
+          state = updateSelectionFocus(state, position);
+          state = updateCursor(state, position);
+        }
+      }
+
+      touchState.lastY = touch.clientY;
+      touchState.lastTime = currentTime;
+
+      return {
+        ...state,
+        scrollbar: {
+          ...state.scrollbar,
+          lastInteraction: Date.now(),
+        },
+      };
+    }
+
+    // Default: Handle scrolling
+    const scrollDeltaY = touchState.lastY - touch.clientY;
 
     // Calculate instantaneous velocity (pixels per millisecond)
-    const instantVelocity = deltaY / deltaTime;
+    const instantVelocity = scrollDeltaY / deltaTime;
 
     // Only track velocity if there's actual movement (avoid diluting with zeros)
     // This prevents touchmove events with no vertical movement from adding 0-velocity entries
@@ -672,6 +740,7 @@ function handleTouchMove(
         0
       );
       touchState.velocityY = totalVelocity / touchState.velocityHistory.length;
+      // console.log("touchState.velocityY", touchState.velocityY);
     }
     // Apply scroll speed multiplier for more responsive feel on mobile
     // 1.5x makes scrolling feel more direct and responsive
@@ -716,9 +785,14 @@ function handleTouchEnd(
     };
   }
 
+  // If we were in long press text selection mode, exit select mode
+  if (touchState?.isLongPress && state.mode === "select") {
+    state = updateMode(state, "edit");
+  }
+
   // Implement momentum scrolling with the tracked velocity
-  // Only apply momentum if NOT dragging scrollbar
-  if (touchState && !touchState.isScrollbarDrag) {
+  // Only apply momentum if NOT dragging scrollbar and NOT in long press mode
+  if (touchState && !touchState.isScrollbarDrag && !touchState.isLongPress) {
     // Use the average velocity from recent history
     const avgVelocity = touchState.velocityY;
 
@@ -757,6 +831,11 @@ function handleTouchCancel(state: EditorState): EditorState {
       ...state,
       scrollbar: endScrollbarDrag(state.scrollbar),
     };
+  }
+
+  // If we were in long press text selection mode, exit select mode
+  if (touchState?.isLongPress && state.mode === "select") {
+    state = updateMode(state, "edit");
   }
 
   // Clear touch state

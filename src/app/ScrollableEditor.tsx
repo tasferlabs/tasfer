@@ -1,7 +1,7 @@
 import LoadingScreen from "@/components/ui/loading-screen";
-import React, { useLayoutEffect, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { cn } from "../lib/utils";
-import { useEditor } from "./useEditor";
+import { mountEditor, type MountedEditor } from "../editor/mount";
 
 interface ScrollableEditorProps {
   path: string;
@@ -12,61 +12,62 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
   path,
   className = "",
 }) => {
-  const { canvasRef, updateViewport, isInitialized, viewport } =
-    useEditor(path);
-
-  // Ref to the wrapper div to observe its size
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef<MountedEditor | null>(null);
 
-  // Keep the viewport dimensions in sync with the wrapper size
-  useLayoutEffect(() => {
-    if (!wrapperRef.current) return;
+  // Imperatively mount/unmount editor (no React state needed)
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
 
-    function syncSize() {
-      const rect = wrapperRef.current!.getBoundingClientRect();
-      updateViewport({
-        width: rect.width,
-        height: rect.height,
-        scrollY: 0,
-      });
+    // Clean up any previous mount (e.g., path changes, strict mode re-mount)
+    if (mountedRef.current) {
+      mountedRef.current.destroy();
+      mountedRef.current = null;
     }
 
-    // Initial sync
-    syncSize();
+    // Show overlay until ready
+    if (overlayRef.current) {
+      overlayRef.current.style.display = "";
+      overlayRef.current.removeAttribute("aria-hidden");
+    }
 
-    const resizeObserver = new ResizeObserver(() => syncSize());
-    resizeObserver.observe(wrapperRef.current);
+    const mounted = mountEditor(el, { path });
+    mountedRef.current = mounted;
 
-    return () => resizeObserver.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [updateViewport]);
+    mounted.ready.finally(() => {
+      // Hide overlay when loaded + started (or if load fails)
+      if (overlayRef.current) {
+        overlayRef.current.style.display = "none";
+        overlayRef.current.setAttribute("aria-hidden", "true");
+      }
+    });
 
-  // Get device pixel ratio for high-DPI displays (iOS retina, etc.)
-  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    return () => {
+      mounted.destroy();
+      if (mountedRef.current === mounted) {
+        mountedRef.current = null;
+      }
+    };
+  }, [path]);
 
   return (
     <div
       ref={wrapperRef}
       className={cn("relative w-full h-full overflow-hidden", className)}
+      role="textbox"
+      aria-label="Text editor"
+      aria-multiline="true"
+      tabIndex={-1}
     >
       {/* Loading overlay */}
-      {!isInitialized && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 backdrop-blur-sm">
-          <LoadingScreen />
-        </div>
-      )}
-
-      {/* Canvas - now handles its own scrolling */}
-      <canvas
-        ref={canvasRef}
-        style={{
-          height: viewport?.height,
-          width: viewport?.width,
-        }}
-        className="w-full h-full"
-        width={Math.max((viewport?.width || 0) * dpr, 1)}
-        height={Math.max((viewport?.height || 0) * dpr, 1)}
-      />
+      <div
+        ref={overlayRef}
+        className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 backdrop-blur-sm"
+      >
+        <LoadingScreen />
+      </div>
     </div>
   );
 };
