@@ -1,0 +1,11 @@
+export const DOUBLE_CLICK_TIME = 500;
+export const CLICK_DISTANCE_THRESHOLD = 5;
+export const TAP_DISTANCE_THRESHOLD = 30;
+export const LONG_PRESS_DURATION = 400;
+export const MOVEMENT_THRESHOLD = 10;
+export const TAP_MAX_DURATION = 500;
+export const EDGE_SCROLL_THRESHOLD = 80;
+export const EDGE_SCROLL_SPEED = 12;
+export const EDGE_SCROLL_MAX_SPEED = 120;
+export const EDGE_SCROLL_ACCELERATION_RATE = 2.5;
+

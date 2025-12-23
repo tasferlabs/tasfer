@@ -49,17 +49,18 @@ import type {
   KeyboardEvent,
 } from "./types";
 import { recordUndo, undoState, redoState } from "./undo";
-
-const DOUBLE_CLICK_TIME = 500; // ms
-const CLICK_DISTANCE_THRESHOLD = 5; // pixels
-const TAP_DISTANCE_THRESHOLD = 30; // pixels - larger for touch to account for finger movement
-const LONG_PRESS_DURATION = 400; // ms - time to wait before switching to text selection
-const MOVEMENT_THRESHOLD = 10; // pixels - movement that cancels long press detection
-const TAP_MAX_DURATION = 500; // ms - max duration for a gesture to count as a tap
-const EDGE_SCROLL_THRESHOLD = 80;
-const EDGE_SCROLL_SPEED = 12;
-const EDGE_SCROLL_MAX_SPEED = 120;
-const EDGE_SCROLL_ACCELERATION_RATE = 2.5;
+import {
+  DOUBLE_CLICK_TIME,
+  CLICK_DISTANCE_THRESHOLD,
+  TAP_DISTANCE_THRESHOLD,
+  LONG_PRESS_DURATION,
+  MOVEMENT_THRESHOLD,
+  TAP_MAX_DURATION,
+  EDGE_SCROLL_THRESHOLD,
+  EDGE_SCROLL_SPEED,
+  EDGE_SCROLL_MAX_SPEED,
+  EDGE_SCROLL_ACCELERATION_RATE,
+} from "./constants";
 
 function isTouchDevice(): boolean {
   return (
