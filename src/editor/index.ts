@@ -90,7 +90,7 @@ export default function createEditor(
     if (e instanceof KeyboardEvent && e.target === hiddenInput) {
       return;
     }
-    
+
     if (
       e instanceof KeyboardEvent &&
       ["Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(
@@ -132,7 +132,7 @@ export default function createEditor(
       touchStartTime = Date.now();
       touchHasMoved = false;
     }
-    
+
     // Process the touch event normally (for scrolling, etc.)
     eventsHandler(e);
   }
@@ -141,11 +141,11 @@ export default function createEditor(
   function touchEndHandler(e: TouchEvent) {
     // Process the touch event first
     eventsHandler(e);
-    
+
     // Check if this was a tap (not a scroll/drag)
     const touchDuration = Date.now() - touchStartTime;
     const wasTap = !touchHasMoved && touchDuration < TAP_TIME_THRESHOLD;
-    
+
     // Focus input on tap to trigger keyboard (but not on scroll)
     if (hiddenInput && isTouchDevice() && wasTap) {
       // Small delay to ensure touch event is processed
@@ -172,7 +172,7 @@ export default function createEditor(
         touchHasMoved = true;
       }
     }
-    
+
     // Process the touch event normally (for scrolling)
     eventsHandler(e);
   }
@@ -180,14 +180,18 @@ export default function createEditor(
   // Handle input from hidden input element (mobile keyboard)
   function hiddenInputHandler(e: Event) {
     if (!hiddenInput || !state) return;
-    
+
     const inputEvent = e as InputEvent;
-    
+
     // Use inputEvent.data for precise text that was inserted (not entire input value)
     const insertedText = inputEvent.data;
-    
+
     // Handle text input
-    if (insertedText && (inputEvent.inputType === "insertText" || inputEvent.inputType === "insertCompositionText")) {
+    if (
+      insertedText &&
+      (inputEvent.inputType === "insertText" ||
+        inputEvent.inputType === "insertCompositionText")
+    ) {
       // Process each character that was inserted
       for (const char of insertedText) {
         const keyEvent = new KeyboardEvent("keydown", {
@@ -201,7 +205,7 @@ export default function createEditor(
       hiddenInput.value = "";
       return;
     }
-    
+
     // Handle special input types
     if (inputEvent.inputType === "insertLineBreak") {
       const enterEvent = new KeyboardEvent("keydown", {
@@ -213,7 +217,7 @@ export default function createEditor(
       hiddenInput.value = "";
       return;
     }
-    
+
     if (inputEvent.inputType === "deleteContentBackward") {
       const backspaceEvent = new KeyboardEvent("keydown", {
         key: "Backspace",
@@ -224,7 +228,7 @@ export default function createEditor(
       hiddenInput.value = "";
       return;
     }
-    
+
     // Clear input value for any other input types to prevent accumulation
     hiddenInput.value = "";
   }
@@ -232,10 +236,20 @@ export default function createEditor(
   // Handle keydown from hidden input (for special keys)
   function hiddenInputKeyDownHandler(e: KeyboardEvent) {
     if (!hiddenInput) return;
-    
+
     // Only forward special keys to avoid duplication with input event
     // Regular text input is handled by hiddenInputHandler
-    if (["Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Backspace", "Delete"].includes(e.key)) {
+    if (
+      [
+        "Enter",
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "Backspace",
+        "Delete",
+      ].includes(e.key)
+    ) {
       e.preventDefault();
       e.stopPropagation();
       eventsQueue.push(e);
@@ -268,27 +282,32 @@ export default function createEditor(
         }
       }
     };
-    canvas.addEventListener("mousedown", canvasClickHandler);
+    if (!isTouchDevice()) {
+      canvas.addEventListener("mousedown", canvasClickHandler);
+
+      canvas.addEventListener("mousedown", eventsHandler);
+      canvas.addEventListener("mousemove", eventsHandler);
+      canvas.addEventListener("mouseup", eventsHandler);
+      canvas.addEventListener("wheel", eventsHandler, { passive: false });
+
+      window.addEventListener("mouseup", windowMouseUpHandler);
+      window.addEventListener("mousemove", windowMouseMoveHandler);
+    }
     canvas.addEventListener("click", canvasClickHandler);
-    
-    canvas.addEventListener("mousedown", eventsHandler);
-    canvas.addEventListener("mousemove", eventsHandler);
-    canvas.addEventListener("mouseup", eventsHandler);
-    canvas.addEventListener("wheel", eventsHandler, { passive: false });
-    canvas.addEventListener("touchstart", touchStartHandler, { passive: false });
+
+    canvas.addEventListener("touchstart", touchStartHandler, {
+      passive: false,
+    });
     canvas.addEventListener("touchmove", touchMoveHandler, { passive: false });
     canvas.addEventListener("touchend", touchEndHandler, { passive: false });
     canvas.addEventListener("touchcancel", eventsHandler, { passive: false });
     window.addEventListener("keydown", eventsHandler);
-    // Window-level mouse handlers to catch events outside canvas
-    window.addEventListener("mouseup", windowMouseUpHandler);
-    window.addEventListener("mousemove", windowMouseMoveHandler);
-    
+
     // Set up hidden input handlers for mobile keyboard support
     if (hiddenInput) {
       hiddenInput.addEventListener("input", hiddenInputHandler);
       hiddenInput.addEventListener("keydown", hiddenInputKeyDownHandler);
-      
+
       // Ensure input is focusable (already set in mount.ts, but ensure it's correct)
       hiddenInput.setAttribute("tabindex", "0");
     }
@@ -303,29 +322,35 @@ export default function createEditor(
       cancelAnimationFrame(animationFrameId);
     }
 
-    // Clean up click handler
     if (canvasClickHandler) {
-      canvas.removeEventListener("mousedown", canvasClickHandler);
       canvas.removeEventListener("click", canvasClickHandler);
-      canvasClickHandler = null;
     }
 
-    canvas.removeEventListener("mousedown", eventsHandler);
-    canvas.removeEventListener("mousemove", eventsHandler);
-    canvas.removeEventListener("mouseup", eventsHandler);
-    canvas.removeEventListener("pointerdown", eventsHandler);
-    canvas.removeEventListener("pointermove", eventsHandler);
-    canvas.removeEventListener("pointerup", eventsHandler);
-    canvas.removeEventListener("pointercancel", eventsHandler);
-    canvas.removeEventListener("wheel", eventsHandler);
+    if (!isTouchDevice()) {
+      if (canvasClickHandler) {
+        canvas.removeEventListener("mousedown", canvasClickHandler);
+        canvasClickHandler = null;
+      }
+
+      canvas.removeEventListener("mousedown", eventsHandler);
+      canvas.removeEventListener("mousemove", eventsHandler);
+      canvas.removeEventListener("mouseup", eventsHandler);
+      canvas.removeEventListener("pointerdown", eventsHandler);
+      canvas.removeEventListener("pointermove", eventsHandler);
+      canvas.removeEventListener("pointerup", eventsHandler);
+      canvas.removeEventListener("pointercancel", eventsHandler);
+      canvas.removeEventListener("wheel", eventsHandler);
+
+      window.removeEventListener("mouseup", windowMouseUpHandler);
+      window.removeEventListener("mousemove", windowMouseMoveHandler);
+    }
+
     canvas.removeEventListener("touchstart", touchStartHandler);
     canvas.removeEventListener("touchmove", touchMoveHandler);
     canvas.removeEventListener("touchend", touchEndHandler);
     canvas.removeEventListener("touchcancel", eventsHandler);
     window.removeEventListener("keydown", eventsHandler);
-    window.removeEventListener("mouseup", windowMouseUpHandler);
-    window.removeEventListener("mousemove", windowMouseMoveHandler);
-    
+
     // Clean up hidden input handlers
     if (hiddenInput) {
       hiddenInput.removeEventListener("input", hiddenInputHandler);

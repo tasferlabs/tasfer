@@ -329,6 +329,7 @@ export function selectWordAtPosition(
   state: EditorState,
   position: Position
 ): EditorState {
+  console.log("selectWordAtPosition", position);
   const { blockIndex, textIndex } = position;
   const block = state.page.blocks[blockIndex];
   const text = getBlockTextContent(block);

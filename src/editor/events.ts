@@ -52,14 +52,57 @@ import { recordUndo, undoState, redoState } from "./undo";
 
 const DOUBLE_CLICK_TIME = 500; // ms
 const CLICK_DISTANCE_THRESHOLD = 5; // pixels
+const TAP_DISTANCE_THRESHOLD = 30; // pixels - larger for touch to account for finger movement
+
+function isTouchDevice(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    ("ontouchstart" in window || navigator.maxTouchPoints > 0)
+  );
+}
 
 function isWithinClickDistance(
   pos1: { x: number; y: number },
-  pos2: { x: number; y: number }
+  pos2: { x: number; y: number },
+  threshold: number = CLICK_DISTANCE_THRESHOLD
 ): boolean {
   const dx = pos1.x - pos2.x;
   const dy = pos1.y - pos2.y;
-  return Math.sqrt(dx * dx + dy * dy) <= CLICK_DISTANCE_THRESHOLD;
+  return Math.sqrt(dx * dx + dy * dy) <= threshold;
+}
+
+function isPositionWithinSelection(
+  state: EditorState,
+  position: { blockIndex: number; textIndex: number }
+): boolean {
+  if (!state.selection) return false;
+
+  const { anchor, focus } = state.selection;
+
+  const selStart =
+    anchor.blockIndex < focus.blockIndex ||
+    (anchor.blockIndex === focus.blockIndex && anchor.textIndex <= focus.textIndex)
+      ? anchor
+      : focus;
+  const selEnd = selStart === anchor ? focus : anchor;
+
+  if (selStart.blockIndex === selEnd.blockIndex && selStart.textIndex === selEnd.textIndex) {
+    return false;
+  }
+
+  if (position.blockIndex < selStart.blockIndex || position.blockIndex > selEnd.blockIndex) {
+    return false;
+  }
+
+  if (position.blockIndex === selStart.blockIndex && position.textIndex < selStart.textIndex) {
+    return false;
+  }
+
+  if (position.blockIndex === selEnd.blockIndex && position.textIndex > selEnd.textIndex) {
+    return false;
+  }
+
+  return true;
 }
 
 export function handleEvents(
@@ -105,6 +148,9 @@ export function handleEvents(
   for (const event of events) {
     switch (event.type) {
       case "mousedown":
+        if (isTouchDevice()) {
+          break;
+        }
         state = handleMouseDown(
           state,
           viewport,
@@ -115,6 +161,9 @@ export function handleEvents(
         );
         break;
       case "mousemove":
+        if (isTouchDevice()) {
+          break;
+        }
         state = handleMouseMove(
           state,
           viewport,
@@ -125,6 +174,9 @@ export function handleEvents(
         );
         break;
       case "mouseup":
+        if (isTouchDevice()) {
+          break;
+        }
         state = handleMouseUp(
           state,
           viewport,
@@ -140,6 +192,9 @@ export function handleEvents(
         state = handleKeyDown(state, viewport, event);
         break;
       case "wheel":
+        if (isTouchDevice()) {
+          break;
+        }
         state = handleWheel(
           state,
           viewport,
@@ -274,15 +329,19 @@ function handleMouseDown(
   state.clickTracker.lastClickTime = currentTime;
   state.clickTracker.lastClickPosition = currentPosition;
 
-  // Handle multi-click selection
-  if (isMultiClick) {
-    if (state.clickTracker.count === 2) {
-      // Double-click: select word
-      return selectWordAtPosition(state, position);
-    } else if (state.clickTracker.count >= 3) {
-      // Triple-click: select line/paragraph
-      return selectLineAtPosition(state, position);
-    }
+  // Handle triple-click: always select line (even inside selection)
+  if (isMultiClick && state.clickTracker.count >= 3) {
+    return selectLineAtPosition(state, position);
+  }
+
+  // If clicking inside a selection (single or double click), don't reset it (Apple Notes behavior)
+  if (isPositionWithinSelection(state, position)) {
+    return state;
+  }
+
+  // Handle double-click: select word
+  if (isMultiClick && state.clickTracker.count === 2) {
+    return selectWordAtPosition(state, position);
   }
 
   // Set cursor position
@@ -555,8 +614,20 @@ let touchState: {
   hasMoved: boolean;
 } | null = null;
 
-const LONG_PRESS_DURATION = 500; // ms - time to wait before switching to text selection
+// Touch tap tracking for double/triple tap detection (similar to clickTracker)
+let touchTapTracker: {
+  lastTapTime: number;
+  lastTapPosition: { x: number; y: number } | null;
+  count: number;
+} = {
+  lastTapTime: 0,
+  lastTapPosition: null,
+  count: 0,
+};
+
+const LONG_PRESS_DURATION = 400; // ms - time to wait before switching to text selection
 const MOVEMENT_THRESHOLD = 10; // pixels - movement that cancels long press detection
+const TAP_MAX_DURATION = 500; // ms - max duration for a gesture to count as a tap
 
 function handleTouchStart(
   state: EditorState,
@@ -774,7 +845,7 @@ function handleTouchMove(
 
 function handleTouchEnd(
   state: EditorState,
-  _viewport: ViewportState,
+  viewport: ViewportState,
   _event: TouchEvent
 ): EditorState {
   // End scrollbar drag if active
@@ -788,6 +859,81 @@ function handleTouchEnd(
   // If we were in long press text selection mode, exit select mode
   if (touchState?.isLongPress && state.mode === "select") {
     state = updateMode(state, "edit");
+    touchState = null;
+    return {
+      ...state,
+      scrollbar: {
+        ...state.scrollbar,
+        lastInteraction: Date.now(),
+      },
+    };
+  }
+
+  // Detect tap: short duration and minimal movement
+  const currentTime = Date.now();
+  const isTap =
+    touchState &&
+    !touchState.isScrollbarDrag &&
+    !touchState.hasMoved &&
+    currentTime - touchState.startTime < TAP_MAX_DURATION;
+
+  if (isTap && touchState) {
+    const tapPosition = { x: touchState.startX, y: touchState.startY };
+
+    // Get text position for cursor/selection
+    const position = getTextPositionFromViewport(
+      tapPosition.x,
+      tapPosition.y,
+      state,
+      viewport,
+      { start: 0, end: state.page.blocks.length - 1 }
+    );
+
+    // Check for multi-tap (double/triple) - use larger threshold for touch
+    let isMultiTap = false;
+    if (
+      touchTapTracker.lastTapPosition &&
+      currentTime - touchTapTracker.lastTapTime <= DOUBLE_CLICK_TIME &&
+      isWithinClickDistance(tapPosition, touchTapTracker.lastTapPosition, TAP_DISTANCE_THRESHOLD)
+    ) {
+      touchTapTracker.count++;
+      isMultiTap = true;
+    } else {
+      touchTapTracker.count = 1;
+    }
+
+    touchTapTracker.lastTapTime = currentTime;
+    touchTapTracker.lastTapPosition = tapPosition;
+
+    if (position) {
+      // Handle triple-tap: always select line (even inside selection)
+      if (isMultiTap && touchTapTracker.count >= 3) {
+        state = selectLineAtPosition(state, position);
+      }
+      // If tapping inside a selection (single or double tap), don't reset it (Apple Notes behavior)
+      else if (isPositionWithinSelection(state, position)) {
+        // Do nothing, keep selection
+      }
+      // Handle double-tap: select word
+      else if (isMultiTap && touchTapTracker.count === 2) {
+        state = selectWordAtPosition(state, position);
+      }
+      // Single tap outside selection: position cursor
+      else {
+        state = clearSelection(state);
+        state = updateCursor(state, position);
+        state = updateMode(state, "edit");
+      }
+    }
+
+    touchState = null;
+    return {
+      ...state,
+      scrollbar: {
+        ...state.scrollbar,
+        lastInteraction: Date.now(),
+      },
+    };
   }
 
   // Implement momentum scrolling with the tracked velocity
