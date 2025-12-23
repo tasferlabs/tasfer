@@ -782,6 +782,10 @@ function stopAutoScroll() {
   autoScrollState.currentSpeedMultiplier = 1;
 }
 
+export function isInLongPressMode(): boolean {
+  return touchState?.isLongPress === true;
+}
+
 function handleTouchStart(
   state: EditorState,
   viewport: ViewportState,
@@ -1006,6 +1010,7 @@ function handleTouchEnd(
   if (touchState?.isLongPress && state.mode === "select") {
     state = updateMode(state, "edit");
     touchState = null;
+    
     return {
       ...state,
       scrollbar: {

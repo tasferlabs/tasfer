@@ -17,6 +17,6 @@ Bugs list
 [x] when moving with arrows keys the selection is not reseted if we do not have shift key pressed. Same thing with ctrl + arrows keys.
 [x] when selection going outside the screen the viewport should follow the selection.
 [x] hold press and selecting down on mobile does not work correctly because cursor is not moving down.
-[ ] when end edge scrolling we should open keyboard on mobile.
+[x] when end edge scrolling we should open keyboard on mobile.
 [ ] when click in at the end page we should select the last line.
-[ ] when clicking on the sides or outside the editor we should reset the selection.
+[x] when clicking on the sides or outside the editor we should reset the selection.

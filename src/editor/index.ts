@@ -1,5 +1,5 @@
 import { loadPage, type Page } from "../deserializer/loadPage";
-import { handleEvents } from "./events";
+import { handleEvents, isInLongPressMode } from "./events";
 import { calculateBlockHeight, renderPage } from "./renderer";
 import { createInitialState } from "./state";
 import { defaultStyles } from "./styles";
@@ -139,6 +139,10 @@ export default function createEditor(
 
   // Handle touchend - focus input if it was a tap (not a scroll)
   function touchEndHandler(e: TouchEvent) {
+    // Check if we're ending a long press selection BEFORE processing the event
+    // This allows us to focus the input synchronously with the user gesture
+    const wasLongPress = isInLongPressMode();
+    
     // Process the touch event first
     eventsHandler(e);
 
@@ -146,20 +150,21 @@ export default function createEditor(
     const touchDuration = Date.now() - touchStartTime;
     const wasTap = !touchHasMoved && touchDuration < TAP_TIME_THRESHOLD;
 
-    // Focus input on tap to trigger keyboard (but not on scroll)
-    if (hiddenInput && isTouchDevice() && wasTap) {
-      // Small delay to ensure touch event is processed
-      setTimeout(() => {
-        try {
-          hiddenInput.focus();
-          // Some browsers need click as well
-          if (document.activeElement !== hiddenInput) {
-            hiddenInput.click();
-          }
-        } catch (err) {
-          // Ignore focus errors
+    // Focus input if ending long press or on tap
+    if (hiddenInput && isTouchDevice() && (wasLongPress || wasTap)) {
+      try {
+        hiddenInput.focus({ preventScroll: true });
+        // Some browsers need click as well
+        if (document.activeElement !== hiddenInput) {
+          const prevPointerEvents = hiddenInput.style.pointerEvents;
+          hiddenInput.style.pointerEvents = "auto";
+          hiddenInput.focus({ preventScroll: true });
+          hiddenInput.click();
+          hiddenInput.style.pointerEvents = prevPointerEvents;
         }
-      }, 50);
+      } catch (err) {
+        console.warn("Failed to focus hidden input:", err);
+      }
     }
   }
 
