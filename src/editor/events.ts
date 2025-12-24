@@ -190,6 +190,56 @@ export function handleEvents(
         lastInteraction: Date.now(),
       },
     };
+  } else if (autoScrollState.isActive && state.mode === "select") {
+    // Apply auto-scroll for mouse selection
+    const elapsedTime = Date.now() - autoScrollState.startTime;
+    const timeBasedMultiplier = Math.min(
+      Math.pow(EDGE_SCROLL_ACCELERATION_RATE, elapsedTime / 1000),
+      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED
+    );
+    autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
+
+    let autoScrollDelta = 0;
+    const mouseY = autoScrollState.lastMouseY;
+
+    if (mouseY < 0) {
+      const distance = Math.abs(mouseY);
+      const speedMultiplier = Math.min(distance / 100, 3);
+      autoScrollDelta = -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
+    } else if (mouseY < EDGE_SCROLL_THRESHOLD) {
+      const proximity = 1 - mouseY / EDGE_SCROLL_THRESHOLD;
+      autoScrollDelta = -EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
+    } else if (mouseY > viewport.height) {
+      const distance = mouseY - viewport.height;
+      const speedMultiplier = Math.min(distance / 100, 3);
+      autoScrollDelta = EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
+    } else if (mouseY > viewport.height - EDGE_SCROLL_THRESHOLD) {
+      const proximity = (mouseY - (viewport.height - EDGE_SCROLL_THRESHOLD)) / EDGE_SCROLL_THRESHOLD;
+      autoScrollDelta = EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
+    }
+
+    if (autoScrollDelta !== 0 && updateViewportCallback) {
+      const maxScroll = documentHeight - viewport.height;
+      const newScrollY = Math.max(0, Math.min(maxScroll, viewport.scrollY + autoScrollDelta));
+
+      if (newScrollY !== viewport.scrollY) {
+        updateViewportCallback({ scrollY: newScrollY });
+      }
+    }
+
+    // Update selection based on new scroll position
+    const position = getTextPositionFromViewport(
+      autoScrollState.lastMouseX,
+      autoScrollState.lastMouseY,
+      state,
+      viewport,
+      visibility // Use current visibility which might be slightly stale but acceptable for one frame
+    );
+
+    if (position) {
+      state = updateSelectionFocus(state, position);
+      state = updateCursor(state, position);
+    }
   }
   
   // Apply momentum scrolling if active (even when no events)
@@ -502,7 +552,6 @@ function handleMouseMove(
   let newState = updateSelectionFocus(state, position);
   newState = updateCursor(newState, position);
 
-  let autoScrollDelta = 0;
   const isNearEdge =
     canvasY < EDGE_SCROLL_THRESHOLD ||
     canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
@@ -513,46 +562,13 @@ function handleMouseMove(
     if (!autoScrollState.isActive) {
       startAutoScroll();
     }
+    
+    // Update stored mouse position for auto-scroll loop
+    autoScrollState.lastMouseX = canvasX;
+    autoScrollState.lastMouseY = canvasY;
 
-    const elapsedTime = Date.now() - autoScrollState.startTime;
-    const timeBasedMultiplier = Math.min(
-      Math.pow(EDGE_SCROLL_ACCELERATION_RATE, elapsedTime / 1000),
-      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED
-    );
-    autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
-
-    if (canvasY < 0) {
-      const distance = Math.abs(canvasY);
-      const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta = -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
-    } else if (canvasY < EDGE_SCROLL_THRESHOLD) {
-      const proximity = 1 - canvasY / EDGE_SCROLL_THRESHOLD;
-      autoScrollDelta = -EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
-    } else if (canvasY > viewport.height) {
-      const distance = canvasY - viewport.height;
-      const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta = EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
-    } else if (canvasY > viewport.height - EDGE_SCROLL_THRESHOLD) {
-      const proximity = (canvasY - (viewport.height - EDGE_SCROLL_THRESHOLD)) / EDGE_SCROLL_THRESHOLD;
-      autoScrollDelta = EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
-    }
-
-    if (autoScrollDelta !== 0 && updateViewportCallback) {
-      const maxScroll = documentHeight - viewport.height;
-      const newScrollY = Math.max(0, Math.min(maxScroll, viewport.scrollY + autoScrollDelta));
-      
-      if (newScrollY !== viewport.scrollY) {
-        updateViewportCallback({ scrollY: newScrollY });
-      }
-    }
-
-    newState = {
-      ...newState,
-      scrollbar: {
-        ...newState.scrollbar,
-        lastInteraction: Date.now(),
-      },
-    };
+    // We let handleEvents loop handle the actual scrolling to support
+    // scrolling while the mouse is stationary at the edge.
   } else {
     if (autoScrollState.isActive) {
       stopAutoScroll();
@@ -781,10 +797,14 @@ let autoScrollState: {
   isActive: boolean;
   startTime: number;
   currentSpeedMultiplier: number;
+  lastMouseX: number;
+  lastMouseY: number;
 } = {
   isActive: false,
   startTime: 0,
   currentSpeedMultiplier: 1,
+  lastMouseX: 0,
+  lastMouseY: 0,
 };
 
 // Touch tap tracking for double/triple tap detection (similar to clickTracker)
