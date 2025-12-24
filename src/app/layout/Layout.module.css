@@ -1,0 +1,393 @@
+.appContainer {
+  display: flex;
+  flex-direction: row;
+  height: 100dvh;
+}
+
+.appSidebar {
+  flex: 0 0 auto;
+  min-width: 300px;
+  max-width: 500px;
+  display: flex;
+  flex-direction: row;
+  color: var(--muted-foreground);
+  overflow: hidden;
+}
+
+.appFrame {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: 100dvh;
+  border-radius: 0px 10px 10px 0px;
+  z-index: 1;
+  min-width: 0;
+}
+
+.dark .appFrame {
+  box-shadow: none;
+}
+
+.appSidebar .appSidebarContent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1 0 auto;
+  width: calc(100% - 6px);
+  min-height: 0;
+  overflow: hidden;
+  /* for touch dragging to work */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.appSidebar .appSidebarResizer {
+  flex: 0 0 6px;
+  justify-self: flex-end;
+  align-items: center;
+  cursor: col-resize;
+  border-left: 2px solid var(--background);
+  border-right: 2px solid var(--background);
+  background-color: var(--border);
+}
+
+.appSidebar .appSidebarResizer:hover {
+  background: color-mix(in srgb, var(--primary), transparent 80%);
+  border: none;
+}
+:global(.dark) .appSidebar .appSidebarResizer:hover {
+  background: var(--primary);
+  border: none;
+}
+
+.appHeader {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  height: 60px;
+  color: var(--muted-foreground);
+  z-index: 1;
+  width: 100%;
+  user-select: none;
+}
+
+.iconButton {
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--muted-foreground);
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 4px;
+}
+
+.iconButton:hover {
+  color: var(--foreground);
+  background-color: var(--muted);
+}
+
+.appHeaderOpenSidebar {
+  visibility: hidden;
+}
+
+.appHeader:hover .appHeaderOpenSidebar {
+  visibility: visible;
+}
+
+.appHeaderTitles {
+  display: flex;
+  align-items: center;
+  max-width: 70vw;
+  user-select: none;
+}
+
+.appHeaderTitle {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  color: var(--foreground);
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.appHeaderTitleSeparator {
+  color: var(--foreground);
+}
+
+.appHeaderTitle:hover {
+  color: var(--foreground);
+  background-color: var(--muted);
+}
+
+.appNavigationLinks {
+  padding: 0 1rem;
+  margin-bottom: 1rem;
+}
+
+.appNavigationLinks > * + * {
+  margin-block-start: 0.25rem;
+}
+
+.appNavigationLink {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--foreground);
+  cursor: pointer;
+  padding: 0;
+  height: 32px;
+  border-radius: 4px;
+}
+
+.appNavigationLinkIcon {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.appNavigationLinkIcon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.appNavigationLink:hover {
+  background-color: var(--accent);
+}
+
+:global(.dark) .appNavigationLink:hover {
+  background-color: var(--accent);
+}
+
+.appNavigationLinkBadge {
+  background-color: var(--primary);
+  color: var(--background);
+  font-size: 0.75rem;
+  padding: 0.125rem 0.25rem;
+  border-radius: 4px;
+  display: inline-block;
+  min-width: 20px;
+  text-align: center;
+  line-height: 1;
+  margin-inline-start: auto;
+}
+
+.appSidebarHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 60px;
+  padding: 0 1rem;
+}
+
+.appSidebarSection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 1rem;
+}
+.appSidebarScrollArea > div {
+  display: block !important;
+}
+
+.appSidebarSectionTitle {
+  font-weight: 700;
+  color: var(--foreground);
+  /* text-transform: uppercase; */
+
+  flex: 0 0 max-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.appSidebarSectionIcon {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.appSidebarSection button:first-of-type {
+  margin-inline-start: auto;
+}
+.appSidebarSectionIcon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.appSidebarSectionDivider {
+  flex: 4 0 auto;
+  height: 1px;
+  background-color: var(--border);
+}
+
+.appSidebarSectionButton {
+  background: none;
+  border: none;
+  color: var(--foreground);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  flex: 0 0 auto;
+  border-radius: 4px;
+}
+
+.appSidebarSectionButton:hover {
+  background-color: color-mix(in srgb, var(--foreground), transparent 90%);
+}
+
+.appSidebarSectionPagesArea {
+  flex: 1 1 300px;
+  margin-top: 0.25rem;
+}
+
+.appSidebarClose {
+  margin-inline-start: auto;
+}
+
+.floatingSidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  max-width: 90vw;
+  background-color: var(--background);
+  z-index: 50;
+  border-right: 1px solid var(--border);
+  padding-right: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+*[dir="rtl"] .floatingSidebar {
+  right: 0;
+}
+
+.visible {
+  visibility: visible;
+}
+
+.appHeaderUserNav {
+  margin-inline-start: auto;
+}
+
+.illustration {
+  max-width: 300px;
+  width: 100%;
+  color: var(--foreground);
+}
+
+:global(.dark) .illustration {
+  color: var(--foreground);
+}
+
+.addPageButton {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--foreground);
+  cursor: pointer;
+  padding: 4px;
+  font-size: 0.875rem;
+  height: 32px;
+}
+
+.addPageButton svg {
+  width: 24px;
+  height: 24px;
+  fill: var(--foreground);
+}
+
+.addPageButton:hover {
+  background-color: var(--accent);
+}
+
+:global(.dark) .addPageButton:hover {
+  background-color: var(--accent);
+}
+
+.LinksArea {
+  flex: 1 0 auto;
+}
+
+.appSidebarPages {
+  padding: 0 1rem;
+  flex: 1 1 auto;
+  min-height: 150px;
+  border-radius: 4px;
+
+  /* for touch dragging to work */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.appSidebarPagesDragging {
+  background-color: color-mix(in srgb, var(--primary), transparent 80%);
+}
+
+.usersList {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  position: relative;
+}
+
+.usersList > .userAvatar:nth-child(1) {
+  z-index: 2; /* Higher z-index for the first element */
+}
+
+.userAvatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* flex-direction: row-reverse; */
+  background-color: var(--avatar-color);
+  color: var(--avatar-color-text);
+  border: 3px solid var(--background);
+  margin-inline-start: -5px;
+  box-sizing: content-box;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--background), transparent 80%);
+  transition: margin-inline-start 0.2s ease, opacity 0.1s ease;
+  opacity: 0.6;
+}
+
+.usersList .userAvatar:hover {
+  opacity: 1;
+}
+
+.usersList:hover .userAvatar {
+  margin-inline-start: 4px;
+}
