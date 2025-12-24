@@ -2,7 +2,7 @@ import VisuallyHidden from "../components/uiKit/VisuallyHidden/VisuallyHidden";
 import React from "react";
 import style from "./Layout.module.css";
 import { clsx } from "clsx";
-import { List } from "@phosphor-icons/react";
+import { ListIcon } from "@phosphor-icons/react";
 
 export function TopActionBar({
   open,
@@ -21,7 +21,7 @@ export function TopActionBar({
           className={clsx(style.iconButton, style.appHeaderOpenSidebar)}
           onClick={() => setOpen(true)}
         >
-          <List size={24} />
+          <ListIcon size={24} />
           <VisuallyHidden>Open sidebar</VisuallyHidden>
         </button>
       )}

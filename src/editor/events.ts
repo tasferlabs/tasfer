@@ -122,10 +122,12 @@ export function handleEvents(
   visibility: { start: number; end: number },
   events: Event[],
   documentHeight: number,
+  containerRect: { left: number; top: number },
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
   // Apply auto-scroll and selection update during long press
   if (autoScrollState.isActive && touchState?.isLongPress) {
+    // Current touch coordinates are already adjusted relative to container in handleTouchMove
     const touch = { clientY: touchState.currentTouchY, clientX: touchState.currentTouchX };
     
     const elapsedTime = Date.now() - autoScrollState.startTime;
@@ -222,7 +224,8 @@ export function handleEvents(
     return state;
   }
 
-  for (const event of events) {
+  while (events.length > 0) {
+    const event = events[0];
     switch (event.type) {
       case "mousedown":
         if (isTouchDevice()) {
@@ -232,6 +235,7 @@ export function handleEvents(
           state,
           viewport,
           event as unknown as MouseEvent,
+          containerRect,
           visibility,
           documentHeight,
           updateViewportCallback
@@ -245,6 +249,7 @@ export function handleEvents(
           state,
           viewport,
           event as unknown as MouseEvent,
+          containerRect,
           visibility,
           documentHeight,
           updateViewportCallback
@@ -285,6 +290,7 @@ export function handleEvents(
           state,
           viewport,
           event as TouchEvent,
+          containerRect,
           documentHeight
         );
         break;
@@ -293,12 +299,13 @@ export function handleEvents(
           state,
           viewport,
           event as TouchEvent,
+          containerRect,
           documentHeight,
           updateViewportCallback
         );
         break;
       case "touchend":
-        state = handleTouchEnd(state, viewport, event as TouchEvent);
+        state = handleTouchEnd(state, viewport, event as TouchEvent, containerRect);
         break;
       case "touchcancel":
         // Cancel touch interaction
@@ -322,6 +329,7 @@ function handleMouseDown(
   state: EditorState,
   viewport: ViewportState,
   event: MouseEvent,
+  containerRect: { left: number; top: number },
   visibility: { start: number; end: number },
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
@@ -337,13 +345,16 @@ function handleMouseDown(
     },
   };
 
+  const canvasX = event.x - containerRect.left;
+  const canvasY = event.y - containerRect.top;
+
   // Check if clicking on scrollbar
-  if (isPointInScrollbar(event.x, event.y, viewport, documentHeight)) {
+  if (isPointInScrollbar(canvasX, canvasY, viewport, documentHeight)) {
     // Check if clicking on thumb
     if (
       isPointInThumb(
-        event.x,
-        event.y,
+        canvasX,
+        canvasY,
         viewport,
         documentHeight,
         state.scrollbar
@@ -356,7 +367,7 @@ function handleMouseDown(
     } else {
       // Clicking on track - page scroll
       const newScrollY = updateScrollFromTrackClick(
-        event.y,
+        canvasY,
         viewport,
         documentHeight,
         state.scrollbar
@@ -375,8 +386,8 @@ function handleMouseDown(
   }
 
   const position = getTextPositionFromViewport(
-    event.x,
-    event.y,
+    canvasX,
+    canvasY,
     state,
     viewport,
     visibility
@@ -389,7 +400,7 @@ function handleMouseDown(
 
   // Track click for double/triple click detection
   const currentTime = Date.now();
-  const currentPosition = { x: event.x, y: event.y };
+  const currentPosition = { x: canvasX, y: canvasY };
 
   let isMultiClick = false;
 
@@ -442,13 +453,17 @@ function handleMouseMove(
   state: EditorState,
   viewport: ViewportState,
   event: MouseEvent,
+  containerRect: { left: number; top: number },
   visibility: { start: number; end: number },
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
+  const canvasX = event.x - containerRect.left;
+  const canvasY = event.y - containerRect.top;
+
   if (state.scrollbar.isDragging) {
     const newScrollY = updateScrollFromThumbDrag(
-      event.y,
+      canvasY,
       viewport,
       documentHeight,
       state.scrollbar
@@ -460,8 +475,8 @@ function handleMouseMove(
   }
 
   const isOverScrollbar = isPointInScrollbar(
-    event.x,
-    event.y,
+    canvasX,
+    canvasY,
     viewport,
     documentHeight
   );
@@ -475,8 +490,8 @@ function handleMouseMove(
   }
 
   const position = getTextPositionFromViewport(
-    event.x,
-    event.y,
+    canvasX,
+    canvasY,
     state,
     viewport,
     visibility
@@ -489,10 +504,10 @@ function handleMouseMove(
 
   let autoScrollDelta = 0;
   const isNearEdge =
-    event.y < EDGE_SCROLL_THRESHOLD ||
-    event.y > viewport.height - EDGE_SCROLL_THRESHOLD ||
-    event.y < 0 ||
-    event.y > viewport.height;
+    canvasY < EDGE_SCROLL_THRESHOLD ||
+    canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
+    canvasY < 0 ||
+    canvasY > viewport.height;
 
   if (isNearEdge) {
     if (!autoScrollState.isActive) {
@@ -506,19 +521,19 @@ function handleMouseMove(
     );
     autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
 
-    if (event.y < 0) {
-      const distance = Math.abs(event.y);
+    if (canvasY < 0) {
+      const distance = Math.abs(canvasY);
       const speedMultiplier = Math.min(distance / 100, 3);
       autoScrollDelta = -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
-    } else if (event.y < EDGE_SCROLL_THRESHOLD) {
-      const proximity = 1 - event.y / EDGE_SCROLL_THRESHOLD;
+    } else if (canvasY < EDGE_SCROLL_THRESHOLD) {
+      const proximity = 1 - canvasY / EDGE_SCROLL_THRESHOLD;
       autoScrollDelta = -EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
-    } else if (event.y > viewport.height) {
-      const distance = event.y - viewport.height;
+    } else if (canvasY > viewport.height) {
+      const distance = canvasY - viewport.height;
       const speedMultiplier = Math.min(distance / 100, 3);
       autoScrollDelta = EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
-    } else if (event.y > viewport.height - EDGE_SCROLL_THRESHOLD) {
-      const proximity = (event.y - (viewport.height - EDGE_SCROLL_THRESHOLD)) / EDGE_SCROLL_THRESHOLD;
+    } else if (canvasY > viewport.height - EDGE_SCROLL_THRESHOLD) {
+      const proximity = (canvasY - (viewport.height - EDGE_SCROLL_THRESHOLD)) / EDGE_SCROLL_THRESHOLD;
       autoScrollDelta = EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
     }
 
@@ -805,41 +820,44 @@ function handleTouchStart(
   state: EditorState,
   viewport: ViewportState,
   event: TouchEvent,
+  containerRect: { left: number; top: number },
   documentHeight: number
 ): EditorState {
   if (event.touches.length === 1) {
     const touch = event.touches[0];
     const currentTime = Date.now();
+    const canvasX = touch.clientX - containerRect.left;
+    const canvasY = touch.clientY - containerRect.top;
 
     // Check if touch is near the right edge of screen (where scrollbar is)
     // Use a threshold (e.g., last 60px) to detect scrollbar area
     const edgeThreshold = 60;
-    const isNearRightEdge = touch.clientX >= viewport.width - edgeThreshold;
+    const isNearRightEdge = canvasX >= viewport.width - edgeThreshold;
 
     // Also check if actually hitting scrollbar
     const isScrollbarTouch =
       isNearRightEdge &&
       isPointInScrollbar(
-        touch.clientX,
-        touch.clientY,
+        canvasX,
+        canvasY,
         viewport,
         documentHeight
       );
 
     touchState = {
-      startY: touch.clientY,
+      startY: canvasY,
       startScrollY: viewport.scrollY,
-      lastY: touch.clientY,
+      lastY: canvasY,
       lastTime: currentTime,
       velocityY: 0,
       velocityHistory: [],
       isScrollbarDrag: isScrollbarTouch,
-      startX: touch.clientX,
+      startX: canvasX,
       startTime: currentTime,
       isLongPress: false,
       hasMoved: false,
-      currentTouchX: touch.clientX,
-      currentTouchY: touch.clientY,
+      currentTouchX: canvasX,
+      currentTouchY: canvasY,
     };
 
     // If touching scrollbar, start drag
@@ -874,6 +892,7 @@ function handleTouchMove(
   state: EditorState,
   viewport: ViewportState,
   event: TouchEvent,
+  containerRect: { left: number; top: number },
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
@@ -882,6 +901,8 @@ function handleTouchMove(
     const touch = event.touches[0];
     const currentTime = Date.now();
     const deltaTime = currentTime - touchState.lastTime;
+    const canvasX = touch.clientX - containerRect.left;
+    const canvasY = touch.clientY - containerRect.top;
 
     // Skip if no time has passed
     if (deltaTime === 0) return state;
@@ -889,7 +910,7 @@ function handleTouchMove(
     // Handle scrollbar drag
     if (touchState.isScrollbarDrag && state.scrollbar.isDragging) {
       const newScrollY = updateScrollFromThumbDrag(
-        touch.clientY,
+        canvasY,
         viewport,
         documentHeight,
         state.scrollbar
@@ -901,8 +922,8 @@ function handleTouchMove(
     }
 
     // Check if we've moved significantly from start position
-    const deltaX = Math.abs(touch.clientX - touchState.startX);
-    const deltaY = Math.abs(touch.clientY - touchState.startY);
+    const deltaX = Math.abs(canvasX - touchState.startX);
+    const deltaY = Math.abs(canvasY - touchState.startY);
     const totalMovement = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
     // Detect long press: if user held still for LONG_PRESS_DURATION, switch to text selection
@@ -921,8 +942,8 @@ function handleTouchMove(
     }
 
     // Update current touch position for auto-scroll
-    touchState.currentTouchX = touch.clientX;
-    touchState.currentTouchY = touch.clientY;
+    touchState.currentTouchX = canvasX;
+    touchState.currentTouchY = canvasY;
 
     // If moved beyond threshold, mark as moved (cancels potential long press)
     if (!touchState.hasMoved && totalMovement > MOVEMENT_THRESHOLD) {
@@ -935,7 +956,7 @@ function handleTouchMove(
         startAutoScroll();
       }
 
-      touchState.lastY = touch.clientY;
+      touchState.lastY = canvasY;
       touchState.lastTime = currentTime;
 
       return {
@@ -948,7 +969,7 @@ function handleTouchMove(
     }
 
     // Default: Handle scrolling
-    const scrollDeltaY = touchState.lastY - touch.clientY;
+    const scrollDeltaY = touchState.lastY - canvasY;
 
     // Calculate instantaneous velocity (pixels per millisecond)
     const instantVelocity = scrollDeltaY / deltaTime;
@@ -980,7 +1001,7 @@ function handleTouchMove(
     // 1.5x makes scrolling feel more direct and responsive
     const touchScrollMultiplier = 1.5;
     const scrollDelta =
-      (touchState.startY - touch.clientY) * touchScrollMultiplier;
+      (touchState.startY - canvasY) * touchScrollMultiplier;
 
     // Update scroll position with hard boundaries
     const maxScroll = documentHeight - viewport.height;
@@ -993,7 +1014,7 @@ function handleTouchMove(
       updateViewportCallback({ scrollY: newScrollY });
     }
 
-    touchState.lastY = touch.clientY;
+    touchState.lastY = canvasY;
     touchState.lastTime = currentTime;
   }
 
@@ -1009,7 +1030,8 @@ function handleTouchMove(
 function handleTouchEnd(
   state: EditorState,
   viewport: ViewportState,
-  _event: TouchEvent
+  _event: TouchEvent,
+  _containerRect: { left: number; top: number }
 ): EditorState {
   stopAutoScroll();
   

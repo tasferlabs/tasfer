@@ -34,6 +34,8 @@ export default function createEditor(
     end: 0,
   };
 
+  let isRendering = false;
+
   const eventsQueue: Event[] = [];
 
   // Detect if device has touch support
@@ -66,23 +68,45 @@ export default function createEditor(
     }
   };
 
-  // Render loopg
-  const render = (setDocumentHeight: (height: number) => void) => {
-    state = handleEvents(
-      state,
-      viewport,
-      visibility,
-      eventsQueue,
-      documentHeight,
-      updateViewport
-    );
-    documentHeight = renderPage(ctx, state, viewport, visibility);
+  let currentSetDocumentHeight: ((height: number) => void) | null = null;
 
-    // Update cursor style based on scrollbar hover and drag state
-    updateCursorStyle(state.scrollbar.isHovered, state.scrollbar.isDragging);
+  // Render a single frame synchronously
+  const renderFrame = (setDocumentHeight: (height: number) => void) => {
+    if (isRendering) return;
+    isRendering = true;
 
-    setDocumentHeight(documentHeight);
-    animationFrameId = requestAnimationFrame(() => render(setDocumentHeight));
+    try {
+      // Get current canvas position for event coordinate adjustment
+      const containerRect = canvas.getBoundingClientRect();
+      const rect = {
+        left: containerRect.left,
+        top: containerRect.top,
+      };
+
+      state = handleEvents(
+        state,
+        viewport,
+        visibility,
+        eventsQueue,
+        documentHeight,
+        rect,
+        updateViewport
+      );
+      documentHeight = renderPage(ctx, state, viewport, visibility);
+
+      // Update cursor style based on scrollbar hover and drag state
+      updateCursorStyle(state.scrollbar.isHovered, state.scrollbar.isDragging);
+
+      setDocumentHeight(documentHeight);
+    } finally {
+      isRendering = false;
+    }
+  };
+
+  // Render loop
+  const renderLoop = (setDocumentHeight: (height: number) => void) => {
+    renderFrame(setDocumentHeight);
+    animationFrameId = requestAnimationFrame(() => renderLoop(setDocumentHeight));
   };
 
   function eventsHandler(e: Event) {
@@ -275,7 +299,8 @@ export default function createEditor(
     }
 
     state = createInitialState(page);
-    render(setDocumentHeight);
+    currentSetDocumentHeight = setDocumentHeight;
+    renderLoop(setDocumentHeight);
 
     // Add click/mousedown handler to canvas as fallback for focusing input
     canvasClickHandler = () => {
@@ -372,6 +397,10 @@ export default function createEditor(
 
   function updateViewport(newViewport: Partial<ViewportState>) {
     viewport = { ...viewport, ...newViewport };
+    // Force immediate render to avoid flickering on resize
+    if (currentSetDocumentHeight && state && page) {
+      renderFrame(currentSetDocumentHeight);
+    }
   }
 
   function getDocumentHeight(): number {

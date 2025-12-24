@@ -9,7 +9,10 @@ import {
   clearSelection,
 } from "./state";
 
-function applyMarkdownPrefix(block: Block, preserveType: boolean = false): Block {
+function applyMarkdownPrefix(
+  block: Block,
+  preserveType: boolean = false
+): Block {
   const text = block.content.map((t) => t.content).join("");
   if (text.startsWith("### ")) {
     block.type = "heading3";
@@ -271,37 +274,37 @@ function findWordBoundary(
 
 function findWordDeleteBoundaryLeft(text: string, index: number): number {
   let i = index;
-  
+
   if (i === 0) return 0;
-  
+
   if (/\s/.test(text[i - 1])) {
     while (i > 0 && /\s/.test(text[i - 1])) {
       i--;
     }
   }
-  
+
   while (i > 0 && !/\s/.test(text[i - 1])) {
     i--;
   }
-  
+
   return i;
 }
 
 function findWordDeleteBoundaryRight(text: string, index: number): number {
   let i = index;
-  
+
   if (i === text.length) return text.length;
-  
+
   if (/\s/.test(text[i])) {
     while (i < text.length && /\s/.test(text[i])) {
       i++;
     }
   }
-  
+
   while (i < text.length && !/\s/.test(text[i])) {
     i++;
   }
-  
+
   return i;
 }
 
@@ -367,7 +370,7 @@ export function deleteWordForward(state: EditorState): EditorState {
   } else if (blockIndex < state.page.blocks.length - 1) {
     const nextBlock = state.page.blocks[blockIndex + 1];
     const nextText = getBlockTextContent(nextBlock);
-    
+
     if (nextText.length === 0) {
       const newBlocks = [
         ...state.page.blocks.slice(0, blockIndex),
@@ -378,7 +381,7 @@ export function deleteWordForward(state: EditorState): EditorState {
       let newState = { ...state, page: newPage } as EditorState;
       return moveCursorToPosition(newState, blockIndex, textIndex);
     }
-    
+
     const endIndex = findWordDeleteBoundaryRight(nextText, 0);
     const newText = oldText + nextText.slice(endIndex);
     const blockCopy: Block = { ...oldBlock, content: [{ content: newText }] };
@@ -423,7 +426,7 @@ export function deleteWordBackward(state: EditorState): EditorState {
   } else if (blockIndex > 0) {
     const prevBlock = state.page.blocks[blockIndex - 1];
     const prevText = getBlockTextContent(prevBlock);
-    
+
     if (prevText.length === 0) {
       const newBlocks = [
         ...state.page.blocks.slice(0, blockIndex - 1),
@@ -434,7 +437,7 @@ export function deleteWordBackward(state: EditorState): EditorState {
       let newState = { ...state, page: newPage } as EditorState;
       return moveCursorToPosition(newState, blockIndex - 1, 0);
     }
-    
+
     const startIndex = findWordDeleteBoundaryLeft(prevText, prevText.length);
     const newText = prevText.slice(0, startIndex) + oldText;
     const blockCopy: Block = { ...prevBlock, content: [{ content: newText }] };
@@ -477,7 +480,6 @@ export function selectWordAtPosition(
   state: EditorState,
   position: Position
 ): EditorState {
-  console.log("selectWordAtPosition", position);
   const { blockIndex, textIndex } = position;
   const block = state.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
@@ -612,7 +614,11 @@ export function selectAll(state: EditorState): EditorState {
     textIndex: lastBlockText.length,
   };
 
-  let newState = moveCursorToPosition(state, endPos.blockIndex, endPos.textIndex);
+  let newState = moveCursorToPosition(
+    state,
+    endPos.blockIndex,
+    endPos.textIndex
+  );
   newState = startSelection(newState, startPos);
   newState = updateSelectionFocus(newState, endPos);
   return updateMode(newState, "edit");
