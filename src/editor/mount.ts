@@ -20,7 +20,10 @@ function measure(container: HTMLElement): { width: number; height: number } {
   };
 }
 
-function sizeCanvasToContainer(canvas: HTMLCanvasElement, container: HTMLElement) {
+function sizeCanvasToContainer(
+  canvas: HTMLCanvasElement,
+  container: HTMLElement
+) {
   const { width, height } = measure(container);
   const dpr = getDpr();
 
@@ -39,13 +42,17 @@ function sizeCanvasToContainer(canvas: HTMLCanvasElement, container: HTMLElement
  * Imperatively mounts the canvas editor into a container element.
  * React/Vue/etc can call this from lifecycle hooks; no framework state required.
  */
-export function mountEditor(container: HTMLElement, opts: { path: string }): MountedEditor {
+export function mountEditor(
+  container: HTMLElement,
+  opts: { path: string }
+): MountedEditor {
   const canvas = document.createElement("canvas");
   canvas.style.display = "block";
   canvas.style.userSelect = "none";
   (canvas.style as unknown as { WebkitUserSelect?: string }).WebkitUserSelect =
     "none";
-  (canvas.style as unknown as { MozUserSelect?: string }).MozUserSelect = "none";
+  (canvas.style as unknown as { MozUserSelect?: string }).MozUserSelect =
+    "none";
   (canvas.style as unknown as { msUserSelect?: string }).msUserSelect = "none";
 
   // Create a hidden input element for mobile keyboard support
@@ -75,7 +82,7 @@ export function mountEditor(container: HTMLElement, opts: { path: string }): Mou
   hiddenInput.setAttribute("autocapitalize", "off");
   hiddenInput.setAttribute("spellcheck", "false");
   hiddenInput.setAttribute("inputmode", "text");
-  
+
   // Ensure the canvas is the only scroll surface (container should not scroll)
   container.appendChild(canvas);
   container.appendChild(hiddenInput);
@@ -104,15 +111,52 @@ export function mountEditor(container: HTMLElement, opts: { path: string }): Mou
     editor.start(() => {});
   });
 
+  // Handle click outside
+  const handleDocumentClick = (e: MouseEvent | TouchEvent) => {
+    const target = e.target as Node;
+    if (!target) return;
+
+    // If click is on container or hidden input, do nothing (editor handles it)
+    if (container.contains(target) || hiddenInput.contains(target)) {
+      return;
+    }
+
+    if (document.activeElement === hiddenInput) {
+      return;
+    }
+
+    // Click outside: blur editor
+    editor.setFocus(false);
+  };
+
+  // Handle hidden input focus/blur (mobile keyboard)
+  const handleInputFocus = () => {
+    editor.setFocus(true);
+  };
+
+  const handleInputBlur = () => {
+    // On mobile, if keyboard is dismissed or focus lost, blur editor
+    editor.setFocus(false);
+  };
+
+  document.addEventListener("mousedown", handleDocumentClick);
+  document.addEventListener("touchstart", handleDocumentClick);
+  hiddenInput.addEventListener("focus", handleInputFocus);
+  hiddenInput.addEventListener("blur", handleInputBlur);
+
   const destroy = () => {
     destroyed = true;
     resizeObserver.disconnect();
     editor.destroy();
+
+    document.removeEventListener("mousedown", handleDocumentClick);
+    document.removeEventListener("touchstart", handleDocumentClick);
+    hiddenInput.removeEventListener("focus", handleInputFocus);
+    hiddenInput.removeEventListener("blur", handleInputBlur);
+
     canvas.remove();
     hiddenInput.remove();
   };
 
   return { editor, ready, destroy };
 }
-
-

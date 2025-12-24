@@ -1,7 +1,7 @@
 import { loadPage, type Page } from "../deserializer/loadPage";
 import { handleEvents, isInLongPressMode } from "./events";
 import { calculateBlockHeight, renderPage } from "./renderer";
-import { createInitialState } from "./state";
+import { createInitialState, updateFocus } from "./state";
 import { defaultStyles } from "./styles";
 import type { EditorState, ViewportState } from "./types";
 
@@ -12,6 +12,7 @@ export interface Editor {
   load: (path: string) => Promise<void>;
   updateViewport: (viewport: Partial<ViewportState>) => void;
   getDocumentHeight: () => number;
+  setFocus: (focused: boolean) => void;
 }
 
 export default function createEditor(
@@ -418,6 +419,12 @@ export default function createEditor(
     return totalHeight + styles.canvas.paddingBottom;
   }
 
+  function setFocus(focused: boolean) {
+    if (state) {
+      state = updateFocus(state, focused);
+    }
+  }
+
   return {
     start,
     getState,
@@ -425,5 +432,6 @@ export default function createEditor(
     load,
     updateViewport,
     getDocumentHeight,
+    setFocus,
   };
 }

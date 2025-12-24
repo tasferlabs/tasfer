@@ -16,6 +16,11 @@ export function ResizableSidebar({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useLocalStorage("sidebar-width", 268);
+  const shouldAnimate = useRef(false);
+
+  React.useEffect(() => {
+    shouldAnimate.current = true;
+  }, []);
   
   const startResizing = React.useCallback(() => {
     setIsResizing(true);
@@ -52,7 +57,7 @@ export function ResizableSidebar({
           ref={sidebarRef}
           className={style.appSidebar}
           style={{ width: sidebarWidthDefaulted }}
-          initial={{ x: -sidebarWidthDefaulted, opacity: 0 }}
+          initial={shouldAnimate.current ? { x: -sidebarWidthDefaulted, opacity: 0 } : false}
           animate={{ x: 0, opacity: 1 }}
           exit={{ x: -sidebarWidthDefaulted, opacity: 0 }}
           transition={{ type: "spring", bounce: 0, duration: 0.2 }}

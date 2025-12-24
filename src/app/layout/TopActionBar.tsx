@@ -3,6 +3,7 @@ import React from "react";
 import style from "./Layout.module.css";
 import { clsx } from "clsx";
 import { ListIcon } from "@phosphor-icons/react";
+import useResponsive from "../hooks/useResponsive";
 
 export function TopActionBar({
   open,
@@ -13,15 +14,17 @@ export function TopActionBar({
 }) {
   // Mock data
   const pageTitle = "Untitled";
-
+  const isMobile = useResponsive("(max-width: 768px)");
   return (
     <div className={style.appHeader}>
-      {!open && (
+      {(!open || isMobile) && (
         <button
-          className={clsx(style.iconButton, style.appHeaderOpenSidebar)}
+          className={clsx(style.iconButton, style.appHeaderOpenSidebar, {
+            [style.visible]: isMobile || !open,
+          })}
           onClick={() => setOpen(true)}
         >
-          <ListIcon size={24} />
+          <ListIcon size={20} />
           <VisuallyHidden>Open sidebar</VisuallyHidden>
         </button>
       )}

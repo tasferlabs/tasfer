@@ -17,6 +17,7 @@ export const createInitialState = (page: Page): EditorState => ({
   cursor: null,
   selection: null,
   mode: "edit" as EditorMode,
+  isFocused: false,
   clickTracker: {
     count: 0,
     lastClickTime: 0,
@@ -63,6 +64,14 @@ export const updateMode = (
 ): EditorState => ({
   ...state,
   mode,
+});
+
+export const updateFocus = (
+  state: EditorState,
+  isFocused: boolean
+): EditorState => ({
+  ...state,
+  isFocused,
 });
 
 // Helper Functions

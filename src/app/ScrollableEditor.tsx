@@ -55,7 +55,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
   return (
     <div
       ref={wrapperRef}
-      className={cn("relative w-full h-full overflow-hidden", className)}
+      className={cn("relative w-full h-full overflow-hidden focus:outline-none", className)}
       role="textbox"
       aria-label="Text editor"
       aria-multiline="true"

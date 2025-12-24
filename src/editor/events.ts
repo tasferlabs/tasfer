@@ -27,6 +27,7 @@ import {
   startSelection,
   updateCursor,
   updateMode,
+  updateFocus,
   updateSelectionFocus,
   extendSelectionLeft,
   extendSelectionRight,
@@ -386,6 +387,8 @@ function handleMouseDown(
 ): EditorState {
   stopAutoScroll();
   
+  state = updateFocus(state, true);
+
   state = {
     ...state,
     momentum: {

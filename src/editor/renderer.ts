@@ -272,7 +272,7 @@ function renderCursor(
   ctx: CanvasRenderingContext2D,
   styles: EditorStyles
 ) {
-  if (!state.cursor) return;
+  if (!state.cursor || !state.isFocused) return;
 
   let cursorX = x;
   let cursorY = y;

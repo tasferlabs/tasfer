@@ -15,6 +15,7 @@ export interface EditorModelState {
   readonly cursor: CursorState | null;
   readonly selection: SelectionState | null;
   readonly mode: EditorMode;
+  readonly isFocused: boolean;
   readonly clickTracker: ClickTracker;
   readonly scrollbar: ScrollbarState;
   readonly momentum: MomentumState;
