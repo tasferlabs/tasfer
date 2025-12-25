@@ -79,7 +79,10 @@ export const renderPage = (
     currentY += blockHeight;
   }
 
-  documentHeight += styles.canvas.paddingBottom;
+  // Add extra padding on mobile devices for keyboard space
+  const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
+  const extraMobilePadding = isMobile ? 400 : 0;
+  documentHeight += styles.canvas.paddingBottom + extraMobilePadding;
 
   // Render scrollbar
   renderScrollbar(ctx, viewport, documentHeight, state.scrollbar);
