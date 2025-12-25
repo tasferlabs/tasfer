@@ -14,7 +14,9 @@ import {
   moveToLineStart,
   moveToLineEnd,
   selectAll,
+  applySlashCommand,
 } from "./commands";
+import type { Block } from "../deserializer/loadPage";
 import { getTextPositionFromViewport, scrollToMakeCursorVisible } from "./selection";
 import {
   clearSelection,
@@ -33,7 +35,13 @@ import {
   extendSelectionRight,
   extendSelectionUp,
   extendSelectionDown,
+  openSlashCommand,
+  updateSlashCommandFilter,
+  updateSlashCommandSelection,
+  closeSlashCommand,
+  getBlockTextContent,
 } from "./state";
+import { SLASH_COMMANDS } from "./SlashCommandMenu";
 import {
   isPointInScrollbar,
   isPointInThumb,
@@ -387,6 +395,11 @@ function handleMouseDown(
 ): EditorState {
   stopAutoScroll();
   
+  // Close slash command menu on mouse click
+  if (state.slashCommand) {
+    state = closeSlashCommand(state);
+  }
+  
   state = updateFocus(state, true);
 
   state = {
@@ -631,7 +644,7 @@ function handleKeyDown(
   const keyLower = key.toLowerCase();
   const isCtrl = keyEvent.ctrlKey || keyEvent.metaKey;
 
-  // Undo/Redo
+  // Undo/Redo - handle these first, even if slash command is open
   if (isCtrl && keyLower === "z" && !keyEvent.shiftKey) {
     return undoState(state);
   }
@@ -642,6 +655,113 @@ function handleKeyDown(
   // Select All
   if (isCtrl && keyLower === "a") {
     return selectAll(state);
+  }
+
+  // Handle slash command menu navigation
+  if (state.slashCommand) {
+    const filteredCommands = state.slashCommand.filter
+      ? SLASH_COMMANDS.filter(
+          (cmd) =>
+            cmd.label.toLowerCase().includes(state.slashCommand!.filter.toLowerCase()) ||
+            cmd.description.toLowerCase().includes(state.slashCommand!.filter.toLowerCase()) ||
+            cmd.keywords?.some((keyword) => keyword.toLowerCase().startsWith(state.slashCommand!.filter.toLowerCase()))
+        )
+      : SLASH_COMMANDS;
+
+    switch (key) {
+      case "ArrowLeft":
+      case "ArrowRight":
+        // Close slash menu on left/right arrow and continue to normal arrow key handling
+        state = closeSlashCommand(state);
+        break;
+      case "ArrowDown":
+        if (filteredCommands.length > 0) {
+          const newIndex = Math.min(
+            state.slashCommand.selectedIndex + 1,
+            filteredCommands.length - 1
+          );
+          return updateSlashCommandSelection(state, newIndex);
+        }
+        return state;
+      case "ArrowUp":
+        const newIndex = Math.max(state.slashCommand.selectedIndex - 1, 0);
+        return updateSlashCommandSelection(state, newIndex);
+      case "Enter":
+        if (filteredCommands.length > 0 && state.cursor) {
+          const selectedCommand =
+            filteredCommands[state.slashCommand.selectedIndex];
+          return applySlashCommand(recordUndo(state), selectedCommand);
+        }
+        return closeSlashCommand(state);
+      case "Escape":
+        // Close slash command and remove the "/" character
+        if (state.cursor) {
+          const { blockIndex, textIndex } = state.slashCommand;
+          const block = state.page.blocks[blockIndex];
+          const text = getBlockTextContent(block);
+          const beforeSlash = text.slice(0, textIndex - 1);
+          const afterFilter = text.slice(state.cursor.position.textIndex);
+          const newText = beforeSlash + afterFilter;
+          
+          const newBlock: Block = {
+            ...block,
+            content: [{ content: newText }],
+          };
+          
+          const newBlocks = [...state.page.blocks];
+          newBlocks[blockIndex] = newBlock;
+          const newPage = { ...state.page, blocks: newBlocks };
+          
+          let newState: EditorState = { ...state, page: newPage };
+          newState = closeSlashCommand(newState);
+          newState = moveCursorToPosition(newState, blockIndex, beforeSlash.length);
+          
+          return newState;
+        }
+        return closeSlashCommand(state);
+      case "Backspace":
+        // If at the start of filter, close menu
+        if (state.cursor && state.cursor.position.textIndex <= state.slashCommand.textIndex) {
+          // Close menu and delete the slash character - no recordUndo needed since deleteText already records
+          return closeSlashCommand(deleteText(recordUndo(state)));
+        }
+        // Otherwise update filter - deleteText handles recordUndo internally
+        if (state.cursor) {
+          const newState = deleteText(recordUndo(state));
+          if (newState.cursor) {
+            const block = newState.page.blocks[state.slashCommand.blockIndex];
+            const text = getBlockTextContent(block);
+            const filter = text.slice(
+              state.slashCommand.textIndex,
+              newState.cursor.position.textIndex
+            );
+            return updateSlashCommandFilter(newState, filter);
+          }
+        }
+        return state;
+      default:
+        // Handle typing to filter commands (including spaces)
+        if (
+          key.length === 1 &&
+          !keyEvent.ctrlKey &&
+          !keyEvent.altKey &&
+          !keyEvent.metaKey
+        ) {
+          // insertText handles recordUndo internally
+          const newState = insertText(recordUndo(state), key);
+          if (newState.cursor) {
+            const block = newState.page.blocks[state.slashCommand.blockIndex];
+            const text = getBlockTextContent(block);
+            const filter = text.slice(
+              state.slashCommand.textIndex,
+              newState.cursor.position.textIndex
+            );
+            return updateSlashCommandFilter(newState, filter);
+          }
+          return newState;
+        }
+        return state;
+    }
   }
 
   let newState = state;
@@ -720,6 +840,25 @@ function handleKeyDown(
     case "Space":
       return insertText(recordUndo(state), " ");
     default:
+      // Check if typing "/" at the start of a block (only on desktop)
+      if (
+        key === "/" &&
+        !isTouchDevice() &&
+        state.cursor &&
+        !keyEvent.ctrlKey &&
+        !keyEvent.altKey &&
+        !keyEvent.metaKey
+      ) {
+        const { blockIndex } = state.cursor.position;
+        
+        // Allow slash command anywhere in paragraphs and headings
+        const newState = insertText(recordUndo(state), "/");
+        if (newState.cursor) {
+          return openSlashCommand(newState, blockIndex, newState.cursor.position.textIndex);
+        }
+        return newState;
+      }
+      
       if (
         key.length === 1 &&
         !keyEvent.ctrlKey &&

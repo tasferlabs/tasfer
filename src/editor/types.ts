@@ -2,6 +2,15 @@ import type { Block, Page } from "../deserializer/loadPage";
 import type { FontFamily } from "./fonts";
 import type { ScrollbarState, MomentumState } from "./scrollbar";
 
+export interface SlashCommand {
+  id: string;
+  type: Block["type"];
+  label: string;
+  description: string;
+  icon: string;
+  keywords?: string[];
+}
+
 // Editor State Types
 export interface ClickTracker {
   count: number;
@@ -19,6 +28,14 @@ export interface EditorModelState {
   readonly clickTracker: ClickTracker;
   readonly scrollbar: ScrollbarState;
   readonly momentum: MomentumState;
+  readonly slashCommand: SlashCommandState | null;
+}
+
+export interface SlashCommandState {
+  readonly blockIndex: number;
+  readonly textIndex: number;
+  readonly filter: string;
+  readonly selectedIndex: number;
 }
 
 export interface UndoManagerState {

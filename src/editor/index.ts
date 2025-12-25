@@ -1,9 +1,12 @@
 import { loadPage, type Page } from "../deserializer/loadPage";
 import { handleEvents, isInLongPressMode } from "./events";
 import { calculateBlockHeight, renderPage } from "./renderer";
+import { getCursorCoordinates } from "./selection";
 import { createInitialState, updateFocus } from "./state";
 import { defaultStyles } from "./styles";
-import type { EditorState, ViewportState } from "./types";
+import type { EditorState, ViewportState, SlashCommand } from "./types";
+import { applySlashCommand } from "./commands";
+import { recordUndo } from "./undo";
 
 export interface Editor {
   start: (setDocumentHeight: (height: number) => void) => void;
@@ -13,6 +16,13 @@ export interface Editor {
   updateViewport: (viewport: Partial<ViewportState>) => void;
   getDocumentHeight: () => number;
   setFocus: (focused: boolean) => void;
+  getCursorScreenPosition: () => {
+    x: number;
+    y: number;
+    height: number;
+  } | null;
+  subscribe: (listener: (state: EditorState) => void) => () => void;
+  executeSlashCommand: (command: SlashCommand) => void;
 }
 
 export default function createEditor(
@@ -38,6 +48,7 @@ export default function createEditor(
   let isRendering = false;
 
   const eventsQueue: Event[] = [];
+  const listeners: ((state: EditorState) => void)[] = [];
 
   // Detect if device has touch support
   const isTouchDevice = (): boolean => {
@@ -99,6 +110,9 @@ export default function createEditor(
       updateCursorStyle(state.scrollbar.isHovered, state.scrollbar.isDragging);
 
       setDocumentHeight(documentHeight);
+
+      // Notify listeners
+      listeners.forEach((listener) => listener(state));
     } finally {
       isRendering = false;
     }
@@ -425,6 +439,43 @@ export default function createEditor(
     }
   }
 
+  function getCursorScreenPosition() {
+    if (!state || !state.cursor) return null;
+
+    const coords = getCursorCoordinates(
+      state.cursor.position,
+      state,
+      viewport,
+      defaultStyles
+    );
+    if (!coords) return null;
+
+    return {
+      x: coords.x,
+      y: coords.y - viewport.scrollY,
+      height: coords.height,
+    };
+  }
+
+  function subscribe(listener: (state: EditorState) => void) {
+    listeners.push(listener);
+    return () => {
+      const index = listeners.indexOf(listener);
+      if (index > -1) {
+        listeners.splice(index, 1);
+      }
+    };
+  }
+
+  function executeSlashCommand(command: SlashCommand) {
+    if (state.slashCommand && state.cursor) {
+      state = recordUndo(state);
+      state = applySlashCommand(state, command);
+      // Force immediate render or wait for next frame
+      // Just updating state is enough for next frame
+    }
+  }
+
   return {
     start,
     getState,
@@ -433,5 +484,8 @@ export default function createEditor(
     updateViewport,
     getDocumentHeight,
     setFocus,
+    getCursorScreenPosition,
+    subscribe,
+    executeSlashCommand,
   };
 }

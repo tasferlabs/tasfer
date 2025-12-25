@@ -25,6 +25,7 @@ export const createInitialState = (page: Page): EditorState => ({
   },
   scrollbar: createInitialScrollbarState(),
   momentum: createInitialMomentumState(),
+  slashCommand: null,
 });
 
 // State Update Functions (Pure Functions)
@@ -90,6 +91,8 @@ export const createInitialCursorState = (state: EditorState): EditorState => {
 };
 
 export const getBlockTextLength = (block: Block): number => {
+  if (!block) return 0;
+  
   if ("level" in block) {
     // Heading block
     return block.content.reduce(
@@ -106,6 +109,8 @@ export const getBlockTextLength = (block: Block): number => {
 };
 
 export const getBlockTextContent = (block: Block): string => {
+  if (!block) return "";
+  
   if ("level" in block) {
     // Heading block
     return block.content.map((text) => text.content).join("");
@@ -366,3 +371,52 @@ export const extendSelectionDown = (state: EditorState): EditorState => {
   }
   return state;
 };
+
+// Slash Command State Management
+export const openSlashCommand = (
+  state: EditorState,
+  blockIndex: number,
+  textIndex: number
+): EditorState => ({
+  ...state,
+  slashCommand: {
+    blockIndex,
+    textIndex,
+    filter: "",
+    selectedIndex: 0,
+  },
+});
+
+export const updateSlashCommandFilter = (
+  state: EditorState,
+  filter: string
+): EditorState => {
+  if (!state.slashCommand) return state;
+  return {
+    ...state,
+    slashCommand: {
+      ...state.slashCommand,
+      filter,
+      selectedIndex: 0, // Reset selection when filter changes
+    },
+  };
+};
+
+export const updateSlashCommandSelection = (
+  state: EditorState,
+  selectedIndex: number
+): EditorState => {
+  if (!state.slashCommand) return state;
+  return {
+    ...state,
+    slashCommand: {
+      ...state.slashCommand,
+      selectedIndex,
+    },
+  };
+};
+
+export const closeSlashCommand = (state: EditorState): EditorState => ({
+  ...state,
+  slashCommand: null,
+});

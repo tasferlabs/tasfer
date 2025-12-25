@@ -24,8 +24,8 @@ Bugs list
 [x] implement ctrl + A to select all text.
 [x] add placeholder on empty blocks when editing, on cursor position.
 [x] empty blocks should be seen as they selected.
-[ ] implement "/" functionality to open command palette.
-[ ] react native
+[x] implement "/" functionality to open command palette.
+[ ] arrow up and arrow down skip lines and go for the blocks instead of going line by line.
 [ ] when click in at the end page we should select the last line.
 [ ] implement ctrl + C to copy text and ctrl + V to paste text and ctrl + X to cut text.
 [ ] when selection is active and we click arrow up or left then the cursot should go back to start of the selection.

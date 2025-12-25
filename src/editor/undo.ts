@@ -6,8 +6,9 @@ export const initialUndoManagerState: UndoManagerState = {
 };
 
 function getModelState(state: EditorState): EditorModelState {
-  const { undoManager, ...model } = state;
-  return model;
+  const { undoManager, slashCommand, ...model } = state;
+  // Exclude slashCommand from undo state as it's transient UI state
+  return { ...model, slashCommand: null };
 }
 
 export function recordUndo(state: EditorState): EditorState {

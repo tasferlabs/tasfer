@@ -3,6 +3,7 @@ import {
   getCurrentFontFamily,
   getFontMetrics,
   measureChar,
+  measureText,
   wrapText,
   type FontFamily,
 } from "./fonts";
@@ -17,25 +18,25 @@ import type {
   ViewportState,
 } from "./types";
 
-export function getCursorYPosition(
+export function getCursorCoordinates(
   position: Position,
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = defaultStyles
-): { top: number; bottom: number } | null {
+): { x: number; y: number; height: number } | null {
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-  
+
   let currentY = styles.canvas.paddingTop;
-  
+
   for (let i = 0; i < position.blockIndex; i++) {
     const block = state.page.blocks[i];
     currentY += calculateBlockHeight(block, maxWidth, styles);
   }
-  
+
   const block = state.page.blocks[position.blockIndex];
   if (!block) return null;
-  
+
   const textStyle = getTextStyle(styles, block.type);
   const content = getBlockTextContent(block);
   const fontFamily = getCurrentFontFamily();
@@ -45,7 +46,7 @@ export function getCursorYPosition(
     fontFamily
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
-  
+
   const lines = wrapText(
     content,
     maxWidth,
@@ -53,36 +54,54 @@ export function getCursorYPosition(
     textStyle.fontWeight,
     fontFamily
   );
-  
+
   let textIndex = 0;
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const line = lines[lineIndex];
     const lineEndIndex = textIndex + line.length;
-    
+
     if (position.textIndex >= textIndex && position.textIndex <= lineEndIndex) {
+      // Calculate X
+      const textBeforeCursor = content.substring(textIndex, position.textIndex);
+      const textWidth = measureText(
+        textBeforeCursor,
+        textStyle.fontSize,
+        textStyle.fontWeight,
+        fontFamily
+      );
+
       return {
-        top: currentY,
-        bottom: currentY + lineHeight,
+        x: styles.canvas.paddingLeft + textWidth,
+        y: currentY,
+        height: lineHeight,
       };
     }
-    
+
     textIndex += line.length;
     if (lineIndex < lines.length - 1) {
       textIndex += 1;
     }
     currentY += lineHeight;
   }
-  
-  if (lines.length > 0) {
-    return {
-      top: currentY - lineHeight,
-      bottom: currentY,
-    };
-  }
-  
+
   return {
-    top: currentY,
-    bottom: currentY + lineHeight,
+    x: styles.canvas.paddingLeft,
+    y: currentY,
+    height: lineHeight,
+  };
+}
+
+export function getCursorYPosition(
+  position: Position,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = defaultStyles
+): { top: number; bottom: number } | null {
+  const coords = getCursorCoordinates(position, state, viewport, styles);
+  if (!coords) return null;
+  return {
+    top: coords.y,
+    bottom: coords.y + coords.height,
   };
 }
 
@@ -94,19 +113,19 @@ export function scrollToMakeCursorVisible(
 ): number | null {
   const cursorPos = getCursorYPosition(position, state, viewport, styles);
   if (!cursorPos) return null;
-  
+
   const margin = 40;
   const viewportTop = viewport.scrollY;
   const viewportBottom = viewport.scrollY + viewport.height;
-  
+
   if (cursorPos.top < viewportTop + margin) {
     return Math.max(0, cursorPos.top - margin);
   }
-  
+
   if (cursorPos.bottom > viewportBottom - margin) {
     return cursorPos.bottom - viewport.height + margin;
   }
-  
+
   return null;
 }
 

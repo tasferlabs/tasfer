@@ -1,7 +1,10 @@
 import LoadingScreen from "@/components/ui/loading-screen";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "../lib/utils";
 import { mountEditor, type MountedEditor } from "../editor/mount";
+import type { EditorState, SlashCommand } from "../editor/types";
+import { SlashCommandMenu } from "../editor/SlashCommandMenu";
 
 interface ScrollableEditorProps {
   path: string;
@@ -15,6 +18,13 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditor | null>(null);
+  const [slashMenuState, setSlashMenuState] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    selectedIndex: number;
+    filter: string;
+  } | null>(null);
 
   // Imperatively mount/unmount editor (no React state needed)
   useEffect(() => {
@@ -36,6 +46,34 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     const mounted = mountEditor(el, { path });
     mountedRef.current = mounted;
 
+    // Subscribe to editor state changes for slash command
+    const handleStateChange = (state: EditorState) => {
+      if (state.slashCommand && state.cursor) {
+        const cursorScreenPos = mounted.editor.getCursorScreenPosition();
+
+        if (cursorScreenPos) {
+          const containerRect = wrapperRef.current?.getBoundingClientRect();
+          if (containerRect) {
+            // Convert canvas-relative coordinates to viewport-absolute coordinates
+            const x = containerRect.left + cursorScreenPos.x;
+            const y = containerRect.top + cursorScreenPos.y + cursorScreenPos.height;
+
+            setSlashMenuState({
+              visible: true,
+              x,
+              y,
+              selectedIndex: state.slashCommand.selectedIndex,
+              filter: state.slashCommand.filter,
+            });
+          }
+        }
+      } else {
+        setSlashMenuState(null);
+      }
+    };
+
+    const unsubscribe = mounted.editor.subscribe(handleStateChange);
+
     mounted.ready.finally(() => {
       // Hide overlay when loaded + started (or if load fails)
       if (overlayRef.current) {
@@ -45,6 +83,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     });
 
     return () => {
+      unsubscribe();
       mounted.destroy();
       if (mountedRef.current === mounted) {
         mountedRef.current = null;
@@ -52,10 +91,26 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     };
   }, [path]);
 
+  const handleSlashCommandSelect = (command: SlashCommand) => {
+    if (mountedRef.current) {
+      mountedRef.current.editor.executeSlashCommand(command);
+    }
+  };
+
+  const handleSlashCommandClose = () => {
+    if (mountedRef.current) {
+      // Trigger Escape to close
+      setSlashMenuState(null);
+    }
+  };
+
   return (
     <div
       ref={wrapperRef}
-      className={cn("relative w-full h-full overflow-hidden focus:outline-none", className)}
+      className={cn(
+        "relative w-full h-full overflow-hidden focus:outline-none",
+        className
+      )}
       role="textbox"
       aria-label="Text editor"
       aria-multiline="true"
@@ -68,6 +123,23 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       >
         <LoadingScreen />
       </div>
+
+      {/* Slash command menu portal */}
+      {slashMenuState &&
+        mountedRef.current?.portalContainer &&
+        createPortal(
+          <div style={{ pointerEvents: "auto" }}>
+            <SlashCommandMenu
+              x={slashMenuState.x}
+              y={slashMenuState.y}
+              selectedIndex={slashMenuState.selectedIndex}
+              filter={slashMenuState.filter}
+              onSelect={handleSlashCommandSelect}
+              onClose={handleSlashCommandClose}
+            />
+          </div>,
+          mountedRef.current.portalContainer
+        )}
     </div>
   );
 };

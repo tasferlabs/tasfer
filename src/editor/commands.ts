@@ -1,6 +1,7 @@
 import type { EditorState, Position } from "./types";
 import type { Block } from "../deserializer/loadPage";
-import { getBlockTextContent } from "./state";
+import type { SlashCommand } from "./types";
+import { getBlockTextContent, closeSlashCommand } from "./state";
 import {
   moveCursorToPosition,
   updateMode,
@@ -622,4 +623,63 @@ export function selectAll(state: EditorState): EditorState {
   newState = startSelection(newState, startPos);
   newState = updateSelectionFocus(newState, endPos);
   return updateMode(newState, "edit");
+}
+
+// Convert block type at current cursor position
+export function convertBlockType(
+  state: EditorState,
+  blockType: Block["type"]
+): EditorState {
+  if (!state.cursor) return state;
+
+  const { blockIndex } = state.cursor.position;
+  const oldBlock = state.page.blocks[blockIndex];
+  const text = getBlockTextContent(oldBlock);
+
+  // Create new block with the specified type
+  const newBlock: Block = {
+    ...oldBlock,
+    type: blockType,
+    content: [{ content: text }],
+  };
+
+  const newBlocks = [...state.page.blocks];
+  newBlocks[blockIndex] = newBlock;
+  const newPage = { ...state.page, blocks: newBlocks };
+
+  return { ...state, page: newPage };
+}
+
+export function applySlashCommand(
+  state: EditorState,
+  command: SlashCommand
+): EditorState {
+  if (!state.cursor || !state.slashCommand) return state;
+
+  const { blockIndex, textIndex } = state.slashCommand;
+
+  // Remove the "/" and filter text
+  const block = state.page.blocks[blockIndex];
+  const text = getBlockTextContent(block);
+  const beforeSlash = text.slice(0, textIndex - 1);
+  const afterFilter = text.slice(state.cursor.position.textIndex);
+  const newText = beforeSlash + afterFilter;
+
+  // Update block content and type
+  const newBlock: Block = {
+    ...block,
+    type: command.type,
+    content: [{ content: newText }],
+  };
+
+  const newBlocks = [...state.page.blocks];
+  newBlocks[blockIndex] = newBlock;
+  const newPage = { ...state.page, blocks: newBlocks };
+
+  // Update state
+  let newState: EditorState = { ...state, page: newPage };
+  newState = closeSlashCommand(newState);
+  newState = moveCursorToPosition(newState, blockIndex, beforeSlash.length);
+
+  return newState;
 }

@@ -5,6 +5,8 @@ export interface MountedEditor {
   readonly editor: Editor;
   /** Resolves once the document is loaded and the render loop has started. */
   readonly ready: Promise<void>;
+  /** Container for React portals (e.g., slash command menu) */
+  readonly portalContainer: HTMLDivElement;
   destroy: () => void;
 }
 
@@ -87,6 +89,17 @@ export function mountEditor(
   container.appendChild(canvas);
   container.appendChild(hiddenInput);
 
+  // Create portal container for React components (like slash command menu)
+  const portalContainer = document.createElement("div");
+  portalContainer.style.position = "absolute";
+  portalContainer.style.top = "0";
+  portalContainer.style.left = "0";
+  portalContainer.style.width = "100%";
+  portalContainer.style.height = "100%";
+  portalContainer.style.pointerEvents = "none"; // Allow clicks through except on menu
+  portalContainer.style.zIndex = "1000";
+  container.appendChild(portalContainer);
+
   const initial = sizeCanvasToContainer(canvas, container);
   const initialViewport: ViewportState = {
     width: initial.width,
@@ -156,7 +169,8 @@ export function mountEditor(
 
     canvas.remove();
     hiddenInput.remove();
+    portalContainer.remove();
   };
 
-  return { editor, ready, destroy };
+  return { editor, ready, destroy, portalContainer };
 }
