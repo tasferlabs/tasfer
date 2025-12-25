@@ -56,6 +56,11 @@ export function mountEditor(
   (canvas.style as unknown as { MozUserSelect?: string }).MozUserSelect =
     "none";
   (canvas.style as unknown as { msUserSelect?: string }).msUserSelect = "none";
+  canvas.setAttribute("draggable", "false");
+  const preventSelectStart = (e: Event) => e.preventDefault();
+  const preventDragStart = (e: Event) => e.preventDefault();
+  canvas.addEventListener("selectstart", preventSelectStart);
+  canvas.addEventListener("dragstart", preventDragStart);
 
   // Create a hidden input element for mobile keyboard support
   // Note: Mobile browsers require the input to receive the touch event to show keyboard
@@ -166,6 +171,8 @@ export function mountEditor(
     document.removeEventListener("touchstart", handleDocumentClick);
     hiddenInput.removeEventListener("focus", handleInputFocus);
     hiddenInput.removeEventListener("blur", handleInputBlur);
+    canvas.removeEventListener("selectstart", preventSelectStart);
+    canvas.removeEventListener("dragstart", preventDragStart);
 
     canvas.remove();
     hiddenInput.remove();
