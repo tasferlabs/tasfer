@@ -871,19 +871,25 @@ function handleKeyDown(
       return clearSelection(state);
     case "Backspace":
       if (isCtrl) {
-        return deleteWordBackward(recordUndo(state));
+        newState = deleteWordBackward(recordUndo(state));
+      } else {
+        newState = deleteText(recordUndo(state));
       }
-      return deleteText(recordUndo(state));
+      break;
     case "Delete":
       if (isCtrl) {
-        return deleteWordForward(recordUndo(state));
+        newState = deleteWordForward(recordUndo(state));
+      } else {
+        newState = deleteForward(recordUndo(state));
       }
-      return deleteForward(recordUndo(state));
+      break;
     case "Enter":
-      return splitBlock(recordUndo(state));
+      newState = splitBlock(recordUndo(state));
+      break;
     case " ":
     case "Space":
-      return insertText(recordUndo(state), " ");
+      newState = insertText(recordUndo(state), " ");
+      break;
     default:
       // Check if typing "/" at the start of a block (only on desktop)
       if (
@@ -910,7 +916,8 @@ function handleKeyDown(
         !keyEvent.altKey &&
         !keyEvent.metaKey
       ) {
-        return insertText(recordUndo(state), key);
+        newState = insertText(recordUndo(state), key);
+        break;
       }
       return state;
   }
