@@ -27,6 +27,6 @@ Bugs list
 [x] implement "/" functionality to open command palette.
 [x] arrow up and arrow down skip lines and go for the blocks instead of going line by line.
 [x] page up and page down should be implemented.
+[x] when selection is active and we click arrow up or left then the cursot should go back to start of the selection.
 [ ] when click in at the end page we should select the last line.
 [ ] implement ctrl + C to copy text and ctrl + V to paste text and ctrl + X to cut text.
-[ ] when selection is active and we click arrow up or left then the cursot should go back to start of the selection.

@@ -15,6 +15,7 @@ import {
   moveToLineEnd,
   selectAll,
   applySlashCommand,
+  getSelectionRange,
 } from "./commands";
 import type { Block } from "../deserializer/loadPage";
 import { getTextPositionFromViewport, scrollToMakeCursorVisible } from "./selection";
@@ -771,39 +772,75 @@ function handleKeyDown(
   // Navigation & selection
   switch (key) {
     case "ArrowLeft":
+      // Ensure editor is focused
+      newState = updateFocus(state, true);
+      
       if (isCtrl && keyEvent.shiftKey) {
-        newState = extendSelectionWordLeft(state);
+        newState = extendSelectionWordLeft(newState);
       } else if (keyEvent.shiftKey) {
-        newState = extendSelectionLeft(state);
-      } else if (isCtrl) {
-        newState = moveToPreviousWord(clearSelection(state));
+        newState = extendSelectionLeft(newState);
       } else {
-        newState = moveCursorLeft(clearSelection(state));
+        // If there's a selection, move to the start of it
+        const range = getSelectionRange(newState);
+        if (range) {
+          newState = moveCursorToPosition(clearSelection(newState), range.start.blockIndex, range.start.textIndex);
+        } else if (isCtrl) {
+          newState = moveToPreviousWord(clearSelection(newState));
+        } else {
+          newState = moveCursorLeft(clearSelection(newState));
+        }
       }
       break;
     case "ArrowRight":
+      // Ensure editor is focused
+      newState = updateFocus(state, true);
+      
       if (isCtrl && keyEvent.shiftKey) {
         newState = extendSelectionWordRight(state);
       } else if (keyEvent.shiftKey) {
-        newState = extendSelectionRight(state);
-      } else if (isCtrl) {
-        newState = moveToNextWord(clearSelection(state));
+        newState = extendSelectionRight(newState);
       } else {
-        newState = moveCursorRight(clearSelection(state));
+        // If there's a selection, move to the end of it
+        const range = getSelectionRange(newState);
+        if (range) {
+          newState = moveCursorToPosition(clearSelection(newState), range.end.blockIndex, range.end.textIndex);
+        } else if (isCtrl) {
+          newState = moveToNextWord(clearSelection(newState));
+        } else {
+          newState = moveCursorRight(clearSelection(newState));
+        }
       }
       break;
     case "ArrowUp":
+      // Ensure editor is focused
+      newState = updateFocus(state, true);
+      
       if (keyEvent.shiftKey) {
-        newState = extendSelectionUp(state, viewport);
+        newState = extendSelectionUp(newState, viewport);
       } else {
-        newState = moveCursorUp(clearSelection(state), viewport);
+        // If there's a selection, move to the start of it
+        const range = getSelectionRange(newState);
+        if (range) {
+          newState = moveCursorToPosition(clearSelection(newState), range.start.blockIndex, range.start.textIndex);
+        } else {
+          newState = moveCursorUp(clearSelection(newState), viewport);
+        }
       }
       break;
     case "ArrowDown":
+      // Ensure editor is focused
+      newState = updateFocus(state, true);
+      
       if (keyEvent.shiftKey) {
-        newState = extendSelectionDown(state, viewport);
+        newState = extendSelectionDown(newState, viewport);
       } else {
-        newState = moveCursorDown(clearSelection(state), viewport);
+        // If there's a selection, move to the end of it
+        const range = getSelectionRange(newState);
+        if (range) {
+          newState = moveCursorToPosition(clearSelection(newState), range.end.blockIndex, range.end.textIndex);
+        } else {
+          newState = moveCursorDown(clearSelection(newState), viewport);
+        }
       }
       break;
     case "PageUp":

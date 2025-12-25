@@ -32,7 +32,7 @@ function applyMarkdownPrefix(
 }
 
 // Helper function to get selection range in proper order (start to end)
-function getSelectionRange(
+export function getSelectionRange(
   state: EditorState
 ): { start: Position; end: Position } | null {
   if (!state.selection || state.selection.isCollapsed) return null;
