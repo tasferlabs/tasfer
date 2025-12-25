@@ -26,6 +26,8 @@ import {
   moveCursorRight,
   moveCursorToPosition,
   moveCursorUp,
+  moveCursorPageUp,
+  moveCursorPageDown,
   startSelection,
   updateCursor,
   updateMode,
@@ -792,17 +794,23 @@ function handleKeyDown(
       break;
     case "ArrowUp":
       if (keyEvent.shiftKey) {
-        newState = extendSelectionUp(state);
+        newState = extendSelectionUp(state, viewport);
       } else {
-        newState = moveCursorUp(clearSelection(state));
+        newState = moveCursorUp(clearSelection(state), viewport);
       }
       break;
     case "ArrowDown":
       if (keyEvent.shiftKey) {
-        newState = extendSelectionDown(state);
+        newState = extendSelectionDown(state, viewport);
       } else {
-        newState = moveCursorDown(clearSelection(state));
+        newState = moveCursorDown(clearSelection(state), viewport);
       }
+      break;
+    case "PageUp":
+      newState = moveCursorPageUp(clearSelection(state), viewport);
+      break;
+    case "PageDown":
+      newState = moveCursorPageDown(clearSelection(state), viewport);
       break;
     case "Home":
       if (isCtrl) {

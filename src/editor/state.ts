@@ -8,7 +8,10 @@ import type {
   EditorStyles,
   PartialSelectionState,
   Position,
+  ViewportState,
 } from "./types";
+import { wrapText, getCurrentFontFamily } from "./fonts";
+import { defaultStyles, getTextStyle } from "./styles";
 
 // State Creation Functions
 export const createInitialState = (page: Page): EditorState => ({
@@ -216,34 +219,308 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   return state;
 };
 
-export const moveCursorUp = (state: EditorState): EditorState => {
+/**
+ * Get line information for a given position within a block
+ * Returns the line index, line start/end indices, and total lines in the block
+ */
+function getLineInfoAtPosition(
+  block: Block,
+  textIndex: number,
+  maxWidth: number,
+  styles: EditorStyles = defaultStyles
+): {
+  lineIndex: number;
+  lineStartIndex: number;
+  lineEndIndex: number;
+  totalLines: number;
+  lines: string[];
+} | null {
+  const textStyle = getTextStyle(styles, block.type);
+  const content = getBlockTextContent(block);
+  const fontFamily = getCurrentFontFamily();
+
+  const lines = wrapText(
+    content,
+    maxWidth,
+    textStyle.fontSize,
+    textStyle.fontWeight,
+    fontFamily
+  );
+
+  let currentTextIndex = 0;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
+    const lineStartIndex = currentTextIndex;
+    const lineEndIndex = currentTextIndex + line.length;
+
+    if (textIndex >= lineStartIndex && textIndex <= lineEndIndex) {
+      return {
+        lineIndex,
+        lineStartIndex,
+        lineEndIndex,
+        totalLines: lines.length,
+        lines,
+      };
+    }
+
+    currentTextIndex += line.length;
+    // Account for the space character consumed during text wrapping (if not last line)
+    if (lineIndex < lines.length - 1) {
+      currentTextIndex += 1;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get the text index at a relative position within a line
+ * Used to maintain horizontal position when moving up/down between lines
+ */
+function getTextIndexAtRelativePosition(
+  lineStartIndex: number,
+  lineEndIndex: number,
+  relativePosition: number
+): number {
+  const lineLength = lineEndIndex - lineStartIndex;
+  const targetIndex = lineStartIndex + Math.min(relativePosition, lineLength);
+  return targetIndex;
+}
+
+/**
+ * Move cursor up by one line (not block)
+ * If on the first line of a block, moves to the last line of the previous block
+ */
+export const moveCursorUp = (
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = defaultStyles
+): EditorState => {
   if (!state.cursor) return createInitialCursorState(state);
 
   const { blockIndex, textIndex } = state.cursor.position;
+  const currentBlock = state.page.blocks[blockIndex];
 
-  if (blockIndex > 0) {
-    return moveCursorToPosition(state, blockIndex - 1, textIndex);
+  if (!currentBlock) return state;
+
+  // Calculate maxWidth from viewport or use a default
+  const maxWidth = viewport
+    ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
+    : 800; // Default fallback
+
+  const lineInfo = getLineInfoAtPosition(currentBlock, textIndex, maxWidth, styles);
+
+  if (!lineInfo) return state;
+
+  const relativePosition = textIndex - lineInfo.lineStartIndex;
+
+  // If not on the first line of the block, move to the previous line within the same block
+  if (lineInfo.lineIndex > 0) {
+    const prevLine = lineInfo.lines[lineInfo.lineIndex - 1];
+    let prevLineStartIndex = 0;
+    
+    // Calculate the start index of the previous line
+    for (let i = 0; i < lineInfo.lineIndex - 1; i++) {
+      prevLineStartIndex += lineInfo.lines[i].length;
+      if (i < lineInfo.totalLines - 1) {
+        prevLineStartIndex += 1; // Account for space
+      }
+    }
+    
+    const prevLineEndIndex = prevLineStartIndex + prevLine.length;
+    const targetTextIndex = getTextIndexAtRelativePosition(
+      prevLineStartIndex,
+      prevLineEndIndex,
+      relativePosition
+    );
+
+    return moveCursorToPosition(state, blockIndex, targetTextIndex);
   }
 
+  // On the first line of the block, move to the previous block's last line
+  if (blockIndex > 0) {
+    const prevBlock = state.page.blocks[blockIndex - 1];
+    const prevBlockContent = getBlockTextContent(prevBlock);
+    const prevTextStyle = getTextStyle(styles, prevBlock.type);
+    const fontFamily = getCurrentFontFamily();
+
+    const prevLines = wrapText(
+      prevBlockContent,
+      maxWidth,
+      prevTextStyle.fontSize,
+      prevTextStyle.fontWeight,
+      fontFamily
+    );
+
+    if (prevLines.length > 0) {
+      // Calculate the start index of the last line in the previous block
+      let lastLineStartIndex = 0;
+      for (let i = 0; i < prevLines.length - 1; i++) {
+        lastLineStartIndex += prevLines[i].length;
+        if (i < prevLines.length - 1) {
+          lastLineStartIndex += 1; // Account for space
+        }
+      }
+
+      const lastLine = prevLines[prevLines.length - 1];
+      const lastLineEndIndex = lastLineStartIndex + lastLine.length;
+      const targetTextIndex = getTextIndexAtRelativePosition(
+        lastLineStartIndex,
+        lastLineEndIndex,
+        relativePosition
+      );
+
+      return moveCursorToPosition(state, blockIndex - 1, targetTextIndex);
+    }
+
+    // If previous block is empty, just go to its start
+    return moveCursorToPosition(state, blockIndex - 1, 0);
+  }
+
+  // Already at the first line of the first block, move to start
   return moveCursorToPosition(state, blockIndex, 0);
 };
 
-export const moveCursorDown = (state: EditorState): EditorState => {
+/**
+ * Move cursor down by one line (not block)
+ * If on the last line of a block, moves to the first line of the next block
+ */
+export const moveCursorDown = (
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = defaultStyles
+): EditorState => {
   if (!state.cursor) return createInitialCursorState(state);
 
   const { blockIndex, textIndex } = state.cursor.position;
-
-  if (blockIndex < state.page.blocks.length - 1) {
-    return moveCursorToPosition(state, blockIndex + 1, textIndex);
-  }
-
   const currentBlock = state.page.blocks[blockIndex];
-  if (currentBlock) {
-    const currentBlockLength = getBlockTextLength(currentBlock);
-    return moveCursorToPosition(state, blockIndex, currentBlockLength);
+
+  if (!currentBlock) return state;
+
+  // Calculate maxWidth from viewport or use a default
+  const maxWidth = viewport
+    ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
+    : 800; // Default fallback
+
+  const lineInfo = getLineInfoAtPosition(currentBlock, textIndex, maxWidth, styles);
+
+  if (!lineInfo) return state;
+
+  const relativePosition = textIndex - lineInfo.lineStartIndex;
+
+  // If not on the last line of the block, move to the next line within the same block
+  if (lineInfo.lineIndex < lineInfo.totalLines - 1) {
+    const nextLine = lineInfo.lines[lineInfo.lineIndex + 1];
+    let nextLineStartIndex = 0;
+    
+    // Calculate the start index of the next line
+    for (let i = 0; i <= lineInfo.lineIndex; i++) {
+      if (i > 0) {
+        nextLineStartIndex += lineInfo.lines[i - 1].length;
+        if (i < lineInfo.totalLines) {
+          nextLineStartIndex += 1; // Account for space
+        }
+      }
+    }
+    
+    // Adjust calculation - iterate properly
+    nextLineStartIndex = 0;
+    for (let i = 0; i < lineInfo.lineIndex + 1; i++) {
+      nextLineStartIndex += lineInfo.lines[i].length;
+      if (i < lineInfo.totalLines - 1) {
+        nextLineStartIndex += 1; // Account for space
+      }
+    }
+    
+    const nextLineEndIndex = nextLineStartIndex + nextLine.length;
+    const targetTextIndex = getTextIndexAtRelativePosition(
+      nextLineStartIndex,
+      nextLineEndIndex,
+      relativePosition
+    );
+
+    return moveCursorToPosition(state, blockIndex, targetTextIndex);
   }
 
-  return state;
+  // On the last line of the block, move to the next block's first line
+  if (blockIndex < state.page.blocks.length - 1) {
+    const nextBlock = state.page.blocks[blockIndex + 1];
+    const nextBlockContent = getBlockTextContent(nextBlock);
+    const nextTextStyle = getTextStyle(styles, nextBlock.type);
+    const fontFamily = getCurrentFontFamily();
+
+    const nextLines = wrapText(
+      nextBlockContent,
+      maxWidth,
+      nextTextStyle.fontSize,
+      nextTextStyle.fontWeight,
+      fontFamily
+    );
+
+    if (nextLines.length > 0) {
+      const firstLine = nextLines[0];
+      const targetTextIndex = getTextIndexAtRelativePosition(
+        0,
+        firstLine.length,
+        relativePosition
+      );
+
+      return moveCursorToPosition(state, blockIndex + 1, targetTextIndex);
+    }
+
+    // If next block is empty, just go to its start
+    return moveCursorToPosition(state, blockIndex + 1, 0);
+  }
+
+  // Already at the last line of the last block, move to end
+  const currentBlockLength = getBlockTextLength(currentBlock);
+  return moveCursorToPosition(state, blockIndex, currentBlockLength);
+};
+
+/**
+ * Move cursor up by one page
+ * Moves the cursor up by approximately one viewport height
+ */
+export const moveCursorPageUp = (
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = defaultStyles
+): EditorState => {
+  if (!state.cursor || !viewport) return state;
+
+  // Move up by viewport height worth of lines
+  // Estimate ~10-20 lines per page depending on font size
+  const linesToMove = Math.floor(viewport.height / 30); // Approximate line height
+  
+  let newState = state;
+  for (let i = 0; i < linesToMove && newState.cursor; i++) {
+    newState = moveCursorUp(newState, viewport, styles);
+  }
+  
+  return newState;
+};
+
+/**
+ * Move cursor down by one page
+ * Moves the cursor down by approximately one viewport height
+ */
+export const moveCursorPageDown = (
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = defaultStyles
+): EditorState => {
+  if (!state.cursor || !viewport) return state;
+
+  // Move down by viewport height worth of lines
+  // Estimate ~10-20 lines per page depending on font size
+  const linesToMove = Math.floor(viewport.height / 30); // Approximate line height
+  
+  let newState = state;
+  for (let i = 0; i < linesToMove && newState.cursor; i++) {
+    newState = moveCursorDown(newState, viewport, styles);
+  }
+  
+  return newState;
 };
 
 // Selection Functions
@@ -330,13 +607,17 @@ export const extendSelectionRight = (state: EditorState): EditorState => {
   return state;
 };
 
-export const extendSelectionUp = (state: EditorState): EditorState => {
+export const extendSelectionUp = (
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = defaultStyles
+): EditorState => {
   if (!state.cursor) return state;
 
   // If no selection exists, start one at current cursor position
   if (!state.selection) {
     const newState = startSelection(state, state.cursor.position);
-    const upState = moveCursorUp(newState);
+    const upState = moveCursorUp(newState, viewport, styles);
     if (upState.cursor) {
       return updateSelectionFocus(upState, upState.cursor.position);
     }
@@ -344,20 +625,24 @@ export const extendSelectionUp = (state: EditorState): EditorState => {
   }
 
   // Extend existing selection
-  const upState = moveCursorUp(state);
+  const upState = moveCursorUp(state, viewport, styles);
   if (upState.cursor) {
     return updateSelectionFocus(upState, upState.cursor.position);
   }
   return state;
 };
 
-export const extendSelectionDown = (state: EditorState): EditorState => {
+export const extendSelectionDown = (
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = defaultStyles
+): EditorState => {
   if (!state.cursor) return state;
 
   // If no selection exists, start one at current cursor position
   if (!state.selection) {
     const newState = startSelection(state, state.cursor.position);
-    const downState = moveCursorDown(newState);
+    const downState = moveCursorDown(newState, viewport, styles);
     if (downState.cursor) {
       return updateSelectionFocus(downState, downState.cursor.position);
     }
@@ -365,7 +650,7 @@ export const extendSelectionDown = (state: EditorState): EditorState => {
   }
 
   // Extend existing selection
-  const downState = moveCursorDown(state);
+  const downState = moveCursorDown(state, viewport, styles);
   if (downState.cursor) {
     return updateSelectionFocus(downState, downState.cursor.position);
   }

@@ -90,7 +90,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
       />
       <Popover.Portal>
         <Popover.Content
-          className="bg-white rounded-lg shadow-xl border border-gray-200 py-2 min-w-[320px] max-w-[400px] z-50 max-h-[400px] overflow-y-auto"
+          className="bg-white rounded-lg shadow-xl border border-gray-200 py-2 min-w-[320px] max-w-[400px] z-50 max-h-[400px] overflow-y-auto select-none"
           side="bottom"
           align="start"
           sideOffset={5}
