@@ -29,6 +29,8 @@ Bugs list
 [x] page up and page down should be implemented.
 [x] when selection is active and we click arrow up or left then the cursot should go back to start of the selection.
 [x] if we scroll to the bottom of the page and then type Ctrl + A and delete the text, we should scroll to the top. But now we fall outside outside the viewport.
-[ ] implement ctrl + C to copy text and ctrl + V to paste text and ctrl + X to cut text.
-[ ] group undo and redo to words.
 [x] add extra space on mobile at the end of the page so there is place for the keyboard.
+[x] implement ctrl + C to copy text and ctrl + V to paste text (with HTML formatting) and ctrl + Shift + V to paste as plain text.
+[x] implement ctrl + X to cut text.
+[ ] group undo and redo to words.
+[ ] when pressing enter on end of heading then we should create new paragraph.

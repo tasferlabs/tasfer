@@ -1,11 +1,14 @@
 import { loadPage, type Page } from "../deserializer/loadPage";
-import { handleEvents, isInLongPressMode } from "./events";
+import { applySlashCommand } from "./commands";
+import {
+  handleEvents,
+  isInLongPressMode
+} from "./events";
 import { calculateBlockHeight, renderPage } from "./renderer";
 import { getCursorCoordinates } from "./selection";
 import { createInitialState, updateFocus } from "./state";
 import { defaultStyles } from "./styles";
-import type { EditorState, ViewportState, SlashCommand } from "./types";
-import { applySlashCommand } from "./commands";
+import type { EditorState, SlashCommand, ViewportState } from "./types";
 import { recordUndo } from "./undo";
 
 export interface Editor {
@@ -49,6 +52,12 @@ export default function createEditor(
 
   const eventsQueue: Event[] = [];
   const listeners: ((state: EditorState) => void)[] = [];
+  
+  // Store clipboard data separately since it gets detached after the event handler
+  let pendingClipboardData: {
+    html: string;
+    text: string;
+  } | null = null;
 
   // Detect if device has touch support
   const isTouchDevice = (): boolean => {
@@ -83,7 +92,7 @@ export default function createEditor(
   let currentSetDocumentHeight: ((height: number) => void) | null = null;
 
   // Render a single frame synchronously
-  const renderFrame = (setDocumentHeight: (height: number) => void) => {
+  const renderFrame = async (setDocumentHeight: (height: number) => void) => {
     if (isRendering) return;
     isRendering = true;
 
@@ -102,8 +111,13 @@ export default function createEditor(
         eventsQueue,
         documentHeight,
         rect,
-        updateViewport
+        updateViewport,
+        pendingClipboardData
       );
+      
+      // Clear clipboard data after it's been used
+      pendingClipboardData = null;
+      
       documentHeight = renderPage(ctx, state, viewport, visibility);
 
       // Update cursor style based on scrollbar hover and drag state
@@ -121,7 +135,9 @@ export default function createEditor(
   // Render loop
   const renderLoop = (setDocumentHeight: (height: number) => void) => {
     renderFrame(setDocumentHeight);
-    animationFrameId = requestAnimationFrame(() => renderLoop(setDocumentHeight));
+    animationFrameId = requestAnimationFrame(() =>
+      renderLoop(setDocumentHeight)
+    );
   };
 
   function eventsHandler(e: Event) {
@@ -142,6 +158,19 @@ export default function createEditor(
     if (e.type === "wheel" || e.type === "touchmove") {
       e.preventDefault();
     }
+    
+    // For paste events, extract clipboard data immediately since it gets detached
+    if (e.type === "paste" && e instanceof ClipboardEvent) {
+      e.preventDefault();
+      const clipboardData = e.clipboardData;
+      if (clipboardData) {
+        pendingClipboardData = {
+          html: clipboardData.getData("text/html") || "",
+          text: clipboardData.getData("text/plain") || clipboardData.getData("text") || "",
+        };
+      }
+    }
+    
     eventsQueue.push(e);
   }
 
@@ -181,7 +210,7 @@ export default function createEditor(
     // Check if we're ending a long press selection BEFORE processing the event
     // This allows us to focus the input synchronously with the user gesture
     const wasLongPress = isInLongPressMode();
-    
+
     // Process the touch event first
     eventsHandler(e);
 
@@ -347,6 +376,7 @@ export default function createEditor(
     canvas.addEventListener("touchend", touchEndHandler, { passive: false });
     canvas.addEventListener("touchcancel", eventsHandler, { passive: false });
     window.addEventListener("keydown", eventsHandler);
+    window.addEventListener("paste", eventsHandler);
 
     // Set up hidden input handlers for mobile keyboard support
     if (hiddenInput) {
@@ -395,6 +425,7 @@ export default function createEditor(
     canvas.removeEventListener("touchend", touchEndHandler);
     canvas.removeEventListener("touchcancel", eventsHandler);
     window.removeEventListener("keydown", eventsHandler);
+    window.removeEventListener("paste", eventsHandler);
 
     // Clean up hidden input handlers
     if (hiddenInput) {

@@ -63,6 +63,7 @@ function emptyBlock(): Block {
 function parseHeading(context: ParserContext, level: number) {
   const content = parseText(context);
   const heading = generateHeading(level, ...content);
+  match(context, NEWLINE);
   return heading;
 }
 function parseText(context: ParserContext): Text[] {

@@ -52,7 +52,7 @@ export function getSelectionRange(
 }
 
 // Helper function to delete selected text
-function deleteSelectedText(state: EditorState): EditorState {
+export function deleteSelectedText(state: EditorState): EditorState {
   const range = getSelectionRange(state);
   if (!range) return state;
 

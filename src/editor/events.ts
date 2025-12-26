@@ -1,81 +1,86 @@
+import type { Block } from "../deserializer/loadPage";
+import { SLASH_COMMANDS } from "./SlashCommandMenu";
+import { copySelectionToClipboard, pasteFromClipboardEvent } from "./clipboard";
 import {
-  deleteText,
+  applySlashCommand,
   deleteForward,
-  deleteWordForward,
+  deleteSelectedText,
+  deleteText,
   deleteWordBackward,
-  insertText,
-  splitBlock,
+  deleteWordForward,
   extendSelectionWordLeft,
   extendSelectionWordRight,
-  moveToPreviousWord,
-  moveToNextWord,
-  selectWordAtPosition,
-  selectLineAtPosition,
-  moveToLineStart,
-  moveToLineEnd,
-  selectAll,
-  applySlashCommand,
   getSelectionRange,
+  insertText,
+  moveToLineEnd,
+  moveToLineStart,
+  moveToNextWord,
+  moveToPreviousWord,
+  selectAll,
+  selectLineAtPosition,
+  selectWordAtPosition,
+  splitBlock,
 } from "./commands";
-import type { Block } from "../deserializer/loadPage";
-import { getTextPositionFromViewport, scrollToMakeCursorVisible } from "./selection";
 import {
-  clearSelection,
-  getBlockTextLength,
-  moveCursorDown,
-  moveCursorLeft,
-  moveCursorRight,
-  moveCursorToPosition,
-  moveCursorUp,
-  moveCursorPageUp,
-  moveCursorPageDown,
-  startSelection,
-  updateCursor,
-  updateMode,
-  updateFocus,
-  updateSelectionFocus,
-  extendSelectionLeft,
-  extendSelectionRight,
-  extendSelectionUp,
-  extendSelectionDown,
-  openSlashCommand,
-  updateSlashCommandFilter,
-  updateSlashCommandSelection,
-  closeSlashCommand,
-  getBlockTextContent,
-} from "./state";
-import { SLASH_COMMANDS } from "./SlashCommandMenu";
+  CLICK_DISTANCE_THRESHOLD,
+  DOUBLE_CLICK_TIME,
+  EDGE_SCROLL_ACCELERATION_RATE,
+  EDGE_SCROLL_MAX_SPEED,
+  EDGE_SCROLL_SPEED,
+  EDGE_SCROLL_THRESHOLD,
+  LONG_PRESS_DURATION,
+  MOVEMENT_THRESHOLD,
+  TAP_DISTANCE_THRESHOLD,
+  TAP_MAX_DURATION,
+} from "./constants";
 import {
+  applyMomentum,
+  endScrollbarDrag,
   isPointInScrollbar,
   isPointInThumb,
-  updateScrollbarHover,
   startScrollbarDrag,
-  endScrollbarDrag,
   updateScrollFromThumbDrag,
   updateScrollFromTrackClick,
   updateScrollFromWheel,
   updateScrollbarFadeOpacity,
-  applyMomentum,
+  updateScrollbarHover,
 } from "./scrollbar";
+import {
+  getTextPositionFromViewport,
+  scrollToMakeCursorVisible,
+} from "./selection";
+import {
+  clearSelection,
+  closeSlashCommand,
+  extendSelectionDown,
+  extendSelectionLeft,
+  extendSelectionRight,
+  extendSelectionUp,
+  getBlockTextContent,
+  getBlockTextLength,
+  moveCursorDown,
+  moveCursorLeft,
+  moveCursorPageDown,
+  moveCursorPageUp,
+  moveCursorRight,
+  moveCursorToPosition,
+  moveCursorUp,
+  openSlashCommand,
+  startSelection,
+  updateCursor,
+  updateFocus,
+  updateMode,
+  updateSelectionFocus,
+  updateSlashCommandFilter,
+  updateSlashCommandSelection,
+} from "./state";
 import type {
   EditorState,
+  KeyboardEvent,
   MouseEvent,
   ViewportState,
-  KeyboardEvent,
 } from "./types";
-import { recordUndo, undoState, redoState } from "./undo";
-import {
-  DOUBLE_CLICK_TIME,
-  CLICK_DISTANCE_THRESHOLD,
-  TAP_DISTANCE_THRESHOLD,
-  LONG_PRESS_DURATION,
-  MOVEMENT_THRESHOLD,
-  TAP_MAX_DURATION,
-  EDGE_SCROLL_THRESHOLD,
-  EDGE_SCROLL_SPEED,
-  EDGE_SCROLL_MAX_SPEED,
-  EDGE_SCROLL_ACCELERATION_RATE,
-} from "./constants";
+import { recordUndo, redoState, undoState } from "./undo";
 
 function isTouchDevice(): boolean {
   return (
@@ -104,24 +109,37 @@ function isPositionWithinSelection(
 
   const selStart =
     anchor.blockIndex < focus.blockIndex ||
-    (anchor.blockIndex === focus.blockIndex && anchor.textIndex <= focus.textIndex)
+    (anchor.blockIndex === focus.blockIndex &&
+      anchor.textIndex <= focus.textIndex)
       ? anchor
       : focus;
   const selEnd = selStart === anchor ? focus : anchor;
 
-  if (selStart.blockIndex === selEnd.blockIndex && selStart.textIndex === selEnd.textIndex) {
+  if (
+    selStart.blockIndex === selEnd.blockIndex &&
+    selStart.textIndex === selEnd.textIndex
+  ) {
     return false;
   }
 
-  if (position.blockIndex < selStart.blockIndex || position.blockIndex > selEnd.blockIndex) {
+  if (
+    position.blockIndex < selStart.blockIndex ||
+    position.blockIndex > selEnd.blockIndex
+  ) {
     return false;
   }
 
-  if (position.blockIndex === selStart.blockIndex && position.textIndex < selStart.textIndex) {
+  if (
+    position.blockIndex === selStart.blockIndex &&
+    position.textIndex < selStart.textIndex
+  ) {
     return false;
   }
 
-  if (position.blockIndex === selEnd.blockIndex && position.textIndex > selEnd.textIndex) {
+  if (
+    position.blockIndex === selEnd.blockIndex &&
+    position.textIndex > selEnd.textIndex
+  ) {
     return false;
   }
 
@@ -135,47 +153,58 @@ export function handleEvents(
   events: Event[],
   documentHeight: number,
   containerRect: { left: number; top: number },
-  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
+  clipboardData?: { html: string; text: string } | null
 ): EditorState {
   // Apply auto-scroll and selection update during long press
   if (autoScrollState.isActive && touchState?.isLongPress) {
     // Current touch coordinates are already adjusted relative to container in handleTouchMove
-    const touch = { clientY: touchState.currentTouchY, clientX: touchState.currentTouchX };
-    
+    const touch = {
+      clientY: touchState.currentTouchY,
+      clientX: touchState.currentTouchX,
+    };
+
     const elapsedTime = Date.now() - autoScrollState.startTime;
     const timeBasedMultiplier = Math.min(
       Math.pow(EDGE_SCROLL_ACCELERATION_RATE, elapsedTime / 1000),
       EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED
     );
     autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
-    
+
     let autoScrollDelta = 0;
-    
+
     if (touch.clientY < 0) {
       const distance = Math.abs(touch.clientY);
       const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta = -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
+      autoScrollDelta =
+        -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
     } else if (touch.clientY < EDGE_SCROLL_THRESHOLD) {
       const proximity = 1 - touch.clientY / EDGE_SCROLL_THRESHOLD;
       autoScrollDelta = -EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
     } else if (touch.clientY > viewport.height) {
       const distance = touch.clientY - viewport.height;
       const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta = EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
+      autoScrollDelta =
+        EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
     } else if (touch.clientY > viewport.height - EDGE_SCROLL_THRESHOLD) {
-      const proximity = (touch.clientY - (viewport.height - EDGE_SCROLL_THRESHOLD)) / EDGE_SCROLL_THRESHOLD;
+      const proximity =
+        (touch.clientY - (viewport.height - EDGE_SCROLL_THRESHOLD)) /
+        EDGE_SCROLL_THRESHOLD;
       autoScrollDelta = EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
     }
-    
+
     if (autoScrollDelta !== 0 && updateViewportCallback) {
       const maxScroll = documentHeight - viewport.height;
-      const newScrollY = Math.max(0, Math.min(maxScroll, viewport.scrollY + autoScrollDelta));
-      
+      const newScrollY = Math.max(
+        0,
+        Math.min(maxScroll, viewport.scrollY + autoScrollDelta)
+      );
+
       if (newScrollY !== viewport.scrollY) {
         updateViewportCallback({ scrollY: newScrollY });
       }
     }
-    
+
     const position = getTextPositionFromViewport(
       touch.clientX,
       touch.clientY,
@@ -183,7 +212,7 @@ export function handleEvents(
       viewport,
       { start: 0, end: state.page.blocks.length - 1 }
     );
-    
+
     if (position) {
       if (state.mode !== "select") {
         state = updateCursor(state, position);
@@ -194,7 +223,7 @@ export function handleEvents(
         state = updateCursor(state, position);
       }
     }
-    
+
     state = {
       ...state,
       scrollbar: {
@@ -217,22 +246,29 @@ export function handleEvents(
     if (mouseY < 0) {
       const distance = Math.abs(mouseY);
       const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta = -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
+      autoScrollDelta =
+        -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
     } else if (mouseY < EDGE_SCROLL_THRESHOLD) {
       const proximity = 1 - mouseY / EDGE_SCROLL_THRESHOLD;
       autoScrollDelta = -EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
     } else if (mouseY > viewport.height) {
       const distance = mouseY - viewport.height;
       const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta = EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
+      autoScrollDelta =
+        EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
     } else if (mouseY > viewport.height - EDGE_SCROLL_THRESHOLD) {
-      const proximity = (mouseY - (viewport.height - EDGE_SCROLL_THRESHOLD)) / EDGE_SCROLL_THRESHOLD;
+      const proximity =
+        (mouseY - (viewport.height - EDGE_SCROLL_THRESHOLD)) /
+        EDGE_SCROLL_THRESHOLD;
       autoScrollDelta = EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
     }
 
     if (autoScrollDelta !== 0 && updateViewportCallback) {
       const maxScroll = documentHeight - viewport.height;
-      const newScrollY = Math.max(0, Math.min(maxScroll, viewport.scrollY + autoScrollDelta));
+      const newScrollY = Math.max(
+        0,
+        Math.min(maxScroll, viewport.scrollY + autoScrollDelta)
+      );
 
       if (newScrollY !== viewport.scrollY) {
         updateViewportCallback({ scrollY: newScrollY });
@@ -253,7 +289,7 @@ export function handleEvents(
       state = updateCursor(state, position);
     }
   }
-  
+
   // Apply momentum scrolling if active (even when no events)
   if (state.momentum.isActive) {
     const momentumResult = applyMomentum(
@@ -335,6 +371,9 @@ export function handleEvents(
       case "keydown":
         state = handleKeyDown(state, viewport, event, updateViewportCallback);
         break;
+      case "paste":
+        state = handlePaste(state, event as ClipboardEvent, viewport, updateViewportCallback, clipboardData);
+        break;
       case "wheel":
         if (isTouchDevice()) {
           break;
@@ -367,7 +406,12 @@ export function handleEvents(
         );
         break;
       case "touchend":
-        state = handleTouchEnd(state, viewport, event as TouchEvent, containerRect);
+        state = handleTouchEnd(
+          state,
+          viewport,
+          event as TouchEvent,
+          containerRect
+        );
         break;
       case "touchcancel":
         // Cancel touch interaction
@@ -387,6 +431,38 @@ export function handleEvents(
   return state;
 }
 
+function handlePaste(
+  state: EditorState,
+  event: ClipboardEvent,
+  viewport: ViewportState,
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
+  clipboardData?: { html: string; text: string } | null
+): EditorState {
+  // Prevent default paste behavior
+  event.preventDefault();
+
+  // Use the tracked pasteAsPlainText flag (set during keydown)
+  // Paste as plain text
+  const newState = pasteFromClipboardEvent(state, event, clipboardData);
+  if (!newState) {
+    return state;
+  }
+  
+  // Scroll to make the cursor (end of pasted content) visible
+  if (newState.cursor && updateViewportCallback) {
+    const newScrollY = scrollToMakeCursorVisible(
+      newState.cursor.position,
+      newState,
+      viewport
+    );
+    if (newScrollY !== null) {
+      updateViewportCallback({ scrollY: newScrollY });
+    }
+  }
+  
+  return newState;
+}
+
 function handleMouseDown(
   state: EditorState,
   viewport: ViewportState,
@@ -397,12 +473,12 @@ function handleMouseDown(
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
   stopAutoScroll();
-  
+
   // Close slash command menu on mouse click
   if (state.slashCommand) {
     state = closeSlashCommand(state);
   }
-  
+
   state = updateFocus(state, true);
 
   state = {
@@ -581,7 +657,7 @@ function handleMouseMove(
     if (!autoScrollState.isActive) {
       startAutoScroll();
     }
-    
+
     // Update stored mouse position for auto-scroll loop
     autoScrollState.lastMouseX = canvasX;
     autoScrollState.lastMouseY = canvasY;
@@ -604,7 +680,7 @@ function handleMouseUp(
   _visibility: { start: number; end: number }
 ): EditorState {
   stopAutoScroll();
-  
+
   if (state.scrollbar.isDragging) {
     return {
       ...state,
@@ -621,7 +697,7 @@ function handleMouseUp(
 
 function handlePointerCancel(state: EditorState): EditorState {
   stopAutoScroll();
-  
+
   if (state.scrollbar.isDragging) {
     state = {
       ...state,
@@ -660,14 +736,46 @@ function handleKeyDown(
     return selectAll(state);
   }
 
+  // Copy
+  if (isCtrl && keyLower === "c") {
+    // Don't prevent default - allow browser's copy to work as fallback
+    // But also handle our custom copy with formatting
+    copySelectionToClipboard(state).catch((err) => {
+      console.error("Copy failed:", err);
+    });
+    return state;
+  }
+
+  // Cut
+  if (isCtrl && keyLower === "x") {
+    const range = getSelectionRange(state);
+    if (range) {
+      // Copy to clipboard first
+      copySelectionToClipboard(state).catch((err) => {
+        console.error("Cut (copy) failed:", err);
+      });
+      // Then delete the selected text
+      return deleteSelectedText(recordUndo(state));
+    }
+    return state;
+  }
+
   // Handle slash command menu navigation
   if (state.slashCommand) {
     const filteredCommands = state.slashCommand.filter
       ? SLASH_COMMANDS.filter(
           (cmd) =>
-            cmd.label.toLowerCase().includes(state.slashCommand!.filter.toLowerCase()) ||
-            cmd.description.toLowerCase().includes(state.slashCommand!.filter.toLowerCase()) ||
-            cmd.keywords?.some((keyword) => keyword.toLowerCase().startsWith(state.slashCommand!.filter.toLowerCase()))
+            cmd.label
+              .toLowerCase()
+              .includes(state.slashCommand!.filter.toLowerCase()) ||
+            cmd.description
+              .toLowerCase()
+              .includes(state.slashCommand!.filter.toLowerCase()) ||
+            cmd.keywords?.some((keyword) =>
+              keyword
+                .toLowerCase()
+                .startsWith(state.slashCommand!.filter.toLowerCase())
+            )
         )
       : SLASH_COMMANDS;
 
@@ -705,26 +813,33 @@ function handleKeyDown(
           const beforeSlash = text.slice(0, textIndex - 1);
           const afterFilter = text.slice(state.cursor.position.textIndex);
           const newText = beforeSlash + afterFilter;
-          
+
           const newBlock: Block = {
             ...block,
             content: [{ content: newText }],
           };
-          
+
           const newBlocks = [...state.page.blocks];
           newBlocks[blockIndex] = newBlock;
           const newPage = { ...state.page, blocks: newBlocks };
-          
+
           let newState: EditorState = { ...state, page: newPage };
           newState = closeSlashCommand(newState);
-          newState = moveCursorToPosition(newState, blockIndex, beforeSlash.length);
-          
+          newState = moveCursorToPosition(
+            newState,
+            blockIndex,
+            beforeSlash.length
+          );
+
           return newState;
         }
         return closeSlashCommand(state);
       case "Backspace":
         // If at the start of filter, close menu
-        if (state.cursor && state.cursor.position.textIndex <= state.slashCommand.textIndex) {
+        if (
+          state.cursor &&
+          state.cursor.position.textIndex <= state.slashCommand.textIndex
+        ) {
           // Close menu and delete the slash character - no recordUndo needed since deleteText already records
           return closeSlashCommand(deleteText(recordUndo(state)));
         }
@@ -774,7 +889,7 @@ function handleKeyDown(
     case "ArrowLeft":
       // Ensure editor is focused
       newState = updateFocus(state, true);
-      
+
       if (isCtrl && keyEvent.shiftKey) {
         newState = extendSelectionWordLeft(newState);
       } else if (keyEvent.shiftKey) {
@@ -783,7 +898,11 @@ function handleKeyDown(
         // If there's a selection, move to the start of it
         const range = getSelectionRange(newState);
         if (range) {
-          newState = moveCursorToPosition(clearSelection(newState), range.start.blockIndex, range.start.textIndex);
+          newState = moveCursorToPosition(
+            clearSelection(newState),
+            range.start.blockIndex,
+            range.start.textIndex
+          );
         } else if (isCtrl) {
           newState = moveToPreviousWord(clearSelection(newState));
         } else {
@@ -794,7 +913,7 @@ function handleKeyDown(
     case "ArrowRight":
       // Ensure editor is focused
       newState = updateFocus(state, true);
-      
+
       if (isCtrl && keyEvent.shiftKey) {
         newState = extendSelectionWordRight(state);
       } else if (keyEvent.shiftKey) {
@@ -803,7 +922,11 @@ function handleKeyDown(
         // If there's a selection, move to the end of it
         const range = getSelectionRange(newState);
         if (range) {
-          newState = moveCursorToPosition(clearSelection(newState), range.end.blockIndex, range.end.textIndex);
+          newState = moveCursorToPosition(
+            clearSelection(newState),
+            range.end.blockIndex,
+            range.end.textIndex
+          );
         } else if (isCtrl) {
           newState = moveToNextWord(clearSelection(newState));
         } else {
@@ -814,14 +937,18 @@ function handleKeyDown(
     case "ArrowUp":
       // Ensure editor is focused
       newState = updateFocus(state, true);
-      
+
       if (keyEvent.shiftKey) {
         newState = extendSelectionUp(newState, viewport);
       } else {
         // If there's a selection, move to the start of it
         const range = getSelectionRange(newState);
         if (range) {
-          newState = moveCursorToPosition(clearSelection(newState), range.start.blockIndex, range.start.textIndex);
+          newState = moveCursorToPosition(
+            clearSelection(newState),
+            range.start.blockIndex,
+            range.start.textIndex
+          );
         } else {
           newState = moveCursorUp(clearSelection(newState), viewport);
         }
@@ -830,14 +957,18 @@ function handleKeyDown(
     case "ArrowDown":
       // Ensure editor is focused
       newState = updateFocus(state, true);
-      
+
       if (keyEvent.shiftKey) {
         newState = extendSelectionDown(newState, viewport);
       } else {
         // If there's a selection, move to the end of it
         const range = getSelectionRange(newState);
         if (range) {
-          newState = moveCursorToPosition(clearSelection(newState), range.end.blockIndex, range.end.textIndex);
+          newState = moveCursorToPosition(
+            clearSelection(newState),
+            range.end.blockIndex,
+            range.end.textIndex
+          );
         } else {
           newState = moveCursorDown(clearSelection(newState), viewport);
         }
@@ -901,15 +1032,19 @@ function handleKeyDown(
         !keyEvent.metaKey
       ) {
         const { blockIndex } = state.cursor.position;
-        
+
         // Allow slash command anywhere in paragraphs and headings
         const newState = insertText(recordUndo(state), "/");
         if (newState.cursor) {
-          return openSlashCommand(newState, blockIndex, newState.cursor.position.textIndex);
+          return openSlashCommand(
+            newState,
+            blockIndex,
+            newState.cursor.position.textIndex
+          );
         }
         return newState;
       }
-      
+
       if (
         key.length === 1 &&
         !keyEvent.ctrlKey &&
@@ -1051,12 +1186,7 @@ function handleTouchStart(
     // Also check if actually hitting scrollbar
     const isScrollbarTouch =
       isNearRightEdge &&
-      isPointInScrollbar(
-        canvasX,
-        canvasY,
-        viewport,
-        documentHeight
-      );
+      isPointInScrollbar(canvasX, canvasY, viewport, documentHeight);
 
     touchState = {
       startY: canvasY,
@@ -1149,7 +1279,7 @@ function handleTouchMove(
       totalMovement < MOVEMENT_THRESHOLD
     ) {
       touchState.isLongPress = true;
-      
+
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
@@ -1214,8 +1344,7 @@ function handleTouchMove(
     // Apply scroll speed multiplier for more responsive feel on mobile
     // 1.5x makes scrolling feel more direct and responsive
     const touchScrollMultiplier = 1.5;
-    const scrollDelta =
-      (touchState.startY - canvasY) * touchScrollMultiplier;
+    const scrollDelta = (touchState.startY - canvasY) * touchScrollMultiplier;
 
     // Update scroll position with hard boundaries
     const maxScroll = documentHeight - viewport.height;
@@ -1248,7 +1377,7 @@ function handleTouchEnd(
   _containerRect: { left: number; top: number }
 ): EditorState {
   stopAutoScroll();
-  
+
   // End scrollbar drag if active
   if (state.scrollbar.isDragging) {
     state = {
@@ -1261,7 +1390,7 @@ function handleTouchEnd(
   if (touchState?.isLongPress && state.mode === "select") {
     state = updateMode(state, "edit");
     touchState = null;
-    
+
     return {
       ...state,
       scrollbar: {
@@ -1296,7 +1425,11 @@ function handleTouchEnd(
     if (
       touchTapTracker.lastTapPosition &&
       currentTime - touchTapTracker.lastTapTime <= DOUBLE_CLICK_TIME &&
-      isWithinClickDistance(tapPosition, touchTapTracker.lastTapPosition, TAP_DISTANCE_THRESHOLD)
+      isWithinClickDistance(
+        tapPosition,
+        touchTapTracker.lastTapPosition,
+        TAP_DISTANCE_THRESHOLD
+      )
     ) {
       touchTapTracker.count++;
       isMultiTap = true;
@@ -1378,7 +1511,7 @@ function handleTouchEnd(
 
 function handleTouchCancel(state: EditorState): EditorState {
   stopAutoScroll();
-  
+
   // End scrollbar drag if active
   if (state.scrollbar.isDragging) {
     state = {

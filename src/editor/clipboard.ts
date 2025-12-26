@@ -1,0 +1,485 @@
+import type { EditorState, Position } from "./types";
+import type { Block } from "../deserializer/loadPage";
+import {
+  getBlockTextContent,
+  moveCursorToPosition,
+  clearSelection,
+} from "./state";
+import { getSelectionRange, deleteSelectedText } from "./commands";
+import { recordUndo } from "./undo";
+
+/**
+ * Get the selected content from the editor state
+ */
+function getSelectedContent(state: EditorState): {
+  blocks: Block[];
+  isPartial: boolean;
+  start: Position;
+  end: Position;
+} | null {
+  const range = getSelectionRange(state);
+  if (!range) return null;
+
+  const { start, end } = range;
+
+  // If selection is in a single block
+  if (start.blockIndex === end.blockIndex) {
+    const block = state.page.blocks[start.blockIndex];
+    const text = getBlockTextContent(block);
+    const selectedText = text.slice(start.textIndex, end.textIndex);
+
+    const partialBlock: Block = {
+      ...block,
+      content: [{ content: selectedText }],
+    };
+
+    return {
+      blocks: [partialBlock],
+      isPartial: start.textIndex > 0 || end.textIndex < text.length,
+      start,
+      end,
+    };
+  }
+
+  // Multi-block selection
+  const blocks: Block[] = [];
+
+  for (let i = start.blockIndex; i <= end.blockIndex; i++) {
+    const block = state.page.blocks[i];
+    const text = getBlockTextContent(block);
+
+    let blockText = text;
+    if (i === start.blockIndex) {
+      // First block - cut from start position
+      blockText = text.slice(start.textIndex);
+    } else if (i === end.blockIndex) {
+      // Last block - cut to end position
+      blockText = text.slice(0, end.textIndex);
+    }
+    // Middle blocks - include full text
+
+    const newBlock: Block = {
+      ...block,
+      content: [{ content: blockText }],
+    };
+
+    blocks.push(newBlock);
+  }
+
+  return {
+    blocks,
+    isPartial: true,
+    start,
+    end,
+  };
+}
+
+/**
+ * Convert blocks to plain text
+ */
+function blocksToPlainText(blocks: Block[]): string {
+  return blocks.map((block) => getBlockTextContent(block)).join("\n\n");
+}
+
+/**
+ * Convert blocks to markdown with formatting
+ */
+function blocksToMarkdown(blocks: Block[]): string {
+  return blocks
+    .map((block) => {
+      const content = getBlockTextContent(block);
+      let prefix = "";
+      if (block.type === "heading1") prefix = "# ";
+      else if (block.type === "heading2") prefix = "## ";
+      else if (block.type === "heading3") prefix = "### ";
+      return prefix + content;
+    })
+    .join("\n\n");
+}
+
+/**
+ * Convert blocks to HTML with formatting
+ */
+function blocksToHTML(blocks: Block[]): string {
+  const htmlBlocks = blocks.map((block) => {
+    const content = getBlockTextContent(block);
+    // Escape HTML special characters
+    const escapedContent = content
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+    switch (block.type) {
+      case "heading1":
+        return `<h1>${escapedContent}</h1>`;
+      case "heading2":
+        return `<h2>${escapedContent}</h2>`;
+      case "heading3":
+        return `<h3>${escapedContent}</h3>`;
+      case "paragraph":
+      default:
+        return `<p>${escapedContent}</p>`;
+    }
+  });
+
+  return htmlBlocks.join("\n");
+}
+
+/**
+ * Copy selected content to clipboard with formatting
+ * Returns true if successful, false otherwise
+ */
+export async function copySelectionToClipboard(
+  state: EditorState
+): Promise<boolean> {
+  try {
+    const selectedContent = getSelectedContent(state);
+    if (!selectedContent) return false;
+
+    const { blocks } = selectedContent;
+    if (blocks.length === 0) return false;
+
+    const plainText = blocksToPlainText(blocks);
+    const markdown = blocksToMarkdown(blocks);
+    const html = blocksToHTML(blocks);
+
+    // Use the Clipboard API to write multiple formats
+    if (navigator.clipboard && navigator.clipboard.write) {
+      const clipboardItems = [
+        new ClipboardItem({
+          "text/plain": new Blob([plainText], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" }),
+          // // Some apps prefer markdown as text/plain, but we also include custom type
+          // "text/markdown": new Blob([markdown], { type: "text/markdown" }),
+        }),
+      ];
+
+      await navigator.clipboard.write(clipboardItems);
+      return true;
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+      // Fallback: only write markdown as plain text
+      await navigator.clipboard.writeText(markdown);
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error("Failed to copy to clipboard:", error);
+    return false;
+  }
+}
+
+/**
+ * Parse HTML string into blocks
+ */
+function parseHTMLToBlocks(html: string): Block[] {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  const blocks: Block[] = [];
+
+  // Get all top-level elements from body
+  const elements = doc.body.children;
+
+  for (let i = 0; i < elements.length; i++) {
+    const element = elements[i];
+    const tagName = element.tagName.toLowerCase();
+    const text = element.textContent || "";
+
+    let block: Block;
+
+    switch (tagName) {
+      case "h1":
+        block = {
+          type: "heading1",
+          content: [{ content: text }],
+        };
+        break;
+      case "h2":
+        block = {
+          type: "heading2",
+          content: [{ content: text }],
+        };
+        break;
+      case "h3":
+        block = {
+          type: "heading3",
+          content: [{ content: text }],
+        };
+        break;
+      case "p":
+      case "div":
+      case "span":
+      default:
+        block = {
+          type: "paragraph",
+          content: [{ content: text }],
+        };
+        break;
+    }
+
+    blocks.push(block);
+  }
+
+  // If no blocks were parsed, treat the entire content as paragraphs
+  if (blocks.length === 0 && doc.body.textContent) {
+    const lines = doc.body.textContent.split("\n");
+    for (const line of lines) {
+      blocks.push({
+        type: "paragraph",
+        content: [{ content: line }],
+      });
+    }
+  }
+
+  return blocks;
+}
+
+/**
+ * Parse plain text into blocks
+ * Respects markdown-style headings (# ## ###)
+ */
+function parsePlainTextToBlocks(text: string): Block[] {
+  const blocks: Block[] = [];
+  const lines = text.split("\n");
+
+  for (const line of lines) {
+    let block: Block;
+
+    // Check for markdown-style headings
+    if (line.startsWith("### ")) {
+      block = {
+        type: "heading3",
+        content: [{ content: line.slice(4) }],
+      };
+    } else if (line.startsWith("## ")) {
+      block = {
+        type: "heading2",
+        content: [{ content: line.slice(3) }],
+      };
+    } else if (line.startsWith("# ")) {
+      block = {
+        type: "heading1",
+        content: [{ content: line.slice(2) }],
+      };
+    } else {
+      // Regular paragraph
+      block = {
+        type: "paragraph",
+        content: [{ content: line }],
+      };
+    }
+
+    blocks.push(block);
+  }
+
+  return blocks;
+}
+
+/**
+ * Insert blocks at cursor position
+ * If there's a selection, it will be deleted first
+ * If no cursor is set, inserts at the end of the document
+ */
+function insertBlocksAtCursor(
+  state: EditorState,
+  blocks: Block[]
+): EditorState {
+  if (blocks.length === 0) return state;
+
+  // Record undo state before modification
+  let newState = recordUndo(state);
+
+  // If there's a selection, delete it first
+  if (newState.selection && !newState.selection.isCollapsed) {
+    newState = deleteSelectedText(newState);
+  }
+
+  // If no cursor is set, default to the end of the document
+  let blockIndex: number;
+  let textIndex: number;
+
+  if (!newState.cursor) {
+    // Insert at the end of the last block
+    blockIndex = newState.page.blocks.length - 1;
+    const lastBlock = newState.page.blocks[blockIndex];
+    textIndex = getBlockTextContent(lastBlock).length;
+  } else {
+    blockIndex = newState.cursor.position.blockIndex;
+    textIndex = newState.cursor.position.textIndex;
+  }
+
+  // Ensure cursor position is valid
+  if (blockIndex < 0 || blockIndex >= newState.page.blocks.length) {
+    blockIndex = newState.page.blocks.length - 1;
+    const lastBlock = newState.page.blocks[blockIndex];
+    textIndex = getBlockTextContent(lastBlock).length;
+  }
+  const currentBlock = newState.page.blocks[blockIndex];
+  const currentText = getBlockTextContent(currentBlock);
+
+  // If pasting a single block
+  if (blocks.length === 1) {
+    const pasteText = getBlockTextContent(blocks[0]);
+    const newText =
+      currentText.slice(0, textIndex) +
+      pasteText +
+      currentText.slice(textIndex);
+
+    const newBlock: Block = {
+      ...currentBlock,
+      content: [{ content: newText }],
+    };
+
+    const newBlocks = [
+      ...newState.page.blocks.slice(0, blockIndex),
+      newBlock,
+      ...newState.page.blocks.slice(blockIndex + 1),
+    ];
+
+    newState = {
+      ...newState,
+      page: { ...newState.page, blocks: newBlocks },
+    };
+
+    // Move cursor to end of pasted text
+    newState = moveCursorToPosition(
+      newState,
+      blockIndex,
+      textIndex + pasteText.length
+    );
+  } else {
+    // Pasting multiple blocks
+    // Split current block at cursor
+    const beforeText = currentText.slice(0, textIndex);
+    const afterText = currentText.slice(textIndex);
+
+    // First block: current block with text before cursor + first pasted block
+    const firstPastedText = getBlockTextContent(blocks[0]);
+    const firstBlock: Block = {
+      ...blocks[0],
+      content: [{ content: beforeText + firstPastedText }],
+    };
+
+    // Middle blocks: paste as-is
+    const middleBlocks = blocks.slice(1, -1);
+
+    // Last block: last pasted block + text after cursor
+    const lastPastedText = getBlockTextContent(blocks[blocks.length - 1]);
+    const lastBlock: Block = {
+      ...blocks[blocks.length - 1],
+      content: [{ content: lastPastedText + afterText }],
+    };
+
+    const newBlocks = [
+      ...newState.page.blocks.slice(0, blockIndex),
+      firstBlock,
+      ...middleBlocks,
+      lastBlock,
+      ...newState.page.blocks.slice(blockIndex + 1),
+    ];
+
+    newState = {
+      ...newState,
+      page: { ...newState.page, blocks: newBlocks },
+    };
+
+    // Move cursor to end of last pasted block
+    const lastBlockIndex = blockIndex + blocks.length - 1;
+    newState = moveCursorToPosition(
+      newState,
+      lastBlockIndex,
+      lastPastedText.length
+    );
+  }
+
+  return clearSelection(newState);
+}
+
+/**
+ * Paste content from ClipboardEvent with HTML formatting (Ctrl+V)
+ * This uses the paste event's clipboardData, which doesn't require permission
+ */
+export function pasteFromClipboardEvent(
+  state: EditorState,
+  event: ClipboardEvent,
+  extractedData?: { html: string; text: string } | null
+): EditorState | null {
+  // Use extracted data if provided (from immediate event handler)
+  // Otherwise try to get from event (may be empty if not called synchronously)
+  let html = "";
+  let text = "";
+
+  if (extractedData) {
+    html = extractedData.html;
+    text = extractedData.text;
+  } else {
+    const clipboardData = event.clipboardData;
+    if (!clipboardData) {
+      console.error("Failed to paste from clipboard event: no clipboard data");
+      return null;
+    }
+    html = clipboardData.getData("text/html");
+    text = clipboardData.getData("text/plain") || clipboardData.getData("text");
+  }
+
+  // Try to get HTML first
+  if (html) {
+    const blocks = parseHTMLToBlocks(html);
+    if (blocks.length > 0) {
+      return insertBlocksAtCursor(state, blocks);
+    }
+  }
+
+  // Fallback to plain text
+  if (text) {
+    const blocks = parsePlainTextToBlocks(text);
+    if (blocks.length > 0) {
+      return insertBlocksAtCursor(state, blocks);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Paste content from ClipboardEvent as plain text only (Ctrl+Shift+V)
+ * This uses the paste event's clipboardData, which doesn't require permission
+ */
+export function pasteFromClipboardEventAsPlainText(
+  state: EditorState,
+  event: ClipboardEvent
+): Promise<EditorState | null> {
+  return new Promise((resolve) => {
+    try {
+      const clipboardData = event.clipboardData;
+      if (!clipboardData) {
+        resolve(null);
+        console.error(
+          "Failed to paste from clipboard event: no clipboard data"
+        );
+        return;
+      }
+
+      const text =
+        clipboardData.getData("text/plain") || clipboardData.getData("text");
+      if (!text) {
+        resolve(null);
+        console.error("Failed to paste from clipboard event: no text");
+        return;
+      }
+
+      const blocks = parsePlainTextToBlocks(text);
+      if (blocks.length === 0) {
+        resolve(null);
+        return;
+      }
+
+      resolve(insertBlocksAtCursor(state, blocks));
+    } catch (error) {
+      console.error("Failed to paste plain text from clipboard event:", error);
+      resolve(null);
+    }
+  });
+}
