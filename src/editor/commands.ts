@@ -264,39 +264,49 @@ export function deleteForward(state: EditorState): EditorState {
   return state;
 }
 
-// Helper function to find word boundaries - uses whitespace as boundaries
+// Helper function to find word boundaries - distinguishes between alphanumeric and non-alphanumeric
 function findWordBoundary(
   text: string,
   index: number,
   direction: "left" | "right"
 ): number {
   if (direction === "left") {
-    // Move left to find start of word
+    // Move left to find start of previous word
     let i = index;
-    // Skip current non-whitespace characters
-    while (i > 0 && !/\s/.test(text[i - 1])) {
-      i--;
+    
+    if (i === 0) return 0;
+    
+    // Skip current character type
+    const startIsAlphaNum = /[a-zA-Z0-9_]/.test(text[i - 1]);
+    if (startIsAlphaNum) {
+      while (i > 0 && /[a-zA-Z0-9_]/.test(text[i - 1])) {
+        i--;
+      }
+    } else {
+      while (i > 0 && !/[a-zA-Z0-9_]/.test(text[i - 1])) {
+        i--;
+      }
     }
-    // Skip whitespace
-    while (i > 0 && /\s/.test(text[i - 1])) {
-      i--;
-    }
-    // Find start of previous word (non-whitespace)
-    while (i > 0 && !/\s/.test(text[i - 1])) {
-      i--;
-    }
+    
     return i;
   } else {
-    // Move right to find end of word
+    // Move right to find end of next word
     let i = index;
-    // Skip whitespace
-    while (i < text.length && /\s/.test(text[i])) {
-      i++;
+    
+    if (i === text.length) return text.length;
+    
+    // Skip current character type
+    const startIsAlphaNum = /[a-zA-Z0-9_]/.test(text[i]);
+    if (startIsAlphaNum) {
+      while (i < text.length && /[a-zA-Z0-9_]/.test(text[i])) {
+        i++;
+      }
+    } else {
+      while (i < text.length && !/[a-zA-Z0-9_]/.test(text[i])) {
+        i++;
+      }
     }
-    // Skip non-whitespace characters
-    while (i < text.length && !/\s/.test(text[i])) {
-      i++;
-    }
+    
     return i;
   }
 }
