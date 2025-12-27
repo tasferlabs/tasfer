@@ -89,6 +89,31 @@ function isTouchDevice(): boolean {
   );
 }
 
+/**
+ * Helper function to scroll viewport to make cursor visible after state changes
+ * @param newState The new editor state
+ * @param oldState The previous editor state
+ * @param viewport Current viewport state
+ * @param updateViewportCallback Callback to update the viewport scroll position
+ */
+function ensureCursorVisible(
+  newState: EditorState,
+  oldState: EditorState,
+  viewport: ViewportState,
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
+): void {
+  if (newState !== oldState && newState.cursor && updateViewportCallback) {
+    const newScrollY = scrollToMakeCursorVisible(
+      newState.cursor.position,
+      newState,
+      viewport
+    );
+    if (newScrollY !== null) {
+      updateViewportCallback({ scrollY: newScrollY });
+    }
+  }
+}
+
 function isWithinClickDistance(
   pos1: { x: number; y: number },
   pos2: { x: number; y: number },
@@ -725,10 +750,14 @@ function handleKeyDown(
 
   // Undo/Redo - handle these first, even if slash command is open
   if (isCtrl && keyLower === "z" && !keyEvent.shiftKey) {
-    return undoState(state);
+    const newState = undoState(state);
+    ensureCursorVisible(newState, state, viewport, updateViewportCallback);
+    return newState;
   }
   if (isCtrl && (keyLower === "y" || (keyEvent.shiftKey && keyLower === "z"))) {
-    return redoState(state);
+    const newState = redoState(state);
+    ensureCursorVisible(newState, state, viewport, updateViewportCallback);
+    return newState;
   }
 
   // Select All
@@ -755,7 +784,9 @@ function handleKeyDown(
         console.error("Cut (copy) failed:", err);
       });
       // Then delete the selected text
-      return deleteSelectedText(recordUndo(state));
+      const newState = deleteSelectedText(recordUndo(state));
+      ensureCursorVisible(newState, state, viewport, updateViewportCallback);
+      return newState;
     }
     return state;
   }
@@ -801,7 +832,9 @@ function handleKeyDown(
         if (filteredCommands.length > 0 && state.cursor) {
           const selectedCommand =
             filteredCommands[state.slashCommand.selectedIndex];
-          return applySlashCommand(recordUndo(state), selectedCommand);
+          const newState = applySlashCommand(recordUndo(state), selectedCommand);
+          ensureCursorVisible(newState, state, viewport, updateViewportCallback);
+          return newState;
         }
         return closeSlashCommand(state);
       case "Escape":
@@ -831,6 +864,7 @@ function handleKeyDown(
             beforeSlash.length
           );
 
+          ensureCursorVisible(newState, state, viewport, updateViewportCallback);
           return newState;
         }
         return closeSlashCommand(state);
@@ -841,7 +875,9 @@ function handleKeyDown(
           state.cursor.position.textIndex <= state.slashCommand.textIndex
         ) {
           // Close menu and delete the slash character - no recordUndo needed since deleteText already records
-          return closeSlashCommand(deleteText(recordUndo(state)));
+          const newState = closeSlashCommand(deleteText(recordUndo(state)));
+          ensureCursorVisible(newState, state, viewport, updateViewportCallback);
+          return newState;
         }
         // Otherwise update filter - deleteText handles recordUndo internally
         if (state.cursor) {
@@ -853,7 +889,9 @@ function handleKeyDown(
               state.slashCommand.textIndex,
               newState.cursor.position.textIndex
             );
-            return updateSlashCommandFilter(newState, filter);
+            const finalState = updateSlashCommandFilter(newState, filter);
+            ensureCursorVisible(finalState, state, viewport, updateViewportCallback);
+            return finalState;
           }
         }
         return state;
@@ -874,7 +912,9 @@ function handleKeyDown(
               state.slashCommand.textIndex,
               newState.cursor.position.textIndex
             );
-            return updateSlashCommandFilter(newState, filter);
+            const finalState = updateSlashCommandFilter(newState, filter);
+            ensureCursorVisible(finalState, state, viewport, updateViewportCallback);
+            return finalState;
           }
           return newState;
         }
@@ -1036,11 +1076,13 @@ function handleKeyDown(
         // Allow slash command anywhere in paragraphs and headings
         const newState = insertText(recordUndo(state), "/");
         if (newState.cursor) {
-          return openSlashCommand(
+          const finalState = openSlashCommand(
             newState,
             blockIndex,
             newState.cursor.position.textIndex
           );
+          ensureCursorVisible(finalState, state, viewport, updateViewportCallback);
+          return finalState;
         }
         return newState;
       }
