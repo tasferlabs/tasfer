@@ -1,8 +1,8 @@
 import type { EditorState, Position } from "./types";
 import type { Block } from "../deserializer/loadPage";
 import type { SlashCommand } from "./types";
-import { 
-  getBlockTextContent, 
+import {
+  getBlockTextContent,
   closeSlashCommand,
   generateBlockId,
 } from "./state";
@@ -114,13 +114,13 @@ export function deleteSelectedText(state: EditorState): EditorState {
     const newPage = { ...state.page, blocks: newBlocks };
 
     let newState = { ...state, page: newPage };
-    
+
     // Invalidate cache for merged block and all deleted blocks
     invalidateBlockCache(startBlock.id);
     for (let i = start.blockIndex + 1; i <= end.blockIndex; i++) {
       invalidateBlockCache(state.page.blocks[i].id);
     }
-    
+
     newState = moveCursorToPosition(
       newState,
       start.blockIndex,
@@ -153,10 +153,10 @@ export function insertText(state: EditorState, input: string): EditorState {
     ...state.page.blocks.slice(blockIndex + 1),
   ];
   const newPage = { ...state.page, blocks: newBlocks };
-  
+
   // Invalidate cache for the changed block
   invalidateBlockCache(oldBlock.id);
-  
+
   let newState = { ...state, page: newPage } as EditorState;
   newState = moveCursorToPosition(
     newState,
@@ -306,14 +306,19 @@ function findWordDeleteBoundaryLeft(text: string, index: number): number {
 
   if (i === 0) return 0;
 
-  if (/\s/.test(text[i - 1])) {
-    while (i > 0 && /\s/.test(text[i - 1])) {
+  // Check what type of character we're starting from
+  const isAlphaNum = /[a-zA-Z0-9_]/.test(text[i - 1]);
+
+  if (isAlphaNum) {
+    // Delete alphanumeric characters and underscores
+    while (i > 0 && /[a-zA-Z0-9_]/.test(text[i - 1])) {
       i--;
     }
-  }
-
-  while (i > 0 && !/\s/.test(text[i - 1])) {
-    i--;
+  } else {
+    // Delete non-alphanumeric (spaces, punctuation, special characters together)
+    while (i > 0 && !/[a-zA-Z0-9_]/.test(text[i - 1])) {
+      i--;
+    }
   }
 
   return i;
@@ -324,14 +329,19 @@ function findWordDeleteBoundaryRight(text: string, index: number): number {
 
   if (i === text.length) return text.length;
 
-  if (/\s/.test(text[i])) {
-    while (i < text.length && /\s/.test(text[i])) {
+  // Check what type of character we're starting from
+  const isAlphaNum = /[a-zA-Z0-9_]/.test(text[i]);
+
+  if (isAlphaNum) {
+    // Delete alphanumeric characters and underscores
+    while (i < text.length && /[a-zA-Z0-9_]/.test(text[i])) {
       i++;
     }
-  }
-
-  while (i < text.length && !/\s/.test(text[i])) {
-    i++;
+  } else {
+    // Delete non-alphanumeric (spaces, punctuation, special characters together)
+    while (i < text.length && !/[a-zA-Z0-9_]/.test(text[i])) {
+      i++;
+    }
   }
 
   return i;
@@ -385,6 +395,7 @@ export function deleteWordForward(state: EditorState): EditorState {
   const oldText = getBlockTextContent(oldBlock);
 
   if (textIndex < oldText.length) {
+    // Delete word forward within the current line
     const endIndex = findWordDeleteBoundaryRight(oldText, textIndex);
     const newText = oldText.slice(0, textIndex) + oldText.slice(endIndex);
     const blockCopy: Block = { ...oldBlock, content: [{ content: newText }] };
@@ -398,23 +409,10 @@ export function deleteWordForward(state: EditorState): EditorState {
     let newState = { ...state, page: newPage } as EditorState;
     return moveCursorToPosition(newState, blockIndex, textIndex);
   } else if (blockIndex < state.page.blocks.length - 1) {
+    // At end of line - just merge with next block without deleting any text from it
     const nextBlock = state.page.blocks[blockIndex + 1];
     const nextText = getBlockTextContent(nextBlock);
-
-    if (nextText.length === 0) {
-      const newBlocks = [
-        ...state.page.blocks.slice(0, blockIndex),
-        oldBlock,
-        ...state.page.blocks.slice(blockIndex + 2),
-      ];
-      const newPage = { ...state.page, blocks: newBlocks };
-      invalidateBlockCache(nextBlock.id);
-      let newState = { ...state, page: newPage } as EditorState;
-      return moveCursorToPosition(newState, blockIndex, textIndex);
-    }
-
-    const endIndex = findWordDeleteBoundaryRight(nextText, 0);
-    const newText = oldText + nextText.slice(endIndex);
+    const newText = oldText + nextText;
     const blockCopy: Block = { ...oldBlock, content: [{ content: newText }] };
     if (oldBlock.type === "paragraph") {
       applyMarkdownPrefix(blockCopy);
@@ -445,6 +443,7 @@ export function deleteWordBackward(state: EditorState): EditorState {
   const oldText = getBlockTextContent(oldBlock);
 
   if (textIndex > 0) {
+    // Delete word backward within the current line
     const startIndex = findWordDeleteBoundaryLeft(oldText, textIndex);
     const newText = oldText.slice(0, startIndex) + oldText.slice(textIndex);
     const blockCopy: Block = { ...oldBlock, content: [{ content: newText }] };
@@ -458,23 +457,10 @@ export function deleteWordBackward(state: EditorState): EditorState {
     let newState = { ...state, page: newPage } as EditorState;
     return moveCursorToPosition(newState, blockIndex, startIndex);
   } else if (blockIndex > 0) {
+    // At start of line - just merge with previous block without deleting any text from it
     const prevBlock = state.page.blocks[blockIndex - 1];
     const prevText = getBlockTextContent(prevBlock);
-
-    if (prevText.length === 0) {
-      const newBlocks = [
-        ...state.page.blocks.slice(0, blockIndex - 1),
-        oldBlock,
-        ...state.page.blocks.slice(blockIndex + 1),
-      ];
-      const newPage = { ...state.page, blocks: newBlocks };
-      invalidateBlockCache(prevBlock.id);
-      let newState = { ...state, page: newPage } as EditorState;
-      return moveCursorToPosition(newState, blockIndex - 1, 0);
-    }
-
-    const startIndex = findWordDeleteBoundaryLeft(prevText, prevText.length);
-    const newText = prevText.slice(0, startIndex) + oldText;
+    const newText = prevText + oldText;
     const blockCopy: Block = { ...prevBlock, content: [{ content: newText }] };
     if (prevBlock.type === "paragraph") {
       applyMarkdownPrefix(blockCopy);
@@ -488,7 +474,7 @@ export function deleteWordBackward(state: EditorState): EditorState {
     invalidateBlockCache(prevBlock.id);
     invalidateBlockCache(oldBlock.id);
     let newState = { ...state, page: newPage } as EditorState;
-    return moveCursorToPosition(newState, blockIndex - 1, startIndex);
+    return moveCursorToPosition(newState, blockIndex - 1, prevText.length);
   }
   return state;
 }
@@ -622,7 +608,11 @@ export function splitBlock(state: EditorState): EditorState {
     applyMarkdownPrefix(blockCopy1);
   }
 
-  const blockCopy2: Block = { ...oldBlock, id: generateBlockId(), content: [{ content: afterText }] };
+  const blockCopy2: Block = {
+    ...oldBlock,
+    id: generateBlockId(),
+    content: [{ content: afterText }],
+  };
   // Only apply markdown prefix if the original was a paragraph
   if (originalType === "paragraph") {
     applyMarkdownPrefix(blockCopy2);
@@ -635,11 +625,11 @@ export function splitBlock(state: EditorState): EditorState {
     ...state.page.blocks.slice(blockIndex + 1),
   ];
   const newPage = { ...state.page, blocks: newBlocks };
-  
+
   // Invalidate cache for the original block (blockCopy1 keeps same ID)
   // blockCopy2 has new ID so no existing cache
   invalidateBlockCache(oldBlock.id);
-  
+
   const newState = { ...state, page: newPage } as EditorState;
   return moveCursorToPosition(newState, blockIndex + 1, 0);
 }
@@ -687,7 +677,7 @@ export function convertBlockType(
   const newBlocks = [...state.page.blocks];
   newBlocks[blockIndex] = newBlock;
   const newPage = { ...state.page, blocks: newBlocks };
-  
+
   // Invalidate cache only for the changed block
   invalidateBlockCache(oldBlock.id);
 
@@ -719,7 +709,7 @@ export function applySlashCommand(
   const newBlocks = [...state.page.blocks];
   newBlocks[blockIndex] = newBlock;
   const newPage = { ...state.page, blocks: newBlocks };
-  
+
   // Invalidate cache only for the changed block
   invalidateBlockCache(block.id);
 
