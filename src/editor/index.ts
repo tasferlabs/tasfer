@@ -4,9 +4,9 @@ import {
   handleEvents,
   isInLongPressMode
 } from "./events";
-import { calculateBlockHeight, renderPage } from "./renderer";
+import { calculateBlockHeight, renderPage, clearBlockHeightCache } from "./renderer";
 import { getCursorCoordinates } from "./selection";
-import { createInitialState, updateFocus } from "./state";
+import { createInitialState, updateFocus, isCursorBlinking } from "./state";
 import { defaultStyles } from "./styles";
 import type { EditorState, SlashCommand, ViewportState } from "./types";
 import { recordUndo } from "./undo";
@@ -49,6 +49,8 @@ export default function createEditor(
   };
 
   let isRendering = false;
+  let needsRender = false; // Dirty flag to track if canvas needs re-rendering
+  let lastCursorBlinkState = false; // Track cursor blink state changes
 
   const eventsQueue: Event[] = [];
   const listeners: ((state: EditorState) => void)[] = [];
@@ -58,6 +60,17 @@ export default function createEditor(
     html: string;
     text: string;
   } | null = null;
+
+  /**
+   * Mark that a render is needed.
+   * This implements a "dirty flag" pattern where the canvas only re-renders
+   * when something has actually changed, instead of rendering every frame.
+   * The requestAnimationFrame loop continues running for smooth interactions,
+   * but canvas rendering is skipped when nothing has changed.
+   */
+  const scheduleRender = () => {
+    needsRender = true;
+  };
 
   // Detect if device has touch support
   const isTouchDevice = (): boolean => {
@@ -104,6 +117,7 @@ export default function createEditor(
         top: containerRect.top,
       };
 
+      const prevState = state;
       state = handleEvents(
         state,
         viewport,
@@ -118,21 +132,39 @@ export default function createEditor(
       // Clear clipboard data after it's been used
       pendingClipboardData = null;
       
-      documentHeight = renderPage(ctx, state, viewport, visibility);
+      // Check if state changed or if there are events that require rendering
+      const stateChanged = prevState !== state;
+      
+      // Check if cursor blink state changed (for cursor animation)
+      const currentCursorBlinkState = state.cursor ? isCursorBlinking(state.cursor, defaultStyles) : false;
+      const cursorBlinkChanged = lastCursorBlinkState !== currentCursorBlinkState;
+      lastCursorBlinkState = currentCursorBlinkState;
+      
+      // Only render canvas if something changed (scheduled render, state change, or cursor blink)
+      // This prevents unnecessary canvas draws which are expensive
+      if (needsRender || stateChanged || cursorBlinkChanged) {
+        documentHeight = renderPage(ctx, state, viewport, visibility);
 
-      // Update cursor style based on scrollbar hover and drag state
-      updateCursorStyle(state.scrollbar.isHovered, state.scrollbar.isDragging);
+        // Update cursor style based on scrollbar hover and drag state
+        updateCursorStyle(state.scrollbar.isHovered, state.scrollbar.isDragging);
 
-      setDocumentHeight(documentHeight);
+        setDocumentHeight(documentHeight);
 
-      // Notify listeners
-      listeners.forEach((listener) => listener(state));
+        // Notify listeners only if state changed
+        if (stateChanged) {
+          listeners.forEach((listener) => listener(state));
+        }
+        
+        needsRender = false; // Reset dirty flag
+      }
     } finally {
       isRendering = false;
     }
   };
 
   // Render loop
+  // The loop continues running via requestAnimationFrame for smooth interactions,
+  // but the actual canvas rendering only happens when needed (via the needsRender flag)
   const renderLoop = (setDocumentHeight: (height: number) => void) => {
     renderFrame(setDocumentHeight);
     animationFrameId = requestAnimationFrame(() =>
@@ -172,6 +204,7 @@ export default function createEditor(
     }
     
     eventsQueue.push(e);
+    scheduleRender(); // Mark that we need to render due to this event
   }
 
   // Window-level mouse handlers to catch events outside canvas
@@ -274,6 +307,7 @@ export default function createEditor(
         });
         eventsQueue.push(keyEvent);
       }
+      scheduleRender();
       // Clear the input value after processing
       hiddenInput.value = "";
       return;
@@ -287,6 +321,7 @@ export default function createEditor(
         cancelable: true,
       });
       eventsQueue.push(enterEvent);
+      scheduleRender();
       hiddenInput.value = "";
       return;
     }
@@ -298,6 +333,7 @@ export default function createEditor(
         cancelable: true,
       });
       eventsQueue.push(backspaceEvent);
+      scheduleRender();
       hiddenInput.value = "";
       return;
     }
@@ -326,6 +362,7 @@ export default function createEditor(
       e.preventDefault();
       e.stopPropagation();
       eventsQueue.push(e);
+      scheduleRender();
       hiddenInput.value = "";
     } else {
       // For regular character keys, prevent default to stop them from being processed by window listener
@@ -344,6 +381,7 @@ export default function createEditor(
 
     state = createInitialState(page);
     currentSetDocumentHeight = setDocumentHeight;
+    scheduleRender(); // Schedule initial render
     renderLoop(setDocumentHeight);
 
     // Add click/mousedown handler to canvas as fallback for focusing input
@@ -442,7 +480,18 @@ export default function createEditor(
   }
 
   function updateViewport(newViewport: Partial<ViewportState>) {
+    const oldWidth = viewport.width;
+    
     viewport = { ...viewport, ...newViewport };
+    
+    // Clear block height cache if width changed (affects text wrapping)
+    if (viewport.width !== oldWidth) {
+      clearBlockHeightCache();
+    }
+    
+    // Schedule render for viewport changes
+    scheduleRender();
+    
     // Force immediate render to avoid flickering on resize
     if (currentSetDocumentHeight && state && page) {
       renderFrame(currentSetDocumentHeight);
@@ -467,6 +516,7 @@ export default function createEditor(
   function setFocus(focused: boolean) {
     if (state) {
       state = updateFocus(state, focused);
+      scheduleRender(); // Schedule render when focus changes
     }
   }
 
@@ -502,6 +552,7 @@ export default function createEditor(
     if (state.slashCommand && state.cursor) {
       state = recordUndo(state);
       state = applySlashCommand(state, command);
+      scheduleRender(); // Schedule render when slash command is executed
       // Force immediate render or wait for next frame
       // Just updating state is enough for next frame
     }

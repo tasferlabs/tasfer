@@ -12,6 +12,7 @@ import {
 interface ParserContext {
   tokens: Token[];
   current: number;
+  blockIdCounter: number; // Counter for generating unique block IDs
 }
 
 function generateEmptyTree(): Page {
@@ -20,8 +21,9 @@ function generateEmptyTree(): Page {
     blocks: [],
   };
 }
-function generateHeading(level: number, ...content: Text[]): Heading {
+function generateHeading(id: string, level: number, ...content: Text[]): Heading {
   return {
+    id,
     type: ("heading" + level) as "heading1" | "heading2" | "heading3",
     content: content || [],
   };
@@ -33,6 +35,7 @@ export default function parsePage(tokens: Token[]): Page {
   const context: ParserContext = {
     tokens,
     current: 0,
+    blockIdCounter: 0,
   };
 
   // paresTitle(context);
@@ -48,21 +51,22 @@ function isEnd(context: ParserContext) {
   return context.tokens.length <= context.current;
 }
 function parseBlock(context: ParserContext): Block {
-  if (match(context, NEWLINE)) return emptyBlock();
+  if (match(context, NEWLINE)) return emptyBlock(context);
   if (match(context, HEADING_1)) return parseHeading(context, 1);
   if (match(context, HEADING_2)) return parseHeading(context, 2);
   if (match(context, HEADING_3)) return parseHeading(context, 3);
   return paresParagraph(context);
 }
-function emptyBlock(): Block {
+function emptyBlock(context: ParserContext): Block {
   return {
+    id: `block-${context.blockIdCounter++}`,
     type: "paragraph",
     content: [],
   };
 }
 function parseHeading(context: ParserContext, level: number) {
   const content = parseText(context);
-  const heading = generateHeading(level, ...content);
+  const heading = generateHeading(`block-${context.blockIdCounter++}`, level, ...content);
   match(context, NEWLINE);
   return heading;
 }
@@ -82,6 +86,7 @@ function parseText(context: ParserContext): Text[] {
 function paresParagraph(context: ParserContext): Paragraph {
   const text = parseText(context);
   return {
+    id: `block-${context.blockIdCounter++}`,
     type: "paragraph",
     content: text,
   };

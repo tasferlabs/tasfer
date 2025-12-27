@@ -7,7 +7,11 @@ import {
   wrapText,
   type FontFamily,
 } from "./fonts";
-import { calculateBlockHeight } from "./renderer";
+import {
+  blockHeightCache,
+  calculateBlockHeight,
+  createBlockCacheKey,
+} from "./renderer";
 import { getBlockTextContent } from "./state";
 import { defaultStyles, getTextStyle } from "./styles";
 import type {
@@ -31,7 +35,18 @@ export function getCursorCoordinates(
 
   for (let i = 0; i < position.blockIndex; i++) {
     const block = state.page.blocks[i];
-    currentY += calculateBlockHeight(block, maxWidth, styles);
+    let blockHeight = blockHeightCache.get(
+      createBlockCacheKey(block.id, maxWidth)
+    );
+    if (blockHeight === undefined) {
+      const newBlockHeight = calculateBlockHeight(block, maxWidth, styles);
+      blockHeightCache.set(
+        createBlockCacheKey(block.id, maxWidth),
+        newBlockHeight
+      );
+      blockHeight = newBlockHeight;
+    }
+    currentY += blockHeight;
   }
 
   const block = state.page.blocks[position.blockIndex];
@@ -142,7 +157,10 @@ export function getTextPositionFromViewport(
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
   // Check if click is in the left or right padding areas
-  if (x < styles.canvas.paddingLeft || x > styles.canvas.paddingLeft + maxWidth) {
+  if (
+    x < styles.canvas.paddingLeft ||
+    x > styles.canvas.paddingLeft + maxWidth
+  ) {
     return null;
   }
 
@@ -153,7 +171,13 @@ export function getTextPositionFromViewport(
   // Iterate through visible blocks to find the target block
   for (let blockIndex = startIndex; blockIndex <= endIndex; blockIndex++) {
     const block = state.page.blocks[blockIndex];
-    const blockHeight = calculateBlockHeight(block, maxWidth, styles);
+    const cacheKey = createBlockCacheKey(block.id, maxWidth);
+    let blockHeight = blockHeightCache.get(cacheKey);
+
+    if (blockHeight === undefined) {
+      blockHeight = calculateBlockHeight(block, maxWidth, styles);
+      blockHeightCache.set(cacheKey, blockHeight);
+    }
 
     // Check if click is within this block's Y bounds
     if (y >= currentY && y < currentY + blockHeight) {

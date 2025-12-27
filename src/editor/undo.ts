@@ -1,4 +1,5 @@
 import type { EditorState, EditorModelState, UndoManagerState } from "./types";
+import { invalidateChangedBlocks } from "./renderer";
 
 export const initialUndoManagerState: UndoManagerState = {
   undoStack: [],
@@ -29,7 +30,12 @@ export function undoState(state: EditorState): EditorState {
   if (undoStack.length === 0) {
     return state;
   }
+  
   const prevModel = undoStack[undoStack.length - 1];
+  
+  // Invalidate only blocks that changed between current and previous state
+  invalidateChangedBlocks(state.page.blocks, prevModel.page.blocks);
+  
   return {
     ...prevModel,
     undoManager: {
@@ -45,7 +51,12 @@ export function redoState(state: EditorState): EditorState {
   if (redoStack.length === 0) {
     return state;
   }
+  
   const nextModel = redoStack[redoStack.length - 1];
+  
+  // Invalidate only blocks that changed between current and next state
+  invalidateChangedBlocks(state.page.blocks, nextModel.page.blocks);
+  
   return {
     ...nextModel,
     undoManager: {

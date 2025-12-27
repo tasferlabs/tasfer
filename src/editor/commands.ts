@@ -1,7 +1,12 @@
 import type { EditorState, Position } from "./types";
 import type { Block } from "../deserializer/loadPage";
 import type { SlashCommand } from "./types";
-import { getBlockTextContent, closeSlashCommand } from "./state";
+import { 
+  getBlockTextContent, 
+  closeSlashCommand,
+  generateBlockId,
+} from "./state";
+import { invalidateBlockCache } from "./renderer";
 import {
   moveCursorToPosition,
   updateMode,
@@ -53,6 +58,8 @@ export function getSelectionRange(
 
 // Helper function to delete selected text
 export function deleteSelectedText(state: EditorState): EditorState {
+  // Note: Cache will naturally miss due to content length change
+  // Only clear for multi-block operations below
   const range = getSelectionRange(state);
   if (!range) return state;
 
@@ -73,6 +80,8 @@ export function deleteSelectedText(state: EditorState): EditorState {
     newBlocks[start.blockIndex] = blockCopy;
     const newPage = { ...state.page, blocks: newBlocks };
 
+    invalidateBlockCache(block.id);
+
     let newState = { ...state, page: newPage };
     newState = moveCursorToPosition(
       newState,
@@ -81,7 +90,7 @@ export function deleteSelectedText(state: EditorState): EditorState {
     );
     return clearSelection(newState);
   } else {
-    // Multi-block selection
+    // Multi-block selection - invalidate only affected blocks
     const startBlock = state.page.blocks[start.blockIndex];
     const endBlock = state.page.blocks[end.blockIndex];
     const startText = getBlockTextContent(startBlock);
@@ -105,6 +114,13 @@ export function deleteSelectedText(state: EditorState): EditorState {
     const newPage = { ...state.page, blocks: newBlocks };
 
     let newState = { ...state, page: newPage };
+    
+    // Invalidate cache for merged block and all deleted blocks
+    invalidateBlockCache(startBlock.id);
+    for (let i = start.blockIndex + 1; i <= end.blockIndex; i++) {
+      invalidateBlockCache(state.page.blocks[i].id);
+    }
+    
     newState = moveCursorToPosition(
       newState,
       start.blockIndex,
@@ -137,6 +153,10 @@ export function insertText(state: EditorState, input: string): EditorState {
     ...state.page.blocks.slice(blockIndex + 1),
   ];
   const newPage = { ...state.page, blocks: newBlocks };
+  
+  // Invalidate cache for the changed block
+  invalidateBlockCache(oldBlock.id);
+  
   let newState = { ...state, page: newPage } as EditorState;
   newState = moveCursorToPosition(
     newState,
@@ -166,6 +186,7 @@ export function deleteText(state: EditorState): EditorState {
     const newBlocks = [...state.page.blocks];
     newBlocks[blockIndex] = blockCopy;
     const newPage = { ...state.page, blocks: newBlocks };
+    invalidateBlockCache(oldBlock.id);
     let newState = { ...state, page: newPage } as EditorState;
     return moveCursorToPosition(newState, blockIndex, textIndex - 1);
   } else if (blockIndex > 0) {
@@ -184,6 +205,9 @@ export function deleteText(state: EditorState): EditorState {
       ...state.page.blocks.slice(blockIndex + 1),
     ];
     const newPage = { ...state.page, blocks: newBlocks };
+    // Invalidate both blocks - one is deleted, one is modified
+    invalidateBlockCache(prevBlock.id);
+    invalidateBlockCache(oldBlock.id);
     let newState = { ...state, page: newPage } as EditorState;
     return moveCursorToPosition(newState, blockIndex - 1, prevText.length);
   }
@@ -213,6 +237,7 @@ export function deleteForward(state: EditorState): EditorState {
     const newBlocks = [...state.page.blocks];
     newBlocks[blockIndex] = blockCopy;
     const newPage = { ...state.page, blocks: newBlocks };
+    invalidateBlockCache(oldBlock.id);
     let newState = { ...state, page: newPage } as EditorState;
     return moveCursorToPosition(newState, blockIndex, textIndex);
   } else if (blockIndex < state.page.blocks.length - 1) {
@@ -230,6 +255,9 @@ export function deleteForward(state: EditorState): EditorState {
       ...state.page.blocks.slice(blockIndex + 2),
     ];
     const newPage = { ...state.page, blocks: newBlocks };
+    // Invalidate both blocks
+    invalidateBlockCache(oldBlock.id);
+    invalidateBlockCache(nextBlock.id);
     let newState = { ...state, page: newPage } as EditorState;
     return moveCursorToPosition(newState, blockIndex, textIndex);
   }
@@ -366,6 +394,7 @@ export function deleteWordForward(state: EditorState): EditorState {
     const newBlocks = [...state.page.blocks];
     newBlocks[blockIndex] = blockCopy;
     const newPage = { ...state.page, blocks: newBlocks };
+    invalidateBlockCache(oldBlock.id);
     let newState = { ...state, page: newPage } as EditorState;
     return moveCursorToPosition(newState, blockIndex, textIndex);
   } else if (blockIndex < state.page.blocks.length - 1) {
@@ -379,6 +408,7 @@ export function deleteWordForward(state: EditorState): EditorState {
         ...state.page.blocks.slice(blockIndex + 2),
       ];
       const newPage = { ...state.page, blocks: newBlocks };
+      invalidateBlockCache(nextBlock.id);
       let newState = { ...state, page: newPage } as EditorState;
       return moveCursorToPosition(newState, blockIndex, textIndex);
     }
@@ -395,6 +425,8 @@ export function deleteWordForward(state: EditorState): EditorState {
       ...state.page.blocks.slice(blockIndex + 2),
     ];
     const newPage = { ...state.page, blocks: newBlocks };
+    invalidateBlockCache(oldBlock.id);
+    invalidateBlockCache(nextBlock.id);
     let newState = { ...state, page: newPage } as EditorState;
     return moveCursorToPosition(newState, blockIndex, textIndex);
   }
@@ -422,6 +454,7 @@ export function deleteWordBackward(state: EditorState): EditorState {
     const newBlocks = [...state.page.blocks];
     newBlocks[blockIndex] = blockCopy;
     const newPage = { ...state.page, blocks: newBlocks };
+    invalidateBlockCache(oldBlock.id);
     let newState = { ...state, page: newPage } as EditorState;
     return moveCursorToPosition(newState, blockIndex, startIndex);
   } else if (blockIndex > 0) {
@@ -435,6 +468,7 @@ export function deleteWordBackward(state: EditorState): EditorState {
         ...state.page.blocks.slice(blockIndex + 1),
       ];
       const newPage = { ...state.page, blocks: newBlocks };
+      invalidateBlockCache(prevBlock.id);
       let newState = { ...state, page: newPage } as EditorState;
       return moveCursorToPosition(newState, blockIndex - 1, 0);
     }
@@ -451,6 +485,8 @@ export function deleteWordBackward(state: EditorState): EditorState {
       ...state.page.blocks.slice(blockIndex + 1),
     ];
     const newPage = { ...state.page, blocks: newBlocks };
+    invalidateBlockCache(prevBlock.id);
+    invalidateBlockCache(oldBlock.id);
     let newState = { ...state, page: newPage } as EditorState;
     return moveCursorToPosition(newState, blockIndex - 1, startIndex);
   }
@@ -586,7 +622,7 @@ export function splitBlock(state: EditorState): EditorState {
     applyMarkdownPrefix(blockCopy1);
   }
 
-  const blockCopy2: Block = { ...oldBlock, content: [{ content: afterText }] };
+  const blockCopy2: Block = { ...oldBlock, id: generateBlockId(), content: [{ content: afterText }] };
   // Only apply markdown prefix if the original was a paragraph
   if (originalType === "paragraph") {
     applyMarkdownPrefix(blockCopy2);
@@ -599,6 +635,11 @@ export function splitBlock(state: EditorState): EditorState {
     ...state.page.blocks.slice(blockIndex + 1),
   ];
   const newPage = { ...state.page, blocks: newBlocks };
+  
+  // Invalidate cache for the original block (blockCopy1 keeps same ID)
+  // blockCopy2 has new ID so no existing cache
+  invalidateBlockCache(oldBlock.id);
+  
   const newState = { ...state, page: newPage } as EditorState;
   return moveCursorToPosition(newState, blockIndex + 1, 0);
 }
@@ -646,6 +687,9 @@ export function convertBlockType(
   const newBlocks = [...state.page.blocks];
   newBlocks[blockIndex] = newBlock;
   const newPage = { ...state.page, blocks: newBlocks };
+  
+  // Invalidate cache only for the changed block
+  invalidateBlockCache(oldBlock.id);
 
   return { ...state, page: newPage };
 }
@@ -675,6 +719,9 @@ export function applySlashCommand(
   const newBlocks = [...state.page.blocks];
   newBlocks[blockIndex] = newBlock;
   const newPage = { ...state.page, blocks: newBlocks };
+  
+  // Invalidate cache only for the changed block
+  invalidateBlockCache(block.id);
 
   // Update state
   let newState: EditorState = { ...state, page: newPage };

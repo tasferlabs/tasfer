@@ -2,10 +2,12 @@ import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
 
 export interface Heading {
+  id: string; // Unique identifier for caching
   type: "heading1" | "heading2" | "heading3";
   content: Text[];
 }
 export interface Paragraph {
+  id: string; // Unique identifier for caching
   type: "paragraph";
   content: Text[];
 }

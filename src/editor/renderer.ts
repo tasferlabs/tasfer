@@ -1,15 +1,15 @@
 import type { Block } from "../deserializer/loadPage";
 import {
+  FONT_STACKS,
   getCurrentFontFamily,
   getFontMetrics,
   measureText,
   wrapText,
-  FONT_STACKS,
   type FontFamily,
 } from "./fonts";
+import { renderScrollbar } from "./scrollbar";
 import { getBlockTextContent, isCursorBlinking } from "./state";
 import { applyTextStyle, defaultStyles, getTextStyle } from "./styles";
-import { renderScrollbar, updateScrollbarFadeOpacity } from "./scrollbar";
 import type {
   BlockBounds,
   EditorState,
@@ -20,6 +20,72 @@ import type {
   TextStyle,
   ViewportState,
 } from "./types";
+
+// Block height cache - keyed by block ID + viewport width
+// This is more efficient as blocks that haven't changed don't need recalculation
+export const blockHeightCache = new Map<string, number>();
+
+// Helper function to create cache key from block ID and width
+export const createBlockCacheKey = (
+  blockId: string,
+  maxWidth: number
+): string => {
+  return `${blockId}-${maxWidth}`;
+};
+
+// Clear cache when document changes or window resizes
+export const clearBlockHeightCache = () => {
+  blockHeightCache.clear();
+};
+
+// Invalidate cache for specific blocks (when content changes)
+export const invalidateBlockCache = (blockId: string) => {
+  // Remove all entries for this block (across all widths)
+  const keysToDelete: string[] = [];
+  for (const key of blockHeightCache.keys()) {
+    if (key.startsWith(`${blockId}-`)) {
+      keysToDelete.push(key);
+    }
+  }
+  keysToDelete.forEach((key) => blockHeightCache.delete(key));
+};
+
+// Invalidate cache for blocks that changed between two states (for undo/redo)
+export const invalidateChangedBlocks = (
+  oldBlocks: Block[],
+  newBlocks: Block[]
+) => {
+  // Build a map of old blocks by ID for fast lookup
+  const oldBlocksMap = new Map<string, Block>();
+  oldBlocks.forEach((block) => oldBlocksMap.set(block.id, block));
+
+  // Build a map of new blocks by ID
+  const newBlocksMap = new Map<string, Block>();
+  newBlocks.forEach((block) => newBlocksMap.set(block.id, block));
+
+  // Invalidate blocks that were deleted (in old but not in new)
+  oldBlocks.forEach((oldBlock) => {
+    if (!newBlocksMap.has(oldBlock.id)) {
+      invalidateBlockCache(oldBlock.id);
+    }
+  });
+
+  // Invalidate blocks that were added or modified
+  newBlocks.forEach((newBlock) => {
+    const oldBlock = oldBlocksMap.get(newBlock.id);
+    if (!oldBlock) {
+      // New block - doesn't have cache yet, no need to invalidate
+      return;
+    }
+
+    // Check if content changed (simple string comparison)
+    const oldContent = JSON.stringify(oldBlock.content);
+    const newContent = JSON.stringify(newBlock.content);
+    if (oldContent !== newContent || oldBlock.type !== newBlock.type) {
+      invalidateBlockCache(newBlock.id);
+    }
+  });
+};
 
 // Rendering Functions
 export const renderPage = (
@@ -55,7 +121,16 @@ export const renderPage = (
   // Render each block
   for (let i = 0; i < state.page.blocks.length; i++) {
     const block = state.page.blocks[i];
-    const blockHeight = calculateBlockHeight(block, maxWidth, styles);
+
+    // Use cached block height based on block ID
+    const cacheKey = createBlockCacheKey(block.id, maxWidth);
+    let blockHeight = blockHeightCache.get(cacheKey);
+
+    if (blockHeight === undefined) {
+      blockHeight = calculateBlockHeight(block, maxWidth, styles);
+      blockHeightCache.set(cacheKey, blockHeight);
+    }
+
     documentHeight += blockHeight;
     // Only render if block is visible
     if (isBlockVisible(currentY, blockHeight, viewport)) {
@@ -506,8 +581,8 @@ const isBlockVisible = (
 ): boolean => {
   const blockTop = blockY;
   const blockBottom = blockY + blockHeight;
-  // Add some buffer for smooth scrolling
-  const buffer = 800;
+  // Buffer not needed anymore because we use canvas based scrolling
+  const buffer = 0;
   return (
     // blockY is relative to canvas (already offset by scrollY), so viewport top is 0
     blockBottom >= -buffer && blockTop <= viewport.height + buffer

@@ -13,6 +13,13 @@ import type {
 import { wrapText, getCurrentFontFamily } from "./fonts";
 import { defaultStyles, getTextStyle } from "./styles";
 
+// Block ID Generation - Centralized Counter
+let blockIdCounter = 10000; // Start high to avoid conflicts with parsed blocks
+
+export function generateBlockId(): string {
+  return `block-${blockIdCounter++}`;
+}
+
 // State Creation Functions
 export const createInitialState = (page: Page): EditorState => ({
   undoManager: initialUndoManagerState,

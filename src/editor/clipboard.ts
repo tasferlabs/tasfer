@@ -4,9 +4,11 @@ import {
   getBlockTextContent,
   moveCursorToPosition,
   clearSelection,
+  generateBlockId,
 } from "./state";
 import { getSelectionRange, deleteSelectedText } from "./commands";
 import { recordUndo } from "./undo";
+import { invalidateBlockCache } from "./renderer";
 
 /**
  * Get the selected content from the editor state
@@ -192,18 +194,21 @@ function parseHTMLToBlocks(html: string): Block[] {
     switch (tagName) {
       case "h1":
         block = {
+          id: generateBlockId(),
           type: "heading1",
           content: [{ content: text }],
         };
         break;
       case "h2":
         block = {
+          id: generateBlockId(),
           type: "heading2",
           content: [{ content: text }],
         };
         break;
       case "h3":
         block = {
+          id: generateBlockId(),
           type: "heading3",
           content: [{ content: text }],
         };
@@ -213,6 +218,7 @@ function parseHTMLToBlocks(html: string): Block[] {
       case "span":
       default:
         block = {
+          id: generateBlockId(),
           type: "paragraph",
           content: [{ content: text }],
         };
@@ -227,6 +233,7 @@ function parseHTMLToBlocks(html: string): Block[] {
     const lines = doc.body.textContent.split("\n");
     for (const line of lines) {
       blocks.push({
+        id: generateBlockId(),
         type: "paragraph",
         content: [{ content: line }],
       });
@@ -250,22 +257,26 @@ function parsePlainTextToBlocks(text: string): Block[] {
     // Check for markdown-style headings
     if (line.startsWith("### ")) {
       block = {
+        id: generateBlockId(),
         type: "heading3",
         content: [{ content: line.slice(4) }],
       };
     } else if (line.startsWith("## ")) {
       block = {
+        id: generateBlockId(),
         type: "heading2",
         content: [{ content: line.slice(3) }],
       };
     } else if (line.startsWith("# ")) {
       block = {
+        id: generateBlockId(),
         type: "heading1",
         content: [{ content: line.slice(2) }],
       };
     } else {
       // Regular paragraph
       block = {
+        id: generateBlockId(),
         type: "paragraph",
         content: [{ content: line }],
       };
@@ -342,6 +353,9 @@ function insertBlocksAtCursor(
       ...newState,
       page: { ...newState.page, blocks: newBlocks },
     };
+    
+    // Invalidate only the affected block
+    invalidateBlockCache(currentBlock.id);
 
     // Move cursor to end of pasted text
     newState = moveCursorToPosition(
@@ -384,6 +398,9 @@ function insertBlocksAtCursor(
       ...newState,
       page: { ...newState.page, blocks: newBlocks },
     };
+    
+    // Invalidate only the current block that was split (new blocks don't have cache yet)
+    invalidateBlockCache(currentBlock.id);
 
     // Move cursor to end of last pasted block
     const lastBlockIndex = blockIndex + blocks.length - 1;
