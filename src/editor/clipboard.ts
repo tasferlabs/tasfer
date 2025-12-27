@@ -355,7 +355,7 @@ function insertBlocksAtCursor(
     };
     
     // Invalidate only the affected block
-    invalidateBlockCache(currentBlock.id);
+    invalidateBlockCache(currentBlock);
 
     // Move cursor to end of pasted text
     newState = moveCursorToPosition(
@@ -400,7 +400,7 @@ function insertBlocksAtCursor(
     };
     
     // Invalidate only the current block that was split (new blocks don't have cache yet)
-    invalidateBlockCache(currentBlock.id);
+    invalidateBlockCache(currentBlock);
 
     // Move cursor to end of last pasted block
     const lastBlockIndex = blockIndex + blocks.length - 1;
