@@ -343,6 +343,9 @@ function insertBlocksAtCursor(
       content: [{ content: newText }],
     };
 
+    // Invalidate only the affected block
+    invalidateBlockCache(newBlock);
+
     const newBlocks = [
       ...newState.page.blocks.slice(0, blockIndex),
       newBlock,
@@ -353,9 +356,6 @@ function insertBlocksAtCursor(
       ...newState,
       page: { ...newState.page, blocks: newBlocks },
     };
-    
-    // Invalidate only the affected block
-    invalidateBlockCache(currentBlock);
 
     // Move cursor to end of pasted text
     newState = moveCursorToPosition(
@@ -386,6 +386,10 @@ function insertBlocksAtCursor(
       content: [{ content: lastPastedText + afterText }],
     };
 
+    // Invalidate cache for the modified blocks (first and last)
+    invalidateBlockCache(firstBlock);
+    invalidateBlockCache(lastBlock);
+
     const newBlocks = [
       ...newState.page.blocks.slice(0, blockIndex),
       firstBlock,
@@ -398,9 +402,6 @@ function insertBlocksAtCursor(
       ...newState,
       page: { ...newState.page, blocks: newBlocks },
     };
-    
-    // Invalidate only the current block that was split (new blocks don't have cache yet)
-    invalidateBlockCache(currentBlock);
 
     // Move cursor to end of last pasted block
     const lastBlockIndex = blockIndex + blocks.length - 1;
