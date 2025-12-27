@@ -664,6 +664,56 @@ export const extendSelectionDown = (
   return state;
 };
 
+export const extendSelectionPageUp = (
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = defaultStyles
+): EditorState => {
+  if (!state.cursor) return state;
+
+  // If no selection exists, start one at current cursor position
+  if (!state.selection) {
+    const newState = startSelection(state, state.cursor.position);
+    const pageUpState = moveCursorPageUp(newState, viewport, styles);
+    if (pageUpState.cursor) {
+      return updateSelectionFocus(pageUpState, pageUpState.cursor.position);
+    }
+    return newState;
+  }
+
+  // Extend existing selection
+  const pageUpState = moveCursorPageUp(state, viewport, styles);
+  if (pageUpState.cursor) {
+    return updateSelectionFocus(pageUpState, pageUpState.cursor.position);
+  }
+  return state;
+};
+
+export const extendSelectionPageDown = (
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = defaultStyles
+): EditorState => {
+  if (!state.cursor) return state;
+
+  // If no selection exists, start one at current cursor position
+  if (!state.selection) {
+    const newState = startSelection(state, state.cursor.position);
+    const pageDownState = moveCursorPageDown(newState, viewport, styles);
+    if (pageDownState.cursor) {
+      return updateSelectionFocus(pageDownState, pageDownState.cursor.position);
+    }
+    return newState;
+  }
+
+  // Extend existing selection
+  const pageDownState = moveCursorPageDown(state, viewport, styles);
+  if (pageDownState.cursor) {
+    return updateSelectionFocus(pageDownState, pageDownState.cursor.position);
+  }
+  return state;
+};
+
 // Slash Command State Management
 export const openSlashCommand = (
   state: EditorState,

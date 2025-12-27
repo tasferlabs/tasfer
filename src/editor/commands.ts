@@ -3,6 +3,7 @@ import type { Block } from "../deserializer/loadPage";
 import type { SlashCommand } from "./types";
 import {
   getBlockTextContent,
+  getBlockTextLength,
   closeSlashCommand,
   generateBlockId,
 } from "./state";
@@ -595,6 +596,44 @@ export function extendSelectionWordRight(state: EditorState): EditorState {
   }
   // Move cursor to next word boundary
   const movedState = moveToNextWord(newState);
+  if (movedState.cursor) {
+    return updateSelectionFocus(movedState, movedState.cursor.position);
+  }
+  return newState;
+}
+
+export function extendSelectionHome(state: EditorState, isCtrl: boolean): EditorState {
+  if (!state.cursor) return state;
+  // If no selection exists, start one at current cursor position
+  let newState = state;
+  if (!state.selection) {
+    newState = startSelection(state, state.cursor.position);
+  }
+  // Move cursor to start of line or document
+  const movedState = isCtrl 
+    ? moveCursorToPosition(newState, 0, 0)
+    : moveToLineStart(newState);
+  if (movedState.cursor) {
+    return updateSelectionFocus(movedState, movedState.cursor.position);
+  }
+  return newState;
+}
+
+export function extendSelectionEnd(state: EditorState, isCtrl: boolean): EditorState {
+  if (!state.cursor) return state;
+  // If no selection exists, start one at current cursor position
+  let newState = state;
+  if (!state.selection) {
+    newState = startSelection(state, state.cursor.position);
+  }
+  // Move cursor to end of line or document
+  const movedState = isCtrl
+    ? moveCursorToPosition(
+        newState,
+        newState.page.blocks.length - 1,
+        getBlockTextLength(newState.page.blocks[newState.page.blocks.length - 1])
+      )
+    : moveToLineEnd(newState);
   if (movedState.cursor) {
     return updateSelectionFocus(movedState, movedState.cursor.position);
   }

@@ -8,6 +8,8 @@ import {
   deleteText,
   deleteWordBackward,
   deleteWordForward,
+  extendSelectionEnd,
+  extendSelectionHome,
   extendSelectionWordLeft,
   extendSelectionWordRight,
   getSelectionRange,
@@ -54,6 +56,8 @@ import {
   closeSlashCommand,
   extendSelectionDown,
   extendSelectionLeft,
+  extendSelectionPageDown,
+  extendSelectionPageUp,
   extendSelectionRight,
   extendSelectionUp,
   getBlockTextContent,
@@ -1015,27 +1019,55 @@ function handleKeyDown(
       }
       break;
     case "PageUp":
-      newState = moveCursorPageUp(clearSelection(state), viewport);
+      // Ensure editor is focused
+      newState = updateFocus(state, true);
+
+      if (keyEvent.shiftKey) {
+        newState = extendSelectionPageUp(newState, viewport);
+      } else {
+        newState = moveCursorPageUp(clearSelection(state), viewport);
+      }
       break;
     case "PageDown":
-      newState = moveCursorPageDown(clearSelection(state), viewport);
+      // Ensure editor is focused
+      newState = updateFocus(state, true);
+
+      if (keyEvent.shiftKey) {
+        newState = extendSelectionPageDown(newState, viewport);
+      } else {
+        newState = moveCursorPageDown(clearSelection(state), viewport);
+      }
       break;
     case "Home":
-      if (isCtrl) {
-        newState = moveCursorToPosition(state, 0, 0);
+      // Ensure editor is focused
+      newState = updateFocus(state, true);
+
+      if (keyEvent.shiftKey) {
+        newState = extendSelectionHome(newState, isCtrl);
       } else {
-        newState = moveToLineStart(state);
+        if (isCtrl) {
+          newState = moveCursorToPosition(clearSelection(state), 0, 0);
+        } else {
+          newState = moveToLineStart(clearSelection(state));
+        }
       }
       break;
     case "End":
-      if (isCtrl) {
-        newState = moveCursorToPosition(
-          state,
-          state.page.blocks.length - 1,
-          getBlockTextLength(state.page.blocks[state.page.blocks.length - 1])
-        );
+      // Ensure editor is focused
+      newState = updateFocus(state, true);
+
+      if (keyEvent.shiftKey) {
+        newState = extendSelectionEnd(newState, isCtrl);
       } else {
-        newState = moveToLineEnd(state);
+        if (isCtrl) {
+          newState = moveCursorToPosition(
+            clearSelection(state),
+            state.page.blocks.length - 1,
+            getBlockTextLength(state.page.blocks[state.page.blocks.length - 1])
+          );
+        } else {
+          newState = moveToLineEnd(clearSelection(state));
+        }
       }
       break;
     case "Escape":
