@@ -4,7 +4,7 @@ import {
   handleEvents,
   isInLongPressMode
 } from "./events";
-import { calculateBlockHeight, renderPage, clearBlockHeightCache } from "./renderer";
+import { calculateBlockHeight, renderPage, clearAllBlockCaches } from "./renderer";
 import { getCursorCoordinates } from "./selection";
 import { createInitialState, updateFocus, isCursorBlinking } from "./state";
 import { defaultStyles } from "./styles";
@@ -485,8 +485,8 @@ export default function createEditor(
     viewport = { ...viewport, ...newViewport };
     
     // Clear block height cache if width changed (affects text wrapping)
-    if (viewport.width !== oldWidth) {
-      clearBlockHeightCache();
+    if (viewport.width !== oldWidth && page) {
+      clearAllBlockCaches(page.blocks);
     }
     
     // Schedule render for viewport changes

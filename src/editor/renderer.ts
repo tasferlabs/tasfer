@@ -21,70 +21,33 @@ import type {
   ViewportState,
 } from "./types";
 
-// Block height cache - keyed by block ID + viewport width
-// This is more efficient as blocks that haven't changed don't need recalculation
-export const blockHeightCache = new Map<string, number>();
-
-// Helper function to create cache key from block ID and width
-export const createBlockCacheKey = (
-  blockId: string,
-  maxWidth: number
-): string => {
-  return `${blockId}-${maxWidth}`;
-};
-
-// Clear cache when document changes or window resizes
-export const clearBlockHeightCache = () => {
-  blockHeightCache.clear();
-};
-
-// Invalidate cache for specific blocks (when content changes)
-export const invalidateBlockCache = (blockId: string) => {
-  // Remove all entries for this block (across all widths)
-  const keysToDelete: string[] = [];
-  for (const key of blockHeightCache.keys()) {
-    if (key.startsWith(`${blockId}-`)) {
-      keysToDelete.push(key);
-    }
+// Helper to get or calculate block height, storing it on the block
+export const getBlockHeight = (
+  block: Block,
+  maxWidth: number,
+  styles: EditorStyles
+): number => {
+  // Check if cached height is valid for current width
+  if (block.cachedHeight !== undefined && block.cachedWidth === maxWidth) {
+    return block.cachedHeight;
   }
-  keysToDelete.forEach((key) => blockHeightCache.delete(key));
+
+  // Calculate and cache the height
+  const height = calculateBlockHeight(block, maxWidth, styles);
+  block.cachedHeight = height;
+  block.cachedWidth = maxWidth;
+  return height;
 };
 
-// Invalidate cache for blocks that changed between two states (for undo/redo)
-export const invalidateChangedBlocks = (
-  oldBlocks: Block[],
-  newBlocks: Block[]
-) => {
-  // Build a map of old blocks by ID for fast lookup
-  const oldBlocksMap = new Map<string, Block>();
-  oldBlocks.forEach((block) => oldBlocksMap.set(block.id, block));
+// Invalidate cache for specific block (when content changes)
+export const invalidateBlockCache = (block: Block) => {
+  block.cachedHeight = undefined;
+  block.cachedWidth = undefined;
+};
 
-  // Build a map of new blocks by ID
-  const newBlocksMap = new Map<string, Block>();
-  newBlocks.forEach((block) => newBlocksMap.set(block.id, block));
-
-  // Invalidate blocks that were deleted (in old but not in new)
-  oldBlocks.forEach((oldBlock) => {
-    if (!newBlocksMap.has(oldBlock.id)) {
-      invalidateBlockCache(oldBlock.id);
-    }
-  });
-
-  // Invalidate blocks that were added or modified
-  newBlocks.forEach((newBlock) => {
-    const oldBlock = oldBlocksMap.get(newBlock.id);
-    if (!oldBlock) {
-      // New block - doesn't have cache yet, no need to invalidate
-      return;
-    }
-
-    // Check if content changed (simple string comparison)
-    const oldContent = JSON.stringify(oldBlock.content);
-    const newContent = JSON.stringify(newBlock.content);
-    if (oldContent !== newContent || oldBlock.type !== newBlock.type) {
-      invalidateBlockCache(newBlock.id);
-    }
-  });
+// Clear all block caches in a page (for window resize)
+export const clearAllBlockCaches = (blocks: Block[]) => {
+  blocks.forEach((block) => invalidateBlockCache(block));
 };
 
 // Rendering Functions
@@ -122,14 +85,8 @@ export const renderPage = (
   for (let i = 0; i < state.page.blocks.length; i++) {
     const block = state.page.blocks[i];
 
-    // Use cached block height based on block ID
-    const cacheKey = createBlockCacheKey(block.id, maxWidth);
-    let blockHeight = blockHeightCache.get(cacheKey);
-
-    if (blockHeight === undefined) {
-      blockHeight = calculateBlockHeight(block, maxWidth, styles);
-      blockHeightCache.set(cacheKey, blockHeight);
-    }
+    // Get or calculate block height (cached on the block itself)
+    const blockHeight = getBlockHeight(block, maxWidth, styles);
 
     documentHeight += blockHeight;
     // Only render if block is visible

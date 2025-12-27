@@ -7,11 +7,7 @@ import {
   wrapText,
   type FontFamily,
 } from "./fonts";
-import {
-  blockHeightCache,
-  calculateBlockHeight,
-  createBlockCacheKey,
-} from "./renderer";
+import { getBlockHeight } from "./renderer";
 import { getBlockTextContent } from "./state";
 import { defaultStyles, getTextStyle } from "./styles";
 import type {
@@ -35,17 +31,7 @@ export function getCursorCoordinates(
 
   for (let i = 0; i < position.blockIndex; i++) {
     const block = state.page.blocks[i];
-    let blockHeight = blockHeightCache.get(
-      createBlockCacheKey(block.id, maxWidth)
-    );
-    if (blockHeight === undefined) {
-      const newBlockHeight = calculateBlockHeight(block, maxWidth, styles);
-      blockHeightCache.set(
-        createBlockCacheKey(block.id, maxWidth),
-        newBlockHeight
-      );
-      blockHeight = newBlockHeight;
-    }
+    const blockHeight = getBlockHeight(block, maxWidth, styles);
     currentY += blockHeight;
   }
 
@@ -171,13 +157,7 @@ export function getTextPositionFromViewport(
   // Iterate through visible blocks to find the target block
   for (let blockIndex = startIndex; blockIndex <= endIndex; blockIndex++) {
     const block = state.page.blocks[blockIndex];
-    const cacheKey = createBlockCacheKey(block.id, maxWidth);
-    let blockHeight = blockHeightCache.get(cacheKey);
-
-    if (blockHeight === undefined) {
-      blockHeight = calculateBlockHeight(block, maxWidth, styles);
-      blockHeightCache.set(cacheKey, blockHeight);
-    }
+    const blockHeight = getBlockHeight(block, maxWidth, styles);
 
     // Check if click is within this block's Y bounds
     if (y >= currentY && y < currentY + blockHeight) {
