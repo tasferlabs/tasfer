@@ -328,22 +328,77 @@ export const wrapText = (
   const lines: string[] = [];
   const words = text.split(" ");
   let currentLine = "";
+  let currentLineWidth = 0;
 
   const spaceWidth = measureText(" ", fontSize, fontWeight, fontFamily);
 
   for (let i = 0; i < words.length; i++) {
-    const wordWidth = measureText(words[i], fontSize, fontWeight, fontFamily);
-    const lineWidth = currentLine
-      ? measureText(currentLine, fontSize, fontWeight, fontFamily) +
-        spaceWidth +
-        wordWidth
-      : wordWidth;
+    const word = words[i];
+    const wordWidth = measureText(word, fontSize, fontWeight, fontFamily);
 
-    if (lineWidth <= maxWidth || currentLine === "") {
-      currentLine = currentLine ? currentLine + " " + words[i] : words[i];
+    // Calculate space needed for this word including preceding space if line not empty
+    const spaceIfNeeded = currentLine ? spaceWidth : 0;
+
+    if (currentLineWidth + spaceIfNeeded + wordWidth <= maxWidth) {
+      // Fits on current line
+      currentLine = currentLine ? currentLine + " " + word : word;
+      currentLineWidth += spaceIfNeeded + wordWidth;
     } else {
-      lines.push(currentLine);
-      currentLine = words[i];
+      // Does not fit. Push current line if it has content.
+      if (currentLine) {
+        lines.push(currentLine);
+        currentLine = "";
+        currentLineWidth = 0;
+      }
+
+      // Now check if the word itself fits on a new line
+      if (wordWidth <= maxWidth) {
+        currentLine = word;
+        currentLineWidth = wordWidth;
+      } else {
+        // Word is too long, must split
+        let remainingWord = word;
+
+        while (remainingWord) {
+          // Check if remaining fits
+          const remainingWidth = measureText(
+            remainingWord,
+            fontSize,
+            fontWeight,
+            fontFamily
+          );
+          if (remainingWidth <= maxWidth) {
+            currentLine = remainingWord;
+            currentLineWidth = remainingWidth;
+            remainingWord = "";
+            break;
+          }
+
+          // Find split index
+          let currentWidth = 0;
+          let splitIndex = 0;
+          for (let j = 0; j < remainingWord.length; j++) {
+            const charWidth = measureChar(
+              remainingWord[j],
+              fontSize,
+              fontWeight,
+              fontFamily
+            );
+            if (currentWidth + charWidth > maxWidth) {
+              splitIndex = j;
+              break;
+            }
+            currentWidth += charWidth;
+          }
+
+          // Safety for very narrow maxWidth (smaller than 1 char)
+          if (splitIndex === 0) splitIndex = 1;
+
+          const chunk = remainingWord.substring(0, splitIndex);
+          lines.push(chunk);
+          remainingWord = remainingWord.substring(splitIndex);
+        }
+      }
     }
   }
 
