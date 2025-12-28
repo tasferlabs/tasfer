@@ -25,12 +25,12 @@ import {
 } from "./commands";
 import {
   CLICK_DISTANCE_THRESHOLD,
+  CONTEXT_MENU_DURATION,
   DOUBLE_CLICK_TIME,
   EDGE_SCROLL_ACCELERATION_RATE,
   EDGE_SCROLL_MAX_SPEED,
   EDGE_SCROLL_SPEED,
   EDGE_SCROLL_THRESHOLD,
-  LONG_PRESS_DURATION,
   MOVEMENT_THRESHOLD,
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
@@ -77,6 +77,7 @@ import {
   updateSelectionFocus,
   updateSlashCommandFilter,
   updateSlashCommandSelection,
+  openContextMenu,
 } from "./state";
 import type {
   EditorState,
@@ -185,6 +186,33 @@ export function handleEvents(
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
   clipboardData?: { html: string; text: string } | null
 ): EditorState {
+  // Check for long press trigger (independent of touchmove events)
+  if (
+    touchState &&
+    !touchState.isLongPress &&
+    !touchState.hasMoved &&
+    !touchState.isScrollbarDrag
+  ) {
+    const timeSinceStart = Date.now() - touchState.startTime;
+    if (timeSinceStart >= CONTEXT_MENU_DURATION) {
+      touchState.isLongPress = true;
+
+      // If long pressing on existing selection, show context menu immediately
+      if (touchState.isTouchingSelection) {
+        state = openContextMenu(
+          state,
+          touchState.currentTouchX,
+          touchState.currentTouchY
+        );
+      }
+
+      // Blur active element
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+    }
+  }
+
   // Apply auto-scroll and selection update during long press
   if (autoScrollState.isActive && touchState?.isLongPress) {
     // Current touch coordinates are already adjusted relative to container in handleTouchMove
@@ -354,6 +382,15 @@ export function handleEvents(
   while (events.length > 0) {
     const event = events[0];
     switch (event.type) {
+      case "contextmenu":
+        state = handleContextMenu(
+          state,
+          viewport,
+          event as unknown as MouseEvent,
+          containerRect,
+          visibility
+        );
+        break;
       case "mousedown":
         if (isTouchDevice()) {
           break;
@@ -401,7 +438,13 @@ export function handleEvents(
         state = handleKeyDown(state, viewport, event, updateViewportCallback);
         break;
       case "paste":
-        state = handlePaste(state, event as ClipboardEvent, viewport, updateViewportCallback, clipboardData);
+        state = handlePaste(
+          state,
+          event as ClipboardEvent,
+          viewport,
+          updateViewportCallback,
+          clipboardData
+        );
         break;
       case "wheel":
         if (isTouchDevice()) {
@@ -460,6 +503,37 @@ export function handleEvents(
   return state;
 }
 
+function handleContextMenu(
+  state: EditorState,
+  viewport: ViewportState,
+  event: MouseEvent,
+  containerRect: { left: number; top: number },
+  visibility: { start: number; end: number }
+): EditorState {
+  event.preventDefault();
+
+  const canvasX = event.x - containerRect.left;
+  const canvasY = event.y - containerRect.top;
+
+  const position = getTextPositionFromViewport(
+    canvasX,
+    canvasY,
+    state,
+    viewport,
+    visibility
+  );
+
+  if (position) {
+    if (!state.selection || !isPositionWithinSelection(state, position)) {
+      state = updateCursor(state, position);
+      state = clearSelection(state);
+    }
+    state = openContextMenu(state, canvasX, canvasY);
+  }
+
+  return state;
+}
+
 function handlePaste(
   state: EditorState,
   event: ClipboardEvent,
@@ -476,7 +550,7 @@ function handlePaste(
   if (!newState) {
     return state;
   }
-  
+
   // Scroll to make the cursor (end of pasted content) visible
   if (newState.cursor && updateViewportCallback) {
     const newScrollY = scrollToMakeCursorVisible(
@@ -488,7 +562,7 @@ function handlePaste(
       updateViewportCallback({ scrollY: newScrollY });
     }
   }
-  
+
   return newState;
 }
 
@@ -502,6 +576,11 @@ function handleMouseDown(
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
   stopAutoScroll();
+
+  // Close context menu on any click
+  if (state.contextMenu) {
+    state = { ...state, contextMenu: null };
+  }
 
   // Close slash command menu on mouse click
   if (state.slashCommand) {
@@ -836,8 +915,16 @@ function handleKeyDown(
         if (filteredCommands.length > 0 && state.cursor) {
           const selectedCommand =
             filteredCommands[state.slashCommand.selectedIndex];
-          const newState = applySlashCommand(recordUndo(state), selectedCommand);
-          ensureCursorVisible(newState, state, viewport, updateViewportCallback);
+          const newState = applySlashCommand(
+            recordUndo(state),
+            selectedCommand
+          );
+          ensureCursorVisible(
+            newState,
+            state,
+            viewport,
+            updateViewportCallback
+          );
           return newState;
         }
         return closeSlashCommand(state);
@@ -868,7 +955,12 @@ function handleKeyDown(
             beforeSlash.length
           );
 
-          ensureCursorVisible(newState, state, viewport, updateViewportCallback);
+          ensureCursorVisible(
+            newState,
+            state,
+            viewport,
+            updateViewportCallback
+          );
           return newState;
         }
         return closeSlashCommand(state);
@@ -880,7 +972,12 @@ function handleKeyDown(
         ) {
           // Close menu and delete the slash character - no recordUndo needed since deleteText already records
           const newState = closeSlashCommand(deleteText(recordUndo(state)));
-          ensureCursorVisible(newState, state, viewport, updateViewportCallback);
+          ensureCursorVisible(
+            newState,
+            state,
+            viewport,
+            updateViewportCallback
+          );
           return newState;
         }
         // Otherwise update filter - deleteText handles recordUndo internally
@@ -894,7 +991,12 @@ function handleKeyDown(
               newState.cursor.position.textIndex
             );
             const finalState = updateSlashCommandFilter(newState, filter);
-            ensureCursorVisible(finalState, state, viewport, updateViewportCallback);
+            ensureCursorVisible(
+              finalState,
+              state,
+              viewport,
+              updateViewportCallback
+            );
             return finalState;
           }
         }
@@ -917,7 +1019,12 @@ function handleKeyDown(
               newState.cursor.position.textIndex
             );
             const finalState = updateSlashCommandFilter(newState, filter);
-            ensureCursorVisible(finalState, state, viewport, updateViewportCallback);
+            ensureCursorVisible(
+              finalState,
+              state,
+              viewport,
+              updateViewportCallback
+            );
             return finalState;
           }
           return newState;
@@ -1113,7 +1220,12 @@ function handleKeyDown(
             blockIndex,
             newState.cursor.position.textIndex
           );
-          ensureCursorVisible(finalState, state, viewport, updateViewportCallback);
+          ensureCursorVisible(
+            finalState,
+            state,
+            viewport,
+            updateViewportCallback
+          );
           return finalState;
         }
         return newState;
@@ -1194,6 +1306,7 @@ let touchState: {
   hasMoved: boolean;
   currentTouchX: number;
   currentTouchY: number;
+  isTouchingSelection: boolean;
 } | null = null;
 
 let autoScrollState: {
@@ -1262,6 +1375,17 @@ function handleTouchStart(
       isNearRightEdge &&
       isPointInScrollbar(canvasX, canvasY, viewport, documentHeight);
 
+    // Check if touching within existing selection
+    const position = getTextPositionFromViewport(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      { start: 0, end: state.page.blocks.length - 1 }
+    );
+    const isTouchingSelection = position
+      ? isPositionWithinSelection(state, position)
+      : false;
     touchState = {
       startY: canvasY,
       startScrollY: viewport.scrollY,
@@ -1276,6 +1400,7 @@ function handleTouchStart(
       hasMoved: false,
       currentTouchX: canvasX,
       currentTouchY: canvasY,
+      isTouchingSelection,
     };
 
     // If touching scrollbar, start drag
@@ -1344,21 +1469,6 @@ function handleTouchMove(
     const deltaY = Math.abs(canvasY - touchState.startY);
     const totalMovement = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
-    // Detect long press: if user held still for LONG_PRESS_DURATION, switch to text selection
-    const timeSinceStart = currentTime - touchState.startTime;
-    if (
-      !touchState.hasMoved &&
-      !touchState.isLongPress &&
-      timeSinceStart >= LONG_PRESS_DURATION &&
-      totalMovement < MOVEMENT_THRESHOLD
-    ) {
-      touchState.isLongPress = true;
-
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur();
-      }
-    }
-
     // Update current touch position for auto-scroll
     touchState.currentTouchX = canvasX;
     touchState.currentTouchY = canvasY;
@@ -1370,20 +1480,29 @@ function handleTouchMove(
 
     // Handle long press text selection mode
     if (touchState.isLongPress) {
-      if (!autoScrollState.isActive) {
-        startAutoScroll();
+      // Only start/continue text selection if NOT long-pressing on existing selection
+      // If long-pressing on existing selection, we'll show context menu on touchend instead
+      if (!touchState.isTouchingSelection) {
+        if (!autoScrollState.isActive) {
+          startAutoScroll();
+        }
+
+        touchState.lastY = canvasY;
+        touchState.lastTime = currentTime;
+
+        return {
+          ...state,
+          scrollbar: {
+            ...state.scrollbar,
+            lastInteraction: Date.now(),
+          },
+        };
+      } else {
+        // Long pressing on selection - don't start auto-scroll, just wait for touchend
+        touchState.lastY = canvasY;
+        touchState.lastTime = currentTime;
+        return state;
       }
-
-      touchState.lastY = canvasY;
-      touchState.lastTime = currentTime;
-
-      return {
-        ...state,
-        scrollbar: {
-          ...state.scrollbar,
-          lastInteraction: Date.now(),
-        },
-      };
     }
 
     // Default: Handle scrolling
@@ -1460,18 +1579,34 @@ function handleTouchEnd(
     };
   }
 
-  // If we were in long press text selection mode, exit select mode
-  if (touchState?.isLongPress && state.mode === "select") {
-    state = updateMode(state, "edit");
-    touchState = null;
+  // If we were in long press mode
+  if (touchState?.isLongPress) {
+    // Two scenarios:
+    // 1. Long press on existing selection -> show context menu (already shown on long press trigger)
+    // 2. Long press to create new selection -> exit select mode, do NOT show context menu
+    if (touchState.isTouchingSelection) {
+      // Long pressed on existing selection - context menu already shown, just cleanup
+      touchState = null;
+      return {
+        ...state,
+        scrollbar: {
+          ...state.scrollbar,
+          lastInteraction: Date.now(),
+        },
+      };
+    } else if (state.mode === "select") {
+      // Long press created a new selection - exit select mode without showing context menu
+      state = updateMode(state, "edit");
+      touchState = null;
 
-    return {
-      ...state,
-      scrollbar: {
-        ...state.scrollbar,
-        lastInteraction: Date.now(),
-      },
-    };
+      return {
+        ...state,
+        scrollbar: {
+          ...state.scrollbar,
+          lastInteraction: Date.now(),
+        },
+      };
+    }
   }
 
   // Detect tap: short duration and minimal movement
@@ -1521,22 +1656,36 @@ function handleTouchEnd(
       }
       // If tapping inside a selection (single or double tap), don't reset it (Apple Notes behavior)
       else if (isPositionWithinSelection(state, position)) {
-        // Do nothing, keep selection
+        // Close context menu if open when tapping on selection
+        if (state.contextMenu) {
+          state = { ...state, contextMenu: null };
+        }
       }
       // Handle double-tap: select word
       else if (isMultiTap && touchTapTracker.count === 2) {
         state = selectWordAtPosition(state, position);
+        // Close context menu when making new selection
+        if (state.contextMenu) {
+          state = { ...state, contextMenu: null };
+        }
       }
-      // Single tap outside selection: position cursor
+      // Single tap outside selection: position cursor and close context menu
       else {
         state = clearSelection(state);
         state = updateCursor(state, position);
         state = updateMode(state, "edit");
+        // Close context menu when tapping outside
+        if (state.contextMenu) {
+          state = { ...state, contextMenu: null };
+        }
       }
     } else {
-      // Tapping outside editor area: clear selection
+      // Tapping outside editor area: clear selection and close context menu
       state = clearSelection(state);
       state = updateMode(state, "edit");
+      if (state.contextMenu) {
+        state = { ...state, contextMenu: null };
+      }
     }
 
     touchState = null;

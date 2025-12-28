@@ -10,6 +10,107 @@ import { getSelectionRange, deleteSelectedText } from "./commands";
 import { recordUndo } from "./undo";
 import { invalidateBlockCache } from "./renderer";
 
+declare global {
+  interface Window {
+    webkit?: {
+      messageHandlers?: {
+        clipboardBridge?: {
+          postMessage: (message: { action: string; text?: string }) => void;
+        };
+      };
+    };
+    AndroidClipboardBridge?: {
+      copy: (text: string) => void;
+      cut: (text: string) => void;
+      paste: () => string;
+    };
+  }
+}
+
+export function hasNativeBridge(): boolean {
+  return !!(
+    window.webkit?.messageHandlers?.clipboardBridge ||
+    window.AndroidClipboardBridge
+  );
+}
+
+async function copyToNativeClipboard(text: string): Promise<boolean> {
+  try {
+    if (window.webkit?.messageHandlers?.clipboardBridge) {
+      window.webkit.messageHandlers.clipboardBridge.postMessage({
+        action: "copy",
+        text,
+      });
+      return true;
+    }
+
+    if (window.AndroidClipboardBridge) {
+      window.AndroidClipboardBridge.copy(text);
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error("Failed to copy to native clipboard:", error);
+    return false;
+  }
+}
+
+async function cutToNativeClipboard(text: string): Promise<boolean> {
+  try {
+    if (window.webkit?.messageHandlers?.clipboardBridge) {
+      window.webkit.messageHandlers.clipboardBridge.postMessage({
+        action: "cut",
+        text,
+      });
+      return true;
+    }
+
+    if (window.AndroidClipboardBridge) {
+      window.AndroidClipboardBridge.cut(text);
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error("Failed to cut to native clipboard:", error);
+    return false;
+  }
+}
+
+async function pasteFromNativeClipboard(): Promise<string | null> {
+  try {
+    if (window.webkit?.messageHandlers?.clipboardBridge) {
+      return new Promise((resolve) => {
+        window.webkit!.messageHandlers!.clipboardBridge!.postMessage({
+          action: "paste",
+        });
+        const handler = (event: MessageEvent) => {
+          if (event.data?.type === "clipboard-paste") {
+            window.removeEventListener("message", handler);
+            resolve(event.data.text || null);
+          }
+        };
+        window.addEventListener("message", handler);
+        setTimeout(() => {
+          window.removeEventListener("message", handler);
+          resolve(null);
+        }, 1000);
+      });
+    }
+
+    if (window.AndroidClipboardBridge) {
+      const text = window.AndroidClipboardBridge.paste();
+      return text || null;
+    }
+
+    return null;
+  } catch (error) {
+    console.error("Failed to paste from native clipboard:", error);
+    return null;
+  }
+}
+
 /**
  * Get the selected content from the editor state
  */
@@ -147,21 +248,21 @@ export async function copySelectionToClipboard(
     const markdown = blocksToMarkdown(blocks);
     const html = blocksToHTML(blocks);
 
-    // Use the Clipboard API to write multiple formats
+    if (hasNativeBridge()) {
+      return await copyToNativeClipboard(markdown);
+    }
+
     if (navigator.clipboard && navigator.clipboard.write) {
       const clipboardItems = [
         new ClipboardItem({
           "text/plain": new Blob([plainText], { type: "text/plain" }),
           "text/html": new Blob([html], { type: "text/html" }),
-          // // Some apps prefer markdown as text/plain, but we also include custom type
-          // "text/markdown": new Blob([markdown], { type: "text/markdown" }),
         }),
       ];
 
       await navigator.clipboard.write(clipboardItems);
       return true;
     } else if (navigator.clipboard && navigator.clipboard.writeText) {
-      // Fallback: only write markdown as plain text
       await navigator.clipboard.writeText(markdown);
       return true;
     }
@@ -170,6 +271,37 @@ export async function copySelectionToClipboard(
   } catch (error) {
     console.error("Failed to copy to clipboard:", error);
     return false;
+  }
+}
+
+export async function cutSelectionToClipboard(
+  state: EditorState
+): Promise<{ success: boolean; newState: EditorState | null }> {
+  try {
+    const selectedContent = getSelectedContent(state);
+    if (!selectedContent) return { success: false, newState: null };
+
+    const { blocks } = selectedContent;
+    if (blocks.length === 0) return { success: false, newState: null };
+
+    const markdown = blocksToMarkdown(blocks);
+
+    let success = false;
+    if (hasNativeBridge()) {
+      success = await cutToNativeClipboard(markdown);
+    } else {
+      success = await copySelectionToClipboard(state);
+    }
+
+    if (success) {
+      const newState = deleteSelectedText(recordUndo(state));
+      return { success: true, newState };
+    }
+
+    return { success: false, newState: null };
+  } catch (error) {
+    console.error("Failed to cut to clipboard:", error);
+    return { success: false, newState: null };
   }
 }
 
@@ -286,6 +418,26 @@ function parsePlainTextToBlocks(text: string): Block[] {
   }
 
   return blocks;
+}
+
+/**
+ * Paste content from native clipboard (for mobile apps)
+ */
+export async function pasteFromNativeClipboardAPI(
+  state: EditorState
+): Promise<EditorState | null> {
+  try {
+    const text = await pasteFromNativeClipboard();
+    if (!text) return null;
+
+    const blocks = parsePlainTextToBlocks(text);
+    if (blocks.length === 0) return null;
+
+    return insertBlocksAtCursor(state, blocks);
+  } catch (error) {
+    console.error("Failed to paste from native clipboard:", error);
+    return null;
+  }
 }
 
 /**

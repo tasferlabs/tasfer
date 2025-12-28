@@ -1,10 +1,14 @@
 import LoadingScreen from "@/components/ui/loading-screen";
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { cn } from "../lib/utils";
+import { cn, shallowEqual } from "../lib/utils";
 import { mountEditor, type MountedEditor } from "../editor/mount";
 import type { EditorState, SlashCommand } from "../editor/types";
 import { SlashCommandMenu } from "../editor/SlashCommandMenu";
+import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
+import { getSelectionRange } from "../editor/commands";
+import { Clipboard, Copy, Scissors } from "lucide-react";
+import { hasNativeBridge } from "../editor/clipboard";
 
 interface ScrollableEditorProps {
   path: string;
@@ -26,6 +30,15 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     filter: string;
   } | null>(null);
 
+  const [contextMenuState, setContextMenuState] = useState<{
+    x: number;
+    y: number;
+    hasSelection: boolean;
+  } | null>(null);
+
+  const lastSlashMenuStateRef = useRef<typeof slashMenuState>(null);
+  const lastContextMenuStateRef = useRef<typeof contextMenuState>(null);
+
   // Imperatively mount/unmount editor (no React state needed)
   useEffect(() => {
     const el = wrapperRef.current;
@@ -46,29 +59,57 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     const mounted = mountEditor(el, { path });
     mountedRef.current = mounted;
 
-    // Subscribe to editor state changes for slash command
+    // Subscribe to editor state changes for slash command and context menu
     const handleStateChange = (state: EditorState) => {
+      // Calculate new slash command state
+      let newSlashState: typeof slashMenuState = null;
       if (state.slashCommand && state.cursor) {
         const cursorScreenPos = mounted.editor.getCursorScreenPosition();
 
         if (cursorScreenPos) {
           const containerRect = wrapperRef.current?.getBoundingClientRect();
           if (containerRect) {
-            // Convert canvas-relative coordinates to viewport-absolute coordinates
             const x = containerRect.left + cursorScreenPos.x;
-            const y = containerRect.top + cursorScreenPos.y + cursorScreenPos.height;
+            const y =
+              containerRect.top + cursorScreenPos.y + cursorScreenPos.height;
 
-            setSlashMenuState({
+            newSlashState = {
               visible: true,
               x,
               y,
               selectedIndex: state.slashCommand.selectedIndex,
               filter: state.slashCommand.filter,
-            });
+            };
           }
         }
-      } else {
-        setSlashMenuState(null);
+      }
+
+      // Only update if changed
+      if (!shallowEqual(newSlashState, lastSlashMenuStateRef.current)) {
+        lastSlashMenuStateRef.current = newSlashState;
+        setSlashMenuState(newSlashState);
+      }
+
+      // Calculate new context menu state
+      let newContextMenuState: typeof contextMenuState = null;
+      if (state.contextMenu) {
+        const containerRect = wrapperRef.current?.getBoundingClientRect();
+        if (containerRect) {
+          const hasSelection = !!getSelectionRange(state);
+          newContextMenuState = {
+            x: containerRect.left + state.contextMenu.x,
+            y: containerRect.top + state.contextMenu.y,
+            hasSelection,
+          };
+        }
+      }
+
+      // Only update if changed
+      if (
+        !shallowEqual(newContextMenuState, lastContextMenuStateRef.current)
+      ) {
+        lastContextMenuStateRef.current = newContextMenuState;
+        setContextMenuState(newContextMenuState);
       }
     };
 
@@ -99,9 +140,61 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
 
   const handleSlashCommandClose = () => {
     if (mountedRef.current) {
-      // Trigger Escape to close
       setSlashMenuState(null);
+      lastSlashMenuStateRef.current = null;
     }
+  };
+
+  const handleContextMenuAction = async (action: string) => {
+    if (!mountedRef.current) return;
+
+    const editor = mountedRef.current.editor;
+    switch (action) {
+      case "copy":
+        await editor.copy();
+        break;
+      case "cut":
+        await editor.cut();
+        break;
+      case "paste":
+        await editor.paste();
+        break;
+    }
+    setContextMenuState(null);
+    lastContextMenuStateRef.current = null;
+  };
+
+  const getContextMenuItems = (): ContextMenuItem[] => {
+    const hasSelection = contextMenuState?.hasSelection ?? false;
+    const canPaste = hasNativeBridge();
+
+    const items: ContextMenuItem[] = [
+      {
+        id: "copy",
+        label: "Copy",
+        icon: <Copy size={16} />,
+        action: () => handleContextMenuAction("copy"),
+        disabled: !hasSelection,
+      },
+      {
+        id: "cut",
+        label: "Cut",
+        icon: <Scissors size={16} />,
+        action: () => handleContextMenuAction("cut"),
+        disabled: !hasSelection,
+      },
+    ];
+
+    if (canPaste) {
+      items.push({
+        id: "paste",
+        label: "Paste",
+        icon: <Clipboard size={16} />,
+        action: () => handleContextMenuAction("paste"),
+      });
+    }
+
+    return items;
   };
 
   return (
@@ -140,6 +233,21 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
           </div>,
           mountedRef.current.portalContainer
         )}
+
+      {/* Context menu portal */}
+      {contextMenuState && (
+        <ContextMenu
+          x={contextMenuState.x}
+          y={contextMenuState.y}
+          items={getContextMenuItems()}
+          onClose={() => {
+            setContextMenuState(null);
+            lastContextMenuStateRef.current = null;
+          }}
+          collisionBoundary={mountedRef.current?.portalContainer}
+          container={mountedRef.current?.portalContainer}
+        />
+      )}
     </div>
   );
 };

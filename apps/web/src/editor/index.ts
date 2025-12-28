@@ -1,6 +1,11 @@
 import { loadPage, type Page } from "../deserializer/loadPage";
 import { applySlashCommand } from "./commands";
 import {
+  copySelectionToClipboard,
+  cutSelectionToClipboard,
+  pasteFromNativeClipboardAPI,
+} from "./clipboard";
+import {
   handleEvents,
   isInLongPressMode
 } from "./events";
@@ -26,6 +31,9 @@ export interface Editor {
   } | null;
   subscribe: (listener: (state: EditorState) => void) => () => void;
   executeSlashCommand: (command: SlashCommand) => void;
+  copy: () => Promise<boolean>;
+  cut: () => Promise<boolean>;
+  paste: () => Promise<boolean>;
 }
 
 export default function createEditor(
@@ -186,8 +194,8 @@ export default function createEditor(
     ) {
       e.preventDefault();
     }
-    // Prevent default on wheel and touchmove to avoid browser interference
-    if (e.type === "wheel" || e.type === "touchmove") {
+    // Prevent default on wheel, touchmove, and contextmenu to avoid browser interference
+    if (e.type === "wheel" || e.type === "touchmove" || e.type === "contextmenu") {
       e.preventDefault();
     }
     
@@ -397,6 +405,7 @@ export default function createEditor(
     if (!isTouchDevice()) {
       canvas.addEventListener("mousedown", canvasClickHandler);
 
+      canvas.addEventListener("contextmenu", eventsHandler);
       canvas.addEventListener("mousedown", eventsHandler);
       canvas.addEventListener("mousemove", eventsHandler);
       canvas.addEventListener("mouseup", eventsHandler);
@@ -445,6 +454,7 @@ export default function createEditor(
         canvasClickHandler = null;
       }
 
+      canvas.removeEventListener("contextmenu", eventsHandler);
       canvas.removeEventListener("mousedown", eventsHandler);
       canvas.removeEventListener("mousemove", eventsHandler);
       canvas.removeEventListener("mouseup", eventsHandler);
@@ -552,10 +562,33 @@ export default function createEditor(
     if (state.slashCommand && state.cursor) {
       state = recordUndo(state);
       state = applySlashCommand(state, command);
-      scheduleRender(); // Schedule render when slash command is executed
-      // Force immediate render or wait for next frame
-      // Just updating state is enough for next frame
+      scheduleRender();
     }
+  }
+
+  async function copy(): Promise<boolean> {
+    const success = await copySelectionToClipboard(state);
+    return success;
+  }
+
+  async function cut(): Promise<boolean> {
+    const result = await cutSelectionToClipboard(state);
+    if (result.success && result.newState) {
+      state = result.newState;
+      scheduleRender();
+      return true;
+    }
+    return false;
+  }
+
+  async function paste(): Promise<boolean> {
+    const newState = await pasteFromNativeClipboardAPI(state);
+    if (newState) {
+      state = newState;
+      scheduleRender();
+      return true;
+    }
+    return false;
   }
 
   return {
@@ -569,5 +602,8 @@ export default function createEditor(
     getCursorScreenPosition,
     subscribe,
     executeSlashCommand,
+    copy,
+    cut,
+    paste,
   };
 }

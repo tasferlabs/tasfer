@@ -8,4 +8,5 @@ export const EDGE_SCROLL_THRESHOLD = 80;
 export const EDGE_SCROLL_SPEED = 12;
 export const EDGE_SCROLL_MAX_SPEED = 120;
 export const EDGE_SCROLL_ACCELERATION_RATE = 2.5;
+export const CONTEXT_MENU_DURATION = 600;
 

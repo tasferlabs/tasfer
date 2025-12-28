@@ -19,6 +19,11 @@ export interface ClickTracker {
 }
 
 
+export interface ContextMenuState {
+  readonly x: number;
+  readonly y: number;
+}
+
 export interface EditorModelState {
   readonly page: Page;
   readonly cursor: CursorState | null;
@@ -29,6 +34,7 @@ export interface EditorModelState {
   readonly scrollbar: ScrollbarState;
   readonly momentum: MomentumState;
   readonly slashCommand: SlashCommandState | null;
+  readonly contextMenu: ContextMenuState | null;
 }
 
 export interface SlashCommandState {

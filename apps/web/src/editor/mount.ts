@@ -114,12 +114,46 @@ export function mountEditor(
 
   const editor = createEditor(canvas, initialViewport, hiddenInput);
 
+  let keyboardHeight = 0;
+  let baseWidth = initial.width;
+  let baseHeight = initial.height;
+
+  const resizeCanvasForKeyboard = () => {
+    const dpr = getDpr();
+    const availableHeight = Math.max(baseHeight - keyboardHeight, 100);
+    
+    canvas.style.width = `${baseWidth}px`;
+    canvas.style.height = `${availableHeight}px`;
+
+    // Also resize portal container so Radix UI knows the available space
+    portalContainer.style.width = `${baseWidth}px`;
+    portalContainer.style.height = `${availableHeight}px`;
+    
+    canvas.width = Math.max(Math.floor(baseWidth * dpr), 1);
+    canvas.height = Math.max(Math.floor(availableHeight * dpr), 1);
+    
+    editor.updateViewport({ width: baseWidth, height: availableHeight });
+  };
+
+  const handleKeyboardMessage = (event: MessageEvent) => {
+    if (event.data?.type === 'keyboard-show') {
+      keyboardHeight = event.data.height || 0;
+      resizeCanvasForKeyboard();
+    } else if (event.data?.type === 'keyboard-hide') {
+      keyboardHeight = 0;
+      resizeCanvasForKeyboard();
+    }
+  };
+
+  window.addEventListener('message', handleKeyboardMessage);
+
   let destroyed = false;
   const resizeObserver = new ResizeObserver(() => {
     if (destroyed) return;
-    const next = sizeCanvasToContainer(canvas, container);
-    // IMPORTANT: do NOT pass scrollY here — preserve current scroll position.
-    editor.updateViewport({ width: next.width, height: next.height });
+    const rect = container.getBoundingClientRect();
+    baseWidth = Math.max(rect.width, 1);
+    baseHeight = Math.max(rect.height, 1);
+    resizeCanvasForKeyboard();
   });
   resizeObserver.observe(container);
 
@@ -167,6 +201,7 @@ export function mountEditor(
     resizeObserver.disconnect();
     editor.destroy();
 
+    window.removeEventListener('message', handleKeyboardMessage);
     document.removeEventListener("mousedown", handleDocumentClick);
     document.removeEventListener("touchstart", handleDocumentClick);
     hiddenInput.removeEventListener("focus", handleInputFocus);

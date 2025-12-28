@@ -36,6 +36,7 @@ export const createInitialState = (page: Page): EditorState => ({
   scrollbar: createInitialScrollbarState(),
   momentum: createInitialMomentumState(),
   slashCommand: null,
+  contextMenu: null,
 });
 
 // State Update Functions (Pure Functions)
@@ -761,4 +762,19 @@ export const updateSlashCommandSelection = (
 export const closeSlashCommand = (state: EditorState): EditorState => ({
   ...state,
   slashCommand: null,
+});
+
+// Context Menu State Management
+export const openContextMenu = (
+  state: EditorState,
+  x: number,
+  y: number
+): EditorState => ({
+  ...state,
+  contextMenu: { x, y },
+});
+
+export const closeContextMenu = (state: EditorState): EditorState => ({
+  ...state,
+  contextMenu: null,
 });
