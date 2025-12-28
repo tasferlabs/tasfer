@@ -197,14 +197,26 @@ export function handleEvents(
     if (timeSinceStart >= CONTEXT_MENU_DURATION) {
       touchState.isLongPress = true;
 
-      // If long pressing on existing selection, show context menu immediately
-      if (touchState.isTouchingSelection) {
-        state = openContextMenu(
-          state,
-          touchState.currentTouchX,
-          touchState.currentTouchY
-        );
+      const position = getTextPositionFromViewport(
+        touchState.currentTouchX,
+        touchState.currentTouchY,
+        state,
+        viewport,
+        visibility
+      );
+
+      if (position) {
+        if (!state.selection || !isPositionWithinSelection(state, position)) {
+          state = updateCursor(state, position);
+          state = clearSelection(state);
+        }
       }
+
+      state = openContextMenu(
+        state,
+        touchState.currentTouchX,
+        touchState.currentTouchY
+      );
 
       // Blur active element
       if (document.activeElement instanceof HTMLElement) {
@@ -1476,6 +1488,11 @@ function handleTouchMove(
     // If moved beyond threshold, mark as moved (cancels potential long press)
     if (!touchState.hasMoved && totalMovement > MOVEMENT_THRESHOLD) {
       touchState.hasMoved = true;
+      
+      // Close context menu when movement is detected
+      if (state.contextMenu) {
+        state = { ...state, contextMenu: null };
+      }
     }
 
     // Handle long press text selection mode

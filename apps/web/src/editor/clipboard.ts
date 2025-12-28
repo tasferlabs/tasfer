@@ -10,42 +10,22 @@ import { getSelectionRange, deleteSelectedText } from "./commands";
 import { recordUndo } from "./undo";
 import { invalidateBlockCache } from "./renderer";
 
-declare global {
-  interface Window {
-    webkit?: {
-      messageHandlers?: {
-        clipboardBridge?: {
-          postMessage: (message: { action: string; text?: string }) => void;
-        };
-      };
-    };
-    AndroidClipboardBridge?: {
-      copy: (text: string) => void;
-      cut: (text: string) => void;
-      paste: () => string;
-    };
-  }
-}
-
 export function hasNativeBridge(): boolean {
-  return !!(
-    window.webkit?.messageHandlers?.clipboardBridge ||
-    window.AndroidClipboardBridge
-  );
+  return !!(window.IOSBridge || window.AndroidBridge);
 }
 
 async function copyToNativeClipboard(text: string): Promise<boolean> {
   try {
-    if (window.webkit?.messageHandlers?.clipboardBridge) {
-      window.webkit.messageHandlers.clipboardBridge.postMessage({
+    if (window.IOSBridge) {
+      window.IOSBridge.postMessage({
         action: "copy",
         text,
       });
       return true;
     }
 
-    if (window.AndroidClipboardBridge) {
-      window.AndroidClipboardBridge.copy(text);
+    if (window.AndroidBridge) {
+      window.AndroidBridge.copy(text);
       return true;
     }
 
@@ -58,16 +38,16 @@ async function copyToNativeClipboard(text: string): Promise<boolean> {
 
 async function cutToNativeClipboard(text: string): Promise<boolean> {
   try {
-    if (window.webkit?.messageHandlers?.clipboardBridge) {
-      window.webkit.messageHandlers.clipboardBridge.postMessage({
+    if (window.IOSBridge) {
+      window.IOSBridge.postMessage({
         action: "cut",
         text,
       });
       return true;
     }
 
-    if (window.AndroidClipboardBridge) {
-      window.AndroidClipboardBridge.cut(text);
+    if (window.AndroidBridge) {
+      window.AndroidBridge.cut(text);
       return true;
     }
 
@@ -80,9 +60,9 @@ async function cutToNativeClipboard(text: string): Promise<boolean> {
 
 async function pasteFromNativeClipboard(): Promise<string | null> {
   try {
-    if (window.webkit?.messageHandlers?.clipboardBridge) {
+    if (window.IOSBridge) {
       return new Promise((resolve) => {
-        window.webkit!.messageHandlers!.clipboardBridge!.postMessage({
+        window.IOSBridge!.postMessage({
           action: "paste",
         });
         const handler = (event: MessageEvent) => {
@@ -99,8 +79,8 @@ async function pasteFromNativeClipboard(): Promise<string | null> {
       });
     }
 
-    if (window.AndroidClipboardBridge) {
-      const text = window.AndroidClipboardBridge.paste();
+    if (window.AndroidBridge) {
+      const text = window.AndroidBridge.paste();
       return text || null;
     }
 

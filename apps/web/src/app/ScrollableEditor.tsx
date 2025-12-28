@@ -59,6 +59,22 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     const mounted = mountEditor(el, { path });
     mountedRef.current = mounted;
 
+    // Expose editor methods to window for native bridges
+    const editorMethods = {
+      undo: () => mounted.editor.undo(),
+      redo: () => mounted.editor.redo(),
+      setBlockType: (type: string) => mounted.editor.setBlockType(type as any),
+      focus: () => mounted.editor.setFocus(true),
+    };
+
+    if (window.IOSBridge) {
+      Object.assign(window.IOSBridge, editorMethods);
+    }
+
+    if (window.AndroidBridge) {
+      Object.assign(window.AndroidBridge, editorMethods);
+    }
+
     // Subscribe to editor state changes for slash command and context menu
     const handleStateChange = (state: EditorState) => {
       // Calculate new slash command state
@@ -105,11 +121,25 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       }
 
       // Only update if changed
-      if (
-        !shallowEqual(newContextMenuState, lastContextMenuStateRef.current)
-      ) {
+      if (!shallowEqual(newContextMenuState, lastContextMenuStateRef.current)) {
         lastContextMenuStateRef.current = newContextMenuState;
         setContextMenuState(newContextMenuState);
+      }
+
+      // Send undo/redo state to native bridge
+      if (window.IOSBridge) {
+        window.IOSBridge.postMessage({
+          action: "undo-redo-state",
+          canUndo: state.undoManager.undoStack.length > 0,
+          canRedo: state.undoManager.redoStack.length > 0,
+        });
+      }
+      
+      if (window.AndroidBridge) {
+        window.AndroidBridge.updateUndoRedoState?.(
+          state.undoManager.undoStack.length > 0,
+          state.undoManager.redoStack.length > 0
+        );
       }
     };
 
@@ -126,6 +156,19 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     return () => {
       unsubscribe();
       mounted.destroy();
+      // Cleanup bridge
+      if (window.IOSBridge) {
+        window.IOSBridge.undo = undefined;
+        window.IOSBridge.redo = undefined;
+        window.IOSBridge.setBlockType = undefined;
+        window.IOSBridge.focus = undefined;
+      }
+      if (window.AndroidBridge) {
+        delete window.AndroidBridge.undo;
+        delete window.AndroidBridge.redo;
+        delete window.AndroidBridge.setBlockType;
+        delete window.AndroidBridge.focus;
+      }
       if (mountedRef.current === mounted) {
         mountedRef.current = null;
       }
@@ -160,8 +203,6 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
         await editor.paste();
         break;
     }
-    setContextMenuState(null);
-    lastContextMenuStateRef.current = null;
   };
 
   const getContextMenuItems = (): ContextMenuItem[] => {

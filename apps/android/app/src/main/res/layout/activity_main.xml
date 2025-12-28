@@ -9,6 +9,24 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Keyboard Toolbar (shown above keyboard) -->
+    <include
+        android:id="@+id/keyboardToolbar"
+        layout="@layout/keyboard_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:visibility="gone" />
+
+    <!-- Block Type Menu (shown above keyboard when format is pressed) -->
+    <include
+        android:id="@+id/blockTypeMenu"
+        layout="@layout/block_type_menu"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:visibility="gone" />
+
     <!-- Loading Screen -->
     <LinearLayout
         android:id="@+id/loadingScreen"

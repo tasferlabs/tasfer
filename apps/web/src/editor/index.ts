@@ -1,5 +1,5 @@
-import { loadPage, type Page } from "../deserializer/loadPage";
-import { applySlashCommand } from "./commands";
+import { loadPage, type Page, type Block } from "../deserializer/loadPage";
+import { applySlashCommand, convertBlockType } from "./commands";
 import {
   copySelectionToClipboard,
   cutSelectionToClipboard,
@@ -11,10 +11,10 @@ import {
 } from "./events";
 import { calculateBlockHeight, renderPage, clearAllBlockCaches } from "./renderer";
 import { getCursorCoordinates } from "./selection";
-import { createInitialState, updateFocus, isCursorBlinking } from "./state";
+import { createInitialState, updateFocus, isCursorBlinking, closeContextMenu } from "./state";
 import { defaultStyles } from "./styles";
 import type { EditorState, SlashCommand, ViewportState } from "./types";
-import { recordUndo } from "./undo";
+import { recordUndo, undoState, redoState } from "./undo";
 
 export interface Editor {
   start: (setDocumentHeight: (height: number) => void) => void;
@@ -34,6 +34,9 @@ export interface Editor {
   copy: () => Promise<boolean>;
   cut: () => Promise<boolean>;
   paste: () => Promise<boolean>;
+  undo: () => void;
+  redo: () => void;
+  setBlockType: (type: Block["type"]) => void;
 }
 
 export default function createEditor(
@@ -568,6 +571,8 @@ export default function createEditor(
 
   async function copy(): Promise<boolean> {
     const success = await copySelectionToClipboard(state);
+    state = closeContextMenu(state);
+    scheduleRender();
     return success;
   }
 
@@ -575,9 +580,12 @@ export default function createEditor(
     const result = await cutSelectionToClipboard(state);
     if (result.success && result.newState) {
       state = result.newState;
+      state = closeContextMenu(state);
       scheduleRender();
       return true;
     }
+    state = closeContextMenu(state);
+    scheduleRender();
     return false;
   }
 
@@ -585,10 +593,39 @@ export default function createEditor(
     const newState = await pasteFromNativeClipboardAPI(state);
     if (newState) {
       state = newState;
+      state = closeContextMenu(state);
       scheduleRender();
       return true;
     }
+    state = closeContextMenu(state);
+    scheduleRender();
     return false;
+  }
+
+  function undo() {
+    const newState = undoState(state);
+    if (newState !== state) {
+      state = newState;
+      scheduleRender();
+      listeners.forEach((listener) => listener(state));
+    }
+  }
+
+  function redo() {
+    const newState = redoState(state);
+    if (newState !== state) {
+      state = newState;
+      scheduleRender();
+      listeners.forEach((listener) => listener(state));
+    }
+  }
+
+  function setBlockType(type: Block["type"]) {
+    if (!state.cursor) return;
+    state = recordUndo(state);
+    state = convertBlockType(state, type);
+    scheduleRender();
+    listeners.forEach((listener) => listener(state));
   }
 
   return {
@@ -605,5 +642,8 @@ export default function createEditor(
     copy,
     cut,
     paste,
+    undo,
+    redo,
+    setBlockType,
   };
 }
