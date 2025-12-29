@@ -68,8 +68,8 @@ export function mountEditor(
   hiddenInput.type = "text";
   hiddenInput.style.position = "absolute";
   hiddenInput.style.opacity = "0";
-  hiddenInput.style.width = "100%";
-  hiddenInput.style.height = "100%";
+  hiddenInput.style.width = "1px";
+  hiddenInput.style.height = "1px";
   hiddenInput.style.top = "0";
   hiddenInput.style.left = "0";
   hiddenInput.style.overflow = "hidden";
