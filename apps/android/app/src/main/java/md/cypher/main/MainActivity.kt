@@ -105,6 +105,10 @@ class MainActivity : ComponentActivity() {
         setupToolbarListeners()
         setupBlockMenuListeners()
         
+        // Disable WebView scrollbars - let web content handle scrolling
+        webView.isVerticalScrollBarEnabled = false
+        webView.isHorizontalScrollBarEnabled = false
+        
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -143,7 +147,7 @@ class MainActivity : ComponentActivity() {
             }
         })
         
-        webView.loadUrl("http://192.168.68.50:5173/")
+        webView.loadUrl("http://192.168.68.54:5173/")
     }
     
     private fun setupToolbarListeners() {
