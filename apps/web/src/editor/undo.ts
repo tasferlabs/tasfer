@@ -42,9 +42,9 @@ function invalidateChangedBlocks(oldBlocks: Block[], newBlocks: Block[]) {
 }
 
 function getModelState(state: EditorState): EditorModelState {
-  const { undoManager, slashCommand, ...model } = state;
-  // Exclude slashCommand from undo state as it's transient UI state
-  return { ...model, slashCommand: null };
+  const { undoManager, slashCommand, contextMenu, ...model } = state;
+  // Exclude slashCommand and contextMenu from undo state as they are transient UI state
+  return { ...model, slashCommand: null, contextMenu: null };
 }
 
 export function recordUndo(state: EditorState): EditorState {
