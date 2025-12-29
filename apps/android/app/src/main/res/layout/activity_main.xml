@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -9,22 +9,22 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Keyboard Toolbar (shown above keyboard) -->
-    <include
-        android:id="@+id/keyboardToolbar"
-        layout="@layout/keyboard_toolbar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:visibility="gone" />
-
-    <!-- Block Type Menu (shown above keyboard when format is pressed) -->
+    <!-- Block Type Menu (positioned at bottom, below toolbar) -->
     <include
         android:id="@+id/blockTypeMenu"
         layout="@layout/block_type_menu"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
+        android:layout_alignParentBottom="true"
+        android:visibility="gone" />
+
+    <!-- Keyboard Toolbar (positioned above block menu or keyboard) -->
+    <include
+        android:id="@+id/keyboardToolbar"
+        layout="@layout/keyboard_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
         android:visibility="gone" />
 
     <!-- Loading Screen -->
@@ -45,5 +45,5 @@
 
     </LinearLayout>
 
-</FrameLayout>
+</RelativeLayout>
 

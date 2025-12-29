@@ -22,7 +22,7 @@ import android.view.animation.RotateAnimation
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.ComponentActivity
 
-class ClipboardBridge(private val context: Context, private val webView: WebView) {
+class AndroidBridge(private val context: Context, private val webView: WebView) {
     
     @JavascriptInterface
     fun copy(text: String) {
@@ -46,7 +46,9 @@ class ClipboardBridge(private val context: Context, private val webView: WebView
     
     @JavascriptInterface
     fun updateUndoRedoState(canUndo: Boolean, canRedo: Boolean) {
-        (context as? MainActivity)?.updateUndoRedoState(canUndo, canRedo)
+        // This will be called from web to update undo/redo button states
+        // We'll handle this in the activity
+        (context as? MainActivity)?.updateUndoRedoButtons(canUndo, canRedo)
     }
 }
 
@@ -55,48 +57,53 @@ class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var loadingScreen: View
     private lateinit var spinnerImage: ImageView
+    
+    // Toolbar elements
     private lateinit var keyboardToolbar: View
-    private lateinit var blockTypeMenu: View
-    
-    private var canUndo = false
-    private var canRedo = false
-    private var isMenuOpen = false
-    
     private lateinit var undoButton: ImageButton
     private lateinit var redoButton: ImageButton
     private lateinit var formatButton: ImageButton
     private lateinit var dismissButton: ImageButton
     
-    fun updateUndoRedoState(canUndo: Boolean, canRedo: Boolean) {
-        this.canUndo = canUndo
-        this.canRedo = canRedo
-        runOnUiThread {
-            updateToolbarState()
-        }
-    }
+    // Block type menu elements
+    private lateinit var blockTypeMenu: View
+    private lateinit var heading1Button: Button
+    private lateinit var heading2Button: Button
+    private lateinit var heading3Button: Button
+    private lateinit var paragraphButton: Button
     
-    private fun updateToolbarState() {
-        undoButton.isEnabled = canUndo
-        redoButton.isEnabled = canRedo
-        undoButton.alpha = if (canUndo) 1.0f else 0.3f
-        redoButton.alpha = if (canRedo) 1.0f else 0.3f
-    }
+    // State tracking
+    private var isBlockMenuOpen = false
+    private var keyboardHeight = 0
     
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         
+        // Initialize views
         webView = findViewById(R.id.webView)
         loadingScreen = findViewById(R.id.loadingScreen)
         spinnerImage = findViewById(R.id.spinnerImage)
-        keyboardToolbar = findViewById(R.id.keyboardToolbar)
-        blockTypeMenu = findViewById(R.id.blockTypeMenu)
         
-        setupToolbar()
-        setupBlockTypeMenu()
+        // Initialize toolbar
+        keyboardToolbar = findViewById(R.id.keyboardToolbar)
+        undoButton = keyboardToolbar.findViewById(R.id.undoButton)
+        redoButton = keyboardToolbar.findViewById(R.id.redoButton)
+        formatButton = keyboardToolbar.findViewById(R.id.formatButton)
+        dismissButton = keyboardToolbar.findViewById(R.id.dismissButton)
+        
+        // Initialize block type menu
+        blockTypeMenu = findViewById(R.id.blockTypeMenu)
+        heading1Button = blockTypeMenu.findViewById(R.id.heading1Button)
+        heading2Button = blockTypeMenu.findViewById(R.id.heading2Button)
+        heading3Button = blockTypeMenu.findViewById(R.id.heading3Button)
+        paragraphButton = blockTypeMenu.findViewById(R.id.paragraphButton)
+        
         startSpinnerAnimation()
         setupKeyboardListener()
+        setupToolbarListeners()
+        setupBlockMenuListeners()
         
         webView.settings.apply {
             javaScriptEnabled = true
@@ -107,8 +114,10 @@ class MainActivity : ComponentActivity() {
             allowContentAccess = true
         }
         
-        webView.addJavascriptInterface(ClipboardBridge(this, webView), "AndroidBridge")
+        // Add AndroidBridge (which includes clipboard functions)
+        webView.addJavascriptInterface(AndroidBridge(this, webView), "AndroidBridge")
         
+        // Inject editor methods that native can call
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
@@ -122,8 +131,9 @@ class MainActivity : ComponentActivity() {
         
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (isMenuOpen) {
-                    toggleMenu()
+                if (isBlockMenuOpen) {
+                    // Close block menu and return to keyboard
+                    closeBlockMenu()
                 } else if (webView.canGoBack()) {
                     webView.goBack()
                 } else {
@@ -133,114 +143,148 @@ class MainActivity : ComponentActivity() {
             }
         })
         
-        webView.loadUrl("http://192.168.68.54:5173/")
+        webView.loadUrl("http://192.168.68.50:5173/")
     }
     
-    private fun setupToolbar() {
-        undoButton = keyboardToolbar.findViewById(R.id.undoButton)
-        redoButton = keyboardToolbar.findViewById(R.id.redoButton)
-        formatButton = keyboardToolbar.findViewById(R.id.formatButton)
-        dismissButton = keyboardToolbar.findViewById(R.id.dismissButton)
-        
+    private fun setupToolbarListeners() {
+        // Undo button
         undoButton.setOnClickListener {
-            webView.evaluateJavascript(
-                "if(window.AndroidBridge && window.AndroidBridge.undo) window.AndroidBridge.undo()",
-                null
-            )
+            webView.evaluateJavascript("window.AndroidBridge?.undo?.()", null)
         }
         
+        // Redo button
         redoButton.setOnClickListener {
-            webView.evaluateJavascript(
-                "if(window.AndroidBridge && window.AndroidBridge.redo) window.AndroidBridge.redo()",
-                null
-            )
+            webView.evaluateJavascript("window.AndroidBridge?.redo?.()", null)
         }
         
+        // Format button - opens block type menu
         formatButton.setOnClickListener {
-            toggleMenu()
+            openBlockMenu()
         }
         
+        // Dismiss button - behavior depends on mode
         dismissButton.setOnClickListener {
-            if (isMenuOpen) {
-                toggleMenu()
+            if (isBlockMenuOpen) {
+                // In block menu mode: return to keyboard
+                closeBlockMenu()
             } else {
+                // In keyboard mode: hide keyboard and all editing UI
                 hideKeyboard()
+                hideEditingUI()
             }
         }
-        
-        updateToolbarState()
     }
     
-    private fun setupBlockTypeMenu() {
-        blockTypeMenu.findViewById<Button>(R.id.heading1Button).setOnClickListener {
-            applyBlockType("heading1")
+    private fun setupBlockMenuListeners() {
+        heading1Button.setOnClickListener {
+            setBlockType("heading1")
+            closeBlockMenu()
         }
         
-        blockTypeMenu.findViewById<Button>(R.id.heading2Button).setOnClickListener {
-            applyBlockType("heading2")
+        heading2Button.setOnClickListener {
+            setBlockType("heading2")
+            closeBlockMenu()
         }
         
-        blockTypeMenu.findViewById<Button>(R.id.heading3Button).setOnClickListener {
-            applyBlockType("heading3")
+        heading3Button.setOnClickListener {
+            setBlockType("heading3")
+            closeBlockMenu()
         }
         
-        blockTypeMenu.findViewById<Button>(R.id.paragraphButton).setOnClickListener {
-            applyBlockType("paragraph")
-        }
-    }
-    
-    private fun applyBlockType(type: String) {
-        webView.evaluateJavascript(
-            "if(window.AndroidBridge && window.AndroidBridge.setBlockType) window.AndroidBridge.setBlockType('$type')",
-            null
-        )
-        toggleMenu()
-        focusWebView()
-    }
-    
-    private fun toggleMenu() {
-        isMenuOpen = !isMenuOpen
-        if (isMenuOpen) {
-            hideKeyboardInput()
-            
-            keyboardToolbar.visibility = View.VISIBLE
-            blockTypeMenu.visibility = View.VISIBLE
-            dismissButton.setImageResource(R.drawable.ic_close)
-            
-            val density = resources.displayMetrics.density
-            val menuHeightPx = (300 * density).toInt()
-            
-            val params = keyboardToolbar.layoutParams as android.widget.FrameLayout.LayoutParams
-            params.bottomMargin = menuHeightPx
-            keyboardToolbar.layoutParams = params
-        } else {
-            blockTypeMenu.visibility = View.GONE
-            dismissButton.setImageResource(R.drawable.ic_keyboard_dismiss)
-            
-            val params = keyboardToolbar.layoutParams as android.widget.FrameLayout.LayoutParams
-            params.bottomMargin = 0
-            keyboardToolbar.layoutParams = params
-            
-            focusWebView()
+        paragraphButton.setOnClickListener {
+            setBlockType("paragraph")
+            closeBlockMenu()
         }
     }
     
-    private fun hideKeyboardInput() {
+    private fun setBlockType(type: String) {
+        webView.evaluateJavascript("window.AndroidBridge?.setBlockType?.('$type')", null)
+    }
+    
+    private fun openBlockMenu() {
+        isBlockMenuOpen = true
+        
+        // Hide keyboard
+        hideKeyboard()
+        
+        // Adjust block menu height to match keyboard and position it
+        val menuParams = blockTypeMenu.layoutParams as android.widget.RelativeLayout.LayoutParams
+        menuParams.height = keyboardHeight
+        menuParams.bottomMargin = 0  // Block menu sits right at bottom
+        blockTypeMenu.layoutParams = menuParams
+        
+        // Show block menu
+        blockTypeMenu.visibility = View.VISIBLE
+        
+        // Adjust toolbar to sit above block menu
+        val toolbarParams = keyboardToolbar.layoutParams as android.widget.RelativeLayout.LayoutParams
+        toolbarParams.bottomMargin = keyboardHeight
+        keyboardToolbar.layoutParams = toolbarParams
+    }
+    
+    private fun closeBlockMenu() {
+        isBlockMenuOpen = false
+        
+        // Reset block menu margin
+        val menuParams = blockTypeMenu.layoutParams as android.widget.RelativeLayout.LayoutParams
+        menuParams.bottomMargin = 0
+        blockTypeMenu.layoutParams = menuParams
+        
+        // Hide block menu
+        blockTypeMenu.visibility = View.GONE
+        
+        // Show keyboard again
+        showKeyboard()
+        
+        // Toolbar will be repositioned by keyboard listener when keyboard reappears
+    }
+    
+    private fun showKeyboard() {
+        webView.requestFocus()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
+    }
+    
+    private fun hideKeyboard() {
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(webView.windowToken, 0)
     }
     
-    private fun hideKeyboard() {
+    private fun hideEditingUI() {
+        // Reset toolbar margin
+        val toolbarParams = keyboardToolbar.layoutParams as android.widget.RelativeLayout.LayoutParams
+        toolbarParams.bottomMargin = 0
+        keyboardToolbar.layoutParams = toolbarParams
+        
+        // Hide toolbar
         keyboardToolbar.visibility = View.GONE
-        blockTypeMenu.visibility = View.GONE
+        
+        // Hide block menu if open
+        if (isBlockMenuOpen) {
+            val menuParams = blockTypeMenu.layoutParams as android.widget.RelativeLayout.LayoutParams
+            menuParams.bottomMargin = 0
+            blockTypeMenu.layoutParams = menuParams
+            blockTypeMenu.visibility = View.GONE
+            isBlockMenuOpen = false
+        }
+        
+        // Clear focus from webview
         webView.clearFocus()
     }
     
-    private fun focusWebView() {
-        webView.evaluateJavascript(
-            "if(window.AndroidBridge && window.AndroidBridge.focus) window.AndroidBridge.focus()",
-            null
-        )
+    private fun showEditingUI() {
+        // Show toolbar
+        keyboardToolbar.visibility = View.VISIBLE
+    }
+    
+    fun updateUndoRedoButtons(canUndo: Boolean, canRedo: Boolean) {
+        runOnUiThread {
+            undoButton.isEnabled = canUndo
+            undoButton.alpha = if (canUndo) 1.0f else 0.4f
+            
+            redoButton.isEnabled = canRedo
+            redoButton.alpha = if (canRedo) 1.0f else 0.4f
+        }
     }
     
     private fun setupKeyboardListener() {
@@ -250,6 +294,11 @@ class MainActivity : ComponentActivity() {
             private var previousKeypadHeight = 0
             
             override fun onGlobalLayout() {
+                // Don't process keyboard changes if block menu is open
+                if (isBlockMenuOpen) {
+                    return
+                }
+                
                 val r = android.graphics.Rect()
                 rootView.getWindowVisibleDisplayFrame(r)
                 
@@ -265,39 +314,34 @@ class MainActivity : ComponentActivity() {
                 if (isKeyboardOpen != wasKeyboardOpen || (isKeyboardOpen && keypadHeight != previousKeypadHeight)) {
                     wasKeyboardOpen = isKeyboardOpen
                     previousKeypadHeight = keypadHeight
+                    keyboardHeight = keypadHeight
                     
                     if (isKeyboardOpen) {
-                        if (isMenuOpen) {
-                            isMenuOpen = false
-                            blockTypeMenu.visibility = View.GONE
-                            dismissButton.setImageResource(R.drawable.ic_keyboard_dismiss)
-                        }
+                        // Show toolbar above keyboard
+                        showEditingUI()
                         
-                        keyboardToolbar.visibility = View.VISIBLE
-                        val params = keyboardToolbar.layoutParams as android.widget.FrameLayout.LayoutParams
-                        params.bottomMargin = keypadHeight
-                        keyboardToolbar.layoutParams = params
+                        // Position toolbar above keyboard using margin
+                        val layoutParams = keyboardToolbar.layoutParams as android.widget.RelativeLayout.LayoutParams
+                        layoutParams.bottomMargin = keypadHeight
+                        keyboardToolbar.layoutParams = layoutParams
                         
-                        webView.evaluateJavascript(
-                            "window.postMessage({type: 'keyboard-show', height: ${keypadHeightDp + 56}}, '*');",
-                            null
-                        )
-                    } else {
-                        if (isMenuOpen) {
-                            keyboardToolbar.visibility = View.VISIBLE
-                            val menuHeightPx = (300 * density).toInt()
-                            val params = keyboardToolbar.layoutParams as android.widget.FrameLayout.LayoutParams
-                            params.bottomMargin = menuHeightPx
-                            keyboardToolbar.layoutParams = params
-                        } else {
-                            keyboardToolbar.visibility = View.GONE
-                            blockTypeMenu.visibility = View.GONE
-                            
+                        // Notify web of keyboard height (including toolbar)
+                        keyboardToolbar.post {
+                            val toolbarHeightDp = (keyboardToolbar.height / density).toInt()
+                            val totalHeightDp = keypadHeightDp + toolbarHeightDp
                             webView.evaluateJavascript(
-                                "window.postMessage({type: 'keyboard-hide'}, '*');",
+                                "window.postMessage({type: 'keyboard-show', height: $totalHeightDp}, '*');",
                                 null
                             )
                         }
+                    } else {
+                        // Keyboard closed - hide editing UI
+                        hideEditingUI()
+                        
+                        webView.evaluateJavascript(
+                            "window.postMessage({type: 'keyboard-hide'}, '*');",
+                            null
+                        )
                     }
                 }
             }
