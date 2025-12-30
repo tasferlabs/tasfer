@@ -32,5 +32,13 @@ Bugs list
 [x] add extra space on mobile at the end of the page so there is place for the keyboard.
 [x] implement ctrl + C to copy text and ctrl + V to paste text (with HTML formatting) and ctrl + Shift + V to paste as plain text.
 [x] implement ctrl + X to cut text.
-[ ] group undo and redo to words.
+[x] When editing a block the inline styles disappearing
+[x] add logic for for writing tracking markdown inlines styles.
+[x] selection rendering is quite wrong now we need it is offseted little bit in widht if there inline style contenn.
+[x] inserting charaters after inline style creates new inlines objects instead of add to the existing block.
+[x] Render cursor function does not count for padding for example code.
+[x] Inline text selection and cursor rendering has bit mismatch when calculating the position of the cursor and dimension of selection boxes
 [ ] when pressing enter on end of heading then we should create new paragraph.
+[ ] Fix word boundary selection logic, it should not include punction and speical signs
+[ ] Fix reading empty file, should at least be one block
+[ ] group undo and redo to words.

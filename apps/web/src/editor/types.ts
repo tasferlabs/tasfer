@@ -127,6 +127,7 @@ export interface EditorStyles {
   readonly selection: SelectionStyles;
   readonly cursor: CursorStyles;
   readonly placeholder: PlaceholderStyles;
+  readonly textFormats: TextFormatStyles;
 }
 
 export interface CanvasStyles {
@@ -180,6 +181,15 @@ export interface PlaceholderStyles {
   };
   readonly color: string;
   readonly opacity: number;
+}
+
+export interface TextFormatStyles {
+  readonly code: {
+    readonly backgroundColor: string;
+    readonly color: string;
+    readonly padding: number;
+    readonly borderRadius: number;
+  };
 }
 
 // Event Types

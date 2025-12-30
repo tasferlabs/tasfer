@@ -1,14 +1,15 @@
-import type { Block } from "../deserializer/loadPage"; import {
+import type { Block, Text } from "../deserializer/loadPage";
+import {
   FONT_STACKS,
   getCurrentFontFamily,
   getFontMetrics,
   measureText,
-  wrapText,
+  wrapFormattedText,
   type FontFamily,
 } from "./fonts";
 import { renderScrollbar } from "./scrollbar";
 import { getBlockTextContent, isCursorBlinking } from "./state";
-import { applyTextStyle, defaultStyles, getTextStyle } from "./styles";
+import { defaultStyles, getTextStyle } from "./styles";
 import type {
   BlockBounds,
   EditorState,
@@ -50,6 +51,166 @@ export const clearAllBlockCaches = (blocks: Block[]) => {
 };
 
 // Rendering Functions
+// Helper function to measure the width of a portion of formatted text
+// This matches how renderFormattedLine advances currentX after each segment
+function measureFormattedLineWidth(
+  segments: Text[],
+  lineStartIndex: number,
+  lineEndIndex: number,
+  textStyle: TextStyle,
+  fontFamily: FontFamily,
+  codePadding: number
+): number {
+  let width = 0;
+  let currentIndex = 0;
+
+  for (const segment of segments) {
+    const segmentStart = currentIndex;
+    const segmentEnd = currentIndex + segment.content.length;
+
+    if (segmentEnd <= lineStartIndex) {
+      // This entire segment is before our measurement range
+      currentIndex = segmentEnd;
+      continue;
+    }
+
+    if (segmentStart >= lineEndIndex) {
+      // We've passed our endpoint
+      break;
+    }
+
+    // This segment overlaps with our range
+    const overlapStart = Math.max(segmentStart, lineStartIndex);
+    const overlapEnd = Math.min(segmentEnd, lineEndIndex);
+    const textToMeasure = segment.content.substring(
+      overlapStart - segmentStart,
+      overlapEnd - segmentStart
+    );
+
+    const effectiveFontWeight = segment.formats?.includes("bold")
+      ? "bold"
+      : textStyle.fontWeight;
+
+    let segmentWidth = measureText(
+      textToMeasure,
+      textStyle.fontSize,
+      effectiveFontWeight,
+      fontFamily
+    );
+
+    width += segmentWidth;
+
+    // Add code padding only if we've MOVED PAST this segment to the next one
+    // (not just at the end boundary, but actually beyond it)
+    // The cursor at the end of a code segment should be before the right padding
+    if (segment.formats?.includes("code") && overlapEnd === segmentEnd && lineEndIndex > segmentEnd) {
+      width += codePadding * 2;
+    }
+
+    currentIndex = segmentEnd;
+  }
+
+  return width;
+}
+
+// Helper function to render a line with formatting
+function renderFormattedLine(
+  ctx: CanvasRenderingContext2D,
+  segments: Text[],
+  lineStartIndex: number,
+  lineEndIndex: number,
+  x: number,
+  y: number,
+  textStyle: TextStyle,
+  fontFamily: FontFamily,
+  styles: EditorStyles
+) {
+  let currentX = x;
+  let currentIndex = 0;
+
+  // Iterate through segments and render the parts that belong to this line
+  for (const segment of segments) {
+    const segmentStart = currentIndex;
+    const segmentEnd = currentIndex + segment.content.length;
+
+    // Check if this segment overlaps with the current line
+    if (segmentEnd > lineStartIndex && segmentStart < lineEndIndex) {
+      // Calculate the part of the segment that belongs to this line
+      const overlapStart = Math.max(segmentStart, lineStartIndex);
+      const overlapEnd = Math.min(segmentEnd, lineEndIndex);
+      const textToRender = segment.content.substring(
+        overlapStart - segmentStart,
+        overlapEnd - segmentStart
+      );
+
+      // Determine effective font weight for measurement
+      const effectiveFontWeight = segment.formats?.includes("bold")
+        ? "bold"
+        : textStyle.fontWeight;
+      const fontStyle = segment.formats?.includes("italic") ? "italic" : "normal";
+      
+      ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${
+        FONT_STACKS[fontFamily]
+      }`;
+      ctx.textBaseline = "alphabetic";
+
+      // Handle code background
+      if (segment.formats?.includes("code")) {
+        const textWidth = ctx.measureText(textToRender).width;
+        const codeStyle = styles.textFormats.code;
+        
+        // Draw code background with rounded corners
+        ctx.save();
+        ctx.fillStyle = codeStyle.backgroundColor;
+        const padding = codeStyle.padding;
+        const rectX = currentX - padding;
+        const rectY = y - textStyle.fontSize - padding;
+        const rectWidth = textWidth + padding * 2;
+        const rectHeight = textStyle.fontSize + padding * 2;
+        
+        // Simple rounded rectangle
+        ctx.beginPath();
+        ctx.roundRect(rectX, rectY, rectWidth, rectHeight, codeStyle.borderRadius);
+        ctx.fill();
+        ctx.restore();
+        
+        // Set code text color
+        ctx.fillStyle = codeStyle.color;
+      } else {
+        ctx.fillStyle = textStyle.color;
+      }
+
+      // Render the text
+      ctx.fillText(textToRender, currentX, y);
+
+      // Handle strikethrough
+      if (segment.formats?.includes("strikethrough")) {
+        const textWidth = ctx.measureText(textToRender).width;
+        ctx.save();
+        ctx.strokeStyle = textStyle.color;
+        ctx.lineWidth = Math.max(1, textStyle.fontSize / 16);
+        ctx.beginPath();
+        ctx.moveTo(currentX, y - textStyle.fontSize * 0.3);
+        ctx.lineTo(currentX + textWidth, y - textStyle.fontSize * 0.3);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Move X position for next segment - use actual measured width
+      let segmentWidth = ctx.measureText(textToRender).width;
+      if (segment.formats?.includes("code")) {
+        segmentWidth += styles.textFormats.code.padding * 2;
+      }
+      currentX += segmentWidth;
+    }
+
+    currentIndex = segmentEnd;
+
+    // Stop if we've passed the end of the line
+    if (currentIndex >= lineEndIndex) break;
+  }
+}
+
 export const renderPage = (
   ctx: CanvasRenderingContext2D,
   state: EditorState,
@@ -134,19 +295,19 @@ export const renderBlock = (
   styles: EditorStyles = defaultStyles
 ): RenderedBlock => {
   const textStyle = getTextStyle(styles, block.type);
-  const content = getBlockTextContent(block);
-
-  applyTextStyle(ctx, textStyle);
-
-  // Calculate line wrapping using fast text measurement
   const fontFamily = getCurrentFontFamily();
-  const lines = wrapText(
-    content,
+  const codePadding = styles.textFormats.code.padding;
+
+  // Calculate line wrapping using formatted text wrapping
+  const lines = wrapFormattedText(
+    block.content,
     maxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
-    fontFamily
+    fontFamily,
+    codePadding
   );
+
   const fontMetrics = getFontMetrics(
     textStyle.fontSize,
     textStyle.fontWeight,
@@ -158,29 +319,47 @@ export const renderBlock = (
   let textIndex = 0;
   let currentY = y;
 
+  // Get full content for backward compatibility
+  const fullContent = getBlockTextContent(block);
+
   // Render each line
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const line = lines[lineIndex];
     const lineStartIndex = textIndex;
     const lineEndIndex = textIndex + line.length;
 
-    // Render the text (with alphabetic baseline, add ascent to position text top at currentY)
-    ctx.fillText(line, x, currentY + fontMetrics.ascent);
+    // Render the line with formatting
+    renderFormattedLine(
+      ctx,
+      block.content,
+      lineStartIndex,
+      lineEndIndex,
+      x,
+      currentY + fontMetrics.ascent,
+      textStyle,
+      fontFamily,
+      styles
+    );
 
     // Use font metrics for consistent positioning
     const textHeight = fontMetrics.ascent + fontMetrics.descent;
+
+    // Measure the line width (need to account for formatting)
+    const lineWidth = measureFormattedLineWidth(
+      block.content,
+      lineStartIndex,
+      lineEndIndex,
+      textStyle,
+      fontFamily,
+      codePadding
+    );
 
     // Store rendered line
     const renderedLine: RenderedLine = {
       text: line,
       x,
       y: currentY,
-      width: measureText(
-        line,
-        textStyle.fontSize,
-        textStyle.fontWeight,
-        fontFamily
-      ),
+      width: lineWidth,
       height: textHeight,
       startIndex: lineStartIndex,
       endIndex: lineEndIndex,
@@ -205,9 +384,10 @@ export const renderBlock = (
       renderedLines,
       x,
       y,
-      content,
+      fullContent,
       textStyle,
-      fontFamily
+      fontFamily,
+      block
     );
   }
 
@@ -215,7 +395,7 @@ export const renderBlock = (
   if (
     state.cursor &&
     state.cursor.position.blockIndex === blockIndex &&
-    content.length === 0
+    fullContent.length === 0
   ) {
     renderPlaceholder(
       ctx,
@@ -240,10 +420,11 @@ export const renderBlock = (
       textStyle,
       renderedLines,
       state,
-      content,
+      fullContent,
       fontFamily,
       ctx,
-      styles
+      styles,
+      block
     );
   }
 
@@ -302,13 +483,15 @@ function renderCursor(
   content: string,
   fontFamily: FontFamily,
   ctx: CanvasRenderingContext2D,
-  styles: EditorStyles
+  styles: EditorStyles,
+  block: Block
 ) {
   if (!state.cursor || !state.isFocused) return;
 
   let cursorX = x;
   let cursorY = y;
   let cursorHeight = fontMetrics.fontSize * textStyle.lineHeight;
+  const codePadding = styles.textFormats.code.padding;
 
   // console.log(renderedLines);
   for (const line of renderedLines) {
@@ -318,11 +501,14 @@ function renderCursor(
     ) {
       cursorY = line.y;
       cursorHeight = line.height;
-      cursorX += measureText(
-        content.substring(line.startIndex, state.cursor.position.textIndex),
-        textStyle.fontSize,
-        textStyle.fontWeight,
-        fontFamily
+      // Use format-aware measurement for cursor positioning
+      cursorX += measureFormattedLineWidth(
+        block.content,
+        line.startIndex,
+        state.cursor.position.textIndex,
+        textStyle,
+        fontFamily,
+        codePadding
       );
       break;
     }
@@ -355,7 +541,8 @@ function renderSelection(
   y: number,
   content: string,
   textStyle: TextStyle,
-  fontFamily: FontFamily
+  fontFamily: FontFamily,
+  block: Block
 ) {
   if (!state.selection) return;
 
@@ -376,6 +563,7 @@ function renderSelection(
     ctx.globalAlpha = styles.selection.opacity;
 
     const lineHeight = textStyle.fontSize * textStyle.lineHeight;
+    const codePadding = styles.textFormats.code.padding;
 
     // Handle empty blocks
     if (
@@ -410,30 +598,27 @@ function renderSelection(
         ) {
           shouldRender = true;
           if (start.textIndex > line.startIndex) {
-            const beforeSelection = content.substring(
+            // Use format-aware measurement
+            selectionStartX += measureFormattedLineWidth(
+              block.content,
               line.startIndex,
-              start.textIndex
-            );
-            selectionStartX += measureText(
-              beforeSelection,
-              textStyle.fontSize,
-              textStyle.fontWeight,
-              fontFamily
+              start.textIndex,
+              textStyle,
+              fontFamily,
+              codePadding
             );
           }
           if (end.textIndex < line.endIndex) {
-            const selectedText = content.substring(
+            // Use format-aware measurement
+            const selectedWidth = measureFormattedLineWidth(
+              block.content,
               Math.max(line.startIndex, start.textIndex),
-              Math.min(line.endIndex, end.textIndex)
+              Math.min(line.endIndex, end.textIndex),
+              textStyle,
+              fontFamily,
+              codePadding
             );
-            selectionEndX =
-              selectionStartX +
-              measureText(
-                selectedText,
-                textStyle.fontSize,
-                textStyle.fontWeight,
-                fontFamily
-              );
+            selectionEndX = selectionStartX + selectedWidth;
           }
         }
       } else if (start.blockIndex < blockIndex && end.blockIndex > blockIndex) {
@@ -447,15 +632,14 @@ function renderSelection(
         if (start.textIndex <= line.endIndex) {
           shouldRender = true;
           if (start.textIndex > line.startIndex) {
-            const beforeSelection = content.substring(
+            // Use format-aware measurement
+            selectionStartX += measureFormattedLineWidth(
+              block.content,
               line.startIndex,
-              start.textIndex
-            );
-            selectionStartX += measureText(
-              beforeSelection,
-              textStyle.fontSize,
-              textStyle.fontWeight,
-              fontFamily
+              start.textIndex,
+              textStyle,
+              fontFamily,
+              codePadding
             );
           }
         }
@@ -467,18 +651,15 @@ function renderSelection(
         if (end.textIndex >= line.startIndex) {
           shouldRender = true;
           if (end.textIndex < line.endIndex) {
-            const selectedText = content.substring(
+            // Use format-aware measurement
+            selectionEndX = x + measureFormattedLineWidth(
+              block.content,
               line.startIndex,
-              end.textIndex
+              end.textIndex,
+              textStyle,
+              fontFamily,
+              codePadding
             );
-            selectionEndX =
-              x +
-              measureText(
-                selectedText,
-                textStyle.fontSize,
-                textStyle.fontWeight,
-                fontFamily
-              );
           }
         }
       }
@@ -504,15 +685,16 @@ export const calculateBlockHeight = (
   styles: EditorStyles
 ): number => {
   const textStyle = getTextStyle(styles, block.type);
-  const content = getBlockTextContent(block);
   const fontFamily = getCurrentFontFamily();
+  const codePadding = styles.textFormats.code.padding;
 
-  const lines = wrapText(
-    content,
+  const lines = wrapFormattedText(
+    block.content,
     maxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
-    fontFamily
+    fontFamily,
+    codePadding
   );
 
   const fontMetrics = getFontMetrics(

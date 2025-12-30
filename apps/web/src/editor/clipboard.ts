@@ -6,7 +6,13 @@ import {
   clearSelection,
   generateBlockId,
 } from "./state";
-import { getSelectionRange, deleteSelectedText } from "./commands";
+import { 
+  getSelectionRange, 
+  deleteSelectedText,
+  insertTextIntoFormattedContent,
+  deleteTextRangeInFormattedContent,
+  mergeAdjacentSegments,
+} from "./commands";
 import { recordUndo } from "./undo";
 import { invalidateBlockCache } from "./renderer";
 
@@ -109,11 +115,17 @@ function getSelectedContent(state: EditorState): {
   if (start.blockIndex === end.blockIndex) {
     const block = state.page.blocks[start.blockIndex];
     const text = getBlockTextContent(block);
-    const selectedText = text.slice(start.textIndex, end.textIndex);
+    
+    // Extract the selected portion while preserving formatting
+    const selectedContent = deleteTextRangeInFormattedContent(
+      deleteTextRangeInFormattedContent(block.content, 0, start.textIndex),
+      end.textIndex - start.textIndex,
+      text.length
+    );
 
     const partialBlock: Block = {
       ...block,
-      content: [{ content: selectedText }],
+      content: selectedContent,
     };
 
     return {
@@ -131,19 +143,27 @@ function getSelectedContent(state: EditorState): {
     const block = state.page.blocks[i];
     const text = getBlockTextContent(block);
 
-    let blockText = text;
+    let blockContent = block.content;
     if (i === start.blockIndex) {
-      // First block - cut from start position
-      blockText = text.slice(start.textIndex);
+      // First block - cut from start position, preserving formatting
+      blockContent = deleteTextRangeInFormattedContent(
+        block.content,
+        0,
+        start.textIndex
+      );
     } else if (i === end.blockIndex) {
-      // Last block - cut to end position
-      blockText = text.slice(0, end.textIndex);
+      // Last block - cut to end position, preserving formatting
+      blockContent = deleteTextRangeInFormattedContent(
+        block.content,
+        end.textIndex,
+        text.length
+      );
     }
-    // Middle blocks - include full text
+    // Middle blocks - include full content with formatting
 
     const newBlock: Block = {
       ...block,
-      content: [{ content: blockText }],
+      content: blockContent,
     };
 
     blocks.push(newBlock);
@@ -464,15 +484,42 @@ function insertBlocksAtCursor(
 
   // If pasting a single block
   if (blocks.length === 1) {
-    const pasteText = getBlockTextContent(blocks[0]);
-    const newText =
-      currentText.slice(0, textIndex) +
-      pasteText +
-      currentText.slice(textIndex);
+    // Merge the pasted block's formatted content into current block at cursor position
+    const pasteContent = blocks[0].content;
+    
+    // Insert the pasted formatted content at the cursor position
+    let newContent = currentBlock.content;
+    
+    // For each segment in the pasted content, insert it
+    for (const segment of pasteContent) {
+      newContent = insertTextIntoFormattedContent(
+        newContent,
+        textIndex,
+        segment.content
+      );
+      // Update textIndex to account for the inserted text length
+      // But we need to preserve the segment's formatting, so let's do it differently
+    }
+    
+    // Actually, let's properly merge the formatted content arrays
+    const beforeContent = deleteTextRangeInFormattedContent(
+      currentBlock.content,
+      textIndex,
+      getBlockTextContent(currentBlock).length
+    );
+    const afterContent = deleteTextRangeInFormattedContent(
+      currentBlock.content,
+      0,
+      textIndex
+    );
+    
+    // Merge: before + pasted + after
+    const mergedContent = [...beforeContent, ...pasteContent, ...afterContent];
+    const pasteTextLength = getBlockTextContent(blocks[0]).length;
 
     const newBlock: Block = {
       ...currentBlock,
-      content: [{ content: newText }],
+      content: mergeAdjacentSegments(mergedContent),
     };
 
     // Invalidate only the affected block
@@ -493,29 +540,38 @@ function insertBlocksAtCursor(
     newState = moveCursorToPosition(
       newState,
       blockIndex,
-      textIndex + pasteText.length
+      textIndex + pasteTextLength
     );
   } else {
-    // Pasting multiple blocks
-    // Split current block at cursor
-    const beforeText = currentText.slice(0, textIndex);
-    const afterText = currentText.slice(textIndex);
+    // Pasting multiple blocks - preserve formatting in split blocks
+    const beforeContent = deleteTextRangeInFormattedContent(
+      currentBlock.content,
+      textIndex,
+      currentText.length
+    );
+    const afterContent = deleteTextRangeInFormattedContent(
+      currentBlock.content,
+      0,
+      textIndex
+    );
 
-    // First block: current block with text before cursor + first pasted block
-    const firstPastedText = getBlockTextContent(blocks[0]);
+    // First block: current block's content before cursor + first pasted block's content
+    const firstPastedContent = blocks[0].content;
+    const firstBlockContent = [...beforeContent, ...firstPastedContent];
     const firstBlock: Block = {
       ...blocks[0],
-      content: [{ content: beforeText + firstPastedText }],
+      content: mergeAdjacentSegments(firstBlockContent),
     };
 
     // Middle blocks: paste as-is
     const middleBlocks = blocks.slice(1, -1);
 
-    // Last block: last pasted block + text after cursor
-    const lastPastedText = getBlockTextContent(blocks[blocks.length - 1]);
+    // Last block: last pasted block's content + current block's content after cursor
+    const lastPastedContent = blocks[blocks.length - 1].content;
+    const lastBlockContent = [...lastPastedContent, ...afterContent];
     const lastBlock: Block = {
       ...blocks[blocks.length - 1],
-      content: [{ content: lastPastedText + afterText }],
+      content: mergeAdjacentSegments(lastBlockContent),
     };
 
     // Invalidate cache for the modified blocks (first and last)
@@ -537,6 +593,7 @@ function insertBlocksAtCursor(
 
     // Move cursor to end of last pasted block
     const lastBlockIndex = blockIndex + blocks.length - 1;
+    const lastPastedText = getBlockTextContent(blocks[blocks.length - 1]);
     newState = moveCursorToPosition(
       newState,
       lastBlockIndex,

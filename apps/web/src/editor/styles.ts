@@ -66,6 +66,14 @@ export const defaultStyles: EditorStyles = {
     color: "#999999",
     opacity: 0.6,
   },
+  textFormats: {
+    code: {
+      backgroundColor: "#f5f5f5",
+      color: "#e01e5a",
+      padding: 2,
+      borderRadius: 3,
+    },
+  },
 };
 
 export const getTextStyle = (

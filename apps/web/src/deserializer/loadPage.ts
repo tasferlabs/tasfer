@@ -16,9 +16,11 @@ export interface Paragraph {
   cachedWidth?: number; // Width at which height was cached
 }
 
+export type TextFormat = 'bold' | 'italic' | 'strikethrough' | 'code';
+
 export interface Text {
   content: string;
-  format?: string;
+  formats?: TextFormat[];
 }
 
 export type Block = Heading | Paragraph;

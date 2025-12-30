@@ -10,7 +10,7 @@ import type {
   Position,
   ViewportState,
 } from "./types";
-import { wrapText, getCurrentFontFamily } from "./fonts";
+import { wrapText, getCurrentFontFamily, wrapFormattedText } from "./fonts";
 import { defaultStyles, getTextStyle } from "./styles";
 
 // Block ID Generation - Centralized Counter
@@ -244,15 +244,16 @@ function getLineInfoAtPosition(
   lines: string[];
 } | null {
   const textStyle = getTextStyle(styles, block.type);
-  const content = getBlockTextContent(block);
   const fontFamily = getCurrentFontFamily();
+  const codePadding = styles.textFormats.code.padding;
 
-  const lines = wrapText(
-    content,
+  const lines = wrapFormattedText(
+    block.content,
     maxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
-    fontFamily
+    fontFamily,
+    codePadding
   );
 
   let currentTextIndex = 0;
@@ -348,16 +349,17 @@ export const moveCursorUp = (
   // On the first line of the block, move to the previous block's last line
   if (blockIndex > 0) {
     const prevBlock = state.page.blocks[blockIndex - 1];
-    const prevBlockContent = getBlockTextContent(prevBlock);
     const prevTextStyle = getTextStyle(styles, prevBlock.type);
     const fontFamily = getCurrentFontFamily();
+    const codePadding = styles.textFormats.code.padding;
 
-    const prevLines = wrapText(
-      prevBlockContent,
+    const prevLines = wrapFormattedText(
+      prevBlock.content,
       maxWidth,
       prevTextStyle.fontSize,
       prevTextStyle.fontWeight,
-      fontFamily
+      fontFamily,
+      codePadding
     );
 
     if (prevLines.length > 0) {
@@ -453,16 +455,17 @@ export const moveCursorDown = (
   // On the last line of the block, move to the next block's first line
   if (blockIndex < state.page.blocks.length - 1) {
     const nextBlock = state.page.blocks[blockIndex + 1];
-    const nextBlockContent = getBlockTextContent(nextBlock);
     const nextTextStyle = getTextStyle(styles, nextBlock.type);
     const fontFamily = getCurrentFontFamily();
+    const codePadding = styles.textFormats.code.padding;
 
-    const nextLines = wrapText(
-      nextBlockContent,
+    const nextLines = wrapFormattedText(
+      nextBlock.content,
       maxWidth,
       nextTextStyle.fontSize,
       nextTextStyle.fontWeight,
-      fontFamily
+      fontFamily,
+      codePadding
     );
 
     if (nextLines.length > 0) {

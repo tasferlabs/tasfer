@@ -22,6 +22,7 @@ import {
   selectLineAtPosition,
   selectWordAtPosition,
   splitBlock,
+  deleteTextRangeInFormattedContent,
 } from "./commands";
 import {
   CLICK_DISTANCE_THRESHOLD,
@@ -945,14 +946,17 @@ function handleKeyDown(
         if (state.cursor) {
           const { blockIndex, textIndex } = state.slashCommand;
           const block = state.page.blocks[blockIndex];
-          const text = getBlockTextContent(block);
-          const beforeSlash = text.slice(0, textIndex - 1);
-          const afterFilter = text.slice(state.cursor.position.textIndex);
-          const newText = beforeSlash + afterFilter;
+
+          // Remove the "/" and filter text, preserving formatting
+          const newContent = deleteTextRangeInFormattedContent(
+            block.content,
+            textIndex - 1, // Remove the "/"
+            state.cursor.position.textIndex // Remove up to cursor (the filter text)
+          );
 
           const newBlock: Block = {
             ...block,
-            content: [{ content: newText }],
+            content: newContent,
           };
 
           const newBlocks = [...state.page.blocks];
@@ -964,7 +968,7 @@ function handleKeyDown(
           newState = moveCursorToPosition(
             newState,
             blockIndex,
-            beforeSlash.length
+            textIndex - 1
           );
 
           ensureCursorVisible(

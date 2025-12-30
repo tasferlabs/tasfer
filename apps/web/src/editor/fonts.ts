@@ -8,6 +8,8 @@ import "@fontsource/poppins/400.css";
 import "@fontsource/poppins/500.css";
 import "@fontsource/poppins/600.css";
 import "@fontsource/poppins/700.css";
+// Formatted text measurement - handles Text[] with formats
+import type { Text } from "../deserializer/loadPage";
 
 // Import Merriweather font (multiple weights)
 import "@fontsource/merriweather/400.css";
@@ -398,6 +400,238 @@ export const wrapText = (
           lines.push(chunk);
           remainingWord = remainingWord.substring(splitIndex);
         }
+      }
+    }
+  }
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines.length > 0 ? lines : [""];
+};
+
+
+// Measure a single text segment with its formats
+export const measureTextSegment = (
+  textSegment: Text,
+  fontSize: number,
+  baseFontWeight: string,
+  fontFamily: FontFamily,
+  codePadding: number = 0
+): number => {
+  // Determine effective font weight (bold overrides base weight)
+  const effectiveFontWeight = textSegment.formats?.includes("bold")
+    ? "bold"
+    : baseFontWeight;
+
+  let width = measureText(
+    textSegment.content,
+    fontSize,
+    effectiveFontWeight,
+    fontFamily
+  );
+
+  // Add code padding if applicable
+  if (textSegment.formats?.includes("code")) {
+    width += codePadding * 2;
+  }
+
+  return width;
+};
+
+// Measure total width of formatted text segments
+export const measureFormattedText = (
+  segments: Text[],
+  fontSize: number,
+  baseFontWeight: string,
+  fontFamily: FontFamily,
+  codePadding: number = 0
+): number => {
+  let totalWidth = 0;
+  for (const segment of segments) {
+    totalWidth += measureTextSegment(
+      segment,
+      fontSize,
+      baseFontWeight,
+      fontFamily,
+      codePadding
+    );
+  }
+  return totalWidth;
+};
+
+// Measure width of formatted text up to a specific character position
+// This is used for cursor positioning
+// This matches how renderFormattedLine advances currentX after each segment
+export const measureFormattedTextUpToIndex = (
+  segments: Text[],
+  startIndex: number,
+  endIndex: number,
+  fontSize: number,
+  baseFontWeight: string,
+  fontFamily: FontFamily,
+  codePadding: number = 0
+): number => {
+  let width = 0;
+  let currentIndex = 0;
+
+  for (const segment of segments) {
+    const segmentStart = currentIndex;
+    const segmentEnd = currentIndex + segment.content.length;
+
+    if (segmentEnd <= startIndex) {
+      // This entire segment is before our measurement range
+      // Skip it (don't add to width)
+      currentIndex = segmentEnd;
+      continue;
+    }
+
+    if (segmentStart >= endIndex) {
+      // We've passed our endpoint
+      break;
+    }
+
+    // This segment overlaps with our range [startIndex, endIndex)
+    const overlapStart = Math.max(segmentStart, startIndex);
+    const overlapEnd = Math.min(segmentEnd, endIndex);
+    const textToMeasure = segment.content.substring(
+      overlapStart - segmentStart,
+      overlapEnd - segmentStart
+    );
+
+    const effectiveFontWeight = segment.formats?.includes("bold")
+      ? "bold"
+      : baseFontWeight;
+
+    let segmentWidth = measureText(
+      textToMeasure,
+      fontSize,
+      effectiveFontWeight,
+      fontFamily
+    );
+
+    width += segmentWidth;
+    
+    // Add code padding only if we've MOVED PAST this segment to the next one
+    // (not just at the end boundary, but actually beyond it)
+    // The cursor at the end of a code segment should be before the right padding
+    if (segment.formats?.includes("code") && overlapEnd === segmentEnd && endIndex > segmentEnd) {
+      width += codePadding * 2;
+    }
+
+    currentIndex = segmentEnd;
+  }
+
+  return width;
+};
+
+// Wrap formatted text (Text[]) to lines
+export const wrapFormattedText = (
+  segments: Text[],
+  maxWidth: number,
+  fontSize: number,
+  baseFontWeight: string,
+  fontFamily: FontFamily,
+  codePadding: number = 0
+): string[] => {
+  // Convert segments to plain text for wrapping
+  const fullText = segments.map((s) => s.content).join("");
+  
+  // Build a character-to-segment map for accurate measurement
+  const charToSegment: number[] = [];
+  for (let segIdx = 0; segIdx < segments.length; segIdx++) {
+    for (let i = 0; i < segments[segIdx].content.length; i++) {
+      charToSegment.push(segIdx);
+    }
+  }
+
+  const lines: string[] = [];
+  const words = fullText.split(" ");
+  let currentLine = "";
+  let currentLineWidth = 0;
+  let currentCharIndex = 0;
+
+  // Helper to measure a substring with its formatting using measureFormattedTextUpToIndex
+  const measureSubstring = (start: number, end: number): number => {
+    return measureFormattedTextUpToIndex(
+      segments,
+      start,
+      end,
+      fontSize,
+      baseFontWeight,
+      fontFamily,
+      codePadding
+    );
+  };
+
+  // Measure space with base weight
+  const spaceWidth = measureChar(" ", fontSize, baseFontWeight, fontFamily);
+
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const wordStart = currentCharIndex;
+    const wordEnd = currentCharIndex + word.length;
+    const wordWidth = measureSubstring(wordStart, wordEnd);
+
+    // Calculate space needed for this word including preceding space if line not empty
+    const spaceIfNeeded = currentLine ? spaceWidth : 0;
+
+    if (currentLineWidth + spaceIfNeeded + wordWidth <= maxWidth) {
+      // Fits on current line
+      currentLine = currentLine ? currentLine + " " + word : word;
+      currentLineWidth += spaceIfNeeded + wordWidth;
+      currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0); // +1 for space
+    } else {
+      // Does not fit. Push current line if it has content.
+      if (currentLine) {
+        lines.push(currentLine);
+        currentLine = "";
+        currentLineWidth = 0;
+      }
+
+      // Now check if the word itself fits on a new line
+      if (wordWidth <= maxWidth) {
+        currentLine = word;
+        currentLineWidth = wordWidth;
+        currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
+      } else {
+        // Word is too long, must split by character
+        let remainingWordStart = wordStart;
+        
+        while (remainingWordStart < wordEnd) {
+          let splitIndex = remainingWordStart;
+          let currentWidth = 0;
+          
+          for (let j = remainingWordStart; j < wordEnd; j++) {
+            const segIdx = charToSegment[j];
+            const segment = segments[segIdx];
+            const fontWeight = segment.formats?.includes("bold") ? "bold" : baseFontWeight;
+            const charWidth = measureChar(
+              fullText[j],
+              fontSize,
+              fontWeight,
+              fontFamily
+            );
+            
+            if (currentWidth + charWidth > maxWidth && j > remainingWordStart) {
+              splitIndex = j;
+              break;
+            }
+            currentWidth += charWidth;
+            splitIndex = j + 1;
+          }
+          
+          if (splitIndex === remainingWordStart) splitIndex++;
+          
+          const chunk = fullText.substring(remainingWordStart, splitIndex);
+          lines.push(chunk);
+          remainingWordStart = splitIndex;
+        }
+        
+        currentLine = "";
+        currentLineWidth = 0;
+        currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
       }
     }
   }

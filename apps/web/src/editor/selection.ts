@@ -2,9 +2,8 @@ import type { Block } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
   getFontMetrics,
-  measureChar,
-  measureText,
-  wrapText,
+  measureFormattedTextUpToIndex,
+  wrapFormattedText,
   type FontFamily,
 } from "./fonts";
 import { getBlockHeight } from "./renderer";
@@ -39,8 +38,8 @@ export function getCursorCoordinates(
   if (!block) return null;
 
   const textStyle = getTextStyle(styles, block.type);
-  const content = getBlockTextContent(block);
   const fontFamily = getCurrentFontFamily();
+  const codePadding = styles.textFormats.code.padding;
   const fontMetrics = getFontMetrics(
     textStyle.fontSize,
     textStyle.fontWeight,
@@ -48,12 +47,14 @@ export function getCursorCoordinates(
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
-  const lines = wrapText(
-    content,
+  // Use formatted text wrapping
+  const lines = wrapFormattedText(
+    block.content,
     maxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
-    fontFamily
+    fontFamily,
+    codePadding
   );
 
   let textIndex = 0;
@@ -62,13 +63,16 @@ export function getCursorCoordinates(
     const lineEndIndex = textIndex + line.length;
 
     if (position.textIndex >= textIndex && position.textIndex <= lineEndIndex) {
-      // Calculate X
-      const textBeforeCursor = content.substring(textIndex, position.textIndex);
-      const textWidth = measureText(
-        textBeforeCursor,
+      // Calculate X using format-aware measurement
+      // Measure from the line start to the cursor position
+      const textWidth = measureFormattedTextUpToIndex(
+        block.content,
+        textIndex,
+        position.textIndex,
         textStyle.fontSize,
         textStyle.fontWeight,
-        fontFamily
+        fontFamily,
+        codePadding
       );
 
       return {
@@ -216,8 +220,8 @@ function getPositionWithinBlock(
   styles: EditorStyles
 ): Position {
   const textStyle = getTextStyle(styles, block.type);
-  const content = getBlockTextContent(block);
   const fontFamily = getCurrentFontFamily();
+  const codePadding = styles.textFormats.code.padding;
 
   // Get font metrics for line height calculation
   const fontMetrics = getFontMetrics(
@@ -227,13 +231,14 @@ function getPositionWithinBlock(
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
-  // Wrap text to get lines
-  const lines = wrapText(
-    content,
+  // Wrap text to get lines using formatted text wrapping
+  const lines = wrapFormattedText(
+    block.content,
     maxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
-    fontFamily
+    fontFamily,
+    codePadding
   );
 
   let textIndex = 0;
@@ -252,7 +257,9 @@ function getPositionWithinBlock(
         textIndex,
         padding,
         textStyle,
-        fontFamily
+        fontFamily,
+        block,
+        codePadding
       );
       return {
         blockIndex,
@@ -279,7 +286,9 @@ function getPositionWithinBlock(
       lastLineStartIndex,
       padding,
       textStyle,
-      fontFamily
+      fontFamily,
+      block,
+      codePadding
     );
     return {
       blockIndex,
@@ -295,7 +304,7 @@ function getPositionWithinBlock(
 }
 /**
  * Find the exact character position within a line based on X coordinate
- * Uses character-by-character measurement for precise positioning
+ * Uses character-by-character measurement for precise positioning with format awareness
  */
 function getPositionWithinLine(
   x: number,
@@ -303,7 +312,9 @@ function getPositionWithinLine(
   lineStartIndex: number,
   paddingLeft: number,
   textStyle: TextStyle,
-  fontFamily: FontFamily
+  fontFamily: FontFamily,
+  block: Block,
+  codePadding: number
 ): Position {
   const relativeX = x - paddingLeft;
 
@@ -315,28 +326,29 @@ function getPositionWithinLine(
     };
   }
 
-  let currentX = 0;
   let bestPosition = lineStartIndex;
-  let minDistance = Math.abs(relativeX - currentX);
+  let minDistance = Math.abs(relativeX);
 
   // Check each character position to find the closest one
   for (let i = 0; i <= line.length; i++) {
+    const charIndex = lineStartIndex + i;
+    
+    // Measure from line start to this position using format-aware measurement
+    const currentX = measureFormattedTextUpToIndex(
+      block.content,
+      lineStartIndex,
+      charIndex,
+      textStyle.fontSize,
+      textStyle.fontWeight,
+      fontFamily,
+      codePadding
+    );
+
     const distance = Math.abs(relativeX - currentX);
 
     if (distance < minDistance) {
       minDistance = distance;
-      bestPosition = lineStartIndex + i;
-    }
-
-    // Move to next character position
-    if (i < line.length) {
-      const charWidth = measureChar(
-        line[i],
-        textStyle.fontSize,
-        textStyle.fontWeight,
-        fontFamily
-      );
-      currentX += charWidth;
+      bestPosition = charIndex;
     }
   }
 

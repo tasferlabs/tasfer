@@ -1,9 +1,17 @@
-import type { Block, Heading, Page, Paragraph, Text } from "./loadPage";
+import type { Block, Heading, Page, Paragraph, Text, TextFormat } from "./loadPage";
 import {
+  BOLD_END,
+  BOLD_START,
+  CODE_END,
+  CODE_START,
   HEADING_1,
   HEADING_2,
   HEADING_3,
+  ITALIC_END,
+  ITALIC_START,
   NEWLINE,
+  STRIKETHROUGH_END,
+  STRIKETHROUGH_START,
   type Token,
   type TokenType,
   type VisibleToken,
@@ -72,14 +80,113 @@ function parseHeading(context: ParserContext, level: number) {
 }
 function parseText(context: ParserContext): Text[] {
   const text: Text[] = [];
+  const formatStack: TextFormat[] = [];
+  let currentContent = "";
+  
   while (nomatch(context, NEWLINE) && !isEnd(context)) {
     const node = previous(context) as VisibleToken;
+    
+    // Handle format start tokens
+    if (node.type === BOLD_START) {
+      if (currentContent) {
+        text.push({
+          content: currentContent,
+          formats: formatStack.length > 0 ? [...formatStack] : undefined,
+        });
+        currentContent = "";
+      }
+      formatStack.push('bold');
+    }
+    else if (node.type === ITALIC_START) {
+      if (currentContent) {
+        text.push({
+          content: currentContent,
+          formats: formatStack.length > 0 ? [...formatStack] : undefined,
+        });
+        currentContent = "";
+      }
+      formatStack.push('italic');
+    }
+    else if (node.type === STRIKETHROUGH_START) {
+      if (currentContent) {
+        text.push({
+          content: currentContent,
+          formats: formatStack.length > 0 ? [...formatStack] : undefined,
+        });
+        currentContent = "";
+      }
+      formatStack.push('strikethrough');
+    }
+    else if (node.type === CODE_START) {
+      if (currentContent) {
+        text.push({
+          content: currentContent,
+          formats: formatStack.length > 0 ? [...formatStack] : undefined,
+        });
+        currentContent = "";
+      }
+      formatStack.push('code');
+    }
+    // Handle format end tokens (match closing with opening)
+    else if (node.type === BOLD_END) {
+      if (currentContent) {
+        text.push({
+          content: currentContent,
+          formats: formatStack.length > 0 ? [...formatStack] : undefined,
+        });
+        currentContent = "";
+      }
+      const index = formatStack.lastIndexOf('bold');
+      if (index !== -1) formatStack.splice(index, 1);
+    }
+    else if (node.type === ITALIC_END) {
+      if (currentContent) {
+        text.push({
+          content: currentContent,
+          formats: formatStack.length > 0 ? [...formatStack] : undefined,
+        });
+        currentContent = "";
+      }
+      const index = formatStack.lastIndexOf('italic');
+      if (index !== -1) formatStack.splice(index, 1);
+    }
+    else if (node.type === STRIKETHROUGH_END) {
+      if (currentContent) {
+        text.push({
+          content: currentContent,
+          formats: formatStack.length > 0 ? [...formatStack] : undefined,
+        });
+        currentContent = "";
+      }
+      const index = formatStack.lastIndexOf('strikethrough');
+      if (index !== -1) formatStack.splice(index, 1);
+    }
+    else if (node.type === CODE_END) {
+      if (currentContent) {
+        text.push({
+          content: currentContent,
+          formats: formatStack.length > 0 ? [...formatStack] : undefined,
+        });
+        currentContent = "";
+      }
+      const index = formatStack.lastIndexOf('code');
+      if (index !== -1) formatStack.splice(index, 1);
+    }
+    // Handle text content
+    else {
+      currentContent += node.content;
+    }
+  }
+  
+  // Push any remaining content
+  if (currentContent) {
     text.push({
-      content: node.content,
+      content: currentContent,
+      formats: formatStack.length > 0 ? [...formatStack] : undefined,
     });
   }
+  
   advance(context);
-
   return text;
 }
 
