@@ -75,3 +75,4 @@ Bugs list
 [ ] do design overhaul.
 [ ] Add support for windows ctrl + Y and make sure the shortcuts are intuitiave for all opearting systems.
 [ ] consider if we need more animation and fluid text edting for example when I delete large portion text or copy large portion of text. Maybe show the scroll bar in this case.
+[ ] rendering is triggered to many times.

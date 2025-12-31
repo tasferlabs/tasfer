@@ -18,7 +18,6 @@ export interface ClickTracker {
   lastClickPosition: { x: number; y: number } | null;
 }
 
-
 export interface ContextMenuState {
   readonly x: number;
   readonly y: number;
@@ -30,20 +29,30 @@ export interface LinkHoverState {
   readonly text: string;
   readonly x: number;
   readonly y: number;
+  readonly segmentIndex: number;
 }
 
-export interface EditorModelState {
+// Document State - Only this goes in undo/redo
+export interface DocumentState {
   readonly page: Page;
   readonly cursor: CursorState | null;
   readonly selection: SelectionState | null;
+}
+
+// UI State - Transient interaction state (menus, popovers, mode)
+export interface UIState {
   readonly mode: EditorMode;
+  readonly slashCommand: SlashCommandState | null;
+  readonly contextMenu: ContextMenuState | null;
+  readonly linkHover: LinkHoverState | null;
+}
+
+// View State - Ephemeral view properties
+export interface ViewState {
   readonly isFocused: boolean;
   readonly clickTracker: ClickTracker;
   readonly scrollbar: ScrollbarState;
   readonly momentum: MomentumState;
-  readonly slashCommand: SlashCommandState | null;
-  readonly contextMenu: ContextMenuState | null;
-  readonly linkHover: LinkHoverState | null;
 }
 
 export interface SlashCommandState {
@@ -53,12 +62,17 @@ export interface SlashCommandState {
   readonly selectedIndex: number;
 }
 
+// Undo only tracks document state now
 export interface UndoManagerState {
-  readonly undoStack: readonly EditorModelState[];
-  readonly redoStack: readonly EditorModelState[];
+  readonly undoStack: readonly DocumentState[];
+  readonly redoStack: readonly DocumentState[];
 }
 
-export interface EditorState extends EditorModelState {
+// New unified EditorState
+export interface EditorState {
+  readonly document: DocumentState;
+  readonly ui: UIState;
+  readonly view: ViewState;
   readonly undoManager: UndoManagerState;
 }
 
@@ -103,7 +117,7 @@ export interface TouchState {
   readonly isScrolling: boolean;
 }
 
-export type EditorMode = "edit" | "select" | "readonly";
+export type EditorMode = "edit" | "select" | "locked";
 
 // Rendering Types
 export interface RenderedBlock {

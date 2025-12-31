@@ -13,7 +13,7 @@ struct ContentView: View {
     
     var body: some View {
         ZStack {
-            WebView(url: URL(string: "http://192.168.68.54:5173/")!, isLoading: $isLoading)
+            WebView(url: URL(string: "http://192.168.68.53:5173/")!, isLoading: $isLoading)
                 .edgesIgnoringSafeArea(.all)
             
             if isLoading {

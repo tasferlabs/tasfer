@@ -1,18 +1,33 @@
 import { loadPage, type Page, type Block } from "../deserializer/loadPage";
-import { applySlashCommand, convertBlockType } from "./commands";
+import {
+  applySlashCommand,
+  convertBlockType,
+  updateLinkInBlock,
+  clearLinkInBlock,
+} from "./commands";
 import {
   copySelectionToClipboard,
   cutSelectionToClipboard,
   pasteFromNativeClipboardAPI,
 } from "./clipboard";
+import { handleEvents, isInLongPressMode } from "./events";
 import {
-  handleEvents,
-  isInLongPressMode
-} from "./events";
-import { calculateBlockHeight, renderPage, clearAllBlockCaches } from "./renderer";
+  calculateBlockHeight,
+  renderPage,
+  clearAllBlockCaches,
+} from "./renderer";
 import { getCursorCoordinates } from "./selection";
-import { createInitialState, updateFocus, isCursorBlinking, closeContextMenu } from "./state";
-import { defaultStyles } from "./styles";
+import {
+  createInitialState,
+  updateFocus,
+  isCursorBlinking,
+  closeContextMenu,
+  clearSelection,
+  updateMode,
+  updateCursor,
+  updateSelection,
+} from "./state";
+import { getEditorStyles } from "./styles";
 import type { EditorState, SlashCommand, ViewportState } from "./types";
 import { recordUndo, undoState, redoState } from "./undo";
 
@@ -37,6 +52,19 @@ export interface Editor {
   undo: () => void;
   redo: () => void;
   setBlockType: (type: Block["type"]) => void;
+  updateLink: (
+    blockIndex: number,
+    segmentIndex: number,
+    newUrl: string,
+    newText: string
+  ) => void;
+  clearLink: (blockIndex: number, segmentIndex: number) => void;
+  clearSelection: () => void;
+  setMode: (mode: "edit" | "select" | "locked") => void;
+  restoreCursorAndSelection: (
+    cursor: EditorState["document"]["cursor"],
+    selection: EditorState["document"]["selection"]
+  ) => void;
 }
 
 export default function createEditor(
@@ -65,7 +93,7 @@ export default function createEditor(
 
   const eventsQueue: Event[] = [];
   const listeners: ((state: EditorState) => void)[] = [];
-  
+
   // Store clipboard data separately since it gets detached after the event handler
   let pendingClipboardData: {
     html: string;
@@ -139,25 +167,31 @@ export default function createEditor(
         updateViewport,
         pendingClipboardData
       );
-      
+
       // Clear clipboard data after it's been used
       pendingClipboardData = null;
-      
+
       // Check if state changed or if there are events that require rendering
       const stateChanged = prevState !== state;
-      
+
       // Check if cursor blink state changed (for cursor animation)
-      const currentCursorBlinkState = state.cursor ? isCursorBlinking(state.cursor, defaultStyles) : false;
-      const cursorBlinkChanged = lastCursorBlinkState !== currentCursorBlinkState;
+      const currentCursorBlinkState = state.document.cursor
+        ? isCursorBlinking(state.document.cursor, getEditorStyles())
+        : false;
+      const cursorBlinkChanged =
+        lastCursorBlinkState !== currentCursorBlinkState;
       lastCursorBlinkState = currentCursorBlinkState;
-      
+
       // Only render canvas if something changed (scheduled render, state change, or cursor blink)
       // This prevents unnecessary canvas draws which are expensive
       if (needsRender || stateChanged || cursorBlinkChanged) {
         documentHeight = renderPage(ctx, state, viewport, visibility);
 
         // Update cursor style based on scrollbar hover and drag state
-        updateCursorStyle(state.scrollbar.isHovered, state.scrollbar.isDragging);
+        updateCursorStyle(
+          state.view.scrollbar.isHovered,
+          state.view.scrollbar.isDragging
+        );
 
         setDocumentHeight(documentHeight);
 
@@ -165,7 +199,7 @@ export default function createEditor(
         if (stateChanged) {
           listeners.forEach((listener) => listener(state));
         }
-        
+
         needsRender = false; // Reset dirty flag
       }
     } finally {
@@ -198,10 +232,14 @@ export default function createEditor(
       e.preventDefault();
     }
     // Prevent default on wheel, touchmove, and contextmenu to avoid browser interference
-    if (e.type === "wheel" || e.type === "touchmove" || e.type === "contextmenu") {
+    if (
+      e.type === "wheel" ||
+      e.type === "touchmove" ||
+      e.type === "contextmenu"
+    ) {
       e.preventDefault();
     }
-    
+
     // For paste events, extract clipboard data immediately since it gets detached
     if (e.type === "paste" && e instanceof ClipboardEvent) {
       e.preventDefault();
@@ -209,11 +247,14 @@ export default function createEditor(
       if (clipboardData) {
         pendingClipboardData = {
           html: clipboardData.getData("text/html") || "",
-          text: clipboardData.getData("text/plain") || clipboardData.getData("text") || "",
+          text:
+            clipboardData.getData("text/plain") ||
+            clipboardData.getData("text") ||
+            "",
         };
       }
     }
-    
+
     eventsQueue.push(e);
     scheduleRender(); // Mark that we need to render due to this event
   }
@@ -224,7 +265,7 @@ export default function createEditor(
   }
 
   function windowMouseMoveHandler(e: Event) {
-    if (state && (state.scrollbar.isDragging || state.mode === "select")) {
+    if (state && (state.view.scrollbar.isDragging || state.ui.mode === "select")) {
       eventsQueue.push(e);
     }
   }
@@ -494,17 +535,17 @@ export default function createEditor(
 
   function updateViewport(newViewport: Partial<ViewportState>) {
     const oldWidth = viewport.width;
-    
+
     viewport = { ...viewport, ...newViewport };
-    
+
     // Clear block height cache if width changed (affects text wrapping)
     if (viewport.width !== oldWidth && page) {
       clearAllBlockCaches(page.blocks);
     }
-    
+
     // Schedule render for viewport changes
     scheduleRender();
-    
+
     // Force immediate render to avoid flickering on resize
     if (currentSetDocumentHeight && state && page) {
       renderFrame(currentSetDocumentHeight);
@@ -515,7 +556,7 @@ export default function createEditor(
     if (!page || !state) return 0;
 
     // Calculate total document height based on all blocks
-    const styles = defaultStyles;
+    const styles = getEditorStyles();
     const maxWidth = viewport.width - 2 * styles.canvas.paddingLeft;
     let totalHeight = styles.canvas.paddingTop;
 
@@ -534,13 +575,13 @@ export default function createEditor(
   }
 
   function getCursorScreenPosition() {
-    if (!state || !state.cursor) return null;
+    if (!state || !state.document.cursor) return null;
 
     const coords = getCursorCoordinates(
-      state.cursor.position,
+      state.document.cursor.position,
       state,
       viewport,
-      defaultStyles
+      getEditorStyles()
     );
     if (!coords) return null;
 
@@ -562,7 +603,7 @@ export default function createEditor(
   }
 
   function executeSlashCommand(command: SlashCommand) {
-    if (state.slashCommand && state.cursor) {
+    if (state.ui.slashCommand && state.document.cursor) {
       state = recordUndo(state);
       state = applySlashCommand(state, command);
       scheduleRender();
@@ -621,9 +662,57 @@ export default function createEditor(
   }
 
   function setBlockType(type: Block["type"]) {
-    if (!state.cursor) return;
+    if (!state.document.cursor) return;
     state = recordUndo(state);
     state = convertBlockType(state, type);
+    scheduleRender();
+    listeners.forEach((listener) => listener(state));
+  }
+
+  function updateLink(
+    blockIndex: number,
+    segmentIndex: number,
+    newUrl: string,
+    newText: string
+  ) {
+    state = recordUndo(state);
+    state = updateLinkInBlock(state, blockIndex, segmentIndex, newUrl, newText);
+    scheduleRender();
+    listeners.forEach((listener) => listener(state));
+  }
+
+  function clearLink(blockIndex: number, segmentIndex: number) {
+    state = recordUndo(state);
+    state = clearLinkInBlock(state, blockIndex, segmentIndex);
+    scheduleRender();
+    listeners.forEach((listener) => listener(state));
+  }
+
+  function clearSelectionMethod() {
+    state = clearSelection(state);
+    // Also clear cursor to remove all visual indicators
+    state = updateCursor(state, null);
+    scheduleRender();
+    listeners.forEach((listener) => listener(state));
+  }
+
+  function setMode(mode: "edit" | "select" | "locked") {
+    state = updateMode(state, mode);
+    scheduleRender();
+    listeners.forEach((listener) => listener(state));
+  }
+
+  function restoreCursorAndSelection(
+    cursor: EditorState["document"]["cursor"],
+    selection: EditorState["document"]["selection"]
+  ) {
+    state = updateMode(
+      updateSelection(
+        updateCursor(state, cursor?.position || null),
+        selection
+      ),
+      "edit"
+    );
     scheduleRender();
     listeners.forEach((listener) => listener(state));
   }
@@ -645,5 +734,10 @@ export default function createEditor(
     undo,
     redo,
     setBlockType,
+    updateLink,
+    clearLink,
+    clearSelection: clearSelectionMethod,
+    setMode,
+    restoreCursorAndSelection,
   };
 }

@@ -1,4 +1,4 @@
-import { Copy, Edit, Edit2, ExternalLink } from "lucide-react";
+import { Edit2, ExternalLink } from "lucide-react";
 import React from "react";
 import { cn } from "../lib/utils";
 
@@ -84,21 +84,6 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
               <span>Edit</span>
             </button>
           )}
-
-          <button
-            className={cn(
-              "flex items-center gap-2 px-3 py-1.5 text-sm rounded-md",
-              "hover:bg-accent hover:text-accent-foreground",
-              "transition-colors duration-150",
-              "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
-            )}
-            title="Copy link"
-          >
-            <>
-              <Edit className="w-4 h-4" />
-              <span>Edit</span>
-            </>
-          </button>
         </div>
       </div>
     </div>

@@ -1,6 +1,10 @@
 import type { Block, Page } from "../deserializer/loadPage";
-import { initialUndoManagerState } from "./undo";
-import { createInitialScrollbarState, createInitialMomentumState } from "./scrollbar";
+import { getCurrentFontFamily, wrapFormattedText } from "./fonts";
+import {
+  createInitialMomentumState,
+  createInitialScrollbarState,
+} from "./scrollbar";
+import { getEditorStyles, getTextStyle } from "./styles";
 import type {
   CursorState,
   EditorMode,
@@ -10,8 +14,7 @@ import type {
   Position,
   ViewportState,
 } from "./types";
-import { wrapText, getCurrentFontFamily, wrapFormattedText } from "./fonts";
-import { defaultStyles, getTextStyle } from "./styles";
+import { initialUndoManagerState } from "./undo";
 
 // Block ID Generation - Centralized Counter
 let blockIdCounter = 10000; // Start high to avoid conflicts with parsed blocks
@@ -22,22 +25,28 @@ export function generateBlockId(): string {
 
 // State Creation Functions
 export const createInitialState = (page: Page): EditorState => ({
-  undoManager: initialUndoManagerState,
-  page,
-  cursor: null,
-  selection: null,
-  mode: "edit" as EditorMode,
-  isFocused: false,
-  clickTracker: {
-    count: 0,
-    lastClickTime: 0,
-    lastClickPosition: null,
+  document: {
+    page,
+    cursor: null,
+    selection: null,
   },
-  scrollbar: createInitialScrollbarState(),
-  momentum: createInitialMomentumState(),
-  slashCommand: null,
-  contextMenu: null,
-  linkHover: null,
+  ui: {
+    mode: "edit" as EditorMode,
+    slashCommand: null,
+    contextMenu: null,
+    linkHover: null,
+  },
+  view: {
+    isFocused: false,
+    clickTracker: {
+      count: 0,
+      lastClickTime: 0,
+      lastClickPosition: null,
+    },
+    scrollbar: createInitialScrollbarState(),
+    momentum: createInitialMomentumState(),
+  },
+  undoManager: initialUndoManagerState,
 });
 
 // State Update Functions (Pure Functions)
@@ -46,12 +55,15 @@ export const updateCursor = (
   position: Position | null
 ): EditorState => ({
   ...state,
-  cursor: position
-    ? {
-        position,
-        lastUpdate: Date.now(),
-      }
-    : null,
+  document: {
+    ...state.document,
+    cursor: position
+      ? {
+          position,
+          lastUpdate: Date.now(),
+        }
+      : null,
+  },
 });
 
 export const updateSelection = (
@@ -59,16 +71,19 @@ export const updateSelection = (
   updates: PartialSelectionState | null
 ): EditorState => ({
   ...state,
-  selection: !!updates
-    ? {
-        ...state.selection,
-        anchor: updates.anchor,
-        focus: updates.focus,
-        isForward: isForwardSelection(updates),
-        isCollapsed: isCollapsedSelection(updates),
-        lastUpdate: Date.now(),
-      }
-    : null,
+  document: {
+    ...state.document,
+    selection: !!updates
+      ? {
+          ...state.document.selection,
+          anchor: updates.anchor,
+          focus: updates.focus,
+          isForward: isForwardSelection(updates),
+          isCollapsed: isCollapsedSelection(updates),
+          lastUpdate: Date.now(),
+        }
+      : null,
+  },
 });
 
 export const updateMode = (
@@ -76,7 +91,7 @@ export const updateMode = (
   mode: EditorMode
 ): EditorState => ({
   ...state,
-  mode,
+  ui: { ...state.ui, mode },
 });
 
 export const updateFocus = (
@@ -84,7 +99,7 @@ export const updateFocus = (
   isFocused: boolean
 ): EditorState => ({
   ...state,
-  isFocused,
+  view: { ...state.view, isFocused },
 });
 
 // Helper Functions
@@ -92,19 +107,22 @@ export const updateFocus = (
 export const createInitialCursorState = (state: EditorState): EditorState => {
   return {
     ...state,
-    cursor: {
-      position: {
-        blockIndex: 0,
-        textIndex: 0,
+    document: {
+      ...state.document,
+      cursor: {
+        position: {
+          blockIndex: 0,
+          textIndex: 0,
+        },
+        lastUpdate: Date.now(),
       },
-      lastUpdate: Date.now(),
     },
   };
 };
 
 export const getBlockTextLength = (block: Block): number => {
   if (!block) return 0;
-  
+
   if ("level" in block) {
     // Heading block
     return block.content.reduce(
@@ -122,7 +140,7 @@ export const getBlockTextLength = (block: Block): number => {
 
 export const getBlockTextContent = (block: Block): string => {
   if (!block) return "";
-  
+
   if ("level" in block) {
     // Heading block
     return block.content.map((text) => text.content).join("");
@@ -178,9 +196,9 @@ export const moveCursorToPosition = (
 ): EditorState => {
   const clampedBlockIndex = Math.max(
     0,
-    Math.min(blockIndex, state.page.blocks.length - 1)
+    Math.min(blockIndex, state.document.page.blocks.length - 1)
   );
-  const block = state.page.blocks[clampedBlockIndex];
+  const block = state.document.page.blocks[clampedBlockIndex];
 
   if (!block) return state;
 
@@ -194,14 +212,14 @@ export const moveCursorToPosition = (
 };
 
 export const moveCursorLeft = (state: EditorState): EditorState => {
-  if (!state.cursor) return createInitialCursorState(state);
+  if (!state.document.cursor) return createInitialCursorState(state);
 
-  const { blockIndex, textIndex } = state.cursor.position;
+  const { blockIndex, textIndex } = state.document.cursor.position;
 
   if (textIndex > 0) {
     return moveCursorToPosition(state, blockIndex, textIndex - 1);
   } else if (blockIndex > 0) {
-    const prevBlock = state.page.blocks[blockIndex - 1];
+    const prevBlock = state.document.page.blocks[blockIndex - 1];
     const prevBlockLength = getBlockTextLength(prevBlock);
     return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
   }
@@ -210,10 +228,10 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
 };
 
 export const moveCursorRight = (state: EditorState): EditorState => {
-  if (!state.cursor) return createInitialCursorState(state);
+  if (!state.document.cursor) return createInitialCursorState(state);
 
-  const { blockIndex, textIndex } = state.cursor.position;
-  const currentBlock = state.page.blocks[blockIndex];
+  const { blockIndex, textIndex } = state.document.cursor.position;
+  const currentBlock = state.document.page.blocks[blockIndex];
 
   if (!currentBlock) return state;
 
@@ -221,7 +239,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
 
   if (textIndex < currentBlockLength) {
     return moveCursorToPosition(state, blockIndex, textIndex + 1);
-  } else if (blockIndex < state.page.blocks.length - 1) {
+  } else if (blockIndex < state.document.page.blocks.length - 1) {
     return moveCursorToPosition(state, blockIndex + 1, 0);
   }
 
@@ -236,7 +254,7 @@ function getLineInfoAtPosition(
   block: Block,
   textIndex: number,
   maxWidth: number,
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ): {
   lineIndex: number;
   lineStartIndex: number;
@@ -304,12 +322,12 @@ function getTextIndexAtRelativePosition(
 export const moveCursorUp = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ): EditorState => {
-  if (!state.cursor) return createInitialCursorState(state);
+  if (!state.document.cursor) return createInitialCursorState(state);
 
-  const { blockIndex, textIndex } = state.cursor.position;
-  const currentBlock = state.page.blocks[blockIndex];
+  const { blockIndex, textIndex } = state.document.cursor.position;
+  const currentBlock = state.document.page.blocks[blockIndex];
 
   if (!currentBlock) return state;
 
@@ -318,7 +336,12 @@ export const moveCursorUp = (
     ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
     : 800; // Default fallback
 
-  const lineInfo = getLineInfoAtPosition(currentBlock, textIndex, maxWidth, styles);
+  const lineInfo = getLineInfoAtPosition(
+    currentBlock,
+    textIndex,
+    maxWidth,
+    styles
+  );
 
   if (!lineInfo) return state;
 
@@ -328,7 +351,7 @@ export const moveCursorUp = (
   if (lineInfo.lineIndex > 0) {
     const prevLine = lineInfo.lines[lineInfo.lineIndex - 1];
     let prevLineStartIndex = 0;
-    
+
     // Calculate the start index of the previous line
     for (let i = 0; i < lineInfo.lineIndex - 1; i++) {
       prevLineStartIndex += lineInfo.lines[i].length;
@@ -336,7 +359,7 @@ export const moveCursorUp = (
         prevLineStartIndex += 1; // Account for space
       }
     }
-    
+
     const prevLineEndIndex = prevLineStartIndex + prevLine.length;
     const targetTextIndex = getTextIndexAtRelativePosition(
       prevLineStartIndex,
@@ -349,7 +372,7 @@ export const moveCursorUp = (
 
   // On the first line of the block, move to the previous block's last line
   if (blockIndex > 0) {
-    const prevBlock = state.page.blocks[blockIndex - 1];
+    const prevBlock = state.document.page.blocks[blockIndex - 1];
     const prevTextStyle = getTextStyle(styles, prevBlock.type);
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
@@ -399,12 +422,12 @@ export const moveCursorUp = (
 export const moveCursorDown = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ): EditorState => {
-  if (!state.cursor) return createInitialCursorState(state);
+  if (!state.document.cursor) return createInitialCursorState(state);
 
-  const { blockIndex, textIndex } = state.cursor.position;
-  const currentBlock = state.page.blocks[blockIndex];
+  const { blockIndex, textIndex } = state.document.cursor.position;
+  const currentBlock = state.document.page.blocks[blockIndex];
 
   if (!currentBlock) return state;
 
@@ -413,7 +436,12 @@ export const moveCursorDown = (
     ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
     : 800; // Default fallback
 
-  const lineInfo = getLineInfoAtPosition(currentBlock, textIndex, maxWidth, styles);
+  const lineInfo = getLineInfoAtPosition(
+    currentBlock,
+    textIndex,
+    maxWidth,
+    styles
+  );
 
   if (!lineInfo) return state;
 
@@ -423,7 +451,7 @@ export const moveCursorDown = (
   if (lineInfo.lineIndex < lineInfo.totalLines - 1) {
     const nextLine = lineInfo.lines[lineInfo.lineIndex + 1];
     let nextLineStartIndex = 0;
-    
+
     // Calculate the start index of the next line
     for (let i = 0; i <= lineInfo.lineIndex; i++) {
       if (i > 0) {
@@ -433,7 +461,7 @@ export const moveCursorDown = (
         }
       }
     }
-    
+
     // Adjust calculation - iterate properly
     nextLineStartIndex = 0;
     for (let i = 0; i < lineInfo.lineIndex + 1; i++) {
@@ -442,7 +470,7 @@ export const moveCursorDown = (
         nextLineStartIndex += 1; // Account for space
       }
     }
-    
+
     const nextLineEndIndex = nextLineStartIndex + nextLine.length;
     const targetTextIndex = getTextIndexAtRelativePosition(
       nextLineStartIndex,
@@ -454,8 +482,8 @@ export const moveCursorDown = (
   }
 
   // On the last line of the block, move to the next block's first line
-  if (blockIndex < state.page.blocks.length - 1) {
-    const nextBlock = state.page.blocks[blockIndex + 1];
+  if (blockIndex < state.document.page.blocks.length - 1) {
+    const nextBlock = state.document.page.blocks[blockIndex + 1];
     const nextTextStyle = getTextStyle(styles, nextBlock.type);
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
@@ -496,19 +524,19 @@ export const moveCursorDown = (
 export const moveCursorPageUp = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ): EditorState => {
-  if (!state.cursor || !viewport) return state;
+  if (!state.document.cursor || !viewport) return state;
 
   // Move up by viewport height worth of lines
   // Estimate ~10-20 lines per page depending on font size
   const linesToMove = Math.floor(viewport.height / 30); // Approximate line height
-  
+
   let newState = state;
-  for (let i = 0; i < linesToMove && newState.cursor; i++) {
+  for (let i = 0; i < linesToMove && newState.document.cursor; i++) {
     newState = moveCursorUp(newState, viewport, styles);
   }
-  
+
   return newState;
 };
 
@@ -519,19 +547,19 @@ export const moveCursorPageUp = (
 export const moveCursorPageDown = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ): EditorState => {
-  if (!state.cursor || !viewport) return state;
+  if (!state.document.cursor || !viewport) return state;
 
   // Move down by viewport height worth of lines
   // Estimate ~10-20 lines per page depending on font size
   const linesToMove = Math.floor(viewport.height / 30); // Approximate line height
-  
+
   let newState = state;
-  for (let i = 0; i < linesToMove && newState.cursor; i++) {
+  for (let i = 0; i < linesToMove && newState.document.cursor; i++) {
     newState = moveCursorDown(newState, viewport, styles);
   }
-  
+
   return newState;
 };
 
@@ -552,20 +580,20 @@ export const updateSelectionFocus = (
   state: EditorState,
   position: Position
 ): EditorState => {
-  if (!state.selection) {
+  if (!state.document.selection) {
     return startSelection(state, position);
   }
 
   return updateSelection(state, {
     focus: position,
-    anchor: state.selection.anchor,
+    anchor: state.document.selection.anchor,
     lastUpdate: Date.now(),
     isForward: isForwardSelection({
-      anchor: state.selection.anchor,
+      anchor: state.document.selection.anchor,
       focus: position,
     }),
     isCollapsed: isCollapsedSelection({
-      anchor: state.selection.anchor,
+      anchor: state.document.selection.anchor,
       focus: position,
     }),
   });
@@ -573,48 +601,51 @@ export const updateSelectionFocus = (
 
 export const clearSelection = (state: EditorState): EditorState => ({
   ...state,
-  selection: null,
+  document: {
+    ...state.document,
+    selection: null,
+  },
 });
 
 // Selection Extension Functions (for Shift+Arrow keys)
 export const extendSelectionLeft = (state: EditorState): EditorState => {
-  if (!state.cursor) return state;
+  if (!state.document.cursor) return state;
 
   // If no selection exists, start one at current cursor position
-  if (!state.selection) {
-    const newState = startSelection(state, state.cursor.position);
+  if (!state.document.selection) {
+    const newState = startSelection(state, state.document.cursor.position);
     const leftState = moveCursorLeft(newState);
-    if (leftState.cursor) {
-      return updateSelectionFocus(leftState, leftState.cursor.position);
+    if (leftState.document.cursor) {
+      return updateSelectionFocus(leftState, leftState.document.cursor.position);
     }
     return newState;
   }
 
   // Extend existing selection
   const leftState = moveCursorLeft(state);
-  if (leftState.cursor) {
-    return updateSelectionFocus(leftState, leftState.cursor.position);
+  if (leftState.document.cursor) {
+    return updateSelectionFocus(leftState, leftState.document.cursor.position);
   }
   return state;
 };
 
 export const extendSelectionRight = (state: EditorState): EditorState => {
-  if (!state.cursor) return state;
+  if (!state.document.cursor) return state;
 
   // If no selection exists, start one at current cursor position
-  if (!state.selection) {
-    const newState = startSelection(state, state.cursor.position);
+  if (!state.document.selection) {
+    const newState = startSelection(state, state.document.cursor.position);
     const rightState = moveCursorRight(newState);
-    if (rightState.cursor) {
-      return updateSelectionFocus(rightState, rightState.cursor.position);
+    if (rightState.document.cursor) {
+      return updateSelectionFocus(rightState, rightState.document.cursor.position);
     }
     return newState;
   }
 
   // Extend existing selection
   const rightState = moveCursorRight(state);
-  if (rightState.cursor) {
-    return updateSelectionFocus(rightState, rightState.cursor.position);
+  if (rightState.document.cursor) {
+    return updateSelectionFocus(rightState, rightState.document.cursor.position);
   }
   return state;
 };
@@ -622,24 +653,24 @@ export const extendSelectionRight = (state: EditorState): EditorState => {
 export const extendSelectionUp = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ): EditorState => {
-  if (!state.cursor) return state;
+  if (!state.document.cursor) return state;
 
   // If no selection exists, start one at current cursor position
-  if (!state.selection) {
-    const newState = startSelection(state, state.cursor.position);
+  if (!state.document.selection) {
+    const newState = startSelection(state, state.document.cursor.position);
     const upState = moveCursorUp(newState, viewport, styles);
-    if (upState.cursor) {
-      return updateSelectionFocus(upState, upState.cursor.position);
+    if (upState.document.cursor) {
+      return updateSelectionFocus(upState, upState.document.cursor.position);
     }
     return newState;
   }
 
   // Extend existing selection
   const upState = moveCursorUp(state, viewport, styles);
-  if (upState.cursor) {
-    return updateSelectionFocus(upState, upState.cursor.position);
+  if (upState.document.cursor) {
+    return updateSelectionFocus(upState, upState.document.cursor.position);
   }
   return state;
 };
@@ -647,24 +678,24 @@ export const extendSelectionUp = (
 export const extendSelectionDown = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ): EditorState => {
-  if (!state.cursor) return state;
+  if (!state.document.cursor) return state;
 
   // If no selection exists, start one at current cursor position
-  if (!state.selection) {
-    const newState = startSelection(state, state.cursor.position);
+  if (!state.document.selection) {
+    const newState = startSelection(state, state.document.cursor.position);
     const downState = moveCursorDown(newState, viewport, styles);
-    if (downState.cursor) {
-      return updateSelectionFocus(downState, downState.cursor.position);
+    if (downState.document.cursor) {
+      return updateSelectionFocus(downState, downState.document.cursor.position);
     }
     return newState;
   }
 
   // Extend existing selection
   const downState = moveCursorDown(state, viewport, styles);
-  if (downState.cursor) {
-    return updateSelectionFocus(downState, downState.cursor.position);
+  if (downState.document.cursor) {
+    return updateSelectionFocus(downState, downState.document.cursor.position);
   }
   return state;
 };
@@ -672,24 +703,24 @@ export const extendSelectionDown = (
 export const extendSelectionPageUp = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ): EditorState => {
-  if (!state.cursor) return state;
+  if (!state.document.cursor) return state;
 
   // If no selection exists, start one at current cursor position
-  if (!state.selection) {
-    const newState = startSelection(state, state.cursor.position);
+  if (!state.document.selection) {
+    const newState = startSelection(state, state.document.cursor.position);
     const pageUpState = moveCursorPageUp(newState, viewport, styles);
-    if (pageUpState.cursor) {
-      return updateSelectionFocus(pageUpState, pageUpState.cursor.position);
+    if (pageUpState.document.cursor) {
+      return updateSelectionFocus(pageUpState, pageUpState.document.cursor.position);
     }
     return newState;
   }
 
   // Extend existing selection
   const pageUpState = moveCursorPageUp(state, viewport, styles);
-  if (pageUpState.cursor) {
-    return updateSelectionFocus(pageUpState, pageUpState.cursor.position);
+  if (pageUpState.document.cursor) {
+    return updateSelectionFocus(pageUpState, pageUpState.document.cursor.position);
   }
   return state;
 };
@@ -697,24 +728,24 @@ export const extendSelectionPageUp = (
 export const extendSelectionPageDown = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ): EditorState => {
-  if (!state.cursor) return state;
+  if (!state.document.cursor) return state;
 
   // If no selection exists, start one at current cursor position
-  if (!state.selection) {
-    const newState = startSelection(state, state.cursor.position);
+  if (!state.document.selection) {
+    const newState = startSelection(state, state.document.cursor.position);
     const pageDownState = moveCursorPageDown(newState, viewport, styles);
-    if (pageDownState.cursor) {
-      return updateSelectionFocus(pageDownState, pageDownState.cursor.position);
+    if (pageDownState.document.cursor) {
+      return updateSelectionFocus(pageDownState, pageDownState.document.cursor.position);
     }
     return newState;
   }
 
   // Extend existing selection
   const pageDownState = moveCursorPageDown(state, viewport, styles);
-  if (pageDownState.cursor) {
-    return updateSelectionFocus(pageDownState, pageDownState.cursor.position);
+  if (pageDownState.document.cursor) {
+    return updateSelectionFocus(pageDownState, pageDownState.document.cursor.position);
   }
   return state;
 };
@@ -726,11 +757,14 @@ export const openSlashCommand = (
   textIndex: number
 ): EditorState => ({
   ...state,
-  slashCommand: {
-    blockIndex,
-    textIndex,
-    filter: "",
-    selectedIndex: 0,
+  ui: {
+    ...state.ui,
+    slashCommand: {
+      blockIndex,
+      textIndex,
+      filter: "",
+      selectedIndex: 0,
+    },
   },
 });
 
@@ -738,13 +772,16 @@ export const updateSlashCommandFilter = (
   state: EditorState,
   filter: string
 ): EditorState => {
-  if (!state.slashCommand) return state;
+  if (!state.ui.slashCommand) return state;
   return {
     ...state,
-    slashCommand: {
-      ...state.slashCommand,
-      filter,
-      selectedIndex: 0, // Reset selection when filter changes
+    ui: {
+      ...state.ui,
+      slashCommand: {
+        ...state.ui.slashCommand,
+        filter,
+        selectedIndex: 0, // Reset selection when filter changes
+      },
     },
   };
 };
@@ -753,19 +790,25 @@ export const updateSlashCommandSelection = (
   state: EditorState,
   selectedIndex: number
 ): EditorState => {
-  if (!state.slashCommand) return state;
+  if (!state.ui.slashCommand) return state;
   return {
     ...state,
-    slashCommand: {
-      ...state.slashCommand,
-      selectedIndex,
+    ui: {
+      ...state.ui,
+      slashCommand: {
+        ...state.ui.slashCommand,
+        selectedIndex,
+      },
     },
   };
 };
 
 export const closeSlashCommand = (state: EditorState): EditorState => ({
   ...state,
-  slashCommand: null,
+  ui: {
+    ...state.ui,
+    slashCommand: null,
+  },
 });
 
 // Context Menu State Management
@@ -775,19 +818,35 @@ export const openContextMenu = (
   y: number
 ): EditorState => ({
   ...state,
-  contextMenu: { x, y },
+  ui: {
+    ...state.ui,
+    contextMenu: { x, y },
+  },
 });
 
 export const closeContextMenu = (state: EditorState): EditorState => ({
   ...state,
-  contextMenu: null,
+  ui: {
+    ...state.ui,
+    contextMenu: null,
+  },
 });
 
 // Link Hover State Management
 export const setLinkHover = (
   state: EditorState,
-  linkHover: { position: Position; url: string; text: string; x: number; y: number } | null
+  linkHover: {
+    position: Position;
+    url: string;
+    text: string;
+    x: number;
+    y: number;
+    segmentIndex: number;
+  } | null
 ): EditorState => ({
   ...state,
-  linkHover,
+  ui: {
+    ...state.ui,
+    linkHover,
+  },
 });

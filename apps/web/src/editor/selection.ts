@@ -8,7 +8,7 @@ import {
 } from "./fonts";
 import { getBlockHeight } from "./renderer";
 import { getBlockTextContent } from "./state";
-import { defaultStyles, getTextStyle } from "./styles";
+import { getEditorStyles, getTextStyle } from "./styles";
 import type {
   EditorState,
   EditorStyles,
@@ -21,7 +21,7 @@ export function getCursorCoordinates(
   position: Position,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ): { x: number; y: number; height: number } | null {
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
@@ -29,12 +29,12 @@ export function getCursorCoordinates(
   let currentY = styles.canvas.paddingTop;
 
   for (let i = 0; i < position.blockIndex; i++) {
-    const block = state.page.blocks[i];
+    const block = state.document.page.blocks[i];
     const blockHeight = getBlockHeight(block, maxWidth, styles);
     currentY += blockHeight;
   }
 
-  const block = state.page.blocks[position.blockIndex];
+  const block = state.document.page.blocks[position.blockIndex];
   if (!block) return null;
 
   const textStyle = getTextStyle(styles, block.type);
@@ -100,7 +100,7 @@ export function getCursorYPosition(
   position: Position,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ): { top: number; bottom: number } | null {
   const coords = getCursorCoordinates(position, state, viewport, styles);
   if (!coords) return null;
@@ -114,7 +114,7 @@ export function scrollToMakeCursorVisible(
   position: Position,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ): number | null {
   const cursorPos = getCursorYPosition(position, state, viewport, styles);
   if (!cursorPos) return null;
@@ -140,7 +140,7 @@ export function getTextPositionFromViewport(
   state: EditorState,
   viewport: ViewportState,
   visibility: { start: number; end: number },
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ): Position | null {
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
@@ -160,7 +160,7 @@ export function getTextPositionFromViewport(
 
   // Iterate through visible blocks to find the target block
   for (let blockIndex = startIndex; blockIndex <= endIndex; blockIndex++) {
-    const block = state.page.blocks[blockIndex];
+    const block = state.document.page.blocks[blockIndex];
     const blockHeight = getBlockHeight(block, maxWidth, styles);
 
     // Check if click is within this block's Y bounds
@@ -181,9 +181,9 @@ export function getTextPositionFromViewport(
   }
 
   // If click is below all blocks, position at end of last block
-  if (y >= currentY && state.page.blocks.length > 0) {
-    const lastBlockIndex = state.page.blocks.length - 1;
-    const lastBlock = state.page.blocks[lastBlockIndex];
+  if (y >= currentY && state.document.page.blocks.length > 0) {
+    const lastBlockIndex = state.document.page.blocks.length - 1;
+    const lastBlock = state.document.page.blocks[lastBlockIndex];
     const content = getBlockTextContent(lastBlock);
 
     return {
@@ -195,7 +195,7 @@ export function getTextPositionFromViewport(
   // If click is above all blocks, position at start of first block
   if (
     y < styles.canvas.paddingTop - viewport.scrollY &&
-    state.page.blocks.length > 0
+    state.document.page.blocks.length > 0
   ) {
     return {
       blockIndex: 0,
@@ -332,7 +332,7 @@ function getPositionWithinLine(
   // Check each character position to find the closest one
   for (let i = 0; i <= line.length; i++) {
     const charIndex = lineStartIndex + i;
-    
+
     // Measure from line start to this position using format-aware measurement
     const currentX = measureFormattedTextUpToIndex(
       block.content,
@@ -365,32 +365,42 @@ function getPositionWithinLine(
 export function getLinkAtPosition(
   position: Position,
   state: EditorState
-): { url: string; text: string; start: number; end: number } | null {
-  const block = state.page.blocks[position.blockIndex];
+): {
+  segmentIndex: number;
+  url: string;
+  text: string;
+  start: number;
+  end: number;
+} | null {
+  const block = state.document.page.blocks[position.blockIndex];
   if (!block) return null;
 
   let currentIndex = 0;
-  
-  for (const segment of block.content) {
+
+  for (let i = 0; i < block.content.length; i++) {
+    const segment = block.content[i];
     const segmentStart = currentIndex;
     const segmentEnd = currentIndex + segment.content.length;
-    
+
     // Check if position is within this segment
     if (position.textIndex >= segmentStart && position.textIndex < segmentEnd) {
       // Check if this segment has a link format
-      const linkFormat = segment.formats?.find(f => f.type === 'link');
-      if (linkFormat && linkFormat.url) {
+      const linkFormat = segment.formats?.find(
+        (f: { type: string }) => f.type === "link"
+      );
+      if (linkFormat) {
         return {
-          url: linkFormat.url,
+          url: linkFormat.url || "",
           text: segment.content,
           start: segmentStart,
-          end: segmentEnd
+          end: segmentEnd,
+          segmentIndex: i,
         };
       }
     }
-    
+
     currentIndex = segmentEnd;
   }
-  
+
   return null;
 }

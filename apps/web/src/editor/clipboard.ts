@@ -113,7 +113,7 @@ function getSelectedContent(state: EditorState): {
 
   // If selection is in a single block
   if (start.blockIndex === end.blockIndex) {
-    const block = state.page.blocks[start.blockIndex];
+    const block = state.document.page.blocks[start.blockIndex];
     const text = getBlockTextContent(block);
     
     // Extract the selected portion while preserving formatting
@@ -140,7 +140,7 @@ function getSelectedContent(state: EditorState): {
   const blocks: Block[] = [];
 
   for (let i = start.blockIndex; i <= end.blockIndex; i++) {
-    const block = state.page.blocks[i];
+    const block = state.document.page.blocks[i];
     const text = getBlockTextContent(block);
 
     let blockContent = block.content;
@@ -455,7 +455,7 @@ function insertBlocksAtCursor(
   let newState = recordUndo(state);
 
   // If there's a selection, delete it first
-  if (newState.selection && !newState.selection.isCollapsed) {
+  if (newState.document.selection && !newState.document.selection.isCollapsed) {
     newState = deleteSelectedText(newState);
   }
 
@@ -463,23 +463,23 @@ function insertBlocksAtCursor(
   let blockIndex: number;
   let textIndex: number;
 
-  if (!newState.cursor) {
+  if (!newState.document.cursor) {
     // Insert at the end of the last block
-    blockIndex = newState.page.blocks.length - 1;
-    const lastBlock = newState.page.blocks[blockIndex];
+    blockIndex = newState.document.page.blocks.length - 1;
+    const lastBlock = newState.document.page.blocks[blockIndex];
     textIndex = getBlockTextContent(lastBlock).length;
   } else {
-    blockIndex = newState.cursor.position.blockIndex;
-    textIndex = newState.cursor.position.textIndex;
+    blockIndex = newState.document.cursor.position.blockIndex;
+    textIndex = newState.document.cursor.position.textIndex;
   }
 
   // Ensure cursor position is valid
-  if (blockIndex < 0 || blockIndex >= newState.page.blocks.length) {
-    blockIndex = newState.page.blocks.length - 1;
-    const lastBlock = newState.page.blocks[blockIndex];
+  if (blockIndex < 0 || blockIndex >= newState.document.page.blocks.length) {
+    blockIndex = newState.document.page.blocks.length - 1;
+    const lastBlock = newState.document.page.blocks[blockIndex];
     textIndex = getBlockTextContent(lastBlock).length;
   }
-  const currentBlock = newState.page.blocks[blockIndex];
+  const currentBlock = newState.document.page.blocks[blockIndex];
   const currentText = getBlockTextContent(currentBlock);
 
   // If pasting a single block
@@ -526,14 +526,17 @@ function insertBlocksAtCursor(
     invalidateBlockCache(newBlock);
 
     const newBlocks = [
-      ...newState.page.blocks.slice(0, blockIndex),
+      ...newState.document.page.blocks.slice(0, blockIndex),
       newBlock,
-      ...newState.page.blocks.slice(blockIndex + 1),
+      ...newState.document.page.blocks.slice(blockIndex + 1),
     ];
 
     newState = {
       ...newState,
-      page: { ...newState.page, blocks: newBlocks },
+      document: {
+        ...newState.document,
+        page: { ...newState.document.page, blocks: newBlocks },
+      },
     };
 
     // Move cursor to end of pasted text
@@ -579,16 +582,19 @@ function insertBlocksAtCursor(
     invalidateBlockCache(lastBlock);
 
     const newBlocks = [
-      ...newState.page.blocks.slice(0, blockIndex),
+      ...newState.document.page.blocks.slice(0, blockIndex),
       firstBlock,
       ...middleBlocks,
       lastBlock,
-      ...newState.page.blocks.slice(blockIndex + 1),
+      ...newState.document.page.blocks.slice(blockIndex + 1),
     ];
 
     newState = {
       ...newState,
-      page: { ...newState.page, blocks: newBlocks },
+      document: {
+        ...newState.document,
+        page: { ...newState.document.page, blocks: newBlocks },
+      },
     };
 
     // Move cursor to end of last pasted block

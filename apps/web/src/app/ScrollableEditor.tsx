@@ -7,6 +7,7 @@ import type { EditorState, SlashCommand } from "../editor/types";
 import { SlashCommandMenu } from "../editor/SlashCommandMenu";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { LinkTooltip } from "../editor/LinkTooltip";
+import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { getSelectionRange } from "../editor/commands";
 import { Clipboard, Copy, Scissors } from "lucide-react";
 import { hasNativeBridge } from "../editor/clipboard";
@@ -44,9 +45,21 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     text: string;
   } | null>(null);
 
+  const [linkEditState, setLinkEditState] = useState<{
+    x: number;
+    y: number;
+    url: string;
+    text: string;
+    blockIndex: number;
+    segmentIndex: number;
+    savedCursor: EditorState["document"]["cursor"];
+    savedSelection: EditorState["document"]["selection"];
+  } | null>(null);
+
   const lastSlashMenuStateRef = useRef<typeof slashMenuState>(null);
   const lastContextMenuStateRef = useRef<typeof contextMenuState>(null);
   const lastLinkTooltipStateRef = useRef<typeof linkTooltipState>(null);
+  const linkEditActionPerformedRef = useRef(false);
 
   // Imperatively mount/unmount editor (no React state needed)
   useEffect(() => {
@@ -88,7 +101,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     const handleStateChange = (state: EditorState) => {
       // Calculate new slash command state
       let newSlashState: typeof slashMenuState = null;
-      if (state.slashCommand && state.cursor) {
+      if (state.ui.slashCommand && state.document.cursor) {
         const cursorScreenPos = mounted.editor.getCursorScreenPosition();
 
         if (cursorScreenPos) {
@@ -102,8 +115,8 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
               visible: true,
               x,
               y,
-              selectedIndex: state.slashCommand.selectedIndex,
-              filter: state.slashCommand.filter,
+              selectedIndex: state.ui.slashCommand.selectedIndex,
+              filter: state.ui.slashCommand.filter,
             };
           }
         }
@@ -117,13 +130,13 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
 
       // Calculate new context menu state
       let newContextMenuState: typeof contextMenuState = null;
-      if (state.contextMenu) {
+      if (state.ui.contextMenu) {
         const containerRect = wrapperRef.current?.getBoundingClientRect();
         if (containerRect) {
           const hasSelection = !!getSelectionRange(state);
           newContextMenuState = {
-            x: containerRect.left + state.contextMenu.x,
-            y: containerRect.top + state.contextMenu.y,
+            x: containerRect.left + state.ui.contextMenu.x,
+            y: containerRect.top + state.ui.contextMenu.y,
             hasSelection,
           };
         }
@@ -137,12 +150,12 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
 
       // Calculate new link tooltip state
       let newLinkTooltipState: typeof linkTooltipState = null;
-      if (state.linkHover) {
+      if (state.ui.linkHover) {
         newLinkTooltipState = {
-          x: state.linkHover.x,
-          y: state.linkHover.y,
-          url: state.linkHover.url,
-          text: state.linkHover.text,
+          x: state.ui.linkHover.x,
+          y: state.ui.linkHover.y,
+          url: state.ui.linkHover.url,
+          text: state.ui.linkHover.text,
         };
       }
 
@@ -160,7 +173,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
           canRedo: state.undoManager.redoStack.length > 0,
         });
       }
-      
+
       if (window.AndroidBridge) {
         window.AndroidBridge.updateUndoRedoState?.(
           state.undoManager.undoStack.length > 0,
@@ -264,6 +277,94 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     return items;
   };
 
+  // Set editor to readonly mode when link edit popover is open
+  useEffect(() => {
+    if (!mountedRef.current?.editor) return;
+
+    if (linkEditState) {
+      // Set editor to readonly mode when popover opens
+      mountedRef.current.editor.setMode("locked");
+    } else {
+      // Restore to edit mode when popover closes
+      const currentState = mountedRef.current.editor.getState();
+      if (currentState?.ui.mode === "locked") {
+        mountedRef.current.editor.setMode("edit");
+      }
+    }
+  }, [linkEditState]);
+
+  const handleLinkEdit = () => {
+    if (!linkTooltipState || !mountedRef.current) return;
+
+    const state = mountedRef.current.editor.getState();
+    if (state.ui.linkHover) {
+      const containerRect = wrapperRef.current?.getBoundingClientRect();
+      if (containerRect) {
+        // Save current cursor and selection before clearing
+        const savedCursor = state.document.cursor;
+        const savedSelection = state.document.selection;
+
+        // Clear selection and cursor when opening link editor
+        mountedRef.current.editor.clearSelection();
+
+        // Reset the action flag when opening
+        linkEditActionPerformedRef.current = false;
+
+        // Get link data to find segment index
+        const linkData = state.ui.linkHover;
+
+        setLinkEditState({
+          x: linkData.x,
+          y: linkData.y,
+          url: linkData.url,
+          text: linkData.text,
+          blockIndex: linkData.position.blockIndex,
+          segmentIndex: linkData.segmentIndex,
+          savedCursor,
+          savedSelection,
+        });
+        setLinkTooltipState(null);
+      }
+    }
+  };
+
+  const handleLinkUpdate = (newUrl: string, newText: string) => {
+    if (!linkEditState || !mountedRef.current) return;
+
+    const editor = mountedRef.current.editor;
+    editor.updateLink(
+      linkEditState.blockIndex,
+      linkEditState.segmentIndex,
+      newUrl,
+      newText
+    );
+    // Mark that an action was performed (don't restore selection on close)
+    linkEditActionPerformedRef.current = true;
+  };
+
+  const handleLinkClear = () => {
+    if (!linkEditState || !mountedRef.current) return;
+
+    const editor = mountedRef.current.editor;
+    editor.clearLink(linkEditState.blockIndex, linkEditState.segmentIndex);
+    // Mark that an action was performed (don't restore selection on close)
+    linkEditActionPerformedRef.current = true;
+  };
+
+  const handleLinkEditClose = () => {
+    if (!linkEditState || !mountedRef.current) return;
+
+    // Only restore the saved cursor and selection if no action was performed (i.e., user canceled)
+    if (!linkEditActionPerformedRef.current) {
+      mountedRef.current.editor.restoreCursorAndSelection(
+        linkEditState.savedCursor,
+        linkEditState.savedSelection
+      );
+    }
+
+    setLinkEditState(null);
+  };
+
   return (
     <div
       ref={wrapperRef}
@@ -318,19 +419,50 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
 
       {/* Link tooltip portal */}
       {linkTooltipState &&
+        !linkEditState &&
         mountedRef.current?.portalContainer &&
         createPortal(
-          <div style={{ pointerEvents: "none", position: "fixed", inset: 0, zIndex: 50 }}>
+          <div
+            style={{
+              pointerEvents: "none",
+              position: "fixed",
+              inset: 0,
+              zIndex: 50,
+            }}
+          >
             <LinkTooltip
               url={linkTooltipState.url}
               linkText={linkTooltipState.text}
               x={linkTooltipState.x}
               y={linkTooltipState.y}
               onOpen={() => {
-                window.open(linkTooltipState.url, "_blank", "noopener,noreferrer");
+                window.open(
+                  linkTooltipState.url,
+                  "_blank",
+                  "noopener,noreferrer"
+                );
               }}
+              onEdit={handleLinkEdit}
             />
           </div>,
+          mountedRef.current.portalContainer
+        )}
+
+      {/* Link edit popover */}
+      {linkEditState &&
+        mountedRef.current?.portalContainer &&
+        createPortal(
+          <LinkEditPopover
+            x={linkEditState.x}
+            y={linkEditState.y}
+            url={linkEditState.url}
+            linkText={linkEditState.text}
+            onUpdate={handleLinkUpdate}
+            onClear={handleLinkClear}
+            onClose={handleLinkEditClose}
+            collisionBoundary={mountedRef.current?.portalContainer}
+            container={mountedRef.current?.portalContainer}
+          />,
           mountedRef.current.portalContainer
         )}
     </div>

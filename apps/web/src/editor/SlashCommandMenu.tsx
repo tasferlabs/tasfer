@@ -90,7 +90,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
       />
       <Popover.Portal>
         <Popover.Content
-          className="bg-white rounded-lg shadow-xl border border-gray-200 py-2 min-w-[320px] max-w-[400px] z-50 max-h-[400px] overflow-y-auto select-none"
+          className="bg-popover rounded-lg shadow-xl border border-border py-2 min-w-[320px] max-w-[400px] z-50 max-h-[400px] overflow-y-auto select-none"
           side="bottom"
           align="start"
           sideOffset={5}
@@ -100,25 +100,25 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
           {filteredCommands.map((command, index) => (
             <button
               key={command.id}
-              className={`w-full px-3 py-2.5 flex items-start gap-3 hover:bg-gray-100 transition-colors ${
-                index === selectedIndex ? "bg-blue-50 hover:bg-blue-100" : ""
+              className={`w-full px-3 py-2.5 flex items-start gap-3 hover:bg-accent transition-colors ${
+                index === selectedIndex ? "bg-accent/50 hover:bg-accent/70" : ""
               }`}
               onClick={() => onSelect(command)}
             >
               <div
                 className={`flex-shrink-0 w-10 h-10 rounded-md flex items-center justify-center text-sm font-semibold ${
                   index === selectedIndex
-                    ? "bg-blue-500 text-white"
-                    : "bg-gray-100 text-gray-600"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground"
                 }`}
               >
                 {command.icon}
               </div>
               <div className="flex-1 text-left">
-                <div className="font-medium text-sm text-gray-900">
+                <div className="font-medium text-sm text-popover-foreground">
                   {command.label}
                 </div>
-                <div className="text-xs text-gray-500 mt-0.5">
+                <div className="text-xs text-muted-foreground mt-0.5">
                   {command.description}
                 </div>
               </div>

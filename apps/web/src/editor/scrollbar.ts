@@ -32,19 +32,42 @@ const isTouchDevice = (): boolean => {
   );
 };
 
-export const defaultScrollbarStyles: ScrollbarStyles = {
-  width: 12,
-  minThumbHeight: 40,
-  padding: 4,
-  thumbColor: "rgba(128, 128, 128, 0.5)",
-  thumbHoverColor: "rgba(128, 128, 128, 0.7)",
-  thumbActiveColor: "rgba(128, 128, 128, 0.9)",
-  trackColor: "rgba(0, 0, 0, 0.05)",
-  borderRadius: 6,
-  fadeDelay: 1000,
-  fadeDuration: 300,
-  touchTargetWidth: 32, // Wider hit area for touch devices (invisible)
-};
+/**
+ * Get CSS custom property value from the document root
+ */
+function getCSSVariable(name: string, fallback: string): string {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return fallback;
+  }
+  
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
+  
+  return value || fallback;
+}
+
+/**
+ * Get scrollbar styles from CSS variables
+ */
+export function getScrollbarStyles(): ScrollbarStyles {
+  return {
+    width: 12,
+    minThumbHeight: 40,
+    padding: 4,
+    thumbColor: getCSSVariable("--editor-scrollbar-thumb", "rgba(128, 128, 128, 0.5)"),
+    thumbHoverColor: getCSSVariable("--editor-scrollbar-thumb-hover", "rgba(128, 128, 128, 0.7)"),
+    thumbActiveColor: getCSSVariable("--editor-scrollbar-thumb-active", "rgba(128, 128, 128, 0.9)"),
+    trackColor: getCSSVariable("--editor-scrollbar-track", "rgba(0, 0, 0, 0.05)"),
+    borderRadius: 6,
+    fadeDelay: 1000,
+    fadeDuration: 300,
+    touchTargetWidth: 32, // Wider hit area for touch devices (invisible)
+  };
+}
+
+// Export default for backwards compatibility
+export const defaultScrollbarStyles: ScrollbarStyles = getScrollbarStyles();
 
 export function createInitialScrollbarState(): ScrollbarState {
   return {
@@ -73,7 +96,7 @@ export function calculateScrollbarBounds(
   viewport: ViewportState,
   documentHeight: number,
   _scrollbarState: ScrollbarState,
-  styles: ScrollbarStyles = defaultScrollbarStyles
+  styles: ScrollbarStyles = getScrollbarStyles()
 ): ScrollbarBounds {
   const trackWidth = styles.width;
   const trackHeight = viewport.height - styles.padding * 2;
@@ -113,7 +136,7 @@ export function renderScrollbar(
   viewport: ViewportState,
   documentHeight: number,
   scrollbarState: ScrollbarState,
-  styles: ScrollbarStyles = defaultScrollbarStyles
+  styles: ScrollbarStyles = getScrollbarStyles()
 ): void {
   // Don't render if document fits in viewport
   if (documentHeight <= viewport.height) {
@@ -190,7 +213,7 @@ export function isPointInScrollbar(
   y: number,
   viewport: ViewportState,
   documentHeight: number,
-  styles: ScrollbarStyles = defaultScrollbarStyles
+  styles: ScrollbarStyles = getScrollbarStyles()
 ): boolean {
   if (documentHeight <= viewport.height) {
     return false;
@@ -223,7 +246,7 @@ export function isPointInThumb(
   viewport: ViewportState,
   documentHeight: number,
   scrollbarState: ScrollbarState,
-  styles: ScrollbarStyles = defaultScrollbarStyles
+  styles: ScrollbarStyles = getScrollbarStyles()
 ): boolean {
   if (documentHeight <= viewport.height) {
     return false;
@@ -284,7 +307,7 @@ export function updateScrollFromThumbDrag(
   viewport: ViewportState,
   documentHeight: number,
   _scrollbarState: ScrollbarState,
-  styles: ScrollbarStyles = defaultScrollbarStyles
+  styles: ScrollbarStyles = getScrollbarStyles()
 ): number {
   const trackY = styles.padding;
   const trackHeight = viewport.height - styles.padding * 2;
@@ -316,7 +339,7 @@ export function updateScrollFromTrackClick(
   viewport: ViewportState,
   documentHeight: number,
   scrollbarState: ScrollbarState,
-  styles: ScrollbarStyles = defaultScrollbarStyles
+  styles: ScrollbarStyles = getScrollbarStyles()
 ): number {
   const bounds = calculateScrollbarBounds(
     viewport,
@@ -362,7 +385,7 @@ export function updateScrollFromWheel(
 
 export function updateScrollbarFadeOpacity(
   scrollbarState: ScrollbarState,
-  styles: ScrollbarStyles = defaultScrollbarStyles
+  styles: ScrollbarStyles = getScrollbarStyles()
 ): ScrollbarState {
   const timeSinceInteraction = Date.now() - scrollbarState.lastInteraction;
   let opacity = scrollbarState.fadeOpacity;

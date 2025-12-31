@@ -9,7 +9,7 @@ import {
 } from "./fonts";
 import { renderScrollbar } from "./scrollbar";
 import { getBlockTextContent, isCursorBlinking } from "./state";
-import { defaultStyles, getTextStyle } from "./styles";
+import { getEditorStyles, getTextStyle } from "./styles";
 import type {
   BlockBounds,
   EditorState,
@@ -87,7 +87,7 @@ function measureFormattedLineWidth(
       overlapEnd - segmentStart
     );
 
-    const effectiveFontWeight = segment.formats?.some(f => f.type === "bold")
+    const effectiveFontWeight = segment.formats?.some((f) => f.type === "bold")
       ? "bold"
       : textStyle.fontWeight;
 
@@ -103,7 +103,11 @@ function measureFormattedLineWidth(
     // Add code padding only if we've MOVED PAST this segment to the next one
     // (not just at the end boundary, but actually beyond it)
     // The cursor at the end of a code segment should be before the right padding
-    if (segment.formats?.some(f => f.type === "code") && overlapEnd === segmentEnd && lineEndIndex > segmentEnd) {
+    if (
+      segment.formats?.some((f) => f.type === "code") &&
+      overlapEnd === segmentEnd &&
+      lineEndIndex > segmentEnd
+    ) {
       width += codePadding * 2;
     }
 
@@ -144,25 +148,27 @@ function renderFormattedLine(
       );
 
       // Determine effective font weight for measurement
-      const effectiveFontWeight = segment.formats?.some(f => f.type === "bold")
+      const effectiveFontWeight = segment.formats?.some(
+        (f) => f.type === "bold"
+      )
         ? "bold"
         : textStyle.fontWeight;
-      const fontStyle = segment.formats?.some(f => f.type === "italic") ? "italic" : "normal";
-      
-      ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${
-        FONT_STACKS[fontFamily]
-      }`;
+      const fontStyle = segment.formats?.some((f) => f.type === "italic")
+        ? "italic"
+        : "normal";
+
+      ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${FONT_STACKS[fontFamily]}`;
       ctx.textBaseline = "alphabetic";
 
       // Check if this is a link
-      const linkFormat = segment.formats?.find(f => f.type === "link");
+      const linkFormat = segment.formats?.find((f) => f.type === "link");
       const isLink = !!linkFormat;
 
       // Handle code background
-      if (segment.formats?.some(f => f.type === "code")) {
+      if (segment.formats?.some((f) => f.type === "code")) {
         const textWidth = ctx.measureText(textToRender).width;
         const codeStyle = styles.textFormats.code;
-        
+
         // Draw code background with rounded corners
         ctx.save();
         ctx.fillStyle = codeStyle.backgroundColor;
@@ -170,14 +176,20 @@ function renderFormattedLine(
         const rectX = currentX - padding;
         const rectY = y - textStyle.fontSize - padding;
         const rectWidth = textWidth + padding * 2;
-        const rectHeight = textStyle.fontSize + padding * 2;
-        
+        const rectHeight = textStyle.fontSize * textStyle.lineHeight;
+
         // Simple rounded rectangle
         ctx.beginPath();
-        ctx.roundRect(rectX, rectY, rectWidth, rectHeight, codeStyle.borderRadius);
+        ctx.roundRect(
+          rectX,
+          rectY,
+          rectWidth,
+          rectHeight,
+          codeStyle.borderRadius
+        );
         ctx.fill();
         ctx.restore();
-        
+
         // Set code text color
         ctx.fillStyle = codeStyle.color;
       } else if (isLink) {
@@ -205,7 +217,7 @@ function renderFormattedLine(
       }
 
       // Handle strikethrough
-      if (segment.formats?.some(f => f.type === "strikethrough")) {
+      if (segment.formats?.some((f) => f.type === "strikethrough")) {
         const textWidth = ctx.measureText(textToRender).width;
         ctx.save();
         ctx.strokeStyle = textStyle.color;
@@ -219,7 +231,7 @@ function renderFormattedLine(
 
       // Move X position for next segment - use actual measured width
       let segmentWidth = ctx.measureText(textToRender).width;
-      if (segment.formats?.some(f => f.type === "code")) {
+      if (segment.formats?.some((f) => f.type === "code")) {
         segmentWidth += styles.textFormats.code.padding * 2;
       }
       currentX += segmentWidth;
@@ -237,7 +249,7 @@ export const renderPage = (
   state: EditorState,
   viewport: ViewportState,
   visibility: { start: number; end: number },
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ) => {
   // Get device pixel ratio and scale canvas context for high-DPI displays
   const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
@@ -263,8 +275,8 @@ export const renderPage = (
   let documentHeight = 0;
 
   // Render each block
-  for (let i = 0; i < state.page.blocks.length; i++) {
-    const block = state.page.blocks[i];
+  for (let i = 0; i < state.document.page.blocks.length; i++) {
+    const block = state.document.page.blocks[i];
 
     // Get or calculate block height (cached on the block itself)
     const blockHeight = getBlockHeight(block, maxWidth, styles);
@@ -296,7 +308,7 @@ export const renderPage = (
   documentHeight += styles.canvas.paddingBottom;
 
   // Render scrollbar
-  renderScrollbar(ctx, viewport, documentHeight, state.scrollbar);
+  renderScrollbar(ctx, viewport, documentHeight, state.view.scrollbar);
 
   // Restore context state (undo scaling)
   ctx.restore();
@@ -313,7 +325,7 @@ export const renderBlock = (
   x: number,
   y: number,
   maxWidth: number,
-  styles: EditorStyles = defaultStyles
+  styles: EditorStyles = getEditorStyles()
 ): RenderedBlock => {
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
@@ -396,7 +408,7 @@ export const renderBlock = (
   }
 
   // Handle selection rendering
-  if (state.selection && !state.selection.isCollapsed) {
+  if (state.document.selection && !state.document.selection.isCollapsed) {
     renderSelection(
       state,
       blockIndex,
@@ -414,8 +426,8 @@ export const renderBlock = (
 
   // Handle placeholder rendering
   if (
-    state.cursor &&
-    state.cursor.position.blockIndex === blockIndex &&
+    state.document.cursor &&
+    state.document.cursor.position.blockIndex === blockIndex &&
     fullContent.length === 0
   ) {
     renderPlaceholder(
@@ -430,9 +442,9 @@ export const renderBlock = (
 
   // Handle cursor rendering
   if (
-    state.cursor &&
-    state.cursor.position.blockIndex === blockIndex &&
-    !isCursorBlinking(state.cursor, styles)
+    state.document.cursor &&
+    state.document.cursor.position.blockIndex === blockIndex &&
+    !isCursorBlinking(state.document.cursor, styles)
   ) {
     renderCursor(
       x,
@@ -507,7 +519,7 @@ function renderCursor(
   styles: EditorStyles,
   block: Block
 ) {
-  if (!state.cursor || !state.isFocused) return;
+  if (!state.document.cursor || !state.view.isFocused) return;
 
   let cursorX = x;
   let cursorY = y;
@@ -517,8 +529,8 @@ function renderCursor(
   // console.log(renderedLines);
   for (const line of renderedLines) {
     if (
-      state.cursor.position.textIndex >= line.startIndex &&
-      state.cursor.position.textIndex <= line.endIndex
+      state.document.cursor.position.textIndex >= line.startIndex &&
+      state.document.cursor.position.textIndex <= line.endIndex
     ) {
       cursorY = line.y;
       cursorHeight = line.height;
@@ -526,7 +538,7 @@ function renderCursor(
       cursorX += measureFormattedLineWidth(
         block.content,
         line.startIndex,
-        state.cursor.position.textIndex,
+        state.document.cursor.position.textIndex,
         textStyle,
         fontFamily,
         codePadding
@@ -537,7 +549,7 @@ function renderCursor(
 
   // For end-of-block selections (textIndex at content end), place cursor at end of last line
   if (
-    state.cursor.position.textIndex === content.length &&
+    state.document.cursor.position.textIndex === content.length &&
     renderedLines.length > 0
   ) {
     const lastLine = renderedLines[renderedLines.length - 1];
@@ -565,15 +577,15 @@ function renderSelection(
   fontFamily: FontFamily,
   block: Block
 ) {
-  if (!state.selection) return;
+  if (!state.document.selection) return;
 
   // Sort anchor and focus to ensure start is always before end
-  let start = state.selection.isForward
-    ? state.selection.anchor
-    : state.selection.focus;
-  let end = state.selection.isForward
-    ? state.selection.focus
-    : state.selection.anchor;
+  let start = state.document.selection.isForward
+    ? state.document.selection.anchor
+    : state.document.selection.focus;
+  let end = state.document.selection.isForward
+    ? state.document.selection.focus
+    : state.document.selection.anchor;
 
   if (
     (start.blockIndex === blockIndex && end.blockIndex === blockIndex) ||
@@ -590,7 +602,7 @@ function renderSelection(
     if (
       content.length === 0 &&
       renderedLines.length === 1 &&
-      blockIndex !== state.cursor?.position.blockIndex
+      blockIndex !== state.document.cursor?.position.blockIndex
     ) {
       const fontMetrics = getFontMetrics(
         textStyle.fontSize,
@@ -673,14 +685,16 @@ function renderSelection(
           shouldRender = true;
           if (end.textIndex < line.endIndex) {
             // Use format-aware measurement
-            selectionEndX = x + measureFormattedLineWidth(
-              block.content,
-              line.startIndex,
-              end.textIndex,
-              textStyle,
-              fontFamily,
-              codePadding
-            );
+            selectionEndX =
+              x +
+              measureFormattedLineWidth(
+                block.content,
+                line.startIndex,
+                end.textIndex,
+                textStyle,
+                fontFamily,
+                codePadding
+              );
           }
         }
       }

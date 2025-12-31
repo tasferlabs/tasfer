@@ -110,9 +110,9 @@ function ensureCursorVisible(
   viewport: ViewportState,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): void {
-  if (newState !== oldState && newState.cursor && updateViewportCallback) {
+  if (newState !== oldState && newState.document.cursor && updateViewportCallback) {
     const newScrollY = scrollToMakeCursorVisible(
-      newState.cursor.position,
+      newState.document.cursor.position,
       newState,
       viewport
     );
@@ -136,9 +136,9 @@ function isPositionWithinSelection(
   state: EditorState,
   position: { blockIndex: number; textIndex: number }
 ): boolean {
-  if (!state.selection) return false;
+  if (!state.document.selection) return false;
 
-  const { anchor, focus } = state.selection;
+  const { anchor, focus } = state.document.selection;
 
   const selStart =
     anchor.blockIndex < focus.blockIndex ||
@@ -209,7 +209,7 @@ export function handleEvents(
       );
 
       if (position) {
-        if (!state.selection || !isPositionWithinSelection(state, position)) {
+        if (!state.document.selection || !isPositionWithinSelection(state, position)) {
           state = updateCursor(state, position);
           state = clearSelection(state);
         }
@@ -282,11 +282,11 @@ export function handleEvents(
       touch.clientY,
       state,
       viewport,
-      { start: 0, end: state.page.blocks.length - 1 }
+      { start: 0, end: state.document.page.blocks.length - 1 }
     );
 
     if (position) {
-      if (state.mode !== "select") {
+      if (state.ui.mode !== "select") {
         state = updateCursor(state, position);
         state = startSelection(state, position);
         state = updateMode(state, "select");
@@ -298,12 +298,15 @@ export function handleEvents(
 
     state = {
       ...state,
-      scrollbar: {
-        ...state.scrollbar,
-        lastInteraction: Date.now(),
+      view: {
+        ...state.view,
+        scrollbar: {
+          ...state.view.scrollbar,
+          lastInteraction: Date.now(),
+        },
       },
     };
-  } else if (autoScrollState.isActive && state.mode === "select") {
+  } else if (autoScrollState.isActive && state.ui.mode === "select") {
     // Apply auto-scroll for mouse selection
     const elapsedTime = Date.now() - autoScrollState.startTime;
     const timeBasedMultiplier = Math.min(
@@ -363,10 +366,10 @@ export function handleEvents(
   }
 
   // Apply momentum scrolling if active (even when no events)
-  if (state.momentum.isActive) {
+  if (state.view.momentum.isActive) {
     const momentumResult = applyMomentum(
       viewport.scrollY,
-      state.momentum,
+      state.view.momentum,
       documentHeight,
       viewport.height
     );
@@ -377,10 +380,13 @@ export function handleEvents(
 
     state = {
       ...state,
-      momentum: momentumResult.momentumState,
-      scrollbar: {
-        ...state.scrollbar,
-        lastInteraction: Date.now(),
+      view: {
+        ...state.view,
+        momentum: momentumResult.momentumState,
+        scrollbar: {
+          ...state.view.scrollbar,
+          lastInteraction: Date.now(),
+        },
       },
     };
   }
@@ -389,7 +395,10 @@ export function handleEvents(
     // Update scrollbar fade opacity even when no events
     state = {
       ...state,
-      scrollbar: updateScrollbarFadeOpacity(state.scrollbar),
+      view: {
+        ...state.view,
+        scrollbar: updateScrollbarFadeOpacity(state.view.scrollbar),
+      },
     };
     return state;
   }
@@ -512,7 +521,10 @@ export function handleEvents(
   // Update scrollbar fade opacity
   state = {
     ...state,
-    scrollbar: updateScrollbarFadeOpacity(state.scrollbar),
+    view: {
+      ...state.view,
+      scrollbar: updateScrollbarFadeOpacity(state.view.scrollbar),
+    },
   };
 
   return state;
@@ -539,7 +551,7 @@ function handleContextMenu(
   );
 
   if (position) {
-    if (!state.selection || !isPositionWithinSelection(state, position)) {
+    if (!state.document.selection || !isPositionWithinSelection(state, position)) {
       state = updateCursor(state, position);
       state = clearSelection(state);
     }
@@ -567,9 +579,9 @@ function handlePaste(
   }
 
   // Scroll to make the cursor (end of pasted content) visible
-  if (newState.cursor && updateViewportCallback) {
+  if (newState.document.cursor && updateViewportCallback) {
     const newScrollY = scrollToMakeCursorVisible(
-      newState.cursor.position,
+      newState.document.cursor.position,
       newState,
       viewport
     );
@@ -593,12 +605,12 @@ function handleMouseDown(
   stopAutoScroll();
 
   // Close context menu on any click
-  if (state.contextMenu) {
-    state = { ...state, contextMenu: null };
+  if (state.ui.contextMenu) {
+    state = { ...state, ui: { ...state.ui, contextMenu: null } };
   }
 
   // Close slash command menu on mouse click
-  if (state.slashCommand) {
+  if (state.ui.slashCommand) {
     state = closeSlashCommand(state);
   }
 
@@ -606,10 +618,13 @@ function handleMouseDown(
 
   state = {
     ...state,
-    momentum: {
-      velocity: 0,
-      lastTime: Date.now(),
-      isActive: false,
+    view: {
+      ...state.view,
+      momentum: {
+        velocity: 0,
+        lastTime: Date.now(),
+        isActive: false,
+      },
     },
   };
 
@@ -625,12 +640,15 @@ function handleMouseDown(
         canvasY,
         viewport,
         documentHeight,
-        state.scrollbar
+        state.view.scrollbar
       )
     ) {
       return {
         ...state,
-        scrollbar: startScrollbarDrag(state.scrollbar),
+        view: {
+          ...state.view,
+          scrollbar: startScrollbarDrag(state.view.scrollbar),
+        },
       };
     } else {
       // Clicking on track - page scroll
@@ -638,16 +656,19 @@ function handleMouseDown(
         canvasY,
         viewport,
         documentHeight,
-        state.scrollbar
+        state.view.scrollbar
       );
       if (updateViewportCallback) {
         updateViewportCallback({ scrollY: newScrollY });
       }
       return {
         ...state,
-        scrollbar: {
-          ...state.scrollbar,
-          lastInteraction: Date.now(),
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
         },
       };
     }
@@ -673,21 +694,21 @@ function handleMouseDown(
   let isMultiClick = false;
 
   if (
-    state.clickTracker.lastClickPosition &&
-    currentTime - state.clickTracker.lastClickTime <= DOUBLE_CLICK_TIME &&
-    isWithinClickDistance(currentPosition, state.clickTracker.lastClickPosition)
+    state.view.clickTracker.lastClickPosition &&
+    currentTime - state.view.clickTracker.lastClickTime <= DOUBLE_CLICK_TIME &&
+    isWithinClickDistance(currentPosition, state.view.clickTracker.lastClickPosition)
   ) {
-    state.clickTracker.count++;
+    state.view.clickTracker.count++;
     isMultiClick = true;
   } else {
-    state.clickTracker.count = 1;
+    state.view.clickTracker.count = 1;
   }
 
-  state.clickTracker.lastClickTime = currentTime;
-  state.clickTracker.lastClickPosition = currentPosition;
+  state.view.clickTracker.lastClickTime = currentTime;
+  state.view.clickTracker.lastClickPosition = currentPosition;
 
   // Handle triple-click: always select line (even inside selection)
-  if (isMultiClick && state.clickTracker.count >= 3) {
+  if (isMultiClick && state.view.clickTracker.count >= 3) {
     return selectLineAtPosition(state, position);
   }
 
@@ -697,7 +718,7 @@ function handleMouseDown(
   // }
 
   // Handle double-click: select word
-  if (isMultiClick && state.clickTracker.count === 2) {
+  if (isMultiClick && state.view.clickTracker.count === 2) {
     return selectWordAtPosition(state, position);
   }
 
@@ -705,7 +726,7 @@ function handleMouseDown(
   let newState = updateCursor(state, position);
 
   // If shift is held, extend selection; otherwise start new selection
-  if (event.shiftKey && state.selection) {
+  if (event.shiftKey && state.document.selection) {
     newState = updateSelectionFocus(newState, position);
   } else {
     // Start selection at cursor position
@@ -729,12 +750,12 @@ function handleMouseMove(
   const canvasX = event.x - containerRect.left;
   const canvasY = event.y - containerRect.top;
 
-  if (state.scrollbar.isDragging) {
+  if (state.view.scrollbar.isDragging) {
     const newScrollY = updateScrollFromThumbDrag(
       canvasY,
       viewport,
       documentHeight,
-      state.scrollbar
+      state.view.scrollbar
     );
     if (updateViewportCallback) {
       updateViewportCallback({ scrollY: newScrollY });
@@ -750,10 +771,13 @@ function handleMouseMove(
   );
   state = {
     ...state,
-    scrollbar: updateScrollbarHover(state.scrollbar, isOverScrollbar),
+    view: {
+      ...state.view,
+      scrollbar: updateScrollbarHover(state.view.scrollbar, isOverScrollbar),
+    },
   };
 
-  if (state.mode !== "select") {
+  if (state.ui.mode !== "select") {
     // Check for link hover when not selecting (desktop only)
     if (!isTouchDevice()) {
       const position = getTextPositionFromViewport(
@@ -768,64 +792,75 @@ function handleMouseMove(
         const linkData = getLinkAtPosition(position, state);
         if (linkData) {
           // Calculate screen coordinates for tooltip at the link's start position
-          const linkStartPos = { blockIndex: position.blockIndex, textIndex: linkData.start };
-          const linkCoords = getCursorCoordinates(linkStartPos, state, viewport);
-          
+          const linkStartPos = {
+            blockIndex: position.blockIndex,
+            textIndex: linkData.start,
+          };
+          const linkCoords = getCursorCoordinates(
+            linkStartPos,
+            state,
+            viewport
+          );
+
           if (linkCoords) {
             // Position tooltip below the start of the link text
             state = {
               ...state,
-              linkHover: {
-                position,
-                url: linkData.url,
-                text: linkData.text,
-                x: linkCoords.x + containerRect.left,
-                y: linkCoords.y + linkCoords.height + containerRect.top,
+              ui: {
+                ...state.ui,
+                linkHover: {
+                  position,
+                  url: linkData.url,
+                  text: linkData.text,
+                  x: linkCoords.x + containerRect.left,
+                  y: linkCoords.y + linkCoords.height + containerRect.top,
+                  segmentIndex: linkData?.segmentIndex,
+                },
               },
             };
           }
-        } else if (state.linkHover) {
+        } else if (state.ui.linkHover) {
           // Check if mouse is over the tooltip area before clearing
           // Keep tooltip if we're within the tooltip bounds (approximate)
           const tooltipHeight = 120; // Approximate height
           const tooltipWidth = 300; // Approximate width
-          
+
           if (
-            state.linkHover &&
-            event.x >= state.linkHover.x &&
-            event.x <= state.linkHover.x + tooltipWidth &&
-            event.y >= state.linkHover.y &&
-            event.y <= state.linkHover.y + tooltipHeight
+            state.ui.linkHover &&
+            event.x >= state.ui.linkHover.x &&
+            event.x <= state.ui.linkHover.x + tooltipWidth &&
+            event.y >= state.ui.linkHover.y &&
+            event.y <= state.ui.linkHover.y + tooltipHeight
           ) {
             // Keep the tooltip open
             return state;
           }
-          
+
           // Clear link hover if no longer over a link or tooltip
-          state = { ...state, linkHover: null };
+          state = { ...state, ui: { ...state.ui, linkHover: null } };
         }
-      } else if (state.linkHover) {
+      } else if (state.ui.linkHover) {
         // Check if mouse is still over the tooltip
         const tooltipHeight = 120;
         const tooltipWidth = 300;
-        
+
         if (
-          state.linkHover &&
-          event.x >= state.linkHover.x &&
-          event.x <= state.linkHover.x + tooltipWidth &&
-          event.y >= state.linkHover.y &&
-          event.y <= state.linkHover.y + tooltipHeight
+          state.ui.linkHover &&
+          event.x >= state.ui.linkHover.x &&
+          event.x <= state.ui.linkHover.x + tooltipWidth &&
+          event.y >= state.ui.linkHover.y &&
+          event.y <= state.ui.linkHover.y + tooltipHeight
         ) {
           // Keep the tooltip open
           return state;
         }
-        
+
         // Clear link hover if not over any text or tooltip
-        state = { ...state, linkHover: null };
+        state = { ...state, ui: { ...state.ui, linkHover: null } };
       }
-    } else if (state.linkHover) {
+    } else if (state.ui.linkHover) {
       // Clear link hover on touch devices
-      state = { ...state, linkHover: null };
+      state = { ...state, ui: { ...state.ui, linkHover: null } };
     }
 
     return state;
@@ -878,14 +913,17 @@ function handleMouseUp(
 ): EditorState {
   stopAutoScroll();
 
-  if (state.scrollbar.isDragging) {
+  if (state.view.scrollbar.isDragging) {
     return {
       ...state,
-      scrollbar: endScrollbarDrag(state.scrollbar),
+      view: {
+        ...state.view,
+        scrollbar: endScrollbarDrag(state.view.scrollbar),
+      },
     };
   }
 
-  if (state.mode === "select") {
+  if (state.ui.mode === "select") {
     return updateMode(state, "edit");
   }
 
@@ -895,14 +933,17 @@ function handleMouseUp(
 function handlePointerCancel(state: EditorState): EditorState {
   stopAutoScroll();
 
-  if (state.scrollbar.isDragging) {
+  if (state.view.scrollbar.isDragging) {
     state = {
       ...state,
-      scrollbar: endScrollbarDrag(state.scrollbar),
+      view: {
+        ...state.view,
+        scrollbar: endScrollbarDrag(state.view.scrollbar),
+      },
     };
   }
 
-  if (state.mode === "select") {
+  if (state.ui.mode === "select") {
     state = updateMode(state, "edit");
   }
 
@@ -919,6 +960,11 @@ function handleKeyDown(
   const key = keyEvent.key;
   const keyLower = key.toLowerCase();
   const isCtrl = keyEvent.ctrlKey || keyEvent.metaKey;
+
+  // In locked mode, block all operations
+  if (state.ui.mode === "locked") {
+    return state;
+  }
 
   // Undo/Redo - handle these first, even if slash command is open
   if (isCtrl && keyLower === "z" && !keyEvent.shiftKey) {
@@ -964,20 +1010,20 @@ function handleKeyDown(
   }
 
   // Handle slash command menu navigation
-  if (state.slashCommand) {
-    const filteredCommands = state.slashCommand.filter
+  if (state.ui.slashCommand) {
+    const filteredCommands = state.ui.slashCommand.filter
       ? SLASH_COMMANDS.filter(
           (cmd) =>
             cmd.label
               .toLowerCase()
-              .includes(state.slashCommand!.filter.toLowerCase()) ||
+              .includes(state.ui.slashCommand!.filter.toLowerCase()) ||
             cmd.description
               .toLowerCase()
-              .includes(state.slashCommand!.filter.toLowerCase()) ||
+              .includes(state.ui.slashCommand!.filter.toLowerCase()) ||
             cmd.keywords?.some((keyword) =>
               keyword
                 .toLowerCase()
-                .startsWith(state.slashCommand!.filter.toLowerCase())
+                .startsWith(state.ui.slashCommand!.filter.toLowerCase())
             )
         )
       : SLASH_COMMANDS;
@@ -991,19 +1037,19 @@ function handleKeyDown(
       case "ArrowDown":
         if (filteredCommands.length > 0) {
           const newIndex = Math.min(
-            state.slashCommand.selectedIndex + 1,
+            state.ui.slashCommand.selectedIndex + 1,
             filteredCommands.length - 1
           );
           return updateSlashCommandSelection(state, newIndex);
         }
         return state;
       case "ArrowUp":
-        const newIndex = Math.max(state.slashCommand.selectedIndex - 1, 0);
+        const newIndex = Math.max(state.ui.slashCommand.selectedIndex - 1, 0);
         return updateSlashCommandSelection(state, newIndex);
       case "Enter":
-        if (filteredCommands.length > 0 && state.cursor) {
+        if (filteredCommands.length > 0 && state.document.cursor) {
           const selectedCommand =
-            filteredCommands[state.slashCommand.selectedIndex];
+            filteredCommands[state.ui.slashCommand.selectedIndex];
           const newState = applySlashCommand(
             recordUndo(state),
             selectedCommand
@@ -1019,15 +1065,15 @@ function handleKeyDown(
         return closeSlashCommand(state);
       case "Escape":
         // Close slash command and remove the "/" character
-        if (state.cursor) {
-          const { blockIndex, textIndex } = state.slashCommand;
-          const block = state.page.blocks[blockIndex];
+        if (state.document.cursor) {
+          const { blockIndex, textIndex } = state.ui.slashCommand;
+          const block = state.document.page.blocks[blockIndex];
 
           // Remove the "/" and filter text, preserving formatting
           const newContent = deleteTextRangeInFormattedContent(
             block.content,
             textIndex - 1, // Remove the "/"
-            state.cursor.position.textIndex // Remove up to cursor (the filter text)
+            state.document.cursor.position.textIndex // Remove up to cursor (the filter text)
           );
 
           const newBlock: Block = {
@@ -1035,17 +1081,16 @@ function handleKeyDown(
             content: newContent,
           };
 
-          const newBlocks = [...state.page.blocks];
+          const newBlocks = [...state.document.page.blocks];
           newBlocks[blockIndex] = newBlock;
-          const newPage = { ...state.page, blocks: newBlocks };
+          const newPage = { ...state.document.page, blocks: newBlocks };
 
-          let newState: EditorState = { ...state, page: newPage };
+          let newState: EditorState = {
+            ...state,
+            document: { ...state.document, page: newPage },
+          };
           newState = closeSlashCommand(newState);
-          newState = moveCursorToPosition(
-            newState,
-            blockIndex,
-            textIndex - 1
-          );
+          newState = moveCursorToPosition(newState, blockIndex, textIndex - 1);
 
           ensureCursorVisible(
             newState,
@@ -1059,8 +1104,8 @@ function handleKeyDown(
       case "Backspace":
         // If at the start of filter, close menu
         if (
-          state.cursor &&
-          state.cursor.position.textIndex <= state.slashCommand.textIndex
+          state.document.cursor &&
+          state.document.cursor.position.textIndex <= state.ui.slashCommand.textIndex
         ) {
           // Close menu and delete the slash character - no recordUndo needed since deleteText already records
           const newState = closeSlashCommand(deleteText(recordUndo(state)));
@@ -1073,14 +1118,14 @@ function handleKeyDown(
           return newState;
         }
         // Otherwise update filter - deleteText handles recordUndo internally
-        if (state.cursor) {
+        if (state.document.cursor) {
           const newState = deleteText(recordUndo(state));
-          if (newState.cursor) {
-            const block = newState.page.blocks[state.slashCommand.blockIndex];
+          if (newState.document.cursor) {
+            const block = newState.document.page.blocks[state.ui.slashCommand.blockIndex];
             const text = getBlockTextContent(block);
             const filter = text.slice(
-              state.slashCommand.textIndex,
-              newState.cursor.position.textIndex
+              state.ui.slashCommand.textIndex,
+              newState.document.cursor.position.textIndex
             );
             const finalState = updateSlashCommandFilter(newState, filter);
             ensureCursorVisible(
@@ -1103,12 +1148,12 @@ function handleKeyDown(
         ) {
           // insertText handles recordUndo internally
           const newState = insertText(recordUndo(state), key);
-          if (newState.cursor) {
-            const block = newState.page.blocks[state.slashCommand.blockIndex];
+          if (newState.document.cursor) {
+            const block = newState.document.page.blocks[state.ui.slashCommand.blockIndex];
             const text = getBlockTextContent(block);
             const filter = text.slice(
-              state.slashCommand.textIndex,
-              newState.cursor.position.textIndex
+              state.ui.slashCommand.textIndex,
+              newState.document.cursor.position.textIndex
             );
             const finalState = updateSlashCommandFilter(newState, filter);
             ensureCursorVisible(
@@ -1261,8 +1306,8 @@ function handleKeyDown(
         if (isCtrl) {
           newState = moveCursorToPosition(
             clearSelection(state),
-            state.page.blocks.length - 1,
-            getBlockTextLength(state.page.blocks[state.page.blocks.length - 1])
+            state.document.page.blocks.length - 1,
+            getBlockTextLength(state.document.page.blocks[state.document.page.blocks.length - 1])
           );
         } else {
           newState = moveToLineEnd(clearSelection(state));
@@ -1297,20 +1342,20 @@ function handleKeyDown(
       if (
         key === "/" &&
         !isTouchDevice() &&
-        state.cursor &&
+        state.document.cursor &&
         !keyEvent.ctrlKey &&
         !keyEvent.altKey &&
         !keyEvent.metaKey
       ) {
-        const { blockIndex } = state.cursor.position;
+        const { blockIndex } = state.document.cursor.position;
 
         // Allow slash command anywhere in paragraphs and headings
         const newState = insertText(recordUndo(state), "/");
-        if (newState.cursor) {
+        if (newState.document.cursor) {
           const finalState = openSlashCommand(
             newState,
             blockIndex,
-            newState.cursor.position.textIndex
+            newState.document.cursor.position.textIndex
           );
           ensureCursorVisible(
             finalState,
@@ -1335,9 +1380,9 @@ function handleKeyDown(
       return state;
   }
 
-  if (newState !== state && newState.cursor && updateViewportCallback) {
+  if (newState !== state && newState.document.cursor && updateViewportCallback) {
     const newScrollY = scrollToMakeCursorVisible(
-      newState.cursor.position,
+      newState.document.cursor.position,
       newState,
       viewport
     );
@@ -1359,10 +1404,13 @@ function handleWheel(
   // Stop momentum when using wheel
   state = {
     ...state,
-    momentum: {
-      velocity: 0,
-      lastTime: Date.now(),
-      isActive: false,
+    view: {
+      ...state.view,
+      momentum: {
+        velocity: 0,
+        lastTime: Date.now(),
+        isActive: false,
+      },
     },
   };
 
@@ -1370,7 +1418,7 @@ function handleWheel(
     event.deltaY,
     viewport,
     documentHeight,
-    state.scrollbar
+    state.view.scrollbar
   );
 
   if (updateViewportCallback) {
@@ -1379,7 +1427,10 @@ function handleWheel(
 
   return {
     ...state,
-    scrollbar: scrollbarState,
+    view: {
+      ...state.view,
+      scrollbar: scrollbarState,
+    },
   };
 }
 
@@ -1473,7 +1524,7 @@ function handleTouchStart(
       canvasY,
       state,
       viewport,
-      { start: 0, end: state.page.blocks.length - 1 }
+      { start: 0, end: state.document.page.blocks.length - 1 }
     );
     const isTouchingSelection = position
       ? isPositionWithinSelection(state, position)
@@ -1499,26 +1550,35 @@ function handleTouchStart(
     if (isScrollbarTouch) {
       state = {
         ...state,
-        scrollbar: startScrollbarDrag(state.scrollbar),
+        view: {
+          ...state.view,
+          scrollbar: startScrollbarDrag(state.view.scrollbar),
+        },
       };
     }
 
     // Stop any ongoing momentum
     state = {
       ...state,
-      momentum: {
-        velocity: 0,
-        lastTime: Date.now(),
-        isActive: false,
+      view: {
+        ...state.view,
+        momentum: {
+          velocity: 0,
+          lastTime: Date.now(),
+          isActive: false,
+        },
       },
     };
   }
 
   return {
     ...state,
-    scrollbar: {
-      ...state.scrollbar,
-      lastInteraction: Date.now(),
+    view: {
+      ...state.view,
+      scrollbar: {
+        ...state.view.scrollbar,
+        lastInteraction: Date.now(),
+      },
     },
   };
 }
@@ -1543,12 +1603,12 @@ function handleTouchMove(
     if (deltaTime === 0) return state;
 
     // Handle scrollbar drag
-    if (touchState.isScrollbarDrag && state.scrollbar.isDragging) {
+    if (touchState.isScrollbarDrag && state.view.scrollbar.isDragging) {
       const newScrollY = updateScrollFromThumbDrag(
         canvasY,
         viewport,
         documentHeight,
-        state.scrollbar
+        state.view.scrollbar
       );
       if (updateViewportCallback) {
         updateViewportCallback({ scrollY: newScrollY });
@@ -1568,10 +1628,13 @@ function handleTouchMove(
     // If moved beyond threshold, mark as moved (cancels potential long press)
     if (!touchState.hasMoved && totalMovement > MOVEMENT_THRESHOLD) {
       touchState.hasMoved = true;
-      
+
       // Close context menu when movement is detected
-      if (state.contextMenu) {
-        state = { ...state, contextMenu: null };
+      if (state.ui.contextMenu) {
+        state = {
+          ...state,
+          ui: { ...state.ui, contextMenu: null },
+        };
       }
     }
 
@@ -1589,9 +1652,12 @@ function handleTouchMove(
 
         return {
           ...state,
-          scrollbar: {
-            ...state.scrollbar,
-            lastInteraction: Date.now(),
+          view: {
+            ...state.view,
+            scrollbar: {
+              ...state.view.scrollbar,
+              lastInteraction: Date.now(),
+            },
           },
         };
       } else {
@@ -1653,9 +1719,12 @@ function handleTouchMove(
 
   return {
     ...state,
-    scrollbar: {
-      ...state.scrollbar,
-      lastInteraction: Date.now(),
+    view: {
+      ...state.view,
+      scrollbar: {
+        ...state.view.scrollbar,
+        lastInteraction: Date.now(),
+      },
     },
   };
 }
@@ -1669,10 +1738,13 @@ function handleTouchEnd(
   stopAutoScroll();
 
   // End scrollbar drag if active
-  if (state.scrollbar.isDragging) {
+  if (state.view.scrollbar.isDragging) {
     state = {
       ...state,
-      scrollbar: endScrollbarDrag(state.scrollbar),
+      view: {
+        ...state.view,
+        scrollbar: endScrollbarDrag(state.view.scrollbar),
+      },
     };
   }
 
@@ -1686,21 +1758,27 @@ function handleTouchEnd(
       touchState = null;
       return {
         ...state,
-        scrollbar: {
-          ...state.scrollbar,
-          lastInteraction: Date.now(),
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
         },
       };
-    } else if (state.mode === "select") {
+    } else if (state.ui.mode === "select") {
       // Long press created a new selection - exit select mode without showing context menu
       state = updateMode(state, "edit");
       touchState = null;
 
       return {
         ...state,
-        scrollbar: {
-          ...state.scrollbar,
-          lastInteraction: Date.now(),
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
         },
       };
     }
@@ -1723,7 +1801,7 @@ function handleTouchEnd(
       tapPosition.y,
       state,
       viewport,
-      { start: 0, end: state.page.blocks.length - 1 }
+      { start: 0, end: state.document.page.blocks.length - 1 }
     );
 
     // Check for multi-tap (double/triple) - use larger threshold for touch
@@ -1754,16 +1832,22 @@ function handleTouchEnd(
       // If tapping inside a selection (single or double tap), don't reset it (Apple Notes behavior)
       else if (isPositionWithinSelection(state, position)) {
         // Close context menu if open when tapping on selection
-        if (state.contextMenu) {
-          state = { ...state, contextMenu: null };
+        if (state.ui.contextMenu) {
+          state = {
+            ...state,
+            ui: { ...state.ui, contextMenu: null },
+          };
         }
       }
       // Handle double-tap: select word
       else if (isMultiTap && touchTapTracker.count === 2) {
         state = selectWordAtPosition(state, position);
         // Close context menu when making new selection
-        if (state.contextMenu) {
-          state = { ...state, contextMenu: null };
+        if (state.ui.contextMenu) {
+          state = {
+            ...state,
+            ui: { ...state.ui, contextMenu: null },
+          };
         }
       }
       // Single tap outside selection: position cursor and close context menu
@@ -1772,25 +1856,34 @@ function handleTouchEnd(
         state = updateCursor(state, position);
         state = updateMode(state, "edit");
         // Close context menu when tapping outside
-        if (state.contextMenu) {
-          state = { ...state, contextMenu: null };
+        if (state.ui.contextMenu) {
+          state = {
+            ...state,
+            ui: { ...state.ui, contextMenu: null },
+          };
         }
       }
     } else {
       // Tapping outside editor area: clear selection and close context menu
       state = clearSelection(state);
       state = updateMode(state, "edit");
-      if (state.contextMenu) {
-        state = { ...state, contextMenu: null };
+      if (state.ui.contextMenu) {
+        state = {
+          ...state,
+          ui: { ...state.ui, contextMenu: null },
+        };
       }
     }
 
     touchState = null;
     return {
       ...state,
-      scrollbar: {
-        ...state.scrollbar,
-        lastInteraction: Date.now(),
+      view: {
+        ...state.view,
+        scrollbar: {
+          ...state.view.scrollbar,
+          lastInteraction: Date.now(),
+        },
       },
     };
   }
@@ -1809,10 +1902,13 @@ function handleTouchEnd(
       const momentumMultiplier = 1.2;
       state = {
         ...state,
-        momentum: {
-          velocity: avgVelocity * momentumMultiplier,
-          lastTime: Date.now(),
-          isActive: true,
+        view: {
+          ...state.view,
+          momentum: {
+            velocity: avgVelocity * momentumMultiplier,
+            lastTime: Date.now(),
+            isActive: true,
+          },
         },
       };
     }
@@ -1822,9 +1918,12 @@ function handleTouchEnd(
 
   return {
     ...state,
-    scrollbar: {
-      ...state.scrollbar,
-      lastInteraction: Date.now(),
+    view: {
+      ...state.view,
+      scrollbar: {
+        ...state.view.scrollbar,
+        lastInteraction: Date.now(),
+      },
     },
   };
 }
@@ -1833,15 +1932,18 @@ function handleTouchCancel(state: EditorState): EditorState {
   stopAutoScroll();
 
   // End scrollbar drag if active
-  if (state.scrollbar.isDragging) {
+  if (state.view.scrollbar.isDragging) {
     state = {
       ...state,
-      scrollbar: endScrollbarDrag(state.scrollbar),
+      view: {
+        ...state.view,
+        scrollbar: endScrollbarDrag(state.view.scrollbar),
+      },
     };
   }
 
   // If we were in long press text selection mode, exit select mode
-  if (touchState?.isLongPress && state.mode === "select") {
+  if (touchState?.isLongPress && state.ui.mode === "select") {
     state = updateMode(state, "edit");
   }
 
@@ -1850,9 +1952,12 @@ function handleTouchCancel(state: EditorState): EditorState {
 
   return {
     ...state,
-    scrollbar: {
-      ...state.scrollbar,
-      lastInteraction: Date.now(),
+    view: {
+      ...state.view,
+      scrollbar: {
+        ...state.view.scrollbar,
+        lastInteraction: Date.now(),
+      },
     },
   };
 }

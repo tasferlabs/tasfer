@@ -23,12 +23,7 @@ export function SidebarContent({
       <div className={style.appSidebarHeader}>
         {/* UserDropdown placeholder */}
         <div
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: "50%",
-            backgroundColor: "#ccc",
-          }}
+          className="w-8 h-8 rounded-full bg-muted"
         />
 
         <button

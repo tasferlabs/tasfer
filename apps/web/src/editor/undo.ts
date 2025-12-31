@@ -1,4 +1,4 @@
-import type { EditorState, EditorModelState, UndoManagerState } from "./types";
+import type { EditorState, UndoManagerState } from "./types";
 import type { Block } from "../deserializer/loadPage";
 import { invalidateBlockCache } from "./renderer";
 
@@ -41,68 +41,55 @@ function invalidateChangedBlocks(oldBlocks: Block[], newBlocks: Block[]) {
   });
 }
 
-function getModelState(state: EditorState): EditorModelState {
-  const { undoManager, slashCommand, contextMenu, ...model } = state;
-  // Exclude slashCommand and contextMenu from undo state as they are transient UI state
-  return { ...model, slashCommand: null, contextMenu: null };
-}
-
 export function recordUndo(state: EditorState): EditorState {
-  const modelState = getModelState(state);
   const { undoStack } = state.undoManager;
   return {
     ...state,
     undoManager: {
-      undoStack: [...undoStack, modelState],
+      undoStack: [...undoStack, state.document],
       redoStack: [],
     },
   };
 }
 
 export function undoState(state: EditorState): EditorState {
-  const modelState = getModelState(state);
   const { undoStack, redoStack } = state.undoManager;
   if (undoStack.length === 0) {
     return state;
   }
-  
-  const prevModel = undoStack[undoStack.length - 1];
-  
+
+  const prevDocument = undoStack[undoStack.length - 1];
+
   // Invalidate only blocks that changed between current and previous state
-  invalidateChangedBlocks(state.page.blocks, prevModel.page.blocks);
-  
+  invalidateChangedBlocks(state.document.page.blocks, prevDocument.page.blocks);
+
   return {
-    ...prevModel,
+    ...state,
+    document: prevDocument,
     undoManager: {
       undoStack: undoStack.slice(0, -1),
-      redoStack: [...redoStack, modelState],
+      redoStack: [...redoStack, state.document],
     },
   };
 }
 
 export function redoState(state: EditorState): EditorState {
-  const modelState = getModelState(state);
   const { undoStack, redoStack } = state.undoManager;
   if (redoStack.length === 0) {
     return state;
   }
-  
-  const nextModel = redoStack[redoStack.length - 1];
-  
+
+  const nextDocument = redoStack[redoStack.length - 1];
+
   // Invalidate only blocks that changed between current and next state
-  invalidateChangedBlocks(state.page.blocks, nextModel.page.blocks);
-  
+  invalidateChangedBlocks(state.document.page.blocks, nextDocument.page.blocks);
+
   return {
-    ...nextModel,
+    ...state,
+    document: nextDocument,
     undoManager: {
-      undoStack: [...undoStack, modelState],
+      undoStack: [...undoStack, state.document],
       redoStack: redoStack.slice(0, -1),
     },
   };
 }
-
-
-
-
-
-
