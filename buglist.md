@@ -78,3 +78,4 @@ Bugs list
 [ ] consider if we need more animation and fluid text edting for example when I delete large portion text or copy large portion of text. Maybe show the scroll bar in this case.
 [ ] rendering is triggered to many times.
 [ ] override webiew defaul 404 page
+[x] rtl inline format rendering edge cases

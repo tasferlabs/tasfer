@@ -132,6 +132,7 @@ function renderFormattedLine(
 ) {
   // Detect text direction for this line
   const direction = getFormattedTextDirection(segments);
+  const isRTL = direction === "rtl";
 
   // Set canvas direction
   ctx.direction = direction;
@@ -171,16 +172,33 @@ function renderFormattedLine(
       const linkFormat = segment.formats?.find((f) => f.type === "link");
       const isLink = !!linkFormat;
 
+      // Measure text width with correct font already set
+      const textWidth = ctx.measureText(textToRender).width;
+
+      // For RTL text with canvas direction="rtl":
+      // fillText(text, x, y) draws text ending at position x (text goes leftward from x)
+      // So for RTL, currentX is the RIGHT edge where text ends
+      const visualX = currentX;
+
       // Handle code background
       if (segment.formats?.some((f) => f.type === "code")) {
-        const textWidth = ctx.measureText(textToRender).width;
         const codeStyle = styles.textFormats.code;
+        const padding = codeStyle.padding;
 
         // Draw code background with rounded corners
         ctx.save();
         ctx.fillStyle = codeStyle.backgroundColor;
-        const padding = codeStyle.padding;
-        const rectX = currentX - padding;
+        
+        let rectX: number;
+        if (isRTL) {
+          // For RTL with direction="rtl", text is drawn ENDING at visualX going leftward
+          // So background should span from (visualX - textWidth - padding) to (visualX + padding)
+          rectX = visualX - textWidth - padding;
+        } else {
+          // For LTR, background starts just before text
+          rectX = visualX - padding;
+        }
+        
         const rectY = y - textStyle.fontSize - padding;
         const rectWidth = textWidth + padding * 2;
         const rectHeight = textStyle.fontSize * textStyle.lineHeight;
@@ -207,41 +225,62 @@ function renderFormattedLine(
       }
 
       // Render the text
-      ctx.fillText(textToRender, currentX, y);
+      ctx.fillText(textToRender, visualX, y);
 
       // Handle underline for links
       if (isLink) {
-        const textWidth = ctx.measureText(textToRender).width;
         const linkStyle = styles.textFormats.link;
         ctx.save();
         ctx.strokeStyle = linkStyle.color;
         ctx.lineWidth = linkStyle.underlineThickness;
         ctx.beginPath();
-        ctx.moveTo(currentX, y + textStyle.fontSize * 0.1);
-        ctx.lineTo(currentX + textWidth, y + textStyle.fontSize * 0.1);
+        
+        if (isRTL) {
+          // For RTL with direction="rtl", text ends at visualX and extends left
+          // Underline from left edge (visualX - textWidth) to right edge (visualX)
+          ctx.moveTo(visualX - textWidth, y + textStyle.fontSize * 0.1);
+          ctx.lineTo(visualX, y + textStyle.fontSize * 0.1);
+        } else {
+          // For LTR, underline from left to right
+          ctx.moveTo(visualX, y + textStyle.fontSize * 0.1);
+          ctx.lineTo(visualX + textWidth, y + textStyle.fontSize * 0.1);
+        }
         ctx.stroke();
         ctx.restore();
       }
 
       // Handle strikethrough
       if (segment.formats?.some((f) => f.type === "strikethrough")) {
-        const textWidth = ctx.measureText(textToRender).width;
         ctx.save();
         ctx.strokeStyle = textStyle.color;
         ctx.lineWidth = Math.max(1, textStyle.fontSize / 16);
         ctx.beginPath();
-        ctx.moveTo(currentX, y - textStyle.fontSize * 0.3);
-        ctx.lineTo(currentX + textWidth, y - textStyle.fontSize * 0.3);
+        
+        if (isRTL) {
+          // For RTL with direction="rtl", strikethrough from left to right
+          ctx.moveTo(visualX - textWidth, y - textStyle.fontSize * 0.3);
+          ctx.lineTo(visualX, y - textStyle.fontSize * 0.3);
+        } else {
+          // For LTR, strikethrough from left to right
+          ctx.moveTo(visualX, y - textStyle.fontSize * 0.3);
+          ctx.lineTo(visualX + textWidth, y - textStyle.fontSize * 0.3);
+        }
         ctx.stroke();
         ctx.restore();
       }
 
-      // Move X position for next segment - use actual measured width
-      let segmentWidth = ctx.measureText(textToRender).width;
+      // Move X position for next segment
+      let segmentWidth = textWidth;
       if (segment.formats?.some((f) => f.type === "code")) {
         segmentWidth += styles.textFormats.code.padding * 2;
       }
-      currentX += segmentWidth;
+      
+      // For RTL, move LEFT (subtract); for LTR, move RIGHT (add)
+      if (isRTL) {
+        currentX -= segmentWidth;
+      } else {
+        currentX += segmentWidth;
+      }
     }
 
     currentIndex = segmentEnd;
