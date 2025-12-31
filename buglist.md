@@ -85,4 +85,4 @@ Bugs list
 [ ] override webiew defaul 404 page
 [x] rtl inline format rendering edge cases
 [ ] complex mandrians characters are not working with with selection.
-[ ] render should be more efficent if we rendere it
+[ ] render should be more efficent if we schedule it
