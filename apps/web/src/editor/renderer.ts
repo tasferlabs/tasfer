@@ -22,6 +22,107 @@ import type {
   ViewportState,
 } from "./types";
 
+// Helper to inject composition text into block content for rendering
+function getContentWithComposition(
+  block: Block,
+  state: EditorState,
+  blockIndex: number
+): {
+  content: Text[];
+  compositionRange: { start: number; end: number } | null;
+} {
+  // Check if composition is active and cursor is in this block
+  if (
+    !state.ui.composition ||
+    !state.document.cursor ||
+    state.document.cursor.position.blockIndex !== blockIndex
+  ) {
+    return { content: block.content, compositionRange: null };
+  }
+
+  const compositionText = state.ui.composition.text;
+  if (!compositionText) {
+    return { content: block.content, compositionRange: null };
+  }
+
+  const cursorTextIndex = state.document.cursor.position.textIndex;
+
+  // Handle empty block or cursor at the very end
+  if (block.content.length === 0 || cursorTextIndex === 0) {
+    // Insert composition at the start
+    return {
+      content: [{ content: compositionText, formats: [] }, ...block.content],
+      compositionRange: { start: 0, end: compositionText.length },
+    };
+  }
+
+  // Create a modified copy of the content with composition text inserted
+  const modifiedContent: Text[] = [];
+  let currentIndex = 0;
+  let compositionInserted = false;
+
+  for (let i = 0; i < block.content.length; i++) {
+    const segment = block.content[i];
+    const segmentStart = currentIndex;
+    const segmentEnd = currentIndex + segment.content.length;
+
+    // Check if cursor is within this segment
+    if (cursorTextIndex >= segmentStart && cursorTextIndex <= segmentEnd) {
+      const offsetInSegment = cursorTextIndex - segmentStart;
+
+      // Split the segment at the cursor position
+      const beforeCursor = segment.content.substring(0, offsetInSegment);
+      const afterCursor = segment.content.substring(offsetInSegment);
+
+      // Add the part before cursor (if any)
+      if (beforeCursor) {
+        modifiedContent.push({
+          ...segment,
+          content: beforeCursor,
+        });
+      }
+
+      // Add composition text as a new segment
+      modifiedContent.push({
+        content: compositionText,
+        formats: segment.formats || [], // Inherit formats from current segment
+      });
+      compositionInserted = true;
+
+      // Add the part after cursor (if any)
+      if (afterCursor) {
+        modifiedContent.push({
+          ...segment,
+          content: afterCursor,
+        });
+      }
+    } else {
+      // Keep segment as is
+      modifiedContent.push(segment);
+    }
+
+    currentIndex = segmentEnd;
+  }
+
+  // If cursor is at the very end (after all segments), append composition
+  if (!compositionInserted) {
+    const lastSegment = block.content[block.content.length - 1];
+    modifiedContent.push({
+      content: compositionText,
+      formats: lastSegment?.formats || [],
+    });
+  }
+
+  // Calculate composition range in the modified content
+  const compositionStart = cursorTextIndex;
+  const compositionEnd = cursorTextIndex + compositionText.length;
+
+  return {
+    content: modifiedContent,
+    compositionRange: { start: compositionStart, end: compositionEnd },
+  };
+}
+
 // Helper to get or calculate block height, storing it on the block
 export const getBlockHeight = (
   block: Block,
@@ -118,6 +219,75 @@ function measureFormattedLineWidth(
   return width;
 }
 
+// Helper to render underline decoration for composition text
+function renderCompositionUnderline(
+  ctx: CanvasRenderingContext2D,
+  segments: Text[],
+  lineStartIndex: number,
+  lineEndIndex: number,
+  compositionStart: number,
+  compositionEnd: number,
+  x: number,
+  y: number,
+  textStyle: TextStyle,
+  fontFamily: FontFamily,
+  fontMetrics: FontMetrics,
+  codePadding: number,
+  isRTL: boolean,
+  maxWidth: number
+) {
+  // Calculate the overlap between this line and the composition range
+  const underlineStart = Math.max(lineStartIndex, compositionStart);
+  const underlineEnd = Math.min(lineEndIndex, compositionEnd);
+
+  if (underlineStart >= underlineEnd) return;
+
+  // Measure width from line start to underline start
+  const offsetToStart = measureFormattedLineWidth(
+    segments,
+    lineStartIndex,
+    underlineStart,
+    textStyle,
+    fontFamily,
+    codePadding
+  );
+
+  // Measure width of the underlined portion
+  const underlineWidth = measureFormattedLineWidth(
+    segments,
+    underlineStart,
+    underlineEnd,
+    textStyle,
+    fontFamily,
+    codePadding
+  );
+
+  // Calculate underline position
+  const underlineY = y + fontMetrics.ascent + 2;
+  const underlineThickness = 1.5;
+
+  ctx.save();
+  ctx.strokeStyle = textStyle.color;
+  ctx.lineWidth = underlineThickness;
+  ctx.beginPath();
+  11;
+
+  if (isRTL) {
+    // For RTL, measure from the right edge
+    const startX = x + maxWidth - offsetToStart;
+    ctx.moveTo(startX, underlineY);
+    ctx.lineTo(startX - underlineWidth, underlineY);
+  } else {
+    // For LTR, measure from the left edge
+    const startX = x + offsetToStart;
+    ctx.moveTo(startX, underlineY);
+    ctx.lineTo(startX + underlineWidth, underlineY);
+  }
+
+  ctx.stroke();
+  ctx.restore();
+}
+
 // Helper function to render a line with formatting
 function renderFormattedLine(
   ctx: CanvasRenderingContext2D,
@@ -188,7 +358,7 @@ function renderFormattedLine(
         // Draw code background with rounded corners
         ctx.save();
         ctx.fillStyle = codeStyle.backgroundColor;
-        
+
         let rectX: number;
         if (isRTL) {
           // For RTL with direction="rtl", text is drawn ENDING at visualX going leftward
@@ -198,7 +368,7 @@ function renderFormattedLine(
           // For LTR, background starts just before text
           rectX = visualX - padding;
         }
-        
+
         const rectY = y - textStyle.fontSize - padding;
         const rectWidth = textWidth + padding * 2;
         const rectHeight = textStyle.fontSize * textStyle.lineHeight;
@@ -234,7 +404,7 @@ function renderFormattedLine(
         ctx.strokeStyle = linkStyle.color;
         ctx.lineWidth = linkStyle.underlineThickness;
         ctx.beginPath();
-        
+
         if (isRTL) {
           // For RTL with direction="rtl", text ends at visualX and extends left
           // Underline from left edge (visualX - textWidth) to right edge (visualX)
@@ -255,7 +425,7 @@ function renderFormattedLine(
         ctx.strokeStyle = textStyle.color;
         ctx.lineWidth = Math.max(1, textStyle.fontSize / 16);
         ctx.beginPath();
-        
+
         if (isRTL) {
           // For RTL with direction="rtl", strikethrough from left to right
           ctx.moveTo(visualX - textWidth, y - textStyle.fontSize * 0.3);
@@ -274,7 +444,7 @@ function renderFormattedLine(
       if (segment.formats?.some((f) => f.type === "code")) {
         segmentWidth += styles.textFormats.code.padding * 2;
       }
-      
+
       // For RTL, move LEFT (subtract); for LTR, move RIGHT (add)
       if (isRTL) {
         currentX -= segmentWidth;
@@ -380,9 +550,13 @@ export const renderBlock = (
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
 
-  // Calculate line wrapping using formatted text wrapping
+  // Get content with composition text injected (if composing in this block)
+  const { content: renderContent, compositionRange } =
+    getContentWithComposition(block, state, blockIndex);
+
+  // Calculate line wrapping using the render content (includes composition)
   const lines = wrapFormattedText(
-    block.content,
+    renderContent,
     maxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
@@ -411,13 +585,13 @@ export const renderBlock = (
     const lineEndIndex = textIndex + line.length;
 
     // Detect text direction and adjust x position for RTL
-    const direction = getFormattedTextDirection(block.content);
+    const direction = getFormattedTextDirection(renderContent);
     const renderX = direction === "rtl" ? x + maxWidth : x;
 
-    // Render the line with formatting
+    // Render the line with formatting (using render content with composition)
     renderFormattedLine(
       ctx,
-      block.content,
+      renderContent,
       lineStartIndex,
       lineEndIndex,
       renderX,
@@ -427,12 +601,38 @@ export const renderBlock = (
       styles
     );
 
+    // Render composition underline if this line contains composition text
+    if (compositionRange) {
+      const lineContainsComposition =
+        lineStartIndex < compositionRange.end &&
+        lineEndIndex > compositionRange.start;
+
+      if (lineContainsComposition) {
+        renderCompositionUnderline(
+          ctx,
+          renderContent,
+          lineStartIndex,
+          lineEndIndex,
+          compositionRange.start,
+          compositionRange.end,
+          renderX,
+          currentY,
+          textStyle,
+          fontFamily,
+          fontMetrics,
+          codePadding,
+          direction === "rtl",
+          maxWidth
+        );
+      }
+    }
+
     // Use font metrics for consistent positioning
     const textHeight = fontMetrics.ascent + fontMetrics.descent;
 
     // Measure the line width (need to account for formatting)
     const lineWidth = measureFormattedLineWidth(
-      block.content,
+      renderContent,
       lineStartIndex,
       lineEndIndex,
       textStyle,
@@ -482,7 +682,8 @@ export const renderBlock = (
   if (
     state.document.cursor &&
     state.document.cursor.position.blockIndex === blockIndex &&
-    fullContent.length === 0
+    fullContent.length === 0 &&
+    !state.ui.composition
   ) {
     renderPlaceholder(
       ctx,
@@ -722,7 +923,7 @@ function renderSelection(
             // - Logical index 0 appears at RIGHT (x + maxWidth)
             // - Logical index N appears at LEFT
             // Selection needs to be drawn from left to right visually
-            
+
             const selStartTextIndex = Math.max(
               line.startIndex,
               start.textIndex
@@ -738,7 +939,7 @@ function renderSelection(
               fontFamily,
               codePadding
             );
-            
+
             // Measure from line START to selection END
             const widthToSelEnd = measureFormattedLineWidth(
               block.content,
@@ -752,8 +953,8 @@ function renderSelection(
             // Visual X positions: further from line start logically = further LEFT visually
             // Selection START (lower index) is at RIGHT visually
             // Selection END (higher index) is at LEFT visually
-            selectionEndX = x + maxWidth - widthToSelStart;  // Right edge of selection (lower logical index)
-            selectionStartX = x + maxWidth - widthToSelEnd;  // Left edge of selection (higher logical index)
+            selectionEndX = x + maxWidth - widthToSelStart; // Right edge of selection (lower logical index)
+            selectionStartX = x + maxWidth - widthToSelEnd; // Left edge of selection (higher logical index)
           } else {
             // LTR logic (existing)
             if (start.textIndex > line.startIndex) {
@@ -815,8 +1016,8 @@ function renderSelection(
             );
 
             // Selection goes from start.textIndex (appears RIGHT) to end of line (appears LEFT)
-            selectionEndX = x + maxWidth - widthToSelStart;  // Right edge (selection start, lower index)
-            selectionStartX = x + maxWidth - line.width;     // Left edge (line end, higher index)
+            selectionEndX = x + maxWidth - widthToSelStart; // Right edge (selection start, lower index)
+            selectionStartX = x + maxWidth - line.width; // Left edge (line end, higher index)
           } else {
             if (start.textIndex > line.startIndex) {
               // Use format-aware measurement
@@ -854,8 +1055,8 @@ function renderSelection(
             );
 
             // Selection goes from start of line (appears RIGHT, lower index) to end.textIndex (appears LEFT)
-            selectionEndX = x + maxWidth;                    // Right edge (line start, index 0)
-            selectionStartX = x + maxWidth - widthToSelEnd;  // Left edge (selection end, higher index)
+            selectionEndX = x + maxWidth; // Right edge (line start, index 0)
+            selectionStartX = x + maxWidth - widthToSelEnd; // Left edge (selection end, higher index)
           } else {
             if (end.textIndex < line.endIndex) {
               // Use format-aware measurement

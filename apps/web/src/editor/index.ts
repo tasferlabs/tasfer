@@ -230,7 +230,11 @@ export default function createEditor(
 
     // On desktop, if hidden input is focused, ignore window keyboard events
     // (they should come through the hidden input instead for IME support)
-    if (e instanceof KeyboardEvent && e.target === window && document.activeElement === hiddenInput) {
+    if (
+      e instanceof KeyboardEvent &&
+      e.target === window &&
+      document.activeElement === hiddenInput
+    ) {
       return;
     }
 
@@ -276,7 +280,10 @@ export default function createEditor(
   }
 
   function windowMouseMoveHandler(e: Event) {
-    if (state && (state.view.scrollbar.isDragging || state.ui.mode === "select")) {
+    if (
+      state &&
+      (state.view.scrollbar.isDragging || state.ui.mode === "select")
+    ) {
       eventsQueue.push(e);
     }
   }
@@ -411,6 +418,9 @@ export default function createEditor(
   function hiddenInputKeyDownHandler(e: KeyboardEvent) {
     if (!hiddenInput) return;
 
+    // Check if this is a keyboard shortcut (Ctrl/Cmd + key)
+    const isShortcut = e.ctrlKey || e.metaKey;
+
     // Only forward special keys to avoid duplication with input event
     // Regular text input is handled by hiddenInputHandler
     if (
@@ -429,6 +439,13 @@ export default function createEditor(
       eventsQueue.push(e);
       scheduleRender();
       hiddenInput.value = "";
+    } else if (isShortcut) {
+      // For keyboard shortcuts, forward to events queue and stop propagation
+      // to prevent window listener from also processing it
+      e.preventDefault();
+      e.stopPropagation();
+      eventsQueue.push(e);
+      scheduleRender();
     } else {
       // For regular character keys, prevent default to stop them from being processed by window listener
       // But allow the input event to fire
@@ -439,7 +456,7 @@ export default function createEditor(
   // Handle composition events (IME input)
   function compositionStartHandler(e: CompositionEvent) {
     if (!state) return;
-    
+
     // Mark composition as starting - this will be handled in events.ts
     eventsQueue.push(e);
     scheduleRender();
@@ -447,7 +464,7 @@ export default function createEditor(
 
   function compositionUpdateHandler(e: CompositionEvent) {
     if (!state) return;
-    
+
     // Update composition text - this will be handled in events.ts
     eventsQueue.push(e);
     scheduleRender();
@@ -455,11 +472,11 @@ export default function createEditor(
 
   function compositionEndHandler(e: CompositionEvent) {
     if (!state || !hiddenInput) return;
-    
+
     // Finalize composition - this will be handled in events.ts
     eventsQueue.push(e);
     scheduleRender();
-    
+
     // Clear the input after composition ends
     hiddenInput.value = "";
   }
@@ -514,10 +531,13 @@ export default function createEditor(
     if (hiddenInput) {
       hiddenInput.addEventListener("input", hiddenInputHandler);
       hiddenInput.addEventListener("keydown", hiddenInputKeyDownHandler);
-      
+
       // Add composition event listeners for IME support
       hiddenInput.addEventListener("compositionstart", compositionStartHandler);
-      hiddenInput.addEventListener("compositionupdate", compositionUpdateHandler);
+      hiddenInput.addEventListener(
+        "compositionupdate",
+        compositionUpdateHandler
+      );
       hiddenInput.addEventListener("compositionend", compositionEndHandler);
 
       // Ensure input is focusable (already set in mount.ts, but ensure it's correct)
@@ -569,8 +589,14 @@ export default function createEditor(
     if (hiddenInput) {
       hiddenInput.removeEventListener("input", hiddenInputHandler);
       hiddenInput.removeEventListener("keydown", hiddenInputKeyDownHandler);
-      hiddenInput.removeEventListener("compositionstart", compositionStartHandler);
-      hiddenInput.removeEventListener("compositionupdate", compositionUpdateHandler);
+      hiddenInput.removeEventListener(
+        "compositionstart",
+        compositionStartHandler
+      );
+      hiddenInput.removeEventListener(
+        "compositionupdate",
+        compositionUpdateHandler
+      );
       hiddenInput.removeEventListener("compositionend", compositionEndHandler);
     }
   }
@@ -756,10 +782,7 @@ export default function createEditor(
     selection: EditorState["document"]["selection"]
   ) {
     state = updateMode(
-      updateSelection(
-        updateCursor(state, cursor?.position || null),
-        selection
-      ),
+      updateSelection(updateCursor(state, cursor?.position || null), selection),
       "edit"
     );
     scheduleRender();
