@@ -5,8 +5,7 @@ Bugs list
 [x] word boundaries on double click should be respected. The punctionuation should not selected.
 [x] Arabic and other langs from rtl should be rendered from right to left.
 [x] left and right arrow keys should move correctly with rtl. Now while moving from ltr to rtl bloks work. But there is an issue if we start from rtl block
-[x] undo and redo and other shortcuts does not work in other lang layouts.
-[x] composition and other input methods such as IME should work.
+[x] shortcuts does not work in other lang layouts.
 [x] split function does not preserve block type.
 [ ] clicking enter on the end of header it should not create new heading block.
 [x] Could not expand selection beyond non alpha characters for example dots or commas. This happens with ctrl + arrow left and right.
@@ -17,14 +16,14 @@ Bugs list
 [x] Can not expand the selection using ctrl + shift + arrow left and right
 [x] when triple clicking on block for selection the cursor is not at the end of the block.
 [x] when triple clicking at two lines or more block the cursor is not rendered. It is rendered at the at beginning of the block and not the end of the block.
-[x] Selection only covers middle part of text, not from top to bottom. This is talking about selection and text baseline, selection should cover all the text if it goes glyph goes under the bottom line. keywords alpahpics 
+[x] Selection only covers middle part of text, not from top to bottom. This is talking about selection and text baseline, selection should cover all the text if it goes glyph goes under the bottom line. keywords alpahpics
 [x] cursor is rendering is moved one line down when when it is at the end of a line.
 [x] Rendering of cursor on second line does not work correctly, one first line it works but after moving down it becomse inacurate.
 [x] when moving with arrows keys the selection is not reseted if we do not have shift key pressed. Same thing with ctrl + arrows keys.
 [x] when selection going outside the screen the viewport should follow the selection.
 [x] hold press and selecting down on mobile does not work correctly because cursor is not moving down.
 [x] when end edge scrolling we should open keyboard on mobile.
-[ ] max selection dragging scroll speed should be limited. Or limted but very large number. Because we don not how large the document could be. 
+[ ] max selection dragging scroll speed should be limited. Or limted but very large number. Because we don not how large the document could be.
 [ ] Maybe specify how large of document we should supprt.
 [ ] add word count if enabled in setings. Consider if we could mange count all the words or we need to implement estimation somehow.s
 [x] when clicking on the sides or outside the editor we should reset the selection.
@@ -60,7 +59,8 @@ Bugs list
 [ ] Choosing a context menu by dragging not avaliable
 [ ] Check devices compatiabities such ipad with keyboard. Pen input, stylus supprot. Handwriting.
 [ ] on ios keyboard iland we should add active/inactive state for block type menu. External keyboard
-[ ] voice input/speeh-to-text 
+[x] composition and other input methods such as IME should work.
+[ ] voice input/speeh-to-text
 [ ] Accessiblity input?
 [ ] Autorcorrect/autocomplete
 [ ] draggin text
@@ -71,10 +71,10 @@ Bugs list
 [ ] Add animation on scrolling to make more visually apealing.
 [ ] Remove the markdown style when copying plain text.
 [ ] Typing to spaces should exit inline styling, consult someone if this actaully good pratice.
-[ ] consider adding selection dragging on mobiles on both anchor and foucus. Like it is on ios. This for epxanding the selection and shrinking. 
-[x] add link for inline rendering format but the styles should be resvered for links. Add parsing logic for links as well. Add menu for changing the  link tile.
+[ ] consider adding selection dragging on mobiles on both anchor and foucus. Like it is on ios. This for epxanding the selection and shrinking.
+[x] add link for inline rendering format but the styles should be resvered for links. Add parsing logic for links as well. Add menu for changing the link tile.
 [x] ctrl click or command click should open the link. But it should not matter if it happens in fly while selecting.
-[x] hover on link should radix toolip and preview and  with edit edit button and copy button. clicking on link preview should open it.
+[x] hover on link should radix toolip and preview and with edit edit button and copy button. clicking on link preview should open it.
 [ ] how to do the above on mobile.
 [ ] bring back the old tree code from l4r for saving pages and sort them into trees.
 [ ] do design overhaul.
@@ -83,3 +83,4 @@ Bugs list
 [ ] rendering is triggered to many times.
 [ ] override webiew defaul 404 page
 [x] rtl inline format rendering edge cases
+[ ] complex mandrians characters are not working with with selection.
