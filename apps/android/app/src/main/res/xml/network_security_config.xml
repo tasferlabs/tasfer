@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext traffic for local development -->
+    <!-- 10.0.2.2 is used by Android emulator to access host machine's localhost -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">192.168.1.1</domain>
+        <domain includeSubdomains="true">192.168.1.0/24</domain>
+        <trust-anchors>
+            <!-- Trust user-added certificates (for development with HTTPS) -->
+            <certificates src="user" />
+            <!-- Trust system certificates -->
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>
+

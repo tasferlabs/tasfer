@@ -13,6 +13,8 @@ import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.SslErrorHandler
+import android.net.http.SslError
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -131,6 +133,19 @@ class MainActivity : ComponentActivity() {
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                 return false
             }
+            
+            override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
+                // Trust self-signed SSL certificates for development only
+                // Accept certificates from local development servers
+                val url = error?.url ?: ""
+                if (url.contains("localhost") || url.contains("127.0.0.1") || url.contains("10.0.2.2") || 
+                    url.startsWith("https://192.168.")) {
+                    handler?.proceed()
+                } else {
+                    // For production URLs, cancel on SSL errors
+                    handler?.cancel()
+                }
+            }
         }
         
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -147,7 +162,8 @@ class MainActivity : ComponentActivity() {
             }
         })
         
-        webView.loadUrl("http://192.168.68.54:5173/")
+        // Use 10.0.2.2 for Android emulator to access host machine's localhost
+        webView.loadUrl("https://10.0.2.2:5173/")
     }
     
     private fun setupToolbarListeners() {

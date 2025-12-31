@@ -13,7 +13,7 @@ struct ContentView: View {
     
     var body: some View {
         ZStack {
-            WebView(url: URL(string: "http://192.168.68.53:5173/")!, isLoading: $isLoading)
+            WebView(url: URL(string: "https://localhost:5173/")!, isLoading: $isLoading)
                 .edgesIgnoringSafeArea(.all)
             
             if isLoading {
@@ -428,6 +428,21 @@ struct WebView: UIViewRepresentable {
             withAnimation {
                 parent.isLoading = false
             }
+        }
+        
+        func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+            // Trust localhost SSL certificates for development
+            if challenge.protectionSpace.host == "localhost" || 
+               challenge.protectionSpace.host == "127.0.0.1" {
+                if let serverTrust = challenge.protectionSpace.serverTrust {
+                    let credential = URLCredential(trust: serverTrust)
+                    completionHandler(.useCredential, credential)
+                    return
+                }
+            }
+            
+            // For other hosts, use default handling
+            completionHandler(.performDefaultHandling, nil)
         }
     }
 }
