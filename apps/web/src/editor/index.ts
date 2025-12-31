@@ -122,7 +122,8 @@ export default function createEditor(
   // Update canvas cursor style based on scrollbar hover and drag state
   const updateCursorStyle = (
     isHoveringScrollbar: boolean,
-    isDragging: boolean
+    isDragging: boolean,
+    isHoveringLinkWithModifier: boolean
   ) => {
     // Only update cursor on desktop (not touch devices)
     if (isTouchDevice()) {
@@ -134,6 +135,9 @@ export default function createEditor(
       canvas.style.cursor = "grabbing";
     } else if (isHoveringScrollbar) {
       // When hovering over scrollbar, use pointer cursor
+      canvas.style.cursor = "pointer";
+    } else if (isHoveringLinkWithModifier) {
+      // When hovering over link with Ctrl/Cmd held, use pointer cursor
       canvas.style.cursor = "pointer";
     } else {
       // When hovering over text, use text cursor
@@ -190,7 +194,8 @@ export default function createEditor(
         // Update cursor style based on scrollbar hover and drag state
         updateCursorStyle(
           state.view.scrollbar.isHovered,
-          state.view.scrollbar.isDragging
+          state.view.scrollbar.isDragging,
+          state.ui.isHoveringLinkWithModifier
         );
 
         setDocumentHeight(documentHeight);

@@ -631,6 +631,30 @@ function handleMouseDown(
   const canvasX = event.x - containerRect.left;
   const canvasY = event.y - containerRect.top;
 
+  // Check for Ctrl/Command+Click on link to open it
+  const isCtrlOrCmd = event.ctrlKey || event.metaKey;
+  if (isCtrlOrCmd) {
+    const position = getTextPositionFromViewport(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      visibility
+    );
+
+    if (position) {
+      const linkData = getLinkAtPosition(position, state);
+      if (linkData) {
+        // Open the link in a new tab
+        window.open(linkData.url, "_blank", "noopener,noreferrer");
+        // Clear any link hover state
+        state = { ...state, ui: { ...state.ui, linkHover: null, isHoveringLinkWithModifier: false } };
+        // Don't continue with normal click behavior - just return
+        return state;
+      }
+    }
+  }
+
   // Check if clicking on scrollbar
   if (isPointInScrollbar(canvasX, canvasY, viewport, documentHeight)) {
     // Check if clicking on thumb
@@ -779,6 +803,15 @@ function handleMouseMove(
 
   if (state.ui.mode !== "select") {
     // Check for link hover when not selecting (desktop only)
+    // Don't show tooltip if Ctrl/Command key is held (user wants to click to open)
+    const isCtrlOrCmd = event.ctrlKey || event.metaKey;
+    
+    // If Ctrl/Command is held and we have a tooltip showing, clear it
+    if (isCtrlOrCmd && state.ui.linkHover) {
+      state = { ...state, ui: { ...state.ui, linkHover: null } };
+      return state;
+    }
+    
     if (!isTouchDevice()) {
       const position = getTextPositionFromViewport(
         canvasX,
@@ -791,35 +824,49 @@ function handleMouseMove(
       if (position) {
         const linkData = getLinkAtPosition(position, state);
         if (linkData) {
-          // Calculate screen coordinates for tooltip at the link's start position
-          const linkStartPos = {
-            blockIndex: position.blockIndex,
-            textIndex: linkData.start,
-          };
-          const linkCoords = getCursorCoordinates(
-            linkStartPos,
-            state,
-            viewport
-          );
-
-          if (linkCoords) {
-            // Position tooltip below the start of the link text
+          // If Ctrl/Command is held, show pointer cursor but no tooltip
+          if (isCtrlOrCmd) {
             state = {
               ...state,
               ui: {
                 ...state.ui,
-                linkHover: {
-                  position,
-                  url: linkData.url,
-                  text: linkData.text,
-                  x: linkCoords.x + containerRect.left,
-                  y: linkCoords.y + linkCoords.height + containerRect.top,
-                  segmentIndex: linkData?.segmentIndex,
-                },
+                linkHover: null,
+                isHoveringLinkWithModifier: true,
               },
             };
+          } else {
+            // Normal hover - show tooltip
+            // Calculate screen coordinates for tooltip at the link's start position
+            const linkStartPos = {
+              blockIndex: position.blockIndex,
+              textIndex: linkData.start,
+            };
+            const linkCoords = getCursorCoordinates(
+              linkStartPos,
+              state,
+              viewport
+            );
+
+            if (linkCoords) {
+              // Position tooltip below the start of the link text
+              state = {
+                ...state,
+                ui: {
+                  ...state.ui,
+                  linkHover: {
+                    position,
+                    url: linkData.url,
+                    text: linkData.text,
+                    x: linkCoords.x + containerRect.left,
+                    y: linkCoords.y + linkCoords.height + containerRect.top,
+                    segmentIndex: linkData?.segmentIndex,
+                  },
+                  isHoveringLinkWithModifier: false,
+                },
+              };
+            }
           }
-        } else if (state.ui.linkHover) {
+        } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
           // Check if mouse is over the tooltip area before clearing
           // Keep tooltip if we're within the tooltip bounds (approximate)
           const tooltipHeight = 120; // Approximate height
@@ -837,9 +884,9 @@ function handleMouseMove(
           }
 
           // Clear link hover if no longer over a link or tooltip
-          state = { ...state, ui: { ...state.ui, linkHover: null } };
+          state = { ...state, ui: { ...state.ui, linkHover: null, isHoveringLinkWithModifier: false } };
         }
-      } else if (state.ui.linkHover) {
+      } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
         // Check if mouse is still over the tooltip
         const tooltipHeight = 120;
         const tooltipWidth = 300;
@@ -856,11 +903,11 @@ function handleMouseMove(
         }
 
         // Clear link hover if not over any text or tooltip
-        state = { ...state, ui: { ...state.ui, linkHover: null } };
+        state = { ...state, ui: { ...state.ui, linkHover: null, isHoveringLinkWithModifier: false } };
       }
-    } else if (state.ui.linkHover) {
+    } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
       // Clear link hover on touch devices
-      state = { ...state, ui: { ...state.ui, linkHover: null } };
+      state = { ...state, ui: { ...state.ui, linkHover: null, isHoveringLinkWithModifier: false } };
     }
 
     return state;

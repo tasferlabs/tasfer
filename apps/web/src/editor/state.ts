@@ -35,6 +35,7 @@ export const createInitialState = (page: Page): EditorState => ({
     slashCommand: null,
     contextMenu: null,
     linkHover: null,
+    isHoveringLinkWithModifier: false,
   },
   view: {
     isFocused: false,

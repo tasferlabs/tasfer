@@ -45,6 +45,7 @@ export interface UIState {
   readonly slashCommand: SlashCommandState | null;
   readonly contextMenu: ContextMenuState | null;
   readonly linkHover: LinkHoverState | null;
+  readonly isHoveringLinkWithModifier: boolean;
 }
 
 // View State - Ephemeral view properties
@@ -233,6 +234,7 @@ export interface MouseEvent extends EditorEvent {
   readonly button: number;
   readonly shiftKey: boolean;
   readonly ctrlKey: boolean;
+  readonly metaKey: boolean;
 }
 
 export interface KeyboardEvent extends EditorEvent {
