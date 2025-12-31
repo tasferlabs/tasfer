@@ -217,13 +217,50 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
   if (!state.document.cursor) return createInitialCursorState(state);
 
   const { blockIndex, textIndex } = state.document.cursor.position;
+  const currentBlock = state.document.page.blocks[blockIndex];
+  
+  if (!currentBlock) return state;
 
-  if (textIndex > 0) {
-    return moveCursorToPosition(state, blockIndex, textIndex - 1);
-  } else if (blockIndex > 0) {
-    const prevBlock = state.document.page.blocks[blockIndex - 1];
-    const prevBlockLength = getBlockTextLength(prevBlock);
-    return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
+  // Check if current block is RTL
+  const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
+  
+  if (isRTL) {
+    // In RTL text, visual left is logical forward (increment)
+    const currentBlockLength = getBlockTextLength(currentBlock);
+    
+    if (textIndex < currentBlockLength) {
+      return moveCursorToPosition(state, blockIndex, textIndex + 1);
+    } else if (blockIndex < state.document.page.blocks.length - 1) {
+      // Moving to next block - check if next block is RTL or LTR
+      const nextBlock = state.document.page.blocks[blockIndex + 1];
+      const nextIsRTL = getFormattedTextDirection(nextBlock.content) === "rtl";
+      
+      if (nextIsRTL) {
+        // Next block is RTL, position at start (visual right edge)
+        return moveCursorToPosition(state, blockIndex + 1, 0);
+      } else {
+        // Next block is LTR, position at start (visual left edge)
+        return moveCursorToPosition(state, blockIndex + 1, 0);
+      }
+    }
+  } else {
+    // LTR text: visual left is logical backward (decrement)
+    if (textIndex > 0) {
+      return moveCursorToPosition(state, blockIndex, textIndex - 1);
+    } else if (blockIndex > 0) {
+      // Moving to previous block - check if previous block is RTL or LTR
+      const prevBlock = state.document.page.blocks[blockIndex - 1];
+      const prevBlockLength = getBlockTextLength(prevBlock);
+      const prevIsRTL = getFormattedTextDirection(prevBlock.content) === "rtl";
+      
+      if (prevIsRTL) {
+        // Previous block is RTL, position at end (visual left edge)
+        return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
+      } else {
+        // Previous block is LTR, position at end (visual right edge)
+        return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
+      }
+    }
   }
 
   return state;
@@ -238,11 +275,45 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   if (!currentBlock) return state;
 
   const currentBlockLength = getBlockTextLength(currentBlock);
-
-  if (textIndex < currentBlockLength) {
-    return moveCursorToPosition(state, blockIndex, textIndex + 1);
-  } else if (blockIndex < state.document.page.blocks.length - 1) {
-    return moveCursorToPosition(state, blockIndex + 1, 0);
+  
+  // Check if current block is RTL
+  const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
+  
+  if (isRTL) {
+    // In RTL text, visual right is logical backward (decrement)
+    if (textIndex > 0) {
+      return moveCursorToPosition(state, blockIndex, textIndex - 1);
+    } else if (blockIndex > 0) {
+      // Moving to previous block - check if previous block is RTL or LTR
+      const prevBlock = state.document.page.blocks[blockIndex - 1];
+      const prevBlockLength = getBlockTextLength(prevBlock);
+      const prevIsRTL = getFormattedTextDirection(prevBlock.content) === "rtl";
+      
+      if (prevIsRTL) {
+        // Previous block is RTL, position at end (visual left edge)
+        return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
+      } else {
+        // Previous block is LTR, position at end (visual right edge)
+        return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
+      }
+    }
+  } else {
+    // LTR text: visual right is logical forward (increment)
+    if (textIndex < currentBlockLength) {
+      return moveCursorToPosition(state, blockIndex, textIndex + 1);
+    } else if (blockIndex < state.document.page.blocks.length - 1) {
+      // Moving to next block - check if next block is RTL or LTR
+      const nextBlock = state.document.page.blocks[blockIndex + 1];
+      const nextIsRTL = getFormattedTextDirection(nextBlock.content) === "rtl";
+      
+      if (nextIsRTL) {
+        // Next block is RTL, position at start (visual right edge)
+        return moveCursorToPosition(state, blockIndex + 1, 0);
+      } else {
+        // Next block is LTR, position at start (visual left edge)
+        return moveCursorToPosition(state, blockIndex + 1, 0);
+      }
+    }
   }
 
   return state;

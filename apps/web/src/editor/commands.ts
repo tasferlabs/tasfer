@@ -17,6 +17,7 @@ import {
   clearSelection,
 } from "./state";
 import { recordUndo } from "./undo";
+import { getFormattedTextDirection } from "./rtl";
 
 /**
  * Insert text at a specific position in formatted content while preserving formatting
@@ -838,15 +839,30 @@ export function moveToPreviousWord(state: EditorState): EditorState {
   const { blockIndex, textIndex } = state.document.cursor.position;
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
-
-  if (textIndex > 0) {
-    const newIndex = findWordBoundary(text, textIndex, "left");
-    return moveCursorToPosition(state, blockIndex, newIndex);
-  } else if (blockIndex > 0) {
-    // Move to end of previous block
-    const prevBlock = state.document.page.blocks[blockIndex - 1];
-    const prevText = getBlockTextContent(prevBlock);
-    return moveCursorToPosition(state, blockIndex - 1, prevText.length);
+  
+  // Check if current block is RTL
+  const isRTL = getFormattedTextDirection(block.content) === "rtl";
+  
+  if (isRTL) {
+    // In RTL, "previous word" (Ctrl+Left) should move visually left, which is logically forward
+    if (textIndex < text.length) {
+      const newIndex = findWordBoundary(text, textIndex, "right");
+      return moveCursorToPosition(state, blockIndex, newIndex);
+    } else if (blockIndex < state.document.page.blocks.length - 1) {
+      // Move to start of next block
+      return moveCursorToPosition(state, blockIndex + 1, 0);
+    }
+  } else {
+    // LTR behavior (original)
+    if (textIndex > 0) {
+      const newIndex = findWordBoundary(text, textIndex, "left");
+      return moveCursorToPosition(state, blockIndex, newIndex);
+    } else if (blockIndex > 0) {
+      // Move to end of previous block
+      const prevBlock = state.document.page.blocks[blockIndex - 1];
+      const prevText = getBlockTextContent(prevBlock);
+      return moveCursorToPosition(state, blockIndex - 1, prevText.length);
+    }
   }
   return state;
 }
@@ -857,13 +873,30 @@ export function moveToNextWord(state: EditorState): EditorState {
   const { blockIndex, textIndex } = state.document.cursor.position;
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
-
-  if (textIndex < text.length) {
-    const newIndex = findWordBoundary(text, textIndex, "right");
-    return moveCursorToPosition(state, blockIndex, newIndex);
-  } else if (blockIndex < state.document.page.blocks.length - 1) {
-    // Move to start of next block
-    return moveCursorToPosition(state, blockIndex + 1, 0);
+  
+  // Check if current block is RTL
+  const isRTL = getFormattedTextDirection(block.content) === "rtl";
+  
+  if (isRTL) {
+    // In RTL, "next word" (Ctrl+Right) should move visually right, which is logically backward
+    if (textIndex > 0) {
+      const newIndex = findWordBoundary(text, textIndex, "left");
+      return moveCursorToPosition(state, blockIndex, newIndex);
+    } else if (blockIndex > 0) {
+      // Move to end of previous block
+      const prevBlock = state.document.page.blocks[blockIndex - 1];
+      const prevText = getBlockTextContent(prevBlock);
+      return moveCursorToPosition(state, blockIndex - 1, prevText.length);
+    }
+  } else {
+    // LTR behavior (original)
+    if (textIndex < text.length) {
+      const newIndex = findWordBoundary(text, textIndex, "right");
+      return moveCursorToPosition(state, blockIndex, newIndex);
+    } else if (blockIndex < state.document.page.blocks.length - 1) {
+      // Move to start of next block
+      return moveCursorToPosition(state, blockIndex + 1, 0);
+    }
   }
   return state;
 }
