@@ -6,7 +6,7 @@ Bugs list
 [x] Arabic and other langs from rtl should be rendered from right to left.
 [x] left and right arrow keys should move correctly with rtl. Now while moving from ltr to rtl bloks work. But there is an issue if we start from rtl block
 [x] undo and redo and other shortcuts does not work in other lang layouts.
-[ ] composition and other input methods such as IME should work.
+[x] composition and other input methods such as IME should work.
 [x] split function does not preserve block type.
 [ ] clicking enter on the end of header it should not create new heading block.
 [x] Could not expand selection beyond non alpha characters for example dots or commas. This happens with ctrl + arrow left and right.
@@ -58,8 +58,12 @@ Bugs list
 [ ] add image blocks
 [ ] copy the feature from context menu not working anymore on desktop windows or in ios. So this is not working everywhere.
 [ ] Choosing a context menu by dragging not avaliable
-[ ] Check devices compatiabities such ipad with keyboard. Pen input.
-[ ] on ios keyboard iland we should add active/inactive state for block type menu.
+[ ] Check devices compatiabities such ipad with keyboard. Pen input, stylus supprot. Handwriting.
+[ ] on ios keyboard iland we should add active/inactive state for block type menu. External keyboard
+[ ] voice input/speeh-to-text 
+[ ] Accessiblity input?
+[ ] Autorcorrect/autocomplete
+[ ] draggin text
 [ ] on android keyboard toolbar we should add active/inactive state for block type menu.
 [ ] we should add inline formatting options in ios keyboard island.
 [ ] we should add inline formatting options in android keyboard toolbar.

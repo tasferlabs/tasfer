@@ -39,6 +39,13 @@ export interface DocumentState {
   readonly selection: SelectionState | null;
 }
 
+// Composition State - IME input composition tracking
+export interface CompositionState {
+  readonly isComposing: boolean;
+  readonly text: string;
+  readonly startPosition: Position;
+}
+
 // UI State - Transient interaction state (menus, popovers, mode)
 export interface UIState {
   readonly mode: EditorMode;
@@ -46,6 +53,7 @@ export interface UIState {
   readonly contextMenu: ContextMenuState | null;
   readonly linkHover: LinkHoverState | null;
   readonly isHoveringLinkWithModifier: boolean;
+  readonly composition: CompositionState | null;
 }
 
 // View State - Ephemeral view properties

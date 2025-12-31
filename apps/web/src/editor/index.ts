@@ -228,6 +228,12 @@ export default function createEditor(
       return;
     }
 
+    // On desktop, if hidden input is focused, ignore window keyboard events
+    // (they should come through the hidden input instead for IME support)
+    if (e instanceof KeyboardEvent && e.target === window && document.activeElement === hiddenInput) {
+      return;
+    }
+
     if (
       e instanceof KeyboardEvent &&
       ["Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(
@@ -346,15 +352,17 @@ export default function createEditor(
 
     const inputEvent = e as InputEvent;
 
+    // Skip processing during IME composition - composition events will handle it
+    if (inputEvent.inputType === "insertCompositionText") {
+      // Don't process composition text here - let composition events handle it
+      return;
+    }
+
     // Use inputEvent.data for precise text that was inserted (not entire input value)
     const insertedText = inputEvent.data;
 
     // Handle text input
-    if (
-      insertedText &&
-      (inputEvent.inputType === "insertText" ||
-        inputEvent.inputType === "insertCompositionText")
-    ) {
+    if (insertedText && inputEvent.inputType === "insertText") {
       // Process each character that was inserted
       for (const char of insertedText) {
         const keyEvent = new KeyboardEvent("keydown", {
@@ -428,6 +436,34 @@ export default function createEditor(
     }
   }
 
+  // Handle composition events (IME input)
+  function compositionStartHandler(e: CompositionEvent) {
+    if (!state) return;
+    
+    // Mark composition as starting - this will be handled in events.ts
+    eventsQueue.push(e);
+    scheduleRender();
+  }
+
+  function compositionUpdateHandler(e: CompositionEvent) {
+    if (!state) return;
+    
+    // Update composition text - this will be handled in events.ts
+    eventsQueue.push(e);
+    scheduleRender();
+  }
+
+  function compositionEndHandler(e: CompositionEvent) {
+    if (!state || !hiddenInput) return;
+    
+    // Finalize composition - this will be handled in events.ts
+    eventsQueue.push(e);
+    scheduleRender();
+    
+    // Clear the input after composition ends
+    hiddenInput.value = "";
+  }
+
   // Click handler for focusing input (stored for cleanup)
   let canvasClickHandler: (() => void) | null = null;
 
@@ -443,9 +479,9 @@ export default function createEditor(
 
     // Add click/mousedown handler to canvas as fallback for focusing input
     canvasClickHandler = () => {
-      if (hiddenInput && isTouchDevice()) {
+      if (hiddenInput) {
         try {
-          hiddenInput.focus();
+          hiddenInput.focus({ preventScroll: true });
         } catch (err) {
           // Ignore
         }
@@ -478,6 +514,11 @@ export default function createEditor(
     if (hiddenInput) {
       hiddenInput.addEventListener("input", hiddenInputHandler);
       hiddenInput.addEventListener("keydown", hiddenInputKeyDownHandler);
+      
+      // Add composition event listeners for IME support
+      hiddenInput.addEventListener("compositionstart", compositionStartHandler);
+      hiddenInput.addEventListener("compositionupdate", compositionUpdateHandler);
+      hiddenInput.addEventListener("compositionend", compositionEndHandler);
 
       // Ensure input is focusable (already set in mount.ts, but ensure it's correct)
       hiddenInput.setAttribute("tabindex", "0");
@@ -528,6 +569,9 @@ export default function createEditor(
     if (hiddenInput) {
       hiddenInput.removeEventListener("input", hiddenInputHandler);
       hiddenInput.removeEventListener("keydown", hiddenInputKeyDownHandler);
+      hiddenInput.removeEventListener("compositionstart", compositionStartHandler);
+      hiddenInput.removeEventListener("compositionupdate", compositionUpdateHandler);
+      hiddenInput.removeEventListener("compositionend", compositionEndHandler);
     }
   }
 

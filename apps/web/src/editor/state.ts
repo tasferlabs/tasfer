@@ -37,6 +37,7 @@ export const createInitialState = (page: Page): EditorState => ({
     contextMenu: null,
     linkHover: null,
     isHoveringLinkWithModifier: false,
+    composition: null,
   },
   view: {
     isFocused: false,
@@ -1107,5 +1108,47 @@ export const setLinkHover = (
   ui: {
     ...state.ui,
     linkHover,
+  },
+});
+
+// Composition (IME) State Management
+export const startComposition = (
+  state: EditorState,
+  text: string,
+  startPosition: Position
+): EditorState => ({
+  ...state,
+  ui: {
+    ...state.ui,
+    composition: {
+      isComposing: true,
+      text,
+      startPosition,
+    },
+  },
+});
+
+export const updateComposition = (
+  state: EditorState,
+  text: string
+): EditorState => {
+  if (!state.ui.composition) return state;
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      composition: {
+        ...state.ui.composition,
+        text,
+      },
+    },
+  };
+};
+
+export const endComposition = (state: EditorState): EditorState => ({
+  ...state,
+  ui: {
+    ...state.ui,
+    composition: null,
   },
 });

@@ -520,6 +520,15 @@ export function handleEvents(
         // Cancel touch interaction
         state = handleTouchCancel(state);
         break;
+      case "compositionstart":
+        state = handleCompositionStart(state, event as CompositionEvent);
+        break;
+      case "compositionupdate":
+        state = handleCompositionUpdate(state, event as CompositionEvent);
+        break;
+      case "compositionend":
+        state = handleCompositionEnd(state, event as CompositionEvent, viewport, updateViewportCallback);
+        break;
     }
 
     events.shift();
@@ -2083,6 +2092,97 @@ function handleTouchCancel(state: EditorState): EditorState {
         ...state.view.scrollbar,
         lastInteraction: Date.now(),
       },
+    },
+  };
+}
+
+// Composition (IME) Event Handlers
+function handleCompositionStart(
+  state: EditorState,
+  event: CompositionEvent
+): EditorState {
+  // When composition starts, save the current cursor position
+  if (!state.document.cursor) return state;
+
+  // Delete any selected text first (like normal typing would)
+  if (state.document.selection && !state.document.selection.isCollapsed) {
+    const range = getSelectionRange(state);
+    if (range) {
+      state = deleteSelectedText(state);
+    }
+  }
+
+  // Store the starting position for composition
+  const startPosition = state.document.cursor.position;
+
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      composition: {
+        isComposing: true,
+        text: event.data || "",
+        startPosition,
+      },
+    },
+  };
+}
+
+function handleCompositionUpdate(
+  state: EditorState,
+  event: CompositionEvent
+): EditorState {
+  if (!state.ui.composition) {
+    // If composition wasn't started properly, start it now
+    return handleCompositionStart(state, event);
+  }
+
+  // Don't insert text during composition - just track it
+  // The actual text will be inserted on compositionend
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      composition: {
+        ...state.ui.composition,
+        text: event.data || "",
+      },
+    },
+  };
+}
+
+function handleCompositionEnd(
+  state: EditorState,
+  event: CompositionEvent,
+  viewport: ViewportState,
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
+): EditorState {
+  // Insert the final composed text
+  const composedText = event.data || "";
+  
+  if (composedText && state.document.cursor) {
+    // Insert the composed text at the cursor position
+    state = insertText(recordUndo(state), composedText);
+    
+    // Scroll to make cursor visible
+    if (state.document.cursor && updateViewportCallback) {
+      const newScrollY = scrollToMakeCursorVisible(
+        state.document.cursor.position,
+        state,
+        viewport
+      );
+      if (newScrollY !== null) {
+        updateViewportCallback({ scrollY: newScrollY });
+      }
+    }
+  }
+
+  // Clear composition state
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      composition: null,
     },
   };
 }
