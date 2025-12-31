@@ -16,11 +16,42 @@ export interface Paragraph {
   cachedWidth?: number; // Width at which height was cached
 }
 
-export type TextFormat = 'bold' | 'italic' | 'strikethrough' | 'code';
+export interface TextFormat {
+  type: 'bold' | 'italic' | 'strikethrough' | 'code' | 'link';
+  url?: string; // Only for link type
+}
 
 export interface Text {
   content: string;
   formats?: TextFormat[];
+}
+
+// Helper function to compare two TextFormat objects
+export function areFormatsEqual(a: TextFormat, b: TextFormat): boolean {
+  if (a.type !== b.type) return false;
+  if (a.type === 'link' && b.type === 'link') {
+    return a.url === b.url;
+  }
+  return true;
+}
+
+// Helper function to compare two arrays of TextFormat objects
+export function areFormatArraysEqual(a: TextFormat[] | undefined, b: TextFormat[] | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  
+  // Sort both arrays by type for consistent comparison
+  const sortedA = [...a].sort((x, y) => x.type.localeCompare(y.type));
+  const sortedB = [...b].sort((x, y) => x.type.localeCompare(y.type));
+  
+  for (let i = 0; i < sortedA.length; i++) {
+    if (!areFormatsEqual(sortedA[i], sortedB[i])) {
+      return false;
+    }
+  }
+  
+  return true;
 }
 
 export type Block = Heading | Paragraph;

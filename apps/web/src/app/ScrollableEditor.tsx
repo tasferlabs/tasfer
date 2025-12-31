@@ -6,6 +6,7 @@ import { mountEditor, type MountedEditor } from "../editor/mount";
 import type { EditorState, SlashCommand } from "../editor/types";
 import { SlashCommandMenu } from "../editor/SlashCommandMenu";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
+import { LinkTooltip } from "../editor/LinkTooltip";
 import { getSelectionRange } from "../editor/commands";
 import { Clipboard, Copy, Scissors } from "lucide-react";
 import { hasNativeBridge } from "../editor/clipboard";
@@ -36,8 +37,16 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     hasSelection: boolean;
   } | null>(null);
 
+  const [linkTooltipState, setLinkTooltipState] = useState<{
+    x: number;
+    y: number;
+    url: string;
+    text: string;
+  } | null>(null);
+
   const lastSlashMenuStateRef = useRef<typeof slashMenuState>(null);
   const lastContextMenuStateRef = useRef<typeof contextMenuState>(null);
+  const lastLinkTooltipStateRef = useRef<typeof linkTooltipState>(null);
 
   // Imperatively mount/unmount editor (no React state needed)
   useEffect(() => {
@@ -124,6 +133,23 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       if (!shallowEqual(newContextMenuState, lastContextMenuStateRef.current)) {
         lastContextMenuStateRef.current = newContextMenuState;
         setContextMenuState(newContextMenuState);
+      }
+
+      // Calculate new link tooltip state
+      let newLinkTooltipState: typeof linkTooltipState = null;
+      if (state.linkHover) {
+        newLinkTooltipState = {
+          x: state.linkHover.x,
+          y: state.linkHover.y,
+          url: state.linkHover.url,
+          text: state.linkHover.text,
+        };
+      }
+
+      // Only update if changed
+      if (!shallowEqual(newLinkTooltipState, lastLinkTooltipStateRef.current)) {
+        lastLinkTooltipStateRef.current = newLinkTooltipState;
+        setLinkTooltipState(newLinkTooltipState);
       }
 
       // Send undo/redo state to native bridge
@@ -289,6 +315,24 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
           container={mountedRef.current?.portalContainer}
         />
       )}
+
+      {/* Link tooltip portal */}
+      {linkTooltipState &&
+        mountedRef.current?.portalContainer &&
+        createPortal(
+          <div style={{ pointerEvents: "none", position: "fixed", inset: 0, zIndex: 50 }}>
+            <LinkTooltip
+              url={linkTooltipState.url}
+              linkText={linkTooltipState.text}
+              x={linkTooltipState.x}
+              y={linkTooltipState.y}
+              onOpen={() => {
+                window.open(linkTooltipState.url, "_blank", "noopener,noreferrer");
+              }}
+            />
+          </div>,
+          mountedRef.current.portalContainer
+        )}
     </div>
   );
 };

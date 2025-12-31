@@ -357,3 +357,40 @@ function getPositionWithinLine(
     textIndex: bestPosition,
   };
 }
+
+/**
+ * Get link information at a given position
+ * Returns the link data (url, text, start, end) if the position is within a link
+ */
+export function getLinkAtPosition(
+  position: Position,
+  state: EditorState
+): { url: string; text: string; start: number; end: number } | null {
+  const block = state.page.blocks[position.blockIndex];
+  if (!block) return null;
+
+  let currentIndex = 0;
+  
+  for (const segment of block.content) {
+    const segmentStart = currentIndex;
+    const segmentEnd = currentIndex + segment.content.length;
+    
+    // Check if position is within this segment
+    if (position.textIndex >= segmentStart && position.textIndex < segmentEnd) {
+      // Check if this segment has a link format
+      const linkFormat = segment.formats?.find(f => f.type === 'link');
+      if (linkFormat && linkFormat.url) {
+        return {
+          url: linkFormat.url,
+          text: segment.content,
+          start: segmentStart,
+          end: segmentEnd
+        };
+      }
+    }
+    
+    currentIndex = segmentEnd;
+  }
+  
+  return null;
+}

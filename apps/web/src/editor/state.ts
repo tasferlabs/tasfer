@@ -37,6 +37,7 @@ export const createInitialState = (page: Page): EditorState => ({
   momentum: createInitialMomentumState(),
   slashCommand: null,
   contextMenu: null,
+  linkHover: null,
 });
 
 // State Update Functions (Pure Functions)
@@ -780,4 +781,13 @@ export const openContextMenu = (
 export const closeContextMenu = (state: EditorState): EditorState => ({
   ...state,
   contextMenu: null,
+});
+
+// Link Hover State Management
+export const setLinkHover = (
+  state: EditorState,
+  linkHover: { position: Position; url: string; text: string; x: number; y: number } | null
+): EditorState => ({
+  ...state,
+  linkHover,
 });

@@ -15,9 +15,12 @@ export const STRIKETHROUGH_START = "strikethrough_start";
 export const STRIKETHROUGH_END = "strikethrough_end";
 export const CODE_START = "code_start";
 export const CODE_END = "code_end";
+export const LINK_START = "link_start";
+export const LINK_TEXT_END = "link_text_end";
+export const LINK_END = "link_end";
 export const NEWLINE = "newline";
 
-type FormatTokenType = "bold_start" | "bold_end" | "italic_start" | "italic_end" | "strikethrough_start" | "strikethrough_end" | "code_start" | "code_end";
+type FormatTokenType = "bold_start" | "bold_end" | "italic_start" | "italic_end" | "strikethrough_start" | "strikethrough_end" | "code_start" | "code_end" | "link_start" | "link_text_end" | "link_end";
 type VisibleTokenType = "heading1" | "heading2" | "heading3" | "text" | FormatTokenType;
 export type TokenType = VisibleTokenType | "newline";
 
@@ -98,8 +101,61 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
   while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
     const char = current(state);
     
+    // Check for links [text](url)
+    if (char === "[") {
+      const start = state.index;
+      next(state);
+      
+      // Find closing ]
+      let foundTextEnd = false;
+      let textEndIndex = state.index;
+      while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
+        if (current(state) === "]") {
+          textEndIndex = state.index;
+          foundTextEnd = true;
+          break;
+        }
+        next(state);
+      }
+      
+      // Check if followed by (url)
+      if (foundTextEnd && peek(state) === "(") {
+        next(state, 2); // Skip ] and (
+        let urlStart = state.index;
+        let foundUrlEnd = false;
+        
+        while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
+          if (current(state) === ")") {
+            foundUrlEnd = true;
+            break;
+          }
+          next(state);
+        }
+        
+        if (foundUrlEnd) {
+          // Valid link found
+          tokens.push({ type: LINK_START, content: "[" });
+          const linkText = state.content.slice(start + 1, textEndIndex);
+          if (linkText.length > 0) {
+            tokens.push({ type: TEXT, content: linkText });
+          }
+          tokens.push({ type: LINK_TEXT_END, content: "](" });
+          const linkUrl = state.content.slice(urlStart, state.index);
+          if (linkUrl.length > 0) {
+            tokens.push({ type: TEXT, content: linkUrl });
+          }
+          tokens.push({ type: LINK_END, content: ")" });
+          next(state);
+          continue;
+        }
+      }
+      
+      // Not a valid link, treat as regular text
+      state.index = start;
+      tokenizeRegularText(state, tokens);
+    }
     // Check for code (backticks) - code doesn't nest
-    if (char === "`") {
+    else if (char === "`") {
       const start = state.index;
       next(state);
       
@@ -175,7 +231,7 @@ function tokenizeRegularText(state: TokenizerState, tokens: Token[]) {
   // Consume characters until we hit a formatting marker or line end
   while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
     const char = current(state);
-    if (char === "*" || char === "`" || char === "~") {
+    if (char === "*" || char === "`" || char === "~" || char === "[") {
       break;
     }
     next(state);

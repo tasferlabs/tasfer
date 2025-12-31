@@ -1,5 +1,6 @@
 import type { EditorState, Position } from "./types";
 import type { Block, Text, TextFormat } from "../deserializer/loadPage";
+import { areFormatArraysEqual } from "../deserializer/loadPage";
 import type { SlashCommand } from "./types";
 import {
   getBlockTextContent,
@@ -129,10 +130,8 @@ export function mergeAdjacentSegments(content: Text[]): Text[] {
 
   for (let i = 1; i < content.length; i++) {
     const next = content[i];
-    const currentFormats = current.formats?.join(',') || '';
-    const nextFormats = next.formats?.join(',') || '';
 
-    if (currentFormats === nextFormats) {
+    if (areFormatArraysEqual(current.formats, next.formats)) {
       // Same formatting, merge
       current = {
         content: current.content + next.content,
@@ -198,7 +197,7 @@ function addFormatToSegments(segments: Text[], newFormat: TextFormat): Text[] {
   return segments.map(segment => {
     const existingFormats = segment.formats || [];
     // Don't add duplicate formats
-    if (existingFormats.includes(newFormat)) {
+    if (existingFormats.some(f => f.type === newFormat.type)) {
       return segment;
     }
     return {
@@ -236,7 +235,7 @@ function detectAndApplyInlineMarkdown(
     const innerSegments = extractSegmentsInRange(content, matchStart + 2, matchStart + 2 + innerTextLength);
     const afterSegments = extractSegmentsInRange(content, matchEnd, fullText.length);
     
-    const formattedInnerSegments = addFormatToSegments(innerSegments, 'bold');
+    const formattedInnerSegments = addFormatToSegments(innerSegments, { type: 'bold' });
     
     const newContent: Text[] = [
       ...beforeSegments,
@@ -262,7 +261,7 @@ function detectAndApplyInlineMarkdown(
     const innerSegments = extractSegmentsInRange(content, matchStart + 1, matchStart + 1 + innerTextLength);
     const afterSegments = extractSegmentsInRange(content, matchEnd, fullText.length);
     
-    const formattedInnerSegments = addFormatToSegments(innerSegments, 'italic');
+    const formattedInnerSegments = addFormatToSegments(innerSegments, { type: 'italic' });
     
     const newContent: Text[] = [
       ...beforeSegments,
@@ -288,7 +287,7 @@ function detectAndApplyInlineMarkdown(
     const innerSegments = extractSegmentsInRange(content, matchStart + 2, matchStart + 2 + innerTextLength);
     const afterSegments = extractSegmentsInRange(content, matchEnd, fullText.length);
     
-    const formattedInnerSegments = addFormatToSegments(innerSegments, 'strikethrough');
+    const formattedInnerSegments = addFormatToSegments(innerSegments, { type: 'strikethrough' });
     
     const newContent: Text[] = [
       ...beforeSegments,
@@ -314,7 +313,7 @@ function detectAndApplyInlineMarkdown(
     const innerSegments = extractSegmentsInRange(content, matchStart + 1, matchStart + 1 + innerTextLength);
     const afterSegments = extractSegmentsInRange(content, matchEnd, fullText.length);
     
-    const formattedInnerSegments = addFormatToSegments(innerSegments, 'code');
+    const formattedInnerSegments = addFormatToSegments(innerSegments, { type: 'code' });
     
     const newContent: Text[] = [
       ...beforeSegments,

@@ -73,6 +73,11 @@ export const defaultStyles: EditorStyles = {
       padding: 2,
       borderRadius: 3,
     },
+    link: {
+      color: "#0066cc",
+      underlineThickness: 1,
+      hoverColor: "#0052a3",
+    },
   },
 };
 

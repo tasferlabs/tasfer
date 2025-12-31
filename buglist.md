@@ -51,7 +51,7 @@ Bugs list
 [x] Inline text selection and cursor rendering has bit mismatch when calculating the position of the cursor and dimension of selection boxes
 [ ] when pressing enter on end of heading then we should create new paragraph.
 [x] Fix word boundary selection logic, it should not include punction and speical signs
-[ ] Fix reading empty file, should at least be one block
+[x] Fix reading empty file, should at least be one block
 [ ] group undo and redo to words.
 [ ] ctrl + b and other shorcuts should change the inline the text style.
 [ ] add image blocks
@@ -67,7 +67,10 @@ Bugs list
 [ ] Remove the markdown style when copying plain text.
 [ ] Typing to spaces should exit inline styling, consult someone if this actaully good pratice.
 [ ] consider adding selection dragging on mobiles on both anchor and foucus. Like it is on ios. This for epxanding the selection and shrinking. 
-[ ] add link for inline rendering format but the styles should be resvered for links. Add parsing logic for links as well. Add menu for changing the  link tile.
+[x] add link for inline rendering format but the styles should be resvered for links. Add parsing logic for links as well. Add menu for changing the  link tile.
+[ ] ctrl click or command click should open the link. But it should not matter if it happens in fly while selecting.
+[x] hover on link should radix toolip and preview and  with edit edit button and copy button. clicking on link preview should open it.
+[ ] how to do the above on mobile.
 [ ] bring back the old tree code from l4r for saving pages and sort them into trees.
 [ ] do design overhaul.
 [ ] Add support for windows ctrl + Y and make sure the shortcuts are intuitiave for all opearting systems.

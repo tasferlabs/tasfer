@@ -87,7 +87,7 @@ function measureFormattedLineWidth(
       overlapEnd - segmentStart
     );
 
-    const effectiveFontWeight = segment.formats?.includes("bold")
+    const effectiveFontWeight = segment.formats?.some(f => f.type === "bold")
       ? "bold"
       : textStyle.fontWeight;
 
@@ -103,7 +103,7 @@ function measureFormattedLineWidth(
     // Add code padding only if we've MOVED PAST this segment to the next one
     // (not just at the end boundary, but actually beyond it)
     // The cursor at the end of a code segment should be before the right padding
-    if (segment.formats?.includes("code") && overlapEnd === segmentEnd && lineEndIndex > segmentEnd) {
+    if (segment.formats?.some(f => f.type === "code") && overlapEnd === segmentEnd && lineEndIndex > segmentEnd) {
       width += codePadding * 2;
     }
 
@@ -144,18 +144,22 @@ function renderFormattedLine(
       );
 
       // Determine effective font weight for measurement
-      const effectiveFontWeight = segment.formats?.includes("bold")
+      const effectiveFontWeight = segment.formats?.some(f => f.type === "bold")
         ? "bold"
         : textStyle.fontWeight;
-      const fontStyle = segment.formats?.includes("italic") ? "italic" : "normal";
+      const fontStyle = segment.formats?.some(f => f.type === "italic") ? "italic" : "normal";
       
       ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${
         FONT_STACKS[fontFamily]
       }`;
       ctx.textBaseline = "alphabetic";
 
+      // Check if this is a link
+      const linkFormat = segment.formats?.find(f => f.type === "link");
+      const isLink = !!linkFormat;
+
       // Handle code background
-      if (segment.formats?.includes("code")) {
+      if (segment.formats?.some(f => f.type === "code")) {
         const textWidth = ctx.measureText(textToRender).width;
         const codeStyle = styles.textFormats.code;
         
@@ -176,6 +180,9 @@ function renderFormattedLine(
         
         // Set code text color
         ctx.fillStyle = codeStyle.color;
+      } else if (isLink) {
+        // Set link color from styles
+        ctx.fillStyle = styles.textFormats.link.color;
       } else {
         ctx.fillStyle = textStyle.color;
       }
@@ -183,8 +190,22 @@ function renderFormattedLine(
       // Render the text
       ctx.fillText(textToRender, currentX, y);
 
+      // Handle underline for links
+      if (isLink) {
+        const textWidth = ctx.measureText(textToRender).width;
+        const linkStyle = styles.textFormats.link;
+        ctx.save();
+        ctx.strokeStyle = linkStyle.color;
+        ctx.lineWidth = linkStyle.underlineThickness;
+        ctx.beginPath();
+        ctx.moveTo(currentX, y + textStyle.fontSize * 0.1);
+        ctx.lineTo(currentX + textWidth, y + textStyle.fontSize * 0.1);
+        ctx.stroke();
+        ctx.restore();
+      }
+
       // Handle strikethrough
-      if (segment.formats?.includes("strikethrough")) {
+      if (segment.formats?.some(f => f.type === "strikethrough")) {
         const textWidth = ctx.measureText(textToRender).width;
         ctx.save();
         ctx.strokeStyle = textStyle.color;
@@ -198,7 +219,7 @@ function renderFormattedLine(
 
       // Move X position for next segment - use actual measured width
       let segmentWidth = ctx.measureText(textToRender).width;
-      if (segment.formats?.includes("code")) {
+      if (segment.formats?.some(f => f.type === "code")) {
         segmentWidth += styles.textFormats.code.padding * 2;
       }
       currentX += segmentWidth;

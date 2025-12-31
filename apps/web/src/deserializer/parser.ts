@@ -9,6 +9,9 @@ import {
   HEADING_3,
   ITALIC_END,
   ITALIC_START,
+  LINK_END,
+  LINK_START,
+  LINK_TEXT_END,
   NEWLINE,
   STRIKETHROUGH_END,
   STRIKETHROUGH_START,
@@ -53,6 +56,11 @@ export default function parsePage(tokens: Token[]): Page {
     tree.blocks.push(block);
   }
 
+  // Ensure at least one block exists (empty paragraph for empty files)
+  if (tree.blocks.length === 0) {
+    tree.blocks.push(emptyBlock(context));
+  }
+
   return tree;
 }
 function isEnd(context: ParserContext) {
@@ -95,7 +103,7 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      formatStack.push('bold');
+      formatStack.push({ type: 'bold' });
     }
     else if (node.type === ITALIC_START) {
       if (currentContent) {
@@ -105,7 +113,7 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      formatStack.push('italic');
+      formatStack.push({ type: 'italic' });
     }
     else if (node.type === STRIKETHROUGH_START) {
       if (currentContent) {
@@ -115,7 +123,7 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      formatStack.push('strikethrough');
+      formatStack.push({ type: 'strikethrough' });
     }
     else if (node.type === CODE_START) {
       if (currentContent) {
@@ -125,7 +133,50 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      formatStack.push('code');
+      formatStack.push({ type: 'code' });
+    }
+    else if (node.type === LINK_START) {
+      if (currentContent) {
+        text.push({
+          content: currentContent,
+          formats: formatStack.length > 0 ? [...formatStack] : undefined,
+        });
+        currentContent = "";
+      }
+      // Start collecting link text
+    }
+    else if (node.type === LINK_TEXT_END) {
+      // Link text has ended, now URL starts
+      // Push the link text content
+      if (currentContent) {
+        // Collect URL from next TEXT token
+        let linkUrl = "";
+        
+        // Peek ahead to get URL
+        if (!isEnd(context)) {
+          const nextToken = peek(context);
+          if (nextToken.type === 'text') {
+            advance(context);
+            linkUrl = (previous(context) as VisibleToken).content;
+          }
+        }
+        
+        // Now add the link format with URL
+        formatStack.push({ type: 'link', url: linkUrl });
+        
+        text.push({
+          content: currentContent,
+          formats: formatStack.length > 0 ? [...formatStack] : undefined,
+        });
+        currentContent = "";
+        
+        // Remove link from stack
+        const index = formatStack.findIndex(f => f.type === 'link');
+        if (index !== -1) formatStack.splice(index, 1);
+      }
+    }
+    else if (node.type === LINK_END) {
+      // Link has ended, already handled in LINK_TEXT_END
     }
     // Handle format end tokens (match closing with opening)
     else if (node.type === BOLD_END) {
@@ -136,7 +187,7 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      const index = formatStack.lastIndexOf('bold');
+      const index = formatStack.findIndex(f => f.type === 'bold');
       if (index !== -1) formatStack.splice(index, 1);
     }
     else if (node.type === ITALIC_END) {
@@ -147,7 +198,7 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      const index = formatStack.lastIndexOf('italic');
+      const index = formatStack.findIndex(f => f.type === 'italic');
       if (index !== -1) formatStack.splice(index, 1);
     }
     else if (node.type === STRIKETHROUGH_END) {
@@ -158,7 +209,7 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      const index = formatStack.lastIndexOf('strikethrough');
+      const index = formatStack.findIndex(f => f.type === 'strikethrough');
       if (index !== -1) formatStack.splice(index, 1);
     }
     else if (node.type === CODE_END) {
@@ -169,7 +220,7 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      const index = formatStack.lastIndexOf('code');
+      const index = formatStack.findIndex(f => f.type === 'code');
       if (index !== -1) formatStack.splice(index, 1);
     }
     // Handle text content

@@ -24,6 +24,14 @@ export interface ContextMenuState {
   readonly y: number;
 }
 
+export interface LinkHoverState {
+  readonly position: Position;
+  readonly url: string;
+  readonly text: string;
+  readonly x: number;
+  readonly y: number;
+}
+
 export interface EditorModelState {
   readonly page: Page;
   readonly cursor: CursorState | null;
@@ -35,6 +43,7 @@ export interface EditorModelState {
   readonly momentum: MomentumState;
   readonly slashCommand: SlashCommandState | null;
   readonly contextMenu: ContextMenuState | null;
+  readonly linkHover: LinkHoverState | null;
 }
 
 export interface SlashCommandState {
@@ -189,6 +198,11 @@ export interface TextFormatStyles {
     readonly color: string;
     readonly padding: number;
     readonly borderRadius: number;
+  };
+  readonly link: {
+    readonly color: string;
+    readonly underlineThickness: number;
+    readonly hoverColor: string;
   };
 }
 

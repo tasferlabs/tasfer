@@ -51,6 +51,8 @@ import {
 import {
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
+  getLinkAtPosition,
+  getCursorCoordinates,
 } from "./selection";
 import {
   clearSelection,
@@ -752,6 +754,80 @@ function handleMouseMove(
   };
 
   if (state.mode !== "select") {
+    // Check for link hover when not selecting (desktop only)
+    if (!isTouchDevice()) {
+      const position = getTextPositionFromViewport(
+        canvasX,
+        canvasY,
+        state,
+        viewport,
+        visibility
+      );
+
+      if (position) {
+        const linkData = getLinkAtPosition(position, state);
+        if (linkData) {
+          // Calculate screen coordinates for tooltip at the link's start position
+          const linkStartPos = { blockIndex: position.blockIndex, textIndex: linkData.start };
+          const linkCoords = getCursorCoordinates(linkStartPos, state, viewport);
+          
+          if (linkCoords) {
+            // Position tooltip below the start of the link text
+            state = {
+              ...state,
+              linkHover: {
+                position,
+                url: linkData.url,
+                text: linkData.text,
+                x: linkCoords.x + containerRect.left,
+                y: linkCoords.y + linkCoords.height + containerRect.top,
+              },
+            };
+          }
+        } else if (state.linkHover) {
+          // Check if mouse is over the tooltip area before clearing
+          // Keep tooltip if we're within the tooltip bounds (approximate)
+          const tooltipHeight = 120; // Approximate height
+          const tooltipWidth = 300; // Approximate width
+          
+          if (
+            state.linkHover &&
+            event.x >= state.linkHover.x &&
+            event.x <= state.linkHover.x + tooltipWidth &&
+            event.y >= state.linkHover.y &&
+            event.y <= state.linkHover.y + tooltipHeight
+          ) {
+            // Keep the tooltip open
+            return state;
+          }
+          
+          // Clear link hover if no longer over a link or tooltip
+          state = { ...state, linkHover: null };
+        }
+      } else if (state.linkHover) {
+        // Check if mouse is still over the tooltip
+        const tooltipHeight = 120;
+        const tooltipWidth = 300;
+        
+        if (
+          state.linkHover &&
+          event.x >= state.linkHover.x &&
+          event.x <= state.linkHover.x + tooltipWidth &&
+          event.y >= state.linkHover.y &&
+          event.y <= state.linkHover.y + tooltipHeight
+        ) {
+          // Keep the tooltip open
+          return state;
+        }
+        
+        // Clear link hover if not over any text or tooltip
+        state = { ...state, linkHover: null };
+      }
+    } else if (state.linkHover) {
+      // Clear link hover on touch devices
+      state = { ...state, linkHover: null };
+    }
+
     return state;
   }
 

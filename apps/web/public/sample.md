@@ -1,5 +1,7 @@
 # Introduction to Modern Web Development
 
+This is a test link: [OpenAI](https://openai.com) and [Google](https://google.com) for testing.
+
 Web development has evolved **significantly** over the past decade. From simple static HTML pages to complex, interactive applications, the landscape continues to change rapidly. Modern developers need to stay current with `emerging` technologies and best practices.
 
 The journey from static HTML to dynamic, interactive web applications represents one of the most significant transformations in software development history. Today's web applications rival native desktop applications in functionality and user experience, while maintaining the accessibility and cross-platform nature that makes the web unique.

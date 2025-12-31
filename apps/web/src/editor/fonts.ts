@@ -421,7 +421,7 @@ export const measureTextSegment = (
   codePadding: number = 0
 ): number => {
   // Determine effective font weight (bold overrides base weight)
-  const effectiveFontWeight = textSegment.formats?.includes("bold")
+  const effectiveFontWeight = textSegment.formats?.some(f => f.type === "bold")
     ? "bold"
     : baseFontWeight;
 
@@ -433,7 +433,7 @@ export const measureTextSegment = (
   );
 
   // Add code padding if applicable
-  if (textSegment.formats?.includes("code")) {
+  if (textSegment.formats?.some(f => f.type === "code")) {
     width += codePadding * 2;
   }
 
@@ -500,7 +500,7 @@ export const measureFormattedTextUpToIndex = (
       overlapEnd - segmentStart
     );
 
-    const effectiveFontWeight = segment.formats?.includes("bold")
+    const effectiveFontWeight = segment.formats?.some(f => f.type === "bold")
       ? "bold"
       : baseFontWeight;
 
@@ -516,7 +516,7 @@ export const measureFormattedTextUpToIndex = (
     // Add code padding only if we've MOVED PAST this segment to the next one
     // (not just at the end boundary, but actually beyond it)
     // The cursor at the end of a code segment should be before the right padding
-    if (segment.formats?.includes("code") && overlapEnd === segmentEnd && endIndex > segmentEnd) {
+    if (segment.formats?.some(f => f.type === "code") && overlapEnd === segmentEnd && endIndex > segmentEnd) {
       width += codePadding * 2;
     }
 
@@ -606,7 +606,7 @@ export const wrapFormattedText = (
           for (let j = remainingWordStart; j < wordEnd; j++) {
             const segIdx = charToSegment[j];
             const segment = segments[segIdx];
-            const fontWeight = segment.formats?.includes("bold") ? "bold" : baseFontWeight;
+            const fontWeight = segment.formats?.some(f => f.type === "bold") ? "bold" : baseFontWeight;
             const charWidth = measureChar(
               fullText[j],
               fontSize,
