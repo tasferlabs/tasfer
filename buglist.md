@@ -7,7 +7,6 @@ Bugs list
 [x] left and right arrow keys should move correctly with rtl. Now while moving from ltr to rtl bloks work. But there is an issue if we start from rtl block
 [x] shortcuts does not work in other lang layouts.
 [x] split function does not preserve block type.
-[ ] clicking enter on the end of header it should not create new heading block.
 [x] Could not expand selection beyond non alpha characters for example dots or commas. This happens with ctrl + arrow left and right.
 [x] when selecting one word and typing, the word is not replaced
 [x] when selecting one word and deleting, the word is not deleted.
@@ -49,7 +48,7 @@ Bugs list
 [x] inserting charaters after inline style creates new inlines objects instead of add to the existing block.
 [x] Render cursor function does not count for padding for example code.
 [x] Inline text selection and cursor rendering has bit mismatch when calculating the position of the cursor and dimension of selection boxes
-[ ] when pressing enter on end of heading then we should create new paragraph.
+[x] when pressing enter on end of heading then we should create new paragraph not heading.
 [x] Fix word boundary selection logic, it should not include punction and speical signs
 [x] Fix reading empty file, should at least be one block
 [ ] group undo and redo to words.
@@ -86,3 +85,4 @@ Bugs list
 [ ] override webiew defaul 404 page
 [x] rtl inline format rendering edge cases
 [ ] complex mandrians characters are not working with with selection.
+[ ] render should be more efficent if we rendere it

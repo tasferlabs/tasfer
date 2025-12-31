@@ -415,7 +415,8 @@ function applyMarkdownPrefix(
 export function getSelectionRange(
   state: EditorState
 ): { start: Position; end: Position } | null {
-  if (!state.document.selection || state.document.selection.isCollapsed) return null;
+  if (!state.document.selection || state.document.selection.isCollapsed)
+    return null;
 
   const { anchor, focus } = state.document.selection;
 
@@ -839,10 +840,10 @@ export function moveToPreviousWord(state: EditorState): EditorState {
   const { blockIndex, textIndex } = state.document.cursor.position;
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
-  
+
   // Check if current block is RTL
   const isRTL = getFormattedTextDirection(block.content) === "rtl";
-  
+
   if (isRTL) {
     // In RTL, "previous word" (Ctrl+Left) should move visually left, which is logically forward
     if (textIndex < text.length) {
@@ -873,10 +874,10 @@ export function moveToNextWord(state: EditorState): EditorState {
   const { blockIndex, textIndex } = state.document.cursor.position;
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
-  
+
   // Check if current block is RTL
   const isRTL = getFormattedTextDirection(block.content) === "rtl";
-  
+
   if (isRTL) {
     // In RTL, "next word" (Ctrl+Right) should move visually right, which is logically backward
     if (textIndex > 0) {
@@ -1223,7 +1224,9 @@ export function extendSelectionEnd(
         newState,
         newState.document.page.blocks.length - 1,
         getBlockTextLength(
-          newState.document.page.blocks[newState.document.page.blocks.length - 1]
+          newState.document.page.blocks[
+            newState.document.page.blocks.length - 1
+          ]
         )
       )
     : moveToLineEnd(newState);
@@ -1263,15 +1266,19 @@ export function splitBlock(state: EditorState): EditorState {
     applyMarkdownPrefix(blockCopy1);
   }
 
+  // Determine the type for the new block
+  // If splitting a heading at the end (cursor at end of text), the new block should be a paragraph
+  // If splitting in the middle, preserve the heading type
+  const isAtEnd = textIndex === oldText.length;
+  const newBlockType =
+    originalType.startsWith("heading") && isAtEnd ? "paragraph" : originalType;
+
   const blockCopy2: Block = {
     ...oldBlock,
     id: generateBlockId(),
+    type: newBlockType,
     content: afterContent,
   };
-  // Only apply markdown prefix if the original was a paragraph
-  if (originalType === "paragraph") {
-    applyMarkdownPrefix(blockCopy2);
-  }
 
   // Invalidate cache for both new blocks
   invalidateBlockCache(blockCopy1);
