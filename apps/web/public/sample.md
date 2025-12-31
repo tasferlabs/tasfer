@@ -1,3 +1,31 @@
+# RTL Text Testing
+
+This document tests Right-to-Left (RTL) language support.
+
+## Arabic Text
+
+مرحبا بكم في محرر النصوص
+
+هذا نص عربي طويل لاختبار التفاف النص والاختيار والمؤشر في اللغات التي تكتب من اليمين إلى اليسار.
+
+## Hebrew Text
+
+שלום וברוכים הבאים לעורך הטקסט
+
+זהו טקסט ארוך בעברית לבדיקת גלישת טקסט, בחירה ומצביע בשפות מימין לשמאל.
+
+## Mixed Text (Arabic + English)
+
+This is English text: مرحبا (Hello in Arabic)
+
+مرحبا This is mixed: Hello and مرحبا together
+
+## Persian Text
+
+سلام و خوش آمدید به ویرایشگر متن
+
+این یک متن طولانی فارسی برای آزمایش پیچیدن متن، انتخاب و مکان‌نما در زبان‌های راست به چپ است.
+
 # Introduction to Modern Web Development
 
 This is a test link: [OpenAI](https://openai.com) and [Google](https://google.com) for testing.

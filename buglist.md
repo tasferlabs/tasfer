@@ -3,7 +3,7 @@ Bugs list
 [x] when double clicking on word on desktop and instead of going fowarding and going backward than we shoud the reverse the anchor. Now focus depends where move the selection direction this is correct, but the anchor position on first word selection on desktop this should not be locked.
 [x] Could not expand selection beyond non alphanumeric characters for example dots or commas.
 [x] word boundaries on double click should be respected. The punctionuation should not selected.
-[ ] Arabic and other langs from rtl should be rendered from right to left.
+[x] Arabic and other langs from rtl should be rendered from right to left.
 [ ] undo and redo and other shortcuts does not work in other lang layouts.
 [ ] composition and other input methods such as IME should work.
 [x] split function does not preserve block type.

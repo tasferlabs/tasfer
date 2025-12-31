@@ -10,6 +10,7 @@ import {
 import { renderScrollbar } from "./scrollbar";
 import { getBlockTextContent, isCursorBlinking } from "./state";
 import { getEditorStyles, getTextStyle } from "./styles";
+import { getFormattedTextDirection } from "./rtl";
 import type {
   BlockBounds,
   EditorState,
@@ -129,6 +130,12 @@ function renderFormattedLine(
   fontFamily: FontFamily,
   styles: EditorStyles
 ) {
+  // Detect text direction for this line
+  const direction = getFormattedTextDirection(segments);
+
+  // Set canvas direction
+  ctx.direction = direction;
+
   let currentX = x;
   let currentIndex = 0;
 
@@ -242,6 +249,9 @@ function renderFormattedLine(
     // Stop if we've passed the end of the line
     if (currentIndex >= lineEndIndex) break;
   }
+
+  // Reset direction
+  ctx.direction = "ltr";
 }
 
 export const renderPage = (
@@ -361,13 +371,17 @@ export const renderBlock = (
     const lineStartIndex = textIndex;
     const lineEndIndex = textIndex + line.length;
 
+    // Detect text direction and adjust x position for RTL
+    const direction = getFormattedTextDirection(block.content);
+    const renderX = direction === "rtl" ? x + maxWidth : x;
+
     // Render the line with formatting
     renderFormattedLine(
       ctx,
       block.content,
       lineStartIndex,
       lineEndIndex,
-      x,
+      renderX,
       currentY + fontMetrics.ascent,
       textStyle,
       fontFamily,
@@ -420,7 +434,8 @@ export const renderBlock = (
       fullContent,
       textStyle,
       fontFamily,
-      block
+      block,
+      maxWidth
     );
   }
 
@@ -457,7 +472,8 @@ export const renderBlock = (
       fontFamily,
       ctx,
       styles,
-      block
+      block,
+      maxWidth
     );
   }
 
@@ -517,7 +533,8 @@ function renderCursor(
   fontFamily: FontFamily,
   ctx: CanvasRenderingContext2D,
   styles: EditorStyles,
-  block: Block
+  block: Block,
+  maxWidth: number
 ) {
   if (!state.document.cursor || !state.view.isFocused) return;
 
@@ -525,6 +542,9 @@ function renderCursor(
   let cursorY = y;
   let cursorHeight = fontMetrics.fontSize * textStyle.lineHeight;
   const codePadding = styles.textFormats.code.padding;
+
+  // Detect if this is an RTL block
+  const isRTL = getFormattedTextDirection(block.content) === "rtl";
 
   // console.log(renderedLines);
   for (const line of renderedLines) {
@@ -534,15 +554,33 @@ function renderCursor(
     ) {
       cursorY = line.y;
       cursorHeight = line.height;
-      // Use format-aware measurement for cursor positioning
-      cursorX += measureFormattedLineWidth(
-        block.content,
-        line.startIndex,
-        state.document.cursor.position.textIndex,
-        textStyle,
-        fontFamily,
-        codePadding
-      );
+
+      // Calculate cursor position differently for RTL
+      if (isRTL) {
+        // For RTL text rendered with canvas direction="rtl":
+        // - Cursor at logical index 0 (line start) appears at the RIGHT (x + maxWidth)
+        // - Cursor at logical index N appears at the LEFT
+        // Measure from line start to cursor position
+        const widthFromStart = measureFormattedLineWidth(
+          block.content,
+          line.startIndex,
+          state.document.cursor.position.textIndex,
+          textStyle,
+          fontFamily,
+          codePadding
+        );
+        cursorX = x + maxWidth - widthFromStart;
+      } else {
+        // LTR: measure from start to cursor
+        cursorX += measureFormattedLineWidth(
+          block.content,
+          line.startIndex,
+          state.document.cursor.position.textIndex,
+          textStyle,
+          fontFamily,
+          codePadding
+        );
+      }
       break;
     }
   }
@@ -553,7 +591,12 @@ function renderCursor(
     renderedLines.length > 0
   ) {
     const lastLine = renderedLines[renderedLines.length - 1];
-    cursorX = lastLine.x + lastLine.width;
+    if (isRTL) {
+      // For RTL, cursor goes to the left edge
+      cursorX = lastLine.x + maxWidth - lastLine.width;
+    } else {
+      cursorX = lastLine.x + lastLine.width;
+    }
     cursorY = lastLine.y;
     cursorHeight = lastLine.height;
   }
@@ -575,7 +618,8 @@ function renderSelection(
   content: string,
   textStyle: TextStyle,
   fontFamily: FontFamily,
-  block: Block
+  block: Block,
+  maxWidth: number
 ) {
   if (!state.document.selection) return;
 
@@ -586,6 +630,9 @@ function renderSelection(
   let end = state.document.selection.isForward
     ? state.document.selection.focus
     : state.document.selection.anchor;
+
+  // Detect if this is an RTL block
+  const isRTL = getFormattedTextDirection(block.content) === "rtl";
 
   if (
     (start.blockIndex === blockIndex && end.blockIndex === blockIndex) ||
@@ -630,33 +677,79 @@ function renderSelection(
           end.textIndex >= line.startIndex
         ) {
           shouldRender = true;
-          if (start.textIndex > line.startIndex) {
-            // Use format-aware measurement
-            selectionStartX += measureFormattedLineWidth(
+
+          if (isRTL) {
+            // For RTL text rendered with canvas direction="rtl":
+            // - Logical index 0 appears at RIGHT (x + maxWidth)
+            // - Logical index N appears at LEFT
+            // Selection needs to be drawn from left to right visually
+            
+            const selStartTextIndex = Math.max(
+              line.startIndex,
+              start.textIndex
+            );
+            const selEndTextIndex = Math.min(line.endIndex, end.textIndex);
+
+            // Measure from line START to selection START
+            const widthToSelStart = measureFormattedLineWidth(
               block.content,
               line.startIndex,
-              start.textIndex,
+              selStartTextIndex,
               textStyle,
               fontFamily,
               codePadding
             );
-          }
-          if (end.textIndex < line.endIndex) {
-            // Use format-aware measurement
-            const selectedWidth = measureFormattedLineWidth(
+            
+            // Measure from line START to selection END
+            const widthToSelEnd = measureFormattedLineWidth(
               block.content,
-              Math.max(line.startIndex, start.textIndex),
-              Math.min(line.endIndex, end.textIndex),
+              line.startIndex,
+              selEndTextIndex,
               textStyle,
               fontFamily,
               codePadding
             );
-            selectionEndX = selectionStartX + selectedWidth;
+
+            // Visual X positions: further from line start logically = further LEFT visually
+            // Selection START (lower index) is at RIGHT visually
+            // Selection END (higher index) is at LEFT visually
+            selectionEndX = x + maxWidth - widthToSelStart;  // Right edge of selection (lower logical index)
+            selectionStartX = x + maxWidth - widthToSelEnd;  // Left edge of selection (higher logical index)
+          } else {
+            // LTR logic (existing)
+            if (start.textIndex > line.startIndex) {
+              // Use format-aware measurement
+              selectionStartX += measureFormattedLineWidth(
+                block.content,
+                line.startIndex,
+                start.textIndex,
+                textStyle,
+                fontFamily,
+                codePadding
+              );
+            }
+            if (end.textIndex < line.endIndex) {
+              // Use format-aware measurement
+              const selectedWidth = measureFormattedLineWidth(
+                block.content,
+                Math.max(line.startIndex, start.textIndex),
+                Math.min(line.endIndex, end.textIndex),
+                textStyle,
+                fontFamily,
+                codePadding
+              );
+              selectionEndX = selectionStartX + selectedWidth;
+            }
           }
         }
       } else if (start.blockIndex < blockIndex && end.blockIndex > blockIndex) {
         // Entire block is selected
         shouldRender = true;
+        if (isRTL) {
+          const lineStartX = x + maxWidth - line.width;
+          selectionStartX = lineStartX;
+          selectionEndX = lineStartX + line.width;
+        }
       } else if (
         start.blockIndex === blockIndex &&
         end.blockIndex > blockIndex
@@ -664,16 +757,39 @@ function renderSelection(
         // Selection starts in this block
         if (start.textIndex <= line.endIndex) {
           shouldRender = true;
-          if (start.textIndex > line.startIndex) {
-            // Use format-aware measurement
-            selectionStartX += measureFormattedLineWidth(
+
+          if (isRTL) {
+            // Selection starts in this block and continues beyond
+            const selStartTextIndex = Math.max(
+              line.startIndex,
+              start.textIndex
+            );
+
+            // Measure from line start to selection start
+            const widthToSelStart = measureFormattedLineWidth(
               block.content,
               line.startIndex,
-              start.textIndex,
+              selStartTextIndex,
               textStyle,
               fontFamily,
               codePadding
             );
+
+            // Selection goes from start.textIndex (appears RIGHT) to end of line (appears LEFT)
+            selectionEndX = x + maxWidth - widthToSelStart;  // Right edge (selection start, lower index)
+            selectionStartX = x + maxWidth - line.width;     // Left edge (line end, higher index)
+          } else {
+            if (start.textIndex > line.startIndex) {
+              // Use format-aware measurement
+              selectionStartX += measureFormattedLineWidth(
+                block.content,
+                line.startIndex,
+                start.textIndex,
+                textStyle,
+                fontFamily,
+                codePadding
+              );
+            }
           }
         }
       } else if (
@@ -683,18 +799,38 @@ function renderSelection(
         // Selection ends in this block
         if (end.textIndex >= line.startIndex) {
           shouldRender = true;
-          if (end.textIndex < line.endIndex) {
-            // Use format-aware measurement
-            selectionEndX =
-              x +
-              measureFormattedLineWidth(
-                block.content,
-                line.startIndex,
-                end.textIndex,
-                textStyle,
-                fontFamily,
-                codePadding
-              );
+
+          if (isRTL) {
+            // Selection ends in this block, started before
+            const selEndTextIndex = Math.min(line.endIndex, end.textIndex);
+
+            // Measure from line start to selection end
+            const widthToSelEnd = measureFormattedLineWidth(
+              block.content,
+              line.startIndex,
+              selEndTextIndex,
+              textStyle,
+              fontFamily,
+              codePadding
+            );
+
+            // Selection goes from start of line (appears RIGHT, lower index) to end.textIndex (appears LEFT)
+            selectionEndX = x + maxWidth;                    // Right edge (line start, index 0)
+            selectionStartX = x + maxWidth - widthToSelEnd;  // Left edge (selection end, higher index)
+          } else {
+            if (end.textIndex < line.endIndex) {
+              // Use format-aware measurement
+              selectionEndX =
+                x +
+                measureFormattedLineWidth(
+                  block.content,
+                  line.startIndex,
+                  end.textIndex,
+                  textStyle,
+                  fontFamily,
+                  codePadding
+                );
+            }
           }
         }
       }

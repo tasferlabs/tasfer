@@ -272,51 +272,16 @@ export const getFontMetrics = (
 };
 
 // Measure character
-export const measureChar = (
-  char: string,
-  fontSize: number,
-  fontWeight: string,
-  fontFamily: FontFamily
-): number => {
-  if (char.length !== 1) {
-    throw new Error("measureChar expects a single character");
-  }
-
-  const metrics = getFontMetrics(fontSize, fontWeight, fontFamily);
-  const charMetrics = metrics.characters.get(char);
-
-  if (charMetrics) {
-    return charMetrics.width;
-  }
-
-  // Fallback to canvas measurement
-  const ctx = measurementCanvas;
-  applyFont(ctx, fontSize, fontWeight, fontFamily);
-  return ctx.measureText(char).width;
-};
-// Measure text
-
 export const measureText = (
   text: string,
   fontSize: number,
   fontWeight: string,
   fontFamily: FontFamily
 ): number => {
-  let totalWidth = 0;
-  for (const char of text) {
-    totalWidth += measureChar(char, fontSize, fontWeight, fontFamily);
-  }
-  return totalWidth;
-};
-// Measure word
-
-export const measureWord = (
-  word: string,
-  fontSize: number,
-  fontWeight: string,
-  fontFamily: FontFamily
-): number => {
-  return measureText(word, fontSize, fontWeight, fontFamily);
+  // Fallback to canvas measurement
+  const ctx = measurementCanvas;
+  applyFont(ctx, fontSize, fontWeight, fontFamily);
+  return ctx.measureText(text).width;
 };
 
 // Text wrapping function
@@ -380,7 +345,7 @@ export const wrapText = (
           let currentWidth = 0;
           let splitIndex = 0;
           for (let j = 0; j < remainingWord.length; j++) {
-            const charWidth = measureChar(
+            const charWidth = measureText(
               remainingWord[j],
               fontSize,
               fontWeight,
@@ -411,7 +376,6 @@ export const wrapText = (
   return lines.length > 0 ? lines : [""];
 };
 
-
 // Measure a single text segment with its formats
 export const measureTextSegment = (
   textSegment: Text,
@@ -421,7 +385,9 @@ export const measureTextSegment = (
   codePadding: number = 0
 ): number => {
   // Determine effective font weight (bold overrides base weight)
-  const effectiveFontWeight = textSegment.formats?.some(f => f.type === "bold")
+  const effectiveFontWeight = textSegment.formats?.some(
+    (f) => f.type === "bold"
+  )
     ? "bold"
     : baseFontWeight;
 
@@ -433,7 +399,7 @@ export const measureTextSegment = (
   );
 
   // Add code padding if applicable
-  if (textSegment.formats?.some(f => f.type === "code")) {
+  if (textSegment.formats?.some((f) => f.type === "code")) {
     width += codePadding * 2;
   }
 
@@ -500,7 +466,7 @@ export const measureFormattedTextUpToIndex = (
       overlapEnd - segmentStart
     );
 
-    const effectiveFontWeight = segment.formats?.some(f => f.type === "bold")
+    const effectiveFontWeight = segment.formats?.some((f) => f.type === "bold")
       ? "bold"
       : baseFontWeight;
 
@@ -512,11 +478,15 @@ export const measureFormattedTextUpToIndex = (
     );
 
     width += segmentWidth;
-    
+
     // Add code padding only if we've MOVED PAST this segment to the next one
     // (not just at the end boundary, but actually beyond it)
     // The cursor at the end of a code segment should be before the right padding
-    if (segment.formats?.some(f => f.type === "code") && overlapEnd === segmentEnd && endIndex > segmentEnd) {
+    if (
+      segment.formats?.some((f) => f.type === "code") &&
+      overlapEnd === segmentEnd &&
+      endIndex > segmentEnd
+    ) {
       width += codePadding * 2;
     }
 
@@ -537,7 +507,7 @@ export const wrapFormattedText = (
 ): string[] => {
   // Convert segments to plain text for wrapping
   const fullText = segments.map((s) => s.content).join("");
-  
+
   // Build a character-to-segment map for accurate measurement
   const charToSegment: number[] = [];
   for (let segIdx = 0; segIdx < segments.length; segIdx++) {
@@ -566,7 +536,7 @@ export const wrapFormattedText = (
   };
 
   // Measure space with base weight
-  const spaceWidth = measureChar(" ", fontSize, baseFontWeight, fontFamily);
+  const spaceWidth = measureText(" ", fontSize, baseFontWeight, fontFamily);
 
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
@@ -598,22 +568,24 @@ export const wrapFormattedText = (
       } else {
         // Word is too long, must split by character
         let remainingWordStart = wordStart;
-        
+
         while (remainingWordStart < wordEnd) {
           let splitIndex = remainingWordStart;
           let currentWidth = 0;
-          
+
           for (let j = remainingWordStart; j < wordEnd; j++) {
             const segIdx = charToSegment[j];
             const segment = segments[segIdx];
-            const fontWeight = segment.formats?.some(f => f.type === "bold") ? "bold" : baseFontWeight;
-            const charWidth = measureChar(
+            const fontWeight = segment.formats?.some((f) => f.type === "bold")
+              ? "bold"
+              : baseFontWeight;
+            const charWidth = measureText(
               fullText[j],
               fontSize,
               fontWeight,
               fontFamily
             );
-            
+
             if (currentWidth + charWidth > maxWidth && j > remainingWordStart) {
               splitIndex = j;
               break;
@@ -621,14 +593,14 @@ export const wrapFormattedText = (
             currentWidth += charWidth;
             splitIndex = j + 1;
           }
-          
+
           if (splitIndex === remainingWordStart) splitIndex++;
-          
+
           const chunk = fullText.substring(remainingWordStart, splitIndex);
           lines.push(chunk);
           remainingWordStart = splitIndex;
         }
-        
+
         currentLine = "";
         currentLineWidth = 0;
         currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);

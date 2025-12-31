@@ -1,10 +1,11 @@
 import type { Block, Page } from "../deserializer/loadPage";
-import { getCurrentFontFamily, wrapFormattedText } from "./fonts";
+import { getCurrentFontFamily, wrapFormattedText, measureFormattedTextUpToIndex } from "./fonts";
 import {
   createInitialMomentumState,
   createInitialScrollbarState,
 } from "./scrollbar";
 import { getEditorStyles, getTextStyle } from "./styles";
+import { getFormattedTextDirection } from "./rtl";
 import type {
   CursorState,
   EditorMode,
@@ -309,11 +310,63 @@ function getLineInfoAtPosition(
 function getTextIndexAtRelativePosition(
   lineStartIndex: number,
   lineEndIndex: number,
-  relativePosition: number
+  relativePosition: number,
+  block?: Block,
+  maxWidth?: number,
+  styles?: EditorStyles
 ): number {
+  // If no block info provided, use simple logical positioning
+  if (!block || !maxWidth || !styles) {
+    const lineLength = lineEndIndex - lineStartIndex;
+    const targetIndex = lineStartIndex + Math.min(relativePosition, lineLength);
+    return targetIndex;
+  }
+  
+  // Check if this is RTL text
+  const isRTL = getFormattedTextDirection(block.content) === "rtl";
+  
+  if (!isRTL) {
+    // LTR: simple logical positioning
+    const lineLength = lineEndIndex - lineStartIndex;
+    const targetIndex = lineStartIndex + Math.min(relativePosition, lineLength);
+    return targetIndex;
+  }
+  
+  // RTL: find the text index that corresponds to the visual position
+  const textStyle = getTextStyle(styles, block.type);
+  const fontFamily = getCurrentFontFamily();
+  const codePadding = styles.textFormats.code.padding;
+  
+  // Find the character position that has the target visual position
+  // For RTL: relativePosition is widthFromStart (distance from line start)
+  // We need to find the charIndex where widthFromStart matches relativePosition
+  let bestIndex = lineStartIndex;
+  let minDistance = Infinity;
+  
   const lineLength = lineEndIndex - lineStartIndex;
-  const targetIndex = lineStartIndex + Math.min(relativePosition, lineLength);
-  return targetIndex;
+  for (let i = 0; i <= lineLength; i++) {
+    const charIndex = lineStartIndex + i;
+    
+    // Measure from line start to this character position
+    const widthFromStart = measureFormattedTextUpToIndex(
+      block.content,
+      lineStartIndex,
+      charIndex,
+      textStyle.fontSize,
+      textStyle.fontWeight,
+      fontFamily,
+      codePadding
+    );
+    
+    const distance = Math.abs(widthFromStart - relativePosition);
+    
+    if (distance < minDistance) {
+      minDistance = distance;
+      bestIndex = charIndex;
+    }
+  }
+  
+  return bestIndex;
 }
 
 /**
@@ -346,7 +399,34 @@ export const moveCursorUp = (
 
   if (!lineInfo) return state;
 
-  const relativePosition = textIndex - lineInfo.lineStartIndex;
+  // For RTL text, calculate visual position instead of logical position
+  const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
+  let relativePosition: number;
+  
+  if (isRTL) {
+    // Calculate visual position from the left edge of the line
+    // For RTL: cursor at logical index 0 appears at RIGHT, cursor at index N appears at LEFT
+    const textStyle = getTextStyle(styles, currentBlock.type);
+    const fontFamily = getCurrentFontFamily();
+    const codePadding = styles.textFormats.code.padding;
+    
+    // Measure from line start to cursor position
+    const widthFromStart = measureFormattedTextUpToIndex(
+      currentBlock.content,
+      lineInfo.lineStartIndex,
+      textIndex,
+      textStyle.fontSize,
+      textStyle.fontWeight,
+      fontFamily,
+      codePadding
+    );
+    
+    // Visual position from left edge: further from start logically = further LEFT visually
+    // Since RTL text is right-aligned and grows leftward, we use widthFromStart directly
+    relativePosition = widthFromStart;
+  } else {
+    relativePosition = textIndex - lineInfo.lineStartIndex;
+  }
 
   // If not on the first line of the block, move to the previous line within the same block
   if (lineInfo.lineIndex > 0) {
@@ -365,7 +445,10 @@ export const moveCursorUp = (
     const targetTextIndex = getTextIndexAtRelativePosition(
       prevLineStartIndex,
       prevLineEndIndex,
-      relativePosition
+      relativePosition,
+      currentBlock,
+      maxWidth,
+      styles
     );
 
     return moveCursorToPosition(state, blockIndex, targetTextIndex);
@@ -402,7 +485,10 @@ export const moveCursorUp = (
       const targetTextIndex = getTextIndexAtRelativePosition(
         lastLineStartIndex,
         lastLineEndIndex,
-        relativePosition
+        relativePosition,
+        prevBlock,
+        maxWidth,
+        styles
       );
 
       return moveCursorToPosition(state, blockIndex - 1, targetTextIndex);
@@ -446,7 +532,34 @@ export const moveCursorDown = (
 
   if (!lineInfo) return state;
 
-  const relativePosition = textIndex - lineInfo.lineStartIndex;
+  // For RTL text, calculate visual position instead of logical position
+  const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
+  let relativePosition: number;
+  
+  if (isRTL) {
+    // Calculate visual position from the left edge of the line
+    // For RTL: cursor at logical index 0 appears at RIGHT, cursor at index N appears at LEFT
+    const textStyle = getTextStyle(styles, currentBlock.type);
+    const fontFamily = getCurrentFontFamily();
+    const codePadding = styles.textFormats.code.padding;
+    
+    // Measure from line start to cursor position
+    const widthFromStart = measureFormattedTextUpToIndex(
+      currentBlock.content,
+      lineInfo.lineStartIndex,
+      textIndex,
+      textStyle.fontSize,
+      textStyle.fontWeight,
+      fontFamily,
+      codePadding
+    );
+    
+    // Visual position from left edge: further from start logically = further LEFT visually
+    // Since RTL text is right-aligned and grows leftward, we use widthFromStart directly
+    relativePosition = widthFromStart;
+  } else {
+    relativePosition = textIndex - lineInfo.lineStartIndex;
+  }
 
   // If not on the last line of the block, move to the next line within the same block
   if (lineInfo.lineIndex < lineInfo.totalLines - 1) {
@@ -476,7 +589,10 @@ export const moveCursorDown = (
     const targetTextIndex = getTextIndexAtRelativePosition(
       nextLineStartIndex,
       nextLineEndIndex,
-      relativePosition
+      relativePosition,
+      currentBlock,
+      maxWidth,
+      styles
     );
 
     return moveCursorToPosition(state, blockIndex, targetTextIndex);
@@ -503,7 +619,10 @@ export const moveCursorDown = (
       const targetTextIndex = getTextIndexAtRelativePosition(
         0,
         firstLine.length,
-        relativePosition
+        relativePosition,
+        nextBlock,
+        maxWidth,
+        styles
       );
 
       return moveCursorToPosition(state, blockIndex + 1, targetTextIndex);
