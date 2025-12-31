@@ -2,7 +2,7 @@ Bugs list
 [x] when double clicking on word it does focus is at the start not the end.
 [ ] when double clicking on word on desktop and instead of going fowarding and going backward than we shoud the reverse the anchor. Now focus depends where move the selection direction this is correct, but the anchor position on first word selection on desktop this should not be locked.
 [x] Could not expand selection beyond non alphanumeric characters for example dots or commas.
-[ ] word boundaries on double click should be respected. The punctionuation should not selected.
+[x] word boundaries on double click should be respected. The punctionuation should not selected.
 [ ] Arabic and other langs from rtl should be rendered from right to left.
 [ ] undo and redo and other shortcuts does not work in other lang layouts.
 [ ] composition and other input methods such as IME should work.
@@ -50,7 +50,7 @@ Bugs list
 [x] Render cursor function does not count for padding for example code.
 [x] Inline text selection and cursor rendering has bit mismatch when calculating the position of the cursor and dimension of selection boxes
 [ ] when pressing enter on end of heading then we should create new paragraph.
-[ ] Fix word boundary selection logic, it should not include punction and speical signs
+[x] Fix word boundary selection logic, it should not include punction and speical signs
 [ ] Fix reading empty file, should at least be one block
 [ ] group undo and redo to words.
 [ ] ctrl + b and other shorcuts should change the inline the text style.

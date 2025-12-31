@@ -648,7 +648,8 @@ export function deleteForward(state: EditorState): EditorState {
   return state;
 }
 
-// Helper function to find word boundaries - distinguishes between alphanumeric and non-alphanumeric
+// Helper function to find word boundaries - distinguishes between word characters and non-word characters
+// Uses Unicode property escapes to support all languages
 function findWordBoundary(
   text: string,
   index: number,
@@ -661,13 +662,13 @@ function findWordBoundary(
     if (i === 0) return 0;
     
     // Skip current character type
-    const startIsAlphaNum = /[a-zA-Z0-9_]/.test(text[i - 1]);
-    if (startIsAlphaNum) {
-      while (i > 0 && /[a-zA-Z0-9_]/.test(text[i - 1])) {
+    const startIsWordChar = /[\p{L}\p{N}_]/u.test(text[i - 1]);
+    if (startIsWordChar) {
+      while (i > 0 && /[\p{L}\p{N}_]/u.test(text[i - 1])) {
         i--;
       }
     } else {
-      while (i > 0 && !/[a-zA-Z0-9_]/.test(text[i - 1])) {
+      while (i > 0 && !/[\p{L}\p{N}_]/u.test(text[i - 1])) {
         i--;
       }
     }
@@ -680,13 +681,13 @@ function findWordBoundary(
     if (i === text.length) return text.length;
     
     // Skip current character type
-    const startIsAlphaNum = /[a-zA-Z0-9_]/.test(text[i]);
-    if (startIsAlphaNum) {
-      while (i < text.length && /[a-zA-Z0-9_]/.test(text[i])) {
+    const startIsWordChar = /[\p{L}\p{N}_]/u.test(text[i]);
+    if (startIsWordChar) {
+      while (i < text.length && /[\p{L}\p{N}_]/u.test(text[i])) {
         i++;
       }
     } else {
-      while (i < text.length && !/[a-zA-Z0-9_]/.test(text[i])) {
+      while (i < text.length && !/[\p{L}\p{N}_]/u.test(text[i])) {
         i++;
       }
     }
@@ -700,17 +701,17 @@ function findWordDeleteBoundaryLeft(text: string, index: number): number {
 
   if (i === 0) return 0;
 
-  // Check what type of character we're starting from
-  const isAlphaNum = /[a-zA-Z0-9_]/.test(text[i - 1]);
+  // Check what type of character we're starting from (Unicode-aware)
+  const isWordChar = /[\p{L}\p{N}_]/u.test(text[i - 1]);
 
-  if (isAlphaNum) {
-    // Delete alphanumeric characters and underscores
-    while (i > 0 && /[a-zA-Z0-9_]/.test(text[i - 1])) {
+  if (isWordChar) {
+    // Delete word characters (Unicode letters, numbers, underscores)
+    while (i > 0 && /[\p{L}\p{N}_]/u.test(text[i - 1])) {
       i--;
     }
   } else {
-    // Delete non-alphanumeric (spaces, punctuation, special characters together)
-    while (i > 0 && !/[a-zA-Z0-9_]/.test(text[i - 1])) {
+    // Delete non-word characters (spaces, punctuation, special characters together)
+    while (i > 0 && !/[\p{L}\p{N}_]/u.test(text[i - 1])) {
       i--;
     }
   }
@@ -723,17 +724,17 @@ function findWordDeleteBoundaryRight(text: string, index: number): number {
 
   if (i === text.length) return text.length;
 
-  // Check what type of character we're starting from
-  const isAlphaNum = /[a-zA-Z0-9_]/.test(text[i]);
+  // Check what type of character we're starting from (Unicode-aware)
+  const isWordChar = /[\p{L}\p{N}_]/u.test(text[i]);
 
-  if (isAlphaNum) {
-    // Delete alphanumeric characters and underscores
-    while (i < text.length && /[a-zA-Z0-9_]/.test(text[i])) {
+  if (isWordChar) {
+    // Delete word characters (Unicode letters, numbers, underscores)
+    while (i < text.length && /[\p{L}\p{N}_]/u.test(text[i])) {
       i++;
     }
   } else {
-    // Delete non-alphanumeric (spaces, punctuation, special characters together)
-    while (i < text.length && !/[a-zA-Z0-9_]/.test(text[i])) {
+    // Delete non-word characters (spaces, punctuation, special characters together)
+    while (i < text.length && !/[\p{L}\p{N}_]/u.test(text[i])) {
       i++;
     }
   }
@@ -882,11 +883,12 @@ export function deleteWordBackward(state: EditorState): EditorState {
   return state;
 }
 
-// Find word boundaries for selection - includes punctuation and non-whitespace
+// Find word boundaries for selection - only selects word characters (letters, numbers, underscore)
+// Uses Unicode property escapes to support all languages
 function findWordStart(text: string, index: number): number {
   let i = index;
-  // Move left while we're not at whitespace or start of string
-  while (i > 0 && !/\s/.test(text[i - 1])) {
+  // Move left while we're in word characters (Unicode letters, numbers, or underscore)
+  while (i > 0 && /[\p{L}\p{N}_]/u.test(text[i - 1])) {
     i--;
   }
   return i;
@@ -894,8 +896,8 @@ function findWordStart(text: string, index: number): number {
 
 function findWordEnd(text: string, index: number): number {
   let i = index;
-  // Move right while we're not at whitespace or end of string
-  while (i < text.length && !/\s/.test(text[i])) {
+  // Move right while we're in word characters (Unicode letters, numbers, or underscore)
+  while (i < text.length && /[\p{L}\p{N}_]/u.test(text[i])) {
     i++;
   }
   return i;
@@ -911,6 +913,14 @@ export function selectWordAtPosition(
   const text = getBlockTextContent(block);
 
   if (text.length === 0) return state;
+
+  // Check if we're on a word character (Unicode letter, number, or underscore)
+  const isOnWord = textIndex < text.length && /[\p{L}\p{N}_]/u.test(text[textIndex]);
+  
+  if (!isOnWord) {
+    // If not on a word, don't select anything
+    return state;
+  }
 
   // Find word boundaries
   const wordStart = findWordStart(text, textIndex);
