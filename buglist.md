@@ -55,7 +55,9 @@ Bugs list
 [ ] group undo and redo to words.
 [ ] ctrl + b and other shorcuts should change the inline the text style.
 [ ] add image blocks
-[ ] copy the feature from context menu not working anymore on desktop windows or in ios. So this is not working everywhere.
+[ ] add unorded list block
+[ ] add orded list block
+[ ] add todo list block
 [ ] Choosing a context menu by dragging not avaliable
 [ ] Check devices compatiabities such ipad with keyboard. Pen input, stylus supprot. Handwriting.
 [ ] on ios keyboard iland we should add active/inactive state for block type menu. External keyboard
@@ -63,7 +65,7 @@ Bugs list
 [ ] voice input/speeh-to-text
 [ ] Accessiblity input?
 [ ] Autorcorrect/autocomplete
-[ ] draggin text
+[ ] dragging text
 [ ] on android keyboard toolbar we should add active/inactive state for block type menu.
 [ ] we should add inline formatting options in ios keyboard island.
 [ ] we should add inline formatting options in android keyboard toolbar.
