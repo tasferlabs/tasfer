@@ -5,7 +5,7 @@ Bugs list
 [x] word boundaries on double click should be respected. The punctionuation should not selected.
 [x] Arabic and other langs from rtl should be rendered from right to left.
 [x] left and right arrow keys should move correctly with rtl. Now while moving from ltr to rtl bloks work. But there is an issue if we start from rtl block
-[ ] undo and redo and other shortcuts does not work in other lang layouts.
+[x] undo and redo and other shortcuts does not work in other lang layouts.
 [ ] composition and other input methods such as IME should work.
 [x] split function does not preserve block type.
 [ ] clicking enter on the end of header it should not create new heading block.

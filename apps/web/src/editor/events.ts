@@ -110,7 +110,11 @@ function ensureCursorVisible(
   viewport: ViewportState,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): void {
-  if (newState !== oldState && newState.document.cursor && updateViewportCallback) {
+  if (
+    newState !== oldState &&
+    newState.document.cursor &&
+    updateViewportCallback
+  ) {
     const newScrollY = scrollToMakeCursorVisible(
       newState.document.cursor.position,
       newState,
@@ -209,7 +213,10 @@ export function handleEvents(
       );
 
       if (position) {
-        if (!state.document.selection || !isPositionWithinSelection(state, position)) {
+        if (
+          !state.document.selection ||
+          !isPositionWithinSelection(state, position)
+        ) {
           state = updateCursor(state, position);
           state = clearSelection(state);
         }
@@ -551,7 +558,10 @@ function handleContextMenu(
   );
 
   if (position) {
-    if (!state.document.selection || !isPositionWithinSelection(state, position)) {
+    if (
+      !state.document.selection ||
+      !isPositionWithinSelection(state, position)
+    ) {
       state = updateCursor(state, position);
       state = clearSelection(state);
     }
@@ -648,7 +658,14 @@ function handleMouseDown(
         // Open the link in a new tab
         window.open(linkData.url, "_blank", "noopener,noreferrer");
         // Clear any link hover state
-        state = { ...state, ui: { ...state.ui, linkHover: null, isHoveringLinkWithModifier: false } };
+        state = {
+          ...state,
+          ui: {
+            ...state.ui,
+            linkHover: null,
+            isHoveringLinkWithModifier: false,
+          },
+        };
         // Don't continue with normal click behavior - just return
         return state;
       }
@@ -720,7 +737,10 @@ function handleMouseDown(
   if (
     state.view.clickTracker.lastClickPosition &&
     currentTime - state.view.clickTracker.lastClickTime <= DOUBLE_CLICK_TIME &&
-    isWithinClickDistance(currentPosition, state.view.clickTracker.lastClickPosition)
+    isWithinClickDistance(
+      currentPosition,
+      state.view.clickTracker.lastClickPosition
+    )
   ) {
     state.view.clickTracker.count++;
     isMultiClick = true;
@@ -805,13 +825,13 @@ function handleMouseMove(
     // Check for link hover when not selecting (desktop only)
     // Don't show tooltip if Ctrl/Command key is held (user wants to click to open)
     const isCtrlOrCmd = event.ctrlKey || event.metaKey;
-    
+
     // If Ctrl/Command is held and we have a tooltip showing, clear it
     if (isCtrlOrCmd && state.ui.linkHover) {
       state = { ...state, ui: { ...state.ui, linkHover: null } };
       return state;
     }
-    
+
     if (!isTouchDevice()) {
       const position = getTextPositionFromViewport(
         canvasX,
@@ -884,7 +904,14 @@ function handleMouseMove(
           }
 
           // Clear link hover if no longer over a link or tooltip
-          state = { ...state, ui: { ...state.ui, linkHover: null, isHoveringLinkWithModifier: false } };
+          state = {
+            ...state,
+            ui: {
+              ...state.ui,
+              linkHover: null,
+              isHoveringLinkWithModifier: false,
+            },
+          };
         }
       } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
         // Check if mouse is still over the tooltip
@@ -903,11 +930,21 @@ function handleMouseMove(
         }
 
         // Clear link hover if not over any text or tooltip
-        state = { ...state, ui: { ...state.ui, linkHover: null, isHoveringLinkWithModifier: false } };
+        state = {
+          ...state,
+          ui: {
+            ...state.ui,
+            linkHover: null,
+            isHoveringLinkWithModifier: false,
+          },
+        };
       }
     } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
       // Clear link hover on touch devices
-      state = { ...state, ui: { ...state.ui, linkHover: null, isHoveringLinkWithModifier: false } };
+      state = {
+        ...state,
+        ui: { ...state.ui, linkHover: null, isHoveringLinkWithModifier: false },
+      };
     }
 
     return state;
@@ -1021,7 +1058,7 @@ function handleKeyDown(
 ): EditorState {
   const keyEvent = event as unknown as KeyboardEvent;
   const key = keyEvent.key;
-  const keyLower = key.toLowerCase();
+  const code = keyEvent.code;
   const isCtrl = keyEvent.ctrlKey || keyEvent.metaKey;
 
   // In locked mode, block all operations
@@ -1030,24 +1067,25 @@ function handleKeyDown(
   }
 
   // Undo/Redo - handle these first, even if slash command is open
-  if (isCtrl && keyLower === "z" && !keyEvent.shiftKey) {
+  // Use code instead of key for keyboard layout independence
+  if (isCtrl && code === "KeyZ" && !keyEvent.shiftKey) {
     const newState = undoState(state);
     ensureCursorVisible(newState, state, viewport, updateViewportCallback);
     return newState;
   }
-  if (isCtrl && (keyLower === "y" || (keyEvent.shiftKey && keyLower === "z"))) {
+  if (isCtrl && (code === "KeyY" || (keyEvent.shiftKey && code === "KeyZ"))) {
     const newState = redoState(state);
     ensureCursorVisible(newState, state, viewport, updateViewportCallback);
     return newState;
   }
 
   // Select All
-  if (isCtrl && keyLower === "a") {
+  if (isCtrl && code === "KeyA") {
     return selectAll(state);
   }
 
   // Copy
-  if (isCtrl && keyLower === "c") {
+  if (isCtrl && code === "KeyC") {
     // Don't prevent default - allow browser's copy to work as fallback
     // But also handle our custom copy with formatting
     copySelectionToClipboard(state).catch((err) => {
@@ -1057,7 +1095,7 @@ function handleKeyDown(
   }
 
   // Cut
-  if (isCtrl && keyLower === "x") {
+  if (isCtrl && code === "KeyX") {
     const range = getSelectionRange(state);
     if (range) {
       // Copy to clipboard first
@@ -1168,7 +1206,8 @@ function handleKeyDown(
         // If at the start of filter, close menu
         if (
           state.document.cursor &&
-          state.document.cursor.position.textIndex <= state.ui.slashCommand.textIndex
+          state.document.cursor.position.textIndex <=
+            state.ui.slashCommand.textIndex
         ) {
           // Close menu and delete the slash character - no recordUndo needed since deleteText already records
           const newState = closeSlashCommand(deleteText(recordUndo(state)));
@@ -1184,7 +1223,8 @@ function handleKeyDown(
         if (state.document.cursor) {
           const newState = deleteText(recordUndo(state));
           if (newState.document.cursor) {
-            const block = newState.document.page.blocks[state.ui.slashCommand.blockIndex];
+            const block =
+              newState.document.page.blocks[state.ui.slashCommand.blockIndex];
             const text = getBlockTextContent(block);
             const filter = text.slice(
               state.ui.slashCommand.textIndex,
@@ -1212,7 +1252,8 @@ function handleKeyDown(
           // insertText handles recordUndo internally
           const newState = insertText(recordUndo(state), key);
           if (newState.document.cursor) {
-            const block = newState.document.page.blocks[state.ui.slashCommand.blockIndex];
+            const block =
+              newState.document.page.blocks[state.ui.slashCommand.blockIndex];
             const text = getBlockTextContent(block);
             const filter = text.slice(
               state.ui.slashCommand.textIndex,
@@ -1370,7 +1411,9 @@ function handleKeyDown(
           newState = moveCursorToPosition(
             clearSelection(state),
             state.document.page.blocks.length - 1,
-            getBlockTextLength(state.document.page.blocks[state.document.page.blocks.length - 1])
+            getBlockTextLength(
+              state.document.page.blocks[state.document.page.blocks.length - 1]
+            )
           );
         } else {
           newState = moveToLineEnd(clearSelection(state));
@@ -1443,7 +1486,11 @@ function handleKeyDown(
       return state;
   }
 
-  if (newState !== state && newState.document.cursor && updateViewportCallback) {
+  if (
+    newState !== state &&
+    newState.document.cursor &&
+    updateViewportCallback
+  ) {
     const newScrollY = scrollToMakeCursorVisible(
       newState.document.cursor.position,
       newState,
