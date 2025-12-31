@@ -585,6 +585,74 @@ export const updateSelectionFocus = (
     return startSelection(state, position);
   }
 
+  // If we have an initial boundary (from double/triple-click), adjust anchor based on drag direction
+  if (state.document.selection.initialBoundary) {
+    const { start, end } = state.document.selection.initialBoundary;
+    
+    // Determine if the new focus is before start or after end
+    const isFocusBeforeStart =
+      position.blockIndex < start.blockIndex ||
+      (position.blockIndex === start.blockIndex &&
+        position.textIndex < start.textIndex);
+    
+    const isFocusAfterEnd =
+      position.blockIndex > end.blockIndex ||
+      (position.blockIndex === end.blockIndex &&
+        position.textIndex > end.textIndex);
+
+    let newAnchor: Position;
+    let newFocus: Position;
+    
+    if (isFocusBeforeStart) {
+      // Dragging backward (before start): anchor at end, focus at new position
+      newAnchor = end;
+      newFocus = position;
+    } else if (isFocusAfterEnd) {
+      // Dragging forward (after end): anchor at start, focus at new position
+      newAnchor = start;
+      newFocus = position;
+    } else {
+      // Focus is within the initial boundary: keep the entire word/block selected
+      // Determine which boundary is closer to position to decide which end to anchor
+      const distanceToStart =
+        Math.abs(position.blockIndex - start.blockIndex) * 10000 +
+        Math.abs(position.textIndex - start.textIndex);
+      const distanceToEnd =
+        Math.abs(position.blockIndex - end.blockIndex) * 10000 +
+        Math.abs(position.textIndex - end.textIndex);
+      
+      // Keep full selection: if closer to start, set focus at start and anchor at end (and vice versa)
+      if (distanceToStart < distanceToEnd) {
+        newAnchor = end;
+        newFocus = start;
+      } else {
+        newAnchor = start;
+        newFocus = end;
+      }
+    }
+
+    return {
+      ...state,
+      document: {
+        ...state.document,
+        selection: {
+          anchor: newAnchor,
+          focus: newFocus,
+          isForward: isForwardSelection({
+            anchor: newAnchor,
+            focus: newFocus,
+          }),
+          isCollapsed: isCollapsedSelection({
+            anchor: newAnchor,
+            focus: newFocus,
+          }),
+          lastUpdate: Date.now(),
+          initialBoundary: state.document.selection.initialBoundary,
+        },
+      },
+    };
+  }
+
   return updateSelection(state, {
     focus: position,
     anchor: state.document.selection.anchor,

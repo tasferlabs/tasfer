@@ -1042,9 +1042,25 @@ export function selectWordAtPosition(
   const endPos: Position = { blockIndex, textIndex: wordEnd };
 
   // Create selection from word start to word end, with cursor at end
+  // Store initial boundary so anchor can adjust properly on drag
   let newState = moveCursorToPosition(state, blockIndex, wordEnd);
-  newState = startSelection(newState, startPos);
-  newState = updateSelectionFocus(newState, endPos);
+  newState = {
+    ...newState,
+    document: {
+      ...newState.document,
+      selection: {
+        anchor: startPos,
+        focus: endPos,
+        isForward: true,
+        isCollapsed: false,
+        lastUpdate: Date.now(),
+        initialBoundary: {
+          start: startPos,
+          end: endPos,
+        },
+      },
+    },
+  };
   return updateMode(newState, "select");
 }
 
@@ -1061,9 +1077,25 @@ export function selectLineAtPosition(
   const endPos: Position = { blockIndex, textIndex: text.length };
 
   // Create selection for entire block
+  // Store initial boundary so anchor can adjust properly on drag
   let newState = moveCursorToPosition(state, blockIndex, text.length);
-  newState = startSelection(newState, startPos);
-  newState = updateSelectionFocus(newState, endPos);
+  newState = {
+    ...newState,
+    document: {
+      ...newState.document,
+      selection: {
+        anchor: startPos,
+        focus: endPos,
+        isForward: true,
+        isCollapsed: false,
+        lastUpdate: Date.now(),
+        initialBoundary: {
+          start: startPos,
+          end: endPos,
+        },
+      },
+    },
+  };
   return updateMode(newState, "select");
 }
 

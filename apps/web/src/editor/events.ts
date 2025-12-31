@@ -971,7 +971,23 @@ function handleMouseUp(
   }
 
   if (state.ui.mode === "select") {
-    return updateMode(state, "edit");
+    // Clear initialBoundary when finishing selection
+    let newState = state;
+    if (state.document.selection?.initialBoundary) {
+      newState = {
+        ...state,
+        document: {
+          ...state.document,
+          selection: state.document.selection
+            ? {
+                ...state.document.selection,
+                initialBoundary: undefined,
+              }
+            : null,
+        },
+      };
+    }
+    return updateMode(newState, "edit");
   }
 
   return state;
@@ -1815,6 +1831,21 @@ function handleTouchEnd(
       };
     } else if (state.ui.mode === "select") {
       // Long press created a new selection - exit select mode without showing context menu
+      // Clear initialBoundary when finishing selection
+      if (state.document.selection?.initialBoundary) {
+        state = {
+          ...state,
+          document: {
+            ...state.document,
+            selection: state.document.selection
+              ? {
+                  ...state.document.selection,
+                  initialBoundary: undefined,
+                }
+              : null,
+          },
+        };
+      }
       state = updateMode(state, "edit");
       touchState = null;
 

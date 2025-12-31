@@ -88,6 +88,11 @@ export interface SelectionState {
   readonly isForward: boolean;
   readonly isCollapsed: boolean;
   readonly lastUpdate: number;
+  // Track initial selection boundaries from double/triple click for proper anchor adjustment
+  readonly initialBoundary?: {
+    readonly start: Position;
+    readonly end: Position;
+  };
 }
 
 export interface PartialSelectionState {
