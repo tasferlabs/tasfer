@@ -2,7 +2,10 @@ import LoadingScreen from "@/components/ui/loading-screen";
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn, shallowEqual } from "../lib/utils";
-import { mountEditor, type MountedEditor } from "../editor/mount";
+import {
+  mountEditor,
+  type MountedEditor,
+} from "../editor/mount";
 import type { EditorState, SlashCommand } from "../editor/types";
 import { SlashCommandMenu } from "../editor/SlashCommandMenu";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
@@ -11,15 +14,20 @@ import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { getSelectionRange } from "../editor/commands";
 import { Clipboard, Copy, Scissors } from "lucide-react";
 import { hasNativeBridge } from "../editor/clipboard";
+import { serializeToMarkdown } from "../deserializer/serializer";
 
 interface ScrollableEditorProps {
-  path: string;
+  type: "path" | "content";
+  source: string;
   className?: string;
+  onContentChange?: (content: string) => void;
 }
 
 export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
-  path,
+  type,
+  source,
   className = "",
+  onContentChange,
 }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -78,7 +86,10 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       overlayRef.current.removeAttribute("aria-hidden");
     }
 
-    const mounted = mountEditor(el, { path });
+    const mounted =
+      type === "path"
+        ? mountEditor(el, { type: "path", path: source })
+        : mountEditor(el, { type: "content", content: source || "" });
     mountedRef.current = mounted;
 
     // Expose editor methods to window for native bridges
@@ -99,6 +110,12 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
 
     // Subscribe to editor state changes for slash command and context menu
     const handleStateChange = (state: EditorState) => {
+      // Notify parent of content changes if callback is provided
+      if (onContentChange && state.document.page?.blocks) {
+        const markdown = serializeToMarkdown(state.document.page.blocks);
+        onContentChange(markdown);
+      }
+
       // Calculate new slash command state
       let newSlashState: typeof slashMenuState = null;
       if (state.ui.slashCommand && state.document.cursor) {
@@ -212,7 +229,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
         mountedRef.current = null;
       }
     };
-  }, [path]);
+  }, [source, onContentChange]);
 
   const handleSlashCommandSelect = (command: SlashCommand) => {
     if (mountedRef.current) {

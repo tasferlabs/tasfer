@@ -36,6 +36,7 @@ export interface Editor {
   getState: () => EditorState;
   destroy: () => void;
   load: (path: string) => Promise<void>;
+  loadContent: (content: string) => void;
   updateViewport: (viewport: Partial<ViewportState>) => void;
   getDocumentHeight: () => number;
   setFocus: (focused: boolean) => void;
@@ -608,6 +609,10 @@ export default function createEditor(
     page = loadPage(content);
   }
 
+  function loadContent(content: string) {
+    page = loadPage(content);
+  }
+
   function updateViewport(newViewport: Partial<ViewportState>) {
     const oldWidth = viewport.width;
 
@@ -794,6 +799,7 @@ export default function createEditor(
     getState,
     destroy,
     load,
+    loadContent,
     updateViewport,
     getDocumentHeight,
     setFocus,

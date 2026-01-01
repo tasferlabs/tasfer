@@ -4,6 +4,8 @@ import style from "./Layout.module.css";
 import { clsx } from "clsx";
 import { ListIcon } from "@phosphor-icons/react";
 import useResponsive from "../hooks/useResponsive";
+import { SavingIndicator } from "../components/SavingIndicator";
+import { useSaving } from "../contexts/SavingContext";
 
 export function TopActionBar({
   open,
@@ -15,6 +17,8 @@ export function TopActionBar({
   // Mock data
   const pageTitle = "Untitled";
   const isMobile = useResponsive("(max-width: 768px)");
+  const { isSaving } = useSaving();
+  
   return (
     <div className={style.appHeader}>
       {(!open || isMobile) && (
@@ -31,6 +35,10 @@ export function TopActionBar({
 
       <div className={style.appHeaderTitles}>
         <span className={style.appHeaderTitle}>{pageTitle}</span>
+      </div>
+
+      <div className="ml-auto">
+        <SavingIndicator isSaving={isSaving} />
       </div>
     </div>
   );

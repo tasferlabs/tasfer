@@ -1,12 +1,15 @@
 import React from "react";
-import { ScrollableEditor } from "./ScrollableEditor";
-import Layout from "./layout/Layout";
+import Router from "./routes/Router";
+import { ConfirmationDialogProvider } from "./components/ConfirmationDialog";
+import { SavingProvider } from "./contexts/SavingContext";
 
 const App: React.FC = () => {
   return (
-    <Layout>
-      <ScrollableEditor path="/sample.md" className="w-full h-full" />
-    </Layout>
+    <ConfirmationDialogProvider>
+      <SavingProvider>
+        <Router />
+      </SavingProvider>
+    </ConfirmationDialogProvider>
   );
 };
 

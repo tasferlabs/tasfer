@@ -22,11 +22,10 @@ Bugs list
 [x] when selection going outside the screen the viewport should follow the selection.
 [x] hold press and selecting down on mobile does not work correctly because cursor is not moving down.
 [x] when end edge scrolling we should open keyboard on mobile.
-[ ] max selection dragging scroll speed should be limited. Or limted but very large number. Because we don not how large the document could be.
+[ ] max selection dragging scroll speed should not be limited. Or limted but very large number. Because we don not how large the document could be.
 [ ] Maybe specify how large of document we should supprt.
-[ ] add word count if enabled in setings. Consider if we could mange count all the words or we need to implement estimation somehow.s
+[ ] add word count if enabled in setings. Consider if we could mange count all the words or we need to implement estimation somehow.
 [x] when clicking on the sides or outside the editor we should reset the selection.
-[ ] we click outside the editor we should reset selection.
 [ ] whe the whole window loses focus we need to render selection boxes with different color.
 [x] ctrl + delete like vscode should work.
 [x] when writing withing headers the text is converted to paragraphs for some reason.
@@ -51,7 +50,6 @@ Bugs list
 [x] when pressing enter on end of heading then we should create new paragraph not heading.
 [x] Fix word boundary selection logic, it should not include punction and speical signs
 [x] Fix reading empty file, should at least be one block
-[ ] group undo and redo to words.
 [ ] ctrl + b and other shorcuts should change the inline the text style.
 [ ] add image blocks
 [ ] add unorded list block
@@ -86,3 +84,6 @@ Bugs list
 [x] rtl inline format rendering edge cases
 [ ] complex mandrians characters are not working with with selection.
 [ ] render should be more efficent if we schedule it
+[ ] cursor should not be visable if we haeve selection
+[ ] group undo and redo to words.
+[ ] When loading a page first. it is overrideing the page with empty state. The update endpoint is being called before the page is loaded and is overriding with empty string
