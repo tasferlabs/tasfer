@@ -1,10 +1,10 @@
 import type { ViewportState } from "./types";
 import createEditor, { type Editor } from "./index";
+import { loadPage } from "../deserializer/loadPage";
+import { createInitialState } from "./state";
 
 export interface MountedEditor {
   readonly editor: Editor;
-  /** Resolves once the document is loaded and the render loop has started. */
-  readonly ready: Promise<void>;
   /** Container for React portals (e.g., slash command menu) */
   readonly portalContainer: HTMLDivElement;
   destroy: () => void;
@@ -40,16 +40,13 @@ function sizeCanvasToContainer(
   return { width, height };
 }
 
-export type EditorDataSource =
-  | { type: "path"; path: string }
-  | { type: "content"; content: string };
 /**
  * Imperatively mounts the canvas editor into a container element.
  * React/Vue/etc can call this from lifecycle hooks; no framework state required.
  */
 export function mountEditor(
   container: HTMLElement,
-  data: EditorDataSource
+  content: string
 ): MountedEditor {
   const canvas = document.createElement("canvas");
   canvas.style.display = "block";
@@ -115,7 +112,12 @@ export function mountEditor(
     scrollY: 0,
   };
 
-  const editor = createEditor(canvas, initialViewport, hiddenInput);
+  // Load the page and create initial state before creating the editor
+  const page = loadPage(content);
+  const initialState = createInitialState(page);
+
+  // Create editor with initial state
+  const editor = createEditor(canvas, initialState, initialViewport, hiddenInput);
 
   let keyboardHeight = 0;
   let baseWidth = initial.width;
@@ -159,18 +161,6 @@ export function mountEditor(
     resizeCanvasForKeyboard();
   });
   resizeObserver.observe(container);
-
-  const ready = (
-    data.type === "content"
-      ? Promise.resolve(editor.loadContent(data.content))
-      : data.type === "path"
-      ? editor.load(data.path!)
-      : Promise.reject(new Error("Invalid data source"))
-  ).then(() => {
-    if (destroyed) return;
-    // We don't need React state updates for document height here.
-    editor.start(() => {});
-  });
 
   // Handle click outside
   const handleDocumentClick = (e: MouseEvent | TouchEvent) => {
@@ -223,5 +213,5 @@ export function mountEditor(
     portalContainer.remove();
   };
 
-  return { editor, ready, destroy, portalContainer };
+  return { editor, destroy, portalContainer };
 }

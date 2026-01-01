@@ -1,4 +1,3 @@
-import LoadingScreen from "@/components/ui/loading-screen";
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn, shallowEqual } from "../lib/utils";
@@ -17,20 +16,17 @@ import { hasNativeBridge } from "../editor/clipboard";
 import { serializeToMarkdown } from "../deserializer/serializer";
 
 interface ScrollableEditorProps {
-  type: "path" | "content";
-  source: string;
+  content: string;
   className?: string;
   onContentChange?: (content: string) => void;
 }
 
 export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
-  type,
-  source,
+  content,
   className = "",
   onContentChange,
 }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditor | null>(null);
   const [slashMenuState, setSlashMenuState] = useState<{
     visible: boolean;
@@ -68,28 +64,25 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
   const lastContextMenuStateRef = useRef<typeof contextMenuState>(null);
   const lastLinkTooltipStateRef = useRef<typeof linkTooltipState>(null);
   const linkEditActionPerformedRef = useRef(false);
+  const lastSerializedBlocksRef = useRef<EditorState["document"]["page"]["blocks"] | null>(null);
+  const editorInitializedRef = useRef(false);
 
   // Imperatively mount/unmount editor (no React state needed)
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
 
-    // Clean up any previous mount (e.g., path changes, strict mode re-mount)
+    // Clean up any previous mount (e.g., content changes, strict mode re-mount)
     if (mountedRef.current) {
       mountedRef.current.destroy();
       mountedRef.current = null;
     }
 
-    // Show overlay until ready
-    if (overlayRef.current) {
-      overlayRef.current.style.display = "";
-      overlayRef.current.removeAttribute("aria-hidden");
-    }
+    // Reset serialization tracking and initialization flag when content changes
+    lastSerializedBlocksRef.current = null;
+    editorInitializedRef.current = false;
 
-    const mounted =
-      type === "path"
-        ? mountEditor(el, { type: "path", path: source })
-        : mountEditor(el, { type: "content", content: source || "" });
+    const mounted = mountEditor(el, content);
     mountedRef.current = mounted;
 
     // Expose editor methods to window for native bridges
@@ -111,9 +104,25 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     // Subscribe to editor state changes for slash command and context menu
     const handleStateChange = (state: EditorState) => {
       // Notify parent of content changes if callback is provided
+      // Only serialize when blocks actually change (not on cursor blink, UI changes, etc.)
       if (onContentChange && state.document.page?.blocks) {
-        const markdown = serializeToMarkdown(state.document.page.blocks);
-        onContentChange(markdown);
+        const currentBlocks = state.document.page.blocks;
+        
+        // On first state change, just store the initial blocks without triggering onContentChange
+        // This prevents the editor from overwriting backend content with empty state on mount
+        if (!editorInitializedRef.current) {
+          lastSerializedBlocksRef.current = currentBlocks;
+          editorInitializedRef.current = true;
+          return;
+        }
+        
+        // Check if blocks reference has changed (indicates actual content modification)
+        if (currentBlocks !== lastSerializedBlocksRef.current) {
+          lastSerializedBlocksRef.current = currentBlocks;
+          console.log("currentBlocks", currentBlocks);
+          const markdown = serializeToMarkdown(currentBlocks);
+          onContentChange(markdown);
+        }
       }
 
       // Calculate new slash command state
@@ -201,14 +210,6 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
 
     const unsubscribe = mounted.editor.subscribe(handleStateChange);
 
-    mounted.ready.finally(() => {
-      // Hide overlay when loaded + started (or if load fails)
-      if (overlayRef.current) {
-        overlayRef.current.style.display = "none";
-        overlayRef.current.setAttribute("aria-hidden", "true");
-      }
-    });
-
     return () => {
       unsubscribe();
       mounted.destroy();
@@ -229,7 +230,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
         mountedRef.current = null;
       }
     };
-  }, [source, onContentChange]);
+  }, [content, onContentChange]);
 
   const handleSlashCommandSelect = (command: SlashCommand) => {
     if (mountedRef.current) {
@@ -314,6 +315,8 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     if (!linkTooltipState || !mountedRef.current) return;
 
     const state = mountedRef.current.editor.getState();
+    if (!state) return;
+    
     if (state.ui.linkHover) {
       const containerRect = wrapperRef.current?.getBoundingClientRect();
       if (containerRect) {
@@ -394,14 +397,6 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       aria-multiline="true"
       tabIndex={-1}
     >
-      {/* Loading overlay */}
-      <div
-        ref={overlayRef}
-        className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 backdrop-blur-sm"
-      >
-        <LoadingScreen />
-      </div>
-
       {/* Slash command menu portal */}
       {slashMenuState &&
         mountedRef.current?.portalContainer &&

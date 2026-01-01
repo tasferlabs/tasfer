@@ -91,7 +91,7 @@ function parseText(context: ParserContext): Text[] {
   const formatStack: TextFormat[] = [];
   let currentContent = "";
   
-  while (nomatch(context, NEWLINE) && !isEnd(context)) {
+  while (!isEnd(context) && nomatch(context, NEWLINE)) {
     const node = previous(context) as VisibleToken;
     
     // Handle format start tokens

@@ -1,11 +1,11 @@
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
 import { ScrollableEditor } from "../ScrollableEditor";
-import { useCreatePage, useGetPage, useUpdatePage } from "../api/pages.api";
+import { useCreatePage, getPage, useUpdatePage } from "../api/pages.api";
 import EmptyStateIllustration from "../components/illustrations/empty-state";
 import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
@@ -19,58 +19,52 @@ export default function EditorPage() {
   const { id } = useParams<{ id: string }>();
   const { setIsSaving: setGlobalIsSaving } = useSaving();
   const { getConfirmation } = useConfirmation();
-
-  // If no ID in URL, show empty state
-  if (!id) {
-    return <EditorEmptyState />;
-  }
-
-  // Fetch page data by ID
-  const { data: page, isLoading, isError } = useGetPage(id);
   const { mutateAsync: updatePage } = useUpdatePage();
-  const initialContentRef = useRef<string | null>(null);
-  const lastContentRef = useRef<string | null>(null);
-  const isInitializedRef = useRef(false);
-  const currentPageIdRef = useRef<string | null>(null);
 
-  // Reset initialization state when navigating to a different page
+  // State for loading page content once on mount
+  const [pageContent, setPageContent] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
+
+  // Fetch page content once on mount or when ID changes
   useEffect(() => {
-    if (id !== currentPageIdRef.current) {
-      initialContentRef.current = null;
-      lastContentRef.current = null;
-      isInitializedRef.current = false;
-      currentPageIdRef.current = id || null;
+    if (!id) return;
+
+    let cancelled = false;
+
+    async function loadPage() {
+      setIsLoading(true);
+      setIsError(false);
+
+      try {
+        const page = await getPage(id!);
+        if (!cancelled) {
+          setPageContent(page.content || "");
+          setIsLoading(false);
+        }
+      } catch (error) {
+        console.error("Failed to load page:", error);
+        if (!cancelled) {
+          setIsError(true);
+          setIsLoading(false);
+        }
+      }
     }
+
+    loadPage();
+
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
-
-  // Store initial content to avoid saving it immediately on mount
-  useEffect(() => {
-    if (page?.content !== undefined && !isInitializedRef.current) {
-      initialContentRef.current = page.content || "";
-      lastContentRef.current = page.content || "";
-      isInitializedRef.current = true;
-    }
-  }, [page?.content, id]);
 
   // Debounced save callback
   const handleSave = useCallback(
     async (content: string) => {
       if (!id) return;
 
-      // Don't save if page hasn't been initialized yet
-      if (!isInitializedRef.current) {
-        return;
-      }
-
-      // Don't save if content hasn't changed from initial
-      if (content === initialContentRef.current) {
-        return;
-      }
-
       try {
         await updatePage({ id, content });
-        // Update lastContentRef after successful save
-        lastContentRef.current = content;
       } catch (error) {
         console.error("Failed to save content:", error);
       }
@@ -89,32 +83,13 @@ export default function EditorPage() {
     setGlobalIsSaving(isSaving);
   }, [isSaving, setGlobalIsSaving]);
 
-  // Keep a stable ref to debouncedSave to avoid recreating handleContentChange
-  const debouncedSaveRef = useRef(debouncedSave);
-  useEffect(() => {
-    debouncedSaveRef.current = debouncedSave;
-  }, [debouncedSave]);
-
-  // Handle content changes from editor - only trigger save if content actually changed
-  // This callback is stable (no dependencies) to prevent editor remounting
-  const handleContentChange = useCallback((content: string) => {
-    // Don't trigger save before initialization is complete
-    if (!isInitializedRef.current) {
-      return;
-    }
-
-    // CRITICAL FIX: Ignore the first content change event if it's empty and comes right after initialization
-    // This handles the race condition where the editor fires an empty state before loading actual content
-    if (content === "" && lastContentRef.current === initialContentRef.current && initialContentRef.current !== "") {
-      return;
-    }
-
-    // Only trigger save if content is different from last seen content
-    if (content !== lastContentRef.current) {
-      lastContentRef.current = content;
-      debouncedSaveRef.current(content);
-    }
-  }, []); // Empty dependencies - stable callback
+  // Handle content changes from editor
+  const handleContentChange = useCallback(
+    (content: string) => {
+      debouncedSave(content);
+    },
+    [debouncedSave]
+  );
 
   // Warn user before leaving page if there are unsaved changes
   useEffect(() => {
@@ -143,19 +118,24 @@ export default function EditorPage() {
     };
   }, [flush, setGlobalIsSaving]);
 
+  // If no ID in URL, show empty state
+  if (!id) {
+    return <EditorEmptyState />;
+  }
+
   if (isLoading) {
     return <EditorLoadingState />;
   }
 
-  if (isError || !page) {
+  if (isError || pageContent === null) {
     return <EditorNotFoundState />;
   }
 
   // Pass raw markdown content to the editor
+  // Content is loaded once on mount, editor manages state from there
   return (
     <ScrollableEditor
-      type="content"
-      source={page.content || ""}
+      content={pageContent}
       className="w-full h-full"
       onContentChange={handleContentChange}
     />
