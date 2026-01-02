@@ -32,7 +32,9 @@ Bugs list
 [x] ctrl + delete like vscode should work.
 [x] when writing withing headers the text is converted to paragraphs for some reason.
 [x] implement ctrl + A to select all text.
-[ ] add select all on mobile.
+[x] add select all on mobile.
+[x] If select all and right click the context menu disapears.
+[x] link menu should not appear on context menu 
 [x] add placeholder on empty blocks when editing, on cursor position.
 [x] empty blocks should be seen as selected.
 [x] implement "/" functionality to open command palette.
@@ -85,7 +87,7 @@ Bugs list
 [ ] override webiew defaul 404 page
 [x] rtl inline format rendering edge cases
 [ ] render should be more efficent if we schedule it
-[ ] cursor should not be visable if we haeve selection
+[x] cursor should not be visable if we haeve selection
 [ ] group undo and redo to words.
 [x] bring back the old tree code from l4r for saving pages and sort them into trees.
 [x] When loading a page first. it is overrideing the page with empty state. The update endpoint is being called before the page is loaded and is overriding with empty string

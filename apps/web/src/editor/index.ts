@@ -4,6 +4,7 @@ import {
   convertBlockType,
   updateLinkInBlock,
   clearLinkInBlock,
+  selectAll,
 } from "./commands";
 import {
   copySelectionToClipboard,
@@ -50,6 +51,7 @@ export interface Editor {
   paste: () => Promise<boolean>;
   undo: () => void;
   redo: () => void;
+  selectAll: () => void;
   setBlockType: (type: Block["type"]) => void;
   updateLink: (
     blockIndex: number,
@@ -760,6 +762,14 @@ export default function createEditor(
     }
   }
 
+  function selectAllMethod() {
+    state = selectAll(state);
+    state = closeContextMenu(state);
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
   function setBlockType(type: Block["type"]) {
     if (!state.document.cursor) return;
     state = recordUndo(state);
@@ -834,6 +844,7 @@ export default function createEditor(
     paste,
     undo,
     redo,
+    selectAll: selectAllMethod,
     setBlockType,
     updateLink,
     clearLink,

@@ -699,10 +699,13 @@ export const renderBlock = (
   }
 
   // Handle cursor rendering
+  // Don't render cursor when there's an active selection
+  const hasActiveSelection = state.document.selection && !state.document.selection.isCollapsed;
   if (
     state.document.cursor &&
     state.document.cursor.position.blockIndex === blockIndex &&
-    !isCursorBlinking(state.document.cursor, styles)
+    !isCursorBlinking(state.document.cursor, styles) &&
+    !hasActiveSelection
   ) {
     renderCursor(
       x,

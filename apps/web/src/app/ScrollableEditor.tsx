@@ -11,7 +11,7 @@ import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { LinkTooltip } from "../editor/LinkTooltip";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { getSelectionRange } from "../editor/commands";
-import { Clipboard, Copy, Scissors } from "lucide-react";
+import { Clipboard, Copy, Scissors, Type } from "lucide-react";
 import { hasNativeBridge } from "../editor/clipboard";
 import { serializeToMarkdown } from "../deserializer/serializer";
 
@@ -273,6 +273,9 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       case "paste":
         await editor.paste();
         break;
+      case "selectAll":
+        editor.selectAll();
+        break;
     }
   };
 
@@ -281,6 +284,12 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     const canPaste = hasNativeBridge();
 
     const items: ContextMenuItem[] = [
+      {
+        id: "selectAll",
+        label: "Select All",
+        icon: <Type size={16} />,
+        action: () => handleContextMenuAction("selectAll"),
+      },
       {
         id: "copy",
         label: "Copy",

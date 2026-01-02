@@ -70,7 +70,7 @@ export function PageSettingsDrawer() {
                 ${
                   fontStyle === option.value
                     ? "border-primary"
-                    : "border-border bg-background"
+                    : "border-border"
                 }
               `}
             >
@@ -96,7 +96,10 @@ export function PageSettingsDrawer() {
               {t`Show word count`}
             </label>
             <p className="text-xs text-muted-foreground">
-              {t`Display word count overlay on page`}
+              <span className="font-medium">
+                {new Intl.NumberFormat(i18n.language).format(wordCount)}
+              </span>{" "}
+              {wordCount === 1 ? t`word` : t`words`}
             </p>
           </div>
           <Switch
@@ -104,12 +107,6 @@ export function PageSettingsDrawer() {
             checked={showWordCount}
             onCheckedChange={setShowWordCount}
           />
-        </div>
-        <div className="text-sm text-muted-foreground">
-          <span className="font-medium">
-            {new Intl.NumberFormat(i18n.language).format(wordCount)}
-          </span>{" "}
-          {wordCount === 1 ? t`word` : t`words`}
         </div>
       </div>
     </div>

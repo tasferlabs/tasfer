@@ -213,14 +213,23 @@ export function handleEvents(
       );
 
       if (position) {
-        if (
-          !state.document.selection ||
-          !isPositionWithinSelection(state, position)
-        ) {
+        // Only update cursor/clear selection if there's no selection active
+        // This preserves "Select All" and other selections when long-pressing
+        if (!state.document.selection) {
           state = updateCursor(state, position);
-          state = clearSelection(state);
         }
       }
+
+      // Clear link hover tooltip and slash menu when opening context menu
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          linkHover: null,
+          isHoveringLinkWithModifier: false,
+          slashCommand: null,
+        },
+      };
 
       state = openContextMenu(
         state,
@@ -576,14 +585,26 @@ function handleContextMenu(
     visibility
   );
 
+  // Always open context menu at click position if we have a valid position
+  // Preserve existing selection for copy/cut operations
   if (position) {
-    if (
-      !state.document.selection ||
-      !isPositionWithinSelection(state, position)
-    ) {
+    // Only update cursor/clear selection if there's no selection active
+    // This preserves "Select All" and other selections when right-clicking
+    if (!state.document.selection) {
       state = updateCursor(state, position);
-      state = clearSelection(state);
     }
+    
+    // Clear link hover tooltip and slash menu when opening context menu
+    state = {
+      ...state,
+      ui: {
+        ...state.ui,
+        linkHover: null,
+        isHoveringLinkWithModifier: false,
+        slashCommand: null,
+      },
+    };
+    
     state = openContextMenu(state, canvasX, canvasY);
   }
 
@@ -642,6 +663,12 @@ function handleMouseDown(
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
   stopAutoScroll();
+
+  // Ignore right-click - it will be handled by contextmenu event
+  // This prevents clearing selection when right-clicking
+  if (event.button === 2) {
+    return state;
+  }
 
   // Close context menu on any click
   if (state.ui.contextMenu) {
@@ -866,6 +893,11 @@ function handleMouseMove(
     // If Ctrl/Command is held and we have a tooltip showing, clear it
     if (isCtrlOrCmd && state.ui.linkHover) {
       state = { ...state, ui: { ...state.ui, linkHover: null } };
+      return state;
+    }
+
+    // Don't show link hover when context menu or slash menu is open
+    if (state.ui.contextMenu || state.ui.slashCommand) {
       return state;
     }
 
