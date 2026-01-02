@@ -98,6 +98,11 @@ export function PageLink({
       queryClient.invalidateQueries({
         queryKey: ["pages", { parentId: data.parentId }],
       });
+      // Also invalidate all individual page queries to update breadcrumbs
+      // This ensures that if any child page is currently open, its breadcrumb will update
+      queryClient.invalidateQueries({
+        queryKey: ["page"],
+      });
     },
   });
 
