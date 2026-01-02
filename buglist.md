@@ -23,12 +23,12 @@ Bugs list
 [x] hold press and selecting down on mobile does not work correctly because cursor is not moving down.
 [x] when end edge scrolling we should open keyboard on mobile.
 [-] max selection dragging scroll speed should not be limited. Or limted but very large number. Because we don not how large the document could be.
-[ ] Maybe specify how large of document we should supprt.
+[-] Maybe specify how large of document we should supprt.
 [x] add three dots right of saving the opens drawer for page settings.
 [x] change the font family in page settings
 [x] add word count if enabled in setings.
 [x] when clicking on the sides or outside the editor we should reset the selection.
-[ ] whe the whole window loses focus we need to render selection boxes with different color.
+[x] whe the whole window loses focus we need to render selection boxes with different color.
 [x] ctrl + delete like vscode should work.
 [x] when writing withing headers the text is converted to paragraphs for some reason.
 [x] implement ctrl + A to select all text.
@@ -130,3 +130,7 @@ Bugs list
 [ ] ios keyboard island is always visibile if for normal text inputs
 [ ] escaping slash menu does not work.
 [x] word count does not work with CJK letters
+
+- : means not planed or considered
+x : done
+  : not done

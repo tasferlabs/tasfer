@@ -64,6 +64,7 @@ export interface Editor {
     cursor: EditorState["document"]["cursor"],
     selection: EditorState["document"]["selection"]
   ) => void;
+  forceRender: () => void;
 }
 
 export default function createEditor(
@@ -839,5 +840,6 @@ export default function createEditor(
     clearSelection: clearSelectionMethod,
     setMode,
     restoreCursorAndSelection,
+    forceRender: scheduleRender,
   };
 }

@@ -2,6 +2,19 @@ import { getCurrentFontFamily, FONT_STACKS } from "./fonts";
 import type { EditorStyles, TextStyle } from "./types";
 
 /**
+ * Track window focus state globally for editor styling
+ */
+let isWindowFocused = true;
+
+/**
+ * Set the window focus state
+ * @internal This is called from mount.ts when window focus changes
+ */
+export function setWindowFocused(focused: boolean): void {
+  isWindowFocused = focused;
+}
+
+/**
  * Get CSS custom property value from the document root
  */
 function getCSSVariable(name: string): string {
@@ -64,7 +77,9 @@ export function getEditorStyles(): EditorStyles {
       blinkInterval: 530,
     },
     selection: {
-      backgroundColor: getCSSVariable("--editor-selection"),
+      backgroundColor: isWindowFocused
+        ? getCSSVariable("--editor-selection")
+        : getCSSVariable("--editor-selection-unfocused"),
       opacity: 0.2,
     },
     placeholder: {

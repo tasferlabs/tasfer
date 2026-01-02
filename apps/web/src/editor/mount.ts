@@ -2,6 +2,7 @@ import type { ViewportState } from "./types";
 import createEditor, { type Editor } from "./index";
 import { loadPage } from "../deserializer/loadPage";
 import { createInitialState } from "./state";
+import { setWindowFocused } from "./styles";
 
 export interface MountedEditor {
   readonly editor: Editor;
@@ -199,12 +200,30 @@ export function mountEditor(
   hiddenInput.addEventListener("focus", handleInputFocus);
   hiddenInput.addEventListener("blur", handleInputBlur);
 
+  // Handle window focus/blur for selection color changes
+  const handleWindowFocus = () => {
+    setWindowFocused(true);
+    // Trigger a re-render to update selection color
+    editor.forceRender();
+  };
+
+  const handleWindowBlur = () => {
+    setWindowFocused(false);
+    // Trigger a re-render to update selection color
+    editor.forceRender();
+  };
+
+  window.addEventListener("focus", handleWindowFocus);
+  window.addEventListener("blur", handleWindowBlur);
+
   const destroy = () => {
     destroyed = true;
     resizeObserver.disconnect();
     editor.destroy();
 
     window.removeEventListener("message", handleKeyboardMessage);
+    window.removeEventListener("focus", handleWindowFocus);
+    window.removeEventListener("blur", handleWindowBlur);
     document.removeEventListener("mousedown", handleDocumentClick);
     document.removeEventListener("touchstart", handleDocumentClick);
     hiddenInput.removeEventListener("focus", handleInputFocus);
