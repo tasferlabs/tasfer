@@ -25,6 +25,7 @@ import {
   updateMode,
   updateCursor,
   updateSelection,
+  createInitialCursorState,
 } from "./state";
 import { getEditorStyles } from "./styles";
 import type { EditorState, SlashCommand, ViewportState } from "./types";
@@ -36,6 +37,7 @@ export interface Editor {
   updateViewport: (viewport: Partial<ViewportState>) => void;
   getDocumentHeight: () => number;
   setFocus: (focused: boolean) => void;
+  setInitialCursor: () => void;
   getCursorScreenPosition: () => {
     x: number;
     y: number;
@@ -432,12 +434,15 @@ export default function createEditor(
       scheduleRender();
       hiddenInput.value = "";
     } else if (isShortcut) {
-      // For keyboard shortcuts, forward to events queue and stop propagation
-      // to prevent window listener from also processing it
-      e.preventDefault();
-      e.stopPropagation();
-      eventsQueue.push(e);
-      scheduleRender();
+      const handledShortcuts = ["KeyZ", "KeyY", "KeyA", "KeyC", "KeyX"];
+      if (handledShortcuts.includes(e.code)) {
+        // For editor shortcuts, forward to events queue and stop propagation
+        // to prevent window listener from also processing it
+        e.preventDefault();
+        e.stopPropagation();
+        eventsQueue.push(e);
+        scheduleRender();
+      }
     } else {
       // For regular character keys, prevent default to stop them from being processed by window listener
       // But allow the input event to fire
@@ -619,6 +624,14 @@ export default function createEditor(
     scheduleRender(); // Schedule render when focus changes
   }
 
+  function setInitialCursor() {
+    // Only set cursor if there isn't one already
+    if (!state.document.cursor && state.document.page.blocks.length > 0) {
+      state = createInitialCursorState(state);
+      scheduleRender();
+    }
+  }
+
   function getCursorScreenPosition() {
     if (!state.document.cursor) return null;
 
@@ -771,6 +784,7 @@ export default function createEditor(
     updateViewport,
     getDocumentHeight,
     setFocus,
+    setInitialCursor,
     getCursorScreenPosition,
     subscribe,
     executeSlashCommand,

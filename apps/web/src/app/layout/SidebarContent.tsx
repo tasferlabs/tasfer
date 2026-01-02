@@ -1,11 +1,16 @@
 import { CaretDoubleLeftIcon, PlusIcon } from "@phosphor-icons/react";
 import { clsx } from "clsx";
 import React from "react";
-import { DndProvider, MouseTransition, TouchTransition } from "react-dnd-multi-backend";
+import {
+  DndProvider,
+  MouseTransition,
+  TouchTransition,
+} from "react-dnd-multi-backend";
 import type { MultiBackendOptions } from "react-dnd-multi-backend";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { TouchBackend } from "react-dnd-touch-backend";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { ScrollArea } from "../../components/ui/scroll-area";
 import Icons from "../components/uiKit/Icons/Icons";
 import VisuallyHidden from "../components/uiKit/VisuallyHidden/VisuallyHidden";
@@ -39,17 +44,21 @@ export function SidebarContent({
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
-    onSuccess: (_, variables) => {
+    onSuccess: (newPage, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["pages", { parentId: variables.parentId }],
       });
+      // Navigate to the newly created page
+      navigate(`/page/${newPage.id}`);
     },
   });
 
   function handleAdd(parentId: string | null) {
     createPage({
       title: "",
+      content: "# ", // Empty heading 1
       parentId,
     });
   }
@@ -107,7 +116,7 @@ export function SidebarContent({
                   </div>
                   {group.name}
                 </div>
-                <button 
+                <button
                   className={style.appSidebarSectionButton}
                   onClick={() => handleAdd(null)}
                   disabled={isCreating}
@@ -127,7 +136,7 @@ export function SidebarContent({
               </div>
               {t`Private`}
             </div>
-            <button 
+            <button
               className={style.appSidebarSectionButton}
               onClick={() => handleAdd(null)}
               disabled={isCreating}
@@ -137,7 +146,10 @@ export function SidebarContent({
             </button>
           </div>
 
-          <PagesArea className={style.appSidebarSectionPagesArea} parentId={null} />
+          <PagesArea
+            className={style.appSidebarSectionPagesArea}
+            parentId={null}
+          />
         </ScrollArea>
       </DndProvider>
     </>

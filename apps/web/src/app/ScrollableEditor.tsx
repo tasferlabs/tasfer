@@ -19,12 +19,14 @@ interface ScrollableEditorProps {
   content: string;
   className?: string;
   onContentChange?: (content: string) => void;
+  autoFocus?: boolean;
 }
 
 export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
   content,
   className = "",
   onContentChange,
+  autoFocus = false,
 }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditor | null>(null);
@@ -90,7 +92,10 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       undo: () => mounted.editor.undo(),
       redo: () => mounted.editor.redo(),
       setBlockType: (type: string) => mounted.editor.setBlockType(type as any),
-      focus: () => mounted.editor.setFocus(true),
+      focus: () => {
+        mounted.editor.setFocus(true);
+        mounted.editor.setInitialCursor();
+      },
     };
 
     if (window.IOSBridge) {
@@ -210,6 +215,16 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
 
     const unsubscribe = mounted.editor.subscribe(handleStateChange);
 
+    // Auto-focus the editor when requested
+    if (autoFocus) {
+      // Use a small timeout to ensure the editor is fully initialized
+      setTimeout(() => {
+        mounted.editor.setFocus(true);
+        // Also set initial cursor position to make editor immediately usable
+        mounted.editor.setInitialCursor();
+      }, 0);
+    }
+
     return () => {
       unsubscribe();
       mounted.destroy();
@@ -230,7 +245,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
         mountedRef.current = null;
       }
     };
-  }, [content, onContentChange]);
+  }, [content, onContentChange, autoFocus]);
 
   const handleSlashCommandSelect = (command: SlashCommand) => {
     if (mountedRef.current) {

@@ -183,6 +183,7 @@ export function mountEditor(
   // Handle hidden input focus/blur (mobile keyboard)
   const handleInputFocus = () => {
     editor.setFocus(true);
+    editor.setInitialCursor();
   };
 
   const handleInputBlur = () => {

@@ -3,7 +3,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Navigate, useParams } from "react-router-dom";
+import { Navigate, useParams, useNavigate } from "react-router-dom";
 import { ScrollableEditor } from "../ScrollableEditor";
 import {
   useCreatePage,
@@ -169,6 +169,7 @@ export default function EditorPage() {
       content={pageContent}
       className="w-full h-full"
       onContentChange={handleContentChange}
+      autoFocus={true}
     />
   );
 }
@@ -190,17 +191,21 @@ function EditorLoadingState() {
 function EditorEmptyState() {
   const { t } = useTranslation("PagesLinks");
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
-    onSuccess: (_, variables) => {
+    onSuccess: (newPage, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["pages", { parentId: variables.parentId }],
       });
+      // Navigate to the newly created page
+      navigate(`/page/${newPage.id}`);
     },
   });
 
   function handleAdd() {
     createPage({
       title: "",
+      content: "# ", // Empty heading 1
       parentId: null,
     });
   }
