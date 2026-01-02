@@ -132,7 +132,8 @@ Bugs list
 [ ] ios keyboard island is always visibile if for normal text inputs
 [ ] escaping slash menu does not work.
 [x] word count does not work with CJK letters
-
+[x] pasting is not invalidating blocked cached height.
+[ ] pasting into another text field such as title text field it is not working.
 - : means not planed or considered
 x : done
   : not done

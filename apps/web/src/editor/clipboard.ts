@@ -323,9 +323,53 @@ export async function cutSelectionToClipboard(
 }
 
 /**
+ * Clean up Google Docs HTML by removing metadata and normalizing structure
+ */
+function cleanGoogleDocsHTML(html: string): string {
+  // Remove Google Docs meta tags
+  html = html.replace(/<meta[^>]*>/g, '');
+  
+  // Remove Google Docs internal wrapper with ID
+  html = html.replace(/<b[^>]*id="docs-internal-guid-[^"]*"[^>]*>/g, '');
+  html = html.replace(/<\/b>/g, '');
+  
+  // Convert multiple <br> or <br /> tags into paragraph separators
+  html = html.replace(/(<br\s*\/?>\s*){2,}/gi, '</p><p>');
+  
+  // Wrap unwrapped text in paragraphs if needed
+  html = html.trim();
+  
+  return html;
+}
+
+/**
+ * Check if an element has Google Docs styling that indicates bold/italic
+ */
+function hasGoogleDocsFormat(element: Element, format: 'bold' | 'italic'): boolean {
+  const style = element.getAttribute('style') || '';
+  
+  if (format === 'bold') {
+    // Check for font-weight in inline styles
+    const fontWeightMatch = style.match(/font-weight:\s*(\d+|bold)/i);
+    if (fontWeightMatch) {
+      const weight = fontWeightMatch[1];
+      return weight === 'bold' || parseInt(weight) >= 600;
+    }
+  } else if (format === 'italic') {
+    // Check for font-style in inline styles
+    return /font-style:\s*italic/i.test(style);
+  }
+  
+  return false;
+}
+
+/**
  * Parse HTML string into blocks with inline formatting
  */
 function parseHTMLToBlocks(html: string): Block[] {
+  // Clean up Google Docs HTML first
+  html = cleanGoogleDocsHTML(html);
+  
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
   const blocks: Block[] = [];
@@ -347,9 +391,22 @@ function parseHTMLToBlocks(html: string): Block[] {
       const tagName = element.tagName.toLowerCase();
       let newFormats = [...currentFormats];
 
+      // Skip meta tags and other non-content elements
+      if (tagName === 'meta' || tagName === 'script' || tagName === 'style' || tagName === 'svg') {
+        return segments;
+      }
+
       // Add format based on tag
       if (tagName === "strong" || tagName === "b") {
-        newFormats.push({ type: "bold" });
+        // For <b> tags, check if it's actually bold (Google Docs uses <b> with font-weight:normal)
+        if (tagName === "b" && hasGoogleDocsFormat(element, 'bold')) {
+          newFormats.push({ type: "bold" });
+        } else if (tagName === "strong") {
+          newFormats.push({ type: "bold" });
+        } else if (tagName === "b" && !element.hasAttribute('style')) {
+          // Regular <b> tag without styles
+          newFormats.push({ type: "bold" });
+        }
       } else if (tagName === "em" || tagName === "i") {
         newFormats.push({ type: "italic" });
       } else if (tagName === "s" || tagName === "strike" || tagName === "del") {
@@ -361,6 +418,23 @@ function parseHTMLToBlocks(html: string): Block[] {
         if (href) {
           newFormats.push({ type: "link", url: href });
         }
+      } else if (tagName === "span") {
+        // Check for Google Docs inline styling on spans
+        if (hasGoogleDocsFormat(element, 'bold')) {
+          newFormats.push({ type: "bold" });
+        }
+        if (hasGoogleDocsFormat(element, 'italic')) {
+          newFormats.push({ type: "italic" });
+        }
+      }
+
+      // Handle <br> tags as text breaks within the same block
+      if (tagName === "br") {
+        segments.push({
+          content: "\n",
+          formats: currentFormats.length > 0 ? [...currentFormats] : undefined,
+        });
+        return segments;
       }
 
       // Process child nodes
@@ -372,15 +446,65 @@ function parseHTMLToBlocks(html: string): Block[] {
     return segments;
   }
 
-  // Get all top-level elements from body
-  const elements = doc.body.children;
+  // Helper function to check if an element is a block-level content element
+  function isBlockElement(tagName: string): boolean {
+    return ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'li'].includes(tagName);
+  }
 
-  for (let i = 0; i < elements.length; i++) {
-    const element = elements[i];
+  // Helper function to check if an element is a container element
+  function isContainerElement(tagName: string): boolean {
+    return ['div', 'main', 'article', 'section', 'header', 'footer', 'nav', 'aside', 'ul', 'ol'].includes(tagName);
+  }
+
+  // Recursively find all block-level elements, even if deeply nested
+  function findBlockElements(element: Element): Element[] {
+    const blockElements: Element[] = [];
+    const tagName = element.tagName.toLowerCase();
+
+    // If this is a block element itself, add it
+    if (isBlockElement(tagName)) {
+      blockElements.push(element);
+      return blockElements;
+    }
+
+    // If this is a container, recursively search its children
+    if (isContainerElement(tagName) || tagName === 'body') {
+      for (let i = 0; i < element.children.length; i++) {
+        blockElements.push(...findBlockElements(element.children[i]));
+      }
+      return blockElements;
+    }
+
+    // For other elements (like span), treat as inline content - don't recurse
+    return blockElements;
+  }
+
+  // Find all block elements recursively
+  const blockElements = findBlockElements(doc.body);
+
+  // If there are no block-level elements but there's content, wrap it
+  if (blockElements.length === 0 && doc.body.textContent?.trim()) {
+    const content = extractTextWithFormatting(doc.body);
+    if (content.length > 0) {
+      blocks.push({
+        id: generateBlockId(),
+        type: "paragraph",
+        content: content,
+      });
+    }
+    return blocks;
+  }
+
+  // Process each block element
+  for (const element of blockElements) {
     const tagName = element.tagName.toLowerCase();
     
     // Extract formatted content
     const content = extractTextWithFormatting(element);
+    
+    // Skip empty blocks (except if they have meaningful line breaks)
+    const hasContent = content.some(seg => seg.content.trim().length > 0);
+    if (!hasContent) continue;
     
     let blockType: "heading1" | "heading2" | "heading3" | "paragraph" = "paragraph";
 
@@ -394,9 +518,16 @@ function parseHTMLToBlocks(html: string): Block[] {
       case "h3":
         blockType = "heading3";
         break;
+      case "h4":
+      case "h5":
+      case "h6":
+        // Map h4-h6 to heading3
+        blockType = "heading3";
+        break;
       case "p":
-      case "div":
-      case "span":
+      case "li":
+      case "blockquote":
+      case "pre":
       default:
         blockType = "paragraph";
         break;
@@ -415,11 +546,14 @@ function parseHTMLToBlocks(html: string): Block[] {
   if (blocks.length === 0 && doc.body.textContent) {
     const lines = doc.body.textContent.split("\n");
     for (const line of lines) {
-      blocks.push({
-        id: generateBlockId(),
-        type: "paragraph",
-        content: [{ content: line }],
-      });
+      const trimmed = line.trim();
+      if (trimmed) {
+        blocks.push({
+          id: generateBlockId(),
+          type: "paragraph",
+          content: [{ content: trimmed }],
+        });
+      }
     }
   }
 
@@ -637,8 +771,11 @@ function insertBlocksAtCursor(
       content: mergeAdjacentSegments(lastBlockContent),
     };
 
-    // Invalidate cache for the modified blocks (first and last)
+    // Invalidate cache for ALL pasted blocks
     invalidateBlockCache(firstBlock);
+    for (const middleBlock of middleBlocks) {
+      invalidateBlockCache(middleBlock);
+    }
     invalidateBlockCache(lastBlock);
 
     const newBlocks = [
@@ -683,6 +820,7 @@ export function pasteFromClipboardEvent(
   // Otherwise try to get from event (may be empty if not called synchronously)
   let html = "";
   let text = "";
+  console.log("extractedData", extractedData);
 
   if (extractedData) {
     html = extractedData.html;
@@ -699,6 +837,7 @@ export function pasteFromClipboardEvent(
 
   // Try to get HTML first
   if (html) {
+    console.log("html", html);
     const blocks = parseHTMLToBlocks(html);
     if (blocks.length > 0) {
       return insertBlocksAtCursor(state, blocks);
