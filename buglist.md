@@ -133,7 +133,10 @@ Bugs list
 [ ] escaping slash menu does not work.
 [x] word count does not work with CJK letters
 [x] pasting is not invalidating blocked cached height.
-[ ] pasting into another text field such as title text field it is not working.
+[x] pasting into another text field such as title text field it is not working.
+[ ] pasting tables from webpages should preserve table structure or convert to readable format
+[ ] pasting images from webpages should handle images (either embed or show placeholder)
+[ ] pasting lists (ul/ol) should preserve list structure and convert to list blocks
 - : means not planed or considered
 x : done
   : not done

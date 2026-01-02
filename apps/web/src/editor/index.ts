@@ -252,6 +252,14 @@ export default function createEditor(
       return;
     }
 
+    // Only process keyboard and paste events if editor is focused
+    if (e instanceof KeyboardEvent || e.type === "paste") {
+      // Check if editor is focused before handling keyboard/paste events
+      if (!state.view.isFocused) {
+        return;
+      }
+    }
+
     if (
       e instanceof KeyboardEvent &&
       ["Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(

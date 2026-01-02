@@ -457,8 +457,9 @@ function parseHTMLToBlocks(html: string): Block[] {
   }
 
   // Recursively find all block-level elements, even if deeply nested
-  function findBlockElements(element: Element): Element[] {
-    const blockElements: Element[] = [];
+  // Also handles orphaned text nodes by wrapping them in synthetic paragraphs
+  function findBlockElements(element: Element): Array<Element | { syntheticParagraph: true; content: any[] }> {
+    const blockElements: Array<Element | { syntheticParagraph: true; content: any[] }> = [];
     const tagName = element.tagName.toLowerCase();
 
     // If this is a block element itself, add it
@@ -469,6 +470,47 @@ function parseHTMLToBlocks(html: string): Block[] {
 
     // If this is a container, recursively search its children
     if (isContainerElement(tagName) || tagName === 'body') {
+      // Check if there's any meaningful direct text content (orphaned text nodes)
+      let hasDirectText = false;
+      
+      for (let i = 0; i < element.childNodes.length; i++) {
+        const child = element.childNodes[i];
+        
+        // Check for text nodes or inline elements (like <span>, <a>) that aren't in block elements
+        if (child.nodeType === Node.TEXT_NODE) {
+          const text = child.textContent?.trim();
+          if (text) {
+            hasDirectText = true;
+            break;
+          }
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          const childElement = child as Element;
+          const childTag = childElement.tagName.toLowerCase();
+          
+          // If it's an inline element or unknown element, check if it has text
+          if (!isBlockElement(childTag) && !isContainerElement(childTag)) {
+            const text = childElement.textContent?.trim();
+            if (text) {
+              hasDirectText = true;
+              break;
+            }
+          }
+        }
+      }
+      
+      // If there's direct text content, treat the whole container as a paragraph
+      if (hasDirectText) {
+        const content = extractTextWithFormatting(element);
+        if (content.length > 0 && content.some(seg => seg.content.trim())) {
+          blockElements.push({
+            syntheticParagraph: true,
+            content: content,
+          });
+        }
+        return blockElements;
+      }
+      
+      // Otherwise, recursively search children
       for (let i = 0; i < element.children.length; i++) {
         blockElements.push(...findBlockElements(element.children[i]));
       }
@@ -495,8 +537,23 @@ function parseHTMLToBlocks(html: string): Block[] {
     return blocks;
   }
 
-  // Process each block element
+  // Process each block element (including synthetic paragraphs)
   for (const element of blockElements) {
+    // Handle synthetic paragraphs (orphaned text from containers)
+    if ('syntheticParagraph' in element) {
+      const content = element.content;
+      const hasContent = content.some((seg: any) => seg.content.trim().length > 0);
+      if (hasContent) {
+        blocks.push({
+          id: generateBlockId(),
+          type: "paragraph",
+          content: content,
+        });
+      }
+      continue;
+    }
+    
+    // Handle regular HTML elements
     const tagName = element.tagName.toLowerCase();
     
     // Extract formatted content
