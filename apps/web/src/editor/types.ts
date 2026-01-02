@@ -168,7 +168,6 @@ export interface EditorStyles {
 }
 
 export interface CanvasStyles {
-  readonly backgroundColor: string;
   readonly paddingTop: number;
   readonly paddingBottom: number;
   readonly paddingLeft: number;

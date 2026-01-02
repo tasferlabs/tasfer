@@ -19,7 +19,6 @@ function getCSSVariable(name: string): string {
 export function getEditorStyles(): EditorStyles {
   return {
     canvas: {
-      backgroundColor: getCSSVariable("--editor-background"),
       paddingTop: 40,
       paddingBottom: 80,
       paddingLeft: 40,

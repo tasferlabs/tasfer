@@ -87,3 +87,4 @@ Bugs list
 [ ] cursor should not be visable if we haeve selection
 [ ] group undo and redo to words.
 [ ] When loading a page first. it is overrideing the page with empty state. The update endpoint is being called before the page is loaded and is overriding with empty string
+[x] top bar is not same color
