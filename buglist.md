@@ -95,6 +95,7 @@ Bugs list
 [x] i can still type when there is no focus
 [x] link overlay not rendering correcty
 [ ] copy not copying inline formating
-[ ] updating tile twichs a litle
+[x] updating tile twichs a litle
+[ ] updating title of parent should update breadcrum
 [x] dragging pages on mobile
 [x] scrolling on sidebar misread the scrolling with dragging.

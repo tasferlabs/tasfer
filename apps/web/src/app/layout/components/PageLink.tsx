@@ -53,8 +53,22 @@ export function PageLink({
   const [isExpanded, setIsExpanded] = useState(false);
   const [localTitle, setLocalTitle] = useState(data.title);
 
-  const { mutate: updatePage } = useUpdatePage({
-    onSuccess: (_, variables) => {
+  const { mutate: updatePage } = useUpdatePage<{
+    previousPages: IListPage[] | undefined;
+  }>({
+    onMutate: async (variables) => {
+      // Cancel any outgoing refetches to avoid overwriting our optimistic update
+      await queryClient.cancelQueries({
+        queryKey: ["pages", { parentId: data.parentId }],
+      });
+
+      // Snapshot the previous value
+      const previousPages = queryClient.getQueryData<IListPage[]>([
+        "pages",
+        { parentId: data.parentId },
+      ]);
+
+      // Optimistically update to the new value
       queryClient.setQueryData<IListPage[]>(
         ["pages", { parentId: data.parentId }],
         (old) => {
@@ -66,20 +80,63 @@ export function PageLink({
           });
         }
       );
+
+      // Return a context object with the snapshotted value
+      return { previousPages };
+    },
+    onError: (_err, _variables, context) => {
+      // If the mutation fails, use the context returned from onMutate to roll back
+      if (context?.previousPages) {
+        queryClient.setQueryData<IListPage[]>(
+          ["pages", { parentId: data.parentId }],
+          context.previousPages
+        );
+      }
+    },
+    onSettled: () => {
+      // Always refetch after error or success to ensure we're in sync with the server
       queryClient.invalidateQueries({
         queryKey: ["pages", { parentId: data.parentId }],
       });
     },
   });
 
-  const { mutate: deletePage, isPending: isDeleting } = useDeletePage({
-    onSuccess: (_, variables) => {
+  const { mutate: deletePage, isPending: isDeleting } = useDeletePage<{
+    previousPages: IListPage[] | undefined;
+  }>({
+    onMutate: async (variables) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({
+        queryKey: ["pages", { parentId: data.parentId }],
+      });
+
+      // Snapshot the previous value
+      const previousPages = queryClient.getQueryData<IListPage[]>([
+        "pages",
+        { parentId: data.parentId },
+      ]);
+
+      // Optimistically remove the page
       queryClient.setQueryData<IListPage[]>(
         ["pages", { parentId: data.parentId }],
         (old) => {
           return old?.filter((page) => page.id !== variables.id);
         }
       );
+
+      return { previousPages };
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousPages) {
+        queryClient.setQueryData<IListPage[]>(
+          ["pages", { parentId: data.parentId }],
+          context.previousPages
+        );
+      }
+    },
+    onSettled: () => {
+      // Refetch to ensure sync with server
       queryClient.invalidateQueries({
         queryKey: ["pages", { parentId: data.parentId }],
       });
@@ -138,6 +195,18 @@ export function PageLink({
 
   function handleStopEditing(): void {
     if (localTitle !== data.title) {
+      // Optimistically update the cache BEFORE exiting edit mode
+      queryClient.setQueryData<IListPage[]>(
+        ["pages", { parentId: data.parentId }],
+        (old) => {
+          return old?.map((page) => {
+            if (page.id === data.id) {
+              return { ...page, title: localTitle };
+            }
+            return page;
+          });
+        }
+      );
       updatePage({ id: data.id, title: localTitle });
     }
     setEditingPageId(null);

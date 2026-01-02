@@ -91,7 +91,9 @@ export async function createPage(data: ICreatePage): Promise<IPage> {
   return result.data;
 }
 
-export function useCreatePage(options?: UseMutationOptions<IPage, Error, ICreatePage>) {
+export function useCreatePage<TContext = unknown>(
+  options?: UseMutationOptions<IPage, Error, ICreatePage, TContext>
+) {
   return useMutation({
     mutationFn: createPage,
     ...options,
@@ -123,7 +125,9 @@ export async function updatePage(data: IUpdatePage): Promise<IPage> {
   return result.data;
 }
 
-export function useUpdatePage(options?: UseMutationOptions<IPage, Error, IUpdatePage>) {
+export function useUpdatePage<TContext = unknown>(
+  options?: UseMutationOptions<IPage, Error, IUpdatePage, TContext>
+) {
   return useMutation({
     mutationFn: updatePage,
     ...options,
@@ -147,7 +151,9 @@ export async function deletePage(data: IDeletePage): Promise<void> {
   }
 }
 
-export function useDeletePage(options?: UseMutationOptions<void, Error, IDeletePage>) {
+export function useDeletePage<TContext = unknown>(
+  options?: UseMutationOptions<void, Error, IDeletePage, TContext>
+) {
   return useMutation({
     mutationFn: deletePage,
     ...options,
@@ -180,7 +186,9 @@ export async function movePage(data: IMovePage): Promise<void> {
   }
 }
 
-export function useMovePage(options?: UseMutationOptions<void, Error, IMovePage>) {
+export function useMovePage<TContext = unknown>(
+  options?: UseMutationOptions<void, Error, IMovePage, TContext>
+) {
   return useMutation({
     mutationFn: movePage,
     ...options,
@@ -209,7 +217,9 @@ export async function reorderPage(data: IReorderPage): Promise<void> {
   }
 }
 
-export function useReorderPage(options?: UseMutationOptions<void, Error, IReorderPage>) {
+export function useReorderPage<TContext = unknown>(
+  options?: UseMutationOptions<void, Error, IReorderPage, TContext>
+) {
   return useMutation({
     mutationFn: reorderPage,
     ...options,
