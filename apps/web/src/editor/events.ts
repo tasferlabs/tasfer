@@ -888,6 +888,7 @@ function handleMouseMove(
 
             if (linkCoords) {
               // Position tooltip below the start of the link text
+              // linkCoords.y is in document coordinates, so we need to subtract scrollY to get viewport coordinates
               state = {
                 ...state,
                 ui: {
@@ -897,7 +898,7 @@ function handleMouseMove(
                     url: linkData.url,
                     text: linkData.text,
                     x: linkCoords.x + containerRect.left,
-                    y: linkCoords.y + linkCoords.height + containerRect.top,
+                    y: linkCoords.y - viewport.scrollY + linkCoords.height + containerRect.top,
                     segmentIndex: linkData?.segmentIndex,
                   },
                   isHoveringLinkWithModifier: false,
