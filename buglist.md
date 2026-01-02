@@ -108,9 +108,7 @@ Bugs list
 [x] if we are composing at end of line than compoistion toolbar is stays same place this is worng.
 [x] page up and down, home and end no longer working
 [ ] deleting emogjs is broken
-
-<!-- [ ] in extermly long word that could not possible exist contactenated with composition than the compositon breaks in wrong way. -->
-
+[x] in extermly long word that could not possible exist contactenated with composition than the compositon breaks in wrong way.
 [x] chiense text are not wrapping correctly
 [x] word navigation (Ctrl+Arrow) and selection (Ctrl+Shift+Arrow, double-click)
 [x] when text is going out of bounds then some character goes missing

@@ -562,7 +562,8 @@ export const renderBlock = (
     textStyle.fontSize,
     textStyle.fontWeight,
     fontFamily,
-    codePadding
+    codePadding,
+    compositionRange
   );
 
   const fontMetrics = getFontMetrics(

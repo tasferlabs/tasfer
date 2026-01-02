@@ -537,7 +537,8 @@ const wrapFormattedTextCJK = (
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
-  codePadding: number
+  codePadding: number,
+  compositionRange: { start: number; end: number } | null = null
 ): WrappedLine[] => {
   const lines: WrappedLine[] = [];
   let currentLine = "";
@@ -561,6 +562,8 @@ const wrapFormattedTextCJK = (
     const char = fullText[i];
     const isCJK = isCJKCharacter(char);
     const isSpace = char === " ";
+    const isCompositionStart = compositionRange && i === compositionRange.start;
+    const isInComposition = compositionRange && i >= compositionRange.start && i < compositionRange.end;
 
     // Measure the character
     const segIdx = charToSegment[i];
@@ -570,8 +573,30 @@ const wrapFormattedTextCJK = (
       : baseFontWeight;
     const charWidth = measureText(char, fontSize, fontWeight, fontFamily);
 
+    // If this is the start of composition text, check if entire composition fits on current line
+    if (isCompositionStart && currentLine.length > 0 && compositionRange) {
+      const compositionWidth = measureSubstring(compositionRange.start, compositionRange.end);
+      
+      // If composition would overflow, break to new line before starting composition
+      if (currentLineWidth + compositionWidth > maxWidth) {
+        lines.push({ text: currentLine, consumedSpace: false });
+        currentLine = char;
+        currentLineWidth = charWidth;
+        lineStartIndex = i;
+        continue;
+      }
+    }
+
     // Check if adding this character would exceed max width
     if (currentLineWidth + charWidth > maxWidth && currentLine.length > 0) {
+      // Don't break within composition text
+      if (isInComposition) {
+        // Skip wrapping within composition - keep adding to current line
+        currentLine += char;
+        currentLineWidth += charWidth;
+        continue;
+      }
+
       // Line is full, need to wrap
       // For CJK characters, we can break immediately
       // For Latin text, try to break at the previous space if possible
@@ -650,7 +675,8 @@ export const wrapFormattedTextDetailed = (
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
-  codePadding: number = 0
+  codePadding: number = 0,
+  compositionRange: { start: number; end: number } | null = null
 ): WrappedLine[] => {
   // Convert segments to plain text for wrapping
   const fullText = segments.map((s) => s.content).join("");
@@ -676,7 +702,8 @@ export const wrapFormattedTextDetailed = (
       fontSize,
       baseFontWeight,
       fontFamily,
-      codePadding
+      codePadding,
+      compositionRange
     );
   }
 
@@ -709,10 +736,23 @@ export const wrapFormattedTextDetailed = (
     const wordEnd = currentCharIndex + word.length;
     const wordWidth = measureSubstring(wordStart, wordEnd);
 
+    // Check if this word contains composition start
+    const wordContainsCompositionStart = compositionRange && 
+      compositionRange.start >= wordStart && 
+      compositionRange.start < wordEnd;
+
     // Calculate space needed for this word including preceding space if line not empty
     const spaceIfNeeded = currentLine ? spaceWidth : 0;
 
-    if (currentLineWidth + spaceIfNeeded + wordWidth <= maxWidth) {
+    // If word contains composition start and would overflow, force new line
+    if (wordContainsCompositionStart && currentLine && 
+        currentLineWidth + spaceIfNeeded + wordWidth > maxWidth) {
+      // Break to new line before composition
+      lines.push({ text: currentLine, consumedSpace: false });
+      currentLine = word;
+      currentLineWidth = wordWidth;
+      currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
+    } else if (currentLineWidth + spaceIfNeeded + wordWidth <= maxWidth) {
       // Fits on current line
       currentLine = currentLine ? currentLine + " " + word : word;
       currentLineWidth += spaceIfNeeded + wordWidth;
@@ -732,44 +772,57 @@ export const wrapFormattedTextDetailed = (
         currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
       } else {
         // Word is too long, must split by character
-        let remainingWordStart = wordStart;
+        // But don't split if word contains composition text - keep it together
+        const wordContainsComposition = compositionRange &&
+          compositionRange.start < wordEnd &&
+          compositionRange.end > wordStart;
 
-        while (remainingWordStart < wordEnd) {
-          let splitIndex = remainingWordStart;
-          let currentWidth = 0;
+        if (wordContainsComposition) {
+          // Don't split composition text - just add the whole word even if it overflows
+          currentLine = word;
+          currentLineWidth = wordWidth;
+          currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
+        } else {
+          // Word is too long, must split by character
+          let remainingWordStart = wordStart;
 
-          for (let j = remainingWordStart; j < wordEnd; j++) {
-            const segIdx = charToSegment[j];
-            const segment = segments[segIdx];
-            const fontWeight = segment.formats?.some((f) => f.type === "bold")
-              ? "bold"
-              : baseFontWeight;
-            const charWidth = measureText(
-              fullText[j],
-              fontSize,
-              fontWeight,
-              fontFamily
-            );
+          while (remainingWordStart < wordEnd) {
+            let splitIndex = remainingWordStart;
+            let currentWidth = 0;
 
-            if (currentWidth + charWidth > maxWidth && j > remainingWordStart) {
-              splitIndex = j;
-              break;
+            for (let j = remainingWordStart; j < wordEnd; j++) {
+              const segIdx = charToSegment[j];
+              const segment = segments[segIdx];
+              const fontWeight = segment.formats?.some((f) => f.type === "bold")
+                ? "bold"
+                : baseFontWeight;
+              const charWidth = measureText(
+                fullText[j],
+                fontSize,
+                fontWeight,
+                fontFamily
+              );
+
+              if (currentWidth + charWidth > maxWidth && j > remainingWordStart) {
+                splitIndex = j;
+                break;
+              }
+              currentWidth += charWidth;
+              splitIndex = j + 1;
             }
-            currentWidth += charWidth;
-            splitIndex = j + 1;
+
+            if (splitIndex === remainingWordStart) splitIndex++;
+
+            const chunk = fullText.substring(remainingWordStart, splitIndex);
+            // Word is being split mid-word, no space consumed
+            lines.push({ text: chunk, consumedSpace: false });
+            remainingWordStart = splitIndex;
           }
 
-          if (splitIndex === remainingWordStart) splitIndex++;
-
-          const chunk = fullText.substring(remainingWordStart, splitIndex);
-          // Word is being split mid-word, no space consumed
-          lines.push({ text: chunk, consumedSpace: false });
-          remainingWordStart = splitIndex;
+          currentLine = "";
+          currentLineWidth = 0;
+          currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
         }
-
-        currentLine = "";
-        currentLineWidth = 0;
-        currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
       }
     }
   }

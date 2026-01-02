@@ -228,13 +228,18 @@ export function getCursorCoordinatesWithComposition(
   const isRTL = getFormattedTextDirection(modifiedContent) === "rtl";
 
   // Wrap the MODIFIED content (with composition)
+  const compositionRange = {
+    start: cursorTextIndex,
+    end: cursorTextIndex + compositionText.length
+  };
   const lines = wrapFormattedTextDetailed(
     modifiedContent,
     maxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
     fontFamily,
-    codePadding
+    codePadding,
+    compositionRange
   );
 
   let textIndex = 0;
