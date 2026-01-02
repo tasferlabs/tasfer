@@ -1104,6 +1104,13 @@ function handleKeyDown(
     return state;
   }
 
+  // Block undo/redo during composition
+  if (state.ui.composition?.isComposing) {
+    if (isCtrl && (code === "KeyZ" || code === "KeyY")) {
+      return state;
+    }
+  }
+
   // Undo/Redo - handle these first, even if slash command is open
   // Use code instead of key for keyboard layout independence
   if (isCtrl && code === "KeyZ" && !keyEvent.shiftKey) {
@@ -1313,6 +1320,22 @@ function handleKeyDown(
   }
 
   let newState = state;
+
+  // Prevent navigation keys during composition (IME input)
+  // These keys are used by the IME to navigate candidate characters
+  const navigationKeys = [
+    "ArrowLeft",
+    "ArrowRight",
+    "ArrowUp",
+    "ArrowDown",
+    "PageUp",
+    "PageDown",
+    "Home",
+    "End",
+  ];
+  if (state.ui.composition?.isComposing && navigationKeys.includes(key)) {
+    return state;
+  }
 
   // Navigation & selection
   switch (key) {
