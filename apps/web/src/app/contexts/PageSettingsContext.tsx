@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { setCurrentFontFamily, type FontFamily } from "../../editor/fonts";
+import useLocalStorage from "../hooks/useLocalStorage";
 
 export type FontStyle = "default" | "serif";
 
@@ -25,15 +26,26 @@ const fontStyleToFamily = (style: FontStyle): FontFamily => {
 export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [fontStyle, setFontStyleState] = useState<FontStyle>("default");
+  const [fontStyle, setFontStyleState] = useLocalStorage<FontStyle>("pageSettings.fontStyle", "default");
   const [isSaving, setIsSaving] = useState(false);
-  const [showWordCount, setShowWordCount] = useState(false);
+  const [showWordCount, setShowWordCountState] = useLocalStorage<boolean>("pageSettings.showWordCount", false);
   const [wordCount, setWordCount] = useState(0);
+
+  // Apply font family on mount and when fontStyle changes
+  useEffect(() => {
+    if (fontStyle) {
+      setCurrentFontFamily(fontStyleToFamily(fontStyle));
+    }
+  }, [fontStyle]);
 
   const setFontStyle = useCallback((style: FontStyle) => {
     setFontStyleState(style);
     setCurrentFontFamily(fontStyleToFamily(style));
-  }, []);
+  }, [setFontStyleState]);
+
+  const setShowWordCount = useCallback((show: boolean) => {
+    setShowWordCountState(show);
+  }, [setShowWordCountState]);
 
   return (
     <PageSettingsContext.Provider

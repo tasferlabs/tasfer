@@ -26,7 +26,7 @@ Bugs list
 [ ] Maybe specify how large of document we should supprt.
 [x] add three dots right of saving the opens drawer for page settings.
 [x] change the font family in page settings
-[ ] add word count if enabled in setings. Consider if we could mange count all the words or we need to implement estimation somehow.
+[x] add word count if enabled in setings.
 [x] when clicking on the sides or outside the editor we should reset the selection.
 [ ] whe the whole window loses focus we need to render selection boxes with different color.
 [x] ctrl + delete like vscode should work.
