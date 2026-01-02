@@ -3,9 +3,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useParams } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
 import { ScrollableEditor } from "../ScrollableEditor";
-import { useCreatePage, getPage, useUpdatePage } from "../api/pages.api";
+import {
+  useCreatePage,
+  getPage,
+  useUpdatePage,
+  useGetPages,
+} from "../api/pages.api";
 import EmptyStateIllustration from "../components/illustrations/empty-state";
 import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
@@ -13,6 +18,7 @@ import { useDebouncedSave } from "../hooks/useDebouncedSave";
 import { useSaving } from "../contexts/SavingContext";
 import { useConfirmation } from "../components/ConfirmationDialog";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
+import useLocalStorage from "../hooks/useLocalStorage";
 import style from "./EditorPage.module.css";
 
 export default function EditorPage() {
@@ -20,11 +26,28 @@ export default function EditorPage() {
   const { setIsSaving: setGlobalIsSaving } = useSaving();
   const { getConfirmation } = useConfirmation();
   const { mutateAsync: updatePage } = useUpdatePage();
-
   // State for loading page content once on mount
   const [pageContent, setPageContent] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
+
+  const { data: pages, isLoading: isLoadingPages } = useGetPages(null);
+  const [lastPageId, setLastPageId] = useLocalStorage<string | null>(
+    "lastPageId",
+    null
+  );
+
+  useEffect(() => {
+    if (id) {
+      setLastPageId(id);
+    }
+  }, [id, setLastPageId]);
+
+  useEffect(() => {
+    if (isError) {
+      setLastPageId(null);
+    }
+  }, [isError, setLastPageId]);
 
   // Fetch page content once on mount or when ID changes
   useEffect(() => {
@@ -118,8 +141,16 @@ export default function EditorPage() {
     };
   }, [flush, setGlobalIsSaving]);
 
-  // If no ID in URL, show empty state
+  // If no ID in URL
   if (!id) {
+    if (isLoadingPages) {
+      return <EditorLoadingState />;
+    }
+
+    if (pages && pages.length > 0) {
+      return <Navigate to={`/page/${lastPageId || pages[0].id}`} replace />;
+    }
+
     return <EditorEmptyState />;
   }
 
@@ -144,7 +175,7 @@ export default function EditorPage() {
 
 function EditorLoadingState() {
   return (
-    <div className="w-full h-full p-8 max-w-4xl mx-auto">
+    <div className="w-full h-full p-6 md:p-10">
       <Skeleton className="h-12 w-3/4 mb-8" />
       <Skeleton className="h-6 w-full mb-4" />
       <Skeleton className="h-6 w-full mb-4" />

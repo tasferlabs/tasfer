@@ -17,12 +17,15 @@ function getCSSVariable(name: string): string {
  * Falls back to default values if CSS variables are not available
  */
 export function getEditorStyles(): EditorStyles {
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const horizontalPadding = isMobile ? 24 : 40;
+
   return {
     canvas: {
       paddingTop: 40,
       paddingBottom: 80,
-      paddingLeft: 40,
-      paddingRight: 40,
+      paddingLeft: horizontalPadding,
+      paddingRight: horizontalPadding,
       lineHeight: 1.6,
     },
     blocks: {
