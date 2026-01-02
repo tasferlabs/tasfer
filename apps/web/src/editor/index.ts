@@ -376,6 +376,12 @@ export default function createEditor(
       return;
     }
 
+    // Block ALL input operations during composition (mobile keyboards)
+    // // The composition events will handle everything
+    // if (state.ui.composition?.isComposing) {
+    //   return;
+    // }
+
     // Use inputEvent.data for precise text that was inserted (not entire input value)
     const insertedText = inputEvent.data;
 
@@ -431,6 +437,19 @@ export default function createEditor(
 
     // Check if this is a keyboard shortcut (Ctrl/Cmd + key)
     const isShortcut = e.ctrlKey || e.metaKey;
+
+    // During composition (IME input), block most keys
+    // Let the IME handle these keys for mobile composition
+    if (state.ui.composition?.isComposing) {
+      // Block delete/enter keys
+      if (["Backspace", "Delete", "Enter"].includes(e.key)) {
+        return;
+      }
+      // Block shortcuts like Ctrl+Z (undo), Ctrl+X (cut), etc.
+      if (isShortcut) {
+        return;
+      }
+    }
 
     // Only forward special keys to avoid duplication with input event
     // Regular text input is handled by hiddenInputHandler

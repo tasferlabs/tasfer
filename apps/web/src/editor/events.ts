@@ -605,6 +605,11 @@ function handlePaste(
     return state;
   }
 
+  // Block paste during composition - let IME handle input
+  if (state.ui.composition?.isComposing) {
+    return state;
+  }
+
   // Use the tracked pasteAsPlainText flag (set during keydown)
   // Paste as plain text
   const newState = pasteFromClipboardEvent(state, event, clipboardData);
@@ -1104,9 +1109,22 @@ function handleKeyDown(
     return state;
   }
 
-  // Block undo/redo during composition
+  // Block most operations during composition - let IME handle input
   if (state.ui.composition?.isComposing) {
+    // Block undo/redo
     if (isCtrl && (code === "KeyZ" || code === "KeyY")) {
+      return state;
+    }
+    // Block cut operation
+    if (isCtrl && code === "KeyX") {
+      return state;
+    }
+    // Block text input keys - let IME handle all text input
+    if (key === "Backspace" || key === "Delete" || key === "Enter" || key === " " || key === "Space") {
+      return state;
+    }
+    // Block regular character input during composition
+    if (key.length === 1 && !keyEvent.ctrlKey && !keyEvent.altKey && !keyEvent.metaKey) {
       return state;
     }
   }
