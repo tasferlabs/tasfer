@@ -1,15 +1,15 @@
 import React from "react";
 import Router from "./routes/Router";
 import { ConfirmationDialogProvider } from "./components/ConfirmationDialog";
-import { SavingProvider } from "./contexts/SavingContext";
+import { PageSettingsProvider } from "./contexts/PageSettingsContext";
 
 const App: React.FC = () => {
   return (
-    <ConfirmationDialogProvider>
-      <SavingProvider>
+    <PageSettingsProvider>
+      <ConfirmationDialogProvider>
         <Router />
-      </SavingProvider>
-    </ConfirmationDialogProvider>
+      </ConfirmationDialogProvider>
+    </PageSettingsProvider>
   );
 };
 

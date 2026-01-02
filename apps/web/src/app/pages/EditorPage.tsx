@@ -15,7 +15,7 @@ import EmptyStateIllustration from "../components/illustrations/empty-state";
 import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
 import { useDebouncedSave } from "../hooks/useDebouncedSave";
-import { useSaving } from "../contexts/SavingContext";
+import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useConfirmation } from "../components/ConfirmationDialog";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useLocalStorage from "../hooks/useLocalStorage";
@@ -23,7 +23,7 @@ import style from "./EditorPage.module.css";
 
 export default function EditorPage() {
   const { id } = useParams<{ id: string }>();
-  const { setIsSaving: setGlobalIsSaving } = useSaving();
+  const { setIsSaving: setGlobalIsSaving } = usePageSettings();
   const { getConfirmation } = useConfirmation();
   const { mutateAsync: updatePage } = useUpdatePage();
   // State for loading page content once on mount

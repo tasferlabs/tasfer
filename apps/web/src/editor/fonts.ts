@@ -895,6 +895,13 @@ let globalFontConfig: FontConfig = {
 export const getCurrentFontFamily = (): FontFamily =>
   globalFontConfig.fontFamily;
 
+// Set the current font family
+export const setCurrentFontFamily = (fontFamily: FontFamily): void => {
+  globalFontConfig = {
+    fontFamily,
+  };
+};
+
 // Initialize cache immediately
 if (typeof window !== "undefined") {
   // Wait for fonts to load before initializing metrics cache

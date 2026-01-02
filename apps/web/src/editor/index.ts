@@ -377,10 +377,10 @@ export default function createEditor(
     }
 
     // Block ALL input operations during composition (mobile keyboards)
-    // // The composition events will handle everything
-    // if (state.ui.composition?.isComposing) {
-    //   return;
-    // }
+    // The composition events will handle everything
+    if (state.ui.composition?.isComposing) {
+      return;
+    }
 
     // Use inputEvent.data for precise text that was inserted (not entire input value)
     const insertedText = inputEvent.data;

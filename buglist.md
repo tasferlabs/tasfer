@@ -22,8 +22,10 @@ Bugs list
 [x] when selection going outside the screen the viewport should follow the selection.
 [x] hold press and selecting down on mobile does not work correctly because cursor is not moving down.
 [x] when end edge scrolling we should open keyboard on mobile.
-[ ] max selection dragging scroll speed should not be limited. Or limted but very large number. Because we don not how large the document could be.
+[-] max selection dragging scroll speed should not be limited. Or limted but very large number. Because we don not how large the document could be.
 [ ] Maybe specify how large of document we should supprt.
+[x] add three dots right of saving the opens drawer for page settings.
+[x] change the font family in page settings
 [ ] add word count if enabled in setings. Consider if we could mange count all the words or we need to implement estimation somehow.
 [x] when clicking on the sides or outside the editor we should reset the selection.
 [ ] whe the whole window loses focus we need to render selection boxes with different color.
@@ -121,8 +123,8 @@ Bugs list
 [x] Navigation with arrow keys (home,end,page up and down too)during composition is broken
 [x] on rtl left compositon in not underlined
 [x] one delete on mobile keyboard does cancel the compositon
-[x] Very long composition text does not break correcly, like if do not accept compositon and do it in batch. 
+[x] Very long composition text does not break correcly, like if do not accept compositon and do it in batch.
 [x] start composition and unfocus the page does not cancel compositon.
-[ ] Composition state cleanup on error
+[-] Composition state cleanup on error
 [x] ios top toolbar is too high under the os notification bar
 [ ] ios keyboard island is always visibile if for normal text inputs
