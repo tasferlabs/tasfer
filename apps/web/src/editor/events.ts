@@ -1075,6 +1075,11 @@ function handleKeyDown(
     return state;
   }
 
+  // If editor is not focused, ignore keyboard input
+  if (!state.view.isFocused) {
+    return state;
+  }
+
   // Undo/Redo - handle these first, even if slash command is open
   // Use code instead of key for keyboard layout independence
   if (isCtrl && code === "KeyZ" && !keyEvent.shiftKey) {

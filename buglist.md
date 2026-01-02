@@ -92,3 +92,4 @@ Bugs list
 [x] when deleting current page we should close the current page.
 [ ] Tree page not working as it was in l4r˝
 [ ] we should close floaty sidebar when we choose page
+[x] i can still type when there is no focus
