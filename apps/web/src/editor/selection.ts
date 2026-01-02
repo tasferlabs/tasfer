@@ -1,9 +1,9 @@
-import type { Block } from "../deserializer/loadPage";
+import type { Block, Text } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
   getFontMetrics,
   measureFormattedTextUpToIndex,
-  wrapFormattedText,
+  wrapFormattedTextDetailed,
   type FontFamily,
 } from "./fonts";
 import { getBlockHeight } from "./renderer";
@@ -52,7 +52,7 @@ export function getCursorCoordinates(
   const isRTL = getFormattedTextDirection(block.content) === "rtl";
 
   // Use formatted text wrapping
-  const lines = wrapFormattedText(
+  const lines = wrapFormattedTextDetailed(
     block.content,
     maxWidth,
     textStyle.fontSize,
@@ -63,7 +63,8 @@ export function getCursorCoordinates(
 
   let textIndex = 0;
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const line = lines[lineIndex];
+    const wrappedLine = lines[lineIndex];
+    const line = wrappedLine.text;
     const lineEndIndex = textIndex + line.length;
 
     if (position.textIndex >= textIndex && position.textIndex <= lineEndIndex) {
@@ -109,13 +110,181 @@ export function getCursorCoordinates(
     }
 
     textIndex += line.length;
-    if (lineIndex < lines.length - 1) {
+    if (wrappedLine.consumedSpace) {
       textIndex += 1;
     }
     currentY += lineHeight;
   }
 
   // For empty blocks or cursor at the very end
+  if (isRTL) {
+    return {
+      x: styles.canvas.paddingLeft + maxWidth,
+      y: currentY,
+      height: lineHeight,
+    };
+  }
+
+  return {
+    x: styles.canvas.paddingLeft,
+    y: currentY,
+    height: lineHeight,
+  };
+}
+
+/**
+ * Get cursor coordinates accounting for composition text
+ * When composing, this returns the position at the END of the composition text
+ * which may be on a different line if the text wrapped
+ */
+export function getCursorCoordinatesWithComposition(
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles()
+): { x: number; y: number; height: number } | null {
+  if (!state.document.cursor) return null;
+
+  const position = state.document.cursor.position;
+  const block = state.document.page.blocks[position.blockIndex];
+  if (!block) return null;
+
+  // If not composing, use regular cursor coordinates
+  if (!state.ui.composition?.isComposing || !state.ui.composition.text) {
+    return getCursorCoordinates(position, state, viewport, styles);
+  }
+
+  // When composing, we need to account for the composition text
+  // Create modified content with composition text injected (similar to renderer)
+  const compositionText = state.ui.composition.text;
+  const cursorTextIndex = position.textIndex;
+  let modifiedContent: Text[] = [];
+
+  // Handle empty block or cursor at start
+  if (block.content.length === 0 || cursorTextIndex === 0) {
+    modifiedContent = [{ content: compositionText, formats: [] }, ...block.content];
+  } else {
+    // Inject composition at cursor position
+    let currentIndex = 0;
+    let compositionInserted = false;
+
+    for (let i = 0; i < block.content.length; i++) {
+      const segment = block.content[i];
+      const segmentStart = currentIndex;
+      const segmentEnd = currentIndex + segment.content.length;
+
+      if (cursorTextIndex >= segmentStart && cursorTextIndex <= segmentEnd) {
+        const offsetInSegment = cursorTextIndex - segmentStart;
+        const beforeCursor = segment.content.substring(0, offsetInSegment);
+        const afterCursor = segment.content.substring(offsetInSegment);
+
+        if (beforeCursor) {
+          modifiedContent.push({ ...segment, content: beforeCursor });
+        }
+        modifiedContent.push({ content: compositionText, formats: segment.formats || [] });
+        compositionInserted = true;
+        if (afterCursor) {
+          modifiedContent.push({ ...segment, content: afterCursor });
+        }
+      } else {
+        modifiedContent.push(segment);
+      }
+
+      currentIndex = segmentEnd;
+    }
+
+    if (!compositionInserted) {
+      const lastSegment = block.content[block.content.length - 1];
+      modifiedContent.push({
+        content: compositionText,
+        formats: lastSegment?.formats || [],
+      });
+    }
+  }
+
+  // Now calculate coordinates at the END of the composition text
+  const targetTextIndex = cursorTextIndex + compositionText.length;
+
+  // Calculate position using modified content
+  const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  let currentY = styles.canvas.paddingTop;
+
+  // Add heights of blocks before this one
+  for (let i = 0; i < position.blockIndex; i++) {
+    const prevBlock = state.document.page.blocks[i];
+    const blockHeight = getBlockHeight(prevBlock, maxWidth, styles);
+    currentY += blockHeight;
+  }
+
+  const textStyle = getTextStyle(styles, block.type);
+  const fontFamily = getCurrentFontFamily();
+  const codePadding = styles.textFormats.code.padding;
+  const fontMetrics = getFontMetrics(
+    textStyle.fontSize,
+    textStyle.fontWeight,
+    fontFamily
+  );
+  const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
+
+  const isRTL = getFormattedTextDirection(modifiedContent) === "rtl";
+
+  // Wrap the MODIFIED content (with composition)
+  const lines = wrapFormattedTextDetailed(
+    modifiedContent,
+    maxWidth,
+    textStyle.fontSize,
+    textStyle.fontWeight,
+    fontFamily,
+    codePadding
+  );
+
+  let textIndex = 0;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const wrappedLine = lines[lineIndex];
+    const line = wrappedLine.text;
+    const lineEndIndex = textIndex + line.length;
+
+    if (targetTextIndex >= textIndex && targetTextIndex <= lineEndIndex) {
+      if (isRTL) {
+        const widthFromStart = measureFormattedTextUpToIndex(
+          modifiedContent,
+          textIndex,
+          targetTextIndex,
+          textStyle.fontSize,
+          textStyle.fontWeight,
+          fontFamily,
+          codePadding
+        );
+        return {
+          x: styles.canvas.paddingLeft + maxWidth - widthFromStart,
+          y: currentY,
+          height: lineHeight,
+        };
+      } else {
+        const textWidth = measureFormattedTextUpToIndex(
+          modifiedContent,
+          textIndex,
+          targetTextIndex,
+          textStyle.fontSize,
+          textStyle.fontWeight,
+          fontFamily,
+          codePadding
+        );
+        return {
+          x: styles.canvas.paddingLeft + textWidth,
+          y: currentY,
+          height: lineHeight,
+        };
+      }
+    }
+
+    textIndex += line.length;
+    if (wrappedLine.consumedSpace) {
+      textIndex += 1;
+    }
+    currentY += lineHeight;
+  }
+
+  // Fallback to end position
   if (isRTL) {
     return {
       x: styles.canvas.paddingLeft + maxWidth,
@@ -270,7 +439,7 @@ function getPositionWithinBlock(
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
   // Wrap text to get lines using formatted text wrapping
-  const lines = wrapFormattedText(
+  const lines = wrapFormattedTextDetailed(
     block.content,
     maxWidth,
     textStyle.fontSize,
@@ -284,7 +453,8 @@ function getPositionWithinBlock(
 
   // Find the target line based on Y coordinate
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const line = lines[lineIndex];
+    const wrappedLine = lines[lineIndex];
+    const line = wrappedLine.text;
     const lineBottom = currentLineY + lineHeight;
 
     // Check if click is within this line's Y bounds
@@ -308,8 +478,8 @@ function getPositionWithinBlock(
     }
 
     textIndex += line.length;
-    // Account for the space character consumed during text wrapping (if not last line)
-    if (lineIndex < lines.length - 1) {
+    // Account for the space character consumed during text wrapping
+    if (wrappedLine.consumedSpace) {
       textIndex += 1;
     }
     currentLineY += lineHeight;
@@ -317,8 +487,9 @@ function getPositionWithinBlock(
 
   // Click is in padding bottom area - find closest position on last line
   if (lines.length > 0) {
-    const lastLine = lines[lines.length - 1];
-    const lastLineStartIndex = textIndex - lastLine.length;
+    const lastWrappedLine = lines[lines.length - 1];
+    const lastLine = lastWrappedLine.text;
+    const lastLineStartIndex = textIndex - lastLine.length - (lastWrappedLine.consumedSpace ? 1 : 0);
 
     const position = getPositionWithinLine(
       x,

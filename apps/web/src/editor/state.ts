@@ -1,5 +1,5 @@
 import type { Block, Page } from "../deserializer/loadPage";
-import { getCurrentFontFamily, wrapFormattedText, measureFormattedTextUpToIndex } from "./fonts";
+import { getCurrentFontFamily, wrapFormattedTextDetailed, measureFormattedTextUpToIndex } from "./fonts";
 import {
   createInitialMomentumState,
   createInitialScrollbarState,
@@ -340,7 +340,7 @@ function getLineInfoAtPosition(
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
 
-  const lines = wrapFormattedText(
+  const wrappedLines = wrapFormattedTextDetailed(
     block.content,
     maxWidth,
     textStyle.fontSize,
@@ -350,8 +350,9 @@ function getLineInfoAtPosition(
   );
 
   let currentTextIndex = 0;
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const line = lines[lineIndex];
+  for (let lineIndex = 0; lineIndex < wrappedLines.length; lineIndex++) {
+    const wrappedLine = wrappedLines[lineIndex];
+    const line = wrappedLine.text;
     const lineStartIndex = currentTextIndex;
     const lineEndIndex = currentTextIndex + line.length;
 
@@ -360,14 +361,14 @@ function getLineInfoAtPosition(
         lineIndex,
         lineStartIndex,
         lineEndIndex,
-        totalLines: lines.length,
-        lines,
+        totalLines: wrappedLines.length,
+        lines: wrappedLines.map((wl) => wl.text),
       };
     }
 
     currentTextIndex += line.length;
-    // Account for the space character consumed during text wrapping (if not last line)
-    if (lineIndex < lines.length - 1) {
+    // Account for the space character consumed during text wrapping
+    if (wrappedLine.consumedSpace) {
       currentTextIndex += 1;
     }
   }
@@ -533,7 +534,7 @@ export const moveCursorUp = (
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
 
-    const prevLines = wrapFormattedText(
+    const prevLines = wrapFormattedTextDetailed(
       prevBlock.content,
       maxWidth,
       prevTextStyle.fontSize,
@@ -546,13 +547,14 @@ export const moveCursorUp = (
       // Calculate the start index of the last line in the previous block
       let lastLineStartIndex = 0;
       for (let i = 0; i < prevLines.length - 1; i++) {
-        lastLineStartIndex += prevLines[i].length;
-        if (i < prevLines.length - 1) {
-          lastLineStartIndex += 1; // Account for space
+        lastLineStartIndex += prevLines[i].text.length;
+        if (prevLines[i].consumedSpace) {
+          lastLineStartIndex += 1; // Account for consumed space
         }
       }
 
-      const lastLine = prevLines[prevLines.length - 1];
+      const lastWrappedLine = prevLines[prevLines.length - 1];
+      const lastLine = lastWrappedLine.text;
       const lastLineEndIndex = lastLineStartIndex + lastLine.length;
       const targetTextIndex = getTextIndexAtRelativePosition(
         lastLineStartIndex,
@@ -677,7 +679,7 @@ export const moveCursorDown = (
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
 
-    const nextLines = wrapFormattedText(
+    const nextLines = wrapFormattedTextDetailed(
       nextBlock.content,
       maxWidth,
       nextTextStyle.fontSize,
@@ -687,7 +689,8 @@ export const moveCursorDown = (
     );
 
     if (nextLines.length > 0) {
-      const firstLine = nextLines[0];
+      const firstWrappedLine = nextLines[0];
+      const firstLine = firstWrappedLine.text;
       const targetTextIndex = getTextIndexAtRelativePosition(
         0,
         firstLine.length,

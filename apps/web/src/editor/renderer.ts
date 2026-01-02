@@ -4,8 +4,9 @@ import {
   getCurrentFontFamily,
   getFontMetrics,
   measureText,
-  wrapFormattedText,
+  wrapFormattedTextDetailed,
   type FontFamily,
+  type WrappedLine,
 } from "./fonts";
 import { renderScrollbar } from "./scrollbar";
 import { getBlockTextContent, isCursorBlinking } from "./state";
@@ -555,7 +556,7 @@ export const renderBlock = (
     getContentWithComposition(block, state, blockIndex);
 
   // Calculate line wrapping using the render content (includes composition)
-  const lines = wrapFormattedText(
+  const lines = wrapFormattedTextDetailed(
     renderContent,
     maxWidth,
     textStyle.fontSize,
@@ -580,7 +581,8 @@ export const renderBlock = (
 
   // Render each line
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const line = lines[lineIndex];
+    const wrappedLine = lines[lineIndex];
+    const line = wrappedLine.text;
     const lineStartIndex = textIndex;
     const lineEndIndex = textIndex + line.length;
 
@@ -653,8 +655,8 @@ export const renderBlock = (
     renderedLines.push(renderedLine);
 
     textIndex += line.length;
-    // Account for the space character consumed during text wrapping (if not last line)
-    if (lineIndex < lines.length - 1) {
+    // Account for the space character consumed during text wrapping
+    if (wrappedLine.consumedSpace) {
       textIndex += 1;
     }
     currentY += lineHeight;
@@ -1099,7 +1101,7 @@ export const calculateBlockHeight = (
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
 
-  const lines = wrapFormattedText(
+  const lines = wrapFormattedTextDetailed(
     block.content,
     maxWidth,
     textStyle.fontSize,

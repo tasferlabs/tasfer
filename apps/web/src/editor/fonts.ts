@@ -496,7 +496,134 @@ export const measureFormattedTextUpToIndex = (
   return width;
 };
 
-// Wrap formatted text (Text[]) to lines
+// Helper function to check if a character is CJK (Chinese, Japanese, Korean)
+// Exported for use in word boundary detection
+export const isCJKCharacter = (char: string): boolean => {
+  const code = char.charCodeAt(0);
+  return (
+    // CJK Unified Ideographs
+    (code >= 0x4e00 && code <= 0x9fff) ||
+    // CJK Unified Ideographs Extension A
+    (code >= 0x3400 && code <= 0x4dbf) ||
+    // CJK Unified Ideographs Extension B-F
+    (code >= 0x20000 && code <= 0x2a6df) ||
+    // CJK Compatibility Ideographs
+    (code >= 0xf900 && code <= 0xfaff) ||
+    // Hiragana
+    (code >= 0x3040 && code <= 0x309f) ||
+    // Katakana
+    (code >= 0x30a0 && code <= 0x30ff) ||
+    // Hangul Syllables
+    (code >= 0xac00 && code <= 0xd7af)
+  );
+};
+
+// Helper function to check if text contains CJK characters
+export const containsCJK = (text: string): boolean => {
+  for (let i = 0; i < text.length; i++) {
+    if (isCJKCharacter(text[i])) {
+      return true;
+    }
+  }
+  return false;
+};
+
+// Character-based wrapping for CJK text (allows breaks at any character)
+const wrapFormattedTextCJK = (
+  segments: Text[],
+  fullText: string,
+  charToSegment: number[],
+  maxWidth: number,
+  fontSize: number,
+  baseFontWeight: string,
+  fontFamily: FontFamily,
+  codePadding: number
+): WrappedLine[] => {
+  const lines: WrappedLine[] = [];
+  let currentLine = "";
+  let currentLineWidth = 0;
+  let lineStartIndex = 0;
+
+  // Helper to measure a substring with its formatting
+  const measureSubstring = (start: number, end: number): number => {
+    return measureFormattedTextUpToIndex(
+      segments,
+      start,
+      end,
+      fontSize,
+      baseFontWeight,
+      fontFamily,
+      codePadding
+    );
+  };
+
+  for (let i = 0; i < fullText.length; i++) {
+    const char = fullText[i];
+    const isCJK = isCJKCharacter(char);
+    const isSpace = char === " ";
+
+    // Measure the character
+    const segIdx = charToSegment[i];
+    const segment = segments[segIdx];
+    const fontWeight = segment.formats?.some((f) => f.type === "bold")
+      ? "bold"
+      : baseFontWeight;
+    const charWidth = measureText(char, fontSize, fontWeight, fontFamily);
+
+    // Check if adding this character would exceed max width
+    if (currentLineWidth + charWidth > maxWidth && currentLine.length > 0) {
+      // Line is full, need to wrap
+      // For CJK characters, we can break immediately
+      // For Latin text, try to break at the previous space if possible
+      if (isCJK || isSpace) {
+        // Break here
+        lines.push({ text: currentLine, consumedSpace: isSpace });
+        currentLine = isSpace ? "" : char;
+        currentLineWidth = isSpace ? 0 : charWidth;
+        lineStartIndex = isSpace ? i + 1 : i;
+      } else {
+        // Latin character - try to find last space in current line
+        const lastSpaceIndex = currentLine.lastIndexOf(" ");
+        if (lastSpaceIndex > 0) {
+          // Break at the space
+          const lineToAdd = currentLine.substring(0, lastSpaceIndex);
+          lines.push({ text: lineToAdd, consumedSpace: true });
+          
+          // Start new line with text after the space
+          currentLine = currentLine.substring(lastSpaceIndex + 1) + char;
+          const newLineStart = lineStartIndex + lastSpaceIndex + 1;
+          currentLineWidth = measureSubstring(newLineStart, i + 1);
+          lineStartIndex = newLineStart;
+        } else {
+          // No space found, force break
+          lines.push({ text: currentLine, consumedSpace: false });
+          currentLine = char;
+          currentLineWidth = charWidth;
+          lineStartIndex = i;
+        }
+      }
+    } else {
+      // Character fits on current line
+      currentLine += char;
+      currentLineWidth += charWidth;
+    }
+  }
+
+  // Add remaining text
+  if (currentLine) {
+    lines.push({ text: currentLine, consumedSpace: false });
+  }
+
+  return lines.length > 0 ? lines : [{ text: "", consumedSpace: false }];
+};
+
+// Line wrapping result with information about consumed characters
+export interface WrappedLine {
+  text: string;
+  consumedSpace: boolean; // True if this line consumed a trailing space character
+}
+
+// Wrap formatted text (Text[]) to lines with information about consumed spaces
 export const wrapFormattedText = (
   segments: Text[],
   maxWidth: number,
@@ -505,6 +632,26 @@ export const wrapFormattedText = (
   fontFamily: FontFamily,
   codePadding: number = 0
 ): string[] => {
+  const result = wrapFormattedTextDetailed(
+    segments,
+    maxWidth,
+    fontSize,
+    baseFontWeight,
+    fontFamily,
+    codePadding
+  );
+  return result.map((line) => line.text);
+};
+
+// Internal function that returns detailed line information
+export const wrapFormattedTextDetailed = (
+  segments: Text[],
+  maxWidth: number,
+  fontSize: number,
+  baseFontWeight: string,
+  fontFamily: FontFamily,
+  codePadding: number = 0
+): WrappedLine[] => {
   // Convert segments to plain text for wrapping
   const fullText = segments.map((s) => s.content).join("");
 
@@ -516,7 +663,25 @@ export const wrapFormattedText = (
     }
   }
 
-  const lines: string[] = [];
+  // Check if text contains CJK characters
+  const hasCJK = containsCJK(fullText);
+
+  // If text contains CJK, use character-based wrapping
+  if (hasCJK) {
+    return wrapFormattedTextCJK(
+      segments,
+      fullText,
+      charToSegment,
+      maxWidth,
+      fontSize,
+      baseFontWeight,
+      fontFamily,
+      codePadding
+    );
+  }
+
+  // Otherwise use word-based wrapping (original logic)
+  const lines: WrappedLine[] = [];
   const words = fullText.split(" ");
   let currentLine = "";
   let currentLineWidth = 0;
@@ -555,7 +720,7 @@ export const wrapFormattedText = (
     } else {
       // Does not fit. Push current line if it has content.
       if (currentLine) {
-        lines.push(currentLine);
+        lines.push({ text: currentLine, consumedSpace: true });
         currentLine = "";
         currentLineWidth = 0;
       }
@@ -597,7 +762,8 @@ export const wrapFormattedText = (
           if (splitIndex === remainingWordStart) splitIndex++;
 
           const chunk = fullText.substring(remainingWordStart, splitIndex);
-          lines.push(chunk);
+          // Word is being split mid-word, no space consumed
+          lines.push({ text: chunk, consumedSpace: false });
           remainingWordStart = splitIndex;
         }
 
@@ -609,10 +775,10 @@ export const wrapFormattedText = (
   }
 
   if (currentLine) {
-    lines.push(currentLine);
+    lines.push({ text: currentLine, consumedSpace: false });
   }
 
-  return lines.length > 0 ? lines : [""];
+  return lines.length > 0 ? lines : [{ text: "", consumedSpace: false }];
 };
 
 // Global font configuration - can be changed at runtime

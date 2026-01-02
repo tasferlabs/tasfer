@@ -16,7 +16,7 @@ import {
   renderPage,
   clearAllBlockCaches,
 } from "./renderer";
-import { getCursorCoordinates } from "./selection";
+import { getCursorCoordinates, getCursorCoordinatesWithComposition } from "./selection";
 import {
   updateFocus,
   isCursorBlinking,
@@ -194,6 +194,23 @@ export default function createEditor(
           state.view.scrollbar.isDragging,
           state.ui.isHoveringLinkWithModifier
         );
+
+        // Update hidden input position to match cursor for IME composition toolbar
+        if (hiddenInput && state.document.cursor && state.view.isFocused) {
+          // Use special function that accounts for composition text wrapping
+          // This ensures the toolbar follows the text when it wraps to a new line
+          const cursorCoords = getCursorCoordinatesWithComposition(
+            state,
+            viewport
+          );
+          if (cursorCoords) {
+            // Position the hidden input at the end of composition text
+            // Offset vertically by cursor height so composition toolbar appears below the text
+            // This prevents the toolbar from covering the composition text
+            hiddenInput.style.left = `${cursorCoords.x}px`;
+            hiddenInput.style.top = `${cursorCoords.y - viewport.scrollY + cursorCoords.height}px`;
+          }
+        }
 
         // Notify listeners only if state changed
         if (stateChanged) {

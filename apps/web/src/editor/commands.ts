@@ -18,6 +18,7 @@ import {
 } from "./state";
 import { recordUndo } from "./undo";
 import { getFormattedTextDirection } from "./rtl";
+import { isCJKCharacter } from "./fonts";
 
 /**
  * Insert text at a specific position in formatted content while preserving formatting
@@ -764,6 +765,7 @@ export function deleteForward(state: EditorState): EditorState {
 
 // Helper function to find word boundaries - distinguishes between word characters and non-word characters
 // Uses Unicode property escapes to support all languages
+// For CJK text, each character is treated as a word boundary
 function findWordBoundary(
   text: string,
   index: number,
@@ -775,10 +777,16 @@ function findWordBoundary(
 
     if (i === 0) return 0;
 
-    // Skip current character type
+    // Check if current position is a CJK character
+    if (i > 0 && isCJKCharacter(text[i - 1])) {
+      // For CJK, move one character at a time
+      return i - 1;
+    }
+
+    // Skip current character type for non-CJK
     const startIsWordChar = /[\p{L}\p{N}_]/u.test(text[i - 1]);
     if (startIsWordChar) {
-      while (i > 0 && /[\p{L}\p{N}_]/u.test(text[i - 1])) {
+      while (i > 0 && /[\p{L}\p{N}_]/u.test(text[i - 1]) && !isCJKCharacter(text[i - 1])) {
         i--;
       }
     } else {
@@ -794,10 +802,16 @@ function findWordBoundary(
 
     if (i === text.length) return text.length;
 
-    // Skip current character type
+    // Check if current position is a CJK character
+    if (i < text.length && isCJKCharacter(text[i])) {
+      // For CJK, move one character at a time
+      return i + 1;
+    }
+
+    // Skip current character type for non-CJK
     const startIsWordChar = /[\p{L}\p{N}_]/u.test(text[i]);
     if (startIsWordChar) {
-      while (i < text.length && /[\p{L}\p{N}_]/u.test(text[i])) {
+      while (i < text.length && /[\p{L}\p{N}_]/u.test(text[i]) && !isCJKCharacter(text[i])) {
         i++;
       }
     } else {
@@ -815,12 +829,17 @@ function findWordDeleteBoundaryLeft(text: string, index: number): number {
 
   if (i === 0) return 0;
 
+  // For CJK characters, delete one character at a time
+  if (isCJKCharacter(text[i - 1])) {
+    return i - 1;
+  }
+
   // Check what type of character we're starting from (Unicode-aware)
   const isWordChar = /[\p{L}\p{N}_]/u.test(text[i - 1]);
 
   if (isWordChar) {
     // Delete word characters (Unicode letters, numbers, underscores)
-    while (i > 0 && /[\p{L}\p{N}_]/u.test(text[i - 1])) {
+    while (i > 0 && /[\p{L}\p{N}_]/u.test(text[i - 1]) && !isCJKCharacter(text[i - 1])) {
       i--;
     }
   } else {
@@ -838,12 +857,17 @@ function findWordDeleteBoundaryRight(text: string, index: number): number {
 
   if (i === text.length) return text.length;
 
+  // For CJK characters, delete one character at a time
+  if (isCJKCharacter(text[i])) {
+    return i + 1;
+  }
+
   // Check what type of character we're starting from (Unicode-aware)
   const isWordChar = /[\p{L}\p{N}_]/u.test(text[i]);
 
   if (isWordChar) {
     // Delete word characters (Unicode letters, numbers, underscores)
-    while (i < text.length && /[\p{L}\p{N}_]/u.test(text[i])) {
+    while (i < text.length && /[\p{L}\p{N}_]/u.test(text[i]) && !isCJKCharacter(text[i])) {
       i++;
     }
   } else {
@@ -1049,10 +1073,18 @@ export function deleteWordBackward(state: EditorState): EditorState {
 
 // Find word boundaries for selection - only selects word characters (letters, numbers, underscore)
 // Uses Unicode property escapes to support all languages
+// For CJK characters, each character is treated as a word
 function findWordStart(text: string, index: number): number {
   let i = index;
+  
+  // If we're at a CJK character, just select that one character
+  if (i > 0 && isCJKCharacter(text[i - 1])) {
+    return i - 1;
+  }
+  
   // Move left while we're in word characters (Unicode letters, numbers, or underscore)
-  while (i > 0 && /[\p{L}\p{N}_]/u.test(text[i - 1])) {
+  // Stop at CJK characters
+  while (i > 0 && /[\p{L}\p{N}_]/u.test(text[i - 1]) && !isCJKCharacter(text[i - 1])) {
     i--;
   }
   return i;
@@ -1060,8 +1092,15 @@ function findWordStart(text: string, index: number): number {
 
 function findWordEnd(text: string, index: number): number {
   let i = index;
+  
+  // If we're at a CJK character, just select that one character
+  if (i < text.length && isCJKCharacter(text[i])) {
+    return i + 1;
+  }
+  
   // Move right while we're in word characters (Unicode letters, numbers, or underscore)
-  while (i < text.length && /[\p{L}\p{N}_]/u.test(text[i])) {
+  // Stop at CJK characters
+  while (i < text.length && /[\p{L}\p{N}_]/u.test(text[i]) && !isCJKCharacter(text[i])) {
     i++;
   }
   return i;

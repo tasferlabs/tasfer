@@ -104,6 +104,13 @@ Bugs list
 [ ] Read title from document
 [ ] mandrians characters are not working with with selection.
 [x] compoition characters are still left in viewport but composition is cancelled.
-[ ] composition toolbar is in wrong place.
+[x] composition toolbar is in wrong place.
+[x] if we are composing at end of line than compoistion toolbar is stays same place this is worng.
 [x] page up and down, home and end no longer working
 [ ] deleting emogjs is broken
+
+<!-- [ ] in extermly long word that could not possible exist contactenated with composition than the compositon breaks in wrong way. -->
+
+[x] chiense text are not wrapping correctly
+[x] word navigation (Ctrl+Arrow) and selection (Ctrl+Shift+Arrow, double-click)
+[x] when text is going out of bounds then some character goes missing
