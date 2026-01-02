@@ -197,6 +197,21 @@
   padding: 0 1rem;
 }
 
+.appSidebarMain {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.appSidebarMain > div {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
 .appSidebarSection {
   display: flex;
   align-items: center;
@@ -204,8 +219,19 @@
   gap: 0.5rem;
   padding: 0 1rem;
 }
+
+.appSidebarScrollArea {
+  height: 100%;
+  flex: 1 1 auto;
+}
+
 .appSidebarScrollArea > div {
   display: block !important;
+  height: 100%;
+}
+
+.appSidebarScrollArea > div > div {
+  height: 100%;
 }
 
 .appSidebarSectionTitle {
@@ -338,7 +364,8 @@
 .appSidebarPages {
   padding: 0 1rem;
   flex: 1 1 auto;
-  min-height: 150px;
+  /* min-height: 50px; */
+  /* padding-bottom: 0.5rem; */
   border-radius: 4px;
 
   /* for touch dragging to work */
@@ -391,4 +418,22 @@
 
 .usersList:hover .userAvatar {
   margin-inline-start: 4px;
+}
+
+.dragOverlay {
+  padding: 8px 12px;
+  background: var(--card);
+  border: 2px solid var(--primary);
+  border-radius: 6px;
+  cursor: grabbing;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  max-width: 300px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

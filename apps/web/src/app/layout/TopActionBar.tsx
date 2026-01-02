@@ -2,10 +2,12 @@ import VisuallyHidden from "../components/uiKit/VisuallyHidden/VisuallyHidden";
 import React from "react";
 import style from "./Layout.module.css";
 import { clsx } from "clsx";
-import { ListIcon } from "@phosphor-icons/react";
+import { ListIcon, CaretRightIcon } from "@phosphor-icons/react";
 import useResponsive from "../hooks/useResponsive";
 import { SavingIndicator } from "../components/SavingIndicator";
 import { useSaving } from "../contexts/SavingContext";
+import { useGetPage } from "../api/pages.api";
+import { useParams, Link } from "react-router-dom";
 
 export function TopActionBar({
   open,
@@ -14,8 +16,8 @@ export function TopActionBar({
   open: boolean;
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
-  // Mock data
-  const pageTitle = "Untitled";
+  const { id } = useParams<{ id: string }>();
+  const { data: page } = useGetPage(id);
   const isMobile = useResponsive("(max-width: 768px)");
   const { isSaving } = useSaving();
   
@@ -34,7 +36,24 @@ export function TopActionBar({
       )}
 
       <div className={style.appHeaderTitles}>
-        <span className={style.appHeaderTitle}>{pageTitle}</span>
+        {page?.parents && page.parents.length > 0 ? (
+          page.parents.map((parent, index) => (
+            <React.Fragment key={parent.id}>
+              {index !== 0 && (
+                <span className={style.appHeaderTitleSeparator}>
+                  <CaretRightIcon size={16} />
+                </span>
+              )}
+              <Link to={`/page/${parent.id}`} className={style.appHeaderTitle}>
+                {parent.title || "Untitled"}
+              </Link>
+            </React.Fragment>
+          ))
+        ) : (
+          <span className={style.appHeaderTitle}>
+            {page?.title || "Untitled"}
+          </span>
+        )}
       </div>
 
       <div className="ml-auto">

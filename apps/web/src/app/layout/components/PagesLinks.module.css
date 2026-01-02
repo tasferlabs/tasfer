@@ -1,10 +1,19 @@
 .link {
+  position: relative;
   display: flex;
   align-items: center;
   overflow: hidden;
   width: 100%;
   border-radius: 4px;
   height: 34px;
+  cursor: grab;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.link:active {
+  cursor: grabbing;
 }
 
 .link:hover {
@@ -23,6 +32,8 @@
   flex: 1 0 auto;
   width: calc(100% - 135px);
   margin-inline-start: 5px;
+  position: relative;
+  z-index: 1;
 }
 
 .linkTitle a {
@@ -53,6 +64,8 @@
   gap: 2px;
   display: none;
   padding: 2px;
+  position: relative;
+  z-index: 1;
 }
 
 .link:hover .actions {
@@ -71,6 +84,8 @@
   color: var(--foreground);
   cursor: pointer;
   padding: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .action svg {
@@ -164,5 +179,77 @@
 .allEmpty {
   padding-block: 1rem;
   color: var(--muted-foreground);
+}
+
+/* Drop zones for drag and drop */
+.dropZone {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  transition: all 0.15s ease;
+}
+
+.dropZoneBefore,
+.dropZoneAfter {
+  height: 8px;
+  margin: 0;
+  pointer-events: auto;
+}
+
+.dropZoneBefore {
+  top: -4px;
+}
+
+.dropZoneAfter {
+  bottom: -4px;
+}
+
+.dropZoneInside {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: transparent;
+  pointer-events: none;
+}
+
+.dropZoneActive.dropZoneBefore::after,
+.dropZoneActive.dropZoneAfter::after {
+  content: '';
+  display: block;
+  height: 2px;
+  background-color: var(--primary);
+  border-radius: 1px;
+  box-shadow: 0 0 4px var(--primary);
+}
+
+.dropZoneActive.dropZoneInside {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  border-radius: 4px;
+  background-color: color-mix(in srgb, var(--primary), transparent 90%);
+}
+
+.pageWrapper {
+  position: relative;
+}
+
+.isDragging {
+  opacity: 0.4;
+}
+
+.dragOverlay {
+  padding: 8px 12px;
+  background: var(--card);
+  border: 2px solid var(--primary);
+  border-radius: 6px;
+  cursor: grabbing;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  max-width: 300px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 

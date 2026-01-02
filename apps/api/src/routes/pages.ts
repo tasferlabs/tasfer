@@ -19,10 +19,10 @@ router.get("/list", async (req, res) => {
         parentId: pages.parentId,
         order: pages.order,
         createdAt: pages.createdAt,
-        hasChildren: sql<boolean>`EXISTS (
-          SELECT 1 FROM ${pages} p2 
-          WHERE p2."parentId" = ${pages.id}
-        )`,
+        hasChildren: sql<boolean>`CASE WHEN EXISTS (
+          SELECT 1 FROM pages p2 
+          WHERE p2."parentId" = pages.id
+        ) THEN true ELSE false END`,
       })
       .from(pages)
       .where(
@@ -53,7 +53,7 @@ router.get("/:id", async (req, res) => {
     }
 
     // Get parent hierarchy
-    const parents = await db.execute(sql`
+    const parentsResult = await db.execute(sql`
       WITH RECURSIVE parent_pages AS (
         SELECT id, title, "parentId", 1 AS depth
         FROM ${pages}
@@ -69,7 +69,7 @@ router.get("/:id", async (req, res) => {
       SELECT id, title FROM parent_pages ORDER BY depth DESC
     `);
 
-    res.json({ success: true, data: { ...page, parents } });
+    res.json({ success: true, data: { ...page, parents: parentsResult.rows } });
   } catch (error) {
     console.error("Get page error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
@@ -190,6 +190,36 @@ router.post("/:id/move", async (req, res) => {
       return res.status(404).json({ success: false, error: "Page not found" });
     }
 
+    // Prevent moving a page to itself
+    if (id === parentId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Cannot move a page to itself" 
+      });
+    }
+
+    // Prevent circular reference: Check if the new parent is a descendant of the page being moved
+    if (parentId) {
+      const descendantsCheck = await db.execute(sql`
+        WITH RECURSIVE child_pages AS (
+          SELECT id FROM ${pages} WHERE id = ${id}
+          UNION ALL
+          SELECT p.id FROM ${pages} p
+          INNER JOIN child_pages cp ON cp.id = p."parentId"
+        )
+        SELECT EXISTS(SELECT 1 FROM child_pages WHERE id = ${parentId}) AS "isDescendant"
+      `);
+      
+      const isDescendant = descendantsCheck.rows[0]?.isDescendant;
+      
+      if (isDescendant) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "Cannot move a page into its own descendant" 
+        });
+      }
+    }
+
     // Get max order in new parent
     const maxOrderResult = await db
       .select({ maxOrder: sql<number>`MAX(${pages.order})` })
@@ -210,19 +240,35 @@ router.post("/:id/move", async (req, res) => {
       .where(eq(pages.id, id));
 
     // Reorder siblings
-    await db.execute(sql`
-      WITH "OrderedUpdates" AS (
-        SELECT
-          id,
-          row_number() OVER (ORDER BY "order", title) - 1 AS new_order
-        FROM ${pages}
-        WHERE COALESCE("parentId", 'None') = ${parentId || "None"}
-      )
-      UPDATE ${pages}
-      SET "order" = new_order
-      FROM "OrderedUpdates"
-      WHERE ${pages.id} = "OrderedUpdates".id
-    `);
+    await db.execute(
+      parentId
+        ? sql`
+          WITH "OrderedUpdates" AS (
+            SELECT
+              id,
+              row_number() OVER (ORDER BY "order", title) - 1 AS new_order
+            FROM ${pages}
+            WHERE "parentId" = ${parentId}
+          )
+          UPDATE ${pages}
+          SET "order" = new_order
+          FROM "OrderedUpdates"
+          WHERE ${pages.id} = "OrderedUpdates".id
+        `
+        : sql`
+          WITH "OrderedUpdates" AS (
+            SELECT
+              id,
+              row_number() OVER (ORDER BY "order", title) - 1 AS new_order
+            FROM ${pages}
+            WHERE "parentId" IS NULL
+          )
+          UPDATE ${pages}
+          SET "order" = new_order
+          FROM "OrderedUpdates"
+          WHERE ${pages.id} = "OrderedUpdates".id
+        `
+    );
 
     res.json({ success: true, message: "Page moved" });
   } catch (error) {

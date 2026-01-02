@@ -21,16 +21,15 @@ export default function PagesLinks({
   return (
     <>
       {pages?.map((link) => (
-        <div key={link.id} className={style.linkWrapper}>
-          <PageLink
-            data={link}
-            parentsStack={[
-              ...parentsStack,
-              { id: parentId, order: link.order },
-            ]}
-          />
-        </div>
+        <PageLink
+          key={link.id}
+          data={link}
+          parentsStack={[...parentsStack, { id: parentId, order: link.order }]}
+        />
       ))}
+
+      {/* Empty space for breath room for dragging if it is nested*/}
+      {parentsStack.length > 0 && <div className={style.emptySpace} />}
 
       {pages?.length === 0 && !!parentId && (
         <div className={style.empty}>

@@ -18,6 +18,7 @@ export interface IPage {
   order: number;
   createdAt: string;
   updatedAt: string;
+  parents?: { id: string; title: string }[];
 }
 
 // Fetch pages list

@@ -124,7 +124,6 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
         // Check if blocks reference has changed (indicates actual content modification)
         if (currentBlocks !== lastSerializedBlocksRef.current) {
           lastSerializedBlocksRef.current = currentBlocks;
-          console.log("currentBlocks", currentBlocks);
           const markdown = serializeToMarkdown(currentBlocks);
           onContentChange(markdown);
         }

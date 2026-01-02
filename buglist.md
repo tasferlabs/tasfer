@@ -89,8 +89,12 @@ Bugs list
 [ ] When loading a page first. it is overrideing the page with empty state. The update endpoint is being called before the page is loaded and is overriding with empty string
 [x] top bar is not same color
 [x] when openign or creating a page we should focus on page.
+[ ] opening or creating page on mobile should close floaty sidebar.
 [x] when deleting current page we should close the current page.
-[ ] Tree page not working as it was in l4r˝
+[x] Tree page not working as it was in l4r˝
 [ ] we should close floaty sidebar when we choose page
 [x] i can still type when there is no focus
 [x] link overlay not rendering correcty
+[ ] copy not copying inline formating
+[ ] updating tile twichs a litle
+[x] dragging pages on mobile

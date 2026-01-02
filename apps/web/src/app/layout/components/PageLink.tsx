@@ -1,21 +1,22 @@
+import { useDraggable } from "@dnd-kit/core";
 import { CircleNotch, X } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
-import { useDrag, useDrop } from "react-dnd";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   type IListPage,
   useCreatePage,
   useDeletePage,
-  useMovePage,
   useUpdatePage,
 } from "../../api/pages.api";
+import { useConfirmation } from "../../components/ConfirmationDialog";
 import Icons from "../../components/uiKit/Icons/Icons";
 import VisuallyHidden from "../../components/uiKit/VisuallyHidden/VisuallyHidden";
-import PagesLinks, { type IParentsStack } from "./PagesLinks";
+import { DropZone } from "./DropZone";
+import { PagesArea } from "./PagesArea";
+import { type IParentsStack } from "./PagesLinks";
 import style from "./PagesLinks.module.css";
-import { useConfirmation } from "../../components/ConfirmationDialog";
 
 // Mock t function
 const t = (s: string | TemplateStringsArray) => s.toString();
@@ -34,18 +35,6 @@ const useOutsideClick = ({ element, action, condition }: any) => {
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [condition, element, action]);
-};
-
-const mergeRefs = (refs: any[]) => {
-  return (node: any) => {
-    refs.forEach((ref) => {
-      if (typeof ref === "function") {
-        ref(node);
-      } else if (ref) {
-        ref.current = node;
-      }
-    });
-  };
 };
 
 export function PageLink({
@@ -79,18 +68,6 @@ export function PageLink({
       );
       queryClient.invalidateQueries({
         queryKey: ["pages", { parentId: data.parentId }],
-      });
-    },
-  });
-
-  const { mutate: movePage } = useMovePage({
-    onSuccess: (_, variables) => {
-      // Invalidate both the old and new parent queries
-      queryClient.invalidateQueries({
-        queryKey: ["pages", { parentId: data.parentId }],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["pages", { parentId: variables.parentId }],
       });
     },
   });
@@ -131,38 +108,20 @@ export function PageLink({
     },
   });
 
-  const [collected, drag] = useDrag(
-    () => ({
+  // Use draggable for maximum flexibility
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    isDragging,
+  } = useDraggable({
+    id: data.id,
+    data: {
       type: "pageLink",
-      item: { ...data, parentsStack },
-      collect: (monitor) => ({
-        isDragging: monitor.isDragging(),
-      }),
-    }),
-    [data, parentsStack]
-  );
-
-  const [{ isOver }, drop] = useDrop(
-    () => ({
-      accept: "pageLink",
-      drop: (item: IListPage, monitor) => {
-        if (item.id === data.id) return;
-        const didDrop = monitor.didDrop();
-        if (didDrop) return;
-
-        movePage({
-          id: item.id,
-          parentId: data.id,
-        });
-
-        setIsExpanded(true);
-      },
-      collect: (monitor) => ({
-        isOver: monitor.isOver({ shallow: true }),
-      }),
-    }),
-    [data.id]
-  );
+      ...data,
+      parentsStack,
+    },
+  });
 
   useOutsideClick({
     element: inputRef,
@@ -232,10 +191,32 @@ export function PageLink({
   }, [data.title]);
 
   return (
-    <div ref={mergeRefs([drag, drop])}>
+    <div className={style.pageWrapper}>
+      {/* Drop zone BEFORE this item - for reordering */}
+      <DropZone
+        id={`before-${data.id}`}
+        parentId={data.parentId}
+        targetPageId={data.id}
+        position="before"
+        order={data.order}
+        parentsStack={parentsStack}
+      />
+
+      {/* Drop zone INSIDE this item - for nesting */}
+      <DropZone
+        id={`inside-${data.id}`}
+        parentId={data.id}
+        targetPageId={data.id}
+        position="inside"
+        parentsStack={[...parentsStack, { id: data.id, order: data.order }]}
+      />
+
       <div
-        className={clsx(style.link, { [style.isOver]: isOver })}
-        style={{ opacity: collected.isDragging ? 0.5 : 1 }}
+        ref={setNodeRef}
+        className={clsx(style.link, { [style.isDragging]: isDragging })}
+        style={{ opacity: isDragging ? 0.4 : 1 }}
+        {...attributes}
+        {...listeners}
       >
         {data.hasChildren && (
           <button
@@ -315,9 +296,20 @@ export function PageLink({
           </button>
         </div>
       </div>
+
+      {/* Drop zone AFTER this item - for reordering */}
+      <DropZone
+        id={`after-${data.id}`}
+        parentId={data.parentId}
+        targetPageId={data.id}
+        position="after"
+        order={data.order + 1}
+        parentsStack={parentsStack}
+      />
+
       {isExpanded && data.hasChildren ? (
         <div className={style.accordion}>
-          <PagesLinks parentId={data.id} parentsStack={parentsStack} />
+          <PagesArea parentId={data.id} parentsStack={parentsStack} />
         </div>
       ) : null}
     </div>
