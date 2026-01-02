@@ -152,7 +152,10 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
       
       // Not a valid link, treat as regular text
       state.index = start;
-      tokenizeRegularText(state, tokens);
+      // Consume the [ character and continue
+      const text = current(state);
+      tokens.push({ type: TEXT, content: text });
+      next(state);
     }
     // Check for code (backticks) - code doesn't nest
     else if (char === "`") {
@@ -178,21 +181,30 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
         tokens.push({ type: CODE_END, content: "`" });
         next(state);
       } else {
+        // No closing backtick found, treat as regular text
         state.index = start;
-        tokenizeRegularText(state, tokens);
+        const text = current(state);
+        tokens.push({ type: TEXT, content: text });
+        next(state);
       }
     }
     // Check for strikethrough (~~)
-    else if (char === "~" && peek(state) === "~") {
-      const existingIndex = formatStack.findIndex(f => f.type === 'strikethrough');
-      if (existingIndex !== -1) {
-        tokens.push({ type: STRIKETHROUGH_END, content: "~~" });
-        formatStack.splice(existingIndex, 1);
+    else if (char === "~") {
+      if (peek(state) === "~") {
+        const existingIndex = formatStack.findIndex(f => f.type === 'strikethrough');
+        if (existingIndex !== -1) {
+          tokens.push({ type: STRIKETHROUGH_END, content: "~~" });
+          formatStack.splice(existingIndex, 1);
+        } else {
+          tokens.push({ type: STRIKETHROUGH_START, content: "~~" });
+          formatStack.push({ type: 'strikethrough', marker: '~~' });
+        }
+        next(state, 2);
       } else {
-        tokens.push({ type: STRIKETHROUGH_START, content: "~~" });
-        formatStack.push({ type: 'strikethrough', marker: '~~' });
+        // Single ~ is just regular text
+        tokens.push({ type: TEXT, content: "~" });
+        next(state);
       }
-      next(state, 2);
     }
     // Check for bold (**) or italic (*)
     else if (char === "*") {
@@ -240,6 +252,11 @@ function tokenizeRegularText(state: TokenizerState, tokens: Token[]) {
   const text = state.content.slice(start, state.index);
   if (text.length > 0) {
     tokens.push({ type: TEXT, content: text });
+  } else if (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
+    // If we didn't consume anything and we're at a special character that wasn't
+    // handled by the caller, consume it as regular text to avoid infinite loop
+    tokens.push({ type: TEXT, content: current(state) });
+    next(state);
   }
 }
 function isEnd(state: TokenizerState) {

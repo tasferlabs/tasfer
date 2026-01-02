@@ -67,15 +67,15 @@ Bugs list
 [ ] we should add inline formatting options in ios keyboard island.
 [ ] we should add inline formatting options in android keyboard toolbar.
 [ ] On desktop we should add formating inline options on cotnext menu.
+[ ] mobile inline formatting options.
 [ ] Add animation on scrolling to make more visually apealing.
 [ ] Remove the markdown style when copying plain text.
-[ ] Typing to spaces should exit inline styling, consult someone if this actaully good pratice.
+[ ] Typing two spaces should exit inline styling, consult someone if this actaully good pratice.
 [ ] consider adding selection dragging on mobiles on both anchor and foucus. Like it is on ios. This for epxanding the selection and shrinking.
 [x] add link for inline rendering format but the styles should be resvered for links. Add parsing logic for links as well. Add menu for changing the link tile.
 [x] ctrl click or command click should open the link. But it should not matter if it happens in fly while selecting.
 [x] hover on link should radix toolip and preview and with edit edit button and copy button. clicking on link preview should open it.
 [ ] how to do the above on mobile.
-[ ] bring back the old tree code from l4r for saving pages and sort them into trees.
 [ ] do design overhaul.
 [ ] Add support for windows ctrl + Y and make sure the shortcuts are intuitiave for all opearting systems.
 [ ] consider if we need more animation and fluid text edting for example when I delete large portion text or copy large portion of text. Maybe show the scroll bar in this case.
@@ -85,7 +85,8 @@ Bugs list
 [ ] render should be more efficent if we schedule it
 [ ] cursor should not be visable if we haeve selection
 [ ] group undo and redo to words.
-[ ] When loading a page first. it is overrideing the page with empty state. The update endpoint is being called before the page is loaded and is overriding with empty string
+[x] bring back the old tree code from l4r for saving pages and sort them into trees.
+[x] When loading a page first. it is overrideing the page with empty state. The update endpoint is being called before the page is loaded and is overriding with empty string
 [x] top bar is not same color
 [x] when openign or creating a page we should focus on page.
 [x] opening or creating page on mobile should close floaty sidebar.
@@ -102,7 +103,7 @@ Bugs list
 [ ] add tranlsation keys
 [x] when compostion is on and delete we delete it delete behind the composition.
 [ ] Read title from document
-[ ] mandrians characters are not working with with selection.
+[x] mandrians characters are not working with with selection.
 [x] compoition characters are still left in viewport but composition is cancelled.
 [x] composition toolbar is in wrong place.
 [x] if we are composing at end of line than compoistion toolbar is stays same place this is worng.
@@ -112,3 +113,7 @@ Bugs list
 [x] chiense text are not wrapping correctly
 [x] word navigation (Ctrl+Arrow) and selection (Ctrl+Shift+Arrow, double-click)
 [x] when text is going out of bounds then some character goes missing
+[ ] ctrl + S should be prevented
+[ ] rendering a large block has perforamce issues.
+[ ] haptics on scrollbar. Improvement for scollbar.
+[ ] scrolling down while we have link overlay does not hide it.
