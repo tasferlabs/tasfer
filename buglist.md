@@ -119,7 +119,7 @@ Bugs list
 [x] scrolling down while we have link overlay does not hide it.
 [x] Undo/redo is broken on composition
 [x] Navigation with arrow keys (home,end,page up and down too)during composition is broken
-[ ] on rtl left compositon in not underlined
+[x] on rtl left compositon in not underlined
 [ ] one delete on mobile keyboard does cancel the compositon
 [ ] Very long composition text does not break correcly, like if do not accept compositon and d do it in batch. 
 [ ] start composition and unfocus the page does not cancel compositon.

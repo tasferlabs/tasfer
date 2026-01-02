@@ -275,8 +275,8 @@ function renderCompositionUnderline(
   11;
 
   if (isRTL) {
-    // For RTL, measure from the right edge
-    const startX = x + maxWidth - offsetToStart;
+    // For RTL, x is already adjusted to right edge (x + maxWidth), so just subtract offset
+    const startX = x - offsetToStart;
     ctx.moveTo(startX, underlineY);
     ctx.lineTo(startX - underlineWidth, underlineY);
   } else {
