@@ -116,4 +116,4 @@ Bugs list
 [ ] ctrl + S should be prevented
 [ ] rendering a large block has perforamce issues.
 [ ] haptics on scrollbar. Improvement for scollbar.
-[ ] scrolling down while we have link overlay does not hide it.
+[x] scrolling down while we have link overlay does not hide it.

@@ -395,6 +395,11 @@ export function handleEvents(
           lastInteraction: Date.now(),
         },
       },
+      ui: {
+        ...state.ui,
+        linkHover: null,
+        isHoveringLinkWithModifier: false,
+      },
     };
   }
 
@@ -823,7 +828,15 @@ function handleMouseMove(
     if (updateViewportCallback) {
       updateViewportCallback({ scrollY: newScrollY });
     }
-    return state;
+    // Clear link hover overlay when scrolling via scrollbar
+    return {
+      ...state,
+      ui: {
+        ...state.ui,
+        linkHover: null,
+        isHoveringLinkWithModifier: false,
+      },
+    };
   }
 
   const isOverScrollbar = isPointInScrollbar(
@@ -1560,11 +1573,17 @@ function handleWheel(
     updateViewportCallback({ scrollY });
   }
 
+  // Clear link hover overlay when scrolling
   return {
     ...state,
     view: {
       ...state.view,
       scrollbar: scrollbarState,
+    },
+    ui: {
+      ...state.ui,
+      linkHover: null,
+      isHoveringLinkWithModifier: false,
     },
   };
 }
@@ -1748,7 +1767,15 @@ function handleTouchMove(
       if (updateViewportCallback) {
         updateViewportCallback({ scrollY: newScrollY });
       }
-      return state;
+      // Clear link hover overlay when scrolling via scrollbar
+      return {
+        ...state,
+        ui: {
+          ...state.ui,
+          linkHover: null,
+          isHoveringLinkWithModifier: false,
+        },
+      };
     }
 
     // Check if we've moved significantly from start position
@@ -1852,6 +1879,7 @@ function handleTouchMove(
     touchState.lastTime = currentTime;
   }
 
+  // Clear link hover overlay when scrolling
   return {
     ...state,
     view: {
@@ -1860,6 +1888,11 @@ function handleTouchMove(
         ...state.view.scrollbar,
         lastInteraction: Date.now(),
       },
+    },
+    ui: {
+      ...state.ui,
+      linkHover: null,
+      isHoveringLinkWithModifier: false,
     },
   };
 }
