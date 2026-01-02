@@ -1,4 +1,4 @@
-import { loadPage, type Page, type Block } from "../deserializer/loadPage";
+import type { Block } from "../deserializer/loadPage";
 import {
   applySlashCommand,
   convertBlockType,
@@ -18,7 +18,6 @@ import {
 } from "./renderer";
 import { getCursorCoordinates } from "./selection";
 import {
-  createInitialState,
   updateFocus,
   isCursorBlinking,
   closeContextMenu,
@@ -26,19 +25,19 @@ import {
   updateMode,
   updateCursor,
   updateSelection,
+  createInitialCursorState,
 } from "./state";
 import { getEditorStyles } from "./styles";
 import type { EditorState, SlashCommand, ViewportState } from "./types";
 import { recordUndo, undoState, redoState } from "./undo";
 
 export interface Editor {
-  start: (setDocumentHeight: (height: number) => void) => void;
-  getState: () => EditorState;
+  getState: () => EditorState | null;
   destroy: () => void;
-  load: (path: string) => Promise<void>;
   updateViewport: (viewport: Partial<ViewportState>) => void;
   getDocumentHeight: () => number;
   setFocus: (focused: boolean) => void;
+  setInitialCursor: () => void;
   getCursorScreenPosition: () => {
     x: number;
     y: number;
@@ -69,6 +68,7 @@ export interface Editor {
 
 export default function createEditor(
   canvas: HTMLCanvasElement,
+  initialState: EditorState,
   viewportProp: ViewportState,
   hiddenInput?: HTMLInputElement
 ): Editor {
@@ -77,8 +77,7 @@ export default function createEditor(
     throw new Error("Could not get 2D context from canvas");
   }
 
-  let page: Page;
-  let state: EditorState;
+  let state: EditorState = initialState;
   let viewport = viewportProp;
   let animationFrameId: number | null = null;
   let documentHeight = 0;
@@ -88,7 +87,7 @@ export default function createEditor(
   };
 
   let isRendering = false;
-  let needsRender = false; // Dirty flag to track if canvas needs re-rendering
+  let needsRender = true; // Dirty flag to track if canvas needs re-rendering - start with true for initial render
   let lastCursorBlinkState = false; // Track cursor blink state changes
 
   const eventsQueue: Event[] = [];
@@ -145,10 +144,8 @@ export default function createEditor(
     }
   };
 
-  let currentSetDocumentHeight: ((height: number) => void) | null = null;
-
   // Render a single frame synchronously
-  const renderFrame = async (setDocumentHeight: (height: number) => void) => {
+  const renderFrame = async () => {
     if (isRendering) return;
     isRendering = true;
 
@@ -198,11 +195,10 @@ export default function createEditor(
           state.ui.isHoveringLinkWithModifier
         );
 
-        setDocumentHeight(documentHeight);
-
         // Notify listeners only if state changed
         if (stateChanged) {
-          listeners.forEach((listener) => listener(state));
+          const currentState = state;
+          listeners.forEach((listener) => listener(currentState));
         }
 
         needsRender = false; // Reset dirty flag
@@ -215,11 +211,9 @@ export default function createEditor(
   // Render loop
   // The loop continues running via requestAnimationFrame for smooth interactions,
   // but the actual canvas rendering only happens when needed (via the needsRender flag)
-  const renderLoop = (setDocumentHeight: (height: number) => void) => {
-    renderFrame(setDocumentHeight);
-    animationFrameId = requestAnimationFrame(() =>
-      renderLoop(setDocumentHeight)
-    );
+  const renderLoop = () => {
+    renderFrame();
+    animationFrameId = requestAnimationFrame(renderLoop);
   };
 
   function eventsHandler(e: Event) {
@@ -355,7 +349,7 @@ export default function createEditor(
 
   // Handle input from hidden input element (mobile keyboard)
   function hiddenInputHandler(e: Event) {
-    if (!hiddenInput || !state) return;
+    if (!hiddenInput) return;
 
     const inputEvent = e as InputEvent;
 
@@ -440,12 +434,15 @@ export default function createEditor(
       scheduleRender();
       hiddenInput.value = "";
     } else if (isShortcut) {
-      // For keyboard shortcuts, forward to events queue and stop propagation
-      // to prevent window listener from also processing it
-      e.preventDefault();
-      e.stopPropagation();
-      eventsQueue.push(e);
-      scheduleRender();
+      const handledShortcuts = ["KeyZ", "KeyY", "KeyA", "KeyC", "KeyX"];
+      if (handledShortcuts.includes(e.code)) {
+        // For editor shortcuts, forward to events queue and stop propagation
+        // to prevent window listener from also processing it
+        e.preventDefault();
+        e.stopPropagation();
+        eventsQueue.push(e);
+        scheduleRender();
+      }
     } else {
       // For regular character keys, prevent default to stop them from being processed by window listener
       // But allow the input event to fire
@@ -455,23 +452,19 @@ export default function createEditor(
 
   // Handle composition events (IME input)
   function compositionStartHandler(e: CompositionEvent) {
-    if (!state) return;
-
     // Mark composition as starting - this will be handled in events.ts
     eventsQueue.push(e);
     scheduleRender();
   }
 
   function compositionUpdateHandler(e: CompositionEvent) {
-    if (!state) return;
-
     // Update composition text - this will be handled in events.ts
     eventsQueue.push(e);
     scheduleRender();
   }
 
   function compositionEndHandler(e: CompositionEvent) {
-    if (!state || !hiddenInput) return;
+    if (!hiddenInput) return;
 
     // Finalize composition - this will be handled in events.ts
     eventsQueue.push(e);
@@ -484,15 +477,10 @@ export default function createEditor(
   // Click handler for focusing input (stored for cleanup)
   let canvasClickHandler: (() => void) | null = null;
 
-  function start(setDocumentHeight: (height: number) => void) {
-    if (!page) {
-      throw new Error("Page not provided");
-    }
-
-    state = createInitialState(page);
-    currentSetDocumentHeight = setDocumentHeight;
+  // Initialize the editor and start the render loop
+  (() => {
     scheduleRender(); // Schedule initial render
-    renderLoop(setDocumentHeight);
+    renderLoop();
 
     // Add click/mousedown handler to canvas as fallback for focusing input
     canvasClickHandler = () => {
@@ -543,7 +531,7 @@ export default function createEditor(
       // Ensure input is focusable (already set in mount.ts, but ensure it's correct)
       hiddenInput.setAttribute("tabindex", "0");
     }
-  }
+  })(); // Execute IIFE to initialize editor
 
   function getState() {
     return state;
@@ -601,41 +589,30 @@ export default function createEditor(
     }
   }
 
-  async function load(path: string) {
-    const response = await fetch(path);
-    const content = await response.text();
-
-    page = loadPage(content);
-  }
-
   function updateViewport(newViewport: Partial<ViewportState>) {
     const oldWidth = viewport.width;
 
     viewport = { ...viewport, ...newViewport };
 
     // Clear block height cache if width changed (affects text wrapping)
-    if (viewport.width !== oldWidth && page) {
-      clearAllBlockCaches(page.blocks);
+    if (viewport.width !== oldWidth) {
+      clearAllBlockCaches(state.document.page.blocks);
     }
 
     // Schedule render for viewport changes
     scheduleRender();
 
     // Force immediate render to avoid flickering on resize
-    if (currentSetDocumentHeight && state && page) {
-      renderFrame(currentSetDocumentHeight);
-    }
+    renderFrame();
   }
 
   function getDocumentHeight(): number {
-    if (!page || !state) return 0;
-
     // Calculate total document height based on all blocks
     const styles = getEditorStyles();
     const maxWidth = viewport.width - 2 * styles.canvas.paddingLeft;
     let totalHeight = styles.canvas.paddingTop;
 
-    for (const block of page.blocks) {
+    for (const block of state.document.page.blocks) {
       totalHeight += calculateBlockHeight(block, maxWidth, styles);
     }
 
@@ -643,14 +620,20 @@ export default function createEditor(
   }
 
   function setFocus(focused: boolean) {
-    if (state) {
-      state = updateFocus(state, focused);
-      scheduleRender(); // Schedule render when focus changes
+    state = updateFocus(state, focused);
+    scheduleRender(); // Schedule render when focus changes
+  }
+
+  function setInitialCursor() {
+    // Only set cursor if there isn't one already
+    if (!state.document.cursor && state.document.page.blocks.length > 0) {
+      state = createInitialCursorState(state);
+      scheduleRender();
     }
   }
 
   function getCursorScreenPosition() {
-    if (!state || !state.document.cursor) return null;
+    if (!state.document.cursor) return null;
 
     const coords = getCursorCoordinates(
       state.document.cursor.position,
@@ -723,7 +706,7 @@ export default function createEditor(
     if (newState !== state) {
       state = newState;
       scheduleRender();
-      listeners.forEach((listener) => listener(state));
+      listeners.forEach((listener) => listener(newState));
     }
   }
 
@@ -732,7 +715,7 @@ export default function createEditor(
     if (newState !== state) {
       state = newState;
       scheduleRender();
-      listeners.forEach((listener) => listener(state));
+      listeners.forEach((listener) => listener(newState));
     }
   }
 
@@ -740,8 +723,9 @@ export default function createEditor(
     if (!state.document.cursor) return;
     state = recordUndo(state);
     state = convertBlockType(state, type);
+    const currentState = state;
     scheduleRender();
-    listeners.forEach((listener) => listener(state));
+    listeners.forEach((listener) => listener(currentState));
   }
 
   function updateLink(
@@ -752,29 +736,33 @@ export default function createEditor(
   ) {
     state = recordUndo(state);
     state = updateLinkInBlock(state, blockIndex, segmentIndex, newUrl, newText);
+    const currentState = state;
     scheduleRender();
-    listeners.forEach((listener) => listener(state));
+    listeners.forEach((listener) => listener(currentState));
   }
 
   function clearLink(blockIndex: number, segmentIndex: number) {
     state = recordUndo(state);
     state = clearLinkInBlock(state, blockIndex, segmentIndex);
+    const currentState = state;
     scheduleRender();
-    listeners.forEach((listener) => listener(state));
+    listeners.forEach((listener) => listener(currentState));
   }
 
   function clearSelectionMethod() {
     state = clearSelection(state);
     // Also clear cursor to remove all visual indicators
     state = updateCursor(state, null);
+    const currentState = state;
     scheduleRender();
-    listeners.forEach((listener) => listener(state));
+    listeners.forEach((listener) => listener(currentState));
   }
 
   function setMode(mode: "edit" | "select" | "locked") {
     state = updateMode(state, mode);
+    const currentState = state;
     scheduleRender();
-    listeners.forEach((listener) => listener(state));
+    listeners.forEach((listener) => listener(currentState));
   }
 
   function restoreCursorAndSelection(
@@ -785,18 +773,18 @@ export default function createEditor(
       updateSelection(updateCursor(state, cursor?.position || null), selection),
       "edit"
     );
+    const currentState = state;
     scheduleRender();
-    listeners.forEach((listener) => listener(state));
+    listeners.forEach((listener) => listener(currentState));
   }
 
   return {
-    start,
     getState,
     destroy,
-    load,
     updateViewport,
     getDocumentHeight,
     setFocus,
+    setInitialCursor,
     getCursorScreenPosition,
     subscribe,
     executeSlashCommand,

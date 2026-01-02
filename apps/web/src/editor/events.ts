@@ -527,7 +527,12 @@ export function handleEvents(
         state = handleCompositionUpdate(state, event as CompositionEvent);
         break;
       case "compositionend":
-        state = handleCompositionEnd(state, event as CompositionEvent, viewport, updateViewportCallback);
+        state = handleCompositionEnd(
+          state,
+          event as CompositionEvent,
+          viewport,
+          updateViewportCallback
+        );
         break;
     }
 
@@ -589,6 +594,11 @@ function handlePaste(
 ): EditorState {
   // Prevent default paste behavior
   event.preventDefault();
+
+  // If editor is not focused, ignore paste
+  if (!state.view.isFocused) {
+    return state;
+  }
 
   // Use the tracked pasteAsPlainText flag (set during keydown)
   // Paste as plain text
@@ -878,6 +888,7 @@ function handleMouseMove(
 
             if (linkCoords) {
               // Position tooltip below the start of the link text
+              // linkCoords.y is in document coordinates, so we need to subtract scrollY to get viewport coordinates
               state = {
                 ...state,
                 ui: {
@@ -887,7 +898,7 @@ function handleMouseMove(
                     url: linkData.url,
                     text: linkData.text,
                     x: linkCoords.x + containerRect.left,
-                    y: linkCoords.y + linkCoords.height + containerRect.top,
+                    y: linkCoords.y - viewport.scrollY + linkCoords.height + containerRect.top,
                     segmentIndex: linkData?.segmentIndex,
                   },
                   isHoveringLinkWithModifier: false,
@@ -1072,6 +1083,11 @@ function handleKeyDown(
 
   // In locked mode, block all operations
   if (state.ui.mode === "locked") {
+    return state;
+  }
+
+  // If editor is not focused, ignore keyboard input
+  if (!state.view.isFocused) {
     return state;
   }
 
@@ -2101,6 +2117,11 @@ function handleCompositionStart(
   state: EditorState,
   event: CompositionEvent
 ): EditorState {
+  // If editor is not focused, ignore composition
+  if (!state.view.isFocused) {
+    return state;
+  }
+
   // When composition starts, save the current cursor position
   if (!state.document.cursor) return state;
 
@@ -2113,6 +2134,7 @@ function handleCompositionStart(
   }
 
   // Store the starting position for composition
+  if (!state.document.cursor) return state;
   const startPosition = state.document.cursor.position;
 
   return {
@@ -2132,6 +2154,11 @@ function handleCompositionUpdate(
   state: EditorState,
   event: CompositionEvent
 ): EditorState {
+  // If editor is not focused, ignore composition
+  if (!state.view.isFocused) {
+    return state;
+  }
+
   if (!state.ui.composition) {
     // If composition wasn't started properly, start it now
     return handleCompositionStart(state, event);
@@ -2157,13 +2184,18 @@ function handleCompositionEnd(
   viewport: ViewportState,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
+  // If editor is not focused, ignore composition
+  if (!state.view.isFocused) {
+    return state;
+  }
+
   // Insert the final composed text
   const composedText = event.data || "";
-  
+
   if (composedText && state.document.cursor) {
     // Insert the composed text at the cursor position
     state = insertText(recordUndo(state), composedText);
-    
+
     // Scroll to make cursor visible
     if (state.document.cursor && updateViewportCallback) {
       const newScrollY = scrollToMakeCursorVisible(

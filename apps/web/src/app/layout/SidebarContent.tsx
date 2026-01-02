@@ -1,9 +1,33 @@
-import { CaretDoubleLeftIcon, PlusIcon } from "@phosphor-icons/react";
+import {
+  closestCenter,
+  DndContext,
+  DragOverlay,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  CaretDoubleLeftIcon,
+  FileTextIcon,
+  PlusIcon,
+} from "@phosphor-icons/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import React from "react";
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ScrollArea } from "../../components/ui/scroll-area";
+import {
+  useCreatePage,
+  useMovePage,
+  useReorderPage,
+  type IListPage,
+} from "../api/pages.api";
 import Icons from "../components/uiKit/Icons/Icons";
 import VisuallyHidden from "../components/uiKit/VisuallyHidden/VisuallyHidden";
+import { PagesArea } from "./components/PagesArea";
 import style from "./Layout.module.css";
 
 // Mock t function
@@ -14,6 +38,185 @@ export function SidebarContent({
 }: {
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeDragData, setActiveDragData] = useState<IListPage | null>(null);
+
+  const { mutate: createPage, isPending: isCreating } = useCreatePage({
+    onSuccess: (newPage, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["pages", { parentId: variables.parentId }],
+      });
+      // Navigate to the newly created page
+      navigate(`/page/${newPage.id}`);
+    },
+  });
+
+  const { mutate: movePage } = useMovePage({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
+    },
+  });
+
+  const { mutate: reorderPage } = useReorderPage({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
+    },
+  });
+
+  // Configure sensors with better mobile support and prevent accidental drags during scrolling
+  const sensors = useSensors(
+    useSensor(MouseSensor, {
+      activationConstraint: {
+        distance: 15, // 15px movement required before dragging starts (increased to prevent scroll conflicts)
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 800, // 800ms delay for touch devices
+        tolerance: 8, // 8px of movement allowed during delay
+      },
+    })
+  );
+
+  function handleAdd(parentId: string | null) {
+    createPage({
+      title: "",
+      content: "# ", // Empty heading 1
+      parentId,
+    });
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(event.active.id as string);
+    setActiveDragData(event.active.data.current as IListPage);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveId(null);
+    setActiveDragData(null);
+
+    const { active, over } = event;
+
+    if (!over) return;
+
+    const activeData = active.data.current as IListPage & {
+      parentsStack?: any;
+    };
+    const overData = over.data.current as any;
+
+    // Prevent dropping on itself
+    if (active.id === over.id || active.id === overData?.targetPageId) {
+      return;
+    }
+
+    // Helper function to check if targetId is a descendant of pageId
+    const isDescendant = (pageId: string, targetId: string | null): boolean => {
+      if (!targetId) return false;
+      if (pageId === targetId) return true;
+      
+      // Check using parentsStack if available
+      if (overData?.parentsStack) {
+        return overData.parentsStack.some((parent: any) => parent.id === pageId);
+      }
+      
+      return false;
+    };
+
+    // Prevent dropping a page into itself or its descendants
+    if (overData?.type === "drop-zone" && overData.position === "inside") {
+      if (isDescendant(activeData.id, overData.parentId)) {
+        console.warn("Cannot move a page into itself or its descendants");
+        return;
+      }
+    }
+    
+    // For other drop zones, check if the parent is a descendant
+    if (overData?.type === "drop-zone" && (overData.position === "before" || overData.position === "after")) {
+      if (isDescendant(activeData.id, overData.targetPageId)) {
+        console.warn("Cannot move a page to become a sibling of itself");
+        return;
+      }
+      // Also check the parent
+      if (isDescendant(activeData.id, overData.parentId)) {
+        console.warn("Cannot move a page into its descendants");
+        return;
+      }
+    }
+
+    // Scenario 1: Drop on "before" zone - reorder to position before target
+    if (overData?.type === "drop-zone" && overData.position === "before") {
+      const targetParentId = overData.parentId;
+      const targetOrder = overData.order;
+
+      // If moving to different parent
+      if (activeData.parentId !== targetParentId) {
+        movePage({
+          id: activeData.id,
+          parentId: targetParentId,
+          order: targetOrder,
+        });
+      }
+      // If reordering within same parent
+      else {
+        reorderPage({
+          id: activeData.id,
+          order: targetOrder,
+        });
+      }
+    }
+    // Scenario 2: Drop on "after" zone - reorder to position after target
+    else if (overData?.type === "drop-zone" && overData.position === "after") {
+      const targetParentId = overData.parentId;
+      const targetOrder = overData.order;
+
+      // If moving to different parent
+      if (activeData.parentId !== targetParentId) {
+        movePage({
+          id: activeData.id,
+          parentId: targetParentId,
+          order: targetOrder,
+        });
+      }
+      // If reordering within same parent
+      else {
+        reorderPage({
+          id: activeData.id,
+          order: targetOrder,
+        });
+      }
+    }
+    // Scenario 3: Drop on "inside" zone - make dragged item a child of target
+    else if (overData?.type === "drop-zone" && overData.position === "inside") {
+      const newParentId = overData.parentId;
+
+      // Prevent making a page its own child or circular nesting
+      if (activeData.id !== newParentId) {
+        movePage({
+          id: activeData.id,
+          parentId: newParentId,
+        });
+      }
+    }
+    // Scenario 4: Drop on pages area (empty area or root)
+    else if (overData?.type === "pages-area") {
+      const targetParentId = overData.parentId;
+
+      // Prevent dropping into itself or its descendants
+      if (isDescendant(activeData.id, targetParentId)) {
+        return;
+      }
+
+      if (activeData.parentId !== targetParentId) {
+        movePage({
+          id: activeData.id,
+          parentId: targetParentId,
+        });
+      }
+    }
+  }
+
   // Mock data
   const inboxCount = 0;
   const filteredGroups: { id: string; name: string }[] = [];
@@ -22,9 +225,7 @@ export function SidebarContent({
     <>
       <div className={style.appSidebarHeader}>
         {/* UserDropdown placeholder */}
-        <div
-          className="w-8 h-8 rounded-full bg-muted"
-        />
+        <div className="w-8 h-8 rounded-full bg-muted" />
 
         <button
           onClick={() => setOpen(false)}
@@ -58,42 +259,68 @@ export function SidebarContent({
         </button>
       </div>
 
-      <ScrollArea className={style.appSidebarScrollArea}>
-        {filteredGroups.map((group) => (
-          <React.Fragment key={group.id}>
+      <div className={style.appSidebarMain}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <ScrollArea className={style.appSidebarScrollArea}>
+            {filteredGroups.map((group) => (
+              <React.Fragment key={group.id}>
+                <div className={style.appSidebarSection}>
+                  <div className={style.appSidebarSectionTitle}>
+                    <div className={style.appSidebarSectionIcon}>
+                      <Icons.Shared />
+                    </div>
+                    {group.name}
+                  </div>
+                  <button
+                    className={style.appSidebarSectionButton}
+                    onClick={() => handleAdd(null)}
+                    disabled={isCreating}
+                  >
+                    <PlusIcon size={20} />
+                    <span className="sr-only">{t`Add page`}</span>
+                  </button>
+                </div>
+                <PagesArea parentId={null} />
+              </React.Fragment>
+            ))}
+
             <div className={style.appSidebarSection}>
               <div className={style.appSidebarSectionTitle}>
                 <div className={style.appSidebarSectionIcon}>
-                  <Icons.Shared />
+                  <Icons.Lock width={20} height={20} />
                 </div>
-                {group.name}
+                {t`Private`}
               </div>
-              <button className={style.appSidebarSectionButton}>
+              <button
+                className={style.appSidebarSectionButton}
+                onClick={() => handleAdd(null)}
+                disabled={isCreating}
+              >
                 <PlusIcon size={20} />
                 <span className="sr-only">{t`Add page`}</span>
               </button>
             </div>
-            {/* PagesArea placeholder */}
-            <div style={{ padding: "0 1rem", opacity: 0.5 }}>Pages...</div>
-          </React.Fragment>
-        ))}
 
-        <div className={style.appSidebarSection}>
-          <div className={style.appSidebarSectionTitle}>
-            <div className={style.appSidebarSectionIcon}>
-              <Icons.Lock width={20} height={20} />
-            </div>
-            {t`Private`}
-          </div>
-          <button className={style.appSidebarSectionButton}>
-            <PlusIcon size={20} />
-            <span className="sr-only">{t`Add page`}</span>
-          </button>
-        </div>
-
-        {/* PagesArea placeholder */}
-        <div style={{ padding: "0 1rem", opacity: 0.5 }}>Pages...</div>
-      </ScrollArea>
+            <PagesArea
+              className={style.appSidebarSectionPagesArea}
+              parentId={null}
+            />
+          </ScrollArea>
+          <DragOverlay>
+            {activeId && activeDragData ? (
+              <div className={style.dragOverlay}>
+                <FileTextIcon size={20} />
+                <span>{activeDragData.title || "Untitled"}</span>
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      </div>
     </>
   );
 }

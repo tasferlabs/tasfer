@@ -1,0 +1,255 @@
+.link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  width: 100%;
+  border-radius: 4px;
+  height: 34px;
+  cursor: grab;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.link:active {
+  cursor: grabbing;
+}
+
+.link:hover {
+  background-color: var(--accent);
+}
+
+.link.active {
+  background-color: var(--accent);
+}
+
+.link.isOver {
+  background-color: color-mix(in srgb, var(--primary), transparent 20%);
+}
+
+.linkTitle {
+  flex: 1 0 auto;
+  width: calc(100% - 135px);
+  margin-inline-start: 5px;
+  position: relative;
+  z-index: 1;
+}
+
+.linkTitle a {
+  color: var(--foreground);
+  text-decoration: none;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 4px;
+}
+
+.linkTitle input {
+  font-weight: 500;
+  color: var(--foreground);
+  background: none;
+  border: none;
+  outline: none;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  display: block;
+  padding: 4px;
+}
+
+.actions {
+  margin-inline-start: auto;
+  gap: 2px;
+  display: none;
+  padding: 2px;
+  position: relative;
+  z-index: 1;
+}
+
+.link:hover .actions {
+  display: flex;
+}
+
+.action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  background: none;
+  border: none;
+  color: var(--foreground);
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.action svg {
+  width: 20px;
+  height: 20px;
+}
+
+.action:hover {
+  background-color: var(--muted);
+}
+
+.accordion {
+  padding-inline-start: 0.5rem;
+  padding-block-start: 0.5rem;
+  padding-block-end: 0.5rem;
+}
+
+.empty {
+  color: var(--muted-foreground);
+  padding: 4px;
+  font-size: 0.875rem;
+}
+
+.linkWrapper {
+  position: relative;
+}
+
+.sortBar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  width: 100%;
+  background-color: transparent;
+  z-index: 1;
+}
+
+.sortBar.before {
+  top: -3px;
+}
+
+.sortBar.after {
+  bottom: -3px;
+}
+
+.sortBar.active {
+  background-color: var(--primary);
+}
+
+.sortBar.hide {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .link {
+    height: 38px;
+  }
+
+  .linkTitle {
+    height: 100%;
+    flex: 0 1 calc(100% - 38px * 4);
+  }
+
+  .linkTitle a,
+  .linkTitle input {
+    height: 100%;
+    line-height: 38px;
+    padding: 0;
+  }
+
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    flex: 99999 0 calc(32px * 3);
+    gap: 0;
+    padding: 0;
+  }
+
+  .action {
+    width: 32px;
+    height: 32px;
+    padding: 1px 6px;
+  }
+
+  .action svg {
+    width: 100% !important;
+    height: 100% !important;
+  }
+}
+
+.allEmpty {
+  padding-block: 1rem;
+  color: var(--muted-foreground);
+}
+
+/* Drop zones for drag and drop */
+.dropZone {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  transition: all 0.15s ease;
+}
+
+.dropZoneBefore,
+.dropZoneAfter {
+  height: 8px;
+  margin: 0;
+  pointer-events: auto;
+}
+
+.dropZoneBefore {
+  top: -4px;
+}
+
+.dropZoneAfter {
+  bottom: -4px;
+}
+
+.dropZoneInside {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: transparent;
+  pointer-events: none;
+}
+
+.dropZoneActive.dropZoneBefore::after,
+.dropZoneActive.dropZoneAfter::after {
+  content: '';
+  display: block;
+  height: 2px;
+  background-color: var(--primary);
+  border-radius: 1px;
+  box-shadow: 0 0 4px var(--primary);
+}
+
+.dropZoneActive.dropZoneInside {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  border-radius: 4px;
+  background-color: color-mix(in srgb, var(--primary), transparent 90%);
+}
+
+.pageWrapper {
+  position: relative;
+}
+
+.isDragging {
+  opacity: 0.4;
+}
+
+.dragOverlay {
+  padding: 8px 12px;
+  background: var(--card);
+  border: 2px solid var(--primary);
+  border-radius: 6px;
+  cursor: grabbing;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  max-width: 300px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+

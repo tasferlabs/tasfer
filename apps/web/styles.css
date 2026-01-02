@@ -46,7 +46,7 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
-  
+
   /* Editor-specific colors */
   --color-editor-background: var(--background);
   --color-editor-text: var(--foreground);
@@ -97,7 +97,7 @@
   --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
   --sidebar-border: oklch(0.92 0.004 286.32);
   --sidebar-ring: oklch(0.705 0.015 286.067);
-  
+
   /* Editor colors - light theme */
   --editor-background: oklch(1 0 0);
   --editor-text: oklch(0.2 0.006 285.885);
@@ -147,15 +147,15 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.552 0.016 285.938);
-  
+
   /* Editor colors - dark theme */
   --editor-background: oklch(0.141 0.005 285.823);
   --editor-text: oklch(0.85 0.015 286.067);
   --editor-heading: oklch(0.985 0 0);
   --editor-cursor: oklch(0.7 0.15 162);
-  --editor-selection: oklch(0.9 0.30 162);
+  --editor-selection: oklch(0.9 0.3 162);
   --editor-placeholder: oklch(0.552 0.016 285.938);
-  --editor-code-bg: oklch(0.20 0.00 286.033);
+  --editor-code-bg: oklch(0.2 0 286.033);
   --editor-code-text: oklch(0.704 0.191 22.216);
   --editor-link: oklch(0.7 0.15 162);
   --editor-link-hover: oklch(0.77 0.15 163);
@@ -183,4 +183,14 @@
 ::-moz-selection {
   background-color: oklch(from var(--primary) l c h / 0.3);
   color: inherit;
+}
+
+.w-screen-dvw {
+  @apply w-screen;
+  width: 100dvw;
+}
+
+.h-screen-dvh {
+  @apply h-screen;
+  height: 100dvh;
 }

@@ -1,10 +1,10 @@
 import type { ViewportState } from "./types";
 import createEditor, { type Editor } from "./index";
+import { loadPage } from "../deserializer/loadPage";
+import { createInitialState } from "./state";
 
 export interface MountedEditor {
   readonly editor: Editor;
-  /** Resolves once the document is loaded and the render loop has started. */
-  readonly ready: Promise<void>;
   /** Container for React portals (e.g., slash command menu) */
   readonly portalContainer: HTMLDivElement;
   destroy: () => void;
@@ -46,7 +46,7 @@ function sizeCanvasToContainer(
  */
 export function mountEditor(
   container: HTMLElement,
-  opts: { path: string }
+  content: string
 ): MountedEditor {
   const canvas = document.createElement("canvas");
   canvas.style.display = "block";
@@ -112,7 +112,12 @@ export function mountEditor(
     scrollY: 0,
   };
 
-  const editor = createEditor(canvas, initialViewport, hiddenInput);
+  // Load the page and create initial state before creating the editor
+  const page = loadPage(content);
+  const initialState = createInitialState(page);
+
+  // Create editor with initial state
+  const editor = createEditor(canvas, initialState, initialViewport, hiddenInput);
 
   let keyboardHeight = 0;
   let baseWidth = initial.width;
@@ -121,31 +126,31 @@ export function mountEditor(
   const resizeCanvasForKeyboard = () => {
     const dpr = getDpr();
     const availableHeight = Math.max(baseHeight - keyboardHeight, 100);
-    
+
     canvas.style.width = `${baseWidth}px`;
     canvas.style.height = `${availableHeight}px`;
 
     // Also resize portal container so Radix UI knows the available space
     portalContainer.style.width = `${baseWidth}px`;
     portalContainer.style.height = `${availableHeight}px`;
-    
+
     canvas.width = Math.max(Math.floor(baseWidth * dpr), 1);
     canvas.height = Math.max(Math.floor(availableHeight * dpr), 1);
-    
+
     editor.updateViewport({ width: baseWidth, height: availableHeight });
   };
 
   const handleKeyboardMessage = (event: MessageEvent) => {
-    if (event.data?.type === 'keyboard-show') {
+    if (event.data?.type === "keyboard-show") {
       keyboardHeight = event.data.height || 0;
       resizeCanvasForKeyboard();
-    } else if (event.data?.type === 'keyboard-hide') {
+    } else if (event.data?.type === "keyboard-hide") {
       keyboardHeight = 0;
       resizeCanvasForKeyboard();
     }
   };
 
-  window.addEventListener('message', handleKeyboardMessage);
+  window.addEventListener("message", handleKeyboardMessage);
 
   let destroyed = false;
   const resizeObserver = new ResizeObserver(() => {
@@ -156,12 +161,6 @@ export function mountEditor(
     resizeCanvasForKeyboard();
   });
   resizeObserver.observe(container);
-
-  const ready = editor.load(opts.path).then(() => {
-    if (destroyed) return;
-    // We don't need React state updates for document height here.
-    editor.start(() => {});
-  });
 
   // Handle click outside
   const handleDocumentClick = (e: MouseEvent | TouchEvent) => {
@@ -184,6 +183,7 @@ export function mountEditor(
   // Handle hidden input focus/blur (mobile keyboard)
   const handleInputFocus = () => {
     editor.setFocus(true);
+    editor.setInitialCursor();
   };
 
   const handleInputBlur = () => {
@@ -201,7 +201,7 @@ export function mountEditor(
     resizeObserver.disconnect();
     editor.destroy();
 
-    window.removeEventListener('message', handleKeyboardMessage);
+    window.removeEventListener("message", handleKeyboardMessage);
     document.removeEventListener("mousedown", handleDocumentClick);
     document.removeEventListener("touchstart", handleDocumentClick);
     hiddenInput.removeEventListener("focus", handleInputFocus);
@@ -214,5 +214,5 @@ export function mountEditor(
     portalContainer.remove();
   };
 
-  return { editor, ready, destroy, portalContainer };
+  return { editor, destroy, portalContainer };
 }

@@ -1,7 +1,8 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { AnimatePresence, motion } from "framer-motion";
-import React from "react";
+import React, { useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { useLocation } from "react-router-dom";
 import style from "./Layout.module.css";
 import { SidebarContent } from "./SidebarContent";
 
@@ -13,6 +14,12 @@ export function FloatingSidebar({
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   const { i18n } = useTranslation();
+  const location = useLocation();
+
+  // Close sidebar when location changes (e.g., when opening or creating a page)
+  useEffect(() => {
+    setOpen(false);
+  }, [location, setOpen]);
 
   return (
     <AnimatePresence>

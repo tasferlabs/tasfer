@@ -483,9 +483,8 @@ export const renderPage = (
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
 
-  // Clear canvas
-  ctx.fillStyle = styles.canvas.backgroundColor;
-  ctx.fillRect(0, 0, viewport.width, viewport.height);
+  // Clear canvas (background color is handled by CSS on the canvas element)
+  ctx.clearRect(0, 0, viewport.width, viewport.height);
 
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const renderedBlocks: RenderedBlock[] = [];
