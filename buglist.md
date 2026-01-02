@@ -117,3 +117,7 @@ Bugs list
 [ ] rendering a large block has perforamce issues.
 [ ] haptics on scrollbar. Improvement for scollbar.
 [x] scrolling down while we have link overlay does not hide it.
+[ ] Undo/redo is broken on composition
+[ ] Navigation with arrow keys (home,end,page up and down too)during composition is broken
+[ ] on rtl left compositon in not underlined
+[ ] ios top toolbar is too high under the os notification bar
