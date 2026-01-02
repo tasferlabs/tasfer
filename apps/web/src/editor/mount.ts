@@ -189,6 +189,9 @@ export function mountEditor(
   const handleInputBlur = () => {
     // On mobile, if keyboard is dismissed or focus lost, blur editor
     editor.setFocus(false);
+    
+    // Clear the hidden input value to remove any lingering composition text
+    hiddenInput.value = "";
   };
 
   document.addEventListener("mousedown", handleDocumentClick);

@@ -100,10 +100,25 @@ export const updateMode = (
 export const updateFocus = (
   state: EditorState,
   isFocused: boolean
-): EditorState => ({
-  ...state,
-  view: { ...state.view, isFocused },
-});
+): EditorState => {
+  const newState: EditorState = {
+    ...state,
+    view: { ...state.view, isFocused },
+  };
+
+  // When losing focus, cancel any active composition
+  if (!isFocused && state.ui.composition) {
+    return {
+      ...newState,
+      ui: {
+        ...newState.ui,
+        composition: null,
+      },
+    };
+  }
+
+  return newState;
+};
 
 // Helper Functions
 

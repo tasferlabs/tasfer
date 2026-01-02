@@ -120,8 +120,9 @@ Bugs list
 [x] Undo/redo is broken on composition
 [x] Navigation with arrow keys (home,end,page up and down too)during composition is broken
 [x] on rtl left compositon in not underlined
-[ ] one delete on mobile keyboard does cancel the compositon
+[x] one delete on mobile keyboard does cancel the compositon
 [x] Very long composition text does not break correcly, like if do not accept compositon and do it in batch. 
-[ ] start composition and unfocus the page does not cancel compositon.
+[x] start composition and unfocus the page does not cancel compositon.
 [ ] Composition state cleanup on error
 [x] ios top toolbar is too high under the os notification bar
+[ ] ios keyboard island is always visibile if for normal text inputs
