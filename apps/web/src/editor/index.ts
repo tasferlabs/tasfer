@@ -426,6 +426,10 @@ export default function createEditor(
         "ArrowRight",
         "Backspace",
         "Delete",
+        "PageUp",
+        "PageDown",
+        "Home",
+        "End",
       ].includes(e.key)
     ) {
       e.preventDefault();

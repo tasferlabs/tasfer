@@ -105,3 +105,4 @@ Bugs list
 [ ] Read title from document
 [ ] compoition characters are still left in viewport but composition is cancelled.
 [ ] composition toolbar is in wrong place.
+[ ] page up and down, home and end no longer working
