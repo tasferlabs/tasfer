@@ -82,7 +82,6 @@ Bugs list
 [ ] rendering is triggered to many times.
 [ ] override webiew defaul 404 page
 [x] rtl inline format rendering edge cases
-[ ] complex mandrians characters are not working with with selection.
 [ ] render should be more efficent if we schedule it
 [ ] cursor should not be visable if we haeve selection
 [ ] group undo and redo to words.
@@ -101,8 +100,10 @@ Bugs list
 [x] scrolling on sidebar misread the scrolling with dragging.
 [ ] offline support maybe api backend in service workers so we can for example update titles
 [ ] add tranlsation keys
-[ ] when compostion is on and delete we delete it delete behind the composition.
+[x] when compostion is on and delete we delete it delete behind the composition.
 [ ] Read title from document
-[ ] compoition characters are still left in viewport but composition is cancelled.
+[ ] mandrians characters are not working with with selection.
+[x] compoition characters are still left in viewport but composition is cancelled.
 [ ] composition toolbar is in wrong place.
 [x] page up and down, home and end no longer working
+[ ] deleting emogjs is broken

@@ -619,6 +619,17 @@ export function insertText(state: EditorState, input: string): EditorState {
 export function deleteText(state: EditorState): EditorState {
   if (!state.document.cursor) return state;
 
+  // If composition is active, cancel it instead of deleting
+  if (state.ui.composition) {
+    return {
+      ...state,
+      ui: {
+        ...state.ui,
+        composition: null,
+      },
+    };
+  }
+
   // If there's a selection, delete it
   if (state.document.selection && !state.document.selection.isCollapsed) {
     return deleteSelectedText(state);
@@ -681,6 +692,17 @@ export function deleteText(state: EditorState): EditorState {
 // Forward delete (Delete key) - deletes character after cursor
 export function deleteForward(state: EditorState): EditorState {
   if (!state.document.cursor) return state;
+
+  // If composition is active, cancel it instead of deleting
+  if (state.ui.composition) {
+    return {
+      ...state,
+      ui: {
+        ...state.ui,
+        composition: null,
+      },
+    };
+  }
 
   // If there's a selection, delete it
   if (state.document.selection && !state.document.selection.isCollapsed) {

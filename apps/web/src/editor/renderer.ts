@@ -34,6 +34,7 @@ function getContentWithComposition(
   // Check if composition is active and cursor is in this block
   if (
     !state.ui.composition ||
+    !state.ui.composition.isComposing ||
     !state.document.cursor ||
     state.document.cursor.position.blockIndex !== blockIndex
   ) {
