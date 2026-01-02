@@ -60,10 +60,10 @@ export default function EditorPage() {
       setIsError(false);
 
       try {
-        const page = {
-          content: await fetch("/sample.md").then((res) => res.text()),
-        };
-        // const page = await getPage(id!);
+        // const page = {
+        //   content: await fetch("/sample.md").then((res) => res.text()),
+        // };
+        const page = await getPage(id!);
         if (!cancelled) {
           setPageContent(page.content || "");
           setIsLoading(false);
