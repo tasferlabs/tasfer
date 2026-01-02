@@ -578,7 +578,8 @@ const wrapFormattedTextCJK = (
       const compositionWidth = measureSubstring(compositionRange.start, compositionRange.end);
       
       // If composition would overflow, break to new line before starting composition
-      if (currentLineWidth + compositionWidth > maxWidth) {
+      // But only if the composition itself fits on one line
+      if (currentLineWidth + compositionWidth > maxWidth && compositionWidth <= maxWidth) {
         lines.push({ text: currentLine, consumedSpace: false });
         currentLine = char;
         currentLineWidth = charWidth;
@@ -589,12 +590,18 @@ const wrapFormattedTextCJK = (
 
     // Check if adding this character would exceed max width
     if (currentLineWidth + charWidth > maxWidth && currentLine.length > 0) {
-      // Don't break within composition text
-      if (isInComposition) {
-        // Skip wrapping within composition - keep adding to current line
-        currentLine += char;
-        currentLineWidth += charWidth;
-        continue;
+      // Don't break within composition text UNLESS the composition itself is too long
+      if (isInComposition && compositionRange) {
+        const compositionWidth = measureSubstring(compositionRange.start, compositionRange.end);
+        
+        // Only keep composition together if it fits on one line by itself
+        if (compositionWidth <= maxWidth) {
+          // Skip wrapping within composition - keep adding to current line
+          currentLine += char;
+          currentLineWidth += charWidth;
+          continue;
+        }
+        // Otherwise, allow normal wrapping to happen (fall through)
       }
 
       // Line is full, need to wrap
@@ -773,15 +780,60 @@ export const wrapFormattedTextDetailed = (
       } else {
         // Word is too long, must split by character
         // But don't split if word contains composition text - keep it together
+        // UNLESS the composition itself is too long to fit on one line
         const wordContainsComposition = compositionRange &&
           compositionRange.start < wordEnd &&
           compositionRange.end > wordStart;
 
         if (wordContainsComposition) {
-          // Don't split composition text - just add the whole word even if it overflows
-          currentLine = word;
-          currentLineWidth = wordWidth;
-          currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
+          const compositionWidth = measureSubstring(compositionRange.start, compositionRange.end);
+          
+          // Only keep composition together if it fits on one line by itself
+          if (compositionWidth <= maxWidth) {
+            // Don't split composition text - just add the whole word even if it overflows
+            currentLine = word;
+            currentLineWidth = wordWidth;
+            currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
+          } else {
+            // Composition is too long, allow it to be split
+            let remainingWordStart = wordStart;
+
+            while (remainingWordStart < wordEnd) {
+              let splitIndex = remainingWordStart;
+              let currentWidth = 0;
+
+              for (let j = remainingWordStart; j < wordEnd; j++) {
+                const segIdx = charToSegment[j];
+                const segment = segments[segIdx];
+                const fontWeight = segment.formats?.some((f) => f.type === "bold")
+                  ? "bold"
+                  : baseFontWeight;
+                const charWidth = measureText(
+                  fullText[j],
+                  fontSize,
+                  fontWeight,
+                  fontFamily
+                );
+
+                if (currentWidth + charWidth > maxWidth && j > remainingWordStart) {
+                  splitIndex = j;
+                  break;
+                }
+                currentWidth += charWidth;
+                splitIndex = j + 1;
+              }
+
+              if (splitIndex === remainingWordStart) splitIndex++;
+
+              const chunk = fullText.substring(remainingWordStart, splitIndex);
+              lines.push({ text: chunk, consumedSpace: false });
+              remainingWordStart = splitIndex;
+            }
+
+            currentLine = "";
+            currentLineWidth = 0;
+            currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
+          }
         } else {
           // Word is too long, must split by character
           let remainingWordStart = wordStart;

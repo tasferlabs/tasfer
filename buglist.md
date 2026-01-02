@@ -121,7 +121,7 @@ Bugs list
 [x] Navigation with arrow keys (home,end,page up and down too)during composition is broken
 [x] on rtl left compositon in not underlined
 [ ] one delete on mobile keyboard does cancel the compositon
-[ ] Very long composition text does not break correcly, like if do not accept compositon and d do it in batch. 
+[x] Very long composition text does not break correcly, like if do not accept compositon and do it in batch. 
 [ ] start composition and unfocus the page does not cancel compositon.
 [ ] Composition state cleanup on error
 [x] ios top toolbar is too high under the os notification bar
