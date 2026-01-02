@@ -94,7 +94,7 @@ Bugs list
 [x] Tree page not working as it was in l4r˝
 [x] i can still type when there is no focus
 [x] link overlay not rendering correcty
-[ ] copy not copying inline formating
+[x] copy not copying inline formating
 [x] updating tile twichs a litle
 [x] updating title of parent should update breadcrum
 [x] dragging pages on mobile
@@ -105,4 +105,4 @@ Bugs list
 [ ] Read title from document
 [ ] compoition characters are still left in viewport but composition is cancelled.
 [ ] composition toolbar is in wrong place.
-[ ] page up and down, home and end no longer working
+[x] page up and down, home and end no longer working

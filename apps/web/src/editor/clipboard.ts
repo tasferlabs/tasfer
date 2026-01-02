@@ -15,6 +15,8 @@ import {
 } from "./commands";
 import { recordUndo } from "./undo";
 import { invalidateBlockCache } from "./renderer";
+import { serializeToMarkdown } from "../deserializer/serializer";
+import { loadPage } from "../deserializer/loadPage";
 
 export function hasNativeBridge(): boolean {
   return !!(window.IOSBridge || window.AndroidBridge);
@@ -188,16 +190,8 @@ function blocksToPlainText(blocks: Block[]): string {
  * Convert blocks to markdown with formatting
  */
 function blocksToMarkdown(blocks: Block[]): string {
-  return blocks
-    .map((block) => {
-      const content = getBlockTextContent(block);
-      let prefix = "";
-      if (block.type === "heading1") prefix = "# ";
-      else if (block.type === "heading2") prefix = "## ";
-      else if (block.type === "heading3") prefix = "### ";
-      return prefix + content;
-    })
-    .join("\n\n");
+  // Use the proper serializer that handles inline formatting
+  return serializeToMarkdown(blocks);
 }
 
 /**
@@ -205,25 +199,48 @@ function blocksToMarkdown(blocks: Block[]): string {
  */
 function blocksToHTML(blocks: Block[]): string {
   const htmlBlocks = blocks.map((block) => {
-    const content = getBlockTextContent(block);
-    // Escape HTML special characters
-    const escapedContent = content
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+    // Build content with inline formatting as HTML
+    let htmlContent = "";
+    
+    for (const segment of block.content) {
+      // Escape HTML special characters
+      let text = segment.content
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+      
+      // Apply formats as HTML tags
+      if (segment.formats) {
+        for (const format of segment.formats) {
+          if (format.type === 'bold') {
+            text = `<strong>${text}</strong>`;
+          } else if (format.type === 'italic') {
+            text = `<em>${text}</em>`;
+          } else if (format.type === 'strikethrough') {
+            text = `<s>${text}</s>`;
+          } else if (format.type === 'code') {
+            text = `<code>${text}</code>`;
+          } else if (format.type === 'link' && format.url) {
+            text = `<a href="${format.url}">${text}</a>`;
+          }
+        }
+      }
+      
+      htmlContent += text;
+    }
 
     switch (block.type) {
       case "heading1":
-        return `<h1>${escapedContent}</h1>`;
+        return `<h1>${htmlContent}</h1>`;
       case "heading2":
-        return `<h2>${escapedContent}</h2>`;
+        return `<h2>${htmlContent}</h2>`;
       case "heading3":
-        return `<h3>${escapedContent}</h3>`;
+        return `<h3>${htmlContent}</h3>`;
       case "paragraph":
       default:
-        return `<p>${escapedContent}</p>`;
+        return `<p>${htmlContent}</p>`;
     }
   });
 
@@ -306,12 +323,54 @@ export async function cutSelectionToClipboard(
 }
 
 /**
- * Parse HTML string into blocks
+ * Parse HTML string into blocks with inline formatting
  */
 function parseHTMLToBlocks(html: string): Block[] {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
   const blocks: Block[] = [];
+
+  // Helper function to recursively extract text with formatting from DOM nodes
+  function extractTextWithFormatting(node: Node, currentFormats: any[] = []): any[] {
+    const segments: any[] = [];
+
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent || "";
+      if (text) {
+        segments.push({
+          content: text,
+          formats: currentFormats.length > 0 ? [...currentFormats] : undefined,
+        });
+      }
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const element = node as Element;
+      const tagName = element.tagName.toLowerCase();
+      let newFormats = [...currentFormats];
+
+      // Add format based on tag
+      if (tagName === "strong" || tagName === "b") {
+        newFormats.push({ type: "bold" });
+      } else if (tagName === "em" || tagName === "i") {
+        newFormats.push({ type: "italic" });
+      } else if (tagName === "s" || tagName === "strike" || tagName === "del") {
+        newFormats.push({ type: "strikethrough" });
+      } else if (tagName === "code") {
+        newFormats.push({ type: "code" });
+      } else if (tagName === "a") {
+        const href = element.getAttribute("href");
+        if (href) {
+          newFormats.push({ type: "link", url: href });
+        }
+      }
+
+      // Process child nodes
+      for (let i = 0; i < node.childNodes.length; i++) {
+        segments.push(...extractTextWithFormatting(node.childNodes[i], newFormats));
+      }
+    }
+
+    return segments;
+  }
 
   // Get all top-level elements from body
   const elements = doc.body.children;
@@ -319,43 +378,35 @@ function parseHTMLToBlocks(html: string): Block[] {
   for (let i = 0; i < elements.length; i++) {
     const element = elements[i];
     const tagName = element.tagName.toLowerCase();
-    const text = element.textContent || "";
-
-    let block: Block;
+    
+    // Extract formatted content
+    const content = extractTextWithFormatting(element);
+    
+    let blockType: "heading1" | "heading2" | "heading3" | "paragraph" = "paragraph";
 
     switch (tagName) {
       case "h1":
-        block = {
-          id: generateBlockId(),
-          type: "heading1",
-          content: [{ content: text }],
-        };
+        blockType = "heading1";
         break;
       case "h2":
-        block = {
-          id: generateBlockId(),
-          type: "heading2",
-          content: [{ content: text }],
-        };
+        blockType = "heading2";
         break;
       case "h3":
-        block = {
-          id: generateBlockId(),
-          type: "heading3",
-          content: [{ content: text }],
-        };
+        blockType = "heading3";
         break;
       case "p":
       case "div":
       case "span":
       default:
-        block = {
-          id: generateBlockId(),
-          type: "paragraph",
-          content: [{ content: text }],
-        };
+        blockType = "paragraph";
         break;
     }
+
+    const block: Block = {
+      id: generateBlockId(),
+      type: blockType,
+      content: content.length > 0 ? content : [{ content: "" }],
+    };
 
     blocks.push(block);
   }
@@ -377,47 +428,56 @@ function parseHTMLToBlocks(html: string): Block[] {
 
 /**
  * Parse plain text into blocks
- * Respects markdown-style headings (# ## ###)
+ * Respects markdown formatting including inline formats
  */
 function parsePlainTextToBlocks(text: string): Block[] {
-  const blocks: Block[] = [];
-  const lines = text.split("\n");
+  try {
+    // Use the markdown parser to properly handle inline formatting
+    const page = loadPage(text);
+    return page.blocks;
+  } catch (error) {
+    console.error("Failed to parse markdown, falling back to plain text:", error);
+    
+    // Fallback: create simple blocks without formatting
+    const blocks: Block[] = [];
+    const lines = text.split("\n");
 
-  for (const line of lines) {
-    let block: Block;
+    for (const line of lines) {
+      let block: Block;
 
-    // Check for markdown-style headings
-    if (line.startsWith("### ")) {
-      block = {
-        id: generateBlockId(),
-        type: "heading3",
-        content: [{ content: line.slice(4) }],
-      };
-    } else if (line.startsWith("## ")) {
-      block = {
-        id: generateBlockId(),
-        type: "heading2",
-        content: [{ content: line.slice(3) }],
-      };
-    } else if (line.startsWith("# ")) {
-      block = {
-        id: generateBlockId(),
-        type: "heading1",
-        content: [{ content: line.slice(2) }],
-      };
-    } else {
-      // Regular paragraph
-      block = {
-        id: generateBlockId(),
-        type: "paragraph",
-        content: [{ content: line }],
-      };
+      // Check for markdown-style headings
+      if (line.startsWith("### ")) {
+        block = {
+          id: generateBlockId(),
+          type: "heading3",
+          content: [{ content: line.slice(4) }],
+        };
+      } else if (line.startsWith("## ")) {
+        block = {
+          id: generateBlockId(),
+          type: "heading2",
+          content: [{ content: line.slice(3) }],
+        };
+      } else if (line.startsWith("# ")) {
+        block = {
+          id: generateBlockId(),
+          type: "heading1",
+          content: [{ content: line.slice(2) }],
+        };
+      } else {
+        // Regular paragraph
+        block = {
+          id: generateBlockId(),
+          type: "paragraph",
+          content: [{ content: line }],
+        };
+      }
+
+      blocks.push(block);
     }
 
-    blocks.push(block);
+    return blocks;
   }
-
-  return blocks;
 }
 
 /**
