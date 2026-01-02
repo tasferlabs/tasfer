@@ -100,3 +100,4 @@ Bugs list
 [x] dragging pages on mobile
 [x] scrolling on sidebar misread the scrolling with dragging.
 [ ] offline support maybe api backend in service workers so we can for example update titles
+[ ] add tranlsation keys
