@@ -2,6 +2,7 @@ import {
   closestCenter,
   DndContext,
   DragOverlay,
+  MouseSensor,
   PointerSensor,
   TouchSensor,
   useSensor,
@@ -65,17 +66,17 @@ export function SidebarContent({
     },
   });
 
-  // Configure sensors with better mobile support
+  // Configure sensors with better mobile support and prevent accidental drags during scrolling
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(MouseSensor, {
       activationConstraint: {
-        distance: 8, // 8px movement required before dragging starts
+        distance: 15, // 15px movement required before dragging starts (increased to prevent scroll conflicts)
       },
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 200, // 200ms delay for touch devices
-        tolerance: 5, // 5px of movement allowed during delay
+        delay: 800, // 800ms delay for touch devices
+        tolerance: 8, // 8px of movement allowed during delay
       },
     })
   );

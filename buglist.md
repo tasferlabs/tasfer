@@ -97,3 +97,4 @@ Bugs list
 [ ] copy not copying inline formating
 [ ] updating tile twichs a litle
 [x] dragging pages on mobile
+[x] scrolling on sidebar misread the scrolling with dragging.
