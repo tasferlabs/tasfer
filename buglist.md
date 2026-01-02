@@ -128,3 +128,5 @@ Bugs list
 [-] Composition state cleanup on error
 [x] ios top toolbar is too high under the os notification bar
 [ ] ios keyboard island is always visibile if for normal text inputs
+[ ] escaping slash menu does not work.
+[x] word count does not work with CJK letters

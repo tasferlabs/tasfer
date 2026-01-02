@@ -8,6 +8,10 @@ interface PageSettingsContextType {
   setFontStyle: (style: FontStyle) => void;
   isSaving: boolean;
   setIsSaving: (isSaving: boolean) => void;
+  showWordCount: boolean;
+  setShowWordCount: (show: boolean) => void;
+  wordCount: number;
+  setWordCount: (count: number) => void;
 }
 
 const PageSettingsContext = createContext<PageSettingsContextType | undefined>(
@@ -23,6 +27,8 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [fontStyle, setFontStyleState] = useState<FontStyle>("default");
   const [isSaving, setIsSaving] = useState(false);
+  const [showWordCount, setShowWordCount] = useState(false);
+  const [wordCount, setWordCount] = useState(0);
 
   const setFontStyle = useCallback((style: FontStyle) => {
     setFontStyleState(style);
@@ -31,7 +37,16 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
   return (
     <PageSettingsContext.Provider
-      value={{ fontStyle, setFontStyle, isSaving, setIsSaving }}
+      value={{ 
+        fontStyle, 
+        setFontStyle, 
+        isSaving, 
+        setIsSaving,
+        showWordCount,
+        setShowWordCount,
+        wordCount,
+        setWordCount,
+      }}
     >
       {children}
     </PageSettingsContext.Provider>

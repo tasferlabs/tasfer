@@ -19,11 +19,68 @@ import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useConfirmation } from "../components/ConfirmationDialog";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useLocalStorage from "../hooks/useLocalStorage";
+import { WordCountOverlay } from "../components/WordCountOverlay";
 import style from "./EditorPage.module.css";
+
+// Helper function to count words in markdown content
+function countWords(markdown: string): number {
+  if (!markdown || markdown.trim() === "") return 0;
+  
+  // Remove markdown syntax for more accurate word count
+  const text = markdown
+    // Remove code blocks
+    .replace(/```[\s\S]*?```/g, "")
+    // Remove inline code
+    .replace(/`[^`]+`/g, "")
+    // Remove links but keep the text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    // Remove images
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "")
+    // Remove headings markers
+    .replace(/^#{1,6}\s+/gm, "")
+    // Remove bold/italic markers
+    .replace(/(\*\*|__)(.*?)\1/g, "$2")
+    .replace(/(\*|_)(.*?)\1/g, "$2")
+    // Remove blockquote markers
+    .replace(/^>\s+/gm, "")
+    // Remove list markers
+    .replace(/^[\*\-\+]\s+/gm, "")
+    .replace(/^\d+\.\s+/gm, "")
+    // Remove horizontal rules
+    .replace(/^[\*\-_]{3,}$/gm, "")
+    .trim();
+
+  let count = 0;
+
+  // CJK (Chinese, Japanese, Korean) character ranges
+  const cjkRegex = /[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/g;
+  
+  // Count CJK characters (each character is typically a word/concept)
+  const cjkMatches = text.match(cjkRegex);
+  if (cjkMatches) {
+    count += cjkMatches.length;
+  }
+
+  // Remove CJK characters for the remaining word count
+  const textWithoutCJK = text.replace(cjkRegex, "");
+
+  // Split by whitespace and count non-CJK words
+  const words = textWithoutCJK
+    .split(/\s+/)
+    .map(word => 
+      // Remove punctuation from the beginning and end of each word
+      word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")
+    )
+    .filter(word => word.length > 0);
+  
+  count += words.length;
+
+  return count;
+}
 
 export default function EditorPage() {
   const { id } = useParams<{ id: string }>();
-  const { setIsSaving: setGlobalIsSaving } = usePageSettings();
+  const { setIsSaving: setGlobalIsSaving, setWordCount } = usePageSettings();
   const { getConfirmation } = useConfirmation();
   const { mutateAsync: updatePage } = useUpdatePage();
   // State for loading page content once on mount
@@ -65,8 +122,11 @@ export default function EditorPage() {
         // };
         const page = await getPage(id!);
         if (!cancelled) {
-          setPageContent(page.content || "");
+          const content = page.content || "";
+          setPageContent(content);
           setIsLoading(false);
+          // Update initial word count
+          setWordCount(countWords(content));
         }
       } catch (error) {
         console.error("Failed to load page:", error);
@@ -82,7 +142,7 @@ export default function EditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, setWordCount]);
 
   // Debounced save callback
   const handleSave = useCallback(
@@ -113,8 +173,10 @@ export default function EditorPage() {
   const handleContentChange = useCallback(
     (content: string) => {
       debouncedSave(content);
+      // Update word count
+      setWordCount(countWords(content));
     },
-    [debouncedSave]
+    [debouncedSave, setWordCount]
   );
 
   // Warn user before leaving page if there are unsaved changes
@@ -168,12 +230,15 @@ export default function EditorPage() {
   // Pass raw markdown content to the editor
   // Content is loaded once on mount, editor manages state from there
   return (
-    <ScrollableEditor
-      content={pageContent}
-      className="w-full h-full"
-      onContentChange={handleContentChange}
-      autoFocus={true}
-    />
+    <>
+      <ScrollableEditor
+        content={pageContent}
+        className="w-full h-full"
+        onContentChange={handleContentChange}
+        autoFocus={true}
+      />
+      <WordCountOverlay />
+    </>
   );
 }
 

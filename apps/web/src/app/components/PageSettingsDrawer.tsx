@@ -12,16 +12,26 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
 import { MoreVertical } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import useResponsive from "../hooks/useResponsive";
-import { usePageSettings, type FontStyle } from "../contexts/PageSettingsContext";
+import {
+  usePageSettings,
+  type FontStyle,
+} from "../contexts/PageSettingsContext";
 
 export function PageSettingsDrawer() {
-  const { t } = useTranslation("PageSettingsDrawer");
+  const { t, i18n } = useTranslation("PageSettingsDrawer");
   const [open, setOpen] = useState(false);
-  const { fontStyle, setFontStyle } = usePageSettings();
+  const {
+    fontStyle,
+    setFontStyle,
+    showWordCount,
+    setShowWordCount,
+    wordCount,
+  } = usePageSettings();
   const isMobile = useResponsive("(max-width: 768px)");
 
   const triggerButton = (
@@ -76,6 +86,30 @@ export function PageSettingsDrawer() {
               </span>
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="space-y-3 pt-3 border-t border-border">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <label htmlFor="word-count-toggle" className="text-sm font-medium">
+              {t`Show word count`}
+            </label>
+            <p className="text-xs text-muted-foreground">
+              {t`Display word count overlay on page`}
+            </p>
+          </div>
+          <Switch
+            id="word-count-toggle"
+            checked={showWordCount}
+            onCheckedChange={setShowWordCount}
+          />
+        </div>
+        <div className="text-sm text-muted-foreground">
+          <span className="font-medium">
+            {new Intl.NumberFormat(i18n.language).format(wordCount)}
+          </span>{" "}
+          {wordCount === 1 ? t`word` : t`words`}
         </div>
       </div>
     </div>
