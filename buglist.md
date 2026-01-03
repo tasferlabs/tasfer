@@ -138,6 +138,7 @@ Bugs list
 [ ] pasting lists (ul/ol) should preserve list structure and convert to list blocks
 [ ] when there is a selection we should count the selection word count not the whole document.
 [ ] backspace deletion on empty line that has heading after clear the styling.
+[ ] selection on empty lines not working in some cases.
 - : means not planed or considered
 x : done
   : not done

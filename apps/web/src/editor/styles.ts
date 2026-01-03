@@ -31,7 +31,7 @@ function getCSSVariable(name: string): string {
  */
 export function getEditorStyles(): EditorStyles {
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-  const horizontalPadding = isMobile ? 24 : 40;
+  const horizontalPadding = isMobile ? 16 : 40;
 
   return {
     canvas: {
