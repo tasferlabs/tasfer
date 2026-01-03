@@ -18,7 +18,7 @@ export function TopActionBar({
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   const { id } = useParams<{ id: string }>();
-  const { data: page } = useGetPage(id);
+  const { data: page, isLoading, isError } = useGetPage(id);
   const isMobile = useResponsive("(max-width: 768px)");
   const { isSaving } = usePageSettings();
   
@@ -59,7 +59,7 @@ export function TopActionBar({
 
       <div className="ml-auto flex items-center gap-2">
         <SavingIndicator isSaving={isSaving} />
-        <PageSettingsDrawer />
+        {id && !isLoading && !isError && <PageSettingsDrawer />}
       </div>
     </div>
   );

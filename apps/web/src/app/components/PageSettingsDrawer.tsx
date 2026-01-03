@@ -117,7 +117,7 @@ export function PageSettingsDrawer() {
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerTrigger asChild>{triggerButton}</DrawerTrigger>
         <DrawerContent>
-          <div className="mx-auto w-full max-w-sm h-full flex flex-col">
+          <div className="mx-auto w-full max-w-sm h-full min-h-screen flex flex-col">
             <DrawerHeader className="relative">
               <DrawerTitle>{t`Page Settings`}</DrawerTitle>
             </DrawerHeader>

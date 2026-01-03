@@ -141,7 +141,7 @@ Bugs list
 [x] selection on empty lines not working in some cases.
 [x] placeholder should not be vsibile when we have selection
 [x] dragging and dropping pagelink on same position it swaps position withe the one under.
-[ ] when the editor is not loaded options should not be shown
+[x] when the editor is not loaded options should not be shown
 - : means not planed or considered
 x : done
   : not done
