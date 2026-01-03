@@ -21,9 +21,10 @@ export function DropZone({ id, parentId, targetPageId, position, order, parentsS
     if (!active) return false;
     
     const activeId = active.id as string;
+    const activeData = active.data.current as any;
     
-    // Can't drop on itself
-    if (activeId === targetPageId) return true;
+    // Can't drop on "inside" zone of itself (nesting into self)
+    if (position === "inside" && activeId === targetPageId) return true;
     
     // For "inside" position, check if the parent would be the dragged item or its descendant
     if (position === "inside" && activeId === parentId) return true;
@@ -31,9 +32,19 @@ export function DropZone({ id, parentId, targetPageId, position, order, parentsS
     // Check if any parent in the stack is the dragged item (would create circular reference)
     if (parentsStack.some((parent) => parent.id === activeId)) return true;
     
-    // For "inside" position, also check if we're trying to nest into self
-    if (position === "inside" && parentId && parentsStack.some((parent) => parent.id === activeId)) {
-      return true;
+    // Prevent dropping on adjacent sibling dropzones that would cause unwanted swaps
+    // Only applies when in the same parent
+    if (activeData && activeData.parentId === parentId && order !== undefined) {
+      const activeOrder = activeData.order;
+      
+      // Block both "before" and "after" zones at the immediately next position
+      // Example: PageA (order: 0) should not drop on:
+      //   - PageA's "after" zone (order: 1) - would swap with PageB
+      //   - PageB's "before" zone (order: 1) - would swap with PageB
+      // This allows dropping on PageA's "before" zone (order: 0) to cancel the drag
+      if (order === activeOrder + 1) {
+        return true;
+      }
     }
     
     return false;

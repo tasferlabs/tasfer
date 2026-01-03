@@ -482,6 +482,7 @@ export default function createEditor(
         "PageDown",
         "Home",
         "End",
+        "Escape",
       ].includes(e.key)
     ) {
       e.preventDefault();

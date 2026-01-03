@@ -733,13 +733,20 @@ export function deleteText(state: EditorState): EditorState {
     const prevText = getBlockTextContent(prevBlock);
     // Merge the formatted content arrays
     const mergedContent = [...prevBlock.content, ...oldBlock.content];
+    
+    // Determine which block type to preserve:
+    // If previous block is empty, preserve the current block's type
+    // Otherwise, preserve the previous block's type
+    const prevIsEmpty = prevText.length === 0;
+    const typeToPreserve = prevIsEmpty ? oldBlock.type : prevBlock.type;
+    
     const blockCopy: Block = {
       ...prevBlock,
+      type: typeToPreserve,
       content: mergeAdjacentSegments(mergedContent),
     };
-    // Preserve the original block type when joining blocks
-    // Only apply markdown prefix if the original was a paragraph
-    if (prevBlock.type === "paragraph") {
+    // Only apply markdown prefix if the resulting type is a paragraph
+    if (typeToPreserve === "paragraph") {
       applyMarkdownPrefix(blockCopy);
     }
     // Invalidate the merged block
@@ -809,11 +816,20 @@ export function deleteForward(state: EditorState): EditorState {
     // Merge with next block, preserving formatting
     const nextBlock = state.document.page.blocks[blockIndex + 1];
     const mergedContent = [...oldBlock.content, ...nextBlock.content];
+    
+    // Determine which block type to preserve:
+    // If current block is empty, preserve the next block's type
+    // Otherwise, preserve the current block's type
+    const currentIsEmpty = oldText.length === 0;
+    const typeToPreserve = currentIsEmpty ? nextBlock.type : oldBlock.type;
+    
     const blockCopy: Block = {
       ...oldBlock,
+      type: typeToPreserve,
       content: mergeAdjacentSegments(mergedContent),
     };
-    if (oldBlock.type === "paragraph") {
+    // Only apply markdown prefix if the resulting type is a paragraph
+    if (typeToPreserve === "paragraph") {
       applyMarkdownPrefix(blockCopy);
     }
     // Invalidate the merged block
@@ -1056,11 +1072,20 @@ export function deleteWordForward(state: EditorState): EditorState {
     // At end of line - merge with next block, preserving formatting
     const nextBlock = state.document.page.blocks[blockIndex + 1];
     const mergedContent = [...oldBlock.content, ...nextBlock.content];
+    
+    // Determine which block type to preserve:
+    // If current block is empty, preserve the next block's type
+    // Otherwise, preserve the current block's type
+    const currentIsEmpty = oldText.length === 0;
+    const typeToPreserve = currentIsEmpty ? nextBlock.type : oldBlock.type;
+    
     const blockCopy: Block = {
       ...oldBlock,
+      type: typeToPreserve,
       content: mergeAdjacentSegments(mergedContent),
     };
-    if (oldBlock.type === "paragraph") {
+    // Only apply markdown prefix if the resulting type is a paragraph
+    if (typeToPreserve === "paragraph") {
       applyMarkdownPrefix(blockCopy);
     }
     // Invalidate the merged block
@@ -1119,11 +1144,20 @@ export function deleteWordBackward(state: EditorState): EditorState {
     const prevBlock = state.document.page.blocks[blockIndex - 1];
     const prevText = getBlockTextContent(prevBlock);
     const mergedContent = [...prevBlock.content, ...oldBlock.content];
+    
+    // Determine which block type to preserve:
+    // If previous block is empty, preserve the current block's type
+    // Otherwise, preserve the previous block's type
+    const prevIsEmpty = prevText.length === 0;
+    const typeToPreserve = prevIsEmpty ? oldBlock.type : prevBlock.type;
+    
     const blockCopy: Block = {
       ...prevBlock,
+      type: typeToPreserve,
       content: mergeAdjacentSegments(mergedContent),
     };
-    if (prevBlock.type === "paragraph") {
+    // Only apply markdown prefix if the resulting type is a paragraph
+    if (typeToPreserve === "paragraph") {
       applyMarkdownPrefix(blockCopy);
     }
     // Invalidate the merged block
@@ -1393,23 +1427,48 @@ export function splitBlock(state: EditorState): EditorState {
     textIndex
   );
 
-  const blockCopy1: Block = { ...oldBlock, content: beforeContent };
-  // Only apply markdown prefix if the original was a paragraph
-  if (originalType === "paragraph") {
-    applyMarkdownPrefix(blockCopy1);
+  // Determine types for both blocks based on cursor position
+  const isAtStart = textIndex === 0;
+  const isAtEnd = textIndex === oldText.length;
+  const isEmpty = oldText.length === 0;
+  
+  let blockCopy1Type: Block["type"];
+  let blockCopy2Type: Block["type"];
+  
+  if (originalType.startsWith("heading")) {
+    if (isEmpty) {
+      // Empty heading: keep heading above, create paragraph below
+      blockCopy1Type = originalType;
+      blockCopy2Type = "paragraph";
+    } else if (isAtStart) {
+      // At start of non-empty heading: new block above should be paragraph, heading stays below
+      blockCopy1Type = "paragraph";
+      blockCopy2Type = originalType;
+    } else if (isAtEnd) {
+      // At end of non-empty heading: heading stays above, new block below should be paragraph
+      blockCopy1Type = originalType;
+      blockCopy2Type = "paragraph";
+    } else {
+      // In middle of heading: split into two headings
+      blockCopy1Type = originalType;
+      blockCopy2Type = originalType;
+    }
+  } else {
+    // For non-heading blocks (paragraphs, etc), preserve the type
+    blockCopy1Type = originalType;
+    blockCopy2Type = originalType;
   }
 
-  // Determine the type for the new block
-  // If splitting a heading at the end (cursor at end of text), the new block should be a paragraph
-  // If splitting in the middle, preserve the heading type
-  const isAtEnd = textIndex === oldText.length;
-  const newBlockType =
-    originalType.startsWith("heading") && isAtEnd ? "paragraph" : originalType;
+  const blockCopy1: Block = { ...oldBlock, type: blockCopy1Type, content: beforeContent };
+  // Only apply markdown prefix if the block type is a paragraph
+  if (blockCopy1Type === "paragraph") {
+    applyMarkdownPrefix(blockCopy1);
+  }
 
   const blockCopy2: Block = {
     ...oldBlock,
     id: generateBlockId(),
-    type: newBlockType,
+    type: blockCopy2Type,
     content: afterContent,
   };
 

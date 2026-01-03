@@ -106,8 +106,8 @@ export function SidebarContent({
     };
     const overData = over.data.current as any;
 
-    // Prevent dropping on itself
-    if (active.id === over.id || active.id === overData?.targetPageId) {
+    // Prevent dropping on the exact same dropzone
+    if (active.id === over.id) {
       return;
     }
 
@@ -160,10 +160,13 @@ export function SidebarContent({
       }
       // If reordering within same parent
       else {
-        reorderPage({
-          id: activeData.id,
-          order: targetOrder,
-        });
+        // Skip no-op reorders where order doesn't change
+        if (targetOrder !== activeData.order) {
+          reorderPage({
+            id: activeData.id,
+            order: targetOrder,
+          });
+        }
       }
     }
     // Scenario 2: Drop on "after" zone - reorder to position after target
@@ -181,10 +184,13 @@ export function SidebarContent({
       }
       // If reordering within same parent
       else {
-        reorderPage({
-          id: activeData.id,
-          order: targetOrder,
-        });
+        // Skip no-op reorders where order doesn't change
+        if (targetOrder !== activeData.order) {
+          reorderPage({
+            id: activeData.id,
+            order: targetOrder,
+          });
+        }
       }
     }
     // Scenario 3: Drop on "inside" zone - make dragged item a child of target

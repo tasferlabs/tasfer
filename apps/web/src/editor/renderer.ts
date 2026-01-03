@@ -681,12 +681,16 @@ export const renderBlock = (
     );
   }
 
+  // Don't show placeholder or cursor when there's an active selection
+  const hasActiveSelection = state.document.selection && !state.document.selection.isCollapsed;
+  
   // Handle placeholder rendering
   if (
     state.document.cursor &&
     state.document.cursor.position.blockIndex === blockIndex &&
     fullContent.length === 0 &&
-    !state.ui.composition
+    !state.ui.composition &&
+    !hasActiveSelection
   ) {
     renderPlaceholder(
       ctx,
@@ -699,8 +703,6 @@ export const renderBlock = (
   }
 
   // Handle cursor rendering
-  // Don't render cursor when there's an active selection
-  const hasActiveSelection = state.document.selection && !state.document.selection.isCollapsed;
   if (
     state.document.cursor &&
     state.document.cursor.position.blockIndex === blockIndex &&
@@ -894,8 +896,7 @@ function renderSelection(
     // Handle empty blocks
     if (
       content.length === 0 &&
-      renderedLines.length === 1 &&
-      blockIndex !== state.document.cursor?.position.blockIndex
+      renderedLines.length === 1
     ) {
       const fontMetrics = getFontMetrics(
         textStyle.fontSize,

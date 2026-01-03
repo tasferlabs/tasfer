@@ -129,7 +129,7 @@ Bugs list
 [-] Composition state cleanup on error
 [x] ios top toolbar is too high under the os notification bar
 [ ] ios keyboard island is always visibile if for normal text inputs
-[ ] escaping slash menu does not work.
+[x] escaping slash menu does not work.
 [x] word count does not work with CJK letters
 [x] pasting is not invalidating blocked cached height.
 [x] pasting into another text field such as title text field it is not working.
@@ -137,8 +137,11 @@ Bugs list
 [ ] pasting images from webpages should handle images (either embed or show placeholder)
 [ ] pasting lists (ul/ol) should preserve list structure and convert to list blocks
 [ ] when there is a selection we should count the selection word count not the whole document.
-[ ] backspace deletion on empty line that has heading after clear the styling.
-[ ] selection on empty lines not working in some cases.
+[x] backspace deletion on empty line that has heading after clear the styling.
+[x] selection on empty lines not working in some cases.
+[x] placeholder should not be vsibile when we have selection
+[x] dragging and dropping pagelink on same position it swaps position withe the one under.
+[ ] when the editor is not loaded options should not be shown
 - : means not planed or considered
 x : done
   : not done
