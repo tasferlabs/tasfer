@@ -26,10 +26,11 @@ import { isCJKCharacter } from "./fonts";
 export function insertTextIntoFormattedContent(
   content: Text[],
   textIndex: number,
-  textToInsert: string
+  textToInsert: string,
+  activeFormats?: readonly TextFormat[]
 ): Text[] {
   if (content.length === 0) {
-    return [{ content: textToInsert }];
+    return [{ content: textToInsert, formats: activeFormats && activeFormats.length > 0 ? [...activeFormats] : undefined }];
   }
 
   let currentIndex = 0;
@@ -47,11 +48,13 @@ export function insertTextIntoFormattedContent(
       const after = segment.content.slice(relativeIndex);
 
       // Split the segment and insert the new text
-      // The inserted text inherits the formats of the current segment
+      // Use activeFormats if provided, otherwise inherit from current segment
+      const formatsToUse = activeFormats !== undefined ? activeFormats : segment.formats;
+      
       if (before) {
         newContent.push({ content: before, formats: segment.formats });
       }
-      newContent.push({ content: textToInsert, formats: segment.formats });
+      newContent.push({ content: textToInsert, formats: formatsToUse && formatsToUse.length > 0 ? [...formatsToUse] : undefined });
       if (after) {
         newContent.push({ content: after, formats: segment.formats });
       }
@@ -68,7 +71,9 @@ export function insertTextIntoFormattedContent(
   }
 
   // If we get here, textIndex is at or beyond the end
-  newContent.push({ content: textToInsert });
+  const lastSegment = content[content.length - 1];
+  const formatsToUse = activeFormats !== undefined ? activeFormats : lastSegment?.formats;
+  newContent.push({ content: textToInsert, formats: formatsToUse && formatsToUse.length > 0 ? [...formatsToUse] : undefined });
   // Merge adjacent segments with same formatting
   return mergeAdjacentSegments(newContent);
 }
@@ -122,6 +127,37 @@ export function deleteTextRangeInFormattedContent(
 
   // Merge adjacent segments with same formatting
   return mergeAdjacentSegments(newContent);
+}
+
+/**
+ * Get the formatting at a specific text position in a block
+ * Returns the formats of the character just before the cursor position
+ */
+function getFormatsAtPosition(
+  block: Block,
+  textIndex: number
+): readonly TextFormat[] | undefined {
+  if (textIndex === 0) {
+    // At the start of the block, no formatting
+    return undefined;
+  }
+
+  let currentIndex = 0;
+  for (const segment of block.content) {
+    const segmentStart = currentIndex;
+    const segmentEnd = currentIndex + segment.content.length;
+
+    // If cursor is within or at the end of this segment, return its formats
+    if (textIndex > segmentStart && textIndex <= segmentEnd) {
+      return segment.formats;
+    }
+
+    currentIndex = segmentEnd;
+  }
+
+  // Cursor is at the very end, return the last segment's formats
+  const lastSegment = block.content[block.content.length - 1];
+  return lastSegment?.formats;
 }
 
 /**
@@ -213,6 +249,30 @@ function addFormatToSegments(segments: Text[], newFormat: TextFormat): Text[] {
       formats: [...existingFormats, newFormat],
     };
   });
+}
+
+/**
+ * Remove a format from text segments
+ */
+function removeFormatFromSegments(segments: Text[], formatType: TextFormat['type']): Text[] {
+  return segments.map((segment) => {
+    const existingFormats = segment.formats || [];
+    const filteredFormats = existingFormats.filter((f) => f.type !== formatType);
+    return {
+      content: segment.content,
+      formats: filteredFormats.length > 0 ? filteredFormats : undefined,
+    };
+  });
+}
+
+/**
+ * Check if all segments have a specific format
+ */
+function allSegmentsHaveFormat(segments: Text[], formatType: TextFormat['type']): boolean {
+  if (segments.length === 0) return false;
+  return segments.every((segment) => 
+    segment.formats?.some((f) => f.type === formatType)
+  );
 }
 
 /**
@@ -540,12 +600,18 @@ export function insertText(state: EditorState, input: string): EditorState {
 
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
+  
+  // Get active formats from UI (for toggle bold/italic/etc without selection)
+  const activeFormats = state.ui.activeFormatsMode.type === 'explicit' 
+    ? state.ui.activeFormatsMode.formats 
+    : undefined;
 
   // Preserve formatting by using the helper function
   let newContent = insertTextIntoFormattedContent(
     oldBlock.content,
     textIndex,
-    input
+    input,
+    activeFormats
   );
 
   // Calculate the position after insertion
@@ -613,7 +679,9 @@ export function insertText(state: EditorState, input: string): EditorState {
     ...state,
     document: { ...state.document, page: newPage },
   };
-  newState = moveCursorToPosition(newState, blockIndex, newTextIndex);
+  // Preserve active formats when moving cursor after typing
+  newState = moveCursorToPosition(newState, blockIndex, newTextIndex, true);
+  
   return updateMode(newState, "edit");
 }
 
@@ -658,7 +726,8 @@ export function deleteText(state: EditorState): EditorState {
       ...state,
       document: { ...state.document, page: newPage },
     };
-    return moveCursorToPosition(newState, blockIndex, textIndex - 1);
+    // Preserve active formats when deleting during typing (e.g., pressing backspace while in bold mode)
+    return moveCursorToPosition(newState, blockIndex, textIndex - 1, true);
   } else if (blockIndex > 0) {
     const prevBlock = state.document.page.blocks[blockIndex - 1];
     const prevText = getBlockTextContent(prevBlock);
@@ -734,7 +803,8 @@ export function deleteForward(state: EditorState): EditorState {
       ...state,
       document: { ...state.document, page: newPage },
     };
-    return moveCursorToPosition(newState, blockIndex, textIndex);
+    // Preserve active formats when deleting during typing
+    return moveCursorToPosition(newState, blockIndex, textIndex, true);
   } else if (blockIndex < state.document.page.blocks.length - 1) {
     // Merge with next block, preserving formatting
     const nextBlock = state.document.page.blocks[blockIndex + 1];
@@ -980,7 +1050,8 @@ export function deleteWordForward(state: EditorState): EditorState {
       ...state,
       document: { ...state.document, page: newPage },
     };
-    return moveCursorToPosition(newState, blockIndex, textIndex);
+    // Preserve active formats when deleting during typing
+    return moveCursorToPosition(newState, blockIndex, textIndex, true);
   } else if (blockIndex < state.document.page.blocks.length - 1) {
     // At end of line - merge with next block, preserving formatting
     const nextBlock = state.document.page.blocks[blockIndex + 1];
@@ -1041,7 +1112,8 @@ export function deleteWordBackward(state: EditorState): EditorState {
       ...state,
       document: { ...state.document, page: newPage },
     };
-    return moveCursorToPosition(newState, blockIndex, startIndex);
+    // Preserve active formats when deleting during typing
+    return moveCursorToPosition(newState, blockIndex, startIndex, true);
   } else if (blockIndex > 0) {
     // At start of line - merge with previous block, preserving formatting
     const prevBlock = state.document.page.blocks[blockIndex - 1];
@@ -1380,6 +1452,181 @@ export function selectAll(state: EditorState): EditorState {
   newState = startSelection(newState, startPos);
   newState = updateSelectionFocus(newState, endPos);
   return updateMode(newState, "edit");
+}
+
+/**
+ * Toggle bold formatting on selected text or at cursor position
+ * If there's no selection, toggles bold mode for next typed text
+ */
+export function toggleBold(state: EditorState): EditorState {
+  const range = getSelectionRange(state);
+  
+  // If no selection, toggle bold in UI's active formats
+  if (!range) {
+    if (!state.document.cursor) return state;
+    
+    const { blockIndex, textIndex } = state.document.cursor.position;
+    const block = state.document.page.blocks[blockIndex];
+    
+    // Get current active formats or infer from cursor position
+    let currentFormats: readonly TextFormat[];
+    if (state.ui.activeFormatsMode.type === 'explicit') {
+      currentFormats = state.ui.activeFormatsMode.formats;
+    } else {
+      // Inherit mode: check formatting at cursor position
+      currentFormats = getFormatsAtPosition(block, textIndex) || [];
+    }
+    
+    const hasBold = currentFormats.some(f => f.type === 'bold');
+    
+    let newFormats: TextFormat[];
+    if (hasBold) {
+      // Remove bold
+      newFormats = currentFormats.filter(f => f.type !== 'bold');
+    } else {
+      // Add bold
+      newFormats = [...currentFormats, { type: 'bold' }];
+    }
+    
+    return {
+      ...state,
+      ui: {
+        ...state.ui,
+        activeFormatsMode: { type: 'explicit', formats: newFormats },
+      },
+    };
+  }
+
+  const { start, end } = range;
+
+  if (start.blockIndex === end.blockIndex) {
+    // Single block selection
+    const block = state.document.page.blocks[start.blockIndex];
+    
+    // Extract the segments in the selected range
+    const selectedSegments = extractSegmentsInRange(
+      block.content,
+      start.textIndex,
+      end.textIndex
+    );
+
+    // Check if all segments are already bold
+    const isBold = allSegmentsHaveFormat(selectedSegments, 'bold');
+
+    // Toggle bold formatting
+    const modifiedSegments = isBold
+      ? removeFormatFromSegments(selectedSegments, 'bold')
+      : addFormatToSegments(selectedSegments, { type: 'bold' });
+
+    // Reconstruct the block content
+    const beforeSegments = extractSegmentsInRange(block.content, 0, start.textIndex);
+    const afterSegments = extractSegmentsInRange(
+      block.content,
+      end.textIndex,
+      getBlockTextContent(block).length
+    );
+
+    const newContent = mergeAdjacentSegments([
+      ...beforeSegments,
+      ...modifiedSegments,
+      ...afterSegments,
+    ]);
+
+    const newBlock: Block = { ...block, content: newContent };
+    invalidateBlockCache(newBlock);
+
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[start.blockIndex] = newBlock;
+    const newPage = { ...state.document.page, blocks: newBlocks };
+
+    return {
+      ...state,
+      document: { ...state.document, page: newPage },
+    };
+  } else {
+    // Multi-block selection
+    const newBlocks = [...state.document.page.blocks];
+    
+    // First, collect all segments from all blocks in the selection
+    let allSelectedSegments: Text[] = [];
+    
+    for (let i = start.blockIndex; i <= end.blockIndex; i++) {
+      const block = newBlocks[i];
+      const blockText = getBlockTextContent(block);
+      
+      if (i === start.blockIndex) {
+        // First block: from start.textIndex to end
+        allSelectedSegments.push(
+          ...extractSegmentsInRange(block.content, start.textIndex, blockText.length)
+        );
+      } else if (i === end.blockIndex) {
+        // Last block: from 0 to end.textIndex
+        allSelectedSegments.push(
+          ...extractSegmentsInRange(block.content, 0, end.textIndex)
+        );
+      } else {
+        // Middle blocks: entire block
+        allSelectedSegments.push(...block.content);
+      }
+    }
+
+    // Check if all segments are already bold
+    const isBold = allSegmentsHaveFormat(allSelectedSegments, 'bold');
+
+    // Now apply the formatting to each block
+    for (let i = start.blockIndex; i <= end.blockIndex; i++) {
+      const block = newBlocks[i];
+      const blockText = getBlockTextContent(block);
+      
+      let beforeSegments: Text[];
+      let selectedSegments: Text[];
+      let afterSegments: Text[];
+
+      if (i === start.blockIndex && i === end.blockIndex) {
+        // Only one block (already handled above, but keep for completeness)
+        beforeSegments = extractSegmentsInRange(block.content, 0, start.textIndex);
+        selectedSegments = extractSegmentsInRange(block.content, start.textIndex, end.textIndex);
+        afterSegments = extractSegmentsInRange(block.content, end.textIndex, blockText.length);
+      } else if (i === start.blockIndex) {
+        // First block
+        beforeSegments = extractSegmentsInRange(block.content, 0, start.textIndex);
+        selectedSegments = extractSegmentsInRange(block.content, start.textIndex, blockText.length);
+        afterSegments = [];
+      } else if (i === end.blockIndex) {
+        // Last block
+        beforeSegments = [];
+        selectedSegments = extractSegmentsInRange(block.content, 0, end.textIndex);
+        afterSegments = extractSegmentsInRange(block.content, end.textIndex, blockText.length);
+      } else {
+        // Middle blocks
+        beforeSegments = [];
+        selectedSegments = block.content;
+        afterSegments = [];
+      }
+
+      // Toggle bold formatting
+      const modifiedSegments = isBold
+        ? removeFormatFromSegments(selectedSegments, 'bold')
+        : addFormatToSegments(selectedSegments, { type: 'bold' });
+
+      const newContent = mergeAdjacentSegments([
+        ...beforeSegments,
+        ...modifiedSegments,
+        ...afterSegments,
+      ]);
+
+      const newBlock: Block = { ...block, content: newContent };
+      invalidateBlockCache(newBlock);
+      newBlocks[i] = newBlock;
+    }
+
+    const newPage = { ...state.document.page, blocks: newBlocks };
+
+    return {
+      ...state,
+      document: { ...state.document, page: newPage },
+    };
+  }
 }
 
 // Convert block type at current cursor position

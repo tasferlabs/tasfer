@@ -23,6 +23,7 @@ import {
   selectWordAtPosition,
   splitBlock,
   deleteTextRangeInFormattedContent,
+  toggleBold,
 } from "./commands";
 import {
   CLICK_DISTANCE_THRESHOLD,
@@ -1177,6 +1178,13 @@ function handleKeyDown(
   // Select All
   if (isCtrl && code === "KeyA") {
     return selectAll(state);
+  }
+
+  // Bold
+  if (isCtrl && code === "KeyB") {
+    // Only record undo if there's a selection (actual document change)
+    const hasSelection = state.document.selection && !state.document.selection.isCollapsed;
+    return toggleBold(hasSelection ? recordUndo(state) : state);
   }
 
   // Copy

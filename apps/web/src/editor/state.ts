@@ -38,6 +38,7 @@ export const createInitialState = (page: Page): EditorState => ({
     linkHover: null,
     isHoveringLinkWithModifier: false,
     composition: null,
+    activeFormatsMode: { type: 'inherit' },
   },
   view: {
     isFocused: false,
@@ -210,7 +211,8 @@ export function isCursorBlinking(cursor: CursorState, styles: EditorStyles) {
 export const moveCursorToPosition = (
   state: EditorState,
   blockIndex: number,
-  textIndex: number
+  textIndex: number,
+  preserveActiveFormats: boolean = false
 ): EditorState => {
   const clampedBlockIndex = Math.max(
     0,
@@ -223,10 +225,23 @@ export const moveCursorToPosition = (
   const maxTextIndex = getBlockTextLength(block);
   const clampedTextIndex = Math.max(0, Math.min(textIndex, maxTextIndex));
 
-  return updateCursor(state, {
+  let newState = updateCursor(state, {
     blockIndex: clampedBlockIndex,
     textIndex: clampedTextIndex,
   });
+  
+  // Clear active formats when cursor moves (unless explicitly preserving them, e.g., during typing)
+  if (!preserveActiveFormats && newState.ui.activeFormatsMode.type === 'explicit') {
+    newState = {
+      ...newState,
+      ui: {
+        ...newState.ui,
+        activeFormatsMode: { type: 'inherit' },
+      },
+    };
+  }
+  
+  return newState;
 };
 
 export const moveCursorLeft = (state: EditorState): EditorState => {
@@ -778,7 +793,19 @@ export const startSelection = (
   state: EditorState,
   position: Position
 ): EditorState => {
-  return updateSelection(state, {
+  // Clear active formats when starting a selection
+  let newState = state;
+  if (state.ui.activeFormatsMode.type === 'explicit') {
+    newState = {
+      ...state,
+      ui: {
+        ...state.ui,
+        activeFormatsMode: { type: 'inherit' },
+      },
+    };
+  }
+  
+  return updateSelection(newState, {
     anchor: position,
     focus: position,
     isForward: true,

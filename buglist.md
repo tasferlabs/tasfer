@@ -43,7 +43,7 @@ Bugs list
 [x] when selection is active and we click arrow up or left then the cursot should go back to start of the selection.
 [x] if we scroll to the bottom of the page and then type Ctrl + A and delete the text, we should scroll to the top. But now we fall outside outside the viewport.
 [x] implement ctrl + C to copy text and ctrl + V to paste text (with HTML formatting) and ctrl + Shift + V to paste as plain text.
-[ ] improve pasting behivour and allow better clipboard content parsing.
+[x] improve pasting behivour and allow better clipboard content parsing.
 [x] implement ctrl + X to cut text.
 [x] When editing a block the inline styles disappearing
 [x] add logic for for writing tracking markdown inlines styles.
@@ -54,12 +54,11 @@ Bugs list
 [x] when pressing enter on end of heading then we should create new paragraph not heading.
 [x] Fix word boundary selection logic, it should not include punction and speical signs
 [x] Fix reading empty file, should at least be one block
-[ ] ctrl + b and other shorcuts should change the inline the text style.
+[x] ctrl + b should work in the editor.
 [ ] add image blocks
 [ ] add unorded list block
 [ ] add orded list block
 [ ] add todo list block
-[ ] Choosing a context menu by dragging not avaliable
 [ ] Check devices compatiabities such ipad with keyboard. Pen input, stylus supprot. Handwriting.
 [ ] on ios keyboard iland we should add active/inactive state for block type menu. External keyboard
 [x] composition and other input methods such as IME should work.
@@ -137,6 +136,8 @@ Bugs list
 [ ] pasting tables from webpages should preserve table structure or convert to readable format
 [ ] pasting images from webpages should handle images (either embed or show placeholder)
 [ ] pasting lists (ul/ol) should preserve list structure and convert to list blocks
+[ ] when there is a selection we should count the selection word count not the whole document.
+[ ] backspace deletion on empty line that has heading after clear the styling.
 - : means not planed or considered
 x : done
   : not done

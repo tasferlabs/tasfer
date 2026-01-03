@@ -124,12 +124,13 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
         // Check if blocks reference has changed (indicates actual content modification)
         if (currentBlocks !== lastSerializedBlocksRef.current) {
           lastSerializedBlocksRef.current = currentBlocks;
+          // console.log("currentBlocks", currentBlocks);
           const markdown = serializeToMarkdown(currentBlocks);
           onContentChange(markdown);
         }
       }
 
-      // Calculate new slash command state
+    // Calculate new slash command state
       let newSlashState: typeof slashMenuState = null;
       if (state.ui.slashCommand && state.document.cursor) {
         const cursorScreenPos = mounted.editor.getCursorScreenPosition();

@@ -1,4 +1,4 @@
-import type { Block, Page } from "../deserializer/loadPage";
+import type { Block, Page, TextFormat } from "../deserializer/loadPage";
 import type { FontFamily } from "./fonts";
 import type { ScrollbarState, MomentumState } from "./scrollbar";
 
@@ -46,6 +46,11 @@ export interface CompositionState {
   readonly startPosition: Position;
 }
 
+// Active formats mode for typing
+export type ActiveFormatsMode = 
+  | { type: 'inherit' } // Inherit formatting from previous character (normal typing)
+  | { type: 'explicit'; formats: readonly TextFormat[] }; // Explicit formatting mode (Ctrl+B toggled on/off)
+
 // UI State - Transient interaction state (menus, popovers, mode)
 export interface UIState {
   readonly mode: EditorMode;
@@ -54,6 +59,7 @@ export interface UIState {
   readonly linkHover: LinkHoverState | null;
   readonly isHoveringLinkWithModifier: boolean;
   readonly composition: CompositionState | null;
+  readonly activeFormatsMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
 }
 
 // View State - Ephemeral view properties

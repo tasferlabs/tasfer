@@ -17,7 +17,10 @@ import {
   renderPage,
   clearAllBlockCaches,
 } from "./renderer";
-import { getCursorCoordinates, getCursorCoordinatesWithComposition } from "./selection";
+import {
+  getCursorCoordinates,
+  getCursorCoordinatesWithComposition,
+} from "./selection";
 import {
   updateFocus,
   isCursorBlinking,
@@ -211,7 +214,9 @@ export default function createEditor(
             // Offset vertically by cursor height so composition toolbar appears below the text
             // This prevents the toolbar from covering the composition text
             hiddenInput.style.left = `${cursorCoords.x}px`;
-            hiddenInput.style.top = `${cursorCoords.y - viewport.scrollY + cursorCoords.height}px`;
+            hiddenInput.style.top = `${
+              cursorCoords.y - viewport.scrollY + cursorCoords.height
+            }px`;
           }
         }
 
@@ -485,7 +490,7 @@ export default function createEditor(
       scheduleRender();
       hiddenInput.value = "";
     } else if (isShortcut) {
-      const handledShortcuts = ["KeyZ", "KeyY", "KeyA", "KeyC", "KeyX"];
+      const handledShortcuts = ["KeyZ", "KeyY", "KeyA", "KeyC", "KeyX", "KeyB"];
       if (handledShortcuts.includes(e.code)) {
         // For editor shortcuts, forward to events queue and stop propagation
         // to prevent window listener from also processing it
