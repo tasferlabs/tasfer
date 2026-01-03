@@ -1,4 +1,5 @@
 import type { Block, Page } from "../deserializer/loadPage";
+import { isTextBlock } from "../deserializer/loadPage";
 import { getCurrentFontFamily, wrapFormattedTextDetailed, measureFormattedTextUpToIndex } from "./fonts";
 import {
   createInitialMomentumState,
@@ -39,6 +40,7 @@ export const createInitialState = (page: Page): EditorState => ({
     isHoveringLinkWithModifier: false,
     composition: null,
     activeFormatsMode: { type: 'inherit' },
+    imageUpload: null,
   },
   view: {
     isFocused: false,
@@ -142,31 +144,30 @@ export const createInitialCursorState = (state: EditorState): EditorState => {
 export const getBlockTextLength = (block: Block): number => {
   if (!block) return 0;
 
-  if ("level" in block) {
-    // Heading block
-    return block.content.reduce(
-      (total, text) => total + text.content.length,
-      0
-    );
-  } else {
-    // Paragraph block
-    return block.content.reduce(
-      (total, text) => total + text.content.length,
-      0
-    );
+  // Image blocks don't have text content
+  if (block.type === "image") return 0;
+
+  if (!isTextBlock(block)) {
+    return 0;
   }
+
+  return block.content.reduce(
+    (total, text) => total + text.content.length,
+    0
+  );
 };
 
 export const getBlockTextContent = (block: Block): string => {
   if (!block) return "";
 
-  if ("level" in block) {
-    // Heading block
-    return block.content.map((text) => text.content).join("");
-  } else {
-    // Paragraph block
-    return block.content.map((text) => text.content).join("");
+  // Image blocks don't have text content
+  if (block.type === "image") return "";
+
+  if (!isTextBlock(block)) {
+    return "";
   }
+
+  return block.content.map((text) => text.content).join("");
 };
 
 export const isForwardSelection = (
@@ -252,6 +253,10 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
   
   if (!currentBlock) return state;
 
+  if (!isTextBlock(currentBlock)) {
+    return state;
+  }
+
   // Check if current block is RTL
   const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
   
@@ -264,6 +269,9 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
     } else if (blockIndex < state.document.page.blocks.length - 1) {
       // Moving to next block - check if next block is RTL or LTR
       const nextBlock = state.document.page.blocks[blockIndex + 1];
+      if (!isTextBlock(nextBlock)) {
+        return state;
+      }
       const nextIsRTL = getFormattedTextDirection(nextBlock.content) === "rtl";
       
       if (nextIsRTL) {
@@ -281,6 +289,9 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
     } else if (blockIndex > 0) {
       // Moving to previous block - check if previous block is RTL or LTR
       const prevBlock = state.document.page.blocks[blockIndex - 1];
+      if (!isTextBlock(prevBlock)) {
+        return state;
+      }
       const prevBlockLength = getBlockTextLength(prevBlock);
       const prevIsRTL = getFormattedTextDirection(prevBlock.content) === "rtl";
       
@@ -305,6 +316,10 @@ export const moveCursorRight = (state: EditorState): EditorState => {
 
   if (!currentBlock) return state;
 
+  if (!isTextBlock(currentBlock)) {
+    return state;
+  }
+
   const currentBlockLength = getBlockTextLength(currentBlock);
   
   // Check if current block is RTL
@@ -317,6 +332,9 @@ export const moveCursorRight = (state: EditorState): EditorState => {
     } else if (blockIndex > 0) {
       // Moving to previous block - check if previous block is RTL or LTR
       const prevBlock = state.document.page.blocks[blockIndex - 1];
+      if (!isTextBlock(prevBlock)) {
+        return state;
+      }
       const prevBlockLength = getBlockTextLength(prevBlock);
       const prevIsRTL = getFormattedTextDirection(prevBlock.content) === "rtl";
       
@@ -335,6 +353,9 @@ export const moveCursorRight = (state: EditorState): EditorState => {
     } else if (blockIndex < state.document.page.blocks.length - 1) {
       // Moving to next block - check if next block is RTL or LTR
       const nextBlock = state.document.page.blocks[blockIndex + 1];
+      if (!isTextBlock(nextBlock)) {
+        return state;
+      }
       const nextIsRTL = getFormattedTextDirection(nextBlock.content) === "rtl";
       
       if (nextIsRTL) {
@@ -366,6 +387,10 @@ function getLineInfoAtPosition(
   totalLines: number;
   lines: string[];
 } | null {
+  if (!isTextBlock(block)) {
+    return null;
+  }
+
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
@@ -425,6 +450,11 @@ function getTextIndexAtRelativePosition(
     return targetIndex;
   }
   
+  if (!isTextBlock(block)) {
+    const lineLength = lineEndIndex - lineStartIndex;
+    return lineStartIndex + Math.min(relativePosition, lineLength);
+  }
+
   // Check if this is RTL text
   const isRTL = getFormattedTextDirection(block.content) === "rtl";
   
@@ -502,6 +532,10 @@ export const moveCursorUp = (
 
   if (!lineInfo) return state;
 
+  if (!isTextBlock(currentBlock)) {
+    return state;
+  }
+
   // For RTL text, calculate visual position instead of logical position
   const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
   let relativePosition: number;
@@ -560,6 +594,9 @@ export const moveCursorUp = (
   // On the first line of the block, move to the previous block's last line
   if (blockIndex > 0) {
     const prevBlock = state.document.page.blocks[blockIndex - 1];
+    if (!isTextBlock(prevBlock)) {
+      return state;
+    }
     const prevTextStyle = getTextStyle(styles, prevBlock.type);
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
@@ -636,6 +673,10 @@ export const moveCursorDown = (
 
   if (!lineInfo) return state;
 
+  if (!isTextBlock(currentBlock)) {
+    return state;
+  }
+
   // For RTL text, calculate visual position instead of logical position
   const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
   let relativePosition: number;
@@ -705,6 +746,9 @@ export const moveCursorDown = (
   // On the last line of the block, move to the next block's first line
   if (blockIndex < state.document.page.blocks.length - 1) {
     const nextBlock = state.document.page.blocks[blockIndex + 1];
+    if (!isTextBlock(nextBlock)) {
+      return state;
+    }
     const nextTextStyle = getTextStyle(styles, nextBlock.type);
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;

@@ -142,6 +142,8 @@ Bugs list
 [x] placeholder should not be vsibile when we have selection
 [x] dragging and dropping pagelink on same position it swaps position withe the one under.
 [x] when the editor is not loaded options should not be shown
+[x] clicking close to an image trigger upload menu. Clicking on image should persist it should not activate upload menu if we are pointer inside the image.
+[ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
 - : means not planed or considered
 x : done
   : not done

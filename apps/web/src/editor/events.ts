@@ -681,6 +681,11 @@ function handleMouseDown(
     state = closeSlashCommand(state);
   }
 
+  // Close image upload popover on any click (will be reopened below if clicking on an image)
+  if (state.ui.imageUpload) {
+    state = { ...state, ui: { ...state.ui, imageUpload: null } };
+  }
+
   state = updateFocus(state, true);
 
   state = {
@@ -783,6 +788,23 @@ function handleMouseDown(
   if (!position) {
     const clearedState = clearSelection(state);
     return updateMode(clearedState, "edit");
+  }
+
+  // Check if clicked on an image block
+  const clickedBlock = state.document.page.blocks[position.blockIndex];
+  if (clickedBlock && clickedBlock.type === "image") {
+    // Open image upload popover
+    return {
+      ...state,
+      ui: {
+        ...state.ui,
+        imageUpload: {
+          blockIndex: position.blockIndex,
+          x: event.x, 
+          y: event.y,
+        },
+      },
+    };
   }
 
   // Track click for double/triple click detection
@@ -1272,6 +1294,11 @@ function handleKeyDown(
         if (state.document.cursor) {
           const { blockIndex, textIndex } = state.ui.slashCommand;
           const block = state.document.page.blocks[blockIndex];
+
+          // Image blocks shouldn't have slash commands, but guard anyway
+          if (block.type === "image") {
+            return closeSlashCommand(state);
+          }
 
           // Remove the "/" and filter text, preserving formatting
           const newContent = deleteTextRangeInFormattedContent(
@@ -2089,6 +2116,39 @@ function handleTouchEnd(
     touchTapTracker.lastTapPosition = tapPosition;
 
     if (position) {
+      // Check if tapped on an image block
+      const tappedBlock = state.document.page.blocks[position.blockIndex];
+      if (tappedBlock && tappedBlock.type === "image") {
+        // Open image upload popover (close any existing ones first)
+        touchState = null;
+        return {
+          ...state,
+          ui: {
+            ...state.ui,
+            imageUpload: {
+              blockIndex: position.blockIndex,
+              x: tapPosition.x,
+              y: tapPosition.y,
+            },
+          },
+          view: {
+            ...state.view,
+            scrollbar: {
+              ...state.view.scrollbar,
+              lastInteraction: Date.now(),
+            },
+          },
+        };
+      }
+
+      // Close image upload popover when tapping on non-image blocks
+      if (state.ui.imageUpload) {
+        state = {
+          ...state,
+          ui: { ...state.ui, imageUpload: null },
+        };
+      }
+
       // Handle triple-tap: always select line (even inside selection)
       if (isMultiTap && touchTapTracker.count >= 3) {
         state = selectLineAtPosition(state, position);

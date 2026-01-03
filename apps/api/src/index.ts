@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import pagesRouter from "./routes/pages";
+import imagesRouter from "./routes/images";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,6 +17,7 @@ app.get("/health", (req, res) => {
 });
 
 app.use("/api/pages", pagesRouter);
+app.use("/api/images", imagesRouter);
 
 // 404 handler
 app.use((req, res) => {
@@ -32,5 +34,6 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`📄 Pages API: http://localhost:${PORT}/api/pages`);
+  console.log(`🖼️  Images API: http://localhost:${PORT}/api/images`);
 });
 

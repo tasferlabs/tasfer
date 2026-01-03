@@ -1,4 +1,5 @@
 import type { Block, Text } from "../deserializer/loadPage";
+import { isTextBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
   getFontMetrics,
@@ -31,16 +32,23 @@ export function getCursorCoordinates(
 
   for (let i = 0; i < position.blockIndex; i++) {
     const block = state.document.page.blocks[i];
-    const blockHeight = getBlockHeight(block, maxWidth, styles);
+    const blockHeight = getBlockHeight(block, maxWidth, styles, i);
     currentY += blockHeight;
   }
 
   const block = state.document.page.blocks[position.blockIndex];
   if (!block) return null;
 
+  // Image blocks don't have cursors - they shouldn't be used with this function
+  if (block.type === "image") return null;
+
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
+  if (!isTextBlock(block)) {
+    return null;
+  }
+
   const fontMetrics = getFontMetrics(
     textStyle.fontSize,
     textStyle.fontWeight,
@@ -147,6 +155,13 @@ export function getCursorCoordinatesWithComposition(
   const position = state.document.cursor.position;
   const block = state.document.page.blocks[position.blockIndex];
   if (!block) return null;
+
+  // Image blocks don't have cursors
+  if (block.type === "image") return null;
+
+  if (!isTextBlock(block)) {
+    return null;
+  }
 
   // If not composing, use regular cursor coordinates
   if (!state.ui.composition?.isComposing || !state.ui.composition.text) {
@@ -348,7 +363,7 @@ export function getTextPositionFromViewport(
   y: number,
   state: EditorState,
   viewport: ViewportState,
-  visibility: { start: number; end: number },
+  _visibility: { start: number; end: number },
   styles: EditorStyles = getEditorStyles()
 ): Position | null {
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
@@ -363,14 +378,11 @@ export function getTextPositionFromViewport(
     return null;
   }
 
-  // Only consider visible blocks for performance
-  const startIndex = visibility.start;
-  const endIndex = visibility.end;
-
-  // Iterate through visible blocks to find the target block
-  for (let blockIndex = startIndex; blockIndex <= endIndex; blockIndex++) {
+  // We need to iterate through ALL blocks from the start to get correct Y positions
+  // (same as renderPage does), but we can optimize by only checking clicks within visible range
+  for (let blockIndex = 0; blockIndex < state.document.page.blocks.length; blockIndex++) {
     const block = state.document.page.blocks[blockIndex];
-    const blockHeight = getBlockHeight(block, maxWidth, styles);
+    const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
 
     // Check if click is within this block's Y bounds
     if (y >= currentY && y < currentY + blockHeight) {
@@ -428,6 +440,22 @@ function getPositionWithinBlock(
   maxWidth: number,
   styles: EditorStyles
 ): Position {
+  // Image blocks don't have text content - position at start of block
+  // The cursor will actually be in a neighboring text block
+  if (block.type === "image") {
+    return {
+      blockIndex,
+      textIndex: 0,
+    };
+  }
+
+  if (!isTextBlock(block)) {
+    return {
+      blockIndex,
+      textIndex: 0,
+    };
+  }
+
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
@@ -536,6 +564,13 @@ function getPositionWithinLine(
   maxWidth: number,
   isRTL: boolean
 ): Position {
+  if (!isTextBlock(block)) {
+    return {
+      blockIndex: 0,
+      textIndex: lineStartIndex,
+    };
+  }
+
   const relativeX = x - paddingLeft;
 
   // Calculate line width first
@@ -669,6 +704,9 @@ export function getLinkAtPosition(
 } | null {
   const block = state.document.page.blocks[position.blockIndex];
   if (!block) return null;
+
+  // Image blocks don't have text content or links
+  if (block.type === "image") return null;
 
   let currentIndex = 0;
 

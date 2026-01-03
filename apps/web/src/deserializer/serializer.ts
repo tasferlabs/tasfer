@@ -6,6 +6,13 @@ export function serializeToMarkdown(blocks: Block[]): string {
   }
   
   const serializedBlocks = blocks.map((block) => {
+    // Handle image blocks separately
+    if (block.type === "image") {
+      const alt = block.alt || "";
+      return `![${alt}](${block.url})`;
+    }
+    
+    // Handle text blocks (headings and paragraphs)
     let content = "";
     
     // Build content with inline formatting
@@ -44,11 +51,15 @@ export function serializeToMarkdown(blocks: Block[]): string {
   // If the last block is empty, we need to add a trailing newline
   // to preserve the empty block when deserializing
   const lastBlock = blocks[blocks.length - 1];
-  const lastBlockIsEmpty = lastBlock.content.length === 0 || 
-    (lastBlock.content.length === 1 && lastBlock.content[0].content === "");
   
-  if (lastBlockIsEmpty && blocks.length > 1) {
-    return result + "\n";
+  // Only check for empty content if it's a text block
+  if (lastBlock.type !== "image") {
+    const lastBlockIsEmpty = lastBlock.content.length === 0 || 
+      (lastBlock.content.length === 1 && lastBlock.content[0].content === "");
+    
+    if (lastBlockIsEmpty && blocks.length > 1) {
+      return result + "\n";
+    }
   }
   
   return result;

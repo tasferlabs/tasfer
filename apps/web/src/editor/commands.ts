@@ -1,6 +1,6 @@
 import type { EditorState, Position } from "./types";
-import type { Block, Text, TextFormat } from "../deserializer/loadPage";
-import { areFormatArraysEqual } from "../deserializer/loadPage";
+import type { Block, Text, TextFormat, TextBlock } from "../deserializer/loadPage";
+import { areFormatArraysEqual, isTextBlock } from "../deserializer/loadPage";
 import type { SlashCommand } from "./types";
 import {
   getBlockTextContent,
@@ -137,6 +137,10 @@ function getFormatsAtPosition(
   block: Block,
   textIndex: number
 ): readonly TextFormat[] | undefined {
+  if (!isTextBlock(block)) {
+    return undefined;
+  }
+
   if (textIndex === 0) {
     // At the start of the block, no formatting
     return undefined;
@@ -452,6 +456,9 @@ function applyMarkdownPrefix(
   block: Block,
   preserveType: boolean = false
 ): Block {
+  if (!isTextBlock(block)) {
+    return block;
+  }
   const text = block.content.map((t) => t.content).join("");
   if (text.startsWith("### ")) {
     block.type = "heading3";
@@ -505,6 +512,10 @@ export function deleteSelectedText(state: EditorState): EditorState {
   if (start.blockIndex === end.blockIndex) {
     // Single block selection - preserve formatting
     const block = state.document.page.blocks[start.blockIndex];
+    if (!isTextBlock(block)) {
+      // Can't delete text from non-text blocks
+      return state;
+    }
     const newContent = deleteTextRangeInFormattedContent(
       block.content,
       start.textIndex,
@@ -537,6 +548,11 @@ export function deleteSelectedText(state: EditorState): EditorState {
     // Multi-block selection - preserve formatting from start and end blocks
     const startBlock = state.document.page.blocks[start.blockIndex];
     const endBlock = state.document.page.blocks[end.blockIndex];
+
+    if (!isTextBlock(startBlock) || !isTextBlock(endBlock)) {
+      // Can't delete text from non-text blocks
+      return state;
+    }
 
     // Keep the formatted content before selection start from startBlock
     const beforeContent = deleteTextRangeInFormattedContent(
@@ -600,6 +616,10 @@ export function insertText(state: EditorState, input: string): EditorState {
 
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
+  
+  if (!isTextBlock(oldBlock)) {
+    return state;
+  }
   
   // Get active formats from UI (for toggle bold/italic/etc without selection)
   const activeFormats = state.ui.activeFormatsMode.type === 'explicit' 
@@ -706,6 +726,9 @@ export function deleteText(state: EditorState): EditorState {
 
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
+  if (!isTextBlock(oldBlock)) {
+    return state;
+  }
   if (textIndex > 0) {
     // Delete one character before cursor, preserving formatting
     const newContent = deleteTextRangeInFormattedContent(
@@ -730,6 +753,9 @@ export function deleteText(state: EditorState): EditorState {
     return moveCursorToPosition(newState, blockIndex, textIndex - 1, true);
   } else if (blockIndex > 0) {
     const prevBlock = state.document.page.blocks[blockIndex - 1];
+    if (!isTextBlock(prevBlock) || !isTextBlock(oldBlock)) {
+      return state;
+    }
     const prevText = getBlockTextContent(prevBlock);
     // Merge the formatted content arrays
     const mergedContent = [...prevBlock.content, ...oldBlock.content];
@@ -788,6 +814,11 @@ export function deleteForward(state: EditorState): EditorState {
 
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
+  
+  if (!isTextBlock(oldBlock)) {
+    return state;
+  }
+  
   const oldText = getBlockTextContent(oldBlock);
 
   if (textIndex < oldText.length) {
@@ -815,6 +846,9 @@ export function deleteForward(state: EditorState): EditorState {
   } else if (blockIndex < state.document.page.blocks.length - 1) {
     // Merge with next block, preserving formatting
     const nextBlock = state.document.page.blocks[blockIndex + 1];
+    if (!isTextBlock(nextBlock)) {
+      return state;
+    }
     const mergedContent = [...oldBlock.content, ...nextBlock.content];
     
     // Determine which block type to preserve:
@@ -825,7 +859,7 @@ export function deleteForward(state: EditorState): EditorState {
     
     const blockCopy: Block = {
       ...oldBlock,
-      type: typeToPreserve,
+      type: typeToPreserve as TextBlock["type"],
       content: mergeAdjacentSegments(mergedContent),
     };
     // Only apply markdown prefix if the resulting type is a paragraph
@@ -973,6 +1007,10 @@ export function moveToPreviousWord(state: EditorState): EditorState {
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
 
+  if (!isTextBlock(block)) {
+    return state;
+  }
+
   // Check if current block is RTL
   const isRTL = getFormattedTextDirection(block.content) === "rtl";
 
@@ -1006,6 +1044,10 @@ export function moveToNextWord(state: EditorState): EditorState {
   const { blockIndex, textIndex } = state.document.cursor.position;
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
+
+  if (!isTextBlock(block)) {
+    return state;
+  }
 
   // Check if current block is RTL
   const isRTL = getFormattedTextDirection(block.content) === "rtl";
@@ -1043,6 +1085,10 @@ export function deleteWordForward(state: EditorState): EditorState {
 
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
+  if (!isTextBlock(oldBlock)) {
+    return state;
+  }
+  
   const oldText = getBlockTextContent(oldBlock);
 
   if (textIndex < oldText.length) {
@@ -1071,6 +1117,9 @@ export function deleteWordForward(state: EditorState): EditorState {
   } else if (blockIndex < state.document.page.blocks.length - 1) {
     // At end of line - merge with next block, preserving formatting
     const nextBlock = state.document.page.blocks[blockIndex + 1];
+    if (!isTextBlock(nextBlock)) {
+      return state;
+    }
     const mergedContent = [...oldBlock.content, ...nextBlock.content];
     
     // Determine which block type to preserve:
@@ -1081,7 +1130,7 @@ export function deleteWordForward(state: EditorState): EditorState {
     
     const blockCopy: Block = {
       ...oldBlock,
-      type: typeToPreserve,
+      type: typeToPreserve as TextBlock["type"],
       content: mergeAdjacentSegments(mergedContent),
     };
     // Only apply markdown prefix if the resulting type is a paragraph
@@ -1114,6 +1163,11 @@ export function deleteWordBackward(state: EditorState): EditorState {
 
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
+  
+  if (!isTextBlock(oldBlock)) {
+    return state;
+  }
+  
   const oldText = getBlockTextContent(oldBlock);
 
   if (textIndex > 0) {
@@ -1142,6 +1196,9 @@ export function deleteWordBackward(state: EditorState): EditorState {
   } else if (blockIndex > 0) {
     // At start of line - merge with previous block, preserving formatting
     const prevBlock = state.document.page.blocks[blockIndex - 1];
+    if (!isTextBlock(prevBlock)) {
+      return state;
+    }
     const prevText = getBlockTextContent(prevBlock);
     const mergedContent = [...prevBlock.content, ...oldBlock.content];
     
@@ -1153,7 +1210,7 @@ export function deleteWordBackward(state: EditorState): EditorState {
     
     const blockCopy: Block = {
       ...prevBlock,
-      type: typeToPreserve,
+      type: typeToPreserve as TextBlock["type"],
       content: mergeAdjacentSegments(mergedContent),
     };
     // Only apply markdown prefix if the resulting type is a paragraph
@@ -1410,6 +1467,11 @@ export function splitBlock(state: EditorState): EditorState {
   if (!state.document.cursor) return state;
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
+  
+  if (!isTextBlock(oldBlock)) {
+    return state;
+  }
+  
   const oldText = getBlockTextContent(oldBlock);
 
   // Preserve the original block type for both blocks
@@ -1562,6 +1624,10 @@ export function toggleBold(state: EditorState): EditorState {
     // Single block selection
     const block = state.document.page.blocks[start.blockIndex];
     
+    if (!isTextBlock(block)) {
+      return state;
+    }
+    
     // Extract the segments in the selected range
     const selectedSegments = extractSegmentsInRange(
       block.content,
@@ -1611,6 +1677,9 @@ export function toggleBold(state: EditorState): EditorState {
     
     for (let i = start.blockIndex; i <= end.blockIndex; i++) {
       const block = newBlocks[i];
+      if (!isTextBlock(block)) {
+        continue; // Skip non-text blocks
+      }
       const blockText = getBlockTextContent(block);
       
       if (i === start.blockIndex) {
@@ -1635,6 +1704,9 @@ export function toggleBold(state: EditorState): EditorState {
     // Now apply the formatting to each block
     for (let i = start.blockIndex; i <= end.blockIndex; i++) {
       const block = newBlocks[i];
+      if (!isTextBlock(block)) {
+        continue; // Skip non-text blocks
+      }
       const blockText = getBlockTextContent(block);
       
       let beforeSegments: Text[];
@@ -1698,12 +1770,21 @@ export function convertBlockType(
   const { blockIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
+  // Can't convert image blocks to text blocks or vice versa
+  if (blockType === "image" && !isTextBlock(oldBlock)) {
+    // Already an image block
+    return state;
+  }
+  if (blockType !== "image" && !isTextBlock(oldBlock)) {
+    // Can't convert image to text block
+    return state;
+  }
+
   // Create new block with the specified type, preserving formatting
-  const newBlock: Block = {
+  const newBlock: Block = isTextBlock(oldBlock) ? {
     ...oldBlock,
-    type: blockType,
-    content: oldBlock.content, // Keep the formatted content as-is
-  };
+    type: blockType as TextBlock["type"],
+  } : oldBlock;
 
   // Invalidate cache only for the changed block
   invalidateBlockCache(newBlock);
@@ -1729,6 +1810,65 @@ export function applySlashCommand(
   // Remove the "/" and filter text, preserving formatting
   const block = state.document.page.blocks[blockIndex];
 
+  // Special handling for image blocks
+  if (command.type === "image") {
+    // For image blocks, we replace the current block with an empty image block
+    const newBlock: Block = {
+      id: block.id,
+      type: "image",
+      url: "", // Will be filled when image is uploaded
+      alt: "",
+      uploadStatus: "uploading",
+    };
+
+    // Invalidate cache only for the changed block
+    invalidateBlockCache(newBlock);
+
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[blockIndex] = newBlock;
+    const newPage = { ...state.document.page, blocks: newBlocks };
+
+    // Update state
+    let newState: EditorState = {
+      ...state,
+      document: { ...state.document, page: newPage },
+    };
+    newState = closeSlashCommand(newState);
+    
+    // Move cursor to next block (create one if needed)
+    if (blockIndex + 1 < newBlocks.length) {
+      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
+    } else {
+      // Create a new paragraph block after the image
+      const newParagraph: Block = {
+        id: generateBlockId(),
+        type: "paragraph",
+        content: [{ content: "", formats: undefined }],
+      };
+      const blocksWithNewParagraph = [...newBlocks, newParagraph];
+      newState = {
+        ...newState,
+        document: {
+          ...newState.document,
+          page: { ...newPage, blocks: blocksWithNewParagraph },
+        },
+      };
+      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
+    }
+
+    return newState;
+  }
+
+  // Regular text-based blocks
+  // If the current block is already an image, just close the slash command
+  if (block.type === "image") {
+    return closeSlashCommand(state);
+  }
+
+  if (!isTextBlock(block)) {
+    return closeSlashCommand(state);
+  }
+
   // Delete from "/" position to current cursor position
   const newContent = deleteTextRangeInFormattedContent(
     block.content,
@@ -1739,7 +1879,7 @@ export function applySlashCommand(
   // Update block content and type
   const newBlock: Block = {
     ...block,
-    type: command.type,
+    type: command.type as TextBlock["type"],
     content: newContent,
   };
 
@@ -1775,6 +1915,10 @@ export function updateLinkInBlock(
 ): EditorState {
   const block = state.document.page.blocks[blockIndex];
   if (!block) return state;
+
+  if (!isTextBlock(block)) {
+    return state;
+  }
 
   // If newText is empty, don't update (prevents index shifting during editing)
   // User should use clearLinkInBlock to explicitly delete the link
@@ -1817,6 +1961,10 @@ export function clearLinkInBlock(
 ): EditorState {
   const block = state.document.page.blocks[blockIndex];
   if (!block) return state;
+
+  if (!isTextBlock(block)) {
+    return state;
+  }
 
   const newBlock: Block = {
     ...block,

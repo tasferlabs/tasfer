@@ -1,4 +1,5 @@
 import type { Block, Text } from "../deserializer/loadPage";
+import { isTextBlock } from "../deserializer/loadPage";
 import {
   FONT_STACKS,
   getCurrentFontFamily,
@@ -6,7 +7,6 @@ import {
   measureText,
   wrapFormattedTextDetailed,
   type FontFamily,
-  type WrappedLine,
 } from "./fonts";
 import { renderScrollbar } from "./scrollbar";
 import { getBlockTextContent, isCursorBlinking } from "./state";
@@ -32,6 +32,10 @@ function getContentWithComposition(
   content: Text[];
   compositionRange: { start: number; end: number } | null;
 } {
+  if (!isTextBlock(block)) {
+    return { content: [], compositionRange: null };
+  }
+  
   // Check if composition is active and cursor is in this block
   if (
     !state.ui.composition ||
@@ -236,7 +240,7 @@ function renderCompositionUnderline(
   fontMetrics: FontMetrics,
   codePadding: number,
   isRTL: boolean,
-  maxWidth: number
+  _maxWidth: number
 ) {
   // Calculate the overlap between this line and the composition range
   const underlineStart = Math.max(lineStartIndex, compositionStart);
@@ -547,6 +551,11 @@ export const renderBlock = (
   maxWidth: number,
   styles: EditorStyles = getEditorStyles()
 ): RenderedBlock => {
+  // Handle image blocks
+  if (block.type === "image") {
+    return renderImageBlock(ctx, state, block, blockIndex, x, y, maxWidth, styles);
+  }
+
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
@@ -786,6 +795,10 @@ function renderCursor(
 ) {
   if (!state.document.cursor || !state.view.isFocused) return;
 
+  if (!isTextBlock(block)) {
+    return;
+  }
+
   let cursorX = x;
   let cursorY = y;
   let cursorHeight = fontMetrics.fontSize * textStyle.lineHeight;
@@ -870,6 +883,10 @@ function renderSelection(
   maxWidth: number
 ) {
   if (!state.document.selection) return;
+
+  if (!isTextBlock(block)) {
+    return;
+  }
 
   // Sort anchor and focus to ensure start is always before end
   let start = state.document.selection.isForward
@@ -1096,12 +1113,191 @@ function renderSelection(
   }
 }
 
+// Image cache to avoid reloading images
+const imageCache = new Map<string, HTMLImageElement>();
+
+// Load image and cache it
+function loadImage(url: string): Promise<HTMLImageElement> {
+  // Check cache first
+  if (imageCache.has(url)) {
+    const cached = imageCache.get(url)!;
+    if (cached.complete) {
+      return Promise.resolve(cached);
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous"; // Enable CORS if needed
+    
+    img.onload = () => {
+      imageCache.set(url, img);
+      resolve(img);
+    };
+    
+    img.onerror = () => {
+      reject(new Error(`Failed to load image: ${url}`));
+    };
+    
+    img.src = url;
+    
+    // If already complete (from cache), resolve immediately
+    if (img.complete) {
+      imageCache.set(url, img);
+      resolve(img);
+    }
+  });
+}
+
+// Render image block
+function renderImageBlock(
+  ctx: CanvasRenderingContext2D,
+  _state: EditorState,
+  block: Block,
+  _blockIndex: number,
+  _x: number,
+  y: number,
+  _maxWidth: number,
+  styles: EditorStyles
+): RenderedBlock {
+  if (block.type !== "image") {
+    throw new Error("renderImageBlock called on non-image block");
+  }
+
+  const padding = 20;
+  const imageHeight = 300; // Fixed height for all images
+  
+  // Calculate full canvas width (accounting for left and right padding)
+  const fullWidth = _maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
+  const fullWidthX = 0; // Start from canvas edge, not content edge
+  
+  ctx.save();
+
+  // Draw placeholder or image
+  if (block.uploadStatus === "uploading") {
+    // Uploading state
+    ctx.fillStyle = "#f3f4f6";
+    ctx.fillRect(fullWidthX, y, fullWidth, imageHeight);
+    
+    ctx.fillStyle = "#6b7280";
+    ctx.font = "14px system-ui, -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Uploading image...", fullWidthX + fullWidth / 2, y + imageHeight / 2);
+  } else if (block.uploadStatus === "error") {
+    // Error state
+    ctx.fillStyle = "#fee2e2";
+    ctx.fillRect(fullWidthX, y, fullWidth, imageHeight);
+    
+    ctx.fillStyle = "#dc2626";
+    ctx.font = "14px system-ui, -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Failed to upload image", fullWidthX + fullWidth / 2, y + imageHeight / 2);
+    ctx.fillText("Click to retry", fullWidthX + fullWidth / 2, y + imageHeight / 2 + 20);
+  } else if (block.url) {
+    // Try to load and draw the actual image
+    const cachedImage = imageCache.get(block.url);
+    
+    if (cachedImage && cachedImage.complete) {
+      // Update block dimensions if not set
+      if (!block.width || !block.height) {
+        block.width = cachedImage.naturalWidth;
+        block.height = cachedImage.naturalHeight;
+      }
+      
+      // Use "cover" algorithm: fill the entire area while maintaining aspect ratio
+      const imgAspectRatio = cachedImage.naturalWidth / cachedImage.naturalHeight;
+      const containerAspectRatio = fullWidth / imageHeight;
+      
+      let sourceX = 0;
+      let sourceY = 0;
+      let sourceWidth = cachedImage.naturalWidth;
+      let sourceHeight = cachedImage.naturalHeight;
+      
+      // Cover algorithm: crop the image to fill the container
+      if (imgAspectRatio > containerAspectRatio) {
+        // Image is wider than container - crop width
+        sourceWidth = cachedImage.naturalHeight * containerAspectRatio;
+        sourceX = (cachedImage.naturalWidth - sourceWidth) / 2;
+      } else {
+        // Image is taller than container - crop height
+        sourceHeight = cachedImage.naturalWidth / containerAspectRatio;
+        sourceY = (cachedImage.naturalHeight - sourceHeight) / 2;
+      }
+      
+      // Draw background (for any transparency)
+      ctx.fillStyle = "#f9fafb";
+      ctx.fillRect(fullWidthX, y, fullWidth, imageHeight);
+      
+      // Draw the image using cover algorithm (cropping as needed)
+      ctx.drawImage(
+        cachedImage,
+        sourceX, sourceY, sourceWidth, sourceHeight,  // Source rectangle
+        fullWidthX, y, fullWidth, imageHeight         // Destination rectangle
+      );
+    } else {
+      // Show loading placeholder while image loads
+      ctx.fillStyle = "#f3f4f6";
+      ctx.fillRect(fullWidthX, y, fullWidth, imageHeight);
+      
+      ctx.fillStyle = "#9ca3af";
+      ctx.font = "14px system-ui, -apple-system, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("Loading image...", fullWidthX + fullWidth / 2, y + imageHeight / 2);
+      
+      // Start loading the image
+      loadImage(block.url).then(() => {
+        // Force re-render when image loads
+        // This will be handled by the editor's render loop
+      }).catch((error) => {
+        console.error("Failed to load image:", error);
+      });
+    }
+  } else {
+    // No image - show upload prompt
+    ctx.strokeStyle = "#d1d5db";
+    ctx.setLineDash([5, 5]);
+    ctx.lineWidth = 2;
+    ctx.strokeRect(fullWidthX, y, fullWidth, imageHeight);
+    
+    ctx.fillStyle = "#9ca3af";
+    ctx.font = "14px system-ui, -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Click to upload image", fullWidthX + fullWidth / 2, y + imageHeight / 2);
+  }
+
+  ctx.restore();
+
+  const blockBounds: BlockBounds = {
+    x: fullWidthX,
+    y,
+    width: fullWidth,
+    height: imageHeight + padding,
+  };
+
+  return {
+    block,
+    bounds: blockBounds,
+    lines: [], // Image blocks don't have text lines
+  };
+}
+
 // Calculate block height dynamically based on content and max width
 export const calculateBlockHeight = (
   block: Block,
   maxWidth: number,
   styles: EditorStyles
 ): number => {
+  // Handle image blocks
+  if (block.type === "image") {
+    const imageHeight = 300; // Fixed height for all images
+    const padding = 20;
+    return imageHeight + padding;
+  }
+
+  if (!isTextBlock(block)) {
+    return 0;
+  }
+
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;

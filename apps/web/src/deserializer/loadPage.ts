@@ -16,6 +16,19 @@ export interface Paragraph {
   cachedWidth?: number; // Width at which height was cached
 }
 
+export interface Image {
+  id: string; // Unique identifier for caching
+  type: "image";
+  url: string;
+  alt?: string;
+  width?: number;
+  height?: number;
+  cachedHeight?: number; // Cached rendered height
+  cachedWidth?: number; // Width at which height was cached
+  uploadStatus?: 'uploading' | 'complete' | 'error';
+  file?: File; // Temporary file during upload
+}
+
 export interface TextFormat {
   type: 'bold' | 'italic' | 'strikethrough' | 'code' | 'link';
   url?: string; // Only for link type
@@ -54,7 +67,28 @@ export function areFormatArraysEqual(a: TextFormat[] | undefined, b: TextFormat[
   return true;
 }
 
-export type Block = Heading | Paragraph;
+// Text blocks contain text content
+export type TextBlock = Heading | Paragraph;
+
+// Visual blocks contain visual content (images, etc.)
+export type VisualBlock = Image;
+
+// Block is a union of all block types
+export type Block = TextBlock | VisualBlock;
+
+// Type guards
+export function isTextBlock(block: Block): block is TextBlock {
+  return block.type !== "image";
+}
+
+export function isVisualBlock(block: Block): block is VisualBlock {
+  return block.type === "image";
+}
+
+// Legacy alias for backward compatibility
+export function isImageBlock(block: Block): block is Image {
+  return block.type === "image";
+}
 
 export interface Page {
   title: String;

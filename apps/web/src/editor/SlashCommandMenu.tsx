@@ -35,6 +35,14 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     icon: "H3",
     keywords: ["h3", "heading3", "heading 3", "3"],
   },
+  {
+    id: "image",
+    type: "image",
+    label: "Image",
+    description: "Upload or embed an image.",
+    icon: "🖼️",
+    keywords: ["image", "img", "picture", "photo", "upload"],
+  },
 ];
 
 interface SlashCommandMenuProps {

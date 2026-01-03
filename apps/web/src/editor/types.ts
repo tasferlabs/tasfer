@@ -60,6 +60,13 @@ export interface UIState {
   readonly isHoveringLinkWithModifier: boolean;
   readonly composition: CompositionState | null;
   readonly activeFormatsMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
+  readonly imageUpload: ImageUploadState | null;
+}
+
+export interface ImageUploadState {
+  readonly blockIndex: number;
+  readonly x: number;
+  readonly y: number;
 }
 
 // View State - Ephemeral view properties

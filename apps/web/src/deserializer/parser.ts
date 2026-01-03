@@ -1,4 +1,4 @@
-import type { Block, Heading, Page, Paragraph, Text, TextFormat } from "./loadPage";
+import type { Block, Heading, Page, Paragraph, Image, Text, TextFormat } from "./loadPage";
 import {
   BOLD_END,
   BOLD_START,
@@ -12,9 +12,13 @@ import {
   LINK_END,
   LINK_START,
   LINK_TEXT_END,
+  IMAGE_START,
+  IMAGE_ALT_END,
+  IMAGE_END,
   NEWLINE,
   STRIKETHROUGH_END,
   STRIKETHROUGH_START,
+  TEXT,
   type Token,
   type TokenType,
   type VisibleToken,
@@ -68,6 +72,7 @@ function isEnd(context: ParserContext) {
 }
 function parseBlock(context: ParserContext): Block {
   if (match(context, NEWLINE)) return emptyBlock(context);
+  if (check(context, IMAGE_START)) return parseImage(context);
   if (match(context, HEADING_1)) return parseHeading(context, 1);
   if (match(context, HEADING_2)) return parseHeading(context, 2);
   if (match(context, HEADING_3)) return parseHeading(context, 3);
@@ -247,6 +252,42 @@ function paresParagraph(context: ParserContext): Paragraph {
     id: `block-${context.blockIdCounter++}`,
     type: "paragraph",
     content: text,
+  };
+}
+
+function parseImage(context: ParserContext): Image {
+  // ![alt](url)
+  match(context, IMAGE_START); // Consume ![
+  
+  let altText = "";
+  let imageUrl = "";
+  
+  // Get alt text
+  if (!isEnd(context) && check(context, TEXT)) {
+    advance(context);
+    altText = (previous(context) as VisibleToken).content;
+  }
+  
+  // Consume ](
+  match(context, IMAGE_ALT_END);
+  
+  // Get URL
+  if (!isEnd(context) && check(context, TEXT)) {
+    advance(context);
+    imageUrl = (previous(context) as VisibleToken).content;
+  }
+  
+  // Consume )
+  match(context, IMAGE_END);
+  
+  // Consume optional newline
+  match(context, NEWLINE);
+  
+  return {
+    id: `block-${context.blockIdCounter++}`,
+    type: "image",
+    url: imageUrl,
+    alt: altText,
   };
 }
 

@@ -70,6 +70,16 @@ export interface Editor {
     selection: EditorState["document"]["selection"]
   ) => void;
   forceRender: () => void;
+  updateImageBlock: (
+    blockIndex: number,
+    updates: {
+      url?: string;
+      alt?: string;
+      width?: number;
+      height?: number;
+      uploadStatus?: "uploading" | "complete" | "error";
+    }
+  ) => void;
 }
 
 export default function createEditor(
@@ -669,8 +679,8 @@ export default function createEditor(
     const maxWidth = viewport.width - 2 * styles.canvas.paddingLeft;
     let totalHeight = styles.canvas.paddingTop;
 
-    for (const block of state.document.page.blocks) {
-      totalHeight += calculateBlockHeight(block, maxWidth, styles);
+    for (let i = 0; i < state.document.page.blocks.length; i++) {
+      totalHeight += calculateBlockHeight(state.document.page.blocks[i], maxWidth, styles, i);
     }
 
     return totalHeight + styles.canvas.paddingBottom;
@@ -843,6 +853,44 @@ export default function createEditor(
     listeners.forEach((listener) => listener(currentState));
   }
 
+  function updateImageBlock(
+    blockIndex: number,
+    updates: {
+      url?: string;
+      alt?: string;
+      width?: number;
+      height?: number;
+      uploadStatus?: "uploading" | "complete" | "error";
+    }
+  ) {
+    const block = state.document.page.blocks[blockIndex];
+    
+    if (!block || block.type !== "image") {
+      console.error("Attempted to update non-image block as image");
+      return;
+    }
+
+    const updatedBlock = {
+      ...block,
+      ...updates,
+    };
+
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[blockIndex] = updatedBlock;
+
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        page: { ...state.document.page, blocks: newBlocks },
+      },
+    };
+
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
   return {
     getState,
     destroy,
@@ -866,5 +914,6 @@ export default function createEditor(
     setMode,
     restoreCursorAndSelection,
     forceRender: scheduleRender,
+    updateImageBlock,
   };
 }

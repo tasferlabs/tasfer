@@ -10,10 +10,12 @@ import { SlashCommandMenu } from "../editor/SlashCommandMenu";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { LinkTooltip } from "../editor/LinkTooltip";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
+import { ImageUploadPopover } from "../editor/ImageUploadPopover";
 import { getSelectionRange } from "../editor/commands";
 import { Clipboard, Copy, Scissors, Type } from "lucide-react";
 import { hasNativeBridge } from "../editor/clipboard";
 import { serializeToMarkdown } from "../deserializer/serializer";
+import { uploadImage } from "./api/images.api";
 
 interface ScrollableEditorProps {
   content: string;
@@ -60,6 +62,13 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     segmentIndex: number;
     savedCursor: EditorState["document"]["cursor"];
     savedSelection: EditorState["document"]["selection"];
+  } | null>(null);
+
+  const [imageUploadState, setImageUploadState] = useState<{
+    x: number;
+    y: number;
+    blockIndex: number;
+    uploadStatus: 'idle' | 'uploading' | 'complete' | 'error';
   } | null>(null);
 
   const lastSlashMenuStateRef = useRef<typeof slashMenuState>(null);
@@ -194,6 +203,24 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       if (!shallowEqual(newLinkTooltipState, lastLinkTooltipStateRef.current)) {
         lastLinkTooltipStateRef.current = newLinkTooltipState;
         setLinkTooltipState(newLinkTooltipState);
+      }
+
+      // Calculate new image upload state
+      if (state.ui.imageUpload) {
+        const containerRect = wrapperRef.current?.getBoundingClientRect();
+        if (containerRect) {
+          const block = state.document.page.blocks[state.ui.imageUpload.blockIndex];
+          const uploadStatus = block?.type === 'image' ? (block.uploadStatus || 'idle') : 'idle';
+          
+          setImageUploadState({
+            x: state.ui.imageUpload.x,
+            y: state.ui.imageUpload.y,
+            blockIndex: state.ui.imageUpload.blockIndex,
+            uploadStatus,
+          });
+        }
+      } else if (imageUploadState) {
+        setImageUploadState(null);
       }
 
       // Send undo/redo state to native bridge
@@ -496,6 +523,84 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
             onUpdate={handleLinkUpdate}
             onClear={handleLinkClear}
             onClose={handleLinkEditClose}
+            collisionBoundary={mountedRef.current?.portalContainer}
+            container={mountedRef.current?.portalContainer}
+          />,
+          mountedRef.current.portalContainer
+        )}
+
+      {/* Image upload popover */}
+      {imageUploadState &&
+        mountedRef.current?.portalContainer &&
+        createPortal(
+          <ImageUploadPopover
+            x={imageUploadState.x}
+            y={imageUploadState.y}
+            uploadStatus={imageUploadState.uploadStatus}
+            onUpload={async (file) => {
+              if (!mountedRef.current) return;
+              const editor = mountedRef.current.editor;
+              const state = editor.getState();
+              if (!state) return;
+
+              // Set uploading status
+              editor.updateImageBlock(imageUploadState.blockIndex, {
+                uploadStatus: 'uploading',
+              });
+
+              try {
+                // Upload the image
+                const imageData = await uploadImage(file);
+
+                // Update with the uploaded URL
+                editor.updateImageBlock(imageUploadState.blockIndex, {
+                  url: imageData.url,
+                  alt: imageData.fileName,
+                  uploadStatus: 'complete',
+                });
+              } catch (error) {
+                console.error("Image upload failed:", error);
+                editor.updateImageBlock(imageUploadState.blockIndex, {
+                  uploadStatus: 'error',
+                });
+              }
+            }}
+            onUrlSubmit={(url) => {
+              if (!mountedRef.current) return;
+              const editor = mountedRef.current.editor;
+
+              editor.updateImageBlock(imageUploadState.blockIndex, {
+                url,
+                uploadStatus: 'complete',
+              });
+            }}
+            onDelete={() => {
+              if (!mountedRef.current) return;
+              // TODO: Implement delete image block
+              setImageUploadState(null);
+            }}
+            onClose={() => {
+              setImageUploadState(null);
+              // Clear the imageUpload state in editor
+              if (mountedRef.current) {
+                const editor = mountedRef.current.editor;
+                const state = editor.getState();
+                if (state?.ui.imageUpload) {
+                  // Clear by restoring with imageUpload set to null
+                  const newState = {
+                    ...state,
+                    ui: {
+                      ...state.ui,
+                      imageUpload: null,
+                    },
+                  };
+                  editor.restoreCursorAndSelection(
+                    newState.document.cursor,
+                    newState.document.selection
+                  );
+                }
+              }
+            }}
             collisionBoundary={mountedRef.current?.portalContainer}
             container={mountedRef.current?.portalContainer}
           />,

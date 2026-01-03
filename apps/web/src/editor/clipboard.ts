@@ -1,5 +1,6 @@
 import type { EditorState, Position } from "./types";
 import type { Block } from "../deserializer/loadPage";
+import { isTextBlock } from "../deserializer/loadPage";
 import {
   getBlockTextContent,
   moveCursorToPosition,
@@ -118,6 +119,25 @@ function getSelectedContent(state: EditorState): {
     const block = state.document.page.blocks[start.blockIndex];
     const text = getBlockTextContent(block);
     
+    // Image blocks are included as-is
+    if (block.type === "image") {
+      return {
+        blocks: [block],
+        isPartial: false,
+        start,
+        end,
+      };
+    }
+    
+    if (!isTextBlock(block)) {
+      return {
+        blocks: [block],
+        isPartial: false,
+        start,
+        end,
+      };
+    }
+    
     // Extract the selected portion while preserving formatting
     const selectedContent = deleteTextRangeInFormattedContent(
       deleteTextRangeInFormattedContent(block.content, 0, start.textIndex),
@@ -144,6 +164,17 @@ function getSelectedContent(state: EditorState): {
   for (let i = start.blockIndex; i <= end.blockIndex; i++) {
     const block = state.document.page.blocks[i];
     const text = getBlockTextContent(block);
+
+    // Image blocks are included as-is
+    if (block.type === "image") {
+      blocks.push(block);
+      continue;
+    }
+
+    if (!isTextBlock(block)) {
+      blocks.push(block);
+      continue;
+    }
 
     let blockContent = block.content;
     if (i === start.blockIndex) {
@@ -199,6 +230,16 @@ function blocksToMarkdown(blocks: Block[]): string {
  */
 function blocksToHTML(blocks: Block[]): string {
   const htmlBlocks = blocks.map((block) => {
+    // Handle image blocks
+    if (block.type === "image") {
+      const alt = block.alt || "";
+      return `<img src="${block.url}" alt="${alt}" />`;
+    }
+
+    if (!isTextBlock(block)) {
+      return "";
+    }
+
     // Build content with inline formatting as HTML
     let htmlContent = "";
     
@@ -735,6 +776,16 @@ function insertBlocksAtCursor(
 
   // If pasting a single block
   if (blocks.length === 1) {
+    // Can't paste into non-text blocks
+    if (!isTextBlock(currentBlock)) {
+      return state;
+    }
+    
+    // Can't paste non-text blocks into text blocks
+    if (!isTextBlock(blocks[0])) {
+      return state;
+    }
+    
     // Merge the pasted block's formatted content into current block at cursor position
     const pasteContent = blocks[0].content;
     
@@ -798,6 +849,16 @@ function insertBlocksAtCursor(
     );
   } else {
     // Pasting multiple blocks - preserve formatting in split blocks
+    if (!isTextBlock(currentBlock)) {
+      return state;
+    }
+    
+    // Filter out non-text blocks from paste (or handle them separately)
+    const textBlocks = blocks.filter(isTextBlock);
+    if (textBlocks.length === 0) {
+      return state;
+    }
+    
     const beforeContent = deleteTextRangeInFormattedContent(
       currentBlock.content,
       textIndex,
@@ -810,21 +871,21 @@ function insertBlocksAtCursor(
     );
 
     // First block: current block's content before cursor + first pasted block's content
-    const firstPastedContent = blocks[0].content;
+    const firstPastedContent = textBlocks[0].content;
     const firstBlockContent = [...beforeContent, ...firstPastedContent];
     const firstBlock: Block = {
-      ...blocks[0],
+      ...textBlocks[0],
       content: mergeAdjacentSegments(firstBlockContent),
     };
 
-    // Middle blocks: paste as-is
-    const middleBlocks = blocks.slice(1, -1);
+    // Middle blocks: paste as-is (only text blocks)
+    const middleBlocks = textBlocks.slice(1, -1);
 
     // Last block: last pasted block's content + current block's content after cursor
-    const lastPastedContent = blocks[blocks.length - 1].content;
+    const lastPastedContent = textBlocks[textBlocks.length - 1].content;
     const lastBlockContent = [...lastPastedContent, ...afterContent];
     const lastBlock: Block = {
-      ...blocks[blocks.length - 1],
+      ...textBlocks[textBlocks.length - 1],
       content: mergeAdjacentSegments(lastBlockContent),
     };
 
@@ -852,8 +913,8 @@ function insertBlocksAtCursor(
     };
 
     // Move cursor to end of last pasted block
-    const lastBlockIndex = blockIndex + blocks.length - 1;
-    const lastPastedText = getBlockTextContent(blocks[blocks.length - 1]);
+    const lastBlockIndex = blockIndex + textBlocks.length - 1;
+    const lastPastedText = getBlockTextContent(textBlocks[textBlocks.length - 1]);
     newState = moveCursorToPosition(
       newState,
       lastBlockIndex,
