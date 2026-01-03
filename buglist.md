@@ -34,7 +34,7 @@ Bugs list
 [x] implement ctrl + A to select all text.
 [x] add select all on mobile.
 [x] If select all and right click the context menu disapears.
-[x] link menu should not appear on context menu 
+[x] link menu should not appear on context menu
 [x] add placeholder on empty blocks when editing, on cursor position.
 [x] empty blocks should be seen as selected.
 [x] implement "/" functionality to open command palette.
@@ -143,7 +143,13 @@ Bugs list
 [x] dragging and dropping pagelink on same position it swaps position withe the one under.
 [x] when the editor is not loaded options should not be shown
 [x] clicking close to an image trigger upload menu. Clicking on image should persist it should not activate upload menu if we are pointer inside the image.
+[x] rendering cover image artifcat. The image has border
+[x] Rendering image has supper low resolution. Even though uploaded image is good
+[ ] image should have an buttons
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
+[ ] i need to click two times outside to close image upload menu.
+[ ] click outside the editor does not close the image upload menu or context menu.
+
 - : means not planed or considered
-x : done
+  x : done
   : not done
