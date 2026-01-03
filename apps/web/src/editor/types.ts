@@ -7,7 +7,7 @@ export interface SlashCommand {
   type: Block["type"];
   label: string;
   description: string;
-  icon: string;
+  icon: string | React.ReactElement;
   keywords?: string[];
 }
 

@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import * as Popover from "@radix-ui/react-popover";
+import { Type, Heading1, Heading2, Heading3, Image } from "lucide-react";
 import type { SlashCommand } from "./types";
 
 export const SLASH_COMMANDS: SlashCommand[] = [
@@ -8,7 +9,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     type: "paragraph",
     label: "Text",
     description: "Just start typing with plain text.",
-    icon: "T",
+    icon: <Type size={20} />,
     keywords: ["text", "paragraph", "para", "p", "t"],
   },
   {
@@ -16,7 +17,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     type: "heading1",
     label: "Heading 1",
     description: "Big section heading.",
-    icon: "H1",
+    icon: <Heading1 size={20} />,
     keywords: ["h1", "heading1", "heading 1", "1"],
   },
   {
@@ -24,7 +25,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     type: "heading2",
     label: "Heading 2",
     description: "Medium section heading.",
-    icon: "H2",
+    icon: <Heading2 size={20} />,
     keywords: ["h2", "heading2", "heading 2", "2"],
   },
   {
@@ -32,7 +33,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     type: "heading3",
     label: "Heading 3",
     description: "Small section heading.",
-    icon: "H3",
+    icon: <Heading3 size={20} />,
     keywords: ["h3", "heading3", "heading 3", "3"],
   },
   {
@@ -40,7 +41,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     type: "imageCover",
     label: "Cover Image",
     description: "Full-width cover image.",
-    icon: "🖼️",
+    icon: <Image size={20} />,
     keywords: ["image", "img", "picture", "photo", "upload", "cover"],
   },
 ];
