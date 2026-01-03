@@ -1,4 +1,4 @@
-import type { Block, Heading, Page, Paragraph, Image, Text, TextFormat } from "./loadPage";
+import type { Block, Heading, Page, Paragraph, ImageCover, Text, TextFormat } from "./loadPage";
 import {
   BOLD_END,
   BOLD_START,
@@ -72,7 +72,7 @@ function isEnd(context: ParserContext) {
 }
 function parseBlock(context: ParserContext): Block {
   if (match(context, NEWLINE)) return emptyBlock(context);
-  if (check(context, IMAGE_START)) return parseImage(context);
+  if (check(context, IMAGE_START)) return parseImageCover(context);
   if (match(context, HEADING_1)) return parseHeading(context, 1);
   if (match(context, HEADING_2)) return parseHeading(context, 2);
   if (match(context, HEADING_3)) return parseHeading(context, 3);
@@ -255,7 +255,7 @@ function paresParagraph(context: ParserContext): Paragraph {
   };
 }
 
-function parseImage(context: ParserContext): Image {
+function parseImageCover(context: ParserContext): ImageCover {
   // ![alt](url)
   match(context, IMAGE_START); // Consume ![
   
@@ -285,7 +285,7 @@ function parseImage(context: ParserContext): Image {
   
   return {
     id: `block-${context.blockIdCounter++}`,
-    type: "image",
+    type: "imageCover",
     url: imageUrl,
     alt: altText,
   };

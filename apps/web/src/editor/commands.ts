@@ -1770,13 +1770,13 @@ export function convertBlockType(
   const { blockIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
-  // Can't convert image blocks to text blocks or vice versa
-  if (blockType === "image" && !isTextBlock(oldBlock)) {
-    // Already an image block
+  // Can't convert image cover blocks to text blocks or vice versa
+  if (blockType === "imageCover" && !isTextBlock(oldBlock)) {
+    // Already an image cover block
     return state;
   }
-  if (blockType !== "image" && !isTextBlock(oldBlock)) {
-    // Can't convert image to text block
+  if (blockType !== "imageCover" && !isTextBlock(oldBlock)) {
+    // Can't convert image cover to text block
     return state;
   }
 
@@ -1810,15 +1810,14 @@ export function applySlashCommand(
   // Remove the "/" and filter text, preserving formatting
   const block = state.document.page.blocks[blockIndex];
 
-  // Special handling for image blocks
-  if (command.type === "image") {
-    // For image blocks, we replace the current block with an empty image block
+  // Special handling for image cover blocks
+  if (command.type === "imageCover") {
+    // For image cover blocks, we replace the current block with an empty image cover block
     const newBlock: Block = {
       id: block.id,
-      type: "image",
+      type: "imageCover",
       url: "", // Will be filled when image is uploaded
       alt: "",
-      uploadStatus: "uploading",
     };
 
     // Invalidate cache only for the changed block
@@ -1860,8 +1859,8 @@ export function applySlashCommand(
   }
 
   // Regular text-based blocks
-  // If the current block is already an image, just close the slash command
-  if (block.type === "image") {
+  // If the current block is already an image cover, just close the slash command
+  if (block.type === "imageCover") {
     return closeSlashCommand(state);
   }
 

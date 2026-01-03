@@ -70,15 +70,13 @@ export interface Editor {
     selection: EditorState["document"]["selection"]
   ) => void;
   forceRender: () => void;
-  updateImageBlock: (
+  updateImageCoverBlock: (
     blockIndex: number,
     updates: {
       url?: string;
       alt?: string;
-      width?: number;
-      height?: number;
-      uploadStatus?: "uploading" | "complete" | "error";
-    }
+    },
+    uploadStatus?: "uploading" | "complete" | "error"
   ) => void;
 }
 
@@ -680,7 +678,11 @@ export default function createEditor(
     let totalHeight = styles.canvas.paddingTop;
 
     for (let i = 0; i < state.document.page.blocks.length; i++) {
-      totalHeight += calculateBlockHeight(state.document.page.blocks[i], maxWidth, styles, i);
+      totalHeight += calculateBlockHeight(
+        state.document.page.blocks[i],
+        maxWidth,
+        styles
+      );
     }
 
     return totalHeight + styles.canvas.paddingBottom;
@@ -853,20 +855,18 @@ export default function createEditor(
     listeners.forEach((listener) => listener(currentState));
   }
 
-  function updateImageBlock(
+  function updateImageCoverBlock(
     blockIndex: number,
     updates: {
       url?: string;
       alt?: string;
-      width?: number;
-      height?: number;
-      uploadStatus?: "uploading" | "complete" | "error";
-    }
+    },
+    uploadStatus?: "uploading" | "complete" | "error"
   ) {
     const block = state.document.page.blocks[blockIndex];
-    
-    if (!block || block.type !== "image") {
-      console.error("Attempted to update non-image block as image");
+
+    if (!block || block.type !== "imageCover") {
+      console.error("Attempted to update non-image-cover block as image cover");
       return;
     }
 
@@ -878,8 +878,23 @@ export default function createEditor(
     const newBlocks = [...state.document.page.blocks];
     newBlocks[blockIndex] = updatedBlock;
 
+    // Update UI state with upload status if provided
+    let newUIState = state.ui;
+    if (uploadStatus !== undefined) {
+      newUIState = {
+        ...state.ui,
+        imageUpload: state.ui.imageUpload
+          ? {
+              ...state.ui.imageUpload,
+              uploadStatus,
+            }
+          : null,
+      };
+    }
+
     state = {
       ...state,
+      ui: newUIState,
       document: {
         ...state.document,
         page: { ...state.document.page, blocks: newBlocks },
@@ -914,6 +929,6 @@ export default function createEditor(
     setMode,
     restoreCursorAndSelection,
     forceRender: scheduleRender,
-    updateImageBlock,
+    updateImageCoverBlock,
   };
 }

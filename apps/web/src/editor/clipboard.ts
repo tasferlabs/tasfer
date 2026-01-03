@@ -119,8 +119,8 @@ function getSelectedContent(state: EditorState): {
     const block = state.document.page.blocks[start.blockIndex];
     const text = getBlockTextContent(block);
     
-    // Image blocks are included as-is
-    if (block.type === "image") {
+    // Image cover blocks are included as-is
+    if (block.type === "imageCover") {
       return {
         blocks: [block],
         isPartial: false,
@@ -165,8 +165,8 @@ function getSelectedContent(state: EditorState): {
     const block = state.document.page.blocks[i];
     const text = getBlockTextContent(block);
 
-    // Image blocks are included as-is
-    if (block.type === "image") {
+    // Image cover blocks are included as-is
+    if (block.type === "imageCover") {
       blocks.push(block);
       continue;
     }
@@ -230,8 +230,8 @@ function blocksToMarkdown(blocks: Block[]): string {
  */
 function blocksToHTML(blocks: Block[]): string {
   const htmlBlocks = blocks.map((block) => {
-    // Handle image blocks
-    if (block.type === "image") {
+    // Handle image cover blocks
+    if (block.type === "imageCover") {
       const alt = block.alt || "";
       return `<img src="${block.url}" alt="${alt}" />`;
     }

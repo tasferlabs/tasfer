@@ -4,24 +4,21 @@ import { uploadImage } from "../app/api/images.api";
 import { invalidateBlockCache } from "./renderer";
 
 /**
- * Update an image block with upload data
+ * Update an image cover block with new data
  */
-export function updateImageBlock(
+export function updateImageCoverBlock(
   state: EditorState,
   blockIndex: number,
   updates: {
     url?: string;
     alt?: string;
-    width?: number;
-    height?: number;
-    uploadStatus?: "uploading" | "complete" | "error";
-    file?: File;
-  }
+  },
+  uploadStatus?: "uploading" | "complete" | "error"
 ): EditorState {
   const block = state.document.page.blocks[blockIndex];
   
-  if (block.type !== "image") {
-    console.error("Attempted to update non-image block as image");
+  if (block.type !== "imageCover") {
+    console.error("Attempted to update non-image-cover block as image cover");
     return state;
   }
 
@@ -36,8 +33,21 @@ export function updateImageBlock(
   const newBlocks = [...state.document.page.blocks];
   newBlocks[blockIndex] = updatedBlock;
 
+  // Update UI state with upload status if provided
+  let newUIState = state.ui;
+  if (uploadStatus !== undefined && state.ui.imageUpload?.blockIndex === blockIndex) {
+    newUIState = {
+      ...state.ui,
+      imageUpload: {
+        ...state.ui.imageUpload,
+        uploadStatus,
+      },
+    };
+  }
+
   return {
     ...state,
+    ui: newUIState,
     document: {
       ...state.document,
       page: { ...state.document.page, blocks: newBlocks },
@@ -46,32 +56,27 @@ export function updateImageBlock(
 }
 
 /**
- * Handle image file upload for a block
+ * Handle image file upload for an image cover block
  */
-export async function handleImageUpload(
+export async function handleImageCoverUpload(
   state: EditorState,
   blockIndex: number,
   file: File,
   onStateUpdate: (state: EditorState) => void
 ): Promise<EditorState> {
   try {
-    // Set uploading status
-    let newState = updateImageBlock(state, blockIndex, {
-      uploadStatus: "uploading",
-      file,
-    });
+    // Set uploading status in UI
+    let newState = updateImageCoverBlock(state, blockIndex, {}, "uploading");
     onStateUpdate(newState);
 
     // Upload the image
     const imageData = await uploadImage(file);
 
     // Update with the uploaded URL
-    newState = updateImageBlock(newState, blockIndex, {
+    newState = updateImageCoverBlock(newState, blockIndex, {
       url: imageData.url,
       alt: imageData.fileName,
-      uploadStatus: "complete",
-      file: undefined,
-    });
+    }, "complete");
     onStateUpdate(newState);
 
     return newState;
@@ -79,9 +84,7 @@ export async function handleImageUpload(
     console.error("Image upload failed:", error);
     
     // Set error status
-    const errorState = updateImageBlock(state, blockIndex, {
-      uploadStatus: "error",
-    });
+    const errorState = updateImageCoverBlock(state, blockIndex, {}, "error");
     onStateUpdate(errorState);
     
     return errorState;
@@ -89,9 +92,9 @@ export async function handleImageUpload(
 }
 
 /**
- * Trigger file picker and upload image for a block
+ * Trigger file picker and upload image for an image cover block
  */
-export function openImagePicker(
+export function openImageCoverPicker(
   state: EditorState,
   blockIndex: number,
   onStateUpdate: (state: EditorState) => void
@@ -105,7 +108,7 @@ export function openImagePicker(
     const file = target.files?.[0];
     
     if (file) {
-      await handleImageUpload(state, blockIndex, file, onStateUpdate);
+      await handleImageCoverUpload(state, blockIndex, file, onStateUpdate);
     }
   };
   
@@ -113,9 +116,9 @@ export function openImagePicker(
 }
 
 /**
- * Delete an image block
+ * Delete an image cover block
  */
-export function deleteImageBlock(
+export function deleteImageCoverBlock(
   state: EditorState,
   blockIndex: number
 ): EditorState {

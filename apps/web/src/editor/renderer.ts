@@ -551,9 +551,9 @@ export const renderBlock = (
   maxWidth: number,
   styles: EditorStyles = getEditorStyles()
 ): RenderedBlock => {
-  // Handle image blocks
-  if (block.type === "image") {
-    return renderImageBlock(ctx, state, block, blockIndex, x, y, maxWidth, styles);
+  // Handle image cover blocks
+  if (block.type === "imageCover") {
+    return renderImageCoverBlock(ctx, state, block, blockIndex, x, y, maxWidth, styles);
   }
 
   const textStyle = getTextStyle(styles, block.type);
@@ -1149,19 +1149,19 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-// Render image block
-function renderImageBlock(
+// Render image cover block
+function renderImageCoverBlock(
   ctx: CanvasRenderingContext2D,
-  _state: EditorState,
+  state: EditorState,
   block: Block,
-  _blockIndex: number,
+  blockIndex: number,
   _x: number,
   y: number,
   _maxWidth: number,
   styles: EditorStyles
 ): RenderedBlock {
-  if (block.type !== "image") {
-    throw new Error("renderImageBlock called on non-image block");
+  if (block.type !== "imageCover") {
+    throw new Error("renderImageCoverBlock called on non-image-cover block");
   }
 
   const padding = 20;
@@ -1173,8 +1173,13 @@ function renderImageBlock(
   
   ctx.save();
 
+  // Get upload status from UI state (transient state)
+  const uploadStatus = state.ui.imageUpload?.blockIndex === blockIndex 
+    ? state.ui.imageUpload.uploadStatus 
+    : undefined;
+
   // Draw placeholder or image
-  if (block.uploadStatus === "uploading") {
+  if (uploadStatus === "uploading") {
     // Uploading state
     ctx.fillStyle = "#f3f4f6";
     ctx.fillRect(fullWidthX, y, fullWidth, imageHeight);
@@ -1183,7 +1188,7 @@ function renderImageBlock(
     ctx.font = "14px system-ui, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText("Uploading image...", fullWidthX + fullWidth / 2, y + imageHeight / 2);
-  } else if (block.uploadStatus === "error") {
+  } else if (uploadStatus === "error") {
     // Error state
     ctx.fillStyle = "#fee2e2";
     ctx.fillRect(fullWidthX, y, fullWidth, imageHeight);
@@ -1198,12 +1203,6 @@ function renderImageBlock(
     const cachedImage = imageCache.get(block.url);
     
     if (cachedImage && cachedImage.complete) {
-      // Update block dimensions if not set
-      if (!block.width || !block.height) {
-        block.width = cachedImage.naturalWidth;
-        block.height = cachedImage.naturalHeight;
-      }
-      
       // Use "cover" algorithm: fill the entire area while maintaining aspect ratio
       const imgAspectRatio = cachedImage.naturalWidth / cachedImage.naturalHeight;
       const containerAspectRatio = fullWidth / imageHeight;
@@ -1277,7 +1276,7 @@ function renderImageBlock(
   return {
     block,
     bounds: blockBounds,
-    lines: [], // Image blocks don't have text lines
+    lines: [], // Image cover blocks don't have text lines
   };
 }
 
@@ -1287,8 +1286,8 @@ export const calculateBlockHeight = (
   maxWidth: number,
   styles: EditorStyles
 ): number => {
-  // Handle image blocks
-  if (block.type === "image") {
+  // Handle image cover blocks
+  if (block.type === "imageCover") {
     const imageHeight = 300; // Fixed height for all images
     const padding = 20;
     return imageHeight + padding;

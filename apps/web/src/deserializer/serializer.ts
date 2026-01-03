@@ -6,8 +6,8 @@ export function serializeToMarkdown(blocks: Block[]): string {
   }
   
   const serializedBlocks = blocks.map((block) => {
-    // Handle image blocks separately
-    if (block.type === "image") {
+    // Handle image cover blocks separately
+    if (block.type === "imageCover") {
       const alt = block.alt || "";
       return `![${alt}](${block.url})`;
     }
@@ -53,7 +53,7 @@ export function serializeToMarkdown(blocks: Block[]): string {
   const lastBlock = blocks[blocks.length - 1];
   
   // Only check for empty content if it's a text block
-  if (lastBlock.type !== "image") {
+  if (lastBlock.type !== "imageCover") {
     const lastBlockIsEmpty = lastBlock.content.length === 0 || 
       (lastBlock.content.length === 1 && lastBlock.content[0].content === "");
     

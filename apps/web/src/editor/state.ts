@@ -144,8 +144,8 @@ export const createInitialCursorState = (state: EditorState): EditorState => {
 export const getBlockTextLength = (block: Block): number => {
   if (!block) return 0;
 
-  // Image blocks don't have text content
-  if (block.type === "image") return 0;
+  // Image cover blocks don't have text content
+  if (block.type === "imageCover") return 0;
 
   if (!isTextBlock(block)) {
     return 0;
@@ -160,8 +160,8 @@ export const getBlockTextLength = (block: Block): number => {
 export const getBlockTextContent = (block: Block): string => {
   if (!block) return "";
 
-  // Image blocks don't have text content
-  if (block.type === "image") return "";
+  // Image cover blocks don't have text content
+  if (block.type === "imageCover") return "";
 
   if (!isTextBlock(block)) {
     return "";

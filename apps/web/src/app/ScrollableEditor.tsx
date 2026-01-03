@@ -209,14 +209,11 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       if (state.ui.imageUpload) {
         const containerRect = wrapperRef.current?.getBoundingClientRect();
         if (containerRect) {
-          const block = state.document.page.blocks[state.ui.imageUpload.blockIndex];
-          const uploadStatus = block?.type === 'image' ? (block.uploadStatus || 'idle') : 'idle';
-          
           setImageUploadState({
             x: state.ui.imageUpload.x,
             y: state.ui.imageUpload.y,
             blockIndex: state.ui.imageUpload.blockIndex,
-            uploadStatus,
+            uploadStatus: state.ui.imageUpload.uploadStatus || 'idle',
           });
         }
       } else if (imageUploadState) {
@@ -544,35 +541,27 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
               if (!state) return;
 
               // Set uploading status
-              editor.updateImageBlock(imageUploadState.blockIndex, {
-                uploadStatus: 'uploading',
-              });
+              editor.updateImageCoverBlock(imageUploadState.blockIndex, {}, 'uploading');
 
               try {
                 // Upload the image
                 const imageData = await uploadImage(file);
 
                 // Update with the uploaded URL
-                editor.updateImageBlock(imageUploadState.blockIndex, {
+                editor.updateImageCoverBlock(imageUploadState.blockIndex, {
                   url: imageData.url,
                   alt: imageData.fileName,
-                  uploadStatus: 'complete',
-                });
+                }, 'complete');
               } catch (error) {
                 console.error("Image upload failed:", error);
-                editor.updateImageBlock(imageUploadState.blockIndex, {
-                  uploadStatus: 'error',
-                });
+                editor.updateImageCoverBlock(imageUploadState.blockIndex, {}, 'error');
               }
             }}
             onUrlSubmit={(url) => {
               if (!mountedRef.current) return;
               const editor = mountedRef.current.editor;
 
-              editor.updateImageBlock(imageUploadState.blockIndex, {
-                url,
-                uploadStatus: 'complete',
-              });
+              editor.updateImageCoverBlock(imageUploadState.blockIndex, { url }, 'complete');
             }}
             onDelete={() => {
               if (!mountedRef.current) return;

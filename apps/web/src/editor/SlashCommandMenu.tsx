@@ -36,12 +36,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     keywords: ["h3", "heading3", "heading 3", "3"],
   },
   {
-    id: "image",
-    type: "image",
-    label: "Image",
-    description: "Upload or embed an image.",
+    id: "imageCover",
+    type: "imageCover",
+    label: "Cover Image",
+    description: "Full-width cover image.",
     icon: "🖼️",
-    keywords: ["image", "img", "picture", "photo", "upload"],
+    keywords: ["image", "img", "picture", "photo", "upload", "cover"],
   },
 ];
 

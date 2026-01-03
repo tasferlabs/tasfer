@@ -790,9 +790,9 @@ function handleMouseDown(
     return updateMode(clearedState, "edit");
   }
 
-  // Check if clicked on an image block
+  // Check if clicked on an image cover block
   const clickedBlock = state.document.page.blocks[position.blockIndex];
-  if (clickedBlock && clickedBlock.type === "image") {
+  if (clickedBlock && clickedBlock.type === "imageCover") {
     // Open image upload popover
     return {
       ...state,
@@ -1295,8 +1295,8 @@ function handleKeyDown(
           const { blockIndex, textIndex } = state.ui.slashCommand;
           const block = state.document.page.blocks[blockIndex];
 
-          // Image blocks shouldn't have slash commands, but guard anyway
-          if (block.type === "image") {
+          // Image cover blocks shouldn't have slash commands, but guard anyway
+          if (block.type === "imageCover") {
             return closeSlashCommand(state);
           }
 
@@ -2116,9 +2116,9 @@ function handleTouchEnd(
     touchTapTracker.lastTapPosition = tapPosition;
 
     if (position) {
-      // Check if tapped on an image block
+      // Check if tapped on an image cover block
       const tappedBlock = state.document.page.blocks[position.blockIndex];
-      if (tappedBlock && tappedBlock.type === "image") {
+      if (tappedBlock && tappedBlock.type === "imageCover") {
         // Open image upload popover (close any existing ones first)
         touchState = null;
         return {

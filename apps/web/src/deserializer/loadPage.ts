@@ -16,18 +16,26 @@ export interface Paragraph {
   cachedWidth?: number; // Width at which height was cached
 }
 
-export interface Image {
+// Cover image block - full-width image that spans the entire canvas
+// Note: width/height of the actual image are transient runtime state, not persisted
+export interface ImageCover {
   id: string; // Unique identifier for caching
-  type: "image";
+  type: "imageCover";
   url: string;
   alt?: string;
-  width?: number;
-  height?: number;
   cachedHeight?: number; // Cached rendered height
   cachedWidth?: number; // Width at which height was cached
-  uploadStatus?: 'uploading' | 'complete' | 'error';
-  file?: File; // Temporary file during upload
 }
+
+// TODO: Normal inline image block (future implementation)
+// export interface Image {
+//   id: string;
+//   type: "image";
+//   url: string;
+//   alt?: string;
+//   cachedHeight?: number;
+//   cachedWidth?: number;
+// }
 
 export interface TextFormat {
   type: 'bold' | 'italic' | 'strikethrough' | 'code' | 'link';
@@ -71,23 +79,23 @@ export function areFormatArraysEqual(a: TextFormat[] | undefined, b: TextFormat[
 export type TextBlock = Heading | Paragraph;
 
 // Visual blocks contain visual content (images, etc.)
-export type VisualBlock = Image;
+export type VisualBlock = ImageCover;
 
 // Block is a union of all block types
 export type Block = TextBlock | VisualBlock;
 
 // Type guards
 export function isTextBlock(block: Block): block is TextBlock {
-  return block.type !== "image";
+  return block.type !== "imageCover";
 }
 
 export function isVisualBlock(block: Block): block is VisualBlock {
-  return block.type === "image";
+  return block.type === "imageCover";
 }
 
-// Legacy alias for backward compatibility
-export function isImageBlock(block: Block): block is Image {
-  return block.type === "image";
+// Image cover block type guard
+export function isImageCoverBlock(block: Block): block is ImageCover {
+  return block.type === "imageCover";
 }
 
 export interface Page {

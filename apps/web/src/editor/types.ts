@@ -67,6 +67,7 @@ export interface ImageUploadState {
   readonly blockIndex: number;
   readonly x: number;
   readonly y: number;
+  readonly uploadStatus?: 'uploading' | 'complete' | 'error';
 }
 
 // View State - Ephemeral view properties

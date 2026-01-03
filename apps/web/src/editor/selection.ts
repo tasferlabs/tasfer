@@ -39,8 +39,8 @@ export function getCursorCoordinates(
   const block = state.document.page.blocks[position.blockIndex];
   if (!block) return null;
 
-  // Image blocks don't have cursors - they shouldn't be used with this function
-  if (block.type === "image") return null;
+  // Image cover blocks don't have cursors - they shouldn't be used with this function
+  if (block.type === "imageCover") return null;
 
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
@@ -156,8 +156,8 @@ export function getCursorCoordinatesWithComposition(
   const block = state.document.page.blocks[position.blockIndex];
   if (!block) return null;
 
-  // Image blocks don't have cursors
-  if (block.type === "image") return null;
+  // Image cover blocks don't have cursors
+  if (block.type === "imageCover") return null;
 
   if (!isTextBlock(block)) {
     return null;
@@ -440,9 +440,9 @@ function getPositionWithinBlock(
   maxWidth: number,
   styles: EditorStyles
 ): Position {
-  // Image blocks don't have text content - position at start of block
+  // Image cover blocks don't have text content - position at start of block
   // The cursor will actually be in a neighboring text block
-  if (block.type === "image") {
+  if (block.type === "imageCover") {
     return {
       blockIndex,
       textIndex: 0,
@@ -705,8 +705,8 @@ export function getLinkAtPosition(
   const block = state.document.page.blocks[position.blockIndex];
   if (!block) return null;
 
-  // Image blocks don't have text content or links
-  if (block.type === "image") return null;
+  // Image cover blocks don't have text content or links
+  if (block.type === "imageCover") return null;
 
   let currentIndex = 0;
 
