@@ -1309,67 +1309,6 @@ function renderImageCoverBlock(
     );
   }
 
-  // Draw hover overlay with swap button if hovering
-  const isHovering =
-    state.ui.activeMenu.type === "imageHover" &&
-    state.ui.activeMenu.blockIndex === blockIndex;
-  if (isHovering && block.url) {
-    // Semi-transparent overlay
-    const overlayColor = styles.imageCover.hover.overlayColor;
-    // Parse the color and add alpha (assuming oklch format from CSS variables)
-    ctx.fillStyle = `color-mix(in srgb, ${overlayColor} 40%, transparent)`;
-    ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
-
-    // Draw swap button in the center
-    const { buttonWidth, buttonHeight, borderRadius } =
-      styles.imageCover.dimensions;
-    const buttonX = fullWidthX + (fullWidth - buttonWidth) / 2;
-    const buttonY = adjustedY + (adjustedHeight - buttonHeight) / 2;
-
-    // Button background
-    ctx.fillStyle = styles.imageCover.hover.buttonBackgroundColor;
-
-    // Draw rounded rectangle for button
-    ctx.beginPath();
-    ctx.moveTo(buttonX + borderRadius, buttonY);
-    ctx.lineTo(buttonX + buttonWidth - borderRadius, buttonY);
-    ctx.quadraticCurveTo(
-      buttonX + buttonWidth,
-      buttonY,
-      buttonX + buttonWidth,
-      buttonY + borderRadius
-    );
-    ctx.lineTo(buttonX + buttonWidth, buttonY + buttonHeight - borderRadius);
-    ctx.quadraticCurveTo(
-      buttonX + buttonWidth,
-      buttonY + buttonHeight,
-      buttonX + buttonWidth - borderRadius,
-      buttonY + buttonHeight
-    );
-    ctx.lineTo(buttonX + borderRadius, buttonY + buttonHeight);
-    ctx.quadraticCurveTo(
-      buttonX,
-      buttonY + buttonHeight,
-      buttonX,
-      buttonY + buttonHeight - borderRadius
-    );
-    ctx.lineTo(buttonX, buttonY + borderRadius);
-    ctx.quadraticCurveTo(buttonX, buttonY, buttonX + borderRadius, buttonY);
-    ctx.closePath();
-    ctx.fill();
-
-    // Button text
-    ctx.fillStyle = styles.imageCover.hover.buttonTextColor;
-    ctx.font = "600 14px system-ui, -apple-system, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(
-      styles.imageCover.hover.buttonText,
-      buttonX + buttonWidth / 2,
-      buttonY + buttonHeight / 2
-    );
-  }
-
   ctx.restore();
 
   const blockBounds: BlockBounds = {

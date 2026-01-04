@@ -30,6 +30,7 @@ import {
   updateCursor,
   updateSelection,
   createInitialCursorState,
+  setActiveMenu,
 } from "./state";
 import { getEditorStyles } from "./styles";
 import type { EditorState, SlashCommand, ViewportState } from "./types";
@@ -77,6 +78,13 @@ export interface Editor {
       alt?: string;
     },
     uploadStatus?: "uploading" | "complete" | "error"
+  ) => void;
+  openImageUploadMenu: (
+    blockIndex: number,
+    x: number,
+    y: number,
+    existingUrl?: string,
+    existingAlt?: string
   ) => void;
 }
 
@@ -904,6 +912,25 @@ export default function createEditor(
     listeners.forEach((listener) => listener(currentState));
   }
 
+  function openImageUploadMenu(
+    blockIndex: number,
+    x: number,
+    y: number,
+    _existingUrl?: string,
+    _existingAlt?: string
+  ) {
+    state = setActiveMenu(state, {
+      type: 'imageUpload',
+      blockIndex,
+      x,
+      y,
+    });
+
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
   return {
     getState,
     destroy,
@@ -928,5 +955,6 @@ export default function createEditor(
     restoreCursorAndSelection,
     forceRender: scheduleRender,
     updateImageCoverBlock,
+    openImageUploadMenu,
   };
 }
