@@ -6,6 +6,7 @@ import {
   deleteForward,
   deleteSelectedText,
   deleteText,
+  deleteTextRangeInFormattedContent,
   deleteWordBackward,
   deleteWordForward,
   extendSelectionEnd,
@@ -22,7 +23,6 @@ import {
   selectLineAtPosition,
   selectWordAtPosition,
   splitBlock,
-  deleteTextRangeInFormattedContent,
   toggleBold,
 } from "./commands";
 import {
@@ -37,6 +37,7 @@ import {
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
 } from "./constants";
+import { getBlockHeight } from "./renderer";
 import {
   applyMomentum,
   endScrollbarDrag,
@@ -50,13 +51,14 @@ import {
   updateScrollbarHover,
 } from "./scrollbar";
 import {
+  getCursorCoordinates,
+  getLinkAtPosition,
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
-  getLinkAtPosition,
-  getCursorCoordinates,
 } from "./selection";
 import {
   clearSelection,
+  closeActiveMenu,
   closeSlashCommand,
   extendSelectionDown,
   extendSelectionLeft,
@@ -73,7 +75,9 @@ import {
   moveCursorRight,
   moveCursorToPosition,
   moveCursorUp,
+  openContextMenu,
   openSlashCommand,
+  setActiveMenu,
   startSelection,
   updateCursor,
   updateFocus,
@@ -81,8 +85,8 @@ import {
   updateSelectionFocus,
   updateSlashCommandFilter,
   updateSlashCommandSelection,
-  openContextMenu,
 } from "./state";
+import { getEditorStyles } from "./styles";
 import type {
   EditorState,
   KeyboardEvent,
@@ -96,6 +100,57 @@ function isTouchDevice(): boolean {
     typeof window !== "undefined" &&
     ("ontouchstart" in window || navigator.maxTouchPoints > 0)
   );
+}
+
+/**
+ * Helper function to detect if mouse is hovering over an image block
+ */
+function getImageBlockAtPoint(
+  x: number,
+  y: number,
+  state: EditorState,
+  viewport: ViewportState
+): { blockIndex: number; x: number; y: number; width: number; height: number } | null {
+  const styles = getEditorStyles();
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  const fullWidth = viewport.width; // Image covers use full canvas width
+
+  // Iterate through blocks to find which one we're over
+  for (let blockIndex = 0; blockIndex < state.document.page.blocks.length; blockIndex++) {
+    const block = state.document.page.blocks[blockIndex];
+    const blockHeight = getBlockHeight(block, maxWidth, styles);
+
+    // Check if y is within this block's bounds
+    if (y >= currentY && y < currentY + blockHeight) {
+      // Check if this is an image cover block
+      if (block.type === "imageCover") {
+        const imageHeight = 300; // Fixed height from renderImageCoverBlock
+
+        // If this is the first block, it bleeds into the top padding for edge-to-edge experience
+        const isFirstBlock = blockIndex === 0;
+        const adjustedY = isFirstBlock ? currentY - styles.canvas.paddingTop : currentY;
+        const adjustedHeight = isFirstBlock ? imageHeight + styles.canvas.paddingTop : imageHeight;
+
+        // Check if mouse is within the image area (full width)
+        if (x >= 0 && x < fullWidth && y >= adjustedY && y < adjustedY + adjustedHeight) {
+          return {
+            blockIndex,
+            x: 0,
+            y: adjustedY,
+            width: fullWidth,
+            height: adjustedHeight,
+          };
+        }
+      }
+      // If we found the block but it's not an image or not over the image area, return null
+      return null;
+    }
+
+    currentY += blockHeight;
+  }
+
+  return null;
 }
 
 /**
@@ -222,15 +277,13 @@ export function handleEvents(
       }
 
       // Clear link hover tooltip and slash menu when opening context menu
-      state = {
+      state = closeActiveMenu({
         ...state,
         ui: {
           ...state.ui,
-          linkHover: null,
           isHoveringLinkWithModifier: false,
-          slashCommand: null,
         },
-      };
+      });
 
       state = openContextMenu(
         state,
@@ -396,7 +449,7 @@ export function handleEvents(
     }
 
     state = {
-      ...state,
+      ...(state.ui.activeMenu.type === 'linkHover' ? closeActiveMenu(state) : state),
       view: {
         ...state.view,
         momentum: momentumResult.momentumState,
@@ -407,7 +460,6 @@ export function handleEvents(
       },
       ui: {
         ...state.ui,
-        linkHover: null,
         isHoveringLinkWithModifier: false,
       },
     };
@@ -600,12 +652,10 @@ function handleContextMenu(
       ...state,
       ui: {
         ...state.ui,
-        linkHover: null,
         isHoveringLinkWithModifier: false,
-        slashCommand: null,
       },
     };
-    
+
     state = openContextMenu(state, canvasX, canvasY);
   }
 
@@ -671,19 +721,18 @@ function handleMouseDown(
     return state;
   }
 
-  // Close context menu on any click
-  if (state.ui.contextMenu) {
-    state = { ...state, ui: { ...state.ui, contextMenu: null } };
-  }
-
   // Close slash command menu on mouse click
-  if (state.ui.slashCommand) {
+  if (state.ui.activeMenu.type === 'slashCommand') {
     state = closeSlashCommand(state);
   }
 
-  // Close image upload popover on any click (will be reopened below if clicking on an image)
-  if (state.ui.imageUpload) {
-    state = { ...state, ui: { ...state.ui, imageUpload: null } };
+  // Track if any menu was open (we'll use this to prevent reopening on same click)
+  const wasMenuOpen = state.ui.activeMenu.type !== 'none';
+  const previousMenu = state.ui.activeMenu;
+
+  // Close any active menu on mouse click (will be reopened below if needed)
+  if (wasMenuOpen) {
+    state = closeActiveMenu(state);
   }
 
   state = updateFocus(state, true);
@@ -724,7 +773,7 @@ function handleMouseDown(
           ...state,
           ui: {
             ...state.ui,
-            linkHover: null,
+            activeMenu: { type: 'none' },
             isHoveringLinkWithModifier: false,
           },
         };
@@ -793,18 +842,27 @@ function handleMouseDown(
   // Check if clicked on an image cover block
   const clickedBlock = state.document.page.blocks[position.blockIndex];
   if (clickedBlock && clickedBlock.type === "imageCover") {
-    // Open image upload popover
-    return {
-      ...state,
-      ui: {
-        ...state.ui,
-        imageUpload: {
-          blockIndex: position.blockIndex,
-          x: event.x, 
-          y: event.y,
-        },
-      },
-    };
+    // Verify the click is actually within the image bounds, not just in the block
+    const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
+    if (imageBlock) {
+      // If the upload menu was already open for this same block, don't reopen it (let it stay closed)
+      // This allows clicking on an open upload menu to close it
+      if (
+        previousMenu.type === 'imageUpload' &&
+        previousMenu.blockIndex === position.blockIndex
+      ) {
+        // Keep it closed
+        return state;
+      }
+
+      // Open image upload popover
+      return setActiveMenu(state, {
+        type: 'imageUpload',
+        blockIndex: position.blockIndex,
+        x: event.x,
+        y: event.y,
+      });
+    }
   }
 
   // Track click for double/triple click detection
@@ -888,7 +946,6 @@ function handleMouseMove(
       ...state,
       ui: {
         ...state.ui,
-        linkHover: null,
         isHoveringLinkWithModifier: false,
       },
     };
@@ -908,19 +965,42 @@ function handleMouseMove(
     },
   };
 
+  // Check for image hover (desktop only, not in select mode)
+  if (!isTouchDevice() && state.ui.mode !== "select") {
+    const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
+
+    if (imageBlock) {
+      // Mouse is over an image block
+      state = setActiveMenu(state, {
+        type: 'imageHover',
+        blockIndex: imageBlock.blockIndex,
+        x: imageBlock.x,
+        y: imageBlock.y,
+        width: imageBlock.width,
+        height: imageBlock.height,
+      });
+    } else if (state.ui.activeMenu.type === 'imageHover') {
+      // Clear image hover if no longer over an image
+      state = closeActiveMenu(state);
+    }
+  } else if (state.ui.activeMenu.type === 'imageHover') {
+    // Clear image hover on touch devices or in select mode
+    state = closeActiveMenu(state);
+  }
+
   if (state.ui.mode !== "select") {
     // Check for link hover when not selecting (desktop only)
     // Don't show tooltip if Ctrl/Command key is held (user wants to click to open)
     const isCtrlOrCmd = event.ctrlKey || event.metaKey;
 
-    // If Ctrl/Command is held and we have a tooltip showing, clear it
-    if (isCtrlOrCmd && state.ui.linkHover) {
-      state = { ...state, ui: { ...state.ui, linkHover: null } };
+    // If Ctrl/Command is held and we have a link hover showing, clear it
+    if (isCtrlOrCmd && state.ui.activeMenu.type === 'linkHover') {
+      state = closeActiveMenu(state);
       return state;
     }
 
-    // Don't show link hover when context menu or slash menu is open
-    if (state.ui.contextMenu || state.ui.slashCommand) {
+    // Don't show link hover when any menu is open (except for linkHover and imageHover)
+    if (state.ui.activeMenu.type !== 'none' && state.ui.activeMenu.type !== 'linkHover' && state.ui.activeMenu.type !== 'imageHover') {
       return state;
     }
 
@@ -933,16 +1013,19 @@ function handleMouseMove(
         visibility
       );
 
+      let isOverLink = false;
+
       if (position) {
         const linkData = getLinkAtPosition(position, state);
         if (linkData) {
+          isOverLink = true;
           // If Ctrl/Command is held, show pointer cursor but no tooltip
           if (isCtrlOrCmd) {
+            state = closeActiveMenu(state);
             state = {
               ...state,
               ui: {
                 ...state.ui,
-                linkHover: null,
                 isHoveringLinkWithModifier: true,
               },
             };
@@ -962,81 +1045,65 @@ function handleMouseMove(
             if (linkCoords) {
               // Position tooltip below the start of the link text
               // linkCoords.y is in document coordinates, so we need to subtract scrollY to get viewport coordinates
+              const stateWithMenu = setActiveMenu(state, {
+                type: 'linkHover',
+                position,
+                url: linkData.url,
+                text: linkData.text,
+                x: linkCoords.x + containerRect.left,
+                y: linkCoords.y - viewport.scrollY + linkCoords.height + containerRect.top,
+                segmentIndex: linkData?.segmentIndex,
+              });
+
               state = {
-                ...state,
+                ...stateWithMenu,
                 ui: {
-                  ...state.ui,
-                  linkHover: {
-                    position,
-                    url: linkData.url,
-                    text: linkData.text,
-                    x: linkCoords.x + containerRect.left,
-                    y: linkCoords.y - viewport.scrollY + linkCoords.height + containerRect.top,
-                    segmentIndex: linkData?.segmentIndex,
-                  },
+                  ...stateWithMenu.ui,
                   isHoveringLinkWithModifier: false,
                 },
               };
             }
           }
-        } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
+        }
+      }
+
+      // Handle clearing linkHover when not over a link
+      if (!isOverLink) {
+        if (state.ui.activeMenu.type === 'linkHover') {
           // Check if mouse is over the tooltip area before clearing
-          // Keep tooltip if we're within the tooltip bounds (approximate)
-          const tooltipHeight = 120; // Approximate height
-          const tooltipWidth = 300; // Approximate width
+          const tooltipHeight = 120;
+          const tooltipWidth = 300;
+          const menu = state.ui.activeMenu;
 
-          if (
-            state.ui.linkHover &&
-            event.x >= state.ui.linkHover.x &&
-            event.x <= state.ui.linkHover.x + tooltipWidth &&
-            event.y >= state.ui.linkHover.y &&
-            event.y <= state.ui.linkHover.y + tooltipHeight
-          ) {
-            // Keep the tooltip open
-            return state;
+          const isOverTooltip =
+            event.x >= menu.x &&
+            event.x <= menu.x + tooltipWidth &&
+            event.y >= menu.y &&
+            event.y <= menu.y + tooltipHeight;
+
+          if (!isOverTooltip) {
+            // Clear link hover
+            state = closeActiveMenu(state);
           }
+        }
 
-          // Clear link hover if no longer over a link or tooltip
+        // Clear modifier state if not over a link
+        if (state.ui.isHoveringLinkWithModifier) {
           state = {
             ...state,
             ui: {
               ...state.ui,
-              linkHover: null,
               isHoveringLinkWithModifier: false,
             },
           };
         }
-      } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
-        // Check if mouse is still over the tooltip
-        const tooltipHeight = 120;
-        const tooltipWidth = 300;
-
-        if (
-          state.ui.linkHover &&
-          event.x >= state.ui.linkHover.x &&
-          event.x <= state.ui.linkHover.x + tooltipWidth &&
-          event.y >= state.ui.linkHover.y &&
-          event.y <= state.ui.linkHover.y + tooltipHeight
-        ) {
-          // Keep the tooltip open
-          return state;
-        }
-
-        // Clear link hover if not over any text or tooltip
-        state = {
-          ...state,
-          ui: {
-            ...state.ui,
-            linkHover: null,
-            isHoveringLinkWithModifier: false,
-          },
-        };
       }
-    } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
+    } else if (state.ui.activeMenu.type === 'linkHover' || state.ui.isHoveringLinkWithModifier) {
       // Clear link hover on touch devices
+      state = closeActiveMenu(state);
       state = {
         ...state,
-        ui: { ...state.ui, linkHover: null, isHoveringLinkWithModifier: false },
+        ui: { ...state.ui, isHoveringLinkWithModifier: false },
       };
     }
 
@@ -1236,20 +1303,21 @@ function handleKeyDown(
   }
 
   // Handle slash command menu navigation
-  if (state.ui.slashCommand) {
-    const filteredCommands = state.ui.slashCommand.filter
+  if (state.ui.activeMenu.type === 'slashCommand') {
+    const slashMenu = state.ui.activeMenu;
+    const filteredCommands = slashMenu.filter
       ? SLASH_COMMANDS.filter(
           (cmd) =>
             cmd.label
               .toLowerCase()
-              .includes(state.ui.slashCommand!.filter.toLowerCase()) ||
+              .includes(slashMenu.filter.toLowerCase()) ||
             cmd.description
               .toLowerCase()
-              .includes(state.ui.slashCommand!.filter.toLowerCase()) ||
+              .includes(slashMenu.filter.toLowerCase()) ||
             cmd.keywords?.some((keyword) =>
               keyword
                 .toLowerCase()
-                .startsWith(state.ui.slashCommand!.filter.toLowerCase())
+                .startsWith(slashMenu.filter.toLowerCase())
             )
         )
       : SLASH_COMMANDS;
@@ -1263,19 +1331,19 @@ function handleKeyDown(
       case "ArrowDown":
         if (filteredCommands.length > 0) {
           const newIndex = Math.min(
-            state.ui.slashCommand.selectedIndex + 1,
+            slashMenu.selectedIndex + 1,
             filteredCommands.length - 1
           );
           return updateSlashCommandSelection(state, newIndex);
         }
         return state;
       case "ArrowUp":
-        const newIndex = Math.max(state.ui.slashCommand.selectedIndex - 1, 0);
+        const newIndex = Math.max(slashMenu.selectedIndex - 1, 0);
         return updateSlashCommandSelection(state, newIndex);
       case "Enter":
         if (filteredCommands.length > 0 && state.document.cursor) {
           const selectedCommand =
-            filteredCommands[state.ui.slashCommand.selectedIndex];
+            filteredCommands[slashMenu.selectedIndex];
           const newState = applySlashCommand(
             recordUndo(state),
             selectedCommand
@@ -1292,7 +1360,7 @@ function handleKeyDown(
       case "Escape":
         // Close slash command and remove the "/" character
         if (state.document.cursor) {
-          const { blockIndex, textIndex } = state.ui.slashCommand;
+          const { blockIndex, textIndex } = slashMenu;
           const block = state.document.page.blocks[blockIndex];
 
           // Image cover blocks shouldn't have slash commands, but guard anyway
@@ -1336,8 +1404,9 @@ function handleKeyDown(
         // If at the start of filter, close menu
         if (
           state.document.cursor &&
+          state.ui.activeMenu.type === 'slashCommand' &&
           state.document.cursor.position.textIndex <=
-            state.ui.slashCommand.textIndex
+            state.ui.activeMenu.textIndex
         ) {
           // Close menu and delete the slash character - no recordUndo needed since deleteText already records
           const newState = closeSlashCommand(deleteText(recordUndo(state)));
@@ -1350,14 +1419,15 @@ function handleKeyDown(
           return newState;
         }
         // Otherwise update filter - deleteText handles recordUndo internally
-        if (state.document.cursor) {
+        if (state.document.cursor && state.ui.activeMenu.type === 'slashCommand') {
+          const slashMenu = state.ui.activeMenu;
           const newState = deleteText(recordUndo(state));
           if (newState.document.cursor) {
             const block =
-              newState.document.page.blocks[state.ui.slashCommand.blockIndex];
+              newState.document.page.blocks[slashMenu.blockIndex];
             const text = getBlockTextContent(block);
             const filter = text.slice(
-              state.ui.slashCommand.textIndex,
+              slashMenu.textIndex,
               newState.document.cursor.position.textIndex
             );
             const finalState = updateSlashCommandFilter(newState, filter);
@@ -1377,16 +1447,18 @@ function handleKeyDown(
           key.length === 1 &&
           !keyEvent.ctrlKey &&
           !keyEvent.altKey &&
-          !keyEvent.metaKey
+          !keyEvent.metaKey &&
+          state.ui.activeMenu.type === 'slashCommand'
         ) {
+          const slashMenu = state.ui.activeMenu;
           // insertText handles recordUndo internally
           const newState = insertText(recordUndo(state), key);
           if (newState.document.cursor) {
             const block =
-              newState.document.page.blocks[state.ui.slashCommand.blockIndex];
+              newState.document.page.blocks[slashMenu.blockIndex];
             const text = getBlockTextContent(block);
             const filter = text.slice(
-              state.ui.slashCommand.textIndex,
+              slashMenu.textIndex,
               newState.document.cursor.position.textIndex
             );
             const finalState = updateSlashCommandFilter(newState, filter);
@@ -1690,7 +1762,7 @@ function handleWheel(
     },
     ui: {
       ...state.ui,
-      linkHover: null,
+      activeMenu: { type: 'none' },
       isHoveringLinkWithModifier: false,
     },
   };
@@ -1880,7 +1952,7 @@ function handleTouchMove(
         ...state,
         ui: {
           ...state.ui,
-          linkHover: null,
+          activeMenu: { type: 'none' },
           isHoveringLinkWithModifier: false,
         },
       };
@@ -1899,12 +1971,9 @@ function handleTouchMove(
     if (!touchState.hasMoved && totalMovement > MOVEMENT_THRESHOLD) {
       touchState.hasMoved = true;
 
-      // Close context menu when movement is detected
-      if (state.ui.contextMenu) {
-        state = {
-          ...state,
-          ui: { ...state.ui, contextMenu: null },
-        };
+      // Close any active menu when movement is detected
+      if (state.ui.activeMenu.type === 'contextMenu') {
+        state = closeActiveMenu(state);
       }
     }
 
@@ -1999,7 +2068,7 @@ function handleTouchMove(
     },
     ui: {
       ...state.ui,
-      linkHover: null,
+      activeMenu: { type: 'none' },
       isHoveringLinkWithModifier: false,
     },
   };
@@ -2086,6 +2155,12 @@ function handleTouchEnd(
   if (isTap && touchState) {
     const tapPosition = { x: touchState.startX, y: touchState.startY };
 
+    // Track if image upload was open (we'll use this to prevent reopening on same tap)
+    const wasImageUploadOpen = state.ui.activeMenu.type === 'imageUpload';
+    const wasImageUploadBlockIndex = state.ui.activeMenu.type === 'imageUpload'
+      ? state.ui.activeMenu.blockIndex
+      : undefined;
+
     // Get text position for cursor/selection
     const position = getTextPositionFromViewport(
       tapPosition.x,
@@ -2119,34 +2194,49 @@ function handleTouchEnd(
       // Check if tapped on an image cover block
       const tappedBlock = state.document.page.blocks[position.blockIndex];
       if (tappedBlock && tappedBlock.type === "imageCover") {
-        // Open image upload popover (close any existing ones first)
-        touchState = null;
-        return {
-          ...state,
-          ui: {
-            ...state.ui,
-            imageUpload: {
+        // Verify the tap is actually within the image bounds, not just in the block
+        const imageBlock = getImageBlockAtPoint(tapPosition.x, tapPosition.y, state, viewport);
+        if (imageBlock) {
+          // If the upload menu was already open for this same block, don't reopen it (let it stay closed)
+          // This allows tapping on an open upload menu to close it
+          if (wasImageUploadOpen && wasImageUploadBlockIndex === position.blockIndex) {
+            // Close image upload popover and keep it closed
+            touchState = null;
+            return {
+              ...closeActiveMenu(state),
+              view: {
+                ...state.view,
+                scrollbar: {
+                  ...state.view.scrollbar,
+                  lastInteraction: Date.now(),
+                },
+              },
+            };
+          }
+
+          // Open image upload popover
+          touchState = null;
+          return {
+            ...setActiveMenu(state, {
+              type: 'imageUpload',
               blockIndex: position.blockIndex,
               x: tapPosition.x,
               y: tapPosition.y,
+            }),
+            view: {
+              ...state.view,
+              scrollbar: {
+                ...state.view.scrollbar,
+                lastInteraction: Date.now(),
+              },
             },
-          },
-          view: {
-            ...state.view,
-            scrollbar: {
-              ...state.view.scrollbar,
-              lastInteraction: Date.now(),
-            },
-          },
-        };
+          };
+        }
       }
 
-      // Close image upload popover when tapping on non-image blocks
-      if (state.ui.imageUpload) {
-        state = {
-          ...state,
-          ui: { ...state.ui, imageUpload: null },
-        };
+      // Close any active menu when tapping on non-image blocks
+      if (state.ui.activeMenu.type !== 'none') {
+        state = closeActiveMenu(state);
       }
 
       // Handle triple-tap: always select line (even inside selection)
@@ -2155,23 +2245,17 @@ function handleTouchEnd(
       }
       // If tapping inside a selection (single or double tap), don't reset it (Apple Notes behavior)
       else if (isPositionWithinSelection(state, position)) {
-        // Close context menu if open when tapping on selection
-        if (state.ui.contextMenu) {
-          state = {
-            ...state,
-            ui: { ...state.ui, contextMenu: null },
-          };
+        // Close any active menu if open when tapping on selection
+        if (state.ui.activeMenu.type === 'contextMenu') {
+          state = closeActiveMenu(state);
         }
       }
       // Handle double-tap: select word
       else if (isMultiTap && touchTapTracker.count === 2) {
         state = selectWordAtPosition(state, position);
-        // Close context menu when making new selection
-        if (state.ui.contextMenu) {
-          state = {
-            ...state,
-            ui: { ...state.ui, contextMenu: null },
-          };
+        // Close any active menu when making new selection
+        if (state.ui.activeMenu.type === 'contextMenu') {
+          state = closeActiveMenu(state);
         }
       }
       // Single tap outside selection: position cursor and close context menu
@@ -2179,23 +2263,17 @@ function handleTouchEnd(
         state = clearSelection(state);
         state = updateCursor(state, position);
         state = updateMode(state, "edit");
-        // Close context menu when tapping outside
-        if (state.ui.contextMenu) {
-          state = {
-            ...state,
-            ui: { ...state.ui, contextMenu: null },
-          };
+        // Close any active menu when tapping outside
+        if (state.ui.activeMenu.type === 'contextMenu') {
+          state = closeActiveMenu(state);
         }
       }
     } else {
       // Tapping outside editor area: clear selection and close context menu
       state = clearSelection(state);
       state = updateMode(state, "edit");
-      if (state.ui.contextMenu) {
-        state = {
-          ...state,
-          ui: { ...state.ui, contextMenu: null },
-        };
+      if (state.ui.activeMenu.type === 'contextMenu') {
+        state = closeActiveMenu(state);
       }
     }
 

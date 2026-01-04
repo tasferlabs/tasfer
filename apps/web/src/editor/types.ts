@@ -32,6 +32,16 @@ export interface LinkHoverState {
   readonly segmentIndex: number;
 }
 
+// Unified menu system - only one menu can be active at a time
+export type ActiveMenu =
+  | { type: 'none' }
+  | { type: 'slashCommand'; blockIndex: number; textIndex: number; filter: string; selectedIndex: number }
+  | { type: 'contextMenu'; x: number; y: number }
+  | { type: 'linkHover'; position: Position; url: string; text: string; x: number; y: number; segmentIndex: number }
+  | { type: 'linkEdit'; position: Position; url: string; text: string; x: number; y: number; segmentIndex: number }
+  | { type: 'imageUpload'; blockIndex: number; x: number; y: number; uploadStatus?: 'uploading' | 'complete' | 'error' }
+  | { type: 'imageHover'; blockIndex: number; x: number; y: number; width: number; height: number };
+
 // Document State - Only this goes in undo/redo
 export interface DocumentState {
   readonly page: Page;
@@ -54,20 +64,10 @@ export type ActiveFormatsMode =
 // UI State - Transient interaction state (menus, popovers, mode)
 export interface UIState {
   readonly mode: EditorMode;
-  readonly slashCommand: SlashCommandState | null;
-  readonly contextMenu: ContextMenuState | null;
-  readonly linkHover: LinkHoverState | null;
+  readonly activeMenu: ActiveMenu; // Unified menu system - replaces slashCommand, contextMenu, linkHover, imageUpload, imageHover
   readonly isHoveringLinkWithModifier: boolean;
   readonly composition: CompositionState | null;
   readonly activeFormatsMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
-  readonly imageUpload: ImageUploadState | null;
-}
-
-export interface ImageUploadState {
-  readonly blockIndex: number;
-  readonly x: number;
-  readonly y: number;
-  readonly uploadStatus?: 'uploading' | 'complete' | 'error';
 }
 
 // View State - Ephemeral view properties
@@ -76,13 +76,6 @@ export interface ViewState {
   readonly clickTracker: ClickTracker;
   readonly scrollbar: ScrollbarState;
   readonly momentum: MomentumState;
-}
-
-export interface SlashCommandState {
-  readonly blockIndex: number;
-  readonly textIndex: number;
-  readonly filter: string;
-  readonly selectedIndex: number;
 }
 
 // Undo only tracks document state now
@@ -179,6 +172,7 @@ export interface EditorStyles {
   readonly cursor: CursorStyles;
   readonly placeholder: PlaceholderStyles;
   readonly textFormats: TextFormatStyles;
+  readonly imageCover: ImageCoverStyles;
 }
 
 export interface CanvasStyles {
@@ -244,6 +238,44 @@ export interface TextFormatStyles {
     readonly color: string;
     readonly underlineThickness: number;
     readonly hoverColor: string;
+  };
+}
+
+export interface ImageCoverStyles {
+  readonly placeholder: {
+    readonly backgroundColor: string;
+    readonly textColor: string;
+    readonly borderColor: string;
+    readonly text: string;
+  };
+  readonly loading: {
+    readonly backgroundColor: string;
+    readonly textColor: string;
+    readonly text: string;
+  };
+  readonly uploading: {
+    readonly backgroundColor: string;
+    readonly textColor: string;
+    readonly text: string;
+  };
+  readonly error: {
+    readonly backgroundColor: string;
+    readonly textColor: string;
+    readonly text: string;
+    readonly retryText: string;
+  };
+  readonly hover: {
+    readonly overlayColor: string;
+    readonly buttonBackgroundColor: string;
+    readonly buttonTextColor: string;
+    readonly buttonText: string;
+  };
+  readonly dimensions: {
+    readonly height: number;
+    readonly padding: number;
+    readonly buttonWidth: number;
+    readonly buttonHeight: number;
+    readonly borderRadius: number;
   };
 }
 

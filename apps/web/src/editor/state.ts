@@ -1,6 +1,10 @@
 import type { Block, Page } from "../deserializer/loadPage";
 import { isTextBlock } from "../deserializer/loadPage";
-import { getCurrentFontFamily, wrapFormattedTextDetailed, measureFormattedTextUpToIndex } from "./fonts";
+import {
+  getCurrentFontFamily,
+  wrapFormattedTextDetailed,
+  measureFormattedTextUpToIndex,
+} from "./fonts";
 import {
   createInitialMomentumState,
   createInitialScrollbarState,
@@ -34,13 +38,10 @@ export const createInitialState = (page: Page): EditorState => ({
   },
   ui: {
     mode: "edit" as EditorMode,
-    slashCommand: null,
-    contextMenu: null,
-    linkHover: null,
+    activeMenu: { type: "none" },
     isHoveringLinkWithModifier: false,
     composition: null,
-    activeFormatsMode: { type: 'inherit' },
-    imageUpload: null,
+    activeFormatsMode: { type: "inherit" },
   },
   view: {
     isFocused: false,
@@ -151,10 +152,7 @@ export const getBlockTextLength = (block: Block): number => {
     return 0;
   }
 
-  return block.content.reduce(
-    (total, text) => total + text.content.length,
-    0
-  );
+  return block.content.reduce((total, text) => total + text.content.length, 0);
 };
 
 export const getBlockTextContent = (block: Block): string => {
@@ -230,18 +228,21 @@ export const moveCursorToPosition = (
     blockIndex: clampedBlockIndex,
     textIndex: clampedTextIndex,
   });
-  
+
   // Clear active formats when cursor moves (unless explicitly preserving them, e.g., during typing)
-  if (!preserveActiveFormats && newState.ui.activeFormatsMode.type === 'explicit') {
+  if (
+    !preserveActiveFormats &&
+    newState.ui.activeFormatsMode.type === "explicit"
+  ) {
     newState = {
       ...newState,
       ui: {
         ...newState.ui,
-        activeFormatsMode: { type: 'inherit' },
+        activeFormatsMode: { type: "inherit" },
       },
     };
   }
-  
+
   return newState;
 };
 
@@ -250,7 +251,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
 
   const { blockIndex, textIndex } = state.document.cursor.position;
   const currentBlock = state.document.page.blocks[blockIndex];
-  
+
   if (!currentBlock) return state;
 
   if (!isTextBlock(currentBlock)) {
@@ -259,13 +260,18 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
 
   // Check if current block is RTL
   const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
-  
+  const currentBlockText = getBlockTextContent(currentBlock);
+
   if (isRTL) {
     // In RTL text, visual left is logical forward (increment)
-    const currentBlockLength = getBlockTextLength(currentBlock);
-    
+    const currentBlockLength = currentBlockText.length;
+
     if (textIndex < currentBlockLength) {
-      return moveCursorToPosition(state, blockIndex, textIndex + 1);
+      return moveCursorToPosition(
+        state,
+        blockIndex,
+        getNextGraphemeIndex(currentBlockText, textIndex)
+      );
     } else if (blockIndex < state.document.page.blocks.length - 1) {
       // Moving to next block - check if next block is RTL or LTR
       const nextBlock = state.document.page.blocks[blockIndex + 1];
@@ -273,7 +279,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
         return state;
       }
       const nextIsRTL = getFormattedTextDirection(nextBlock.content) === "rtl";
-      
+
       if (nextIsRTL) {
         // Next block is RTL, position at start (visual right edge)
         return moveCursorToPosition(state, blockIndex + 1, 0);
@@ -285,7 +291,11 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
   } else {
     // LTR text: visual left is logical backward (decrement)
     if (textIndex > 0) {
-      return moveCursorToPosition(state, blockIndex, textIndex - 1);
+      return moveCursorToPosition(
+        state,
+        blockIndex,
+        getPreviousGraphemeIndex(currentBlockText, textIndex)
+      );
     } else if (blockIndex > 0) {
       // Moving to previous block - check if previous block is RTL or LTR
       const prevBlock = state.document.page.blocks[blockIndex - 1];
@@ -294,7 +304,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
       }
       const prevBlockLength = getBlockTextLength(prevBlock);
       const prevIsRTL = getFormattedTextDirection(prevBlock.content) === "rtl";
-      
+
       if (prevIsRTL) {
         // Previous block is RTL, position at end (visual left edge)
         return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
@@ -321,14 +331,19 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   }
 
   const currentBlockLength = getBlockTextLength(currentBlock);
-  
+  const currentBlockText = getBlockTextContent(currentBlock);
+
   // Check if current block is RTL
   const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
-  
+
   if (isRTL) {
     // In RTL text, visual right is logical backward (decrement)
     if (textIndex > 0) {
-      return moveCursorToPosition(state, blockIndex, textIndex - 1);
+      return moveCursorToPosition(
+        state,
+        blockIndex,
+        getPreviousGraphemeIndex(currentBlockText, textIndex)
+      );
     } else if (blockIndex > 0) {
       // Moving to previous block - check if previous block is RTL or LTR
       const prevBlock = state.document.page.blocks[blockIndex - 1];
@@ -337,7 +352,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
       }
       const prevBlockLength = getBlockTextLength(prevBlock);
       const prevIsRTL = getFormattedTextDirection(prevBlock.content) === "rtl";
-      
+
       if (prevIsRTL) {
         // Previous block is RTL, position at end (visual left edge)
         return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
@@ -349,7 +364,11 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   } else {
     // LTR text: visual right is logical forward (increment)
     if (textIndex < currentBlockLength) {
-      return moveCursorToPosition(state, blockIndex, textIndex + 1);
+      return moveCursorToPosition(
+        state,
+        blockIndex,
+        getNextGraphemeIndex(currentBlockText, textIndex)
+      );
     } else if (blockIndex < state.document.page.blocks.length - 1) {
       // Moving to next block - check if next block is RTL or LTR
       const nextBlock = state.document.page.blocks[blockIndex + 1];
@@ -357,7 +376,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
         return state;
       }
       const nextIsRTL = getFormattedTextDirection(nextBlock.content) === "rtl";
-      
+
       if (nextIsRTL) {
         // Next block is RTL, position at start (visual right edge)
         return moveCursorToPosition(state, blockIndex + 1, 0);
@@ -449,7 +468,7 @@ function getTextIndexAtRelativePosition(
     const targetIndex = lineStartIndex + Math.min(relativePosition, lineLength);
     return targetIndex;
   }
-  
+
   if (!isTextBlock(block)) {
     const lineLength = lineEndIndex - lineStartIndex;
     return lineStartIndex + Math.min(relativePosition, lineLength);
@@ -457,29 +476,29 @@ function getTextIndexAtRelativePosition(
 
   // Check if this is RTL text
   const isRTL = getFormattedTextDirection(block.content) === "rtl";
-  
+
   if (!isRTL) {
     // LTR: simple logical positioning
     const lineLength = lineEndIndex - lineStartIndex;
     const targetIndex = lineStartIndex + Math.min(relativePosition, lineLength);
     return targetIndex;
   }
-  
+
   // RTL: find the text index that corresponds to the visual position
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
-  
+
   // Find the character position that has the target visual position
   // For RTL: relativePosition is widthFromStart (distance from line start)
   // We need to find the charIndex where widthFromStart matches relativePosition
   let bestIndex = lineStartIndex;
   let minDistance = Infinity;
-  
+
   const lineLength = lineEndIndex - lineStartIndex;
   for (let i = 0; i <= lineLength; i++) {
     const charIndex = lineStartIndex + i;
-    
+
     // Measure from line start to this character position
     const widthFromStart = measureFormattedTextUpToIndex(
       block.content,
@@ -490,15 +509,15 @@ function getTextIndexAtRelativePosition(
       fontFamily,
       codePadding
     );
-    
+
     const distance = Math.abs(widthFromStart - relativePosition);
-    
+
     if (distance < minDistance) {
       minDistance = distance;
       bestIndex = charIndex;
     }
   }
-  
+
   return bestIndex;
 }
 
@@ -539,14 +558,14 @@ export const moveCursorUp = (
   // For RTL text, calculate visual position instead of logical position
   const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
   let relativePosition: number;
-  
+
   if (isRTL) {
     // Calculate visual position from the left edge of the line
     // For RTL: cursor at logical index 0 appears at RIGHT, cursor at index N appears at LEFT
     const textStyle = getTextStyle(styles, currentBlock.type);
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
-    
+
     // Measure from line start to cursor position
     const widthFromStart = measureFormattedTextUpToIndex(
       currentBlock.content,
@@ -557,7 +576,7 @@ export const moveCursorUp = (
       fontFamily,
       codePadding
     );
-    
+
     // Visual position from left edge: further from start logically = further LEFT visually
     // Since RTL text is right-aligned and grows leftward, we use widthFromStart directly
     relativePosition = widthFromStart;
@@ -680,14 +699,14 @@ export const moveCursorDown = (
   // For RTL text, calculate visual position instead of logical position
   const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
   let relativePosition: number;
-  
+
   if (isRTL) {
     // Calculate visual position from the left edge of the line
     // For RTL: cursor at logical index 0 appears at RIGHT, cursor at index N appears at LEFT
     const textStyle = getTextStyle(styles, currentBlock.type);
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
-    
+
     // Measure from line start to cursor position
     const widthFromStart = measureFormattedTextUpToIndex(
       currentBlock.content,
@@ -698,7 +717,7 @@ export const moveCursorDown = (
       fontFamily,
       codePadding
     );
-    
+
     // Visual position from left edge: further from start logically = further LEFT visually
     // Since RTL text is right-aligned and grows leftward, we use widthFromStart directly
     relativePosition = widthFromStart;
@@ -839,16 +858,16 @@ export const startSelection = (
 ): EditorState => {
   // Clear active formats when starting a selection
   let newState = state;
-  if (state.ui.activeFormatsMode.type === 'explicit') {
+  if (state.ui.activeFormatsMode.type === "explicit") {
     newState = {
       ...state,
       ui: {
         ...state.ui,
-        activeFormatsMode: { type: 'inherit' },
+        activeFormatsMode: { type: "inherit" },
       },
     };
   }
-  
+
   return updateSelection(newState, {
     anchor: position,
     focus: position,
@@ -868,13 +887,13 @@ export const updateSelectionFocus = (
   // If we have an initial boundary (from double/triple-click), adjust anchor based on drag direction
   if (state.document.selection.initialBoundary) {
     const { start, end } = state.document.selection.initialBoundary;
-    
+
     // Determine if the new focus is before start or after end
     const isFocusBeforeStart =
       position.blockIndex < start.blockIndex ||
       (position.blockIndex === start.blockIndex &&
         position.textIndex < start.textIndex);
-    
+
     const isFocusAfterEnd =
       position.blockIndex > end.blockIndex ||
       (position.blockIndex === end.blockIndex &&
@@ -882,7 +901,7 @@ export const updateSelectionFocus = (
 
     let newAnchor: Position;
     let newFocus: Position;
-    
+
     if (isFocusBeforeStart) {
       // Dragging backward (before start): anchor at end, focus at new position
       newAnchor = end;
@@ -900,7 +919,7 @@ export const updateSelectionFocus = (
       const distanceToEnd =
         Math.abs(position.blockIndex - end.blockIndex) * 10000 +
         Math.abs(position.textIndex - end.textIndex);
-      
+
       // Keep full selection: if closer to start, set focus at start and anchor at end (and vice versa)
       if (distanceToStart < distanceToEnd) {
         newAnchor = end;
@@ -965,7 +984,10 @@ export const extendSelectionLeft = (state: EditorState): EditorState => {
     const newState = startSelection(state, state.document.cursor.position);
     const leftState = moveCursorLeft(newState);
     if (leftState.document.cursor) {
-      return updateSelectionFocus(leftState, leftState.document.cursor.position);
+      return updateSelectionFocus(
+        leftState,
+        leftState.document.cursor.position
+      );
     }
     return newState;
   }
@@ -986,7 +1008,10 @@ export const extendSelectionRight = (state: EditorState): EditorState => {
     const newState = startSelection(state, state.document.cursor.position);
     const rightState = moveCursorRight(newState);
     if (rightState.document.cursor) {
-      return updateSelectionFocus(rightState, rightState.document.cursor.position);
+      return updateSelectionFocus(
+        rightState,
+        rightState.document.cursor.position
+      );
     }
     return newState;
   }
@@ -994,7 +1019,10 @@ export const extendSelectionRight = (state: EditorState): EditorState => {
   // Extend existing selection
   const rightState = moveCursorRight(state);
   if (rightState.document.cursor) {
-    return updateSelectionFocus(rightState, rightState.document.cursor.position);
+    return updateSelectionFocus(
+      rightState,
+      rightState.document.cursor.position
+    );
   }
   return state;
 };
@@ -1036,7 +1064,10 @@ export const extendSelectionDown = (
     const newState = startSelection(state, state.document.cursor.position);
     const downState = moveCursorDown(newState, viewport, styles);
     if (downState.document.cursor) {
-      return updateSelectionFocus(downState, downState.document.cursor.position);
+      return updateSelectionFocus(
+        downState,
+        downState.document.cursor.position
+      );
     }
     return newState;
   }
@@ -1061,7 +1092,10 @@ export const extendSelectionPageUp = (
     const newState = startSelection(state, state.document.cursor.position);
     const pageUpState = moveCursorPageUp(newState, viewport, styles);
     if (pageUpState.document.cursor) {
-      return updateSelectionFocus(pageUpState, pageUpState.document.cursor.position);
+      return updateSelectionFocus(
+        pageUpState,
+        pageUpState.document.cursor.position
+      );
     }
     return newState;
   }
@@ -1069,7 +1103,10 @@ export const extendSelectionPageUp = (
   // Extend existing selection
   const pageUpState = moveCursorPageUp(state, viewport, styles);
   if (pageUpState.document.cursor) {
-    return updateSelectionFocus(pageUpState, pageUpState.document.cursor.position);
+    return updateSelectionFocus(
+      pageUpState,
+      pageUpState.document.cursor.position
+    );
   }
   return state;
 };
@@ -1086,7 +1123,10 @@ export const extendSelectionPageDown = (
     const newState = startSelection(state, state.document.cursor.position);
     const pageDownState = moveCursorPageDown(newState, viewport, styles);
     if (pageDownState.document.cursor) {
-      return updateSelectionFocus(pageDownState, pageDownState.document.cursor.position);
+      return updateSelectionFocus(
+        pageDownState,
+        pageDownState.document.cursor.position
+      );
     }
     return newState;
   }
@@ -1094,7 +1134,10 @@ export const extendSelectionPageDown = (
   // Extend existing selection
   const pageDownState = moveCursorPageDown(state, viewport, styles);
   if (pageDownState.document.cursor) {
-    return updateSelectionFocus(pageDownState, pageDownState.document.cursor.position);
+    return updateSelectionFocus(
+      pageDownState,
+      pageDownState.document.cursor.position
+    );
   }
   return state;
 };
@@ -1104,84 +1147,52 @@ export const openSlashCommand = (
   state: EditorState,
   blockIndex: number,
   textIndex: number
-): EditorState => ({
-  ...state,
-  ui: {
-    ...state.ui,
-    slashCommand: {
-      blockIndex,
-      textIndex,
-      filter: "",
-      selectedIndex: 0,
-    },
-  },
-});
+): EditorState =>
+  setActiveMenu(state, {
+    type: "slashCommand",
+    blockIndex,
+    textIndex,
+    filter: "",
+    selectedIndex: 0,
+  });
 
 export const updateSlashCommandFilter = (
   state: EditorState,
   filter: string
 ): EditorState => {
-  if (!state.ui.slashCommand) return state;
-  return {
-    ...state,
-    ui: {
-      ...state.ui,
-      slashCommand: {
-        ...state.ui.slashCommand,
-        filter,
-        selectedIndex: 0, // Reset selection when filter changes
-      },
-    },
-  };
+  if (state.ui.activeMenu.type !== "slashCommand") return state;
+  return setActiveMenu(state, {
+    ...state.ui.activeMenu,
+    filter,
+    selectedIndex: 0, // Reset selection when filter changes
+  });
 };
 
 export const updateSlashCommandSelection = (
   state: EditorState,
   selectedIndex: number
 ): EditorState => {
-  if (!state.ui.slashCommand) return state;
-  return {
-    ...state,
-    ui: {
-      ...state.ui,
-      slashCommand: {
-        ...state.ui.slashCommand,
-        selectedIndex,
-      },
-    },
-  };
+  if (state.ui.activeMenu.type !== "slashCommand") return state;
+  return setActiveMenu(state, {
+    ...state.ui.activeMenu,
+    selectedIndex,
+  });
 };
 
-export const closeSlashCommand = (state: EditorState): EditorState => ({
-  ...state,
-  ui: {
-    ...state.ui,
-    slashCommand: null,
-  },
-});
+export const closeSlashCommand = (state: EditorState): EditorState =>
+  closeActiveMenu(state);
 
-// Context Menu State Management
+// Context Menu State Management (deprecated - use setActiveMenu instead)
 export const openContextMenu = (
   state: EditorState,
   x: number,
   y: number
-): EditorState => ({
-  ...state,
-  ui: {
-    ...state.ui,
-    contextMenu: { x, y },
-  },
-});
+): EditorState => setActiveMenu(state, { type: "contextMenu", x, y });
 
-export const closeContextMenu = (state: EditorState): EditorState => ({
-  ...state,
-  ui: {
-    ...state.ui,
-    contextMenu: null,
-  },
-});
+export const closeContextMenu = (state: EditorState): EditorState =>
+  closeActiveMenu(state);
 
-// Link Hover State Management
+// Link Hover State Management (deprecated - use setActiveMenu instead)
 export const setLinkHover = (
   state: EditorState,
   linkHover: {
@@ -1192,13 +1203,33 @@ export const setLinkHover = (
     y: number;
     segmentIndex: number;
   } | null
+): EditorState =>
+  linkHover
+    ? setActiveMenu(state, {
+        type: "linkHover",
+        position: linkHover.position,
+        url: linkHover.url,
+        text: linkHover.text,
+        x: linkHover.x,
+        y: linkHover.y,
+        segmentIndex: linkHover.segmentIndex,
+      })
+    : closeActiveMenu(state);
+
+// Unified Menu Management
+export const setActiveMenu = (
+  state: EditorState,
+  menu: EditorState["ui"]["activeMenu"]
 ): EditorState => ({
   ...state,
   ui: {
     ...state.ui,
-    linkHover,
+    activeMenu: menu,
   },
 });
+
+export const closeActiveMenu = (state: EditorState): EditorState =>
+  setActiveMenu(state, { type: "none" });
 
 // Composition (IME) State Management
 export const startComposition = (

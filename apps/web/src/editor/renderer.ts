@@ -35,7 +35,7 @@ function getContentWithComposition(
   if (!isTextBlock(block)) {
     return { content: [], compositionRange: null };
   }
-  
+
   // Check if composition is active and cursor is in this block
   if (
     !state.ui.composition ||
@@ -553,7 +553,16 @@ export const renderBlock = (
 ): RenderedBlock => {
   // Handle image cover blocks
   if (block.type === "imageCover") {
-    return renderImageCoverBlock(ctx, state, block, blockIndex, x, y, maxWidth, styles);
+    return renderImageCoverBlock(
+      ctx,
+      state,
+      block,
+      blockIndex,
+      x,
+      y,
+      maxWidth,
+      styles
+    );
   }
 
   const textStyle = getTextStyle(styles, block.type);
@@ -691,8 +700,9 @@ export const renderBlock = (
   }
 
   // Don't show placeholder or cursor when there's an active selection
-  const hasActiveSelection = state.document.selection && !state.document.selection.isCollapsed;
-  
+  const hasActiveSelection =
+    state.document.selection && !state.document.selection.isCollapsed;
+
   // Handle placeholder rendering
   if (
     state.document.cursor &&
@@ -911,10 +921,7 @@ function renderSelection(
     const codePadding = styles.textFormats.code.padding;
 
     // Handle empty blocks
-    if (
-      content.length === 0 &&
-      renderedLines.length === 1
-    ) {
+    if (content.length === 0 && renderedLines.length === 1) {
       const fontMetrics = getFontMetrics(
         textStyle.fontSize,
         textStyle.fontWeight,
@@ -1129,18 +1136,18 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = "anonymous"; // Enable CORS if needed
-    
+
     img.onload = () => {
       imageCache.set(url, img);
       resolve(img);
     };
-    
+
     img.onerror = () => {
       reject(new Error(`Failed to load image: ${url}`));
     };
-    
+
     img.src = url;
-    
+
     // If already complete (from cache), resolve immediately
     if (img.complete) {
       imageCache.set(url, img);
@@ -1164,54 +1171,76 @@ function renderImageCoverBlock(
     throw new Error("renderImageCoverBlock called on non-image-cover block");
   }
 
-  const padding = 20;
-  const imageHeight = 300; // Fixed height for all images
-  
+  const { padding, height: imageHeight } = styles.imageCover.dimensions;
+
   // Calculate full canvas width (accounting for left and right padding)
-  const fullWidth = _maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
+  const fullWidth =
+    _maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
   const fullWidthX = 0; // Start from canvas edge, not content edge
-  
+
+  // If this is the first block, bleed into the top padding for edge-to-edge experience
+  const isFirstBlock = blockIndex === 0;
+  const adjustedY = isFirstBlock ? y - styles.canvas.paddingTop : y;
+  const adjustedHeight = isFirstBlock
+    ? imageHeight + styles.canvas.paddingTop
+    : imageHeight;
+
   ctx.save();
 
   // Get upload status from UI state (transient state)
-  const uploadStatus = state.ui.imageUpload?.blockIndex === blockIndex 
-    ? state.ui.imageUpload.uploadStatus 
-    : undefined;
+  const uploadStatus =
+    state.ui.activeMenu.type === "imageUpload" &&
+    state.ui.activeMenu.blockIndex === blockIndex
+      ? state.ui.activeMenu.uploadStatus
+      : undefined;
 
   // Draw placeholder or image
   if (uploadStatus === "uploading") {
     // Uploading state
-    ctx.fillStyle = "#f3f4f6";
-    ctx.fillRect(fullWidthX, y, fullWidth, imageHeight);
-    
-    ctx.fillStyle = "#6b7280";
+    ctx.fillStyle = styles.imageCover.uploading.backgroundColor;
+    ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+
+    ctx.fillStyle = styles.imageCover.uploading.textColor;
     ctx.font = "14px system-ui, -apple-system, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("Uploading image...", fullWidthX + fullWidth / 2, y + imageHeight / 2);
+    ctx.fillText(
+      styles.imageCover.uploading.text,
+      fullWidthX + fullWidth / 2,
+      adjustedY + adjustedHeight / 2
+    );
   } else if (uploadStatus === "error") {
     // Error state
-    ctx.fillStyle = "#fee2e2";
-    ctx.fillRect(fullWidthX, y, fullWidth, imageHeight);
-    
-    ctx.fillStyle = "#dc2626";
+    ctx.fillStyle = styles.imageCover.error.backgroundColor;
+    ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+
+    ctx.fillStyle = styles.imageCover.error.textColor;
     ctx.font = "14px system-ui, -apple-system, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("Failed to upload image", fullWidthX + fullWidth / 2, y + imageHeight / 2);
-    ctx.fillText("Click to retry", fullWidthX + fullWidth / 2, y + imageHeight / 2 + 20);
+    ctx.fillText(
+      styles.imageCover.error.text,
+      fullWidthX + fullWidth / 2,
+      adjustedY + adjustedHeight / 2
+    );
+    ctx.fillText(
+      styles.imageCover.error.retryText,
+      fullWidthX + fullWidth / 2,
+      adjustedY + adjustedHeight / 2 + 20
+    );
   } else if (block.url) {
     // Try to load and draw the actual image
     const cachedImage = imageCache.get(block.url);
-    
+
     if (cachedImage && cachedImage.complete) {
       // Use "cover" algorithm: fill the entire area while maintaining aspect ratio
-      const imgAspectRatio = cachedImage.naturalWidth / cachedImage.naturalHeight;
-      const containerAspectRatio = fullWidth / imageHeight;
-      
+      const imgAspectRatio =
+        cachedImage.naturalWidth / cachedImage.naturalHeight;
+      const containerAspectRatio = fullWidth / adjustedHeight;
+
       let sourceX = 0;
       let sourceY = 0;
       let sourceWidth = cachedImage.naturalWidth;
       let sourceHeight = cachedImage.naturalHeight;
-      
+
       // Cover algorithm: crop the image to fill the container
       if (imgAspectRatio > containerAspectRatio) {
         // Image is wider than container - crop width
@@ -1222,55 +1251,132 @@ function renderImageCoverBlock(
         sourceHeight = cachedImage.naturalWidth / containerAspectRatio;
         sourceY = (cachedImage.naturalHeight - sourceHeight) / 2;
       }
-      
+
       // Draw background (for any transparency)
-      ctx.fillStyle = "#f9fafb";
-      ctx.fillRect(fullWidthX, y, fullWidth, imageHeight);
-      
+      ctx.fillStyle = styles.imageCover.loading.backgroundColor;
+      ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+
       // Draw the image using cover algorithm (cropping as needed)
       ctx.drawImage(
         cachedImage,
-        sourceX, sourceY, sourceWidth, sourceHeight,  // Source rectangle
-        fullWidthX, y, fullWidth, imageHeight         // Destination rectangle
+        sourceX,
+        sourceY,
+        sourceWidth,
+        sourceHeight, // Source rectangle
+        fullWidthX,
+        adjustedY,
+        fullWidth,
+        adjustedHeight // Destination rectangle
       );
     } else {
       // Show loading placeholder while image loads
-      ctx.fillStyle = "#f3f4f6";
-      ctx.fillRect(fullWidthX, y, fullWidth, imageHeight);
-      
-      ctx.fillStyle = "#9ca3af";
+      ctx.fillStyle = styles.imageCover.loading.backgroundColor;
+      ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+
+      ctx.fillStyle = styles.imageCover.loading.textColor;
       ctx.font = "14px system-ui, -apple-system, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("Loading image...", fullWidthX + fullWidth / 2, y + imageHeight / 2);
-      
+      ctx.fillText(
+        styles.imageCover.loading.text,
+        fullWidthX + fullWidth / 2,
+        adjustedY + adjustedHeight / 2
+      );
+
       // Start loading the image
-      loadImage(block.url).then(() => {
-        // Force re-render when image loads
-        // This will be handled by the editor's render loop
-      }).catch((error) => {
-        console.error("Failed to load image:", error);
-      });
+      loadImage(block.url)
+        .then(() => {
+          // Force re-render when image loads
+          // This will be handled by the editor's render loop
+        })
+        .catch((error) => {
+          console.error("Failed to load image:", error);
+        });
     }
   } else {
     // No image - show upload prompt
-    ctx.strokeStyle = "#d1d5db";
+    ctx.strokeStyle = styles.imageCover.placeholder.borderColor;
     ctx.setLineDash([5, 5]);
     ctx.lineWidth = 2;
-    ctx.strokeRect(fullWidthX, y, fullWidth, imageHeight);
-    
-    ctx.fillStyle = "#9ca3af";
+    ctx.strokeRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+
+    ctx.fillStyle = styles.imageCover.placeholder.textColor;
     ctx.font = "14px system-ui, -apple-system, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("Click to upload image", fullWidthX + fullWidth / 2, y + imageHeight / 2);
+    ctx.fillText(
+      styles.imageCover.placeholder.text,
+      fullWidthX + fullWidth / 2,
+      adjustedY + adjustedHeight / 2
+    );
+  }
+
+  // Draw hover overlay with swap button if hovering
+  const isHovering =
+    state.ui.activeMenu.type === "imageHover" &&
+    state.ui.activeMenu.blockIndex === blockIndex;
+  if (isHovering && block.url) {
+    // Semi-transparent overlay
+    const overlayColor = styles.imageCover.hover.overlayColor;
+    // Parse the color and add alpha (assuming oklch format from CSS variables)
+    ctx.fillStyle = `color-mix(in srgb, ${overlayColor} 40%, transparent)`;
+    ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+
+    // Draw swap button in the center
+    const { buttonWidth, buttonHeight, borderRadius } =
+      styles.imageCover.dimensions;
+    const buttonX = fullWidthX + (fullWidth - buttonWidth) / 2;
+    const buttonY = adjustedY + (adjustedHeight - buttonHeight) / 2;
+
+    // Button background
+    ctx.fillStyle = styles.imageCover.hover.buttonBackgroundColor;
+
+    // Draw rounded rectangle for button
+    ctx.beginPath();
+    ctx.moveTo(buttonX + borderRadius, buttonY);
+    ctx.lineTo(buttonX + buttonWidth - borderRadius, buttonY);
+    ctx.quadraticCurveTo(
+      buttonX + buttonWidth,
+      buttonY,
+      buttonX + buttonWidth,
+      buttonY + borderRadius
+    );
+    ctx.lineTo(buttonX + buttonWidth, buttonY + buttonHeight - borderRadius);
+    ctx.quadraticCurveTo(
+      buttonX + buttonWidth,
+      buttonY + buttonHeight,
+      buttonX + buttonWidth - borderRadius,
+      buttonY + buttonHeight
+    );
+    ctx.lineTo(buttonX + borderRadius, buttonY + buttonHeight);
+    ctx.quadraticCurveTo(
+      buttonX,
+      buttonY + buttonHeight,
+      buttonX,
+      buttonY + buttonHeight - borderRadius
+    );
+    ctx.lineTo(buttonX, buttonY + borderRadius);
+    ctx.quadraticCurveTo(buttonX, buttonY, buttonX + borderRadius, buttonY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Button text
+    ctx.fillStyle = styles.imageCover.hover.buttonTextColor;
+    ctx.font = "600 14px system-ui, -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(
+      styles.imageCover.hover.buttonText,
+      buttonX + buttonWidth / 2,
+      buttonY + buttonHeight / 2
+    );
   }
 
   ctx.restore();
 
   const blockBounds: BlockBounds = {
     x: fullWidthX,
-    y,
+    y: adjustedY,
     width: fullWidth,
-    height: imageHeight + padding,
+    height: adjustedHeight + padding,
   };
 
   return {
@@ -1288,9 +1394,8 @@ export const calculateBlockHeight = (
 ): number => {
   // Handle image cover blocks
   if (block.type === "imageCover") {
-    const imageHeight = 300; // Fixed height for all images
-    const padding = 20;
-    return imageHeight + padding;
+    const { height, padding } = styles.imageCover.dimensions;
+    return height + padding;
   }
 
   if (!isTextBlock(block)) {

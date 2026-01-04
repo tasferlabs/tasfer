@@ -114,6 +114,7 @@
   --editor-scrollbar-thumb: oklch(0.552 0.016 285.938 / 50%);
   --editor-scrollbar-thumb-hover: oklch(0.552 0.016 285.938 / 70%);
   --editor-scrollbar-thumb-active: oklch(0.552 0.016 285.938 / 90%);
+  --editor-cover-image-overlay: oklch(0.92 0.004 286.32 / 5%);
 }
 
 .dark {
@@ -165,6 +166,7 @@
   --editor-scrollbar-thumb: oklch(1 0 0 / 30%);
   --editor-scrollbar-thumb-hover: oklch(1 0 0 / 50%);
   --editor-scrollbar-thumb-active: oklch(1 0 0 / 70%);
+  --editor-cover-image-overlay: oklch(1 0 0 / 20%);
 }
 
 @layer base {

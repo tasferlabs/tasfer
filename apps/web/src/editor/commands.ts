@@ -1,24 +1,21 @@
-import type { EditorState, Position } from "./types";
-import type { Block, Text, TextFormat, TextBlock } from "../deserializer/loadPage";
+import type { Block, Text, TextBlock, TextFormat } from "../deserializer/loadPage";
 import { areFormatArraysEqual, isTextBlock } from "../deserializer/loadPage";
-import type { SlashCommand } from "./types";
+import { isCJKCharacter } from "./fonts";
+import { invalidateBlockCache } from "./renderer";
+import { getFormattedTextDirection } from "./rtl";
 import {
-  getBlockTextContent,
-  getBlockTextLength,
+  clearSelection,
   closeSlashCommand,
   generateBlockId,
-} from "./state";
-import { invalidateBlockCache } from "./renderer";
-import {
+  getBlockTextContent,
+  getBlockTextLength,
   moveCursorToPosition,
-  updateMode,
   startSelection,
-  updateSelectionFocus,
-  clearSelection,
+  updateMode,
+  updateSelectionFocus
 } from "./state";
+import type { EditorState, Position, SlashCommand } from "./types";
 import { recordUndo } from "./undo";
-import { getFormattedTextDirection } from "./rtl";
-import { isCJKCharacter } from "./fonts";
 
 /**
  * Insert text at a specific position in formatted content while preserving formatting
@@ -1803,9 +1800,9 @@ export function applySlashCommand(
   state: EditorState,
   command: SlashCommand
 ): EditorState {
-  if (!state.document.cursor || !state.ui.slashCommand) return state;
+  if (!state.document.cursor || state.ui.activeMenu.type !== 'slashCommand') return state;
 
-  const { blockIndex, textIndex } = state.ui.slashCommand;
+  const { blockIndex, textIndex } = state.ui.activeMenu;
 
   // Remove the "/" and filter text, preserving formatting
   const block = state.document.page.blocks[blockIndex];

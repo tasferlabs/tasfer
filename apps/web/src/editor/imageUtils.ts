@@ -35,11 +35,11 @@ export function updateImageCoverBlock(
 
   // Update UI state with upload status if provided
   let newUIState = state.ui;
-  if (uploadStatus !== undefined && state.ui.imageUpload?.blockIndex === blockIndex) {
+  if (uploadStatus !== undefined && state.ui.activeMenu.type === 'imageUpload' && state.ui.activeMenu.blockIndex === blockIndex) {
     newUIState = {
       ...state.ui,
-      imageUpload: {
-        ...state.ui.imageUpload,
+      activeMenu: {
+        ...state.ui.activeMenu,
         uploadStatus,
       },
     };

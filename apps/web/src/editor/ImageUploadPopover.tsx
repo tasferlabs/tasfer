@@ -27,7 +27,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
   onClose,
   uploadStatus = 'idle',
   existingUrl,
-  existingAlt,
+  existingAlt: _existingAlt,
   collisionBoundary,
   container,
 }) => {

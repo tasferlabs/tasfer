@@ -227,7 +227,7 @@ export function useReorderPage<TContext = unknown>(
 }
 
 // Helper to get the query key for a page
-export function getKeyForPageQuery(id: string) {
+export function getKeyForPageQuery(_id: string) {
   // This function helps to find which query contains this page
   // For now, we'll return a simple structure
   return {
@@ -236,7 +236,7 @@ export function getKeyForPageQuery(id: string) {
 }
 
 // Helper to update title in cache
-export function updateTitleFromCache(id: string, title: string, editingPageId: string | null) {
+export function updateTitleFromCache(_id: string, _title: string, _editingPageId: string | null) {
   // This is a placeholder - in the real implementation, we'd update the cache
   // For now, we'll let the mutation handle it
 }

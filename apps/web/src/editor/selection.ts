@@ -32,7 +32,7 @@ export function getCursorCoordinates(
 
   for (let i = 0; i < position.blockIndex; i++) {
     const block = state.document.page.blocks[i];
-    const blockHeight = getBlockHeight(block, maxWidth, styles, i);
+    const blockHeight = getBlockHeight(block, maxWidth, styles);
     currentY += blockHeight;
   }
 
@@ -382,7 +382,7 @@ export function getTextPositionFromViewport(
   // (same as renderPage does), but we can optimize by only checking clicks within visible range
   for (let blockIndex = 0; blockIndex < state.document.page.blocks.length; blockIndex++) {
     const block = state.document.page.blocks[blockIndex];
-    const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
+    const blockHeight = getBlockHeight(block, maxWidth, styles);
 
     // Check if click is within this block's Y bounds
     if (y >= currentY && y < currentY + blockHeight) {

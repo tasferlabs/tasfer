@@ -730,7 +730,7 @@ export default function createEditor(
   }
 
   function executeSlashCommand(command: SlashCommand) {
-    if (state.ui.slashCommand && state.document.cursor) {
+    if (state.ui.activeMenu.type === 'slashCommand' && state.document.cursor) {
       state = recordUndo(state);
       state = applySlashCommand(state, command);
       scheduleRender();
@@ -880,15 +880,13 @@ export default function createEditor(
 
     // Update UI state with upload status if provided
     let newUIState = state.ui;
-    if (uploadStatus !== undefined) {
+    if (uploadStatus !== undefined && state.ui.activeMenu.type === 'imageUpload') {
       newUIState = {
         ...state.ui,
-        imageUpload: state.ui.imageUpload
-          ? {
-              ...state.ui.imageUpload,
-              uploadStatus,
-            }
-          : null,
+        activeMenu: {
+          ...state.ui.activeMenu,
+          uploadStatus,
+        },
       };
     }
 

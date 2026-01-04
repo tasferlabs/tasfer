@@ -141,7 +141,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
 
     // Calculate new slash command state
       let newSlashState: typeof slashMenuState = null;
-      if (state.ui.slashCommand && state.document.cursor) {
+      if (state.ui.activeMenu.type === 'slashCommand' && state.document.cursor) {
         const cursorScreenPos = mounted.editor.getCursorScreenPosition();
 
         if (cursorScreenPos) {
@@ -155,8 +155,8 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
               visible: true,
               x,
               y,
-              selectedIndex: state.ui.slashCommand.selectedIndex,
-              filter: state.ui.slashCommand.filter,
+              selectedIndex: state.ui.activeMenu.selectedIndex,
+              filter: state.ui.activeMenu.filter,
             };
           }
         }
@@ -170,13 +170,13 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
 
       // Calculate new context menu state
       let newContextMenuState: typeof contextMenuState = null;
-      if (state.ui.contextMenu) {
+      if (state.ui.activeMenu.type === 'contextMenu') {
         const containerRect = wrapperRef.current?.getBoundingClientRect();
         if (containerRect) {
           const hasSelection = !!getSelectionRange(state);
           newContextMenuState = {
-            x: containerRect.left + state.ui.contextMenu.x,
-            y: containerRect.top + state.ui.contextMenu.y,
+            x: containerRect.left + state.ui.activeMenu.x,
+            y: containerRect.top + state.ui.activeMenu.y,
             hasSelection,
           };
         }
@@ -190,12 +190,12 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
 
       // Calculate new link tooltip state
       let newLinkTooltipState: typeof linkTooltipState = null;
-      if (state.ui.linkHover) {
+      if (state.ui.activeMenu.type === 'linkHover') {
         newLinkTooltipState = {
-          x: state.ui.linkHover.x,
-          y: state.ui.linkHover.y,
-          url: state.ui.linkHover.url,
-          text: state.ui.linkHover.text,
+          x: state.ui.activeMenu.x,
+          y: state.ui.activeMenu.y,
+          url: state.ui.activeMenu.url,
+          text: state.ui.activeMenu.text,
         };
       }
 
@@ -206,14 +206,14 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       }
 
       // Calculate new image upload state
-      if (state.ui.imageUpload) {
+      if (state.ui.activeMenu.type === 'imageUpload') {
         const containerRect = wrapperRef.current?.getBoundingClientRect();
         if (containerRect) {
           setImageUploadState({
-            x: state.ui.imageUpload.x,
-            y: state.ui.imageUpload.y,
-            blockIndex: state.ui.imageUpload.blockIndex,
-            uploadStatus: state.ui.imageUpload.uploadStatus || 'idle',
+            x: state.ui.activeMenu.x,
+            y: state.ui.activeMenu.y,
+            blockIndex: state.ui.activeMenu.blockIndex,
+            uploadStatus: state.ui.activeMenu.uploadStatus || 'idle',
           });
         }
       } else if (imageUploadState) {
@@ -365,7 +365,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     const state = mountedRef.current.editor.getState();
     if (!state) return;
     
-    if (state.ui.linkHover) {
+    if (state.ui.activeMenu.type === 'linkHover') {
       const containerRect = wrapperRef.current?.getBoundingClientRect();
       if (containerRect) {
         // Save current cursor and selection before clearing
@@ -378,8 +378,8 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
         // Reset the action flag when opening
         linkEditActionPerformedRef.current = false;
 
-        // Get link data to find segment index
-        const linkData = state.ui.linkHover;
+        // Get link data from activeMenu
+        const linkData = state.ui.activeMenu;
 
         setLinkEditState({
           x: linkData.x,
@@ -565,30 +565,12 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
             }}
             onDelete={() => {
               if (!mountedRef.current) return;
-              // TODO: Implement delete image block
               setImageUploadState(null);
             }}
             onClose={() => {
               setImageUploadState(null);
-              // Clear the imageUpload state in editor
-              if (mountedRef.current) {
-                const editor = mountedRef.current.editor;
-                const state = editor.getState();
-                if (state?.ui.imageUpload) {
-                  // Clear by restoring with imageUpload set to null
-                  const newState = {
-                    ...state,
-                    ui: {
-                      ...state.ui,
-                      imageUpload: null,
-                    },
-                  };
-                  editor.restoreCursorAndSelection(
-                    newState.document.cursor,
-                    newState.document.selection
-                  );
-                }
-              }
+              // The imageUpload state will be cleared automatically by the editor
+              // when clicking outside or through other interactions
             }}
             collisionBoundary={mountedRef.current?.portalContainer}
             container={mountedRef.current?.portalContainer}
