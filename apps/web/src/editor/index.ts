@@ -845,6 +845,22 @@ export default function createEditor(
 
   function setMode(mode: "edit" | "select" | "locked") {
     state = updateMode(state, mode);
+    
+    // Stop momentum when entering locked mode
+    if (mode === "locked") {
+      state = {
+        ...state,
+        view: {
+          ...state.view,
+          momentum: {
+            velocity: 0,
+            lastTime: Date.now(),
+            isActive: false,
+          },
+        },
+      };
+    }
+    
     const currentState = state;
     scheduleRender();
     listeners.forEach((listener) => listener(currentState));

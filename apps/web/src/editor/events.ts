@@ -464,7 +464,8 @@ export function handleEvents(
   }
 
   // Apply momentum scrolling if active (even when no events)
-  if (state.view.momentum.isActive) {
+  // But not in locked mode
+  if (state.view.momentum.isActive && state.ui.mode !== "locked") {
     const momentumResult = applyMomentum(
       viewport.scrollY,
       state.view.momentum,
@@ -853,6 +854,38 @@ function handleMouseDown(
           },
         },
       };
+    }
+  }
+
+  // Check if clicking on an image cover block (including placeholders)
+  const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
+  if (imageBlock) {
+    const block = state.document.page.blocks[imageBlock.blockIndex];
+    if (block.type === "imageCover") {
+      // If it's a placeholder (no URL), open the upload menu immediately
+      if (!block.url) {
+        // Don't reopen if we just closed the menu for this same block
+        if (
+          wasMenuOpen &&
+          previousMenu.type === "imageUpload" &&
+          previousMenu.blockIndex === imageBlock.blockIndex
+        ) {
+          // Just keep it closed
+          return state;
+        }
+        
+        // Open the image upload menu at the click position
+        return setActiveMenu(state, {
+          type: "imageUpload",
+          blockIndex: imageBlock.blockIndex,
+          x: canvasX,
+          y: canvasY,
+        });
+      }
+      // If it has an image, don't handle click here (let hover button handle it)
+      // Just clear selection and return
+      const clearedState = clearSelection(state);
+      return updateMode(clearedState, "edit");
     }
   }
 
@@ -1752,6 +1785,11 @@ function handleWheel(
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
+  // In locked mode, block scrolling
+  if (state.ui.mode === "locked") {
+    return state;
+  }
+
   // Stop momentum when using wheel
   state = {
     ...state,
@@ -1859,6 +1897,11 @@ function handleTouchStart(
   containerRect: { left: number; top: number },
   documentHeight: number
 ): EditorState {
+  // In locked mode, block touch interactions that might lead to scrolling
+  if (state.ui.mode === "locked") {
+    return state;
+  }
+
   if (event.touches.length === 1) {
     const touch = event.touches[0];
     const currentTime = Date.now();
@@ -1948,6 +1991,11 @@ function handleTouchMove(
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
+  // In locked mode, block scrolling
+  if (state.ui.mode === "locked") {
+    return state;
+  }
+
   if (event.touches.length === 1 && touchState) {
     event.preventDefault();
     const touch = event.touches[0];

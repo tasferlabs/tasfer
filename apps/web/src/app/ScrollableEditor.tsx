@@ -391,21 +391,25 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     return items;
   };
 
-  // Set editor to readonly mode when link edit popover is open
+  // Set editor to locked mode when link edit or image upload popover is open
   useEffect(() => {
     if (!mountedRef.current?.editor) return;
 
+    const currentState = mountedRef.current.editor.getState();
+    if (!currentState) return;
+
     if (linkEditState || imageUploadState) {
-      // Set editor to readonly mode when popover opens
-      mountedRef.current.editor.setMode("locked");
+      // Set editor to locked mode when popover opens (only if not already locked)
+      if (currentState.ui.mode !== "locked") {
+        mountedRef.current.editor.setMode("locked");
+      }
     } else {
-      // Restore to edit mode when popover closes
-      const currentState = mountedRef.current.editor.getState();
-      if (currentState?.ui.mode === "locked") {
+      // Restore to edit mode when popover closes (only if currently locked)
+      if (currentState.ui.mode === "locked") {
         mountedRef.current.editor.setMode("edit");
       }
     }
-  }, [linkEditState]);
+  }, [linkEditState, imageUploadState]);
 
   const handleLinkEdit = () => {
     if (!linkTooltipState || !mountedRef.current) return;
@@ -677,6 +681,9 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
           // Check if the image is in placeholder mode (no URL)
           const isPlaceholder = !block.url;
 
+          // Don't show the overlay for placeholder mode (no Edit Image button)
+          if (isPlaceholder) return null;
+
           return createPortal(
             <div
               style={{
@@ -685,84 +692,57 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
                 top: `${displayState.y}px`,
                 width: `${displayState.width}px`,
                 height: `${displayState.height}px`,
-                pointerEvents: isPlaceholder ? "auto" : "none",
+                pointerEvents: "none",
                 overflow: "hidden",
                 zIndex: 10,
-                cursor: isPlaceholder ? "pointer" : "default",
-              }}
-              onClick={(e) => {
-                if (!isPlaceholder || !mountedRef.current) return;
-                
-                e.stopPropagation();
-                
-                // For placeholder mode, clicking anywhere opens the upload menu
-                const containerRect =
-                  wrapperRef.current?.getBoundingClientRect();
-                
-                if (containerRect) {
-                  // Open upload menu at the center of the placeholder
-                  const canvasX = displayState.x + displayState.width / 2;
-                  const canvasY = displayState.y + displayState.height / 2;
-                  
-                  mountedRef.current.editor.openImageUploadMenu(
-                    displayState.blockIndex,
-                    canvasX,
-                    canvasY,
-                    undefined,
-                    undefined
-                  );
-                }
               }}
             >
-              {/* Only show Edit Image button if not in placeholder mode */}
-              {!isPlaceholder && (
-                <div
-                  style={{
-                    position: "absolute",
-                    right: "8px",
-                    top: "8px",
-                    pointerEvents: "auto",
+              <div
+                style={{
+                  position: "absolute",
+                  right: "8px",
+                  top: "8px",
+                  pointerEvents: "auto",
+                }}
+              >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => {
+                    if (!mountedRef.current) return;
+                    const state = mountedRef.current.editor.getState();
+                    if (!state) return;
+
+                    const block =
+                      state.document.page.blocks[displayState.blockIndex];
+                    if (block.type === "imageCover") {
+                      // Get button position to open popover below it
+                      const buttonRect =
+                        e.currentTarget.getBoundingClientRect();
+                      const containerRect =
+                        wrapperRef.current?.getBoundingClientRect();
+
+                      if (containerRect) {
+                        // Convert button position to canvas-relative coordinates
+                        const canvasX = buttonRect.left - containerRect.left;
+                        const canvasY = buttonRect.bottom - containerRect.top;
+
+                        // Open the image upload/edit popover
+                        mountedRef.current.editor.openImageUploadMenu(
+                          displayState.blockIndex,
+                          canvasX,
+                          canvasY,
+                          block.url || undefined,
+                          block.alt || undefined
+                        );
+                      }
+                    }
                   }}
                 >
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={(e) => {
-                      if (!mountedRef.current) return;
-                      const state = mountedRef.current.editor.getState();
-                      if (!state) return;
-
-                      const block =
-                        state.document.page.blocks[displayState.blockIndex];
-                      if (block.type === "imageCover") {
-                        // Get button position to open popover below it
-                        const buttonRect =
-                          e.currentTarget.getBoundingClientRect();
-                        const containerRect =
-                          wrapperRef.current?.getBoundingClientRect();
-
-                        if (containerRect) {
-                          // Convert button position to canvas-relative coordinates
-                          const canvasX = buttonRect.left - containerRect.left;
-                          const canvasY = buttonRect.bottom - containerRect.top;
-
-                          // Open the image upload/edit popover
-                          mountedRef.current.editor.openImageUploadMenu(
-                            displayState.blockIndex,
-                            canvasX,
-                            canvasY,
-                            block.url || undefined,
-                            block.alt || undefined
-                          );
-                        }
-                      }
-                    }}
-                  >
-                    <ImageIcon className="size-4" />
-                    <span className="text-xs">Edit Image</span>
-                  </Button>
-                </div>
-              )}
+                  <ImageIcon className="size-4" />
+                  <span className="text-xs">Edit Image</span>
+                </Button>
+              </div>
             </div>,
             mountedRef.current.portalContainer
           );

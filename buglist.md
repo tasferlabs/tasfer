@@ -145,13 +145,16 @@ Bugs list
 [x] clicking close to an image trigger upload menu. Clicking on image should persist it should not activate upload menu if we are pointer inside the image.
 [x] rendering cover image artifcat. The image has border
 [x] Rendering image has supper low resolution. Even though uploaded image is good
-[ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
+[x] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
 [ ] i need to click two times outside to close image upload menu.
 [ ] click outside the editor does not close the image upload menu or context menu.
 [ ] on hovering on a link near the edge, than the tooltip should be fully visible.
 [ ] clicking close to an image trigger upload menu. Clicking on image should persist it should not activate upload menu if we are pointer inside the image.
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
 [ ] on hover on image we should show the button for swapping image.
+[x] can not scroll when if image is a placeholder 
+[x] scrolling should not be active on locked mode
+
 - : means not planed or considered
   x : done
   : not done
