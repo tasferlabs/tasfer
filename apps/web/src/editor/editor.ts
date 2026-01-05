@@ -367,8 +367,11 @@ export default function createEditor(
     const touchDuration = Date.now() - touchStartTime;
     const wasTap = !touchHasMoved && touchDuration < TAP_TIME_THRESHOLD;
 
-    // Focus input if ending long press or on tap
-    if (hiddenInput && isTouchDevice() && (wasLongPress || wasTap)) {
+    // Don't focus input if a context menu just opened (it would close the menu)
+    const hasContextMenu = state.ui.activeMenu.type === "contextMenu";
+
+    // Focus input if ending long press or on tap (but not when context menu is open)
+    if (hiddenInput && isTouchDevice() && (wasLongPress || wasTap) && !hasContextMenu) {
       try {
         hiddenInput.focus({ preventScroll: true });
         // Some browsers need click as well

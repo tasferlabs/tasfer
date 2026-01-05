@@ -159,7 +159,8 @@ Bugs list
 [x] arrow up on image should create new text block.
 [x] image place holder should much smaller in the height
 [ ] copy should work with images.
-[ ] context menu is direcly closing on mobile.
+[x] context menu is direcly closing on mobile.
+[ ] can not clear selection on moble if click outside or on top/bottom padding 
 [ ] image on the edge is bit higher than the normal images 
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
 - : means not planed or considered

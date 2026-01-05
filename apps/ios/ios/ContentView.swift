@@ -380,6 +380,13 @@ struct WebView: UIViewRepresentable {
         
         webView.allowsBackForwardNavigationGestures = true
         
+        // Enable Web Inspector for localhost/debug builds only
+        #if DEBUG
+        if #available(iOS 16.4, *) {
+            webView.isInspectable = true
+        }
+        #endif
+        
         NotificationCenter.default.addObserver(
             forName: UIResponder.keyboardWillShowNotification,
             object: nil,
