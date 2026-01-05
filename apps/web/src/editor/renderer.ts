@@ -136,15 +136,15 @@ export const getBlockHeight = (
   styles: EditorStyles,
   blockIndex?: number
 ): number => {
-  // Check if cached height is valid for current width
+  // Calculate the base height (with caching)
+  let height: number;
   if (block.cachedHeight !== undefined && block.cachedWidth === maxWidth) {
-    return block.cachedHeight;
+    height = block.cachedHeight;
+  } else {
+    height = calculateBlockHeight(block, maxWidth, styles);
+    block.cachedHeight = height;
+    block.cachedWidth = maxWidth;
   }
-
-  // Calculate and cache the height
-  const height = calculateBlockHeight(block, maxWidth, styles);
-  block.cachedHeight = height;
-  block.cachedWidth = maxWidth;
   
   // Special handling for first block image covers that bleed into top padding
   // They use up the padding space, so we subtract it from the effective height
