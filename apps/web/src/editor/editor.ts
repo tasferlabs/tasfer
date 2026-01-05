@@ -31,6 +31,7 @@ import {
   updateSelection,
   createInitialCursorState,
   setActiveMenu,
+  closeActiveMenu,
 } from "./state";
 import { getEditorStyles } from "./styles";
 import type { EditorState, SlashCommand, ViewportState } from "./types";
@@ -86,6 +87,7 @@ export interface Editor {
     existingUrl?: string,
     existingAlt?: string
   ) => void;
+  closeActiveMenu: () => void;
 }
 
 export default function createEditor(
@@ -947,6 +949,13 @@ export default function createEditor(
     listeners.forEach((listener) => listener(currentState));
   }
 
+  function closeActiveMenuMethod() {
+    state = closeActiveMenu(state);
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
   return {
     getState,
     destroy,
@@ -972,5 +981,6 @@ export default function createEditor(
     forceRender: scheduleRender,
     updateImageCoverBlock,
     openImageUploadMenu,
+    closeActiveMenu: closeActiveMenuMethod,
   };
 }

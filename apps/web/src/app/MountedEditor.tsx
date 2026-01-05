@@ -16,7 +16,10 @@ import { LinkTooltip } from "../editor/LinkTooltip";
 import { SlashCommandMenu } from "../editor/SlashCommandMenu";
 import { hasNativeBridge } from "../editor/clipboard";
 import { getSelectionRange } from "../editor/commands";
-import { mountEditor, type MountedEditor as MountedEditorInstance } from "../editor/mount";
+import {
+  mountEditor,
+  type MountedEditor as MountedEditorInstance,
+} from "../editor/mount";
 import type { EditorState, SlashCommand } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
@@ -327,6 +330,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
 
   const handleSlashCommandClose = () => {
     if (mountedRef.current) {
+      mountedRef.current.editor.closeActiveMenu();
       setSlashMenuState(null);
       lastSlashMenuStateRef.current = null;
     }
@@ -473,15 +477,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
 
   const handleLinkEditClose = () => {
     if (!linkEditState || !mountedRef.current) return;
-
-    // Only restore the saved cursor and selection if no action was performed (i.e., user canceled)
-    if (!linkEditActionPerformedRef.current) {
-      mountedRef.current.editor.restoreCursorAndSelection(
-        linkEditState.savedCursor,
-        linkEditState.savedSelection
-      );
-    }
-
+    mountedRef.current.editor.closeActiveMenu();
     setLinkEditState(null);
   };
 
@@ -521,6 +517,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
           y={contextMenuState.y}
           items={getContextMenuItems()}
           onClose={() => {
+            if (!mountedRef.current) return;
+            mountedRef.current.editor.closeActiveMenu();
             setContextMenuState(null);
             lastContextMenuStateRef.current = null;
           }}
@@ -636,9 +634,10 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
               setImageUploadState(null);
             }}
             onClose={() => {
+              if (!mountedRef.current) return;
+              // Clear the menu state in the editor
+              mountedRef.current.editor.closeActiveMenu();
               setImageUploadState(null);
-              // The imageUpload state will be cleared automatically by the editor
-              // when clicking outside or through other interactions
             }}
             collisionBoundary={mountedRef.current?.portalContainer}
             container={mountedRef.current?.portalContainer}
