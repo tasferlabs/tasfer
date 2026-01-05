@@ -155,8 +155,7 @@ Bugs list
 [x] scrolling should not be active on locked mode
 [x] we should be select an image.
 [x] Image should be selectable. We should be able to select an image.
-[x] going arrow left on start of text block that has image behind should select the iamge. Right arrow should work the same
-[ ] deleting should skip the image.
+[x] going arrow left on start of text block that has image behind should select the iamge. Right arrow should work the same.
 [ ] image place holder should much smaller in the height
 [ ] image on the edge is bit higher than the normal images 
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.

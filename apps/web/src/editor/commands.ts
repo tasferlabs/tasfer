@@ -829,9 +829,59 @@ export function deleteText(state: EditorState): EditorState {
     return moveCursorToPosition(newState, blockIndex, textIndex - 1, true);
   } else if (blockIndex > 0) {
     const prevBlock = state.document.page.blocks[blockIndex - 1];
-    if (!isTextBlock(prevBlock) || !isTextBlock(oldBlock)) {
+    
+    // If previous block is not a text block (e.g., image), delete the current text block
+    if (!isTextBlock(prevBlock)) {
+      if (!isTextBlock(oldBlock)) {
+        return state;
+      }
+      
+      // Delete the current text block
+      const newBlocks = [
+        ...state.document.page.blocks.slice(0, blockIndex),
+        ...state.document.page.blocks.slice(blockIndex + 1),
+      ];
+      
+      // If we deleted the last block, add an empty paragraph
+      if (newBlocks.length === 0) {
+        newBlocks.push({
+          id: generateBlockId(),
+          type: "paragraph",
+          content: [{ content: "" }],
+        });
+      }
+      
+      const newPage = { ...state.document.page, blocks: newBlocks };
+      let newState: EditorState = {
+        ...state,
+        document: { ...state.document, page: newPage },
+      };
+      
+      // Select the previous (image) block
+      const imageBlockIndex = blockIndex - 1;
+      const imagePosition = { blockIndex: imageBlockIndex, textIndex: 0 };
+      newState = moveCursorToPosition(newState, imageBlockIndex, 0);
+      newState = {
+        ...newState,
+        document: {
+          ...newState.document,
+          selection: {
+            anchor: imagePosition,
+            focus: imagePosition,
+            isForward: true,
+            isCollapsed: false,
+            lastUpdate: Date.now(),
+          },
+        },
+      };
+      
+      return newState;
+    }
+    
+    if (!isTextBlock(oldBlock)) {
       return state;
     }
+    
     const prevText = getBlockTextContent(prevBlock);
     // Merge the formatted content arrays
     const mergedContent = [...prevBlock.content, ...oldBlock.content];
@@ -922,9 +972,51 @@ export function deleteForward(state: EditorState): EditorState {
   } else if (blockIndex < state.document.page.blocks.length - 1) {
     // Merge with next block, preserving formatting
     const nextBlock = state.document.page.blocks[blockIndex + 1];
+    
+    // If next block is not a text block (e.g., image), delete the current text block
     if (!isTextBlock(nextBlock)) {
-      return state;
+      // Delete the current text block
+      const newBlocks = [
+        ...state.document.page.blocks.slice(0, blockIndex),
+        ...state.document.page.blocks.slice(blockIndex + 1),
+      ];
+      
+      // If we deleted the last block, add an empty paragraph
+      if (newBlocks.length === 0) {
+        newBlocks.push({
+          id: generateBlockId(),
+          type: "paragraph",
+          content: [{ content: "" }],
+        });
+      }
+      
+      const newPage = { ...state.document.page, blocks: newBlocks };
+      let newState: EditorState = {
+        ...state,
+        document: { ...state.document, page: newPage },
+      };
+      
+      // Select the next (image) block, which is now at blockIndex after deletion
+      const imageBlockIndex = blockIndex;
+      const imagePosition = { blockIndex: imageBlockIndex, textIndex: 0 };
+      newState = moveCursorToPosition(newState, imageBlockIndex, 0);
+      newState = {
+        ...newState,
+        document: {
+          ...newState.document,
+          selection: {
+            anchor: imagePosition,
+            focus: imagePosition,
+            isForward: true,
+            isCollapsed: false,
+            lastUpdate: Date.now(),
+          },
+        },
+      };
+      
+      return newState;
     }
+    
     const mergedContent = [...oldBlock.content, ...nextBlock.content];
     
     // Determine which block type to preserve:
