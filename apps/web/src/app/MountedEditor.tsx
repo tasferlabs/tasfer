@@ -265,9 +265,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       }
 
       // Clear persisted state when image upload closes
-      if (
-        state.ui.activeMenu.type !== "imageUpload"
-      ) {
+      if (state.ui.activeMenu.type !== "imageUpload") {
         persistedImageHoverRef.current = null;
       }
 
@@ -590,7 +588,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
               if (!state) return;
 
               // Get current block to check if there's an existing URL to clear from failed cache
-              const block = state.document.page.blocks[imageUploadState.blockIndex];
+              const block =
+                state.document.page.blocks[imageUploadState.blockIndex];
               if (block && block.type === "imageCover" && block.url) {
                 clearFailedImageCache(block.url);
               }

@@ -178,16 +178,9 @@ export function mountEditor(
       return;
     }
 
-    if (document.activeElement === hiddenInput) {
-      return;
-    }
-
     // Click outside: blur editor
-    if (isTouchDevice()) {
-      editor.setFocus(false, true);
-    } else {
-      editor.setFocus(false);
-    }
+
+    editor.setFocus(false, true);
   };
 
   // Handle hidden input focus/blur (mobile keyboard)
@@ -204,27 +197,31 @@ export function mountEditor(
     editor.setInitialCursor();
   };
 
-  const handleInputBlur = () => {
-    console.log("handleInputBlur");
-
+  const handleInputBlur = (e: FocusEvent) => {
     // Defer the blur action to allow the canvas click handler to refocus the input
     // This prevents unnecessary blur/refocus cycles during triple-click and other interactions
-    blurTimeoutId = window.setTimeout(() => {
-      blurTimeoutId = null;
 
-      // Check if the hidden input is still not focused after the timeout
-      if (document.activeElement !== hiddenInput) {
-        // If keyboard is dismissed or focus lost, blur editor
-        if (isTouchDevice()) {
-          editor.setFocus(false, true);
-        } else {
-          editor.setFocus(false);
-        }
+    // If click is on container or hidden input, do nothing (editor handles it)
+    if (
+      container.contains(e.target as Node) ||
+      hiddenInput.contains(e.target as Node)
+    ) {
+      return;
+    }
 
-        // Clear the hidden input value to remove any lingering composition text
-        hiddenInput.value = "";
-      }
-    }, 10); // Small delay to allow click handlers to refocus
+    if (e.target === hiddenInput) {
+      return;
+    }
+
+    // If keyboard is dismissed or focus lost, blur editor
+    if (isTouchDevice()) {
+      editor.setFocus(false, true);
+    } else {
+      editor.setFocus(false);
+    }
+
+    // Clear the hidden input value to remove any lingering composition text
+    hiddenInput.value = "";
   };
 
   document.addEventListener("mousedown", handleDocumentClick);
