@@ -20,6 +20,7 @@ import {
   mountEditor,
   type MountedEditor as MountedEditorInstance,
 } from "../editor/mount";
+import { clearFailedImageCache } from "../editor/renderer";
 import type { EditorState, SlashCommand } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
@@ -590,6 +591,12 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
               const state = editor.getState();
               if (!state) return;
 
+              // Get current block to check if there's an existing URL to clear from failed cache
+              const block = state.document.page.blocks[imageUploadState.blockIndex];
+              if (block && block.type === "imageCover" && block.url) {
+                clearFailedImageCache(block.url);
+              }
+
               // Set uploading status
               editor.updateImageCoverBlock(
                 imageUploadState.blockIndex,
@@ -622,6 +629,9 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
             onUrlSubmit={(url) => {
               if (!mountedRef.current) return;
               const editor = mountedRef.current.editor;
+
+              // Clear failed cache for this URL to allow retry
+              clearFailedImageCache(url);
 
               editor.updateImageCoverBlock(
                 imageUploadState.blockIndex,

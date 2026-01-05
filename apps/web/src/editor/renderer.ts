@@ -1122,9 +1122,25 @@ function renderSelection(
 
 // Image cache to avoid reloading images
 const imageCache = new Map<string, HTMLImageElement>();
+// Cache for failed image loads to prevent repeated requests
+const failedImageCache = new Set<string>();
+
+// Clear failed image from cache (useful for retry scenarios)
+export function clearFailedImageCache(url?: string) {
+  if (url) {
+    failedImageCache.delete(url);
+  } else {
+    failedImageCache.clear();
+  }
+}
 
 // Load image and cache it
 function loadImage(url: string): Promise<HTMLImageElement> {
+  // Check if this image previously failed to load
+  if (failedImageCache.has(url)) {
+    return Promise.reject(new Error(`Image previously failed to load: ${url}`));
+  }
+
   // Check cache first
   if (imageCache.has(url)) {
     const cached = imageCache.get(url)!;
@@ -1143,6 +1159,8 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     };
 
     img.onerror = () => {
+      // Cache the failed URL to prevent repeated requests
+      failedImageCache.add(url);
       reject(new Error(`Failed to load image: ${url}`));
     };
 
@@ -1227,70 +1245,91 @@ function renderImageCoverBlock(
       adjustedY + adjustedHeight / 2 + 20
     );
   } else if (block.url) {
-    // Try to load and draw the actual image
-    const cachedImage = imageCache.get(block.url);
-
-    if (cachedImage && cachedImage.complete) {
-      // Use "cover" algorithm: fill the entire area while maintaining aspect ratio
-      const imgAspectRatio =
-        cachedImage.naturalWidth / cachedImage.naturalHeight;
-      const containerAspectRatio = fullWidth / adjustedHeight;
-
-      let sourceX = 0;
-      let sourceY = 0;
-      let sourceWidth = cachedImage.naturalWidth;
-      let sourceHeight = cachedImage.naturalHeight;
-
-      // Cover algorithm: crop the image to fill the container
-      if (imgAspectRatio > containerAspectRatio) {
-        // Image is wider than container - crop width
-        sourceWidth = cachedImage.naturalHeight * containerAspectRatio;
-        sourceX = (cachedImage.naturalWidth - sourceWidth) / 2;
-      } else {
-        // Image is taller than container - crop height
-        sourceHeight = cachedImage.naturalWidth / containerAspectRatio;
-        sourceY = (cachedImage.naturalHeight - sourceHeight) / 2;
-      }
-
-      // Draw background (for any transparency)
-      ctx.fillStyle = styles.imageCover.loading.backgroundColor;
+    // Check if this image previously failed to load
+    if (failedImageCache.has(block.url)) {
+      // Show error state for failed images
+      ctx.fillStyle = styles.imageCover.error.backgroundColor;
       ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
 
-      // Draw the image using cover algorithm (cropping as needed)
-      ctx.drawImage(
-        cachedImage,
-        sourceX,
-        sourceY,
-        sourceWidth,
-        sourceHeight, // Source rectangle
-        fullWidthX,
-        adjustedY,
-        fullWidth,
-        adjustedHeight // Destination rectangle
-      );
-    } else {
-      // Show loading placeholder while image loads
-      ctx.fillStyle = styles.imageCover.loading.backgroundColor;
-      ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
-
-      ctx.fillStyle = styles.imageCover.loading.textColor;
+      ctx.fillStyle = styles.imageCover.error.textColor;
       ctx.font = "14px system-ui, -apple-system, sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(
-        styles.imageCover.loading.text,
+        styles.imageCover.error.text,
         fullWidthX + fullWidth / 2,
         adjustedY + adjustedHeight / 2
       );
+      ctx.fillText(
+        styles.imageCover.error.retryText,
+        fullWidthX + fullWidth / 2,
+        adjustedY + adjustedHeight / 2 + 20
+      );
+    } else {
+      // Try to load and draw the actual image
+      const cachedImage = imageCache.get(block.url);
 
-      // Start loading the image
-      loadImage(block.url)
-        .then(() => {
-          // Force re-render when image loads
-          // This will be handled by the editor's render loop
-        })
-        .catch((error) => {
-          console.error("Failed to load image:", error);
-        });
+      if (cachedImage && cachedImage.complete) {
+        // Use "cover" algorithm: fill the entire area while maintaining aspect ratio
+        const imgAspectRatio =
+          cachedImage.naturalWidth / cachedImage.naturalHeight;
+        const containerAspectRatio = fullWidth / adjustedHeight;
+
+        let sourceX = 0;
+        let sourceY = 0;
+        let sourceWidth = cachedImage.naturalWidth;
+        let sourceHeight = cachedImage.naturalHeight;
+
+        // Cover algorithm: crop the image to fill the container
+        if (imgAspectRatio > containerAspectRatio) {
+          // Image is wider than container - crop width
+          sourceWidth = cachedImage.naturalHeight * containerAspectRatio;
+          sourceX = (cachedImage.naturalWidth - sourceWidth) / 2;
+        } else {
+          // Image is taller than container - crop height
+          sourceHeight = cachedImage.naturalWidth / containerAspectRatio;
+          sourceY = (cachedImage.naturalHeight - sourceHeight) / 2;
+        }
+
+        // Draw background (for any transparency)
+        ctx.fillStyle = styles.imageCover.loading.backgroundColor;
+        ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+
+        // Draw the image using cover algorithm (cropping as needed)
+        ctx.drawImage(
+          cachedImage,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight, // Source rectangle
+          fullWidthX,
+          adjustedY,
+          fullWidth,
+          adjustedHeight // Destination rectangle
+        );
+      } else {
+        // Show loading placeholder while image loads
+        ctx.fillStyle = styles.imageCover.loading.backgroundColor;
+        ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+
+        ctx.fillStyle = styles.imageCover.loading.textColor;
+        ctx.font = "14px system-ui, -apple-system, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(
+          styles.imageCover.loading.text,
+          fullWidthX + fullWidth / 2,
+          adjustedY + adjustedHeight / 2
+        );
+
+        // Start loading the image
+        loadImage(block.url)
+          .then(() => {
+            // Force re-render when image loads
+            // This will be handled by the editor's render loop
+          })
+          .catch((error) => {
+            console.error("Failed to load image:", error);
+          });
+      }
     }
   } else {
     // No image - show upload prompt
