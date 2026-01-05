@@ -150,6 +150,39 @@ export function getEditorStyles(): EditorStyles {
         hoverColor: getCSSVariable("--editor-link-hover"),
       },
     },
+    imageResize: {
+      dragHandles: {
+        // Vertical bars (left and right sides) - both for horizontal resize (redundant but better UX)
+        vertical: {
+          length: 100, // Height of the vertical drag bar
+          thickness: 6, // Thickness of the vertical drag bar
+          borderRadius: 3, // Rounded corners (0 = sharp)
+          backgroundColor: getCSSVariable("--muted-foreground"),
+          hoverBackgroundColor: getCSSVariable("--primary"),
+          opacity: 1, // Hidden by default
+          hoverOpacity: 1, // Visible on hover
+          inset: 16, // Distance from the edge (0 = at the edge, positive = inside)
+        },
+        // Horizontal bar (bottom) - for vertical resize
+        horizontal: {
+          length: 200, // Width of the horizontal drag bar
+          thickness: 6, // Thickness of the horizontal drag bar
+          borderRadius: 3, // Rounded corners (0 = sharp)
+          backgroundColor: getCSSVariable("--muted-foreground"),
+          hoverBackgroundColor: getCSSVariable("--primary"),
+          opacity: 1, // Hidden by default
+          hoverOpacity: 1, // Visible on hover
+          inset: 16, // Distance from the edge (0 = at the edge, positive = inside)
+        },
+      },
+      outline: {
+        color: getCSSVariable("--primary"),
+        width: 2,
+        opacity: 0, // Hidden by default
+        hoverOpacity: 0, // Subtle outline on hover
+        dashPattern: [4, 4], // Dashed outline pattern
+      },
+    },
   };
 }
 

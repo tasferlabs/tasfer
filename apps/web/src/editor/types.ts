@@ -60,6 +60,9 @@ export type ActiveFormatsMode =
   | { type: 'inherit' } // Inherit formatting from previous character (normal typing)
   | { type: 'explicit'; formats: readonly TextFormat[] }; // Explicit formatting mode (Ctrl+B toggled on/off)
 
+// Drag handle position on an image
+export type DragHandlePosition = 'left' | 'right' | 'bottom' | null;
+
 // Image Hover State - Not a menu, just visual feedback
 export interface ImageHoverState {
   readonly blockIndex: number;
@@ -67,6 +70,7 @@ export interface ImageHoverState {
   readonly y: number;
   readonly width: number;
   readonly height: number;
+  readonly hoveredHandle: DragHandlePosition; // Track which drag handle is being hovered
 }
 
 // UI State - Transient interaction state (menus, popovers, mode)
@@ -182,6 +186,7 @@ export interface EditorStyles {
   readonly cursor: CursorStyles;
   readonly placeholder: PlaceholderStyles;
   readonly textFormats: TextFormatStyles;
+  readonly imageResize: ImageResizeStyles;
 }
 
 export interface CanvasStyles {
@@ -248,6 +253,38 @@ export interface TextFormatStyles {
     readonly color: string;
     readonly underlineThickness: number;
     readonly hoverColor: string;
+  };
+}
+
+export interface ImageResizeStyles {
+  readonly dragHandles: {
+    readonly vertical: {
+      readonly length: number;
+      readonly thickness: number;
+      readonly borderRadius: number;
+      readonly backgroundColor: string;
+      readonly hoverBackgroundColor: string;
+      readonly opacity: number;
+      readonly hoverOpacity: number;
+      readonly inset: number;
+    };
+    readonly horizontal: {
+      readonly length: number;
+      readonly thickness: number;
+      readonly borderRadius: number;
+      readonly backgroundColor: string;
+      readonly hoverBackgroundColor: string;
+      readonly opacity: number;
+      readonly hoverOpacity: number;
+      readonly inset: number;
+    };
+  };
+  readonly outline: {
+    readonly color: string;
+    readonly width: number;
+    readonly opacity: number;
+    readonly hoverOpacity: number;
+    readonly dashPattern: readonly number[];
   };
 }
 

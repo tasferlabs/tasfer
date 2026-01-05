@@ -85,6 +85,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     width: number;
     height: number;
     blockIndex: number;
+    hoveredHandle: 'left' | 'right' | 'bottom' | null;
   } | null>(null);
 
   const lastImageHoverStateRef = useRef<typeof imageHoverState>(null);
@@ -253,6 +254,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
           width: state.ui.imageHover.width,
           height: state.ui.imageHover.height,
           blockIndex: state.ui.imageHover.blockIndex,
+          hoveredHandle: state.ui.imageHover.hoveredHandle,
         };
         // Persist this state for when the menu transitions
         persistedImageHoverRef.current = newImageHoverState;
@@ -673,6 +675,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
                   width: wrapperRef.current?.offsetWidth || 0,
                   height: 300, // Default image height
                   blockIndex: imageUploadState.blockIndex,
+                  hoveredHandle: null,
                 }
               : null);
 

@@ -15,6 +15,7 @@ import { handleEvents, isInLongPressMode } from "./events";
 import {
   renderPage,
   renderCursorLayer,
+  renderImageDragHandles,
   clearAllBlockCaches,
   invalidateBlockCache,
   getBlockHeight,
@@ -146,7 +147,8 @@ export default function createEditor(
   const updateCursorStyle = (
     isHoveringScrollbar: boolean,
     isDragging: boolean,
-    isHoveringLinkWithModifier: boolean
+    isHoveringLinkWithModifier: boolean,
+    dragHandleHover: 'left' | 'right' | 'bottom' | null = null
   ) => {
     // Only update cursor on desktop (not touch devices)
     if (isTouchDevice()) {
@@ -156,6 +158,13 @@ export default function createEditor(
     if (isDragging) {
       // When dragging scrollbar, use grabbing cursor
       contentCanvas.style.cursor = "grabbing";
+    } else if (dragHandleHover) {
+      // When hovering over a drag handle, use resize cursor
+      if (dragHandleHover === 'left' || dragHandleHover === 'right') {
+        contentCanvas.style.cursor = "ew-resize"; // Horizontal resize
+      } else if (dragHandleHover === 'bottom') {
+        contentCanvas.style.cursor = "ns-resize"; // Vertical resize
+      }
     } else if (isHoveringScrollbar) {
       // When hovering over scrollbar, use pointer cursor
       contentCanvas.style.cursor = "pointer";
@@ -252,11 +261,15 @@ export default function createEditor(
           // Render the page content (text, blocks, selection, scrollbar)
           documentHeight = renderPage(contentCtx, state, viewport, visibility);
 
+          // Render image drag handles on hover (desktop only)
+          renderImageDragHandles(contentCtx, state, viewport);
+
           // Update cursor style based on scrollbar hover and drag state
           updateCursorStyle(
             state.view.scrollbar.isHovered,
             state.view.scrollbar.isDragging,
-            state.ui.isHoveringLinkWithModifier
+            state.ui.isHoveringLinkWithModifier,
+            state.ui.imageHover?.hoveredHandle || null
           );
 
           dirtyLayers.content = false;

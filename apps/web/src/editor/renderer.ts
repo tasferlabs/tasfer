@@ -1529,3 +1529,116 @@ export function renderCursorLayer(
   // Restore context state
   ctx.restore();
 }
+
+/**
+ * Render drag handles for image resize on hover
+ * This should be called after renderPage to overlay the drag handles
+ */
+export function renderImageDragHandles(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  _viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles()
+): void {
+  // Only render if there's an active image hover (desktop only)
+  if (!state.ui.imageHover) {
+    return;
+  }
+
+  const { x, y, width, height, hoveredHandle } = state.ui.imageHover;
+  const { vertical, horizontal } = styles.imageResize.dragHandles;
+  const { color: outlineColor, width: outlineWidth,
+          hoverOpacity: outlineHoverOpacity, dashPattern } = styles.imageResize.outline;
+  
+  ctx.save();
+  
+  // Helper function to render a drag bar with opacity
+  const renderBar = (
+    barX: number,
+    barY: number,
+    barWidth: number,
+    barHeight: number,
+    isHovered: boolean,
+    config: typeof vertical | typeof horizontal
+  ) => {
+    ctx.save();
+    
+    // Set opacity based on hover state
+    const opacity = isHovered ? config.hoverOpacity : config.opacity;
+    ctx.globalAlpha = opacity;
+    
+    // Draw bar background
+    ctx.fillStyle = isHovered ? config.hoverBackgroundColor : config.backgroundColor;
+    
+    if (config.borderRadius > 0) {
+      // Draw rounded rectangle
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, barWidth, barHeight, config.borderRadius);
+      ctx.fill();
+    } else {
+      ctx.fillRect(barX, barY, barWidth, barHeight);
+    }
+    
+    ctx.restore();
+  };
+  
+  // Left vertical bar (centered vertically with specified length)
+  const leftBarX = x + vertical.inset;
+  const leftBarY = y + (height - vertical.length) / 2; // Center vertically
+  const leftBarWidth = vertical.thickness;
+  const leftBarHeight = vertical.length;
+  
+  renderBar(
+    leftBarX,
+    leftBarY,
+    leftBarWidth,
+    leftBarHeight,
+    hoveredHandle === 'left',
+    vertical
+  );
+  
+  // Right vertical bar (centered vertically with specified length)
+  const rightBarX = x + width - vertical.inset - vertical.thickness;
+  const rightBarY = y + (height - vertical.length) / 2; // Center vertically
+  const rightBarWidth = vertical.thickness;
+  const rightBarHeight = vertical.length;
+  
+  renderBar(
+    rightBarX,
+    rightBarY,
+    rightBarWidth,
+    rightBarHeight,
+    hoveredHandle === 'right',
+    vertical
+  );
+  
+  // Bottom horizontal bar (centered horizontally with specified length)
+  const bottomBarX = x + (width - horizontal.length) / 2; // Center horizontally
+  const bottomBarY = y + height - horizontal.inset - horizontal.thickness;
+  const bottomBarWidth = horizontal.length;
+  const bottomBarHeight = horizontal.thickness;
+  
+  renderBar(
+    bottomBarX,
+    bottomBarY,
+    bottomBarWidth,
+    bottomBarHeight,
+    hoveredHandle === 'bottom',
+    horizontal
+  );
+  
+  // Render a subtle dashed outline around the image when hovering any handle
+  if (hoveredHandle !== null) {
+    ctx.save();
+    const opacity = outlineHoverOpacity;
+    ctx.globalAlpha = opacity;
+    ctx.strokeStyle = outlineColor;
+    ctx.lineWidth = outlineWidth;
+    ctx.setLineDash(dashPattern as number[]);
+    ctx.strokeRect(x, y, width, height);
+    ctx.setLineDash([]); // Reset dash pattern
+    ctx.restore();
+  }
+  
+  ctx.restore();
+}

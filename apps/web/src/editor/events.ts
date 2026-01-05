@@ -189,6 +189,78 @@ function getImageBlockAtPoint(
 }
 
 /**
+ * Helper function to detect which drag handle (if any) is being hovered
+ * @param x Mouse x position relative to canvas
+ * @param y Mouse y position relative to canvas
+ * @param imageX Image x position
+ * @param imageY Image y position
+ * @param imageWidth Image width
+ * @param imageHeight Image height
+ * @returns The position of the hovered drag handle, or null if none
+ */
+function getDragHandleAtPoint(
+  x: number,
+  y: number,
+  imageX: number,
+  imageY: number,
+  imageWidth: number,
+  imageHeight: number
+): 'left' | 'right' | 'bottom' | null {
+  const styles = getEditorStyles();
+  const { vertical, horizontal } = styles.imageResize.dragHandles;
+  
+  // Extra tolerance for easier hovering (pixels beyond the visible bar)
+  const tolerance = 4;
+  
+  // Left vertical bar (centered vertically with specified length)
+  const leftBarX = imageX + vertical.inset;
+  const leftBarWidth = vertical.thickness;
+  const leftBarY = imageY + (imageHeight - vertical.length) / 2; // Center vertically
+  const leftBarHeight = vertical.length;
+  
+  if (
+    x >= leftBarX - tolerance &&
+    x <= leftBarX + leftBarWidth + tolerance &&
+    y >= leftBarY &&
+    y <= leftBarY + leftBarHeight
+  ) {
+    return 'left';
+  }
+  
+  // Right vertical bar (centered vertically with specified length)
+  const rightBarX = imageX + imageWidth - vertical.inset - vertical.thickness;
+  const rightBarWidth = vertical.thickness;
+  const rightBarY = imageY + (imageHeight - vertical.length) / 2; // Center vertically
+  const rightBarHeight = vertical.length;
+  
+  if (
+    x >= rightBarX - tolerance &&
+    x <= rightBarX + rightBarWidth + tolerance &&
+    y >= rightBarY &&
+    y <= rightBarY + rightBarHeight
+  ) {
+    return 'right';
+  }
+  
+  // Bottom horizontal bar (centered horizontally with specified length)
+  const bottomBarX = imageX + (imageWidth - horizontal.length) / 2; // Center horizontally
+  const bottomBarWidth = horizontal.length;
+  const bottomBarY = imageY + imageHeight - horizontal.inset - horizontal.thickness;
+  const bottomBarHeight = horizontal.thickness;
+  
+  if (
+    x >= bottomBarX &&
+    x <= bottomBarX + bottomBarWidth &&
+    y >= bottomBarY - tolerance &&
+    y <= bottomBarY + bottomBarHeight + tolerance
+  ) {
+    return 'bottom';
+  }
+  
+  return null;
+}
+
+/**
  * Helper function to scroll viewport to make cursor visible after state changes
  * @param newState The new editor state
  * @param oldState The previous editor state
@@ -1090,6 +1162,16 @@ function handleMouseMove(
     const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
 
     if (imageBlock) {
+      // Check if hovering over a drag handle
+      const hoveredHandle = getDragHandleAtPoint(
+        canvasX,
+        canvasY,
+        imageBlock.x,
+        imageBlock.y,
+        imageBlock.width,
+        imageBlock.height
+      );
+      
       // Mouse is over an image block - set imageHover state (not a blocking menu)
       state = {
         ...state,
@@ -1101,6 +1183,7 @@ function handleMouseMove(
             y: imageBlock.y,
             width: imageBlock.width,
             height: imageBlock.height,
+            hoveredHandle,
           },
         },
       };
