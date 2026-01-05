@@ -231,13 +231,14 @@ function getImageBlockAtPoint(
 
 /**
  * Helper function to detect which drag handle (if any) is being hovered
- * @param x Mouse x position relative to canvas
- * @param y Mouse y position relative to canvas
+ * @param x Mouse/touch x position relative to canvas
+ * @param y Mouse/touch y position relative to canvas
  * @param imageX Image x position
  * @param imageY Image y position
  * @param imageWidth Image width
  * @param imageHeight Image height
  * @param objectFit The object-fit mode of the image
+ * @param extraTolerance Additional tolerance for touch devices (default: 4 for mouse)
  * @returns The position of the hovered drag handle, or null if none
  */
 function getDragHandleAtPoint(
@@ -247,13 +248,14 @@ function getDragHandleAtPoint(
   imageY: number,
   imageWidth: number,
   imageHeight: number,
-  objectFit: 'cover' | 'contain' = 'cover'
+  objectFit: 'cover' | 'contain' = 'cover',
+  extraTolerance: number = 4
 ): 'left' | 'right' | 'bottom' | null {
   const styles = getEditorStyles();
   const { vertical, horizontal } = styles.imageResize.dragHandles;
   
-  // Extra tolerance for easier hovering (pixels beyond the visible bar)
-  const tolerance = 4;
+  // Extra tolerance for easier hovering/tapping (pixels beyond the visible bar)
+  const tolerance = extraTolerance;
   
   // Left vertical bar (centered vertically with specified length)
   const leftBarX = imageX + vertical.inset;
@@ -304,6 +306,248 @@ function getDragHandleAtPoint(
   }
   
   return null;
+}
+
+/**
+ * Start an image drag resize operation
+ * @param state Current editor state
+ * @param imageBlock The image block info from hit detection
+ * @param canvasX X position relative to canvas
+ * @param canvasY Y position relative to canvas
+ * @param extraTolerance Extra tolerance for touch devices
+ * @returns Updated state with imageDrag if drag started, or null if no drag handle was hit
+ */
+function startImageDrag(
+  state: EditorState,
+  imageBlock: { blockIndex: number; x: number; y: number; width: number; height: number },
+  canvasX: number,
+  canvasY: number,
+  extraTolerance: number = 4
+): EditorState | null {
+  const block = state.document.page.blocks[imageBlock.blockIndex];
+  if (block.type !== "imageCover") {
+    return null;
+  }
+  
+  const objectFit = block.objectFit ?? 'cover';
+  const clickedHandle = getDragHandleAtPoint(
+    canvasX,
+    canvasY,
+    imageBlock.x,
+    imageBlock.y,
+    imageBlock.width,
+    imageBlock.height,
+    objectFit,
+    extraTolerance
+  );
+  
+  if (clickedHandle && block.url) {
+    // Start dragging the handle
+    const startWidth = block.width ?? 'full';
+    const startHeight = block.height ?? 300;
+    
+    return {
+      ...state,
+      ui: {
+        ...state.ui,
+        imageDrag: {
+          blockIndex: imageBlock.blockIndex,
+          handle: clickedHandle,
+          startX: canvasX,
+          startY: canvasY,
+          startWidth,
+          startHeight,
+          startObjectFit: objectFit,
+        },
+      },
+    };
+  }
+  
+  return null;
+}
+
+/**
+ * Update image dimensions during drag resize
+ * @param state Current editor state
+ * @param viewport Current viewport state
+ * @param canvasX Current x position relative to canvas
+ * @param canvasY Current y position relative to canvas
+ * @returns Updated state with new image dimensions
+ */
+function updateImageDrag(
+  state: EditorState,
+  viewport: ViewportState,
+  canvasX: number,
+  canvasY: number
+): EditorState {
+  if (!state.ui.imageDrag) {
+    return state;
+  }
+  
+  const { blockIndex, handle, startX, startY, startWidth, startHeight, startObjectFit } = state.ui.imageDrag;
+  const block = state.document.page.blocks[blockIndex];
+  
+  if (block.type !== 'imageCover') {
+    return state;
+  }
+  
+  const styles = getEditorStyles();
+  const deltaX = canvasX - startX;
+  const deltaY = canvasY - startY;
+  const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  const snapThreshold = 20; // pixels to snap to padding
+  
+  let newWidth: number | 'full' = startWidth;
+  let newHeight = startHeight;
+  let newObjectFit: 'cover' | 'contain' = startObjectFit;
+  
+  if (handle === 'left' || handle === 'right') {
+    // Horizontal resize
+    const widthDelta = handle === 'left' ? -deltaX * 2 : deltaX * 2; // multiply by 2 because we resize from center
+    const { minWidth: constraintMinWidth } = styles.imageResize.constraints;
+    
+    if (startWidth === 'full') {
+      // Start from full width
+      const currentWidth = viewport.width;
+      newWidth = Math.max(constraintMinWidth, currentWidth + widthDelta);
+      
+      // Check if we should snap to padding (transitioning to contained)
+      if (Math.abs(newWidth - maxWidth) < snapThreshold) {
+        newWidth = maxWidth;
+        newObjectFit = 'contain';
+      } else if (newWidth < maxWidth - snapThreshold) {
+        // Definitely in contain mode
+        newObjectFit = 'contain';
+      } else if (newWidth >= viewport.width - 10) {
+        // Snap back to full if close
+        newWidth = 'full';
+        newObjectFit = 'cover';
+      }
+    } else {
+      // Already in custom width mode
+      newWidth = Math.max(constraintMinWidth, Math.min(viewport.width, (startWidth as number) + widthDelta));
+      
+      // Check if we should snap back to full width
+      if (newWidth >= viewport.width - snapThreshold) {
+        newWidth = 'full';
+        newObjectFit = 'cover';
+      } else if (newWidth >= maxWidth - snapThreshold && newWidth <= maxWidth + snapThreshold) {
+        // Snap to padding width
+        newWidth = maxWidth;
+        newObjectFit = 'contain';
+      } else {
+        // Remain in contain mode
+        newObjectFit = 'contain';
+      }
+    }
+    
+    // In contain mode, calculate height based on image aspect ratio to avoid jumps
+    // Apply minWidth constraint to prevent over-resizing of wide images
+    if (newObjectFit === 'contain' && typeof newWidth === 'number' && block.url) {
+      const cachedImage = imageCache.get(block.url);
+      if (cachedImage && cachedImage.complete) {
+        const imgAspectRatio = cachedImage.naturalWidth / cachedImage.naturalHeight;
+        
+        // Ensure width doesn't go below minimum (already enforced above, but keep for clarity)
+        newWidth = Math.max(newWidth, constraintMinWidth);
+        
+        // Calculate height based on width and aspect ratio
+        newHeight = newWidth / imgAspectRatio;
+      }
+    }
+  } else if (handle === 'bottom' && startObjectFit === 'cover') {
+    // Vertical resize (only in cover mode)
+    // In cover mode, we enforce minimum height
+    const { minHeight: constraintMinHeight } = styles.imageResize.constraints;
+    const calculatedHeight = Math.max(constraintMinHeight, startHeight + deltaY);
+    
+    // Cap height based on image aspect ratio to prevent over-resizing
+    if (block.url) {
+      const cachedImage = imageCache.get(block.url);
+      if (cachedImage && cachedImage.complete) {
+        const imgAspectRatio = cachedImage.naturalWidth / cachedImage.naturalHeight;
+        
+        // Calculate the current container width
+        const containerWidth = typeof startWidth === 'number' ? startWidth : viewport.width;
+        
+        // For portrait images (tall), cap the height so it doesn't exceed the image's natural ratio
+        // This prevents excessive cropping when the image is resized too tall
+        const maxHeightForRatio = containerWidth / imgAspectRatio;
+        
+        // Cap the height at the image's natural ratio relative to container width
+        newHeight = Math.min(calculatedHeight, maxHeightForRatio);
+        
+        // Ensure we don't go below minimum height
+        newHeight = Math.max(newHeight, constraintMinHeight);
+      } else {
+        newHeight = calculatedHeight;
+      }
+    } else {
+      newHeight = calculatedHeight;
+    }
+  }
+  
+  // Update the block with new dimensions
+  const updatedBlock: Block = {
+    ...block,
+    width: newWidth,
+    height: newHeight,
+    objectFit: newObjectFit,
+  };
+  
+  // Invalidate the block height cache since dimensions changed
+  invalidateBlockCache(updatedBlock);
+  
+  const newBlocks = [...state.document.page.blocks];
+  newBlocks[blockIndex] = updatedBlock;
+  
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      page: { ...state.document.page, blocks: newBlocks },
+    },
+  };
+}
+
+/**
+ * End an image drag resize operation
+ * @param state Current editor state
+ * @returns Updated state with imageDrag cleared and undo recorded
+ */
+function endImageDrag(state: EditorState): EditorState {
+  if (!state.ui.imageDrag) {
+    return state;
+  }
+  
+  // Record undo for the image resize operation
+  const finalState = recordUndo(state);
+  return {
+    ...finalState,
+    ui: {
+      ...finalState.ui,
+      imageDrag: null,
+    },
+  };
+}
+
+/**
+ * Cancel an image drag resize operation (without recording undo)
+ * @param state Current editor state
+ * @returns Updated state with imageDrag cleared
+ */
+function cancelImageDrag(state: EditorState): EditorState {
+  if (!state.ui.imageDrag) {
+    return state;
+  }
+  
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      imageDrag: null,
+    },
+  };
 }
 
 /**
@@ -990,38 +1234,10 @@ function handleMouseDown(
   if (imageBlock) {
     const block = state.document.page.blocks[imageBlock.blockIndex];
     if (block.type === "imageCover") {
-      // Check if clicking on a drag handle
-      const objectFit = block.objectFit ?? 'cover';
-      const clickedHandle = getDragHandleAtPoint(
-        canvasX,
-        canvasY,
-        imageBlock.x,
-        imageBlock.y,
-        imageBlock.width,
-        imageBlock.height,
-        objectFit
-      );
-      
-      if (clickedHandle && block.url) {
-        // Start dragging the handle
-        const startWidth = block.width ?? 'full';
-        const startHeight = block.height ?? 300;
-        
-        return {
-          ...state,
-          ui: {
-            ...state.ui,
-            imageDrag: {
-              blockIndex: imageBlock.blockIndex,
-              handle: clickedHandle,
-              startX: canvasX,
-              startY: canvasY,
-              startWidth,
-              startHeight,
-              startObjectFit: objectFit,
-            },
-          },
-        };
+      // Check if clicking on a drag handle and start drag if applicable
+      const dragState = startImageDrag(state, imageBlock, canvasX, canvasY);
+      if (dragState) {
+        return dragState;
       }
       
       // If it's a placeholder (no URL), open the upload menu immediately
@@ -1239,128 +1455,7 @@ function handleMouseMove(
 
   // Handle image drag resize
   if (state.ui.imageDrag) {
-    const { blockIndex, handle, startX, startY, startWidth, startHeight, startObjectFit } = state.ui.imageDrag;
-    const block = state.document.page.blocks[blockIndex];
-    
-    if (block.type === 'imageCover') {
-      const styles = getEditorStyles();
-      const deltaX = canvasX - startX;
-      const deltaY = canvasY - startY;
-      const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-      const snapThreshold = 20; // pixels to snap to padding
-      
-      let newWidth: number | 'full' = startWidth;
-      let newHeight = startHeight;
-      let newObjectFit: 'cover' | 'contain' = startObjectFit;
-      
-      if (handle === 'left' || handle === 'right') {
-        // Horizontal resize
-        const widthDelta = handle === 'left' ? -deltaX * 2 : deltaX * 2; // multiply by 2 because we resize from center
-        const { minWidth: constraintMinWidth } = styles.imageResize.constraints;
-        
-        if (startWidth === 'full') {
-          // Start from full width
-          const currentWidth = viewport.width;
-          newWidth = Math.max(constraintMinWidth, currentWidth + widthDelta);
-          
-          // Check if we should snap to padding (transitioning to contained)
-          if (Math.abs(newWidth - maxWidth) < snapThreshold) {
-            newWidth = maxWidth;
-            newObjectFit = 'contain';
-          } else if (newWidth < maxWidth - snapThreshold) {
-            // Definitely in contain mode
-            newObjectFit = 'contain';
-          } else if (newWidth >= viewport.width - 10) {
-            // Snap back to full if close
-            newWidth = 'full';
-            newObjectFit = 'cover';
-          }
-        } else {
-          // Already in custom width mode
-          newWidth = Math.max(constraintMinWidth, Math.min(viewport.width, (startWidth as number) + widthDelta));
-          
-          // Check if we should snap back to full width
-          if (newWidth >= viewport.width - snapThreshold) {
-            newWidth = 'full';
-            newObjectFit = 'cover';
-          } else if (newWidth >= maxWidth - snapThreshold && newWidth <= maxWidth + snapThreshold) {
-            // Snap to padding width
-            newWidth = maxWidth;
-            newObjectFit = 'contain';
-          } else {
-            // Remain in contain mode
-            newObjectFit = 'contain';
-          }
-        }
-        
-        // In contain mode, calculate height based on image aspect ratio to avoid jumps
-        // Apply minWidth constraint to prevent over-resizing of wide images
-        if (newObjectFit === 'contain' && typeof newWidth === 'number' && block.url) {
-          const cachedImage = imageCache.get(block.url);
-          if (cachedImage && cachedImage.complete) {
-            const imgAspectRatio = cachedImage.naturalWidth / cachedImage.naturalHeight;
-            
-            // Ensure width doesn't go below minimum (already enforced above, but keep for clarity)
-            newWidth = Math.max(newWidth, constraintMinWidth);
-            
-            // Calculate height based on width and aspect ratio
-            newHeight = newWidth / imgAspectRatio;
-          }
-        }
-      } else if (handle === 'bottom' && startObjectFit === 'cover') {
-        // Vertical resize (only in cover mode)
-        // In cover mode, we enforce minimum height
-        const { minHeight: constraintMinHeight } = styles.imageResize.constraints;
-        const calculatedHeight = Math.max(constraintMinHeight, startHeight + deltaY);
-        
-        // Cap height based on image aspect ratio to prevent over-resizing
-        if (block.url) {
-          const cachedImage = imageCache.get(block.url);
-          if (cachedImage && cachedImage.complete) {
-            const imgAspectRatio = cachedImage.naturalWidth / cachedImage.naturalHeight;
-            
-            // Calculate the current container width
-            const containerWidth = typeof startWidth === 'number' ? startWidth : viewport.width;
-            
-            // For portrait images (tall), cap the height so it doesn't exceed the image's natural ratio
-            // This prevents excessive cropping when the image is resized too tall
-            const maxHeightForRatio = containerWidth / imgAspectRatio;
-            
-            // Cap the height at the image's natural ratio relative to container width
-            newHeight = Math.min(calculatedHeight, maxHeightForRatio);
-            
-            // Ensure we don't go below minimum height
-            newHeight = Math.max(newHeight, constraintMinHeight);
-          } else {
-            newHeight = calculatedHeight;
-          }
-        } else {
-          newHeight = calculatedHeight;
-        }
-      }
-      
-      // Update the block with new dimensions
-      const updatedBlock: Block = {
-        ...block,
-        width: newWidth,
-        height: newHeight,
-        objectFit: newObjectFit,
-      };
-      
-      // Invalidate the block height cache since dimensions changed
-      invalidateBlockCache(updatedBlock);
-      
-      const newBlocks = [...state.document.page.blocks];
-      newBlocks[blockIndex] = updatedBlock;
-      
-      return {
-        ...state,
-        document: {
-          ...state.document,
-          page: { ...state.document.page, blocks: newBlocks },
-        },
-      };
-    }
+    return updateImageDrag(state, viewport, canvasX, canvasY);
   }
 
   // Check for image hover (desktop only, not in select mode)
@@ -1601,15 +1696,7 @@ function handleMouseUp(
 
   // End image drag if active
   if (state.ui.imageDrag) {
-    // Record undo for the image resize operation
-    const finalState = recordUndo(state);
-    return {
-      ...finalState,
-      ui: {
-        ...finalState.ui,
-        imageDrag: null,
-      },
-    };
+    return endImageDrag(state);
   }
 
   if (state.ui.mode === "select") {
@@ -1650,13 +1737,7 @@ function handlePointerCancel(state: EditorState): EditorState {
 
   // Cancel image drag if active
   if (state.ui.imageDrag) {
-    state = {
-      ...state,
-      ui: {
-        ...state.ui,
-        imageDrag: null,
-      },
-    };
+    state = cancelImageDrag(state);
   }
 
   if (state.ui.mode === "select") {
@@ -2728,6 +2809,48 @@ function handleTouchStart(
       isNearRightEdge &&
       isPointInScrollbar(canvasX, canvasY, viewport, documentHeight);
 
+    // Check if touching an image drag handle (with larger tolerance for touch)
+    const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
+    const TOUCH_TOLERANCE = 12; // Larger tolerance for touch devices
+    if (imageBlock && !isScrollbarTouch) {
+      const dragState = startImageDrag(state, imageBlock, canvasX, canvasY, TOUCH_TOLERANCE);
+      if (dragState) {
+        // Start image drag - initialize touch state but don't treat as scroll
+        touchState = {
+          startY: canvasY,
+          startScrollY: viewport.scrollY,
+          lastY: canvasY,
+          lastTime: currentTime,
+          velocityY: 0,
+          velocityHistory: [],
+          isScrollbarDrag: false,
+          startX: canvasX,
+          startTime: currentTime,
+          isLongPress: false,
+          hasMoved: false,
+          currentTouchX: canvasX,
+          currentTouchY: canvasY,
+          isTouchingSelection: false,
+        };
+        
+        return {
+          ...dragState,
+          view: {
+            ...dragState.view,
+            scrollbar: {
+              ...dragState.view.scrollbar,
+              lastInteraction: Date.now(),
+            },
+            momentum: {
+              velocity: 0,
+              lastTime: Date.now(),
+              isActive: false,
+            },
+          },
+        };
+      }
+    }
+
     // Check if touching within existing selection
     const position = getTextPositionFromViewport(
       canvasX,
@@ -2836,6 +2959,23 @@ function handleTouchMove(
           activeMenu: { type: "none" },
           isHoveringLinkWithModifier: false,
           imageHover: null,
+        },
+      };
+    }
+
+    // Handle image drag resize
+    if (state.ui.imageDrag) {
+      touchState.lastY = canvasY;
+      touchState.lastTime = currentTime;
+      
+      return {
+        ...updateImageDrag(state, viewport, canvasX, canvasY),
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
         },
       };
     }
@@ -2971,6 +3111,21 @@ function handleTouchEnd(
       view: {
         ...state.view,
         scrollbar: endScrollbarDrag(state.view.scrollbar),
+      },
+    };
+  }
+
+  // End image drag if active
+  if (state.ui.imageDrag) {
+    touchState = null;
+    return {
+      ...endImageDrag(state),
+      view: {
+        ...state.view,
+        scrollbar: {
+          ...state.view.scrollbar,
+          lastInteraction: Date.now(),
+        },
       },
     };
   }
