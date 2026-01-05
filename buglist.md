@@ -156,6 +156,7 @@ Bugs list
 [x] we should be select an image.
 [x] Image should be selectable. We should be able to select an image.
 [x] going arrow left on start of text block that has image behind should select the iamge. Right arrow should work the same.
+[x] arrow up on image should create new text block.
 [ ] image place holder should much smaller in the height
 [ ] image on the edge is bit higher than the normal images 
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.

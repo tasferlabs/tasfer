@@ -66,6 +66,7 @@ import {
   extendSelectionPageUp,
   extendSelectionRight,
   extendSelectionUp,
+  generateBlockId,
   getBlockTextContent,
   getBlockTextLength,
   moveCursorDown,
@@ -1596,6 +1597,32 @@ function handleKeyDown(
       } else if (keyEvent.shiftKey) {
         newState = extendSelectionLeft(newState);
       } else {
+        // Check if we're on an image at the start of the page
+        if (state.document.cursor) {
+          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          const isFirstBlock = state.document.cursor.position.blockIndex === 0;
+          
+          if (isFirstBlock && currentBlock?.type === "imageCover") {
+            // Create a new paragraph above the image
+            const newParagraph: Block = {
+              id: generateBlockId(),
+              type: "paragraph",
+              content: [{ content: "" }],
+            };
+            
+            const newBlocks = [newParagraph, ...state.document.page.blocks];
+            const newPage = { ...state.document.page, blocks: newBlocks };
+            
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+            };
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, 0, 0);
+            break;
+          }
+        }
+        
         // If there's a selection, check if it's an image block selection
         const range = getSelectionRange(newState);
         const isImageSelection = range && 
@@ -1652,6 +1679,32 @@ function handleKeyDown(
       } else if (keyEvent.shiftKey) {
         newState = extendSelectionRight(newState);
       } else {
+        // Check if we're on an image at the end of the page
+        if (state.document.cursor) {
+          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          const isLastBlock = state.document.cursor.position.blockIndex === state.document.page.blocks.length - 1;
+          
+          if (isLastBlock && currentBlock?.type === "imageCover") {
+            // Create a new paragraph below the image
+            const newParagraph: Block = {
+              id: generateBlockId(),
+              type: "paragraph",
+              content: [{ content: "" }],
+            };
+            
+            const newBlocks = [...state.document.page.blocks, newParagraph];
+            const newPage = { ...state.document.page, blocks: newBlocks };
+            
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+            };
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, newBlocks.length - 1, 0);
+            break;
+          }
+        }
+        
         // If there's a selection, check if it's an image block selection
         const range = getSelectionRange(newState);
         const isImageSelection = range && 
@@ -1706,6 +1759,32 @@ function handleKeyDown(
       if (keyEvent.shiftKey) {
         newState = extendSelectionUp(newState, viewport);
       } else {
+        // Check if we're on an image at the start of the page
+        if (state.document.cursor) {
+          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          const isFirstBlock = state.document.cursor.position.blockIndex === 0;
+          
+          if (isFirstBlock && currentBlock?.type === "imageCover") {
+            // Create a new paragraph above the image
+            const newParagraph: Block = {
+              id: generateBlockId(),
+              type: "paragraph",
+              content: [{ content: "" }],
+            };
+            
+            const newBlocks = [newParagraph, ...state.document.page.blocks];
+            const newPage = { ...state.document.page, blocks: newBlocks };
+            
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+            };
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, 0, 0);
+            break;
+          }
+        }
+        
         // Clear selection and move cursor
         newState = moveCursorUp(clearSelection(newState), viewport);
 
@@ -1744,6 +1823,32 @@ function handleKeyDown(
       if (keyEvent.shiftKey) {
         newState = extendSelectionDown(newState, viewport);
       } else {
+        // Check if we're on an image at the end of the page
+        if (state.document.cursor) {
+          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          const isLastBlock = state.document.cursor.position.blockIndex === state.document.page.blocks.length - 1;
+          
+          if (isLastBlock && currentBlock?.type === "imageCover") {
+            // Create a new paragraph below the image
+            const newParagraph: Block = {
+              id: generateBlockId(),
+              type: "paragraph",
+              content: [{ content: "" }],
+            };
+            
+            const newBlocks = [...state.document.page.blocks, newParagraph];
+            const newPage = { ...state.document.page, blocks: newBlocks };
+            
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+            };
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, newBlocks.length - 1, 0);
+            break;
+          }
+        }
+        
         // Clear selection and move cursor
         newState = moveCursorDown(clearSelection(newState), viewport);
 
