@@ -85,7 +85,7 @@ Bugs list
 [ ] rendering is triggered to many times.
 [ ] override webiew defaul 404 page
 [x] rtl inline format rendering edge cases
-[ ] render should be more efficent if we schedule it
+[x] render should be more efficent if we schedule it
 [x] cursor should not be visable if we haeve selection
 [ ] group undo and redo to words.
 [x] bring back the old tree code from l4r for saving pages and sort them into trees.

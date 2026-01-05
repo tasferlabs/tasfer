@@ -14,6 +14,7 @@ import {
 import { handleEvents, isInLongPressMode } from "./events";
 import {
   renderPage,
+  renderCursorLayer,
   clearAllBlockCaches,
   invalidateBlockCache,
   getBlockHeight,
@@ -38,6 +39,7 @@ import {
 import { getEditorStyles } from "./styles";
 import type { EditorState, SlashCommand, ViewportState } from "./types";
 import { recordUndo, undoState, redoState } from "./undo";
+import type { CanvasLayers } from "./layers";
 
 export interface Editor {
   getState: () => EditorState | null;
@@ -93,15 +95,15 @@ export interface Editor {
 }
 
 export default function createEditor(
-  canvas: HTMLCanvasElement,
+  layers: CanvasLayers,
   initialState: EditorState,
   viewportProp: ViewportState,
   hiddenInput?: HTMLInputElement
 ): Editor {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    throw new Error("Could not get 2D context from canvas");
-  }
+  // Extract contexts from layers
+  const contentCtx = layers.content.ctx;
+  const cursorCtx = layers.cursor.ctx;
+  const contentCanvas = layers.content.canvas;
 
   let state: EditorState = initialState;
   let viewport = viewportProp;
@@ -113,7 +115,13 @@ export default function createEditor(
   };
 
   let isRendering = false;
-  let needsRender = true; // Dirty flag to track if canvas needs re-rendering - start with true for initial render
+  
+  // Dirty flags for each layer
+  let dirtyLayers = {
+    content: true, // Start with true for initial render
+    cursor: true,
+  };
+  
   let lastCursorBlinkState = false; // Track cursor blink state changes
 
   const eventsQueue: Event[] = [];
@@ -126,14 +134,12 @@ export default function createEditor(
   } | null = null;
 
   /**
-   * Mark that a render is needed.
-   * This implements a "dirty flag" pattern where the canvas only re-renders
-   * when something has actually changed, instead of rendering every frame.
-   * The requestAnimationFrame loop continues running for smooth interactions,
-   * but canvas rendering is skipped when nothing has changed.
+   * Mark that content layer needs re-rendering (expensive operation).
+   * This is called when page content, selection, or viewport changes.
    */
   const scheduleRender = () => {
-    needsRender = true;
+    dirtyLayers.content = true;
+    dirtyLayers.cursor = true; // Cursor position may have changed too
   };
 
   // Update canvas cursor style based on scrollbar hover and drag state
@@ -149,16 +155,16 @@ export default function createEditor(
 
     if (isDragging) {
       // When dragging scrollbar, use grabbing cursor
-      canvas.style.cursor = "grabbing";
+      contentCanvas.style.cursor = "grabbing";
     } else if (isHoveringScrollbar) {
       // When hovering over scrollbar, use pointer cursor
-      canvas.style.cursor = "pointer";
+      contentCanvas.style.cursor = "pointer";
     } else if (isHoveringLinkWithModifier) {
       // When hovering over link with Ctrl/Cmd held, use pointer cursor
-      canvas.style.cursor = "pointer";
+      contentCanvas.style.cursor = "pointer";
     } else {
       // When hovering over text, use text cursor
-      canvas.style.cursor = "text";
+      contentCanvas.style.cursor = "text";
     }
   };
 
@@ -169,7 +175,7 @@ export default function createEditor(
 
     try {
       // Get current canvas position for event coordinate adjustment
-      const containerRect = canvas.getBoundingClientRect();
+      const containerRect = contentCanvas.getBoundingClientRect();
       const rect = {
         left: containerRect.left,
         top: containerRect.top,
@@ -193,6 +199,30 @@ export default function createEditor(
       // Check if state changed or if there are events that require rendering
       const stateChanged = prevState !== state;
 
+      // Determine what changed to decide which layers to update
+      if (stateChanged) {
+        // Check if page content changed (requires content layer update)
+        if (prevState.document.page !== state.document.page) {
+          dirtyLayers.content = true;
+          dirtyLayers.cursor = true; // Cursor position may have changed
+        }
+
+        // Check if selection changed (requires content layer update)
+        if (prevState.document.selection !== state.document.selection) {
+          dirtyLayers.content = true;
+        }
+
+        // Check if cursor position changed (requires cursor layer update)
+        if (prevState.document.cursor?.position !== state.document.cursor?.position) {
+          dirtyLayers.cursor = true;
+        }
+
+        // Check if focus changed (affects cursor visibility)
+        if (prevState.view.isFocused !== state.view.isFocused) {
+          dirtyLayers.cursor = true;
+        }
+      }
+
       // Check if cursor blink state changed (for cursor animation)
       const currentCursorBlinkState = state.document.cursor
         ? isCursorBlinking(state.document.cursor, getEditorStyles())
@@ -201,39 +231,50 @@ export default function createEditor(
         lastCursorBlinkState !== currentCursorBlinkState;
       lastCursorBlinkState = currentCursorBlinkState;
 
-      // Only render canvas if something changed (scheduled render, state change, or cursor blink)
-      // This prevents unnecessary canvas draws which are expensive
-      if (needsRender || stateChanged || cursorBlinkChanged) {
-        // Pre-calculate document height to clamp viewport before rendering
-        // This ensures the scrollbar is rendered correctly in a single pass
-        const newDocumentHeight = getDocumentHeight();
-        const maxScroll = Math.max(0, newDocumentHeight - viewport.height);
-        if (viewport.scrollY > maxScroll) {
-          viewport = { ...viewport, scrollY: maxScroll };
+      // Cursor blink only affects cursor layer
+      if (cursorBlinkChanged) {
+        dirtyLayers.cursor = true;
+      }
+
+      // Render dirty layers
+      const needsAnyRender = dirtyLayers.content || dirtyLayers.cursor;
+      
+      if (needsAnyRender) {
+        // Render content layer if dirty (expensive)
+        if (dirtyLayers.content) {
+          // Pre-calculate document height to clamp viewport before rendering
+          const newDocumentHeight = getDocumentHeight();
+          const maxScroll = Math.max(0, newDocumentHeight - viewport.height);
+          if (viewport.scrollY > maxScroll) {
+            viewport = { ...viewport, scrollY: maxScroll };
+          }
+
+          // Render the page content (text, blocks, selection, scrollbar)
+          documentHeight = renderPage(contentCtx, state, viewport, visibility);
+
+          // Update cursor style based on scrollbar hover and drag state
+          updateCursorStyle(
+            state.view.scrollbar.isHovered,
+            state.view.scrollbar.isDragging,
+            state.ui.isHoveringLinkWithModifier
+          );
+
+          dirtyLayers.content = false;
         }
 
-        // Render the page with the corrected viewport
-        documentHeight = renderPage(ctx, state, viewport, visibility);
-
-        // Update cursor style based on scrollbar hover and drag state
-        updateCursorStyle(
-          state.view.scrollbar.isHovered,
-          state.view.scrollbar.isDragging,
-          state.ui.isHoveringLinkWithModifier
-        );
+        // Render cursor layer if dirty (very cheap!)
+        if (dirtyLayers.cursor) {
+          renderCursorLayer(cursorCtx, state, viewport);
+          dirtyLayers.cursor = false;
+        }
 
         // Update hidden input position to match cursor for IME composition toolbar
         if (hiddenInput && state.document.cursor && state.view.isFocused) {
-          // Use special function that accounts for composition text wrapping
-          // This ensures the toolbar follows the text when it wraps to a new line
           const cursorCoords = getCursorCoordinatesWithComposition(
             state,
             viewport
           );
           if (cursorCoords) {
-            // Position the hidden input at the end of composition text
-            // Offset vertically by cursor height so composition toolbar appears below the text
-            // This prevents the toolbar from covering the composition text
             hiddenInput.style.left = `${cursorCoords.x}px`;
             hiddenInput.style.top = `${
               cursorCoords.y - viewport.scrollY + cursorCoords.height
@@ -246,8 +287,6 @@ export default function createEditor(
           const currentState = state;
           listeners.forEach((listener) => listener(currentState));
         }
-
-        needsRender = false; // Reset dirty flag
       }
     } finally {
       isRendering = false;
@@ -579,25 +618,25 @@ export default function createEditor(
       }
     };
     if (!isTouchDevice()) {
-      canvas.addEventListener("mousedown", canvasClickHandler);
+      contentCanvas.addEventListener("mousedown", canvasClickHandler);
 
-      canvas.addEventListener("contextmenu", eventsHandler);
-      canvas.addEventListener("mousedown", eventsHandler);
-      canvas.addEventListener("mousemove", eventsHandler);
-      canvas.addEventListener("mouseup", eventsHandler);
-      canvas.addEventListener("wheel", eventsHandler, { passive: false });
+      contentCanvas.addEventListener("contextmenu", eventsHandler);
+      contentCanvas.addEventListener("mousedown", eventsHandler);
+      contentCanvas.addEventListener("mousemove", eventsHandler);
+      contentCanvas.addEventListener("mouseup", eventsHandler);
+      contentCanvas.addEventListener("wheel", eventsHandler, { passive: false });
 
       window.addEventListener("mouseup", windowMouseUpHandler);
       window.addEventListener("mousemove", windowMouseMoveHandler);
     }
-    canvas.addEventListener("click", canvasClickHandler);
+    contentCanvas.addEventListener("click", canvasClickHandler);
 
-    canvas.addEventListener("touchstart", touchStartHandler, {
+    contentCanvas.addEventListener("touchstart", touchStartHandler, {
       passive: false,
     });
-    canvas.addEventListener("touchmove", touchMoveHandler, { passive: false });
-    canvas.addEventListener("touchend", touchEndHandler, { passive: false });
-    canvas.addEventListener("touchcancel", eventsHandler, { passive: false });
+    contentCanvas.addEventListener("touchmove", touchMoveHandler, { passive: false });
+    contentCanvas.addEventListener("touchend", touchEndHandler, { passive: false });
+    contentCanvas.addEventListener("touchcancel", eventsHandler, { passive: false });
     window.addEventListener("keydown", eventsHandler);
     window.addEventListener("paste", eventsHandler);
 
@@ -629,33 +668,33 @@ export default function createEditor(
     }
 
     if (canvasClickHandler) {
-      canvas.removeEventListener("click", canvasClickHandler);
+      contentCanvas.removeEventListener("click", canvasClickHandler);
     }
 
     if (!isTouchDevice()) {
       if (canvasClickHandler) {
-        canvas.removeEventListener("mousedown", canvasClickHandler);
+        contentCanvas.removeEventListener("mousedown", canvasClickHandler);
         canvasClickHandler = null;
       }
 
-      canvas.removeEventListener("contextmenu", eventsHandler);
-      canvas.removeEventListener("mousedown", eventsHandler);
-      canvas.removeEventListener("mousemove", eventsHandler);
-      canvas.removeEventListener("mouseup", eventsHandler);
-      canvas.removeEventListener("pointerdown", eventsHandler);
-      canvas.removeEventListener("pointermove", eventsHandler);
-      canvas.removeEventListener("pointerup", eventsHandler);
-      canvas.removeEventListener("pointercancel", eventsHandler);
-      canvas.removeEventListener("wheel", eventsHandler);
+      contentCanvas.removeEventListener("contextmenu", eventsHandler);
+      contentCanvas.removeEventListener("mousedown", eventsHandler);
+      contentCanvas.removeEventListener("mousemove", eventsHandler);
+      contentCanvas.removeEventListener("mouseup", eventsHandler);
+      contentCanvas.removeEventListener("pointerdown", eventsHandler);
+      contentCanvas.removeEventListener("pointermove", eventsHandler);
+      contentCanvas.removeEventListener("pointerup", eventsHandler);
+      contentCanvas.removeEventListener("pointercancel", eventsHandler);
+      contentCanvas.removeEventListener("wheel", eventsHandler);
 
       window.removeEventListener("mouseup", windowMouseUpHandler);
       window.removeEventListener("mousemove", windowMouseMoveHandler);
     }
 
-    canvas.removeEventListener("touchstart", touchStartHandler);
-    canvas.removeEventListener("touchmove", touchMoveHandler);
-    canvas.removeEventListener("touchend", touchEndHandler);
-    canvas.removeEventListener("touchcancel", eventsHandler);
+    contentCanvas.removeEventListener("touchstart", touchStartHandler);
+    contentCanvas.removeEventListener("touchmove", touchMoveHandler);
+    contentCanvas.removeEventListener("touchend", touchEndHandler);
+    contentCanvas.removeEventListener("touchcancel", eventsHandler);
     window.removeEventListener("keydown", eventsHandler);
     window.removeEventListener("paste", eventsHandler);
 

@@ -3,16 +3,13 @@ import createEditor, { type Editor } from "./editor";
 import { loadPage } from "../deserializer/loadPage";
 import { createInitialState, isTouchDevice } from "./state";
 import { setWindowFocused } from "./styles";
+import { createCanvasLayers, resizeCanvasLayers, destroyCanvasLayers } from "./layers";
 
 export interface MountedEditor {
   readonly editor: Editor;
   /** Container for React portals (e.g., slash command menu) */
   readonly portalContainer: HTMLDivElement;
   destroy: () => void;
-}
-
-function getDpr(): number {
-  return typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 }
 
 function measure(container: HTMLElement): { width: number; height: number } {
@@ -23,22 +20,17 @@ function measure(container: HTMLElement): { width: number; height: number } {
   };
 }
 
-function sizeCanvasToContainer(
-  canvas: HTMLCanvasElement,
-  container: HTMLElement
-) {
-  const { width, height } = measure(container);
-  const dpr = getDpr();
-
-  // CSS size (layout pixels)
-  canvas.style.width = `${width}px`;
-  canvas.style.height = `${height}px`;
-
-  // Backing store size (device pixels)
-  canvas.width = Math.max(Math.floor(width * dpr), 1);
-  canvas.height = Math.max(Math.floor(height * dpr), 1);
-
-  return { width, height };
+/**
+ * Create a canvas container with proper positioning for layered canvases
+ */
+function createCanvasContainer(parentContainer: HTMLElement): HTMLDivElement {
+  const canvasContainer = document.createElement("div");
+  canvasContainer.style.position = "relative";
+  canvasContainer.style.width = "100%";
+  canvasContainer.style.height = "100%";
+  canvasContainer.style.overflow = "hidden";
+  parentContainer.appendChild(canvasContainer);
+  return canvasContainer;
 }
 
 /**
@@ -49,19 +41,27 @@ export function mountEditor(
   container: HTMLElement,
   content: string
 ): MountedEditor {
-  const canvas = document.createElement("canvas");
-  canvas.style.display = "block";
-  canvas.style.userSelect = "none";
-  (canvas.style as unknown as { WebkitUserSelect?: string }).WebkitUserSelect =
-    "none";
-  (canvas.style as unknown as { MozUserSelect?: string }).MozUserSelect =
-    "none";
-  (canvas.style as unknown as { msUserSelect?: string }).msUserSelect = "none";
-  canvas.setAttribute("draggable", "false");
+  // Create a container for the layered canvases
+  const canvasContainer = createCanvasContainer(container);
+  
+  // Get initial dimensions
+  const initial = measure(container);
+  
+  // Create layered canvases (content + cursor)
+  const layers = createCanvasLayers(canvasContainer, initial.width, initial.height);
+  
+  // Apply common canvas styles to content layer (which handles events)
+  const contentCanvas = layers.content.canvas;
+  contentCanvas.style.display = "block";
+  contentCanvas.style.userSelect = "none";
+  (contentCanvas.style as unknown as { WebkitUserSelect?: string }).WebkitUserSelect = "none";
+  (contentCanvas.style as unknown as { MozUserSelect?: string }).MozUserSelect = "none";
+  (contentCanvas.style as unknown as { msUserSelect?: string }).msUserSelect = "none";
+  contentCanvas.setAttribute("draggable", "false");
   const preventSelectStart = (e: Event) => e.preventDefault();
   const preventDragStart = (e: Event) => e.preventDefault();
-  canvas.addEventListener("selectstart", preventSelectStart);
-  canvas.addEventListener("dragstart", preventDragStart);
+  contentCanvas.addEventListener("selectstart", preventSelectStart);
+  contentCanvas.addEventListener("dragstart", preventDragStart);
 
   // Create a hidden input element for mobile keyboard support
   // Note: Mobile browsers require the input to receive the touch event to show keyboard
@@ -91,9 +91,8 @@ export function mountEditor(
   hiddenInput.setAttribute("spellcheck", "false");
   hiddenInput.setAttribute("inputmode", "text");
 
-  // Ensure the canvas is the only scroll surface (container should not scroll)
-  container.appendChild(canvas);
-  container.appendChild(hiddenInput);
+  // Add hidden input to the canvas container
+  canvasContainer.appendChild(hiddenInput);
 
   // Create portal container for React components (like slash command menu)
   const portalContainer = document.createElement("div");
@@ -106,7 +105,6 @@ export function mountEditor(
   portalContainer.style.zIndex = "1000";
   container.appendChild(portalContainer);
 
-  const initial = sizeCanvasToContainer(canvas, container);
   const initialViewport: ViewportState = {
     width: initial.width,
     height: initial.height,
@@ -117,9 +115,9 @@ export function mountEditor(
   const page = loadPage(content);
   const initialState = createInitialState(page);
 
-  // Create editor with initial state
+  // Create editor with initial state and layered canvases
   const editor = createEditor(
-    canvas,
+    layers,
     initialState,
     initialViewport,
     hiddenInput
@@ -130,18 +128,18 @@ export function mountEditor(
   let baseHeight = initial.height;
 
   const resizeCanvasForKeyboard = () => {
-    const dpr = getDpr();
     const availableHeight = Math.max(baseHeight - keyboardHeight, 100);
 
-    canvas.style.width = `${baseWidth}px`;
-    canvas.style.height = `${availableHeight}px`;
+    // Resize the canvas container
+    canvasContainer.style.width = `${baseWidth}px`;
+    canvasContainer.style.height = `${availableHeight}px`;
 
     // Also resize portal container so Radix UI knows the available space
     portalContainer.style.width = `${baseWidth}px`;
     portalContainer.style.height = `${availableHeight}px`;
 
-    canvas.width = Math.max(Math.floor(baseWidth * dpr), 1);
-    canvas.height = Math.max(Math.floor(availableHeight * dpr), 1);
+    // Resize all canvas layers
+    resizeCanvasLayers(layers, baseWidth, availableHeight);
 
     editor.updateViewport({ width: baseWidth, height: availableHeight });
   };
@@ -173,13 +171,12 @@ export function mountEditor(
     const target = e.target as Node;
     if (!target) return;
 
-    // If click is on container or hidden input, do nothing (editor handles it)
-    if (container.contains(target) || hiddenInput.contains(target)) {
+    // If click is on canvas container or hidden input, do nothing (editor handles it)
+    if (canvasContainer.contains(target) || hiddenInput.contains(target)) {
       return;
     }
 
     // Click outside: blur editor
-
     editor.setFocus(false, true);
   };
 
@@ -263,12 +260,14 @@ export function mountEditor(
     document.removeEventListener("touchstart", handleDocumentClick);
     hiddenInput.removeEventListener("focus", handleInputFocus);
     hiddenInput.removeEventListener("blur", handleInputBlur);
-    canvas.removeEventListener("selectstart", preventSelectStart);
-    canvas.removeEventListener("dragstart", preventDragStart);
+    contentCanvas.removeEventListener("selectstart", preventSelectStart);
+    contentCanvas.removeEventListener("dragstart", preventDragStart);
 
-    canvas.remove();
+    // Destroy all canvas layers
+    destroyCanvasLayers(layers);
     hiddenInput.remove();
     portalContainer.remove();
+    canvasContainer.remove();
   };
 
   return { editor, destroy, portalContainer };

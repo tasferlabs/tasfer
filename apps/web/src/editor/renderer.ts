@@ -1452,3 +1452,178 @@ const isBlockVisible = (
     blockBottom >= -buffer && blockTop <= viewport.height + buffer
   );
 };
+
+/**
+ * Render only the cursor on a separate layer (for blink animation).
+ * This is much faster than re-rendering the entire page.
+ */
+export function renderCursorLayer(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles()
+) {
+  // Get device pixel ratio and scale canvas context for high-DPI displays
+  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+
+  // Save context state
+  ctx.save();
+
+  // Scale all drawing operations by DPR
+  ctx.scale(dpr, dpr);
+
+  // Clear the cursor layer
+  ctx.clearRect(0, 0, viewport.width, viewport.height);
+
+  // Only render if cursor exists, editor is focused, and cursor is visible (not blinking)
+  if (
+    !state.document.cursor ||
+    !state.view.isFocused ||
+    isCursorBlinking(state.document.cursor, styles)
+  ) {
+    ctx.restore();
+    return;
+  }
+
+  // Don't show cursor when there's an active selection
+  const hasActiveSelection =
+    state.document.selection && !state.document.selection.isCollapsed;
+  if (hasActiveSelection) {
+    ctx.restore();
+    return;
+  }
+
+  const cursorBlockIndex = state.document.cursor.position.blockIndex;
+  const block = state.document.page.blocks[cursorBlockIndex];
+
+  if (!isTextBlock(block)) {
+    ctx.restore();
+    return;
+  }
+
+  // Calculate block position
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+
+  // Calculate Y position of cursor block
+  for (let i = 0; i < cursorBlockIndex; i++) {
+    const prevBlock = state.document.page.blocks[i];
+    const blockHeight = getBlockHeight(prevBlock, maxWidth, styles, i);
+    currentY += blockHeight;
+  }
+
+  // Get text style and calculate lines for cursor block
+  const textStyle = getTextStyle(styles, block.type);
+  const fontFamily = getCurrentFontFamily();
+  const codePadding = styles.textFormats.code.padding;
+
+  const lines = wrapFormattedTextDetailed(
+    block.content,
+    maxWidth,
+    textStyle.fontSize,
+    textStyle.fontWeight,
+    fontFamily,
+    codePadding
+  );
+
+  const fontMetrics = getFontMetrics(
+    textStyle.fontSize,
+    textStyle.fontWeight,
+    fontFamily
+  );
+  const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
+
+  // Find which line the cursor is on
+  const content = getBlockTextContent(block);
+  const isRTL = getFormattedTextDirection(block.content) === "rtl";
+  
+  let cursorX = styles.canvas.paddingLeft;
+  let cursorY = currentY;
+  let cursorHeight = fontMetrics.fontSize * textStyle.lineHeight;
+  
+  let textIndex = 0;
+  for (const wrappedLine of lines) {
+    const lineStartIndex = textIndex;
+    const lineEndIndex = textIndex + wrappedLine.text.length;
+
+    if (
+      state.document.cursor.position.textIndex >= lineStartIndex &&
+      state.document.cursor.position.textIndex <= lineEndIndex
+    ) {
+      cursorY = currentY;
+      cursorHeight = fontMetrics.ascent + fontMetrics.descent;
+
+      // Calculate cursor position differently for RTL
+      if (isRTL) {
+        const widthFromStart = measureFormattedLineWidth(
+          block.content,
+          lineStartIndex,
+          state.document.cursor.position.textIndex,
+          textStyle,
+          fontFamily,
+          codePadding
+        );
+        cursorX = styles.canvas.paddingLeft + maxWidth - widthFromStart;
+      } else {
+        cursorX += measureFormattedLineWidth(
+          block.content,
+          lineStartIndex,
+          state.document.cursor.position.textIndex,
+          textStyle,
+          fontFamily,
+          codePadding
+        );
+      }
+      break;
+    }
+
+    textIndex += wrappedLine.text.length;
+    if (wrappedLine.consumedSpace) {
+      textIndex += 1;
+    }
+    currentY += lineHeight;
+  }
+
+  // Handle cursor at end of block
+  if (
+    state.document.cursor.position.textIndex === content.length &&
+    lines.length > 0
+  ) {
+    const lastLine = lines[lines.length - 1];
+    const lastLineIndex = lines.length - 1;
+    
+    // Calculate position of last line
+    let lastLineY = styles.canvas.paddingTop - viewport.scrollY;
+    for (let i = 0; i < cursorBlockIndex; i++) {
+      const prevBlock = state.document.page.blocks[i];
+      const blockHeight = getBlockHeight(prevBlock, maxWidth, styles, i);
+      lastLineY += blockHeight;
+    }
+    lastLineY += lastLineIndex * lineHeight;
+
+    const lastLineWidth = measureFormattedLineWidth(
+      block.content,
+      content.length - lastLine.text.length,
+      content.length,
+      textStyle,
+      fontFamily,
+      codePadding
+    );
+
+    if (isRTL) {
+      cursorX = styles.canvas.paddingLeft + maxWidth - lastLineWidth;
+    } else {
+      cursorX = styles.canvas.paddingLeft + lastLineWidth;
+    }
+    cursorY = lastLineY;
+    cursorHeight = fontMetrics.ascent + fontMetrics.descent;
+  }
+
+  // Draw the cursor
+  ctx.fillStyle = styles.cursor.color;
+  ctx.fillRect(cursorX, cursorY, styles.cursor.width, cursorHeight);
+
+  // Restore context state
+  ctx.restore();
+}
