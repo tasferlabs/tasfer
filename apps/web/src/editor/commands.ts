@@ -12,7 +12,7 @@ import {
   moveCursorToPosition,
   startSelection,
   updateMode,
-  updateSelectionFocus
+  updateSelectionFocus,
 } from "./state";
 import type { EditorState, Position, SlashCommand } from "./types";
 import { recordUndo } from "./undo";
@@ -507,12 +507,50 @@ export function deleteSelectedText(state: EditorState): EditorState {
   const { start, end } = range;
 
   if (start.blockIndex === end.blockIndex) {
-    // Single block selection - preserve formatting
+    // Single block selection
     const block = state.document.page.blocks[start.blockIndex];
+    
+    // Handle image block deletion
     if (!isTextBlock(block)) {
-      // Can't delete text from non-text blocks
-      return state;
+      // For image blocks (and other visual blocks), delete the entire block
+      // Check if this is the only block - if so, replace with empty paragraph
+      if (state.document.page.blocks.length === 1) {
+        const emptyParagraph: Block = {
+          id: generateBlockId(),
+          type: "paragraph",
+          content: [{ content: "" }],
+        };
+        const newPage = { ...state.document.page, blocks: [emptyParagraph] };
+        
+        let newState: EditorState = {
+          ...state,
+          document: { ...state.document, page: newPage },
+        };
+        newState = moveCursorToPosition(newState, 0, 0);
+        return clearSelection(newState);
+      }
+      
+      // Remove the image block
+      const newBlocks = [
+        ...state.document.page.blocks.slice(0, start.blockIndex),
+        ...state.document.page.blocks.slice(start.blockIndex + 1),
+      ];
+      const newPage = { ...state.document.page, blocks: newBlocks };
+      
+      // Move cursor to the start of the next block, or end of previous block
+      const newBlockIndex = start.blockIndex < newBlocks.length 
+        ? start.blockIndex 
+        : start.blockIndex - 1;
+      
+      let newState: EditorState = {
+        ...state,
+        document: { ...state.document, page: newPage },
+      };
+      newState = moveCursorToPosition(newState, newBlockIndex, 0);
+      return clearSelection(newState);
     }
+    
+    // Handle text block deletion (preserve formatting)
     const newContent = deleteTextRangeInFormattedContent(
       block.content,
       start.textIndex,
@@ -542,15 +580,46 @@ export function deleteSelectedText(state: EditorState): EditorState {
     );
     return clearSelection(newState);
   } else {
-    // Multi-block selection - preserve formatting from start and end blocks
+    // Multi-block selection
     const startBlock = state.document.page.blocks[start.blockIndex];
     const endBlock = state.document.page.blocks[end.blockIndex];
 
-    if (!isTextBlock(startBlock) || !isTextBlock(endBlock)) {
-      // Can't delete text from non-text blocks
-      return state;
+    // Handle case where selection includes image blocks
+    const startIsText = isTextBlock(startBlock);
+    const endIsText = isTextBlock(endBlock);
+    
+    // If both start and end are non-text blocks, or if we're selecting multiple blocks 
+    // and at least one endpoint is a non-text block, we need special handling
+    if (!startIsText || !endIsText) {
+      // Delete all blocks in the range
+      const blocksToKeep = [
+        ...state.document.page.blocks.slice(0, start.blockIndex),
+        ...state.document.page.blocks.slice(end.blockIndex + 1),
+      ];
+      
+      // If we deleted all blocks, create an empty paragraph
+      const newBlocks = blocksToKeep.length === 0 
+        ? [{
+            id: generateBlockId(),
+            type: "paragraph" as const,
+            content: [{ content: "" }],
+          }]
+        : blocksToKeep;
+      
+      const newPage = { ...state.document.page, blocks: newBlocks };
+      
+      // Move cursor to the start position (or 0 if all blocks were deleted)
+      const newBlockIndex = Math.min(start.blockIndex, newBlocks.length - 1);
+      
+      let newState: EditorState = {
+        ...state,
+        document: { ...state.document, page: newPage },
+      };
+      newState = moveCursorToPosition(newState, newBlockIndex, 0);
+      return clearSelection(newState);
     }
 
+    // Both are text blocks - preserve formatting from start and end blocks
     // Keep the formatted content before selection start from startBlock
     const beforeContent = deleteTextRangeInFormattedContent(
       startBlock.content,
@@ -1569,6 +1638,59 @@ export function selectAll(state: EditorState): EditorState {
   );
   newState = startSelection(newState, startPos);
   newState = updateSelectionFocus(newState, endPos);
+  return updateMode(newState, "edit");
+}
+
+/**
+ * Select the current block (text or image)
+ * For text blocks: selects all text in the block
+ * For image blocks: selects the entire image block
+ */
+export function selectCurrentBlock(state: EditorState): EditorState {
+  if (!state.document.cursor) return state;
+
+  const { blockIndex } = state.document.cursor.position;
+  const block = state.document.page.blocks[blockIndex];
+  
+  if (!block) return state;
+
+  // For image blocks, select the block by marking it with a selection
+  if (block.type === "imageCover") {
+    const imagePosition: Position = { blockIndex, textIndex: 0 };
+    
+    let newState = moveCursorToPosition(state, blockIndex, 0);
+    
+    // Create a selection that spans the image block
+    newState = {
+      ...newState,
+      document: {
+        ...newState.document,
+        selection: {
+          anchor: imagePosition,
+          focus: imagePosition,
+          isForward: true,
+          isCollapsed: false, // Mark as not collapsed to show selection
+          lastUpdate: Date.now(),
+          initialBoundary: {
+            start: imagePosition,
+            end: imagePosition,
+          },
+        },
+      },
+    };
+    
+    return updateMode(newState, "edit");
+  }
+
+  // For text blocks, select all text in the block
+  const blockLength = getBlockTextLength(block);
+  const startPos: Position = { blockIndex, textIndex: 0 };
+  const endPos: Position = { blockIndex, textIndex: blockLength };
+
+  let newState = moveCursorToPosition(state, blockIndex, blockLength);
+  newState = startSelection(newState, startPos);
+  newState = updateSelectionFocus(newState, endPos);
+  
   return updateMode(newState, "edit");
 }
 

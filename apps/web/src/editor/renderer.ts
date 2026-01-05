@@ -1189,7 +1189,7 @@ function renderImageCoverBlock(
     throw new Error("renderImageCoverBlock called on non-image-cover block");
   }
 
-  const { padding, height: imageHeight } = styles.imageCover.dimensions;
+  const { paddingBottom: padding, height: imageHeight } = styles.imageCover.dimensions;
 
   // Calculate full canvas width (accounting for left and right padding)
   const fullWidth =
@@ -1348,6 +1348,23 @@ function renderImageCoverBlock(
     );
   }
 
+  // Render selection overlay if this image block is selected
+  if (state.document.selection && !state.document.selection.isCollapsed) {
+    const { anchor, focus } = state.document.selection;
+    const start = anchor.blockIndex <= focus.blockIndex ? anchor : focus;
+    const end = anchor.blockIndex <= focus.blockIndex ? focus : anchor;
+
+    // Check if this image block is within the selection
+    const isSelected = blockIndex >= start.blockIndex && blockIndex <= end.blockIndex;
+
+    if (isSelected) {
+      ctx.fillStyle = styles.selection.backgroundColor;
+      ctx.globalAlpha = styles.selection.opacity;
+      ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+      ctx.globalAlpha = 1.0;
+    }
+  }
+
   ctx.restore();
 
   const blockBounds: BlockBounds = {
@@ -1372,7 +1389,7 @@ export const calculateBlockHeight = (
 ): number => {
   // Handle image cover blocks
   if (block.type === "imageCover") {
-    const { height, padding } = styles.imageCover.dimensions;
+    const { height, paddingBottom: padding } = styles.imageCover.dimensions;
     return height + padding;
   }
 

@@ -255,6 +255,20 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
 
   if (!currentBlock) return state;
 
+  // Handle image blocks - move to previous block
+  if (currentBlock.type === "imageCover") {
+    if (blockIndex > 0) {
+      const prevBlock = state.document.page.blocks[blockIndex - 1];
+      if (prevBlock.type === "imageCover") {
+        return moveCursorToPosition(state, blockIndex - 1, 0);
+      } else if (isTextBlock(prevBlock)) {
+        const prevBlockLength = getBlockTextLength(prevBlock);
+        return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
+      }
+    }
+    return state;
+  }
+
   if (!isTextBlock(currentBlock)) {
     return state;
   }
@@ -317,6 +331,19 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   const currentBlock = state.document.page.blocks[blockIndex];
 
   if (!currentBlock) return state;
+
+  // Handle image blocks - move to next block
+  if (currentBlock.type === "imageCover") {
+    if (blockIndex < state.document.page.blocks.length - 1) {
+      const nextBlock = state.document.page.blocks[blockIndex + 1];
+      if (nextBlock.type === "imageCover") {
+        return moveCursorToPosition(state, blockIndex + 1, 0);
+      } else if (isTextBlock(nextBlock)) {
+        return moveCursorToPosition(state, blockIndex + 1, 0);
+      }
+    }
+    return state;
+  }
 
   if (!isTextBlock(currentBlock)) {
     return state;
@@ -520,6 +547,22 @@ export const moveCursorUp = (
 
   if (!currentBlock) return state;
 
+  // Handle image blocks - move to previous block
+  if (currentBlock.type === "imageCover") {
+    if (blockIndex > 0) {
+      const prevBlock = state.document.page.blocks[blockIndex - 1];
+      if (prevBlock.type === "imageCover") {
+        // Move to previous image block
+        return moveCursorToPosition(state, blockIndex - 1, 0);
+      } else if (isTextBlock(prevBlock)) {
+        // Move to end of previous text block
+        const prevBlockLength = getBlockTextLength(prevBlock);
+        return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
+      }
+    }
+    return state;
+  }
+
   // Calculate maxWidth from viewport or use a default
   const maxWidth = viewport
     ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
@@ -596,6 +639,12 @@ export const moveCursorUp = (
   // On the first line of the block, move to the previous block's last line
   if (blockIndex > 0) {
     const prevBlock = state.document.page.blocks[blockIndex - 1];
+
+    // Handle image blocks - position cursor at start of image block
+    if (prevBlock.type === "imageCover") {
+      return moveCursorToPosition(state, blockIndex - 1, 0);
+    }
+
     if (!isTextBlock(prevBlock)) {
       return state;
     }
@@ -660,6 +709,21 @@ export const moveCursorDown = (
   const currentBlock = state.document.page.blocks[blockIndex];
 
   if (!currentBlock) return state;
+
+  // Handle image blocks - move to next block
+  if (currentBlock.type === "imageCover") {
+    if (blockIndex < state.document.page.blocks.length - 1) {
+      const nextBlock = state.document.page.blocks[blockIndex + 1];
+      if (nextBlock.type === "imageCover") {
+        // Move to next image block
+        return moveCursorToPosition(state, blockIndex + 1, 0);
+      } else if (isTextBlock(nextBlock)) {
+        // Move to start of next text block
+        return moveCursorToPosition(state, blockIndex + 1, 0);
+      }
+    }
+    return state;
+  }
 
   // Calculate maxWidth from viewport or use a default
   const maxWidth = viewport
@@ -748,6 +812,12 @@ export const moveCursorDown = (
   // On the last line of the block, move to the next block's first line
   if (blockIndex < state.document.page.blocks.length - 1) {
     const nextBlock = state.document.page.blocks[blockIndex + 1];
+
+    // Handle image blocks - position cursor at start of image block
+    if (nextBlock.type === "imageCover") {
+      return moveCursorToPosition(state, blockIndex + 1, 0);
+    }
+
     if (!isTextBlock(nextBlock)) {
       return state;
     }
@@ -1212,7 +1282,6 @@ export const setActiveMenu = (
 });
 
 export const closeActiveMenu = (state: EditorState): EditorState => {
-  console.trace("closeActiveMenu", state.ui.activeMenu.type);
   return setActiveMenu(state, { type: "none" });
 };
 

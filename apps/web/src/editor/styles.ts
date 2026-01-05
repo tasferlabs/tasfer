@@ -143,7 +143,7 @@ export function getEditorStyles(): EditorStyles {
       },
       dimensions: {
         height: 300,
-        padding: 20,
+        paddingBottom: 8,
         buttonWidth: 120,
         buttonHeight: 40,
         borderRadius: 6,

@@ -82,6 +82,7 @@ import {
   updateCursor,
   updateFocus,
   updateMode,
+  updateSelection,
   updateSelectionFocus,
   updateSlashCommandFilter,
   updateSlashCommandSelection,
@@ -156,10 +157,11 @@ function getImageBlockAtPoint(
           ? imageHeight + styles.canvas.paddingTop
           : imageHeight;
 
-        // Check if mouse is within the image area (full width)
+        // Check if mouse is within the image area (excluding left/right padding)
+        // Images should only be selectable within the content area, not the padding
         if (
-          x >= 0 &&
-          x < fullWidth &&
+          x >= styles.canvas.paddingLeft &&
+          x < viewport.width - styles.canvas.paddingRight &&
           y >= adjustedY &&
           y < adjustedY + adjustedHeight
         ) {
@@ -884,10 +886,44 @@ function handleMouseDown(
           y: canvasY,
         });
       }
-      // If it has an image, don't handle click here (let hover button handle it)
-      // Just clear selection and return
-      const clearedState = clearSelection(state);
-      return updateMode(clearedState, "edit");
+      // If it has an image, select the image block
+      // Position at the start of the image block (textIndex 0)
+      const imagePosition = { blockIndex: imageBlock.blockIndex, textIndex: 0 };
+      
+      let newState = updateCursor(state, imagePosition);
+      
+      // Create a selection that spans the entire image block
+      // For image blocks, we select from textIndex 0 to textIndex 0 of the same block
+      // But set both anchor and focus to mark the block as selected
+      if (event.shiftKey && state.document.selection) {
+        // Extend selection to include this image
+        newState = updateSelectionFocus(newState, imagePosition);
+      } else {
+        // Select just this image block
+        newState = updateSelection(newState, {
+          anchor: imagePosition,
+          focus: imagePosition,
+          isForward: true,
+          isCollapsed: false, // Mark as not collapsed to show selection
+        });
+        
+        // Also set initialBoundary to mark this as a block selection
+        newState = {
+          ...newState,
+          document: {
+            ...newState.document,
+            selection: newState.document.selection ? {
+              ...newState.document.selection,
+              initialBoundary: {
+                start: imagePosition,
+                end: imagePosition,
+              },
+            } : null,
+          },
+        };
+      }
+      
+      return updateMode(newState, "edit");
     }
   }
 
@@ -2289,16 +2325,37 @@ function handleTouchEnd(
           viewport
         );
         if (imageBlock) {
-          // If the upload menu was already open for this same block, don't reopen it (let it stay closed)
-          // This allows tapping on an open upload menu to close it
-          if (
-            wasImageUploadOpen &&
-            wasImageUploadBlockIndex === position.blockIndex
-          ) {
-            // Close image upload popover and keep it closed
+          // If it's a placeholder (no URL), open upload menu
+          if (!tappedBlock.url) {
+            // If the upload menu was already open for this same block, don't reopen it (let it stay closed)
+            // This allows tapping on an open upload menu to close it
+            if (
+              wasImageUploadOpen &&
+              wasImageUploadBlockIndex === position.blockIndex
+            ) {
+              // Close image upload popover and keep it closed
+              touchState = null;
+              return {
+                ...closeActiveMenu(state),
+                view: {
+                  ...state.view,
+                  scrollbar: {
+                    ...state.view.scrollbar,
+                    lastInteraction: Date.now(),
+                  },
+                },
+              };
+            }
+
+            // Open image upload popover
             touchState = null;
             return {
-              ...closeActiveMenu(state),
+              ...setActiveMenu(state, {
+                type: "imageUpload",
+                blockIndex: position.blockIndex,
+                x: tapPosition.x,
+                y: tapPosition.y,
+              }),
               view: {
                 ...state.view,
                 scrollbar: {
@@ -2308,16 +2365,39 @@ function handleTouchEnd(
               },
             };
           }
-
-          // Open image upload popover
+          
+          // If it has an image, select the image block (same behavior as desktop)
+          const imagePosition = { blockIndex: imageBlock.blockIndex, textIndex: 0 };
+          
+          // Close any active menu when selecting an image
+          if (state.ui.activeMenu.type !== "none") {
+            state = closeActiveMenu(state);
+          }
+          
+          // Create a selection that spans the image block
+          state = moveCursorToPosition(state, imageBlock.blockIndex, 0);
+          state = {
+            ...state,
+            document: {
+              ...state.document,
+              selection: {
+                anchor: imagePosition,
+                focus: imagePosition,
+                isForward: true,
+                isCollapsed: false,
+                lastUpdate: Date.now(),
+                initialBoundary: {
+                  start: imagePosition,
+                  end: imagePosition,
+                },
+              },
+            },
+          };
+          state = updateMode(state, "edit");
+          
           touchState = null;
           return {
-            ...setActiveMenu(state, {
-              type: "imageUpload",
-              blockIndex: position.blockIndex,
-              x: tapPosition.x,
-              y: tapPosition.y,
-            }),
+            ...state,
             view: {
               ...state.view,
               scrollbar: {

@@ -281,7 +281,7 @@ export interface ImageCoverStyles {
   };
   readonly dimensions: {
     readonly height: number;
-    readonly padding: number;
+    readonly paddingBottom: number;
     readonly buttonWidth: number;
     readonly buttonHeight: number;
     readonly borderRadius: number;
