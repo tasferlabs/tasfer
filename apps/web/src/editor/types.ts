@@ -298,6 +298,10 @@ export interface ImageResizeStyles {
     readonly hoverOpacity: number;
     readonly dashPattern: readonly number[];
   };
+  readonly constraints: {
+    readonly minWidth: number;
+    readonly minHeight: number;
+  };
 }
 
 export interface ImageCoverStyles {

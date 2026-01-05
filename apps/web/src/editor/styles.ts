@@ -182,6 +182,10 @@ export function getEditorStyles(): EditorStyles {
         hoverOpacity: 0, // Subtle outline on hover
         dashPattern: [4, 4], // Dashed outline pattern
       },
+      constraints: {
+        minWidth: 300, // Minimum width for resized images
+        minHeight: 300, // Minimum height for resized images
+      },
     },
   };
 }

@@ -38,7 +38,7 @@ import {
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
 } from "./constants";
-import { getBlockHeight } from "./renderer";
+import { getBlockHeight, imageCache, invalidateBlockCache } from "./renderer";
 import { getFormattedTextDirection } from "./rtl";
 import {
   applyMomentum,
@@ -125,7 +125,6 @@ function getImageBlockAtPoint(
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-  const fullWidth = viewport.width; // Image covers use full canvas width
 
   // Iterate through blocks to find which one we're over
   for (
@@ -150,31 +149,73 @@ function getImageBlockAtPoint(
     if (y >= checkStartY && y < currentY + blockHeight) {
       // Check if this is an image cover block
       if (isImageCover) {
-        const { height: imageHeight, placeholderHeight } = styles.blocks.imageCover.dimensions;
-        // Use placeholder height for placeholder, full height for images
+        const { height: defaultImageHeight, placeholderHeight } = styles.blocks.imageCover.dimensions;
+        
+        // Get image properties (with defaults)
+        const imageWidth = block.width ?? 'full';
+        const imageHeight = block.height ?? defaultImageHeight;
+        const objectFit = block.objectFit ?? 'cover';
+        
+        // Calculate container dimensions based on width setting
+        let displayWidth: number;
+        let displayX: number;
+        
+        if (imageWidth === 'full') {
+          // Full width: edge-to-edge (ignoring padding)
+          displayWidth = maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
+          displayX = 0;
+        } else {
+          // Custom width: respect padding
+          displayWidth = Math.min(imageWidth, maxWidth);
+          displayX = styles.canvas.paddingLeft + (maxWidth - displayWidth) / 2; // Center the image
+        }
+        
+        // Use placeholder height for placeholder, configured height for images
         const displayHeight = block.url ? imageHeight : placeholderHeight;
+        
+        // First block images in cover mode (full width) bleed into the top padding for edge-to-edge experience
+        const shouldBleedIntoTopPadding = isFirstBlock && imageWidth === 'full';
+        const adjustedY = shouldBleedIntoTopPadding ? currentY - styles.canvas.paddingTop : currentY;
+        const adjustedHeight = displayHeight;
 
-        // If this is the first block, it bleeds into the top padding for edge-to-edge experience
-        // It starts higher but maintains its proper dimensions
-        const adjustedY = isFirstBlock
-          ? currentY - styles.canvas.paddingTop
-          : currentY;
-        const adjustedHeight = displayHeight; // Always use actual dimensions
-
-        // Check if mouse is within the image area
-        // Images cover the full canvas width (edge-to-edge)
+        // Check if mouse is within the container area
         if (
-          x >= 0 &&
-          x < viewport.width &&
+          x >= displayX &&
+          x < displayX + displayWidth &&
           y >= adjustedY &&
           y < adjustedY + adjustedHeight
         ) {
+          // For contain mode, we need to calculate the actual image bounds
+          let finalX = displayX;
+          let finalY = adjustedY;
+          let finalWidth = displayWidth;
+          let finalHeight = adjustedHeight;
+          
+          if (objectFit === 'contain' && block.url) {
+            // Try to get the cached image to calculate actual bounds
+            const cachedImage = imageCache.get(block.url);
+            if (cachedImage && cachedImage.complete) {
+              const imgAspectRatio = cachedImage.naturalWidth / cachedImage.naturalHeight;
+              const containerAspectRatio = displayWidth / adjustedHeight;
+              
+              if (imgAspectRatio > containerAspectRatio) {
+                // Image is wider than container - fit to width
+                finalHeight = displayWidth / imgAspectRatio;
+                finalY = adjustedY + (adjustedHeight - finalHeight) / 2;
+              } else {
+                // Image is taller than container - fit to height
+                finalWidth = adjustedHeight * imgAspectRatio;
+                finalX = displayX + (displayWidth - finalWidth) / 2;
+              }
+            }
+          }
+          
           return {
             blockIndex,
-            x: 0,
-            y: adjustedY,
-            width: fullWidth,
-            height: adjustedHeight,
+            x: finalX,
+            y: finalY,
+            width: finalWidth,
+            height: finalHeight,
           };
         }
       }
@@ -1215,11 +1256,12 @@ function handleMouseMove(
       if (handle === 'left' || handle === 'right') {
         // Horizontal resize
         const widthDelta = handle === 'left' ? -deltaX * 2 : deltaX * 2; // multiply by 2 because we resize from center
+        const { minWidth: constraintMinWidth } = styles.imageResize.constraints;
         
         if (startWidth === 'full') {
           // Start from full width
           const currentWidth = viewport.width;
-          newWidth = Math.max(100, currentWidth + widthDelta);
+          newWidth = Math.max(constraintMinWidth, currentWidth + widthDelta);
           
           // Check if we should snap to padding (transitioning to contained)
           if (Math.abs(newWidth - maxWidth) < snapThreshold) {
@@ -1235,7 +1277,7 @@ function handleMouseMove(
           }
         } else {
           // Already in custom width mode
-          newWidth = Math.max(100, Math.min(viewport.width, (startWidth as number) + widthDelta));
+          newWidth = Math.max(constraintMinWidth, Math.min(viewport.width, (startWidth as number) + widthDelta));
           
           // Check if we should snap back to full width
           if (newWidth >= viewport.width - snapThreshold) {
@@ -1250,9 +1292,51 @@ function handleMouseMove(
             newObjectFit = 'contain';
           }
         }
+        
+        // In contain mode, calculate height based on image aspect ratio to avoid jumps
+        // Apply minWidth constraint to prevent over-resizing of wide images
+        if (newObjectFit === 'contain' && typeof newWidth === 'number' && block.url) {
+          const cachedImage = imageCache.get(block.url);
+          if (cachedImage && cachedImage.complete) {
+            const imgAspectRatio = cachedImage.naturalWidth / cachedImage.naturalHeight;
+            
+            // Ensure width doesn't go below minimum (already enforced above, but keep for clarity)
+            newWidth = Math.max(newWidth, constraintMinWidth);
+            
+            // Calculate height based on width and aspect ratio
+            newHeight = newWidth / imgAspectRatio;
+          }
+        }
       } else if (handle === 'bottom' && startObjectFit === 'cover') {
         // Vertical resize (only in cover mode)
-        newHeight = Math.max(100, startHeight + deltaY);
+        // In cover mode, we enforce minimum height
+        const { minHeight: constraintMinHeight } = styles.imageResize.constraints;
+        const calculatedHeight = Math.max(constraintMinHeight, startHeight + deltaY);
+        
+        // Cap height based on image aspect ratio to prevent over-resizing
+        if (block.url) {
+          const cachedImage = imageCache.get(block.url);
+          if (cachedImage && cachedImage.complete) {
+            const imgAspectRatio = cachedImage.naturalWidth / cachedImage.naturalHeight;
+            
+            // Calculate the current container width
+            const containerWidth = typeof startWidth === 'number' ? startWidth : viewport.width;
+            
+            // For portrait images (tall), cap the height so it doesn't exceed the image's natural ratio
+            // This prevents excessive cropping when the image is resized too tall
+            const maxHeightForRatio = containerWidth / imgAspectRatio;
+            
+            // Cap the height at the image's natural ratio relative to container width
+            newHeight = Math.min(calculatedHeight, maxHeightForRatio);
+            
+            // Ensure we don't go below minimum height
+            newHeight = Math.max(newHeight, constraintMinHeight);
+          } else {
+            newHeight = calculatedHeight;
+          }
+        } else {
+          newHeight = calculatedHeight;
+        }
       }
       
       // Update the block with new dimensions
@@ -1262,6 +1346,9 @@ function handleMouseMove(
         height: newHeight,
         objectFit: newObjectFit,
       };
+      
+      // Invalidate the block height cache since dimensions changed
+      invalidateBlockCache(updatedBlock);
       
       const newBlocks = [...state.document.page.blocks];
       newBlocks[blockIndex] = updatedBlock;
