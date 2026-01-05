@@ -4,6 +4,7 @@ import { isCJKCharacter } from "./fonts";
 import { invalidateBlockCache } from "./renderer";
 import { getFormattedTextDirection } from "./rtl";
 import {
+  clearAutoCreatedParagraph,
   clearSelection,
   closeSlashCommand,
   generateBlockId,
@@ -777,6 +778,8 @@ export function insertText(state: EditorState, input: string): EditorState {
   };
   // Preserve active formats when moving cursor after typing
   newState = moveCursorToPosition(newState, blockIndex, newTextIndex, true);
+  // Clear auto-created paragraph tracking on text input
+  newState = clearAutoCreatedParagraph(newState);
   
   return updateMode(newState, "edit");
 }

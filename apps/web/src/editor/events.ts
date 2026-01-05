@@ -1,4 +1,5 @@
 import type { Block } from "../deserializer/loadPage";
+import { isTextBlock } from "../deserializer/loadPage";
 import { SLASH_COMMANDS } from "./SlashCommandMenu";
 import { copySelectionToClipboard, pasteFromClipboardEvent } from "./clipboard";
 import {
@@ -38,6 +39,7 @@ import {
   TAP_MAX_DURATION,
 } from "./constants";
 import { getBlockHeight } from "./renderer";
+import { getFormattedTextDirection } from "./rtl";
 import {
   applyMomentum,
   endScrollbarDrag,
@@ -57,6 +59,7 @@ import {
   scrollToMakeCursorVisible,
 } from "./selection";
 import {
+  clearAutoCreatedParagraph,
   clearSelection,
   closeActiveMenu,
   closeSlashCommand,
@@ -771,6 +774,9 @@ function handleMouseDown(
   }
 
   state = updateFocus(state, true);
+
+  // Clear auto-created paragraph tracking on mouse click
+  state = clearAutoCreatedParagraph(state);
 
   state = {
     ...state,
@@ -1671,6 +1677,56 @@ function handleKeyDown(
           }
         }
         
+        // Check if we should remove an auto-created paragraph (RTL: left = forward)
+        if (state.ui.autoCreatedParagraph && state.document.cursor) {
+          const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
+          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          
+          // Check if cursor is on the auto-created paragraph and it's RTL and empty
+          if (
+            state.document.cursor.position.blockIndex === blockIndex &&
+            currentBlock?.id === blockId &&
+            currentBlock.type === "paragraph" &&
+            isTextBlock(currentBlock) &&
+            getBlockTextContent(currentBlock) === "" &&
+            getFormattedTextDirection(currentBlock.content) === "rtl"
+          ) {
+            // Remove the auto-created paragraph and move to the image below
+            const newBlocks = state.document.page.blocks.filter((_, i) => i !== blockIndex);
+            const newPage = { ...state.document.page, blocks: newBlocks };
+            
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+              ui: {
+                ...state.ui,
+                autoCreatedParagraph: null,
+              },
+            };
+            // Move cursor to the image that was below
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, 0, 0);
+            
+            // Select the image block
+            if (newState.document.page.blocks[0]?.type === "imageCover") {
+              newState = {
+                ...newState,
+                document: {
+                  ...newState.document,
+                  selection: {
+                    anchor: { blockIndex: 0, textIndex: 0 },
+                    focus: { blockIndex: 0, textIndex: 0 },
+                    isForward: true,
+                    isCollapsed: false,
+                    lastUpdate: Date.now(),
+                  },
+                },
+              };
+            }
+            break;
+          }
+        }
+        
         // If there's a selection, check if it's an image block selection
         const range = getSelectionRange(newState);
         const isImageSelection = range && 
@@ -1715,6 +1771,15 @@ function handleKeyDown(
               },
             };
           }
+          
+          // Clear auto-created paragraph tracking only if we moved away from it
+          if (
+            state.ui.autoCreatedParagraph &&
+            newState.document.cursor &&
+            newState.document.cursor.position.blockIndex !== state.ui.autoCreatedParagraph.blockIndex
+          ) {
+            newState = clearAutoCreatedParagraph(newState);
+          }
         }
       }
       break;
@@ -1749,6 +1814,56 @@ function handleKeyDown(
             };
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, newBlocks.length - 1, 0);
+            break;
+          }
+        }
+        
+        // Check if we should remove an auto-created paragraph (LTR: right = forward)
+        if (state.ui.autoCreatedParagraph && state.document.cursor) {
+          const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
+          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          
+          // Check if cursor is on the auto-created paragraph and it's LTR and empty
+          if (
+            state.document.cursor.position.blockIndex === blockIndex &&
+            currentBlock?.id === blockId &&
+            currentBlock.type === "paragraph" &&
+            isTextBlock(currentBlock) &&
+            getBlockTextContent(currentBlock) === "" &&
+            getFormattedTextDirection(currentBlock.content) === "ltr"
+          ) {
+            // Remove the auto-created paragraph and move to the image below
+            const newBlocks = state.document.page.blocks.filter((_, i) => i !== blockIndex);
+            const newPage = { ...state.document.page, blocks: newBlocks };
+            
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+              ui: {
+                ...state.ui,
+                autoCreatedParagraph: null,
+              },
+            };
+            // Move cursor to the image that was below
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, 0, 0);
+            
+            // Select the image block
+            if (newState.document.page.blocks[0]?.type === "imageCover") {
+              newState = {
+                ...newState,
+                document: {
+                  ...newState.document,
+                  selection: {
+                    anchor: { blockIndex: 0, textIndex: 0 },
+                    focus: { blockIndex: 0, textIndex: 0 },
+                    isForward: true,
+                    isCollapsed: false,
+                    lastUpdate: Date.now(),
+                  },
+                },
+              };
+            }
             break;
           }
         }
@@ -1797,6 +1912,15 @@ function handleKeyDown(
               },
             };
           }
+          
+          // Clear auto-created paragraph tracking only if we moved away from it
+          if (
+            state.ui.autoCreatedParagraph &&
+            newState.document.cursor &&
+            newState.document.cursor.position.blockIndex !== state.ui.autoCreatedParagraph.blockIndex
+          ) {
+            newState = clearAutoCreatedParagraph(newState);
+          }
         }
       }
       break;
@@ -1826,6 +1950,10 @@ function handleKeyDown(
             newState = {
               ...state,
               document: { ...state.document, page: newPage },
+              ui: {
+                ...state.ui,
+                autoCreatedParagraph: { blockIndex: 0, blockId: newParagraph.id },
+              },
             };
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, 0, 0);
@@ -1861,6 +1989,15 @@ function handleKeyDown(
               },
             };
           }
+          
+          // Clear auto-created paragraph tracking only if we moved away from it
+          if (
+            state.ui.autoCreatedParagraph &&
+            newState.document.cursor &&
+            newState.document.cursor.position.blockIndex !== state.ui.autoCreatedParagraph.blockIndex
+          ) {
+            newState = clearAutoCreatedParagraph(newState);
+          }
         }
       }
       break;
@@ -1871,6 +2008,55 @@ function handleKeyDown(
       if (keyEvent.shiftKey) {
         newState = extendSelectionDown(newState, viewport);
       } else {
+        // Check if we should remove an auto-created paragraph
+        if (state.ui.autoCreatedParagraph && state.document.cursor) {
+          const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
+          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          
+          // If cursor is on the auto-created paragraph and it's still empty
+          if (
+            state.document.cursor.position.blockIndex === blockIndex &&
+            currentBlock?.id === blockId &&
+            currentBlock.type === "paragraph" &&
+            isTextBlock(currentBlock) &&
+            getBlockTextContent(currentBlock) === ""
+          ) {
+            // Remove the auto-created paragraph and move to the image below
+            const newBlocks = state.document.page.blocks.filter((_, i) => i !== blockIndex);
+            const newPage = { ...state.document.page, blocks: newBlocks };
+            
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+              ui: {
+                ...state.ui,
+                autoCreatedParagraph: null,
+              },
+            };
+            // Move cursor to the image that was below
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, 0, 0);
+            
+            // Select the image block
+            if (newState.document.page.blocks[0]?.type === "imageCover") {
+              newState = {
+                ...newState,
+                document: {
+                  ...newState.document,
+                  selection: {
+                    anchor: { blockIndex: 0, textIndex: 0 },
+                    focus: { blockIndex: 0, textIndex: 0 },
+                    isForward: true,
+                    isCollapsed: false,
+                    lastUpdate: Date.now(),
+                  },
+                },
+              };
+            }
+            break;
+          }
+        }
+        
         // Check if we're on an image at the end of the page
         if (state.document.cursor) {
           const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
@@ -1924,6 +2110,15 @@ function handleKeyDown(
                 },
               },
             };
+          }
+          
+          // Clear auto-created paragraph tracking only if we moved away from it
+          if (
+            state.ui.autoCreatedParagraph &&
+            newState.document.cursor &&
+            newState.document.cursor.position.blockIndex !== state.ui.autoCreatedParagraph.blockIndex
+          ) {
+            newState = clearAutoCreatedParagraph(newState);
           }
         }
       }
@@ -1990,6 +2185,8 @@ function handleKeyDown(
       } else {
         newState = deleteText(recordUndo(state));
       }
+      // Clear auto-created paragraph tracking on delete
+      newState = clearAutoCreatedParagraph(newState);
       break;
     case "Delete":
       if (isCtrl) {
@@ -1997,13 +2194,19 @@ function handleKeyDown(
       } else {
         newState = deleteForward(recordUndo(state));
       }
+      // Clear auto-created paragraph tracking on delete
+      newState = clearAutoCreatedParagraph(newState);
       break;
     case "Enter":
       newState = splitBlock(recordUndo(state));
+      // Clear auto-created paragraph tracking on enter
+      newState = clearAutoCreatedParagraph(newState);
       break;
     case " ":
     case "Space":
       newState = insertText(recordUndo(state), " ");
+      // Clear auto-created paragraph tracking on space (already cleared in insertText, but for safety)
+      newState = clearAutoCreatedParagraph(newState);
       break;
     default:
       // Check if typing "/" at the start of a block (only on desktop)

@@ -43,6 +43,7 @@ export const createInitialState = (page: Page): EditorState => ({
     composition: null,
     activeFormatsMode: { type: "inherit" },
     imageHover: null,
+    autoCreatedParagraph: null,
   },
   view: {
     isFocused: false,
@@ -285,12 +286,12 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
     } else if (blockIndex < state.document.page.blocks.length - 1) {
       // Moving to next block
       const nextBlock = state.document.page.blocks[blockIndex + 1];
-      
+
       // Handle image blocks - move to the image block
       if (nextBlock.type === "imageCover") {
         return moveCursorToPosition(state, blockIndex + 1, 0);
       }
-      
+
       if (!isTextBlock(nextBlock)) {
         return state;
       }
@@ -311,12 +312,12 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
     } else if (blockIndex > 0) {
       // Moving to previous block
       const prevBlock = state.document.page.blocks[blockIndex - 1];
-      
+
       // Handle image blocks - move to the image block
       if (prevBlock.type === "imageCover") {
         return moveCursorToPosition(state, blockIndex - 1, 0);
       }
-      
+
       if (!isTextBlock(prevBlock)) {
         return state;
       }
@@ -373,12 +374,12 @@ export const moveCursorRight = (state: EditorState): EditorState => {
     } else if (blockIndex > 0) {
       // Moving to previous block
       const prevBlock = state.document.page.blocks[blockIndex - 1];
-      
+
       // Handle image blocks - move to the image block
       if (prevBlock.type === "imageCover") {
         return moveCursorToPosition(state, blockIndex - 1, 0);
       }
-      
+
       if (!isTextBlock(prevBlock)) {
         return state;
       }
@@ -400,12 +401,12 @@ export const moveCursorRight = (state: EditorState): EditorState => {
     } else if (blockIndex < state.document.page.blocks.length - 1) {
       // Moving to next block
       const nextBlock = state.document.page.blocks[blockIndex + 1];
-      
+
       // Handle image blocks - move to the image block
       if (nextBlock.type === "imageCover") {
         return moveCursorToPosition(state, blockIndex + 1, 0);
       }
-      
+
       if (!isTextBlock(nextBlock)) {
         return state;
       }
@@ -1309,6 +1310,18 @@ export const closeActiveMenu = (state: EditorState): EditorState => {
   return setActiveMenu(state, { type: "none" });
 };
 
+// Clear auto-created paragraph tracking
+export const clearAutoCreatedParagraph = (state: EditorState): EditorState => {
+  if (!state.ui.autoCreatedParagraph) return state;
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      autoCreatedParagraph: null,
+    },
+  };
+};
+
 // Composition (IME) State Management
 export const startComposition = (
   state: EditorState,
@@ -1350,7 +1363,6 @@ export const endComposition = (state: EditorState): EditorState => ({
     composition: null,
   },
 });
-
 
 // Detect if device has touch support
 export const isTouchDevice = (): boolean => {
