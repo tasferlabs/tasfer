@@ -260,18 +260,13 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
 
   // Check if current block is RTL
   const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
-  const currentBlockText = getBlockTextContent(currentBlock);
 
   if (isRTL) {
     // In RTL text, visual left is logical forward (increment)
-    const currentBlockLength = currentBlockText.length;
+    const currentBlockLength = getBlockTextLength(currentBlock);
 
     if (textIndex < currentBlockLength) {
-      return moveCursorToPosition(
-        state,
-        blockIndex,
-        getNextGraphemeIndex(currentBlockText, textIndex)
-      );
+      return moveCursorToPosition(state, blockIndex, textIndex + 1);
     } else if (blockIndex < state.document.page.blocks.length - 1) {
       // Moving to next block - check if next block is RTL or LTR
       const nextBlock = state.document.page.blocks[blockIndex + 1];
@@ -291,11 +286,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
   } else {
     // LTR text: visual left is logical backward (decrement)
     if (textIndex > 0) {
-      return moveCursorToPosition(
-        state,
-        blockIndex,
-        getPreviousGraphemeIndex(currentBlockText, textIndex)
-      );
+      return moveCursorToPosition(state, blockIndex, textIndex - 1);
     } else if (blockIndex > 0) {
       // Moving to previous block - check if previous block is RTL or LTR
       const prevBlock = state.document.page.blocks[blockIndex - 1];
@@ -331,7 +322,6 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   }
 
   const currentBlockLength = getBlockTextLength(currentBlock);
-  const currentBlockText = getBlockTextContent(currentBlock);
 
   // Check if current block is RTL
   const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
@@ -339,11 +329,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   if (isRTL) {
     // In RTL text, visual right is logical backward (decrement)
     if (textIndex > 0) {
-      return moveCursorToPosition(
-        state,
-        blockIndex,
-        getPreviousGraphemeIndex(currentBlockText, textIndex)
-      );
+      return moveCursorToPosition(state, blockIndex, textIndex - 1);
     } else if (blockIndex > 0) {
       // Moving to previous block - check if previous block is RTL or LTR
       const prevBlock = state.document.page.blocks[blockIndex - 1];
@@ -364,11 +350,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   } else {
     // LTR text: visual right is logical forward (increment)
     if (textIndex < currentBlockLength) {
-      return moveCursorToPosition(
-        state,
-        blockIndex,
-        getNextGraphemeIndex(currentBlockText, textIndex)
-      );
+      return moveCursorToPosition(state, blockIndex, textIndex + 1);
     } else if (blockIndex < state.document.page.blocks.length - 1) {
       // Moving to next block - check if next block is RTL or LTR
       const nextBlock = state.document.page.blocks[blockIndex + 1];
@@ -1182,7 +1164,7 @@ export const updateSlashCommandSelection = (
 export const closeSlashCommand = (state: EditorState): EditorState =>
   closeActiveMenu(state);
 
-// Context Menu State Management (deprecated - use setActiveMenu instead)
+// Context Menu State Management
 export const openContextMenu = (
   state: EditorState,
   x: number,
@@ -1192,7 +1174,7 @@ export const openContextMenu = (
 export const closeContextMenu = (state: EditorState): EditorState =>
   closeActiveMenu(state);
 
-// Link Hover State Management (deprecated - use setActiveMenu instead)
+// Link Hover State Management
 export const setLinkHover = (
   state: EditorState,
   linkHover: {
@@ -1228,8 +1210,9 @@ export const setActiveMenu = (
   },
 });
 
-export const closeActiveMenu = (state: EditorState): EditorState =>
-  setActiveMenu(state, { type: "none" });
+export const closeActiveMenu = (state: EditorState): EditorState => {
+  return setActiveMenu(state, { type: "none" });
+};
 
 // Composition (IME) State Management
 export const startComposition = (

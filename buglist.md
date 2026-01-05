@@ -146,7 +146,7 @@ Bugs list
 [x] rendering cover image artifcat. The image has border
 [x] Rendering image has supper low resolution. Even though uploaded image is good
 [x] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
-[ ] i need to click two times outside to close image upload menu.
+[x] i need to click two times outside to close image upload menu.
 [ ] click outside the editor does not close the image upload menu or context menu.
 [ ] on hovering on a link near the edge, than the tooltip should be fully visible.
 [ ] clicking close to an image trigger upload menu. Clicking on image should persist it should not activate upload menu if we are pointer inside the image.

@@ -135,11 +135,12 @@ function getImageBlockAtPoint(
     // Special handling for first block image covers that bleed into padding
     const isFirstBlock = blockIndex === 0;
     const isImageCover = block.type === "imageCover";
-    
+
     // For first block image covers, check from the top of the viewport (adjusted for padding)
-    const checkStartY = isFirstBlock && isImageCover
-      ? currentY - styles.canvas.paddingTop
-      : currentY;
+    const checkStartY =
+      isFirstBlock && isImageCover
+        ? currentY - styles.canvas.paddingTop
+        : currentY;
 
     // Check if y is within this block's bounds (accounting for padding bleed)
     if (y >= checkStartY && y < currentY + blockHeight) {
@@ -873,7 +874,7 @@ function handleMouseDown(
           // Just keep it closed
           return state;
         }
-        
+
         // Open the image upload menu at the click position
         return setActiveMenu(state, {
           type: "imageUpload",
@@ -1003,7 +1004,12 @@ function handleMouseMove(
   };
 
   // Check for image hover (desktop only, not in select mode, and not when image upload is open)
-  if (!isTouchDevice() && state.ui.mode !== "select" && state.ui.activeMenu.type !== "imageUpload") {
+  if (
+    !isTouchDevice() &&
+    state.ui.mode !== "select" &&
+    (state.ui.activeMenu.type === "none" ||
+      state.ui.activeMenu.type === "imageHover")
+  ) {
     const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
 
     if (imageBlock) {
@@ -1016,13 +1022,9 @@ function handleMouseMove(
         width: imageBlock.width,
         height: imageBlock.height,
       });
-    } else if (state.ui.activeMenu.type === "imageHover") {
-      // Clear image hover if no longer over an image
+    } else {
       state = closeActiveMenu(state);
     }
-  } else if (state.ui.activeMenu.type === "imageHover") {
-    // Clear image hover on touch devices or in select mode
-    state = closeActiveMenu(state);
   }
 
   if (state.ui.mode !== "select") {
