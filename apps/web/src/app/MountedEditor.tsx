@@ -246,13 +246,13 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
 
       // Calculate new image hover state
       let newImageHoverState: typeof imageHoverState = null;
-      if (state.ui.activeMenu.type === "imageHover") {
+      if (state.ui.imageHover) {
         newImageHoverState = {
-          x: state.ui.activeMenu.x,
-          y: state.ui.activeMenu.y,
-          width: state.ui.activeMenu.width,
-          height: state.ui.activeMenu.height,
-          blockIndex: state.ui.activeMenu.blockIndex,
+          x: state.ui.imageHover.x,
+          y: state.ui.imageHover.y,
+          width: state.ui.imageHover.width,
+          height: state.ui.imageHover.height,
+          blockIndex: state.ui.imageHover.blockIndex,
         };
         // Persist this state for when the menu transitions
         persistedImageHoverRef.current = newImageHoverState;
@@ -266,8 +266,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
 
       // Clear persisted state when image upload closes
       if (
-        state.ui.activeMenu.type !== "imageUpload" &&
-        state.ui.activeMenu.type !== "imageHover"
+        state.ui.activeMenu.type !== "imageUpload"
       ) {
         persistedImageHoverRef.current = null;
       }

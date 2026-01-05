@@ -80,7 +80,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
   };
 
   return (
-    <Popover.Root open={true} onOpenChange={(open) => !open && onClose()}>
+    <Popover.Root open={true} modal={false}>
       <Popover.Anchor
         style={{
           position: "fixed",
@@ -100,6 +100,8 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
           collisionPadding={10}
           onOpenAutoFocus={(e) => e.preventDefault()}
           onCloseAutoFocus={(e) => e.preventDefault()}
+          onEscapeKeyDown={onClose}
+          onPointerDownOutside={onClose}
         >
           <div className="space-y-4">
             {/* Header */}

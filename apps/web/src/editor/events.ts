@@ -493,6 +493,7 @@ export function handleEvents(
       ui: {
         ...state.ui,
         isHoveringLinkWithModifier: false,
+        imageHover: null,
       },
     };
   }
@@ -985,6 +986,7 @@ function handleMouseMove(
       ui: {
         ...state.ui,
         isHoveringLinkWithModifier: false,
+        imageHover: null,
       },
     };
   }
@@ -1003,27 +1005,37 @@ function handleMouseMove(
     },
   };
 
-  // Check for image hover (desktop only, not in select mode, and not when image upload is open)
+  // Check for image hover (desktop only, not in select mode)
   if (
     !isTouchDevice() &&
-    state.ui.mode !== "select" &&
-    (state.ui.activeMenu.type === "none" ||
-      state.ui.activeMenu.type === "imageHover")
+    state.ui.mode !== "select"
   ) {
     const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
 
     if (imageBlock) {
-      // Mouse is over an image block
-      state = setActiveMenu(state, {
-        type: "imageHover",
-        blockIndex: imageBlock.blockIndex,
-        x: imageBlock.x,
-        y: imageBlock.y,
-        width: imageBlock.width,
-        height: imageBlock.height,
-      });
-    } else {
-      state = closeActiveMenu(state);
+      // Mouse is over an image block - set imageHover state (not a blocking menu)
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          imageHover: {
+            blockIndex: imageBlock.blockIndex,
+            x: imageBlock.x,
+            y: imageBlock.y,
+            width: imageBlock.width,
+            height: imageBlock.height,
+          },
+        },
+      };
+    } else if (state.ui.imageHover !== null) {
+      // Clear image hover state
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          imageHover: null,
+        },
+      };
     }
   }
 
@@ -1038,11 +1050,10 @@ function handleMouseMove(
       return state;
     }
 
-    // Don't show link hover when any menu is open (except for linkHover and imageHover)
+    // Don't show link hover when any menu is open (except for linkHover)
     if (
       state.ui.activeMenu.type !== "none" &&
-      state.ui.activeMenu.type !== "linkHover" &&
-      state.ui.activeMenu.type !== "imageHover"
+      state.ui.activeMenu.type !== "linkHover"
     ) {
       return state;
     }
@@ -1827,6 +1838,7 @@ function handleWheel(
       ...state.ui,
       activeMenu: { type: "none" },
       isHoveringLinkWithModifier: false,
+      imageHover: null,
     },
   };
 }
@@ -2027,6 +2039,7 @@ function handleTouchMove(
           ...state.ui,
           activeMenu: { type: "none" },
           isHoveringLinkWithModifier: false,
+          imageHover: null,
         },
       };
     }

@@ -42,6 +42,7 @@ export const createInitialState = (page: Page): EditorState => ({
     isHoveringLinkWithModifier: false,
     composition: null,
     activeFormatsMode: { type: "inherit" },
+    imageHover: null,
   },
   view: {
     isFocused: false,
@@ -1211,6 +1212,7 @@ export const setActiveMenu = (
 });
 
 export const closeActiveMenu = (state: EditorState): EditorState => {
+  console.trace("closeActiveMenu", state.ui.activeMenu.type);
   return setActiveMenu(state, { type: "none" });
 };
 

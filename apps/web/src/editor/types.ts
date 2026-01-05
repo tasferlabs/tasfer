@@ -39,8 +39,7 @@ export type ActiveMenu =
   | { type: 'contextMenu'; x: number; y: number }
   | { type: 'linkHover'; position: Position; url: string; text: string; x: number; y: number; segmentIndex: number }
   | { type: 'linkEdit'; position: Position; url: string; text: string; x: number; y: number; segmentIndex: number }
-  | { type: 'imageUpload'; blockIndex: number; x: number; y: number; uploadStatus?: 'uploading' | 'complete' | 'error' }
-  | { type: 'imageHover'; blockIndex: number; x: number; y: number; width: number; height: number };
+  | { type: 'imageUpload'; blockIndex: number; x: number; y: number; uploadStatus?: 'uploading' | 'complete' | 'error' };
 
 // Document State - Only this goes in undo/redo
 export interface DocumentState {
@@ -61,13 +60,23 @@ export type ActiveFormatsMode =
   | { type: 'inherit' } // Inherit formatting from previous character (normal typing)
   | { type: 'explicit'; formats: readonly TextFormat[] }; // Explicit formatting mode (Ctrl+B toggled on/off)
 
+// Image Hover State - Not a menu, just visual feedback
+export interface ImageHoverState {
+  readonly blockIndex: number;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 // UI State - Transient interaction state (menus, popovers, mode)
 export interface UIState {
   readonly mode: EditorMode;
-  readonly activeMenu: ActiveMenu; // Unified menu system - replaces slashCommand, contextMenu, linkHover, imageUpload, imageHover
+  readonly activeMenu: ActiveMenu; // Unified menu system - replaces slashCommand, contextMenu, linkHover, imageUpload
   readonly isHoveringLinkWithModifier: boolean;
   readonly composition: CompositionState | null;
   readonly activeFormatsMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
+  readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)
 }
 
 // View State - Ephemeral view properties
