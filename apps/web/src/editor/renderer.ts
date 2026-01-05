@@ -729,28 +729,8 @@ export const renderBlock = (
     );
   }
 
-  // Handle cursor rendering
-  if (
-    state.document.cursor &&
-    state.document.cursor.position.blockIndex === blockIndex &&
-    !isCursorBlinking(state.document.cursor, styles) &&
-    !hasActiveSelection
-  ) {
-    renderCursor(
-      x,
-      y,
-      fontMetrics,
-      textStyle,
-      renderedLines,
-      state,
-      fullContent,
-      fontFamily,
-      ctx,
-      styles,
-      block,
-      maxWidth
-    );
-  }
+  // NOTE: Cursor rendering is now handled by the separate cursor layer
+  // This prevents double-rendering of the cursor during composition (IME input)
 
   // Create block bounds
   const blockBounds: BlockBounds = {
@@ -794,95 +774,6 @@ function renderPlaceholder(
   }
 
   ctx.fillText(placeholderText, x, y);
-  ctx.restore();
-}
-
-function renderCursor(
-  x: number,
-  y: number,
-  fontMetrics: FontMetrics,
-  textStyle: TextStyle,
-  renderedLines: RenderedLine[],
-  state: EditorState,
-  content: string,
-  fontFamily: FontFamily,
-  ctx: CanvasRenderingContext2D,
-  styles: EditorStyles,
-  block: Block,
-  maxWidth: number
-) {
-  if (!state.document.cursor || !state.view.isFocused) return;
-
-  if (!isTextBlock(block)) {
-    return;
-  }
-
-  let cursorX = x;
-  let cursorY = y;
-  let cursorHeight = fontMetrics.fontSize * textStyle.lineHeight;
-  const codePadding = styles.textFormats.code.padding;
-
-  // Detect if this is an RTL block
-  const isRTL = getFormattedTextDirection(block.content) === "rtl";
-
-  // console.log(renderedLines);
-  for (const line of renderedLines) {
-    if (
-      state.document.cursor.position.textIndex >= line.startIndex &&
-      state.document.cursor.position.textIndex <= line.endIndex
-    ) {
-      cursorY = line.y;
-      cursorHeight = line.height;
-
-      // Calculate cursor position differently for RTL
-      if (isRTL) {
-        // For RTL text rendered with canvas direction="rtl":
-        // - Cursor at logical index 0 (line start) appears at the RIGHT (x + maxWidth)
-        // - Cursor at logical index N appears at the LEFT
-        // Measure from line start to cursor position
-        const widthFromStart = measureFormattedLineWidth(
-          block.content,
-          line.startIndex,
-          state.document.cursor.position.textIndex,
-          textStyle,
-          fontFamily,
-          codePadding
-        );
-        cursorX = x + maxWidth - widthFromStart;
-      } else {
-        // LTR: measure from start to cursor
-        cursorX += measureFormattedLineWidth(
-          block.content,
-          line.startIndex,
-          state.document.cursor.position.textIndex,
-          textStyle,
-          fontFamily,
-          codePadding
-        );
-      }
-      break;
-    }
-  }
-
-  // For end-of-block selections (textIndex at content end), place cursor at end of last line
-  if (
-    state.document.cursor.position.textIndex === content.length &&
-    renderedLines.length > 0
-  ) {
-    const lastLine = renderedLines[renderedLines.length - 1];
-    if (isRTL) {
-      // For RTL, cursor goes to the left edge
-      cursorX = lastLine.x + maxWidth - lastLine.width;
-    } else {
-      cursorX = lastLine.x + lastLine.width;
-    }
-    cursorY = lastLine.y;
-    cursorHeight = lastLine.height;
-  }
-
-  ctx.save();
-  ctx.fillStyle = styles.cursor.color;
-  ctx.fillRect(cursorX, cursorY, styles.cursor.width, cursorHeight);
   ctx.restore();
 }
 
@@ -1513,18 +1404,31 @@ export function renderCursorLayer(
     currentY += blockHeight;
   }
 
+  // Optimization: Skip rendering if cursor block is completely outside viewport
+  const blockHeight = getBlockHeight(block, maxWidth, styles, cursorBlockIndex);
+  if (currentY + blockHeight < 0 || currentY > viewport.height) {
+    // Cursor block is not visible in viewport
+    ctx.restore();
+    return;
+  }
+
   // Get text style and calculate lines for cursor block
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
 
+  // Get content with composition text injected (if composing in this block)
+  const { content: renderContent, compositionRange } =
+    getContentWithComposition(block, state, cursorBlockIndex);
+
   const lines = wrapFormattedTextDetailed(
-    block.content,
+    renderContent,
     maxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
     fontFamily,
-    codePadding
+    codePadding,
+    compositionRange
   );
 
   const fontMetrics = getFontMetrics(
@@ -1536,11 +1440,18 @@ export function renderCursorLayer(
 
   // Find which line the cursor is on
   const content = getBlockTextContent(block);
-  const isRTL = getFormattedTextDirection(block.content) === "rtl";
+  const isRTL = getFormattedTextDirection(renderContent) === "rtl";
   
   let cursorX = styles.canvas.paddingLeft;
   let cursorY = currentY;
   let cursorHeight = fontMetrics.fontSize * textStyle.lineHeight;
+  
+  // Calculate the target cursor position (original position + composition length if composing)
+  let targetCursorIndex = state.document.cursor.position.textIndex;
+  if (compositionRange && state.ui.composition?.isComposing) {
+    // During composition, cursor appears at the END of composition text
+    targetCursorIndex = compositionRange.end;
+  }
   
   let textIndex = 0;
   for (const wrappedLine of lines) {
@@ -1548,8 +1459,8 @@ export function renderCursorLayer(
     const lineEndIndex = textIndex + wrappedLine.text.length;
 
     if (
-      state.document.cursor.position.textIndex >= lineStartIndex &&
-      state.document.cursor.position.textIndex <= lineEndIndex
+      targetCursorIndex >= lineStartIndex &&
+      targetCursorIndex <= lineEndIndex
     ) {
       cursorY = currentY;
       cursorHeight = fontMetrics.ascent + fontMetrics.descent;
@@ -1557,9 +1468,9 @@ export function renderCursorLayer(
       // Calculate cursor position differently for RTL
       if (isRTL) {
         const widthFromStart = measureFormattedLineWidth(
-          block.content,
+          renderContent,
           lineStartIndex,
-          state.document.cursor.position.textIndex,
+          targetCursorIndex,
           textStyle,
           fontFamily,
           codePadding
@@ -1567,9 +1478,9 @@ export function renderCursorLayer(
         cursorX = styles.canvas.paddingLeft + maxWidth - widthFromStart;
       } else {
         cursorX += measureFormattedLineWidth(
-          block.content,
+          renderContent,
           lineStartIndex,
-          state.document.cursor.position.textIndex,
+          targetCursorIndex,
           textStyle,
           fontFamily,
           codePadding
@@ -1585,8 +1496,9 @@ export function renderCursorLayer(
     currentY += lineHeight;
   }
 
-  // Handle cursor at end of block
+  // Handle cursor at end of block (only when not composing)
   if (
+    !state.ui.composition?.isComposing &&
     state.document.cursor.position.textIndex === content.length &&
     lines.length > 0
   ) {
@@ -1603,7 +1515,7 @@ export function renderCursorLayer(
     lastLineY += lastLineIndex * lineHeight;
 
     const lastLineWidth = measureFormattedLineWidth(
-      block.content,
+      renderContent,
       content.length - lastLine.text.length,
       content.length,
       textStyle,
