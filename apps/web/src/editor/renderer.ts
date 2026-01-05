@@ -484,20 +484,15 @@ export const renderPage = (
   visibility: { start: number; end: number },
   styles: EditorStyles = getEditorStyles()
 ) => {
-  // Get device pixel ratio and scale canvas context for high-DPI displays
-  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-
   // Save context state
   ctx.save();
-
-  // Scale all drawing operations by DPR
-  ctx.scale(dpr, dpr);
 
   // Enable text antialiasing for better quality on high-DPI screens
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
 
   // Clear canvas (background color is handled by CSS on the canvas element)
+  // Note: Context is already scaled by DPR in layers.ts, so use CSS pixels here
   ctx.clearRect(0, 0, viewport.width, viewport.height);
 
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
@@ -1354,16 +1349,11 @@ export function renderCursorLayer(
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles()
 ) {
-  // Get device pixel ratio and scale canvas context for high-DPI displays
-  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-
   // Save context state
   ctx.save();
 
-  // Scale all drawing operations by DPR
-  ctx.scale(dpr, dpr);
-
   // Clear the cursor layer
+  // Note: Context is already scaled by DPR in layers.ts, so use CSS pixels here
   ctx.clearRect(0, 0, viewport.width, viewport.height);
 
   // Only render if cursor exists, editor is focused, and cursor is visible (not blinking)

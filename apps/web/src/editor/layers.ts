@@ -88,11 +88,13 @@ export function resizeCanvasLayers(
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
 
-    // Update memory size
+    // Update memory size (this automatically resets the canvas and clears transformations)
     canvas.width = width * dpr;
     canvas.height = height * dpr;
 
-    // Re-scale context
+    // Apply DPR scaling to context
+    // Note: Setting canvas.width/height above already reset the context,
+    // so we don't need to manually reset the transformation matrix
     ctx.scale(dpr, dpr);
   });
 }
