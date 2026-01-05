@@ -148,8 +148,13 @@ export const getBlockHeight = (
 
   // Special handling for first block image covers that bleed into top padding
   // They use up the padding space, so we subtract it from the effective height
+  // Only apply this for full-width images that actually bleed
   if (blockIndex === 0 && block.type === "imageCover") {
-    return height - styles.canvas.paddingTop;
+    const imageWidth = block.width ?? "full";
+    const shouldBleed = imageWidth === "full";
+    if (shouldBleed) {
+      return height - styles.canvas.paddingTop;
+    }
   }
 
   return height;
@@ -1302,6 +1307,33 @@ function renderImageCoverBlock(
     }
   }
 
+  // Render drag handles if hovering or dragging this image
+  // This ensures drag handles are rendered with the exact same dimensions as the image
+  const shouldRenderDragHandles = 
+    (state.ui.imageHover && state.ui.imageHover.blockIndex === blockIndex) ||
+    (state.ui.imageDrag && state.ui.imageDrag.blockIndex === blockIndex);
+
+  if (shouldRenderDragHandles) {
+    let hoveredHandle: "left" | "right" | "bottom" | null = null;
+    
+    if (state.ui.imageDrag && state.ui.imageDrag.blockIndex === blockIndex) {
+      hoveredHandle = state.ui.imageDrag.handle;
+    } else if (state.ui.imageHover && state.ui.imageHover.blockIndex === blockIndex) {
+      hoveredHandle = state.ui.imageHover.hoveredHandle;
+    }
+
+    renderImageDragHandlesForBlock(
+      ctx,
+      displayX,
+      adjustedY,
+      displayWidth,
+      adjustedHeight,
+      objectFit,
+      hoveredHandle,
+      styles
+    );
+  }
+
   ctx.restore();
 
   const blockBounds: BlockBounds = {
@@ -1335,7 +1367,8 @@ export const calculateBlockHeight = (
     const displayHeight = block.url
       ? block.height ?? defaultHeight
       : placeholderHeight;
-    return displayHeight + (block.objectFit === "cover" ? padding : 0);
+    // Always add padding after image blocks for visual spacing
+    return displayHeight + padding;
   }
 
   if (!isTextBlock(block)) {
@@ -1575,191 +1608,19 @@ export function renderCursorLayer(
 }
 
 /**
- * Helper to calculate image block bounds for drag rendering
+ * Render drag handles for a specific image block using exact dimensions
+ * This is called from within renderImageCoverBlock to ensure consistency
  */
-function getImageBlockBoundsForDrag(
-  state: EditorState,
-  blockIndex: number,
-  viewport: ViewportState,
-  styles: EditorStyles
-): { x: number; y: number; width: number; height: number } | null {
-  const block = state.document.page.blocks[blockIndex];
-  if (block.type !== "imageCover") return null;
-
-  const maxWidth =
-    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-  const { height: defaultImageHeight, placeholderHeight } =
-    styles.blocks.imageCover.dimensions;
-
-  // Get image properties (with defaults)
-  const imageWidth = block.width ?? "full";
-  const imageHeight = block.height ?? defaultImageHeight;
-  const objectFit = block.objectFit ?? "cover";
-
-  // Calculate container dimensions based on width setting
-  let displayWidth: number;
-  let displayX: number;
-
-  if (imageWidth === "full") {
-    // Full width: edge-to-edge (ignoring padding)
-    displayWidth =
-      maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
-    displayX = 0;
-  } else {
-    // Custom width: respect padding
-    displayWidth = Math.min(imageWidth, maxWidth);
-    displayX = styles.canvas.paddingLeft + (maxWidth - displayWidth) / 2; // Center the image
-  }
-
-  // Use placeholder height for placeholder, configured height for images
-  const displayHeight = block.url ? imageHeight : placeholderHeight;
-
-  // Calculate Y position by iterating through all previous blocks
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
-  for (let i = 0; i < blockIndex; i++) {
-    const prevBlockHeight = getBlockHeight(
-      state.document.page.blocks[i],
-      maxWidth,
-      styles,
-      i
-    );
-    currentY += prevBlockHeight;
-  }
-
-  // First block images in cover mode (full width) bleed into the top padding
-  const isFirstBlock = blockIndex === 0;
-  const shouldBleedIntoTopPadding = isFirstBlock && imageWidth === "full";
-  const adjustedY = shouldBleedIntoTopPadding
-    ? currentY - styles.canvas.paddingTop
-    : currentY;
-  const adjustedHeight = displayHeight;
-
-  // For contain mode, calculate actual image bounds
-  let finalX = displayX;
-  let finalY = adjustedY;
-  let finalWidth = displayWidth;
-  let finalHeight = adjustedHeight;
-
-  if (objectFit === "contain" && block.url) {
-    const cachedImage = imageCache.get(block.url);
-    if (cachedImage && cachedImage.complete) {
-      const imgAspectRatio =
-        cachedImage.naturalWidth / cachedImage.naturalHeight;
-      const containerAspectRatio = displayWidth / adjustedHeight;
-
-      if (imgAspectRatio > containerAspectRatio) {
-        // Image is wider than container - fit to width
-        finalHeight = displayWidth / imgAspectRatio;
-        finalY = adjustedY + (adjustedHeight - finalHeight) / 2;
-      } else {
-        // Image is taller than container - fit to height
-        finalWidth = adjustedHeight * imgAspectRatio;
-        finalX = displayX + (displayWidth - finalWidth) / 2;
-      }
-    }
-  }
-
-  return {
-    x: finalX,
-    y: finalY,
-    width: finalWidth,
-    height: finalHeight,
-  };
-}
-
-function renderBar(
+function renderImageDragHandlesForBlock(
   ctx: CanvasRenderingContext2D,
-  barX: number,
-  barY: number,
-  barWidth: number,
-  barHeight: number,
-  isHovered: boolean,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  objectFit: 'cover' | 'contain',
+  hoveredHandle: "left" | "right" | "bottom" | null,
   styles: EditorStyles
 ) {
-  ctx.save();
-
-  // Set opacity based on hover state
-  const opacity = isHovered
-    ? styles.imageResize.dragHandles.vertical.hoverOpacity
-    : styles.imageResize.dragHandles.vertical.opacity;
-  ctx.globalAlpha = opacity;
-
-  // Draw bar background
-  ctx.fillStyle = isHovered
-    ? styles.imageResize.dragHandles.vertical.hoverBackgroundColor
-    : styles.imageResize.dragHandles.vertical.backgroundColor;
-
-  if (styles.imageResize.dragHandles.vertical.borderRadius > 0) {
-    // Draw rounded rectangle
-    ctx.beginPath();
-    ctx.roundRect(
-      barX,
-      barY,
-      barWidth,
-      barHeight,
-      styles.imageResize.dragHandles.vertical.borderRadius
-    );
-    ctx.fill();
-  } else {
-    ctx.fillRect(barX, barY, barWidth, barHeight);
-  }
-
-  ctx.restore();
-}
-
-/**
- * Render drag handles for image resize on hover or during drag
- * This should be called after renderPage to overlay the drag handles
- */
-export function renderImageDragHandles(
-  ctx: CanvasRenderingContext2D,
-  state: EditorState,
-  viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles()
-): void {
-  // Render handles either during hover OR during active drag
-  let blockIndex: number;
-  let x: number;
-  let y: number;
-  let width: number;
-  let height: number;
-  let hoveredHandle: "left" | "right" | "bottom" | null = null;
-
-  if (state.ui.imageDrag) {
-    // During active drag - calculate position from current block state
-    blockIndex = state.ui.imageDrag.blockIndex;
-    const block = state.document.page.blocks[blockIndex];
-
-    if (block.type !== "imageCover") return;
-
-    // Calculate the image bounds for the current block state
-    const imageBlock = getImageBlockBoundsForDrag(
-      state,
-      blockIndex,
-      viewport,
-      styles
-    );
-    if (!imageBlock) return;
-
-    x = imageBlock.x;
-    y = imageBlock.y;
-    width = imageBlock.width;
-    height = imageBlock.height;
-    hoveredHandle = state.ui.imageDrag.handle;
-  } else if (state.ui.imageHover) {
-    // During hover - use hover state
-    const hoverData = state.ui.imageHover;
-    blockIndex = hoverData.blockIndex;
-    x = hoverData.x;
-    y = hoverData.y;
-    width = hoverData.width;
-    height = hoverData.height;
-    hoveredHandle = hoverData.hoveredHandle;
-  } else {
-    // No hover or drag - don't render
-    return;
-  }
-
   const { vertical, horizontal } = styles.imageResize.dragHandles;
   const {
     color: outlineColor,
@@ -1768,73 +1629,77 @@ export function renderImageDragHandles(
     dashPattern,
   } = styles.imageResize.outline;
 
-  // Get the block to check its object-fit mode
-  const block = state.document.page.blocks[blockIndex];
-  if (block.type !== "imageCover") return;
-
-  const objectFit = block.objectFit ?? "cover";
   const showBottomHandle = objectFit === "cover"; // Only show bottom handle in cover mode
 
   ctx.save();
 
-  // Helper function to render a drag bar with opacity
+  // Helper to render a single drag bar
+  const renderBar = (
+    barX: number,
+    barY: number,
+    barWidth: number,
+    barHeight: number,
+    isHovered: boolean
+  ) => {
+    ctx.save();
+
+    // Set opacity based on hover state
+    const opacity = isHovered
+      ? vertical.hoverOpacity
+      : vertical.opacity;
+    ctx.globalAlpha = opacity;
+
+    // Draw bar background
+    ctx.fillStyle = isHovered
+      ? vertical.hoverBackgroundColor
+      : vertical.backgroundColor;
+
+    if (vertical.borderRadius > 0) {
+      // Draw rounded rectangle
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, barWidth, barHeight, vertical.borderRadius);
+      ctx.fill();
+    } else {
+      ctx.fillRect(barX, barY, barWidth, barHeight);
+    }
+
+    ctx.restore();
+  };
 
   // Left vertical bar (centered vertically with specified length)
-  const leftBarX = x + vertical.inset;
-  const leftBarY = y + (height - vertical.length) / 2; // Center vertically
-  const leftBarWidth = vertical.thickness;
-  const leftBarHeight = vertical.length;
-
   renderBar(
-    ctx,
-    leftBarX,
-    leftBarY,
-    leftBarWidth,
-    leftBarHeight,
-    hoveredHandle === "left",
-    styles
+    x + vertical.inset,
+    y + (height - vertical.length) / 2,
+    vertical.thickness,
+    vertical.length,
+    hoveredHandle === "left"
   );
 
   // Right vertical bar (centered vertically with specified length)
-  const rightBarX = x + width - vertical.inset - vertical.thickness;
-  const rightBarY = y + (height - vertical.length) / 2; // Center vertically
-  const rightBarWidth = vertical.thickness;
-  const rightBarHeight = vertical.length;
-
   renderBar(
-    ctx,
-    rightBarX,
-    rightBarY,
-    rightBarWidth,
-    rightBarHeight,
-    hoveredHandle === "right",
-    styles
+    x + width - vertical.inset - vertical.thickness,
+    y + (height - vertical.length) / 2,
+    vertical.thickness,
+    vertical.length,
+    hoveredHandle === "right"
   );
 
   // Bottom horizontal bar (centered horizontally with specified length)
   // Only render in cover mode
   if (showBottomHandle) {
-    const bottomBarX = x + (width - horizontal.length) / 2; // Center horizontally
-    const bottomBarY = y + height - horizontal.inset - horizontal.thickness;
-    const bottomBarWidth = horizontal.length;
-    const bottomBarHeight = horizontal.thickness;
-
     renderBar(
-      ctx,
-      bottomBarX,
-      bottomBarY,
-      bottomBarWidth,
-      bottomBarHeight,
-      hoveredHandle === "bottom",
-      styles
+      x + (width - horizontal.length) / 2,
+      y + height - horizontal.inset - horizontal.thickness,
+      horizontal.length,
+      horizontal.thickness,
+      hoveredHandle === "bottom"
     );
   }
 
   // Render a subtle dashed outline around the image when hovering any handle
   if (hoveredHandle !== null) {
     ctx.save();
-    const opacity = outlineHoverOpacity;
-    ctx.globalAlpha = opacity;
+    ctx.globalAlpha = outlineHoverOpacity;
     ctx.strokeStyle = outlineColor;
     ctx.lineWidth = outlineWidth;
     ctx.setLineDash(dashPattern as number[]);
@@ -1845,3 +1710,4 @@ export function renderImageDragHandles(
 
   ctx.restore();
 }
+

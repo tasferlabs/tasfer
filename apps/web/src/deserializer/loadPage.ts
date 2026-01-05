@@ -1,5 +1,6 @@
 import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
+import { IMAGE_COVER_DEFAULT_HEIGHT } from "../editor/constants";
 
 export interface Heading {
   id: string; // Unique identifier for caching
@@ -105,7 +106,7 @@ export function isImageCoverBlock(block: Block): block is ImageCover {
 // Check if an image cover block is in default state (cover mode, full width, 300px height)
 export function isImageCoverDefault(block: ImageCover): boolean {
   const width = block.width ?? 'full';
-  const height = block.height ?? 300;
+  const height = block.height ?? IMAGE_COVER_DEFAULT_HEIGHT;
   const objectFit = block.objectFit ?? 'cover';
   
   return width === 'full' && height === 300 && objectFit === 'cover';

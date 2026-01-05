@@ -1,5 +1,6 @@
 import { getCurrentFontFamily, FONT_STACKS } from "./fonts";
 import type { EditorStyles, TextStyle } from "./types";
+import { IMAGE_COVER_DEFAULT_HEIGHT } from "./constants";
 
 /**
  * Track window focus state globally for editor styling
@@ -100,7 +101,7 @@ export function getEditorStyles(): EditorStyles {
           buttonText: "Change Image",
         },
         dimensions: {
-          height: 300,
+          height: IMAGE_COVER_DEFAULT_HEIGHT,
           placeholderHeight: 150,
           paddingBottom: 16,
           buttonWidth: 120,
@@ -184,7 +185,7 @@ export function getEditorStyles(): EditorStyles {
       },
       constraints: {
         minWidth: 300, // Minimum width for resized images
-        minHeight: 300, // Minimum height for resized images
+        minHeight: IMAGE_COVER_DEFAULT_HEIGHT, // Minimum height for resized images
       },
     },
   };

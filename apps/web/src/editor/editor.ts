@@ -15,7 +15,6 @@ import { handleEvents, isInLongPressMode } from "./events";
 import {
   renderPage,
   renderCursorLayer,
-  renderImageDragHandles,
   clearAllBlockCaches,
   invalidateBlockCache,
   getBlockHeight,
@@ -259,10 +258,8 @@ export default function createEditor(
           }
 
           // Render the page content (text, blocks, selection, scrollbar)
+          // Drag handles are now rendered within renderImageCoverBlock for consistency
           documentHeight = renderPage(contentCtx, state, viewport, visibility);
-
-          // Render image drag handles on hover (desktop only)
-          renderImageDragHandles(contentCtx, state, viewport);
 
           // Update cursor style based on scrollbar hover and drag state
           updateCursorStyle(

@@ -34,6 +34,7 @@ import {
   EDGE_SCROLL_MAX_SPEED,
   EDGE_SCROLL_SPEED,
   EDGE_SCROLL_THRESHOLD,
+  IMAGE_COVER_DEFAULT_HEIGHT,
   MOVEMENT_THRESHOLD,
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
@@ -138,10 +139,13 @@ function getImageBlockAtPoint(
     // Special handling for first block image covers that bleed into padding
     const isFirstBlock = blockIndex === 0;
     const isImageCover = block.type === "imageCover";
+    
+    // Get image width early to determine if it should bleed
+    const imageWidth = isImageCover ? (block.width ?? 'full') : 'full';
+    const shouldBleed = isFirstBlock && isImageCover && imageWidth === 'full';
 
-    // For first block image covers, check from the top of the viewport (adjusted for padding)
-    const checkStartY =
-      isFirstBlock && isImageCover
+    // For first block image covers that bleed, check from the top of the viewport (adjusted for padding)
+    const checkStartY = shouldBleed
         ? currentY - styles.canvas.paddingTop
         : currentY;
 
@@ -151,8 +155,7 @@ function getImageBlockAtPoint(
       if (isImageCover) {
         const { height: defaultImageHeight, placeholderHeight } = styles.blocks.imageCover.dimensions;
         
-        // Get image properties (with defaults)
-        const imageWidth = block.width ?? 'full';
+        // Image properties already calculated above
         const imageHeight = block.height ?? defaultImageHeight;
         const objectFit = block.objectFit ?? 'cover';
         
@@ -173,9 +176,8 @@ function getImageBlockAtPoint(
         // Use placeholder height for placeholder, configured height for images
         const displayHeight = block.url ? imageHeight : placeholderHeight;
         
-        // First block images in cover mode (full width) bleed into the top padding for edge-to-edge experience
-        const shouldBleedIntoTopPadding = isFirstBlock && imageWidth === 'full';
-        const adjustedY = shouldBleedIntoTopPadding ? currentY - styles.canvas.paddingTop : currentY;
+        // Use the shouldBleed flag calculated earlier
+        const adjustedY = shouldBleed ? currentY - styles.canvas.paddingTop : currentY;
         const adjustedHeight = displayHeight;
 
         // Check if mouse is within the container area
@@ -344,7 +346,7 @@ function startImageDrag(
   if (clickedHandle && block.url) {
     // Start dragging the handle
     const startWidth = block.width ?? 'full';
-    const startHeight = block.height ?? 300;
+    const startHeight = block.height ?? IMAGE_COVER_DEFAULT_HEIGHT;
     
     return {
       ...state,
@@ -418,6 +420,10 @@ function updateImageDrag(
       } else if (newWidth < maxWidth - snapThreshold) {
         // Definitely in contain mode
         newObjectFit = 'contain';
+      } else if (newWidth > maxWidth) {
+        // If width exceeds document width (maxWidth), stay in cover mode
+        newWidth = 'full';
+        newObjectFit = 'cover';
       } else if (newWidth >= viewport.width - 10) {
         // Snap back to full if close
         newWidth = 'full';
@@ -435,6 +441,10 @@ function updateImageDrag(
         // Snap to padding width
         newWidth = maxWidth;
         newObjectFit = 'contain';
+      } else if (newWidth > maxWidth) {
+        // If width exceeds document width (maxWidth), convert to cover
+        newWidth = 'full';
+        newObjectFit = 'cover';
       } else {
         // Remain in contain mode
         newObjectFit = 'contain';
