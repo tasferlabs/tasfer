@@ -690,11 +690,15 @@ export default function createEditor(
     let totalHeight = styles.canvas.paddingTop;
 
     for (let i = 0; i < state.document.page.blocks.length; i++) {
-      totalHeight += calculateBlockHeight(
-        state.document.page.blocks[i],
-        maxWidth,
-        styles
-      );
+      const block = state.document.page.blocks[i];
+      // Use calculateBlockHeight directly since we need uncached value
+      const blockHeight = calculateBlockHeight(block, maxWidth, styles);
+      // Special handling for first block image covers that bleed into top padding
+      if (i === 0 && block.type === "imageCover") {
+        totalHeight += blockHeight - styles.canvas.paddingTop;
+      } else {
+        totalHeight += blockHeight;
+      }
     }
 
     return totalHeight + styles.canvas.paddingBottom;

@@ -133,7 +133,8 @@ function getContentWithComposition(
 export const getBlockHeight = (
   block: Block,
   maxWidth: number,
-  styles: EditorStyles
+  styles: EditorStyles,
+  blockIndex?: number
 ): number => {
   // Check if cached height is valid for current width
   if (block.cachedHeight !== undefined && block.cachedWidth === maxWidth) {
@@ -144,6 +145,13 @@ export const getBlockHeight = (
   const height = calculateBlockHeight(block, maxWidth, styles);
   block.cachedHeight = height;
   block.cachedWidth = maxWidth;
+  
+  // Special handling for first block image covers that bleed into top padding
+  // They use up the padding space, so we subtract it from the effective height
+  if (blockIndex === 0 && block.type === "imageCover") {
+    return height - styles.canvas.paddingTop;
+  }
+  
   return height;
 };
 
@@ -503,7 +511,7 @@ export const renderPage = (
     const block = state.document.page.blocks[i];
 
     // Get or calculate block height (cached on the block itself)
-    const blockHeight = getBlockHeight(block, maxWidth, styles);
+    const blockHeight = getBlockHeight(block, maxWidth, styles, i);
 
     documentHeight += blockHeight;
     // Only render if block is visible
@@ -1199,9 +1207,11 @@ function renderImageCoverBlock(
   // Use placeholder height for placeholder, full height for images
   const displayHeight = block.url ? imageHeight : placeholderHeight;
 
-  // Edge images extend horizontally to canvas edges, but align vertically with normal images
-  const adjustedY = y;
-  const adjustedHeight = displayHeight;
+  // First block image covers bleed into the top padding for edge-to-edge experience
+  // They start higher but maintain their proper dimensions
+  const isFirstBlock = blockIndex === 0;
+  const adjustedY = isFirstBlock ? y - styles.canvas.paddingTop : y;
+  const adjustedHeight = displayHeight; // Always use actual dimensions
 
   ctx.save();
 

@@ -55,7 +55,7 @@ Bugs list
 [x] Fix word boundary selection logic, it should not include punction and speical signs
 [x] Fix reading empty file, should at least be one block
 [x] ctrl + b should work in the editor.
-[ ] add image blocks
+[x] add image blocks
 [ ] add unorded list block
 [ ] add orded list block
 [ ] add todo list block
@@ -158,10 +158,12 @@ Bugs list
 [x] going arrow left on start of text block that has image behind should select the iamge. Right arrow should work the same.
 [x] arrow up on image should create new text block.
 [x] image place holder should much smaller in the height
-[ ] copy should work with images.
+[x] image on the edge is bit higher than the normal images
 [x] context menu is direcly closing on mobile.
-[ ] can not clear selection on moble if click outside or on top/bottom padding 
-[ ] image on the edge is bit higher than the normal images 
+[x] can not clear selection on moble if click outside or on top/bottom padding
+[x] image cover bleeding on top edge stopped working
+[ ] drag image diminions.
+[ ] copy should work with images.
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
 - : means not planed or considered
   x : done

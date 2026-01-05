@@ -131,7 +131,7 @@ function getImageBlockAtPoint(
     blockIndex++
   ) {
     const block = state.document.page.blocks[blockIndex];
-    const blockHeight = getBlockHeight(block, maxWidth, styles);
+    const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
 
     // Special handling for first block image covers that bleed into padding
     const isFirstBlock = blockIndex === 0;
@@ -152,12 +152,11 @@ function getImageBlockAtPoint(
         const displayHeight = block.url ? imageHeight : placeholderHeight;
 
         // If this is the first block, it bleeds into the top padding for edge-to-edge experience
+        // It starts higher but maintains its proper dimensions
         const adjustedY = isFirstBlock
           ? currentY - styles.canvas.paddingTop
           : currentY;
-        const adjustedHeight = isFirstBlock
-          ? displayHeight + styles.canvas.paddingTop
-          : displayHeight;
+        const adjustedHeight = displayHeight; // Always use actual dimensions
 
         // Check if mouse is within the image area
         // Images cover the full canvas width (edge-to-edge)
@@ -924,9 +923,10 @@ function handleMouseDown(
   
   // Calculate total document height to detect bottom padding
   let totalContentHeight = styles.canvas.paddingTop;
-  for (const block of state.document.page.blocks) {
+  for (let i = 0; i < state.document.page.blocks.length; i++) {
+    const block = state.document.page.blocks[i];
     const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-    totalContentHeight += getBlockHeight(block, maxWidth, styles);
+    totalContentHeight += getBlockHeight(block, maxWidth, styles, i);
   }
   const isClickInBottomPadding = canvasY > totalContentHeight - viewport.scrollY;
 
@@ -2500,9 +2500,10 @@ function handleTouchEnd(
     
     // Calculate total document height to detect bottom padding
     let totalContentHeight = styles.canvas.paddingTop;
-    for (const block of state.document.page.blocks) {
+    for (let i = 0; i < state.document.page.blocks.length; i++) {
+      const block = state.document.page.blocks[i];
       const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-      totalContentHeight += getBlockHeight(block, maxWidth, styles);
+      totalContentHeight += getBlockHeight(block, maxWidth, styles, i);
     }
     const isTapInBottomPadding = tapPosition.y > totalContentHeight - viewport.scrollY;
 
