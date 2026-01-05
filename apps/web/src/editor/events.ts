@@ -82,7 +82,6 @@ import {
   updateCursor,
   updateFocus,
   updateMode,
-  updateSelection,
   updateSelectionFocus,
   updateSlashCommandFilter,
   updateSlashCommandSelection,
@@ -157,11 +156,11 @@ function getImageBlockAtPoint(
           ? imageHeight + styles.canvas.paddingTop
           : imageHeight;
 
-        // Check if mouse is within the image area (excluding left/right padding)
-        // Images should only be selectable within the content area, not the padding
+        // Check if mouse is within the image area
+        // Images cover the full canvas width (edge-to-edge)
         if (
-          x >= styles.canvas.paddingLeft &&
-          x < viewport.width - styles.canvas.paddingRight &&
+          x >= 0 &&
+          x < viewport.width &&
           y >= adjustedY &&
           y < adjustedY + adjustedHeight
         ) {
@@ -886,43 +885,33 @@ function handleMouseDown(
           y: canvasY,
         });
       }
-      // If it has an image, select the image block
+      // If it has an image, select the image block (same as arrow key behavior)
       // Position at the start of the image block (textIndex 0)
       const imagePosition = { blockIndex: imageBlock.blockIndex, textIndex: 0 };
-      
+
       let newState = updateCursor(state, imagePosition);
-      
+
       // Create a selection that spans the entire image block
-      // For image blocks, we select from textIndex 0 to textIndex 0 of the same block
-      // But set both anchor and focus to mark the block as selected
       if (event.shiftKey && state.document.selection) {
         // Extend selection to include this image
         newState = updateSelectionFocus(newState, imagePosition);
       } else {
-        // Select just this image block
-        newState = updateSelection(newState, {
-          anchor: imagePosition,
-          focus: imagePosition,
-          isForward: true,
-          isCollapsed: false, // Mark as not collapsed to show selection
-        });
-        
-        // Also set initialBoundary to mark this as a block selection
+        // Select just this image block (match arrow key selection behavior)
         newState = {
           ...newState,
           document: {
             ...newState.document,
-            selection: newState.document.selection ? {
-              ...newState.document.selection,
-              initialBoundary: {
-                start: imagePosition,
-                end: imagePosition,
-              },
-            } : null,
+            selection: {
+              anchor: imagePosition,
+              focus: imagePosition,
+              isForward: true,
+              isCollapsed: false,
+              lastUpdate: Date.now(),
+            },
           },
         };
       }
-      
+
       return updateMode(newState, "edit");
     }
   }
@@ -1042,10 +1031,7 @@ function handleMouseMove(
   };
 
   // Check for image hover (desktop only, not in select mode)
-  if (
-    !isTouchDevice() &&
-    state.ui.mode !== "select"
-  ) {
+  if (!isTouchDevice() && state.ui.mode !== "select") {
     const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
 
     if (imageBlock) {
@@ -1610,9 +1596,14 @@ function handleKeyDown(
       } else if (keyEvent.shiftKey) {
         newState = extendSelectionLeft(newState);
       } else {
-        // If there's a selection, move to the start of it
+        // If there's a selection, check if it's an image block selection
         const range = getSelectionRange(newState);
-        if (range) {
+        const isImageSelection = range && 
+          state.document.page.blocks[range.start.blockIndex]?.type === "imageCover" &&
+          range.start.blockIndex === range.end.blockIndex;
+        
+        if (range && !isImageSelection) {
+          // Regular text selection - move to the start of it
           newState = moveCursorToPosition(
             clearSelection(newState),
             range.start.blockIndex,
@@ -1622,6 +1613,33 @@ function handleKeyDown(
           newState = moveToPreviousWord(clearSelection(newState));
         } else {
           newState = moveCursorLeft(clearSelection(newState));
+        }
+
+        // If we moved to an image block, select it; otherwise leave just cursor
+        if (newState.document.cursor) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (targetBlock && targetBlock.type === "imageCover") {
+            const imagePosition = {
+              blockIndex: newState.document.cursor.position.blockIndex,
+              textIndex: 0,
+            };
+            newState = {
+              ...newState,
+              document: {
+                ...newState.document,
+                selection: {
+                  anchor: imagePosition,
+                  focus: imagePosition,
+                  isForward: true,
+                  isCollapsed: false,
+                  lastUpdate: Date.now(),
+                },
+              },
+            };
+          }
         }
       }
       break;
@@ -1634,9 +1652,14 @@ function handleKeyDown(
       } else if (keyEvent.shiftKey) {
         newState = extendSelectionRight(newState);
       } else {
-        // If there's a selection, move to the end of it
+        // If there's a selection, check if it's an image block selection
         const range = getSelectionRange(newState);
-        if (range) {
+        const isImageSelection = range && 
+          state.document.page.blocks[range.end.blockIndex]?.type === "imageCover" &&
+          range.start.blockIndex === range.end.blockIndex;
+        
+        if (range && !isImageSelection) {
+          // Regular text selection - move to the end of it
           newState = moveCursorToPosition(
             clearSelection(newState),
             range.end.blockIndex,
@@ -1647,6 +1670,33 @@ function handleKeyDown(
         } else {
           newState = moveCursorRight(clearSelection(newState));
         }
+
+        // If we moved to an image block, select it; otherwise leave just cursor
+        if (newState.document.cursor) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (targetBlock && targetBlock.type === "imageCover") {
+            const imagePosition = {
+              blockIndex: newState.document.cursor.position.blockIndex,
+              textIndex: 0,
+            };
+            newState = {
+              ...newState,
+              document: {
+                ...newState.document,
+                selection: {
+                  anchor: imagePosition,
+                  focus: imagePosition,
+                  isForward: true,
+                  isCollapsed: false,
+                  lastUpdate: Date.now(),
+                },
+              },
+            };
+          }
+        }
       }
       break;
     case "ArrowUp":
@@ -1656,16 +1706,34 @@ function handleKeyDown(
       if (keyEvent.shiftKey) {
         newState = extendSelectionUp(newState, viewport);
       } else {
-        // If there's a selection, move to the start of it
-        const range = getSelectionRange(newState);
-        if (range) {
-          newState = moveCursorToPosition(
-            clearSelection(newState),
-            range.start.blockIndex,
-            range.start.textIndex
-          );
-        } else {
-          newState = moveCursorUp(clearSelection(newState), viewport);
+        // Clear selection and move cursor
+        newState = moveCursorUp(clearSelection(newState), viewport);
+
+        // If we moved to an image block, select it; otherwise leave just cursor
+        if (newState.document.cursor) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (targetBlock && targetBlock.type === "imageCover") {
+            const imagePosition = {
+              blockIndex: newState.document.cursor.position.blockIndex,
+              textIndex: 0,
+            };
+            newState = {
+              ...newState,
+              document: {
+                ...newState.document,
+                selection: {
+                  anchor: imagePosition,
+                  focus: imagePosition,
+                  isForward: true,
+                  isCollapsed: false,
+                  lastUpdate: Date.now(),
+                },
+              },
+            };
+          }
         }
       }
       break;
@@ -1676,16 +1744,34 @@ function handleKeyDown(
       if (keyEvent.shiftKey) {
         newState = extendSelectionDown(newState, viewport);
       } else {
-        // If there's a selection, move to the end of it
-        const range = getSelectionRange(newState);
-        if (range) {
-          newState = moveCursorToPosition(
-            clearSelection(newState),
-            range.end.blockIndex,
-            range.end.textIndex
-          );
-        } else {
-          newState = moveCursorDown(clearSelection(newState), viewport);
+        // Clear selection and move cursor
+        newState = moveCursorDown(clearSelection(newState), viewport);
+
+        // If we moved to an image block, select it; otherwise leave just cursor
+        if (newState.document.cursor) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (targetBlock && targetBlock.type === "imageCover") {
+            const imagePosition = {
+              blockIndex: newState.document.cursor.position.blockIndex,
+              textIndex: 0,
+            };
+            newState = {
+              ...newState,
+              document: {
+                ...newState.document,
+                selection: {
+                  anchor: imagePosition,
+                  focus: imagePosition,
+                  isForward: true,
+                  isCollapsed: false,
+                  lastUpdate: Date.now(),
+                },
+              },
+            };
+          }
         }
       }
       break;
@@ -2365,16 +2451,19 @@ function handleTouchEnd(
               },
             };
           }
-          
+
           // If it has an image, select the image block (same behavior as desktop)
-          const imagePosition = { blockIndex: imageBlock.blockIndex, textIndex: 0 };
-          
+          const imagePosition = {
+            blockIndex: imageBlock.blockIndex,
+            textIndex: 0,
+          };
+
           // Close any active menu when selecting an image
           if (state.ui.activeMenu.type !== "none") {
             state = closeActiveMenu(state);
           }
-          
-          // Create a selection that spans the image block
+
+          // Create a selection that spans the image block (same as arrow key behavior)
           state = moveCursorToPosition(state, imageBlock.blockIndex, 0);
           state = {
             ...state,
@@ -2386,15 +2475,11 @@ function handleTouchEnd(
                 isForward: true,
                 isCollapsed: false,
                 lastUpdate: Date.now(),
-                initialBoundary: {
-                  start: imagePosition,
-                  end: imagePosition,
-                },
               },
             },
           };
           state = updateMode(state, "edit");
-          
+
           touchState = null;
           return {
             ...state,

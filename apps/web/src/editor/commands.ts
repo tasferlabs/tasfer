@@ -673,8 +673,18 @@ export function deleteSelectedText(state: EditorState): EditorState {
 export function insertText(state: EditorState, input: string): EditorState {
   if (!state.document.cursor) return state;
 
-  // If there's a selection, delete it first
+  // Block typing on a selected image (but allow deletion via deleteSelectedText elsewhere)
   if (state.document.selection && !state.document.selection.isCollapsed) {
+    const { anchor, focus } = state.document.selection;
+    // Check if this is a single image selection (anchor and focus at same position)
+    if (anchor.blockIndex === focus.blockIndex && anchor.textIndex === focus.textIndex) {
+      const block = state.document.page.blocks[anchor.blockIndex];
+      if (block && block.type === "imageCover") {
+        // Block typing on selected image
+        return state;
+      }
+    }
+    // For other selections, delete them first
     state = deleteSelectedText(state);
     // Ensure cursor still exists after deletion
     if (!state.document.cursor) return state;
@@ -1533,6 +1543,38 @@ export function splitBlock(state: EditorState): EditorState {
   if (!state.document.cursor) return state;
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
+  
+  // Handle Enter key on selected image: create new paragraph below
+  if (state.document.selection && !state.document.selection.isCollapsed) {
+    const { anchor, focus } = state.document.selection;
+    // Check if this is a single image selection (anchor and focus at same position)
+    if (anchor.blockIndex === focus.blockIndex && anchor.textIndex === focus.textIndex) {
+      const block = state.document.page.blocks[anchor.blockIndex];
+      if (block && block.type === "imageCover") {
+        // Create a new paragraph below the image
+        const newParagraph: Block = {
+          id: generateBlockId(),
+          type: "paragraph",
+          content: [{ content: "" }],
+        };
+        
+        const newBlocks = [
+          ...state.document.page.blocks.slice(0, blockIndex + 1),
+          newParagraph,
+          ...state.document.page.blocks.slice(blockIndex + 1),
+        ];
+        const newPage = { ...state.document.page, blocks: newBlocks };
+        
+        let newState: EditorState = {
+          ...state,
+          document: { ...state.document, page: newPage },
+        };
+        newState = clearSelection(newState);
+        newState = moveCursorToPosition(newState, blockIndex + 1, 0);
+        return newState;
+      }
+    }
+  }
   
   if (!isTextBlock(oldBlock)) {
     return state;

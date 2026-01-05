@@ -283,8 +283,14 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
     if (textIndex < currentBlockLength) {
       return moveCursorToPosition(state, blockIndex, textIndex + 1);
     } else if (blockIndex < state.document.page.blocks.length - 1) {
-      // Moving to next block - check if next block is RTL or LTR
+      // Moving to next block
       const nextBlock = state.document.page.blocks[blockIndex + 1];
+      
+      // Handle image blocks - move to the image block
+      if (nextBlock.type === "imageCover") {
+        return moveCursorToPosition(state, blockIndex + 1, 0);
+      }
+      
       if (!isTextBlock(nextBlock)) {
         return state;
       }
@@ -303,8 +309,14 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
     if (textIndex > 0) {
       return moveCursorToPosition(state, blockIndex, textIndex - 1);
     } else if (blockIndex > 0) {
-      // Moving to previous block - check if previous block is RTL or LTR
+      // Moving to previous block
       const prevBlock = state.document.page.blocks[blockIndex - 1];
+      
+      // Handle image blocks - move to the image block
+      if (prevBlock.type === "imageCover") {
+        return moveCursorToPosition(state, blockIndex - 1, 0);
+      }
+      
       if (!isTextBlock(prevBlock)) {
         return state;
       }
@@ -359,8 +371,14 @@ export const moveCursorRight = (state: EditorState): EditorState => {
     if (textIndex > 0) {
       return moveCursorToPosition(state, blockIndex, textIndex - 1);
     } else if (blockIndex > 0) {
-      // Moving to previous block - check if previous block is RTL or LTR
+      // Moving to previous block
       const prevBlock = state.document.page.blocks[blockIndex - 1];
+      
+      // Handle image blocks - move to the image block
+      if (prevBlock.type === "imageCover") {
+        return moveCursorToPosition(state, blockIndex - 1, 0);
+      }
+      
       if (!isTextBlock(prevBlock)) {
         return state;
       }
@@ -380,8 +398,14 @@ export const moveCursorRight = (state: EditorState): EditorState => {
     if (textIndex < currentBlockLength) {
       return moveCursorToPosition(state, blockIndex, textIndex + 1);
     } else if (blockIndex < state.document.page.blocks.length - 1) {
-      // Moving to next block - check if next block is RTL or LTR
+      // Moving to next block
       const nextBlock = state.document.page.blocks[blockIndex + 1];
+      
+      // Handle image blocks - move to the image block
+      if (nextBlock.type === "imageCover") {
+        return moveCursorToPosition(state, blockIndex + 1, 0);
+      }
+      
       if (!isTextBlock(nextBlock)) {
         return state;
       }
