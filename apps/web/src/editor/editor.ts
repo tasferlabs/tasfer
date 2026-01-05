@@ -43,7 +43,7 @@ export interface Editor {
   destroy: () => void;
   updateViewport: (viewport: Partial<ViewportState>) => void;
   getDocumentHeight: () => number;
-  setFocus: (focused: boolean) => void;
+  setFocus: (focused: boolean, shouldClearSelection?: boolean) => void;
   setInitialCursor: () => void;
   getCursorScreenPosition: () => {
     x: number;
@@ -702,8 +702,11 @@ export default function createEditor(
     return totalHeight + styles.canvas.paddingBottom;
   }
 
-  function setFocus(focused: boolean) {
+  function setFocus(focused: boolean, shouldClearSelection: boolean = false) {
     state = updateFocus(state, focused);
+    if (shouldClearSelection) {
+      state = clearSelection(state);
+    }
     scheduleRender(); // Schedule render when focus changes
   }
 

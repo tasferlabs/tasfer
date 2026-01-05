@@ -919,6 +919,24 @@ function handleMouseDown(
     }
   }
 
+  // Check if clicking in top or bottom padding areas
+  const styles = getEditorStyles();
+  const isClickInTopPadding = canvasY < styles.canvas.paddingTop - viewport.scrollY;
+  
+  // Calculate total document height to detect bottom padding
+  let totalContentHeight = styles.canvas.paddingTop;
+  for (const block of state.document.page.blocks) {
+    const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+    totalContentHeight += getBlockHeight(block, maxWidth, styles);
+  }
+  const isClickInBottomPadding = canvasY > totalContentHeight - viewport.scrollY;
+
+  // If clicking in padding areas, always clear selection
+  if (isClickInTopPadding || isClickInBottomPadding) {
+    const clearedState = clearSelection(state);
+    return updateMode(clearedState, "edit");
+  }
+
   const position = getTextPositionFromViewport(
     canvasX,
     canvasY,
@@ -2476,6 +2494,40 @@ function handleTouchEnd(
       state.ui.activeMenu.type === "imageUpload"
         ? state.ui.activeMenu.blockIndex
         : undefined;
+
+    // Check if tapping in top or bottom padding areas
+    const styles = getEditorStyles();
+    const isTapInTopPadding = tapPosition.y < styles.canvas.paddingTop - viewport.scrollY;
+    
+    // Calculate total document height to detect bottom padding
+    let totalContentHeight = styles.canvas.paddingTop;
+    for (const block of state.document.page.blocks) {
+      const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+      totalContentHeight += getBlockHeight(block, maxWidth, styles);
+    }
+    const isTapInBottomPadding = tapPosition.y > totalContentHeight - viewport.scrollY;
+
+    // If tapping in padding areas, always clear selection
+    if (isTapInTopPadding || isTapInBottomPadding) {
+      state = clearSelection(state);
+      state = updateMode(state, "edit");
+      // Close any active menu when tapping in padding
+      if (state.ui.activeMenu.type === "contextMenu") {
+        state = closeActiveMenu(state);
+      }
+      
+      touchState = null;
+      return {
+        ...state,
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
+        },
+      };
+    }
 
     // Get text position for cursor/selection
     const position = getTextPositionFromViewport(

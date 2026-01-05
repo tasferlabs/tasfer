@@ -491,7 +491,6 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       role="textbox"
       aria-label="Text editor"
       aria-multiline="true"
-      tabIndex={-1}
     >
       {/* Slash command menu portal */}
       {slashMenuState &&

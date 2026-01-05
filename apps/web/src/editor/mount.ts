@@ -183,21 +183,40 @@ export function mountEditor(
     }
 
     // Click outside: blur editor
-    editor.setFocus(false);
+    editor.setFocus(false, true);
   };
 
   // Handle hidden input focus/blur (mobile keyboard)
+  let blurTimeoutId: number | null = null;
+  
   const handleInputFocus = () => {
+    // Cancel any pending blur if input regains focus
+    if (blurTimeoutId !== null) {
+      clearTimeout(blurTimeoutId);
+      blurTimeoutId = null;
+    }
+    
     editor.setFocus(true);
     editor.setInitialCursor();
   };
 
   const handleInputBlur = () => {
-    // On mobile, if keyboard is dismissed or focus lost, blur editor
-    editor.setFocus(false);
+    console.log("handleInputBlur");
+    
+    // Defer the blur action to allow the canvas click handler to refocus the input
+    // This prevents unnecessary blur/refocus cycles during triple-click and other interactions
+    blurTimeoutId = window.setTimeout(() => {
+      blurTimeoutId = null;
+      
+      // Check if the hidden input is still not focused after the timeout
+      if (document.activeElement !== hiddenInput) {
+        // On mobile, if keyboard is dismissed or focus lost, blur editor
+        editor.setFocus(false, true);
 
-    // Clear the hidden input value to remove any lingering composition text
-    hiddenInput.value = "";
+        // Clear the hidden input value to remove any lingering composition text
+        hiddenInput.value = "";
+      }
+    }, 10); // Small delay to allow click handlers to refocus
   };
 
   document.addEventListener("mousedown", handleDocumentClick);
@@ -225,6 +244,12 @@ export function mountEditor(
     destroyed = true;
     resizeObserver.disconnect();
     editor.destroy();
+
+    // Clear any pending blur timeout
+    if (blurTimeoutId !== null) {
+      clearTimeout(blurTimeoutId);
+      blurTimeoutId = null;
+    }
 
     window.removeEventListener("message", handleKeyboardMessage);
     window.removeEventListener("focus", handleWindowFocus);
