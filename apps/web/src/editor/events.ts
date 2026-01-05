@@ -324,10 +324,9 @@ export function handleEvents(
         touchState.currentTouchY
       );
 
-      // Blur active element
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur();
-      }
+      // Note: We don't blur the active element here anymore because it interferes
+      // with the hidden input focus management. The context menu works fine with
+      // the input still focused, and keyboard dismissal is handled by the OS.
     }
   }
 

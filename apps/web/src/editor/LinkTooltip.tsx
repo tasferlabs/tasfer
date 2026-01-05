@@ -97,6 +97,7 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
         <div className="flex items-center p-1">
           <button
             onClick={handleOpen}
+            onMouseDown={(e) => e.preventDefault()}
             className={cn(
               "flex items-center gap-2 px-3 py-1.5 text-sm rounded-md",
               "hover:bg-accent hover:text-accent-foreground",
@@ -112,6 +113,7 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
           {onEdit && (
             <button
               onClick={onEdit}
+              onMouseDown={(e) => e.preventDefault()}
               className={cn(
                 "flex items-center gap-2 px-3 py-1.5 text-sm rounded-md",
                 "hover:bg-accent hover:text-accent-foreground",

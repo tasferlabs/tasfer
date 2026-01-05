@@ -116,6 +116,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             <div className="flex gap-2 p-1 bg-muted rounded-md">
               <button
                 onClick={() => setUploadMode('file')}
+                onMouseDown={(e) => e.preventDefault()}
                 className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
                   uploadMode === 'file'
                     ? 'bg-background text-foreground shadow-sm'
@@ -127,6 +128,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
               </button>
               <button
                 onClick={() => setUploadMode('url')}
+                onMouseDown={(e) => e.preventDefault()}
                 className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
                   uploadMode === 'url'
                     ? 'bg-background text-foreground shadow-sm'
@@ -170,6 +172,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
                 ) : (
                   <button
                     onClick={triggerFilePicker}
+                    onMouseDown={(e) => e.preventDefault()}
                     disabled={uploadStatus === 'uploading'}
                     className="w-full h-32 border-2 border-dashed border-border rounded-lg hover:border-primary hover:bg-accent/50 transition-colors flex flex-col items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -233,6 +236,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
                   variant="default"
                   size="sm"
                   onClick={handleUrlSubmit}
+                  onMouseDown={(e) => e.preventDefault()}
                   disabled={!imageUrl.trim()}
                   className="w-full"
                 >
@@ -248,6 +252,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
                   variant="ghost"
                   size="sm"
                   onClick={handleDelete}
+                  onMouseDown={(e) => e.preventDefault()}
                   className="text-destructive hover:text-destructive hover:bg-destructive/10"
                 >
                   <Trash2 className="w-4 h-4 mr-2" />

@@ -745,6 +745,10 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
                       }
                     }
                   }}
+                  onMouseDown={(e) => {
+                    // Prevent button from taking focus away from hidden input
+                    e.preventDefault();
+                  }}
                 >
                   <ImageIcon className="size-4" />
                   <span className="text-xs">Edit Image</span>

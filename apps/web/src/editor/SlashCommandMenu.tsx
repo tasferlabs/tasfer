@@ -113,6 +113,10 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
                 index === selectedIndex ? "bg-accent/50 hover:bg-accent/70" : ""
               }`}
               onClick={() => onSelect(command)}
+              onMouseDown={(e) => {
+                // Prevent button from taking focus away from hidden input
+                e.preventDefault();
+              }}
             >
               <div
                 className={`flex-shrink-0 w-10 h-10 rounded-md flex items-center justify-center text-sm font-semibold ${

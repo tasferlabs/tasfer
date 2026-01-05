@@ -33,6 +33,7 @@ import {
   createInitialCursorState,
   setActiveMenu,
   closeActiveMenu,
+  isTouchDevice,
 } from "./state";
 import { getEditorStyles } from "./styles";
 import type { EditorState, SlashCommand, ViewportState } from "./types";
@@ -133,14 +134,6 @@ export default function createEditor(
    */
   const scheduleRender = () => {
     needsRender = true;
-  };
-
-  // Detect if device has touch support
-  const isTouchDevice = (): boolean => {
-    return (
-      typeof window !== "undefined" &&
-      ("ontouchstart" in window || navigator.maxTouchPoints > 0)
-    );
   };
 
   // Update canvas cursor style based on scrollbar hover and drag state
@@ -371,7 +364,12 @@ export default function createEditor(
     const hasContextMenu = state.ui.activeMenu.type === "contextMenu";
 
     // Focus input if ending long press or on tap (but not when context menu is open)
-    if (hiddenInput && isTouchDevice() && (wasLongPress || wasTap) && !hasContextMenu) {
+    if (
+      hiddenInput &&
+      isTouchDevice() &&
+      (wasLongPress || wasTap) &&
+      !hasContextMenu
+    ) {
       try {
         hiddenInput.focus({ preventScroll: true });
         // Some browsers need click as well
@@ -747,7 +745,7 @@ export default function createEditor(
   }
 
   function executeSlashCommand(command: SlashCommand) {
-    if (state.ui.activeMenu.type === 'slashCommand' && state.document.cursor) {
+    if (state.ui.activeMenu.type === "slashCommand" && state.document.cursor) {
       state = recordUndo(state);
       state = applySlashCommand(state, command);
       scheduleRender();
@@ -854,7 +852,7 @@ export default function createEditor(
 
   function setMode(mode: "edit" | "select" | "locked") {
     state = updateMode(state, mode);
-    
+
     // Stop momentum when entering locked mode
     if (mode === "locked") {
       state = {
@@ -869,7 +867,7 @@ export default function createEditor(
         },
       };
     }
-    
+
     const currentState = state;
     scheduleRender();
     listeners.forEach((listener) => listener(currentState));
@@ -916,7 +914,10 @@ export default function createEditor(
 
     // Update UI state with upload status if provided
     let newUIState = state.ui;
-    if (uploadStatus !== undefined && state.ui.activeMenu.type === 'imageUpload') {
+    if (
+      uploadStatus !== undefined &&
+      state.ui.activeMenu.type === "imageUpload"
+    ) {
       newUIState = {
         ...state.ui,
         activeMenu: {
@@ -948,7 +949,7 @@ export default function createEditor(
     _existingAlt?: string
   ) {
     state = setActiveMenu(state, {
-      type: 'imageUpload',
+      type: "imageUpload",
       blockIndex,
       x,
       y,

@@ -134,6 +134,7 @@ export const LinkEditPopover: React.FC<LinkEditPopoverProps> = ({
                 variant="ghost"
                 size="sm"
                 onClick={handleClear}
+                onMouseDown={(e) => e.preventDefault()}
                 className="text-destructive hover:text-destructive hover:bg-destructive/10"
               >
                 <Trash2 className="w-4 h-4 mr-2" />

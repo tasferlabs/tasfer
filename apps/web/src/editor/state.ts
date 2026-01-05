@@ -1350,3 +1350,12 @@ export const endComposition = (state: EditorState): EditorState => ({
     composition: null,
   },
 });
+
+
+// Detect if device has touch support
+export const isTouchDevice = (): boolean => {
+  return (
+    typeof window !== "undefined" &&
+    ("ontouchstart" in window || navigator.maxTouchPoints > 0)
+  );
+};

@@ -1,7 +1,7 @@
 import type { ViewportState } from "./types";
 import createEditor, { type Editor } from "./editor";
 import { loadPage } from "../deserializer/loadPage";
-import { createInitialState } from "./state";
+import { createInitialState, isTouchDevice } from "./state";
 import { setWindowFocused } from "./styles";
 
 export interface MountedEditor {
@@ -183,35 +183,43 @@ export function mountEditor(
     }
 
     // Click outside: blur editor
-    editor.setFocus(false, true);
+    if (isTouchDevice()) {
+      editor.setFocus(false, true);
+    } else {
+      editor.setFocus(false);
+    }
   };
 
   // Handle hidden input focus/blur (mobile keyboard)
   let blurTimeoutId: number | null = null;
-  
+
   const handleInputFocus = () => {
     // Cancel any pending blur if input regains focus
     if (blurTimeoutId !== null) {
       clearTimeout(blurTimeoutId);
       blurTimeoutId = null;
     }
-    
+
     editor.setFocus(true);
     editor.setInitialCursor();
   };
 
   const handleInputBlur = () => {
     console.log("handleInputBlur");
-    
+
     // Defer the blur action to allow the canvas click handler to refocus the input
     // This prevents unnecessary blur/refocus cycles during triple-click and other interactions
     blurTimeoutId = window.setTimeout(() => {
       blurTimeoutId = null;
-      
+
       // Check if the hidden input is still not focused after the timeout
       if (document.activeElement !== hiddenInput) {
-        // On mobile, if keyboard is dismissed or focus lost, blur editor
-        editor.setFocus(false, true);
+        // If keyboard is dismissed or focus lost, blur editor
+        if (isTouchDevice()) {
+          editor.setFocus(false, true);
+        } else {
+          editor.setFocus(false);
+        }
 
         // Clear the hidden input value to remove any lingering composition text
         hiddenInput.value = "";
