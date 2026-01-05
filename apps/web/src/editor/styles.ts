@@ -102,7 +102,7 @@ export function getEditorStyles(): EditorStyles {
         dimensions: {
           height: 300,
           placeholderHeight: 150,
-          paddingBottom: 8,
+          paddingBottom: 16,
           buttonWidth: 120,
           buttonHeight: 40,
           borderRadius: 6,

@@ -1199,12 +1199,9 @@ function renderImageCoverBlock(
   // Use placeholder height for placeholder, full height for images
   const displayHeight = block.url ? imageHeight : placeholderHeight;
 
-  // If this is the first block, bleed into the top padding for edge-to-edge experience
-  const isFirstBlock = blockIndex === 0;
-  const adjustedY = isFirstBlock ? y - styles.canvas.paddingTop : y;
-  const adjustedHeight = isFirstBlock
-    ? displayHeight + styles.canvas.paddingTop
-    : displayHeight;
+  // Edge images extend horizontally to canvas edges, but align vertically with normal images
+  const adjustedY = y;
+  const adjustedHeight = displayHeight;
 
   ctx.save();
 

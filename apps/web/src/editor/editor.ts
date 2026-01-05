@@ -16,6 +16,7 @@ import {
   calculateBlockHeight,
   renderPage,
   clearAllBlockCaches,
+  invalidateBlockCache,
 } from "./renderer";
 import {
   getCursorCoordinates,
@@ -900,6 +901,9 @@ export default function createEditor(
       ...block,
       ...updates,
     };
+
+    // Invalidate cache when image URL changes (height changes from placeholder to full)
+    invalidateBlockCache(updatedBlock);
 
     const newBlocks = [...state.document.page.blocks];
     newBlocks[blockIndex] = updatedBlock;

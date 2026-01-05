@@ -157,8 +157,9 @@ Bugs list
 [x] Image should be selectable. We should be able to select an image.
 [x] going arrow left on start of text block that has image behind should select the iamge. Right arrow should work the same.
 [x] arrow up on image should create new text block.
+[x] image place holder should much smaller in the height
 [ ] copy should work with images.
-[ ] image place holder should much smaller in the height
+[ ] context menu is direcly closing on mobile.
 [ ] image on the edge is bit higher than the normal images 
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
 - : means not planed or considered
