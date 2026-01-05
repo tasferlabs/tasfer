@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useParams, useNavigate } from "react-router-dom";
-import { ScrollableEditor } from "../ScrollableEditor";
+import { MountedEditor } from "../MountedEditor";
 import {
   useCreatePage,
   getPage,
@@ -231,7 +231,7 @@ export default function EditorPage() {
   // Content is loaded once on mount, editor manages state from there
   return (
     <>
-      <ScrollableEditor
+      <MountedEditor
         content={pageContent}
         className="w-full h-full"
         onContentChange={handleContentChange}

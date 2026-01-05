@@ -1,41 +1,41 @@
-import React, { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { cn, shallowEqual } from "../lib/utils";
-import { mountEditor, type MountedEditor } from "../editor/mount";
-import type { EditorState, SlashCommand } from "../editor/types";
-import { SlashCommandMenu } from "../editor/SlashCommandMenu";
-import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
-import { LinkTooltip } from "../editor/LinkTooltip";
-import { LinkEditPopover } from "../editor/LinkEditPopover";
-import { ImageUploadPopover } from "../editor/ImageUploadPopover";
-import { getSelectionRange } from "../editor/commands";
+import { Button } from "@/components/ui/button";
 import {
   Clipboard,
   Copy,
+  Image as ImageIcon,
   Scissors,
   Type,
-  Image as ImageIcon,
 } from "lucide-react";
-import { hasNativeBridge } from "../editor/clipboard";
+import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { serializeToMarkdown } from "../deserializer/serializer";
+import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
+import { ImageUploadPopover } from "../editor/ImageUploadPopover";
+import { LinkEditPopover } from "../editor/LinkEditPopover";
+import { LinkTooltip } from "../editor/LinkTooltip";
+import { SlashCommandMenu } from "../editor/SlashCommandMenu";
+import { hasNativeBridge } from "../editor/clipboard";
+import { getSelectionRange } from "../editor/commands";
+import { mountEditor, type MountedEditor as MountedEditorInstance } from "../editor/mount";
+import type { EditorState, SlashCommand } from "../editor/types";
+import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
-import { Button } from "@/components/ui/button";
 
-interface ScrollableEditorProps {
+interface MountedEditorProps {
   content: string;
   className?: string;
   onContentChange?: (content: string) => void;
   autoFocus?: boolean;
 }
 
-export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
+export const MountedEditor: React.FC<MountedEditorProps> = ({
   content,
   className = "",
   onContentChange,
   autoFocus = false,
 }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const mountedRef = useRef<MountedEditor | null>(null);
+  const mountedRef = useRef<MountedEditorInstance | null>(null);
   const [slashMenuState, setSlashMenuState] = useState<{
     visible: boolean;
     x: number;

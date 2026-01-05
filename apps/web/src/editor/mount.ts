@@ -1,5 +1,5 @@
 import type { ViewportState } from "./types";
-import createEditor, { type Editor } from "./index";
+import createEditor, { type Editor } from "./editor";
 import { loadPage } from "../deserializer/loadPage";
 import { createInitialState } from "./state";
 import { setWindowFocused } from "./styles";
@@ -118,7 +118,12 @@ export function mountEditor(
   const initialState = createInitialState(page);
 
   // Create editor with initial state
-  const editor = createEditor(canvas, initialState, initialViewport, hiddenInput);
+  const editor = createEditor(
+    canvas,
+    initialState,
+    initialViewport,
+    hiddenInput
+  );
 
   let keyboardHeight = 0;
   let baseWidth = initial.width;
@@ -190,7 +195,7 @@ export function mountEditor(
   const handleInputBlur = () => {
     // On mobile, if keyboard is dismissed or focus lost, blur editor
     editor.setFocus(false);
-    
+
     // Clear the hidden input value to remove any lingering composition text
     hiddenInput.value = "";
   };
