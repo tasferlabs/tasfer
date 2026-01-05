@@ -661,7 +661,8 @@ export function handleEvents(
     touchState &&
     !touchState.isLongPress &&
     !touchState.hasMoved &&
-    !touchState.isScrollbarDrag
+    !touchState.isScrollbarDrag &&
+    !state.ui.imageDrag // Don't open context menu if we're dragging an image
   ) {
     const timeSinceStart = Date.now() - touchState.startTime;
     if (timeSinceStart >= CONTEXT_MENU_DURATION) {
@@ -1036,6 +1037,11 @@ function handleContextMenu(
   visibility: { start: number; end: number }
 ): EditorState {
   event.preventDefault();
+
+  // Don't open context menu if we're dragging an image
+  if (state.ui.imageDrag) {
+    return state;
+  }
 
   const canvasX = event.x - containerRect.left;
   const canvasY = event.y - containerRect.top;
@@ -1468,7 +1474,7 @@ function handleMouseMove(
     return updateImageDrag(state, viewport, canvasX, canvasY);
   }
 
-  // Check for image hover (desktop only, not in select mode)
+  // Check for image hover (desktop only, not in select mode, and not during image drag)
   if (!isTouchDevice() && state.ui.mode !== "select") {
     const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
 

@@ -165,9 +165,8 @@ Bugs list
 [x] If i delete some text at the end of the document, the scroll size decraese, but the viewport does not update.
 [x] If we create new block before image and or after image and it not used we move down, the we should delete it.
 [x] should not image drag more than its container.
+[x] drag the images.
 [ ] We should open the context menu or 
-[ ] We should open the context menu or 
-[ ] drag image diminions.
 [ ] copy should work with images.
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
 - : means not planed or considered

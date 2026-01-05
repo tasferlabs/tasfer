@@ -247,7 +247,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
 
       // Calculate new image hover state
       let newImageHoverState: typeof imageHoverState = null;
-      if (state.ui.imageHover) {
+      // Don't show hover button when dragging an image
+      if (state.ui.imageHover && !state.ui.imageDrag) {
         newImageHoverState = {
           x: state.ui.imageHover.x,
           y: state.ui.imageHover.y,
@@ -258,6 +259,11 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         };
         // Persist this state for when the menu transitions
         persistedImageHoverRef.current = newImageHoverState;
+      }
+
+      // Clear hover state when dragging
+      if (state.ui.imageDrag) {
+        newImageHoverState = null;
       }
 
       // Only update if changed
