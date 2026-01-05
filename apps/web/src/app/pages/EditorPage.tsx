@@ -1,9 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useParams, useNavigate } from "react-router-dom";
+import { debounce } from "lodash-es";
 import { MountedEditor } from "../MountedEditor";
 import {
   useCreatePage,
@@ -94,6 +95,14 @@ export default function EditorPage() {
     null
   );
 
+  // Create debounced word count updater (1 second delay for performance)
+  const debouncedWordCountUpdate = useRef(
+    debounce((content: string) => {
+      const count = countWords(content);
+      setWordCount(count);
+    }, 500)
+  ).current;
+
   useEffect(() => {
     if (id) {
       setLastPageId(id);
@@ -105,6 +114,13 @@ export default function EditorPage() {
       setLastPageId(null);
     }
   }, [isError, setLastPageId]);
+
+  // Cleanup debounced word count on unmount
+  useEffect(() => {
+    return () => {
+      debouncedWordCountUpdate.cancel();
+    };
+  }, [debouncedWordCountUpdate]);
 
   // Fetch page content once on mount or when ID changes
   useEffect(() => {
@@ -173,10 +189,10 @@ export default function EditorPage() {
   const handleContentChange = useCallback(
     (content: string) => {
       debouncedSave(content);
-      // Update word count
-      setWordCount(countWords(content));
+      // Update word count with debouncing
+      debouncedWordCountUpdate(content);
     },
-    [debouncedSave, setWordCount]
+    [debouncedSave, debouncedWordCountUpdate]
   );
 
   // Warn user before leaving page if there are unsaved changes
