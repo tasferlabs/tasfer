@@ -917,21 +917,12 @@ function handleMouseDown(
     }
   }
 
-  // Check if clicking in top or bottom padding areas
+  // Check if clicking in top padding area
   const styles = getEditorStyles();
   const isClickInTopPadding = canvasY < styles.canvas.paddingTop - viewport.scrollY;
-  
-  // Calculate total document height to detect bottom padding
-  let totalContentHeight = styles.canvas.paddingTop;
-  for (let i = 0; i < state.document.page.blocks.length; i++) {
-    const block = state.document.page.blocks[i];
-    const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-    totalContentHeight += getBlockHeight(block, maxWidth, styles, i);
-  }
-  const isClickInBottomPadding = canvasY > totalContentHeight - viewport.scrollY;
 
-  // If clicking in padding areas, always clear selection
-  if (isClickInTopPadding || isClickInBottomPadding) {
+  // If clicking in top padding, clear selection
+  if (isClickInTopPadding) {
     const clearedState = clearSelection(state);
     return updateMode(clearedState, "edit");
   }
@@ -947,6 +938,44 @@ function handleMouseDown(
   if (!position) {
     const clearedState = clearSelection(state);
     return updateMode(clearedState, "edit");
+  }
+
+  // If clicking below all blocks, check if last block is an image and select it
+  const lastBlockIndex = state.document.page.blocks.length - 1;
+  if (lastBlockIndex >= 0 && position.blockIndex === lastBlockIndex) {
+    const lastBlock = state.document.page.blocks[lastBlockIndex];
+    
+    // Calculate if click is below the last block's content
+    let totalContentHeight = styles.canvas.paddingTop;
+    for (let i = 0; i < state.document.page.blocks.length; i++) {
+      const block = state.document.page.blocks[i];
+      const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+      totalContentHeight += getBlockHeight(block, maxWidth, styles, i);
+    }
+    const isClickBelowContent = canvasY > totalContentHeight - viewport.scrollY;
+    
+    // If clicking below content and last block is an image, select it
+    if (isClickBelowContent && lastBlock.type === "imageCover") {
+      const imagePosition = { blockIndex: lastBlockIndex, textIndex: 0 };
+      let newState = updateCursor(state, imagePosition);
+      
+      // Select the image block
+      newState = {
+        ...newState,
+        document: {
+          ...newState.document,
+          selection: {
+            anchor: imagePosition,
+            focus: imagePosition,
+            isForward: true,
+            isCollapsed: false,
+            lastUpdate: Date.now(),
+          },
+        },
+      };
+      
+      return updateMode(newState, "edit");
+    }
   }
 
   // Track click for double/triple click detection
@@ -2494,21 +2523,12 @@ function handleTouchEnd(
         ? state.ui.activeMenu.blockIndex
         : undefined;
 
-    // Check if tapping in top or bottom padding areas
+    // Check if tapping in top padding area
     const styles = getEditorStyles();
     const isTapInTopPadding = tapPosition.y < styles.canvas.paddingTop - viewport.scrollY;
-    
-    // Calculate total document height to detect bottom padding
-    let totalContentHeight = styles.canvas.paddingTop;
-    for (let i = 0; i < state.document.page.blocks.length; i++) {
-      const block = state.document.page.blocks[i];
-      const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-      totalContentHeight += getBlockHeight(block, maxWidth, styles, i);
-    }
-    const isTapInBottomPadding = tapPosition.y > totalContentHeight - viewport.scrollY;
 
-    // If tapping in padding areas, always clear selection
-    if (isTapInTopPadding || isTapInBottomPadding) {
+    // If tapping in top padding, clear selection
+    if (isTapInTopPadding) {
       state = clearSelection(state);
       state = updateMode(state, "edit");
       // Close any active menu when tapping in padding
@@ -2559,6 +2579,54 @@ function handleTouchEnd(
     touchTapTracker.lastTapPosition = tapPosition;
 
     if (position) {
+      // If tapping below all blocks, check if last block is an image and select it
+      const lastBlockIndex = state.document.page.blocks.length - 1;
+      if (lastBlockIndex >= 0 && position.blockIndex === lastBlockIndex) {
+        const lastBlock = state.document.page.blocks[lastBlockIndex];
+        
+        // Calculate if tap is below the last block's content
+        let totalContentHeight = styles.canvas.paddingTop;
+        for (let i = 0; i < state.document.page.blocks.length; i++) {
+          const block = state.document.page.blocks[i];
+          const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+          totalContentHeight += getBlockHeight(block, maxWidth, styles, i);
+        }
+        const isTapBelowContent = tapPosition.y > totalContentHeight - viewport.scrollY;
+        
+        // If tapping below content and last block is an image, select it
+        if (isTapBelowContent && lastBlock.type === "imageCover") {
+          const imagePosition = { blockIndex: lastBlockIndex, textIndex: 0 };
+          state = updateCursor(state, imagePosition);
+          
+          // Select the image block
+          state = {
+            ...state,
+            document: {
+              ...state.document,
+              selection: {
+                anchor: imagePosition,
+                focus: imagePosition,
+                isForward: true,
+                isCollapsed: false,
+                lastUpdate: Date.now(),
+              },
+            },
+          };
+          
+          touchState = null;
+          return {
+            ...updateMode(state, "edit"),
+            view: {
+              ...state.view,
+              scrollbar: {
+                ...state.view.scrollbar,
+                lastInteraction: Date.now(),
+              },
+            },
+          };
+        }
+      }
+      
       // Check if tapped on an image cover block
       const tappedBlock = state.document.page.blocks[position.blockIndex];
       if (tappedBlock && tappedBlock.type === "imageCover") {
