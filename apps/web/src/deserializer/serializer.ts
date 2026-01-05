@@ -1,4 +1,5 @@
 import type { Block } from "./loadPage";
+import { isImageCoverDefault } from "./loadPage";
 
 export function serializeToMarkdown(blocks: Block[]): string {
   if (blocks.length === 0) {
@@ -9,7 +10,23 @@ export function serializeToMarkdown(blocks: Block[]): string {
     // Handle image cover blocks separately
     if (block.type === "imageCover") {
       const alt = block.alt || "";
-      return `![${alt}](${block.url})`;
+      
+      // If image is in default state, use markdown syntax
+      if (isImageCoverDefault(block)) {
+        return `![${alt}](${block.url})`;
+      }
+      
+      // Otherwise, use HTML tag with custom properties
+      const width = block.width ?? 'full';
+      const height = block.height ?? 300;
+      const objectFit = block.objectFit ?? 'cover';
+      
+      const widthAttr = width === 'full' ? 'data-width="full"' : `width="${width}"`;
+      const heightAttr = `height="${height}"`;
+      const objectFitAttr = `data-object-fit="${objectFit}"`;
+      const altAttr = alt ? ` alt="${alt}"` : '';
+      
+      return `<img src="${block.url}"${altAttr} ${widthAttr} ${heightAttr} ${objectFitAttr} />`;
     }
     
     // Handle text blocks (headings and paragraphs)

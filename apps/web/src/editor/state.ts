@@ -43,6 +43,7 @@ export const createInitialState = (page: Page): EditorState => ({
     composition: null,
     activeFormatsMode: { type: "inherit" },
     imageHover: null,
+    imageDrag: null,
     autoCreatedParagraph: null,
   },
   view: {

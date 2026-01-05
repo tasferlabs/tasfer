@@ -1083,20 +1083,35 @@ function renderImageCoverBlock(
     throw new Error("renderImageCoverBlock called on non-image-cover block");
   }
 
-  const { paddingBottom: padding, height: imageHeight, placeholderHeight } = styles.blocks.imageCover.dimensions;
+  const { paddingBottom: padding, height: defaultImageHeight, placeholderHeight } = styles.blocks.imageCover.dimensions;
 
-  // Calculate full canvas width (accounting for left and right padding)
-  const fullWidth =
-    _maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
-  const fullWidthX = 0; // Start from canvas edge, not content edge
+  // Get image properties (with defaults)
+  const imageWidth = block.width ?? 'full';
+  const imageHeight = block.height ?? defaultImageHeight;
+  const objectFit = block.objectFit ?? 'cover';
 
-  // Use placeholder height for placeholder, full height for images
+  // Calculate dimensions based on width setting
+  let displayWidth: number;
+  let displayX: number;
+  
+  if (imageWidth === 'full') {
+    // Full width: edge-to-edge (ignoring padding)
+    displayWidth = _maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
+    displayX = 0;
+  } else {
+    // Custom width: respect padding
+    displayWidth = Math.min(imageWidth, _maxWidth);
+    displayX = styles.canvas.paddingLeft + (_maxWidth - displayWidth) / 2; // Center the image
+  }
+
+  // Use placeholder height for placeholder, configured height for images
   const displayHeight = block.url ? imageHeight : placeholderHeight;
 
-  // First block image covers bleed into the top padding for edge-to-edge experience
+  // First block images in cover mode (full width) bleed into the top padding for edge-to-edge experience
   // They start higher but maintain their proper dimensions
   const isFirstBlock = blockIndex === 0;
-  const adjustedY = isFirstBlock ? y - styles.canvas.paddingTop : y;
+  const shouldBleedIntoTopPadding = isFirstBlock && imageWidth === 'full';
+  const adjustedY = shouldBleedIntoTopPadding ? y - styles.canvas.paddingTop : y;
   const adjustedHeight = displayHeight; // Always use actual dimensions
 
   ctx.save();
@@ -1112,32 +1127,32 @@ function renderImageCoverBlock(
   if (uploadStatus === "uploading") {
     // Uploading state
     ctx.fillStyle = styles.blocks.imageCover.uploading.backgroundColor;
-    ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+    ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
 
     ctx.fillStyle = styles.blocks.imageCover.uploading.textColor;
     ctx.font = "14px system-ui, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(
       styles.blocks.imageCover.uploading.text,
-      fullWidthX + fullWidth / 2,
+      displayX + displayWidth / 2,
       adjustedY + adjustedHeight / 2
     );
   } else if (uploadStatus === "error") {
     // Error state
     ctx.fillStyle = styles.blocks.imageCover.error.backgroundColor;
-    ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+    ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
 
     ctx.fillStyle = styles.blocks.imageCover.error.textColor;
     ctx.font = "14px system-ui, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(
       styles.blocks.imageCover.error.text,
-      fullWidthX + fullWidth / 2,
+      displayX + displayWidth / 2,
       adjustedY + adjustedHeight / 2
     );
     ctx.fillText(
       styles.blocks.imageCover.error.retryText,
-      fullWidthX + fullWidth / 2,
+      displayX + displayWidth / 2,
       adjustedY + adjustedHeight / 2 + 20
     );
   } else if (block.url) {
@@ -1145,19 +1160,19 @@ function renderImageCoverBlock(
     if (failedImageCache.has(block.url)) {
       // Show error state for failed images
       ctx.fillStyle = styles.blocks.imageCover.error.backgroundColor;
-      ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+      ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
 
       ctx.fillStyle = styles.blocks.imageCover.error.textColor;
       ctx.font = "14px system-ui, -apple-system, sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(
         styles.blocks.imageCover.error.text,
-        fullWidthX + fullWidth / 2,
+        displayX + displayWidth / 2,
         adjustedY + adjustedHeight / 2
       );
       ctx.fillText(
         styles.blocks.imageCover.error.retryText,
-        fullWidthX + fullWidth / 2,
+        displayX + displayWidth / 2,
         adjustedY + adjustedHeight / 2 + 20
       );
     } else {
@@ -1165,54 +1180,70 @@ function renderImageCoverBlock(
       const cachedImage = imageCache.get(block.url);
 
       if (cachedImage && cachedImage.complete) {
-        // Use "cover" algorithm: fill the entire area while maintaining aspect ratio
         const imgAspectRatio =
           cachedImage.naturalWidth / cachedImage.naturalHeight;
-        const containerAspectRatio = fullWidth / adjustedHeight;
+        const containerAspectRatio = displayWidth / adjustedHeight;
 
         let sourceX = 0;
         let sourceY = 0;
         let sourceWidth = cachedImage.naturalWidth;
         let sourceHeight = cachedImage.naturalHeight;
+        let destX = displayX;
+        let destY = adjustedY;
+        let destWidth = displayWidth;
+        let destHeight = adjustedHeight;
 
-        // Cover algorithm: crop the image to fill the container
-        if (imgAspectRatio > containerAspectRatio) {
-          // Image is wider than container - crop width
-          sourceWidth = cachedImage.naturalHeight * containerAspectRatio;
-          sourceX = (cachedImage.naturalWidth - sourceWidth) / 2;
+        if (objectFit === 'cover') {
+          // Cover algorithm: crop the image to fill the container
+          if (imgAspectRatio > containerAspectRatio) {
+            // Image is wider than container - crop width
+            sourceWidth = cachedImage.naturalHeight * containerAspectRatio;
+            sourceX = (cachedImage.naturalWidth - sourceWidth) / 2;
+          } else {
+            // Image is taller than container - crop height
+            sourceHeight = cachedImage.naturalWidth / containerAspectRatio;
+            sourceY = (cachedImage.naturalHeight - sourceHeight) / 2;
+          }
         } else {
-          // Image is taller than container - crop height
-          sourceHeight = cachedImage.naturalWidth / containerAspectRatio;
-          sourceY = (cachedImage.naturalHeight - sourceHeight) / 2;
+          // Contain algorithm: fit the entire image while maintaining aspect ratio
+          if (imgAspectRatio > containerAspectRatio) {
+            // Image is wider than container - fit to width
+            destHeight = displayWidth / imgAspectRatio;
+            destY = adjustedY + (adjustedHeight - destHeight) / 2;
+          } else {
+            // Image is taller than container - fit to height
+            destWidth = adjustedHeight * imgAspectRatio;
+            destX = displayX + (displayWidth - destWidth) / 2;
+          }
         }
 
-        // Draw background (for any transparency)
+        // Draw background (for any transparency or contain mode)
         ctx.fillStyle = styles.blocks.imageCover.loading.backgroundColor;
-        ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+        ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
 
-        // Draw the image using cover algorithm (cropping as needed)
+        // Draw the image
         ctx.drawImage(
           cachedImage,
           sourceX,
           sourceY,
           sourceWidth,
           sourceHeight, // Source rectangle
-          fullWidthX,
-          adjustedY,
-          fullWidth,
-          adjustedHeight // Destination rectangle
+          destX,
+          destY,
+          destWidth,
+          destHeight // Destination rectangle
         );
       } else {
         // Show loading placeholder while image loads
         ctx.fillStyle = styles.blocks.imageCover.loading.backgroundColor;
-        ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+        ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
 
         ctx.fillStyle = styles.blocks.imageCover.loading.textColor;
         ctx.font = "14px system-ui, -apple-system, sans-serif";
         ctx.textAlign = "center";
         ctx.fillText(
           styles.blocks.imageCover.loading.text,
-          fullWidthX + fullWidth / 2,
+          displayX + displayWidth / 2,
           adjustedY + adjustedHeight / 2
         );
 
@@ -1230,19 +1261,19 @@ function renderImageCoverBlock(
   } else {
     
     ctx.fillStyle = styles.blocks.imageCover.placeholder.backgroundColor;
-    ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+    ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
     // No image - show upload prompt
     ctx.strokeStyle = styles.blocks.imageCover.placeholder.borderColor;
     ctx.setLineDash([5, 5]);
     ctx.lineWidth = 2;
-    ctx.strokeRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+    ctx.strokeRect(displayX, adjustedY, displayWidth, adjustedHeight);
 
     ctx.fillStyle = styles.blocks.imageCover.placeholder.textColor;
     ctx.font = "14px system-ui, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(
       styles.blocks.imageCover.placeholder.text,
-      fullWidthX + fullWidth / 2,
+      displayX + displayWidth / 2,
       adjustedY + adjustedHeight / 2
     );
   }
@@ -1259,7 +1290,7 @@ function renderImageCoverBlock(
     if (isSelected) {
       ctx.fillStyle = styles.selection.backgroundColor;
       ctx.globalAlpha = styles.selection.opacity;
-      ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
+      ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
       ctx.globalAlpha = 1.0;
     }
   }
@@ -1267,9 +1298,9 @@ function renderImageCoverBlock(
   ctx.restore();
 
   const blockBounds: BlockBounds = {
-    x: fullWidthX,
+    x: displayX,
     y: adjustedY,
-    width: fullWidth,
+    width: displayWidth,
     height: adjustedHeight + padding,
   };
 
@@ -1545,10 +1576,17 @@ export function renderImageDragHandles(
     return;
   }
 
-  const { x, y, width, height, hoveredHandle } = state.ui.imageHover;
+  const { blockIndex, x, y, width, height, hoveredHandle } = state.ui.imageHover;
   const { vertical, horizontal } = styles.imageResize.dragHandles;
   const { color: outlineColor, width: outlineWidth,
           hoverOpacity: outlineHoverOpacity, dashPattern } = styles.imageResize.outline;
+  
+  // Get the block to check its object-fit mode
+  const block = state.document.page.blocks[blockIndex];
+  if (block.type !== 'imageCover') return;
+  
+  const objectFit = block.objectFit ?? 'cover';
+  const showBottomHandle = objectFit === 'cover'; // Only show bottom handle in cover mode
   
   ctx.save();
   
@@ -1613,19 +1651,22 @@ export function renderImageDragHandles(
   );
   
   // Bottom horizontal bar (centered horizontally with specified length)
-  const bottomBarX = x + (width - horizontal.length) / 2; // Center horizontally
-  const bottomBarY = y + height - horizontal.inset - horizontal.thickness;
-  const bottomBarWidth = horizontal.length;
-  const bottomBarHeight = horizontal.thickness;
-  
-  renderBar(
-    bottomBarX,
-    bottomBarY,
-    bottomBarWidth,
-    bottomBarHeight,
-    hoveredHandle === 'bottom',
-    horizontal
-  );
+  // Only render in cover mode
+  if (showBottomHandle) {
+    const bottomBarX = x + (width - horizontal.length) / 2; // Center horizontally
+    const bottomBarY = y + height - horizontal.inset - horizontal.thickness;
+    const bottomBarWidth = horizontal.length;
+    const bottomBarHeight = horizontal.thickness;
+    
+    renderBar(
+      bottomBarX,
+      bottomBarY,
+      bottomBarWidth,
+      bottomBarHeight,
+      hoveredHandle === 'bottom',
+      horizontal
+    );
+  }
   
   // Render a subtle dashed outline around the image when hovering any handle
   if (hoveredHandle !== null) {

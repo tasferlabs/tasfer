@@ -196,6 +196,7 @@ function getImageBlockAtPoint(
  * @param imageY Image y position
  * @param imageWidth Image width
  * @param imageHeight Image height
+ * @param objectFit The object-fit mode of the image
  * @returns The position of the hovered drag handle, or null if none
  */
 function getDragHandleAtPoint(
@@ -204,7 +205,8 @@ function getDragHandleAtPoint(
   imageX: number,
   imageY: number,
   imageWidth: number,
-  imageHeight: number
+  imageHeight: number,
+  objectFit: 'cover' | 'contain' = 'cover'
 ): 'left' | 'right' | 'bottom' | null {
   const styles = getEditorStyles();
   const { vertical, horizontal } = styles.imageResize.dragHandles;
@@ -243,18 +245,21 @@ function getDragHandleAtPoint(
   }
   
   // Bottom horizontal bar (centered horizontally with specified length)
-  const bottomBarX = imageX + (imageWidth - horizontal.length) / 2; // Center horizontally
-  const bottomBarWidth = horizontal.length;
-  const bottomBarY = imageY + imageHeight - horizontal.inset - horizontal.thickness;
-  const bottomBarHeight = horizontal.thickness;
-  
-  if (
-    x >= bottomBarX &&
-    x <= bottomBarX + bottomBarWidth &&
-    y >= bottomBarY - tolerance &&
-    y <= bottomBarY + bottomBarHeight + tolerance
-  ) {
-    return 'bottom';
+  // Only active in cover mode
+  if (objectFit === 'cover') {
+    const bottomBarX = imageX + (imageWidth - horizontal.length) / 2; // Center horizontally
+    const bottomBarWidth = horizontal.length;
+    const bottomBarY = imageY + imageHeight - horizontal.inset - horizontal.thickness;
+    const bottomBarHeight = horizontal.thickness;
+    
+    if (
+      x >= bottomBarX &&
+      x <= bottomBarX + bottomBarWidth &&
+      y >= bottomBarY - tolerance &&
+      y <= bottomBarY + bottomBarHeight + tolerance
+    ) {
+      return 'bottom';
+    }
   }
   
   return null;
@@ -944,6 +949,40 @@ function handleMouseDown(
   if (imageBlock) {
     const block = state.document.page.blocks[imageBlock.blockIndex];
     if (block.type === "imageCover") {
+      // Check if clicking on a drag handle
+      const objectFit = block.objectFit ?? 'cover';
+      const clickedHandle = getDragHandleAtPoint(
+        canvasX,
+        canvasY,
+        imageBlock.x,
+        imageBlock.y,
+        imageBlock.width,
+        imageBlock.height,
+        objectFit
+      );
+      
+      if (clickedHandle && block.url) {
+        // Start dragging the handle
+        const startWidth = block.width ?? 'full';
+        const startHeight = block.height ?? 300;
+        
+        return {
+          ...state,
+          ui: {
+            ...state.ui,
+            imageDrag: {
+              blockIndex: imageBlock.blockIndex,
+              handle: clickedHandle,
+              startX: canvasX,
+              startY: canvasY,
+              startWidth,
+              startHeight,
+              startObjectFit: objectFit,
+            },
+          },
+        };
+      }
+      
       // If it's a placeholder (no URL), open the upload menu immediately
       if (!block.url) {
         // Don't reopen if we just closed the menu for this same block
@@ -1157,11 +1196,95 @@ function handleMouseMove(
     },
   };
 
+  // Handle image drag resize
+  if (state.ui.imageDrag) {
+    const { blockIndex, handle, startX, startY, startWidth, startHeight, startObjectFit } = state.ui.imageDrag;
+    const block = state.document.page.blocks[blockIndex];
+    
+    if (block.type === 'imageCover') {
+      const styles = getEditorStyles();
+      const deltaX = canvasX - startX;
+      const deltaY = canvasY - startY;
+      const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+      const snapThreshold = 20; // pixels to snap to padding
+      
+      let newWidth: number | 'full' = startWidth;
+      let newHeight = startHeight;
+      let newObjectFit: 'cover' | 'contain' = startObjectFit;
+      
+      if (handle === 'left' || handle === 'right') {
+        // Horizontal resize
+        const widthDelta = handle === 'left' ? -deltaX * 2 : deltaX * 2; // multiply by 2 because we resize from center
+        
+        if (startWidth === 'full') {
+          // Start from full width
+          const currentWidth = viewport.width;
+          newWidth = Math.max(100, currentWidth + widthDelta);
+          
+          // Check if we should snap to padding (transitioning to contained)
+          if (Math.abs(newWidth - maxWidth) < snapThreshold) {
+            newWidth = maxWidth;
+            newObjectFit = 'contain';
+          } else if (newWidth < maxWidth - snapThreshold) {
+            // Definitely in contain mode
+            newObjectFit = 'contain';
+          } else if (newWidth >= viewport.width - 10) {
+            // Snap back to full if close
+            newWidth = 'full';
+            newObjectFit = 'cover';
+          }
+        } else {
+          // Already in custom width mode
+          newWidth = Math.max(100, Math.min(viewport.width, (startWidth as number) + widthDelta));
+          
+          // Check if we should snap back to full width
+          if (newWidth >= viewport.width - snapThreshold) {
+            newWidth = 'full';
+            newObjectFit = 'cover';
+          } else if (newWidth >= maxWidth - snapThreshold && newWidth <= maxWidth + snapThreshold) {
+            // Snap to padding width
+            newWidth = maxWidth;
+            newObjectFit = 'contain';
+          } else {
+            // Remain in contain mode
+            newObjectFit = 'contain';
+          }
+        }
+      } else if (handle === 'bottom' && startObjectFit === 'cover') {
+        // Vertical resize (only in cover mode)
+        newHeight = Math.max(100, startHeight + deltaY);
+      }
+      
+      // Update the block with new dimensions
+      const updatedBlock: Block = {
+        ...block,
+        width: newWidth,
+        height: newHeight,
+        objectFit: newObjectFit,
+      };
+      
+      const newBlocks = [...state.document.page.blocks];
+      newBlocks[blockIndex] = updatedBlock;
+      
+      return {
+        ...state,
+        document: {
+          ...state.document,
+          page: { ...state.document.page, blocks: newBlocks },
+        },
+      };
+    }
+  }
+
   // Check for image hover (desktop only, not in select mode)
   if (!isTouchDevice() && state.ui.mode !== "select") {
     const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
 
     if (imageBlock) {
+      // Get the block to check its object-fit mode
+      const block = state.document.page.blocks[imageBlock.blockIndex];
+      const objectFit = block.type === 'imageCover' ? (block.objectFit ?? 'cover') : 'cover';
+      
       // Check if hovering over a drag handle
       const hoveredHandle = getDragHandleAtPoint(
         canvasX,
@@ -1169,7 +1292,8 @@ function handleMouseMove(
         imageBlock.x,
         imageBlock.y,
         imageBlock.width,
-        imageBlock.height
+        imageBlock.height,
+        objectFit
       );
       
       // Mouse is over an image block - set imageHover state (not a blocking menu)
@@ -1388,6 +1512,19 @@ function handleMouseUp(
     };
   }
 
+  // End image drag if active
+  if (state.ui.imageDrag) {
+    // Record undo for the image resize operation
+    const finalState = recordUndo(state);
+    return {
+      ...finalState,
+      ui: {
+        ...finalState.ui,
+        imageDrag: null,
+      },
+    };
+  }
+
   if (state.ui.mode === "select") {
     // Clear initialBoundary when finishing selection
     let newState = state;
@@ -1420,6 +1557,17 @@ function handlePointerCancel(state: EditorState): EditorState {
       view: {
         ...state.view,
         scrollbar: endScrollbarDrag(state.view.scrollbar),
+      },
+    };
+  }
+
+  // Cancel image drag if active
+  if (state.ui.imageDrag) {
+    state = {
+      ...state,
+      ui: {
+        ...state.ui,
+        imageDrag: null,
       },
     };
   }

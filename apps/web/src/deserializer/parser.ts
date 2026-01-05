@@ -15,6 +15,7 @@ import {
   IMAGE_START,
   IMAGE_ALT_END,
   IMAGE_END,
+  HTML_IMG,
   NEWLINE,
   STRIKETHROUGH_END,
   STRIKETHROUGH_START,
@@ -72,6 +73,7 @@ function isEnd(context: ParserContext) {
 }
 function parseBlock(context: ParserContext): Block {
   if (match(context, NEWLINE)) return emptyBlock(context);
+  if (check(context, HTML_IMG)) return parseHTMLImageCover(context);
   if (check(context, IMAGE_START)) return parseImageCover(context);
   if (match(context, HEADING_1)) return parseHeading(context, 1);
   if (match(context, HEADING_2)) return parseHeading(context, 2);
@@ -288,8 +290,42 @@ function parseImageCover(context: ParserContext): ImageCover {
     type: "imageCover",
     url: imageUrl,
     alt: altText,
+    // Default properties - not specified in markdown
   };
 }
+
+function parseHTMLImageCover(context: ParserContext): ImageCover {
+  // <img src="url" alt="alt" width="..." height="..." data-object-fit="..." />
+  match(context, HTML_IMG);
+  const htmlTag = (previous(context) as VisibleToken).content;
+  
+  // Parse attributes from HTML tag
+  const srcMatch = /src="([^"]+)"/.exec(htmlTag);
+  const altMatch = /alt="([^"]*)"/.exec(htmlTag);
+  const widthMatch = /(?:width|data-width)="([^"]+)"/.exec(htmlTag);
+  const heightMatch = /height="([^"]+)"/.exec(htmlTag);
+  const objectFitMatch = /data-object-fit="([^"]+)"/.exec(htmlTag);
+  
+  const imageUrl = srcMatch ? srcMatch[1] : '';
+  const altText = altMatch ? altMatch[1] : '';
+  const width = widthMatch ? (widthMatch[1] === 'full' ? 'full' : parseInt(widthMatch[1], 10)) : undefined;
+  const height = heightMatch ? parseInt(heightMatch[1], 10) : undefined;
+  const objectFit = objectFitMatch ? objectFitMatch[1] as ('cover' | 'contain') : undefined;
+  
+  // Consume optional newline
+  match(context, NEWLINE);
+  
+  return {
+    id: `block-${context.blockIdCounter++}`,
+    type: "imageCover",
+    url: imageUrl,
+    alt: altText,
+    width,
+    height,
+    objectFit,
+  };
+}
+
 
 function match(context: ParserContext, ...types: TokenType[]): boolean {
   for (const type of types) {

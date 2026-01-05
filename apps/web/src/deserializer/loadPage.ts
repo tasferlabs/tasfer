@@ -17,12 +17,16 @@ export interface Paragraph {
 }
 
 // Cover image block - full-width image that spans the entire canvas
-// Note: width/height of the actual image are transient runtime state, not persisted
+// Note: cachedHeight/cachedWidth are transient runtime state, not persisted
 export interface ImageCover {
   id: string; // Unique identifier for caching
   type: "imageCover";
   url: string;
   alt?: string;
+  // Image dimensions - if not specified, defaults to cover mode with full width and 300px height
+  width?: number | 'full'; // Width in pixels or 'full' for edge-to-edge
+  height?: number; // Height in pixels (only used in cover mode)
+  objectFit?: 'cover' | 'contain'; // How image should be fitted
   cachedHeight?: number; // Cached rendered height
   cachedWidth?: number; // Width at which height was cached
 }
@@ -96,6 +100,15 @@ export function isVisualBlock(block: Block): block is VisualBlock {
 // Image cover block type guard
 export function isImageCoverBlock(block: Block): block is ImageCover {
   return block.type === "imageCover";
+}
+
+// Check if an image cover block is in default state (cover mode, full width, 300px height)
+export function isImageCoverDefault(block: ImageCover): boolean {
+  const width = block.width ?? 'full';
+  const height = block.height ?? 300;
+  const objectFit = block.objectFit ?? 'cover';
+  
+  return width === 'full' && height === 300 && objectFit === 'cover';
 }
 
 export interface Page {

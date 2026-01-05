@@ -233,7 +233,19 @@ function blocksToHTML(blocks: Block[]): string {
     // Handle image cover blocks
     if (block.type === "imageCover") {
       const alt = block.alt || "";
-      return `<img src="${block.url}" alt="${alt}" />`;
+      
+      // Check if image has custom properties
+      const width = block.width ?? 'full';
+      const height = block.height ?? 300;
+      const objectFit = block.objectFit ?? 'cover';
+      
+      // Always output with full properties for HTML clipboard
+      const widthAttr = width === 'full' ? 'data-width="full"' : `width="${width}"`;
+      const heightAttr = `height="${height}"`;
+      const objectFitAttr = `data-object-fit="${objectFit}"`;
+      const altAttr = alt ? ` alt="${alt}"` : '';
+      
+      return `<img src="${block.url}"${altAttr} ${widthAttr} ${heightAttr} ${objectFitAttr} />`;
     }
 
     if (!isTextBlock(block)) {
@@ -477,6 +489,12 @@ function parseHTMLToBlocks(html: string): Block[] {
         });
         return segments;
       }
+      
+      // Handle <img> tags - these should be handled as blocks, not inline
+      // Skip them here and they'll be processed separately
+      if (tagName === "img") {
+        return segments;
+      }
 
       // Process child nodes
       for (let i = 0; i < node.childNodes.length; i++) {
@@ -489,7 +507,7 @@ function parseHTMLToBlocks(html: string): Block[] {
 
   // Helper function to check if an element is a block-level content element
   function isBlockElement(tagName: string): boolean {
-    return ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'li'].includes(tagName);
+    return ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'li', 'img'].includes(tagName);
   }
 
   // Helper function to check if an element is a container element
@@ -596,6 +614,32 @@ function parseHTMLToBlocks(html: string): Block[] {
     
     // Handle regular HTML elements
     const tagName = element.tagName.toLowerCase();
+    
+    // Handle img tags
+    if (tagName === 'img') {
+      const src = element.getAttribute('src');
+      if (src) {
+        const alt = element.getAttribute('alt') || '';
+        const widthAttr = element.getAttribute('width') || element.getAttribute('data-width');
+        const heightAttr = element.getAttribute('height');
+        const objectFitAttr = element.getAttribute('data-object-fit');
+        
+        const width = widthAttr === 'full' ? 'full' : (widthAttr ? parseInt(widthAttr, 10) : undefined);
+        const height = heightAttr ? parseInt(heightAttr, 10) : undefined;
+        const objectFit = objectFitAttr as ('cover' | 'contain') | undefined;
+        
+        blocks.push({
+          id: generateBlockId(),
+          type: 'imageCover',
+          url: src,
+          alt,
+          width,
+          height,
+          objectFit,
+        });
+      }
+      continue;
+    }
     
     // Extract formatted content
     const content = extractTextWithFormatting(element);

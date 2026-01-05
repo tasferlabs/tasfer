@@ -63,6 +63,17 @@ export type ActiveFormatsMode =
 // Drag handle position on an image
 export type DragHandlePosition = 'left' | 'right' | 'bottom' | null;
 
+// Drag state for image resize
+export interface ImageDragState {
+  readonly blockIndex: number;
+  readonly handle: DragHandlePosition;
+  readonly startX: number;
+  readonly startY: number;
+  readonly startWidth: number | 'full';
+  readonly startHeight: number;
+  readonly startObjectFit: 'cover' | 'contain';
+}
+
 // Image Hover State - Not a menu, just visual feedback
 export interface ImageHoverState {
   readonly blockIndex: number;
@@ -81,6 +92,7 @@ export interface UIState {
   readonly composition: CompositionState | null;
   readonly activeFormatsMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
   readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)
+  readonly imageDrag: ImageDragState | null; // Active image drag operation
   readonly autoCreatedParagraph: { blockIndex: number; blockId: string } | null; // Track auto-created paragraphs from arrow up/down on images
 }
 
