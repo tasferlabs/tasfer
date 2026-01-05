@@ -70,6 +70,44 @@ export function getEditorStyles(): EditorStyles {
         lineHeight: 1.6,
         paddingBottom: 4,
       },
+      imageCover: {
+        placeholder: {
+          backgroundColor: getCSSVariable("--muted"),
+          textColor: getCSSVariable("--muted-foreground"),
+          borderColor: getCSSVariable("--border"),
+          text: "Click to upload image",
+        },
+        loading: {
+          backgroundColor: getCSSVariable("--muted"),
+          textColor: getCSSVariable("--muted-foreground"),
+          text: "Loading image...",
+        },
+        uploading: {
+          backgroundColor: getCSSVariable("--muted"),
+          textColor: getCSSVariable("--muted-foreground"),
+          text: "Uploading image...",
+        },
+        error: {
+          backgroundColor: getCSSVariable("--destructive"),
+          textColor: getCSSVariable("--destructive-foreground"),
+          text: "Failed to upload image",
+          retryText: "Click to retry",
+        },
+        hover: {
+          overlayColor: getCSSVariable("--editor-cover-image-overlay"),
+          buttonBackgroundColor: getCSSVariable("--background"),
+          buttonTextColor: getCSSVariable("--foreground"),
+          buttonText: "Change Image",
+        },
+        dimensions: {
+          height: 300,
+          placeholderHeight: 150,
+          paddingBottom: 8,
+          buttonWidth: 120,
+          buttonHeight: 40,
+          borderRadius: 6,
+        },
+      },
     },
     cursor: {
       width: 2,
@@ -110,43 +148,6 @@ export function getEditorStyles(): EditorStyles {
         color: getCSSVariable("--editor-link"),
         underlineThickness: 1,
         hoverColor: getCSSVariable("--editor-link-hover"),
-      },
-    },
-    imageCover: {
-      placeholder: {
-        backgroundColor: getCSSVariable("--muted"),
-        textColor: getCSSVariable("--muted-foreground"),
-        borderColor: getCSSVariable("--border"),
-        text: "Click to upload image",
-      },
-      loading: {
-        backgroundColor: getCSSVariable("--muted"),
-        textColor: getCSSVariable("--muted-foreground"),
-        text: "Loading image...",
-      },
-      uploading: {
-        backgroundColor: getCSSVariable("--muted"),
-        textColor: getCSSVariable("--muted-foreground"),
-        text: "Uploading image...",
-      },
-      error: {
-        backgroundColor: getCSSVariable("--destructive"),
-        textColor: getCSSVariable("--destructive-foreground"),
-        text: "Failed to upload image",
-        retryText: "Click to retry",
-      },
-      hover: {
-        overlayColor: getCSSVariable("--editor-cover-image-overlay"),
-        buttonBackgroundColor: getCSSVariable("--background"),
-        buttonTextColor: getCSSVariable("--foreground"),
-        buttonText: "Change Image",
-      },
-      dimensions: {
-        height: 300,
-        paddingBottom: 8,
-        buttonWidth: 120,
-        buttonHeight: 40,
-        borderRadius: 6,
       },
     },
   };

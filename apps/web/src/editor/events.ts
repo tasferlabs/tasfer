@@ -147,15 +147,17 @@ function getImageBlockAtPoint(
     if (y >= checkStartY && y < currentY + blockHeight) {
       // Check if this is an image cover block
       if (isImageCover) {
-        const imageHeight = 300; // Fixed height from renderImageCoverBlock
+        const { height: imageHeight, placeholderHeight } = styles.blocks.imageCover.dimensions;
+        // Use placeholder height for placeholder, full height for images
+        const displayHeight = block.url ? imageHeight : placeholderHeight;
 
         // If this is the first block, it bleeds into the top padding for edge-to-edge experience
         const adjustedY = isFirstBlock
           ? currentY - styles.canvas.paddingTop
           : currentY;
         const adjustedHeight = isFirstBlock
-          ? imageHeight + styles.canvas.paddingTop
-          : imageHeight;
+          ? displayHeight + styles.canvas.paddingTop
+          : displayHeight;
 
         // Check if mouse is within the image area
         // Images cover the full canvas width (edge-to-edge)

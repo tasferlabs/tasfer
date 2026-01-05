@@ -1189,19 +1189,22 @@ function renderImageCoverBlock(
     throw new Error("renderImageCoverBlock called on non-image-cover block");
   }
 
-  const { paddingBottom: padding, height: imageHeight } = styles.imageCover.dimensions;
+  const { paddingBottom: padding, height: imageHeight, placeholderHeight } = styles.blocks.imageCover.dimensions;
 
   // Calculate full canvas width (accounting for left and right padding)
   const fullWidth =
     _maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
   const fullWidthX = 0; // Start from canvas edge, not content edge
 
+  // Use placeholder height for placeholder, full height for images
+  const displayHeight = block.url ? imageHeight : placeholderHeight;
+
   // If this is the first block, bleed into the top padding for edge-to-edge experience
   const isFirstBlock = blockIndex === 0;
   const adjustedY = isFirstBlock ? y - styles.canvas.paddingTop : y;
   const adjustedHeight = isFirstBlock
-    ? imageHeight + styles.canvas.paddingTop
-    : imageHeight;
+    ? displayHeight + styles.canvas.paddingTop
+    : displayHeight;
 
   ctx.save();
 
@@ -1215,32 +1218,32 @@ function renderImageCoverBlock(
   // Draw placeholder or image
   if (uploadStatus === "uploading") {
     // Uploading state
-    ctx.fillStyle = styles.imageCover.uploading.backgroundColor;
+    ctx.fillStyle = styles.blocks.imageCover.uploading.backgroundColor;
     ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
 
-    ctx.fillStyle = styles.imageCover.uploading.textColor;
+    ctx.fillStyle = styles.blocks.imageCover.uploading.textColor;
     ctx.font = "14px system-ui, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(
-      styles.imageCover.uploading.text,
+      styles.blocks.imageCover.uploading.text,
       fullWidthX + fullWidth / 2,
       adjustedY + adjustedHeight / 2
     );
   } else if (uploadStatus === "error") {
     // Error state
-    ctx.fillStyle = styles.imageCover.error.backgroundColor;
+    ctx.fillStyle = styles.blocks.imageCover.error.backgroundColor;
     ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
 
-    ctx.fillStyle = styles.imageCover.error.textColor;
+    ctx.fillStyle = styles.blocks.imageCover.error.textColor;
     ctx.font = "14px system-ui, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(
-      styles.imageCover.error.text,
+      styles.blocks.imageCover.error.text,
       fullWidthX + fullWidth / 2,
       adjustedY + adjustedHeight / 2
     );
     ctx.fillText(
-      styles.imageCover.error.retryText,
+      styles.blocks.imageCover.error.retryText,
       fullWidthX + fullWidth / 2,
       adjustedY + adjustedHeight / 2 + 20
     );
@@ -1248,19 +1251,19 @@ function renderImageCoverBlock(
     // Check if this image previously failed to load
     if (failedImageCache.has(block.url)) {
       // Show error state for failed images
-      ctx.fillStyle = styles.imageCover.error.backgroundColor;
+      ctx.fillStyle = styles.blocks.imageCover.error.backgroundColor;
       ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
 
-      ctx.fillStyle = styles.imageCover.error.textColor;
+      ctx.fillStyle = styles.blocks.imageCover.error.textColor;
       ctx.font = "14px system-ui, -apple-system, sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(
-        styles.imageCover.error.text,
+        styles.blocks.imageCover.error.text,
         fullWidthX + fullWidth / 2,
         adjustedY + adjustedHeight / 2
       );
       ctx.fillText(
-        styles.imageCover.error.retryText,
+        styles.blocks.imageCover.error.retryText,
         fullWidthX + fullWidth / 2,
         adjustedY + adjustedHeight / 2 + 20
       );
@@ -1291,7 +1294,7 @@ function renderImageCoverBlock(
         }
 
         // Draw background (for any transparency)
-        ctx.fillStyle = styles.imageCover.loading.backgroundColor;
+        ctx.fillStyle = styles.blocks.imageCover.loading.backgroundColor;
         ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
 
         // Draw the image using cover algorithm (cropping as needed)
@@ -1308,14 +1311,14 @@ function renderImageCoverBlock(
         );
       } else {
         // Show loading placeholder while image loads
-        ctx.fillStyle = styles.imageCover.loading.backgroundColor;
+        ctx.fillStyle = styles.blocks.imageCover.loading.backgroundColor;
         ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
 
-        ctx.fillStyle = styles.imageCover.loading.textColor;
+        ctx.fillStyle = styles.blocks.imageCover.loading.textColor;
         ctx.font = "14px system-ui, -apple-system, sans-serif";
         ctx.textAlign = "center";
         ctx.fillText(
-          styles.imageCover.loading.text,
+          styles.blocks.imageCover.loading.text,
           fullWidthX + fullWidth / 2,
           adjustedY + adjustedHeight / 2
         );
@@ -1332,17 +1335,20 @@ function renderImageCoverBlock(
       }
     }
   } else {
+    
+    ctx.fillStyle = styles.blocks.imageCover.placeholder.backgroundColor;
+    ctx.fillRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
     // No image - show upload prompt
-    ctx.strokeStyle = styles.imageCover.placeholder.borderColor;
+    ctx.strokeStyle = styles.blocks.imageCover.placeholder.borderColor;
     ctx.setLineDash([5, 5]);
     ctx.lineWidth = 2;
     ctx.strokeRect(fullWidthX, adjustedY, fullWidth, adjustedHeight);
 
-    ctx.fillStyle = styles.imageCover.placeholder.textColor;
+    ctx.fillStyle = styles.blocks.imageCover.placeholder.textColor;
     ctx.font = "14px system-ui, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(
-      styles.imageCover.placeholder.text,
+      styles.blocks.imageCover.placeholder.text,
       fullWidthX + fullWidth / 2,
       adjustedY + adjustedHeight / 2
     );
@@ -1389,8 +1395,10 @@ export const calculateBlockHeight = (
 ): number => {
   // Handle image cover blocks
   if (block.type === "imageCover") {
-    const { height, paddingBottom: padding } = styles.imageCover.dimensions;
-    return height + padding;
+    const { height, placeholderHeight, paddingBottom: padding } = styles.blocks.imageCover.dimensions;
+    // Use placeholder height for placeholder, full height for images
+    const displayHeight = block.url ? height : placeholderHeight;
+    return displayHeight + padding;
   }
 
   if (!isTextBlock(block)) {

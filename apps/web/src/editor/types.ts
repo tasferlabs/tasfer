@@ -181,7 +181,6 @@ export interface EditorStyles {
   readonly cursor: CursorStyles;
   readonly placeholder: PlaceholderStyles;
   readonly textFormats: TextFormatStyles;
-  readonly imageCover: ImageCoverStyles;
 }
 
 export interface CanvasStyles {
@@ -197,6 +196,7 @@ export interface BlockStyles {
   readonly heading2: TextStyle;
   readonly heading3: TextStyle;
   readonly paragraph: TextStyle;
+  readonly imageCover: ImageCoverStyles;
 }
 
 export interface TextStyle {
@@ -281,6 +281,7 @@ export interface ImageCoverStyles {
   };
   readonly dimensions: {
     readonly height: number;
+    readonly placeholderHeight: number;
     readonly paddingBottom: number;
     readonly buttonWidth: number;
     readonly buttonHeight: number;
