@@ -214,7 +214,7 @@ export interface BlockStyles {
   readonly heading2: TextStyle;
   readonly heading3: TextStyle;
   readonly paragraph: TextStyle;
-  readonly imageCover: ImageCoverStyles;
+  readonly image: ImageStyles;
 }
 
 export interface TextStyle {
@@ -304,7 +304,7 @@ export interface ImageResizeStyles {
   };
 }
 
-export interface ImageCoverStyles {
+export interface ImageStyles {
   readonly placeholder: {
     readonly backgroundColor: string;
     readonly textColor: string;

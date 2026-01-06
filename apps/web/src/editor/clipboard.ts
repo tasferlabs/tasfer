@@ -121,7 +121,7 @@ function getSelectedContent(state: EditorState): {
     const text = getBlockTextContent(block);
     
     // Image cover blocks are included as-is
-    if (block.type === "imageCover") {
+    if (block.type === "image") {
       return {
         blocks: [block],
         isPartial: false,
@@ -167,7 +167,7 @@ function getSelectedContent(state: EditorState): {
     const text = getBlockTextContent(block);
 
     // Image cover blocks are included as-is
-    if (block.type === "imageCover") {
+    if (block.type === "image") {
       blocks.push(block);
       continue;
     }
@@ -232,7 +232,7 @@ function blocksToMarkdown(blocks: Block[]): string {
 function blocksToHTML(blocks: Block[]): string {
   const htmlBlocks = blocks.map((block) => {
     // Handle image cover blocks
-    if (block.type === "imageCover") {
+    if (block.type === "image") {
       const alt = block.alt || "";
       
       // Check if image has custom properties
@@ -631,7 +631,7 @@ function parseHTMLToBlocks(html: string): Block[] {
         
         blocks.push({
           id: generateBlockId(),
-          type: 'imageCover',
+          type: "image",
           url: src,
           alt,
           width,

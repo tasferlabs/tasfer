@@ -680,7 +680,7 @@ export function insertText(state: EditorState, input: string): EditorState {
     // Check if this is a single image selection (anchor and focus at same position)
     if (anchor.blockIndex === focus.blockIndex && anchor.textIndex === focus.textIndex) {
       const block = state.document.page.blocks[anchor.blockIndex];
-      if (block && block.type === "imageCover") {
+      if (block && block.type === "image") {
         // Block typing on selected image
         return state;
       }
@@ -1645,7 +1645,7 @@ export function splitBlock(state: EditorState): EditorState {
     // Check if this is a single image selection (anchor and focus at same position)
     if (anchor.blockIndex === focus.blockIndex && anchor.textIndex === focus.textIndex) {
       const block = state.document.page.blocks[anchor.blockIndex];
-      if (block && block.type === "imageCover") {
+      if (block && block.type === "image") {
         // Create a new paragraph below the image
         const newParagraph: Block = {
           id: generateBlockId(),
@@ -1792,7 +1792,7 @@ export function selectCurrentBlock(state: EditorState): EditorState {
   if (!block) return state;
 
   // For image blocks, select the block by marking it with a selection
-  if (block.type === "imageCover") {
+  if (block.type === "image") {
     const imagePosition: Position = { blockIndex, textIndex: 0 };
     
     let newState = moveCursorToPosition(state, blockIndex, 0);
@@ -2027,11 +2027,11 @@ export function convertBlockType(
   const oldBlock = state.document.page.blocks[blockIndex];
 
   // Can't convert image cover blocks to text blocks or vice versa
-  if (blockType === "imageCover" && !isTextBlock(oldBlock)) {
+  if (blockType === "image" && !isTextBlock(oldBlock)) {
     // Already an image cover block
     return state;
   }
-  if (blockType !== "imageCover" && !isTextBlock(oldBlock)) {
+  if (blockType !== "image" && !isTextBlock(oldBlock)) {
     // Can't convert image cover to text block
     return state;
   }
@@ -2067,11 +2067,11 @@ export function applySlashCommand(
   const block = state.document.page.blocks[blockIndex];
 
   // Special handling for image cover blocks
-  if (command.type === "imageCover") {
+  if (command.type === "image") {
     // For image cover blocks, we replace the current block with an empty image cover block
     const newBlock: Block = {
       id: block.id,
-      type: "imageCover",
+      type: "image",
       url: "", // Will be filled when image is uploaded
       alt: "",
     };
@@ -2116,7 +2116,7 @@ export function applySlashCommand(
 
   // Regular text-based blocks
   // If the current block is already an image cover, just close the slash command
-  if (block.type === "imageCover") {
+  if (block.type === "image") {
     return closeSlashCommand(state);
   }
 

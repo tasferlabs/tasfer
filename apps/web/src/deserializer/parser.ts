@@ -1,4 +1,12 @@
-import type { Block, Heading, Page, Paragraph, ImageCover, Text, TextFormat } from "./loadPage";
+import type {
+  Block,
+  Heading,
+  Page,
+  Paragraph,
+  Image,
+  Text,
+  TextFormat,
+} from "./loadPage";
 import {
   BOLD_END,
   BOLD_START,
@@ -37,7 +45,11 @@ function generateEmptyTree(): Page {
     blocks: [],
   };
 }
-function generateHeading(id: string, level: number, ...content: Text[]): Heading {
+function generateHeading(
+  id: string,
+  level: number,
+  ...content: Text[]
+): Heading {
   return {
     id,
     type: ("heading" + level) as "heading1" | "heading2" | "heading3",
@@ -73,8 +85,8 @@ function isEnd(context: ParserContext) {
 }
 function parseBlock(context: ParserContext): Block {
   if (match(context, NEWLINE)) return emptyBlock(context);
-  if (check(context, HTML_IMG)) return parseHTMLImageCover(context);
-  if (check(context, IMAGE_START)) return parseImageCover(context);
+  if (check(context, HTML_IMG)) return parseHTMLImage(context);
+  if (check(context, IMAGE_START)) return parseImage(context);
   if (match(context, HEADING_1)) return parseHeading(context, 1);
   if (match(context, HEADING_2)) return parseHeading(context, 2);
   if (match(context, HEADING_3)) return parseHeading(context, 3);
@@ -89,7 +101,11 @@ function emptyBlock(context: ParserContext): Block {
 }
 function parseHeading(context: ParserContext, level: number) {
   const content = parseText(context);
-  const heading = generateHeading(`block-${context.blockIdCounter++}`, level, ...content);
+  const heading = generateHeading(
+    `block-${context.blockIdCounter++}`,
+    level,
+    ...content
+  );
   match(context, NEWLINE);
   return heading;
 }
@@ -97,10 +113,10 @@ function parseText(context: ParserContext): Text[] {
   const text: Text[] = [];
   const formatStack: TextFormat[] = [];
   let currentContent = "";
-  
+
   while (!isEnd(context) && nomatch(context, NEWLINE)) {
     const node = previous(context) as VisibleToken;
-    
+
     // Handle format start tokens
     if (node.type === BOLD_START) {
       if (currentContent) {
@@ -110,9 +126,8 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      formatStack.push({ type: 'bold' });
-    }
-    else if (node.type === ITALIC_START) {
+      formatStack.push({ type: "bold" });
+    } else if (node.type === ITALIC_START) {
       if (currentContent) {
         text.push({
           content: currentContent,
@@ -120,9 +135,8 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      formatStack.push({ type: 'italic' });
-    }
-    else if (node.type === STRIKETHROUGH_START) {
+      formatStack.push({ type: "italic" });
+    } else if (node.type === STRIKETHROUGH_START) {
       if (currentContent) {
         text.push({
           content: currentContent,
@@ -130,9 +144,8 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      formatStack.push({ type: 'strikethrough' });
-    }
-    else if (node.type === CODE_START) {
+      formatStack.push({ type: "strikethrough" });
+    } else if (node.type === CODE_START) {
       if (currentContent) {
         text.push({
           content: currentContent,
@@ -140,9 +153,8 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      formatStack.push({ type: 'code' });
-    }
-    else if (node.type === LINK_START) {
+      formatStack.push({ type: "code" });
+    } else if (node.type === LINK_START) {
       if (currentContent) {
         text.push({
           content: currentContent,
@@ -151,38 +163,36 @@ function parseText(context: ParserContext): Text[] {
         currentContent = "";
       }
       // Start collecting link text
-    }
-    else if (node.type === LINK_TEXT_END) {
+    } else if (node.type === LINK_TEXT_END) {
       // Link text has ended, now URL starts
       // Push the link text content
       if (currentContent) {
         // Collect URL from next TEXT token
         let linkUrl = "";
-        
+
         // Peek ahead to get URL
         if (!isEnd(context)) {
           const nextToken = peek(context);
-          if (nextToken.type === 'text') {
+          if (nextToken.type === "text") {
             advance(context);
             linkUrl = (previous(context) as VisibleToken).content;
           }
         }
-        
+
         // Now add the link format with URL
-        formatStack.push({ type: 'link', url: linkUrl });
-        
+        formatStack.push({ type: "link", url: linkUrl });
+
         text.push({
           content: currentContent,
           formats: formatStack.length > 0 ? [...formatStack] : undefined,
         });
         currentContent = "";
-        
+
         // Remove link from stack
-        const index = formatStack.findIndex(f => f.type === 'link');
+        const index = formatStack.findIndex((f) => f.type === "link");
         if (index !== -1) formatStack.splice(index, 1);
       }
-    }
-    else if (node.type === LINK_END) {
+    } else if (node.type === LINK_END) {
       // Link has ended, already handled in LINK_TEXT_END
     }
     // Handle format end tokens (match closing with opening)
@@ -194,10 +204,9 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      const index = formatStack.findIndex(f => f.type === 'bold');
+      const index = formatStack.findIndex((f) => f.type === "bold");
       if (index !== -1) formatStack.splice(index, 1);
-    }
-    else if (node.type === ITALIC_END) {
+    } else if (node.type === ITALIC_END) {
       if (currentContent) {
         text.push({
           content: currentContent,
@@ -205,10 +214,9 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      const index = formatStack.findIndex(f => f.type === 'italic');
+      const index = formatStack.findIndex((f) => f.type === "italic");
       if (index !== -1) formatStack.splice(index, 1);
-    }
-    else if (node.type === STRIKETHROUGH_END) {
+    } else if (node.type === STRIKETHROUGH_END) {
       if (currentContent) {
         text.push({
           content: currentContent,
@@ -216,10 +224,9 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      const index = formatStack.findIndex(f => f.type === 'strikethrough');
+      const index = formatStack.findIndex((f) => f.type === "strikethrough");
       if (index !== -1) formatStack.splice(index, 1);
-    }
-    else if (node.type === CODE_END) {
+    } else if (node.type === CODE_END) {
       if (currentContent) {
         text.push({
           content: currentContent,
@@ -227,7 +234,7 @@ function parseText(context: ParserContext): Text[] {
         });
         currentContent = "";
       }
-      const index = formatStack.findIndex(f => f.type === 'code');
+      const index = formatStack.findIndex((f) => f.type === "code");
       if (index !== -1) formatStack.splice(index, 1);
     }
     // Handle text content
@@ -235,7 +242,7 @@ function parseText(context: ParserContext): Text[] {
       currentContent += node.content;
     }
   }
-  
+
   // Push any remaining content
   if (currentContent) {
     text.push({
@@ -243,7 +250,7 @@ function parseText(context: ParserContext): Text[] {
       formats: formatStack.length > 0 ? [...formatStack] : undefined,
     });
   }
-  
+
   advance(context);
   return text;
 }
@@ -257,67 +264,73 @@ function paresParagraph(context: ParserContext): Paragraph {
   };
 }
 
-function parseImageCover(context: ParserContext): ImageCover {
+function parseImage(context: ParserContext): Image {
   // ![alt](url)
   match(context, IMAGE_START); // Consume ![
-  
+
   let altText = "";
   let imageUrl = "";
-  
+
   // Get alt text
   if (!isEnd(context) && check(context, TEXT)) {
     advance(context);
     altText = (previous(context) as VisibleToken).content;
   }
-  
+
   // Consume ](
   match(context, IMAGE_ALT_END);
-  
+
   // Get URL
   if (!isEnd(context) && check(context, TEXT)) {
     advance(context);
     imageUrl = (previous(context) as VisibleToken).content;
   }
-  
+
   // Consume )
   match(context, IMAGE_END);
-  
+
   // Consume optional newline
   match(context, NEWLINE);
-  
+
   return {
     id: `block-${context.blockIdCounter++}`,
-    type: "imageCover",
+    type: "image",
     url: imageUrl,
     alt: altText,
     // Default properties - not specified in markdown
   };
 }
 
-function parseHTMLImageCover(context: ParserContext): ImageCover {
+function parseHTMLImage(context: ParserContext): Image {
   // <img src="url" alt="alt" width="..." height="..." data-object-fit="..." />
   match(context, HTML_IMG);
   const htmlTag = (previous(context) as VisibleToken).content;
-  
+
   // Parse attributes from HTML tag
   const srcMatch = /src="([^"]+)"/.exec(htmlTag);
   const altMatch = /alt="([^"]*)"/.exec(htmlTag);
   const widthMatch = /(?:width|data-width)="([^"]+)"/.exec(htmlTag);
   const heightMatch = /height="([^"]+)"/.exec(htmlTag);
   const objectFitMatch = /data-object-fit="([^"]+)"/.exec(htmlTag);
-  
-  const imageUrl = srcMatch ? srcMatch[1] : '';
-  const altText = altMatch ? altMatch[1] : '';
-  const width = widthMatch ? (widthMatch[1] === 'full' ? 'full' : parseInt(widthMatch[1], 10)) : undefined;
+
+  const imageUrl = srcMatch ? srcMatch[1] : "";
+  const altText = altMatch ? altMatch[1] : "";
+  const width = widthMatch
+    ? widthMatch[1] === "full"
+      ? "full"
+      : parseInt(widthMatch[1], 10)
+    : undefined;
   const height = heightMatch ? parseInt(heightMatch[1], 10) : undefined;
-  const objectFit = objectFitMatch ? objectFitMatch[1] as ('cover' | 'contain') : undefined;
-  
+  const objectFit = objectFitMatch
+    ? (objectFitMatch[1] as "cover" | "contain")
+    : undefined;
+
   // Consume optional newline
   match(context, NEWLINE);
-  
+
   return {
     id: `block-${context.blockIdCounter++}`,
-    type: "imageCover",
+    type: "image",
     url: imageUrl,
     alt: altText,
     width,
@@ -325,7 +338,6 @@ function parseHTMLImageCover(context: ParserContext): ImageCover {
     objectFit,
   };
 }
-
 
 function match(context: ParserContext, ...types: TokenType[]): boolean {
   for (const type of types) {

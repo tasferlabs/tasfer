@@ -71,7 +71,7 @@ export function getEditorStyles(): EditorStyles {
         lineHeight: 1.6,
         paddingBottom: 4,
       },
-      imageCover: {
+      image: {
         placeholder: {
           backgroundColor: getCSSVariable("--muted"),
           textColor: getCSSVariable("--muted-foreground"),

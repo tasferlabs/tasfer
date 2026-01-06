@@ -76,7 +76,7 @@ export interface Editor {
     selection: EditorState["document"]["selection"]
   ) => void;
   forceRender: () => void;
-  updateImageCoverBlock: (
+  updateImageBlock: (
     blockIndex: number,
     updates: {
       url?: string;
@@ -258,7 +258,7 @@ export default function createEditor(
           }
 
           // Render the page content (text, blocks, selection, scrollbar)
-          // Drag handles are now rendered within renderImageCoverBlock for consistency
+          // Drag handles are now rendered within renderImageBlock for consistency
           documentHeight = renderPage(contentCtx, state, viewport, visibility);
 
           // Update cursor style based on scrollbar hover and drag state
@@ -943,7 +943,7 @@ export default function createEditor(
     listeners.forEach((listener) => listener(currentState));
   }
 
-  function updateImageCoverBlock(
+  function updateImageBlock(
     blockIndex: number,
     updates: {
       url?: string;
@@ -953,7 +953,7 @@ export default function createEditor(
   ) {
     const block = state.document.page.blocks[blockIndex];
 
-    if (!block || block.type !== "imageCover") {
+    if (!block || block.type !== "image") {
       console.error("Attempted to update non-image-cover block as image cover");
       return;
     }
@@ -1047,7 +1047,7 @@ export default function createEditor(
     setMode,
     restoreCursorAndSelection,
     forceRender: scheduleRender,
-    updateImageCoverBlock,
+    updateImageBlock: updateImageBlock,
     openImageUploadMenu,
     closeActiveMenu: closeActiveMenuMethod,
   };

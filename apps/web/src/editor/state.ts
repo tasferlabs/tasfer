@@ -149,7 +149,7 @@ export const getBlockTextLength = (block: Block): number => {
   if (!block) return 0;
 
   // Image cover blocks don't have text content
-  if (block.type === "imageCover") return 0;
+  if (block.type === "image") return 0;
 
   if (!isTextBlock(block)) {
     return 0;
@@ -162,7 +162,7 @@ export const getBlockTextContent = (block: Block): string => {
   if (!block) return "";
 
   // Image cover blocks don't have text content
-  if (block.type === "imageCover") return "";
+  if (block.type === "image") return "";
 
   if (!isTextBlock(block)) {
     return "";
@@ -258,10 +258,10 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
   if (!currentBlock) return state;
 
   // Handle image blocks - move to previous block
-  if (currentBlock.type === "imageCover") {
+  if (currentBlock.type === "image") {
     if (blockIndex > 0) {
       const prevBlock = state.document.page.blocks[blockIndex - 1];
-      if (prevBlock.type === "imageCover") {
+      if (prevBlock.type === "image") {
         return moveCursorToPosition(state, blockIndex - 1, 0);
       } else if (isTextBlock(prevBlock)) {
         const prevBlockLength = getBlockTextLength(prevBlock);
@@ -289,7 +289,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
       const nextBlock = state.document.page.blocks[blockIndex + 1];
 
       // Handle image blocks - move to the image block
-      if (nextBlock.type === "imageCover") {
+      if (nextBlock.type === "image") {
         return moveCursorToPosition(state, blockIndex + 1, 0);
       }
 
@@ -315,7 +315,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
       const prevBlock = state.document.page.blocks[blockIndex - 1];
 
       // Handle image blocks - move to the image block
-      if (prevBlock.type === "imageCover") {
+      if (prevBlock.type === "image") {
         return moveCursorToPosition(state, blockIndex - 1, 0);
       }
 
@@ -347,10 +347,10 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   if (!currentBlock) return state;
 
   // Handle image blocks - move to next block
-  if (currentBlock.type === "imageCover") {
+  if (currentBlock.type === "image") {
     if (blockIndex < state.document.page.blocks.length - 1) {
       const nextBlock = state.document.page.blocks[blockIndex + 1];
-      if (nextBlock.type === "imageCover") {
+      if (nextBlock.type === "image") {
         return moveCursorToPosition(state, blockIndex + 1, 0);
       } else if (isTextBlock(nextBlock)) {
         return moveCursorToPosition(state, blockIndex + 1, 0);
@@ -377,7 +377,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
       const prevBlock = state.document.page.blocks[blockIndex - 1];
 
       // Handle image blocks - move to the image block
-      if (prevBlock.type === "imageCover") {
+      if (prevBlock.type === "image") {
         return moveCursorToPosition(state, blockIndex - 1, 0);
       }
 
@@ -404,7 +404,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
       const nextBlock = state.document.page.blocks[blockIndex + 1];
 
       // Handle image blocks - move to the image block
-      if (nextBlock.type === "imageCover") {
+      if (nextBlock.type === "image") {
         return moveCursorToPosition(state, blockIndex + 1, 0);
       }
 
@@ -574,10 +574,10 @@ export const moveCursorUp = (
   if (!currentBlock) return state;
 
   // Handle image blocks - move to previous block
-  if (currentBlock.type === "imageCover") {
+  if (currentBlock.type === "image") {
     if (blockIndex > 0) {
       const prevBlock = state.document.page.blocks[blockIndex - 1];
-      if (prevBlock.type === "imageCover") {
+      if (prevBlock.type === "image") {
         // Move to previous image block
         return moveCursorToPosition(state, blockIndex - 1, 0);
       } else if (isTextBlock(prevBlock)) {
@@ -667,7 +667,7 @@ export const moveCursorUp = (
     const prevBlock = state.document.page.blocks[blockIndex - 1];
 
     // Handle image blocks - position cursor at start of image block
-    if (prevBlock.type === "imageCover") {
+    if (prevBlock.type === "image") {
       return moveCursorToPosition(state, blockIndex - 1, 0);
     }
 
@@ -737,10 +737,10 @@ export const moveCursorDown = (
   if (!currentBlock) return state;
 
   // Handle image blocks - move to next block
-  if (currentBlock.type === "imageCover") {
+  if (currentBlock.type === "image") {
     if (blockIndex < state.document.page.blocks.length - 1) {
       const nextBlock = state.document.page.blocks[blockIndex + 1];
-      if (nextBlock.type === "imageCover") {
+      if (nextBlock.type === "image") {
         // Move to next image block
         return moveCursorToPosition(state, blockIndex + 1, 0);
       } else if (isTextBlock(nextBlock)) {
@@ -840,7 +840,7 @@ export const moveCursorDown = (
     const nextBlock = state.document.page.blocks[blockIndex + 1];
 
     // Handle image blocks - position cursor at start of image block
-    if (nextBlock.type === "imageCover") {
+    if (nextBlock.type === "image") {
       return moveCursorToPosition(state, blockIndex + 1, 0);
     }
 

@@ -85,7 +85,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     width: number;
     height: number;
     blockIndex: number;
-    hoveredHandle: 'left' | 'right' | 'bottom' | null;
+    hoveredHandle: "left" | "right" | "bottom" | null;
   } | null>(null);
 
   const lastImageHoverStateRef = useRef<typeof imageHoverState>(null);
@@ -598,12 +598,12 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
               // Get current block to check if there's an existing URL to clear from failed cache
               const block =
                 state.document.page.blocks[imageUploadState.blockIndex];
-              if (block && block.type === "imageCover" && block.url) {
+              if (block && block.type === "image" && block.url) {
                 clearFailedImageCache(block.url);
               }
 
               // Set uploading status
-              editor.updateImageCoverBlock(
+              editor.updateImageBlock(
                 imageUploadState.blockIndex,
                 {},
                 "uploading"
@@ -614,7 +614,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
                 const imageData = await uploadImage(file);
 
                 // Update with the uploaded URL
-                editor.updateImageCoverBlock(
+                editor.updateImageBlock(
                   imageUploadState.blockIndex,
                   {
                     url: imageData.url,
@@ -624,7 +624,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
                 );
               } catch (error) {
                 console.error("Image upload failed:", error);
-                editor.updateImageCoverBlock(
+                editor.updateImageBlock(
                   imageUploadState.blockIndex,
                   {},
                   "error"
@@ -638,7 +638,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
               // Clear failed cache for this URL to allow retry
               clearFailedImageCache(url);
 
-              editor.updateImageCoverBlock(
+              editor.updateImageBlock(
                 imageUploadState.blockIndex,
                 { url },
                 "complete"
@@ -691,7 +691,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
           if (!state) return null;
 
           const block = state.document.page.blocks[displayState.blockIndex];
-          if (block?.type !== "imageCover") return null;
+          if (block?.type !== "image") return null;
 
           // Check if the image is in placeholder mode (no URL)
           const isPlaceholder = !block.url;
@@ -730,7 +730,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
 
                     const block =
                       state.document.page.blocks[displayState.blockIndex];
-                    if (block.type === "imageCover") {
+                    if (block.type === "image") {
                       // Get button position to open popover below it
                       const buttonRect =
                         e.currentTarget.getBoundingClientRect();

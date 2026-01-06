@@ -137,35 +137,37 @@ function getImageBlockAtPoint(
 
     // Special handling for first block image covers that bleed into padding
     const isFirstBlock = blockIndex === 0;
-    const isImageCover = block.type === "imageCover";
-    
+    const isImage = block.type === "image";
+
     // Get image width early to determine if it should bleed
-    const imageWidth = isImageCover ? (block.width ?? 'full') : 'full';
-    const shouldBleed = isFirstBlock && isImageCover && imageWidth === 'full';
+    const imageWidth = isImage ? block.width ?? "full" : "full";
+    const shouldBleed = isFirstBlock && isImage && imageWidth === "full";
 
     // For first block image covers that bleed, check from the top of the viewport (adjusted for padding)
     const checkStartY = shouldBleed
-        ? currentY - styles.canvas.paddingTop
-        : currentY;
+      ? currentY - styles.canvas.paddingTop
+      : currentY;
 
     // Check if y is within this block's bounds (accounting for padding bleed)
     if (y >= checkStartY && y < currentY + blockHeight) {
       // Check if this is an image cover block
-      if (isImageCover) {
-        const { height: defaultImageHeight, placeholderHeight } = styles.blocks.imageCover.dimensions;
-        
+      if (isImage) {
+        const { height: defaultImageHeight, placeholderHeight } =
+          styles.blocks.image.dimensions;
+
         // Image properties already calculated above
         const imageHeight = block.height ?? defaultImageHeight;
-        const objectFit = block.objectFit ?? 'cover';
-        
+        const objectFit = block.objectFit ?? "cover";
+
         // Calculate container dimensions based on width setting
         let displayWidth: number;
         let displayHeight: number;
         let displayX: number;
-        
-        if (imageWidth === 'full') {
+
+        if (imageWidth === "full") {
           // Full width: edge-to-edge (ignoring padding)
-          displayWidth = maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
+          displayWidth =
+            maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
           displayX = 0;
           displayHeight = block.url ? imageHeight : placeholderHeight;
         } else {
@@ -173,7 +175,7 @@ function getImageBlockAtPoint(
           const requestedWidth = imageWidth;
           displayWidth = Math.min(requestedWidth, maxWidth);
           displayX = styles.canvas.paddingLeft + (maxWidth - displayWidth) / 2; // Center the image
-          
+
           // Adjust height proportionally if width was constrained
           // This ensures images resized on desktop don't get distorted on mobile
           if (block.url && displayWidth < requestedWidth) {
@@ -184,9 +186,11 @@ function getImageBlockAtPoint(
             displayHeight = block.url ? imageHeight : placeholderHeight;
           }
         }
-        
+
         // Use the shouldBleed flag calculated earlier
-        const adjustedY = shouldBleed ? currentY - styles.canvas.paddingTop : currentY;
+        const adjustedY = shouldBleed
+          ? currentY - styles.canvas.paddingTop
+          : currentY;
         const adjustedHeight = displayHeight;
 
         // Check if mouse is within the container area
@@ -201,14 +205,15 @@ function getImageBlockAtPoint(
           let finalY = adjustedY;
           let finalWidth = displayWidth;
           let finalHeight = adjustedHeight;
-          
-          if (objectFit === 'contain' && block.url) {
+
+          if (objectFit === "contain" && block.url) {
             // Try to get the cached image to calculate actual bounds
             const cachedImage = imageCache.get(block.url);
             if (cachedImage && cachedImage.complete) {
-              const imgAspectRatio = cachedImage.naturalWidth / cachedImage.naturalHeight;
+              const imgAspectRatio =
+                cachedImage.naturalWidth / cachedImage.naturalHeight;
               const containerAspectRatio = displayWidth / adjustedHeight;
-              
+
               if (imgAspectRatio > containerAspectRatio) {
                 // Image is wider than container - fit to width
                 finalHeight = displayWidth / imgAspectRatio;
@@ -220,7 +225,7 @@ function getImageBlockAtPoint(
               }
             }
           }
-          
+
           return {
             blockIndex,
             x: finalX,
@@ -259,63 +264,64 @@ function getDragHandleAtPoint(
   imageY: number,
   imageWidth: number,
   imageHeight: number,
-  objectFit: 'cover' | 'contain' = 'cover',
+  objectFit: "cover" | "contain" = "cover",
   extraTolerance: number = 4
-): 'left' | 'right' | 'bottom' | null {
+): "left" | "right" | "bottom" | null {
   const styles = getEditorStyles();
   const { vertical, horizontal } = styles.imageResize.dragHandles;
-  
+
   // Extra tolerance for easier hovering/tapping (pixels beyond the visible bar)
   const tolerance = extraTolerance;
-  
+
   // Left vertical bar (centered vertically with specified length)
   const leftBarX = imageX + vertical.inset;
   const leftBarWidth = vertical.thickness;
   const leftBarY = imageY + (imageHeight - vertical.length) / 2; // Center vertically
   const leftBarHeight = vertical.length;
-  
+
   if (
     x >= leftBarX - tolerance &&
     x <= leftBarX + leftBarWidth + tolerance &&
     y >= leftBarY &&
     y <= leftBarY + leftBarHeight
   ) {
-    return 'left';
+    return "left";
   }
-  
+
   // Right vertical bar (centered vertically with specified length)
   const rightBarX = imageX + imageWidth - vertical.inset - vertical.thickness;
   const rightBarWidth = vertical.thickness;
   const rightBarY = imageY + (imageHeight - vertical.length) / 2; // Center vertically
   const rightBarHeight = vertical.length;
-  
+
   if (
     x >= rightBarX - tolerance &&
     x <= rightBarX + rightBarWidth + tolerance &&
     y >= rightBarY &&
     y <= rightBarY + rightBarHeight
   ) {
-    return 'right';
+    return "right";
   }
-  
+
   // Bottom horizontal bar (centered horizontally with specified length)
   // Only active in cover mode
-  if (objectFit === 'cover') {
+  if (objectFit === "cover") {
     const bottomBarX = imageX + (imageWidth - horizontal.length) / 2; // Center horizontally
     const bottomBarWidth = horizontal.length;
-    const bottomBarY = imageY + imageHeight - horizontal.inset - horizontal.thickness;
+    const bottomBarY =
+      imageY + imageHeight - horizontal.inset - horizontal.thickness;
     const bottomBarHeight = horizontal.thickness;
-    
+
     if (
       x >= bottomBarX &&
       x <= bottomBarX + bottomBarWidth &&
       y >= bottomBarY - tolerance &&
       y <= bottomBarY + bottomBarHeight + tolerance
     ) {
-      return 'bottom';
+      return "bottom";
     }
   }
-  
+
   return null;
 }
 
@@ -330,17 +336,23 @@ function getDragHandleAtPoint(
  */
 function startImageDrag(
   state: EditorState,
-  imageBlock: { blockIndex: number; x: number; y: number; width: number; height: number },
+  imageBlock: {
+    blockIndex: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  },
   canvasX: number,
   canvasY: number,
   extraTolerance: number = 4
 ): EditorState | null {
   const block = state.document.page.blocks[imageBlock.blockIndex];
-  if (block.type !== "imageCover") {
+  if (block.type !== "image") {
     return null;
   }
-  
-  const objectFit = block.objectFit ?? 'cover';
+
+  const objectFit = block.objectFit ?? "cover";
   const clickedHandle = getDragHandleAtPoint(
     canvasX,
     canvasY,
@@ -351,16 +363,16 @@ function startImageDrag(
     objectFit,
     extraTolerance
   );
-  
+
   if (clickedHandle && block.url) {
     // Start dragging the handle
     // Use the displayed dimensions (imageBlock.width/height) instead of stored dimensions (block.width/height)
     // This ensures that resizing works correctly on mobile when the image was resized on desktop
     // For 'full' width images, we keep them as 'full'
-    const storedWidth = block.width ?? 'full';
-    const startWidth = storedWidth === 'full' ? 'full' : imageBlock.width;
+    const storedWidth = block.width ?? "full";
+    const startWidth = storedWidth === "full" ? "full" : imageBlock.width;
     const startHeight = imageBlock.height;
-    
+
     return {
       ...state,
       ui: {
@@ -377,7 +389,7 @@ function startImageDrag(
       },
     };
   }
-  
+
   return null;
 }
 
@@ -398,108 +410,133 @@ function updateImageDrag(
   if (!state.ui.imageDrag) {
     return state;
   }
-  
-  const { blockIndex, handle, startX, startY, startWidth, startHeight, startObjectFit } = state.ui.imageDrag;
+
+  const {
+    blockIndex,
+    handle,
+    startX,
+    startY,
+    startWidth,
+    startHeight,
+    startObjectFit,
+  } = state.ui.imageDrag;
   const block = state.document.page.blocks[blockIndex];
-  
-  if (block.type !== 'imageCover') {
+
+  if (block.type !== "image") {
     return state;
   }
-  
+
   const styles = getEditorStyles();
   const deltaX = canvasX - startX;
   const deltaY = canvasY - startY;
-  const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
   const snapThreshold = 20; // pixels to snap to padding
-  
-  let newWidth: number | 'full' = startWidth;
+
+  let newWidth: number | "full" = startWidth;
   let newHeight = startHeight;
-  let newObjectFit: 'cover' | 'contain' = startObjectFit;
-  
-  if (handle === 'left' || handle === 'right') {
+  let newObjectFit: "cover" | "contain" = startObjectFit;
+
+  if (handle === "left" || handle === "right") {
     // Horizontal resize
-    const widthDelta = handle === 'left' ? -deltaX * 2 : deltaX * 2; // multiply by 2 because we resize from center
+    const widthDelta = handle === "left" ? -deltaX * 2 : deltaX * 2; // multiply by 2 because we resize from center
     const { minWidth: constraintMinWidth } = styles.imageResize.constraints;
-    
-    if (startWidth === 'full') {
+
+    if (startWidth === "full") {
       // Start from full width
       const currentWidth = viewport.width;
       newWidth = Math.max(constraintMinWidth, currentWidth + widthDelta);
-      
+
       // Check if we should snap to padding (transitioning to contained)
       if (Math.abs(newWidth - maxWidth) < snapThreshold) {
         newWidth = maxWidth;
-        newObjectFit = 'contain';
+        newObjectFit = "contain";
       } else if (newWidth < maxWidth - snapThreshold) {
         // Definitely in contain mode
-        newObjectFit = 'contain';
+        newObjectFit = "contain";
       } else if (newWidth > maxWidth) {
         // If width exceeds document width (maxWidth), stay in cover mode
-        newWidth = 'full';
-        newObjectFit = 'cover';
+        newWidth = "full";
+        newObjectFit = "cover";
       } else if (newWidth >= viewport.width - 10) {
         // Snap back to full if close
-        newWidth = 'full';
-        newObjectFit = 'cover';
+        newWidth = "full";
+        newObjectFit = "cover";
       }
     } else {
       // Already in custom width mode
-      newWidth = Math.max(constraintMinWidth, Math.min(viewport.width, (startWidth as number) + widthDelta));
-      
+      newWidth = Math.max(
+        constraintMinWidth,
+        Math.min(viewport.width, (startWidth as number) + widthDelta)
+      );
+
       // Check if we should snap back to full width
       if (newWidth >= viewport.width - snapThreshold) {
-        newWidth = 'full';
-        newObjectFit = 'cover';
-      } else if (newWidth >= maxWidth - snapThreshold && newWidth <= maxWidth + snapThreshold) {
+        newWidth = "full";
+        newObjectFit = "cover";
+      } else if (
+        newWidth >= maxWidth - snapThreshold &&
+        newWidth <= maxWidth + snapThreshold
+      ) {
         // Snap to padding width
         newWidth = maxWidth;
-        newObjectFit = 'contain';
+        newObjectFit = "contain";
       } else if (newWidth > maxWidth) {
         // If width exceeds document width (maxWidth), convert to cover
-        newWidth = 'full';
-        newObjectFit = 'cover';
+        newWidth = "full";
+        newObjectFit = "cover";
       } else {
         // Remain in contain mode
-        newObjectFit = 'contain';
+        newObjectFit = "contain";
       }
     }
-    
+
     // In contain mode, calculate height based on image aspect ratio to avoid jumps
     // Apply minWidth constraint to prevent over-resizing of wide images
-    if (newObjectFit === 'contain' && typeof newWidth === 'number' && block.url) {
+    if (
+      newObjectFit === "contain" &&
+      typeof newWidth === "number" &&
+      block.url
+    ) {
       const cachedImage = imageCache.get(block.url);
       if (cachedImage && cachedImage.complete) {
-        const imgAspectRatio = cachedImage.naturalWidth / cachedImage.naturalHeight;
-        
+        const imgAspectRatio =
+          cachedImage.naturalWidth / cachedImage.naturalHeight;
+
         // Ensure width doesn't go below minimum (already enforced above, but keep for clarity)
         newWidth = Math.max(newWidth, constraintMinWidth);
-        
+
         // Calculate height based on width and aspect ratio
         newHeight = newWidth / imgAspectRatio;
       }
     }
-  } else if (handle === 'bottom' && startObjectFit === 'cover') {
+  } else if (handle === "bottom" && startObjectFit === "cover") {
     // Vertical resize (only in cover mode)
     // In cover mode, we enforce minimum height
     const { minHeight: constraintMinHeight } = styles.imageResize.constraints;
-    const calculatedHeight = Math.max(constraintMinHeight, startHeight + deltaY);
-    
+    const calculatedHeight = Math.max(
+      constraintMinHeight,
+      startHeight + deltaY
+    );
+
     // Cap height based on image aspect ratio to prevent over-resizing
     if (block.url) {
       const cachedImage = imageCache.get(block.url);
       if (cachedImage && cachedImage.complete) {
-        const imgAspectRatio = cachedImage.naturalWidth / cachedImage.naturalHeight;
-        
+        const imgAspectRatio =
+          cachedImage.naturalWidth / cachedImage.naturalHeight;
+
         // Calculate the current container width
-        const containerWidth = typeof startWidth === 'number' ? startWidth : viewport.width;
-        
+        const containerWidth =
+          typeof startWidth === "number" ? startWidth : viewport.width;
+
         // For portrait images (tall), cap the height so it doesn't exceed the image's natural ratio
         // This prevents excessive cropping when the image is resized too tall
         const maxHeightForRatio = containerWidth / imgAspectRatio;
-        
+
         // Cap the height at the image's natural ratio relative to container width
         newHeight = Math.min(calculatedHeight, maxHeightForRatio);
-        
+
         // Ensure we don't go below minimum height
         newHeight = Math.max(newHeight, constraintMinHeight);
       } else {
@@ -509,7 +546,7 @@ function updateImageDrag(
       newHeight = calculatedHeight;
     }
   }
-  
+
   // Update the block with new dimensions
   const updatedBlock: Block = {
     ...block,
@@ -517,13 +554,13 @@ function updateImageDrag(
     height: newHeight,
     objectFit: newObjectFit,
   };
-  
+
   // Invalidate the block height cache since dimensions changed
   invalidateBlockCache(updatedBlock);
-  
+
   const newBlocks = [...state.document.page.blocks];
   newBlocks[blockIndex] = updatedBlock;
-  
+
   return {
     ...state,
     document: {
@@ -542,7 +579,7 @@ function endImageDrag(state: EditorState): EditorState {
   if (!state.ui.imageDrag) {
     return state;
   }
-  
+
   // Record undo for the image resize operation
   const finalState = recordUndo(state);
   return {
@@ -563,7 +600,7 @@ function cancelImageDrag(state: EditorState): EditorState {
   if (!state.ui.imageDrag) {
     return state;
   }
-  
+
   return {
     ...state,
     ui: {
@@ -1262,13 +1299,13 @@ function handleMouseDown(
   const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
   if (imageBlock) {
     const block = state.document.page.blocks[imageBlock.blockIndex];
-    if (block.type === "imageCover") {
+    if (block.type === "image") {
       // Check if clicking on a drag handle and start drag if applicable
       const dragState = startImageDrag(state, imageBlock, canvasX, canvasY);
       if (dragState) {
         return dragState;
       }
-      
+
       // If it's a placeholder (no URL), open the upload menu immediately
       if (!block.url) {
         // Don't reopen if we just closed the menu for this same block
@@ -1321,12 +1358,19 @@ function handleMouseDown(
   }
 
   // Check if we have an image selected but clicked outside its container
-  if (!imageBlock && state.document.selection && !state.document.selection.isCollapsed) {
+  if (
+    !imageBlock &&
+    state.document.selection &&
+    !state.document.selection.isCollapsed
+  ) {
     const { anchor, focus } = state.document.selection;
     // Check if this is an image selection (anchor and focus at same position on an image block)
-    if (anchor.blockIndex === focus.blockIndex && anchor.textIndex === focus.textIndex) {
+    if (
+      anchor.blockIndex === focus.blockIndex &&
+      anchor.textIndex === focus.textIndex
+    ) {
       const selectedBlock = state.document.page.blocks[anchor.blockIndex];
-      if (selectedBlock && selectedBlock.type === "imageCover") {
+      if (selectedBlock && selectedBlock.type === "image") {
         // We have an image selected, but clicked outside it - clear the selection
         state = clearSelection(state);
       }
@@ -1335,7 +1379,8 @@ function handleMouseDown(
 
   // Check if clicking in top padding area
   const styles = getEditorStyles();
-  const isClickInTopPadding = canvasY < styles.canvas.paddingTop - viewport.scrollY;
+  const isClickInTopPadding =
+    canvasY < styles.canvas.paddingTop - viewport.scrollY;
 
   // If clicking in top padding, clear selection
   if (isClickInTopPadding) {
@@ -1360,21 +1405,23 @@ function handleMouseDown(
   const lastBlockIndex = state.document.page.blocks.length - 1;
   if (lastBlockIndex >= 0 && position.blockIndex === lastBlockIndex) {
     const lastBlock = state.document.page.blocks[lastBlockIndex];
-    
+
     // Calculate if click is below the last block's content
     let totalContentHeight = styles.canvas.paddingTop;
     for (let i = 0; i < state.document.page.blocks.length; i++) {
       const block = state.document.page.blocks[i];
-      const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+      const maxWidth =
+        viewport.width -
+        (styles.canvas.paddingLeft + styles.canvas.paddingRight);
       totalContentHeight += getBlockHeight(block, maxWidth, styles, i);
     }
     const isClickBelowContent = canvasY > totalContentHeight - viewport.scrollY;
-    
+
     // If clicking below content and last block is an image, select it
-    if (isClickBelowContent && lastBlock.type === "imageCover") {
+    if (isClickBelowContent && lastBlock.type === "image") {
       const imagePosition = { blockIndex: lastBlockIndex, textIndex: 0 };
       let newState = updateCursor(state, imagePosition);
-      
+
       // Select the image block
       newState = {
         ...newState,
@@ -1389,7 +1436,7 @@ function handleMouseDown(
           },
         },
       };
-      
+
       return updateMode(newState, "edit");
     }
   }
@@ -1507,8 +1554,9 @@ function handleMouseMove(
     if (imageBlock) {
       // Get the block to check its object-fit mode
       const block = state.document.page.blocks[imageBlock.blockIndex];
-      const objectFit = block.type === 'imageCover' ? (block.objectFit ?? 'cover') : 'cover';
-      
+      const objectFit =
+        block.type === "image" ? block.objectFit ?? "cover" : "cover";
+
       // Check if hovering over a drag handle
       const hoveredHandle = getDragHandleAtPoint(
         canvasX,
@@ -1519,7 +1567,7 @@ function handleMouseMove(
         imageBlock.height,
         objectFit
       );
-      
+
       // Mouse is over an image block - set imageHover state (not a blocking menu)
       state = {
         ...state,
@@ -1950,7 +1998,7 @@ function handleKeyDown(
           const block = state.document.page.blocks[blockIndex];
 
           // Image cover blocks shouldn't have slash commands, but guard anyway
-          if (block.type === "imageCover") {
+          if (block.type === "image") {
             return closeSlashCommand(state);
           }
 
@@ -2094,20 +2142,23 @@ function handleKeyDown(
       } else {
         // Check if we're on an image at the start of the page
         if (state.document.cursor) {
-          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
           const isFirstBlock = state.document.cursor.position.blockIndex === 0;
-          
-          if (isFirstBlock && currentBlock?.type === "imageCover") {
+
+          if (isFirstBlock && currentBlock?.type === "image") {
             // Create a new paragraph above the image
             const newParagraph: Block = {
               id: generateBlockId(),
               type: "paragraph",
               content: [{ content: "" }],
             };
-            
+
             const newBlocks = [newParagraph, ...state.document.page.blocks];
             const newPage = { ...state.document.page, blocks: newBlocks };
-            
+
             newState = {
               ...state,
               document: { ...state.document, page: newPage },
@@ -2117,12 +2168,15 @@ function handleKeyDown(
             break;
           }
         }
-        
+
         // Check if we should remove an auto-created paragraph (RTL: left = forward)
         if (state.ui.autoCreatedParagraph && state.document.cursor) {
           const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
-          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
-          
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+
           // Check if cursor is on the auto-created paragraph and it's RTL and empty
           if (
             state.document.cursor.position.blockIndex === blockIndex &&
@@ -2133,9 +2187,11 @@ function handleKeyDown(
             getFormattedTextDirection(currentBlock.content) === "rtl"
           ) {
             // Remove the auto-created paragraph and move to the image below
-            const newBlocks = state.document.page.blocks.filter((_, i) => i !== blockIndex);
+            const newBlocks = state.document.page.blocks.filter(
+              (_, i) => i !== blockIndex
+            );
             const newPage = { ...state.document.page, blocks: newBlocks };
-            
+
             newState = {
               ...state,
               document: { ...state.document, page: newPage },
@@ -2147,9 +2203,9 @@ function handleKeyDown(
             // Move cursor to the image that was below
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, 0, 0);
-            
+
             // Select the image block
-            if (newState.document.page.blocks[0]?.type === "imageCover") {
+            if (newState.document.page.blocks[0]?.type === "image") {
               newState = {
                 ...newState,
                 document: {
@@ -2167,13 +2223,15 @@ function handleKeyDown(
             break;
           }
         }
-        
+
         // If there's a selection, check if it's an image block selection
         const range = getSelectionRange(newState);
-        const isImageSelection = range && 
-          state.document.page.blocks[range.start.blockIndex]?.type === "imageCover" &&
+        const isImageSelection =
+          range &&
+          state.document.page.blocks[range.start.blockIndex]?.type ===
+            "image" &&
           range.start.blockIndex === range.end.blockIndex;
-        
+
         if (range && !isImageSelection) {
           // Regular text selection - move to the start of it
           newState = moveCursorToPosition(
@@ -2193,7 +2251,7 @@ function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (targetBlock && targetBlock.type === "imageCover") {
+          if (targetBlock && targetBlock.type === "image") {
             const imagePosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -2212,12 +2270,13 @@ function handleKeyDown(
               },
             };
           }
-          
+
           // Clear auto-created paragraph tracking only if we moved away from it
           if (
             state.ui.autoCreatedParagraph &&
             newState.document.cursor &&
-            newState.document.cursor.position.blockIndex !== state.ui.autoCreatedParagraph.blockIndex
+            newState.document.cursor.position.blockIndex !==
+              state.ui.autoCreatedParagraph.blockIndex
           ) {
             newState = clearAutoCreatedParagraph(newState);
           }
@@ -2235,20 +2294,25 @@ function handleKeyDown(
       } else {
         // Check if we're on an image at the end of the page
         if (state.document.cursor) {
-          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
-          const isLastBlock = state.document.cursor.position.blockIndex === state.document.page.blocks.length - 1;
-          
-          if (isLastBlock && currentBlock?.type === "imageCover") {
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+          const isLastBlock =
+            state.document.cursor.position.blockIndex ===
+            state.document.page.blocks.length - 1;
+
+          if (isLastBlock && currentBlock?.type === "image") {
             // Create a new paragraph below the image
             const newParagraph: Block = {
               id: generateBlockId(),
               type: "paragraph",
               content: [{ content: "" }],
             };
-            
+
             const newBlocks = [...state.document.page.blocks, newParagraph];
             const newPage = { ...state.document.page, blocks: newBlocks };
-            
+
             newState = {
               ...state,
               document: { ...state.document, page: newPage },
@@ -2258,12 +2322,15 @@ function handleKeyDown(
             break;
           }
         }
-        
+
         // Check if we should remove an auto-created paragraph (LTR: right = forward)
         if (state.ui.autoCreatedParagraph && state.document.cursor) {
           const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
-          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
-          
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+
           // Check if cursor is on the auto-created paragraph and it's LTR and empty
           if (
             state.document.cursor.position.blockIndex === blockIndex &&
@@ -2274,9 +2341,11 @@ function handleKeyDown(
             getFormattedTextDirection(currentBlock.content) === "ltr"
           ) {
             // Remove the auto-created paragraph and move to the image below
-            const newBlocks = state.document.page.blocks.filter((_, i) => i !== blockIndex);
+            const newBlocks = state.document.page.blocks.filter(
+              (_, i) => i !== blockIndex
+            );
             const newPage = { ...state.document.page, blocks: newBlocks };
-            
+
             newState = {
               ...state,
               document: { ...state.document, page: newPage },
@@ -2288,9 +2357,9 @@ function handleKeyDown(
             // Move cursor to the image that was below
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, 0, 0);
-            
+
             // Select the image block
-            if (newState.document.page.blocks[0]?.type === "imageCover") {
+            if (newState.document.page.blocks[0]?.type === "image") {
               newState = {
                 ...newState,
                 document: {
@@ -2308,13 +2377,14 @@ function handleKeyDown(
             break;
           }
         }
-        
+
         // If there's a selection, check if it's an image block selection
         const range = getSelectionRange(newState);
-        const isImageSelection = range && 
-          state.document.page.blocks[range.end.blockIndex]?.type === "imageCover" &&
+        const isImageSelection =
+          range &&
+          state.document.page.blocks[range.end.blockIndex]?.type === "image" &&
           range.start.blockIndex === range.end.blockIndex;
-        
+
         if (range && !isImageSelection) {
           // Regular text selection - move to the end of it
           newState = moveCursorToPosition(
@@ -2334,7 +2404,7 @@ function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (targetBlock && targetBlock.type === "imageCover") {
+          if (targetBlock && targetBlock.type === "image") {
             const imagePosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -2353,12 +2423,13 @@ function handleKeyDown(
               },
             };
           }
-          
+
           // Clear auto-created paragraph tracking only if we moved away from it
           if (
             state.ui.autoCreatedParagraph &&
             newState.document.cursor &&
-            newState.document.cursor.position.blockIndex !== state.ui.autoCreatedParagraph.blockIndex
+            newState.document.cursor.position.blockIndex !==
+              state.ui.autoCreatedParagraph.blockIndex
           ) {
             newState = clearAutoCreatedParagraph(newState);
           }
@@ -2374,26 +2445,32 @@ function handleKeyDown(
       } else {
         // Check if we're on an image at the start of the page
         if (state.document.cursor) {
-          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
           const isFirstBlock = state.document.cursor.position.blockIndex === 0;
-          
-          if (isFirstBlock && currentBlock?.type === "imageCover") {
+
+          if (isFirstBlock && currentBlock?.type === "image") {
             // Create a new paragraph above the image
             const newParagraph: Block = {
               id: generateBlockId(),
               type: "paragraph",
               content: [{ content: "" }],
             };
-            
+
             const newBlocks = [newParagraph, ...state.document.page.blocks];
             const newPage = { ...state.document.page, blocks: newBlocks };
-            
+
             newState = {
               ...state,
               document: { ...state.document, page: newPage },
               ui: {
                 ...state.ui,
-                autoCreatedParagraph: { blockIndex: 0, blockId: newParagraph.id },
+                autoCreatedParagraph: {
+                  blockIndex: 0,
+                  blockId: newParagraph.id,
+                },
               },
             };
             newState = clearSelection(newState);
@@ -2401,7 +2478,7 @@ function handleKeyDown(
             break;
           }
         }
-        
+
         // Clear selection and move cursor
         newState = moveCursorUp(clearSelection(newState), viewport);
 
@@ -2411,7 +2488,7 @@ function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (targetBlock && targetBlock.type === "imageCover") {
+          if (targetBlock && targetBlock.type === "image") {
             const imagePosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -2430,12 +2507,13 @@ function handleKeyDown(
               },
             };
           }
-          
+
           // Clear auto-created paragraph tracking only if we moved away from it
           if (
             state.ui.autoCreatedParagraph &&
             newState.document.cursor &&
-            newState.document.cursor.position.blockIndex !== state.ui.autoCreatedParagraph.blockIndex
+            newState.document.cursor.position.blockIndex !==
+              state.ui.autoCreatedParagraph.blockIndex
           ) {
             newState = clearAutoCreatedParagraph(newState);
           }
@@ -2452,8 +2530,11 @@ function handleKeyDown(
         // Check if we should remove an auto-created paragraph
         if (state.ui.autoCreatedParagraph && state.document.cursor) {
           const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
-          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
-          
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+
           // If cursor is on the auto-created paragraph and it's still empty
           if (
             state.document.cursor.position.blockIndex === blockIndex &&
@@ -2463,9 +2544,11 @@ function handleKeyDown(
             getBlockTextContent(currentBlock) === ""
           ) {
             // Remove the auto-created paragraph and move to the image below
-            const newBlocks = state.document.page.blocks.filter((_, i) => i !== blockIndex);
+            const newBlocks = state.document.page.blocks.filter(
+              (_, i) => i !== blockIndex
+            );
             const newPage = { ...state.document.page, blocks: newBlocks };
-            
+
             newState = {
               ...state,
               document: { ...state.document, page: newPage },
@@ -2477,9 +2560,9 @@ function handleKeyDown(
             // Move cursor to the image that was below
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, 0, 0);
-            
+
             // Select the image block
-            if (newState.document.page.blocks[0]?.type === "imageCover") {
+            if (newState.document.page.blocks[0]?.type === "image") {
               newState = {
                 ...newState,
                 document: {
@@ -2497,23 +2580,28 @@ function handleKeyDown(
             break;
           }
         }
-        
+
         // Check if we're on an image at the end of the page
         if (state.document.cursor) {
-          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
-          const isLastBlock = state.document.cursor.position.blockIndex === state.document.page.blocks.length - 1;
-          
-          if (isLastBlock && currentBlock?.type === "imageCover") {
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+          const isLastBlock =
+            state.document.cursor.position.blockIndex ===
+            state.document.page.blocks.length - 1;
+
+          if (isLastBlock && currentBlock?.type === "image") {
             // Create a new paragraph below the image
             const newParagraph: Block = {
               id: generateBlockId(),
               type: "paragraph",
               content: [{ content: "" }],
             };
-            
+
             const newBlocks = [...state.document.page.blocks, newParagraph];
             const newPage = { ...state.document.page, blocks: newBlocks };
-            
+
             newState = {
               ...state,
               document: { ...state.document, page: newPage },
@@ -2523,7 +2611,7 @@ function handleKeyDown(
             break;
           }
         }
-        
+
         // Clear selection and move cursor
         newState = moveCursorDown(clearSelection(newState), viewport);
 
@@ -2533,7 +2621,7 @@ function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (targetBlock && targetBlock.type === "imageCover") {
+          if (targetBlock && targetBlock.type === "image") {
             const imagePosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -2552,12 +2640,13 @@ function handleKeyDown(
               },
             };
           }
-          
+
           // Clear auto-created paragraph tracking only if we moved away from it
           if (
             state.ui.autoCreatedParagraph &&
             newState.document.cursor &&
-            newState.document.cursor.position.blockIndex !== state.ui.autoCreatedParagraph.blockIndex
+            newState.document.cursor.position.blockIndex !==
+              state.ui.autoCreatedParagraph.blockIndex
           ) {
             newState = clearAutoCreatedParagraph(newState);
           }
@@ -2855,7 +2944,13 @@ function handleTouchStart(
     const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
     const TOUCH_TOLERANCE = 12; // Larger tolerance for touch devices
     if (imageBlock && !isScrollbarTouch) {
-      const dragState = startImageDrag(state, imageBlock, canvasX, canvasY, TOUCH_TOLERANCE);
+      const dragState = startImageDrag(
+        state,
+        imageBlock,
+        canvasX,
+        canvasY,
+        TOUCH_TOLERANCE
+      );
       if (dragState) {
         // Start image drag - initialize touch state but don't treat as scroll
         touchState = {
@@ -2874,7 +2969,7 @@ function handleTouchStart(
           currentTouchY: canvasY,
           isTouchingSelection: false,
         };
-        
+
         return {
           ...dragState,
           view: {
@@ -3009,7 +3104,7 @@ function handleTouchMove(
     if (state.ui.imageDrag) {
       touchState.lastY = canvasY;
       touchState.lastTime = currentTime;
-      
+
       return {
         ...updateImageDrag(state, viewport, canvasX, canvasY),
         view: {
@@ -3243,7 +3338,8 @@ function handleTouchEnd(
 
     // Check if tapping in top padding area
     const styles = getEditorStyles();
-    const isTapInTopPadding = tapPosition.y < styles.canvas.paddingTop - viewport.scrollY;
+    const isTapInTopPadding =
+      tapPosition.y < styles.canvas.paddingTop - viewport.scrollY;
 
     // If tapping in top padding, clear selection
     if (isTapInTopPadding) {
@@ -3253,7 +3349,7 @@ function handleTouchEnd(
       if (state.ui.activeMenu.type === "contextMenu") {
         state = closeActiveMenu(state);
       }
-      
+
       touchState = null;
       return {
         ...state,
@@ -3301,21 +3397,24 @@ function handleTouchEnd(
       const lastBlockIndex = state.document.page.blocks.length - 1;
       if (lastBlockIndex >= 0 && position.blockIndex === lastBlockIndex) {
         const lastBlock = state.document.page.blocks[lastBlockIndex];
-        
+
         // Calculate if tap is below the last block's content
         let totalContentHeight = styles.canvas.paddingTop;
         for (let i = 0; i < state.document.page.blocks.length; i++) {
           const block = state.document.page.blocks[i];
-          const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+          const maxWidth =
+            viewport.width -
+            (styles.canvas.paddingLeft + styles.canvas.paddingRight);
           totalContentHeight += getBlockHeight(block, maxWidth, styles, i);
         }
-        const isTapBelowContent = tapPosition.y > totalContentHeight - viewport.scrollY;
-        
+        const isTapBelowContent =
+          tapPosition.y > totalContentHeight - viewport.scrollY;
+
         // If tapping below content and last block is an image, select it
-        if (isTapBelowContent && lastBlock.type === "imageCover") {
+        if (isTapBelowContent && lastBlock.type === "image") {
           const imagePosition = { blockIndex: lastBlockIndex, textIndex: 0 };
           state = updateCursor(state, imagePosition);
-          
+
           // Select the image block
           state = {
             ...state,
@@ -3330,7 +3429,7 @@ function handleTouchEnd(
               },
             },
           };
-          
+
           touchState = null;
           return {
             ...updateMode(state, "edit"),
@@ -3344,10 +3443,10 @@ function handleTouchEnd(
           };
         }
       }
-      
+
       // Check if tapped on an image cover block
       const tappedBlock = state.document.page.blocks[position.blockIndex];
-      if (tappedBlock && tappedBlock.type === "imageCover") {
+      if (tappedBlock && tappedBlock.type === "image") {
         // Verify the tap is actually within the image bounds, not just in the block
         const imageBlock = getImageBlockAtPoint(
           tapPosition.x,
@@ -3440,12 +3539,19 @@ function handleTouchEnd(
       }
 
       // Check if we have an image selected but tapped outside its container
-      if (tappedBlock?.type !== "imageCover" && state.document.selection && !state.document.selection.isCollapsed) {
+      if (
+        tappedBlock?.type !== "image" &&
+        state.document.selection &&
+        !state.document.selection.isCollapsed
+      ) {
         const { anchor, focus } = state.document.selection;
         // Check if this is an image selection (anchor and focus at same position on an image block)
-        if (anchor.blockIndex === focus.blockIndex && anchor.textIndex === focus.textIndex) {
+        if (
+          anchor.blockIndex === focus.blockIndex &&
+          anchor.textIndex === focus.textIndex
+        ) {
           const selectedBlock = state.document.page.blocks[anchor.blockIndex];
-          if (selectedBlock && selectedBlock.type === "imageCover") {
+          if (selectedBlock && selectedBlock.type === "image") {
             // We have an image selected, but tapped outside it - clear the selection
             state = clearSelection(state);
           }

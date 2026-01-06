@@ -1,6 +1,6 @@
 import { IMAGE_COVER_DEFAULT_HEIGHT } from "@/editor/constants";
 import type { Block } from "./loadPage";
-import { isImageCoverDefault } from "./loadPage";
+import { isImageDefault } from "./loadPage";
 
 export function serializeToMarkdown(blocks: Block[]): string {
   if (blocks.length === 0) {
@@ -9,11 +9,11 @@ export function serializeToMarkdown(blocks: Block[]): string {
   
   const serializedBlocks = blocks.map((block) => {
     // Handle image cover blocks separately
-    if (block.type === "imageCover") {
+    if (block.type === "image") {
       const alt = block.alt || "";
       
       // If image is in default state, use markdown syntax
-      if (isImageCoverDefault(block)) {
+      if (isImageDefault(block)) {
         return `![${alt}](${block.url})`;
       }
       
@@ -71,7 +71,7 @@ export function serializeToMarkdown(blocks: Block[]): string {
   const lastBlock = blocks[blocks.length - 1];
   
   // Only check for empty content if it's a text block
-  if (lastBlock.type !== "imageCover") {
+  if (lastBlock.type !== "image") {
     const lastBlockIsEmpty = lastBlock.content.length === 0 || 
       (lastBlock.content.length === 1 && lastBlock.content[0].content === "");
     

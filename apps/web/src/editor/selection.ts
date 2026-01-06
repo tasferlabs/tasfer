@@ -39,7 +39,7 @@ export function getCursorCoordinates(
   if (!block) return null;
 
   // Image cover blocks don't have cursors - they shouldn't be used with this function
-  if (block.type === "imageCover") return null;
+  if (block.type === "image") return null;
 
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
@@ -156,7 +156,7 @@ export function getCursorCoordinatesWithComposition(
   if (!block) return null;
 
   // Image cover blocks don't have cursors
-  if (block.type === "imageCover") return null;
+  if (block.type === "image") return null;
 
   if (!isTextBlock(block)) {
     return null;
@@ -440,7 +440,7 @@ function getPositionWithinBlock(
 ): Position {
   // Image cover blocks don't have text content - position at start of block
   // The cursor will actually be in a neighboring text block
-  if (block.type === "imageCover") {
+  if (block.type === "image") {
     return {
       blockIndex,
       textIndex: 0,
@@ -704,7 +704,7 @@ export function getLinkAtPosition(
   if (!block) return null;
 
   // Image cover blocks don't have text content or links
-  if (block.type === "imageCover") return null;
+  if (block.type === "image") return null;
 
   let currentIndex = 0;
 

@@ -37,8 +37,8 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     keywords: ["h3", "heading3", "heading 3", "3"],
   },
   {
-    id: "imageCover",
-    type: "imageCover",
+    id: "image",
+    type: "image",
     label: "Cover Image",
     description: "Full-width cover image.",
     icon: <Image size={20} />,
