@@ -1,5 +1,6 @@
 import { getCurrentFontFamily, FONT_STACKS } from "./fonts";
 import type { EditorStyles, TextStyle } from "./types";
+import { IMAGE_DEFAULT_HEIGHT } from "./constants";
 
 /**
  * Track window focus state globally for editor styling
@@ -70,6 +71,44 @@ export function getEditorStyles(): EditorStyles {
         lineHeight: 1.6,
         paddingBottom: 4,
       },
+      image: {
+        placeholder: {
+          backgroundColor: getCSSVariable("--muted"),
+          textColor: getCSSVariable("--muted-foreground"),
+          borderColor: getCSSVariable("--border"),
+          text: "Click to upload image",
+        },
+        loading: {
+          backgroundColor: getCSSVariable("--muted"),
+          textColor: getCSSVariable("--muted-foreground"),
+          text: "Loading image...",
+        },
+        uploading: {
+          backgroundColor: getCSSVariable("--muted"),
+          textColor: getCSSVariable("--muted-foreground"),
+          text: "Uploading image...",
+        },
+        error: {
+          backgroundColor: getCSSVariable("--destructive"),
+          textColor: getCSSVariable("--destructive-foreground"),
+          text: "Failed to upload image",
+          retryText: "Click to retry",
+        },
+        hover: {
+          overlayColor: getCSSVariable("--editor-cover-image-overlay"),
+          buttonBackgroundColor: getCSSVariable("--background"),
+          buttonTextColor: getCSSVariable("--foreground"),
+          buttonText: "Change Image",
+        },
+        dimensions: {
+          height: IMAGE_DEFAULT_HEIGHT,
+          placeholderHeight: 150,
+          paddingBottom: 16,
+          buttonWidth: 120,
+          buttonHeight: 40,
+          borderRadius: 6,
+        },
+      },
     },
     cursor: {
       width: 2,
@@ -110,6 +149,43 @@ export function getEditorStyles(): EditorStyles {
         color: getCSSVariable("--editor-link"),
         underlineThickness: 1,
         hoverColor: getCSSVariable("--editor-link-hover"),
+      },
+    },
+    imageResize: {
+      dragHandles: {
+        // Vertical bars (left and right sides) - both for horizontal resize (redundant but better UX)
+        vertical: {
+          length: 100, // Height of the vertical drag bar
+          thickness: 6, // Thickness of the vertical drag bar
+          borderRadius: 3, // Rounded corners (0 = sharp)
+          backgroundColor: getCSSVariable("--muted-foreground"),
+          hoverBackgroundColor: getCSSVariable("--primary"),
+          opacity: 1, // Hidden by default
+          hoverOpacity: 1, // Visible on hover
+          inset: 16, // Distance from the edge (0 = at the edge, positive = inside)
+        },
+        // Horizontal bar (bottom) - for vertical resize
+        horizontal: {
+          length: 200, // Width of the horizontal drag bar
+          thickness: 6, // Thickness of the horizontal drag bar
+          borderRadius: 3, // Rounded corners (0 = sharp)
+          backgroundColor: getCSSVariable("--muted-foreground"),
+          hoverBackgroundColor: getCSSVariable("--primary"),
+          opacity: 1, // Hidden by default
+          hoverOpacity: 1, // Visible on hover
+          inset: 16, // Distance from the edge (0 = at the edge, positive = inside)
+        },
+      },
+      outline: {
+        color: getCSSVariable("--primary"),
+        width: 2,
+        opacity: 0, // Hidden by default
+        hoverOpacity: 0, // Subtle outline on hover
+        dashPattern: [4, 4], // Dashed outline pattern
+      },
+      constraints: {
+        minWidth: 300, // Minimum width for resized images
+        minHeight: IMAGE_DEFAULT_HEIGHT, // Minimum height for resized images
       },
     },
   };

@@ -1,5 +1,6 @@
 import type { EditorState, Position } from "./types";
 import type { Block } from "../deserializer/loadPage";
+import { isTextBlock } from "../deserializer/loadPage";
 import {
   getBlockTextContent,
   moveCursorToPosition,
@@ -17,6 +18,7 @@ import { recordUndo } from "./undo";
 import { invalidateBlockCache } from "./renderer";
 import { serializeToMarkdown } from "../deserializer/serializer";
 import { loadPage } from "../deserializer/loadPage";
+import { IMAGE_DEFAULT_HEIGHT } from "./constants";
 
 export function hasNativeBridge(): boolean {
   return !!(window.IOSBridge || window.AndroidBridge);
@@ -118,6 +120,25 @@ function getSelectedContent(state: EditorState): {
     const block = state.document.page.blocks[start.blockIndex];
     const text = getBlockTextContent(block);
     
+    // Image cover blocks are included as-is
+    if (block.type === "image") {
+      return {
+        blocks: [block],
+        isPartial: false,
+        start,
+        end,
+      };
+    }
+    
+    if (!isTextBlock(block)) {
+      return {
+        blocks: [block],
+        isPartial: false,
+        start,
+        end,
+      };
+    }
+    
     // Extract the selected portion while preserving formatting
     const selectedContent = deleteTextRangeInFormattedContent(
       deleteTextRangeInFormattedContent(block.content, 0, start.textIndex),
@@ -144,6 +165,17 @@ function getSelectedContent(state: EditorState): {
   for (let i = start.blockIndex; i <= end.blockIndex; i++) {
     const block = state.document.page.blocks[i];
     const text = getBlockTextContent(block);
+
+    // Image cover blocks are included as-is
+    if (block.type === "image") {
+      blocks.push(block);
+      continue;
+    }
+
+    if (!isTextBlock(block)) {
+      blocks.push(block);
+      continue;
+    }
 
     let blockContent = block.content;
     if (i === start.blockIndex) {
@@ -199,6 +231,28 @@ function blocksToMarkdown(blocks: Block[]): string {
  */
 function blocksToHTML(blocks: Block[]): string {
   const htmlBlocks = blocks.map((block) => {
+    // Handle image cover blocks
+    if (block.type === "image") {
+      const alt = block.alt || "";
+      
+      // Check if image has custom properties
+      const width = block.width ?? 'full';
+      const height = block.height ?? IMAGE_DEFAULT_HEIGHT;
+      const objectFit = block.objectFit ?? 'cover';
+      
+      // Always output with full properties for HTML clipboard
+      const widthAttr = width === 'full' ? 'data-width="full"' : `width="${width}"`;
+      const heightAttr = `height="${height}"`;
+      const objectFitAttr = `data-object-fit="${objectFit}"`;
+      const altAttr = alt ? ` alt="${alt}"` : '';
+      
+      return `<img src="${block.url}"${altAttr} ${widthAttr} ${heightAttr} ${objectFitAttr} />`;
+    }
+
+    if (!isTextBlock(block)) {
+      return "";
+    }
+
     // Build content with inline formatting as HTML
     let htmlContent = "";
     
@@ -436,6 +490,12 @@ function parseHTMLToBlocks(html: string): Block[] {
         });
         return segments;
       }
+      
+      // Handle <img> tags - these should be handled as blocks, not inline
+      // Skip them here and they'll be processed separately
+      if (tagName === "img") {
+        return segments;
+      }
 
       // Process child nodes
       for (let i = 0; i < node.childNodes.length; i++) {
@@ -448,7 +508,7 @@ function parseHTMLToBlocks(html: string): Block[] {
 
   // Helper function to check if an element is a block-level content element
   function isBlockElement(tagName: string): boolean {
-    return ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'li'].includes(tagName);
+    return ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'li', 'img'].includes(tagName);
   }
 
   // Helper function to check if an element is a container element
@@ -555,6 +615,32 @@ function parseHTMLToBlocks(html: string): Block[] {
     
     // Handle regular HTML elements
     const tagName = element.tagName.toLowerCase();
+    
+    // Handle img tags
+    if (tagName === 'img') {
+      const src = element.getAttribute('src');
+      if (src) {
+        const alt = element.getAttribute('alt') || '';
+        const widthAttr = element.getAttribute('width') || element.getAttribute('data-width');
+        const heightAttr = element.getAttribute('height');
+        const objectFitAttr = element.getAttribute('data-object-fit');
+        
+        const width = widthAttr === 'full' ? 'full' : (widthAttr ? parseInt(widthAttr, 10) : undefined);
+        const height = heightAttr ? parseInt(heightAttr, 10) : undefined;
+        const objectFit = objectFitAttr as ('cover' | 'contain') | undefined;
+        
+        blocks.push({
+          id: generateBlockId(),
+          type: "image",
+          url: src,
+          alt,
+          width,
+          height,
+          objectFit,
+        });
+      }
+      continue;
+    }
     
     // Extract formatted content
     const content = extractTextWithFormatting(element);
@@ -735,6 +821,16 @@ function insertBlocksAtCursor(
 
   // If pasting a single block
   if (blocks.length === 1) {
+    // Can't paste into non-text blocks
+    if (!isTextBlock(currentBlock)) {
+      return state;
+    }
+    
+    // Can't paste non-text blocks into text blocks
+    if (!isTextBlock(blocks[0])) {
+      return state;
+    }
+    
     // Merge the pasted block's formatted content into current block at cursor position
     const pasteContent = blocks[0].content;
     
@@ -798,6 +894,16 @@ function insertBlocksAtCursor(
     );
   } else {
     // Pasting multiple blocks - preserve formatting in split blocks
+    if (!isTextBlock(currentBlock)) {
+      return state;
+    }
+    
+    // Filter out non-text blocks from paste (or handle them separately)
+    const textBlocks = blocks.filter(isTextBlock);
+    if (textBlocks.length === 0) {
+      return state;
+    }
+    
     const beforeContent = deleteTextRangeInFormattedContent(
       currentBlock.content,
       textIndex,
@@ -810,21 +916,21 @@ function insertBlocksAtCursor(
     );
 
     // First block: current block's content before cursor + first pasted block's content
-    const firstPastedContent = blocks[0].content;
+    const firstPastedContent = textBlocks[0].content;
     const firstBlockContent = [...beforeContent, ...firstPastedContent];
     const firstBlock: Block = {
-      ...blocks[0],
+      ...textBlocks[0],
       content: mergeAdjacentSegments(firstBlockContent),
     };
 
-    // Middle blocks: paste as-is
-    const middleBlocks = blocks.slice(1, -1);
+    // Middle blocks: paste as-is (only text blocks)
+    const middleBlocks = textBlocks.slice(1, -1);
 
     // Last block: last pasted block's content + current block's content after cursor
-    const lastPastedContent = blocks[blocks.length - 1].content;
+    const lastPastedContent = textBlocks[textBlocks.length - 1].content;
     const lastBlockContent = [...lastPastedContent, ...afterContent];
     const lastBlock: Block = {
-      ...blocks[blocks.length - 1],
+      ...textBlocks[textBlocks.length - 1],
       content: mergeAdjacentSegments(lastBlockContent),
     };
 
@@ -852,8 +958,8 @@ function insertBlocksAtCursor(
     };
 
     // Move cursor to end of last pasted block
-    const lastBlockIndex = blockIndex + blocks.length - 1;
-    const lastPastedText = getBlockTextContent(blocks[blocks.length - 1]);
+    const lastBlockIndex = blockIndex + textBlocks.length - 1;
+    const lastPastedText = getBlockTextContent(textBlocks[textBlocks.length - 1]);
     newState = moveCursorToPosition(
       newState,
       lastBlockIndex,

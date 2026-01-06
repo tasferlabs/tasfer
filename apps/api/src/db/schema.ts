@@ -15,3 +15,12 @@ export const pages = pgTable("pages", {
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
 });
+
+export const images = pgTable("images", {
+  id: varchar("id", { length: 30 }).primaryKey(),
+  fileName: text("fileName").notNull(),
+  filePath: text("filePath").notNull(),
+  mimeType: text("mimeType").notNull(),
+  size: integer("size").notNull(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});

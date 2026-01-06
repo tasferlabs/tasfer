@@ -14,9 +14,11 @@
   "dependencies": {
     "@paralleldrive/cuid2": "^3.0.6",
     "@types/cors": "^2.8.19",
+    "@types/multer": "^2.0.0",
     "cors": "^2.8.5",
     "drizzle-orm": "^0.45.1",
     "express": "^5.2.1",
+    "multer": "^2.0.2",
     "pg": "^8.16.3",
     "postgres": "^3.4.7"
   },

@@ -7,7 +7,7 @@ export interface SlashCommand {
   type: Block["type"];
   label: string;
   description: string;
-  icon: string;
+  icon: string | React.ReactElement;
   keywords?: string[];
 }
 
@@ -32,6 +32,15 @@ export interface LinkHoverState {
   readonly segmentIndex: number;
 }
 
+// Unified menu system - only one menu can be active at a time
+export type ActiveMenu =
+  | { type: 'none' }
+  | { type: 'slashCommand'; blockIndex: number; textIndex: number; filter: string; selectedIndex: number }
+  | { type: 'contextMenu'; x: number; y: number }
+  | { type: 'linkHover'; position: Position; url: string; text: string; x: number; y: number; segmentIndex: number }
+  | { type: 'linkEdit'; position: Position; url: string; text: string; x: number; y: number; segmentIndex: number }
+  | { type: 'imageUpload'; blockIndex: number; x: number; y: number; uploadStatus?: 'uploading' | 'complete' | 'error' };
+
 // Document State - Only this goes in undo/redo
 export interface DocumentState {
   readonly page: Page;
@@ -51,15 +60,40 @@ export type ActiveFormatsMode =
   | { type: 'inherit' } // Inherit formatting from previous character (normal typing)
   | { type: 'explicit'; formats: readonly TextFormat[] }; // Explicit formatting mode (Ctrl+B toggled on/off)
 
+// Drag handle position on an image
+export type DragHandlePosition = 'left' | 'right' | 'bottom' | null;
+
+// Drag state for image resize
+export interface ImageDragState {
+  readonly blockIndex: number;
+  readonly handle: DragHandlePosition;
+  readonly startX: number;
+  readonly startY: number;
+  readonly startWidth: number | 'full';
+  readonly startHeight: number;
+  readonly startObjectFit: 'cover' | 'contain';
+}
+
+// Image Hover State - Not a menu, just visual feedback
+export interface ImageHoverState {
+  readonly blockIndex: number;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly hoveredHandle: DragHandlePosition; // Track which drag handle is being hovered
+}
+
 // UI State - Transient interaction state (menus, popovers, mode)
 export interface UIState {
   readonly mode: EditorMode;
-  readonly slashCommand: SlashCommandState | null;
-  readonly contextMenu: ContextMenuState | null;
-  readonly linkHover: LinkHoverState | null;
+  readonly activeMenu: ActiveMenu; // Unified menu system - replaces slashCommand, contextMenu, linkHover, imageUpload
   readonly isHoveringLinkWithModifier: boolean;
   readonly composition: CompositionState | null;
   readonly activeFormatsMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
+  readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)
+  readonly imageDrag: ImageDragState | null; // Active image drag operation
+  readonly autoCreatedParagraph: { blockIndex: number; blockId: string } | null; // Track auto-created paragraphs from arrow up/down on images
 }
 
 // View State - Ephemeral view properties
@@ -68,13 +102,6 @@ export interface ViewState {
   readonly clickTracker: ClickTracker;
   readonly scrollbar: ScrollbarState;
   readonly momentum: MomentumState;
-}
-
-export interface SlashCommandState {
-  readonly blockIndex: number;
-  readonly textIndex: number;
-  readonly filter: string;
-  readonly selectedIndex: number;
 }
 
 // Undo only tracks document state now
@@ -171,6 +198,7 @@ export interface EditorStyles {
   readonly cursor: CursorStyles;
   readonly placeholder: PlaceholderStyles;
   readonly textFormats: TextFormatStyles;
+  readonly imageResize: ImageResizeStyles;
 }
 
 export interface CanvasStyles {
@@ -186,6 +214,7 @@ export interface BlockStyles {
   readonly heading2: TextStyle;
   readonly heading3: TextStyle;
   readonly paragraph: TextStyle;
+  readonly image: ImageStyles;
 }
 
 export interface TextStyle {
@@ -236,6 +265,81 @@ export interface TextFormatStyles {
     readonly color: string;
     readonly underlineThickness: number;
     readonly hoverColor: string;
+  };
+}
+
+export interface ImageResizeStyles {
+  readonly dragHandles: {
+    readonly vertical: {
+      readonly length: number;
+      readonly thickness: number;
+      readonly borderRadius: number;
+      readonly backgroundColor: string;
+      readonly hoverBackgroundColor: string;
+      readonly opacity: number;
+      readonly hoverOpacity: number;
+      readonly inset: number;
+    };
+    readonly horizontal: {
+      readonly length: number;
+      readonly thickness: number;
+      readonly borderRadius: number;
+      readonly backgroundColor: string;
+      readonly hoverBackgroundColor: string;
+      readonly opacity: number;
+      readonly hoverOpacity: number;
+      readonly inset: number;
+    };
+  };
+  readonly outline: {
+    readonly color: string;
+    readonly width: number;
+    readonly opacity: number;
+    readonly hoverOpacity: number;
+    readonly dashPattern: readonly number[];
+  };
+  readonly constraints: {
+    readonly minWidth: number;
+    readonly minHeight: number;
+  };
+}
+
+export interface ImageStyles {
+  readonly placeholder: {
+    readonly backgroundColor: string;
+    readonly textColor: string;
+    readonly borderColor: string;
+    readonly text: string;
+  };
+  readonly loading: {
+    readonly backgroundColor: string;
+    readonly textColor: string;
+    readonly text: string;
+  };
+  readonly uploading: {
+    readonly backgroundColor: string;
+    readonly textColor: string;
+    readonly text: string;
+  };
+  readonly error: {
+    readonly backgroundColor: string;
+    readonly textColor: string;
+    readonly text: string;
+    readonly retryText: string;
+  };
+  readonly hover: {
+    readonly overlayColor: string;
+    readonly buttonBackgroundColor: string;
+    readonly buttonTextColor: string;
+    readonly buttonText: string;
+  };
+  readonly dimensions: {
+    readonly height: number;
+    readonly placeholderHeight: number;
+    readonly paddingBottom: number;
+    readonly buttonWidth: number;
+    readonly buttonHeight: number;
+    readonly borderRadius: number;
   };
 }
 

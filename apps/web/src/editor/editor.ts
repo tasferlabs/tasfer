@@ -13,9 +13,11 @@ import {
 } from "./clipboard";
 import { handleEvents, isInLongPressMode } from "./events";
 import {
-  calculateBlockHeight,
   renderPage,
+  renderCursorLayer,
   clearAllBlockCaches,
+  invalidateBlockCache,
+  getBlockHeight,
 } from "./renderer";
 import {
   getCursorCoordinates,
@@ -30,17 +32,21 @@ import {
   updateCursor,
   updateSelection,
   createInitialCursorState,
+  setActiveMenu,
+  closeActiveMenu,
+  isTouchDevice,
 } from "./state";
 import { getEditorStyles } from "./styles";
 import type { EditorState, SlashCommand, ViewportState } from "./types";
 import { recordUndo, undoState, redoState } from "./undo";
+import type { CanvasLayers } from "./layers";
 
 export interface Editor {
   getState: () => EditorState | null;
   destroy: () => void;
   updateViewport: (viewport: Partial<ViewportState>) => void;
   getDocumentHeight: () => number;
-  setFocus: (focused: boolean) => void;
+  setFocus: (focused: boolean, shouldClearSelection?: boolean) => void;
   setInitialCursor: () => void;
   getCursorScreenPosition: () => {
     x: number;
@@ -70,18 +76,34 @@ export interface Editor {
     selection: EditorState["document"]["selection"]
   ) => void;
   forceRender: () => void;
+  updateImageBlock: (
+    blockIndex: number,
+    updates: {
+      url?: string;
+      alt?: string;
+    },
+    uploadStatus?: "uploading" | "complete" | "error"
+  ) => void;
+  openImageUploadMenu: (
+    blockIndex: number,
+    x: number,
+    y: number,
+    existingUrl?: string,
+    existingAlt?: string
+  ) => void;
+  closeActiveMenu: () => void;
 }
 
 export default function createEditor(
-  canvas: HTMLCanvasElement,
+  layers: CanvasLayers,
   initialState: EditorState,
   viewportProp: ViewportState,
   hiddenInput?: HTMLInputElement
 ): Editor {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    throw new Error("Could not get 2D context from canvas");
-  }
+  // Extract contexts from layers
+  const contentCtx = layers.content.ctx;
+  const cursorCtx = layers.cursor.ctx;
+  const contentCanvas = layers.content.canvas;
 
   let state: EditorState = initialState;
   let viewport = viewportProp;
@@ -93,7 +115,13 @@ export default function createEditor(
   };
 
   let isRendering = false;
-  let needsRender = true; // Dirty flag to track if canvas needs re-rendering - start with true for initial render
+
+  // Dirty flags for each layer
+  let dirtyLayers = {
+    content: true, // Start with true for initial render
+    cursor: true,
+  };
+
   let lastCursorBlinkState = false; // Track cursor blink state changes
 
   const eventsQueue: Event[] = [];
@@ -106,29 +134,20 @@ export default function createEditor(
   } | null = null;
 
   /**
-   * Mark that a render is needed.
-   * This implements a "dirty flag" pattern where the canvas only re-renders
-   * when something has actually changed, instead of rendering every frame.
-   * The requestAnimationFrame loop continues running for smooth interactions,
-   * but canvas rendering is skipped when nothing has changed.
+   * Mark that content layer needs re-rendering (expensive operation).
+   * This is called when page content, selection, or viewport changes.
    */
   const scheduleRender = () => {
-    needsRender = true;
-  };
-
-  // Detect if device has touch support
-  const isTouchDevice = (): boolean => {
-    return (
-      typeof window !== "undefined" &&
-      ("ontouchstart" in window || navigator.maxTouchPoints > 0)
-    );
+    dirtyLayers.content = true;
+    dirtyLayers.cursor = true; // Cursor position may have changed too
   };
 
   // Update canvas cursor style based on scrollbar hover and drag state
   const updateCursorStyle = (
     isHoveringScrollbar: boolean,
     isDragging: boolean,
-    isHoveringLinkWithModifier: boolean
+    isHoveringLinkWithModifier: boolean,
+    dragHandleHover: "left" | "right" | "bottom" | null = null
   ) => {
     // Only update cursor on desktop (not touch devices)
     if (isTouchDevice()) {
@@ -137,16 +156,23 @@ export default function createEditor(
 
     if (isDragging) {
       // When dragging scrollbar, use grabbing cursor
-      canvas.style.cursor = "grabbing";
+      contentCanvas.style.cursor = "grabbing";
+    } else if (dragHandleHover) {
+      // When hovering over a drag handle, use resize cursor
+      if (dragHandleHover === "left" || dragHandleHover === "right") {
+        contentCanvas.style.cursor = "ew-resize"; // Horizontal resize
+      } else if (dragHandleHover === "bottom") {
+        contentCanvas.style.cursor = "ns-resize"; // Vertical resize
+      }
     } else if (isHoveringScrollbar) {
       // When hovering over scrollbar, use pointer cursor
-      canvas.style.cursor = "pointer";
+      contentCanvas.style.cursor = "pointer";
     } else if (isHoveringLinkWithModifier) {
       // When hovering over link with Ctrl/Cmd held, use pointer cursor
-      canvas.style.cursor = "pointer";
+      contentCanvas.style.cursor = "pointer";
     } else {
       // When hovering over text, use text cursor
-      canvas.style.cursor = "text";
+      contentCanvas.style.cursor = "text";
     }
   };
 
@@ -157,7 +183,7 @@ export default function createEditor(
 
     try {
       // Get current canvas position for event coordinate adjustment
-      const containerRect = canvas.getBoundingClientRect();
+      const containerRect = contentCanvas.getBoundingClientRect();
       const rect = {
         left: containerRect.left,
         top: containerRect.top,
@@ -181,6 +207,33 @@ export default function createEditor(
       // Check if state changed or if there are events that require rendering
       const stateChanged = prevState !== state;
 
+      // Determine what changed to decide which layers to update
+      if (stateChanged) {
+        // Check if page content changed (requires content layer update)
+        if (prevState.document.page !== state.document.page) {
+          dirtyLayers.content = true;
+          dirtyLayers.cursor = true; // Cursor position may have changed
+        }
+
+        // Check if selection changed (requires content layer update)
+        if (prevState.document.selection !== state.document.selection) {
+          dirtyLayers.content = true;
+        }
+
+        // Check if cursor position changed (requires cursor layer update)
+        if (
+          prevState.document.cursor?.position !==
+          state.document.cursor?.position
+        ) {
+          dirtyLayers.cursor = true;
+        }
+
+        // Check if focus changed (affects cursor visibility)
+        if (prevState.view.isFocused !== state.view.isFocused) {
+          dirtyLayers.cursor = true;
+        }
+      }
+
       // Check if cursor blink state changed (for cursor animation)
       const currentCursorBlinkState = state.document.cursor
         ? isCursorBlinking(state.document.cursor, getEditorStyles())
@@ -189,30 +242,52 @@ export default function createEditor(
         lastCursorBlinkState !== currentCursorBlinkState;
       lastCursorBlinkState = currentCursorBlinkState;
 
-      // Only render canvas if something changed (scheduled render, state change, or cursor blink)
-      // This prevents unnecessary canvas draws which are expensive
-      if (needsRender || stateChanged || cursorBlinkChanged) {
-        documentHeight = renderPage(ctx, state, viewport, visibility);
+      // Cursor blink only affects cursor layer
+      if (cursorBlinkChanged) {
+        dirtyLayers.cursor = true;
+      }
 
-        // Update cursor style based on scrollbar hover and drag state
-        updateCursorStyle(
-          state.view.scrollbar.isHovered,
-          state.view.scrollbar.isDragging,
-          state.ui.isHoveringLinkWithModifier
-        );
+      // Render dirty layers
+      const needsAnyRender = dirtyLayers.content || dirtyLayers.cursor;
+
+      if (needsAnyRender) {
+        // Render content layer if dirty (expensive)
+        if (dirtyLayers.content) {
+          // Pre-calculate document height to clamp viewport before rendering
+          const newDocumentHeight = getDocumentHeight();
+          const maxScroll = Math.max(0, newDocumentHeight - viewport.height);
+          if (viewport.scrollY > maxScroll) {
+            viewport = { ...viewport, scrollY: maxScroll };
+          }
+
+          // Render the page content (text, blocks, selection, scrollbar)
+          // Drag handles are now rendered within renderImageBlock for consistency
+          documentHeight = renderPage(contentCtx, state, viewport, visibility);
+
+          // Update cursor style based on scrollbar hover and drag state
+          updateCursorStyle(
+            state.view.scrollbar.isHovered,
+            state.view.scrollbar.isDragging,
+            state.ui.isHoveringLinkWithModifier,
+            state.ui.imageHover?.hoveredHandle || null
+          );
+
+          dirtyLayers.content = false;
+        }
+
+        // Render cursor layer if dirty (very cheap!)
+        if (dirtyLayers.cursor) {
+          renderCursorLayer(cursorCtx, state, viewport);
+          dirtyLayers.cursor = false;
+        }
 
         // Update hidden input position to match cursor for IME composition toolbar
         if (hiddenInput && state.document.cursor && state.view.isFocused) {
-          // Use special function that accounts for composition text wrapping
-          // This ensures the toolbar follows the text when it wraps to a new line
           const cursorCoords = getCursorCoordinatesWithComposition(
             state,
             viewport
           );
           if (cursorCoords) {
-            // Position the hidden input at the end of composition text
-            // Offset vertically by cursor height so composition toolbar appears below the text
-            // This prevents the toolbar from covering the composition text
             hiddenInput.style.left = `${cursorCoords.x}px`;
             hiddenInput.style.top = `${
               cursorCoords.y - viewport.scrollY + cursorCoords.height
@@ -225,8 +300,6 @@ export default function createEditor(
           const currentState = state;
           listeners.forEach((listener) => listener(currentState));
         }
-
-        needsRender = false; // Reset dirty flag
       }
     } finally {
       isRendering = false;
@@ -348,8 +421,16 @@ export default function createEditor(
     const touchDuration = Date.now() - touchStartTime;
     const wasTap = !touchHasMoved && touchDuration < TAP_TIME_THRESHOLD;
 
-    // Focus input if ending long press or on tap
-    if (hiddenInput && isTouchDevice() && (wasLongPress || wasTap)) {
+    // Don't focus input if a context menu just opened (it would close the menu)
+    const hasContextMenu = state.ui.activeMenu.type === "contextMenu";
+
+    // Focus input if ending long press or on tap (but not when context menu is open)
+    if (
+      hiddenInput &&
+      isTouchDevice() &&
+      (wasLongPress || wasTap) &&
+      !hasContextMenu
+    ) {
       try {
         hiddenInput.focus({ preventScroll: true });
         // Some browsers need click as well
@@ -550,25 +631,33 @@ export default function createEditor(
       }
     };
     if (!isTouchDevice()) {
-      canvas.addEventListener("mousedown", canvasClickHandler);
+      contentCanvas.addEventListener("mousedown", canvasClickHandler);
 
-      canvas.addEventListener("contextmenu", eventsHandler);
-      canvas.addEventListener("mousedown", eventsHandler);
-      canvas.addEventListener("mousemove", eventsHandler);
-      canvas.addEventListener("mouseup", eventsHandler);
-      canvas.addEventListener("wheel", eventsHandler, { passive: false });
+      contentCanvas.addEventListener("contextmenu", eventsHandler);
+      contentCanvas.addEventListener("mousedown", eventsHandler);
+      contentCanvas.addEventListener("mousemove", eventsHandler);
+      contentCanvas.addEventListener("mouseup", eventsHandler);
+      contentCanvas.addEventListener("wheel", eventsHandler, {
+        passive: false,
+      });
 
       window.addEventListener("mouseup", windowMouseUpHandler);
       window.addEventListener("mousemove", windowMouseMoveHandler);
     }
-    canvas.addEventListener("click", canvasClickHandler);
+    contentCanvas.addEventListener("click", canvasClickHandler);
 
-    canvas.addEventListener("touchstart", touchStartHandler, {
+    contentCanvas.addEventListener("touchstart", touchStartHandler, {
       passive: false,
     });
-    canvas.addEventListener("touchmove", touchMoveHandler, { passive: false });
-    canvas.addEventListener("touchend", touchEndHandler, { passive: false });
-    canvas.addEventListener("touchcancel", eventsHandler, { passive: false });
+    contentCanvas.addEventListener("touchmove", touchMoveHandler, {
+      passive: false,
+    });
+    contentCanvas.addEventListener("touchend", touchEndHandler, {
+      passive: false,
+    });
+    contentCanvas.addEventListener("touchcancel", eventsHandler, {
+      passive: false,
+    });
     window.addEventListener("keydown", eventsHandler);
     window.addEventListener("paste", eventsHandler);
 
@@ -600,33 +689,33 @@ export default function createEditor(
     }
 
     if (canvasClickHandler) {
-      canvas.removeEventListener("click", canvasClickHandler);
+      contentCanvas.removeEventListener("click", canvasClickHandler);
     }
 
     if (!isTouchDevice()) {
       if (canvasClickHandler) {
-        canvas.removeEventListener("mousedown", canvasClickHandler);
+        contentCanvas.removeEventListener("mousedown", canvasClickHandler);
         canvasClickHandler = null;
       }
 
-      canvas.removeEventListener("contextmenu", eventsHandler);
-      canvas.removeEventListener("mousedown", eventsHandler);
-      canvas.removeEventListener("mousemove", eventsHandler);
-      canvas.removeEventListener("mouseup", eventsHandler);
-      canvas.removeEventListener("pointerdown", eventsHandler);
-      canvas.removeEventListener("pointermove", eventsHandler);
-      canvas.removeEventListener("pointerup", eventsHandler);
-      canvas.removeEventListener("pointercancel", eventsHandler);
-      canvas.removeEventListener("wheel", eventsHandler);
+      contentCanvas.removeEventListener("contextmenu", eventsHandler);
+      contentCanvas.removeEventListener("mousedown", eventsHandler);
+      contentCanvas.removeEventListener("mousemove", eventsHandler);
+      contentCanvas.removeEventListener("mouseup", eventsHandler);
+      contentCanvas.removeEventListener("pointerdown", eventsHandler);
+      contentCanvas.removeEventListener("pointermove", eventsHandler);
+      contentCanvas.removeEventListener("pointerup", eventsHandler);
+      contentCanvas.removeEventListener("pointercancel", eventsHandler);
+      contentCanvas.removeEventListener("wheel", eventsHandler);
 
       window.removeEventListener("mouseup", windowMouseUpHandler);
       window.removeEventListener("mousemove", windowMouseMoveHandler);
     }
 
-    canvas.removeEventListener("touchstart", touchStartHandler);
-    canvas.removeEventListener("touchmove", touchMoveHandler);
-    canvas.removeEventListener("touchend", touchEndHandler);
-    canvas.removeEventListener("touchcancel", eventsHandler);
+    contentCanvas.removeEventListener("touchstart", touchStartHandler);
+    contentCanvas.removeEventListener("touchmove", touchMoveHandler);
+    contentCanvas.removeEventListener("touchend", touchEndHandler);
+    contentCanvas.removeEventListener("touchcancel", eventsHandler);
     window.removeEventListener("keydown", eventsHandler);
     window.removeEventListener("paste", eventsHandler);
 
@@ -658,9 +747,6 @@ export default function createEditor(
 
     // Schedule render for viewport changes
     scheduleRender();
-
-    // Force immediate render to avoid flickering on resize
-    renderFrame();
   }
 
   function getDocumentHeight(): number {
@@ -669,15 +755,21 @@ export default function createEditor(
     const maxWidth = viewport.width - 2 * styles.canvas.paddingLeft;
     let totalHeight = styles.canvas.paddingTop;
 
-    for (const block of state.document.page.blocks) {
-      totalHeight += calculateBlockHeight(block, maxWidth, styles);
+    for (let i = 0; i < state.document.page.blocks.length; i++) {
+      const block = state.document.page.blocks[i];
+      // Use getBlockHeight to leverage caching for performance
+      const blockHeight = getBlockHeight(block, maxWidth, styles, i);
+      totalHeight += blockHeight;
     }
 
     return totalHeight + styles.canvas.paddingBottom;
   }
 
-  function setFocus(focused: boolean) {
+  function setFocus(focused: boolean, shouldClearSelection: boolean = false) {
     state = updateFocus(state, focused);
+    if (shouldClearSelection) {
+      state = clearSelection(state);
+    }
     scheduleRender(); // Schedule render when focus changes
   }
 
@@ -718,7 +810,7 @@ export default function createEditor(
   }
 
   function executeSlashCommand(command: SlashCommand) {
-    if (state.ui.slashCommand && state.document.cursor) {
+    if (state.ui.activeMenu.type === "slashCommand" && state.document.cursor) {
       state = recordUndo(state);
       state = applySlashCommand(state, command);
       scheduleRender();
@@ -825,6 +917,22 @@ export default function createEditor(
 
   function setMode(mode: "edit" | "select" | "locked") {
     state = updateMode(state, mode);
+
+    // Stop momentum when entering locked mode
+    if (mode === "locked") {
+      state = {
+        ...state,
+        view: {
+          ...state.view,
+          momentum: {
+            velocity: 0,
+            lastTime: Date.now(),
+            isActive: false,
+          },
+        },
+      };
+    }
+
     const currentState = state;
     scheduleRender();
     listeners.forEach((listener) => listener(currentState));
@@ -838,6 +946,87 @@ export default function createEditor(
       updateSelection(updateCursor(state, cursor?.position || null), selection),
       "edit"
     );
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  function updateImageBlock(
+    blockIndex: number,
+    updates: {
+      url?: string;
+      alt?: string;
+    },
+    uploadStatus?: "uploading" | "complete" | "error"
+  ) {
+    const block = state.document.page.blocks[blockIndex];
+
+    if (!block || block.type !== "image") {
+      console.error("Attempted to update non-image-cover block as image cover");
+      return;
+    }
+
+    const updatedBlock = {
+      ...block,
+      ...updates,
+    };
+
+    // Invalidate cache when image URL changes (height changes from placeholder to full)
+    invalidateBlockCache(updatedBlock);
+
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[blockIndex] = updatedBlock;
+
+    // Update UI state with upload status if provided
+    let newUIState = state.ui;
+    if (
+      uploadStatus !== undefined &&
+      state.ui.activeMenu.type === "imageUpload"
+    ) {
+      newUIState = {
+        ...state.ui,
+        activeMenu: {
+          ...state.ui.activeMenu,
+          uploadStatus,
+        },
+      };
+    }
+
+    state = {
+      ...state,
+      ui: newUIState,
+      document: {
+        ...state.document,
+        page: { ...state.document.page, blocks: newBlocks },
+      },
+    };
+
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  function openImageUploadMenu(
+    blockIndex: number,
+    x: number,
+    y: number,
+    _existingUrl?: string,
+    _existingAlt?: string
+  ) {
+    state = setActiveMenu(state, {
+      type: "imageUpload",
+      blockIndex,
+      x,
+      y,
+    });
+
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  function closeActiveMenuMethod() {
+    state = closeActiveMenu(state);
     const currentState = state;
     scheduleRender();
     listeners.forEach((listener) => listener(currentState));
@@ -866,5 +1055,8 @@ export default function createEditor(
     setMode,
     restoreCursorAndSelection,
     forceRender: scheduleRender,
+    updateImageBlock: updateImageBlock,
+    openImageUploadMenu,
+    closeActiveMenu: closeActiveMenuMethod,
   };
 }

@@ -1,4 +1,6 @@
+import { IMAGE_DEFAULT_HEIGHT } from "@/editor/constants";
 import type { Block } from "./loadPage";
+import { isImageDefault } from "./loadPage";
 
 export function serializeToMarkdown(blocks: Block[]): string {
   if (blocks.length === 0) {
@@ -6,6 +8,29 @@ export function serializeToMarkdown(blocks: Block[]): string {
   }
   
   const serializedBlocks = blocks.map((block) => {
+    // Handle image cover blocks separately
+    if (block.type === "image") {
+      const alt = block.alt || "";
+      
+      // If image is in default state, use markdown syntax
+      if (isImageDefault(block)) {
+        return `![${alt}](${block.url})`;
+      }
+      
+      // Otherwise, use HTML tag with custom properties
+      const width = block.width ?? 'full';
+      const height = block.height ?? IMAGE_DEFAULT_HEIGHT;
+      const objectFit = block.objectFit ?? 'cover';
+      
+      const widthAttr = width === 'full' ? 'data-width="full"' : `width="${width}"`;
+      const heightAttr = `height="${height}"`;
+      const objectFitAttr = `data-object-fit="${objectFit}"`;
+      const altAttr = alt ? ` alt="${alt}"` : '';
+      
+      return `<img src="${block.url}"${altAttr} ${widthAttr} ${heightAttr} ${objectFitAttr} />`;
+    }
+    
+    // Handle text blocks (headings and paragraphs)
     let content = "";
     
     // Build content with inline formatting
@@ -44,11 +69,15 @@ export function serializeToMarkdown(blocks: Block[]): string {
   // If the last block is empty, we need to add a trailing newline
   // to preserve the empty block when deserializing
   const lastBlock = blocks[blocks.length - 1];
-  const lastBlockIsEmpty = lastBlock.content.length === 0 || 
-    (lastBlock.content.length === 1 && lastBlock.content[0].content === "");
   
-  if (lastBlockIsEmpty && blocks.length > 1) {
-    return result + "\n";
+  // Only check for empty content if it's a text block
+  if (lastBlock.type !== "image") {
+    const lastBlockIsEmpty = lastBlock.content.length === 0 || 
+      (lastBlock.content.length === 1 && lastBlock.content[0].content === "");
+    
+    if (lastBlockIsEmpty && blocks.length > 1) {
+      return result + "\n";
+    }
   }
   
   return result;

@@ -1,4 +1,3 @@
-
 export {};
 
 declare global {
@@ -10,20 +9,18 @@ declare global {
         text?: string;
         canUndo?: boolean;
         canRedo?: boolean;
+        style?: "light" | "medium" | "heavy";
       }) => void;
       // Editor methods (assigned by Web)
-      undo?: () => void;
-      redo?: () => void;
-      setBlockType?: (type: string) => void;
-      focus?: () => void;
     };
-    
+
     AndroidBridge?: {
       // Web -> Native (Provided by native Android)
       copy: (text: string) => void;
       cut: (text: string) => void;
       paste: () => string;
       updateUndoRedoState?: (canUndo: boolean, canRedo: boolean) => void;
+      haptic?: (style: string) => void;
       // Editor methods (assigned by Web to allow native to call back)
       undo?: () => void;
       redo?: () => void;

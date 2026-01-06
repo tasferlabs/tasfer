@@ -1,4 +1,5 @@
 import type { Block, Text } from "../deserializer/loadPage";
+import { isTextBlock } from "../deserializer/loadPage";
 import {
   FONT_STACKS,
   getCurrentFontFamily,
@@ -6,7 +7,6 @@ import {
   measureText,
   wrapFormattedTextDetailed,
   type FontFamily,
-  type WrappedLine,
 } from "./fonts";
 import { renderScrollbar } from "./scrollbar";
 import { getBlockTextContent, isCursorBlinking } from "./state";
@@ -32,6 +32,10 @@ function getContentWithComposition(
   content: Text[];
   compositionRange: { start: number; end: number } | null;
 } {
+  if (!isTextBlock(block)) {
+    return { content: [], compositionRange: null };
+  }
+
   // Check if composition is active and cursor is in this block
   if (
     !state.ui.composition ||
@@ -129,17 +133,30 @@ function getContentWithComposition(
 export const getBlockHeight = (
   block: Block,
   maxWidth: number,
-  styles: EditorStyles
+  styles: EditorStyles,
+  blockIndex?: number
 ): number => {
-  // Check if cached height is valid for current width
+  // Calculate the base height (with caching)
+  let height: number;
   if (block.cachedHeight !== undefined && block.cachedWidth === maxWidth) {
-    return block.cachedHeight;
+    height = block.cachedHeight;
+  } else {
+    height = calculateBlockHeight(block, maxWidth, styles);
+    block.cachedHeight = height;
+    block.cachedWidth = maxWidth;
   }
 
-  // Calculate and cache the height
-  const height = calculateBlockHeight(block, maxWidth, styles);
-  block.cachedHeight = height;
-  block.cachedWidth = maxWidth;
+  // Special handling for first block image covers that bleed into top padding
+  // They use up the padding space, so we subtract it from the effective height
+  // Only apply this for full-width images that actually bleed
+  if (blockIndex === 0 && block.type === "image") {
+    const imageWidth = block.width ?? "full";
+    const shouldBleed = imageWidth === "full";
+    if (shouldBleed) {
+      return height - styles.canvas.paddingTop;
+    }
+  }
+
   return height;
 };
 
@@ -236,7 +253,7 @@ function renderCompositionUnderline(
   fontMetrics: FontMetrics,
   codePadding: number,
   isRTL: boolean,
-  maxWidth: number
+  _maxWidth: number
 ) {
   // Calculate the overlap between this line and the composition range
   const underlineStart = Math.max(lineStartIndex, compositionStart);
@@ -472,20 +489,15 @@ export const renderPage = (
   visibility: { start: number; end: number },
   styles: EditorStyles = getEditorStyles()
 ) => {
-  // Get device pixel ratio and scale canvas context for high-DPI displays
-  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-
   // Save context state
   ctx.save();
-
-  // Scale all drawing operations by DPR
-  ctx.scale(dpr, dpr);
 
   // Enable text antialiasing for better quality on high-DPI screens
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
 
   // Clear canvas (background color is handled by CSS on the canvas element)
+  // Note: Context is already scaled by DPR in layers.ts, so use CSS pixels here
   ctx.clearRect(0, 0, viewport.width, viewport.height);
 
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
@@ -499,7 +511,7 @@ export const renderPage = (
     const block = state.document.page.blocks[i];
 
     // Get or calculate block height (cached on the block itself)
-    const blockHeight = getBlockHeight(block, maxWidth, styles);
+    const blockHeight = getBlockHeight(block, maxWidth, styles, i);
 
     documentHeight += blockHeight;
     // Only render if block is visible
@@ -547,6 +559,20 @@ export const renderBlock = (
   maxWidth: number,
   styles: EditorStyles = getEditorStyles()
 ): RenderedBlock => {
+  // Handle image cover blocks
+  if (block.type === "image") {
+    return renderImageBlock(
+      ctx,
+      state,
+      block,
+      blockIndex,
+      x,
+      y,
+      maxWidth,
+      styles
+    );
+  }
+
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
@@ -682,8 +708,9 @@ export const renderBlock = (
   }
 
   // Don't show placeholder or cursor when there's an active selection
-  const hasActiveSelection = state.document.selection && !state.document.selection.isCollapsed;
-  
+  const hasActiveSelection =
+    state.document.selection && !state.document.selection.isCollapsed;
+
   // Handle placeholder rendering
   if (
     state.document.cursor &&
@@ -702,28 +729,8 @@ export const renderBlock = (
     );
   }
 
-  // Handle cursor rendering
-  if (
-    state.document.cursor &&
-    state.document.cursor.position.blockIndex === blockIndex &&
-    !isCursorBlinking(state.document.cursor, styles) &&
-    !hasActiveSelection
-  ) {
-    renderCursor(
-      x,
-      y,
-      fontMetrics,
-      textStyle,
-      renderedLines,
-      state,
-      fullContent,
-      fontFamily,
-      ctx,
-      styles,
-      block,
-      maxWidth
-    );
-  }
+  // NOTE: Cursor rendering is now handled by the separate cursor layer
+  // This prevents double-rendering of the cursor during composition (IME input)
 
   // Create block bounds
   const blockBounds: BlockBounds = {
@@ -770,91 +777,6 @@ function renderPlaceholder(
   ctx.restore();
 }
 
-function renderCursor(
-  x: number,
-  y: number,
-  fontMetrics: FontMetrics,
-  textStyle: TextStyle,
-  renderedLines: RenderedLine[],
-  state: EditorState,
-  content: string,
-  fontFamily: FontFamily,
-  ctx: CanvasRenderingContext2D,
-  styles: EditorStyles,
-  block: Block,
-  maxWidth: number
-) {
-  if (!state.document.cursor || !state.view.isFocused) return;
-
-  let cursorX = x;
-  let cursorY = y;
-  let cursorHeight = fontMetrics.fontSize * textStyle.lineHeight;
-  const codePadding = styles.textFormats.code.padding;
-
-  // Detect if this is an RTL block
-  const isRTL = getFormattedTextDirection(block.content) === "rtl";
-
-  // console.log(renderedLines);
-  for (const line of renderedLines) {
-    if (
-      state.document.cursor.position.textIndex >= line.startIndex &&
-      state.document.cursor.position.textIndex <= line.endIndex
-    ) {
-      cursorY = line.y;
-      cursorHeight = line.height;
-
-      // Calculate cursor position differently for RTL
-      if (isRTL) {
-        // For RTL text rendered with canvas direction="rtl":
-        // - Cursor at logical index 0 (line start) appears at the RIGHT (x + maxWidth)
-        // - Cursor at logical index N appears at the LEFT
-        // Measure from line start to cursor position
-        const widthFromStart = measureFormattedLineWidth(
-          block.content,
-          line.startIndex,
-          state.document.cursor.position.textIndex,
-          textStyle,
-          fontFamily,
-          codePadding
-        );
-        cursorX = x + maxWidth - widthFromStart;
-      } else {
-        // LTR: measure from start to cursor
-        cursorX += measureFormattedLineWidth(
-          block.content,
-          line.startIndex,
-          state.document.cursor.position.textIndex,
-          textStyle,
-          fontFamily,
-          codePadding
-        );
-      }
-      break;
-    }
-  }
-
-  // For end-of-block selections (textIndex at content end), place cursor at end of last line
-  if (
-    state.document.cursor.position.textIndex === content.length &&
-    renderedLines.length > 0
-  ) {
-    const lastLine = renderedLines[renderedLines.length - 1];
-    if (isRTL) {
-      // For RTL, cursor goes to the left edge
-      cursorX = lastLine.x + maxWidth - lastLine.width;
-    } else {
-      cursorX = lastLine.x + lastLine.width;
-    }
-    cursorY = lastLine.y;
-    cursorHeight = lastLine.height;
-  }
-
-  ctx.save();
-  ctx.fillStyle = styles.cursor.color;
-  ctx.fillRect(cursorX, cursorY, styles.cursor.width, cursorHeight);
-  ctx.restore();
-}
-
 function renderSelection(
   state: EditorState,
   blockIndex: number,
@@ -870,6 +792,10 @@ function renderSelection(
   maxWidth: number
 ) {
   if (!state.document.selection) return;
+
+  if (!isTextBlock(block)) {
+    return;
+  }
 
   // Sort anchor and focus to ensure start is always before end
   let start = state.document.selection.isForward
@@ -894,10 +820,7 @@ function renderSelection(
     const codePadding = styles.textFormats.code.padding;
 
     // Handle empty blocks
-    if (
-      content.length === 0 &&
-      renderedLines.length === 1
-    ) {
+    if (content.length === 0 && renderedLines.length === 1) {
       const fontMetrics = getFontMetrics(
         textStyle.fontSize,
         textStyle.fontWeight,
@@ -1096,12 +1019,389 @@ function renderSelection(
   }
 }
 
+// Image cache to avoid reloading images
+export const imageCache = new Map<string, HTMLImageElement>();
+// Cache for failed image loads to prevent repeated requests
+const failedImageCache = new Set<string>();
+
+// Clear failed image from cache (useful for retry scenarios)
+export function clearFailedImageCache(url?: string) {
+  if (url) {
+    failedImageCache.delete(url);
+  } else {
+    failedImageCache.clear();
+  }
+}
+
+// Load image and cache it
+function loadImage(url: string): Promise<HTMLImageElement> {
+  // Check if this image previously failed to load
+  if (failedImageCache.has(url)) {
+    return Promise.reject(new Error(`Image previously failed to load: ${url}`));
+  }
+
+  // Check cache first
+  if (imageCache.has(url)) {
+    const cached = imageCache.get(url)!;
+    if (cached.complete) {
+      return Promise.resolve(cached);
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous"; // Enable CORS if needed
+
+    img.onload = () => {
+      imageCache.set(url, img);
+      resolve(img);
+    };
+
+    img.onerror = () => {
+      // Cache the failed URL to prevent repeated requests
+      failedImageCache.add(url);
+      reject(new Error(`Failed to load image: ${url}`));
+    };
+
+    img.src = url;
+
+    // If already complete (from cache), resolve immediately
+    if (img.complete) {
+      imageCache.set(url, img);
+      resolve(img);
+    }
+  });
+}
+
+// Render image cover block
+function renderImageBlock(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  block: Block,
+  blockIndex: number,
+  _x: number,
+  y: number,
+  _maxWidth: number,
+  styles: EditorStyles
+): RenderedBlock {
+  if (block.type !== "image") {
+    throw new Error("renderImageBlock called on non-image block");
+  }
+
+  const {
+    paddingBottom: padding,
+    height: defaultImageHeight,
+    placeholderHeight,
+  } = styles.blocks.image.dimensions;
+
+  // Get image properties (with defaults)
+  const imageWidth = block.width ?? "full";
+  const imageHeight = block.height ?? defaultImageHeight;
+  const objectFit = block.objectFit ?? "cover";
+
+  // Calculate dimensions based on width setting
+  let displayWidth: number;
+  let displayHeight: number;
+  let displayX: number;
+
+  if (imageWidth === "full") {
+    // Full width: edge-to-edge (ignoring padding)
+    displayWidth =
+      _maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
+    displayX = 0;
+    displayHeight = block.url ? imageHeight : placeholderHeight;
+  } else {
+    // Custom width: respect padding and constrain to container
+    const requestedWidth = imageWidth;
+    displayWidth = Math.min(requestedWidth, _maxWidth);
+    displayX = styles.canvas.paddingLeft + (_maxWidth - displayWidth) / 2; // Center the image
+    
+    // Adjust height proportionally if width was constrained
+    // This ensures images resized on desktop don't get distorted on mobile
+    if (block.url && displayWidth < requestedWidth) {
+      // Width was constrained - adjust height proportionally
+      const widthRatio = displayWidth / requestedWidth;
+      displayHeight = imageHeight * widthRatio;
+    } else {
+      displayHeight = block.url ? imageHeight : placeholderHeight;
+    }
+  }
+
+  // First block images in cover mode (full width) bleed into the top padding for edge-to-edge experience
+  // They start higher but maintain their proper dimensions
+  const isFirstBlock = blockIndex === 0;
+  const shouldBleedIntoTopPadding = isFirstBlock && imageWidth === "full";
+  const adjustedY = shouldBleedIntoTopPadding
+    ? y - styles.canvas.paddingTop
+    : y;
+  const adjustedHeight = displayHeight; // Always use actual dimensions
+
+  ctx.save();
+
+  // Get upload status from UI state (transient state)
+  const uploadStatus =
+    state.ui.activeMenu.type === "imageUpload" &&
+    state.ui.activeMenu.blockIndex === blockIndex
+      ? state.ui.activeMenu.uploadStatus
+      : undefined;
+
+  // Draw placeholder or image
+  if (uploadStatus === "uploading") {
+    // Uploading state
+    ctx.fillStyle = styles.blocks.image.uploading.backgroundColor;
+    ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
+
+    ctx.fillStyle = styles.blocks.image.uploading.textColor;
+    ctx.font = "14px system-ui, -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      styles.blocks.image.uploading.text,
+      displayX + displayWidth / 2,
+      adjustedY + adjustedHeight / 2
+    );
+  } else if (uploadStatus === "error") {
+    // Error state
+    ctx.fillStyle = styles.blocks.image.error.backgroundColor;
+    ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
+
+    ctx.fillStyle = styles.blocks.image.error.textColor;
+    ctx.font = "14px system-ui, -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      styles.blocks.image.error.text,
+      displayX + displayWidth / 2,
+      adjustedY + adjustedHeight / 2
+    );
+    ctx.fillText(
+      styles.blocks.image.error.retryText,
+      displayX + displayWidth / 2,
+      adjustedY + adjustedHeight / 2 + 20
+    );
+  } else if (block.url) {
+    // Check if this image previously failed to load
+    if (failedImageCache.has(block.url)) {
+      // Show error state for failed images
+      ctx.fillStyle = styles.blocks.image.error.backgroundColor;
+      ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
+
+      ctx.fillStyle = styles.blocks.image.error.textColor;
+      ctx.font = "14px system-ui, -apple-system, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(
+        styles.blocks.image.error.text,
+        displayX + displayWidth / 2,
+        adjustedY + adjustedHeight / 2
+      );
+      ctx.fillText(
+        styles.blocks.image.error.retryText,
+        displayX + displayWidth / 2,
+        adjustedY + adjustedHeight / 2 + 20
+      );
+    } else {
+      // Try to load and draw the actual image
+      const cachedImage = imageCache.get(block.url);
+
+      if (cachedImage && cachedImage.complete) {
+        const imgAspectRatio =
+          cachedImage.naturalWidth / cachedImage.naturalHeight;
+        const containerAspectRatio = displayWidth / adjustedHeight;
+
+        let sourceX = 0;
+        let sourceY = 0;
+        let sourceWidth = cachedImage.naturalWidth;
+        let sourceHeight = cachedImage.naturalHeight;
+        let destX = displayX;
+        let destY = adjustedY;
+        let destWidth = displayWidth;
+        let destHeight = adjustedHeight;
+
+        if (objectFit === "cover") {
+          // Cover algorithm: crop the image to fill the container
+          if (imgAspectRatio > containerAspectRatio) {
+            // Image is wider than container - crop width
+            sourceWidth = cachedImage.naturalHeight * containerAspectRatio;
+            sourceX = (cachedImage.naturalWidth - sourceWidth) / 2;
+          } else {
+            // Image is taller than container - crop height
+            sourceHeight = cachedImage.naturalWidth / containerAspectRatio;
+            sourceY = (cachedImage.naturalHeight - sourceHeight) / 2;
+          }
+        } else {
+          // Contain algorithm: fit the entire image while maintaining aspect ratio
+          if (imgAspectRatio > containerAspectRatio) {
+            // Image is wider than container - fit to width
+            destHeight = displayWidth / imgAspectRatio;
+            destY = adjustedY + (adjustedHeight - destHeight) / 2;
+          } else {
+            // Image is taller than container - fit to height
+            destWidth = adjustedHeight * imgAspectRatio;
+            destX = displayX + (displayWidth - destWidth) / 2;
+          }
+        }
+
+        // Draw background (for any transparency or contain mode)
+        ctx.fillStyle = styles.blocks.image.loading.backgroundColor;
+        ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
+
+        // Draw the image
+        ctx.drawImage(
+          cachedImage,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight, // Source rectangle
+          destX,
+          destY,
+          destWidth,
+          destHeight // Destination rectangle
+        );
+      } else {
+        // Show loading placeholder while image loads
+        ctx.fillStyle = styles.blocks.image.loading.backgroundColor;
+        ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
+
+        ctx.fillStyle = styles.blocks.image.loading.textColor;
+        ctx.font = "14px system-ui, -apple-system, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(
+          styles.blocks.image.loading.text,
+          displayX + displayWidth / 2,
+          adjustedY + adjustedHeight / 2
+        );
+
+        // Start loading the image
+        loadImage(block.url)
+          .then(() => {
+            invalidateBlockCache(block);
+          })
+          .catch((error) => {
+            console.error("Failed to load image:", error);
+          });
+      }
+    }
+  } else {
+    ctx.fillStyle = styles.blocks.image.placeholder.backgroundColor;
+    ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
+    // No image - show upload prompt
+    ctx.strokeStyle = styles.blocks.image.placeholder.borderColor;
+    ctx.setLineDash([5, 5]);
+    ctx.lineWidth = 2;
+    ctx.strokeRect(displayX, adjustedY, displayWidth, adjustedHeight);
+
+    ctx.fillStyle = styles.blocks.image.placeholder.textColor;
+    ctx.font = "14px system-ui, -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      styles.blocks.image.placeholder.text,
+      displayX + displayWidth / 2,
+      adjustedY + adjustedHeight / 2
+    );
+  }
+
+  // Render selection overlay if this image block is selected
+  if (state.document.selection && !state.document.selection.isCollapsed) {
+    const { anchor, focus } = state.document.selection;
+    const start = anchor.blockIndex <= focus.blockIndex ? anchor : focus;
+    const end = anchor.blockIndex <= focus.blockIndex ? focus : anchor;
+
+    // Check if this image block is within the selection
+    const isSelected =
+      blockIndex >= start.blockIndex && blockIndex <= end.blockIndex;
+
+    if (isSelected) {
+      ctx.fillStyle = styles.selection.backgroundColor;
+      ctx.globalAlpha = styles.selection.opacity;
+      ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
+      ctx.globalAlpha = 1.0;
+    }
+  }
+
+  // Render drag handles if hovering or dragging this image
+  // This ensures drag handles are rendered with the exact same dimensions as the image
+  const shouldRenderDragHandles = 
+    (state.ui.imageHover && state.ui.imageHover.blockIndex === blockIndex) ||
+    (state.ui.imageDrag && state.ui.imageDrag.blockIndex === blockIndex);
+
+  if (shouldRenderDragHandles) {
+    let hoveredHandle: "left" | "right" | "bottom" | null = null;
+    
+    if (state.ui.imageDrag && state.ui.imageDrag.blockIndex === blockIndex) {
+      hoveredHandle = state.ui.imageDrag.handle;
+    } else if (state.ui.imageHover && state.ui.imageHover.blockIndex === blockIndex) {
+      hoveredHandle = state.ui.imageHover.hoveredHandle;
+    }
+
+    renderImageDragHandlesForBlock(
+      ctx,
+      displayX,
+      adjustedY,
+      displayWidth,
+      adjustedHeight,
+      objectFit,
+      hoveredHandle,
+      styles
+    );
+  }
+
+  ctx.restore();
+
+  const blockBounds: BlockBounds = {
+    x: displayX,
+    y: adjustedY,
+    width: displayWidth,
+    height: adjustedHeight + padding,
+  };
+
+  return {
+    block,
+    bounds: blockBounds,
+    lines: [], // Image cover blocks don't have text lines
+  };
+}
+
 // Calculate block height dynamically based on content and max width
 export const calculateBlockHeight = (
   block: Block,
   maxWidth: number,
   styles: EditorStyles
 ): number => {
+  // Handle image cover blocks
+  if (block.type === "image") {
+    const {
+      height: defaultHeight,
+      placeholderHeight,
+      paddingBottom: padding,
+    } = styles.blocks.image.dimensions;
+    
+    const imageWidth = block.width ?? "full";
+    const imageHeight = block.height ?? defaultHeight;
+    let displayHeight: number;
+    
+    if (imageWidth === "full") {
+      // Full width images use their configured height
+      displayHeight = block.url ? imageHeight : placeholderHeight;
+    } else {
+      // Custom width: adjust height proportionally if width was constrained
+      const requestedWidth = imageWidth;
+      const displayWidth = Math.min(requestedWidth, maxWidth);
+      
+      if (block.url && displayWidth < requestedWidth) {
+        // Width was constrained - adjust height proportionally
+        const widthRatio = displayWidth / requestedWidth;
+        displayHeight = imageHeight * widthRatio;
+      } else {
+        displayHeight = block.url ? imageHeight : placeholderHeight;
+      }
+    }
+    
+    // Always add padding after image blocks for visual spacing
+    return displayHeight + padding;
+  }
+
+  if (!isTextBlock(block)) {
+    return 0;
+  }
+
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
@@ -1142,3 +1442,299 @@ const isBlockVisible = (
     blockBottom >= -buffer && blockTop <= viewport.height + buffer
   );
 };
+
+/**
+ * Render only the cursor on a separate layer (for blink animation).
+ * This is much faster than re-rendering the entire page.
+ */
+export function renderCursorLayer(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles()
+) {
+  // Save context state
+  ctx.save();
+
+  // Clear the cursor layer
+  // Note: Context is already scaled by DPR in layers.ts, so use CSS pixels here
+  ctx.clearRect(0, 0, viewport.width, viewport.height);
+
+  // Only render if cursor exists, editor is focused, and cursor is visible (not blinking)
+  if (
+    !state.document.cursor ||
+    !state.view.isFocused ||
+    isCursorBlinking(state.document.cursor, styles)
+  ) {
+    ctx.restore();
+    return;
+  }
+
+  // Don't show cursor when there's an active selection
+  const hasActiveSelection =
+    state.document.selection && !state.document.selection.isCollapsed;
+  if (hasActiveSelection) {
+    ctx.restore();
+    return;
+  }
+
+  const cursorBlockIndex = state.document.cursor.position.blockIndex;
+  const block = state.document.page.blocks[cursorBlockIndex];
+
+  if (!isTextBlock(block)) {
+    ctx.restore();
+    return;
+  }
+
+  // Calculate block position
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+
+  // Calculate Y position of cursor block
+  for (let i = 0; i < cursorBlockIndex; i++) {
+    const prevBlock = state.document.page.blocks[i];
+    const blockHeight = getBlockHeight(prevBlock, maxWidth, styles, i);
+    currentY += blockHeight;
+  }
+
+  // Optimization: Skip rendering if cursor block is completely outside viewport
+  const blockHeight = getBlockHeight(block, maxWidth, styles, cursorBlockIndex);
+  if (currentY + blockHeight < 0 || currentY > viewport.height) {
+    // Cursor block is not visible in viewport
+    ctx.restore();
+    return;
+  }
+
+  // Get text style and calculate lines for cursor block
+  const textStyle = getTextStyle(styles, block.type);
+  const fontFamily = getCurrentFontFamily();
+  const codePadding = styles.textFormats.code.padding;
+
+  // Get content with composition text injected (if composing in this block)
+  const { content: renderContent, compositionRange } =
+    getContentWithComposition(block, state, cursorBlockIndex);
+
+  const lines = wrapFormattedTextDetailed(
+    renderContent,
+    maxWidth,
+    textStyle.fontSize,
+    textStyle.fontWeight,
+    fontFamily,
+    codePadding,
+    compositionRange
+  );
+
+  const fontMetrics = getFontMetrics(
+    textStyle.fontSize,
+    textStyle.fontWeight,
+    fontFamily
+  );
+  const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
+
+  // Find which line the cursor is on
+  const content = getBlockTextContent(block);
+  const isRTL = getFormattedTextDirection(renderContent) === "rtl";
+
+  let cursorX = styles.canvas.paddingLeft;
+  let cursorY = currentY;
+  let cursorHeight = fontMetrics.fontSize * textStyle.lineHeight;
+
+  // Calculate the target cursor position (original position + composition length if composing)
+  let targetCursorIndex = state.document.cursor.position.textIndex;
+  if (compositionRange && state.ui.composition?.isComposing) {
+    // During composition, cursor appears at the END of composition text
+    targetCursorIndex = compositionRange.end;
+  }
+
+  let textIndex = 0;
+  for (const wrappedLine of lines) {
+    const lineStartIndex = textIndex;
+    const lineEndIndex = textIndex + wrappedLine.text.length;
+
+    if (
+      targetCursorIndex >= lineStartIndex &&
+      targetCursorIndex <= lineEndIndex
+    ) {
+      cursorY = currentY;
+      cursorHeight = fontMetrics.ascent + fontMetrics.descent;
+
+      // Calculate cursor position differently for RTL
+      if (isRTL) {
+        const widthFromStart = measureFormattedLineWidth(
+          renderContent,
+          lineStartIndex,
+          targetCursorIndex,
+          textStyle,
+          fontFamily,
+          codePadding
+        );
+        cursorX = styles.canvas.paddingLeft + maxWidth - widthFromStart;
+      } else {
+        cursorX += measureFormattedLineWidth(
+          renderContent,
+          lineStartIndex,
+          targetCursorIndex,
+          textStyle,
+          fontFamily,
+          codePadding
+        );
+      }
+      break;
+    }
+
+    textIndex += wrappedLine.text.length;
+    if (wrappedLine.consumedSpace) {
+      textIndex += 1;
+    }
+    currentY += lineHeight;
+  }
+
+  // Handle cursor at end of block (only when not composing)
+  if (
+    !state.ui.composition?.isComposing &&
+    state.document.cursor.position.textIndex === content.length &&
+    lines.length > 0
+  ) {
+    const lastLine = lines[lines.length - 1];
+    const lastLineIndex = lines.length - 1;
+
+    // Calculate position of last line
+    let lastLineY = styles.canvas.paddingTop - viewport.scrollY;
+    for (let i = 0; i < cursorBlockIndex; i++) {
+      const prevBlock = state.document.page.blocks[i];
+      const blockHeight = getBlockHeight(prevBlock, maxWidth, styles, i);
+      lastLineY += blockHeight;
+    }
+    lastLineY += lastLineIndex * lineHeight;
+
+    const lastLineWidth = measureFormattedLineWidth(
+      renderContent,
+      content.length - lastLine.text.length,
+      content.length,
+      textStyle,
+      fontFamily,
+      codePadding
+    );
+
+    if (isRTL) {
+      cursorX = styles.canvas.paddingLeft + maxWidth - lastLineWidth;
+    } else {
+      cursorX = styles.canvas.paddingLeft + lastLineWidth;
+    }
+    cursorY = lastLineY;
+    cursorHeight = fontMetrics.ascent + fontMetrics.descent;
+  }
+
+  // Draw the cursor
+  ctx.fillStyle = styles.cursor.color;
+  ctx.fillRect(cursorX, cursorY, styles.cursor.width, cursorHeight);
+
+  // Restore context state
+  ctx.restore();
+}
+
+/**
+ * Render drag handles for a specific image block using exact dimensions
+ * This is called from within renderImageBlock to ensure consistency
+ */
+function renderImageDragHandlesForBlock(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  objectFit: 'cover' | 'contain',
+  hoveredHandle: "left" | "right" | "bottom" | null,
+  styles: EditorStyles
+) {
+  const { vertical, horizontal } = styles.imageResize.dragHandles;
+  const {
+    color: outlineColor,
+    width: outlineWidth,
+    hoverOpacity: outlineHoverOpacity,
+    dashPattern,
+  } = styles.imageResize.outline;
+
+  const showBottomHandle = objectFit === "cover"; // Only show bottom handle in cover mode
+
+  ctx.save();
+
+  // Helper to render a single drag bar
+  const renderBar = (
+    barX: number,
+    barY: number,
+    barWidth: number,
+    barHeight: number,
+    isHovered: boolean
+  ) => {
+    ctx.save();
+
+    // Set opacity based on hover state
+    const opacity = isHovered
+      ? vertical.hoverOpacity
+      : vertical.opacity;
+    ctx.globalAlpha = opacity;
+
+    // Draw bar background
+    ctx.fillStyle = isHovered
+      ? vertical.hoverBackgroundColor
+      : vertical.backgroundColor;
+
+    if (vertical.borderRadius > 0) {
+      // Draw rounded rectangle
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, barWidth, barHeight, vertical.borderRadius);
+      ctx.fill();
+    } else {
+      ctx.fillRect(barX, barY, barWidth, barHeight);
+    }
+
+    ctx.restore();
+  };
+
+  // Left vertical bar (centered vertically with specified length)
+  renderBar(
+    x + vertical.inset,
+    y + (height - vertical.length) / 2,
+    vertical.thickness,
+    vertical.length,
+    hoveredHandle === "left"
+  );
+
+  // Right vertical bar (centered vertically with specified length)
+  renderBar(
+    x + width - vertical.inset - vertical.thickness,
+    y + (height - vertical.length) / 2,
+    vertical.thickness,
+    vertical.length,
+    hoveredHandle === "right"
+  );
+
+  // Bottom horizontal bar (centered horizontally with specified length)
+  // Only render in cover mode
+  if (showBottomHandle) {
+    renderBar(
+      x + (width - horizontal.length) / 2,
+      y + height - horizontal.inset - horizontal.thickness,
+      horizontal.length,
+      horizontal.thickness,
+      hoveredHandle === "bottom"
+    );
+  }
+
+  // Render a subtle dashed outline around the image when hovering any handle
+  if (hoveredHandle !== null) {
+    ctx.save();
+    ctx.globalAlpha = outlineHoverOpacity;
+    ctx.strokeStyle = outlineColor;
+    ctx.lineWidth = outlineWidth;
+    ctx.setLineDash(dashPattern as number[]);
+    ctx.strokeRect(x, y, width, height);
+    ctx.setLineDash([]); // Reset dash pattern
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+

@@ -1,0 +1,10 @@
+---
+alwaysApply: true
+---
+Cypher is a canvas-based markdown text editor that combines Google Docs-like editing experience with Notion-style block architecture. The editor renders text directly on an HTML5 canvas and provides real-time editing capabilities with cursor navigation and text selection.
+
+**Before** making a change please understand the problem truly. Think is this only possible interpertation or did I found the first one.
+
+**When making** a change it is easy to break different part of the app. The same codebase might be used in both ios and android. For every change you make consider what these changes mighte affect and what part of the code might need updates. 
+
+**After** ask yourself. Did I introduced new problems? If did I handle all the occurrences?

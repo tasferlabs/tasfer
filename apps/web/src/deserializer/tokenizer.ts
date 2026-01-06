@@ -18,9 +18,13 @@ export const CODE_END = "code_end";
 export const LINK_START = "link_start";
 export const LINK_TEXT_END = "link_text_end";
 export const LINK_END = "link_end";
+export const IMAGE_START = "image_start";
+export const IMAGE_ALT_END = "image_alt_end";
+export const IMAGE_END = "image_end";
+export const HTML_IMG = "html_img";
 export const NEWLINE = "newline";
 
-type FormatTokenType = "bold_start" | "bold_end" | "italic_start" | "italic_end" | "strikethrough_start" | "strikethrough_end" | "code_start" | "code_end" | "link_start" | "link_text_end" | "link_end";
+type FormatTokenType = "bold_start" | "bold_end" | "italic_start" | "italic_end" | "strikethrough_start" | "strikethrough_end" | "code_start" | "code_end" | "link_start" | "link_text_end" | "link_end" | "image_start" | "image_alt_end" | "image_end" | "html_img";
 type VisibleTokenType = "heading1" | "heading2" | "heading3" | "text" | FormatTokenType;
 export type TokenType = VisibleTokenType | "newline";
 
@@ -101,8 +105,92 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
   while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
     const char = current(state);
     
+    // Check for HTML img tags <img ... />
+    if (char === "<" && peek(state) === "i" && peek(state, 2) === "m" && peek(state, 3) === "g" && (peek(state, 4) === " " || peek(state, 4) === ">")) {
+      const start = state.index;
+      
+      // Find the end of the tag (either /> or >)
+      let foundEnd = false;
+      while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
+        if (current(state) === ">") {
+          foundEnd = true;
+          next(state); // Include the >
+          break;
+        }
+        next(state);
+      }
+      
+      if (foundEnd) {
+        // Extract the full HTML tag
+        const htmlTag = state.content.slice(start, state.index);
+        tokens.push({ type: HTML_IMG, content: htmlTag });
+        continue;
+      } else {
+        // Not a valid HTML tag, treat as regular text
+        state.index = start;
+        const text = current(state);
+        tokens.push({ type: TEXT, content: text });
+        next(state);
+      }
+    }
+    // Check for images ![alt](url)
+    else if (char === "!" && peek(state) === "[") {
+      const start = state.index;
+      next(state, 2); // Skip ![ 
+      
+      // Find closing ]
+      let foundAltEnd = false;
+      let altEndIndex = state.index;
+      while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
+        if (current(state) === "]") {
+          altEndIndex = state.index;
+          foundAltEnd = true;
+          break;
+        }
+        next(state);
+      }
+      
+      // Check if followed by (url)
+      if (foundAltEnd && peek(state) === "(") {
+        next(state, 2); // Skip ] and (
+        let urlStart = state.index;
+        let foundUrlEnd = false;
+        
+        while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
+          if (current(state) === ")") {
+            foundUrlEnd = true;
+            break;
+          }
+          next(state);
+        }
+        
+        if (foundUrlEnd) {
+          // Valid image found
+          tokens.push({ type: IMAGE_START, content: "![" });
+          const altText = state.content.slice(start + 2, altEndIndex);
+          if (altText.length > 0) {
+            tokens.push({ type: TEXT, content: altText });
+          }
+          tokens.push({ type: IMAGE_ALT_END, content: "](" });
+          const imageUrl = state.content.slice(urlStart, state.index);
+          if (imageUrl.length > 0) {
+            tokens.push({ type: TEXT, content: imageUrl });
+          }
+          tokens.push({ type: IMAGE_END, content: ")" });
+          next(state);
+          continue;
+        }
+      }
+      
+      // Not a valid image, treat as regular text
+      state.index = start;
+      // Consume the ! character and continue
+      const text = current(state);
+      tokens.push({ type: TEXT, content: text });
+      next(state);
+    }
     // Check for links [text](url)
-    if (char === "[") {
+    else if (char === "[") {
       const start = state.index;
       next(state);
       
@@ -243,7 +331,7 @@ function tokenizeRegularText(state: TokenizerState, tokens: Token[]) {
   // Consume characters until we hit a formatting marker or line end
   while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
     const char = current(state);
-    if (char === "*" || char === "`" || char === "~" || char === "[") {
+    if (char === "*" || char === "`" || char === "~" || char === "[" || char === "!" || char === "<") {
       break;
     }
     next(state);

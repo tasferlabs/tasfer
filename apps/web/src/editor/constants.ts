@@ -9,4 +9,5 @@ export const EDGE_SCROLL_SPEED = 12;
 export const EDGE_SCROLL_MAX_SPEED = 120;
 export const EDGE_SCROLL_ACCELERATION_RATE = 2.5;
 export const CONTEXT_MENU_DURATION = 600;
-
+export const IMAGE_DEFAULT_HEIGHT = 220;
+export const SCROLLBAR_HOLD_DURATION = 150; // Shorter than long press, iOS feels snappy

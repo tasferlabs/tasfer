@@ -66,6 +66,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
                   onClose();
                 }
               }}
+              onMouseDown={(e) => {
+                // Prevent button from taking focus away from hidden input
+                e.preventDefault();
+              }}
               disabled={item.disabled}
             >
               <span className="w-4 h-4 flex items-center justify-center shrink-0 text-muted-foreground">

@@ -1,35 +1,45 @@
+import { Button } from "@/components/ui/button";
+import {
+  Clipboard,
+  Copy,
+  Image as ImageIcon,
+  Scissors,
+  Type,
+} from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { cn, shallowEqual } from "../lib/utils";
+import { serializeToMarkdown } from "../deserializer/serializer";
+import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
+import { ImageUploadPopover } from "../editor/ImageUploadPopover";
+import { LinkEditPopover } from "../editor/LinkEditPopover";
+import { LinkTooltip } from "../editor/LinkTooltip";
+import { SlashCommandMenu } from "../editor/SlashCommandMenu";
+import { hasNativeBridge } from "../editor/clipboard";
+import { getSelectionRange } from "../editor/commands";
 import {
   mountEditor,
-  type MountedEditor,
+  type MountedEditor as MountedEditorInstance,
 } from "../editor/mount";
+import { clearFailedImageCache } from "../editor/renderer";
 import type { EditorState, SlashCommand } from "../editor/types";
-import { SlashCommandMenu } from "../editor/SlashCommandMenu";
-import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
-import { LinkTooltip } from "../editor/LinkTooltip";
-import { LinkEditPopover } from "../editor/LinkEditPopover";
-import { getSelectionRange } from "../editor/commands";
-import { Clipboard, Copy, Scissors, Type } from "lucide-react";
-import { hasNativeBridge } from "../editor/clipboard";
-import { serializeToMarkdown } from "../deserializer/serializer";
+import { cn, shallowEqual } from "../lib/utils";
+import { uploadImage } from "./api/images.api";
 
-interface ScrollableEditorProps {
+interface MountedEditorProps {
   content: string;
   className?: string;
   onContentChange?: (content: string) => void;
   autoFocus?: boolean;
 }
 
-export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
+export const MountedEditor: React.FC<MountedEditorProps> = ({
   content,
   className = "",
   onContentChange,
   autoFocus = false,
 }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const mountedRef = useRef<MountedEditor | null>(null);
+  const mountedRef = useRef<MountedEditorInstance | null>(null);
   const [slashMenuState, setSlashMenuState] = useState<{
     visible: boolean;
     x: number;
@@ -62,11 +72,32 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     savedSelection: EditorState["document"]["selection"];
   } | null>(null);
 
+  const [imageUploadState, setImageUploadState] = useState<{
+    x: number;
+    y: number;
+    blockIndex: number;
+    uploadStatus: "idle" | "uploading" | "complete" | "error";
+  } | null>(null);
+
+  const [imageHoverState, setImageHoverState] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    blockIndex: number;
+    hoveredHandle: "left" | "right" | "bottom" | null;
+  } | null>(null);
+
+  const lastImageHoverStateRef = useRef<typeof imageHoverState>(null);
+  const persistedImageHoverRef = useRef<typeof imageHoverState>(null);
+
   const lastSlashMenuStateRef = useRef<typeof slashMenuState>(null);
   const lastContextMenuStateRef = useRef<typeof contextMenuState>(null);
   const lastLinkTooltipStateRef = useRef<typeof linkTooltipState>(null);
   const linkEditActionPerformedRef = useRef(false);
-  const lastSerializedBlocksRef = useRef<EditorState["document"]["page"]["blocks"] | null>(null);
+  const lastSerializedBlocksRef = useRef<
+    EditorState["document"]["page"]["blocks"] | null
+  >(null);
   const editorInitializedRef = useRef(false);
 
   // Imperatively mount/unmount editor (no React state needed)
@@ -112,7 +143,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       // Only serialize when blocks actually change (not on cursor blink, UI changes, etc.)
       if (onContentChange && state.document.page?.blocks) {
         const currentBlocks = state.document.page.blocks;
-        
+
         // On first state change, just store the initial blocks without triggering onContentChange
         // This prevents the editor from overwriting backend content with empty state on mount
         if (!editorInitializedRef.current) {
@@ -120,7 +151,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
           editorInitializedRef.current = true;
           return;
         }
-        
+
         // Check if blocks reference has changed (indicates actual content modification)
         if (currentBlocks !== lastSerializedBlocksRef.current) {
           lastSerializedBlocksRef.current = currentBlocks;
@@ -130,9 +161,12 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
         }
       }
 
-    // Calculate new slash command state
+      // Calculate new slash command state
       let newSlashState: typeof slashMenuState = null;
-      if (state.ui.slashCommand && state.document.cursor) {
+      if (
+        state.ui.activeMenu.type === "slashCommand" &&
+        state.document.cursor
+      ) {
         const cursorScreenPos = mounted.editor.getCursorScreenPosition();
 
         if (cursorScreenPos) {
@@ -146,8 +180,8 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
               visible: true,
               x,
               y,
-              selectedIndex: state.ui.slashCommand.selectedIndex,
-              filter: state.ui.slashCommand.filter,
+              selectedIndex: state.ui.activeMenu.selectedIndex,
+              filter: state.ui.activeMenu.filter,
             };
           }
         }
@@ -161,13 +195,13 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
 
       // Calculate new context menu state
       let newContextMenuState: typeof contextMenuState = null;
-      if (state.ui.contextMenu) {
+      if (state.ui.activeMenu.type === "contextMenu") {
         const containerRect = wrapperRef.current?.getBoundingClientRect();
         if (containerRect) {
           const hasSelection = !!getSelectionRange(state);
           newContextMenuState = {
-            x: containerRect.left + state.ui.contextMenu.x,
-            y: containerRect.top + state.ui.contextMenu.y,
+            x: containerRect.left + state.ui.activeMenu.x,
+            y: containerRect.top + state.ui.activeMenu.y,
             hasSelection,
           };
         }
@@ -181,12 +215,12 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
 
       // Calculate new link tooltip state
       let newLinkTooltipState: typeof linkTooltipState = null;
-      if (state.ui.linkHover) {
+      if (state.ui.activeMenu.type === "linkHover") {
         newLinkTooltipState = {
-          x: state.ui.linkHover.x,
-          y: state.ui.linkHover.y,
-          url: state.ui.linkHover.url,
-          text: state.ui.linkHover.text,
+          x: state.ui.activeMenu.x,
+          y: state.ui.activeMenu.y,
+          url: state.ui.activeMenu.url,
+          text: state.ui.activeMenu.text,
         };
       }
 
@@ -194,6 +228,53 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       if (!shallowEqual(newLinkTooltipState, lastLinkTooltipStateRef.current)) {
         lastLinkTooltipStateRef.current = newLinkTooltipState;
         setLinkTooltipState(newLinkTooltipState);
+      }
+
+      // Calculate new image upload state
+      if (state.ui.activeMenu.type === "imageUpload") {
+        const containerRect = wrapperRef.current?.getBoundingClientRect();
+        if (containerRect) {
+          setImageUploadState({
+            x: containerRect.left + state.ui.activeMenu.x,
+            y: containerRect.top + state.ui.activeMenu.y,
+            blockIndex: state.ui.activeMenu.blockIndex,
+            uploadStatus: state.ui.activeMenu.uploadStatus || "idle",
+          });
+        }
+      } else if (imageUploadState) {
+        setImageUploadState(null);
+      }
+
+      // Calculate new image hover state
+      let newImageHoverState: typeof imageHoverState = null;
+      // Don't show hover button when dragging an image
+      if (state.ui.imageHover && !state.ui.imageDrag) {
+        newImageHoverState = {
+          x: state.ui.imageHover.x,
+          y: state.ui.imageHover.y,
+          width: state.ui.imageHover.width,
+          height: state.ui.imageHover.height,
+          blockIndex: state.ui.imageHover.blockIndex,
+          hoveredHandle: state.ui.imageHover.hoveredHandle,
+        };
+        // Persist this state for when the menu transitions
+        persistedImageHoverRef.current = newImageHoverState;
+      }
+
+      // Clear hover state when dragging
+      if (state.ui.imageDrag) {
+        newImageHoverState = null;
+      }
+
+      // Only update if changed
+      if (!shallowEqual(newImageHoverState, lastImageHoverStateRef.current)) {
+        lastImageHoverStateRef.current = newImageHoverState;
+        setImageHoverState(newImageHoverState);
+      }
+
+      // Clear persisted state when image upload closes
+      if (state.ui.activeMenu.type !== "imageUpload") {
+        persistedImageHoverRef.current = null;
       }
 
       // Send undo/redo state to native bridge
@@ -228,13 +309,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     return () => {
       unsubscribe();
       mounted.destroy();
-      // Cleanup bridge
-      if (window.IOSBridge) {
-        window.IOSBridge.undo = undefined;
-        window.IOSBridge.redo = undefined;
-        window.IOSBridge.setBlockType = undefined;
-        window.IOSBridge.focus = undefined;
-      }
+
       if (window.AndroidBridge) {
         delete window.AndroidBridge.undo;
         delete window.AndroidBridge.redo;
@@ -255,6 +330,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
 
   const handleSlashCommandClose = () => {
     if (mountedRef.current) {
+      mountedRef.current.editor.closeActiveMenu();
       setSlashMenuState(null);
       lastSlashMenuStateRef.current = null;
     }
@@ -319,29 +395,33 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
     return items;
   };
 
-  // Set editor to readonly mode when link edit popover is open
+  // Set editor to locked mode when link edit or image upload popover is open
   useEffect(() => {
     if (!mountedRef.current?.editor) return;
 
-    if (linkEditState) {
-      // Set editor to readonly mode when popover opens
-      mountedRef.current.editor.setMode("locked");
+    const currentState = mountedRef.current.editor.getState();
+    if (!currentState) return;
+
+    if (linkEditState || imageUploadState) {
+      // Set editor to locked mode when popover opens (only if not already locked)
+      if (currentState.ui.mode !== "locked") {
+        mountedRef.current.editor.setMode("locked");
+      }
     } else {
-      // Restore to edit mode when popover closes
-      const currentState = mountedRef.current.editor.getState();
-      if (currentState?.ui.mode === "locked") {
+      // Restore to edit mode when popover closes (only if currently locked)
+      if (currentState.ui.mode === "locked") {
         mountedRef.current.editor.setMode("edit");
       }
     }
-  }, [linkEditState]);
+  }, [linkEditState, imageUploadState]);
 
   const handleLinkEdit = () => {
     if (!linkTooltipState || !mountedRef.current) return;
 
     const state = mountedRef.current.editor.getState();
     if (!state) return;
-    
-    if (state.ui.linkHover) {
+
+    if (state.ui.activeMenu.type === "linkHover") {
       const containerRect = wrapperRef.current?.getBoundingClientRect();
       if (containerRect) {
         // Save current cursor and selection before clearing
@@ -354,8 +434,8 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
         // Reset the action flag when opening
         linkEditActionPerformedRef.current = false;
 
-        // Get link data to find segment index
-        const linkData = state.ui.linkHover;
+        // Get link data from activeMenu
+        const linkData = state.ui.activeMenu;
 
         setLinkEditState({
           x: linkData.x,
@@ -397,15 +477,7 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
 
   const handleLinkEditClose = () => {
     if (!linkEditState || !mountedRef.current) return;
-
-    // Only restore the saved cursor and selection if no action was performed (i.e., user canceled)
-    if (!linkEditActionPerformedRef.current) {
-      mountedRef.current.editor.restoreCursorAndSelection(
-        linkEditState.savedCursor,
-        linkEditState.savedSelection
-      );
-    }
-
+    mountedRef.current.editor.closeActiveMenu();
     setLinkEditState(null);
   };
 
@@ -419,7 +491,6 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
       role="textbox"
       aria-label="Text editor"
       aria-multiline="true"
-      tabIndex={-1}
     >
       {/* Slash command menu portal */}
       {slashMenuState &&
@@ -445,6 +516,8 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
           y={contextMenuState.y}
           items={getContextMenuItems()}
           onClose={() => {
+            if (!mountedRef.current) return;
+            mountedRef.current.editor.closeActiveMenu();
             setContextMenuState(null);
             lastContextMenuStateRef.current = null;
           }}
@@ -501,6 +574,192 @@ export const ScrollableEditor: React.FC<ScrollableEditorProps> = ({
           />,
           mountedRef.current.portalContainer
         )}
+
+      {/* Image upload popover */}
+      {imageUploadState &&
+        mountedRef.current?.portalContainer &&
+        createPortal(
+          <ImageUploadPopover
+            x={imageUploadState.x}
+            y={imageUploadState.y}
+            uploadStatus={imageUploadState.uploadStatus}
+            onUpload={async (file) => {
+              if (!mountedRef.current) return;
+              const editor = mountedRef.current.editor;
+              const state = editor.getState();
+              if (!state) return;
+
+              // Get current block to check if there's an existing URL to clear from failed cache
+              const block =
+                state.document.page.blocks[imageUploadState.blockIndex];
+              if (block && block.type === "image" && block.url) {
+                clearFailedImageCache(block.url);
+              }
+
+              // Set uploading status
+              editor.updateImageBlock(
+                imageUploadState.blockIndex,
+                {},
+                "uploading"
+              );
+
+              try {
+                // Upload the image
+                const imageData = await uploadImage(file);
+
+                // Update with the uploaded URL
+                editor.updateImageBlock(
+                  imageUploadState.blockIndex,
+                  {
+                    url: imageData.url,
+                    alt: imageData.fileName,
+                  },
+                  "complete"
+                );
+              } catch (error) {
+                console.error("Image upload failed:", error);
+                editor.updateImageBlock(
+                  imageUploadState.blockIndex,
+                  {},
+                  "error"
+                );
+              }
+            }}
+            onUrlSubmit={(url) => {
+              if (!mountedRef.current) return;
+              const editor = mountedRef.current.editor;
+
+              // Clear failed cache for this URL to allow retry
+              clearFailedImageCache(url);
+
+              editor.updateImageBlock(
+                imageUploadState.blockIndex,
+                { url },
+                "complete"
+              );
+            }}
+            onDelete={() => {
+              if (!mountedRef.current) return;
+              setImageUploadState(null);
+            }}
+            onClose={() => {
+              if (!mountedRef.current) return;
+              // Clear the menu state in the editor
+              mountedRef.current.editor.closeActiveMenu();
+              setImageUploadState(null);
+            }}
+            collisionBoundary={mountedRef.current?.portalContainer}
+            container={mountedRef.current?.portalContainer}
+          />,
+          mountedRef.current.portalContainer
+        )}
+
+      {/* Image hover edit button overlay */}
+      {(imageHoverState ||
+        imageUploadState ||
+        persistedImageHoverRef.current) &&
+        mountedRef.current?.portalContainer &&
+        (() => {
+          // Use imageHoverState if available, otherwise use persisted state or reconstruct from imageUploadState
+          const displayState =
+            imageHoverState ||
+            persistedImageHoverRef.current ||
+            (imageUploadState
+              ? {
+                  x:
+                    imageUploadState.x -
+                    (wrapperRef.current?.getBoundingClientRect().left || 0),
+                  y:
+                    imageUploadState.y -
+                    (wrapperRef.current?.getBoundingClientRect().top || 0),
+                  width: wrapperRef.current?.offsetWidth || 0,
+                  height: 300, // Default image height
+                  blockIndex: imageUploadState.blockIndex,
+                  hoveredHandle: null,
+                }
+              : null);
+
+          if (!displayState) return null;
+
+          const state = mountedRef.current?.editor.getState();
+          if (!state) return null;
+
+          const block = state.document.page.blocks[displayState.blockIndex];
+          if (block?.type !== "image") return null;
+
+          // Check if the image is in placeholder mode (no URL)
+          const isPlaceholder = !block.url;
+
+          // Don't show the overlay for placeholder mode (no Edit Image button)
+          if (isPlaceholder) return null;
+
+          return createPortal(
+            <div
+              style={{
+                position: "absolute",
+                left: `${displayState.x}px`,
+                top: `${displayState.y}px`,
+                width: `${displayState.width}px`,
+                height: `${displayState.height}px`,
+                pointerEvents: "none",
+                overflow: "hidden",
+                zIndex: 10,
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  right: "8px",
+                  top: "8px",
+                  pointerEvents: "auto",
+                }}
+              >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => {
+                    if (!mountedRef.current) return;
+                    const state = mountedRef.current.editor.getState();
+                    if (!state) return;
+
+                    const block =
+                      state.document.page.blocks[displayState.blockIndex];
+                    if (block.type === "image") {
+                      // Get button position to open popover below it
+                      const buttonRect =
+                        e.currentTarget.getBoundingClientRect();
+                      const containerRect =
+                        wrapperRef.current?.getBoundingClientRect();
+
+                      if (containerRect) {
+                        // Convert button position to canvas-relative coordinates
+                        const canvasX = buttonRect.left - containerRect.left;
+                        const canvasY = buttonRect.bottom - containerRect.top;
+
+                        // Open the image upload/edit popover
+                        mountedRef.current.editor.openImageUploadMenu(
+                          displayState.blockIndex,
+                          canvasX,
+                          canvasY,
+                          block.url || undefined,
+                          block.alt || undefined
+                        );
+                      }
+                    }
+                  }}
+                  onMouseDown={(e) => {
+                    // Prevent button from taking focus away from hidden input
+                    e.preventDefault();
+                  }}
+                >
+                  <ImageIcon className="size-4" />
+                  <span className="text-xs">Edit Image</span>
+                </Button>
+              </div>
+            </div>,
+            mountedRef.current.portalContainer
+          );
+        })()}
     </div>
   );
 };

@@ -32,10 +32,10 @@ function invalidateChangedBlocks(oldBlocks: Block[], newBlocks: Block[]) {
       return;
     }
 
-    // Check if content changed (simple string comparison)
-    const oldContent = JSON.stringify(oldBlock.content);
-    const newContent = JSON.stringify(newBlock.content);
-    if (oldContent !== newContent || oldBlock.type !== newBlock.type) {
+    // Check if block changed (simple string comparison)
+    const oldSerialized = JSON.stringify(oldBlock);
+    const newSerialized = JSON.stringify(newBlock);
+    if (oldSerialized !== newSerialized) {
       invalidateBlockCache(newBlock);
     }
   });

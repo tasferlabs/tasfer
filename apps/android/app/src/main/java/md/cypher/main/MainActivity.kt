@@ -7,6 +7,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.view.View
 import android.view.ViewTreeObserver
 import android.view.inputmethod.InputMethodManager
@@ -51,6 +54,11 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
         // This will be called from web to update undo/redo button states
         // We'll handle this in the activity
         (context as? MainActivity)?.updateUndoRedoButtons(canUndo, canRedo)
+    }
+    
+    @JavascriptInterface
+    fun haptic(style: String) {
+        (context as? MainActivity)?.triggerHaptic(style)
     }
 }
 
@@ -163,7 +171,7 @@ class MainActivity : ComponentActivity() {
         })
         
         // Use 10.0.2.2 for Android emulator to access host machine's localhost
-        webView.loadUrl("https://10.0.2.2:5173/")
+        webView.loadUrl("https://192.168.68.53:5173/")
     }
     
     private fun setupToolbarListeners() {
@@ -389,5 +397,35 @@ class MainActivity : ComponentActivity() {
                 loadingScreen.visibility = View.GONE
             }
             .start()
+    }
+    
+    fun triggerHaptic(style: String) {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vibratorManager.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val effect = when (style) {
+                "light" -> VibrationEffect.createOneShot(10, VibrationEffect.DEFAULT_AMPLITUDE)
+                "medium" -> VibrationEffect.createOneShot(20, VibrationEffect.DEFAULT_AMPLITUDE)
+                "heavy" -> VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE)
+                else -> VibrationEffect.createOneShot(10, VibrationEffect.DEFAULT_AMPLITUDE)
+            }
+            vibrator.vibrate(effect)
+        } else {
+            // Fallback for older Android versions
+            @Suppress("DEPRECATION")
+            val duration = when (style) {
+                "light" -> 10L
+                "medium" -> 20L
+                "heavy" -> 50L
+                else -> 10L
+            }
+            vibrator.vibrate(duration)
+        }
     }
 }

@@ -49,12 +49,12 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
   return (
     <PageSettingsContext.Provider
-      value={{ 
-        fontStyle, 
-        setFontStyle, 
-        isSaving, 
+      value={{
+        fontStyle: fontStyle ?? "default",
+        setFontStyle,
+        isSaving,
         setIsSaving,
-        showWordCount,
+        showWordCount: showWordCount ?? false,
         setShowWordCount,
         wordCount,
         setWordCount,

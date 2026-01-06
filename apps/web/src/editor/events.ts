@@ -1,4 +1,5 @@
 import type { Block } from "../deserializer/loadPage";
+import { isTextBlock } from "../deserializer/loadPage";
 import { SLASH_COMMANDS } from "./SlashCommandMenu";
 import { copySelectionToClipboard, pasteFromClipboardEvent } from "./clipboard";
 import {
@@ -6,6 +7,7 @@ import {
   deleteForward,
   deleteSelectedText,
   deleteText,
+  deleteTextRangeInFormattedContent,
   deleteWordBackward,
   deleteWordForward,
   extendSelectionEnd,
@@ -22,7 +24,6 @@ import {
   selectLineAtPosition,
   selectWordAtPosition,
   splitBlock,
-  deleteTextRangeInFormattedContent,
   toggleBold,
 } from "./commands";
 import {
@@ -34,9 +35,12 @@ import {
   EDGE_SCROLL_SPEED,
   EDGE_SCROLL_THRESHOLD,
   MOVEMENT_THRESHOLD,
+  SCROLLBAR_HOLD_DURATION,
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
 } from "./constants";
+import { getBlockHeight, imageCache, invalidateBlockCache } from "./renderer";
+import { getFormattedTextDirection } from "./rtl";
 import {
   applyMomentum,
   endScrollbarDrag,
@@ -50,13 +54,15 @@ import {
   updateScrollbarHover,
 } from "./scrollbar";
 import {
+  getCursorCoordinates,
+  getLinkAtPosition,
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
-  getLinkAtPosition,
-  getCursorCoordinates,
 } from "./selection";
 import {
+  clearAutoCreatedParagraph,
   clearSelection,
+  closeActiveMenu,
   closeSlashCommand,
   extendSelectionDown,
   extendSelectionLeft,
@@ -64,6 +70,7 @@ import {
   extendSelectionPageUp,
   extendSelectionRight,
   extendSelectionUp,
+  generateBlockId,
   getBlockTextContent,
   getBlockTextLength,
   moveCursorDown,
@@ -73,7 +80,9 @@ import {
   moveCursorRight,
   moveCursorToPosition,
   moveCursorUp,
+  openContextMenu,
   openSlashCommand,
+  setActiveMenu,
   startSelection,
   updateCursor,
   updateFocus,
@@ -81,8 +90,8 @@ import {
   updateSelectionFocus,
   updateSlashCommandFilter,
   updateSlashCommandSelection,
-  openContextMenu,
 } from "./state";
+import { getEditorStyles } from "./styles";
 import type {
   EditorState,
   KeyboardEvent,
@@ -96,6 +105,510 @@ function isTouchDevice(): boolean {
     typeof window !== "undefined" &&
     ("ontouchstart" in window || navigator.maxTouchPoints > 0)
   );
+}
+
+/**
+ * Helper function to detect if mouse is hovering over an image block
+ */
+function getImageBlockAtPoint(
+  x: number,
+  y: number,
+  state: EditorState,
+  viewport: ViewportState
+): {
+  blockIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} | null {
+  const styles = getEditorStyles();
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+
+  // Iterate through blocks to find which one we're over
+  for (
+    let blockIndex = 0;
+    blockIndex < state.document.page.blocks.length;
+    blockIndex++
+  ) {
+    const block = state.document.page.blocks[blockIndex];
+    const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
+
+    // Special handling for first block image covers that bleed into padding
+    const isFirstBlock = blockIndex === 0;
+    const isImage = block.type === "image";
+
+    // Get image width early to determine if it should bleed
+    const imageWidth = isImage ? block.width ?? "full" : "full";
+    const shouldBleed = isFirstBlock && isImage && imageWidth === "full";
+
+    // For first block image covers that bleed, check from the top of the viewport (adjusted for padding)
+    const checkStartY = shouldBleed
+      ? currentY - styles.canvas.paddingTop
+      : currentY;
+
+    // Check if y is within this block's bounds (accounting for padding bleed)
+    if (y >= checkStartY && y < currentY + blockHeight) {
+      // Check if this is an image cover block
+      if (isImage) {
+        const { height: defaultImageHeight, placeholderHeight } =
+          styles.blocks.image.dimensions;
+
+        // Image properties already calculated above
+        const imageHeight = block.height ?? defaultImageHeight;
+        const objectFit = block.objectFit ?? "cover";
+
+        // Calculate container dimensions based on width setting
+        let displayWidth: number;
+        let displayHeight: number;
+        let displayX: number;
+
+        if (imageWidth === "full") {
+          // Full width: edge-to-edge (ignoring padding)
+          displayWidth =
+            maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
+          displayX = 0;
+          displayHeight = block.url ? imageHeight : placeholderHeight;
+        } else {
+          // Custom width: respect padding and constrain to container
+          const requestedWidth = imageWidth;
+          displayWidth = Math.min(requestedWidth, maxWidth);
+          displayX = styles.canvas.paddingLeft + (maxWidth - displayWidth) / 2; // Center the image
+
+          // Adjust height proportionally if width was constrained
+          // This ensures images resized on desktop don't get distorted on mobile
+          if (block.url && displayWidth < requestedWidth) {
+            // Width was constrained - adjust height proportionally
+            const widthRatio = displayWidth / requestedWidth;
+            displayHeight = imageHeight * widthRatio;
+          } else {
+            displayHeight = block.url ? imageHeight : placeholderHeight;
+          }
+        }
+
+        // Use the shouldBleed flag calculated earlier
+        const adjustedY = shouldBleed
+          ? currentY - styles.canvas.paddingTop
+          : currentY;
+        const adjustedHeight = displayHeight;
+
+        // Check if mouse is within the container area
+        if (
+          x >= displayX &&
+          x < displayX + displayWidth &&
+          y >= adjustedY &&
+          y < adjustedY + adjustedHeight
+        ) {
+          // For contain mode, we need to calculate the actual image bounds
+          let finalX = displayX;
+          let finalY = adjustedY;
+          let finalWidth = displayWidth;
+          let finalHeight = adjustedHeight;
+
+          if (objectFit === "contain" && block.url) {
+            // Try to get the cached image to calculate actual bounds
+            const cachedImage = imageCache.get(block.url);
+            if (cachedImage && cachedImage.complete) {
+              const imgAspectRatio =
+                cachedImage.naturalWidth / cachedImage.naturalHeight;
+              const containerAspectRatio = displayWidth / adjustedHeight;
+
+              if (imgAspectRatio > containerAspectRatio) {
+                // Image is wider than container - fit to width
+                finalHeight = displayWidth / imgAspectRatio;
+                finalY = adjustedY + (adjustedHeight - finalHeight) / 2;
+              } else {
+                // Image is taller than container - fit to height
+                finalWidth = adjustedHeight * imgAspectRatio;
+                finalX = displayX + (displayWidth - finalWidth) / 2;
+              }
+            }
+          }
+
+          return {
+            blockIndex,
+            x: finalX,
+            y: finalY,
+            width: finalWidth,
+            height: finalHeight,
+          };
+        }
+      }
+      // If we found the block but it's not an image or not over the image area, return null
+      return null;
+    }
+
+    currentY += blockHeight;
+  }
+
+  return null;
+}
+
+/**
+ * Helper function to detect which drag handle (if any) is being hovered
+ * @param x Mouse/touch x position relative to canvas
+ * @param y Mouse/touch y position relative to canvas
+ * @param imageX Image x position
+ * @param imageY Image y position
+ * @param imageWidth Image width
+ * @param imageHeight Image height
+ * @param objectFit The object-fit mode of the image
+ * @param extraTolerance Additional tolerance for touch devices (default: 4 for mouse)
+ * @returns The position of the hovered drag handle, or null if none
+ */
+function getDragHandleAtPoint(
+  x: number,
+  y: number,
+  imageX: number,
+  imageY: number,
+  imageWidth: number,
+  imageHeight: number,
+  objectFit: "cover" | "contain" = "cover",
+  extraTolerance: number = 4
+): "left" | "right" | "bottom" | null {
+  const styles = getEditorStyles();
+  const { vertical, horizontal } = styles.imageResize.dragHandles;
+
+  // Extra tolerance for easier hovering/tapping (pixels beyond the visible bar)
+  const tolerance = extraTolerance;
+
+  // Left vertical bar (centered vertically with specified length)
+  const leftBarX = imageX + vertical.inset;
+  const leftBarWidth = vertical.thickness;
+  const leftBarY = imageY + (imageHeight - vertical.length) / 2; // Center vertically
+  const leftBarHeight = vertical.length;
+
+  if (
+    x >= leftBarX - tolerance &&
+    x <= leftBarX + leftBarWidth + tolerance &&
+    y >= leftBarY &&
+    y <= leftBarY + leftBarHeight
+  ) {
+    return "left";
+  }
+
+  // Right vertical bar (centered vertically with specified length)
+  const rightBarX = imageX + imageWidth - vertical.inset - vertical.thickness;
+  const rightBarWidth = vertical.thickness;
+  const rightBarY = imageY + (imageHeight - vertical.length) / 2; // Center vertically
+  const rightBarHeight = vertical.length;
+
+  if (
+    x >= rightBarX - tolerance &&
+    x <= rightBarX + rightBarWidth + tolerance &&
+    y >= rightBarY &&
+    y <= rightBarY + rightBarHeight
+  ) {
+    return "right";
+  }
+
+  // Bottom horizontal bar (centered horizontally with specified length)
+  // Only active in cover mode
+  if (objectFit === "cover") {
+    const bottomBarX = imageX + (imageWidth - horizontal.length) / 2; // Center horizontally
+    const bottomBarWidth = horizontal.length;
+    const bottomBarY =
+      imageY + imageHeight - horizontal.inset - horizontal.thickness;
+    const bottomBarHeight = horizontal.thickness;
+
+    if (
+      x >= bottomBarX &&
+      x <= bottomBarX + bottomBarWidth &&
+      y >= bottomBarY - tolerance &&
+      y <= bottomBarY + bottomBarHeight + tolerance
+    ) {
+      return "bottom";
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Start an image drag resize operation
+ * @param state Current editor state
+ * @param imageBlock The image block info from hit detection
+ * @param canvasX X position relative to canvas
+ * @param canvasY Y position relative to canvas
+ * @param extraTolerance Extra tolerance for touch devices
+ * @returns Updated state with imageDrag if drag started, or null if no drag handle was hit
+ */
+function startImageDrag(
+  state: EditorState,
+  imageBlock: {
+    blockIndex: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  },
+  canvasX: number,
+  canvasY: number,
+  extraTolerance: number = 4
+): EditorState | null {
+  const block = state.document.page.blocks[imageBlock.blockIndex];
+  if (block.type !== "image") {
+    return null;
+  }
+
+  const objectFit = block.objectFit ?? "cover";
+  const clickedHandle = getDragHandleAtPoint(
+    canvasX,
+    canvasY,
+    imageBlock.x,
+    imageBlock.y,
+    imageBlock.width,
+    imageBlock.height,
+    objectFit,
+    extraTolerance
+  );
+
+  if (clickedHandle && block.url) {
+    // Start dragging the handle
+    // Use the displayed dimensions (imageBlock.width/height) instead of stored dimensions (block.width/height)
+    // This ensures that resizing works correctly on mobile when the image was resized on desktop
+    // For 'full' width images, we keep them as 'full'
+    const storedWidth = block.width ?? "full";
+    const startWidth = storedWidth === "full" ? "full" : imageBlock.width;
+    const startHeight = imageBlock.height;
+
+    return {
+      ...state,
+      ui: {
+        ...state.ui,
+        imageDrag: {
+          blockIndex: imageBlock.blockIndex,
+          handle: clickedHandle,
+          startX: canvasX,
+          startY: canvasY,
+          startWidth,
+          startHeight,
+          startObjectFit: objectFit,
+        },
+      },
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Update image dimensions during drag resize
+ * @param state Current editor state
+ * @param viewport Current viewport state
+ * @param canvasX Current x position relative to canvas
+ * @param canvasY Current y position relative to canvas
+ * @returns Updated state with new image dimensions
+ */
+function updateImageDrag(
+  state: EditorState,
+  viewport: ViewportState,
+  canvasX: number,
+  canvasY: number
+): EditorState {
+  if (!state.ui.imageDrag) {
+    return state;
+  }
+
+  const {
+    blockIndex,
+    handle,
+    startX,
+    startY,
+    startWidth,
+    startHeight,
+    startObjectFit,
+  } = state.ui.imageDrag;
+  const block = state.document.page.blocks[blockIndex];
+
+  if (block.type !== "image") {
+    return state;
+  }
+
+  const styles = getEditorStyles();
+  const deltaX = canvasX - startX;
+  const deltaY = canvasY - startY;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  const snapThreshold = 20; // pixels to snap to padding
+
+  let newWidth: number | "full" = startWidth;
+  let newHeight = startHeight;
+  let newObjectFit: "cover" | "contain" = startObjectFit;
+
+  if (handle === "left" || handle === "right") {
+    // Horizontal resize
+    const widthDelta = handle === "left" ? -deltaX * 2 : deltaX * 2; // multiply by 2 because we resize from center
+    const { minWidth: constraintMinWidth } = styles.imageResize.constraints;
+
+    if (startWidth === "full") {
+      // Start from full width
+      const currentWidth = viewport.width;
+      newWidth = Math.max(constraintMinWidth, currentWidth + widthDelta);
+
+      // Check if we should snap to padding (transitioning to contained)
+      if (Math.abs(newWidth - maxWidth) < snapThreshold) {
+        newWidth = maxWidth;
+        newObjectFit = "contain";
+      } else if (newWidth < maxWidth - snapThreshold) {
+        // Definitely in contain mode
+        newObjectFit = "contain";
+      } else if (newWidth > maxWidth) {
+        // If width exceeds document width (maxWidth), stay in cover mode
+        newWidth = "full";
+        newObjectFit = "cover";
+      } else if (newWidth >= viewport.width - 10) {
+        // Snap back to full if close
+        newWidth = "full";
+        newObjectFit = "cover";
+      }
+    } else {
+      // Already in custom width mode
+      newWidth = Math.max(
+        constraintMinWidth,
+        Math.min(viewport.width, (startWidth as number) + widthDelta)
+      );
+
+      // Check if we should snap back to full width
+      if (newWidth >= viewport.width - snapThreshold) {
+        newWidth = "full";
+        newObjectFit = "cover";
+      } else if (
+        newWidth >= maxWidth - snapThreshold &&
+        newWidth <= maxWidth + snapThreshold
+      ) {
+        // Snap to padding width
+        newWidth = maxWidth;
+        newObjectFit = "contain";
+      } else if (newWidth > maxWidth) {
+        // If width exceeds document width (maxWidth), convert to cover
+        newWidth = "full";
+        newObjectFit = "cover";
+      } else {
+        // Remain in contain mode
+        newObjectFit = "contain";
+      }
+    }
+
+    // In contain mode, calculate height based on image aspect ratio to avoid jumps
+    // Apply minWidth constraint to prevent over-resizing of wide images
+    if (
+      newObjectFit === "contain" &&
+      typeof newWidth === "number" &&
+      block.url
+    ) {
+      const cachedImage = imageCache.get(block.url);
+      if (cachedImage && cachedImage.complete) {
+        const imgAspectRatio =
+          cachedImage.naturalWidth / cachedImage.naturalHeight;
+
+        // Ensure width doesn't go below minimum (already enforced above, but keep for clarity)
+        newWidth = Math.max(newWidth, constraintMinWidth);
+
+        // Calculate height based on width and aspect ratio
+        newHeight = newWidth / imgAspectRatio;
+      }
+    }
+  } else if (handle === "bottom" && startObjectFit === "cover") {
+    // Vertical resize (only in cover mode)
+    // In cover mode, we enforce minimum height
+    const { minHeight: constraintMinHeight } = styles.imageResize.constraints;
+    const calculatedHeight = Math.max(
+      constraintMinHeight,
+      startHeight + deltaY
+    );
+
+    // Cap height based on image aspect ratio to prevent over-resizing
+    if (block.url) {
+      const cachedImage = imageCache.get(block.url);
+      if (cachedImage && cachedImage.complete) {
+        const imgAspectRatio =
+          cachedImage.naturalWidth / cachedImage.naturalHeight;
+
+        // Calculate the current container width
+        const containerWidth =
+          typeof startWidth === "number" ? startWidth : viewport.width;
+
+        // For portrait images (tall), cap the height so it doesn't exceed the image's natural ratio
+        // This prevents excessive cropping when the image is resized too tall
+        const maxHeightForRatio = containerWidth / imgAspectRatio;
+
+        // Cap the height at the image's natural ratio relative to container width
+        newHeight = Math.min(calculatedHeight, maxHeightForRatio);
+
+        // Ensure we don't go below minimum height
+        newHeight = Math.max(newHeight, constraintMinHeight);
+      } else {
+        newHeight = calculatedHeight;
+      }
+    } else {
+      newHeight = calculatedHeight;
+    }
+  }
+
+  // Update the block with new dimensions
+  const updatedBlock: Block = {
+    ...block,
+    width: newWidth,
+    height: newHeight,
+    objectFit: newObjectFit,
+  };
+
+  // Invalidate the block height cache since dimensions changed
+  invalidateBlockCache(updatedBlock);
+
+  const newBlocks = [...state.document.page.blocks];
+  newBlocks[blockIndex] = updatedBlock;
+
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      page: { ...state.document.page, blocks: newBlocks },
+    },
+  };
+}
+
+/**
+ * End an image drag resize operation
+ * @param state Current editor state
+ * @returns Updated state with imageDrag cleared and undo recorded
+ */
+function endImageDrag(state: EditorState): EditorState {
+  if (!state.ui.imageDrag) {
+    return state;
+  }
+
+  // Record undo for the image resize operation
+  const finalState = recordUndo(state);
+  return {
+    ...finalState,
+    ui: {
+      ...finalState.ui,
+      imageDrag: null,
+    },
+  };
+}
+
+/**
+ * Cancel an image drag resize operation (without recording undo)
+ * @param state Current editor state
+ * @returns Updated state with imageDrag cleared
+ */
+function cancelImageDrag(state: EditorState): EditorState {
+  if (!state.ui.imageDrag) {
+    return state;
+  }
+
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      imageDrag: null,
+    },
+  };
 }
 
 /**
@@ -194,12 +707,41 @@ export function handleEvents(
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
   clipboardData?: { html: string; text: string } | null
 ): EditorState {
+  // Check for scrollbar long-press (iOS-style: hold to activate)
+  if (scrollbarPressState && !state.view.scrollbar.isDragging) {
+    const timeSinceStart = Date.now() - scrollbarPressState.startTime;
+    
+    if (timeSinceStart >= SCROLLBAR_HOLD_DURATION) {
+      // Activate scrollbar drag after holding
+      if (touchState) {
+        touchState.isScrollbarDrag = true;
+      }
+      
+      // Haptic feedback when scrollbar activates (iOS-style)
+      triggerHapticFeedback();
+      
+      state = {
+        ...state,
+        view: {
+          ...state.view,
+          scrollbar: startScrollbarDrag(
+            state.view.scrollbar,
+            scrollbarPressState.canvasY,
+            viewport,
+            documentHeight
+          ),
+        },
+      };
+    }
+  }
+
   // Check for long press trigger (independent of touchmove events)
   if (
     touchState &&
     !touchState.isLongPress &&
     !touchState.hasMoved &&
-    !touchState.isScrollbarDrag
+    !touchState.isScrollbarDrag &&
+    !state.ui.imageDrag // Don't open context menu if we're dragging an image
   ) {
     const timeSinceStart = Date.now() - touchState.startTime;
     if (timeSinceStart >= CONTEXT_MENU_DURATION) {
@@ -222,15 +764,13 @@ export function handleEvents(
       }
 
       // Clear link hover tooltip and slash menu when opening context menu
-      state = {
+      state = closeActiveMenu({
         ...state,
         ui: {
           ...state.ui,
-          linkHover: null,
           isHoveringLinkWithModifier: false,
-          slashCommand: null,
         },
-      };
+      });
 
       state = openContextMenu(
         state,
@@ -238,10 +778,9 @@ export function handleEvents(
         touchState.currentTouchY
       );
 
-      // Blur active element
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur();
-      }
+      // Note: We don't blur the active element here anymore because it interferes
+      // with the hidden input focus management. The context menu works fine with
+      // the input still focused, and keyboard dismissal is handled by the OS.
     }
   }
 
@@ -383,7 +922,8 @@ export function handleEvents(
   }
 
   // Apply momentum scrolling if active (even when no events)
-  if (state.view.momentum.isActive) {
+  // But not in locked mode
+  if (state.view.momentum.isActive && state.ui.mode !== "locked") {
     const momentumResult = applyMomentum(
       viewport.scrollY,
       state.view.momentum,
@@ -396,7 +936,9 @@ export function handleEvents(
     }
 
     state = {
-      ...state,
+      ...(state.ui.activeMenu.type === "linkHover"
+        ? closeActiveMenu(state)
+        : state),
       view: {
         ...state.view,
         momentum: momentumResult.momentumState,
@@ -407,8 +949,8 @@ export function handleEvents(
       },
       ui: {
         ...state.ui,
-        linkHover: null,
         isHoveringLinkWithModifier: false,
+        imageHover: null,
       },
     };
   }
@@ -575,6 +1117,11 @@ function handleContextMenu(
 ): EditorState {
   event.preventDefault();
 
+  // Don't open context menu if we're dragging an image
+  if (state.ui.imageDrag) {
+    return state;
+  }
+
   const canvasX = event.x - containerRect.left;
   const canvasY = event.y - containerRect.top;
 
@@ -594,18 +1141,16 @@ function handleContextMenu(
     if (!state.document.selection) {
       state = updateCursor(state, position);
     }
-    
+
     // Clear link hover tooltip and slash menu when opening context menu
     state = {
       ...state,
       ui: {
         ...state.ui,
-        linkHover: null,
         isHoveringLinkWithModifier: false,
-        slashCommand: null,
       },
     };
-    
+
     state = openContextMenu(state, canvasX, canvasY);
   }
 
@@ -671,17 +1216,24 @@ function handleMouseDown(
     return state;
   }
 
-  // Close context menu on any click
-  if (state.ui.contextMenu) {
-    state = { ...state, ui: { ...state.ui, contextMenu: null } };
-  }
-
   // Close slash command menu on mouse click
-  if (state.ui.slashCommand) {
+  if (state.ui.activeMenu.type === "slashCommand") {
     state = closeSlashCommand(state);
   }
 
+  // Track if any menu was open (we'll use this to prevent reopening on same click)
+  const wasMenuOpen = state.ui.activeMenu.type !== "none";
+  const previousMenu = state.ui.activeMenu;
+
+  // Close any active menu on mouse click (will be reopened below if needed)
+  if (wasMenuOpen) {
+    state = closeActiveMenu(state);
+  }
+
   state = updateFocus(state, true);
+
+  // Clear auto-created paragraph tracking on mouse click
+  state = clearAutoCreatedParagraph(state);
 
   state = {
     ...state,
@@ -719,7 +1271,7 @@ function handleMouseDown(
           ...state,
           ui: {
             ...state.ui,
-            linkHover: null,
+            activeMenu: { type: "none" },
             isHoveringLinkWithModifier: false,
           },
         };
@@ -745,7 +1297,12 @@ function handleMouseDown(
         ...state,
         view: {
           ...state.view,
-          scrollbar: startScrollbarDrag(state.view.scrollbar),
+          scrollbar: startScrollbarDrag(
+            state.view.scrollbar,
+            canvasY,
+            viewport,
+            documentHeight
+          ),
         },
       };
     } else {
@@ -772,6 +1329,99 @@ function handleMouseDown(
     }
   }
 
+  // Check if clicking on an image cover block (including placeholders)
+  const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
+  if (imageBlock) {
+    const block = state.document.page.blocks[imageBlock.blockIndex];
+    if (block.type === "image") {
+      // Check if clicking on a drag handle and start drag if applicable
+      const dragState = startImageDrag(state, imageBlock, canvasX, canvasY);
+      if (dragState) {
+        return dragState;
+      }
+
+      // If it's a placeholder (no URL), open the upload menu immediately
+      if (!block.url) {
+        // Don't reopen if we just closed the menu for this same block
+        if (
+          wasMenuOpen &&
+          previousMenu.type === "imageUpload" &&
+          previousMenu.blockIndex === imageBlock.blockIndex
+        ) {
+          // Just keep it closed
+          return state;
+        }
+
+        // Open the image upload menu at the click position
+        return setActiveMenu(state, {
+          type: "imageUpload",
+          blockIndex: imageBlock.blockIndex,
+          x: canvasX,
+          y: canvasY,
+        });
+      }
+      // If it has an image, select the image block (same as arrow key behavior)
+      // Position at the start of the image block (textIndex 0)
+      const imagePosition = { blockIndex: imageBlock.blockIndex, textIndex: 0 };
+
+      let newState = updateCursor(state, imagePosition);
+
+      // Create a selection that spans the entire image block
+      if (event.shiftKey && state.document.selection) {
+        // Extend selection to include this image
+        newState = updateSelectionFocus(newState, imagePosition);
+      } else {
+        // Select just this image block (match arrow key selection behavior)
+        newState = {
+          ...newState,
+          document: {
+            ...newState.document,
+            selection: {
+              anchor: imagePosition,
+              focus: imagePosition,
+              isForward: true,
+              isCollapsed: false,
+              lastUpdate: Date.now(),
+            },
+          },
+        };
+      }
+
+      return updateMode(newState, "edit");
+    }
+  }
+
+  // Check if we have an image selected but clicked outside its container
+  if (
+    !imageBlock &&
+    state.document.selection &&
+    !state.document.selection.isCollapsed
+  ) {
+    const { anchor, focus } = state.document.selection;
+    // Check if this is an image selection (anchor and focus at same position on an image block)
+    if (
+      anchor.blockIndex === focus.blockIndex &&
+      anchor.textIndex === focus.textIndex
+    ) {
+      const selectedBlock = state.document.page.blocks[anchor.blockIndex];
+      if (selectedBlock && selectedBlock.type === "image") {
+        // We have an image selected, but clicked outside it - clear the selection
+        state = clearSelection(state);
+      }
+    }
+  }
+
+  // Check if clicking in top padding area
+  const styles = getEditorStyles();
+  const isClickInTopPadding =
+    canvasY < styles.canvas.paddingTop - viewport.scrollY;
+
+  // If clicking in top padding, clear selection
+  if (isClickInTopPadding) {
+    const clearedState = clearSelection(state);
+    return updateMode(clearedState, "edit");
+  }
+
   const position = getTextPositionFromViewport(
     canvasX,
     canvasY,
@@ -783,6 +1433,46 @@ function handleMouseDown(
   if (!position) {
     const clearedState = clearSelection(state);
     return updateMode(clearedState, "edit");
+  }
+
+  // If clicking below all blocks, check if last block is an image and select it
+  const lastBlockIndex = state.document.page.blocks.length - 1;
+  if (lastBlockIndex >= 0 && position.blockIndex === lastBlockIndex) {
+    const lastBlock = state.document.page.blocks[lastBlockIndex];
+
+    // Calculate if click is below the last block's content
+    let totalContentHeight = styles.canvas.paddingTop;
+    for (let i = 0; i < state.document.page.blocks.length; i++) {
+      const block = state.document.page.blocks[i];
+      const maxWidth =
+        viewport.width -
+        (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+      totalContentHeight += getBlockHeight(block, maxWidth, styles, i);
+    }
+    const isClickBelowContent = canvasY > totalContentHeight - viewport.scrollY;
+
+    // If clicking below content and last block is an image, select it
+    if (isClickBelowContent && lastBlock.type === "image") {
+      const imagePosition = { blockIndex: lastBlockIndex, textIndex: 0 };
+      let newState = updateCursor(state, imagePosition);
+
+      // Select the image block
+      newState = {
+        ...newState,
+        document: {
+          ...newState.document,
+          selection: {
+            anchor: imagePosition,
+            focus: imagePosition,
+            isForward: true,
+            isCollapsed: false,
+            lastUpdate: Date.now(),
+          },
+        },
+      };
+
+      return updateMode(newState, "edit");
+    }
   }
 
   // Track click for double/triple click detection
@@ -866,39 +1556,97 @@ function handleMouseMove(
       ...state,
       ui: {
         ...state.ui,
-        linkHover: null,
         isHoveringLinkWithModifier: false,
+        imageHover: null,
       },
     };
   }
 
-  const isOverScrollbar = isPointInScrollbar(
+  // iOS-style: Only show hover when over the thumb itself
+  const isOverScrollbarThumb = isPointInThumb(
     canvasX,
     canvasY,
     viewport,
-    documentHeight
+    documentHeight,
+    state.view.scrollbar
   );
   state = {
     ...state,
     view: {
       ...state.view,
-      scrollbar: updateScrollbarHover(state.view.scrollbar, isOverScrollbar),
+      scrollbar: updateScrollbarHover(state.view.scrollbar, isOverScrollbarThumb),
     },
   };
+
+  // Handle image drag resize
+  if (state.ui.imageDrag) {
+    return updateImageDrag(state, viewport, canvasX, canvasY);
+  }
+
+  // Check for image hover (desktop only, not in select mode, and not during image drag)
+  if (!isTouchDevice() && state.ui.mode !== "select") {
+    const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
+
+    if (imageBlock) {
+      // Get the block to check its object-fit mode
+      const block = state.document.page.blocks[imageBlock.blockIndex];
+      const objectFit =
+        block.type === "image" ? block.objectFit ?? "cover" : "cover";
+
+      // Check if hovering over a drag handle
+      const hoveredHandle = getDragHandleAtPoint(
+        canvasX,
+        canvasY,
+        imageBlock.x,
+        imageBlock.y,
+        imageBlock.width,
+        imageBlock.height,
+        objectFit
+      );
+
+      // Mouse is over an image block - set imageHover state (not a blocking menu)
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          imageHover: {
+            blockIndex: imageBlock.blockIndex,
+            x: imageBlock.x,
+            y: imageBlock.y,
+            width: imageBlock.width,
+            height: imageBlock.height,
+            hoveredHandle,
+          },
+        },
+      };
+    } else if (state.ui.imageHover !== null) {
+      // Clear image hover state
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          imageHover: null,
+        },
+      };
+    }
+  }
 
   if (state.ui.mode !== "select") {
     // Check for link hover when not selecting (desktop only)
     // Don't show tooltip if Ctrl/Command key is held (user wants to click to open)
     const isCtrlOrCmd = event.ctrlKey || event.metaKey;
 
-    // If Ctrl/Command is held and we have a tooltip showing, clear it
-    if (isCtrlOrCmd && state.ui.linkHover) {
-      state = { ...state, ui: { ...state.ui, linkHover: null } };
+    // If Ctrl/Command is held and we have a link hover showing, clear it
+    if (isCtrlOrCmd && state.ui.activeMenu.type === "linkHover") {
+      state = closeActiveMenu(state);
       return state;
     }
 
-    // Don't show link hover when context menu or slash menu is open
-    if (state.ui.contextMenu || state.ui.slashCommand) {
+    // Don't show link hover when any menu is open (except for linkHover)
+    if (
+      state.ui.activeMenu.type !== "none" &&
+      state.ui.activeMenu.type !== "linkHover"
+    ) {
       return state;
     }
 
@@ -911,16 +1659,19 @@ function handleMouseMove(
         visibility
       );
 
+      let isOverLink = false;
+
       if (position) {
         const linkData = getLinkAtPosition(position, state);
         if (linkData) {
+          isOverLink = true;
           // If Ctrl/Command is held, show pointer cursor but no tooltip
           if (isCtrlOrCmd) {
+            state = closeActiveMenu(state);
             state = {
               ...state,
               ui: {
                 ...state.ui,
-                linkHover: null,
                 isHoveringLinkWithModifier: true,
               },
             };
@@ -940,81 +1691,72 @@ function handleMouseMove(
             if (linkCoords) {
               // Position tooltip below the start of the link text
               // linkCoords.y is in document coordinates, so we need to subtract scrollY to get viewport coordinates
+              const stateWithMenu = setActiveMenu(state, {
+                type: "linkHover",
+                position,
+                url: linkData.url,
+                text: linkData.text,
+                x: linkCoords.x + containerRect.left,
+                y:
+                  linkCoords.y -
+                  viewport.scrollY +
+                  linkCoords.height +
+                  containerRect.top,
+                segmentIndex: linkData?.segmentIndex,
+              });
+
               state = {
-                ...state,
+                ...stateWithMenu,
                 ui: {
-                  ...state.ui,
-                  linkHover: {
-                    position,
-                    url: linkData.url,
-                    text: linkData.text,
-                    x: linkCoords.x + containerRect.left,
-                    y: linkCoords.y - viewport.scrollY + linkCoords.height + containerRect.top,
-                    segmentIndex: linkData?.segmentIndex,
-                  },
+                  ...stateWithMenu.ui,
                   isHoveringLinkWithModifier: false,
                 },
               };
             }
           }
-        } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
+        }
+      }
+
+      // Handle clearing linkHover when not over a link
+      if (!isOverLink) {
+        if (state.ui.activeMenu.type === "linkHover") {
           // Check if mouse is over the tooltip area before clearing
-          // Keep tooltip if we're within the tooltip bounds (approximate)
-          const tooltipHeight = 120; // Approximate height
-          const tooltipWidth = 300; // Approximate width
+          const tooltipHeight = 120;
+          const tooltipWidth = 300;
+          const menu = state.ui.activeMenu;
 
-          if (
-            state.ui.linkHover &&
-            event.x >= state.ui.linkHover.x &&
-            event.x <= state.ui.linkHover.x + tooltipWidth &&
-            event.y >= state.ui.linkHover.y &&
-            event.y <= state.ui.linkHover.y + tooltipHeight
-          ) {
-            // Keep the tooltip open
-            return state;
+          const isOverTooltip =
+            event.x >= menu.x &&
+            event.x <= menu.x + tooltipWidth &&
+            event.y >= menu.y &&
+            event.y <= menu.y + tooltipHeight;
+
+          if (!isOverTooltip) {
+            // Clear link hover
+            state = closeActiveMenu(state);
           }
+        }
 
-          // Clear link hover if no longer over a link or tooltip
+        // Clear modifier state if not over a link
+        if (state.ui.isHoveringLinkWithModifier) {
           state = {
             ...state,
             ui: {
               ...state.ui,
-              linkHover: null,
               isHoveringLinkWithModifier: false,
             },
           };
         }
-      } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
-        // Check if mouse is still over the tooltip
-        const tooltipHeight = 120;
-        const tooltipWidth = 300;
-
-        if (
-          state.ui.linkHover &&
-          event.x >= state.ui.linkHover.x &&
-          event.x <= state.ui.linkHover.x + tooltipWidth &&
-          event.y >= state.ui.linkHover.y &&
-          event.y <= state.ui.linkHover.y + tooltipHeight
-        ) {
-          // Keep the tooltip open
-          return state;
-        }
-
-        // Clear link hover if not over any text or tooltip
-        state = {
-          ...state,
-          ui: {
-            ...state.ui,
-            linkHover: null,
-            isHoveringLinkWithModifier: false,
-          },
-        };
       }
-    } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
+    } else if (
+      state.ui.activeMenu.type === "linkHover" ||
+      state.ui.isHoveringLinkWithModifier
+    ) {
       // Clear link hover on touch devices
+      state = closeActiveMenu(state);
       state = {
         ...state,
-        ui: { ...state.ui, linkHover: null, isHoveringLinkWithModifier: false },
+        ui: { ...state.ui, isHoveringLinkWithModifier: false },
       };
     }
 
@@ -1067,6 +1809,11 @@ function handleMouseUp(
   _visibility: { start: number; end: number }
 ): EditorState {
   stopAutoScroll();
+  
+  // Clean up scrollbar press state
+  if (scrollbarPressState) {
+    scrollbarPressState = null;
+  }
 
   if (state.view.scrollbar.isDragging) {
     return {
@@ -1076,6 +1823,11 @@ function handleMouseUp(
         scrollbar: endScrollbarDrag(state.view.scrollbar),
       },
     };
+  }
+
+  // End image drag if active
+  if (state.ui.imageDrag) {
+    return endImageDrag(state);
   }
 
   if (state.ui.mode === "select") {
@@ -1103,6 +1855,11 @@ function handleMouseUp(
 
 function handlePointerCancel(state: EditorState): EditorState {
   stopAutoScroll();
+  
+  // Clean up scrollbar press state
+  if (scrollbarPressState) {
+    scrollbarPressState = null;
+  }
 
   if (state.view.scrollbar.isDragging) {
     state = {
@@ -1112,6 +1869,11 @@ function handlePointerCancel(state: EditorState): EditorState {
         scrollbar: endScrollbarDrag(state.view.scrollbar),
       },
     };
+  }
+
+  // Cancel image drag if active
+  if (state.ui.imageDrag) {
+    state = cancelImageDrag(state);
   }
 
   if (state.ui.mode === "select") {
@@ -1153,11 +1915,22 @@ function handleKeyDown(
       return state;
     }
     // Block text input keys - let IME handle all text input
-    if (key === "Backspace" || key === "Delete" || key === "Enter" || key === " " || key === "Space") {
+    if (
+      key === "Backspace" ||
+      key === "Delete" ||
+      key === "Enter" ||
+      key === " " ||
+      key === "Space"
+    ) {
       return state;
     }
     // Block regular character input during composition
-    if (key.length === 1 && !keyEvent.ctrlKey && !keyEvent.altKey && !keyEvent.metaKey) {
+    if (
+      key.length === 1 &&
+      !keyEvent.ctrlKey &&
+      !keyEvent.altKey &&
+      !keyEvent.metaKey
+    ) {
       return state;
     }
   }
@@ -1183,7 +1956,8 @@ function handleKeyDown(
   // Bold
   if (isCtrl && code === "KeyB") {
     // Only record undo if there's a selection (actual document change)
-    const hasSelection = state.document.selection && !state.document.selection.isCollapsed;
+    const hasSelection =
+      state.document.selection && !state.document.selection.isCollapsed;
     return toggleBold(hasSelection ? recordUndo(state) : state);
   }
 
@@ -1214,20 +1988,17 @@ function handleKeyDown(
   }
 
   // Handle slash command menu navigation
-  if (state.ui.slashCommand) {
-    const filteredCommands = state.ui.slashCommand.filter
+  if (state.ui.activeMenu.type === "slashCommand") {
+    const slashMenu = state.ui.activeMenu;
+    const filteredCommands = slashMenu.filter
       ? SLASH_COMMANDS.filter(
           (cmd) =>
-            cmd.label
-              .toLowerCase()
-              .includes(state.ui.slashCommand!.filter.toLowerCase()) ||
+            cmd.label.toLowerCase().includes(slashMenu.filter.toLowerCase()) ||
             cmd.description
               .toLowerCase()
-              .includes(state.ui.slashCommand!.filter.toLowerCase()) ||
+              .includes(slashMenu.filter.toLowerCase()) ||
             cmd.keywords?.some((keyword) =>
-              keyword
-                .toLowerCase()
-                .startsWith(state.ui.slashCommand!.filter.toLowerCase())
+              keyword.toLowerCase().startsWith(slashMenu.filter.toLowerCase())
             )
         )
       : SLASH_COMMANDS;
@@ -1241,19 +2012,18 @@ function handleKeyDown(
       case "ArrowDown":
         if (filteredCommands.length > 0) {
           const newIndex = Math.min(
-            state.ui.slashCommand.selectedIndex + 1,
+            slashMenu.selectedIndex + 1,
             filteredCommands.length - 1
           );
           return updateSlashCommandSelection(state, newIndex);
         }
         return state;
       case "ArrowUp":
-        const newIndex = Math.max(state.ui.slashCommand.selectedIndex - 1, 0);
+        const newIndex = Math.max(slashMenu.selectedIndex - 1, 0);
         return updateSlashCommandSelection(state, newIndex);
       case "Enter":
         if (filteredCommands.length > 0 && state.document.cursor) {
-          const selectedCommand =
-            filteredCommands[state.ui.slashCommand.selectedIndex];
+          const selectedCommand = filteredCommands[slashMenu.selectedIndex];
           const newState = applySlashCommand(
             recordUndo(state),
             selectedCommand
@@ -1270,8 +2040,13 @@ function handleKeyDown(
       case "Escape":
         // Close slash command and remove the "/" character
         if (state.document.cursor) {
-          const { blockIndex, textIndex } = state.ui.slashCommand;
+          const { blockIndex, textIndex } = slashMenu;
           const block = state.document.page.blocks[blockIndex];
+
+          // Image cover blocks shouldn't have slash commands, but guard anyway
+          if (block.type === "image") {
+            return closeSlashCommand(state);
+          }
 
           // Remove the "/" and filter text, preserving formatting
           const newContent = deleteTextRangeInFormattedContent(
@@ -1309,8 +2084,9 @@ function handleKeyDown(
         // If at the start of filter, close menu
         if (
           state.document.cursor &&
+          state.ui.activeMenu.type === "slashCommand" &&
           state.document.cursor.position.textIndex <=
-            state.ui.slashCommand.textIndex
+            state.ui.activeMenu.textIndex
         ) {
           // Close menu and delete the slash character - no recordUndo needed since deleteText already records
           const newState = closeSlashCommand(deleteText(recordUndo(state)));
@@ -1323,14 +2099,17 @@ function handleKeyDown(
           return newState;
         }
         // Otherwise update filter - deleteText handles recordUndo internally
-        if (state.document.cursor) {
+        if (
+          state.document.cursor &&
+          state.ui.activeMenu.type === "slashCommand"
+        ) {
+          const slashMenu = state.ui.activeMenu;
           const newState = deleteText(recordUndo(state));
           if (newState.document.cursor) {
-            const block =
-              newState.document.page.blocks[state.ui.slashCommand.blockIndex];
+            const block = newState.document.page.blocks[slashMenu.blockIndex];
             const text = getBlockTextContent(block);
             const filter = text.slice(
-              state.ui.slashCommand.textIndex,
+              slashMenu.textIndex,
               newState.document.cursor.position.textIndex
             );
             const finalState = updateSlashCommandFilter(newState, filter);
@@ -1350,16 +2129,17 @@ function handleKeyDown(
           key.length === 1 &&
           !keyEvent.ctrlKey &&
           !keyEvent.altKey &&
-          !keyEvent.metaKey
+          !keyEvent.metaKey &&
+          state.ui.activeMenu.type === "slashCommand"
         ) {
+          const slashMenu = state.ui.activeMenu;
           // insertText handles recordUndo internally
           const newState = insertText(recordUndo(state), key);
           if (newState.document.cursor) {
-            const block =
-              newState.document.page.blocks[state.ui.slashCommand.blockIndex];
+            const block = newState.document.page.blocks[slashMenu.blockIndex];
             const text = getBlockTextContent(block);
             const filter = text.slice(
-              state.ui.slashCommand.textIndex,
+              slashMenu.textIndex,
               newState.document.cursor.position.textIndex
             );
             const finalState = updateSlashCommandFilter(newState, filter);
@@ -1406,9 +2186,100 @@ function handleKeyDown(
       } else if (keyEvent.shiftKey) {
         newState = extendSelectionLeft(newState);
       } else {
-        // If there's a selection, move to the start of it
+        // Check if we're on an image at the start of the page
+        if (state.document.cursor) {
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+          const isFirstBlock = state.document.cursor.position.blockIndex === 0;
+
+          if (isFirstBlock && currentBlock?.type === "image") {
+            // Create a new paragraph above the image
+            const newParagraph: Block = {
+              id: generateBlockId(),
+              type: "paragraph",
+              content: [{ content: "" }],
+            };
+
+            const newBlocks = [newParagraph, ...state.document.page.blocks];
+            const newPage = { ...state.document.page, blocks: newBlocks };
+
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+            };
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, 0, 0);
+            break;
+          }
+        }
+
+        // Check if we should remove an auto-created paragraph (RTL: left = forward)
+        if (state.ui.autoCreatedParagraph && state.document.cursor) {
+          const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+
+          // Check if cursor is on the auto-created paragraph and it's RTL and empty
+          if (
+            state.document.cursor.position.blockIndex === blockIndex &&
+            currentBlock?.id === blockId &&
+            currentBlock.type === "paragraph" &&
+            isTextBlock(currentBlock) &&
+            getBlockTextContent(currentBlock) === "" &&
+            getFormattedTextDirection(currentBlock.content) === "rtl"
+          ) {
+            // Remove the auto-created paragraph and move to the image below
+            const newBlocks = state.document.page.blocks.filter(
+              (_, i) => i !== blockIndex
+            );
+            const newPage = { ...state.document.page, blocks: newBlocks };
+
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+              ui: {
+                ...state.ui,
+                autoCreatedParagraph: null,
+              },
+            };
+            // Move cursor to the image that was below
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, 0, 0);
+
+            // Select the image block
+            if (newState.document.page.blocks[0]?.type === "image") {
+              newState = {
+                ...newState,
+                document: {
+                  ...newState.document,
+                  selection: {
+                    anchor: { blockIndex: 0, textIndex: 0 },
+                    focus: { blockIndex: 0, textIndex: 0 },
+                    isForward: true,
+                    isCollapsed: false,
+                    lastUpdate: Date.now(),
+                  },
+                },
+              };
+            }
+            break;
+          }
+        }
+
+        // If there's a selection, check if it's an image block selection
         const range = getSelectionRange(newState);
-        if (range) {
+        const isImageSelection =
+          range &&
+          state.document.page.blocks[range.start.blockIndex]?.type ===
+            "image" &&
+          range.start.blockIndex === range.end.blockIndex;
+
+        if (range && !isImageSelection) {
+          // Regular text selection - move to the start of it
           newState = moveCursorToPosition(
             clearSelection(newState),
             range.start.blockIndex,
@@ -1418,6 +2289,43 @@ function handleKeyDown(
           newState = moveToPreviousWord(clearSelection(newState));
         } else {
           newState = moveCursorLeft(clearSelection(newState));
+        }
+
+        // If we moved to an image block, select it; otherwise leave just cursor
+        if (newState.document.cursor) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (targetBlock && targetBlock.type === "image") {
+            const imagePosition = {
+              blockIndex: newState.document.cursor.position.blockIndex,
+              textIndex: 0,
+            };
+            newState = {
+              ...newState,
+              document: {
+                ...newState.document,
+                selection: {
+                  anchor: imagePosition,
+                  focus: imagePosition,
+                  isForward: true,
+                  isCollapsed: false,
+                  lastUpdate: Date.now(),
+                },
+              },
+            };
+          }
+
+          // Clear auto-created paragraph tracking only if we moved away from it
+          if (
+            state.ui.autoCreatedParagraph &&
+            newState.document.cursor &&
+            newState.document.cursor.position.blockIndex !==
+              state.ui.autoCreatedParagraph.blockIndex
+          ) {
+            newState = clearAutoCreatedParagraph(newState);
+          }
         }
       }
       break;
@@ -1430,9 +2338,101 @@ function handleKeyDown(
       } else if (keyEvent.shiftKey) {
         newState = extendSelectionRight(newState);
       } else {
-        // If there's a selection, move to the end of it
+        // Check if we're on an image at the end of the page
+        if (state.document.cursor) {
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+          const isLastBlock =
+            state.document.cursor.position.blockIndex ===
+            state.document.page.blocks.length - 1;
+
+          if (isLastBlock && currentBlock?.type === "image") {
+            // Create a new paragraph below the image
+            const newParagraph: Block = {
+              id: generateBlockId(),
+              type: "paragraph",
+              content: [{ content: "" }],
+            };
+
+            const newBlocks = [...state.document.page.blocks, newParagraph];
+            const newPage = { ...state.document.page, blocks: newBlocks };
+
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+            };
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, newBlocks.length - 1, 0);
+            break;
+          }
+        }
+
+        // Check if we should remove an auto-created paragraph (LTR: right = forward)
+        if (state.ui.autoCreatedParagraph && state.document.cursor) {
+          const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+
+          // Check if cursor is on the auto-created paragraph and it's LTR and empty
+          if (
+            state.document.cursor.position.blockIndex === blockIndex &&
+            currentBlock?.id === blockId &&
+            currentBlock.type === "paragraph" &&
+            isTextBlock(currentBlock) &&
+            getBlockTextContent(currentBlock) === "" &&
+            getFormattedTextDirection(currentBlock.content) === "ltr"
+          ) {
+            // Remove the auto-created paragraph and move to the image below
+            const newBlocks = state.document.page.blocks.filter(
+              (_, i) => i !== blockIndex
+            );
+            const newPage = { ...state.document.page, blocks: newBlocks };
+
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+              ui: {
+                ...state.ui,
+                autoCreatedParagraph: null,
+              },
+            };
+            // Move cursor to the image that was below
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, 0, 0);
+
+            // Select the image block
+            if (newState.document.page.blocks[0]?.type === "image") {
+              newState = {
+                ...newState,
+                document: {
+                  ...newState.document,
+                  selection: {
+                    anchor: { blockIndex: 0, textIndex: 0 },
+                    focus: { blockIndex: 0, textIndex: 0 },
+                    isForward: true,
+                    isCollapsed: false,
+                    lastUpdate: Date.now(),
+                  },
+                },
+              };
+            }
+            break;
+          }
+        }
+
+        // If there's a selection, check if it's an image block selection
         const range = getSelectionRange(newState);
-        if (range) {
+        const isImageSelection =
+          range &&
+          state.document.page.blocks[range.end.blockIndex]?.type === "image" &&
+          range.start.blockIndex === range.end.blockIndex;
+
+        if (range && !isImageSelection) {
+          // Regular text selection - move to the end of it
           newState = moveCursorToPosition(
             clearSelection(newState),
             range.end.blockIndex,
@@ -1443,6 +2443,43 @@ function handleKeyDown(
         } else {
           newState = moveCursorRight(clearSelection(newState));
         }
+
+        // If we moved to an image block, select it; otherwise leave just cursor
+        if (newState.document.cursor) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (targetBlock && targetBlock.type === "image") {
+            const imagePosition = {
+              blockIndex: newState.document.cursor.position.blockIndex,
+              textIndex: 0,
+            };
+            newState = {
+              ...newState,
+              document: {
+                ...newState.document,
+                selection: {
+                  anchor: imagePosition,
+                  focus: imagePosition,
+                  isForward: true,
+                  isCollapsed: false,
+                  lastUpdate: Date.now(),
+                },
+              },
+            };
+          }
+
+          // Clear auto-created paragraph tracking only if we moved away from it
+          if (
+            state.ui.autoCreatedParagraph &&
+            newState.document.cursor &&
+            newState.document.cursor.position.blockIndex !==
+              state.ui.autoCreatedParagraph.blockIndex
+          ) {
+            newState = clearAutoCreatedParagraph(newState);
+          }
+        }
       }
       break;
     case "ArrowUp":
@@ -1452,16 +2489,80 @@ function handleKeyDown(
       if (keyEvent.shiftKey) {
         newState = extendSelectionUp(newState, viewport);
       } else {
-        // If there's a selection, move to the start of it
-        const range = getSelectionRange(newState);
-        if (range) {
-          newState = moveCursorToPosition(
-            clearSelection(newState),
-            range.start.blockIndex,
-            range.start.textIndex
-          );
-        } else {
-          newState = moveCursorUp(clearSelection(newState), viewport);
+        // Check if we're on an image at the start of the page
+        if (state.document.cursor) {
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+          const isFirstBlock = state.document.cursor.position.blockIndex === 0;
+
+          if (isFirstBlock && currentBlock?.type === "image") {
+            // Create a new paragraph above the image
+            const newParagraph: Block = {
+              id: generateBlockId(),
+              type: "paragraph",
+              content: [{ content: "" }],
+            };
+
+            const newBlocks = [newParagraph, ...state.document.page.blocks];
+            const newPage = { ...state.document.page, blocks: newBlocks };
+
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+              ui: {
+                ...state.ui,
+                autoCreatedParagraph: {
+                  blockIndex: 0,
+                  blockId: newParagraph.id,
+                },
+              },
+            };
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, 0, 0);
+            break;
+          }
+        }
+
+        // Clear selection and move cursor
+        newState = moveCursorUp(clearSelection(newState), viewport);
+
+        // If we moved to an image block, select it; otherwise leave just cursor
+        if (newState.document.cursor) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (targetBlock && targetBlock.type === "image") {
+            const imagePosition = {
+              blockIndex: newState.document.cursor.position.blockIndex,
+              textIndex: 0,
+            };
+            newState = {
+              ...newState,
+              document: {
+                ...newState.document,
+                selection: {
+                  anchor: imagePosition,
+                  focus: imagePosition,
+                  isForward: true,
+                  isCollapsed: false,
+                  lastUpdate: Date.now(),
+                },
+              },
+            };
+          }
+
+          // Clear auto-created paragraph tracking only if we moved away from it
+          if (
+            state.ui.autoCreatedParagraph &&
+            newState.document.cursor &&
+            newState.document.cursor.position.blockIndex !==
+              state.ui.autoCreatedParagraph.blockIndex
+          ) {
+            newState = clearAutoCreatedParagraph(newState);
+          }
         }
       }
       break;
@@ -1472,16 +2573,129 @@ function handleKeyDown(
       if (keyEvent.shiftKey) {
         newState = extendSelectionDown(newState, viewport);
       } else {
-        // If there's a selection, move to the end of it
-        const range = getSelectionRange(newState);
-        if (range) {
-          newState = moveCursorToPosition(
-            clearSelection(newState),
-            range.end.blockIndex,
-            range.end.textIndex
-          );
-        } else {
-          newState = moveCursorDown(clearSelection(newState), viewport);
+        // Check if we should remove an auto-created paragraph
+        if (state.ui.autoCreatedParagraph && state.document.cursor) {
+          const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+
+          // If cursor is on the auto-created paragraph and it's still empty
+          if (
+            state.document.cursor.position.blockIndex === blockIndex &&
+            currentBlock?.id === blockId &&
+            currentBlock.type === "paragraph" &&
+            isTextBlock(currentBlock) &&
+            getBlockTextContent(currentBlock) === ""
+          ) {
+            // Remove the auto-created paragraph and move to the image below
+            const newBlocks = state.document.page.blocks.filter(
+              (_, i) => i !== blockIndex
+            );
+            const newPage = { ...state.document.page, blocks: newBlocks };
+
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+              ui: {
+                ...state.ui,
+                autoCreatedParagraph: null,
+              },
+            };
+            // Move cursor to the image that was below
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, 0, 0);
+
+            // Select the image block
+            if (newState.document.page.blocks[0]?.type === "image") {
+              newState = {
+                ...newState,
+                document: {
+                  ...newState.document,
+                  selection: {
+                    anchor: { blockIndex: 0, textIndex: 0 },
+                    focus: { blockIndex: 0, textIndex: 0 },
+                    isForward: true,
+                    isCollapsed: false,
+                    lastUpdate: Date.now(),
+                  },
+                },
+              };
+            }
+            break;
+          }
+        }
+
+        // Check if we're on an image at the end of the page
+        if (state.document.cursor) {
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+          const isLastBlock =
+            state.document.cursor.position.blockIndex ===
+            state.document.page.blocks.length - 1;
+
+          if (isLastBlock && currentBlock?.type === "image") {
+            // Create a new paragraph below the image
+            const newParagraph: Block = {
+              id: generateBlockId(),
+              type: "paragraph",
+              content: [{ content: "" }],
+            };
+
+            const newBlocks = [...state.document.page.blocks, newParagraph];
+            const newPage = { ...state.document.page, blocks: newBlocks };
+
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+            };
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, newBlocks.length - 1, 0);
+            break;
+          }
+        }
+
+        // Clear selection and move cursor
+        newState = moveCursorDown(clearSelection(newState), viewport);
+
+        // If we moved to an image block, select it; otherwise leave just cursor
+        if (newState.document.cursor) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (targetBlock && targetBlock.type === "image") {
+            const imagePosition = {
+              blockIndex: newState.document.cursor.position.blockIndex,
+              textIndex: 0,
+            };
+            newState = {
+              ...newState,
+              document: {
+                ...newState.document,
+                selection: {
+                  anchor: imagePosition,
+                  focus: imagePosition,
+                  isForward: true,
+                  isCollapsed: false,
+                  lastUpdate: Date.now(),
+                },
+              },
+            };
+          }
+
+          // Clear auto-created paragraph tracking only if we moved away from it
+          if (
+            state.ui.autoCreatedParagraph &&
+            newState.document.cursor &&
+            newState.document.cursor.position.blockIndex !==
+              state.ui.autoCreatedParagraph.blockIndex
+          ) {
+            newState = clearAutoCreatedParagraph(newState);
+          }
         }
       }
       break;
@@ -1547,6 +2761,8 @@ function handleKeyDown(
       } else {
         newState = deleteText(recordUndo(state));
       }
+      // Clear auto-created paragraph tracking on delete
+      newState = clearAutoCreatedParagraph(newState);
       break;
     case "Delete":
       if (isCtrl) {
@@ -1554,13 +2770,19 @@ function handleKeyDown(
       } else {
         newState = deleteForward(recordUndo(state));
       }
+      // Clear auto-created paragraph tracking on delete
+      newState = clearAutoCreatedParagraph(newState);
       break;
     case "Enter":
       newState = splitBlock(recordUndo(state));
+      // Clear auto-created paragraph tracking on enter
+      newState = clearAutoCreatedParagraph(newState);
       break;
     case " ":
     case "Space":
       newState = insertText(recordUndo(state), " ");
+      // Clear auto-created paragraph tracking on space (already cleared in insertText, but for safety)
+      newState = clearAutoCreatedParagraph(newState);
       break;
     default:
       // Check if typing "/" at the start of a block (only on desktop)
@@ -1630,6 +2852,11 @@ function handleWheel(
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
+  // In locked mode, block scrolling
+  if (state.ui.mode === "locked") {
+    return state;
+  }
+
   // Stop momentum when using wheel
   state = {
     ...state,
@@ -1663,8 +2890,9 @@ function handleWheel(
     },
     ui: {
       ...state.ui,
-      linkHover: null,
+      activeMenu: { type: "none" },
       isHoveringLinkWithModifier: false,
+      imageHover: null,
     },
   };
 }
@@ -1712,6 +2940,42 @@ let touchTapTracker: {
   count: 0,
 };
 
+// Scrollbar long-press state for iOS-style behavior
+let scrollbarPressState: {
+  isPressingThumb: boolean;
+  startTime: number;
+  canvasX: number;
+  canvasY: number;
+} | null = null;
+
+/**
+ * Trigger haptic feedback through native bridges
+ */
+function triggerHapticFeedback(style: 'light' | 'medium' | 'heavy' = 'heavy'): void {
+  try {
+    // iOS native bridge
+    if (window.IOSBridge?.postMessage) {
+      window.IOSBridge.postMessage({ action: 'haptic', style });
+      return;
+    }
+    
+    // Android native bridge
+    if (window.AndroidBridge?.haptic) {
+      window.AndroidBridge.haptic(style);
+      return;
+    }
+    
+    // Fallback: Standard Vibration API (works on Android Chrome web, not in WebView usually)
+    if ('vibrate' in navigator) {
+      const duration = style === 'light' ? 10 : style === 'medium' ? 20 : 50;
+      navigator.vibrate(duration);
+    }
+  } catch (e) {
+    // Silently fail if haptics not supported
+    console.debug('Haptic feedback not supported:', e);
+  }
+}
+
 function startAutoScroll() {
   if (!autoScrollState.isActive) {
     autoScrollState.isActive = true;
@@ -1737,21 +3001,73 @@ function handleTouchStart(
   containerRect: { left: number; top: number },
   documentHeight: number
 ): EditorState {
+  // In locked mode, block touch interactions that might lead to scrolling
+  if (state.ui.mode === "locked") {
+    return state;
+  }
+
   if (event.touches.length === 1) {
     const touch = event.touches[0];
     const currentTime = Date.now();
     const canvasX = touch.clientX - containerRect.left;
     const canvasY = touch.clientY - containerRect.top;
 
-    // Check if touch is near the right edge of screen (where scrollbar is)
-    // Use a threshold (e.g., last 60px) to detect scrollbar area
-    const edgeThreshold = 60;
-    const isNearRightEdge = canvasX >= viewport.width - edgeThreshold;
+    // iOS-style: Check if touching scrollbar thumb (requires hold to activate)
+    const isScrollbarThumbTouch = isPointInThumb(
+      canvasX,
+      canvasY,
+      viewport,
+      documentHeight,
+      state.view.scrollbar
+    );
 
-    // Also check if actually hitting scrollbar
-    const isScrollbarTouch =
-      isNearRightEdge &&
-      isPointInScrollbar(canvasX, canvasY, viewport, documentHeight);
+    // Check if touching an image drag handle (with larger tolerance for touch)
+    const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
+    const TOUCH_TOLERANCE = 12; // Larger tolerance for touch devices
+    if (imageBlock && !isScrollbarThumbTouch) {
+      const dragState = startImageDrag(
+        state,
+        imageBlock,
+        canvasX,
+        canvasY,
+        TOUCH_TOLERANCE
+      );
+      if (dragState) {
+        // Start image drag - initialize touch state but don't treat as scroll
+        touchState = {
+          startY: canvasY,
+          startScrollY: viewport.scrollY,
+          lastY: canvasY,
+          lastTime: currentTime,
+          velocityY: 0,
+          velocityHistory: [],
+          isScrollbarDrag: false,
+          startX: canvasX,
+          startTime: currentTime,
+          isLongPress: false,
+          hasMoved: false,
+          currentTouchX: canvasX,
+          currentTouchY: canvasY,
+          isTouchingSelection: false,
+        };
+
+        return {
+          ...dragState,
+          view: {
+            ...dragState.view,
+            scrollbar: {
+              ...dragState.view.scrollbar,
+              lastInteraction: Date.now(),
+            },
+            momentum: {
+              velocity: 0,
+              lastTime: Date.now(),
+              isActive: false,
+            },
+          },
+        };
+      }
+    }
 
     // Check if touching within existing selection
     const position = getTextPositionFromViewport(
@@ -1764,31 +3080,50 @@ function handleTouchStart(
     const isTouchingSelection = position
       ? isPositionWithinSelection(state, position)
       : false;
-    touchState = {
-      startY: canvasY,
-      startScrollY: viewport.scrollY,
-      lastY: canvasY,
-      lastTime: currentTime,
-      velocityY: 0,
-      velocityHistory: [],
-      isScrollbarDrag: isScrollbarTouch,
-      startX: canvasX,
-      startTime: currentTime,
-      isLongPress: false,
-      hasMoved: false,
-      currentTouchX: canvasX,
-      currentTouchY: canvasY,
-      isTouchingSelection,
-    };
-
-    // If touching scrollbar, start drag
-    if (isScrollbarTouch) {
-      state = {
-        ...state,
-        view: {
-          ...state.view,
-          scrollbar: startScrollbarDrag(state.view.scrollbar),
-        },
+    
+    // iOS-style: If touching scrollbar thumb, start hold timer (don't activate immediately)
+    if (isScrollbarThumbTouch) {
+      scrollbarPressState = {
+        isPressingThumb: true,
+        startTime: currentTime,
+        canvasX,
+        canvasY,
+      };
+      
+      // Set up minimal touch state for scrollbar interaction
+      touchState = {
+        startY: canvasY,
+        startScrollY: viewport.scrollY,
+        lastY: canvasY,
+        lastTime: currentTime,
+        velocityY: 0,
+        velocityHistory: [],
+        isScrollbarDrag: false, // Not dragging yet, waiting for hold
+        startX: canvasX,
+        startTime: currentTime,
+        isLongPress: false,
+        hasMoved: false,
+        currentTouchX: canvasX,
+        currentTouchY: canvasY,
+        isTouchingSelection: false,
+      };
+    } else {
+      // Regular touch (not on scrollbar)
+      touchState = {
+        startY: canvasY,
+        startScrollY: viewport.scrollY,
+        lastY: canvasY,
+        lastTime: currentTime,
+        velocityY: 0,
+        velocityHistory: [],
+        isScrollbarDrag: false,
+        startX: canvasX,
+        startTime: currentTime,
+        isLongPress: false,
+        hasMoved: false,
+        currentTouchX: canvasX,
+        currentTouchY: canvasY,
+        isTouchingSelection,
       };
     }
 
@@ -1826,6 +3161,11 @@ function handleTouchMove(
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
+  // In locked mode, block scrolling
+  if (state.ui.mode === "locked") {
+    return state;
+  }
+
   if (event.touches.length === 1 && touchState) {
     event.preventDefault();
     const touch = event.touches[0];
@@ -1853,8 +3193,26 @@ function handleTouchMove(
         ...state,
         ui: {
           ...state.ui,
-          linkHover: null,
+          activeMenu: { type: "none" },
           isHoveringLinkWithModifier: false,
+          imageHover: null,
+        },
+      };
+    }
+
+    // Handle image drag resize
+    if (state.ui.imageDrag) {
+      touchState.lastY = canvasY;
+      touchState.lastTime = currentTime;
+
+      return {
+        ...updateImageDrag(state, viewport, canvasX, canvasY),
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
         },
       };
     }
@@ -1871,13 +3229,15 @@ function handleTouchMove(
     // If moved beyond threshold, mark as moved (cancels potential long press)
     if (!touchState.hasMoved && totalMovement > MOVEMENT_THRESHOLD) {
       touchState.hasMoved = true;
+      
+      // Cancel scrollbar press state if user moves (they're not trying to hold it)
+      if (scrollbarPressState) {
+        scrollbarPressState = null;
+      }
 
-      // Close context menu when movement is detected
-      if (state.ui.contextMenu) {
-        state = {
-          ...state,
-          ui: { ...state.ui, contextMenu: null },
-        };
+      // Close any active menu when movement is detected
+      if (state.ui.activeMenu.type === "contextMenu") {
+        state = closeActiveMenu(state);
       }
     }
 
@@ -1972,7 +3332,7 @@ function handleTouchMove(
     },
     ui: {
       ...state.ui,
-      linkHover: null,
+      activeMenu: { type: "none" },
       isHoveringLinkWithModifier: false,
     },
   };
@@ -1985,6 +3345,11 @@ function handleTouchEnd(
   _containerRect: { left: number; top: number }
 ): EditorState {
   stopAutoScroll();
+  
+  // Clean up scrollbar press state (iOS-style hold)
+  if (scrollbarPressState) {
+    scrollbarPressState = null;
+  }
 
   // End scrollbar drag if active
   if (state.view.scrollbar.isDragging) {
@@ -1993,6 +3358,21 @@ function handleTouchEnd(
       view: {
         ...state.view,
         scrollbar: endScrollbarDrag(state.view.scrollbar),
+      },
+    };
+  }
+
+  // End image drag if active
+  if (state.ui.imageDrag) {
+    touchState = null;
+    return {
+      ...endImageDrag(state),
+      view: {
+        ...state.view,
+        scrollbar: {
+          ...state.view.scrollbar,
+          lastInteraction: Date.now(),
+        },
       },
     };
   }
@@ -2059,6 +3439,40 @@ function handleTouchEnd(
   if (isTap && touchState) {
     const tapPosition = { x: touchState.startX, y: touchState.startY };
 
+    // Track if image upload was open (we'll use this to prevent reopening on same tap)
+    const wasImageUploadOpen = state.ui.activeMenu.type === "imageUpload";
+    const wasImageUploadBlockIndex =
+      state.ui.activeMenu.type === "imageUpload"
+        ? state.ui.activeMenu.blockIndex
+        : undefined;
+
+    // Check if tapping in top padding area
+    const styles = getEditorStyles();
+    const isTapInTopPadding =
+      tapPosition.y < styles.canvas.paddingTop - viewport.scrollY;
+
+    // If tapping in top padding, clear selection
+    if (isTapInTopPadding) {
+      state = clearSelection(state);
+      state = updateMode(state, "edit");
+      // Close any active menu when tapping in padding
+      if (state.ui.activeMenu.type === "contextMenu") {
+        state = closeActiveMenu(state);
+      }
+
+      touchState = null;
+      return {
+        ...state,
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
+        },
+      };
+    }
+
     // Get text position for cursor/selection
     const position = getTextPositionFromViewport(
       tapPosition.x,
@@ -2089,29 +3503,193 @@ function handleTouchEnd(
     touchTapTracker.lastTapPosition = tapPosition;
 
     if (position) {
+      // If tapping below all blocks, check if last block is an image and select it
+      const lastBlockIndex = state.document.page.blocks.length - 1;
+      if (lastBlockIndex >= 0 && position.blockIndex === lastBlockIndex) {
+        const lastBlock = state.document.page.blocks[lastBlockIndex];
+
+        // Calculate if tap is below the last block's content
+        let totalContentHeight = styles.canvas.paddingTop;
+        for (let i = 0; i < state.document.page.blocks.length; i++) {
+          const block = state.document.page.blocks[i];
+          const maxWidth =
+            viewport.width -
+            (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+          totalContentHeight += getBlockHeight(block, maxWidth, styles, i);
+        }
+        const isTapBelowContent =
+          tapPosition.y > totalContentHeight - viewport.scrollY;
+
+        // If tapping below content and last block is an image, select it
+        if (isTapBelowContent && lastBlock.type === "image") {
+          const imagePosition = { blockIndex: lastBlockIndex, textIndex: 0 };
+          state = updateCursor(state, imagePosition);
+
+          // Select the image block
+          state = {
+            ...state,
+            document: {
+              ...state.document,
+              selection: {
+                anchor: imagePosition,
+                focus: imagePosition,
+                isForward: true,
+                isCollapsed: false,
+                lastUpdate: Date.now(),
+              },
+            },
+          };
+
+          touchState = null;
+          return {
+            ...updateMode(state, "edit"),
+            view: {
+              ...state.view,
+              scrollbar: {
+                ...state.view.scrollbar,
+                lastInteraction: Date.now(),
+              },
+            },
+          };
+        }
+      }
+
+      // Check if tapped on an image cover block
+      const tappedBlock = state.document.page.blocks[position.blockIndex];
+      if (tappedBlock && tappedBlock.type === "image") {
+        // Verify the tap is actually within the image bounds, not just in the block
+        const imageBlock = getImageBlockAtPoint(
+          tapPosition.x,
+          tapPosition.y,
+          state,
+          viewport
+        );
+        if (imageBlock) {
+          // If it's a placeholder (no URL), open upload menu
+          if (!tappedBlock.url) {
+            // If the upload menu was already open for this same block, don't reopen it (let it stay closed)
+            // This allows tapping on an open upload menu to close it
+            if (
+              wasImageUploadOpen &&
+              wasImageUploadBlockIndex === position.blockIndex
+            ) {
+              // Close image upload popover and keep it closed
+              touchState = null;
+              return {
+                ...closeActiveMenu(state),
+                view: {
+                  ...state.view,
+                  scrollbar: {
+                    ...state.view.scrollbar,
+                    lastInteraction: Date.now(),
+                  },
+                },
+              };
+            }
+
+            // Open image upload popover
+            touchState = null;
+            return {
+              ...setActiveMenu(state, {
+                type: "imageUpload",
+                blockIndex: position.blockIndex,
+                x: tapPosition.x,
+                y: tapPosition.y,
+              }),
+              view: {
+                ...state.view,
+                scrollbar: {
+                  ...state.view.scrollbar,
+                  lastInteraction: Date.now(),
+                },
+              },
+            };
+          }
+
+          // If it has an image, select the image block (same behavior as desktop)
+          const imagePosition = {
+            blockIndex: imageBlock.blockIndex,
+            textIndex: 0,
+          };
+
+          // Close any active menu when selecting an image
+          if (state.ui.activeMenu.type !== "none") {
+            state = closeActiveMenu(state);
+          }
+
+          // Create a selection that spans the image block (same as arrow key behavior)
+          state = moveCursorToPosition(state, imageBlock.blockIndex, 0);
+          state = {
+            ...state,
+            document: {
+              ...state.document,
+              selection: {
+                anchor: imagePosition,
+                focus: imagePosition,
+                isForward: true,
+                isCollapsed: false,
+                lastUpdate: Date.now(),
+              },
+            },
+          };
+          state = updateMode(state, "edit");
+
+          touchState = null;
+          return {
+            ...state,
+            view: {
+              ...state.view,
+              scrollbar: {
+                ...state.view.scrollbar,
+                lastInteraction: Date.now(),
+              },
+            },
+          };
+        }
+      }
+
+      // Check if we have an image selected but tapped outside its container
+      if (
+        tappedBlock?.type !== "image" &&
+        state.document.selection &&
+        !state.document.selection.isCollapsed
+      ) {
+        const { anchor, focus } = state.document.selection;
+        // Check if this is an image selection (anchor and focus at same position on an image block)
+        if (
+          anchor.blockIndex === focus.blockIndex &&
+          anchor.textIndex === focus.textIndex
+        ) {
+          const selectedBlock = state.document.page.blocks[anchor.blockIndex];
+          if (selectedBlock && selectedBlock.type === "image") {
+            // We have an image selected, but tapped outside it - clear the selection
+            state = clearSelection(state);
+          }
+        }
+      }
+
+      // Close any active menu when tapping on non-image blocks
+      if (state.ui.activeMenu.type !== "none") {
+        state = closeActiveMenu(state);
+      }
+
       // Handle triple-tap: always select line (even inside selection)
       if (isMultiTap && touchTapTracker.count >= 3) {
         state = selectLineAtPosition(state, position);
       }
       // If tapping inside a selection (single or double tap), don't reset it (Apple Notes behavior)
       else if (isPositionWithinSelection(state, position)) {
-        // Close context menu if open when tapping on selection
-        if (state.ui.contextMenu) {
-          state = {
-            ...state,
-            ui: { ...state.ui, contextMenu: null },
-          };
+        // Close any active menu if open when tapping on selection
+        if (state.ui.activeMenu.type === "contextMenu") {
+          state = closeActiveMenu(state);
         }
       }
       // Handle double-tap: select word
       else if (isMultiTap && touchTapTracker.count === 2) {
         state = selectWordAtPosition(state, position);
-        // Close context menu when making new selection
-        if (state.ui.contextMenu) {
-          state = {
-            ...state,
-            ui: { ...state.ui, contextMenu: null },
-          };
+        // Close any active menu when making new selection
+        if (state.ui.activeMenu.type === "contextMenu") {
+          state = closeActiveMenu(state);
         }
       }
       // Single tap outside selection: position cursor and close context menu
@@ -2119,23 +3697,17 @@ function handleTouchEnd(
         state = clearSelection(state);
         state = updateCursor(state, position);
         state = updateMode(state, "edit");
-        // Close context menu when tapping outside
-        if (state.ui.contextMenu) {
-          state = {
-            ...state,
-            ui: { ...state.ui, contextMenu: null },
-          };
+        // Close any active menu when tapping outside
+        if (state.ui.activeMenu.type === "contextMenu") {
+          state = closeActiveMenu(state);
         }
       }
     } else {
       // Tapping outside editor area: clear selection and close context menu
       state = clearSelection(state);
       state = updateMode(state, "edit");
-      if (state.ui.contextMenu) {
-        state = {
-          ...state,
-          ui: { ...state.ui, contextMenu: null },
-        };
+      if (state.ui.activeMenu.type === "contextMenu") {
+        state = closeActiveMenu(state);
       }
     }
 

@@ -34,7 +34,7 @@ Bugs list
 [x] implement ctrl + A to select all text.
 [x] add select all on mobile.
 [x] If select all and right click the context menu disapears.
-[x] link menu should not appear on context menu 
+[x] link menu should not appear on context menu
 [x] add placeholder on empty blocks when editing, on cursor position.
 [x] empty blocks should be seen as selected.
 [x] implement "/" functionality to open command palette.
@@ -55,7 +55,7 @@ Bugs list
 [x] Fix word boundary selection logic, it should not include punction and speical signs
 [x] Fix reading empty file, should at least be one block
 [x] ctrl + b should work in the editor.
-[ ] add image blocks
+[x] add image blocks
 [ ] add unorded list block
 [ ] add orded list block
 [ ] add todo list block
@@ -85,7 +85,7 @@ Bugs list
 [ ] rendering is triggered to many times.
 [ ] override webiew defaul 404 page
 [x] rtl inline format rendering edge cases
-[ ] render should be more efficent if we schedule it
+[x] render should be more efficent if we schedule it
 [x] cursor should not be visable if we haeve selection
 [ ] group undo and redo to words.
 [x] bring back the old tree code from l4r for saving pages and sort them into trees.
@@ -142,6 +142,41 @@ Bugs list
 [x] placeholder should not be vsibile when we have selection
 [x] dragging and dropping pagelink on same position it swaps position withe the one under.
 [x] when the editor is not loaded options should not be shown
+[x] clicking close to an image trigger upload menu. Clicking on image should persist it should not activate upload menu if we are pointer inside the image.
+[x] rendering cover image artifcat. The image has border
+[x] Rendering image has supper low resolution. Even though uploaded image is good
+[x] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
+[x] i need to click two times outside to close image upload menu.
+[x] click outside the editor does not close the image upload menu or context menu.
+[x] on hovering on a link near the edge, than the tooltip should be fully visible.
+[x] on hover on image we should show the button for swapping image.
+[x] cache image response if it fails now it requests again and again
+[x] can not scroll when if image is a placeholder
+[x] scrolling should not be active on locked mode
+[x] we should be select an image.
+[x] Image should be selectable. We should be able to select an image.
+[x] going arrow left on start of text block that has image behind should select the iamge. Right arrow should work the same.
+[x] arrow up on image should create new text block.
+[x] image place holder should much smaller in the height
+[x] image on the edge is bit higher than the normal images
+[x] context menu is direcly closing on mobile.
+[x] can not clear selection on moble if click outside or on top/bottom padding
+[x] image cover bleeding on top edge stopped working
+[x] If i delete some text at the end of the document, the scroll size decraese, but the viewport does not update.
+[x] If we create new block before image and or after image and it not used we move down, the we should delete it.
+[x] should not image drag more than its container.
+[x] drag the images.
+[-] we should not store the image in absolute values we should istead use relative values such as perecentage.
+[x] when click outside the image we should lose focus
+[x] conflict between scroll bar and drag handle.
+[ ] placeholder image should drag handles.
+[ ] change position of cover image.
+[ ] Remove an image. Improve EditImagePopover.
+[x] word count should not count images.
+[ ] We should open the context menu or 
+[ ] copy and paste should work with images.
+[ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
+[ ] scrollbar should not hit bottom porition on mobile (or at least on ios)
 - : means not planed or considered
-x : done
+  x : done
   : not done

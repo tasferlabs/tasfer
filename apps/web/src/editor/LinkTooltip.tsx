@@ -1,5 +1,5 @@
 import { Edit2, ExternalLink } from "lucide-react";
-import React from "react";
+import React, { useRef, useLayoutEffect, useState } from "react";
 import { cn } from "../lib/utils";
 
 interface LinkTooltipProps {
@@ -19,6 +19,45 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
   onEdit,
   onOpen,
 }) => {
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ x, y, transform: "translateY(4px)" });
+
+  useLayoutEffect(() => {
+    if (!tooltipRef.current) return;
+
+    const tooltip = tooltipRef.current;
+    const rect = tooltip.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    const PADDING = 8; // Padding from viewport edges
+    const LINK_HEIGHT = 24; // Approximate height of the link element
+
+    let finalX = x;
+    let finalY = y;
+    let transformY = 4; // Default: position below the link
+
+    // Check if tooltip goes below viewport
+    if (y + rect.height + PADDING > viewportHeight) {
+      // Position above the link instead
+      transformY = -(rect.height + LINK_HEIGHT);
+    }
+
+    // Check horizontal boundaries
+    if (x + rect.width + PADDING > viewportWidth) {
+      finalX = viewportWidth - rect.width - PADDING;
+    }
+    if (x < PADDING) {
+      finalX = PADDING;
+    }
+
+    setPosition({
+      x: finalX,
+      y: finalY,
+      transform: `translateY(${transformY}px)`,
+    });
+  }, [x, y]);
+
   const handleOpen = () => {
     if (onOpen) {
       onOpen();
@@ -30,11 +69,12 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
 
   return (
     <div
+      ref={tooltipRef}
       className="fixed z-50 pointer-events-auto select-none"
       style={{
-        left: x,
-        top: y,
-        transform: "translateY(4px)",
+        left: position.x,
+        top: position.y,
+        transform: position.transform,
       }}
       onMouseEnter={(e) => e.stopPropagation()}
       onMouseLeave={(e) => e.stopPropagation()}
@@ -57,6 +97,7 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
         <div className="flex items-center p-1">
           <button
             onClick={handleOpen}
+            onMouseDown={(e) => e.preventDefault()}
             className={cn(
               "flex items-center gap-2 px-3 py-1.5 text-sm rounded-md",
               "hover:bg-accent hover:text-accent-foreground",
@@ -72,6 +113,7 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
           {onEdit && (
             <button
               onClick={onEdit}
+              onMouseDown={(e) => e.preventDefault()}
               className={cn(
                 "flex items-center gap-2 px-3 py-1.5 text-sm rounded-md",
                 "hover:bg-accent hover:text-accent-foreground",
