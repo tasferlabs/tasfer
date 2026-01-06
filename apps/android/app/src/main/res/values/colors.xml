@@ -1,12 +1,175 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
-    <color name="light_gray">#FFF5F5F5</color>
-    <color name="text_primary">#FF212121</color>
+    <!-- Light Theme Colors -->
+    <!-- Note: Colors converted from OKLCH. Original OKLCH values preserved in comments. -->
+    <!-- Android sRGB hex may not fully represent the original color space. -->
+    <!-- For wide color gamut support (API 26+), consider using ColorSpace.get(ColorSpace.Named.DISPLAY_P3) -->
+    <!-- Reference: https://developer.android.com/reference/android/graphics/ColorSpace -->
+
+    <!-- oklch(1 0 0) -->
+    <color name="light_background">#FFFFFFFF</color>
+    <!-- oklch(0.141 0.005 285.823) -->
+    <color name="light_foreground">#FF09090B</color>
+    <!-- oklch(1 0 0) -->
+    <color name="light_card">#FFFFFFFF</color>
+    <!-- oklch(0.141 0.005 285.823) -->
+    <color name="light_card_foreground">#FF09090B</color>
+    <!-- oklch(1 0 0) -->
+    <color name="light_popover">#FFFFFFFF</color>
+    <!-- oklch(0.141 0.005 285.823) -->
+    <color name="light_popover_foreground">#FF09090B</color>
+    <!-- oklch(0.6 0.13 163) -->
+    <color name="light_primary">#FF009869</color>
+    <!-- oklch(0.98 0.02 166) -->
+    <color name="light_primary_foreground">#FFEDFDF5</color>
+    <!-- oklch(0.967 0.001 286.375) -->
+    <color name="light_secondary">#FFF4F4F5</color>
+    <!-- oklch(0.21 0.006 285.885) -->
+    <color name="light_secondary_foreground">#FF18181B</color>
+    <!-- oklch(0.967 0.001 286.375) -->
+    <color name="light_muted">#FFF4F4F5</color>
+    <!-- oklch(0.552 0.016 285.938) -->
+    <color name="light_muted_foreground">#FF71717B</color>
+    <!-- oklch(0.967 0.001 286.375) -->
+    <color name="light_accent">#FFF4F4F5</color>
+    <!-- oklch(0.21 0.006 285.885) -->
+    <color name="light_accent_foreground">#FF18181B</color>
+    <!-- oklch(0.577 0.245 27.325) -->
+    <color name="light_destructive">#FFE7000B</color>
+    <!-- oklch(0.92 0.004 286.32) -->
+    <color name="light_border">#FFE4E4E7</color>
+    <!-- oklch(0.92 0.004 286.32) -->
+    <color name="light_input">#FFE4E4E7</color>
+    <!-- oklch(0.6332 0.1426 163 / 60%) -->
+    <color name="light_ring">#9900A471</color>
+    <!-- oklch(1 0 0) -->
+    <color name="light_editor_background">#FFFFFFFF</color>
+    <!-- oklch(0.2 0.006 285.885) -->
+    <color name="light_editor_text">#FF161619</color>
+    <!-- oklch(0.1 0.005 285.823) -->
+    <color name="light_editor_heading">#FF030304</color>
+    <!-- oklch(0.6 0.13 163) -->
+    <color name="light_editor_cursor">#FF009869</color>
+    <!-- oklch(0.6 0.3 163) -->
+    <color name="light_editor_selection">#FF00AF44</color>
+    <!-- oklch(0.552 0.016 285.938) -->
+    <color name="light_editor_placeholder">#FF71717B</color>
+    <!-- oklch(0.967 0.001 286.375) -->
+    <color name="light_editor_code_bg">#FFF4F4F5</color>
+    <!-- oklch(0.577 0.245 27.325) -->
+    <color name="light_editor_code_text">#FFE7000B</color>
+    <!-- oklch(0.6 0.13 163) -->
+    <color name="light_editor_link">#FF009869</color>
+    <!-- oklch(0.51 0.1 166) -->
+    <color name="light_editor_link_hover">#FF147859</color>
+    <!-- oklch(0.985 0 0) -->
+    <color name="light_sidebar">#FFFAFAFA</color>
+    <!-- oklch(0.141 0.005 285.823) -->
+    <color name="light_sidebar_foreground">#FF09090B</color>
+    <!-- oklch(0.6 0.13 163) -->
+    <color name="light_sidebar_primary">#FF009869</color>
+    <!-- oklch(0.98 0.02 166) -->
+    <color name="light_sidebar_primary_foreground">#FFEDFDF5</color>
+    <!-- oklch(0.967 0.001 286.375) -->
+    <color name="light_sidebar_accent">#FFF4F4F5</color>
+    <!-- oklch(0.21 0.006 285.885) -->
+    <color name="light_sidebar_accent_foreground">#FF18181B</color>
+    <!-- oklch(0.92 0.004 286.32) -->
+    <color name="light_sidebar_border">#FFE4E4E7</color>
+    <!-- oklch(0.705 0.015 286.067) -->
+    <color name="light_sidebar_ring">#FF9F9FA9</color>
+
+    <!-- Dark Theme Colors -->
+    <!-- oklch(0.141 0.005 285.823) -->
+    <color name="dark_background">#FF09090B</color>
+    <!-- oklch(0.985 0 0) -->
+    <color name="dark_foreground">#FFFAFAFA</color>
+    <!-- oklch(0.21 0.006 285.885) -->
+    <color name="dark_card">#FF18181B</color>
+    <!-- oklch(0.985 0 0) -->
+    <color name="dark_card_foreground">#FFFAFAFA</color>
+    <!-- oklch(0.21 0.006 285.885) -->
+    <color name="dark_popover">#FF18181B</color>
+    <!-- oklch(0.985 0 0) -->
+    <color name="dark_popover_foreground">#FFFAFAFA</color>
+    <!-- oklch(0.7 0.15 162) -->
+    <color name="dark_primary">#FF15BA81</color>
+    <!-- oklch(0.26 0.05 173) -->
+    <color name="dark_primary_foreground">#FF002C22</color>
+    <!-- oklch(0.274 0.006 286.033) -->
+    <color name="dark_secondary">#FF27272A</color>
+    <!-- oklch(0.985 0 0) -->
+    <color name="dark_secondary_foreground">#FFFAFAFA</color>
+    <!-- oklch(0.274 0.006 286.033) -->
+    <color name="dark_muted">#FF27272A</color>
+    <!-- oklch(0.705 0.015 286.067) -->
+    <color name="dark_muted_foreground">#FF9F9FA9</color>
+    <!-- oklch(0.274 0.006 286.033) -->
+    <color name="dark_accent">#FF27272A</color>
+    <!-- oklch(0.985 0 0) -->
+    <color name="dark_accent_foreground">#FFFAFAFA</color>
+    <!-- oklch(0.704 0.191 22.216) -->
+    <color name="dark_destructive">#FFFF6467</color>
+    <!-- oklch(1 0 0 / 10%) -->
+    <color name="dark_border">#1AFFFFFF</color>
+    <!-- oklch(1 0 0 / 15%) -->
+    <color name="dark_input">#26FFFFFF</color>
+    <!-- oklch(0.6332 0.1426 163 / 60%) -->
+    <color name="dark_ring">#9900A471</color>
+    <!-- oklch(0.141 0.005 285.823) -->
+    <color name="dark_editor_background">#FF09090B</color>
+    <!-- oklch(0.85 0.015 286.067) -->
+    <color name="dark_editor_text">#FFCCCCD7</color>
+    <!-- oklch(0.985 0 0) -->
+    <color name="dark_editor_heading">#FFFAFAFA</color>
+    <!-- oklch(0.7 0.15 162) -->
+    <color name="dark_editor_cursor">#FF15BA81</color>
+    <!-- oklch(0.9 0.3 162) -->
+    <color name="dark_editor_selection">#FF00FF9D</color>
+    <!-- oklch(0.552 0.016 285.938) -->
+    <color name="dark_editor_placeholder">#FF71717B</color>
+    <!-- oklch(0.2 0 286.033) -->
+    <color name="dark_editor_code_bg">#FF161616</color>
+    <!-- oklch(0.704 0.191 22.216) -->
+    <color name="dark_editor_code_text">#FFFF6467</color>
+    <!-- oklch(0.7 0.15 162) -->
+    <color name="dark_editor_link">#FF15BA81</color>
+    <!-- oklch(0.77 0.15 163) -->
+    <color name="dark_editor_link_hover">#FF3AD198</color>
+    <!-- oklch(0.21 0.006 285.885) -->
+    <color name="dark_sidebar">#FF18181B</color>
+    <!-- oklch(0.985 0 0) -->
+    <color name="dark_sidebar_foreground">#FFFAFAFA</color>
+    <!-- oklch(0.77 0.15 163) -->
+    <color name="dark_sidebar_primary">#FF3AD198</color>
+    <!-- oklch(0.26 0.05 173) -->
+    <color name="dark_sidebar_primary_foreground">#FF002C22</color>
+    <!-- oklch(0.274 0.006 286.033) -->
+    <color name="dark_sidebar_accent">#FF27272A</color>
+    <!-- oklch(0.985 0 0) -->
+    <color name="dark_sidebar_accent_foreground">#FFFAFAFA</color>
+    <!-- oklch(1 0 0 / 10%) -->
+    <color name="dark_sidebar_border">#1AFFFFFF</color>
+    <!-- oklch(0.552 0.016 285.938) -->
+    <color name="dark_sidebar_ring">#FF71717B</color>
+
+    <!-- Theme-aware color aliases (automatically switch based on theme) -->
+    <color name="background">@color/light_background</color>
+    <color name="foreground">@color/light_foreground</color>
+    <color name="card">@color/light_card</color>
+    <color name="card_foreground">@color/light_card_foreground</color>
+    <color name="popover">@color/light_popover</color>
+    <color name="popover_foreground">@color/light_popover_foreground</color>
+    <color name="primary">@color/light_primary</color>
+    <color name="primary_foreground">@color/light_primary_foreground</color>
+    <color name="secondary">@color/light_secondary</color>
+    <color name="secondary_foreground">@color/light_secondary_foreground</color>
+    <color name="muted">@color/light_muted</color>
+    <color name="muted_foreground">@color/light_muted_foreground</color>
+    <color name="accent">@color/light_accent</color>
+    <color name="accent_foreground">@color/light_accent_foreground</color>
+    <color name="destructive">@color/light_destructive</color>
+    <color name="border">@color/light_border</color>
+    <color name="input">@color/light_input</color>
+    <color name="ring">@color/light_ring</color>
 </resources>

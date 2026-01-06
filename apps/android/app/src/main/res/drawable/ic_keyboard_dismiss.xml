@@ -8,7 +8,7 @@
     <path
         android:strokeWidth="2"
         android:pathData="M4 3 C2.895 3 2 3.895 2 5 V13 C2 14.105 2.895 15 4 15 H20 C21.105 15 22 14.105 22 13 V5 C22 3.895 21.105 3 20 3 H4 Z"
-        android:strokeColor="@color/text_primary"
+        android:strokeColor="@color/foreground"
         android:fillColor="@android:color/transparent"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
@@ -16,28 +16,28 @@
     <path
         android:strokeWidth="2"
         android:pathData="M6 7 V7.01"
-        android:strokeColor="@color/text_primary"
+        android:strokeColor="@color/foreground"
         android:fillColor="@android:color/transparent"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
     <path
         android:strokeWidth="2"
         android:pathData="M10 7 V7.01"
-        android:strokeColor="@color/text_primary"
+        android:strokeColor="@color/foreground"
         android:fillColor="@android:color/transparent"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
     <path
         android:strokeWidth="2"
         android:pathData="M14 7 V7.01"
-        android:strokeColor="@color/text_primary"
+        android:strokeColor="@color/foreground"
         android:fillColor="@android:color/transparent"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
     <path
         android:strokeWidth="2"
         android:pathData="M18 7 V7.01"
-        android:strokeColor="@color/text_primary"
+        android:strokeColor="@color/foreground"
         android:fillColor="@android:color/transparent"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
@@ -45,14 +45,14 @@
     <path
         android:strokeWidth="2"
         android:pathData="M6 11 V11.01"
-        android:strokeColor="@color/text_primary"
+        android:strokeColor="@color/foreground"
         android:fillColor="@android:color/transparent"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
     <path
         android:strokeWidth="2"
         android:pathData="M18 11 V11.01"
-        android:strokeColor="@color/text_primary"
+        android:strokeColor="@color/foreground"
         android:fillColor="@android:color/transparent"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
@@ -60,7 +60,7 @@
     <path
         android:strokeWidth="2"
         android:pathData="M10 11 H14"
-        android:strokeColor="@color/text_primary"
+        android:strokeColor="@color/foreground"
         android:fillColor="@android:color/transparent"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
@@ -68,7 +68,7 @@
     <path
         android:strokeWidth="2"
         android:pathData="M10 19 L12 21 L14 19"
-        android:strokeColor="@color/text_primary"
+        android:strokeColor="@color/foreground"
         android:fillColor="@android:color/transparent"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>

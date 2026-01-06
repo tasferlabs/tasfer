@@ -7,14 +7,14 @@
     <path
         android:strokeWidth="2"
         android:pathData="M15 14 L20 9 L15 4"
-        android:strokeColor="@color/text_primary"
+        android:strokeColor="@color/foreground"
         android:fillColor="@android:color/transparent"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
     <path
         android:strokeWidth="2"
         android:pathData="M20 9 H9.5 C6.462 9 4 11.462 4 14.5 C4 17.538 6.462 20 9.5 20 H13"
-        android:strokeColor="@color/text_primary"
+        android:strokeColor="@color/foreground"
         android:fillColor="@android:color/transparent"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
