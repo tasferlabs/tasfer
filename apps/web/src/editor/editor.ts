@@ -771,6 +771,14 @@ export default function createEditor(
       state = clearSelection(state);
     }
     scheduleRender(); // Schedule render when focus changes
+    
+    // Notify native platforms of editor focus state
+    if (window.AndroidBridge?.setEditorFocused) {
+      window.AndroidBridge.setEditorFocused(focused);
+    }
+    if (window.IOSBridge?.setEditorFocused) {
+      window.IOSBridge.setEditorFocused(focused);
+    }
   }
 
   function setInitialCursor() {

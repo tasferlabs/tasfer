@@ -64,6 +64,11 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     fun haptic(style: String) {
         (context as? MainActivity)?.triggerHaptic(style)
     }
+    
+    @JavascriptInterface
+    fun setEditorFocused(focused: Boolean) {
+        (context as? MainActivity)?.updateEditorFocus(focused)
+    }
 }
 
 class MainActivity : ComponentActivity() {
@@ -91,6 +96,7 @@ class MainActivity : ComponentActivity() {
     private var keyboardHeight = 0
     private var bottomInset = 0
     private var topInset = 0
+    private var isEditorFocused = false  // Track if canvas editor is focused
     
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -290,7 +296,7 @@ class MainActivity : ComponentActivity() {
         imm.hideSoftInputFromWindow(webView.windowToken, 0)
     }
     
-    private fun hideEditingUI() {
+    private fun hideToolbarOnly() {
         // Reset toolbar margin to account for bottom inset
         val toolbarParams = keyboardToolbar.layoutParams as android.widget.RelativeLayout.LayoutParams
         toolbarParams.bottomMargin = bottomInset
@@ -307,6 +313,11 @@ class MainActivity : ComponentActivity() {
             blockTypeMenu.visibility = View.GONE
             isBlockMenuOpen = false
         }
+    }
+    
+    private fun hideEditingUI() {
+        // Hide toolbar and menus
+        hideToolbarOnly()
         
         // Clear focus from webview
         webView.clearFocus()
@@ -324,6 +335,12 @@ class MainActivity : ComponentActivity() {
             
             redoButton.isEnabled = canRedo
             redoButton.alpha = if (canRedo) 1.0f else 0.4f
+        }
+    }
+    
+    fun updateEditorFocus(focused: Boolean) {
+        runOnUiThread {
+            isEditorFocused = focused
         }
     }
     
@@ -369,26 +386,39 @@ class MainActivity : ComponentActivity() {
                     // Calculate actual keyboard height (excluding system navigation bar)
                     keyboardHeight = ime.bottom - bottomInset
 
-                    // Show toolbar above keyboard
-                    showEditingUI()
+                    // Only show toolbar if canvas editor is focused
+                    if (isEditorFocused) {
+                        // Show toolbar above keyboard
+                        showEditingUI()
 
-                    // Position toolbar above keyboard, accounting for bottom inset
-                    val layoutParams = keyboardToolbar.layoutParams as android.widget.RelativeLayout.LayoutParams
-                    layoutParams.bottomMargin = ime.bottom
-                    keyboardToolbar.layoutParams = layoutParams
+                        // Position toolbar above keyboard, accounting for bottom inset
+                        val layoutParams = keyboardToolbar.layoutParams as android.widget.RelativeLayout.LayoutParams
+                        layoutParams.bottomMargin = ime.bottom
+                        keyboardToolbar.layoutParams = layoutParams
 
-                    // Notify web of keyboard height (including toolbar)
-                    keyboardToolbar.post {
-                        val toolbarHeightPx = keyboardToolbar.height
-                        val totalHeightPx = ime.bottom + toolbarHeightPx
-                        val totalHeightDp = (totalHeightPx / density).toInt()
+                        // Notify web of keyboard height (including toolbar)
+                        keyboardToolbar.post {
+                            val toolbarHeightPx = keyboardToolbar.height
+                            val totalHeightPx = ime.bottom + toolbarHeightPx
+                            val totalHeightDp = (totalHeightPx / density).toInt()
+                            webView.evaluateJavascript(
+                                "window.postMessage({type: 'keyboard-show', height: $totalHeightDp}, '*');",
+                                null
+                            )
+                        }
+                    } else {
+                        // Editor not focused, keyboard is for other input - hide toolbar only
+                        // Don't clear webview focus as other inputs may need the keyboard
+                        hideToolbarOnly()
+                        
+                        // Notify web about keyboard without toolbar height
                         webView.evaluateJavascript(
-                            "window.postMessage({type: 'keyboard-show', height: $totalHeightDp}, '*');",
+                            "window.postMessage({type: 'keyboard-show', height: 0}, '*');",
                             null
                         )
                     }
                 } else {
-                    // Keyboard closed - hide editing UI
+                    // Keyboard closed - hide editing UI and clear focus
                     hideEditingUI()
 
                     webView.evaluateJavascript(

@@ -66,7 +66,7 @@ Bugs list
 [ ] Accessiblity input?
 [ ] Autorcorrect/autocomplete
 [ ] dragging text
-[ ] on android keyboard toolbar we should add active/inactive state for block type menu.
+[x] on android keyboard toolbar we should add active/inactive state for block type menu.
 [ ] we should add inline formatting options in ios keyboard island.
 [ ] we should add inline formatting options in android keyboard toolbar.
 [ ] On desktop we should add formating inline options on cotnext menu.
@@ -185,8 +185,10 @@ Bugs list
 [ ] I want drag context menu activation like native menu have.
 [ ] drag thumb drag detection on mobile should have buffer area.
 [ ] selection drag rtl is broken
+[ ] draging image handle and scrolling should work too.
 [x] android toolbar is super broken.
 [x] scroll on pagearea is shard on mobile
+[x] clicking on other text inputs (sidebar, page title) should not show toolbar/keyboard island
 - : means not planed or considered
   x : done
   : not done

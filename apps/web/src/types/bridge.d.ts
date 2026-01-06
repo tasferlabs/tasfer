@@ -11,6 +11,7 @@ declare global {
         canRedo?: boolean;
         style?: "light" | "medium" | "heavy";
       }) => void;
+      setEditorFocused?: (focused: boolean) => void;
       // Editor methods (assigned by Web)
     };
 
@@ -21,6 +22,7 @@ declare global {
       paste: () => string;
       updateUndoRedoState?: (canUndo: boolean, canRedo: boolean) => void;
       haptic?: (style: string) => void;
+      setEditorFocused?: (focused: boolean) => void;
       // Editor methods (assigned by Web to allow native to call back)
       undo?: () => void;
       redo?: () => void;

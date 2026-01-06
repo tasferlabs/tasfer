@@ -58,6 +58,12 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
         case "haptic":
             let style = body["style"] as? String ?? "light"
             triggerHaptic(style: style)
+        case "editor-focus":
+            if let focused = body["focused"] as? Bool {
+                if let customWebView = webView as? CustomWebView {
+                    customWebView.updateEditorFocus(focused: focused)
+                }
+            }
         default:
             break
         }
@@ -255,9 +261,11 @@ class CustomWebView: WKWebView {
     private var canUndo = false
     private var canRedo = false
     private var isMenuOpen = false
+    private var isEditorFocused = false  // Track if canvas editor is focused
     
     override var inputAccessoryView: UIView? {
-        return islandView
+        // Only show keyboard island when canvas editor is focused
+        return isEditorFocused ? islandView : nil
     }
     
     override init(frame: CGRect, configuration: WKWebViewConfiguration) {
@@ -307,6 +315,14 @@ class CustomWebView: WKWebView {
     
     func updateToolbarState() {
         islandView?.updateState(canUndo: canUndo, canRedo: canRedo, isMenuOpen: isMenuOpen)
+    }
+    
+    func updateEditorFocus(focused: Bool) {
+        DispatchQueue.main.async {
+            self.isEditorFocused = focused
+            // Reload input views to update the accessory view visibility
+            self.reloadInputViews()
+        }
     }
 
     @objc func onUndo() {
@@ -372,7 +388,10 @@ struct WebView: UIViewRepresentable {
         // Inject alias for IOSBridge as a wrapper object to allow extension
         let scriptSource = """
         window.IOSBridge = {
-            postMessage: function(msg) { window.webkit.messageHandlers.IOSBridge.postMessage(msg); }
+            postMessage: function(msg) { window.webkit.messageHandlers.IOSBridge.postMessage(msg); },
+            setEditorFocused: function(focused) { 
+                window.webkit.messageHandlers.IOSBridge.postMessage({action: 'editor-focus', focused: focused}); 
+            }
         };
         """
         let script = WKUserScript(source: scriptSource, injectionTime: .atDocumentStart, forMainFrameOnly: false)
