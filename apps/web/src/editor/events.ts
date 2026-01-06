@@ -1320,6 +1320,19 @@ function handleMouseDown(
     }
   }
 
+  // Check if we have an image selected but clicked outside its container
+  if (!imageBlock && state.document.selection && !state.document.selection.isCollapsed) {
+    const { anchor, focus } = state.document.selection;
+    // Check if this is an image selection (anchor and focus at same position on an image block)
+    if (anchor.blockIndex === focus.blockIndex && anchor.textIndex === focus.textIndex) {
+      const selectedBlock = state.document.page.blocks[anchor.blockIndex];
+      if (selectedBlock && selectedBlock.type === "imageCover") {
+        // We have an image selected, but clicked outside it - clear the selection
+        state = clearSelection(state);
+      }
+    }
+  }
+
   // Check if clicking in top padding area
   const styles = getEditorStyles();
   const isClickInTopPadding = canvasY < styles.canvas.paddingTop - viewport.scrollY;
@@ -3423,6 +3436,19 @@ function handleTouchEnd(
               },
             },
           };
+        }
+      }
+
+      // Check if we have an image selected but tapped outside its container
+      if (tappedBlock?.type !== "imageCover" && state.document.selection && !state.document.selection.isCollapsed) {
+        const { anchor, focus } = state.document.selection;
+        // Check if this is an image selection (anchor and focus at same position on an image block)
+        if (anchor.blockIndex === focus.blockIndex && anchor.textIndex === focus.textIndex) {
+          const selectedBlock = state.document.page.blocks[anchor.blockIndex];
+          if (selectedBlock && selectedBlock.type === "imageCover") {
+            // We have an image selected, but tapped outside it - clear the selection
+            state = clearSelection(state);
+          }
         }
       }
 

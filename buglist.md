@@ -167,7 +167,9 @@ Bugs list
 [x] should not image drag more than its container.
 [x] drag the images.
 [-] we should not store the image in absolute values we should istead use relative values such as perecentage.
-[ ] when click outside the image we should lose focus
+[x] when click outside the image we should lose focus
+[ ] conflict between scroll bar and drag handle.
+[x] word count should not count images.
 [ ] We should open the context menu or 
 [ ] copy should work with images.
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.

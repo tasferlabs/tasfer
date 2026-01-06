@@ -35,8 +35,10 @@ function countWords(markdown: string): number {
     .replace(/`[^`]+`/g, "")
     // Remove links but keep the text
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    // Remove images
+    // Remove images (markdown syntax)
     .replace(/!\[([^\]]*)\]\([^)]+\)/g, "")
+    // Remove images (HTML img tags)
+    .replace(/<img[^>]*>/g, "")
     // Remove headings markers
     .replace(/^#{1,6}\s+/gm, "")
     // Remove bold/italic markers
