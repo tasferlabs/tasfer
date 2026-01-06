@@ -425,7 +425,7 @@ class CustomWebView: WKWebView {
                 // The keyboard frame includes the accessory view + safe area insets
                 // Accessory view: 56pt (44pt container + 6pt top + 6pt bottom)
                 // Plus safe area bottom inset (usually ~34pt on iPhones with notch, 0 on others)
-                let accessoryWithSafeArea = islandView?.frame.maxY - islandView?.frame.minY ?? 56
+                let accessoryWithSafeArea = islandView?.frame.height ?? 56
                 let keyboardOnlyHeight = keyboardFrame.height - accessoryWithSafeArea
                 
                 // Update cached height and the input view

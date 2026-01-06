@@ -189,6 +189,7 @@ Bugs list
 [x] android toolbar is super broken.
 [x] scroll on pagearea is shard on mobile
 [x] clicking on other text inputs (sidebar, page title) should not show toolbar/keyboard island
+[ ] ios block menu does not have same height as the keyboard. 
 - : means not planed or considered
   x : done
   : not done
