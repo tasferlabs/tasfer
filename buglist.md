@@ -168,7 +168,7 @@ Bugs list
 [x] drag the images.
 [-] we should not store the image in absolute values we should istead use relative values such as perecentage.
 [x] when click outside the image we should lose focus
-[ ] conflict between scroll bar and drag handle.
+[x] conflict between scroll bar and drag handle.
 [ ] placeholder image should drag handles.
 [ ] change position of cover image.
 [ ] Remove an image. Improve EditImagePopover.
@@ -176,6 +176,7 @@ Bugs list
 [ ] We should open the context menu or 
 [ ] copy and paste should work with images.
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
+[ ] scrollbar should not hit bottom porition on mobile (or at least on ios)
 - : means not planed or considered
   x : done
   : not done

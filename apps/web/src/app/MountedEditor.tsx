@@ -309,13 +309,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     return () => {
       unsubscribe();
       mounted.destroy();
-      // Cleanup bridge
-      if (window.IOSBridge) {
-        window.IOSBridge.undo = undefined;
-        window.IOSBridge.redo = undefined;
-        window.IOSBridge.setBlockType = undefined;
-        window.IOSBridge.focus = undefined;
-      }
+
       if (window.AndroidBridge) {
         delete window.AndroidBridge.undo;
         delete window.AndroidBridge.redo;

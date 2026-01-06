@@ -35,6 +35,7 @@ import {
   EDGE_SCROLL_SPEED,
   EDGE_SCROLL_THRESHOLD,
   MOVEMENT_THRESHOLD,
+  SCROLLBAR_HOLD_DURATION,
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
 } from "./constants";
@@ -706,6 +707,34 @@ export function handleEvents(
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
   clipboardData?: { html: string; text: string } | null
 ): EditorState {
+  // Check for scrollbar long-press (iOS-style: hold to activate)
+  if (scrollbarPressState && !state.view.scrollbar.isDragging) {
+    const timeSinceStart = Date.now() - scrollbarPressState.startTime;
+    
+    if (timeSinceStart >= SCROLLBAR_HOLD_DURATION) {
+      // Activate scrollbar drag after holding
+      if (touchState) {
+        touchState.isScrollbarDrag = true;
+      }
+      
+      // Haptic feedback when scrollbar activates (iOS-style)
+      triggerHapticFeedback();
+      
+      state = {
+        ...state,
+        view: {
+          ...state.view,
+          scrollbar: startScrollbarDrag(
+            state.view.scrollbar,
+            scrollbarPressState.canvasY,
+            viewport,
+            documentHeight
+          ),
+        },
+      };
+    }
+  }
+
   // Check for long press trigger (independent of touchmove events)
   if (
     touchState &&
@@ -1268,7 +1297,12 @@ function handleMouseDown(
         ...state,
         view: {
           ...state.view,
-          scrollbar: startScrollbarDrag(state.view.scrollbar),
+          scrollbar: startScrollbarDrag(
+            state.view.scrollbar,
+            canvasY,
+            viewport,
+            documentHeight
+          ),
         },
       };
     } else {
@@ -1528,17 +1562,19 @@ function handleMouseMove(
     };
   }
 
-  const isOverScrollbar = isPointInScrollbar(
+  // iOS-style: Only show hover when over the thumb itself
+  const isOverScrollbarThumb = isPointInThumb(
     canvasX,
     canvasY,
     viewport,
-    documentHeight
+    documentHeight,
+    state.view.scrollbar
   );
   state = {
     ...state,
     view: {
       ...state.view,
-      scrollbar: updateScrollbarHover(state.view.scrollbar, isOverScrollbar),
+      scrollbar: updateScrollbarHover(state.view.scrollbar, isOverScrollbarThumb),
     },
   };
 
@@ -1773,6 +1809,11 @@ function handleMouseUp(
   _visibility: { start: number; end: number }
 ): EditorState {
   stopAutoScroll();
+  
+  // Clean up scrollbar press state
+  if (scrollbarPressState) {
+    scrollbarPressState = null;
+  }
 
   if (state.view.scrollbar.isDragging) {
     return {
@@ -1814,6 +1855,11 @@ function handleMouseUp(
 
 function handlePointerCancel(state: EditorState): EditorState {
   stopAutoScroll();
+  
+  // Clean up scrollbar press state
+  if (scrollbarPressState) {
+    scrollbarPressState = null;
+  }
 
   if (state.view.scrollbar.isDragging) {
     state = {
@@ -2894,6 +2940,42 @@ let touchTapTracker: {
   count: 0,
 };
 
+// Scrollbar long-press state for iOS-style behavior
+let scrollbarPressState: {
+  isPressingThumb: boolean;
+  startTime: number;
+  canvasX: number;
+  canvasY: number;
+} | null = null;
+
+/**
+ * Trigger haptic feedback through native bridges
+ */
+function triggerHapticFeedback(style: 'light' | 'medium' | 'heavy' = 'heavy'): void {
+  try {
+    // iOS native bridge
+    if (window.IOSBridge?.postMessage) {
+      window.IOSBridge.postMessage({ action: 'haptic', style });
+      return;
+    }
+    
+    // Android native bridge
+    if (window.AndroidBridge?.haptic) {
+      window.AndroidBridge.haptic(style);
+      return;
+    }
+    
+    // Fallback: Standard Vibration API (works on Android Chrome web, not in WebView usually)
+    if ('vibrate' in navigator) {
+      const duration = style === 'light' ? 10 : style === 'medium' ? 20 : 50;
+      navigator.vibrate(duration);
+    }
+  } catch (e) {
+    // Silently fail if haptics not supported
+    console.debug('Haptic feedback not supported:', e);
+  }
+}
+
 function startAutoScroll() {
   if (!autoScrollState.isActive) {
     autoScrollState.isActive = true;
@@ -2930,20 +3012,19 @@ function handleTouchStart(
     const canvasX = touch.clientX - containerRect.left;
     const canvasY = touch.clientY - containerRect.top;
 
-    // Check if touch is near the right edge of screen (where scrollbar is)
-    // Use a threshold (e.g., last 60px) to detect scrollbar area
-    const edgeThreshold = 60;
-    const isNearRightEdge = canvasX >= viewport.width - edgeThreshold;
-
-    // Also check if actually hitting scrollbar
-    const isScrollbarTouch =
-      isNearRightEdge &&
-      isPointInScrollbar(canvasX, canvasY, viewport, documentHeight);
+    // iOS-style: Check if touching scrollbar thumb (requires hold to activate)
+    const isScrollbarThumbTouch = isPointInThumb(
+      canvasX,
+      canvasY,
+      viewport,
+      documentHeight,
+      state.view.scrollbar
+    );
 
     // Check if touching an image drag handle (with larger tolerance for touch)
     const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
     const TOUCH_TOLERANCE = 12; // Larger tolerance for touch devices
-    if (imageBlock && !isScrollbarTouch) {
+    if (imageBlock && !isScrollbarThumbTouch) {
       const dragState = startImageDrag(
         state,
         imageBlock,
@@ -2999,31 +3080,50 @@ function handleTouchStart(
     const isTouchingSelection = position
       ? isPositionWithinSelection(state, position)
       : false;
-    touchState = {
-      startY: canvasY,
-      startScrollY: viewport.scrollY,
-      lastY: canvasY,
-      lastTime: currentTime,
-      velocityY: 0,
-      velocityHistory: [],
-      isScrollbarDrag: isScrollbarTouch,
-      startX: canvasX,
-      startTime: currentTime,
-      isLongPress: false,
-      hasMoved: false,
-      currentTouchX: canvasX,
-      currentTouchY: canvasY,
-      isTouchingSelection,
-    };
-
-    // If touching scrollbar, start drag
-    if (isScrollbarTouch) {
-      state = {
-        ...state,
-        view: {
-          ...state.view,
-          scrollbar: startScrollbarDrag(state.view.scrollbar),
-        },
+    
+    // iOS-style: If touching scrollbar thumb, start hold timer (don't activate immediately)
+    if (isScrollbarThumbTouch) {
+      scrollbarPressState = {
+        isPressingThumb: true,
+        startTime: currentTime,
+        canvasX,
+        canvasY,
+      };
+      
+      // Set up minimal touch state for scrollbar interaction
+      touchState = {
+        startY: canvasY,
+        startScrollY: viewport.scrollY,
+        lastY: canvasY,
+        lastTime: currentTime,
+        velocityY: 0,
+        velocityHistory: [],
+        isScrollbarDrag: false, // Not dragging yet, waiting for hold
+        startX: canvasX,
+        startTime: currentTime,
+        isLongPress: false,
+        hasMoved: false,
+        currentTouchX: canvasX,
+        currentTouchY: canvasY,
+        isTouchingSelection: false,
+      };
+    } else {
+      // Regular touch (not on scrollbar)
+      touchState = {
+        startY: canvasY,
+        startScrollY: viewport.scrollY,
+        lastY: canvasY,
+        lastTime: currentTime,
+        velocityY: 0,
+        velocityHistory: [],
+        isScrollbarDrag: false,
+        startX: canvasX,
+        startTime: currentTime,
+        isLongPress: false,
+        hasMoved: false,
+        currentTouchX: canvasX,
+        currentTouchY: canvasY,
+        isTouchingSelection,
       };
     }
 
@@ -3129,6 +3229,11 @@ function handleTouchMove(
     // If moved beyond threshold, mark as moved (cancels potential long press)
     if (!touchState.hasMoved && totalMovement > MOVEMENT_THRESHOLD) {
       touchState.hasMoved = true;
+      
+      // Cancel scrollbar press state if user moves (they're not trying to hold it)
+      if (scrollbarPressState) {
+        scrollbarPressState = null;
+      }
 
       // Close any active menu when movement is detected
       if (state.ui.activeMenu.type === "contextMenu") {
@@ -3240,6 +3345,11 @@ function handleTouchEnd(
   _containerRect: { left: number; top: number }
 ): EditorState {
   stopAutoScroll();
+  
+  // Clean up scrollbar press state (iOS-style hold)
+  if (scrollbarPressState) {
+    scrollbarPressState = null;
+  }
 
   // End scrollbar drag if active
   if (state.view.scrollbar.isDragging) {

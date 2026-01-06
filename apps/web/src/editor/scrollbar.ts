@@ -8,6 +8,7 @@ export interface ScrollbarState {
   readonly isHovered: boolean;
   readonly fadeOpacity: number; // 0 to 1
   readonly lastInteraction: number;
+  readonly dragStartOffset: number; // Offset from thumb top to mouse Y when drag started
 }
 
 export interface ScrollbarStyles {
@@ -52,7 +53,7 @@ function getCSSVariable(name: string, fallback: string): string {
  */
 export function getScrollbarStyles(): ScrollbarStyles {
   return {
-    width: 12,
+    width: isTouchDevice() ? 8 : 12,
     minThumbHeight: 40,
     padding: 4,
     thumbColor: getCSSVariable("--editor-scrollbar-thumb", "rgba(128, 128, 128, 0.5)"),
@@ -78,6 +79,7 @@ export function createInitialScrollbarState(): ScrollbarState {
     isHovered: false,
     fadeOpacity: 0,
     lastInteraction: 0,
+    dragStartOffset: 0,
   };
 }
 
@@ -171,16 +173,25 @@ export function renderScrollbar(
     styles
   );
 
+  // iOS-style: Scale up when dragging (larger and more prominent)
+  const scale = scrollbarState.isDragging && isTouchDevice() ? 1.5 : 1.0;
+  const scaledWidth = bounds.thumbWidth * scale;
+  const scaledTrackWidth = bounds.trackWidth * scale;
+  const widthDiff = scaledWidth - bounds.thumbWidth;
+  const trackWidthDiff = scaledTrackWidth - bounds.trackWidth;
+  const thumbX = bounds.thumbX - widthDiff; // Expand to the left (towards content)
+  const trackX = bounds.trackX - trackWidthDiff; // Expand track to the left too
+
   ctx.save();
   ctx.globalAlpha = opacity;
 
-  // Draw track (optional, subtle background)
+  // Draw track (optional, subtle background) - scales with thumb when active
   ctx.fillStyle = styles.trackColor;
   ctx.beginPath();
   ctx.roundRect(
-    bounds.trackX,
+    trackX,
     bounds.trackY,
-    bounds.trackWidth,
+    scaledTrackWidth,
     bounds.trackHeight,
     styles.borderRadius
   );
@@ -197,9 +208,9 @@ export function renderScrollbar(
   ctx.fillStyle = thumbColor;
   ctx.beginPath();
   ctx.roundRect(
-    bounds.thumbX,
+    thumbX,
     bounds.thumbY,
-    bounds.thumbWidth,
+    scaledWidth,
     bounds.thumbHeight,
     styles.borderRadius
   );
@@ -283,12 +294,28 @@ export function updateScrollbarHover(
 }
 
 export function startScrollbarDrag(
-  scrollbarState: ScrollbarState
+  scrollbarState: ScrollbarState,
+  mouseY: number,
+  viewport: ViewportState,
+  documentHeight: number,
+  styles: ScrollbarStyles = getScrollbarStyles()
 ): ScrollbarState {
+  // Calculate current thumb position
+  const bounds = calculateScrollbarBounds(
+    viewport,
+    documentHeight,
+    scrollbarState,
+    styles
+  );
+  
+  // Save the offset from the thumb's top to where the mouse clicked
+  const dragStartOffset = mouseY - bounds.thumbY;
+  
   return {
     ...scrollbarState,
     isDragging: true,
     lastInteraction: Date.now(),
+    dragStartOffset,
   };
 }
 
@@ -299,6 +326,7 @@ export function endScrollbarDrag(
     ...scrollbarState,
     isDragging: false,
     lastInteraction: Date.now(),
+    dragStartOffset: 0,
   };
 }
 
@@ -306,7 +334,7 @@ export function updateScrollFromThumbDrag(
   mouseY: number,
   viewport: ViewportState,
   documentHeight: number,
-  _scrollbarState: ScrollbarState,
+  scrollbarState: ScrollbarState,
   styles: ScrollbarStyles = getScrollbarStyles()
 ): number {
   const trackY = styles.padding;
@@ -323,8 +351,9 @@ export function updateScrollFromThumbDrag(
   const maxThumbY = trackHeight - thumbHeight;
   const maxScroll = documentHeight - viewport.height;
 
-  // Calculate where the thumb should be based on mouse
-  const relativeMouseY = mouseY - trackY;
+  // Calculate where the thumb should be based on mouse, accounting for the drag offset
+  // This prevents the thumb from "jumping" when you first click on it
+  const relativeMouseY = mouseY - trackY - scrollbarState.dragStartOffset;
   const thumbYFromMouse = Math.max(0, Math.min(maxThumbY, relativeMouseY));
 
   // Calculate scroll position

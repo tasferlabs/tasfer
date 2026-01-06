@@ -13,7 +13,7 @@ struct ContentView: View {
     
     var body: some View {
         ZStack {
-            WebView(url: URL(string: "https://localhost:5173/")!, isLoading: $isLoading)
+            WebView(url: URL(string: "https://192.168.68.53:5173/")!, isLoading: $isLoading)
                 .edgesIgnoringSafeArea(.all)
             
             if isLoading {
@@ -55,9 +55,28 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
                     customWebView.updateUndoRedoState(canUndo: canUndo, canRedo: canRedo)
                 }
             }
+        case "haptic":
+            let style = body["style"] as? String ?? "light"
+            triggerHaptic(style: style)
         default:
             break
         }
+    }
+    
+    private func triggerHaptic(style: String) {
+        let generator: UIImpactFeedbackGenerator
+        switch style {
+        case "light":
+            generator = UIImpactFeedbackGenerator(style: .light)
+        case "medium":
+            generator = UIImpactFeedbackGenerator(style: .medium)
+        case "heavy":
+            generator = UIImpactFeedbackGenerator(style: .heavy)
+        default:
+            generator = UIImpactFeedbackGenerator(style: .light)
+        }
+        generator.prepare()
+        generator.impactOccurred()
     }
 }
 
@@ -439,7 +458,8 @@ struct WebView: UIViewRepresentable {
         
         func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
             // Trust localhost SSL certificates for development
-            if challenge.protectionSpace.host == "localhost" || 
+            if  challenge.protectionSpace.host.starts(with: "192.168.") ||
+                challenge.protectionSpace.host == "localhost" ||
                challenge.protectionSpace.host == "127.0.0.1" {
                 if let serverTrust = challenge.protectionSpace.serverTrust {
                     let credential = URLCredential(trust: serverTrust)

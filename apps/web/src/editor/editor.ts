@@ -115,13 +115,13 @@ export default function createEditor(
   };
 
   let isRendering = false;
-  
+
   // Dirty flags for each layer
   let dirtyLayers = {
     content: true, // Start with true for initial render
     cursor: true,
   };
-  
+
   let lastCursorBlinkState = false; // Track cursor blink state changes
 
   const eventsQueue: Event[] = [];
@@ -147,7 +147,7 @@ export default function createEditor(
     isHoveringScrollbar: boolean,
     isDragging: boolean,
     isHoveringLinkWithModifier: boolean,
-    dragHandleHover: 'left' | 'right' | 'bottom' | null = null
+    dragHandleHover: "left" | "right" | "bottom" | null = null
   ) => {
     // Only update cursor on desktop (not touch devices)
     if (isTouchDevice()) {
@@ -159,9 +159,9 @@ export default function createEditor(
       contentCanvas.style.cursor = "grabbing";
     } else if (dragHandleHover) {
       // When hovering over a drag handle, use resize cursor
-      if (dragHandleHover === 'left' || dragHandleHover === 'right') {
+      if (dragHandleHover === "left" || dragHandleHover === "right") {
         contentCanvas.style.cursor = "ew-resize"; // Horizontal resize
-      } else if (dragHandleHover === 'bottom') {
+      } else if (dragHandleHover === "bottom") {
         contentCanvas.style.cursor = "ns-resize"; // Vertical resize
       }
     } else if (isHoveringScrollbar) {
@@ -221,7 +221,10 @@ export default function createEditor(
         }
 
         // Check if cursor position changed (requires cursor layer update)
-        if (prevState.document.cursor?.position !== state.document.cursor?.position) {
+        if (
+          prevState.document.cursor?.position !==
+          state.document.cursor?.position
+        ) {
           dirtyLayers.cursor = true;
         }
 
@@ -246,7 +249,7 @@ export default function createEditor(
 
       // Render dirty layers
       const needsAnyRender = dirtyLayers.content || dirtyLayers.cursor;
-      
+
       if (needsAnyRender) {
         // Render content layer if dirty (expensive)
         if (dirtyLayers.content) {
@@ -634,7 +637,9 @@ export default function createEditor(
       contentCanvas.addEventListener("mousedown", eventsHandler);
       contentCanvas.addEventListener("mousemove", eventsHandler);
       contentCanvas.addEventListener("mouseup", eventsHandler);
-      contentCanvas.addEventListener("wheel", eventsHandler, { passive: false });
+      contentCanvas.addEventListener("wheel", eventsHandler, {
+        passive: false,
+      });
 
       window.addEventListener("mouseup", windowMouseUpHandler);
       window.addEventListener("mousemove", windowMouseMoveHandler);
@@ -644,9 +649,15 @@ export default function createEditor(
     contentCanvas.addEventListener("touchstart", touchStartHandler, {
       passive: false,
     });
-    contentCanvas.addEventListener("touchmove", touchMoveHandler, { passive: false });
-    contentCanvas.addEventListener("touchend", touchEndHandler, { passive: false });
-    contentCanvas.addEventListener("touchcancel", eventsHandler, { passive: false });
+    contentCanvas.addEventListener("touchmove", touchMoveHandler, {
+      passive: false,
+    });
+    contentCanvas.addEventListener("touchend", touchEndHandler, {
+      passive: false,
+    });
+    contentCanvas.addEventListener("touchcancel", eventsHandler, {
+      passive: false,
+    });
     window.addEventListener("keydown", eventsHandler);
     window.addEventListener("paste", eventsHandler);
 
@@ -736,9 +747,6 @@ export default function createEditor(
 
     // Schedule render for viewport changes
     scheduleRender();
-
-    // Force immediate render to avoid flickering on resize
-    renderFrame();
   }
 
   function getDocumentHeight(): number {
