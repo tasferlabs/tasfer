@@ -169,9 +169,12 @@ Bugs list
 [-] we should not store the image in absolute values we should istead use relative values such as perecentage.
 [x] when click outside the image we should lose focus
 [ ] conflict between scroll bar and drag handle.
+[ ] placeholder image should drag handles.
+[ ] change position of cover image.
+[ ] Remove an image. Improve EditImagePopover.
 [x] word count should not count images.
 [ ] We should open the context menu or 
-[ ] copy should work with images.
+[ ] copy and paste should work with images.
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
 - : means not planed or considered
   x : done
