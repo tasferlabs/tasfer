@@ -177,6 +177,10 @@ Bugs list
 [ ] copy and paste should work with images.
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
 [ ] scrollbar should not hit bottom porition on mobile (or at least on ios)
+[ ] hide editimagepopover on mobile
+[ ] hide scrollbar when not scrolling
+[ ] one click on selection should trigger context menu.
+[ ] focus issue on context menu
 - : means not planed or considered
   x : done
   : not done
