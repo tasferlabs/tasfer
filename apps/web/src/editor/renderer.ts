@@ -1101,6 +1101,7 @@ function renderImageCoverBlock(
 
   // Calculate dimensions based on width setting
   let displayWidth: number;
+  let displayHeight: number;
   let displayX: number;
 
   if (imageWidth === "full") {
@@ -1108,14 +1109,23 @@ function renderImageCoverBlock(
     displayWidth =
       _maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
     displayX = 0;
+    displayHeight = block.url ? imageHeight : placeholderHeight;
   } else {
-    // Custom width: respect padding
-    displayWidth = Math.min(imageWidth, _maxWidth);
+    // Custom width: respect padding and constrain to container
+    const requestedWidth = imageWidth;
+    displayWidth = Math.min(requestedWidth, _maxWidth);
     displayX = styles.canvas.paddingLeft + (_maxWidth - displayWidth) / 2; // Center the image
+    
+    // Adjust height proportionally if width was constrained
+    // This ensures images resized on desktop don't get distorted on mobile
+    if (block.url && displayWidth < requestedWidth) {
+      // Width was constrained - adjust height proportionally
+      const widthRatio = displayWidth / requestedWidth;
+      displayHeight = imageHeight * widthRatio;
+    } else {
+      displayHeight = block.url ? imageHeight : placeholderHeight;
+    }
   }
-
-  // Use placeholder height for placeholder, configured height for images
-  const displayHeight = block.url ? imageHeight : placeholderHeight;
 
   // First block images in cover mode (full width) bleed into the top padding for edge-to-edge experience
   // They start higher but maintain their proper dimensions
@@ -1262,8 +1272,7 @@ function renderImageCoverBlock(
         // Start loading the image
         loadImage(block.url)
           .then(() => {
-            // Force re-render when image loads
-            // This will be handled by the editor's render loop
+            invalidateBlockCache(block);
           })
           .catch((error) => {
             console.error("Failed to load image:", error);
@@ -1363,10 +1372,28 @@ export const calculateBlockHeight = (
       placeholderHeight,
       paddingBottom: padding,
     } = styles.blocks.imageCover.dimensions;
-    // Use the block's configured height if available, otherwise use defaults
-    const displayHeight = block.url
-      ? block.height ?? defaultHeight
-      : placeholderHeight;
+    
+    const imageWidth = block.width ?? "full";
+    const imageHeight = block.height ?? defaultHeight;
+    let displayHeight: number;
+    
+    if (imageWidth === "full") {
+      // Full width images use their configured height
+      displayHeight = block.url ? imageHeight : placeholderHeight;
+    } else {
+      // Custom width: adjust height proportionally if width was constrained
+      const requestedWidth = imageWidth;
+      const displayWidth = Math.min(requestedWidth, maxWidth);
+      
+      if (block.url && displayWidth < requestedWidth) {
+        // Width was constrained - adjust height proportionally
+        const widthRatio = displayWidth / requestedWidth;
+        displayHeight = imageHeight * widthRatio;
+      } else {
+        displayHeight = block.url ? imageHeight : placeholderHeight;
+      }
+    }
+    
     // Always add padding after image blocks for visual spacing
     return displayHeight + padding;
   }

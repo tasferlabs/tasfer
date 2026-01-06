@@ -34,7 +34,6 @@ import {
   EDGE_SCROLL_MAX_SPEED,
   EDGE_SCROLL_SPEED,
   EDGE_SCROLL_THRESHOLD,
-  IMAGE_COVER_DEFAULT_HEIGHT,
   MOVEMENT_THRESHOLD,
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
@@ -161,20 +160,30 @@ function getImageBlockAtPoint(
         
         // Calculate container dimensions based on width setting
         let displayWidth: number;
+        let displayHeight: number;
         let displayX: number;
         
         if (imageWidth === 'full') {
           // Full width: edge-to-edge (ignoring padding)
           displayWidth = maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
           displayX = 0;
+          displayHeight = block.url ? imageHeight : placeholderHeight;
         } else {
-          // Custom width: respect padding
-          displayWidth = Math.min(imageWidth, maxWidth);
+          // Custom width: respect padding and constrain to container
+          const requestedWidth = imageWidth;
+          displayWidth = Math.min(requestedWidth, maxWidth);
           displayX = styles.canvas.paddingLeft + (maxWidth - displayWidth) / 2; // Center the image
+          
+          // Adjust height proportionally if width was constrained
+          // This ensures images resized on desktop don't get distorted on mobile
+          if (block.url && displayWidth < requestedWidth) {
+            // Width was constrained - adjust height proportionally
+            const widthRatio = displayWidth / requestedWidth;
+            displayHeight = imageHeight * widthRatio;
+          } else {
+            displayHeight = block.url ? imageHeight : placeholderHeight;
+          }
         }
-        
-        // Use placeholder height for placeholder, configured height for images
-        const displayHeight = block.url ? imageHeight : placeholderHeight;
         
         // Use the shouldBleed flag calculated earlier
         const adjustedY = shouldBleed ? currentY - styles.canvas.paddingTop : currentY;
@@ -345,8 +354,12 @@ function startImageDrag(
   
   if (clickedHandle && block.url) {
     // Start dragging the handle
-    const startWidth = block.width ?? 'full';
-    const startHeight = block.height ?? IMAGE_COVER_DEFAULT_HEIGHT;
+    // Use the displayed dimensions (imageBlock.width/height) instead of stored dimensions (block.width/height)
+    // This ensures that resizing works correctly on mobile when the image was resized on desktop
+    // For 'full' width images, we keep them as 'full'
+    const storedWidth = block.width ?? 'full';
+    const startWidth = storedWidth === 'full' ? 'full' : imageBlock.width;
+    const startHeight = imageBlock.height;
     
     return {
       ...state,
