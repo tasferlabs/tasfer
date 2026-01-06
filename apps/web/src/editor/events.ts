@@ -36,6 +36,7 @@ import {
   EDGE_SCROLL_THRESHOLD,
   MOVEMENT_THRESHOLD,
   SCROLLBAR_HOLD_DURATION,
+  SCROLLBAR_TOUCH_BUFFER,
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
 } from "./constants";
@@ -3013,12 +3014,15 @@ function handleTouchStart(
     const canvasY = touch.clientY - containerRect.top;
 
     // iOS-style: Check if touching scrollbar thumb (requires hold to activate)
+    // Use a larger buffer area for easier touch detection on mobile
     const isScrollbarThumbTouch = isPointInThumb(
       canvasX,
       canvasY,
       viewport,
       documentHeight,
-      state.view.scrollbar
+      state.view.scrollbar,
+      undefined, // Use default styles
+      SCROLLBAR_TOUCH_BUFFER
     );
 
     // Check if touching an image drag handle (with larger tolerance for touch)

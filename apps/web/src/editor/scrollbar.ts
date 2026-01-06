@@ -257,7 +257,8 @@ export function isPointInThumb(
   viewport: ViewportState,
   documentHeight: number,
   scrollbarState: ScrollbarState,
-  styles: ScrollbarStyles = getScrollbarStyles()
+  styles: ScrollbarStyles = getScrollbarStyles(),
+  buffer: number = 0
 ): boolean {
   if (documentHeight <= viewport.height) {
     return false;
@@ -270,11 +271,12 @@ export function isPointInThumb(
     styles
   );
 
+  // Apply buffer to expand the hit area on all sides
   return (
-    x >= bounds.thumbX &&
-    x <= bounds.thumbX + bounds.thumbWidth &&
-    y >= bounds.thumbY &&
-    y <= bounds.thumbY + bounds.thumbHeight
+    x >= bounds.thumbX - buffer &&
+    x <= bounds.thumbX + bounds.thumbWidth + buffer &&
+    y >= bounds.thumbY - buffer &&
+    y <= bounds.thumbY + bounds.thumbHeight + buffer
   );
 }
 
