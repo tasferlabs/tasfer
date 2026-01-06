@@ -185,6 +185,7 @@ Bugs list
 [ ] I want drag context menu activation like native menu have.
 [ ] selection drag rtl is broken
 [x] android toolbar is super broken.
+[x] scroll on pagearea is shard on mobile
 - : means not planed or considered
   x : done
   : not done

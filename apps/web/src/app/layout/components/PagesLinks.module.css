@@ -7,8 +7,6 @@
   border-radius: 4px;
   height: 34px;
   cursor: grab;
-  touch-action: none;
-  -webkit-touch-callout: none;
   user-select: none;
 }
 
@@ -216,7 +214,7 @@
 
 .dropZoneActive.dropZoneBefore::after,
 .dropZoneActive.dropZoneAfter::after {
-  content: '';
+  content: "";
   display: block;
   height: 2px;
   background-color: var(--primary);
@@ -252,4 +250,3 @@
   align-items: center;
   gap: 8px;
 }
-
