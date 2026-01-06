@@ -1,35 +1,33 @@
 import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
-import { IMAGE_COVER_DEFAULT_HEIGHT } from "../editor/constants";
+import { IMAGE_DEFAULT_HEIGHT } from "../editor/constants";
 
-export interface Heading {
-  id: string; // Unique identifier for caching
-  type: "heading1" | "heading2" | "heading3";
-  content: Text[];
+export interface BlockRuntimeState {
   cachedHeight?: number; // Cached rendered height
   cachedWidth?: number; // Width at which height was cached
 }
-export interface Paragraph {
+export interface Heading extends BlockRuntimeState {
+  id: string; // Unique identifier for caching
+  type: "heading1" | "heading2" | "heading3";
+  content: Text[];
+}
+export interface Paragraph extends BlockRuntimeState {
   id: string; // Unique identifier for caching
   type: "paragraph";
   content: Text[];
-  cachedHeight?: number; // Cached rendered height
-  cachedWidth?: number; // Width at which height was cached
 }
 
 // Cover image block - full-width image that spans the entire canvas
 // Note: cachedHeight/cachedWidth are transient runtime state, not persisted
-export interface Image {
+export interface Image extends BlockRuntimeState {
   id: string; // Unique identifier for caching
   type: "image";
   url: string;
   alt?: string;
-  // Image dimensions - if not specified, defaults to cover mode with full width and 300px height
+  // Image dimensions - if not specified, defaults to cover mode with full width and default height
   width?: number | "full"; // Width in pixels or 'full' for edge-to-edge
   height?: number; // Height in pixels (only used in cover mode)
   objectFit?: "cover" | "contain"; // How image should be fitted
-  cachedHeight?: number; // Cached rendered height
-  cachedWidth?: number; // Width at which height was cached
 }
 
 // TODO: Normal inline image block (future implementation)
@@ -97,10 +95,10 @@ export function isTextBlock(block: Block): block is TextBlock {
   return block.type !== "image";
 }
 
-// Check if an image cover block is in default state (cover mode, full width, 300px height)
+// Check if an image block is in default state (cover mode, full width, 300px height)
 export function isImageDefault(block: Image): boolean {
   const width = block.width ?? "full";
-  const height = block.height ?? IMAGE_COVER_DEFAULT_HEIGHT;
+  const height = block.height ?? IMAGE_DEFAULT_HEIGHT;
   const objectFit = block.objectFit ?? "cover";
 
   return width === "full" && height === 300 && objectFit === "cover";

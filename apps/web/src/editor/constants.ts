@@ -9,4 +9,4 @@ export const EDGE_SCROLL_SPEED = 12;
 export const EDGE_SCROLL_MAX_SPEED = 120;
 export const EDGE_SCROLL_ACCELERATION_RATE = 2.5;
 export const CONTEXT_MENU_DURATION = 600;
-export const IMAGE_COVER_DEFAULT_HEIGHT = 220;
+export const IMAGE_DEFAULT_HEIGHT = 220;

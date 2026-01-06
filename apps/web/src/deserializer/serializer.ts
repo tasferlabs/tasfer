@@ -1,4 +1,4 @@
-import { IMAGE_COVER_DEFAULT_HEIGHT } from "@/editor/constants";
+import { IMAGE_DEFAULT_HEIGHT } from "@/editor/constants";
 import type { Block } from "./loadPage";
 import { isImageDefault } from "./loadPage";
 
@@ -19,7 +19,7 @@ export function serializeToMarkdown(blocks: Block[]): string {
       
       // Otherwise, use HTML tag with custom properties
       const width = block.width ?? 'full';
-      const height = block.height ?? IMAGE_COVER_DEFAULT_HEIGHT;
+      const height = block.height ?? IMAGE_DEFAULT_HEIGHT;
       const objectFit = block.objectFit ?? 'cover';
       
       const widthAttr = width === 'full' ? 'data-width="full"' : `width="${width}"`;

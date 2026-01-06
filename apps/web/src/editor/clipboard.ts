@@ -18,7 +18,7 @@ import { recordUndo } from "./undo";
 import { invalidateBlockCache } from "./renderer";
 import { serializeToMarkdown } from "../deserializer/serializer";
 import { loadPage } from "../deserializer/loadPage";
-import { IMAGE_COVER_DEFAULT_HEIGHT } from "./constants";
+import { IMAGE_DEFAULT_HEIGHT } from "./constants";
 
 export function hasNativeBridge(): boolean {
   return !!(window.IOSBridge || window.AndroidBridge);
@@ -237,7 +237,7 @@ function blocksToHTML(blocks: Block[]): string {
       
       // Check if image has custom properties
       const width = block.width ?? 'full';
-      const height = block.height ?? IMAGE_COVER_DEFAULT_HEIGHT;
+      const height = block.height ?? IMAGE_DEFAULT_HEIGHT;
       const objectFit = block.objectFit ?? 'cover';
       
       // Always output with full properties for HTML clipboard
