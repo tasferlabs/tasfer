@@ -72,8 +72,9 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0 1rem;
-  padding-top: env(safe-area-inset-top);
-  height: calc(60px + env(safe-area-inset-top));
+  /* Support both Android (--safe-area-inset-top) and iOS (env()) */
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  height: calc(60px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
   /* background-color: var(--editor-background); */
   color: var(--muted-foreground);
   z-index: 1;
@@ -303,7 +304,8 @@
   z-index: 50;
   border-right: 1px solid var(--border);
   padding-right: 0.25rem;
-  padding-top: env(safe-area-inset-top);
+  /* Support both Android (--safe-area-inset-top) and iOS (env()) */
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
   display: flex;
   flex-direction: column;
   gap: 0.25rem;

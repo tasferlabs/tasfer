@@ -184,6 +184,7 @@ Bugs list
 [ ] select all on mobile not working really, i we already have selection on some block. It would select from start of that exisitng selectio until the end.
 [ ] I want drag context menu activation like native menu have.
 [ ] selection drag rtl is broken
+[x] android toolbar is super broken.
 - : means not planed or considered
   x : done
   : not done

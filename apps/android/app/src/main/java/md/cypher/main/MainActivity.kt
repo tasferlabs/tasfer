@@ -26,6 +26,10 @@ import android.view.animation.LinearInterpolator
 import android.view.animation.RotateAnimation
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.ComponentActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowCompat
+import androidx.core.graphics.Insets
 
 class AndroidBridge(private val context: Context, private val webView: WebView) {
     
@@ -85,10 +89,16 @@ class MainActivity : ComponentActivity() {
     // State tracking
     private var isBlockMenuOpen = false
     private var keyboardHeight = 0
+    private var bottomInset = 0
+    private var topInset = 0
     
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Enable edge-to-edge display
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        
         setContentView(R.layout.activity_main)
         
         // Initialize views
@@ -111,7 +121,7 @@ class MainActivity : ComponentActivity() {
         paragraphButton = blockTypeMenu.findViewById(R.id.paragraphButton)
         
         startSpinnerAnimation()
-        setupKeyboardListener()
+        setupWindowInsets()
         setupToolbarListeners()
         setupBlockMenuListeners()
         
@@ -136,6 +146,8 @@ class MainActivity : ComponentActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 hideLoadingScreen()
+                // Inject safe area insets when page finishes loading
+                injectSafeAreaInsets()
             }
             
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
@@ -238,7 +250,7 @@ class MainActivity : ComponentActivity() {
         // Adjust block menu height to match keyboard and position it
         val menuParams = blockTypeMenu.layoutParams as android.widget.RelativeLayout.LayoutParams
         menuParams.height = keyboardHeight
-        menuParams.bottomMargin = 0  // Block menu sits right at bottom
+        menuParams.bottomMargin = bottomInset  // Account for system navigation bar
         blockTypeMenu.layoutParams = menuParams
         
         // Show block menu
@@ -246,7 +258,7 @@ class MainActivity : ComponentActivity() {
         
         // Adjust toolbar to sit above block menu
         val toolbarParams = keyboardToolbar.layoutParams as android.widget.RelativeLayout.LayoutParams
-        toolbarParams.bottomMargin = keyboardHeight
+        toolbarParams.bottomMargin = keyboardHeight + bottomInset
         keyboardToolbar.layoutParams = toolbarParams
     }
     
@@ -255,7 +267,7 @@ class MainActivity : ComponentActivity() {
         
         // Reset block menu margin
         val menuParams = blockTypeMenu.layoutParams as android.widget.RelativeLayout.LayoutParams
-        menuParams.bottomMargin = 0
+        menuParams.bottomMargin = bottomInset
         blockTypeMenu.layoutParams = menuParams
         
         // Hide block menu
@@ -264,7 +276,7 @@ class MainActivity : ComponentActivity() {
         // Show keyboard again
         showKeyboard()
         
-        // Toolbar will be repositioned by keyboard listener when keyboard reappears
+        // Toolbar will be repositioned by insets listener when keyboard reappears
     }
     
     private fun showKeyboard() {
@@ -279,9 +291,9 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun hideEditingUI() {
-        // Reset toolbar margin
+        // Reset toolbar margin to account for bottom inset
         val toolbarParams = keyboardToolbar.layoutParams as android.widget.RelativeLayout.LayoutParams
-        toolbarParams.bottomMargin = 0
+        toolbarParams.bottomMargin = bottomInset
         keyboardToolbar.layoutParams = toolbarParams
         
         // Hide toolbar
@@ -290,7 +302,7 @@ class MainActivity : ComponentActivity() {
         // Hide block menu if open
         if (isBlockMenuOpen) {
             val menuParams = blockTypeMenu.layoutParams as android.widget.RelativeLayout.LayoutParams
-            menuParams.bottomMargin = 0
+            menuParams.bottomMargin = bottomInset
             blockTypeMenu.layoutParams = menuParams
             blockTypeMenu.visibility = View.GONE
             isBlockMenuOpen = false
@@ -315,67 +327,85 @@ class MainActivity : ComponentActivity() {
         }
     }
     
-    private fun setupKeyboardListener() {
-        val rootView = findViewById<View>(android.R.id.content)
-        rootView.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
-            private var wasKeyboardOpen = false
-            private var previousKeypadHeight = 0
-            
-            override fun onGlobalLayout() {
-                // Don't process keyboard changes if block menu is open
-                if (isBlockMenuOpen) {
-                    return
+    private fun injectSafeAreaInsets() {
+        val density = resources.displayMetrics.density
+        val topInsetPx = (topInset / density)
+        val bottomInsetPx = (bottomInset / density)
+        
+        webView.evaluateJavascript("""
+            (function() {
+                if (document.documentElement) {
+                    document.documentElement.style.setProperty('--safe-area-inset-top', '${topInsetPx}px');
+                    document.documentElement.style.setProperty('--safe-area-inset-bottom', '${bottomInsetPx}px');
+                    document.documentElement.style.setProperty('--safe-area-inset-left', '0px');
+                    document.documentElement.style.setProperty('--safe-area-inset-right', '0px');
                 }
-                
-                val r = android.graphics.Rect()
-                rootView.getWindowVisibleDisplayFrame(r)
-                
-                val screenHeight = rootView.rootView.height
-                val visibleHeight = r.height()
-                val keypadHeight = screenHeight - visibleHeight
-                
-                val density = resources.displayMetrics.density
-                val keypadHeightDp = (keypadHeight / density).toInt()
-                
-                val isKeyboardOpen = keypadHeight > screenHeight * 0.15
-                
-                if (isKeyboardOpen != wasKeyboardOpen || (isKeyboardOpen && keypadHeight != previousKeypadHeight)) {
-                    wasKeyboardOpen = isKeyboardOpen
-                    previousKeypadHeight = keypadHeight
-                    keyboardHeight = keypadHeight
-                    
-                    if (isKeyboardOpen) {
-                        // Show toolbar above keyboard
-                        showEditingUI()
-                        
-                        // Position toolbar above keyboard using margin
-                        val layoutParams = keyboardToolbar.layoutParams as android.widget.RelativeLayout.LayoutParams
-                        layoutParams.bottomMargin = keypadHeight
-                        keyboardToolbar.layoutParams = layoutParams
-                        
-                        // Notify web of keyboard height (including toolbar)
-                        keyboardToolbar.post {
-                            val toolbarHeightDp = (keyboardToolbar.height / density).toInt()
-                            val totalHeightDp = keypadHeightDp + toolbarHeightDp
-                            webView.evaluateJavascript(
-                                "window.postMessage({type: 'keyboard-show', height: $totalHeightDp}, '*');",
-                                null
-                            )
-                        }
-                    } else {
-                        // Keyboard closed - hide editing UI
-                        hideEditingUI()
-                        
+            })();
+        """.trimIndent(), null)
+    }
+
+    private fun setupWindowInsets() {
+        val rootView = findViewById<View>(android.R.id.content)
+
+        ViewCompat.setOnApplyWindowInsetsListener(rootView) { view, windowInsets ->
+            val systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime())
+
+            // Store system insets
+            topInset = systemBars.top
+            bottomInset = systemBars.bottom
+            
+            // Inject safe area insets as CSS custom properties for the web app
+            // Android WebView doesn't support env(safe-area-inset-*) natively
+            injectSafeAreaInsets()
+
+            val density = resources.displayMetrics.density
+
+            // Don't process keyboard changes if block menu is open
+            if (!isBlockMenuOpen) {
+                val isKeyboardVisible = ime.bottom > bottomInset
+
+                if (isKeyboardVisible) {
+                    // Calculate actual keyboard height (excluding system navigation bar)
+                    keyboardHeight = ime.bottom - bottomInset
+
+                    // Show toolbar above keyboard
+                    showEditingUI()
+
+                    // Position toolbar above keyboard, accounting for bottom inset
+                    val layoutParams = keyboardToolbar.layoutParams as android.widget.RelativeLayout.LayoutParams
+                    layoutParams.bottomMargin = ime.bottom
+                    keyboardToolbar.layoutParams = layoutParams
+
+                    // Notify web of keyboard height (including toolbar)
+                    keyboardToolbar.post {
+                        val toolbarHeightPx = keyboardToolbar.height
+                        val totalHeightPx = ime.bottom + toolbarHeightPx
+                        val totalHeightDp = (totalHeightPx / density).toInt()
                         webView.evaluateJavascript(
-                            "window.postMessage({type: 'keyboard-hide'}, '*');",
+                            "window.postMessage({type: 'keyboard-show', height: $totalHeightDp}, '*');",
                             null
                         )
                     }
+                } else {
+                    // Keyboard closed - hide editing UI
+                    hideEditingUI()
+
+                    webView.evaluateJavascript(
+                        "window.postMessage({type: 'keyboard-hide'}, '*');",
+                        null
+                    )
                 }
             }
-        })
+
+            // Apply padding to loading screen (native Android view) to account for status bar
+            // WebView content handles safe area insets via CSS custom properties
+            loadingScreen.setPadding(0, topInset, 0, bottomInset)
+
+            WindowInsetsCompat.CONSUMED
+        }
     }
-    
+
     private fun startSpinnerAnimation() {
         val rotateAnimation = RotateAnimation(
             0f, 360f,
