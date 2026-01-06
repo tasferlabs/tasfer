@@ -183,6 +183,7 @@ Bugs list
 [x] focus issue on context menu
 [ ] select all on mobile not working really, i we already have selection on some block. It would select from start of that exisitng selectio until the end.
 [ ] I want drag context menu activation like native menu have.
+[ ] drag thumb drag detection on mobile should have buffer area.
 [ ] selection drag rtl is broken
 [x] android toolbar is super broken.
 [x] scroll on pagearea is shard on mobile
