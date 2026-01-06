@@ -3,7 +3,11 @@ import createEditor, { type Editor } from "./editor";
 import { loadPage } from "../deserializer/loadPage";
 import { createInitialState, isTouchDevice } from "./state";
 import { setWindowFocused } from "./styles";
-import { createCanvasLayers, resizeCanvasLayers, destroyCanvasLayers } from "./layers";
+import {
+  createCanvasLayers,
+  resizeCanvasLayers,
+  destroyCanvasLayers,
+} from "./layers";
 
 export interface MountedEditor {
   readonly editor: Editor;
@@ -43,20 +47,28 @@ export function mountEditor(
 ): MountedEditor {
   // Create a container for the layered canvases
   const canvasContainer = createCanvasContainer(container);
-  
+
   // Get initial dimensions
   const initial = measure(container);
-  
+
   // Create layered canvases (content + cursor)
-  const layers = createCanvasLayers(canvasContainer, initial.width, initial.height);
-  
+  const layers = createCanvasLayers(
+    canvasContainer,
+    initial.width,
+    initial.height
+  );
+
   // Apply common canvas styles to content layer (which handles events)
   const contentCanvas = layers.content.canvas;
   contentCanvas.style.display = "block";
   contentCanvas.style.userSelect = "none";
-  (contentCanvas.style as unknown as { WebkitUserSelect?: string }).WebkitUserSelect = "none";
-  (contentCanvas.style as unknown as { MozUserSelect?: string }).MozUserSelect = "none";
-  (contentCanvas.style as unknown as { msUserSelect?: string }).msUserSelect = "none";
+  (
+    contentCanvas.style as unknown as { WebkitUserSelect?: string }
+  ).WebkitUserSelect = "none";
+  (contentCanvas.style as unknown as { MozUserSelect?: string }).MozUserSelect =
+    "none";
+  (contentCanvas.style as unknown as { msUserSelect?: string }).msUserSelect =
+    "none";
   contentCanvas.setAttribute("draggable", "false");
   const preventSelectStart = (e: Event) => e.preventDefault();
   const preventDragStart = (e: Event) => e.preventDefault();
@@ -176,6 +188,10 @@ export function mountEditor(
       return;
     }
 
+    if (editor.getState()?.ui.activeMenu.type === "contextMenu") {
+      return;
+    }
+
     // Click outside: blur editor
     editor.setFocus(false, true);
   };
@@ -207,6 +223,10 @@ export function mountEditor(
     }
 
     if (e.target === hiddenInput) {
+      return;
+    }
+
+    if (editor.getState()?.ui.activeMenu.type === "contextMenu") {
       return;
     }
 

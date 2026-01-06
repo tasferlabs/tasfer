@@ -943,7 +943,16 @@ export default function createEditor(
     selection: EditorState["document"]["selection"]
   ) {
     state = updateMode(
-      updateSelection(updateCursor(state, cursor?.position || null), selection),
+      updateSelection(
+        updateCursor(state, cursor?.position || null),
+        selection
+          ? {
+              anchor: selection.anchor,
+              focus: selection.focus,
+              initialBoundary: selection.initialBoundary || null,
+            }
+          : null
+      ),
       "edit"
     );
     const currentState = state;

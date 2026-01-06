@@ -129,7 +129,20 @@ export interface SelectionState {
   readonly isForward: boolean;
   readonly isCollapsed: boolean;
   readonly lastUpdate: number;
-  // Track initial selection boundaries from double/triple click for proper anchor adjustment
+  /**
+   * Tracks initial selection boundaries from double/triple-click gestures.
+   * 
+   * When a user double-clicks a word or triple-clicks a line, this boundary preserves
+   * the original selected range. As the user drags to extend the selection, the anchor
+   * point dynamically adjusts based on drag direction:
+   * - Dragging before the start: anchor moves to end, focus follows cursor
+   * - Dragging after the end: anchor stays at start, focus follows cursor
+   * - Dragging within boundary: keeps the full boundary selected
+   * 
+   * This ensures intuitive word/line-level selection expansion while maintaining
+   * the originally selected unit. Should NOT be preserved when creating programmatic
+   * selections (like Select All) that don't originate from user gestures.
+   */
   readonly initialBoundary?: {
     readonly start: Position;
     readonly end: Position;
@@ -142,6 +155,15 @@ export interface PartialSelectionState {
   readonly lastUpdate?: number;
   readonly isForward?: boolean;
   readonly isCollapsed?: boolean;
+  /**
+   * Optional initial boundary for gesture-based selections (double/triple-click).
+   * If undefined, any existing initialBoundary will be cleared.
+   * Set to null to explicitly clear it, or provide a boundary to set/preserve it.
+   */
+  readonly initialBoundary?: {
+    readonly start: Position;
+    readonly end: Position;
+  } | null;
 }
 
 export interface Position {
