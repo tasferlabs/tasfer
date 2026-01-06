@@ -83,8 +83,10 @@ import {
   moveCursorUp,
   openContextMenu,
   openSlashCommand,
+  selectContextMenuItem,
   setActiveMenu,
   startSelection,
+  updateContextMenuHover,
   updateCursor,
   updateFocus,
   updateMode,
@@ -1417,10 +1419,15 @@ function handleMouseDown(
   const isClickInTopPadding =
     canvasY < styles.canvas.paddingTop - viewport.scrollY;
 
-  // If clicking in top padding, clear selection
+  // If clicking in top padding, preserve active selections (e.g. after "select all")
   if (isClickInTopPadding) {
-    const clearedState = clearSelection(state);
-    return updateMode(clearedState, "edit");
+    // Only clear selection if it's collapsed or doesn't exist
+    if (!state.document.selection || state.document.selection.isCollapsed) {
+      const clearedState = clearSelection(state);
+      return updateMode(clearedState, "edit");
+    }
+    // Keep active selection and just switch to edit mode
+    return updateMode(state, "edit");
   }
 
   const position = getTextPositionFromViewport(
@@ -1431,9 +1438,15 @@ function handleMouseDown(
     visibility
   );
 
+  // If clicking in padding/outside editor area, preserve active selections
   if (!position) {
-    const clearedState = clearSelection(state);
-    return updateMode(clearedState, "edit");
+    // Only clear selection if it's collapsed or doesn't exist
+    if (!state.document.selection || state.document.selection.isCollapsed) {
+      const clearedState = clearSelection(state);
+      return updateMode(clearedState, "edit");
+    }
+    // Keep active selection and just switch to edit mode
+    return updateMode(state, "edit");
   }
 
   // If clicking below all blocks, check if last block is an image and select it
@@ -3239,14 +3252,43 @@ function handleTouchMove(
         scrollbarPressState = null;
       }
 
-      // Close any active menu when movement is detected
-      if (state.ui.activeMenu.type === "contextMenu") {
+      // Don't close context menu on movement - allow drag-and-release interaction
+      // The menu itself will handle touch events when finger is over it
+      // Only close other menu types (slash command, etc.) on movement
+      if (state.ui.activeMenu.type !== "none" && state.ui.activeMenu.type !== "contextMenu") {
         state = closeActiveMenu(state);
       }
     }
 
     // Handle long press text selection mode
     if (touchState.isLongPress) {
+      // If context menu is open, allow drag-and-release interaction
+      // Don't start text selection - user might be dragging to menu item
+      if (state.ui.activeMenu.type === "contextMenu") {
+        touchState.lastY = canvasY;
+        touchState.lastTime = currentTime;
+        
+        // Update hover state based on touch position
+        const touch = event.touches[0];
+        const element = document.elementFromPoint(touch.clientX, touch.clientY);
+        let hoveredItemId: string | null = null;
+        
+        if (element) {
+          const button = element.closest('button[data-context-menu-item-id]');
+          if (button) {
+            hoveredItemId = button.getAttribute('data-context-menu-item-id');
+          }
+        }
+        
+        // Update hover state if it changed
+        const currentHoveredId = state.ui.activeMenu.hoveredItemId || null;
+        if (hoveredItemId !== currentHoveredId) {
+          state = updateContextMenuHover(state, hoveredItemId);
+        }
+        
+        return state;
+      }
+      
       // Only start/continue text selection if NOT long-pressing on existing selection
       // If long-pressing on existing selection, we'll show context menu on touchend instead
       if (!touchState.isTouchingSelection) {
@@ -3379,6 +3421,44 @@ function handleTouchEnd(
         },
       },
     };
+  }
+
+  // Handle drag-and-release for context menu (power user feature)
+  // Check if context menu is open and user is releasing (possibly over a menu item)
+  if (state.ui.activeMenu.type === "contextMenu" && touchState?.isLongPress) {
+    // Use the hoveredItemId from the state (already tracked during touchmove)
+    const hoveredItemId = state.ui.activeMenu.hoveredItemId;
+    
+    if (hoveredItemId) {
+      // User released on a menu item - mark it as selected
+      // MountedEditor will detect this and execute the action
+      state = selectContextMenuItem(state, hoveredItemId);
+      touchState = null;
+      return {
+        ...state,
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
+        },
+      };
+    } else {
+      // User released but not on a menu item - keep menu open for tapping
+      // Just clean up touch state and return
+      touchState = null;
+      return {
+        ...state,
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
+        },
+      };
+    }
   }
 
   // If we were in long press mode
@@ -3707,11 +3787,21 @@ function handleTouchEnd(
         }
       }
     } else {
-      // Tapping outside editor area: clear selection and close context menu
-      state = clearSelection(state);
-      state = updateMode(state, "edit");
-      if (state.ui.activeMenu.type === "contextMenu") {
-        state = closeActiveMenu(state);
+      // Tapping outside editor area (padding/margins)
+      // If there's an active selection, preserve it and just close menus (common on mobile after "select all")
+      // Otherwise, clear selection and close menus
+      if (state.document.selection && !state.document.selection.isCollapsed) {
+        // Keep selection, just close any active menu
+        if (state.ui.activeMenu.type === "contextMenu") {
+          state = closeActiveMenu(state);
+        }
+      } else {
+        // No selection or collapsed selection: clear and close menu
+        state = clearSelection(state);
+        state = updateMode(state, "edit");
+        if (state.ui.activeMenu.type === "contextMenu") {
+          state = closeActiveMenu(state);
+        }
       }
     }
 

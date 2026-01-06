@@ -36,7 +36,7 @@ export interface LinkHoverState {
 export type ActiveMenu =
   | { type: 'none' }
   | { type: 'slashCommand'; blockIndex: number; textIndex: number; filter: string; selectedIndex: number }
-  | { type: 'contextMenu'; x: number; y: number }
+  | { type: 'contextMenu'; x: number; y: number; hoveredItemId?: string | null; selectedItemId?: string | null }
   | { type: 'linkHover'; position: Position; url: string; text: string; x: number; y: number; segmentIndex: number }
   | { type: 'linkEdit'; position: Position; url: string; text: string; x: number; y: number; segmentIndex: number }
   | { type: 'imageUpload'; blockIndex: number; x: number; y: number; uploadStatus?: 'uploading' | 'complete' | 'error' };

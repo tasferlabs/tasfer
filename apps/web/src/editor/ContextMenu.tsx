@@ -16,6 +16,7 @@ interface ContextMenuProps {
   onClose: () => void;
   collisionBoundary?: HTMLElement | null;
   container?: HTMLElement | null;
+  hoveredItemId?: string | null;
 }
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({
@@ -25,6 +26,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onClose,
   collisionBoundary,
   container,
+  hoveredItemId,
 }) => {
   if (items.length === 0) {
     return null;
@@ -52,32 +54,38 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           onOpenAutoFocus={(e) => e.preventDefault()}
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
-          {items.map((item) => (
-            <button
-              key={item.id}
-              className={`w-full px-2 py-2 flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors ${
-                item.disabled
-                  ? "opacity-50 cursor-not-allowed text-muted-foreground"
-                  : "text-popover-foreground hover:bg-accent hover:text-accent-foreground active:bg-accent/80"
-              }`}
-              onClick={() => {
-                if (!item.disabled) {
-                  item.action();
-                  onClose();
-                }
-              }}
-              onMouseDown={(e) => {
-                // Prevent button from taking focus away from hidden input
-                e.preventDefault();
-              }}
-              disabled={item.disabled}
-            >
-              <span className="w-4 h-4 flex items-center justify-center shrink-0 text-muted-foreground">
-                {item.icon}
-              </span>
-              <span>{item.label}</span>
-            </button>
-          ))}
+          {items.map((item) => {
+            const isHovered = hoveredItemId === item.id;
+            return (
+              <button
+                key={item.id}
+                data-context-menu-item-id={item.id}
+                className={`w-full px-2 py-2 flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  item.disabled
+                    ? "opacity-50 cursor-not-allowed text-muted-foreground"
+                    : isHovered
+                    ? "bg-accent text-accent-foreground"
+                    : "text-popover-foreground hover:bg-accent hover:text-accent-foreground active:bg-accent/80"
+                }`}
+                onClick={() => {
+                  if (!item.disabled) {
+                    item.action();
+                    onClose();
+                  }
+                }}
+                onMouseDown={(e) => {
+                  // Prevent button from taking focus away from hidden input
+                  e.preventDefault();
+                }}
+                disabled={item.disabled}
+              >
+                <span className="w-4 h-4 flex items-center justify-center shrink-0 text-muted-foreground">
+                  {item.icon}
+                </span>
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

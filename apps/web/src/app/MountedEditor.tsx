@@ -52,6 +52,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     x: number;
     y: number;
     hasSelection: boolean;
+    hoveredItemId?: string | null;
   } | null>(null);
 
   const [linkTooltipState, setLinkTooltipState] = useState<{
@@ -203,7 +204,19 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
             x: containerRect.left + state.ui.activeMenu.x,
             y: containerRect.top + state.ui.activeMenu.y,
             hasSelection,
+            hoveredItemId: state.ui.activeMenu.hoveredItemId,
           };
+          
+          // Handle drag-and-release selection
+          if (state.ui.activeMenu.selectedItemId) {
+            const selectedItemId = state.ui.activeMenu.selectedItemId;
+            // Execute the action asynchronously to avoid state mutation during render
+            setTimeout(() => {
+              handleContextMenuAction(selectedItemId);
+            }, 0);
+            // Close the menu immediately
+            newContextMenuState = null;
+          }
         }
       }
 
@@ -523,6 +536,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
           }}
           collisionBoundary={mountedRef.current?.portalContainer}
           container={mountedRef.current?.portalContainer}
+          hoveredItemId={contextMenuState.hoveredItemId}
         />
       )}
 

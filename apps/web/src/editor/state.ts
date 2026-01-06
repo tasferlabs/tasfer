@@ -1269,11 +1269,46 @@ export const closeSlashCommand = (state: EditorState): EditorState =>
 export const openContextMenu = (
   state: EditorState,
   x: number,
-  y: number
-): EditorState => setActiveMenu(state, { type: "contextMenu", x, y });
+  y: number,
+  hoveredItemId?: string | null
+): EditorState => setActiveMenu(state, { type: "contextMenu", x, y, hoveredItemId });
 
 export const closeContextMenu = (state: EditorState): EditorState =>
   closeActiveMenu(state);
+
+export const updateContextMenuHover = (
+  state: EditorState,
+  hoveredItemId: string | null
+): EditorState => {
+  if (state.ui.activeMenu.type !== "contextMenu") return state;
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      activeMenu: {
+        ...state.ui.activeMenu,
+        hoveredItemId,
+      },
+    },
+  };
+};
+
+export const selectContextMenuItem = (
+  state: EditorState,
+  selectedItemId: string
+): EditorState => {
+  if (state.ui.activeMenu.type !== "contextMenu") return state;
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      activeMenu: {
+        ...state.ui.activeMenu,
+        selectedItemId,
+      },
+    },
+  };
+};
 
 // Link Hover State Management
 export const setLinkHover = (
