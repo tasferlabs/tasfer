@@ -90,6 +90,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var heading2Button: Button
     private lateinit var heading3Button: Button
     private lateinit var paragraphButton: Button
+    private lateinit var numberedListButton: Button
+    private lateinit var taskListButton: Button
+    private lateinit var bulletedListButton: Button
+    private lateinit var imageButton: Button
     
     // State tracking
     private var isBlockMenuOpen = false
@@ -125,6 +129,10 @@ class MainActivity : ComponentActivity() {
         heading2Button = blockTypeMenu.findViewById(R.id.heading2Button)
         heading3Button = blockTypeMenu.findViewById(R.id.heading3Button)
         paragraphButton = blockTypeMenu.findViewById(R.id.paragraphButton)
+        numberedListButton = blockTypeMenu.findViewById(R.id.numberedListButton)
+        taskListButton = blockTypeMenu.findViewById(R.id.taskListButton)
+        bulletedListButton = blockTypeMenu.findViewById(R.id.bulletedListButton)
+        imageButton = blockTypeMenu.findViewById(R.id.imageButton)
         
         startSpinnerAnimation()
         setupWindowInsets()
@@ -205,9 +213,14 @@ class MainActivity : ComponentActivity() {
         
         // Format button - opens block type menu
         formatButton.setOnClickListener {
-            openBlockMenu()
+            if (isBlockMenuOpen) {
+                // In block menu mode: return to keyboard
+                closeBlockMenu()
+            } else {
+                openBlockMenu()
+            }
         }
-        
+
         // Dismiss button - behavior depends on mode
         dismissButton.setOnClickListener {
             if (isBlockMenuOpen) {
@@ -241,6 +254,26 @@ class MainActivity : ComponentActivity() {
             setBlockType("paragraph")
             closeBlockMenu()
         }
+        
+        numberedListButton.setOnClickListener {
+            setBlockType("numberedList")
+            closeBlockMenu()
+        }
+        
+        taskListButton.setOnClickListener {
+            setBlockType("taskList")
+            closeBlockMenu()
+        }
+        
+        bulletedListButton.setOnClickListener {
+            setBlockType("bulletedList")
+            closeBlockMenu()
+        }
+        
+        imageButton.setOnClickListener {
+            setBlockType("image")
+            closeBlockMenu()
+        }
     }
     
     private fun setBlockType(type: String) {
@@ -249,6 +282,12 @@ class MainActivity : ComponentActivity() {
     
     private fun openBlockMenu() {
         isBlockMenuOpen = true
+        
+        // Update dismiss button icon to X (close icon)
+        dismissButton.setImageResource(R.drawable.ic_close)
+        
+        // Highlight format button with primary color
+        formatButton.setColorFilter(getColor(R.color.primary))
         
         // Hide keyboard
         hideKeyboard()
@@ -270,6 +309,12 @@ class MainActivity : ComponentActivity() {
     
     private fun closeBlockMenu() {
         isBlockMenuOpen = false
+        
+        // Update dismiss button icon back to keyboard dismiss
+        dismissButton.setImageResource(R.drawable.ic_keyboard_dismiss)
+        
+        // Reset format button color to default (label color)
+        formatButton.clearColorFilter()
         
         // Reset block menu margin
         val menuParams = blockTypeMenu.layoutParams as android.widget.RelativeLayout.LayoutParams
@@ -307,6 +352,12 @@ class MainActivity : ComponentActivity() {
         
         // Hide block menu if open
         if (isBlockMenuOpen) {
+            // Reset dismiss button icon back to keyboard dismiss
+            dismissButton.setImageResource(R.drawable.ic_keyboard_dismiss)
+            
+            // Reset format button color to default
+            formatButton.clearColorFilter()
+            
             val menuParams = blockTypeMenu.layoutParams as android.widget.RelativeLayout.LayoutParams
             menuParams.bottomMargin = bottomInset
             blockTypeMenu.layoutParams = menuParams

@@ -88,6 +88,8 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
 
 class BlockTypeInputView: UIView {
     var onSelect: ((String) -> Void)?
+    private var keyboardHeightConstraint: NSLayoutConstraint?
+    static var cachedKeyboardHeight: CGFloat = 291 // Default iPhone keyboard height
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -99,51 +101,168 @@ class BlockTypeInputView: UIView {
         setupUI()
     }
     
-    // Suggest a default height; width is provided by the hosting view.
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: 300)
+        // Return the cached keyboard height
+        CGSize(width: UIView.noIntrinsicMetric, height: Self.cachedKeyboardHeight)
+    }
+    
+    func updateHeight(_ height: CGFloat) {
+        keyboardHeightConstraint?.constant = height
+        invalidateIntrinsicContentSize()
     }
     
     private func setupUI() {
-        self.backgroundColor = .systemGroupedBackground
+        // self.backgroundColor = .secondarySystemGroupedBackground
         self.autoresizingMask = [.flexibleHeight]
         
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.spacing = 10
-        stack.distribution = .fillEqually
-        stack.translatesAutoresizingMaskIntoConstraints = false
+        // Container for content
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(container)
         
-        addSubview(stack)
+        // Header label
+        let headerLabel = UILabel()
+        headerLabel.text = "Turn into"
+        headerLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        headerLabel.textColor = .label
+        headerLabel.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(headerLabel)
         
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 20),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -20)
-        ])
+        // ScrollView for grid
+        let scrollView = UIScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.showsVerticalScrollIndicator = true
+        container.addSubview(scrollView)
         
+        // Grid container
+        let gridContainer = UIView()
+        gridContainer.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(gridContainer)
+        
+        // Create buttons in grid layout (2 columns)
         let types = [
-            ("Heading 1", "heading1"),
-            ("Heading 2", "heading2"),
-            ("Heading 3", "heading3"),
-            ("Paragraph", "paragraph")
+            ("Paragraph", "paragraph", "text"),
+            ("Heading 1", "heading1", "heading1"),
+            ("Heading 2", "heading2", "heading2"),
+            ("Heading 3", "heading3", "heading3"),
+            ("Numbered List", "numberedList", "list_ordered"),
+            ("Task List", "taskList", "list_todo"),
+            ("Bulleted List", "bulletedList", "list"),
+            ("Image", "image", "image")
         ]
         
-        for (title, value) in types {
+        var buttons: [UIButton] = []
+        for (title, value, iconName) in types {
             let button = UIButton(type: .system)
             button.setTitle(title, for: .normal)
-            button.backgroundColor = .secondarySystemGroupedBackground
+            button.backgroundColor = .tertiarySystemGroupedBackground
             button.layer.cornerRadius = 8
             button.setTitleColor(.label, for: .normal)
+            button.contentHorizontalAlignment = .left
+            button.titleLabel?.font = UIFont.systemFont(ofSize: 15)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            
+            // Add icon to button
+            if let iconImage = UIImage(named: iconName) {
+                button.setImage(iconImage.withRenderingMode(.alwaysTemplate), for: .normal)
+                button.tintColor = .label
+                button.imageEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 12)
+                button.titleEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 0)
+                button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+            } else {
+                button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+            }
             
             let action = UIAction { [weak self] _ in
                 self?.onSelect?(value)
             }
             button.addAction(action, for: .touchUpInside)
             
-            stack.addArrangedSubview(button)
+            gridContainer.addSubview(button)
+            buttons.append(button)
         }
+        
+        // Height constraint that will match keyboard height
+        keyboardHeightConstraint = heightAnchor.constraint(equalToConstant: Self.cachedKeyboardHeight)
+        keyboardHeightConstraint?.isActive = true
+        
+        // Layout constraints
+        NSLayoutConstraint.activate([
+            // Container fills the view
+            container.topAnchor.constraint(equalTo: topAnchor),
+            container.leadingAnchor.constraint(equalTo: leadingAnchor),
+            container.trailingAnchor.constraint(equalTo: trailingAnchor),
+            container.bottomAnchor.constraint(equalTo: bottomAnchor),
+            
+            // Header
+            headerLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            headerLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            headerLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            
+            // ScrollView
+            scrollView.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: 12),
+            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+            
+            // Grid container in ScrollView
+            gridContainer.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            gridContainer.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor, constant: 16),
+            gridContainer.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor, constant: -16),
+            gridContainer.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            gridContainer.widthAnchor.constraint(equalTo: scrollView.widthAnchor, constant: -32)
+        ])
+        
+        // Grid layout (2 columns, 4 rows)
+        // Row 1: Paragraph (left), Heading 1 (right)
+        NSLayoutConstraint.activate([
+            buttons[0].topAnchor.constraint(equalTo: gridContainer.topAnchor),
+            buttons[0].leadingAnchor.constraint(equalTo: gridContainer.leadingAnchor),
+            buttons[0].heightAnchor.constraint(equalToConstant: 60),
+            buttons[0].widthAnchor.constraint(equalTo: gridContainer.widthAnchor, multiplier: 0.5, constant: -4),
+            
+            buttons[1].topAnchor.constraint(equalTo: gridContainer.topAnchor),
+            buttons[1].trailingAnchor.constraint(equalTo: gridContainer.trailingAnchor),
+            buttons[1].heightAnchor.constraint(equalToConstant: 60),
+            buttons[1].widthAnchor.constraint(equalTo: gridContainer.widthAnchor, multiplier: 0.5, constant: -4),
+            
+            // Row 2: Heading 2 (left), Heading 3 (right)
+            buttons[2].topAnchor.constraint(equalTo: buttons[0].bottomAnchor, constant: 8),
+            buttons[2].leadingAnchor.constraint(equalTo: gridContainer.leadingAnchor),
+            buttons[2].heightAnchor.constraint(equalToConstant: 60),
+            buttons[2].widthAnchor.constraint(equalTo: gridContainer.widthAnchor, multiplier: 0.5, constant: -4),
+            
+            buttons[3].topAnchor.constraint(equalTo: buttons[1].bottomAnchor, constant: 8),
+            buttons[3].trailingAnchor.constraint(equalTo: gridContainer.trailingAnchor),
+            buttons[3].heightAnchor.constraint(equalToConstant: 60),
+            buttons[3].widthAnchor.constraint(equalTo: gridContainer.widthAnchor, multiplier: 0.5, constant: -4),
+            
+            // Row 3: Numbered List (left), Task List (right)
+            buttons[4].topAnchor.constraint(equalTo: buttons[2].bottomAnchor, constant: 8),
+            buttons[4].leadingAnchor.constraint(equalTo: gridContainer.leadingAnchor),
+            buttons[4].heightAnchor.constraint(equalToConstant: 60),
+            buttons[4].widthAnchor.constraint(equalTo: gridContainer.widthAnchor, multiplier: 0.5, constant: -4),
+            
+            buttons[5].topAnchor.constraint(equalTo: buttons[3].bottomAnchor, constant: 8),
+            buttons[5].trailingAnchor.constraint(equalTo: gridContainer.trailingAnchor),
+            buttons[5].heightAnchor.constraint(equalToConstant: 60),
+            buttons[5].widthAnchor.constraint(equalTo: gridContainer.widthAnchor, multiplier: 0.5, constant: -4),
+            
+            // Row 4: Bulleted List (left), Image (right)
+            buttons[6].topAnchor.constraint(equalTo: buttons[4].bottomAnchor, constant: 8),
+            buttons[6].leadingAnchor.constraint(equalTo: gridContainer.leadingAnchor),
+            buttons[6].heightAnchor.constraint(equalToConstant: 60),
+            buttons[6].widthAnchor.constraint(equalTo: gridContainer.widthAnchor, multiplier: 0.5, constant: -4),
+            
+            buttons[7].topAnchor.constraint(equalTo: buttons[5].bottomAnchor, constant: 8),
+            buttons[7].trailingAnchor.constraint(equalTo: gridContainer.trailingAnchor),
+            buttons[7].heightAnchor.constraint(equalToConstant: 60),
+            buttons[7].widthAnchor.constraint(equalTo: gridContainer.widthAnchor, multiplier: 0.5, constant: -4),
+            
+            // Bottom constraint for grid container
+            buttons[6].bottomAnchor.constraint(lessThanOrEqualTo: gridContainer.bottomAnchor),
+            buttons[7].bottomAnchor.constraint(lessThanOrEqualTo: gridContainer.bottomAnchor)
+        ])
     }
 }
 
@@ -242,6 +361,9 @@ class AccessoryIslandView: UIView {
         undoBtn.alpha = canUndo ? 1.0 : 0.3
         redoBtn.alpha = canRedo ? 1.0 : 0.3
         
+        // Highlight format button with tint color when menu is open
+        formatBtn.tintColor = isMenuOpen ? .systemGreen : .label
+        
         let dismissImageName = isMenuOpen ? "xmark" : "keyboard_dismiss"
         if dismissImageName == "xmark" {
             let config = UIImage.SymbolConfiguration(scale: .medium)
@@ -262,6 +384,7 @@ class CustomWebView: WKWebView {
     private var canRedo = false
     private var isMenuOpen = false
     private var isEditorFocused = false  // Track if canvas editor is focused
+    private var lastKeyboardHeight: CGFloat = 291 // Track the last keyboard height
     
     override var inputAccessoryView: UIView? {
         // Only show keyboard island when canvas editor is focused
@@ -271,11 +394,46 @@ class CustomWebView: WKWebView {
     override init(frame: CGRect, configuration: WKWebViewConfiguration) {
         super.init(frame: frame, configuration: configuration)
         setupDummyInput()
+        observeKeyboard()
     }
     
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupDummyInput()
+        observeKeyboard()
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+    
+    private func observeKeyboard() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardWillShow(_:)),
+            name: UIResponder.keyboardWillShowNotification,
+            object: nil
+        )
+    }
+    
+    @objc private func keyboardWillShow(_ notification: Notification) {
+        if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+            // Only update if this is the system keyboard (not our custom inputView)
+            // Our custom inputView won't have a consistent height initially
+            // System keyboard + accessory is typically 300-350+ on iPhone
+            if !isMenuOpen && keyboardFrame.height > 200 {
+                // The keyboard frame includes the accessory view + safe area insets
+                // Accessory view: 56pt (44pt container + 6pt top + 6pt bottom)
+                // Plus safe area bottom inset (usually ~34pt on iPhones with notch, 0 on others)
+                let accessoryWithSafeArea = islandView?.frame.maxY - islandView?.frame.minY ?? 56
+                let keyboardOnlyHeight = keyboardFrame.height - accessoryWithSafeArea
+                
+                // Update cached height and the input view
+                lastKeyboardHeight = keyboardOnlyHeight
+                BlockTypeInputView.cachedKeyboardHeight = keyboardOnlyHeight
+                blockTypeInputView?.updateHeight(keyboardOnlyHeight)
+            }
+        }
     }
     
     private func setupDummyInput() {

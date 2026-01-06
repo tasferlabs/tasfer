@@ -9,4 +9,8 @@
     <string name="heading_2">Heading 2</string>
     <string name="heading_3">Heading 3</string>
     <string name="paragraph">Paragraph</string>
+    <string name="numbered_list">Numbered List</string>
+    <string name="task_list">Task List</string>
+    <string name="bulleted_list">Bulleted List</string>
+    <string name="image">Image</string>
 </resources>
