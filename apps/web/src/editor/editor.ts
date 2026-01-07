@@ -494,8 +494,8 @@ export default function createEditor(
         eventsQueue.push(keyEvent);
       }
       scheduleRender();
-      // Clear the input value after processing
-      hiddenInput.value = "";
+      // Keep a dummy space to ensure Android fires deleteContentBackward events
+      hiddenInput.value = " ";
       return;
     }
 
@@ -508,7 +508,7 @@ export default function createEditor(
       });
       eventsQueue.push(enterEvent);
       scheduleRender();
-      hiddenInput.value = "";
+      hiddenInput.value = " ";
       return;
     }
 
@@ -520,12 +520,12 @@ export default function createEditor(
       });
       eventsQueue.push(backspaceEvent);
       scheduleRender();
-      hiddenInput.value = "";
+      hiddenInput.value = " ";
       return;
     }
 
-    // Clear input value for any other input types to prevent accumulation
-    hiddenInput.value = "";
+    // Keep a dummy space for any other input types
+    hiddenInput.value = " ";
   }
 
   // Handle keydown from hidden input (for special keys)
@@ -570,7 +570,7 @@ export default function createEditor(
       e.stopPropagation();
       eventsQueue.push(e);
       scheduleRender();
-      hiddenInput.value = "";
+      hiddenInput.value = " ";
     } else if (isShortcut) {
       const handledShortcuts = ["KeyZ", "KeyY", "KeyA", "KeyC", "KeyX", "KeyB"];
       if (handledShortcuts.includes(e.code)) {
@@ -608,8 +608,8 @@ export default function createEditor(
     eventsQueue.push(e);
     scheduleRender();
 
-    // Clear the input after composition ends
-    hiddenInput.value = "";
+    // Keep a dummy space after composition ends
+    hiddenInput.value = " ";
   }
 
   // Click handler for focusing input (stored for cleanup)

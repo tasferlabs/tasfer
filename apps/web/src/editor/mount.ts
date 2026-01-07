@@ -102,6 +102,8 @@ export function mountEditor(
   hiddenInput.setAttribute("autocapitalize", "off");
   hiddenInput.setAttribute("spellcheck", "false");
   hiddenInput.setAttribute("inputmode", "text");
+  // Initialize with a space to ensure Android fires deleteContentBackward events
+  hiddenInput.value = " ";
 
   // Add hidden input to the canvas container
   canvasContainer.appendChild(hiddenInput);
@@ -201,11 +203,15 @@ export function mountEditor(
   let isTouchActive = false; // Track if we're in the middle of a touch interaction
 
   const handleInputFocus = () => {
-    console.log("[FOCUS] Hidden input focused");
     // Cancel any pending blur if input regains focus
     if (blurTimeoutId !== null) {
       clearTimeout(blurTimeoutId);
       blurTimeoutId = null;
+    }
+    
+    // Ensure input has dummy content for Android delete to work
+    if (!hiddenInput.value) {
+      hiddenInput.value = " ";
     }
 
     editor.setFocus(true);
@@ -219,8 +225,9 @@ export function mountEditor(
     }
 
     // On mobile, ignore blurs during active touch interactions
-    // The touchend handler will refocus the input
-    if (isTouchDevice() && isTouchActive) {
+    // BUT only if we're in select mode (making a selection)
+    // This prevents blocking legitimate keyboard interactions
+    if (isTouchDevice() && isTouchActive && editor.getState()?.ui.mode === "select") {
       return;
     }
 
@@ -228,15 +235,21 @@ export function mountEditor(
     // This prevents breaking InputConnection during touch interactions
     if (isTouchDevice()) {
       const relatedTarget = e.relatedTarget as Node | null;
-
+      
       // If focus is moving to another element within our container, ignore it
       if (relatedTarget && container.contains(relatedTarget)) {
         return;
       }
 
       // If no relatedTarget (focus going nowhere), it's likely a transient blur
-      // Don't blur the editor - let the touch handler manage focus
+      // Refocus the input immediately to maintain InputConnection
       if (!relatedTarget) {
+        // Refocus on next tick to avoid blur/focus loop
+        setTimeout(() => {
+          if (document.activeElement !== hiddenInput && editor.getState()?.view.isFocused) {
+            hiddenInput.focus({ preventScroll: true });
+          }
+        }, 0);
         return;
       }
     }
@@ -248,20 +261,21 @@ export function mountEditor(
       editor.setFocus(false);
     }
 
-    // Clear the hidden input value to remove any lingering composition text
-    hiddenInput.value = "";
+    // Keep a dummy space to ensure delete works when refocusing
+    hiddenInput.value = " ";
   };
 
   // Track touch interactions to prevent spurious blurs
   const handleTouchStart = () => {
     isTouchActive = true;
   };
-
+  
   const handleTouchEnd = () => {
     // Use a small delay to let touchend handlers complete
+    // Reduced to 10ms to avoid blocking keyboard interactions
     setTimeout(() => {
       isTouchActive = false;
-    }, 50);
+    }, 10);
   };
 
   document.addEventListener("mousedown", handleDocumentClick);

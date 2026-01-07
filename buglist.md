@@ -169,7 +169,7 @@ Bugs list
 [-] we should not store the image in absolute values we should istead use relative values such as perecentage.
 [x] when click outside the image we should lose focus
 [x] conflict between scroll bar and drag handle.
-[ ] placeholder image should drag handles.
+[x] placeholder image should drag handles.
 [ ] change position of cover image.
 [ ] Remove an image. Improve EditImagePopover.
 [x] word count should not count images.
