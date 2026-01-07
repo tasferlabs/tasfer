@@ -549,9 +549,22 @@ class MainActivity : ComponentActivity() {
     fun updateToolbarIcon(iconType: String) {
         runOnUiThread {
             when (iconType) {
-                "link" -> formatButton.setImageResource(R.drawable.ic_link)
-                "image" -> formatButton.setImageResource(R.drawable.ic_image)
-                else -> formatButton.setImageResource(R.drawable.ic_format_text)
+                "none" -> {
+                    // Hide format button when no icon should be shown
+                    formatButton.visibility = View.GONE
+                }
+                "link" -> {
+                    formatButton.visibility = View.VISIBLE
+                    formatButton.setImageResource(R.drawable.ic_link)
+                }
+                "image" -> {
+                    formatButton.visibility = View.VISIBLE
+                    formatButton.setImageResource(R.drawable.ic_image)
+                }
+                else -> {
+                    formatButton.visibility = View.VISIBLE
+                    formatButton.setImageResource(R.drawable.ic_format_text)
+                }
             }
         }
     }

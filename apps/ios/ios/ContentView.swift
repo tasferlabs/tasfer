@@ -466,6 +466,14 @@ class AccessoryIslandView: UIView {
     
     func updateIcon(iconType: String) {
         currentIconType = iconType
+        
+        // Hide format button when iconType is "none"
+        if iconType == "none" {
+            formatBtn.isHidden = true
+            return
+        }
+        
+        formatBtn.isHidden = false
         let imageName: String
         switch iconType {
         case "link":

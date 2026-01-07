@@ -11,7 +11,7 @@ declare global {
         canRedo?: boolean;
         style?: "light" | "medium" | "heavy";
         focused?: boolean;
-        iconType?: "link" | "image" | "format";
+        iconType?: "link" | "image" | "format" | "none";
       }) => void;
       setEditorFocused?: (focused: boolean) => void;
       // Editor methods (assigned by Web)
@@ -28,7 +28,7 @@ declare global {
       setEditorFocused?: (focused: boolean) => void;
       openPhotoLibrary?: () => void;
       openCamera?: () => void;
-      updateToolbarIcon?: (iconType: "link" | "image" | "format") => void;
+      updateToolbarIcon?: (iconType: "link" | "image" | "format" | "none") => void;
       // Editor methods (assigned by Web to allow native to call back)
       undo?: () => void;
       redo?: () => void;

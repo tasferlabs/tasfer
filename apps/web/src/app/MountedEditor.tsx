@@ -105,7 +105,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
   const editorInitializedRef = useRef(false);
 
   // Track current toolbar icon type
-  const currentIconTypeRef = useRef<"link" | "image" | "format">("format");
+  const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">("format");
 
   // Native drawer states (triggered by format button on mobile)
   const [nativeLinkDrawerState, setNativeLinkDrawerState] = useState<{
@@ -405,7 +405,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       }
 
       // Update toolbar icon based on selection state
-      const determineToolbarIcon = (): "link" | "image" | "format" => {
+      const determineToolbarIcon = (): "link" | "image" | "format" | "none" => {
         // Check if an image block is selected
         if (state.document.selection && !state.document.selection.isCollapsed) {
           const { anchor, focus } = state.document.selection;
@@ -415,6 +415,9 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
             if (block && block.type === "image") {
               return "image";
             }
+          } else {
+            // Selection spans multiple blocks - don't show any icon
+            return "none";
           }
         }
 
@@ -430,11 +433,13 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         if (state.document.selection && !state.document.selection.isCollapsed) {
           const range = getSelectionRange(state);
           if (range) {
-            const { start } = range;
-            // If selection is in a text block, show link icon
-            const block = state.document.page.blocks[start.blockIndex];
-            if (block && block.type !== "image") {
-              return "link";
+            const { start, end } = range;
+            // Only show link icon if selection is within a single block
+            if (start.blockIndex === end.blockIndex) {
+              const block = state.document.page.blocks[start.blockIndex];
+              if (block && block.type !== "image") {
+                return "link";
+              }
             }
           }
         }
