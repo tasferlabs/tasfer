@@ -1,15 +1,21 @@
 package md.cypher.main
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.provider.MediaStore
+import android.util.Base64
 import android.view.View
 import android.view.ViewTreeObserver
 import android.view.inputmethod.InputMethodManager
@@ -21,15 +27,22 @@ import android.net.http.SslError
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.Toast
 import android.view.animation.Animation
 import android.view.animation.LinearInterpolator
 import android.view.animation.RotateAnimation
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.ComponentActivity
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowCompat
 import androidx.core.graphics.Insets
+import java.io.File
+import java.io.IOException
 
 class AndroidBridge(private val context: Context, private val webView: WebView) {
     
@@ -69,6 +82,20 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     fun setEditorFocused(focused: Boolean) {
         (context as? MainActivity)?.updateEditorFocus(focused)
     }
+    
+    @JavascriptInterface
+    fun openPhotoLibrary() {
+        (context as? MainActivity)?.runOnUiThread {
+            (context as? MainActivity)?.launchPhotoLibrary()
+        }
+    }
+    
+    @JavascriptInterface
+    fun openCamera() {
+        (context as? MainActivity)?.runOnUiThread {
+            (context as? MainActivity)?.launchCamera()
+        }
+    }
 }
 
 class MainActivity : ComponentActivity() {
@@ -102,9 +129,18 @@ class MainActivity : ComponentActivity() {
     private var topInset = 0
     private var isEditorFocused = false  // Track if canvas editor is focused
     
+    // Image picker
+    private var currentPhotoUri: Uri? = null
+    private lateinit var photoLibraryLauncher: ActivityResultLauncher<Intent>
+    private lateinit var cameraLauncher: ActivityResultLauncher<Uri>
+    private lateinit var cameraPermissionLauncher: ActivityResultLauncher<String>
+    
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Initialize activity result launchers before onCreate
+        setupImagePickerLaunchers()
         
         // Enable edge-to-edge display
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -198,6 +234,107 @@ class MainActivity : ComponentActivity() {
         
         // Use 10.0.2.2 for Android emulator to access host machine's localhost
         webView.loadUrl("https://192.168.68.53:5173/")
+    }
+    
+    private fun setupImagePickerLaunchers() {
+        // Photo library launcher
+        photoLibraryLauncher = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                result.data?.data?.let { uri ->
+                    handleSelectedImage(uri)
+                }
+            }
+        }
+        
+        // Camera launcher
+        cameraLauncher = registerForActivityResult(
+            ActivityResultContracts.TakePicture()
+        ) { success ->
+            if (success && currentPhotoUri != null) {
+                handleSelectedImage(currentPhotoUri!!)
+            }
+        }
+        
+        // Camera permission launcher
+        cameraPermissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { isGranted ->
+            if (isGranted) {
+                launchCameraInternal()
+            } else {
+                Toast.makeText(this, "Camera permission is required to take photos", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    
+    fun launchPhotoLibrary() {
+        val intent = Intent(Intent.ACTION_PICK).apply {
+            type = "image/*"
+        }
+        photoLibraryLauncher.launch(intent)
+    }
+    
+    fun launchCamera() {
+        // Check if camera permission is granted
+        when {
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED -> {
+                // Permission already granted
+                launchCameraInternal()
+            }
+            else -> {
+                // Request permission
+                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            }
+        }
+    }
+    
+    private fun launchCameraInternal() {
+        try {
+            // Create a file to store the photo
+            val photoFile = File.createTempFile(
+                "JPEG_${System.currentTimeMillis()}_",
+                ".jpg",
+                cacheDir
+            )
+            
+            currentPhotoUri = FileProvider.getUriForFile(
+                this,
+                "${applicationContext.packageName}.fileprovider",
+                photoFile
+            )
+            
+            cameraLauncher.launch(currentPhotoUri!!)
+        } catch (e: IOException) {
+            Toast.makeText(this, "Failed to open camera", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    private fun handleSelectedImage(uri: Uri) {
+        try {
+            // Read the image file and convert to base64
+            contentResolver.openInputStream(uri)?.use { inputStream ->
+                val bytes = inputStream.readBytes()
+                val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                
+                // Determine MIME type
+                val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
+                val dataUrl = "data:$mimeType;base64,$base64"
+                
+                // Send the image data to the web view
+                webView.post {
+                    val escapedData = dataUrl.replace("'", "\\'")
+                    val javascript = "window.postMessage({type: 'native-image-selected', dataUrl: '$escapedData'}, '*');"
+                    webView.evaluateJavascript(javascript, null)
+                }
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Failed to process image", Toast.LENGTH_SHORT).show()
+        }
     }
     
     private fun setupToolbarListeners() {

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
-import { Image as ImageIcon, Upload, Trash2, Loader2, Link2 } from "lucide-react";
+import { Image as ImageIcon, Upload, Trash2, Loader2, Link2, Camera, FolderOpen } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -10,6 +10,7 @@ import {
   DrawerTitle,
 } from "../components/ui/drawer";
 import useResponsive from "../app/hooks/useResponsive";
+import { hasNativeBridge } from "./clipboard";
 
 interface ImageUploadPopoverProps {
   x: number;
@@ -44,54 +45,114 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
   const [uploadMode, setUploadMode] = useState<'file' | 'url'>(
     isMobile ? 'file' : (existingUrl ? 'url' : 'file')
   );
-  const [previewUrl, setPreviewUrl] = useState<string | null>(existingUrl || null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Prevent keyboard from appearing on mobile when drawer opens
   useEffect(() => {
     if (isMobile) {
-      // Immediately blur any focused element (including hidden editor input)
-      const blurActiveElement = () => {
-        if (document.activeElement instanceof HTMLElement) {
+      // Find all hidden inputs (editor's hidden input) and temporarily disable them
+      const hiddenInputs = Array.from(document.querySelectorAll('input[type="text"]')).filter(
+        (input) => {
+          const style = window.getComputedStyle(input);
+          return style.opacity === '0' || input.hasAttribute('aria-hidden');
+        }
+      ) as HTMLInputElement[];
+
+      // Store original properties
+      const originalProps = hiddenInputs.map(input => ({
+        input,
+        inputMode: input.inputMode,
+        readOnly: input.readOnly,
+      }));
+
+      // Disable keyboard on hidden inputs
+      hiddenInputs.forEach(input => {
+        input.inputMode = 'none';
+        input.readOnly = true;
+        input.blur();
+      });
+
+      // Blur any active element
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+
+      // Additional blur attempts to handle race conditions
+      const blurInterval = setInterval(() => {
+        if (document.activeElement instanceof HTMLElement && 
+            hiddenInputs.includes(document.activeElement as HTMLInputElement)) {
           document.activeElement.blur();
         }
-      };
-      
-      // Blur immediately
-      blurActiveElement();
-      
-      // Blur again after a short delay to catch any async focus events
-      const timer1 = setTimeout(blurActiveElement, 50);
-      const timer2 = setTimeout(blurActiveElement, 100);
-      const timer3 = setTimeout(blurActiveElement, 150);
-      
+      }, 50);
+
+      // Cleanup function
       return () => {
-        clearTimeout(timer1);
-        clearTimeout(timer2);
-        clearTimeout(timer3);
+        clearInterval(blurInterval);
+        // Restore original properties
+        originalProps.forEach(({ input, inputMode, readOnly }) => {
+          input.inputMode = inputMode;
+          input.readOnly = readOnly;
+        });
       };
     }
   }, [isMobile]);
 
+  // Listen for native image selection
+  useEffect(() => {
+    const handleNativeImageSelected = (event: MessageEvent) => {
+      if (event.data?.type === 'native-image-selected') {
+        const dataUrl = event.data.dataUrl;
+        
+        if (!dataUrl) return;
+        
+        // Convert data URL to File object
+        fetch(dataUrl)
+          .then(res => res.blob())
+          .then(blob => {
+            const file = new File([blob], 'image.jpg', { type: blob.type });
+            
+            // Upload file directly without preview
+            onUpload(file);
+            
+            // Close the drawer after a short delay
+            setTimeout(() => {
+              onClose();
+            }, 300);
+          })
+          .catch(error => {
+            console.error('Failed to process native image:', error);
+          });
+      }
+    };
+
+    if (hasNativeBridge()) {
+      window.addEventListener('message', handleNativeImageSelected);
+      
+      return () => {
+        window.removeEventListener('message', handleNativeImageSelected);
+      };
+    }
+  }, [onUpload, onClose]);
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Create preview
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setPreviewUrl(event.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-      
-      // Upload file
+      // Upload file directly without preview
       onUpload(file);
+      // Close the popover after a short delay
+      setTimeout(() => {
+        onClose();
+      }, 300);
     }
   };
 
   const handleUrlSubmit = () => {
     if (imageUrl.trim() && onUrlSubmit) {
-      setPreviewUrl(imageUrl);
       onUrlSubmit(imageUrl);
+      // Close the popover after submitting
+      setTimeout(() => {
+        onClose();
+      }, 300);
     }
   };
 
@@ -116,39 +177,93 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
     fileInputRef.current?.click();
   };
 
+  const handleOpenLibrary = () => {
+    if (window.IOSBridge) {
+      window.IOSBridge.postMessage({ action: 'open-photo-library' });
+    } else if (window.AndroidBridge?.openPhotoLibrary) {
+      window.AndroidBridge.openPhotoLibrary();
+    }
+  };
+
+  const handleOpenCamera = () => {
+    if (window.IOSBridge) {
+      window.IOSBridge.postMessage({ action: 'open-camera' });
+    } else if (window.AndroidBridge?.openCamera) {
+      window.AndroidBridge.openCamera();
+    }
+  };
+
+  const isNative = hasNativeBridge();
+
   // Shared content for both drawer and popover
   const content = (
     <>
-      {/* Mode Toggle */}
-      <div className="flex gap-2 p-1 bg-muted rounded-md">
-        <button
-          onClick={() => setUploadMode('file')}
-          onMouseDown={(e) => e.preventDefault()}
-          className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-            uploadMode === 'file'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          <Upload className="w-3 h-3 inline mr-1.5" />
-          Upload
-        </button>
-        <button
-          onClick={() => setUploadMode('url')}
-          onMouseDown={(e) => e.preventDefault()}
-          className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-            uploadMode === 'url'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          <Link2 className="w-3 h-3 inline mr-1.5" />
-          URL
-        </button>
-      </div>
+      {/* Mode Toggle - Only show on non-native platforms */}
+      {!isNative && (
+        <div className="flex gap-2 p-1 bg-muted rounded-md">
+          <button
+            onClick={() => setUploadMode('file')}
+            onMouseDown={(e) => e.preventDefault()}
+            className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+              uploadMode === 'file'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Upload className="w-3 h-3 inline mr-1.5" />
+            Upload
+          </button>
+          <button
+            onClick={() => setUploadMode('url')}
+            onMouseDown={(e) => e.preventDefault()}
+            className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+              uploadMode === 'url'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Link2 className="w-3 h-3 inline mr-1.5" />
+            URL
+          </button>
+        </div>
+      )}
 
       {/* Upload Area */}
-      {uploadMode === 'file' ? (
+      {isNative ? (
+        // Native platform: Show photo library and camera buttons
+        <div className="space-y-2">
+          {uploadStatus === 'uploading' ? (
+            <div className="flex flex-col items-center justify-center py-8">
+              <Loader2 className="w-12 h-12 text-primary animate-spin mb-2" />
+              <span className="text-sm text-muted-foreground">Uploading...</span>
+            </div>
+          ) : (
+            <>
+              <Button
+                variant='outline'
+                size="lg"
+                onClick={handleOpenLibrary}
+                onMouseDown={(e) => e.preventDefault()}
+                className="w-full h-16"
+              >
+                <FolderOpen className="w-5 h-5 mr-3" />
+                <span className="text-base">Open Library</span>
+              </Button>
+              <Button
+                variant='outline'
+                size="lg"
+                onClick={handleOpenCamera}
+                onMouseDown={(e) => e.preventDefault()}
+                className="w-full h-16"
+              >
+                <Camera className="w-5 h-5 mr-3" />
+                <span className="text-base">Take Photo</span>
+              </Button>
+            </>
+          )}
+        </div>
+      ) : uploadMode === 'file' ? (
+        // Web platform: Show file upload
         <div className="space-y-3">
           <input
             ref={fileInputRef}
@@ -158,52 +273,33 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             className="hidden"
           />
           
-          {previewUrl && uploadStatus !== 'error' ? (
-            <div className="relative rounded-lg overflow-hidden border border-border">
-              <img
-                src={previewUrl}
-                alt="Preview"
-                className="w-full h-48 object-cover"
-              />
-              {uploadStatus === 'uploading' && (
-                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 text-white animate-spin" />
-                </div>
-              )}
-              {uploadStatus === 'complete' && (
-                <div className="absolute top-2 right-2 bg-green-500 text-white text-xs px-2 py-1 rounded">
-                  ✓ Uploaded
-                </div>
-              )}
-            </div>
-          ) : (
-            <button
-              onClick={triggerFilePicker}
-              onMouseDown={(e) => e.preventDefault()}
-              disabled={uploadStatus === 'uploading'}
-              className="w-full h-32 border-2 border-dashed border-border rounded-lg hover:border-primary hover:bg-accent/50 transition-colors flex flex-col items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {uploadStatus === 'uploading' ? (
-                <>
-                  <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
-                  <span className="text-sm text-muted-foreground">Uploading...</span>
-                </>
-              ) : uploadStatus === 'error' ? (
-                <>
-                  <div className="w-8 h-8 text-destructive">⚠</div>
-                  <span className="text-sm text-destructive">Upload failed. Click to retry</span>
-                </>
-              ) : (
-                <>
-                  <Upload className="w-8 h-8 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Click to upload image</span>
-                  <span className="text-xs text-muted-foreground">JPG, PNG, GIF, WebP, or SVG</span>
-                </>
-              )}
-            </button>
-          )}
+          <button
+            onClick={triggerFilePicker}
+            onMouseDown={(e) => e.preventDefault()}
+            disabled={uploadStatus === 'uploading'}
+            className="w-full h-32 border-2 border-dashed border-border rounded-lg hover:border-primary hover:bg-accent/50 transition-colors flex flex-col items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {uploadStatus === 'uploading' ? (
+              <>
+                <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
+                <span className="text-sm text-muted-foreground">Uploading...</span>
+              </>
+            ) : uploadStatus === 'error' ? (
+              <>
+                <div className="w-8 h-8 text-destructive">⚠</div>
+                <span className="text-sm text-destructive">Upload failed. Click to retry</span>
+              </>
+            ) : (
+              <>
+                <Upload className="w-8 h-8 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Click to upload image</span>
+                <span className="text-xs text-muted-foreground">JPG, PNG, GIF, WebP, or SVG</span>
+              </>
+            )}
+          </button>
         </div>
       ) : (
+        // Web platform: Show URL upload
         <div className="space-y-3">
           <div className="space-y-1.5">
             <label
@@ -222,21 +318,6 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
               className="h-9"
             />
           </div>
-
-          {imageUrl && (
-            <div className="rounded-lg overflow-hidden border border-border">
-              <img
-                src={imageUrl}
-                alt="Preview"
-                className="w-full h-48 object-cover"
-                onError={(e) => {
-                  e.currentTarget.src = '';
-                  e.currentTarget.className = 'w-full h-48 bg-muted flex items-center justify-center text-muted-foreground text-sm';
-                  e.currentTarget.alt = 'Failed to load image';
-                }}
-              />
-            </div>
-          )}
 
           <Button
             variant="default"
@@ -276,18 +357,23 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
         open={true} 
         onOpenChange={(open) => !open && onClose()}
         modal={true}
+        dismissible={true}
+        shouldScaleBackground={false}
       >
         <DrawerContent
-          onTouchStart={() => {
-            // Prevent hidden input from getting focus
-            if (document.activeElement instanceof HTMLElement) {
-              document.activeElement.blur();
-            }
+          onOpenAutoFocus={(e) => {
+            // Prevent any focus when drawer opens
+            e.preventDefault();
           }}
-          onMouseDown={() => {
-            // Prevent hidden input from getting focus
-            if (document.activeElement instanceof HTMLElement) {
-              document.activeElement.blur();
+          onPointerDown={(e) => {
+            // Prevent focus on any pointer interaction with the drawer
+            const target = e.target as HTMLElement;
+            // Only blur if not clicking on an actual input/button we want to interact with
+            if (!target.matches('input, button, a')) {
+              if (document.activeElement instanceof HTMLElement && 
+                  document.activeElement.getAttribute('aria-hidden') === 'true') {
+                document.activeElement.blur();
+              }
             }
           }}
         >

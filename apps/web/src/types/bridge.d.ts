@@ -23,6 +23,8 @@ declare global {
       updateUndoRedoState?: (canUndo: boolean, canRedo: boolean) => void;
       haptic?: (style: string) => void;
       setEditorFocused?: (focused: boolean) => void;
+      openPhotoLibrary?: () => void;
+      openCamera?: () => void;
       // Editor methods (assigned by Web to allow native to call back)
       undo?: () => void;
       redo?: () => void;

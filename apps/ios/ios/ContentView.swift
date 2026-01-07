@@ -40,8 +40,71 @@ struct ContentView: View {
     }
 }
 
+class ImagePickerCoordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+    weak var webView: WKWebView?
+    weak var presentingViewController: UIViewController?
+    
+    func openPhotoLibrary() {
+        DispatchQueue.main.async {
+            self.presentImagePicker(sourceType: .photoLibrary)
+        }
+    }
+    
+    func openCamera() {
+        DispatchQueue.main.async {
+            guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+                return
+            }
+            self.presentImagePicker(sourceType: .camera)
+        }
+    }
+    
+    private func presentImagePicker(sourceType: UIImagePickerController.SourceType) {
+        guard let presenter = presentingViewController else {
+            return
+        }
+        
+        let picker = UIImagePickerController()
+        picker.sourceType = sourceType
+        picker.delegate = self
+        picker.allowsEditing = false
+        
+        presenter.present(picker, animated: true)
+    }
+    
+    func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+        picker.dismiss(animated: true)
+        
+        guard let image = info[.originalImage] as? UIImage else {
+            return
+        }
+        
+        // Convert image to JPEG data
+        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+            return
+        }
+        
+        // Convert to base64
+        let base64String = imageData.base64EncodedString()
+        let dataUrl = "data:image/jpeg;base64,\(base64String)"
+        
+        // Send to web view
+        let escapedData = dataUrl.replacingOccurrences(of: "'", with: "\\'")
+        let javascript = """
+        window.postMessage({type: 'native-image-selected', dataUrl: '\(escapedData)'}, '*');
+        """
+        
+        webView?.evaluateJavaScript(javascript, completionHandler: nil)
+    }
+    
+    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        picker.dismiss(animated: true)
+    }
+}
+
 class ClipboardBridge: NSObject, WKScriptMessageHandler {
     weak var webView: WKWebView?
+    weak var imagePickerCoordinator: ImagePickerCoordinator?
     
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any],
@@ -80,6 +143,10 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
                     customWebView.updateEditorFocus(focused: focused)
                 }
             }
+        case "open-photo-library":
+            imagePickerCoordinator?.openPhotoLibrary()
+        case "open-camera":
+            imagePickerCoordinator?.openCamera()
         default:
             break
         }
@@ -557,7 +624,15 @@ struct WebView: UIViewRepresentable {
         let configuration = WKWebViewConfiguration()
         let userContentController = WKUserContentController()
         
+        // Create and store bridges in coordinator to keep them alive
         let clipboardBridge = ClipboardBridge()
+        let imagePickerCoordinator = ImagePickerCoordinator()
+        clipboardBridge.imagePickerCoordinator = imagePickerCoordinator
+        
+        // Store in coordinator
+        context.coordinator.clipboardBridge = clipboardBridge
+        context.coordinator.imagePickerCoordinator = imagePickerCoordinator
+        
         userContentController.add(clipboardBridge, name: "IOSBridge")
         
         // Inject alias for IOSBridge as a wrapper object to allow extension
@@ -606,6 +681,15 @@ struct WebView: UIViewRepresentable {
         webView.scrollView.bounces = false
         
         clipboardBridge.webView = webView
+        imagePickerCoordinator.webView = webView
+        
+        // Delay setting the presenting view controller to ensure the view hierarchy is ready
+        DispatchQueue.main.async {
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let rootViewController = windowScene.windows.first?.rootViewController {
+                context.coordinator.imagePickerCoordinator?.presentingViewController = rootViewController
+            }
+        }
         
         let preferences = WKWebpagePreferences()
         preferences.allowsContentJavaScript = true
@@ -670,6 +754,8 @@ struct WebView: UIViewRepresentable {
     
     class Coordinator: NSObject, WKNavigationDelegate {
         var parent: WebView
+        var clipboardBridge: ClipboardBridge?
+        var imagePickerCoordinator: ImagePickerCoordinator?
         
         init(_ parent: WebView) {
             self.parent = parent
