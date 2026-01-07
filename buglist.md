@@ -193,6 +193,7 @@ Bugs list
 [ ] ios block menu does not have same height as the keyboard. 
 [x] two finger scroll
 [ ] Three-Finger Gestures
+[x] canvas glitch on resizing.
 - : means not planed or considered
   x : done
   : not done

@@ -747,6 +747,7 @@ export default function createEditor(
 
     // Schedule render for viewport changes
     scheduleRender();
+    renderFrame();
   }
 
   function getDocumentHeight(): number {
