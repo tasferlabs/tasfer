@@ -155,8 +155,8 @@ export function getEditorStyles(): EditorStyles {
         text: "Heading 3",
       },
       paragraph: {
-        text: "Type '/' for commands.",
-        mobileText: "Type something awesome...",
+        keyboardCompatibleText: "Type '/' for commands.",
+        touchCompatiableText: "Type something awesome...",
       },
       color: getCSSVariable("--editor-placeholder"),
       opacity: 0.6,
@@ -245,7 +245,14 @@ export const defaultStyles: EditorStyles = getEditorStyles();
 
 export const getTextStyle = (
   styles: EditorStyles,
-  blockType: "heading1" | "heading2" | "heading3" | "paragraph" | "bullet_list" | "numbered_list" | "todo_list"
+  blockType:
+    | "heading1"
+    | "heading2"
+    | "heading3"
+    | "paragraph"
+    | "bullet_list"
+    | "numbered_list"
+    | "todo_list"
 ) => {
   if (blockType === "bullet_list") {
     return styles.blocks.bulletList;

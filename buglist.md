@@ -61,8 +61,8 @@ Bugs list
 - [x] add todo list block
 - [x] list split at the end not creating new item.
 - [x] invalidate cache when changing font.
-- [ ] rtl should work with lists
-- [ ] Check devices compatiabities such ipad with keyboard. Pen input, stylus supprot. Handwriting.
+- [x] rtl should work with lists
+- [ ] Check devices compatiabities such ipad with keyboard.
 - [ ] on ios keyboard iland we should add active/inactive state for block type menu. External keyboard
 - [x] composition and other input methods such as IME should work.
 - [ ] voice input/speeh-to-text
@@ -204,3 +204,5 @@ Bugs list
 - [ ] intermidate state in todo list
 - [ ] memory leak somehow the old state being presisted on hot reloading.
 - [ ] indent with mixed direction rtl todo
+- [ ] Pen input, stylus support. Handwriting.
+- [ ] Safe area on sidebar

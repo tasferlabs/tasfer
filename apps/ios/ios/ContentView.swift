@@ -7,6 +7,7 @@
 
 import SwiftUI
 import WebKit
+import GameController
 
 extension UIColor {
     func toHex() -> String {
@@ -502,22 +503,26 @@ class CustomWebView: WKWebView {
     private var isEditorFocused = false  // Track if canvas editor is focused
     private var lastKeyboardHeight: CGFloat = 291 // Track the last keyboard height
     var currentIconType: String = "format"  // Track current icon type
+    private var hasPhysicalKeyboard = false // Track hardware keyboard status
     
     override var inputAccessoryView: UIView? {
-        // Only show keyboard island when canvas editor is focused
-        return isEditorFocused ? islandView : nil
+        // Hide keyboard island when physical keyboard is connected
+        // Only show when canvas editor is focused AND no physical keyboard
+        return (isEditorFocused && !hasPhysicalKeyboard) ? islandView : nil
     }
     
     override init(frame: CGRect, configuration: WKWebViewConfiguration) {
         super.init(frame: frame, configuration: configuration)
         setupDummyInput()
         observeKeyboard()
+        detectPhysicalKeyboard()
     }
     
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupDummyInput()
         observeKeyboard()
+        detectPhysicalKeyboard()
     }
     
     deinit {
@@ -531,6 +536,28 @@ class CustomWebView: WKWebView {
             name: UIResponder.keyboardWillShowNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardWillHide(_:)),
+            name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
+        
+        // Observe hardware keyboard connection changes (iOS 14+)
+        if #available(iOS 14.0, *) {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(keyboardDidConnect(_:)),
+                name: .GCKeyboardDidConnect,
+                object: nil
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(keyboardDidDisconnect(_:)),
+                name: .GCKeyboardDidDisconnect,
+                object: nil
+            )
+        }
     }
     
     @objc private func keyboardWillShow(_ notification: Notification) {
@@ -551,6 +578,69 @@ class CustomWebView: WKWebView {
                 blockTypeInputView?.updateHeight(keyboardOnlyHeight)
             }
         }
+    }
+    
+    @objc private func keyboardWillHide(_ notification: Notification) {
+        // Re-detect physical keyboard status when keyboard hides
+        // This helps catch hardware keyboard connect/disconnect events
+        detectPhysicalKeyboard()
+    }
+    
+    @available(iOS 14.0, *)
+    @objc private func keyboardDidConnect(_ notification: Notification) {
+        hasPhysicalKeyboard = true
+        notifyPhysicalKeyboardState()
+        reloadInputViews()
+    }
+    
+    @available(iOS 14.0, *)
+    @objc private func keyboardDidDisconnect(_ notification: Notification) {
+        // Check if any keyboards are still connected
+        if #available(iOS 14.0, *) {
+            hasPhysicalKeyboard = GCKeyboard.coalesced != nil
+        } else {
+            hasPhysicalKeyboard = false
+        }
+        notifyPhysicalKeyboardState()
+        reloadInputViews()
+    }
+    
+    private func detectPhysicalKeyboard() {
+        // On iOS, we can detect hardware keyboard by checking if there are any connected hardware keyboards
+        // UITextInputMode.activeInputModes shows available keyboards
+        // If only hardware keyboards are available, the software keyboard won't show
+        
+        // Method 1: Check if keyboard wants autocorrection (hardware keyboards typically don't)
+        // This is a heuristic - not perfect but works in most cases
+        let inputDelegate = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }?
+            .rootViewController
+        
+        // Method 2: Check keyboard frame - if keyboard shows with 0 or minimal height, it's hardware
+        // This is checked in keyboardWillShow, but for initial state we use heuristics
+        
+        // For initial detection, we check if device is iPad (more likely to have keyboard)
+        // and if we're in landscape (keyboards often used in landscape)
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        let hasExternalKeyboard = GCKeyboard.coalesced != nil // Check for connected keyboard via GameController
+        
+        let previousState = hasPhysicalKeyboard
+        hasPhysicalKeyboard = isIPad && hasExternalKeyboard
+        
+        // Notify WebView if state changed
+        if previousState != hasPhysicalKeyboard {
+            notifyPhysicalKeyboardState()
+            reloadInputViews() // Update accessory view visibility
+        }
+    }
+    
+    func notifyPhysicalKeyboardState() {
+        let javascript = """
+        window.postMessage({type: 'physical-keyboard-connected', connected: \(hasPhysicalKeyboard)}, '*');
+        """
+        evaluateJavaScript(javascript, completionHandler: nil)
     }
     
     private func setupDummyInput() {
@@ -820,6 +910,11 @@ struct WebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             withAnimation {
                 parent.isLoading = false
+            }
+            
+            // Send initial physical keyboard state to web after page loads
+            if let customWebView = webView as? CustomWebView {
+                customWebView.notifyPhysicalKeyboardState()
             }
         }
         

@@ -9,7 +9,11 @@ import {
   type FontFamily,
 } from "./fonts";
 import { renderScrollbar } from "./scrollbar";
-import { getBlockTextContent, isCursorBlinking } from "./state";
+import {
+  getBlockTextContent,
+  isCursorBlinking,
+  isTouchDevice,
+} from "./state";
 import { getEditorStyles, getTextStyle } from "./styles";
 import { getFormattedTextDirection } from "./rtl";
 import type {
@@ -583,24 +587,24 @@ export const renderBlock = (
   let adjustedX = x;
   let adjustedMaxWidth = maxWidth;
   let markerX = x; // X position where marker should be rendered
-  
+
   // Get content early to detect RTL for proper layout
   const { content: renderContent, compositionRange } =
     getContentWithComposition(block, state, blockIndex);
-  
+
   const direction = getFormattedTextDirection(renderContent);
   const isRTL = direction === "rtl";
-  
+
   if (isListBlock(block)) {
     const indent = block.indent || 0;
     indentOffset = indent * styles.list.indent.size;
-    
+
     // Use consistent marker width for all list types to ensure text alignment
     // All list types reserve the same space (minWidth + textGap)
     markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
-    
+
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-    
+
     if (isRTL) {
       // RTL: [TEXT_AREA][MARKER]
       // Text area starts at left, marker is on the right
@@ -774,7 +778,8 @@ export const renderBlock = (
       y + fontMetrics.ascent,
       styles,
       textStyle,
-      block.type
+      block.type,
+      state
     );
   }
 
@@ -805,28 +810,28 @@ function calculateListItemNumber(
   if (!isListBlock(currentBlock) || currentBlock.type !== "numbered_list") {
     return 1;
   }
-  
+
   const currentIndent = currentBlock.indent;
   let number = 1;
-  
+
   // Count backwards to find previous numbered list items at the same indent level
   for (let i = blockIndex - 1; i >= 0; i--) {
     const prevBlock = state.document.page.blocks[i];
-    
+
     // Stop if we hit a non-list block or different list type
     if (!isListBlock(prevBlock) || prevBlock.type !== "numbered_list") {
       break;
     }
-    
+
     // Stop if indent level changed (higher or lower)
     if (prevBlock.indent !== currentIndent) {
       break;
     }
-    
+
     // Increment number for each item at same indent
     number++;
   }
-  
+
   // Reverse the count to get the actual number
   return blockIndex - (blockIndex - number + 1) + 1;
 }
@@ -845,78 +850,84 @@ function renderListMarker(
   _markerWidth: number
 ) {
   if (!isListBlock(block)) return;
-  
+
   const fontFamily = getCurrentFontFamily();
-  
+
   if (block.type === "bullet_list") {
     // Render bullet character
     ctx.save();
     ctx.fillStyle = styles.list.bullet.color;
     ctx.font = `${textStyle.fontWeight} ${styles.list.bullet.size}px ${FONT_STACKS[fontFamily]}`;
     ctx.textBaseline = "alphabetic";
-    
+
     // Position bullet - x is already the correct position (left for LTR, right for RTL)
     const bulletX = x + 6;
-    
+
     ctx.fillText(styles.list.bullet.character, bulletX, y + fontMetrics.ascent);
     ctx.restore();
   } else if (block.type === "numbered_list") {
     // Calculate and render number
     const number = calculateListItemNumber(state, blockIndex);
     const numberText = `${number}.`;
-    
+
     ctx.save();
     ctx.fillStyle = styles.list.numbered.color;
     ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${FONT_STACKS[fontFamily]}`;
     ctx.textBaseline = "alphabetic";
     ctx.textAlign = "right";
-    
+
     // Position number - x is already the correct position, right-align within marker space
     ctx.fillText(numberText, x + 18, y + fontMetrics.ascent);
-    
+
     ctx.textAlign = "left"; // Reset
     ctx.restore();
   } else if (block.type === "todo_list") {
     // Render checkbox
     const checkboxSize = styles.list.todo.checkboxSize;
     const checkboxY = y + fontMetrics.ascent - checkboxSize + 2; // Align with text baseline
-    
+
     // Position checkbox - x is already the correct position
     const checkboxX = x + 2;
-    
+
     ctx.save();
-    
+
     // Draw checkbox background and border
     ctx.strokeStyle = styles.list.todo.checkboxBorderColor;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.roundRect(checkboxX, checkboxY, checkboxSize, checkboxSize, styles.list.todo.checkboxBorderRadius);
+    ctx.roundRect(
+      checkboxX,
+      checkboxY,
+      checkboxSize,
+      checkboxSize,
+      styles.list.todo.checkboxBorderRadius
+    );
     ctx.stroke();
-    
+
     // Fill checkbox if checked
     if (block.checked) {
       ctx.fillStyle = styles.list.todo.checkboxCheckedColor;
       ctx.fill();
-      
+
       // Draw checkmark
       ctx.strokeStyle = styles.list.todo.checkmarkColor;
       ctx.lineWidth = 2;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      
+
       const checkmarkPadding = 3;
       const checkX = checkboxX + checkmarkPadding;
       const checkY = checkboxY + checkmarkPadding;
       const checkWidth = checkboxSize - checkmarkPadding * 2;
       const checkHeight = checkboxSize - checkmarkPadding * 2;
-      
+
       ctx.beginPath();
       ctx.moveTo(checkX, checkY + checkHeight / 2);
       ctx.lineTo(checkX + checkWidth / 3, checkY + checkHeight - 1);
       ctx.lineTo(checkX + checkWidth, checkY + 1);
       ctx.stroke();
     }
-    
+
     ctx.restore();
   }
 }
@@ -927,7 +938,15 @@ function renderPlaceholder(
   y: number,
   styles: EditorStyles,
   textStyle: TextStyle,
-  blockType: "heading1" | "heading2" | "heading3" | "paragraph" | "bullet_list" | "numbered_list" | "todo_list"
+  blockType:
+    | "heading1"
+    | "heading2"
+    | "heading3"
+    | "paragraph"
+    | "bullet_list"
+    | "numbered_list"
+    | "todo_list",
+  state: EditorState
 ) {
   ctx.save();
   ctx.fillStyle = styles.placeholder.color;
@@ -938,7 +957,7 @@ function renderPlaceholder(
   ctx.textBaseline = "alphabetic";
 
   let placeholderText = "";
-  
+
   // Handle list block placeholders
   if (blockType === "bullet_list") {
     placeholderText = "List item";
@@ -949,11 +968,20 @@ function renderPlaceholder(
   } else {
     // Handle text block placeholders
     const placeholderConfig = styles.placeholder[blockType];
-    const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
 
-    if (blockType === "paragraph" && isMobile) {
-      placeholderText = styles.placeholder.paragraph.mobileText;
-    } else {
+    // Determine if we should show touch-optimized text
+    // Show touch text only if device has touch AND no physical keyboard
+    const isTouch = isTouchDevice();
+    const hasPhysicalKeyboard = state.view.hasPhysicalKeyboard;
+    const isTouchOnly = isTouch && !hasPhysicalKeyboard;
+
+    if (blockType === "paragraph") {
+      if (isTouchOnly) {
+        placeholderText = styles.placeholder.paragraph.touchCompatiableText;
+      } else {
+        placeholderText = styles.placeholder.paragraph.keyboardCompatibleText;
+      }
+    } else if ("text" in placeholderConfig) {
       placeholderText = placeholderConfig.text;
     }
   }
@@ -1600,10 +1628,11 @@ export const calculateBlockHeight = (
   if (isListBlock(block)) {
     const indent = block.indent || 0;
     const indentOffset = indent * styles.list.indent.size;
-    
+
     // Use consistent marker width for all list types to ensure text alignment
-    const markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
-    
+    const markerWidth =
+      styles.list.numbered.minWidth + styles.list.marker.textGap;
+
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
   }
 
@@ -1716,14 +1745,14 @@ export function renderCursorLayer(
   let indentOffset = 0;
   let markerWidth = 0;
   let adjustedMaxWidth = maxWidth;
-  
+
   if (isListBlock(block)) {
     const indent = block.indent || 0;
     indentOffset = indent * styles.list.indent.size;
-    
+
     // Use consistent marker width for all list types to ensure text alignment
     markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
-    
+
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
   }
 
@@ -1800,14 +1829,16 @@ export function renderCursorLayer(
         );
         cursorX = baseX + adjustedMaxWidth - widthFromStart;
       } else {
-        cursorX = baseX + measureFormattedLineWidth(
-          renderContent,
-          lineStartIndex,
-          targetCursorIndex,
-          textStyle,
-          fontFamily,
-          codePadding
-        );
+        cursorX =
+          baseX +
+          measureFormattedLineWidth(
+            renderContent,
+            lineStartIndex,
+            targetCursorIndex,
+            textStyle,
+            fontFamily,
+            codePadding
+          );
       }
       break;
     }

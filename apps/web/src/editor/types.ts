@@ -102,6 +102,7 @@ export interface ViewState {
   readonly clickTracker: ClickTracker;
   readonly scrollbar: ScrollbarState;
   readonly momentum: MomentumState;
+  readonly hasPhysicalKeyboard: boolean; // Set by native side when hardware keyboard is connected
 }
 
 // Undo only tracks document state now
@@ -273,8 +274,8 @@ export interface PlaceholderStyles {
     readonly text: string;
   };
   readonly paragraph: {
-    readonly text: string;
-    readonly mobileText: string;
+    readonly keyboardCompatibleText: string;
+    readonly touchCompatiableText: string;
   };
   readonly color: string;
   readonly opacity: number;

@@ -1,7 +1,11 @@
 import type { ViewportState } from "./types";
 import createEditor, { type Editor } from "./editor";
 import { loadPage } from "../deserializer/loadPage";
-import { createInitialState, isTouchDevice } from "./state";
+import {
+  createInitialState,
+  isTouchDevice,
+  detectPhysicalKeyboardHeuristic,
+} from "./state";
 import { setWindowFocused } from "./styles";
 import {
   createCanvasLayers,
@@ -101,7 +105,6 @@ export function mountEditor(
   hiddenInput.setAttribute("autocorrect", "off");
   hiddenInput.setAttribute("autocapitalize", "off");
   hiddenInput.setAttribute("spellcheck", "false");
-  hiddenInput.setAttribute("inputmode", "text");
   // Initialize with a space to ensure Android fires deleteContentBackward events
   hiddenInput.value = " ";
 
@@ -165,10 +168,24 @@ export function mountEditor(
     } else if (event.data?.type === "keyboard-hide") {
       keyboardHeight = 0;
       resizeCanvasForKeyboard();
+    } else if (event.data?.type === "physical-keyboard-connected") {
+      // Native side detected physical keyboard connection
+      const hasPhysicalKeyboard = event.data.connected === true;
+      editor.setPhysicalKeyboard(hasPhysicalKeyboard);
+
+      // If keyboard disconnected and editor is focused, show software keyboard
+      if (!hasPhysicalKeyboard && editor.getState()?.view.isFocused) {
+        hiddenInput.focus();
+      }
     }
   };
 
   window.addEventListener("message", handleKeyboardMessage);
+
+  // Initialize physical keyboard state using heuristic as fallback
+  // Native side should send the actual state on mount
+  const initialKeyboardState = detectPhysicalKeyboardHeuristic();
+  editor.setPhysicalKeyboard(initialKeyboardState);
 
   let destroyed = false;
   const resizeObserver = new ResizeObserver(() => {
@@ -208,7 +225,7 @@ export function mountEditor(
       clearTimeout(blurTimeoutId);
       blurTimeoutId = null;
     }
-    
+
     // Ensure input has dummy content for Android delete to work
     if (!hiddenInput.value) {
       hiddenInput.value = " ";
@@ -227,7 +244,11 @@ export function mountEditor(
     // On mobile, ignore blurs during active touch interactions
     // BUT only if we're in select mode (making a selection)
     // This prevents blocking legitimate keyboard interactions
-    if (isTouchDevice() && isTouchActive && editor.getState()?.ui.mode === "select") {
+    if (
+      isTouchDevice() &&
+      isTouchActive &&
+      editor.getState()?.ui.mode === "select"
+    ) {
       return;
     }
 
@@ -235,7 +256,7 @@ export function mountEditor(
     // This prevents breaking InputConnection during touch interactions
     if (isTouchDevice()) {
       const relatedTarget = e.relatedTarget as Node | null;
-      
+
       // If focus is moving to another element within our container, ignore it
       if (relatedTarget && container.contains(relatedTarget)) {
         return;
@@ -246,7 +267,10 @@ export function mountEditor(
       if (!relatedTarget) {
         // Refocus on next tick to avoid blur/focus loop
         setTimeout(() => {
-          if (document.activeElement !== hiddenInput && editor.getState()?.view.isFocused) {
+          if (
+            document.activeElement !== hiddenInput &&
+            editor.getState()?.view.isFocused
+          ) {
             hiddenInput.focus({ preventScroll: true });
           }
         }, 0);
@@ -269,7 +293,7 @@ export function mountEditor(
   const handleTouchStart = () => {
     isTouchActive = true;
   };
-  
+
   const handleTouchEnd = () => {
     // Use a small delay to let touchend handlers complete
     // Reduced to 10ms to avoid blocking keyboard interactions

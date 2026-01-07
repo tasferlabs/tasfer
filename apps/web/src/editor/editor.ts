@@ -41,6 +41,7 @@ import {
   isTouchDevice,
   getBlockTextContent,
   moveCursorToPosition,
+  updatePhysicalKeyboardState,
 } from "./state";
 import { getEditorStyles } from "./styles";
 import type { EditorState, SlashCommand, ViewportState } from "./types";
@@ -55,6 +56,7 @@ export interface Editor {
   getDocumentHeight: () => number;
   setFocus: (focused: boolean, shouldClearSelection?: boolean) => void;
   setInitialCursor: () => void;
+  setPhysicalKeyboard: (hasPhysicalKeyboard: boolean) => void;
   getCursorScreenPosition: () => {
     x: number;
     y: number;
@@ -1173,6 +1175,11 @@ export default function createEditor(
     listeners.forEach((listener) => listener(currentState));
   }
 
+  function setPhysicalKeyboard(hasPhysicalKeyboard: boolean) {
+    state = updatePhysicalKeyboardState(state, hasPhysicalKeyboard);
+    scheduleRender();
+  }
+
   return {
     getState,
     destroy,
@@ -1201,5 +1208,6 @@ export default function createEditor(
     deleteImageBlock: deleteImageBlockMethod,
     openImageUploadMenu,
     closeActiveMenu: closeActiveMenuMethod,
+    setPhysicalKeyboard,
   };
 }

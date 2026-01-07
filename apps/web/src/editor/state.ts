@@ -55,6 +55,7 @@ export const createInitialState = (page: Page): EditorState => ({
     },
     scrollbar: createInitialScrollbarState(),
     momentum: createInitialMomentumState(),
+    hasPhysicalKeyboard: false, // Default to false, will be updated by native
   },
   undoManager: initialUndoManagerState,
 });
@@ -130,6 +131,14 @@ export const updateFocus = (
 
   return newState;
 };
+
+export const updatePhysicalKeyboardState = (
+  state: EditorState,
+  hasPhysicalKeyboard: boolean
+): EditorState => ({
+  ...state,
+  view: { ...state.view, hasPhysicalKeyboard },
+});
 
 // Helper Functions
 
@@ -1419,4 +1428,33 @@ export const isTouchDevice = (): boolean => {
     typeof window !== "undefined" &&
     ("ontouchstart" in window || navigator.maxTouchPoints > 0)
   );
+};
+
+/**
+ * Heuristic detection for physical keyboard (used as fallback)
+ * This is not 100% reliable but works in most cases
+ */
+export const detectPhysicalKeyboardHeuristic = (): boolean => {
+  if (typeof window === "undefined") return false;
+  
+  // Check if this is a touch device first
+  const isTouch = isTouchDevice();
+  if (!isTouch) {
+    // Non-touch devices always have a keyboard
+    return true;
+  }
+  
+  // For touch devices, use heuristics to detect physical keyboard
+  // Method 1: Check for fine pointer (mouse/trackpad) which often indicates keyboard setup
+  const hasFinePointer = window.matchMedia("(pointer: fine)").matches;
+  
+  // Method 2: Check if the device is a tablet in landscape mode with large screen
+  // iPads with keyboards are often in landscape and have larger width
+  const isLandscape = window.innerWidth > window.innerHeight;
+  const isLargeScreen = window.innerWidth > 768;
+  
+  // Combine heuristics
+  const hasKeyboardHeuristic = hasFinePointer || (isLandscape && isLargeScreen);
+  
+  return hasKeyboardHeuristic;
 };

@@ -8,6 +8,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -133,6 +134,7 @@ class MainActivity : ComponentActivity() {
     private var bottomInset = 0
     private var topInset = 0
     private var isEditorFocused = false  // Track if canvas editor is focused
+    private var hasPhysicalKeyboard = false  // Track hardware keyboard status
     
     // Image picker
     private var currentPhotoUri: Uri? = null
@@ -179,6 +181,7 @@ class MainActivity : ComponentActivity() {
         setupWindowInsets()
         setupToolbarListeners()
         setupBlockMenuListeners()
+        detectPhysicalKeyboard()
         
         // Disable WebView scrollbars - let web content handle scrolling
         webView.isVerticalScrollBarEnabled = false
@@ -203,6 +206,8 @@ class MainActivity : ComponentActivity() {
                 hideLoadingScreen()
                 // Inject safe area insets when page finishes loading
                 injectSafeAreaInsets()
+                // Send initial physical keyboard state
+                notifyPhysicalKeyboardState()
             }
             
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
@@ -611,8 +616,8 @@ class MainActivity : ComponentActivity() {
                     // Calculate actual keyboard height (excluding system navigation bar)
                     keyboardHeight = ime.bottom - bottomInset
 
-                    // Only show toolbar if canvas editor is focused
-                    if (isEditorFocused) {
+                    // Only show toolbar if canvas editor is focused AND no physical keyboard
+                    if (isEditorFocused && !hasPhysicalKeyboard) {
                         // Show toolbar above keyboard
                         showEditingUI()
 
@@ -712,5 +717,42 @@ class MainActivity : ComponentActivity() {
             }
             vibrator.vibrate(duration)
         }
+    }
+    
+    private fun detectPhysicalKeyboard() {
+        // On Android, we detect hardware keyboard using Configuration.keyboard
+        val config = resources.configuration
+        val previousState = hasPhysicalKeyboard
+        
+        // Check if a hardware keyboard is available and not hidden
+        // KEYBOARD_NOKEYS = No keyboard (touchscreen only)
+        // KEYBOARD_QWERTY = Full hardware keyboard
+        // KEYBOARD_12KEY = 12-key hardware keyboard (rare on modern devices)
+        hasPhysicalKeyboard = config.keyboard != Configuration.KEYBOARD_NOKEYS &&
+                config.hardKeyboardHidden != Configuration.HARDKEYBOARDHIDDEN_YES
+        
+        // Notify web view if state changed
+        if (previousState != hasPhysicalKeyboard) {
+            notifyPhysicalKeyboardState()
+            
+            // Hide toolbar when physical keyboard is connected
+            if (hasPhysicalKeyboard && isEditorFocused) {
+                hideToolbarOnly()
+            }
+        }
+    }
+    
+    private fun notifyPhysicalKeyboardState() {
+        webView.evaluateJavascript(
+            "window.postMessage({type: 'physical-keyboard-connected', connected: $hasPhysicalKeyboard}, '*');",
+            null
+        )
+    }
+    
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Re-detect physical keyboard when configuration changes
+        // This catches keyboard connect/disconnect events
+        detectPhysicalKeyboard()
     }
 }
