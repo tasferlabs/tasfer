@@ -866,6 +866,25 @@ export function deleteText(state: EditorState): EditorState {
     // Special handling for list blocks at textIndex 0: outdent instead of merging
     if (isListBlock(oldBlock)) {
       const currentIndent = oldBlock.indent || 0;
+      const currentText = getBlockTextContent(oldBlock);
+      
+      // If block is empty, delete it instead of outdenting or converting
+      if (currentText.length === 0) {
+        const prevBlock = state.document.page.blocks[blockIndex - 1];
+        const newBlocks = [
+          ...state.document.page.blocks.slice(0, blockIndex),
+          ...state.document.page.blocks.slice(blockIndex + 1),
+        ];
+        const newPage = { ...state.document.page, blocks: newBlocks };
+        let newState: EditorState = {
+          ...state,
+          document: { ...state.document, page: newPage },
+        };
+        // Move cursor to end of previous block
+        const prevTextLength = isTextBlock(prevBlock) ? getBlockTextContent(prevBlock).length : 0;
+        return moveCursorToPosition(newState, blockIndex - 1, prevTextLength);
+      }
+      
       if (currentIndent > 0) {
         // Outdent the list item
         const outdentedBlock: Block = {
@@ -981,6 +1000,27 @@ export function deleteText(state: EditorState): EditorState {
       document: { ...state.document, page: newPage },
     };
     return moveCursorToPosition(newState, blockIndex - 1, prevText.length);
+  } else {
+    // At textIndex 0 and blockIndex 0 (first block)
+    // If it's an empty list item, convert to paragraph
+    if (isListBlock(oldBlock)) {
+      const currentText = getBlockTextContent(oldBlock);
+      if (currentText.length === 0) {
+        const paragraphBlock: Block = {
+          id: oldBlock.id,
+          type: "paragraph",
+          content: oldBlock.content,
+        };
+        invalidateBlockCache(paragraphBlock);
+        const newBlocks = [...state.document.page.blocks];
+        newBlocks[blockIndex] = paragraphBlock;
+        const newPage = { ...state.document.page, blocks: newBlocks };
+        return {
+          ...state,
+          document: { ...state.document, page: newPage },
+        };
+      }
+    }
   }
   return state;
 }
