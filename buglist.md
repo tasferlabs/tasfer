@@ -181,7 +181,8 @@ Bugs list
 [ ] hide scrollbar when not scrolling
 [ ] one click on selection should trigger context menu.
 [x] focus issue on context menu
-[ ] select all on mobile not working really, i we already have selection on some block. It would select from start of that exisitng selectio until the end.
+[x] select all on mobile not working really, i we already have selection on some block. It would select from start of that exisitng selectio until the end.
+[x] Android keyboard rendering stops after tap in selection - fixed by updating cursor position while preserving selection
 [ ] I want drag context menu activation like native menu have.
 [ ] drag thumb drag detection on mobile should have buffer area.
 [ ] selection drag rtl is broken

@@ -713,16 +713,16 @@ export function handleEvents(
   // Check for scrollbar long-press (iOS-style: hold to activate)
   if (scrollbarPressState && !state.view.scrollbar.isDragging) {
     const timeSinceStart = Date.now() - scrollbarPressState.startTime;
-    
+
     if (timeSinceStart >= SCROLLBAR_HOLD_DURATION) {
       // Activate scrollbar drag after holding
       if (touchState) {
         touchState.isScrollbarDrag = true;
       }
-      
+
       // Haptic feedback when scrollbar activates (iOS-style)
       triggerHapticFeedback();
-      
+
       state = {
         ...state,
         view: {
@@ -1588,7 +1588,10 @@ function handleMouseMove(
     ...state,
     view: {
       ...state.view,
-      scrollbar: updateScrollbarHover(state.view.scrollbar, isOverScrollbarThumb),
+      scrollbar: updateScrollbarHover(
+        state.view.scrollbar,
+        isOverScrollbarThumb
+      ),
     },
   };
 
@@ -1823,7 +1826,7 @@ function handleMouseUp(
   _visibility: { start: number; end: number }
 ): EditorState {
   stopAutoScroll();
-  
+
   // Clean up scrollbar press state
   if (scrollbarPressState) {
     scrollbarPressState = null;
@@ -1869,7 +1872,7 @@ function handleMouseUp(
 
 function handlePointerCancel(state: EditorState): EditorState {
   stopAutoScroll();
-  
+
   // Clean up scrollbar press state
   if (scrollbarPressState) {
     scrollbarPressState = null;
@@ -2965,28 +2968,30 @@ let scrollbarPressState: {
 /**
  * Trigger haptic feedback through native bridges
  */
-function triggerHapticFeedback(style: 'light' | 'medium' | 'heavy' = 'heavy'): void {
+function triggerHapticFeedback(
+  style: "light" | "medium" | "heavy" = "heavy"
+): void {
   try {
     // iOS native bridge
     if (window.IOSBridge?.postMessage) {
-      window.IOSBridge.postMessage({ action: 'haptic', style });
+      window.IOSBridge.postMessage({ action: "haptic", style });
       return;
     }
-    
+
     // Android native bridge
     if (window.AndroidBridge?.haptic) {
       window.AndroidBridge.haptic(style);
       return;
     }
-    
+
     // Fallback: Standard Vibration API (works on Android Chrome web, not in WebView usually)
-    if ('vibrate' in navigator) {
-      const duration = style === 'light' ? 10 : style === 'medium' ? 20 : 50;
+    if ("vibrate" in navigator) {
+      const duration = style === "light" ? 10 : style === "medium" ? 20 : 50;
       navigator.vibrate(duration);
     }
   } catch (e) {
     // Silently fail if haptics not supported
-    console.debug('Haptic feedback not supported:', e);
+    console.debug("Haptic feedback not supported:", e);
   }
 }
 
@@ -3097,7 +3102,7 @@ function handleTouchStart(
     const isTouchingSelection = position
       ? isPositionWithinSelection(state, position)
       : false;
-    
+
     // iOS-style: If touching scrollbar thumb, start hold timer (don't activate immediately)
     if (isScrollbarThumbTouch) {
       scrollbarPressState = {
@@ -3106,7 +3111,7 @@ function handleTouchStart(
         canvasX,
         canvasY,
       };
-      
+
       // Set up minimal touch state for scrollbar interaction
       touchState = {
         startY: canvasY,
@@ -3246,7 +3251,7 @@ function handleTouchMove(
     // If moved beyond threshold, mark as moved (cancels potential long press)
     if (!touchState.hasMoved && totalMovement > MOVEMENT_THRESHOLD) {
       touchState.hasMoved = true;
-      
+
       // Cancel scrollbar press state if user moves (they're not trying to hold it)
       if (scrollbarPressState) {
         scrollbarPressState = null;
@@ -3255,7 +3260,10 @@ function handleTouchMove(
       // Don't close context menu on movement - allow drag-and-release interaction
       // The menu itself will handle touch events when finger is over it
       // Only close other menu types (slash command, etc.) on movement
-      if (state.ui.activeMenu.type !== "none" && state.ui.activeMenu.type !== "contextMenu") {
+      if (
+        state.ui.activeMenu.type !== "none" &&
+        state.ui.activeMenu.type !== "contextMenu"
+      ) {
         state = closeActiveMenu(state);
       }
     }
@@ -3267,28 +3275,28 @@ function handleTouchMove(
       if (state.ui.activeMenu.type === "contextMenu") {
         touchState.lastY = canvasY;
         touchState.lastTime = currentTime;
-        
+
         // Update hover state based on touch position
         const touch = event.touches[0];
         const element = document.elementFromPoint(touch.clientX, touch.clientY);
         let hoveredItemId: string | null = null;
-        
+
         if (element) {
-          const button = element.closest('button[data-context-menu-item-id]');
+          const button = element.closest("button[data-context-menu-item-id]");
           if (button) {
-            hoveredItemId = button.getAttribute('data-context-menu-item-id');
+            hoveredItemId = button.getAttribute("data-context-menu-item-id");
           }
         }
-        
+
         // Update hover state if it changed
         const currentHoveredId = state.ui.activeMenu.hoveredItemId || null;
         if (hoveredItemId !== currentHoveredId) {
           state = updateContextMenuHover(state, hoveredItemId);
         }
-        
+
         return state;
       }
-      
+
       // Only start/continue text selection if NOT long-pressing on existing selection
       // If long-pressing on existing selection, we'll show context menu on touchend instead
       if (!touchState.isTouchingSelection) {
@@ -3391,7 +3399,7 @@ function handleTouchEnd(
   _containerRect: { left: number; top: number }
 ): EditorState {
   stopAutoScroll();
-  
+
   // Clean up scrollbar press state (iOS-style hold)
   if (scrollbarPressState) {
     scrollbarPressState = null;
@@ -3428,7 +3436,7 @@ function handleTouchEnd(
   if (state.ui.activeMenu.type === "contextMenu" && touchState?.isLongPress) {
     // Use the hoveredItemId from the state (already tracked during touchmove)
     const hoveredItemId = state.ui.activeMenu.hoveredItemId;
-    
+
     if (hoveredItemId) {
       // User released on a menu item - mark it as selected
       // MountedEditor will detect this and execute the action
@@ -3763,6 +3771,8 @@ function handleTouchEnd(
       }
       // If tapping inside a selection (single or double tap), don't reset it (Apple Notes behavior)
       else if (isPositionWithinSelection(state, position)) {
+        // Keep selection but update cursor position
+        state = updateCursor(state, position);
         // Close any active menu if open when tapping on selection
         if (state.ui.activeMenu.type === "contextMenu") {
           state = closeActiveMenu(state);
