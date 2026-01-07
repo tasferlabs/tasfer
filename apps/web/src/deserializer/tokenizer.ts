@@ -22,10 +22,16 @@ export const IMAGE_START = "image_start";
 export const IMAGE_ALT_END = "image_alt_end";
 export const IMAGE_END = "image_end";
 export const HTML_IMG = "html_img";
+export const BULLET_LIST = "bullet_list";
+export const NUMBERED_LIST = "numbered_list";
+export const TODO_LIST_UNCHECKED = "todo_unchecked";
+export const TODO_LIST_CHECKED = "todo_checked";
+export const INDENT = "indent";
 export const NEWLINE = "newline";
 
 type FormatTokenType = "bold_start" | "bold_end" | "italic_start" | "italic_end" | "strikethrough_start" | "strikethrough_end" | "code_start" | "code_end" | "link_start" | "link_text_end" | "link_end" | "image_start" | "image_alt_end" | "image_end" | "html_img";
-type VisibleTokenType = "heading1" | "heading2" | "heading3" | "text" | FormatTokenType;
+type ListTokenType = "bullet_list" | "numbered_list" | "todo_unchecked" | "todo_checked" | "indent";
+type VisibleTokenType = "heading1" | "heading2" | "heading3" | "text" | FormatTokenType | ListTokenType;
 export type TokenType = VisibleTokenType | "newline";
 
 export type VisibleToken = {
@@ -48,8 +54,18 @@ export default function tokenizePage(content: string) {
   const tokens: Token[] = [];
   while (!isEnd(state)) {
     const char = current(state);
+    // Handle leading spaces for indentation at start of line
     if (char === " " && state.startOfLine) {
-      next(state);
+      const indentLevel = countLeadingSpaces(state);
+      if (indentLevel > 0) {
+        tokens.push({
+          type: INDENT,
+          content: " ".repeat(indentLevel * 2),
+        });
+        next(state, indentLevel * 2);
+      } else {
+        next(state);
+      }
     } else if (char === "\r") {
       next(state);
       if (peek(state) === "\n") {
@@ -67,12 +83,82 @@ export default function tokenizePage(content: string) {
       next(state);
     } else if (char === "#" && state.startOfLine) {
       tokenizeHeading(state, tokens);
+    } else if (state.startOfLine && tryTokenizeList(state, tokens)) {
+      // List was tokenized, continue
+      state.startOfLine = false;
     } else {
       tokenizeLine(state, tokens);
     }
   }
   return tokens;
 }
+// Count leading spaces for indent detection (2 spaces = 1 indent level)
+function countLeadingSpaces(state: TokenizerState): number {
+  let count = 0;
+  let i = 0;
+  while (peek(state, i) === " " && !isEnd(state)) {
+    count++;
+    i++;
+  }
+  // Return number of indent levels (2 spaces = 1 level)
+  return Math.floor(count / 2);
+}
+
+// Try to tokenize list markers at start of line
+// Returns true if list marker was found and tokenized
+function tryTokenizeList(state: TokenizerState, tokens: Token[]): boolean {
+  const char = current(state);
+  
+  // Check for bullet list: "- ", "* ", "+ "
+  if ((char === "-" || char === "*" || char === "+") && peek(state) === " ") {
+    // Check if it's a todo list: "- [ ]" or "- [x]"
+    if (char === "-" && peek(state, 2) === "[") {
+      const checkChar = peek(state, 3);
+      if ((checkChar === " " || checkChar === "x" || checkChar === "X") && peek(state, 4) === "]" && peek(state, 5) === " ") {
+        // Todo list item
+        const isChecked = checkChar === "x" || checkChar === "X";
+        tokens.push({
+          type: isChecked ? TODO_LIST_CHECKED : TODO_LIST_UNCHECKED,
+          content: isChecked ? "- [x] " : "- [ ] ",
+        });
+        next(state, 6); // Skip "- [x] " or "- [ ] "
+        return true;
+      }
+    }
+    
+    // Regular bullet list
+    tokens.push({
+      type: BULLET_LIST,
+      content: char + " ",
+    });
+    next(state, 2); // Skip marker and space
+    return true;
+  }
+  
+  // Check for numbered list: "1. ", "2. ", etc.
+  if (char >= "0" && char <= "9") {
+    let numEnd = 0;
+    let nextChar = peek(state, numEnd);
+    while (nextChar !== null && nextChar >= "0" && nextChar <= "9" && !isEnd(state)) {
+      numEnd++;
+      nextChar = peek(state, numEnd);
+    }
+    const dotChar = peek(state, numEnd);
+    const spaceChar = peek(state, numEnd + 1);
+    if (dotChar === "." && spaceChar === " ") {
+      const number = state.content.slice(state.index, state.index + numEnd);
+      tokens.push({
+        type: NUMBERED_LIST,
+        content: number + ". ",
+      });
+      next(state, numEnd + 2); // Skip number, ".", and space
+      return true;
+    }
+  }
+  
+  return false;
+}
+
 function tokenizeHeading(state: TokenizerState, tokens: Token[]) {
   if (!state.startOfLine) {
     tokenizeLine(state, tokens);

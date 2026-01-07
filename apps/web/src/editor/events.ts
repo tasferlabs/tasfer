@@ -1,5 +1,5 @@
 import type { Block } from "../deserializer/loadPage";
-import { isTextBlock } from "../deserializer/loadPage";
+import { isTextBlock, isListBlock } from "../deserializer/loadPage";
 import { SLASH_COMMANDS } from "./SlashCommandMenu";
 import { copySelectionToClipboard, pasteFromClipboardEvent } from "./clipboard";
 import {
@@ -15,16 +15,19 @@ import {
   extendSelectionWordLeft,
   extendSelectionWordRight,
   getSelectionRange,
+  indentListItem,
   insertText,
   moveToLineEnd,
   moveToLineStart,
   moveToNextWord,
   moveToPreviousWord,
+  outdentListItem,
   selectAll,
   selectLineAtPosition,
   selectWordAtPosition,
   splitBlock,
   toggleBold,
+  toggleTodoChecked,
 } from "./commands";
 import {
   CLICK_DISTANCE_THRESHOLD,
@@ -41,6 +44,8 @@ import {
   TAP_MAX_DURATION,
 } from "./constants";
 import { getBlockHeight, imageCache, invalidateBlockCache } from "./renderer";
+import { getEditorStyles, getTextStyle } from "./styles";
+import { getCurrentFontFamily, getFontMetrics } from "./fonts";
 import { getFormattedTextDirection } from "./rtl";
 import {
   applyMomentum,
@@ -94,7 +99,6 @@ import {
   updateSlashCommandFilter,
   updateSlashCommandSelection,
 } from "./state";
-import { getEditorStyles } from "./styles";
 import type {
   EditorState,
   KeyboardEvent,
@@ -1215,6 +1219,65 @@ function handlePaste(
   return newState;
 }
 
+// Helper function to detect and handle checkbox clicks for todo list items
+function handleTodoCheckboxClick(
+  state: EditorState,
+  canvasX: number,
+  canvasY: number,
+  viewport: ViewportState
+): EditorState | null {
+  const styles = getEditorStyles();
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  
+  // Iterate through blocks to find which one was clicked
+  for (let blockIndex = 0; blockIndex < state.document.page.blocks.length; blockIndex++) {
+    const block = state.document.page.blocks[blockIndex];
+    const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
+    
+    // Check if click is within this block's Y bounds
+    if (canvasY >= currentY && canvasY < currentY + blockHeight) {
+      // Check if this is a todo list item
+      if (block.type === "todo_list") {
+        const indent = block.indent || 0;
+        const indentOffset = indent * styles.list.indent.size;
+        const checkboxX = styles.canvas.paddingLeft + indentOffset;
+        const checkboxSize = styles.list.todo.checkboxSize;
+        
+        // Get font metrics for proper vertical alignment
+        const textStyle = getTextStyle(styles, block.type);
+        const fontFamily = getCurrentFontFamily();
+        const fontMetrics = getFontMetrics(
+          textStyle.fontSize,
+          textStyle.fontWeight,
+          fontFamily
+        );
+        const checkboxY = currentY + fontMetrics.ascent - checkboxSize + 2;
+        
+        // Check if click is within checkbox bounds (add some padding for easier clicking)
+        const clickPadding = 4;
+        if (
+          canvasX >= checkboxX - clickPadding &&
+          canvasX <= checkboxX + checkboxSize + clickPadding &&
+          canvasY >= checkboxY - clickPadding &&
+          canvasY <= checkboxY + checkboxSize + clickPadding
+        ) {
+          // Toggle the checkbox
+          const newState = recordUndo(state);
+          return toggleTodoChecked(newState, blockIndex);
+        }
+      }
+      
+      // Not a checkbox click, return null to continue normal processing
+      return null;
+    }
+    
+    currentY += blockHeight;
+  }
+  
+  return null;
+}
+
 function handleMouseDown(
   state: EditorState,
   viewport: ViewportState,
@@ -1265,6 +1328,17 @@ function handleMouseDown(
 
   const canvasX = event.x - containerRect.left;
   const canvasY = event.y - containerRect.top;
+
+  // Check for click on todo checkbox
+  const checkboxClickResult = handleTodoCheckboxClick(
+    state,
+    canvasX,
+    canvasY,
+    viewport
+  );
+  if (checkboxClickResult) {
+    return checkboxClickResult;
+  }
 
   // Check for Ctrl/Command+Click on link to open it
   const isCtrlOrCmd = event.ctrlKey || event.metaKey;
@@ -1989,6 +2063,30 @@ function handleKeyDown(
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
     return toggleBold(hasSelection ? recordUndo(state) : state);
+  }
+
+  // Tab - indent/outdent list items
+  if (key === "Tab") {
+    if (state.document.cursor) {
+      const { blockIndex } = state.document.cursor.position;
+      const block = state.document.page.blocks[blockIndex];
+      
+      if (isListBlock(block)) {
+        if (keyEvent.shiftKey) {
+          // Shift+Tab: outdent
+          const newState = outdentListItem(recordUndo(state));
+          ensureCursorVisible(newState, state, viewport, updateViewportCallback);
+          return newState;
+        } else {
+          // Tab: indent
+          const newState = indentListItem(recordUndo(state));
+          ensureCursorVisible(newState, state, viewport, updateViewportCallback);
+          return newState;
+        }
+      }
+    }
+    // For non-list blocks, return state without preventing default
+    return state;
   }
 
   // Copy
@@ -3809,6 +3907,18 @@ function handleTouchEnd(
           },
         },
       };
+    }
+
+    // Check for tap on todo checkbox
+    const checkboxTapResult = handleTodoCheckboxClick(
+      state,
+      tapPosition.x,
+      tapPosition.y,
+      viewport
+    );
+    if (checkboxTapResult) {
+      touchState = null;
+      return checkboxTapResult;
     }
 
     // Get text position for cursor/selection

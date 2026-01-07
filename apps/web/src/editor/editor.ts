@@ -7,7 +7,6 @@ import {
   clearLinkInBlock,
   selectAll,
   getSelectionRange,
-  deleteTextRangeInFormattedContent,
   mergeAdjacentSegments,
   extractSegmentsInRange,
 } from "./commands";
@@ -567,6 +566,7 @@ export default function createEditor(
     if (
       [
         "Enter",
+        "Tab",
         "ArrowUp",
         "ArrowDown",
         "ArrowLeft",

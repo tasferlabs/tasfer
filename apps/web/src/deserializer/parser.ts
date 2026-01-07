@@ -6,6 +6,9 @@ import type {
   Image,
   Text,
   TextFormat,
+  BulletListItem,
+  NumberedListItem,
+  TodoListItem,
 } from "./loadPage";
 import {
   BOLD_END,
@@ -28,6 +31,11 @@ import {
   STRIKETHROUGH_END,
   STRIKETHROUGH_START,
   TEXT,
+  BULLET_LIST,
+  NUMBERED_LIST,
+  TODO_LIST_UNCHECKED,
+  TODO_LIST_CHECKED,
+  INDENT,
   type Token,
   type TokenType,
   type VisibleToken,
@@ -85,6 +93,23 @@ function isEnd(context: ParserContext) {
 }
 function parseBlock(context: ParserContext): Block {
   if (match(context, NEWLINE)) return emptyBlock(context);
+  
+  // Check for indentation first
+  let indent = 0;
+  if (check(context, INDENT)) {
+    advance(context);
+    const indentToken = previous(context) as VisibleToken;
+    // Calculate indent level (2 spaces = 1 level)
+    indent = Math.floor(indentToken.content.length / 2);
+  }
+  
+  // Check for list blocks
+  if (check(context, BULLET_LIST)) return parseBulletListItem(context, indent);
+  if (check(context, NUMBERED_LIST)) return parseNumberedListItem(context, indent);
+  if (check(context, TODO_LIST_UNCHECKED)) return parseTodoListItem(context, indent, false);
+  if (check(context, TODO_LIST_CHECKED)) return parseTodoListItem(context, indent, true);
+  
+  // Check for other block types
   if (check(context, HTML_IMG)) return parseHTMLImage(context);
   if (check(context, IMAGE_START)) return parseImage(context);
   if (match(context, HEADING_1)) return parseHeading(context, 1);
@@ -261,6 +286,45 @@ function paresParagraph(context: ParserContext): Paragraph {
     id: `block-${context.blockIdCounter++}`,
     type: "paragraph",
     content: text,
+  };
+}
+
+function parseBulletListItem(context: ParserContext, indent: number): BulletListItem {
+  match(context, BULLET_LIST); // Consume the bullet marker
+  const text = parseText(context);
+  return {
+    id: `block-${context.blockIdCounter++}`,
+    type: "bullet_list",
+    content: text,
+    indent,
+  };
+}
+
+function parseNumberedListItem(context: ParserContext, indent: number): NumberedListItem {
+  match(context, NUMBERED_LIST); // Consume the numbered marker
+  const text = parseText(context);
+  return {
+    id: `block-${context.blockIdCounter++}`,
+    type: "numbered_list",
+    content: text,
+    indent,
+  };
+}
+
+function parseTodoListItem(context: ParserContext, indent: number, checked: boolean): TodoListItem {
+  // Consume the todo marker (either TODO_LIST_UNCHECKED or TODO_LIST_CHECKED)
+  if (checked) {
+    match(context, TODO_LIST_CHECKED);
+  } else {
+    match(context, TODO_LIST_UNCHECKED);
+  }
+  const text = parseText(context);
+  return {
+    id: `block-${context.blockIdCounter++}`,
+    type: "todo_list",
+    content: text,
+    checked,
+    indent,
   };
 }
 

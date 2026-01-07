@@ -17,6 +17,29 @@ export interface Paragraph extends BlockRuntimeState {
   content: Text[];
 }
 
+// List item blocks - support bullet, numbered, and todo lists with nesting
+export interface BulletListItem extends BlockRuntimeState {
+  id: string; // Unique identifier for caching
+  type: "bullet_list";
+  content: Text[];
+  indent: number; // 0-based indent level (0 = no indent)
+}
+
+export interface NumberedListItem extends BlockRuntimeState {
+  id: string; // Unique identifier for caching
+  type: "numbered_list";
+  content: Text[];
+  indent: number; // 0-based indent level (0 = no indent)
+}
+
+export interface TodoListItem extends BlockRuntimeState {
+  id: string; // Unique identifier for caching
+  type: "todo_list";
+  content: Text[];
+  checked: boolean;
+  indent: number; // 0-based indent level (0 = no indent)
+}
+
 // Cover image block - full-width image that spans the entire canvas
 // Note: cachedHeight/cachedWidth are transient runtime state, not persisted
 export interface Image extends BlockRuntimeState {
@@ -84,15 +107,26 @@ export function areFormatArraysEqual(
 // Text blocks contain text content
 export type TextBlock = Heading | Paragraph;
 
+// List blocks contain list items with text content
+export type ListBlock = BulletListItem | NumberedListItem | TodoListItem;
+
 // Visual blocks contain visual content (images, etc.)
 export type VisualBlock = Image;
 
 // Block is a union of all block types
-export type Block = TextBlock | VisualBlock;
+export type Block = TextBlock | VisualBlock | ListBlock;
 
 // Type guards
-export function isTextBlock(block: Block): block is TextBlock {
+export function isTextBlock(block: Block): block is TextBlock | ListBlock {
   return block.type !== "image";
+}
+
+export function isListBlock(block: Block): block is ListBlock {
+  return (
+    block.type === "bullet_list" ||
+    block.type === "numbered_list" ||
+    block.type === "todo_list"
+  );
 }
 
 // Check if an image block is in default state (cover mode, full width, 300px height)

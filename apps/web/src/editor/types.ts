@@ -221,6 +221,7 @@ export interface EditorStyles {
   readonly placeholder: PlaceholderStyles;
   readonly textFormats: TextFormatStyles;
   readonly imageResize: ImageResizeStyles;
+  readonly list: ListStyles;
 }
 
 export interface CanvasStyles {
@@ -237,6 +238,9 @@ export interface BlockStyles {
   readonly heading3: TextStyle;
   readonly paragraph: TextStyle;
   readonly image: ImageStyles;
+  readonly bulletList: TextStyle;
+  readonly numberedList: TextStyle;
+  readonly todoList: TextStyle;
 }
 
 export interface TextStyle {
@@ -323,6 +327,33 @@ export interface ImageResizeStyles {
   readonly constraints: {
     readonly minWidth: number;
     readonly minHeight: number;
+  };
+}
+
+export interface ListStyles {
+  readonly bullet: {
+    readonly character: string;
+    readonly color: string;
+    readonly size: number;
+  };
+  readonly numbered: {
+    readonly color: string;
+    readonly minWidth: number;
+  };
+  readonly todo: {
+    readonly checkboxSize: number;
+    readonly checkboxBorderColor: string;
+    readonly checkboxCheckedColor: string;
+    readonly checkboxBorderRadius: number;
+    readonly checkmarkColor: string;
+  };
+  readonly indent: {
+    readonly size: number;
+    readonly maxLevel: number;
+  };
+  readonly marker: {
+    readonly offsetX: number;
+    readonly textGap: number;
   };
 }
 

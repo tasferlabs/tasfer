@@ -56,9 +56,10 @@ Bugs list
 [x] Fix reading empty file, should at least be one block
 [x] ctrl + b should work in the editor.
 [x] add image blocks
-[ ] add unorded list block
-[ ] add orded list block
-[ ] add todo list block
+[x] add unorded list block
+[x] add orded list block
+[x] add todo list block
+[ ] list split at the end not creating new item.
 [ ] Check devices compatiabities such ipad with keyboard. Pen input, stylus supprot. Handwriting.
 [ ] on ios keyboard iland we should add active/inactive state for block type menu. External keyboard
 [x] composition and other input methods such as IME should work.

@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { Type, Heading1, Heading2, Heading3, Image } from "lucide-react";
+import { Type, Heading1, Heading2, Heading3, Image, List, ListOrdered, CheckSquare, LayoutList } from "lucide-react";
 import type { SlashCommand } from "./types";
 
 export const SLASH_COMMANDS: SlashCommand[] = [
@@ -43,6 +43,30 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     description: "Full-width cover image.",
     icon: <Image size={20} />,
     keywords: ["image", "img", "picture", "photo", "upload", "cover"],
+  },
+  {
+    id: "bullet_list",
+    type: "bullet_list",
+    label: "Bullet List",
+    description: "Create a simple bullet list.",
+    icon: <List size={20} />,
+    keywords: ["bullet", "list", "ul", "-", "unordered"],
+  },
+  {
+    id: "numbered_list",
+    type: "numbered_list",
+    label: "Numbered List",
+    description: "Create a numbered list.",
+    icon: <ListOrdered size={20} />,
+    keywords: ["numbered", "list", "ol", "1.", "ordered"],
+  },
+  {
+    id: "todo_list",
+    type: "todo_list",
+    label: "To-do List",
+    description: "Track tasks with a checklist.",
+    icon: <LayoutList size={20} />,
+    keywords: ["todo", "task", "check", "checkbox", "[]"],
   },
 ];
 

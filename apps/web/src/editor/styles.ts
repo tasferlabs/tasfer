@@ -72,6 +72,27 @@ export function getEditorStyles(): EditorStyles {
         lineHeight: 1.6,
         paddingBottom: 12,
       },
+      bulletList: {
+        fontSize: 16,
+        fontWeight: "normal",
+        color: getCSSVariable("--editor-text"),
+        lineHeight: 1.6,
+        paddingBottom: 6,
+      },
+      numberedList: {
+        fontSize: 16,
+        fontWeight: "normal",
+        color: getCSSVariable("--editor-text"),
+        lineHeight: 1.6,
+        paddingBottom: 6,
+      },
+      todoList: {
+        fontSize: 16,
+        fontWeight: "normal",
+        color: getCSSVariable("--editor-text"),
+        lineHeight: 1.6,
+        paddingBottom: 6,
+      },
       image: {
         placeholder: {
           backgroundColor: getCSSVariable("--muted"),
@@ -190,6 +211,32 @@ export function getEditorStyles(): EditorStyles {
         minHeight: IMAGE_DEFAULT_HEIGHT, // Minimum height for resized images
       },
     },
+    list: {
+      bullet: {
+        character: "•",
+        color: getCSSVariable("--editor-text"),
+        size: 16,
+      },
+      numbered: {
+        color: getCSSVariable("--editor-text"),
+        minWidth: 24, // Space reserved for number display
+      },
+      todo: {
+        checkboxSize: 16,
+        checkboxBorderColor: getCSSVariable("--border"),
+        checkboxCheckedColor: getCSSVariable("--primary"),
+        checkboxBorderRadius: 3,
+        checkmarkColor: getCSSVariable("--primary-foreground"),
+      },
+      indent: {
+        size: 24, // Pixels per indent level
+        maxLevel: 6, // Maximum nesting depth
+      },
+      marker: {
+        offsetX: 0, // Distance from the left edge (before indent)
+        textGap: 8, // Gap between marker and text
+      },
+    },
   };
 }
 
@@ -198,8 +245,15 @@ export const defaultStyles: EditorStyles = getEditorStyles();
 
 export const getTextStyle = (
   styles: EditorStyles,
-  blockType: "heading1" | "heading2" | "heading3" | "paragraph"
+  blockType: "heading1" | "heading2" | "heading3" | "paragraph" | "bullet_list" | "numbered_list" | "todo_list"
 ) => {
+  if (blockType === "bullet_list") {
+    return styles.blocks.bulletList;
+  } else if (blockType === "numbered_list") {
+    return styles.blocks.numberedList;
+  } else if (blockType === "todo_list") {
+    return styles.blocks.todoList;
+  }
   return styles.blocks[blockType];
 };
 

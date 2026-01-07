@@ -1,6 +1,6 @@
 import type { EditorState, Position } from "./types";
 import type { Block } from "../deserializer/loadPage";
-import { isTextBlock } from "../deserializer/loadPage";
+import { isTextBlock, isListBlock } from "../deserializer/loadPage";
 import {
   getBlockTextContent,
   moveCursorToPosition,
@@ -292,6 +292,23 @@ function blocksToHTML(blocks: Block[]): string {
         return `<h2>${htmlContent}</h2>`;
       case "heading3":
         return `<h3>${htmlContent}</h3>`;
+      case "bullet_list": {
+        const indent = isListBlock(block) ? block.indent : 0;
+        const indentStyle = indent > 0 ? ` style="margin-left: ${indent * 24}px"` : '';
+        return `<li${indentStyle}>${htmlContent}</li>`;
+      }
+      case "numbered_list": {
+        const indent = isListBlock(block) ? block.indent : 0;
+        const indentStyle = indent > 0 ? ` style="margin-left: ${indent * 24}px"` : '';
+        return `<li${indentStyle} data-list-type="numbered">${htmlContent}</li>`;
+      }
+      case "todo_list": {
+        const indent = isListBlock(block) ? block.indent : 0;
+        const checked = isListBlock(block) && block.type === "todo_list" ? block.checked : false;
+        const indentStyle = indent > 0 ? ` style="margin-left: ${indent * 24}px"` : '';
+        const checkbox = checked ? '[x]' : '[ ]';
+        return `<li${indentStyle} data-list-type="todo" data-checked="${checked}">${checkbox} ${htmlContent}</li>`;
+      }
       case "paragraph":
       default:
         return `<p>${htmlContent}</p>`;
@@ -649,6 +666,41 @@ function parseHTMLToBlocks(html: string): Block[] {
     const hasContent = content.some(seg => seg.content.trim().length > 0);
     if (!hasContent) continue;
     
+    // Check if this is a list item
+    if (tagName === 'li') {
+      const listType = element.getAttribute('data-list-type');
+      const indentStyle = element.getAttribute('style');
+      const indentMatch = indentStyle?.match(/margin-left:\s*(\d+)px/);
+      const indent = indentMatch ? Math.floor(parseInt(indentMatch[1], 10) / 24) : 0;
+      
+      if (listType === 'todo') {
+        const checked = element.getAttribute('data-checked') === 'true';
+        blocks.push({
+          id: generateBlockId(),
+          type: "todo_list",
+          content: content.length > 0 ? content : [{ content: "" }],
+          checked,
+          indent,
+        });
+      } else if (listType === 'numbered') {
+        blocks.push({
+          id: generateBlockId(),
+          type: "numbered_list",
+          content: content.length > 0 ? content : [{ content: "" }],
+          indent,
+        });
+      } else {
+        // Default to bullet list for generic <li> tags
+        blocks.push({
+          id: generateBlockId(),
+          type: "bullet_list",
+          content: content.length > 0 ? content : [{ content: "" }],
+          indent,
+        });
+      }
+      continue;
+    }
+    
     let blockType: "heading1" | "heading2" | "heading3" | "paragraph" = "paragraph";
 
     switch (tagName) {
@@ -668,7 +720,6 @@ function parseHTMLToBlocks(html: string): Block[] {
         blockType = "heading3";
         break;
       case "p":
-      case "li":
       case "blockquote":
       case "pre":
       default:

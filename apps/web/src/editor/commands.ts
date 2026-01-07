@@ -1,5 +1,5 @@
-import type { Block, Text, TextBlock, TextFormat } from "../deserializer/loadPage";
-import { areFormatArraysEqual, isTextBlock } from "../deserializer/loadPage";
+import type { Block, Text, TextFormat } from "../deserializer/loadPage";
+import { areFormatArraysEqual, isTextBlock, isListBlock } from "../deserializer/loadPage";
 import { isCJKCharacter } from "./fonts";
 import { invalidateBlockCache } from "./renderer";
 import { getFormattedTextDirection } from "./rtl";
@@ -458,7 +458,39 @@ function applyMarkdownPrefix(
     return block;
   }
   const text = block.content.map((t) => t.content).join("");
-  if (text.startsWith("### ")) {
+  
+  // Calculate indent level from leading spaces (2 spaces = 1 indent)
+  const leadingSpaces = text.match(/^ +/)?.[0].length || 0;
+  const indentLevel = Math.floor(leadingSpaces / 2);
+  const textAfterSpaces = text.slice(leadingSpaces);
+  
+  // Check for list markers
+  if (textAfterSpaces.startsWith("- [ ] ")) {
+    // Unchecked todo list
+    (block as any).type = "todo_list";
+    (block as any).checked = false;
+    (block as any).indent = indentLevel;
+    block.content = deleteTextRangeInFormattedContent(block.content, 0, leadingSpaces + 6);
+  } else if (textAfterSpaces.startsWith("- [x] ") || textAfterSpaces.startsWith("- [X] ")) {
+    // Checked todo list
+    (block as any).type = "todo_list";
+    (block as any).checked = true;
+    (block as any).indent = indentLevel;
+    block.content = deleteTextRangeInFormattedContent(block.content, 0, leadingSpaces + 6);
+  } else if (textAfterSpaces.match(/^[-*+] /)) {
+    // Bullet list
+    (block as any).type = "bullet_list";
+    (block as any).indent = indentLevel;
+    block.content = deleteTextRangeInFormattedContent(block.content, 0, leadingSpaces + 2);
+  } else if (textAfterSpaces.match(/^\d+\. /)) {
+    // Numbered list
+    const match = textAfterSpaces.match(/^(\d+)\. /);
+    if (match) {
+      (block as any).type = "numbered_list";
+      (block as any).indent = indentLevel;
+      block.content = deleteTextRangeInFormattedContent(block.content, 0, leadingSpaces + match[0].length);
+    }
+  } else if (text.startsWith("### ")) {
     block.type = "heading3";
     // Remove "### " prefix while preserving formatting
     block.content = deleteTextRangeInFormattedContent(block.content, 0, 4);
@@ -831,6 +863,41 @@ export function deleteText(state: EditorState): EditorState {
     // Preserve active formats when deleting during typing (e.g., pressing backspace while in bold mode)
     return moveCursorToPosition(newState, blockIndex, textIndex - 1, true);
   } else if (blockIndex > 0) {
+    // Special handling for list blocks at textIndex 0: outdent instead of merging
+    if (isListBlock(oldBlock)) {
+      const currentIndent = oldBlock.indent || 0;
+      if (currentIndent > 0) {
+        // Outdent the list item
+        const outdentedBlock: Block = {
+          ...oldBlock,
+          indent: currentIndent - 1,
+        };
+        invalidateBlockCache(outdentedBlock);
+        const newBlocks = [...state.document.page.blocks];
+        newBlocks[blockIndex] = outdentedBlock;
+        const newPage = { ...state.document.page, blocks: newBlocks };
+        return {
+          ...state,
+          document: { ...state.document, page: newPage },
+        };
+      } else {
+        // At indent 0: convert to paragraph
+        const paragraphBlock: Block = {
+          id: oldBlock.id,
+          type: "paragraph",
+          content: oldBlock.content,
+        };
+        invalidateBlockCache(paragraphBlock);
+        const newBlocks = [...state.document.page.blocks];
+        newBlocks[blockIndex] = paragraphBlock;
+        const newPage = { ...state.document.page, blocks: newBlocks };
+        return {
+          ...state,
+          document: { ...state.document, page: newPage },
+        };
+      }
+    }
+    
     const prevBlock = state.document.page.blocks[blockIndex - 1];
     
     // If previous block is not a text block (e.g., image), delete the current text block
@@ -889,19 +956,16 @@ export function deleteText(state: EditorState): EditorState {
     // Merge the formatted content arrays
     const mergedContent = [...prevBlock.content, ...oldBlock.content];
     
-    // Determine which block type to preserve:
-    // If previous block is empty, preserve the current block's type
-    // Otherwise, preserve the previous block's type
+    // Determine which block to preserve
     const prevIsEmpty = prevText.length === 0;
-    const typeToPreserve = prevIsEmpty ? oldBlock.type : prevBlock.type;
+    const blockToPreserve = prevIsEmpty ? oldBlock : prevBlock;
     
     const blockCopy: Block = {
-      ...prevBlock,
-      type: typeToPreserve,
+      ...blockToPreserve,
       content: mergeAdjacentSegments(mergedContent),
     };
     // Only apply markdown prefix if the resulting type is a paragraph
-    if (typeToPreserve === "paragraph") {
+    if (blockCopy.type === "paragraph") {
       applyMarkdownPrefix(blockCopy);
     }
     // Invalidate the merged block
@@ -1022,19 +1086,16 @@ export function deleteForward(state: EditorState): EditorState {
     
     const mergedContent = [...oldBlock.content, ...nextBlock.content];
     
-    // Determine which block type to preserve:
-    // If current block is empty, preserve the next block's type
-    // Otherwise, preserve the current block's type
+    // Determine which block to preserve
     const currentIsEmpty = oldText.length === 0;
-    const typeToPreserve = currentIsEmpty ? nextBlock.type : oldBlock.type;
+    const blockToPreserve = currentIsEmpty ? nextBlock : oldBlock;
     
     const blockCopy: Block = {
-      ...oldBlock,
-      type: typeToPreserve as TextBlock["type"],
+      ...blockToPreserve,
       content: mergeAdjacentSegments(mergedContent),
     };
     // Only apply markdown prefix if the resulting type is a paragraph
-    if (typeToPreserve === "paragraph") {
+    if (blockCopy.type === "paragraph") {
       applyMarkdownPrefix(blockCopy);
     }
     // Invalidate the merged block
@@ -1293,19 +1354,16 @@ export function deleteWordForward(state: EditorState): EditorState {
     }
     const mergedContent = [...oldBlock.content, ...nextBlock.content];
     
-    // Determine which block type to preserve:
-    // If current block is empty, preserve the next block's type
-    // Otherwise, preserve the current block's type
+    // Determine which block to preserve
     const currentIsEmpty = oldText.length === 0;
-    const typeToPreserve = currentIsEmpty ? nextBlock.type : oldBlock.type;
+    const blockToPreserve = currentIsEmpty ? nextBlock : oldBlock;
     
     const blockCopy: Block = {
-      ...oldBlock,
-      type: typeToPreserve as TextBlock["type"],
+      ...blockToPreserve,
       content: mergeAdjacentSegments(mergedContent),
     };
     // Only apply markdown prefix if the resulting type is a paragraph
-    if (typeToPreserve === "paragraph") {
+    if (blockCopy.type === "paragraph") {
       applyMarkdownPrefix(blockCopy);
     }
     // Invalidate the merged block
@@ -1373,19 +1431,16 @@ export function deleteWordBackward(state: EditorState): EditorState {
     const prevText = getBlockTextContent(prevBlock);
     const mergedContent = [...prevBlock.content, ...oldBlock.content];
     
-    // Determine which block type to preserve:
-    // If previous block is empty, preserve the current block's type
-    // Otherwise, preserve the previous block's type
+    // Determine which block to preserve
     const prevIsEmpty = prevText.length === 0;
-    const typeToPreserve = prevIsEmpty ? oldBlock.type : prevBlock.type;
+    const blockToPreserve = prevIsEmpty ? oldBlock : prevBlock;
     
     const blockCopy: Block = {
-      ...prevBlock,
-      type: typeToPreserve as TextBlock["type"],
+      ...blockToPreserve,
       content: mergeAdjacentSegments(mergedContent),
     };
     // Only apply markdown prefix if the resulting type is a paragraph
-    if (typeToPreserve === "paragraph") {
+    if (blockCopy.type === "paragraph") {
       applyMarkdownPrefix(blockCopy);
     }
     // Invalidate the merged block
@@ -1697,41 +1752,130 @@ export function splitBlock(state: EditorState): EditorState {
   const isAtEnd = textIndex === oldText.length;
   const isEmpty = oldText.length === 0;
   
-  let blockCopy1Type: Block["type"];
-  let blockCopy2Type: Block["type"];
+  // Handle list blocks
+  if (isListBlock(oldBlock)) {
+    // When Enter is pressed in an empty list item, outdent or convert to paragraph
+    if (isEmpty) {
+      if (oldBlock.indent === 0) {
+        // Convert to paragraph if at base indent
+        const newParagraph: Block = {
+          id: oldBlock.id,
+          type: "paragraph",
+          content: [],
+        };
+        const newBlocks = [
+          ...state.document.page.blocks.slice(0, blockIndex),
+          newParagraph,
+          ...state.document.page.blocks.slice(blockIndex + 1),
+        ];
+        const newPage = { ...state.document.page, blocks: newBlocks };
+        return {
+          ...state,
+          document: { ...state.document, page: newPage },
+        };
+      } else {
+        // Outdent the list item
+        const outdentedBlock: Block = {
+          ...oldBlock,
+          indent: oldBlock.indent - 1,
+        };
+        invalidateBlockCache(outdentedBlock);
+        const newBlocks = [...state.document.page.blocks];
+        newBlocks[blockIndex] = outdentedBlock;
+        const newPage = { ...state.document.page, blocks: newBlocks };
+        return {
+          ...state,
+          document: { ...state.document, page: newPage },
+        };
+      }
+    }
+    
+    // Create new list item of same type
+    const blockCopy1: Block = { ...oldBlock, content: beforeContent };
+    
+    let blockCopy2: Block;
+    if (oldBlock.type === "bullet_list") {
+      blockCopy2 = {
+        id: generateBlockId(),
+        type: "bullet_list",
+        content: afterContent,
+        indent: oldBlock.indent,
+      };
+    } else if (oldBlock.type === "numbered_list") {
+      blockCopy2 = {
+        id: generateBlockId(),
+        type: "numbered_list",
+        content: afterContent,
+        indent: oldBlock.indent,
+      };
+    } else {
+      blockCopy2 = {
+        id: generateBlockId(),
+        type: "todo_list",
+        content: afterContent,
+        checked: false, // New todo items start unchecked
+        indent: oldBlock.indent,
+      };
+    }
+    
+    invalidateBlockCache(blockCopy1);
+    invalidateBlockCache(blockCopy2);
+    
+    const newBlocks = [
+      ...state.document.page.blocks.slice(0, blockIndex),
+      blockCopy1,
+      blockCopy2,
+      ...state.document.page.blocks.slice(blockIndex + 1),
+    ];
+    const newPage = { ...state.document.page, blocks: newBlocks };
+    
+    const newState: EditorState = {
+      ...state,
+      document: { ...state.document, page: newPage },
+    };
+    return moveCursorToPosition(newState, blockIndex + 1, 0);
+  }
+  
+  // Handle heading and paragraph blocks (non-list text blocks)
+  let blockCopy1Type: "heading1" | "heading2" | "heading3" | "paragraph";
+  let blockCopy2Type: "heading1" | "heading2" | "heading3" | "paragraph";
   
   if (originalType.startsWith("heading")) {
+    const headingType = originalType as "heading1" | "heading2" | "heading3";
     if (isEmpty) {
       // Empty heading: keep heading above, create paragraph below
-      blockCopy1Type = originalType;
+      blockCopy1Type = headingType;
       blockCopy2Type = "paragraph";
     } else if (isAtStart) {
       // At start of non-empty heading: new block above should be paragraph, heading stays below
       blockCopy1Type = "paragraph";
-      blockCopy2Type = originalType;
+      blockCopy2Type = headingType;
     } else if (isAtEnd) {
       // At end of non-empty heading: heading stays above, new block below should be paragraph
-      blockCopy1Type = originalType;
+      blockCopy1Type = headingType;
       blockCopy2Type = "paragraph";
     } else {
       // In middle of heading: split into two headings
-      blockCopy1Type = originalType;
-      blockCopy2Type = originalType;
+      blockCopy1Type = headingType;
+      blockCopy2Type = headingType;
     }
   } else {
-    // For non-heading blocks (paragraphs, etc), preserve the type
-    blockCopy1Type = originalType;
-    blockCopy2Type = originalType;
+    // For paragraphs, preserve the type
+    blockCopy1Type = "paragraph";
+    blockCopy2Type = "paragraph";
   }
 
-  const blockCopy1: Block = { ...oldBlock, type: blockCopy1Type, content: beforeContent };
+  const blockCopy1: Block = {
+    id: oldBlock.id,
+    type: blockCopy1Type,
+    content: beforeContent,
+  };
   // Only apply markdown prefix if the block type is a paragraph
   if (blockCopy1Type === "paragraph") {
     applyMarkdownPrefix(blockCopy1);
   }
 
   const blockCopy2: Block = {
-    ...oldBlock,
     id: generateBlockId(),
     type: blockCopy2Type,
     content: afterContent,
@@ -2037,10 +2181,45 @@ export function convertBlockType(
   }
 
   // Create new block with the specified type, preserving formatting
-  const newBlock: Block = isTextBlock(oldBlock) ? {
-    ...oldBlock,
-    type: blockType as TextBlock["type"],
-  } : oldBlock;
+  // Only text blocks can have content property
+  if (!isTextBlock(oldBlock)) {
+    return state;
+  }
+  
+  let newBlock: Block;
+  
+  if (blockType === "bullet_list") {
+    newBlock = {
+      id: oldBlock.id,
+      type: "bullet_list",
+      content: oldBlock.content,
+      indent: isListBlock(oldBlock) ? oldBlock.indent : 0,
+    };
+  } else if (blockType === "numbered_list") {
+    newBlock = {
+      id: oldBlock.id,
+      type: "numbered_list",
+      content: oldBlock.content,
+      indent: isListBlock(oldBlock) ? oldBlock.indent : 0,
+    };
+  } else if (blockType === "todo_list") {
+    newBlock = {
+      id: oldBlock.id,
+      type: "todo_list",
+      content: oldBlock.content,
+      checked: isListBlock(oldBlock) && oldBlock.type === "todo_list" ? oldBlock.checked : false,
+      indent: isListBlock(oldBlock) ? oldBlock.indent : 0,
+    };
+  } else if (blockType === "paragraph" || blockType === "heading1" || blockType === "heading2" || blockType === "heading3") {
+    newBlock = {
+      id: oldBlock.id,
+      type: blockType,
+      content: oldBlock.content,
+    };
+  } else {
+    // Image or unknown type - shouldn't reach here
+    return state;
+  }
 
   // Invalidate cache only for the changed block
   invalidateBlockCache(newBlock);
@@ -2114,7 +2293,7 @@ export function applySlashCommand(
     return newState;
   }
 
-  // Regular text-based blocks
+  // Regular text-based blocks and list blocks
   // If the current block is already an image cover, just close the slash command
   if (block.type === "image") {
     return closeSlashCommand(state);
@@ -2132,11 +2311,37 @@ export function applySlashCommand(
   );
 
   // Update block content and type
-  const newBlock: Block = {
-    ...block,
-    type: command.type as TextBlock["type"],
-    content: newContent,
-  };
+  let newBlock: Block;
+  if (command.type === "bullet_list") {
+    newBlock = {
+      id: block.id,
+      type: "bullet_list",
+      content: newContent,
+      indent: 0,
+    };
+  } else if (command.type === "numbered_list") {
+    newBlock = {
+      id: block.id,
+      type: "numbered_list",
+      content: newContent,
+      indent: 0,
+    };
+  } else if (command.type === "todo_list") {
+    newBlock = {
+      id: block.id,
+      type: "todo_list",
+      content: newContent,
+      checked: false,
+      indent: 0,
+    };
+  } else {
+    // Regular text blocks (headings, paragraphs)
+    newBlock = {
+      id: block.id,
+      type: command.type as "heading1" | "heading2" | "heading3" | "paragraph",
+      content: newContent,
+    };
+  }
 
   // Invalidate cache only for the changed block
   invalidateBlockCache(newBlock);
@@ -2154,6 +2359,171 @@ export function applySlashCommand(
   newState = moveCursorToPosition(newState, blockIndex, textIndex - 1);
 
   return newState;
+}
+
+/**
+ * Indent a list item (increase indent level)
+ */
+export function indentListItem(state: EditorState): EditorState {
+  if (!state.document.cursor) return state;
+  
+  const { blockIndex } = state.document.cursor.position;
+  const block = state.document.page.blocks[blockIndex];
+  
+  if (!isListBlock(block)) return state;
+  
+  // Check if we're at max indent level
+  const currentIndent = block.indent || 0;
+  const maxLevel = 6; // Match styles.list.indent.maxLevel
+  if (currentIndent >= maxLevel) return state;
+  
+  // Create new block with increased indent
+  const newBlock: Block = {
+    ...block,
+    indent: currentIndent + 1,
+  };
+  
+  invalidateBlockCache(newBlock);
+  
+  const newBlocks = [...state.document.page.blocks];
+  newBlocks[blockIndex] = newBlock;
+  const newPage = { ...state.document.page, blocks: newBlocks };
+  
+  return {
+    ...state,
+    document: { ...state.document, page: newPage },
+  };
+}
+
+/**
+ * Outdent a list item (decrease indent level)
+ */
+export function outdentListItem(state: EditorState): EditorState {
+  if (!state.document.cursor) return state;
+  
+  const { blockIndex } = state.document.cursor.position;
+  const block = state.document.page.blocks[blockIndex];
+  
+  if (!isListBlock(block)) return state;
+  
+  const currentIndent = block.indent || 0;
+  if (currentIndent === 0) {
+    // At base indent - convert to paragraph
+    const newBlock: Block = {
+      id: block.id,
+      type: "paragraph",
+      content: block.content,
+    };
+    
+    invalidateBlockCache(newBlock);
+    
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[blockIndex] = newBlock;
+    const newPage = { ...state.document.page, blocks: newBlocks };
+    
+    return {
+      ...state,
+      document: { ...state.document, page: newPage },
+    };
+  }
+  
+  // Decrease indent level
+  const newBlock: Block = {
+    ...block,
+    indent: currentIndent - 1,
+  };
+  
+  invalidateBlockCache(newBlock);
+  
+  const newBlocks = [...state.document.page.blocks];
+  newBlocks[blockIndex] = newBlock;
+  const newPage = { ...state.document.page, blocks: newBlocks };
+  
+  return {
+    ...state,
+    document: { ...state.document, page: newPage },
+  };
+}
+
+/**
+ * Toggle the checked state of a todo list item
+ */
+export function toggleTodoChecked(
+  state: EditorState,
+  blockIndex: number
+): EditorState {
+  const block = state.document.page.blocks[blockIndex];
+  
+  if (!block || block.type !== "todo_list") return state;
+  
+  // Toggle checked state
+  const newBlock: Block = {
+    ...block,
+    checked: !block.checked,
+  };
+  
+  invalidateBlockCache(newBlock);
+  
+  const newBlocks = [...state.document.page.blocks];
+  newBlocks[blockIndex] = newBlock;
+  const newPage = { ...state.document.page, blocks: newBlocks };
+  
+  return {
+    ...state,
+    document: { ...state.document, page: newPage },
+  };
+}
+
+/**
+ * Convert current block to a list type
+ */
+export function convertToList(
+  state: EditorState,
+  listType: "bullet_list" | "numbered_list" | "todo_list"
+): EditorState {
+  if (!state.document.cursor) return state;
+  
+  const { blockIndex } = state.document.cursor.position;
+  const oldBlock = state.document.page.blocks[blockIndex];
+  
+  if (!isTextBlock(oldBlock)) return state;
+  
+  // Create new list block
+  let newBlock: Block;
+  if (listType === "bullet_list") {
+    newBlock = {
+      id: oldBlock.id,
+      type: "bullet_list",
+      content: oldBlock.content,
+      indent: 0,
+    };
+  } else if (listType === "numbered_list") {
+    newBlock = {
+      id: oldBlock.id,
+      type: "numbered_list",
+      content: oldBlock.content,
+      indent: 0,
+    };
+  } else {
+    newBlock = {
+      id: oldBlock.id,
+      type: "todo_list",
+      content: oldBlock.content,
+      checked: false,
+      indent: 0,
+    };
+  }
+  
+  invalidateBlockCache(newBlock);
+  
+  const newBlocks = [...state.document.page.blocks];
+  newBlocks[blockIndex] = newBlock;
+  const newPage = { ...state.document.page, blocks: newBlocks };
+  
+  return {
+    ...state,
+    document: { ...state.document, page: newPage },
+  };
 }
 
 /**
