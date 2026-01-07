@@ -8,11 +8,27 @@
 import SwiftUI
 import WebKit
 
+extension UIColor {
+    func toHex() -> String {
+        guard let components = cgColor.components, components.count >= 3 else {
+            return "#000000"
+        }
+        let r = Float(components[0])
+        let g = Float(components[1])
+        let b = Float(components[2])
+        return String(format: "#%02lX%02lX%02lX", lroundf(r * 255), lroundf(g * 255), lroundf(b * 255))
+    }
+}
+
 struct ContentView: View {
     @State private var isLoading = true
     
     var body: some View {
         ZStack {
+            // Background color to prevent white flash
+            Color("Background")
+                .edgesIgnoringSafeArea(.all)
+            
             WebView(url: URL(string: "https://192.168.68.53:5173/")!, isLoading: $isLoading)
                 .edgesIgnoringSafeArea(.all)
             
@@ -531,6 +547,7 @@ class CustomWebView: WKWebView {
 struct WebView: UIViewRepresentable {
     let url: URL
     @Binding var isLoading: Bool
+    @Environment(\.colorScheme) var colorScheme
     
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -559,6 +576,27 @@ struct WebView: UIViewRepresentable {
         
         let webView = CustomWebView(frame: .zero, configuration: configuration)
         webView.setupAccessoryView()
+        
+        // Set WebView background to theme color to prevent white flash
+        webView.isOpaque = false
+        if let backgroundColor = UIColor(named: "Background") {
+            webView.backgroundColor = backgroundColor
+            webView.scrollView.backgroundColor = backgroundColor
+            
+            // Inject the background color into the web content
+            let backgroundColorHex = backgroundColor.toHex()
+            let themeScript = """
+            document.documentElement.style.backgroundColor = '\(backgroundColorHex)';
+            if (document.body) {
+                document.body.style.backgroundColor = '\(backgroundColorHex)';
+            } else {
+                document.addEventListener('DOMContentLoaded', function() {
+                    document.body.style.backgroundColor = '\(backgroundColorHex)';
+                });
+            }
+            """
+            webView.evaluateJavaScript(themeScript, completionHandler: nil)
+        }
         
         webView.navigationDelegate = context.coordinator
         webView.scrollView.contentInsetAdjustmentBehavior = .never
@@ -608,6 +646,22 @@ struct WebView: UIViewRepresentable {
     }
     
     func updateUIView(_ webView: WKWebView, context: Context) {
+        // Update background color when color scheme changes
+        if let backgroundColor = UIColor(named: "Background") {
+            webView.backgroundColor = backgroundColor
+            webView.scrollView.backgroundColor = backgroundColor
+            
+            // Update the web content background color
+            let backgroundColorHex = backgroundColor.toHex()
+            let themeScript = """
+            document.documentElement.style.backgroundColor = '\(backgroundColorHex)';
+            if (document.body) {
+                document.body.style.backgroundColor = '\(backgroundColorHex)';
+            }
+            """
+            webView.evaluateJavaScript(themeScript, completionHandler: nil)
+        }
+        
         if webView.url == nil {
             let request = URLRequest(url: url)
             webView.load(request)
