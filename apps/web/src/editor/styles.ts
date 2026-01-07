@@ -1,6 +1,7 @@
 import { getCurrentFontFamily, FONT_STACKS } from "./fonts";
 import type { EditorStyles, TextStyle } from "./types";
 import { IMAGE_DEFAULT_HEIGHT } from "./constants";
+import { isTouchDevice } from "./state";
 
 /**
  * Track window focus state globally for editor styling
@@ -116,9 +117,10 @@ export function getEditorStyles(): EditorStyles {
       blinkInterval: 530,
     },
     selection: {
-      backgroundColor: isWindowFocused
-        ? getCSSVariable("--editor-selection")
-        : getCSSVariable("--editor-selection-unfocused"),
+      backgroundColor:
+        isWindowFocused || isTouchDevice()
+          ? getCSSVariable("--editor-selection")
+          : getCSSVariable("--editor-selection-unfocused"),
       opacity: 0.2,
     },
     placeholder: {

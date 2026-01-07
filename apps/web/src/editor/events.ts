@@ -758,6 +758,7 @@ export function handleEvents(
         visibility
       );
 
+      // Long press (hold without movement) always shows context menu
       if (position) {
         // Only update cursor/clear selection if there's no selection active
         // This preserves "Select All" and other selections when long-pressing
@@ -3257,15 +3258,36 @@ function handleTouchMove(
         scrollbarPressState = null;
       }
 
-      // Don't close context menu on movement - allow drag-and-release interaction
-      // The menu itself will handle touch events when finger is over it
-      // Only close other menu types (slash command, etc.) on movement
-      if (
-        state.ui.activeMenu.type !== "none" &&
-        state.ui.activeMenu.type !== "contextMenu"
-      ) {
+      // Close all menus on movement
+      if (state.ui.activeMenu.type !== "none") {
         state = closeActiveMenu(state);
       }
+
+      // Priority: Always allow drag selection unless touching existing selection
+      // If not touching selection and user starts dragging, begin text selection immediately
+      if (!touchState.isTouchingSelection && state.ui.mode !== "select") {
+        const position = getTextPositionFromViewport(
+          touchState.startX,
+          touchState.startY,
+          state,
+          viewport,
+          { start: 0, end: state.document.page.blocks.length - 1 }
+        );
+
+        if (position) {
+          // Start selection mode for drag selection
+          state = updateCursor(state, position);
+          state = startSelection(state, position);
+          state = updateMode(state, "select");
+          touchState.isLongPress = true; // Mark as long press to enable selection updates
+          
+          // Start auto-scroll for selection
+          if (!autoScrollState.isActive) {
+            startAutoScroll();
+          }
+        }
+      }
+      // If touching selection and dragging, just close menu and allow scroll (default behavior)
     }
 
     // Handle long press text selection mode

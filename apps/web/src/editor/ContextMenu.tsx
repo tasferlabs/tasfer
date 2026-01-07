@@ -56,6 +56,9 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
         >
           {items.map((item) => {
             const isHovered = hoveredItemId === item.id;
+            if (item.disabled) {
+              return null;
+            }
             return (
               <button
                 key={item.id}
