@@ -191,7 +191,8 @@ Bugs list
 [x] scroll on pagearea is shard on mobile
 [x] clicking on other text inputs (sidebar, page title) should not show toolbar/keyboard island
 [ ] ios block menu does not have same height as the keyboard. 
-[ ] two finger scroll
+[x] two finger scroll
+[ ] Three-Finger Gestures
 - : means not planed or considered
   x : done
   : not done

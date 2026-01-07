@@ -2931,6 +2931,7 @@ let touchState: {
   currentTouchX: number;
   currentTouchY: number;
   isTouchingSelection: boolean;
+  isTwoFingerScroll?: boolean;
 } | null = null;
 
 let autoScrollState: {
@@ -3024,6 +3025,51 @@ function handleTouchStart(
   // In locked mode, block touch interactions that might lead to scrolling
   if (state.ui.mode === "locked") {
     return state;
+  }
+
+  // Handle two-finger scroll
+  if (event.touches.length === 2) {
+    const touch1 = event.touches[0];
+    const touch2 = event.touches[1];
+    const currentTime = Date.now();
+    
+    // Calculate average position of both fingers
+    const avgY = (touch1.clientY + touch2.clientY) / 2 - containerRect.top;
+    
+    touchState = {
+      startY: avgY,
+      startScrollY: viewport.scrollY,
+      lastY: avgY,
+      lastTime: currentTime,
+      velocityY: 0,
+      velocityHistory: [],
+      isScrollbarDrag: false,
+      startX: (touch1.clientX + touch2.clientX) / 2 - containerRect.left,
+      startTime: currentTime,
+      isLongPress: false,
+      hasMoved: false,
+      currentTouchX: (touch1.clientX + touch2.clientX) / 2 - containerRect.left,
+      currentTouchY: avgY,
+      isTouchingSelection: false,
+      isTwoFingerScroll: true,
+    };
+
+    // Stop any ongoing momentum
+    return {
+      ...state,
+      view: {
+        ...state.view,
+        momentum: {
+          velocity: 0,
+          lastTime: Date.now(),
+          isActive: false,
+        },
+        scrollbar: {
+          ...state.view.scrollbar,
+          lastInteraction: Date.now(),
+        },
+      },
+    };
   }
 
   if (event.touches.length === 1) {
@@ -3187,6 +3233,139 @@ function handleTouchMove(
   // In locked mode, block scrolling
   if (state.ui.mode === "locked") {
     return state;
+  }
+
+  // Handle transition from two-finger to single-finger (user lifted one finger)
+  if (event.touches.length === 1 && touchState?.isTwoFingerScroll) {
+    // User lifted one finger during two-finger scroll - end the scroll with momentum
+    const avgVelocity = touchState.velocityY;
+    const minMomentumVelocity = 0.1; // pixels per ms
+    
+    // Apply momentum if velocity is significant
+    if (Math.abs(avgVelocity) > minMomentumVelocity) {
+      const momentumMultiplier = 1.2;
+      state = {
+        ...state,
+        view: {
+          ...state.view,
+          momentum: {
+            velocity: avgVelocity * momentumMultiplier,
+            lastTime: Date.now(),
+            isActive: true,
+          },
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
+        },
+      };
+    }
+    
+    touchState = null;
+    return state;
+  }
+
+  // Handle transition from single to two-finger scroll
+  if (event.touches.length === 2 && touchState && !touchState.isTwoFingerScroll) {
+    // User added a second finger - switch to two-finger scroll mode
+    const touch1 = event.touches[0];
+    const touch2 = event.touches[1];
+    const currentTime = Date.now();
+    const avgY = (touch1.clientY + touch2.clientY) / 2 - containerRect.top;
+    
+    touchState = {
+      ...touchState,
+      isTwoFingerScroll: true,
+      startY: avgY,
+      startScrollY: viewport.scrollY,
+      lastY: avgY,
+      lastTime: currentTime,
+      velocityHistory: [], // Reset velocity history
+      isLongPress: false, // Cancel long press
+      hasMoved: true, // Mark as moved to prevent tap detection
+    };
+    
+    // Stop any auto-scroll
+    stopAutoScroll();
+  }
+
+  // Handle two-finger scroll
+  if (event.touches.length === 2 && touchState?.isTwoFingerScroll) {
+    event.preventDefault();
+    const touch1 = event.touches[0];
+    const touch2 = event.touches[1];
+    const currentTime = Date.now();
+    const deltaTime = currentTime - touchState.lastTime;
+    
+    // Skip if no time has passed
+    if (deltaTime === 0) return state;
+    
+    // Calculate average position of both fingers
+    const avgY = (touch1.clientY + touch2.clientY) / 2 - containerRect.top;
+    
+    // Calculate scroll delta
+    const scrollDeltaY = touchState.lastY - avgY;
+    
+    // Calculate instantaneous velocity (pixels per millisecond)
+    const instantVelocity = scrollDeltaY / deltaTime;
+    
+    // Track velocity for momentum
+    if (Math.abs(instantVelocity) > 0.01) {
+      touchState.velocityHistory.push({
+        velocity: instantVelocity,
+        time: currentTime,
+      });
+    }
+    
+    // Keep only last 150ms of velocity history
+    touchState.velocityHistory = touchState.velocityHistory.filter(
+      (v) => currentTime - v.time < 150
+    );
+    
+    // Update velocity for momentum
+    if (touchState.velocityHistory.length > 0) {
+      const totalVelocity = touchState.velocityHistory.reduce(
+        (sum, v) => sum + v.velocity,
+        0
+      );
+      touchState.velocityY = totalVelocity / touchState.velocityHistory.length;
+    }
+    
+    // Apply scroll with multiplier for responsive feel
+    const touchScrollMultiplier = 1.5;
+    const scrollDelta = (touchState.startY - avgY) * touchScrollMultiplier;
+    
+    // Update scroll position with boundaries
+    const maxScroll = documentHeight - viewport.height;
+    const newScrollY = Math.max(
+      0,
+      Math.min(maxScroll, touchState.startScrollY + scrollDelta)
+    );
+    
+    if (updateViewportCallback) {
+      updateViewportCallback({ scrollY: newScrollY });
+    }
+    
+    touchState.lastY = avgY;
+    touchState.lastTime = currentTime;
+    
+    // Clear any menus when scrolling
+    return {
+      ...state,
+      view: {
+        ...state.view,
+        scrollbar: {
+          ...state.view.scrollbar,
+          lastInteraction: Date.now(),
+        },
+      },
+      ui: {
+        ...state.ui,
+        activeMenu: { type: "none" },
+        isHoveringLinkWithModifier: false,
+        imageHover: null,
+      },
+    };
   }
 
   if (event.touches.length === 1 && touchState) {
@@ -3421,6 +3600,35 @@ function handleTouchEnd(
   _containerRect: { left: number; top: number }
 ): EditorState {
   stopAutoScroll();
+
+  // Handle two-finger scroll end with momentum
+  if (touchState?.isTwoFingerScroll) {
+    const avgVelocity = touchState.velocityY;
+    const minMomentumVelocity = 0.1; // pixels per ms
+    
+    // Apply momentum if velocity is significant
+    if (Math.abs(avgVelocity) > minMomentumVelocity) {
+      const momentumMultiplier = 1.2;
+      state = {
+        ...state,
+        view: {
+          ...state.view,
+          momentum: {
+            velocity: avgVelocity * momentumMultiplier,
+            lastTime: Date.now(),
+            isActive: true,
+          },
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
+        },
+      };
+    }
+    
+    touchState = null;
+    return state;
+  }
 
   // Clean up scrollbar press state (iOS-style hold)
   if (scrollbarPressState) {
