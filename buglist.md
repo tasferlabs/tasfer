@@ -177,7 +177,7 @@ Bugs list
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
 [ ] scrollbar should not hit bottom porition on mobile (or at least on ios)
 [x] hide editimagepopover on mobile
-[ ] hide scrollbar when not scrolling
+[x] hide scrollbar when not scrolling
 [ ] one click on selection should trigger context menu.
 [x] focus issue on context menu
 [x] select all on mobile not working really, i we already have selection on some block. It would select from start of that exisitng selectio until the end.

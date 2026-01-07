@@ -241,6 +241,11 @@ export default function createEditor(
         if (prevState.view.isFocused !== state.view.isFocused) {
           dirtyLayers.cursor = true;
         }
+
+        // Check if scrollbar state changed (for fade animation)
+        if (prevState.view.scrollbar !== state.view.scrollbar) {
+          dirtyLayers.content = true;
+        }
       }
 
       // Check if cursor blink state changed (for cursor animation)
