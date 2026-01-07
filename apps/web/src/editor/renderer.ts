@@ -587,19 +587,9 @@ export const renderBlock = (
     const indent = block.indent || 0;
     indentOffset = indent * styles.list.indent.size;
     
-    // Calculate marker width based on list type
-    if (block.type === "bullet_list") {
-      markerWidth = styles.list.marker.textGap + measureText(
-        styles.list.bullet.character,
-        textStyle.fontSize,
-        textStyle.fontWeight,
-        fontFamily
-      );
-    } else if (block.type === "numbered_list") {
-      markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
-    } else if (block.type === "todo_list") {
-      markerWidth = styles.list.todo.checkboxSize + styles.list.marker.textGap;
-    }
+    // Use consistent marker width for all list types to ensure text alignment
+    // All list types reserve the same space (minWidth + textGap)
+    markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
     
     adjustedX = x + indentOffset + markerWidth;
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
@@ -848,7 +838,8 @@ function renderListMarker(
     ctx.fillStyle = styles.list.bullet.color;
     ctx.font = `${textStyle.fontWeight} ${styles.list.bullet.size}px ${FONT_STACKS[fontFamily]}`;
     ctx.textBaseline = "alphabetic";
-    ctx.fillText(styles.list.bullet.character, x, y + fontMetrics.ascent);
+    // Offset bullet to align with numbered list
+    ctx.fillText(styles.list.bullet.character, x + 6, y + fontMetrics.ascent);
     ctx.restore();
   } else if (block.type === "numbered_list") {
     // Calculate and render number
@@ -860,14 +851,15 @@ function renderListMarker(
     ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${FONT_STACKS[fontFamily]}`;
     ctx.textBaseline = "alphabetic";
     ctx.textAlign = "right";
-    // Right-align the number for visual consistency
-    ctx.fillText(numberText, x + styles.list.numbered.minWidth - 4, y + fontMetrics.ascent);
+    // Right-align the number, leaving a small margin from the edge
+    ctx.fillText(numberText, x + 18, y + fontMetrics.ascent);
     ctx.textAlign = "left"; // Reset
     ctx.restore();
   } else if (block.type === "todo_list") {
     // Render checkbox
     const checkboxSize = styles.list.todo.checkboxSize;
     const checkboxY = y + fontMetrics.ascent - checkboxSize + 2; // Align with text baseline
+    const checkboxX = x + 2; // Offset to align with other list markers
     
     ctx.save();
     
@@ -875,7 +867,7 @@ function renderListMarker(
     ctx.strokeStyle = styles.list.todo.checkboxBorderColor;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.roundRect(x, checkboxY, checkboxSize, checkboxSize, styles.list.todo.checkboxBorderRadius);
+    ctx.roundRect(checkboxX, checkboxY, checkboxSize, checkboxSize, styles.list.todo.checkboxBorderRadius);
     ctx.stroke();
     
     // Fill checkbox if checked
@@ -890,7 +882,7 @@ function renderListMarker(
       ctx.lineJoin = "round";
       
       const checkmarkPadding = 3;
-      const checkX = x + checkmarkPadding;
+      const checkX = checkboxX + checkmarkPadding;
       const checkY = checkboxY + checkmarkPadding;
       const checkWidth = checkboxSize - checkmarkPadding * 2;
       const checkHeight = checkboxSize - checkmarkPadding * 2;
@@ -1586,19 +1578,8 @@ export const calculateBlockHeight = (
     const indent = block.indent || 0;
     const indentOffset = indent * styles.list.indent.size;
     
-    let markerWidth = 0;
-    if (block.type === "bullet_list") {
-      markerWidth = styles.list.marker.textGap + measureText(
-        styles.list.bullet.character,
-        textStyle.fontSize,
-        textStyle.fontWeight,
-        fontFamily
-      );
-    } else if (block.type === "numbered_list") {
-      markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
-    } else if (block.type === "todo_list") {
-      markerWidth = styles.list.todo.checkboxSize + styles.list.marker.textGap;
-    }
+    // Use consistent marker width for all list types to ensure text alignment
+    const markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
     
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
   }
@@ -1717,18 +1698,8 @@ export function renderCursorLayer(
     const indent = block.indent || 0;
     indentOffset = indent * styles.list.indent.size;
     
-    if (block.type === "bullet_list") {
-      markerWidth = styles.list.marker.textGap + measureText(
-        styles.list.bullet.character,
-        textStyle.fontSize,
-        textStyle.fontWeight,
-        fontFamily
-      );
-    } else if (block.type === "numbered_list") {
-      markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
-    } else if (block.type === "todo_list") {
-      markerWidth = styles.list.todo.checkboxSize + styles.list.marker.textGap;
-    }
+    // Use consistent marker width for all list types to ensure text alignment
+    markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
     
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
   }

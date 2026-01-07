@@ -1347,6 +1347,12 @@ export function deleteWordForward(state: EditorState): EditorState {
     // Preserve active formats when deleting during typing
     return moveCursorToPosition(newState, blockIndex, textIndex, true);
   } else if (blockIndex < state.document.page.blocks.length - 1) {
+    // Special handling for list blocks at end of text: don't merge, just return
+    // This prevents Ctrl+Delete from merging list items when at the end
+    if (isListBlock(oldBlock)) {
+      return state;
+    }
+    
     // At end of line - merge with next block, preserving formatting
     const nextBlock = state.document.page.blocks[blockIndex + 1];
     if (!isTextBlock(nextBlock)) {
@@ -1423,6 +1429,12 @@ export function deleteWordBackward(state: EditorState): EditorState {
     // Preserve active formats when deleting during typing
     return moveCursorToPosition(newState, blockIndex, startIndex, true);
   } else if (blockIndex > 0) {
+    // Special handling for list blocks at textIndex 0: don't delete/merge, just return
+    // This prevents Ctrl+Backspace from merging list items when at the start
+    if (isListBlock(oldBlock)) {
+      return state;
+    }
+    
     // At start of line - merge with previous block, preserving formatting
     const prevBlock = state.document.page.blocks[blockIndex - 1];
     if (!isTextBlock(prevBlock)) {

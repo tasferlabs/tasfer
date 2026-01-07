@@ -1241,7 +1241,7 @@ function handleTodoCheckboxClick(
       if (block.type === "todo_list") {
         const indent = block.indent || 0;
         const indentOffset = indent * styles.list.indent.size;
-        const checkboxX = styles.canvas.paddingLeft + indentOffset;
+        const checkboxX = styles.canvas.paddingLeft + indentOffset + 2; // Offset to align with other list markers
         const checkboxSize = styles.list.todo.checkboxSize;
         
         // Get font metrics for proper vertical alignment
