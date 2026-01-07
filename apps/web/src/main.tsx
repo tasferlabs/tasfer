@@ -10,6 +10,8 @@ import { loadFonts } from "./editor/fonts";
 import LoadingScreen from "./components/ui/loading-screen";
 import "./i18n";
 
+// Load fonts and initialize metrics cache before rendering the app
+// This ensures the canvas has proper font metrics when it first renders
 await loadFonts();
 
 const queryClient = new QueryClient({

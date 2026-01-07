@@ -114,10 +114,10 @@ function loadSingleFont(family: string, weight: string): Promise<void> {
 }
 
 /**
- * Load all fonts with progress tracking
+ * Load all fonts with progress tracking and initialize metrics cache
  */
 export async function loadFonts(): Promise<void> {
-  if (fontsLoaded) {
+  if (fontsLoaded && cacheInitialized) {
     return;
   }
 
@@ -127,8 +127,10 @@ export async function loadFonts(): Promise<void> {
 
   fontLoadingPromise = Promise.all(
     FONT_CONFIGS.map(({ family, weight }) => loadSingleFont(family, weight))
-  ).then(() => {
+  ).then(async () => {
     fontsLoaded = true;
+    // Initialize metrics cache after fonts are loaded
+    await initializeFontMetrics();
   });
 
   return fontLoadingPromise;
@@ -216,6 +218,8 @@ const initializeMetricsCache = (): ReadonlyMap<string, FontMetrics> => {
 };
 // Cache initialization state
 let cacheInitialized = false;
+let cacheInitializationPromise: Promise<void> | null = null;
+
 // Initialize metrics cache immediately - fail if fonts not loaded
 function initializeCache(): void {
   if (cacheInitialized) {
@@ -242,6 +246,26 @@ function initializeCache(): void {
     console.error("Failed to initialize text measurement cache:", error);
     throw error;
   }
+}
+
+/**
+ * Initialize the font metrics cache asynchronously
+ * This should be called after fonts are loaded
+ */
+export async function initializeFontMetrics(): Promise<void> {
+  if (cacheInitialized) {
+    return;
+  }
+
+  if (cacheInitializationPromise) {
+    return cacheInitializationPromise;
+  }
+
+  cacheInitializationPromise = Promise.resolve().then(() => {
+    initializeCache();
+  });
+
+  return cacheInitializationPromise;
 }
 
 // Get font metrics with caching
@@ -891,25 +915,28 @@ let globalFontConfig: FontConfig = {
   fontFamily: "poppins",
 };
 
+// Callback for font family changes (used to invalidate caches)
+let fontChangeCallback: (() => void) | null = null;
+
+// Register a callback to be called when font family changes
+export const onFontFamilyChange = (callback: () => void): void => {
+  fontChangeCallback = callback;
+};
+
 // Get the current font family
 export const getCurrentFontFamily = (): FontFamily =>
   globalFontConfig.fontFamily;
 
 // Set the current font family
 export const setCurrentFontFamily = (fontFamily: FontFamily): void => {
+  const previousFontFamily = globalFontConfig.fontFamily;
+  
   globalFontConfig = {
     fontFamily,
   };
+  
+  // If font family actually changed, notify callback to invalidate caches
+  if (previousFontFamily !== fontFamily && fontChangeCallback) {
+    fontChangeCallback();
+  }
 };
-
-// Initialize cache immediately
-if (typeof window !== "undefined") {
-  // Wait for fonts to load before initializing metrics cache
-  loadFonts().then(() => {
-    try {
-      initializeCache();
-    } catch (error) {
-      console.warn("Text measurement cache initialization failed:", error);
-    }
-  });
-}

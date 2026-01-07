@@ -59,7 +59,8 @@ Bugs list
 [x] add unorded list block
 [x] add orded list block
 [x] add todo list block
-[ ] list split at the end not creating new item.
+[x] list split at the end not creating new item.
+[x] invalidate cache when changing font.
 [ ] Check devices compatiabities such ipad with keyboard. Pen input, stylus supprot. Handwriting.
 [ ] on ios keyboard iland we should add active/inactive state for block type menu. External keyboard
 [x] composition and other input methods such as IME should work.

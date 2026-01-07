@@ -234,7 +234,7 @@ export function getEditorStyles(): EditorStyles {
       },
       marker: {
         offsetX: 0, // Distance from the left edge (before indent)
-        textGap: 8, // Gap between marker and text
+        textGap: 2, // Gap between marker and text
       },
     },
   };

@@ -46,6 +46,7 @@ import { getEditorStyles } from "./styles";
 import type { EditorState, SlashCommand, ViewportState } from "./types";
 import { recordUndo, undoState, redoState } from "./undo";
 import type { CanvasLayers } from "./layers";
+import { onFontFamilyChange } from "./fonts";
 
 export interface Editor {
   getState: () => EditorState | null;
@@ -691,6 +692,15 @@ export default function createEditor(
       // Ensure input is focusable (already set in mount.ts, but ensure it's correct)
       hiddenInput.setAttribute("tabindex", "0");
     }
+
+    // Register font change callback to invalidate caches when font changes
+    const handleFontChange = () => {
+      // Clear all block caches since measurements will change with new font
+      clearAllBlockCaches(state.document.page.blocks);
+      // Trigger a re-render with the new font
+      scheduleRender();
+    };
+    onFontFamilyChange(handleFontChange);
   })(); // Execute IIFE to initialize editor
 
   function getState() {
@@ -732,6 +742,9 @@ export default function createEditor(
     contentCanvas.removeEventListener("touchcancel", eventsHandler);
     window.removeEventListener("keydown", eventsHandler);
     window.removeEventListener("paste", eventsHandler);
+
+    // Unregister font change callback
+    onFontFamilyChange(() => {});
 
     // Clean up hidden input handlers
     if (hiddenInput) {
