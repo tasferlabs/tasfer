@@ -11,16 +11,19 @@ import { createPortal } from "react-dom";
 import { serializeToMarkdown } from "../deserializer/serializer";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
+import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
 import { SlashCommandMenu } from "../editor/SlashCommandMenu";
 import { hasNativeBridge } from "../editor/clipboard";
 import { getSelectionRange } from "../editor/commands";
+import { getBlockTextContent } from "../editor/state";
 import {
   mountEditor,
   type MountedEditor as MountedEditorInstance,
 } from "../editor/mount";
 import { clearFailedImageCache } from "../editor/renderer";
+import { getLinkAtPosition } from "../editor/selection";
 import type { EditorState, SlashCommand } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
@@ -101,6 +104,26 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
   >(null);
   const editorInitializedRef = useRef(false);
 
+  // Track current toolbar icon type
+  const currentIconTypeRef = useRef<"link" | "image" | "format">("format");
+
+  // Native drawer states (triggered by format button on mobile)
+  const [nativeLinkDrawerState, setNativeLinkDrawerState] = useState<{
+    x: number;
+    y: number;
+    url?: string;
+    linkText?: string;
+    selectedText?: string;
+    blockIndex?: number;
+    segmentIndex?: number;
+  } | null>(null);
+
+  const [nativeImageDrawerState, setNativeImageDrawerState] = useState<{
+    x: number;
+    y: number;
+    blockIndex: number;
+  } | null>(null);
+
   // Imperatively mount/unmount editor (no React state needed)
   useEffect(() => {
     const el = wrapperRef.current;
@@ -119,6 +142,76 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     const mounted = mountEditor(el, content);
     mountedRef.current = mounted;
 
+    // Handle format button clicks from native
+    // Returns true if handled, false if native should open block menu
+    const handleFormatButtonClick = (): boolean => {
+      const state = mounted.editor.getState();
+      if (!state) return false;
+
+      const containerRect = wrapperRef.current?.getBoundingClientRect();
+      if (!containerRect) return false;
+
+      const iconType = currentIconTypeRef.current;
+
+      if (iconType === "image") {
+        // Open image drawer for selected image
+        if (state.document.selection && !state.document.selection.isCollapsed) {
+          const { anchor } = state.document.selection;
+          const block = state.document.page.blocks[anchor.blockIndex];
+          if (block && block.type === "image") {
+            setNativeImageDrawerState({
+              x: containerRect.left + containerRect.width / 2,
+              y: containerRect.top + 100,
+              blockIndex: anchor.blockIndex,
+            });
+            return true;
+          }
+        }
+        return false;
+      } else if (iconType === "link") {
+        // Open link drawer for selected text or existing link
+        if (state.document.cursor) {
+          const linkData = getLinkAtPosition(state.document.cursor.position, state);
+          
+          if (linkData) {
+            // Editing existing link
+            setNativeLinkDrawerState({
+              x: containerRect.left + containerRect.width / 2,
+              y: containerRect.top + 100,
+              url: linkData.url,
+              linkText: linkData.text,
+              blockIndex: state.document.cursor.position.blockIndex,
+              segmentIndex: linkData.segmentIndex,
+            });
+            return true;
+          } else if (state.document.selection && !state.document.selection.isCollapsed) {
+            // Creating new link from selection
+            const range = getSelectionRange(state);
+            if (range) {
+              const { start, end } = range;
+              const block = state.document.page.blocks[start.blockIndex];
+              if (block && block.type !== "image") {
+                const text = getBlockTextContent(block);
+                const selectedText = text.substring(start.textIndex, end.textIndex);
+                
+                setNativeLinkDrawerState({
+                  x: containerRect.left + containerRect.width / 2,
+                  y: containerRect.top + 100,
+                  selectedText,
+                  blockIndex: start.blockIndex,
+                });
+                return true;
+              }
+            }
+          }
+        }
+        return false;
+      }
+      
+      // For "format" icon type, let native handle it (open block menu)
+      return false;
+    };
+
     // Expose editor methods to window for native bridges
     const editorMethods = {
       undo: () => mounted.editor.undo(),
@@ -128,6 +221,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         mounted.editor.setFocus(true);
         mounted.editor.setInitialCursor();
       },
+      onFormatButtonClick: handleFormatButtonClick,
     };
 
     if (window.IOSBridge) {
@@ -304,6 +398,60 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
           state.undoManager.undoStack.length > 0,
           state.undoManager.redoStack.length > 0
         );
+      }
+
+      // Update toolbar icon based on selection state
+      const determineToolbarIcon = (): "link" | "image" | "format" => {
+        // Check if an image block is selected
+        if (state.document.selection && !state.document.selection.isCollapsed) {
+          const { anchor, focus } = state.document.selection;
+          // If selection is on a single block
+          if (anchor.blockIndex === focus.blockIndex) {
+            const block = state.document.page.blocks[anchor.blockIndex];
+            if (block && block.type === "image") {
+              return "image";
+            }
+          }
+        }
+
+        // Check if cursor is in a link or text is selected
+        if (state.document.cursor) {
+          const linkData = getLinkAtPosition(state.document.cursor.position, state);
+          if (linkData) {
+            return "link";
+          }
+        }
+
+        // Check if there's a text selection (show link icon to allow creating links)
+        if (state.document.selection && !state.document.selection.isCollapsed) {
+          const range = getSelectionRange(state);
+          if (range) {
+            const { start, end } = range;
+            // If selection is in a text block, show link icon
+            const block = state.document.page.blocks[start.blockIndex];
+            if (block && block.type !== "image") {
+              return "link";
+            }
+          }
+        }
+
+        return "format";
+      };
+
+      const iconType = determineToolbarIcon();
+
+      // Update the ref so format button handler knows current icon
+      currentIconTypeRef.current = iconType;
+
+      if (window.IOSBridge) {
+        window.IOSBridge.postMessage({
+          action: "toolbar-icon",
+          iconType,
+        });
+      }
+
+      if (window.AndroidBridge) {
+        window.AndroidBridge.updateToolbarIcon?.(iconType);
       }
     };
 
@@ -774,6 +922,123 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
             mountedRef.current.portalContainer
           );
         })()}
+
+      {/* Native Link Drawer (triggered by format button on mobile) */}
+      {nativeLinkDrawerState &&
+        mountedRef.current?.portalContainer &&
+        createPortal(
+          <LinkDrawer
+            x={nativeLinkDrawerState.x}
+            y={nativeLinkDrawerState.y}
+            url={nativeLinkDrawerState.url}
+            linkText={nativeLinkDrawerState.linkText}
+            selectedText={nativeLinkDrawerState.selectedText}
+            onUpdate={(newUrl, newText) => {
+              if (!mountedRef.current) return;
+              const editor = mountedRef.current.editor;
+              
+              if (nativeLinkDrawerState.blockIndex !== undefined && 
+                  nativeLinkDrawerState.segmentIndex !== undefined) {
+                // Update existing link
+                editor.updateLink(
+                  nativeLinkDrawerState.blockIndex,
+                  nativeLinkDrawerState.segmentIndex,
+                  newUrl,
+                  newText
+                );
+              } else if (nativeLinkDrawerState.blockIndex !== undefined) {
+                // Create new link from selection
+                editor.createLink(newUrl, newText);
+              }
+              setNativeLinkDrawerState(null);
+            }}
+            onClear={
+              nativeLinkDrawerState.url
+                ? () => {
+                    if (!mountedRef.current) return;
+                    const editor = mountedRef.current.editor;
+                    if (nativeLinkDrawerState.blockIndex !== undefined && 
+                        nativeLinkDrawerState.segmentIndex !== undefined) {
+                      editor.clearLink(
+                        nativeLinkDrawerState.blockIndex,
+                        nativeLinkDrawerState.segmentIndex
+                      );
+                    }
+                    setNativeLinkDrawerState(null);
+                  }
+                : undefined
+            }
+            onClose={() => setNativeLinkDrawerState(null)}
+            collisionBoundary={mountedRef.current?.portalContainer}
+            container={mountedRef.current?.portalContainer}
+          />,
+          mountedRef.current.portalContainer
+        )}
+
+      {/* Native Image Drawer (triggered by format button on mobile) */}
+      {nativeImageDrawerState &&
+        mountedRef.current?.portalContainer &&
+        createPortal(
+          <ImageUploadPopover
+            x={nativeImageDrawerState.x}
+            y={nativeImageDrawerState.y}
+            uploadStatus="idle"
+            onUpload={async (file) => {
+              if (!mountedRef.current) return;
+              const editor = mountedRef.current.editor;
+              const state = editor.getState();
+              if (!state) return;
+
+              const block =
+                state.document.page.blocks[nativeImageDrawerState.blockIndex];
+              if (block && block.type === "image" && block.url) {
+                clearFailedImageCache(block.url);
+              }
+
+              editor.updateImageBlock(
+                nativeImageDrawerState.blockIndex,
+                {},
+                "uploading"
+              );
+
+              try {
+                const imageData = await uploadImage(file);
+                editor.updateImageBlock(
+                  nativeImageDrawerState.blockIndex,
+                  {
+                    url: imageData.url,
+                    alt: imageData.fileName,
+                  },
+                  "complete"
+                );
+              } catch (error) {
+                console.error("Image upload failed:", error);
+                editor.updateImageBlock(
+                  nativeImageDrawerState.blockIndex,
+                  {},
+                  "error"
+                );
+              }
+            }}
+            onUrlSubmit={(url) => {
+              if (!mountedRef.current) return;
+              const editor = mountedRef.current.editor;
+              editor.updateImageBlock(nativeImageDrawerState.blockIndex, {
+                url,
+              });
+            }}
+            onDelete={() => {
+              if (!mountedRef.current) return;
+              const editor = mountedRef.current.editor;
+              editor.deleteImageBlock(nativeImageDrawerState.blockIndex);
+              setNativeImageDrawerState(null);
+            }}
+            onClose={() => setNativeImageDrawerState(null)}
+            collisionBoundary={mountedRef.current?.portalContainer}
+            container={mountedRef.current?.portalContainer}
+          />,
+          mountedRef.current.portalContainer
+        )}
     </div>
   );
 };

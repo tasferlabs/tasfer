@@ -10,9 +10,12 @@ declare global {
         canUndo?: boolean;
         canRedo?: boolean;
         style?: "light" | "medium" | "heavy";
+        focused?: boolean;
+        iconType?: "link" | "image" | "format";
       }) => void;
       setEditorFocused?: (focused: boolean) => void;
       // Editor methods (assigned by Web)
+      onFormatButtonClick?: () => boolean;
     };
 
     AndroidBridge?: {
@@ -25,11 +28,13 @@ declare global {
       setEditorFocused?: (focused: boolean) => void;
       openPhotoLibrary?: () => void;
       openCamera?: () => void;
+      updateToolbarIcon?: (iconType: "link" | "image" | "format") => void;
       // Editor methods (assigned by Web to allow native to call back)
       undo?: () => void;
       redo?: () => void;
       setBlockType?: (type: string) => void;
       focus?: () => void;
+      onFormatButtonClick?: () => boolean;
     };
   }
 }

@@ -147,6 +147,12 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
             imagePickerCoordinator?.openPhotoLibrary()
         case "open-camera":
             imagePickerCoordinator?.openCamera()
+        case "toolbar-icon":
+            if let iconType = body["iconType"] as? String {
+                if let customWebView = webView as? CustomWebView {
+                    customWebView.updateToolbarIcon(iconType: iconType)
+                }
+            }
         default:
             break
         }
@@ -360,6 +366,8 @@ class AccessoryIslandView: UIView {
     private let formatBtn = UIButton(type: .system)
     private let dismissBtn = UIButton(type: .system)
     
+    var currentIconType: String = "format"
+    
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupUI()
@@ -455,6 +463,23 @@ class AccessoryIslandView: UIView {
             dismissBtn.setImage(image.withRenderingMode(.alwaysTemplate), for: .normal)
         }
     }
+    
+    func updateIcon(iconType: String) {
+        currentIconType = iconType
+        let imageName: String
+        switch iconType {
+        case "link":
+            imageName = "link"
+        case "image":
+            imageName = "image"
+        default:
+            imageName = "format_text"
+        }
+        
+        if let image = UIImage(named: imageName) {
+            formatBtn.setImage(image.withRenderingMode(.alwaysTemplate), for: .normal)
+        }
+    }
 }
 
 class CustomWebView: WKWebView {
@@ -468,6 +493,7 @@ class CustomWebView: WKWebView {
     private var isMenuOpen = false
     private var isEditorFocused = false  // Track if canvas editor is focused
     private var lastKeyboardHeight: CGFloat = 291 // Track the last keyboard height
+    var currentIconType: String = "format"  // Track current icon type
     
     override var inputAccessoryView: UIView? {
         // Only show keyboard island when canvas editor is focused
@@ -565,6 +591,14 @@ class CustomWebView: WKWebView {
             self.reloadInputViews()
         }
     }
+    
+    func updateToolbarIcon(iconType: String) {
+        DispatchQueue.main.async {
+            self.currentIconType = iconType
+            self.islandView?.currentIconType = iconType
+            self.islandView?.updateIcon(iconType: iconType)
+        }
+    }
 
     @objc func onUndo() {
         self.evaluateJavaScript("if(window.IOSBridge && window.IOSBridge.undo) window.IOSBridge.undo()", completionHandler: nil)
@@ -575,14 +609,28 @@ class CustomWebView: WKWebView {
     }
 
     @objc func onFormat() {
-        isMenuOpen = !isMenuOpen
         if isMenuOpen {
-            dummyTextField.becomeFirstResponder()
-        } else {
+            // Close the block menu
+            isMenuOpen = false
             dummyTextField.resignFirstResponder()
             self.evaluateJavaScript("if(window.IOSBridge && window.IOSBridge.focus) window.IOSBridge.focus()", completionHandler: nil)
+            updateToolbarState()
+        } else {
+            // Try to let web handle it first (for link/image drawers)
+            self.evaluateJavaScript("(function() { if(window.IOSBridge && window.IOSBridge.onFormatButtonClick) { return window.IOSBridge.onFormatButtonClick(); } return false; })()", completionHandler: { result, error in
+                if let handled = result as? Bool, handled {
+                    // Web handled it (opened a drawer)
+                    return
+                } else {
+                    // Web didn't handle it, open block menu
+                    DispatchQueue.main.async {
+                        self.isMenuOpen = true
+                        self.dummyTextField.becomeFirstResponder()
+                        self.updateToolbarState()
+                    }
+                }
+            })
         }
-        updateToolbarState()
     }
     
     @objc func onDismiss() {

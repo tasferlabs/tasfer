@@ -2,7 +2,15 @@ import React, { useState, useRef, useEffect } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
-import { Image as ImageIcon, Upload, Trash2, Loader2, Link2, Camera, FolderOpen } from "lucide-react";
+import {
+  Image as ImageIcon,
+  Upload,
+  Trash2,
+  Loader2,
+  Link2,
+  Camera,
+  FolderOpen,
+} from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -10,7 +18,9 @@ import {
   DrawerTitle,
 } from "../components/ui/drawer";
 import useResponsive from "../app/hooks/useResponsive";
+import { usePreventMobileKeyboard } from "../app/hooks/usePreventMobileKeyboard";
 import { hasNativeBridge } from "./clipboard";
+import { useTranslation } from "react-i18next";
 
 interface ImageUploadPopoverProps {
   x: number;
@@ -19,7 +29,7 @@ interface ImageUploadPopoverProps {
   onUrlSubmit?: (url: string) => void;
   onDelete?: () => void;
   onClose: () => void;
-  uploadStatus?: 'idle' | 'uploading' | 'complete' | 'error';
+  uploadStatus?: "idle" | "uploading" | "complete" | "error";
   existingUrl?: string;
   existingAlt?: string;
   collisionBoundary?: HTMLElement | null;
@@ -33,103 +43,57 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
   onUrlSubmit,
   onDelete,
   onClose,
-  uploadStatus = 'idle',
+  uploadStatus = "idle",
   existingUrl,
   existingAlt: _existingAlt,
   collisionBoundary,
   container,
 }) => {
+  const { t } = useTranslation();
   const isMobile = useResponsive("(max-width: 768px)");
   const [imageUrl, setImageUrl] = useState(existingUrl || "");
   // On mobile, always default to 'file' mode to avoid keyboard appearing
-  const [uploadMode, setUploadMode] = useState<'file' | 'url'>(
-    isMobile ? 'file' : (existingUrl ? 'url' : 'file')
+  const [uploadMode, setUploadMode] = useState<"file" | "url">(
+    isMobile ? "file" : existingUrl ? "url" : "file"
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Prevent keyboard from appearing on mobile when drawer opens
-  useEffect(() => {
-    if (isMobile) {
-      // Find all hidden inputs (editor's hidden input) and temporarily disable them
-      const hiddenInputs = Array.from(document.querySelectorAll('input[type="text"]')).filter(
-        (input) => {
-          const style = window.getComputedStyle(input);
-          return style.opacity === '0' || input.hasAttribute('aria-hidden');
-        }
-      ) as HTMLInputElement[];
-
-      // Store original properties
-      const originalProps = hiddenInputs.map(input => ({
-        input,
-        inputMode: input.inputMode,
-        readOnly: input.readOnly,
-      }));
-
-      // Disable keyboard on hidden inputs
-      hiddenInputs.forEach(input => {
-        input.inputMode = 'none';
-        input.readOnly = true;
-        input.blur();
-      });
-
-      // Blur any active element
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur();
-      }
-
-      // Additional blur attempts to handle race conditions
-      const blurInterval = setInterval(() => {
-        if (document.activeElement instanceof HTMLElement && 
-            hiddenInputs.includes(document.activeElement as HTMLInputElement)) {
-          document.activeElement.blur();
-        }
-      }, 50);
-
-      // Cleanup function
-      return () => {
-        clearInterval(blurInterval);
-        // Restore original properties
-        originalProps.forEach(({ input, inputMode, readOnly }) => {
-          input.inputMode = inputMode;
-          input.readOnly = readOnly;
-        });
-      };
-    }
-  }, [isMobile]);
+  usePreventMobileKeyboard(isMobile);
 
   // Listen for native image selection
   useEffect(() => {
     const handleNativeImageSelected = (event: MessageEvent) => {
-      if (event.data?.type === 'native-image-selected') {
+      if (event.data?.type === "native-image-selected") {
         const dataUrl = event.data.dataUrl;
-        
+
         if (!dataUrl) return;
-        
+
         // Convert data URL to File object
         fetch(dataUrl)
-          .then(res => res.blob())
-          .then(blob => {
-            const file = new File([blob], 'image.jpg', { type: blob.type });
-            
+          .then((res) => res.blob())
+          .then((blob) => {
+            const file = new File([blob], "image.jpg", { type: blob.type });
+
             // Upload file directly without preview
             onUpload(file);
-            
+
             // Close the drawer after a short delay
             setTimeout(() => {
               onClose();
             }, 300);
           })
-          .catch(error => {
-            console.error('Failed to process native image:', error);
+          .catch((error) => {
+            console.error("Failed to process native image:", error);
           });
       }
     };
 
     if (hasNativeBridge()) {
-      window.addEventListener('message', handleNativeImageSelected);
-      
+      window.addEventListener("message", handleNativeImageSelected);
+
       return () => {
-        window.removeEventListener('message', handleNativeImageSelected);
+        window.removeEventListener("message", handleNativeImageSelected);
       };
     }
   }, [onUpload, onClose]);
@@ -167,7 +131,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
     if (e.key === "Escape") {
       e.preventDefault();
       onClose();
-    } else if (e.key === "Enter" && uploadMode === 'url') {
+    } else if (e.key === "Enter" && uploadMode === "url") {
       e.preventDefault();
       handleUrlSubmit();
     }
@@ -179,7 +143,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
 
   const handleOpenLibrary = () => {
     if (window.IOSBridge) {
-      window.IOSBridge.postMessage({ action: 'open-photo-library' });
+      window.IOSBridge.postMessage({ action: "open-photo-library" });
     } else if (window.AndroidBridge?.openPhotoLibrary) {
       window.AndroidBridge.openPhotoLibrary();
     }
@@ -187,7 +151,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
 
   const handleOpenCamera = () => {
     if (window.IOSBridge) {
-      window.IOSBridge.postMessage({ action: 'open-camera' });
+      window.IOSBridge.postMessage({ action: "open-camera" });
     } else if (window.AndroidBridge?.openCamera) {
       window.AndroidBridge.openCamera();
     }
@@ -202,24 +166,24 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
       {!isNative && (
         <div className="flex gap-2 p-1 bg-muted rounded-md">
           <button
-            onClick={() => setUploadMode('file')}
+            onClick={() => setUploadMode("file")}
             onMouseDown={(e) => e.preventDefault()}
             className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-              uploadMode === 'file'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
+              uploadMode === "file"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             <Upload className="w-3 h-3 inline mr-1.5" />
             Upload
           </button>
           <button
-            onClick={() => setUploadMode('url')}
+            onClick={() => setUploadMode("url")}
             onMouseDown={(e) => e.preventDefault()}
             className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-              uploadMode === 'url'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
+              uploadMode === "url"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             <Link2 className="w-3 h-3 inline mr-1.5" />
@@ -232,15 +196,17 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
       {isNative ? (
         // Native platform: Show photo library and camera buttons
         <div className="space-y-2">
-          {uploadStatus === 'uploading' ? (
+          {uploadStatus === "uploading" ? (
             <div className="flex flex-col items-center justify-center py-8">
               <Loader2 className="w-12 h-12 text-primary animate-spin mb-2" />
-              <span className="text-sm text-muted-foreground">Uploading...</span>
+              <span className="text-sm text-muted-foreground">
+                Uploading...
+              </span>
             </div>
           ) : (
             <>
               <Button
-                variant='outline'
+                variant="outline"
                 size="lg"
                 onClick={handleOpenLibrary}
                 onMouseDown={(e) => e.preventDefault()}
@@ -250,7 +216,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
                 <span className="text-base">Open Library</span>
               </Button>
               <Button
-                variant='outline'
+                variant="outline"
                 size="lg"
                 onClick={handleOpenCamera}
                 onMouseDown={(e) => e.preventDefault()}
@@ -262,7 +228,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             </>
           )}
         </div>
-      ) : uploadMode === 'file' ? (
+      ) : uploadMode === "file" ? (
         // Web platform: Show file upload
         <div className="space-y-3">
           <input
@@ -272,28 +238,36 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             onChange={handleFileSelect}
             className="hidden"
           />
-          
+
           <button
             onClick={triggerFilePicker}
             onMouseDown={(e) => e.preventDefault()}
-            disabled={uploadStatus === 'uploading'}
+            disabled={uploadStatus === "uploading"}
             className="w-full h-32 border-2 border-dashed border-border rounded-lg hover:border-primary hover:bg-accent/50 transition-colors flex flex-col items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {uploadStatus === 'uploading' ? (
+            {uploadStatus === "uploading" ? (
               <>
                 <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
-                <span className="text-sm text-muted-foreground">Uploading...</span>
+                <span className="text-sm text-muted-foreground">
+                  Uploading...
+                </span>
               </>
-            ) : uploadStatus === 'error' ? (
+            ) : uploadStatus === "error" ? (
               <>
                 <div className="w-8 h-8 text-destructive">⚠</div>
-                <span className="text-sm text-destructive">Upload failed. Click to retry</span>
+                <span className="text-sm text-destructive">
+                  Upload failed. Click to retry
+                </span>
               </>
             ) : (
               <>
                 <Upload className="w-8 h-8 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Click to upload image</span>
-                <span className="text-xs text-muted-foreground">JPG, PNG, GIF, WebP, or SVG</span>
+                <span className="text-sm text-muted-foreground">
+                  Click to upload image
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  JPG, PNG, GIF, WebP, or SVG
+                </span>
               </>
             )}
           </button>
@@ -327,13 +301,13 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             disabled={!imageUrl.trim()}
             className="w-full"
           >
-            Add Image
+            {existingUrl ? t("Update Image") : t("Add Image")}
           </Button>
         </div>
       )}
 
       {/* Actions */}
-      {(existingUrl || uploadStatus === 'complete') && (
+      {(existingUrl || uploadStatus === "complete") && (
         <div className="flex items-center justify-start pt-2 border-t border-border">
           <Button
             variant="ghost"
@@ -353,8 +327,8 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
   // Mobile: use Drawer
   if (isMobile) {
     return (
-      <Drawer 
-        open={true} 
+      <Drawer
+        open={true}
         onOpenChange={(open) => !open && onClose()}
         modal={true}
         dismissible={true}
@@ -369,9 +343,11 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             // Prevent focus on any pointer interaction with the drawer
             const target = e.target as HTMLElement;
             // Only blur if not clicking on an actual input/button we want to interact with
-            if (!target.matches('input, button, a')) {
-              if (document.activeElement instanceof HTMLElement && 
-                  document.activeElement.getAttribute('aria-hidden') === 'true') {
+            if (!target.matches("input, button, a")) {
+              if (
+                document.activeElement instanceof HTMLElement &&
+                document.activeElement.getAttribute("aria-hidden") === "true"
+              ) {
                 document.activeElement.blur();
               }
             }
@@ -381,12 +357,10 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             <DrawerHeader>
               <DrawerTitle className="flex items-center gap-2">
                 <ImageIcon className="w-4 h-4 text-muted-foreground" />
-                {existingUrl ? 'Edit Image' : 'Add Image'}
+                {existingUrl ? "Edit Image" : "Add Image"}
               </DrawerTitle>
             </DrawerHeader>
-            <div className="space-y-4 p-4">
-              {content}
-            </div>
+            <div className="space-y-4 p-4">{content}</div>
           </div>
         </DrawerContent>
       </Drawer>
@@ -423,7 +397,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             <div className="flex items-center gap-2 pb-2 border-b border-border">
               <ImageIcon className="w-4 h-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold text-foreground">
-                {existingUrl ? 'Edit Image' : 'Add Image'}
+                {existingUrl ? "Edit Image" : "Add Image"}
               </h3>
             </div>
             {content}
@@ -433,4 +407,3 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
     </Popover.Root>
   );
 };
-

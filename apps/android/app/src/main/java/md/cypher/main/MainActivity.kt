@@ -96,6 +96,11 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
             (context as? MainActivity)?.launchCamera()
         }
     }
+    
+    @JavascriptInterface
+    fun updateToolbarIcon(iconType: String) {
+        (context as? MainActivity)?.updateToolbarIcon(iconType)
+    }
 }
 
 class MainActivity : ComponentActivity() {
@@ -348,13 +353,22 @@ class MainActivity : ComponentActivity() {
             webView.evaluateJavascript("window.AndroidBridge?.redo?.()", null)
         }
         
-        // Format button - opens block type menu
+        // Format button - opens block type menu or triggers native drawer
         formatButton.setOnClickListener {
             if (isBlockMenuOpen) {
                 // In block menu mode: return to keyboard
                 closeBlockMenu()
             } else {
-                openBlockMenu()
+                // Check if we should open a native drawer instead
+                webView.evaluateJavascript(
+                    "(function() { if(window.AndroidBridge && window.AndroidBridge.onFormatButtonClick) { return window.AndroidBridge.onFormatButtonClick(); } return false; })()",
+                    { result ->
+                        // If web didn't handle it (returns false), open block menu
+                        if (result == "false") {
+                            openBlockMenu()
+                        }
+                    }
+                )
             }
         }
 
@@ -529,6 +543,16 @@ class MainActivity : ComponentActivity() {
     fun updateEditorFocus(focused: Boolean) {
         runOnUiThread {
             isEditorFocused = focused
+        }
+    }
+    
+    fun updateToolbarIcon(iconType: String) {
+        runOnUiThread {
+            when (iconType) {
+                "link" -> formatButton.setImageResource(R.drawable.ic_link)
+                "image" -> formatButton.setImageResource(R.drawable.ic_image)
+                else -> formatButton.setImageResource(R.drawable.ic_format_text)
+            }
         }
     }
     
