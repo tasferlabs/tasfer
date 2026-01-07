@@ -758,33 +758,45 @@ export function handleEvents(
         visibility
       );
 
-      // Long press (hold without movement) always shows context menu
-      if (position) {
-        // Only update cursor/clear selection if there's no selection active
-        // This preserves "Select All" and other selections when long-pressing
-        if (!state.document.selection) {
+      // Long press behavior depends on whether touching selected text
+      if (touchState.isTouchingSelection) {
+        // On selected text: show context menu immediately
+        if (position) {
+          if (!state.document.selection) {
+            state = updateCursor(state, position);
+          }
+        }
+
+        // Clear link hover tooltip and slash menu when opening context menu
+        state = closeActiveMenu({
+          ...state,
+          ui: {
+            ...state.ui,
+            isHoveringLinkWithModifier: false,
+          },
+        });
+
+        state = openContextMenu(
+          state,
+          touchState.currentTouchX,
+          touchState.currentTouchY
+        );
+      } else {
+        // On non-selected text: prepare for drag selection (don't show menu yet)
+        // If they drag, selection will start. If they release, menu shows in touchend
+        if (position) {
           state = updateCursor(state, position);
         }
+        
+        // Clear other menus
+        state = closeActiveMenu({
+          ...state,
+          ui: {
+            ...state.ui,
+            isHoveringLinkWithModifier: false,
+          },
+        });
       }
-
-      // Clear link hover tooltip and slash menu when opening context menu
-      state = closeActiveMenu({
-        ...state,
-        ui: {
-          ...state.ui,
-          isHoveringLinkWithModifier: false,
-        },
-      });
-
-      state = openContextMenu(
-        state,
-        touchState.currentTouchX,
-        touchState.currentTouchY
-      );
-
-      // Note: We don't blur the active element here anymore because it interferes
-      // with the hidden input focus management. The context menu works fine with
-      // the input still focused, and keyboard dismissal is handled by the OS.
     }
   }
 
@@ -3441,32 +3453,6 @@ function handleTouchMove(
       if (state.ui.activeMenu.type !== "none") {
         state = closeActiveMenu(state);
       }
-
-      // Priority: Always allow drag selection unless touching existing selection
-      // If not touching selection and user starts dragging, begin text selection immediately
-      if (!touchState.isTouchingSelection && state.ui.mode !== "select") {
-        const position = getTextPositionFromViewport(
-          touchState.startX,
-          touchState.startY,
-          state,
-          viewport,
-          { start: 0, end: state.document.page.blocks.length - 1 }
-        );
-
-        if (position) {
-          // Start selection mode for drag selection
-          state = updateCursor(state, position);
-          state = startSelection(state, position);
-          state = updateMode(state, "select");
-          touchState.isLongPress = true; // Mark as long press to enable selection updates
-          
-          // Start auto-scroll for selection
-          if (!autoScrollState.isActive) {
-            startAutoScroll();
-          }
-        }
-      }
-      // If touching selection and dragging, just close menu and allow scroll (default behavior)
     }
 
     // Handle long press text selection mode
@@ -3498,9 +3484,24 @@ function handleTouchMove(
         return state;
       }
 
-      // Only start/continue text selection if NOT long-pressing on existing selection
-      // If long-pressing on existing selection, we'll show context menu on touchend instead
+      // Long pressed on non-selected text: enable drag selection
       if (!touchState.isTouchingSelection) {
+        // Start selection mode if not already in it
+        if (state.ui.mode !== "select") {
+          const position = getTextPositionFromViewport(
+            touchState.startX,
+            touchState.startY,
+            state,
+            viewport,
+            { start: 0, end: state.document.page.blocks.length - 1 }
+          );
+          
+          if (position) {
+            state = startSelection(state, position);
+            state = updateMode(state, "select");
+          }
+        }
+        
         if (!autoScrollState.isActive) {
           startAutoScroll();
         }
@@ -3701,9 +3702,6 @@ function handleTouchEnd(
 
   // If we were in long press mode
   if (touchState?.isLongPress) {
-    // Two scenarios:
-    // 1. Long press on existing selection -> show context menu (already shown on long press trigger)
-    // 2. Long press to create new selection -> exit select mode, do NOT show context menu
     if (touchState.isTouchingSelection) {
       // Long pressed on existing selection - context menu already shown, just cleanup
       touchState = null;
@@ -3718,7 +3716,7 @@ function handleTouchEnd(
         },
       };
     } else if (state.ui.mode === "select") {
-      // Long press created a new selection - exit select mode without showing context menu
+      // Long press created a new selection (user dragged) - exit select mode
       // Clear initialBoundary when finishing selection
       if (state.document.selection?.initialBoundary) {
         state = {
@@ -3737,6 +3735,24 @@ function handleTouchEnd(
       state = updateMode(state, "edit");
       touchState = null;
 
+      return {
+        ...state,
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
+        },
+      };
+    } else {
+      // Long press on non-selected text but user didn't drag - show context menu now
+      state = openContextMenu(
+        state,
+        touchState.currentTouchX,
+        touchState.currentTouchY
+      );
+      touchState = null;
       return {
         ...state,
         view: {

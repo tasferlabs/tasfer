@@ -1115,7 +1115,7 @@ function renderImageBlock(
     const requestedWidth = imageWidth;
     displayWidth = Math.min(requestedWidth, _maxWidth);
     displayX = styles.canvas.paddingLeft + (_maxWidth - displayWidth) / 2; // Center the image
-    
+
     // Adjust height proportionally if width was constrained
     // This ensures images resized on desktop don't get distorted on mobile
     if (block.url && displayWidth < requestedWidth) {
@@ -1318,16 +1318,20 @@ function renderImageBlock(
 
   // Render drag handles if hovering or dragging this image
   // This ensures drag handles are rendered with the exact same dimensions as the image
-  const shouldRenderDragHandles = 
-    (state.ui.imageHover && state.ui.imageHover.blockIndex === blockIndex) ||
-    (state.ui.imageDrag && state.ui.imageDrag.blockIndex === blockIndex);
+  const shouldRenderDragHandles =
+    ((state.ui.imageHover && state.ui.imageHover.blockIndex === blockIndex) ||
+      (state.ui.imageDrag && state.ui.imageDrag.blockIndex === blockIndex)) &&
+    !!block.url;
 
   if (shouldRenderDragHandles) {
     let hoveredHandle: "left" | "right" | "bottom" | null = null;
-    
+
     if (state.ui.imageDrag && state.ui.imageDrag.blockIndex === blockIndex) {
       hoveredHandle = state.ui.imageDrag.handle;
-    } else if (state.ui.imageHover && state.ui.imageHover.blockIndex === blockIndex) {
+    } else if (
+      state.ui.imageHover &&
+      state.ui.imageHover.blockIndex === blockIndex
+    ) {
       hoveredHandle = state.ui.imageHover.hoveredHandle;
     }
 
@@ -1372,11 +1376,11 @@ export const calculateBlockHeight = (
       placeholderHeight,
       paddingBottom: padding,
     } = styles.blocks.image.dimensions;
-    
+
     const imageWidth = block.width ?? "full";
     const imageHeight = block.height ?? defaultHeight;
     let displayHeight: number;
-    
+
     if (imageWidth === "full") {
       // Full width images use their configured height
       displayHeight = block.url ? imageHeight : placeholderHeight;
@@ -1384,7 +1388,7 @@ export const calculateBlockHeight = (
       // Custom width: adjust height proportionally if width was constrained
       const requestedWidth = imageWidth;
       const displayWidth = Math.min(requestedWidth, maxWidth);
-      
+
       if (block.url && displayWidth < requestedWidth) {
         // Width was constrained - adjust height proportionally
         const widthRatio = displayWidth / requestedWidth;
@@ -1393,7 +1397,7 @@ export const calculateBlockHeight = (
         displayHeight = block.url ? imageHeight : placeholderHeight;
       }
     }
-    
+
     // Always add padding after image blocks for visual spacing
     return displayHeight + padding;
   }
@@ -1644,7 +1648,7 @@ function renderImageDragHandlesForBlock(
   y: number,
   width: number,
   height: number,
-  objectFit: 'cover' | 'contain',
+  objectFit: "cover" | "contain",
   hoveredHandle: "left" | "right" | "bottom" | null,
   styles: EditorStyles
 ) {
@@ -1671,9 +1675,7 @@ function renderImageDragHandlesForBlock(
     ctx.save();
 
     // Set opacity based on hover state
-    const opacity = isHovered
-      ? vertical.hoverOpacity
-      : vertical.opacity;
+    const opacity = isHovered ? vertical.hoverOpacity : vertical.opacity;
     ctx.globalAlpha = opacity;
 
     // Draw bar background
@@ -1737,4 +1739,3 @@ function renderImageDragHandlesForBlock(
 
   ctx.restore();
 }
-

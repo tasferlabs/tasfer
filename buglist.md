@@ -173,7 +173,6 @@ Bugs list
 [ ] change position of cover image.
 [ ] Remove an image. Improve EditImagePopover.
 [x] word count should not count images.
-[ ] We should open the context menu or 
 [ ] copy and paste should work with images.
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
 [ ] scrollbar should not hit bottom porition on mobile (or at least on ios)
@@ -194,6 +193,7 @@ Bugs list
 [x] two finger scroll
 [ ] Three-Finger Gestures
 [x] canvas glitch on resizing.
+[ ] editing glitch on android. Can not edit text after selection.
 - : means not planed or considered
   x : done
   : not done
