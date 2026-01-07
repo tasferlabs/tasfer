@@ -1241,8 +1241,26 @@ function handleTodoCheckboxClick(
       if (block.type === "todo_list") {
         const indent = block.indent || 0;
         const indentOffset = indent * styles.list.indent.size;
-        const checkboxX = styles.canvas.paddingLeft + indentOffset + 2; // Offset to align with other list markers
         const checkboxSize = styles.list.todo.checkboxSize;
+        
+        // Detect if this is RTL text
+        const isRTL = getFormattedTextDirection(block.content) === "rtl";
+        
+        // Calculate marker width to match rendering logic
+        const markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
+        const adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
+        
+        // Position checkbox based on text direction
+        let checkboxX: number;
+        if (isRTL) {
+          // RTL: checkbox is in marker area on the right side
+          // markerX = paddingLeft + indentOffset + adjustedMaxWidth
+          checkboxX = styles.canvas.paddingLeft + indentOffset + adjustedMaxWidth + 2;
+        } else {
+          // LTR: checkbox is in marker area on the left side
+          // markerX = paddingLeft + indentOffset
+          checkboxX = styles.canvas.paddingLeft + indentOffset + 2;
+        }
         
         // Get font metrics for proper vertical alignment
         const textStyle = getTextStyle(styles, block.type);

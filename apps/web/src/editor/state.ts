@@ -1,5 +1,5 @@
 import type { Block, Page } from "../deserializer/loadPage";
-import { isTextBlock } from "../deserializer/loadPage";
+import { isTextBlock, isListBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
   wrapFormattedTextDetailed,
@@ -454,9 +454,18 @@ function getLineInfoAtPosition(
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
 
+  // Calculate adjusted max width for list blocks
+  let adjustedMaxWidth = maxWidth;
+  if (isListBlock(block)) {
+    const indent = block.indent || 0;
+    const indentOffset = indent * styles.list.indent.size;
+    const markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
+    adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
+  }
+
   const wrappedLines = wrapFormattedTextDetailed(
     block.content,
-    maxWidth,
+    adjustedMaxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
     fontFamily,

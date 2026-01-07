@@ -1,5 +1,5 @@
 import type { Block, Text } from "../deserializer/loadPage";
-import { isTextBlock } from "../deserializer/loadPage";
+import { isTextBlock, isListBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
   getFontMetrics,
@@ -58,10 +58,35 @@ export function getCursorCoordinates(
   // Detect if this is an RTL block
   const isRTL = getFormattedTextDirection(block.content) === "rtl";
 
+  // Calculate indent and marker space for list blocks
+  let indentOffset = 0;
+  let markerWidth = 0;
+  let adjustedMaxWidth = maxWidth;
+  let baseX = styles.canvas.paddingLeft;
+  
+  if (isListBlock(block)) {
+    const indent = block.indent || 0;
+    indentOffset = indent * styles.list.indent.size;
+    
+    // Use consistent marker width for all list types to ensure text alignment
+    markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
+    
+    adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
+    
+    // Adjust baseX based on text direction
+    if (isRTL) {
+      // RTL: text area starts at left (no marker space on left)
+      baseX = styles.canvas.paddingLeft + indentOffset;
+    } else {
+      // LTR: text area starts after marker
+      baseX = styles.canvas.paddingLeft + indentOffset + markerWidth;
+    }
+  }
+
   // Use formatted text wrapping
   const lines = wrapFormattedTextDetailed(
     block.content,
-    maxWidth,
+    adjustedMaxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
     fontFamily,
@@ -77,7 +102,7 @@ export function getCursorCoordinates(
     if (position.textIndex >= textIndex && position.textIndex <= lineEndIndex) {
       if (isRTL) {
         // For RTL text rendered with canvas direction="rtl":
-        // - Cursor at logical index 0 (lineStartIndex) appears at the RIGHT (maxWidth)
+        // - Cursor at logical index 0 (lineStartIndex) appears at the RIGHT (baseX + adjustedMaxWidth)
         // - Cursor at logical index N appears at the LEFT
         // Measure from line start to cursor position
         const widthFromStart = measureFormattedTextUpToIndex(
@@ -91,7 +116,7 @@ export function getCursorCoordinates(
         );
         
         return {
-          x: styles.canvas.paddingLeft + maxWidth - widthFromStart,
+          x: baseX + adjustedMaxWidth - widthFromStart,
           y: currentY,
           height: lineHeight,
         };
@@ -109,7 +134,7 @@ export function getCursorCoordinates(
         );
 
         return {
-          x: styles.canvas.paddingLeft + textWidth,
+          x: baseX + textWidth,
           y: currentY,
           height: lineHeight,
         };
@@ -126,14 +151,14 @@ export function getCursorCoordinates(
   // For empty blocks or cursor at the very end
   if (isRTL) {
     return {
-      x: styles.canvas.paddingLeft + maxWidth,
+      x: baseX + adjustedMaxWidth,
       y: currentY,
       height: lineHeight,
     };
   }
 
   return {
-    x: styles.canvas.paddingLeft,
+    x: baseX,
     y: currentY,
     height: lineHeight,
   };
@@ -240,6 +265,31 @@ export function getCursorCoordinatesWithComposition(
 
   const isRTL = getFormattedTextDirection(modifiedContent) === "rtl";
 
+  // Calculate indent and marker space for list blocks
+  let indentOffset = 0;
+  let markerWidth = 0;
+  let adjustedMaxWidth = maxWidth;
+  let baseX = styles.canvas.paddingLeft;
+  
+  if (isListBlock(block)) {
+    const indent = block.indent || 0;
+    indentOffset = indent * styles.list.indent.size;
+    
+    // Use consistent marker width for all list types to ensure text alignment
+    markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
+    
+    adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
+    
+    // Adjust baseX based on text direction
+    if (isRTL) {
+      // RTL: text area starts at left (no marker space on left)
+      baseX = styles.canvas.paddingLeft + indentOffset;
+    } else {
+      // LTR: text area starts after marker
+      baseX = styles.canvas.paddingLeft + indentOffset + markerWidth;
+    }
+  }
+
   // Wrap the MODIFIED content (with composition)
   const compositionRange = {
     start: cursorTextIndex,
@@ -247,7 +297,7 @@ export function getCursorCoordinatesWithComposition(
   };
   const lines = wrapFormattedTextDetailed(
     modifiedContent,
-    maxWidth,
+    adjustedMaxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
     fontFamily,
@@ -273,7 +323,7 @@ export function getCursorCoordinatesWithComposition(
           codePadding
         );
         return {
-          x: styles.canvas.paddingLeft + maxWidth - widthFromStart,
+          x: baseX + adjustedMaxWidth - widthFromStart,
           y: currentY,
           height: lineHeight,
         };
@@ -288,7 +338,7 @@ export function getCursorCoordinatesWithComposition(
           codePadding
         );
         return {
-          x: styles.canvas.paddingLeft + textWidth,
+          x: baseX + textWidth,
           y: currentY,
           height: lineHeight,
         };
@@ -305,14 +355,14 @@ export function getCursorCoordinatesWithComposition(
   // Fallback to end position
   if (isRTL) {
     return {
-      x: styles.canvas.paddingLeft + maxWidth,
+      x: baseX + adjustedMaxWidth,
       y: currentY,
       height: lineHeight,
     };
   }
 
   return {
-    x: styles.canvas.paddingLeft,
+    x: baseX,
     y: currentY,
     height: lineHeight,
   };
@@ -461,6 +511,31 @@ function getPositionWithinBlock(
   // Detect if this is an RTL block
   const isRTL = getFormattedTextDirection(block.content) === "rtl";
 
+  // Calculate indent and marker space for list blocks
+  let indentOffset = 0;
+  let markerWidth = 0;
+  let adjustedMaxWidth = maxWidth;
+  let adjustedPaddingLeft = padding;
+  
+  if (isListBlock(block)) {
+    const indent = block.indent || 0;
+    indentOffset = indent * styles.list.indent.size;
+    
+    // Use consistent marker width for all list types to ensure text alignment
+    markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
+    
+    adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
+    
+    // Adjust padding based on text direction
+    if (isRTL) {
+      // RTL: text area starts at left (no marker space on left)
+      adjustedPaddingLeft = padding + indentOffset;
+    } else {
+      // LTR: text area starts after marker
+      adjustedPaddingLeft = padding + indentOffset + markerWidth;
+    }
+  }
+
   // Get font metrics for line height calculation
   const fontMetrics = getFontMetrics(
     textStyle.fontSize,
@@ -472,7 +547,7 @@ function getPositionWithinBlock(
   // Wrap text to get lines using formatted text wrapping
   const lines = wrapFormattedTextDetailed(
     block.content,
-    maxWidth,
+    adjustedMaxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
     fontFamily,
@@ -494,12 +569,12 @@ function getPositionWithinBlock(
         x,
         line,
         textIndex,
-        padding,
+        adjustedPaddingLeft,
         textStyle,
         fontFamily,
         block,
         codePadding,
-        maxWidth,
+        adjustedMaxWidth,
         isRTL
       );
       return {
@@ -526,12 +601,12 @@ function getPositionWithinBlock(
       x,
       lastLine,
       lastLineStartIndex,
-      padding,
+      adjustedPaddingLeft,
       textStyle,
       fontFamily,
       block,
       codePadding,
-      maxWidth,
+      adjustedMaxWidth,
       isRTL
     );
     return {

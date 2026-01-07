@@ -582,6 +582,14 @@ export const renderBlock = (
   let markerWidth = 0;
   let adjustedX = x;
   let adjustedMaxWidth = maxWidth;
+  let markerX = x; // X position where marker should be rendered
+  
+  // Get content early to detect RTL for proper layout
+  const { content: renderContent, compositionRange } =
+    getContentWithComposition(block, state, blockIndex);
+  
+  const direction = getFormattedTextDirection(renderContent);
+  const isRTL = direction === "rtl";
   
   if (isListBlock(block)) {
     const indent = block.indent || 0;
@@ -591,13 +599,20 @@ export const renderBlock = (
     // All list types reserve the same space (minWidth + textGap)
     markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
     
-    adjustedX = x + indentOffset + markerWidth;
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
+    
+    if (isRTL) {
+      // RTL: [TEXT_AREA][MARKER]
+      // Text area starts at left, marker is on the right
+      adjustedX = x + indentOffset;
+      markerX = x + indentOffset + adjustedMaxWidth;
+    } else {
+      // LTR: [MARKER][TEXT_AREA]
+      // Marker on left, text area on the right
+      markerX = x + indentOffset;
+      adjustedX = x + indentOffset + markerWidth;
+    }
   }
-
-  // Get content with composition text injected (if composing in this block)
-  const { content: renderContent, compositionRange } =
-    getContentWithComposition(block, state, blockIndex);
 
   // Calculate line wrapping using the render content (includes composition)
   // Use adjusted max width for list blocks to account for indent and marker
@@ -632,22 +647,22 @@ export const renderBlock = (
     const lineStartIndex = textIndex;
     const lineEndIndex = textIndex + line.length;
 
-    // Detect text direction and adjust x position for RTL
-    const direction = getFormattedTextDirection(renderContent);
-    const renderX = direction === "rtl" ? adjustedX + adjustedMaxWidth : adjustedX;
+    // Adjust x position for RTL text rendering
+    const renderX = isRTL ? adjustedX + adjustedMaxWidth : adjustedX;
 
     // Render list marker only on the first line
     if (lineIndex === 0 && isListBlock(block)) {
       renderListMarker(
         ctx,
         block,
-        x + indentOffset,
+        markerX,
         currentY,
         fontMetrics,
         textStyle,
         styles,
         state,
-        blockIndex
+        blockIndex,
+        markerWidth
       );
     }
 
@@ -826,7 +841,8 @@ function renderListMarker(
   textStyle: TextStyle,
   styles: EditorStyles,
   state: EditorState,
-  blockIndex: number
+  blockIndex: number,
+  _markerWidth: number
 ) {
   if (!isListBlock(block)) return;
   
@@ -838,8 +854,11 @@ function renderListMarker(
     ctx.fillStyle = styles.list.bullet.color;
     ctx.font = `${textStyle.fontWeight} ${styles.list.bullet.size}px ${FONT_STACKS[fontFamily]}`;
     ctx.textBaseline = "alphabetic";
-    // Offset bullet to align with numbered list
-    ctx.fillText(styles.list.bullet.character, x + 6, y + fontMetrics.ascent);
+    
+    // Position bullet - x is already the correct position (left for LTR, right for RTL)
+    const bulletX = x + 6;
+    
+    ctx.fillText(styles.list.bullet.character, bulletX, y + fontMetrics.ascent);
     ctx.restore();
   } else if (block.type === "numbered_list") {
     // Calculate and render number
@@ -851,15 +870,19 @@ function renderListMarker(
     ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${FONT_STACKS[fontFamily]}`;
     ctx.textBaseline = "alphabetic";
     ctx.textAlign = "right";
-    // Right-align the number, leaving a small margin from the edge
+    
+    // Position number - x is already the correct position, right-align within marker space
     ctx.fillText(numberText, x + 18, y + fontMetrics.ascent);
+    
     ctx.textAlign = "left"; // Reset
     ctx.restore();
   } else if (block.type === "todo_list") {
     // Render checkbox
     const checkboxSize = styles.list.todo.checkboxSize;
     const checkboxY = y + fontMetrics.ascent - checkboxSize + 2; // Align with text baseline
-    const checkboxX = x + 2; // Offset to align with other list markers
+    
+    // Position checkbox - x is already the correct position
+    const checkboxX = x + 2;
     
     ctx.save();
     
@@ -1729,8 +1752,19 @@ export function renderCursorLayer(
   const content = getBlockTextContent(block);
   const isRTL = getFormattedTextDirection(renderContent) === "rtl";
 
-  // Adjust cursor X for list blocks
-  const baseX = styles.canvas.paddingLeft + indentOffset + markerWidth;
+  // Adjust cursor X for list blocks based on text direction
+  let baseX: number;
+  if (isListBlock(block)) {
+    if (isRTL) {
+      // RTL: text area starts at left (no marker space on left)
+      baseX = styles.canvas.paddingLeft + indentOffset;
+    } else {
+      // LTR: text area starts after marker
+      baseX = styles.canvas.paddingLeft + indentOffset + markerWidth;
+    }
+  } else {
+    baseX = styles.canvas.paddingLeft;
+  }
   let cursorX = baseX;
   let cursorY = currentY;
   let cursorHeight = fontMetrics.fontSize * textStyle.lineHeight;
