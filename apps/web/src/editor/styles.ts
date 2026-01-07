@@ -49,28 +49,28 @@ export function getEditorStyles(): EditorStyles {
         fontWeight: "500",
         color: getCSSVariable("--editor-heading"),
         lineHeight: 1.4,
-        paddingBottom: 4,
+        paddingBottom: 10,
       },
       heading2: {
         fontSize: 24,
         fontWeight: "500",
         color: getCSSVariable("--editor-heading"),
         lineHeight: 1.4,
-        paddingBottom: 6,
+        paddingBottom: 10,
       },
       heading3: {
         fontSize: 20,
         fontWeight: "500",
         color: getCSSVariable("--editor-heading"),
         lineHeight: 1.4,
-        paddingBottom: 6,
+        paddingBottom: 10,
       },
       paragraph: {
         fontSize: 16,
         fontWeight: "normal",
         color: getCSSVariable("--editor-text"),
         lineHeight: 1.6,
-        paddingBottom: 4,
+        paddingBottom: 12,
       },
       image: {
         placeholder: {

@@ -196,6 +196,7 @@ Bugs list
 [x] editing issue on android. Can not edit text after selection.
 [ ] tapping under image that has no other blocks under should create new text block.
 [ ] could we disable edge navigation on andorid?
+[ ] on landscape oritentation the safe area taking to much and it is uncessary.
 - : means not planed or considered
   x : done
   : not done
