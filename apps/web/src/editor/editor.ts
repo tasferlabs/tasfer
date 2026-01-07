@@ -1,10 +1,15 @@
 import type { Block } from "../deserializer/loadPage";
+import { isTextBlock } from "../deserializer/loadPage";
 import {
   applySlashCommand,
   convertBlockType,
   updateLinkInBlock,
   clearLinkInBlock,
   selectAll,
+  getSelectionRange,
+  deleteTextRangeInFormattedContent,
+  mergeAdjacentSegments,
+  extractSegmentsInRange,
 } from "./commands";
 import {
   copySelectionToClipboard,
@@ -35,6 +40,8 @@ import {
   setActiveMenu,
   closeActiveMenu,
   isTouchDevice,
+  getBlockTextContent,
+  moveCursorToPosition,
 } from "./state";
 import { getEditorStyles } from "./styles";
 import type { EditorState, SlashCommand, ViewportState } from "./types";
@@ -69,6 +76,7 @@ export interface Editor {
     newText: string
   ) => void;
   clearLink: (blockIndex: number, segmentIndex: number) => void;
+  createLink: (url: string, text: string) => void;
   clearSelection: () => void;
   setMode: (mode: "edit" | "select" | "locked") => void;
   restoreCursorAndSelection: (
@@ -84,6 +92,7 @@ export interface Editor {
     },
     uploadStatus?: "uploading" | "complete" | "error"
   ) => void;
+  deleteImageBlock: (blockIndex: number) => void;
   openImageUploadMenu: (
     blockIndex: number,
     x: number,
@@ -915,6 +924,67 @@ export default function createEditor(
     listeners.forEach((listener) => listener(currentState));
   }
 
+  function createLink(url: string, text: string) {
+    if (!state.document.selection || state.document.selection.isCollapsed) {
+      return; // Need a selection to create a link
+    }
+
+    state = recordUndo(state);
+
+    const range = getSelectionRange(state);
+    if (!range) return;
+
+    const { start, end } = range;
+
+    // Only support single-block link creation for now
+    if (start.blockIndex !== end.blockIndex) {
+      return;
+    }
+
+    const block = state.document.page.blocks[start.blockIndex];
+    if (!block || !isTextBlock(block)) {
+      return;
+    }
+
+    // Extract content before selection, after selection, and create link in between
+    const blockText = getBlockTextContent(block);
+    const beforeContent = extractSegmentsInRange(block.content, 0, start.textIndex);
+    const afterContent = extractSegmentsInRange(block.content, end.textIndex, blockText.length);
+
+    // Create the new content with the link in the middle
+    const newContent = [
+      ...beforeContent,
+      { content: text, formats: [{ type: "link" as const, url }] },
+      ...afterContent,
+    ];
+
+    const newBlock = {
+      ...block,
+      content: mergeAdjacentSegments(newContent),
+    };
+
+    invalidateBlockCache(newBlock);
+
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[start.blockIndex] = newBlock;
+
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        page: { ...state.document.page, blocks: newBlocks },
+      },
+    };
+
+    // Clear selection and move cursor to end of inserted link
+    state = clearSelection(state);
+    state = moveCursorToPosition(state, start.blockIndex, start.textIndex + text.length);
+
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
   function clearSelectionMethod() {
     state = clearSelection(state);
     // Also clear cursor to remove all visual indicators
@@ -1024,6 +1094,41 @@ export default function createEditor(
     listeners.forEach((listener) => listener(currentState));
   }
 
+  function deleteImageBlockMethod(blockIndex: number) {
+    const block = state.document.page.blocks[blockIndex];
+
+    if (!block || block.type !== "image") {
+      console.error("Attempted to delete non-image block");
+      return;
+    }
+
+    state = recordUndo(state);
+
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks.splice(blockIndex, 1);
+
+    // If we deleted the last block, add an empty paragraph
+    if (newBlocks.length === 0) {
+      newBlocks.push({
+        id: `block-${Date.now()}`,
+        type: "paragraph",
+        content: [{ content: "", formats: undefined }],
+      });
+    }
+
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        page: { ...state.document.page, blocks: newBlocks },
+      },
+    };
+
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
   function openImageUploadMenu(
     blockIndex: number,
     x: number,
@@ -1069,11 +1174,13 @@ export default function createEditor(
     setBlockType,
     updateLink,
     clearLink,
+    createLink,
     clearSelection: clearSelectionMethod,
     setMode,
     restoreCursorAndSelection,
     forceRender: scheduleRender,
     updateImageBlock: updateImageBlock,
+    deleteImageBlock: deleteImageBlockMethod,
     openImageUploadMenu,
     closeActiveMenu: closeActiveMenuMethod,
   };

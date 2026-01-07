@@ -194,7 +194,7 @@ export function mergeAdjacentSegments(content: Text[]): Text[] {
 /**
  * Extract text segments in a range while preserving their formatting
  */
-function extractSegmentsInRange(
+export function extractSegmentsInRange(
   content: Text[],
   startIndex: number,
   endIndex: number
@@ -2221,9 +2221,29 @@ export function clearLinkInBlock(
     return state;
   }
 
+  const segment = block.content[segmentIndex];
+  if (!segment) return state;
+
+  // Remove the link format but keep the text
+  const filteredFormats = segment.formats?.filter(
+    (format) => format.type !== "link"
+  );
+
+  // Create new segment with text but without link format
+  const newSegment = {
+    content: segment.content,
+    formats: filteredFormats && filteredFormats.length > 0 ? filteredFormats : undefined,
+  };
+
+  const newContent = [
+    ...block.content.slice(0, segmentIndex),
+    newSegment,
+    ...block.content.slice(segmentIndex + 1),
+  ];
+
   const newBlock: Block = {
     ...block,
-    content: block.content.filter((_, index) => index !== segmentIndex),
+    content: mergeAdjacentSegments(newContent),
   };
   invalidateBlockCache(newBlock);
 

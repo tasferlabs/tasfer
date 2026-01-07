@@ -11,6 +11,7 @@ import {
 } from "../components/ui/drawer";
 import useResponsive from "../app/hooks/useResponsive";
 import { usePreventMobileKeyboard } from "../app/hooks/usePreventMobileKeyboard";
+import { useTranslation } from "react-i18next";
 
 interface LinkDrawerProps {
   x: number;
@@ -38,20 +39,25 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
   container,
 }) => {
   const isMobile = useResponsive("(max-width: 768px)");
-  const [editedUrl, setEditedUrl] = useState(url);
-  const [editedText, setEditedText] = useState(linkText || selectedText);
-
+  const [editedUrl, setEditedUrl] = useState(url || "");
+  const [editedText, setEditedText] = useState(linkText || selectedText || "");
+  const { t } = useTranslation();
   // Prevent keyboard from appearing on mobile when drawer opens
   usePreventMobileKeyboard(isMobile);
 
+  // When creating new link (no url), only require URL to be filled
+  // When editing existing link (has url), require both URL and text
+  const isCreatingNewLink = !url;
+
   useEffect(() => {
-    setEditedUrl(url);
-    setEditedText(linkText || selectedText);
+    setEditedUrl(url || "");
+    setEditedText(linkText || selectedText || "");
   }, [url, linkText, selectedText]);
 
   const handleSubmit = () => {
-    if (editedUrl.trim() && editedText.trim()) {
-      onUpdate(editedUrl, editedText);
+    const textToUse = isCreatingNewLink ? selectedText : editedText;
+    if (editedUrl.trim() && textToUse && textToUse.trim()) {
+      onUpdate(editedUrl, textToUse);
       onClose();
     }
   };
@@ -73,29 +79,36 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
     }
   };
 
+  const isButtonDisabled = isCreatingNewLink
+    ? !editedUrl.trim() || !selectedText
+    : !editedUrl.trim() || !editedText.trim();
+
   // Shared content for both drawer and popover
   const content = (
     <>
       {/* Form Fields */}
       <div className="space-y-3">
-        <div className="space-y-1.5">
-          <label
-            htmlFor="link-text"
-            className="text-xs font-medium text-muted-foreground"
-          >
-            Link Text
-          </label>
-          <Input
-            id="link-text"
-            type="text"
-            value={editedText}
-            onChange={(e) => setEditedText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Enter link text"
-            className="h-9"
-            autoFocus={!isMobile}
-          />
-        </div>
+        {/* Only show editable link text field when editing existing link */}
+        {!isCreatingNewLink && (
+          <div className="space-y-1.5">
+            <label
+              htmlFor="link-text"
+              className="text-xs font-medium text-muted-foreground"
+            >
+              Link Text
+            </label>
+            <Input
+              id="link-text"
+              type="text"
+              value={editedText}
+              onChange={(e) => setEditedText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Enter link text"
+              className="h-9"
+              autoFocus={!isMobile}
+            />
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <label
@@ -112,6 +125,7 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
             onKeyDown={handleKeyDown}
             placeholder="https://example.com"
             className="h-9"
+            autoFocus={isCreatingNewLink && !isMobile}
           />
         </div>
 
@@ -120,10 +134,10 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
           size="sm"
           onClick={handleSubmit}
           onMouseDown={(e) => e.preventDefault()}
-          disabled={!editedUrl.trim() || !editedText.trim()}
+          disabled={isButtonDisabled}
           className="w-full"
         >
-          {url ? "Update Link" : "Add Link"}
+          {url ? t("Update Link") : t("Add Link")}
         </Button>
       </div>
 
@@ -138,7 +152,7 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
             className="text-destructive hover:text-destructive hover:bg-destructive/10"
           >
             <Trash2 className="w-4 h-4 mr-2" />
-            Remove Link
+            {t("Clear Link")}
           </Button>
         </div>
       )}
@@ -148,8 +162,8 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
   // Mobile: use Drawer
   if (isMobile) {
     return (
-      <Drawer 
-        open={true} 
+      <Drawer
+        open={true}
         onOpenChange={(open) => !open && onClose()}
         modal={true}
         dismissible={true}
@@ -160,12 +174,10 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
             <DrawerHeader>
               <DrawerTitle className="flex items-center gap-2">
                 <Link2 className="w-4 h-4 text-muted-foreground" />
-                {url ? "Edit Link" : "Add Link"}
+                {url ? t("Edit Link") : t("Add Link")}
               </DrawerTitle>
             </DrawerHeader>
-            <div className="space-y-4 p-4">
-              {content}
-            </div>
+            <div className="space-y-4 p-4">{content}</div>
           </div>
         </DrawerContent>
       </Drawer>
@@ -202,7 +214,7 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
             <div className="flex items-center gap-2 pb-2 border-b border-border">
               <Link2 className="w-4 h-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold text-foreground">
-                {url ? "Edit Link" : "Add Link"}
+                {url ? t("Edit Link") : t("Add Link")}
               </h3>
             </div>
             {content}
@@ -212,4 +224,3 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
     </Popover.Root>
   );
 };
-

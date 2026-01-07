@@ -116,6 +116,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     selectedText?: string;
     blockIndex?: number;
     segmentIndex?: number;
+    startTextIndex?: number;
+    endTextIndex?: number;
   } | null>(null);
 
   const [nativeImageDrawerState, setNativeImageDrawerState] = useState<{
@@ -199,6 +201,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
                   y: containerRect.top + 100,
                   selectedText,
                   blockIndex: start.blockIndex,
+                  startTextIndex: start.textIndex,
+                  endTextIndex: end.textIndex,
                 });
                 return true;
               }
@@ -426,7 +430,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         if (state.document.selection && !state.document.selection.isCollapsed) {
           const range = getSelectionRange(state);
           if (range) {
-            const { start, end } = range;
+            const { start } = range;
             // If selection is in a text block, show link icon
             const block = state.document.page.blocks[start.blockIndex];
             if (block && block.type !== "image") {
@@ -946,8 +950,26 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
                   newUrl,
                   newText
                 );
-              } else if (nativeLinkDrawerState.blockIndex !== undefined) {
-                // Create new link from selection
+              } else if (
+                nativeLinkDrawerState.blockIndex !== undefined && 
+                nativeLinkDrawerState.startTextIndex !== undefined && 
+                nativeLinkDrawerState.endTextIndex !== undefined
+              ) {
+                // Create new link from selection - restore selection first
+                const blockIndex = nativeLinkDrawerState.blockIndex;
+                const startTextIndex = nativeLinkDrawerState.startTextIndex;
+                const endTextIndex = nativeLinkDrawerState.endTextIndex;
+                
+                // Restore the selection by creating it programmatically
+                const anchor = { blockIndex, textIndex: startTextIndex };
+                const focus = { blockIndex, textIndex: endTextIndex };
+                
+                editor.restoreCursorAndSelection(
+                  { position: focus, lastUpdate: Date.now() },
+                  { anchor, focus, isForward: true, isCollapsed: false, lastUpdate: Date.now() }
+                );
+                
+                // Now create the link with the restored selection
                 editor.createLink(newUrl, newText);
               }
               setNativeLinkDrawerState(null);
