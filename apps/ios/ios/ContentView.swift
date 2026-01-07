@@ -655,7 +655,7 @@ struct LoadingView: View {
     @State private var rotation: Double = 0
     
     var body: some View {
-        Color.white
+        Color("Background")
             .edgesIgnoringSafeArea(.all)
             .overlay(
                 Image("spinner")
