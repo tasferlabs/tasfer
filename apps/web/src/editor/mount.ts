@@ -198,8 +198,10 @@ export function mountEditor(
 
   // Handle hidden input focus/blur (mobile keyboard)
   let blurTimeoutId: number | null = null;
+  let isTouchActive = false; // Track if we're in the middle of a touch interaction
 
   const handleInputFocus = () => {
+    console.log("[FOCUS] Hidden input focused");
     // Cancel any pending blur if input regains focus
     if (blurTimeoutId !== null) {
       clearTimeout(blurTimeoutId);
@@ -211,26 +213,35 @@ export function mountEditor(
   };
 
   const handleInputBlur = (e: FocusEvent) => {
-    // Defer the blur action to allow the canvas click handler to refocus the input
-    // This prevents unnecessary blur/refocus cycles during triple-click and other interactions
-
-    // If click is on container or hidden input, do nothing (editor handles it)
-    if (
-      container.contains(e.target as Node) ||
-      hiddenInput.contains(e.target as Node)
-    ) {
-      return;
-    }
-
-    if (e.target === hiddenInput) {
-      return;
-    }
-
+    // Check if context menu is open - keep focus if so
     if (editor.getState()?.ui.activeMenu.type === "contextMenu") {
       return;
     }
 
-    // If keyboard is dismissed or focus lost, blur editor
+    // On mobile, ignore blurs during active touch interactions
+    // The touchend handler will refocus the input
+    if (isTouchDevice() && isTouchActive) {
+      return;
+    }
+
+    // On mobile, ignore transient blurs - focus will be restored if needed
+    // This prevents breaking InputConnection during touch interactions
+    if (isTouchDevice()) {
+      const relatedTarget = e.relatedTarget as Node | null;
+
+      // If focus is moving to another element within our container, ignore it
+      if (relatedTarget && container.contains(relatedTarget)) {
+        return;
+      }
+
+      // If no relatedTarget (focus going nowhere), it's likely a transient blur
+      // Don't blur the editor - let the touch handler manage focus
+      if (!relatedTarget) {
+        return;
+      }
+    }
+
+    // Desktop or explicit blur to external element
     if (isTouchDevice()) {
       editor.setFocus(false, true);
     } else {
@@ -241,8 +252,23 @@ export function mountEditor(
     hiddenInput.value = "";
   };
 
+  // Track touch interactions to prevent spurious blurs
+  const handleTouchStart = () => {
+    isTouchActive = true;
+  };
+
+  const handleTouchEnd = () => {
+    // Use a small delay to let touchend handlers complete
+    setTimeout(() => {
+      isTouchActive = false;
+    }, 50);
+  };
+
   document.addEventListener("mousedown", handleDocumentClick);
   document.addEventListener("touchstart", handleDocumentClick);
+  container.addEventListener("touchstart", handleTouchStart);
+  container.addEventListener("touchend", handleTouchEnd);
+  container.addEventListener("touchcancel", handleTouchEnd);
   hiddenInput.addEventListener("focus", handleInputFocus);
   hiddenInput.addEventListener("blur", handleInputBlur);
 
@@ -278,6 +304,9 @@ export function mountEditor(
     window.removeEventListener("blur", handleWindowBlur);
     document.removeEventListener("mousedown", handleDocumentClick);
     document.removeEventListener("touchstart", handleDocumentClick);
+    container.removeEventListener("touchstart", handleTouchStart);
+    container.removeEventListener("touchend", handleTouchEnd);
+    container.removeEventListener("touchcancel", handleTouchEnd);
     hiddenInput.removeEventListener("focus", handleInputFocus);
     hiddenInput.removeEventListener("blur", handleInputBlur);
     contentCanvas.removeEventListener("selectstart", preventSelectStart);
