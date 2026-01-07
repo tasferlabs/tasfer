@@ -193,7 +193,7 @@ Bugs list
 [x] two finger scroll
 [ ] Three-Finger Gestures
 [x] canvas glitch on resizing.
-[ ] editing glitch on android. Can not edit text after selection.
+[x] editing issue on android. Can not edit text after selection.
 - : means not planed or considered
   x : done
   : not done
