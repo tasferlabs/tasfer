@@ -82,7 +82,7 @@ Bugs list
 [ ] do design overhaul.
 [ ] Add support for windows ctrl + Y and make sure the shortcuts are intuitiave for all opearting systems.
 [ ] consider if we need more animation and fluid text edting for example when I delete large portion text or copy large portion of text. Maybe show the scroll bar in this case.
-[ ] rendering is triggered to many times.
+[x] rendering is triggered to many times.
 [ ] override webiew defaul 404 page
 [x] rtl inline format rendering edge cases
 [x] render should be more efficent if we schedule it
@@ -176,7 +176,7 @@ Bugs list
 [ ] copy and paste should work with images.
 [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
 [ ] scrollbar should not hit bottom porition on mobile (or at least on ios)
-[ ] hide editimagepopover on mobile
+[x] hide editimagepopover on mobile
 [ ] hide scrollbar when not scrolling
 [ ] one click on selection should trigger context menu.
 [x] focus issue on context menu
@@ -194,6 +194,8 @@ Bugs list
 [ ] Three-Finger Gestures
 [x] canvas glitch on resizing.
 [x] editing issue on android. Can not edit text after selection.
+[ ] tapping under image that has no other blocks under should create new text block.
+[ ] could we disable edge navigation on andorid?
 - : means not planed or considered
   x : done
   : not done
