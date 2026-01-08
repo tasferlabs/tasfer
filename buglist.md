@@ -62,8 +62,8 @@ Bugs list
 - [x] list split at the end not creating new item.
 - [x] invalidate cache when changing font.
 - [x] rtl should work with lists
-- [ ] Check devices compatiabities such ipad with keyboard.
-- [ ] on ios keyboard iland we should add active/inactive state for block type menu. External keyboard
+- [x] Check devices compatiabities such ipad with keyboard.
+- [x] on ios keyboard iland we should add active/inactive state for block type menu. External keyboard
 - [x] composition and other input methods such as IME should work.
 - [ ] voice input/speeh-to-text
 - [ ] Accessiblity input?
@@ -206,3 +206,6 @@ Bugs list
 - [ ] indent with mixed direction rtl todo
 - [ ] Pen input, stylus support. Handwriting.
 - [ ] Safe area on sidebar
+- [ ] GPU process (0x1150d81e0) took 3.668330 seconds to launch, Networking process (0x115100190) took 3.640831 seconds to launch, WebContent process (0x115078100) took 5.709915 seconds to launch
+- [ ] protocol for opening cypher links.
+- [ ] if click outside the box selection should be lost.

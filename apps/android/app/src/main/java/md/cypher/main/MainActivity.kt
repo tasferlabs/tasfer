@@ -720,16 +720,18 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun detectPhysicalKeyboard() {
-        // On Android, we detect hardware keyboard using Configuration.keyboard
+        // On Android, we detect hardware keyboard using Configuration.hardKeyboardHidden
         val config = resources.configuration
         val previousState = hasPhysicalKeyboard
         
-        // Check if a hardware keyboard is available and not hidden
-        // KEYBOARD_NOKEYS = No keyboard (touchscreen only)
-        // KEYBOARD_QWERTY = Full hardware keyboard
-        // KEYBOARD_12KEY = 12-key hardware keyboard (rare on modern devices)
-        hasPhysicalKeyboard = config.keyboard != Configuration.KEYBOARD_NOKEYS &&
-                config.hardKeyboardHidden != Configuration.HARDKEYBOARDHIDDEN_YES
+        // Check if a hardware keyboard is currently connected and visible
+        // HARDKEYBOARDHIDDEN_NO = Hardware keyboard is connected and available
+        // HARDKEYBOARDHIDDEN_YES = No hardware keyboard or it's hidden
+        // HARDKEYBOARDHIDDEN_UNDEFINED = Unknown state (treat as no physical keyboard)
+        // 
+        // Note: We only check hardKeyboardHidden, not config.keyboard, because many tablets
+        // report KEYBOARD_QWERTY even when no physical keyboard is connected (they're just capable)
+        hasPhysicalKeyboard = config.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO
         
         // Notify web view if state changed
         if (previousState != hasPhysicalKeyboard) {

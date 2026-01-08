@@ -176,10 +176,15 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
     }
 }
 
-class BlockTypeInputView: UIView {
+class BlockTypeInputView: UIView, UIInputViewAudioFeedback {
     var onSelect: ((String) -> Void)?
     private var keyboardHeightConstraint: NSLayoutConstraint?
     static var cachedKeyboardHeight: CGFloat = 291 // Default iPhone keyboard height
+    
+    // Required for UIInputViewAudioFeedback
+    var enableInputClicksWhenVisible: Bool {
+        return true
+    }
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -491,9 +496,25 @@ class AccessoryIslandView: UIView {
     }
 }
 
+// Custom UITextField that hides the keyboard accessory bar
+class NoAccessoryTextField: UITextField {
+    override var inputAssistantItem: UITextInputAssistantItem {
+        let item = super.inputAssistantItem
+        item.leadingBarButtonGroups = []
+        item.trailingBarButtonGroups = []
+        return item
+    }
+    
+    // Additional override to ensure the shortcuts bar is hidden
+    override var keyboardAppearance: UIKeyboardAppearance {
+        get { return .default }
+        set { }
+    }
+}
+
 class CustomWebView: WKWebView {
     private var islandView: AccessoryIslandView?
-    private let dummyTextField = UITextField()
+    private let dummyTextField = NoAccessoryTextField()
     private var blockTypeInputView: BlockTypeInputView?
     
     // State
@@ -504,11 +525,26 @@ class CustomWebView: WKWebView {
     private var lastKeyboardHeight: CGFloat = 291 // Track the last keyboard height
     var currentIconType: String = "format"  // Track current icon type
     private var hasPhysicalKeyboard = false // Track hardware keyboard status
+    private var isSoftKeyboardVisible = false // Track if soft keyboard is actually visible
     
     override var inputAccessoryView: UIView? {
-        // Hide keyboard island when physical keyboard is connected
-        // Only show when canvas editor is focused AND no physical keyboard
-        return (isEditorFocused && !hasPhysicalKeyboard) ? islandView : nil
+        // Only return island view when editor is focused
+        // This prevents the toolbar from appearing on other inputs (like drawers)
+        // print("🏝️ [inputAccessoryView] Called - isEditorFocused: \(isEditorFocused)")
+        return isEditorFocused ? islandView : nil
+    }
+    
+    override var inputAssistantItem: UITextInputAssistantItem {
+        let item = super.inputAssistantItem
+        item.leadingBarButtonGroups = []
+        item.trailingBarButtonGroups = []
+        return item
+    }
+    
+    // This is a more aggressive approach - find and configure all UITextInput views
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        configureAllTextInputs()
     }
     
     override init(frame: CGRect, configuration: WKWebViewConfiguration) {
@@ -538,8 +574,20 @@ class CustomWebView: WKWebView {
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(keyboardDidShow(_:)),
+            name: UIResponder.keyboardDidShowNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(keyboardWillHide(_:)),
             name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardDidHide(_:)),
+            name: UIResponder.keyboardDidHideNotification,
             object: nil
         )
         
@@ -562,15 +610,54 @@ class CustomWebView: WKWebView {
     
     @objc private func keyboardWillShow(_ notification: Notification) {
         if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+            // More reliable detection: Check if keyboard is actually on screen
+            // When hardware keyboard is active, the keyboard frame is off-screen (y >= screen height)
+            // When soft keyboard shows, it's on screen (y < screen height)
+            let screenHeight = UIScreen.main.bounds.height
+            let isKeyboardOnScreen = keyboardFrame.origin.y < screenHeight
+            
+            // Additional check: keyboard height must be substantial for soft keyboard
+            let hasSubstantialHeight = keyboardFrame.height > 100
+            
+            // Soft keyboard is visible only if it's on screen AND has substantial height
+            let isSoftKeyboard = isKeyboardOnScreen && hasSubstantialHeight
+            
+            // print("🎹 [keyboardWillShow] frame: \(keyboardFrame), screenHeight: \(screenHeight)")
+            // print("🎹 [keyboardWillShow] y: \(keyboardFrame.origin.y), height: \(keyboardFrame.height)")
+            // print("🎹 [keyboardWillShow] onScreen: \(isKeyboardOnScreen), substantial: \(hasSubstantialHeight)")
+            // print("🎹 [keyboardWillShow] isSoftKeyboard: \(isSoftKeyboard)")
+            
+            // Update soft keyboard visibility state
+            let previousState = isSoftKeyboardVisible
+            isSoftKeyboardVisible = isSoftKeyboard
+            hasPhysicalKeyboard = !isSoftKeyboard
+            
+            // print("🎹 [keyboardWillShow] state change: \(previousState) -> \(isSoftKeyboardVisible)")
+            
+            // Show/hide island view based on soft keyboard state
+            if isSoftKeyboard {
+                // print("🎹 [keyboardWillShow] ✅ Showing island menu")
+                islandView?.isHidden = false
+            } else {
+                // print("🎹 [keyboardWillShow] 🚫 Hiding island menu (hardware keyboard)")
+                islandView?.isHidden = true
+            }
+            
+            if previousState != isSoftKeyboardVisible {
+                notifyPhysicalKeyboardState()
+            }
+            
             // Only update if this is the system keyboard (not our custom inputView)
             // Our custom inputView won't have a consistent height initially
             // System keyboard + accessory is typically 300-350+ on iPhone
-            if !isMenuOpen && keyboardFrame.height > 200 {
+            if !isMenuOpen && keyboardFrame.height > 200 && isSoftKeyboard {
                 // The keyboard frame includes the accessory view + safe area insets
                 // Accessory view: 56pt (44pt container + 6pt top + 6pt bottom)
                 // Plus safe area bottom inset (usually ~34pt on iPhones with notch, 0 on others)
                 let accessoryWithSafeArea = islandView?.frame.height ?? 56
                 let keyboardOnlyHeight = keyboardFrame.height - accessoryWithSafeArea
+                
+                // print("🎹 [keyboardWillShow] Updating keyboard height cache: \(keyboardOnlyHeight)")
                 
                 // Update cached height and the input view
                 lastKeyboardHeight = keyboardOnlyHeight
@@ -580,59 +667,115 @@ class CustomWebView: WKWebView {
         }
     }
     
+    @objc private func keyboardDidShow(_ notification: Notification) {
+        // Double-check after keyboard animation completes
+        // This catches cases where keyboardWillShow was called during rapid transitions
+        if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+            let screenHeight = UIScreen.main.bounds.height
+            let isKeyboardOnScreen = keyboardFrame.origin.y < screenHeight
+            let hasSubstantialHeight = keyboardFrame.height > 100
+            let isSoftKeyboard = isKeyboardOnScreen && hasSubstantialHeight
+            
+            // print("✅ [keyboardDidShow] frame: \(keyboardFrame), screenHeight: \(screenHeight)")
+            // print("✅ [keyboardDidShow] y: \(keyboardFrame.origin.y), height: \(keyboardFrame.height)")
+            // print("✅ [keyboardDidShow] onScreen: \(isKeyboardOnScreen), substantial: \(hasSubstantialHeight)")
+            // print("✅ [keyboardDidShow] isSoftKeyboard: \(isSoftKeyboard)")
+            
+            let previousState = isSoftKeyboardVisible
+            isSoftKeyboardVisible = isSoftKeyboard
+            hasPhysicalKeyboard = !isSoftKeyboard
+            
+            // print("✅ [keyboardDidShow] state change: \(previousState) -> \(isSoftKeyboardVisible)")
+            
+            // Always ensure island visibility matches soft keyboard state after animation
+            if isSoftKeyboard {
+                // print("✅ [keyboardDidShow] ✅ Ensuring island menu is visible")
+                islandView?.isHidden = false
+            } else {
+                // print("✅ [keyboardDidShow] 🚫 Ensuring island menu is hidden (hardware keyboard)")
+                islandView?.isHidden = true
+            }
+            
+            if previousState != isSoftKeyboardVisible {
+                notifyPhysicalKeyboardState()
+            }
+        }
+    }
+    
     @objc private func keyboardWillHide(_ notification: Notification) {
+        // print("⬇️ [keyboardWillHide] Previous state: \(isSoftKeyboardVisible)")
+        
+        // When keyboard hides, mark soft keyboard as not visible
+        isSoftKeyboardVisible = false
+        
+        // print("⬇️ [keyboardWillHide] New state: \(isSoftKeyboardVisible)")
+        // print("⬇️ [keyboardWillHide] Hiding island menu")
+        
+        // Hide the island menu directly
+        islandView?.isHidden = true
+        
         // Re-detect physical keyboard status when keyboard hides
         // This helps catch hardware keyboard connect/disconnect events
         detectPhysicalKeyboard()
     }
     
+    @objc private func keyboardDidHide(_ notification: Notification) {
+        // print("❌ [keyboardDidHide] Confirming keyboard hidden, state: \(isSoftKeyboardVisible)")
+        
+        // Confirm keyboard is hidden after animation completes
+        isSoftKeyboardVisible = false
+        islandView?.isHidden = true
+        
+        // print("❌ [keyboardDidHide] Island menu should be hidden, isHidden: \(islandView?.isHidden ?? true)")
+    }
+    
     @available(iOS 14.0, *)
     @objc private func keyboardDidConnect(_ notification: Notification) {
-        hasPhysicalKeyboard = true
-        notifyPhysicalKeyboardState()
-        reloadInputViews()
+        // print("⌨️ [keyboardDidConnect] Hardware keyboard connected")
+        // Don't immediately assume physical keyboard - wait for keyboardWillShow
+        // to detect based on frame height, as user might still use soft keyboard
+        // Even with a connected Bluetooth keyboard, iPad users can choose soft keyboard
     }
     
     @available(iOS 14.0, *)
     @objc private func keyboardDidDisconnect(_ notification: Notification) {
+        // print("⌨️ [keyboardDidDisconnect] Hardware keyboard disconnected")
+        // When hardware keyboard disconnects, assume soft keyboard will be used
         // Check if any keyboards are still connected
-        if #available(iOS 14.0, *) {
-            hasPhysicalKeyboard = GCKeyboard.coalesced != nil
-        } else {
+        if GCKeyboard.coalesced == nil {
+            // print("⌨️ [keyboardDidDisconnect] No keyboards connected, switching to soft keyboard mode")
             hasPhysicalKeyboard = false
+            notifyPhysicalKeyboardState()
+            // Note: Island visibility will be updated when keyboard actually shows
         }
-        notifyPhysicalKeyboardState()
-        reloadInputViews()
     }
     
     private func detectPhysicalKeyboard() {
-        // On iOS, we can detect hardware keyboard by checking if there are any connected hardware keyboards
-        // UITextInputMode.activeInputModes shows available keyboards
-        // If only hardware keyboards are available, the software keyboard won't show
-        
-        // Method 1: Check if keyboard wants autocorrection (hardware keyboards typically don't)
-        // This is a heuristic - not perfect but works in most cases
-        let inputDelegate = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }?
-            .rootViewController
-        
-        // Method 2: Check keyboard frame - if keyboard shows with 0 or minimal height, it's hardware
-        // This is checked in keyboardWillShow, but for initial state we use heuristics
-        
-        // For initial detection, we check if device is iPad (more likely to have keyboard)
-        // and if we're in landscape (keyboards often used in landscape)
-        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
-        let hasExternalKeyboard = GCKeyboard.coalesced != nil // Check for connected keyboard via GameController
-        
+        // print("🔍 [detectPhysicalKeyboard] Checking keyboard status...")
+        // Initial detection - assume no physical keyboard
+        // The actual state will be updated when keyboard appears based on frame height
+        // in keyboardWillShow notification
+        // 
+        // Note: GCKeyboard.coalesced can be unreliable on iPad because a Bluetooth keyboard
+        // might be paired but the user could still choose to use the soft keyboard
         let previousState = hasPhysicalKeyboard
-        hasPhysicalKeyboard = isIPad && hasExternalKeyboard
+        
+        // Only trust GCKeyboard when keyboard is hiding (user switching away)
+        // When keyboard is showing, we detect based on frame height in keyboardWillShow
+        if GCKeyboard.coalesced == nil {
+            hasPhysicalKeyboard = false
+            // print("🔍 [detectPhysicalKeyboard] No GCKeyboard detected")
+        } else {
+            // print("🔍 [detectPhysicalKeyboard] GCKeyboard exists (but might not be in use)")
+        }
+        
+        // print("🔍 [detectPhysicalKeyboard] hasPhysicalKeyboard: \(previousState) -> \(hasPhysicalKeyboard)")
         
         // Notify WebView if state changed
         if previousState != hasPhysicalKeyboard {
+            // print("🔍 [detectPhysicalKeyboard] State changed, notifying web")
             notifyPhysicalKeyboardState()
-            reloadInputViews() // Update accessory view visibility
+            // Note: Island visibility is controlled via isHidden property in keyboard show/hide handlers
         }
     }
     
@@ -645,6 +788,9 @@ class CustomWebView: WKWebView {
     
     private func setupDummyInput() {
         dummyTextField.isHidden = true
+        dummyTextField.autocorrectionType = .no
+        dummyTextField.autocapitalizationType = .none
+        dummyTextField.spellCheckingType = .no
         addSubview(dummyTextField)
         
         let menu = BlockTypeInputView()
@@ -663,10 +809,12 @@ class CustomWebView: WKWebView {
         island.onFormat = { [weak self] in self?.onFormat() }
         island.onDismiss = { [weak self] in self?.onDismiss() }
         
+        // Start hidden - will be shown when soft keyboard appears
+        island.isHidden = true
+        
         self.islandView = island
         self.dummyTextField.inputAccessoryView = island
         
-        self.reloadInputViews()
         updateToolbarState()
     }
     
@@ -685,7 +833,8 @@ class CustomWebView: WKWebView {
     func updateEditorFocus(focused: Bool) {
         DispatchQueue.main.async {
             self.isEditorFocused = focused
-            // Reload input views to update the accessory view visibility
+            // Reload input views to update inputAccessoryView based on editor focus state
+            // This ensures island toolbar only shows for editor's hidden input, not other inputs
             self.reloadInputViews()
         }
     }
@@ -755,6 +904,31 @@ class CustomWebView: WKWebView {
         
         updateToolbarState()
     }
+    
+    // Recursively find and configure all text input views to hide shortcuts bar
+    func configureAllTextInputs() {
+        // Small delay to ensure WebView's internal views are created
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.recursivelyConfigureSubviews(self)
+        }
+    }
+    
+    private func recursivelyConfigureSubviews(_ view: UIView?) {
+        guard let view = view else { return }
+        
+        // Check if this view conforms to UITextInput protocol
+        if let textInput = view as? (UIView & UITextInput) {
+            // Set the inputAssistantItem to hide shortcuts bar
+            textInput.inputAssistantItem.leadingBarButtonGroups = []
+            textInput.inputAssistantItem.trailingBarButtonGroups = []
+            // print("✅ Configured text input view: \(type(of: textInput))")
+        }
+        
+        // Recursively check all subviews
+        for subview in view.subviews {
+            recursivelyConfigureSubviews(subview)
+        }
+    }
 }
 
 struct WebView: UIViewRepresentable {
@@ -792,6 +966,71 @@ struct WebView: UIViewRepresentable {
         """
         let script = WKUserScript(source: scriptSource, injectionTime: .atDocumentStart, forMainFrameOnly: false)
         userContentController.addUserScript(script)
+        
+        // Inject script to disable keyboard shortcuts bar on all input elements
+        // The shortcuts bar appears due to iOS's inputAssistantItem on input elements
+        // We can't directly control it from JavaScript, but we can set input attributes
+        let disableShortcutsBarScript = """
+        (function() {
+            // CSS to hide the shortcuts bar
+            const style = document.createElement('style');
+            style.textContent = `
+                input, textarea {
+                    -webkit-user-select: text !important;
+                }
+            `;
+            document.head.appendChild(style);
+            
+            // Function to configure input elements to minimize iOS keyboard accessories
+            function configureInput(input) {
+                if (!input) return;
+                
+                // These attributes help reduce iOS keyboard accessories
+                // but won't completely hide the shortcuts bar on iPad with hardware keyboard
+                input.setAttribute('autocorrect', 'off');
+                input.setAttribute('autocapitalize', 'off');
+                input.setAttribute('spellcheck', 'false');
+            }
+            
+            // Apply to existing and future input elements
+            function applyToExistingInputs() {
+                const inputs = document.querySelectorAll('input, textarea');
+                inputs.forEach(configureInput);
+            }
+            
+            const observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    mutation.addedNodes.forEach(function(node) {
+                        if (node.nodeType === 1) {
+                            if (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') {
+                                configureInput(node);
+                            }
+                            if (node.querySelectorAll) {
+                                const inputs = node.querySelectorAll('input, textarea');
+                                inputs.forEach(configureInput);
+                            }
+                        }
+                    });
+                });
+            });
+            
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', function() {
+                    applyToExistingInputs();
+                    if (document.body) {
+                        observer.observe(document.body, { childList: true, subtree: true });
+                    }
+                });
+            } else {
+                applyToExistingInputs();
+                if (document.body) {
+                    observer.observe(document.body, { childList: true, subtree: true });
+                }
+            }
+        })();
+        """
+        let disableShortcutsScript = WKUserScript(source: disableShortcutsBarScript, injectionTime: .atDocumentEnd, forMainFrameOnly: false)
+        userContentController.addUserScript(disableShortcutsScript)
         
         configuration.userContentController = userContentController
         
@@ -915,6 +1154,8 @@ struct WebView: UIViewRepresentable {
             // Send initial physical keyboard state to web after page loads
             if let customWebView = webView as? CustomWebView {
                 customWebView.notifyPhysicalKeyboardState()
+                // Configure text inputs to hide shortcuts bar
+                customWebView.configureAllTextInputs()
             }
         }
         

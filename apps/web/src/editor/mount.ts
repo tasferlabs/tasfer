@@ -17,6 +17,8 @@ export interface MountedEditor {
   readonly editor: Editor;
   /** Container for React portals (e.g., slash command menu) */
   readonly portalContainer: HTMLDivElement;
+  /** Refocus the hidden input (useful after closing drawers/modals) */
+  refocus: () => void;
   destroy: () => void;
 }
 
@@ -172,11 +174,6 @@ export function mountEditor(
       // Native side detected physical keyboard connection
       const hasPhysicalKeyboard = event.data.connected === true;
       editor.setPhysicalKeyboard(hasPhysicalKeyboard);
-
-      // If keyboard disconnected and editor is focused, show software keyboard
-      if (!hasPhysicalKeyboard && editor.getState()?.view.isFocused) {
-        hiddenInput.focus();
-      }
     }
   };
 
@@ -252,12 +249,33 @@ export function mountEditor(
       return;
     }
 
+    // Check if focus is moving to a real input/textarea (like in drawers/popovers)
+    // This works on both mobile and desktop (iPad can be either)
+    const relatedTarget = e.relatedTarget as Node | null;
+
+    if (
+      window.IOSBridge &&
+      relatedTarget &&
+      relatedTarget instanceof HTMLElement
+    ) {
+      const tagName = relatedTarget.tagName.toUpperCase();
+      if (tagName === "INPUT" || tagName === "TEXTAREA") {
+        // Focus moved to a real input element
+        // Only blur the editor on iOS (to hide island toolbar)
+        // On Android, keep editor focused (toolbar stays visible above keyboard)
+        editor.setFocus(false, true);
+        hiddenInput.value = " ";
+        return;
+      }
+      // On Android or web, don't blur - just return to avoid refocusing
+      return;
+    }
+
     // On mobile, ignore transient blurs - focus will be restored if needed
     // This prevents breaking InputConnection during touch interactions
     if (isTouchDevice()) {
-      const relatedTarget = e.relatedTarget as Node | null;
-
       // If focus is moving to another element within our container, ignore it
+      // (e.g., buttons, menus, etc. - not inputs, already handled above)
       if (relatedTarget && container.contains(relatedTarget)) {
         return;
       }
@@ -326,6 +344,15 @@ export function mountEditor(
   window.addEventListener("focus", handleWindowFocus);
   window.addEventListener("blur", handleWindowBlur);
 
+  const refocus = () => {
+    // Refocus the hidden input to restore editor focus and show island toolbar
+    // Only needed on iOS where we blur the editor when drawer inputs are focused
+    // On Android, the editor never loses focus, so no need to refocus
+    if (hiddenInput && !destroyed && window.IOSBridge) {
+      hiddenInput.focus({ preventScroll: true });
+    }
+  };
+
   const destroy = () => {
     destroyed = true;
     resizeObserver.disconnect();
@@ -357,5 +384,5 @@ export function mountEditor(
     canvasContainer.remove();
   };
 
-  return { editor, destroy, portalContainer };
+  return { editor, refocus, destroy, portalContainer };
 }

@@ -105,7 +105,9 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
   const editorInitializedRef = useRef(false);
 
   // Track current toolbar icon type
-  const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">("format");
+  const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">(
+    "format"
+  );
 
   // Native drawer states (triggered by format button on mobile)
   const [nativeLinkDrawerState, setNativeLinkDrawerState] = useState<{
@@ -173,8 +175,11 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       } else if (iconType === "link") {
         // Open link drawer for selected text or existing link
         if (state.document.cursor) {
-          const linkData = getLinkAtPosition(state.document.cursor.position, state);
-          
+          const linkData = getLinkAtPosition(
+            state.document.cursor.position,
+            state
+          );
+
           if (linkData) {
             // Editing existing link
             setNativeLinkDrawerState({
@@ -186,7 +191,10 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
               segmentIndex: linkData.segmentIndex,
             });
             return true;
-          } else if (state.document.selection && !state.document.selection.isCollapsed) {
+          } else if (
+            state.document.selection &&
+            !state.document.selection.isCollapsed
+          ) {
             // Creating new link from selection
             const range = getSelectionRange(state);
             if (range) {
@@ -194,8 +202,11 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
               const block = state.document.page.blocks[start.blockIndex];
               if (block && block.type !== "image") {
                 const text = getBlockTextContent(block);
-                const selectedText = text.substring(start.textIndex, end.textIndex);
-                
+                const selectedText = text.substring(
+                  start.textIndex,
+                  end.textIndex
+                );
+
                 setNativeLinkDrawerState({
                   x: containerRect.left + containerRect.width / 2,
                   y: containerRect.top + 100,
@@ -211,7 +222,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         }
         return false;
       }
-      
+
       // For "format" icon type, let native handle it (open block menu)
       return false;
     };
@@ -304,7 +315,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
             hasSelection,
             hoveredItemId: state.ui.activeMenu.hoveredItemId,
           };
-          
+
           // Handle drag-and-release selection
           if (state.ui.activeMenu.selectedItemId) {
             const selectedItemId = state.ui.activeMenu.selectedItemId;
@@ -423,7 +434,10 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
 
         // Check if cursor is in a link or text is selected
         if (state.document.cursor) {
-          const linkData = getLinkAtPosition(state.document.cursor.position, state);
+          const linkData = getLinkAtPosition(
+            state.document.cursor.position,
+            state
+          );
           if (linkData) {
             return "link";
           }
@@ -649,6 +663,11 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     if (!linkEditState || !mountedRef.current) return;
     mountedRef.current.editor.closeActiveMenu();
     setLinkEditState(null);
+
+    if (window.IOSBridge) {
+      // Refocus editor to restore island toolbar on iOS
+      mountedRef.current.refocus();
+    }
   };
 
   return (
@@ -945,9 +964,11 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
             onUpdate={(newUrl, newText) => {
               if (!mountedRef.current) return;
               const editor = mountedRef.current.editor;
-              
-              if (nativeLinkDrawerState.blockIndex !== undefined && 
-                  nativeLinkDrawerState.segmentIndex !== undefined) {
+
+              if (
+                nativeLinkDrawerState.blockIndex !== undefined &&
+                nativeLinkDrawerState.segmentIndex !== undefined
+              ) {
                 // Update existing link
                 editor.updateLink(
                   nativeLinkDrawerState.blockIndex,
@@ -956,24 +977,30 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
                   newText
                 );
               } else if (
-                nativeLinkDrawerState.blockIndex !== undefined && 
-                nativeLinkDrawerState.startTextIndex !== undefined && 
+                nativeLinkDrawerState.blockIndex !== undefined &&
+                nativeLinkDrawerState.startTextIndex !== undefined &&
                 nativeLinkDrawerState.endTextIndex !== undefined
               ) {
                 // Create new link from selection - restore selection first
                 const blockIndex = nativeLinkDrawerState.blockIndex;
                 const startTextIndex = nativeLinkDrawerState.startTextIndex;
                 const endTextIndex = nativeLinkDrawerState.endTextIndex;
-                
+
                 // Restore the selection by creating it programmatically
                 const anchor = { blockIndex, textIndex: startTextIndex };
                 const focus = { blockIndex, textIndex: endTextIndex };
-                
+
                 editor.restoreCursorAndSelection(
                   { position: focus, lastUpdate: Date.now() },
-                  { anchor, focus, isForward: true, isCollapsed: false, lastUpdate: Date.now() }
+                  {
+                    anchor,
+                    focus,
+                    isForward: true,
+                    isCollapsed: false,
+                    lastUpdate: Date.now(),
+                  }
                 );
-                
+
                 // Now create the link with the restored selection
                 editor.createLink(newUrl, newText);
               }
@@ -984,8 +1011,10 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
                 ? () => {
                     if (!mountedRef.current) return;
                     const editor = mountedRef.current.editor;
-                    if (nativeLinkDrawerState.blockIndex !== undefined && 
-                        nativeLinkDrawerState.segmentIndex !== undefined) {
+                    if (
+                      nativeLinkDrawerState.blockIndex !== undefined &&
+                      nativeLinkDrawerState.segmentIndex !== undefined
+                    ) {
                       editor.clearLink(
                         nativeLinkDrawerState.blockIndex,
                         nativeLinkDrawerState.segmentIndex
@@ -995,7 +1024,11 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
                   }
                 : undefined
             }
-            onClose={() => setNativeLinkDrawerState(null)}
+            onClose={() => {
+              setNativeLinkDrawerState(null);
+              // Refocus editor to restore island toolbar on iOS
+              mountedRef.current?.refocus();
+            }}
             collisionBoundary={mountedRef.current?.portalContainer}
             container={mountedRef.current?.portalContainer}
           />,
@@ -1060,7 +1093,11 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
               editor.deleteImageBlock(nativeImageDrawerState.blockIndex);
               setNativeImageDrawerState(null);
             }}
-            onClose={() => setNativeImageDrawerState(null)}
+            onClose={() => {
+              setNativeImageDrawerState(null);
+              // Refocus editor to restore island toolbar on iOS
+              mountedRef.current?.refocus();
+            }}
             collisionBoundary={mountedRef.current?.portalContainer}
             container={mountedRef.current?.portalContainer}
           />,
