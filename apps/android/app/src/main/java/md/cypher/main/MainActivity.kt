@@ -615,9 +615,20 @@ class MainActivity : ComponentActivity() {
                 if (isKeyboardVisible) {
                     // Calculate actual keyboard height (excluding system navigation bar)
                     keyboardHeight = ime.bottom - bottomInset
+                    
+                    // Detect if this is a soft keyboard or hardware keyboard based on IME height
+                    // Hardware keyboards show with minimal IME insets (0-100dp), soft keyboards are taller (200+dp)
+                    val keyboardHeightDp = keyboardHeight / density
+                    val isSoftKeyboard = keyboardHeightDp > 100
+                    
+                    // Update physical keyboard state based on actual keyboard appearance
+                    if (isSoftKeyboard != !hasPhysicalKeyboard) {
+                        hasPhysicalKeyboard = !isSoftKeyboard
+                        notifyPhysicalKeyboardState()
+                    }
 
-                    // Only show toolbar if canvas editor is focused AND no physical keyboard
-                    if (isEditorFocused && !hasPhysicalKeyboard) {
+                    // Only show toolbar if canvas editor is focused AND soft keyboard is showing
+                    if (isEditorFocused && isSoftKeyboard) {
                         // Show toolbar above keyboard
                         showEditingUI()
 
@@ -637,7 +648,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     } else {
-                        // Editor not focused, keyboard is for other input - hide toolbar only
+                        // Editor not focused or hardware keyboard - hide toolbar only
                         // Don't clear webview focus as other inputs may need the keyboard
                         hideToolbarOnly()
                         
@@ -720,18 +731,20 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun detectPhysicalKeyboard() {
-        // On Android, we detect hardware keyboard using Configuration.hardKeyboardHidden
+        // Initial detection - default to no physical keyboard
+        // The actual state is determined by IME inset height in setupWindowInsets
+        // when the keyboard actually appears
+        // 
+        // On Android tablets, hardKeyboardHidden can be unreliable because a Bluetooth
+        // keyboard might be paired but the user can still choose to show the soft keyboard
         val config = resources.configuration
         val previousState = hasPhysicalKeyboard
         
-        // Check if a hardware keyboard is currently connected and visible
-        // HARDKEYBOARDHIDDEN_NO = Hardware keyboard is connected and available
-        // HARDKEYBOARDHIDDEN_YES = No hardware keyboard or it's hidden
-        // HARDKEYBOARDHIDDEN_UNDEFINED = Unknown state (treat as no physical keyboard)
-        // 
-        // Note: We only check hardKeyboardHidden, not config.keyboard, because many tablets
-        // report KEYBOARD_QWERTY even when no physical keyboard is connected (they're just capable)
-        hasPhysicalKeyboard = config.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO
+        // Only update to false if definitely no keyboard, otherwise let IME insets decide
+        if (config.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_YES ||
+            config.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_UNDEFINED) {
+            hasPhysicalKeyboard = false
+        }
         
         // Notify web view if state changed
         if (previousState != hasPhysicalKeyboard) {
