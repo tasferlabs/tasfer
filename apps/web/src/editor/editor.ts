@@ -52,7 +52,6 @@ import type { EditorState, SlashCommand, ViewportState } from "./types";
 import { recordUndo, undoState, redoState } from "./undo";
 import type { CanvasLayers } from "./layers";
 import { onFontFamilyChange } from "./fonts";
-import { isCursorAnimating } from "./animation";
 
 export interface Editor {
   getState: () => EditorState | null;
@@ -269,11 +268,6 @@ export default function createEditor(
 
       // Cursor blink only affects cursor layer
       if (cursorBlinkChanged) {
-        dirtyLayers.cursor = true;
-      }
-
-      // Cursor animation requires continuous rendering
-      if (isCursorAnimating()) {
         dirtyLayers.cursor = true;
       }
 
@@ -815,7 +809,7 @@ export default function createEditor(
       state = clearSelection(state);
     }
     scheduleRender(); // Schedule render when focus changes
-    
+
     // Notify native platforms of editor focus state
     if (window.AndroidBridge?.setEditorFocused) {
       window.AndroidBridge.setEditorFocused(focused);
@@ -929,7 +923,8 @@ export default function createEditor(
   }
 
   function toggleBoldMethod() {
-    const hasSelection = state.document.selection && !state.document.selection.isCollapsed;
+    const hasSelection =
+      state.document.selection && !state.document.selection.isCollapsed;
     state = toggleBold(hasSelection ? recordUndo(state) : state);
     const currentState = state;
     scheduleRender();
@@ -937,7 +932,8 @@ export default function createEditor(
   }
 
   function toggleItalicMethod() {
-    const hasSelection = state.document.selection && !state.document.selection.isCollapsed;
+    const hasSelection =
+      state.document.selection && !state.document.selection.isCollapsed;
     state = toggleItalic(hasSelection ? recordUndo(state) : state);
     const currentState = state;
     scheduleRender();
@@ -945,7 +941,8 @@ export default function createEditor(
   }
 
   function toggleCodeMethod() {
-    const hasSelection = state.document.selection && !state.document.selection.isCollapsed;
+    const hasSelection =
+      state.document.selection && !state.document.selection.isCollapsed;
     state = toggleCode(hasSelection ? recordUndo(state) : state);
     const currentState = state;
     scheduleRender();
@@ -953,7 +950,8 @@ export default function createEditor(
   }
 
   function toggleStrikethroughMethod() {
-    const hasSelection = state.document.selection && !state.document.selection.isCollapsed;
+    const hasSelection =
+      state.document.selection && !state.document.selection.isCollapsed;
     state = toggleStrikethrough(hasSelection ? recordUndo(state) : state);
     const currentState = state;
     scheduleRender();
@@ -1014,8 +1012,16 @@ export default function createEditor(
 
     // Extract content before selection, after selection, and create link in between
     const blockText = getBlockTextContent(block);
-    const beforeContent = extractSegmentsInRange(block.content, 0, start.textIndex);
-    const afterContent = extractSegmentsInRange(block.content, end.textIndex, blockText.length);
+    const beforeContent = extractSegmentsInRange(
+      block.content,
+      0,
+      start.textIndex
+    );
+    const afterContent = extractSegmentsInRange(
+      block.content,
+      end.textIndex,
+      blockText.length
+    );
 
     // Create the new content with the link in the middle
     const newContent = [
@@ -1044,7 +1050,11 @@ export default function createEditor(
 
     // Clear selection and move cursor to end of inserted link
     state = clearSelection(state);
-    state = moveCursorToPosition(state, start.blockIndex, start.textIndex + text.length);
+    state = moveCursorToPosition(
+      state,
+      start.blockIndex,
+      start.textIndex + text.length
+    );
 
     const currentState = state;
     scheduleRender();
