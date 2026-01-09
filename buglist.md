@@ -203,7 +203,7 @@ Bugs list
 - [ ] indent with mixed direction rtl todo
 - [ ] Pen input, stylus support. Handwriting.
 - [ ] Safe area on sidebar
-- [ ] GPU process (0x1150d81e0) took 3.668330 seconds to launch, Networking process (0x115100190) took 3.640831 seconds to launch, WebContent process (0x115078100) took 5.709915 seconds to launch
+- [ ] GPU process (0x1150d81e0) took 3.668330 seconds to launch, Networking process (0x115100190) took 3.640831 seconds to launch, WebContent process (0x115078100) took 5.709915 seconds to launch - Optimized with WKProcessPool reuse, background task handling, WebView prewarming, and lifecycle optimizations
 - [ ] protocol for opening cypher links.
 - [ ] if click outside the box selection should be lost.
 

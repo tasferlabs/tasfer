@@ -48,18 +48,22 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     
     func sceneWillEnterForeground(_ scene: UIScene) {
         // Update background when returning to foreground (handles theme changes)
+        // Only update window background, not all windows to avoid covering content
         window?.backgroundColor = UIColor(named: "Background")
-        
-        if let windowScene = scene as? UIWindowScene {
-            for win in windowScene.windows {
-                win.backgroundColor = UIColor(named: "Background")
-            }
-        }
     }
-    
+
     func sceneDidBecomeActive(_ scene: UIScene) {
         // Update background when scene becomes active
         window?.backgroundColor = UIColor(named: "Background")
+
+        // Force refresh the root view to ensure proper rendering
+        if let windowScene = scene as? UIWindowScene {
+            for window in windowScene.windows {
+                // Invalidate layout to force re-render
+                window.rootViewController?.view?.setNeedsLayout()
+                window.rootViewController?.view?.layoutIfNeeded()
+            }
+        }
     }
 }
 

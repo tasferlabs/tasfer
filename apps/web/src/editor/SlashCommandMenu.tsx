@@ -1,6 +1,6 @@
-import React, { useEffect } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { Type, Heading1, Heading2, Heading3, Image, List, ListOrdered, CheckSquare, LayoutList } from "lucide-react";
+import { Heading1, Heading2, Heading3, Image, LayoutList, List, ListOrdered, Type } from "lucide-react";
+import React, { useEffect } from "react";
 import type { SlashCommand } from "./types";
 
 export const SLASH_COMMANDS: SlashCommand[] = [

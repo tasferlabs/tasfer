@@ -590,6 +590,20 @@ class CustomWebView: WKWebView {
             name: UIResponder.keyboardDidHideNotification,
             object: nil
         )
+
+        // Observe app lifecycle to refresh view on foreground
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillEnterForeground(_:)),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive(_:)),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
         
         // Observe hardware keyboard connection changes (iOS 14+)
         if #available(iOS 14.0, *) {
@@ -747,6 +761,41 @@ class CustomWebView: WKWebView {
             hasPhysicalKeyboard = false
             notifyPhysicalKeyboardState()
             // Note: Island visibility will be updated when keyboard actually shows
+        }
+    }
+
+    @objc private func appWillEnterForeground(_ notification: Notification) {
+        // Force layout update when app enters foreground
+        DispatchQueue.main.async { [weak self] in
+            self?.setNeedsLayout()
+            self?.layoutIfNeeded()
+        }
+    }
+
+    @objc private func appDidBecomeActive(_ notification: Notification) {
+        // Ensure WebView is visible and properly rendered after becoming active
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            // Force re-render by toggling opacity
+            self.isOpaque = true
+            self.isOpaque = false
+
+            // Update background color
+            if let backgroundColor = UIColor(named: "Background") {
+                self.backgroundColor = backgroundColor
+                self.scrollView.backgroundColor = backgroundColor
+            }
+
+            // Force layout pass
+            self.setNeedsLayout()
+            self.layoutIfNeeded()
+
+            // Notify web content that app has returned
+            let javascript = """
+            window.postMessage({type: 'app-foreground'}, '*');
+            """
+            self.evaluateJavaScript(javascript, completionHandler: nil)
         }
     }
     
