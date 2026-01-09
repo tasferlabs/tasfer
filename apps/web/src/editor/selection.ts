@@ -406,6 +406,150 @@ export function scrollToMakeCursorVisible(
   return null;
 }
 
+/**
+ * Find position when clicking in left or right padding area.
+ * Returns start or end of line based on text direction:
+ * - LTR: left padding → start of line, right padding → end of line
+ * - RTL: left padding → end of line, right padding → start of line
+ */
+function getPositionFromPaddingClick(
+  y: number,
+  isLeftPadding: boolean,
+  state: EditorState,
+  maxWidth: number,
+  startY: number,
+  styles: EditorStyles
+): Position | null {
+  let currentY = startY;
+
+  for (
+    let blockIndex = 0;
+    blockIndex < state.document.page.blocks.length;
+    blockIndex++
+  ) {
+    const block = state.document.page.blocks[blockIndex];
+    const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
+
+    // Check if click is within this block's Y bounds
+    if (y >= currentY && y < currentY + blockHeight) {
+      // Image blocks - position at start
+      if (block.type === "image" || !isNotImageBlock(block)) {
+        return { blockIndex, textIndex: 0 };
+      }
+
+      // Detect text direction
+      const isRTL = getFormattedTextDirection(block.content) === "rtl";
+
+      // Get text style for line height calculation
+      const textStyle = getTextStyle(styles, block.type);
+      const fontFamily = getCurrentFontFamily();
+      const codePadding = styles.textFormats.code.padding;
+
+      // Calculate adjusted max width for list blocks
+      let adjustedMaxWidth = maxWidth;
+      if (isListBlock(block)) {
+        const indent = block.indent || 0;
+        const indentOffset = indent * styles.list.indent.size;
+        const markerWidth =
+          styles.list.numbered.minWidth + styles.list.marker.textGap;
+        adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
+      }
+
+      // Wrap text to get lines
+      const lines = wrapFormattedTextDetailed(
+        block.content,
+        adjustedMaxWidth,
+        textStyle.fontSize,
+        textStyle.fontWeight,
+        fontFamily,
+        codePadding
+      );
+
+      // Calculate line height
+      const fontMetrics = getFontMetrics(
+        textStyle.fontSize,
+        textStyle.fontWeight,
+        fontFamily
+      );
+      const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
+
+      // Find which line was clicked
+      let textIndex = 0;
+      let lineY = currentY;
+
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        const wrappedLine = lines[lineIndex];
+        const line = wrappedLine.text;
+        const lineBottom = lineY + lineHeight;
+
+        if (y >= lineY && y < lineBottom) {
+          // Found the line - determine start or end based on direction
+          const lineStartIndex = textIndex;
+          const lineEndIndex = textIndex + line.length;
+
+          // LTR: left → start, right → end
+          // RTL: left → end, right → start
+          if (isLeftPadding) {
+            return {
+              blockIndex,
+              textIndex: isRTL ? lineEndIndex : lineStartIndex,
+            };
+          } else {
+            return {
+              blockIndex,
+              textIndex: isRTL ? lineStartIndex : lineEndIndex,
+            };
+          }
+        }
+
+        textIndex += line.length;
+        if (wrappedLine.consumedSpace) {
+          textIndex += 1;
+        }
+        lineY += lineHeight;
+      }
+
+      // Click is in block padding - use last line
+      if (lines.length > 0) {
+        const lastLine = lines[lines.length - 1];
+        const lastLineStartIndex =
+          textIndex - lastLine.text.length - (lastLine.consumedSpace ? 1 : 0);
+        const lastLineEndIndex = lastLineStartIndex + lastLine.text.length;
+
+        if (isLeftPadding) {
+          return {
+            blockIndex,
+            textIndex: isRTL ? lastLineEndIndex : lastLineStartIndex,
+          };
+        } else {
+          return {
+            blockIndex,
+            textIndex: isRTL ? lastLineStartIndex : lastLineEndIndex,
+          };
+        }
+      }
+
+      return { blockIndex, textIndex: 0 };
+    }
+
+    currentY += blockHeight;
+  }
+
+  // Click is below all blocks - position at end of last block
+  if (state.document.page.blocks.length > 0) {
+    const lastBlockIndex = state.document.page.blocks.length - 1;
+    const lastBlock = state.document.page.blocks[lastBlockIndex];
+    const content = getBlockTextContent(lastBlock);
+
+    return {
+      blockIndex: lastBlockIndex,
+      textIndex: content.length,
+    };
+  }
+
+  return null;
+}
+
 export function getTextPositionFromViewport(
   x: number,
   y: number,
@@ -419,11 +563,20 @@ export function getTextPositionFromViewport(
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
   // Check if click is in the left or right padding areas
-  if (
-    x < styles.canvas.paddingLeft ||
-    x > styles.canvas.paddingLeft + maxWidth
-  ) {
-    return null;
+  const isInLeftPadding = x < styles.canvas.paddingLeft;
+  const isInRightPadding = x > styles.canvas.paddingLeft + maxWidth;
+  const isInPadding = isInLeftPadding || isInRightPadding;
+
+  // For padding clicks, find the line and position at start/end based on direction
+  if (isInPadding) {
+    return getPositionFromPaddingClick(
+      y,
+      isInLeftPadding,
+      state,
+      maxWidth,
+      currentY,
+      styles
+    );
   }
 
   // We need to iterate through ALL blocks from the start to get correct Y positions

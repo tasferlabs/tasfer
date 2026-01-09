@@ -1524,15 +1524,33 @@ function handleMouseDown(
   const isClickInTopPadding =
     canvasY < styles.canvas.paddingTop - viewport.scrollY;
 
-  // If clicking in top padding, preserve active selections (e.g. after "select all")
+  // If clicking in top padding, clear selection
   if (isClickInTopPadding) {
-    // Only clear selection if it's collapsed or doesn't exist
-    if (!state.document.selection || state.document.selection.isCollapsed) {
     const clearedState = clearSelection(state);
     return updateMode(clearedState, "edit");
+  }
+
+  // Check if clicking in left/right padding area
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  const isClickInLeftPadding = canvasX < styles.canvas.paddingLeft;
+  const isClickInRightPadding = canvasX > styles.canvas.paddingLeft + maxWidth;
+
+  // If clicking in left/right padding, position cursor at start/end of line and clear selection
+  if (isClickInLeftPadding || isClickInRightPadding) {
+    const paddingPosition = getTextPositionFromViewport(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      visibility
+    );
+
+    if (paddingPosition) {
+      let newState = clearSelection(state);
+      newState = updateCursor(newState, paddingPosition);
+      return updateMode(newState, "edit");
     }
-    // Keep active selection and just switch to edit mode
-    return updateMode(state, "edit");
   }
 
   const position = getTextPositionFromViewport(
@@ -3924,6 +3942,46 @@ function handleTouchEnd(
           },
         },
       };
+    }
+
+    // Check if tapping in left/right padding area
+    const maxWidth =
+      viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+    const isTapInLeftPadding = tapPosition.x < styles.canvas.paddingLeft;
+    const isTapInRightPadding =
+      tapPosition.x > styles.canvas.paddingLeft + maxWidth;
+
+    // If tapping in left/right padding, position cursor at start/end of line and clear selection
+    if (isTapInLeftPadding || isTapInRightPadding) {
+      const paddingPosition = getTextPositionFromViewport(
+        tapPosition.x,
+        tapPosition.y,
+        state,
+        viewport,
+        { start: 0, end: state.document.page.blocks.length - 1 }
+      );
+
+      if (paddingPosition) {
+        state = clearSelection(state);
+        state = updateCursor(state, paddingPosition);
+        state = updateMode(state, "edit");
+        // Close any active menu when tapping in padding
+        if (state.ui.activeMenu.type === "contextMenu") {
+          state = closeActiveMenu(state);
+        }
+
+        touchState = null;
+        return {
+          ...state,
+          view: {
+            ...state.view,
+            scrollbar: {
+              ...state.view.scrollbar,
+              lastInteraction: Date.now(),
+            },
+          },
+        };
+      }
     }
 
     // Check for tap on todo checkbox
