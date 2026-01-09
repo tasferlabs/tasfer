@@ -1,9 +1,13 @@
 import { Button } from "@/components/ui/button";
 import {
+  Bold,
   Clipboard,
+  Code,
   Copy,
   Image as ImageIcon,
+  Italic,
   Scissors,
+  Strikethrough,
   Type,
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
@@ -615,6 +619,68 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         label: "Paste",
         icon: <Clipboard size={16} />,
         action: () => handleContextMenuAction("paste"),
+      });
+    }
+
+    // Add Format submenu for desktop when text is selected
+    if (hasSelection) {
+      // Get active formats from current selection
+      const getActiveFormats = () => {
+        const state = mountedRef.current?.editor.getState();
+        if (!state) return [];
+
+        if (state.ui.activeFormatsMode.type === "explicit") {
+          return state.ui.activeFormatsMode.formats;
+        }
+        // Inherit mode: get formats from cursor position
+        if (state.document.cursor) {
+          const { blockIndex, textIndex } = state.document.cursor.position;
+          const block = state.document.page.blocks[blockIndex];
+          return getFormatsAtPosition(block, textIndex) || [];
+        }
+        return [];
+      };
+
+      const activeFormats = getActiveFormats();
+      const isBold = activeFormats.some((f) => f.type === "bold");
+      const isItalic = activeFormats.some((f) => f.type === "italic");
+      const isCode = activeFormats.some((f) => f.type === "code");
+      const isStrikethrough = activeFormats.some((f) => f.type === "strikethrough");
+
+      items.push({
+        id: "format",
+        label: "Format",
+        icon: <Type size={16} />,
+        children: [
+          {
+            id: "format-bold",
+            label: "Bold",
+            icon: <Bold size={16} />,
+            action: () => mountedRef.current?.editor.toggleBold(),
+            active: isBold,
+          },
+          {
+            id: "format-italic",
+            label: "Italic",
+            icon: <Italic size={16} />,
+            action: () => mountedRef.current?.editor.toggleItalic(),
+            active: isItalic,
+          },
+          {
+            id: "format-code",
+            label: "Code",
+            icon: <Code size={16} />,
+            action: () => mountedRef.current?.editor.toggleCode(),
+            active: isCode,
+          },
+          {
+            id: "format-strikethrough",
+            label: "Strikethrough",
+            icon: <Strikethrough size={16} />,
+            action: () => mountedRef.current?.editor.toggleStrikethrough(),
+            active: isStrikethrough,
+          },
+        ],
       });
     }
 

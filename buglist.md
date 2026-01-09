@@ -69,7 +69,7 @@ Bugs list
 - [x] on android keyboard toolbar we should add active/inactive state for block type menu.
 - [x] we should add inline formatting options in ios keyboard island.
 - [x] we should add inline formatting options in android keyboard toolbar.
-- [ ] On desktop we should add formating inline options on cotnext menu.
+- [x] On desktop we should add formating inline options on cotnext menu.
 - [ ] mobile inline formatting options.
 - [ ] Add animation on scrolling to make more visually apealing.
 - [ ] Remove the markdown style when copying plain text.
