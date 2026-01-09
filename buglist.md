@@ -72,11 +72,11 @@ Bugs list
 - [x] On desktop we should add formating inline options on cotnext menu.
 - [x] delete at start of text after an image, delete the text.
 - [-] Add more animations to make the app more visually apealing.
-- [ ] Remove the markdown style when copying plain text.
+- [-] Remove the markdown style when copying plain text.
 - [ ] Typing two spaces should exit inline styling, consult someone if this actaully good pratice.
 - [ ] consider adding selection dragging on mobiles on both anchor and foucus. Like it is on ios. This for epxanding the selection and shrinking.
 - [x] add link for inline rendering format but the styles should be resvered for links. Add parsing logic for links as well. Add menu for changing the link tile.
-- [x] ctrl click or command click should open the link. But it should not matter if it happens in fly while selecting.
+- [x] ctrl click or command     click should open the link. But it should not matter if it happens in fly while selecting.
 - [x] hover on link should radix toolip and preview and with edit edit button and copy button. clicking on link preview should open it.
 - [ ] how to do the above on mobile.
 - [ ] do design overhaul.
@@ -171,7 +171,7 @@ Bugs list
 - [x] conflict between scroll bar and drag handle.
 - [x] placeholder image should drag handles.
 - [ ] change position of cover image.
-- [ ] Remove an image. Improve EditImagePopover.
+- [-] Remove an image. Improve EditImagePopover.
 - [x] word count should not count images.
 - [ ] copy and paste should work with images.
 - [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
