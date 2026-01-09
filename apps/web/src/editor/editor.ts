@@ -9,6 +9,10 @@ import {
   getSelectionRange,
   mergeAdjacentSegments,
   extractSegmentsInRange,
+  toggleBold,
+  toggleItalic,
+  toggleCode,
+  toggleStrikethrough,
 } from "./commands";
 import {
   copySelectionToClipboard,
@@ -70,6 +74,10 @@ export interface Editor {
   undo: () => void;
   redo: () => void;
   selectAll: () => void;
+  toggleBold: () => void;
+  toggleItalic: () => void;
+  toggleCode: () => void;
+  toggleStrikethrough: () => void;
   setBlockType: (type: Block["type"]) => void;
   updateLink: (
     blockIndex: number,
@@ -914,6 +922,38 @@ export default function createEditor(
     listeners.forEach((listener) => listener(currentState));
   }
 
+  function toggleBoldMethod() {
+    const hasSelection = state.document.selection && !state.document.selection.isCollapsed;
+    state = toggleBold(hasSelection ? recordUndo(state) : state);
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  function toggleItalicMethod() {
+    const hasSelection = state.document.selection && !state.document.selection.isCollapsed;
+    state = toggleItalic(hasSelection ? recordUndo(state) : state);
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  function toggleCodeMethod() {
+    const hasSelection = state.document.selection && !state.document.selection.isCollapsed;
+    state = toggleCode(hasSelection ? recordUndo(state) : state);
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  function toggleStrikethroughMethod() {
+    const hasSelection = state.document.selection && !state.document.selection.isCollapsed;
+    state = toggleStrikethrough(hasSelection ? recordUndo(state) : state);
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
   function setBlockType(type: Block["type"]) {
     if (!state.document.cursor) return;
     state = recordUndo(state);
@@ -1196,6 +1236,10 @@ export default function createEditor(
     undo,
     redo,
     selectAll: selectAllMethod,
+    toggleBold: toggleBoldMethod,
+    toggleItalic: toggleItalicMethod,
+    toggleCode: toggleCodeMethod,
+    toggleStrikethrough: toggleStrikethroughMethod,
     setBlockType,
     updateLink,
     clearLink,

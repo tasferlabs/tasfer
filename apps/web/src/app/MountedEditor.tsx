@@ -16,7 +16,7 @@ import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
 import { SlashCommandMenu } from "../editor/SlashCommandMenu";
 import { hasNativeBridge } from "../editor/clipboard";
-import { getSelectionRange } from "../editor/commands";
+import { getSelectionRange, getFormatsAtPosition } from "../editor/commands";
 import { getBlockTextContent } from "../editor/state";
 import {
   mountEditor,
@@ -237,6 +237,10 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         mounted.editor.setInitialCursor();
       },
       onFormatButtonClick: handleFormatButtonClick,
+      toggleBold: () => mounted.editor.toggleBold(),
+      toggleItalic: () => mounted.editor.toggleItalic(),
+      toggleCode: () => mounted.editor.toggleCode(),
+      toggleStrikethrough: () => mounted.editor.toggleStrikethrough(),
     };
 
     if (window.IOSBridge) {
@@ -476,6 +480,40 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       if (window.AndroidBridge) {
         window.AndroidBridge.updateToolbarIcon?.(iconType);
       }
+
+      // Send formatting state to native bridge
+      const getActiveFormats = () => {
+        if (state.ui.activeFormatsMode.type === "explicit") {
+          return state.ui.activeFormatsMode.formats;
+        }
+        // Inherit mode: get formats from cursor position
+        if (state.document.cursor) {
+          const { blockIndex, textIndex } = state.document.cursor.position;
+          const block = state.document.page.blocks[blockIndex];
+          return getFormatsAtPosition(block, textIndex) || [];
+        }
+        return [];
+      };
+
+      const activeFormats = getActiveFormats();
+      const isBold = activeFormats.some((f) => f.type === "bold");
+      const isItalic = activeFormats.some((f) => f.type === "italic");
+      const isCode = activeFormats.some((f) => f.type === "code");
+      const isStrikethrough = activeFormats.some((f) => f.type === "strikethrough");
+
+      if (window.IOSBridge) {
+        window.IOSBridge.postMessage({
+          action: "formatting-state",
+          bold: isBold,
+          italic: isItalic,
+          code: isCode,
+          strikethrough: isStrikethrough,
+        });
+      }
+
+      if (window.AndroidBridge) {
+        window.AndroidBridge.updateFormattingState?.(isBold, isItalic, isCode, isStrikethrough);
+      }
     };
 
     const unsubscribe = mounted.editor.subscribe(handleStateChange);
@@ -499,6 +537,10 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         delete window.AndroidBridge.redo;
         delete window.AndroidBridge.setBlockType;
         delete window.AndroidBridge.focus;
+        delete window.AndroidBridge.toggleBold;
+        delete window.AndroidBridge.toggleItalic;
+        delete window.AndroidBridge.toggleCode;
+        delete window.AndroidBridge.toggleStrikethrough;
       }
       if (mountedRef.current === mounted) {
         mountedRef.current = null;

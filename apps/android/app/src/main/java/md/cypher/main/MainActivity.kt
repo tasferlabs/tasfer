@@ -542,19 +542,46 @@ class MainActivity : ComponentActivity() {
 
     private fun toggleFormattingToolbar() {
         isFormattingExpanded = !isFormattingExpanded
+        val animDuration = 150L
 
         if (isFormattingExpanded) {
-            // Show formatting scroll view, hide main toolbar scroll view
-            toolbarScrollView.visibility = View.GONE
-            formattingScrollView.visibility = View.VISIBLE
-            // Reset scroll position
-            formattingScrollView.scrollTo(0, 0)
+            // Fade out main toolbar first, then show formatting toolbar
+            toolbarScrollView.animate()
+                .alpha(0f)
+                .setDuration(animDuration)
+                .withEndAction {
+                    toolbarScrollView.visibility = View.GONE
+
+                    // Now show and fade in formatting toolbar
+                    formattingScrollView.alpha = 0f
+                    formattingScrollView.visibility = View.VISIBLE
+                    formattingScrollView.scrollTo(0, 0)
+
+                    formattingScrollView.animate()
+                        .alpha(1f)
+                        .setDuration(animDuration)
+                        .start()
+                }
+                .start()
         } else {
-            // Show main toolbar scroll view, hide formatting scroll view
-            toolbarScrollView.visibility = View.VISIBLE
-            formattingScrollView.visibility = View.GONE
-            // Reset scroll position
-            toolbarScrollView.scrollTo(0, 0)
+            // Fade out formatting toolbar first, then show main toolbar
+            formattingScrollView.animate()
+                .alpha(0f)
+                .setDuration(animDuration)
+                .withEndAction {
+                    formattingScrollView.visibility = View.GONE
+
+                    // Now show and fade in main toolbar
+                    toolbarScrollView.alpha = 0f
+                    toolbarScrollView.visibility = View.VISIBLE
+                    toolbarScrollView.scrollTo(0, 0)
+
+                    toolbarScrollView.animate()
+                        .alpha(1f)
+                        .setDuration(animDuration)
+                        .start()
+                }
+                .start()
         }
     }
 
@@ -567,6 +594,10 @@ class MainActivity : ComponentActivity() {
             italicButton.setColorFilter(if (isItalic) activeColor else inactiveColor)
             codeButton.setColorFilter(if (isCode) activeColor else inactiveColor)
             strikethroughButton.setColorFilter(if (isStrikethrough) activeColor else inactiveColor)
+
+            // Update inline format button to show active if any format is active
+            val anyFormatActive = isBold || isItalic || isCode || isStrikethrough
+            inlineFormatButton.setColorFilter(if (anyFormatActive) activeColor else inactiveColor)
         }
     }
 
@@ -593,7 +624,10 @@ class MainActivity : ComponentActivity() {
         // Collapse formatting toolbar if expanded
         if (isFormattingExpanded) {
             isFormattingExpanded = false
+            // Reset alpha values and visibility without animation
+            toolbarScrollView.alpha = 1f
             toolbarScrollView.visibility = View.VISIBLE
+            formattingScrollView.alpha = 0f
             formattingScrollView.visibility = View.GONE
         }
 

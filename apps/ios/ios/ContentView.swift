@@ -603,17 +603,32 @@ class AccessoryIslandView: UIView {
     func toggleFormattingExpansion() {
         isFormattingExpanded.toggle()
 
-        UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseInOut) {
-            if self.isFormattingExpanded {
-                // Show formatting buttons, hide main buttons
+        if isFormattingExpanded {
+            // Prepare formatting buttons for animation (start invisible)
+            formattingButtonsStack.alpha = 0
+            formattingButtonsStack.isHidden = false
+
+            UIView.animate(withDuration: 0.2, delay: 0, options: .curveEaseInOut) {
+                // Fade out main buttons
+                self.mainButtonsStack.alpha = 0
+                // Fade in formatting buttons
+                self.formattingButtonsStack.alpha = 1
+            } completion: { _ in
                 self.mainButtonsStack.isHidden = true
-                self.formattingButtonsStack.isHidden = false
-            } else {
-                // Show main buttons, hide formatting buttons
-                self.mainButtonsStack.isHidden = false
+            }
+        } else {
+            // Prepare main buttons for animation (start invisible)
+            mainButtonsStack.alpha = 0
+            mainButtonsStack.isHidden = false
+
+            UIView.animate(withDuration: 0.2, delay: 0, options: .curveEaseInOut) {
+                // Fade out formatting buttons
+                self.formattingButtonsStack.alpha = 0
+                // Fade in main buttons
+                self.mainButtonsStack.alpha = 1
+            } completion: { _ in
                 self.formattingButtonsStack.isHidden = true
             }
-            self.scrollView.layoutIfNeeded()
         }
 
         // Reset scroll position when toggling
@@ -677,17 +692,24 @@ class AccessoryIslandView: UIView {
     }
 
     func updateFormattingState(isBold: Bool, isItalic: Bool, isCode: Bool, isStrikethrough: Bool) {
-        boldBtn.tintColor = isBold ? .systemBlue : .label
-        italicBtn.tintColor = isItalic ? .systemBlue : .label
-        codeBtn.tintColor = isCode ? .systemBlue : .label
-        strikethroughBtn.tintColor = isStrikethrough ? .systemBlue : .label
+        boldBtn.tintColor = isBold ? .systemGreen : .label
+        italicBtn.tintColor = isItalic ? .systemGreen : .label
+        codeBtn.tintColor = isCode ? .systemGreen : .label
+        strikethroughBtn.tintColor = isStrikethrough ? .systemGreen : .label
+
+        // Update inline format button to show active if any format is active
+        let anyFormatActive = isBold || isItalic || isCode || isStrikethrough
+        inlineFormatBtn.tintColor = anyFormatActive ? .systemGreen : .label
     }
 
     // Collapse formatting if expanded (useful when keyboard dismisses)
     func collapseFormattingIfNeeded() {
         if isFormattingExpanded {
             isFormattingExpanded = false
+            // Reset alpha values and visibility without animation
+            mainButtonsStack.alpha = 1
             mainButtonsStack.isHidden = false
+            formattingButtonsStack.alpha = 0
             formattingButtonsStack.isHidden = true
             scrollView.setContentOffset(.zero, animated: false)
         }

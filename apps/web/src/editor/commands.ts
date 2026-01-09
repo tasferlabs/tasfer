@@ -155,7 +155,7 @@ export function deleteTextRangeInFormattedContent(
  * Get the formatting at a specific text position in a block
  * Returns the formats of the character just before the cursor position
  */
-function getFormatsAtPosition(
+export function getFormatsAtPosition(
   block: Block,
   textIndex: number
 ): readonly TextFormat[] | undefined {
@@ -2116,13 +2116,16 @@ export function selectCurrentBlock(state: EditorState): EditorState {
 }
 
 /**
- * Toggle bold formatting on selected text or at cursor position
- * If there's no selection, toggles bold mode for next typed text
+ * Generic function to toggle inline formatting on selected text or at cursor position
+ * If there's no selection, toggles the format mode for next typed text
  */
-export function toggleBold(state: EditorState): EditorState {
+export function toggleFormat(
+  state: EditorState,
+  formatType: "bold" | "italic" | "code" | "strikethrough"
+): EditorState {
   const range = getSelectionRange(state);
 
-  // If no selection, toggle bold in UI's active formats
+  // If no selection, toggle format in UI's active formats
   if (!range) {
     if (!state.document.cursor) return state;
 
@@ -2138,15 +2141,15 @@ export function toggleBold(state: EditorState): EditorState {
       currentFormats = getFormatsAtPosition(block, textIndex) || [];
     }
 
-    const hasBold = currentFormats.some((f) => f.type === "bold");
+    const hasFormat = currentFormats.some((f) => f.type === formatType);
 
     let newFormats: TextFormat[];
-    if (hasBold) {
-      // Remove bold
-      newFormats = currentFormats.filter((f) => f.type !== "bold");
+    if (hasFormat) {
+      // Remove format
+      newFormats = currentFormats.filter((f) => f.type !== formatType);
     } else {
-      // Add bold
-      newFormats = [...currentFormats, { type: "bold" }];
+      // Add format
+      newFormats = [...currentFormats, { type: formatType }];
     }
 
     return {
@@ -2175,13 +2178,13 @@ export function toggleBold(state: EditorState): EditorState {
       end.textIndex
     );
 
-    // Check if all segments are already bold
-    const isBold = allSegmentsHaveFormat(selectedSegments, "bold");
+    // Check if all segments already have the format
+    const hasFormat = allSegmentsHaveFormat(selectedSegments, formatType);
 
-    // Toggle bold formatting
-    const modifiedSegments = isBold
-      ? removeFormatFromSegments(selectedSegments, "bold")
-      : addFormatToSegments(selectedSegments, { type: "bold" });
+    // Toggle formatting
+    const modifiedSegments = hasFormat
+      ? removeFormatFromSegments(selectedSegments, formatType)
+      : addFormatToSegments(selectedSegments, { type: formatType });
 
     // Reconstruct the block content
     const beforeSegments = extractSegmentsInRange(
@@ -2246,8 +2249,8 @@ export function toggleBold(state: EditorState): EditorState {
       }
     }
 
-    // Check if all segments are already bold
-    const isBold = allSegmentsHaveFormat(allSelectedSegments, "bold");
+    // Check if all segments already have the format
+    const hasFormat = allSegmentsHaveFormat(allSelectedSegments, formatType);
 
     // Now apply the formatting to each block
     for (let i = start.blockIndex; i <= end.blockIndex; i++) {
@@ -2311,10 +2314,10 @@ export function toggleBold(state: EditorState): EditorState {
         afterSegments = [];
       }
 
-      // Toggle bold formatting
-      const modifiedSegments = isBold
-        ? removeFormatFromSegments(selectedSegments, "bold")
-        : addFormatToSegments(selectedSegments, { type: "bold" });
+      // Toggle formatting
+      const modifiedSegments = hasFormat
+        ? removeFormatFromSegments(selectedSegments, formatType)
+        : addFormatToSegments(selectedSegments, { type: formatType });
 
       const newContent = mergeAdjacentSegments([
         ...beforeSegments,
@@ -2334,6 +2337,38 @@ export function toggleBold(state: EditorState): EditorState {
       document: { ...state.document, page: newPage },
     };
   }
+}
+
+/**
+ * Toggle bold formatting on selected text or at cursor position
+ * If there's no selection, toggles bold mode for next typed text
+ */
+export function toggleBold(state: EditorState): EditorState {
+  return toggleFormat(state, "bold");
+}
+
+/**
+ * Toggle italic formatting on selected text or at cursor position
+ * If there's no selection, toggles italic mode for next typed text
+ */
+export function toggleItalic(state: EditorState): EditorState {
+  return toggleFormat(state, "italic");
+}
+
+/**
+ * Toggle code formatting on selected text or at cursor position
+ * If there's no selection, toggles code mode for next typed text
+ */
+export function toggleCode(state: EditorState): EditorState {
+  return toggleFormat(state, "code");
+}
+
+/**
+ * Toggle strikethrough formatting on selected text or at cursor position
+ * If there's no selection, toggles strikethrough mode for next typed text
+ */
+export function toggleStrikethrough(state: EditorState): EditorState {
+  return toggleFormat(state, "strikethrough");
 }
 
 // Convert block type at current cursor position
