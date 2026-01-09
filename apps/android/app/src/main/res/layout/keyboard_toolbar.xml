@@ -1,61 +1,168 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="42dp"
+    android:layout_height="56dp"
     android:background="@color/background"
-    android:fadeScrollbars="false"
     android:orientation="horizontal"
-    android:paddingStart="16dp"
+    android:paddingStart="8dp"
     android:paddingTop="6dp"
-    android:paddingEnd="16dp"
+    android:paddingEnd="8dp"
     android:paddingBottom="6dp">
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="44dp"
         android:background="@drawable/toolbar_background"
-        android:gravity="center"
-        android:orientation="horizontal"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp">
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-        <ImageButton
-            android:id="@+id/undoButton"
-            style="@style/Widget.AppCompat.Button.Borderless"
+        <!-- Scrollable area for toolbar buttons -->
+        <HorizontalScrollView
+            android:id="@+id/toolbarScrollView"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:contentDescription="@string/undo"
-            android:src="@drawable/ic_undo" />
+            android:fadeScrollbars="true"
+            android:overScrollMode="never"
+            android:scrollbars="none">
 
-        <ImageButton
-            android:id="@+id/redoButton"
-            style="@style/Widget.AppCompat.Button.Borderless"
+            <!-- Main toolbar buttons container -->
+            <LinearLayout
+                android:id="@+id/mainToolbarContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="4dp">
+
+                <ImageButton
+                    android:id="@+id/undoButton"
+                    style="@style/Widget.AppCompat.Button.Borderless"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:contentDescription="@string/undo"
+                    android:scaleType="center"
+                    android:src="@drawable/ic_undo" />
+
+                <ImageButton
+                    android:id="@+id/redoButton"
+                    style="@style/Widget.AppCompat.Button.Borderless"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:contentDescription="@string/redo"
+                    android:scaleType="center"
+                    android:src="@drawable/ic_redo" />
+
+                <ImageButton
+                    android:id="@+id/inlineFormatButton"
+                    style="@style/Widget.AppCompat.Button.Borderless"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:contentDescription="@string/inline_format"
+                    android:scaleType="center"
+                    android:src="@drawable/ic_format_text" />
+
+                <ImageButton
+                    android:id="@+id/blockTypeButton"
+                    style="@style/Widget.AppCompat.Button.Borderless"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:contentDescription="@string/block_type"
+                    android:scaleType="center"
+                    android:src="@drawable/ic_paragraph" />
+
+            </LinearLayout>
+
+        </HorizontalScrollView>
+
+        <!-- Formatting toolbar (hidden by default, shown when format button clicked) -->
+        <HorizontalScrollView
+            android:id="@+id/formattingScrollView"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:contentDescription="@string/redo"
-            android:src="@drawable/ic_redo" />
+            android:fadeScrollbars="true"
+            android:overScrollMode="never"
+            android:scrollbars="none"
+            android:visibility="gone">
 
-        <ImageButton
-            android:id="@+id/formatButton"
-            style="@style/Widget.AppCompat.Button.Borderless"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:contentDescription="@string/format"
-            android:src="@drawable/ic_format_text" />
+            <LinearLayout
+                android:id="@+id/formattingToolbarContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="4dp">
 
+                <ImageButton
+                    android:id="@+id/closeFormattingButton"
+                    style="@style/Widget.AppCompat.Button.Borderless"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:contentDescription="@string/close"
+                    android:scaleType="center"
+                    android:src="@drawable/ic_chevron_left" />
+
+                <ImageButton
+                    android:id="@+id/boldButton"
+                    style="@style/Widget.AppCompat.Button.Borderless"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:contentDescription="@string/bold"
+                    android:scaleType="center"
+                    android:src="@drawable/ic_bold" />
+
+                <ImageButton
+                    android:id="@+id/italicButton"
+                    style="@style/Widget.AppCompat.Button.Borderless"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:contentDescription="@string/italic"
+                    android:scaleType="center"
+                    android:src="@drawable/ic_italic" />
+
+                <ImageButton
+                    android:id="@+id/codeButton"
+                    style="@style/Widget.AppCompat.Button.Borderless"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:contentDescription="@string/code"
+                    android:scaleType="center"
+                    android:src="@drawable/ic_code" />
+
+                <ImageButton
+                    android:id="@+id/strikethroughButton"
+                    style="@style/Widget.AppCompat.Button.Borderless"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:contentDescription="@string/strikethrough"
+                    android:scaleType="center"
+                    android:src="@drawable/ic_strikethrough" />
+
+            </LinearLayout>
+
+        </HorizontalScrollView>
+
+        <!-- Divider -->
+        <View
+            android:id="@+id/toolbarDivider"
+            android:layout_width="1dp"
+            android:layout_height="28dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:background="@color/border" />
+
+        <!-- Dismiss button (fixed on right) -->
         <ImageButton
             android:id="@+id/dismissButton"
             style="@style/Widget.AppCompat.Button.Borderless"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginEnd="4dp"
             android:contentDescription="@string/dismiss_keyboard"
+            android:scaleType="center"
             android:src="@drawable/ic_keyboard_dismiss" />
 
     </LinearLayout>
 
 </LinearLayout>
-

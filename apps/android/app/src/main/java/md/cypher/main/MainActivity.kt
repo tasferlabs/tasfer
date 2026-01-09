@@ -26,8 +26,10 @@ import android.webkit.WebViewClient
 import android.webkit.SslErrorHandler
 import android.net.http.SslError
 import android.widget.Button
+import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.Toast
 import android.view.animation.Animation
 import android.view.animation.LinearInterpolator
@@ -102,6 +104,11 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     fun updateToolbarIcon(iconType: String) {
         (context as? MainActivity)?.updateToolbarIcon(iconType)
     }
+
+    @JavascriptInterface
+    fun updateFormattingState(isBold: Boolean, isItalic: Boolean, isCode: Boolean, isStrikethrough: Boolean) {
+        (context as? MainActivity)?.updateFormattingState(isBold, isItalic, isCode, isStrikethrough)
+    }
 }
 
 class MainActivity : ComponentActivity() {
@@ -114,9 +121,20 @@ class MainActivity : ComponentActivity() {
     private lateinit var keyboardToolbar: View
     private lateinit var undoButton: ImageButton
     private lateinit var redoButton: ImageButton
-    private lateinit var formatButton: ImageButton
+    private lateinit var inlineFormatButton: ImageButton
+    private lateinit var blockTypeButton: ImageButton
     private lateinit var dismissButton: ImageButton
-    
+
+    // Formatting toolbar elements
+    private lateinit var toolbarScrollView: HorizontalScrollView
+    private lateinit var formattingScrollView: HorizontalScrollView
+    private lateinit var boldButton: ImageButton
+    private lateinit var italicButton: ImageButton
+    private lateinit var codeButton: ImageButton
+    private lateinit var strikethroughButton: ImageButton
+    private lateinit var closeFormattingButton: ImageButton
+    private var isFormattingExpanded = false
+
     // Block type menu elements
     private lateinit var blockTypeMenu: View
     private lateinit var heading1Button: Button
@@ -163,9 +181,19 @@ class MainActivity : ComponentActivity() {
         keyboardToolbar = findViewById(R.id.keyboardToolbar)
         undoButton = keyboardToolbar.findViewById(R.id.undoButton)
         redoButton = keyboardToolbar.findViewById(R.id.redoButton)
-        formatButton = keyboardToolbar.findViewById(R.id.formatButton)
+        inlineFormatButton = keyboardToolbar.findViewById(R.id.inlineFormatButton)
+        blockTypeButton = keyboardToolbar.findViewById(R.id.blockTypeButton)
         dismissButton = keyboardToolbar.findViewById(R.id.dismissButton)
-        
+
+        // Initialize formatting toolbar
+        toolbarScrollView = keyboardToolbar.findViewById(R.id.toolbarScrollView)
+        formattingScrollView = keyboardToolbar.findViewById(R.id.formattingScrollView)
+        boldButton = keyboardToolbar.findViewById(R.id.boldButton)
+        italicButton = keyboardToolbar.findViewById(R.id.italicButton)
+        codeButton = keyboardToolbar.findViewById(R.id.codeButton)
+        strikethroughButton = keyboardToolbar.findViewById(R.id.strikethroughButton)
+        closeFormattingButton = keyboardToolbar.findViewById(R.id.closeFormattingButton)
+
         // Initialize block type menu
         blockTypeMenu = findViewById(R.id.blockTypeMenu)
         heading1Button = blockTypeMenu.findViewById(R.id.heading1Button)
@@ -352,14 +380,19 @@ class MainActivity : ComponentActivity() {
         undoButton.setOnClickListener {
             webView.evaluateJavascript("window.AndroidBridge?.undo?.()", null)
         }
-        
+
         // Redo button
         redoButton.setOnClickListener {
             webView.evaluateJavascript("window.AndroidBridge?.redo?.()", null)
         }
-        
-        // Format button - opens block type menu or triggers native drawer
-        formatButton.setOnClickListener {
+
+        // Inline format button - toggles formatting toolbar
+        inlineFormatButton.setOnClickListener {
+            toggleFormattingToolbar()
+        }
+
+        // Block type button - opens block type menu or triggers native drawer
+        blockTypeButton.setOnClickListener {
             if (isBlockMenuOpen) {
                 // In block menu mode: return to keyboard
                 closeBlockMenu()
@@ -375,6 +408,27 @@ class MainActivity : ComponentActivity() {
                     }
                 )
             }
+        }
+
+        // Formatting buttons
+        boldButton.setOnClickListener {
+            webView.evaluateJavascript("window.AndroidBridge?.toggleBold?.()", null)
+        }
+
+        italicButton.setOnClickListener {
+            webView.evaluateJavascript("window.AndroidBridge?.toggleItalic?.()", null)
+        }
+
+        codeButton.setOnClickListener {
+            webView.evaluateJavascript("window.AndroidBridge?.toggleCode?.()", null)
+        }
+
+        strikethroughButton.setOnClickListener {
+            webView.evaluateJavascript("window.AndroidBridge?.toggleStrikethrough?.()", null)
+        }
+
+        closeFormattingButton.setOnClickListener {
+            toggleFormattingToolbar()
         }
 
         // Dismiss button - behavior depends on mode
@@ -438,25 +492,25 @@ class MainActivity : ComponentActivity() {
     
     private fun openBlockMenu() {
         isBlockMenuOpen = true
-        
+
         // Update dismiss button icon to X (close icon)
         dismissButton.setImageResource(R.drawable.ic_close)
-        
-        // Highlight format button with primary color
-        formatButton.setColorFilter(getColor(R.color.primary))
-        
+
+        // Highlight block type button with primary color
+        blockTypeButton.setColorFilter(getColor(R.color.primary))
+
         // Hide keyboard
         hideKeyboard()
-        
+
         // Adjust block menu height to match keyboard and position it
         val menuParams = blockTypeMenu.layoutParams as android.widget.RelativeLayout.LayoutParams
         menuParams.height = keyboardHeight
         menuParams.bottomMargin = bottomInset  // Account for system navigation bar
         blockTypeMenu.layoutParams = menuParams
-        
+
         // Show block menu
         blockTypeMenu.visibility = View.VISIBLE
-        
+
         // Adjust toolbar to sit above block menu
         val toolbarParams = keyboardToolbar.layoutParams as android.widget.RelativeLayout.LayoutParams
         toolbarParams.bottomMargin = keyboardHeight + bottomInset
@@ -465,27 +519,57 @@ class MainActivity : ComponentActivity() {
     
     private fun closeBlockMenu() {
         isBlockMenuOpen = false
-        
+
         // Update dismiss button icon back to keyboard dismiss
         dismissButton.setImageResource(R.drawable.ic_keyboard_dismiss)
-        
-        // Reset format button color to default (label color)
-        formatButton.clearColorFilter()
-        
+
+        // Reset block type button color to default (label color)
+        blockTypeButton.clearColorFilter()
+
         // Reset block menu margin
         val menuParams = blockTypeMenu.layoutParams as android.widget.RelativeLayout.LayoutParams
         menuParams.bottomMargin = bottomInset
         blockTypeMenu.layoutParams = menuParams
-        
+
         // Hide block menu
         blockTypeMenu.visibility = View.GONE
-        
+
         // Show keyboard again
         showKeyboard()
-        
+
         // Toolbar will be repositioned by insets listener when keyboard reappears
     }
-    
+
+    private fun toggleFormattingToolbar() {
+        isFormattingExpanded = !isFormattingExpanded
+
+        if (isFormattingExpanded) {
+            // Show formatting scroll view, hide main toolbar scroll view
+            toolbarScrollView.visibility = View.GONE
+            formattingScrollView.visibility = View.VISIBLE
+            // Reset scroll position
+            formattingScrollView.scrollTo(0, 0)
+        } else {
+            // Show main toolbar scroll view, hide formatting scroll view
+            toolbarScrollView.visibility = View.VISIBLE
+            formattingScrollView.visibility = View.GONE
+            // Reset scroll position
+            toolbarScrollView.scrollTo(0, 0)
+        }
+    }
+
+    fun updateFormattingState(isBold: Boolean, isItalic: Boolean, isCode: Boolean, isStrikethrough: Boolean) {
+        runOnUiThread {
+            val activeColor = getColor(R.color.primary)
+            val inactiveColor = getColor(R.color.foreground)
+
+            boldButton.setColorFilter(if (isBold) activeColor else inactiveColor)
+            italicButton.setColorFilter(if (isItalic) activeColor else inactiveColor)
+            codeButton.setColorFilter(if (isCode) activeColor else inactiveColor)
+            strikethroughButton.setColorFilter(if (isStrikethrough) activeColor else inactiveColor)
+        }
+    }
+
     private fun showKeyboard() {
         webView.requestFocus()
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -502,18 +586,25 @@ class MainActivity : ComponentActivity() {
         val toolbarParams = keyboardToolbar.layoutParams as android.widget.RelativeLayout.LayoutParams
         toolbarParams.bottomMargin = bottomInset
         keyboardToolbar.layoutParams = toolbarParams
-        
+
         // Hide toolbar
         keyboardToolbar.visibility = View.GONE
-        
+
+        // Collapse formatting toolbar if expanded
+        if (isFormattingExpanded) {
+            isFormattingExpanded = false
+            toolbarScrollView.visibility = View.VISIBLE
+            formattingScrollView.visibility = View.GONE
+        }
+
         // Hide block menu if open
         if (isBlockMenuOpen) {
             // Reset dismiss button icon back to keyboard dismiss
             dismissButton.setImageResource(R.drawable.ic_keyboard_dismiss)
-            
+
             // Reset format button color to default
-            formatButton.clearColorFilter()
-            
+            blockTypeButton.clearColorFilter()
+
             val menuParams = blockTypeMenu.layoutParams as android.widget.RelativeLayout.LayoutParams
             menuParams.bottomMargin = bottomInset
             blockTypeMenu.layoutParams = menuParams
@@ -555,20 +646,20 @@ class MainActivity : ComponentActivity() {
         runOnUiThread {
             when (iconType) {
                 "none" -> {
-                    // Hide format button when no icon should be shown
-                    formatButton.visibility = View.GONE
+                    // Hide block type button when no icon should be shown
+                    blockTypeButton.visibility = View.GONE
                 }
                 "link" -> {
-                    formatButton.visibility = View.VISIBLE
-                    formatButton.setImageResource(R.drawable.ic_link)
+                    blockTypeButton.visibility = View.VISIBLE
+                    blockTypeButton.setImageResource(R.drawable.ic_link)
                 }
                 "image" -> {
-                    formatButton.visibility = View.VISIBLE
-                    formatButton.setImageResource(R.drawable.ic_image)
+                    blockTypeButton.visibility = View.VISIBLE
+                    blockTypeButton.setImageResource(R.drawable.ic_image)
                 }
                 else -> {
-                    formatButton.visibility = View.VISIBLE
-                    formatButton.setImageResource(R.drawable.ic_format_text)
+                    blockTypeButton.visibility = View.VISIBLE
+                    blockTypeButton.setImageResource(R.drawable.ic_paragraph)
                 }
             }
         }

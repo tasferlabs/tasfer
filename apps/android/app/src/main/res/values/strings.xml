@@ -4,6 +4,13 @@
     <string name="undo">Undo</string>
     <string name="redo">Redo</string>
     <string name="format">Format</string>
+    <string name="inline_format">Inline Format</string>
+    <string name="block_type">Block Type</string>
+    <string name="bold">Bold</string>
+    <string name="italic">Italic</string>
+    <string name="code">Code</string>
+    <string name="strikethrough">Strikethrough</string>
+    <string name="close">Close</string>
     <string name="dismiss_keyboard">Dismiss Keyboard</string>
     <string name="heading_1">Heading 1</string>
     <string name="heading_2">Heading 2</string>
