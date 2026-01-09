@@ -1,5 +1,5 @@
 import type { Block, Text } from "../deserializer/loadPage";
-import { isTextBlock, isListBlock } from "../deserializer/loadPage";
+import { isNotImageBlock, isListBlock } from "../deserializer/loadPage";
 import {
   FONT_STACKS,
   getCurrentFontFamily,
@@ -36,7 +36,7 @@ function getContentWithComposition(
   content: Text[];
   compositionRange: { start: number; end: number } | null;
 } {
-  if (!isTextBlock(block)) {
+  if (!isNotImageBlock(block)) {
     return { content: [], compositionRange: null };
   }
 
@@ -1006,7 +1006,7 @@ function renderSelection(
 ) {
   if (!state.document.selection) return;
 
-  if (!isTextBlock(block)) {
+  if (!isNotImageBlock(block)) {
     return;
   }
 
@@ -1615,7 +1615,7 @@ export const calculateBlockHeight = (
     return displayHeight + padding;
   }
 
-  if (!isTextBlock(block)) {
+  if (!isNotImageBlock(block)) {
     return 0;
   }
 
@@ -1711,7 +1711,7 @@ export function renderCursorLayer(
   const cursorBlockIndex = state.document.cursor.position.blockIndex;
   const block = state.document.page.blocks[cursorBlockIndex];
 
-  if (!isTextBlock(block)) {
+  if (!isNotImageBlock(block)) {
     ctx.restore();
     return;
   }

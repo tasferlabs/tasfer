@@ -40,7 +40,7 @@ export interface TodoListItem extends BlockRuntimeState {
   indent: number; // 0-based indent level (0 = no indent)
 }
 
-// Cover image block - full-width image that spans the entire canvas
+// Image block - full-width image that spans the entire canvas
 // Note: cachedHeight/cachedWidth are transient runtime state, not persisted
 export interface Image extends BlockRuntimeState {
   id: string; // Unique identifier for caching
@@ -117,7 +117,7 @@ export type VisualBlock = Image;
 export type Block = TextBlock | VisualBlock | ListBlock;
 
 // Type guards
-export function isTextBlock(block: Block): block is TextBlock | ListBlock {
+export function isNotImageBlock(block: Block): block is TextBlock | ListBlock {
   return block.type !== "image";
 }
 

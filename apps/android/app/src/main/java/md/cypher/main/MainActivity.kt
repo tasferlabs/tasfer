@@ -412,17 +412,17 @@ class MainActivity : ComponentActivity() {
         }
         
         numberedListButton.setOnClickListener {
-            setBlockType("numberedList")
+            setBlockType("numbered_list")
             closeBlockMenu()
         }
         
         taskListButton.setOnClickListener {
-            setBlockType("taskList")
+            setBlockType("todo_list")
             closeBlockMenu()
         }
         
         bulletedListButton.setOnClickListener {
-            setBlockType("bulletedList")
+            setBlockType("bullet_list")
             closeBlockMenu()
         }
         

@@ -240,9 +240,9 @@ class BlockTypeInputView: UIView, UIInputViewAudioFeedback {
             ("Heading 1", "heading1", "heading1"),
             ("Heading 2", "heading2", "heading2"),
             ("Heading 3", "heading3", "heading3"),
-            ("Numbered List", "numberedList", "list_ordered"),
-            ("Task List", "taskList", "list_todo"),
-            ("Bulleted List", "bulletedList", "list"),
+            ("Numbered List", "numbered_list", "list_ordered"),
+            ("Task List", "todo_list", "list_todo"),
+            ("Bulleted List", "bullet_list", "list"),
             ("Image", "image", "image")
         ]
         

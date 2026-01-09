@@ -1,5 +1,5 @@
 import type { Block, Page } from "../deserializer/loadPage";
-import { isTextBlock, isListBlock } from "../deserializer/loadPage";
+import { isNotImageBlock, isListBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
   wrapFormattedTextDetailed,
@@ -164,7 +164,7 @@ export const getBlockTextLength = (block: Block): number => {
   // Image cover blocks don't have text content
   if (block.type === "image") return 0;
 
-  if (!isTextBlock(block)) {
+  if (!isNotImageBlock(block)) {
     return 0;
   }
 
@@ -177,7 +177,7 @@ export const getBlockTextContent = (block: Block): string => {
   // Image cover blocks don't have text content
   if (block.type === "image") return "";
 
-  if (!isTextBlock(block)) {
+  if (!isNotImageBlock(block)) {
     return "";
   }
 
@@ -276,7 +276,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
       const prevBlock = state.document.page.blocks[blockIndex - 1];
       if (prevBlock.type === "image") {
         return moveCursorToPosition(state, blockIndex - 1, 0);
-      } else if (isTextBlock(prevBlock)) {
+      } else if (isNotImageBlock(prevBlock)) {
         const prevBlockLength = getBlockTextLength(prevBlock);
         return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
       }
@@ -284,7 +284,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
     return state;
   }
 
-  if (!isTextBlock(currentBlock)) {
+  if (!isNotImageBlock(currentBlock)) {
     return state;
   }
 
@@ -306,7 +306,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
         return moveCursorToPosition(state, blockIndex + 1, 0);
       }
 
-      if (!isTextBlock(nextBlock)) {
+      if (!isNotImageBlock(nextBlock)) {
         return state;
       }
       const nextIsRTL = getFormattedTextDirection(nextBlock.content) === "rtl";
@@ -332,7 +332,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
         return moveCursorToPosition(state, blockIndex - 1, 0);
       }
 
-      if (!isTextBlock(prevBlock)) {
+      if (!isNotImageBlock(prevBlock)) {
         return state;
       }
       const prevBlockLength = getBlockTextLength(prevBlock);
@@ -365,14 +365,14 @@ export const moveCursorRight = (state: EditorState): EditorState => {
       const nextBlock = state.document.page.blocks[blockIndex + 1];
       if (nextBlock.type === "image") {
         return moveCursorToPosition(state, blockIndex + 1, 0);
-      } else if (isTextBlock(nextBlock)) {
+      } else if (isNotImageBlock(nextBlock)) {
         return moveCursorToPosition(state, blockIndex + 1, 0);
       }
     }
     return state;
   }
 
-  if (!isTextBlock(currentBlock)) {
+  if (!isNotImageBlock(currentBlock)) {
     return state;
   }
 
@@ -394,7 +394,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
         return moveCursorToPosition(state, blockIndex - 1, 0);
       }
 
-      if (!isTextBlock(prevBlock)) {
+      if (!isNotImageBlock(prevBlock)) {
         return state;
       }
       const prevBlockLength = getBlockTextLength(prevBlock);
@@ -421,7 +421,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
         return moveCursorToPosition(state, blockIndex + 1, 0);
       }
 
-      if (!isTextBlock(nextBlock)) {
+      if (!isNotImageBlock(nextBlock)) {
         return state;
       }
       const nextIsRTL = getFormattedTextDirection(nextBlock.content) === "rtl";
@@ -455,7 +455,7 @@ function getLineInfoAtPosition(
   totalLines: number;
   lines: string[];
 } | null {
-  if (!isTextBlock(block)) {
+  if (!isNotImageBlock(block)) {
     return null;
   }
 
@@ -527,7 +527,7 @@ function getTextIndexAtRelativePosition(
     return targetIndex;
   }
 
-  if (!isTextBlock(block)) {
+  if (!isNotImageBlock(block)) {
     const lineLength = lineEndIndex - lineStartIndex;
     return lineStartIndex + Math.min(relativePosition, lineLength);
   }
@@ -602,7 +602,7 @@ export const moveCursorUp = (
       if (prevBlock.type === "image") {
         // Move to previous image block
         return moveCursorToPosition(state, blockIndex - 1, 0);
-      } else if (isTextBlock(prevBlock)) {
+      } else if (isNotImageBlock(prevBlock)) {
         // Move to end of previous text block
         const prevBlockLength = getBlockTextLength(prevBlock);
         return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
@@ -625,7 +625,7 @@ export const moveCursorUp = (
 
   if (!lineInfo) return state;
 
-  if (!isTextBlock(currentBlock)) {
+  if (!isNotImageBlock(currentBlock)) {
     return state;
   }
 
@@ -693,7 +693,7 @@ export const moveCursorUp = (
       return moveCursorToPosition(state, blockIndex - 1, 0);
     }
 
-    if (!isTextBlock(prevBlock)) {
+    if (!isNotImageBlock(prevBlock)) {
       return state;
     }
     const prevTextStyle = getTextStyle(styles, prevBlock.type);
@@ -765,7 +765,7 @@ export const moveCursorDown = (
       if (nextBlock.type === "image") {
         // Move to next image block
         return moveCursorToPosition(state, blockIndex + 1, 0);
-      } else if (isTextBlock(nextBlock)) {
+      } else if (isNotImageBlock(nextBlock)) {
         // Move to start of next text block
         return moveCursorToPosition(state, blockIndex + 1, 0);
       }
@@ -787,7 +787,7 @@ export const moveCursorDown = (
 
   if (!lineInfo) return state;
 
-  if (!isTextBlock(currentBlock)) {
+  if (!isNotImageBlock(currentBlock)) {
     return state;
   }
 
@@ -866,7 +866,7 @@ export const moveCursorDown = (
       return moveCursorToPosition(state, blockIndex + 1, 0);
     }
 
-    if (!isTextBlock(nextBlock)) {
+    if (!isNotImageBlock(nextBlock)) {
       return state;
     }
     const nextTextStyle = getTextStyle(styles, nextBlock.type);

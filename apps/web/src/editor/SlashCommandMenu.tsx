@@ -39,10 +39,10 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   {
     id: "image",
     type: "image",
-    label: "Cover Image",
-    description: "Full-width cover image.",
+    label: "Image",
+    description: "Image block.",
     icon: <Image size={20} />,
-    keywords: ["image", "img", "picture", "photo", "upload", "cover"],
+    keywords: ["image", "img", "picture", "photo", "upload"],
   },
   {
     id: "bullet_list",

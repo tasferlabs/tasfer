@@ -1,5 +1,5 @@
 import type { Block, Text } from "../deserializer/loadPage";
-import { isTextBlock, isListBlock } from "../deserializer/loadPage";
+import { isNotImageBlock, isListBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
   getFontMetrics,
@@ -44,7 +44,7 @@ export function getCursorCoordinates(
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
-  if (!isTextBlock(block)) {
+  if (!isNotImageBlock(block)) {
     return null;
   }
 
@@ -183,7 +183,7 @@ export function getCursorCoordinatesWithComposition(
   // Image cover blocks don't have cursors
   if (block.type === "image") return null;
 
-  if (!isTextBlock(block)) {
+  if (!isNotImageBlock(block)) {
     return null;
   }
 
@@ -497,7 +497,7 @@ function getPositionWithinBlock(
     };
   }
 
-  if (!isTextBlock(block)) {
+  if (!isNotImageBlock(block)) {
     return {
       blockIndex,
       textIndex: 0,
@@ -637,7 +637,7 @@ function getPositionWithinLine(
   maxWidth: number,
   isRTL: boolean
 ): Position {
-  if (!isTextBlock(block)) {
+  if (!isNotImageBlock(block)) {
     return {
       blockIndex: 0,
       textIndex: lineStartIndex,

@@ -1,5 +1,5 @@
 import type { Block } from "../deserializer/loadPage";
-import { isTextBlock, isListBlock } from "../deserializer/loadPage";
+import { isNotImageBlock, isListBlock } from "../deserializer/loadPage";
 import { SLASH_COMMANDS } from "./SlashCommandMenu";
 import { copySelectionToClipboard, pasteFromClipboardEvent } from "./clipboard";
 import {
@@ -2374,7 +2374,7 @@ function handleKeyDown(
             state.document.cursor.position.blockIndex === blockIndex &&
             currentBlock?.id === blockId &&
             currentBlock.type === "paragraph" &&
-            isTextBlock(currentBlock) &&
+            isNotImageBlock(currentBlock) &&
             getBlockTextContent(currentBlock) === "" &&
             getFormattedTextDirection(currentBlock.content) === "rtl"
           ) {
@@ -2528,7 +2528,7 @@ function handleKeyDown(
             state.document.cursor.position.blockIndex === blockIndex &&
             currentBlock?.id === blockId &&
             currentBlock.type === "paragraph" &&
-            isTextBlock(currentBlock) &&
+            isNotImageBlock(currentBlock) &&
             getBlockTextContent(currentBlock) === "" &&
             getFormattedTextDirection(currentBlock.content) === "ltr"
           ) {
@@ -2732,7 +2732,7 @@ function handleKeyDown(
             state.document.cursor.position.blockIndex === blockIndex &&
             currentBlock?.id === blockId &&
             currentBlock.type === "paragraph" &&
-            isTextBlock(currentBlock) &&
+            isNotImageBlock(currentBlock) &&
             getBlockTextContent(currentBlock) === ""
           ) {
             // Remove the auto-created paragraph and move to the image below

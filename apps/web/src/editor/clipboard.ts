@@ -1,6 +1,6 @@
 import type { EditorState, Position } from "./types";
 import type { Block } from "../deserializer/loadPage";
-import { isTextBlock, isListBlock } from "../deserializer/loadPage";
+import { isNotImageBlock, isListBlock } from "../deserializer/loadPage";
 import {
   getBlockTextContent,
   moveCursorToPosition,
@@ -130,7 +130,7 @@ function getSelectedContent(state: EditorState): {
       };
     }
     
-    if (!isTextBlock(block)) {
+    if (!isNotImageBlock(block)) {
       return {
         blocks: [block],
         isPartial: false,
@@ -172,7 +172,7 @@ function getSelectedContent(state: EditorState): {
       continue;
     }
 
-    if (!isTextBlock(block)) {
+    if (!isNotImageBlock(block)) {
       blocks.push(block);
       continue;
     }
@@ -249,7 +249,7 @@ function blocksToHTML(blocks: Block[]): string {
       return `<img src="${block.url}"${altAttr} ${widthAttr} ${heightAttr} ${objectFitAttr} />`;
     }
 
-    if (!isTextBlock(block)) {
+    if (!isNotImageBlock(block)) {
       return "";
     }
 
@@ -873,12 +873,12 @@ function insertBlocksAtCursor(
   // If pasting a single block
   if (blocks.length === 1) {
     // Can't paste into non-text blocks
-    if (!isTextBlock(currentBlock)) {
+    if (!isNotImageBlock(currentBlock)) {
       return state;
     }
     
     // Can't paste non-text blocks into text blocks
-    if (!isTextBlock(blocks[0])) {
+    if (!isNotImageBlock(blocks[0])) {
       return state;
     }
     
@@ -945,12 +945,12 @@ function insertBlocksAtCursor(
     );
   } else {
     // Pasting multiple blocks - preserve formatting in split blocks
-    if (!isTextBlock(currentBlock)) {
+    if (!isNotImageBlock(currentBlock)) {
       return state;
     }
     
     // Filter out non-text blocks from paste (or handle them separately)
-    const textBlocks = blocks.filter(isTextBlock);
+    const textBlocks = blocks.filter(isNotImageBlock);
     if (textBlocks.length === 0) {
       return state;
     }
