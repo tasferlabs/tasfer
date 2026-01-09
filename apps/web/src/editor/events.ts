@@ -696,7 +696,7 @@ function isPositionWithinSelection(
 
   if (
     position.blockIndex === selEnd.blockIndex &&
-    position.textIndex > selEnd.textIndex
+    position.textIndex >= selEnd.textIndex
   ) {
     return false;
   }
@@ -1528,8 +1528,8 @@ function handleMouseDown(
   if (isClickInTopPadding) {
     // Only clear selection if it's collapsed or doesn't exist
     if (!state.document.selection || state.document.selection.isCollapsed) {
-      const clearedState = clearSelection(state);
-      return updateMode(clearedState, "edit");
+    const clearedState = clearSelection(state);
+    return updateMode(clearedState, "edit");
     }
     // Keep active selection and just switch to edit mode
     return updateMode(state, "edit");
@@ -1547,8 +1547,8 @@ function handleMouseDown(
   if (!position) {
     // Only clear selection if it's collapsed or doesn't exist
     if (!state.document.selection || state.document.selection.isCollapsed) {
-      const clearedState = clearSelection(state);
-      return updateMode(clearedState, "edit");
+    const clearedState = clearSelection(state);
+    return updateMode(clearedState, "edit");
     }
     // Keep active selection and just switch to edit mode
     return updateMode(state, "edit");
@@ -1641,7 +1641,6 @@ function handleMouseDown(
   } else {
     // Start selection at cursor position
     newState = startSelection(newState, position);
-    // Enter select mode if not already
     newState = updateMode(newState, "select");
   }
 
@@ -4171,21 +4170,11 @@ function handleTouchEnd(
         }
       }
     } else {
-      // Tapping outside editor area (padding/margins)
-      // If there's an active selection, preserve it and just close menus (common on mobile after "select all")
-      // Otherwise, clear selection and close menus
-      if (state.document.selection && !state.document.selection.isCollapsed) {
-        // Keep selection, just close any active menu
-        if (state.ui.activeMenu.type === "contextMenu") {
-          state = closeActiveMenu(state);
-        }
-      } else {
-        // No selection or collapsed selection: clear and close menu
-        state = clearSelection(state);
-        state = updateMode(state, "edit");
-        if (state.ui.activeMenu.type === "contextMenu") {
-          state = closeActiveMenu(state);
-        }
+      // Tapping outside editor area (padding/margins) - clear selection and close menus
+      state = clearSelection(state);
+      state = updateMode(state, "edit");
+      if (state.ui.activeMenu.type === "contextMenu") {
+        state = closeActiveMenu(state);
       }
     }
 
