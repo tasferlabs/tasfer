@@ -70,7 +70,7 @@ Bugs list
 - [x] we should add inline formatting options in ios keyboard island.
 - [x] we should add inline formatting options in android keyboard toolbar.
 - [x] On desktop we should add formating inline options on cotnext menu.
-- [ ] mobile inline formatting options.
+- [x] delete at start of text after an image, delete the text.
 - [ ] Add animation on scrolling to make more visually apealing.
 - [ ] Remove the markdown style when copying plain text.
 - [ ] Typing two spaces should exit inline styling, consult someone if this actaully good pratice.

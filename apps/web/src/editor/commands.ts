@@ -980,37 +980,59 @@ export function deleteText(state: EditorState): EditorState {
 
     const prevBlock = state.document.page.blocks[blockIndex - 1];
 
-    // If previous block is not a text block (e.g., image), delete the current text block
+    // If previous block is not a text block (e.g., image)
     if (!isNotImageBlock(prevBlock)) {
       if (!isNotImageBlock(oldBlock)) {
         return state;
       }
 
-      // Delete the current text block
-      const newBlocks = [
-        ...state.document.page.blocks.slice(0, blockIndex),
-        ...state.document.page.blocks.slice(blockIndex + 1),
-      ];
-
-      // If we deleted the last block, add an empty paragraph
-      if (newBlocks.length === 0) {
-        newBlocks.push({
-          id: generateBlockId(),
-          type: "paragraph",
-          content: [{ content: "" }],
-        });
-      }
-
-      const newPage = { ...state.document.page, blocks: newBlocks };
-      let newState: EditorState = {
-        ...state,
-        document: { ...state.document, page: newPage },
-      };
-
-      // Select the previous (image) block
+      const currentText = getBlockTextContent(oldBlock);
       const imageBlockIndex = blockIndex - 1;
       const imagePosition = { blockIndex: imageBlockIndex, textIndex: 0 };
-      newState = moveCursorToPosition(newState, imageBlockIndex, 0);
+
+      // Only delete the current text block if it's empty
+      if (currentText.length === 0) {
+        const newBlocks = [
+          ...state.document.page.blocks.slice(0, blockIndex),
+          ...state.document.page.blocks.slice(blockIndex + 1),
+        ];
+
+        // If we deleted the last block, add an empty paragraph
+        if (newBlocks.length === 0) {
+          newBlocks.push({
+            id: generateBlockId(),
+            type: "paragraph",
+            content: [{ content: "" }],
+          });
+        }
+
+        const newPage = { ...state.document.page, blocks: newBlocks };
+        let newState: EditorState = {
+          ...state,
+          document: { ...state.document, page: newPage },
+        };
+
+        // Select the previous (image) block
+        newState = moveCursorToPosition(newState, imageBlockIndex, 0);
+        newState = {
+          ...newState,
+          document: {
+            ...newState.document,
+            selection: {
+              anchor: imagePosition,
+              focus: imagePosition,
+              isForward: true,
+              isCollapsed: false,
+              lastUpdate: Date.now(),
+            },
+          },
+        };
+
+        return newState;
+      }
+
+      // If current block has content, just select the image without deleting the text
+      let newState = moveCursorToPosition(state, imageBlockIndex, 0);
       newState = {
         ...newState,
         document: {
