@@ -71,7 +71,7 @@ Bugs list
 - [x] we should add inline formatting options in android keyboard toolbar.
 - [x] On desktop we should add formating inline options on cotnext menu.
 - [x] delete at start of text after an image, delete the text.
-- [ ] Add animation on scrolling to make more visually apealing.
+- [-] Add more animations to make the app more visually apealing.
 - [ ] Remove the markdown style when copying plain text.
 - [ ] Typing two spaces should exit inline styling, consult someone if this actaully good pratice.
 - [ ] consider adding selection dragging on mobiles on both anchor and foucus. Like it is on ios. This for epxanding the selection and shrinking.

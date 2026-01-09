@@ -26,6 +26,11 @@ import type {
   TextStyle,
   ViewportState,
 } from "./types";
+import {
+  updateCursorTarget,
+  getAnimatedCursorPosition,
+  isCursorAnimating,
+} from "./animation";
 
 // Helper to inject composition text into block content for rendering
 function getContentWithComposition(
@@ -1682,7 +1687,7 @@ export function renderCursorLayer(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles()
-) {
+): boolean {
   // Save context state
   ctx.save();
 
@@ -1697,7 +1702,7 @@ export function renderCursorLayer(
     isCursorBlinking(state.document.cursor, styles)
   ) {
     ctx.restore();
-    return;
+    return isCursorAnimating();
   }
 
   // Don't show cursor when there's an active selection
@@ -1705,7 +1710,7 @@ export function renderCursorLayer(
     state.document.selection && !state.document.selection.isCollapsed;
   if (hasActiveSelection) {
     ctx.restore();
-    return;
+    return isCursorAnimating();
   }
 
   const cursorBlockIndex = state.document.cursor.position.blockIndex;
@@ -1713,7 +1718,7 @@ export function renderCursorLayer(
 
   if (!isNotImageBlock(block)) {
     ctx.restore();
-    return;
+    return isCursorAnimating();
   }
 
   // Calculate block position
@@ -1733,7 +1738,7 @@ export function renderCursorLayer(
   if (currentY + blockHeight < 0 || currentY > viewport.height) {
     // Cursor block is not visible in viewport
     ctx.restore();
-    return;
+    return isCursorAnimating();
   }
 
   // Get text style and calculate lines for cursor block
@@ -1794,9 +1799,9 @@ export function renderCursorLayer(
   } else {
     baseX = styles.canvas.paddingLeft;
   }
-  let cursorX = baseX;
-  let cursorY = currentY;
-  let cursorHeight = fontMetrics.fontSize * textStyle.lineHeight;
+  let targetCursorX = baseX;
+  let targetCursorY = currentY;
+  let targetCursorHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
   // Calculate the target cursor position (original position + composition length if composing)
   let targetCursorIndex = state.document.cursor.position.textIndex;
@@ -1814,8 +1819,8 @@ export function renderCursorLayer(
       targetCursorIndex >= lineStartIndex &&
       targetCursorIndex <= lineEndIndex
     ) {
-      cursorY = currentY;
-      cursorHeight = fontMetrics.ascent + fontMetrics.descent;
+      targetCursorY = currentY;
+      targetCursorHeight = fontMetrics.ascent + fontMetrics.descent;
 
       // Calculate cursor position differently for RTL
       if (isRTL) {
@@ -1827,9 +1832,9 @@ export function renderCursorLayer(
           fontFamily,
           codePadding
         );
-        cursorX = baseX + adjustedMaxWidth - widthFromStart;
+        targetCursorX = baseX + adjustedMaxWidth - widthFromStart;
       } else {
-        cursorX =
+        targetCursorX =
           baseX +
           measureFormattedLineWidth(
             renderContent,
@@ -1878,20 +1883,32 @@ export function renderCursorLayer(
     );
 
     if (isRTL) {
-      cursorX = baseX + adjustedMaxWidth - lastLineWidth;
+      targetCursorX = baseX + adjustedMaxWidth - lastLineWidth;
     } else {
-      cursorX = baseX + lastLineWidth;
+      targetCursorX = baseX + lastLineWidth;
     }
-    cursorY = lastLineY;
-    cursorHeight = fontMetrics.ascent + fontMetrics.descent;
+    targetCursorY = lastLineY;
+    targetCursorHeight = fontMetrics.ascent + fontMetrics.descent;
   }
+
+  // Update animation target and get animated position
+  updateCursorTarget(targetCursorX, targetCursorY, targetCursorHeight);
+  const animatedPos = getAnimatedCursorPosition();
+
+  // Use animated position for drawing (smooth cursor movement)
+  const drawX = animatedPos ? animatedPos.x : targetCursorX;
+  const drawY = animatedPos ? animatedPos.y : targetCursorY;
+  const drawHeight = animatedPos ? animatedPos.height : targetCursorHeight;
 
   // Draw the cursor
   ctx.fillStyle = styles.cursor.color;
-  ctx.fillRect(cursorX, cursorY, styles.cursor.width, cursorHeight);
+  ctx.fillRect(drawX, drawY, styles.cursor.width, drawHeight);
 
   // Restore context state
   ctx.restore();
+
+  // Return whether animation is still in progress (for render loop)
+  return isCursorAnimating();
 }
 
 /**

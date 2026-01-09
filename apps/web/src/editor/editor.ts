@@ -52,6 +52,7 @@ import type { EditorState, SlashCommand, ViewportState } from "./types";
 import { recordUndo, undoState, redoState } from "./undo";
 import type { CanvasLayers } from "./layers";
 import { onFontFamilyChange } from "./fonts";
+import { isCursorAnimating } from "./animation";
 
 export interface Editor {
   getState: () => EditorState | null;
@@ -268,6 +269,11 @@ export default function createEditor(
 
       // Cursor blink only affects cursor layer
       if (cursorBlinkChanged) {
+        dirtyLayers.cursor = true;
+      }
+
+      // Cursor animation requires continuous rendering
+      if (isCursorAnimating()) {
         dirtyLayers.cursor = true;
       }
 
