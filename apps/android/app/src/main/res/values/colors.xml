@@ -172,4 +172,7 @@
     <color name="border">@color/light_border</color>
     <color name="input">@color/light_input</color>
     <color name="ring">@color/light_ring</color>
+
+    <!-- Launcher icon background -->
+    <color name="ic_launcher_background">#FFFFFF</color>
 </resources>
