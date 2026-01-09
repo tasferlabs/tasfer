@@ -1,4 +1,5 @@
 Bugs list
+
 - [x] when double clicking on word it does focus is at the start not the end.
 - [x] when double clicking on word on desktop and instead of going fowarding and going backward than we shoud the reverse the anchor. Now focus depends where move the selection direction this is correct, but the anchor position on first word selection on desktop this should not be locked.
 - [x] Could not expand selection beyond non alphanumeric characters for example dots or commas.
@@ -65,10 +66,6 @@ Bugs list
 - [x] Check devices compatiabities such ipad with keyboard.
 - [x] on ios keyboard iland we should add active/inactive state for block type menu. External keyboard
 - [x] composition and other input methods such as IME should work.
-- [ ] voice input/speeh-to-text
-- [ ] Accessiblity input?
-- [ ] Autorcorrect/autocomplete
-- [ ] dragging text
 - [x] on android keyboard toolbar we should add active/inactive state for block type menu.
 - [ ] we should add inline formatting options in ios keyboard island.
 - [ ] we should add inline formatting options in android keyboard toolbar.
@@ -209,3 +206,9 @@ Bugs list
 - [ ] GPU process (0x1150d81e0) took 3.668330 seconds to launch, Networking process (0x115100190) took 3.640831 seconds to launch, WebContent process (0x115078100) took 5.709915 seconds to launch
 - [ ] protocol for opening cypher links.
 - [ ] if click outside the box selection should be lost.
+
+- [ ] voice input/speeh-to-text
+- [ ] Accessiblity input?
+- [ ] increase font size for people who wants it.
+- [ ] Autorcorrect/autocomplete
+- [ ] dragging text
