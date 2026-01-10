@@ -1231,10 +1231,11 @@ function handleTodoCheckboxClick(
   const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
   
   // Iterate through blocks to find which one was clicked
+  // Break early once we pass the visible area
   for (let blockIndex = 0; blockIndex < state.document.page.blocks.length; blockIndex++) {
     const block = state.document.page.blocks[blockIndex];
     const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
-    
+
     // Check if click is within this block's Y bounds
     if (canvasY >= currentY && canvasY < currentY + blockHeight) {
       // Check if this is a todo list item
@@ -1242,14 +1243,14 @@ function handleTodoCheckboxClick(
         const indent = block.indent || 0;
         const indentOffset = indent * styles.list.indent.size;
         const checkboxSize = styles.list.todo.checkboxSize;
-        
+
         // Detect if this is RTL text
         const isRTL = getFormattedTextDirection(block.content) === "rtl";
-        
+
         // Calculate marker width to match rendering logic
         const markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
         const adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-        
+
         // Position checkbox based on text direction
         let checkboxX: number;
         if (isRTL) {
@@ -1261,7 +1262,7 @@ function handleTodoCheckboxClick(
           // markerX = paddingLeft + indentOffset
           checkboxX = styles.canvas.paddingLeft + indentOffset + 2;
         }
-        
+
         // Get font metrics for proper vertical alignment
         const textStyle = getTextStyle(styles, block.type);
         const fontFamily = getCurrentFontFamily();
@@ -1271,7 +1272,7 @@ function handleTodoCheckboxClick(
           fontFamily
         );
         const checkboxY = currentY + fontMetrics.ascent - checkboxSize + 2;
-        
+
         // Check if click is within checkbox bounds (add some padding for easier clicking)
         const clickPadding = 4;
         if (
@@ -1285,11 +1286,16 @@ function handleTodoCheckboxClick(
           return toggleTodoChecked(newState, blockIndex);
         }
       }
-      
+
       // Not a checkbox click, return null to continue normal processing
       return null;
     }
-    
+
+    // Break early if we've passed the visible area
+    if (currentY > viewport.height) {
+      break;
+    }
+
     currentY += blockHeight;
   }
   
@@ -1578,14 +1584,8 @@ function handleMouseDown(
     const lastBlock = state.document.page.blocks[lastBlockIndex];
 
     // Calculate if click is below the last block's content
-    let totalContentHeight = styles.canvas.paddingTop;
-    for (let i = 0; i < state.document.page.blocks.length; i++) {
-      const block = state.document.page.blocks[i];
-      const maxWidth =
-        viewport.width -
-        (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-      totalContentHeight += getBlockHeight(block, maxWidth, styles, i);
-    }
+    // Use pre-computed documentHeight instead of iterating through all blocks
+    const totalContentHeight = documentHeight + styles.canvas.paddingTop;
     const isClickBelowContent = canvasY > totalContentHeight - viewport.scrollY;
 
     // If clicking below content and last block is an image, select it
@@ -4032,14 +4032,8 @@ function handleTouchEnd(
         const lastBlock = state.document.page.blocks[lastBlockIndex];
 
         // Calculate if tap is below the last block's content
-        let totalContentHeight = styles.canvas.paddingTop;
-        for (let i = 0; i < state.document.page.blocks.length; i++) {
-          const block = state.document.page.blocks[i];
-          const maxWidth =
-            viewport.width -
-            (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-          totalContentHeight += getBlockHeight(block, maxWidth, styles, i);
-        }
+        // Use pre-computed viewport.documentHeight instead of iterating through all blocks
+        const totalContentHeight = viewport.documentHeight + styles.canvas.paddingTop;
         const isTapBelowContent =
           tapPosition.y > totalContentHeight - viewport.scrollY;
 

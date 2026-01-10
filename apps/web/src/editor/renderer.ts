@@ -504,20 +504,22 @@ export const renderPage = (
   const renderedBlocks: RenderedBlock[] = [];
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-  let documentHeight = 0;
+  const documentHeight = viewport.documentHeight;
 
   // Render each block
+  let foundVisibleBlock = false;
   for (let i = 0; i < state.document.page.blocks.length; i++) {
     const block = state.document.page.blocks[i];
 
     // Get or calculate block height (cached on the block itself)
     const blockHeight = getBlockHeight(block, maxWidth, styles, i);
 
-    documentHeight += blockHeight;
     // Only render if block is visible
     if (isBlockVisible(currentY, blockHeight, viewport)) {
-      // console.log(i);
-      visibility.start ??= i;
+      if (!foundVisibleBlock) {
+        visibility.start = i;
+        foundVisibleBlock = true;
+      }
       visibility.end = i;
 
       const renderedBlock = renderBlock(
@@ -531,13 +533,15 @@ export const renderPage = (
         styles
       );
       renderedBlocks.push(renderedBlock);
+    } else if (foundVisibleBlock) {
+      // We've passed the visible range, no need to continue
+      break;
     }
-
     currentY += blockHeight;
   }
 
   // Add extra padding on mobile devices for keyboard space
-  documentHeight += styles.canvas.paddingBottom;
+  // documentHeight += styles.canvas.paddingBottom;
 
   // Render scrollbar
   renderScrollbar(ctx, viewport, documentHeight, state.view.scrollbar);

@@ -579,8 +579,8 @@ export function getTextPositionFromViewport(
     );
   }
 
-  // We need to iterate through ALL blocks from the start to get correct Y positions
-  // (same as renderPage does), but we can optimize by only checking clicks within visible range
+  // We need to iterate through blocks from the start to get correct Y positions
+  // (same as renderPage does), but we can break early once we pass the visible area
   for (let blockIndex = 0; blockIndex < state.document.page.blocks.length; blockIndex++) {
     const block = state.document.page.blocks[blockIndex];
     const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
@@ -597,6 +597,11 @@ export function getTextPositionFromViewport(
         maxWidth,
         styles
       );
+    }
+
+    // Break early if we've passed the visible area (click can only be in visible area)
+    if (currentY > viewport.height) {
+      break;
     }
 
     currentY += blockHeight;

@@ -34,12 +34,46 @@ export interface LinkHoverState {
 
 // Unified menu system - only one menu can be active at a time
 export type ActiveMenu =
-  | { type: 'none' }
-  | { type: 'slashCommand'; blockIndex: number; textIndex: number; filter: string; selectedIndex: number }
-  | { type: 'contextMenu'; x: number; y: number; hoveredItemId?: string | null; selectedItemId?: string | null }
-  | { type: 'linkHover'; position: Position; url: string; text: string; x: number; y: number; segmentIndex: number }
-  | { type: 'linkEdit'; position: Position; url: string; text: string; x: number; y: number; segmentIndex: number }
-  | { type: 'imageUpload'; blockIndex: number; x: number; y: number; uploadStatus?: 'uploading' | 'complete' | 'error' };
+  | { type: "none" }
+  | {
+      type: "slashCommand";
+      blockIndex: number;
+      textIndex: number;
+      filter: string;
+      selectedIndex: number;
+    }
+  | {
+      type: "contextMenu";
+      x: number;
+      y: number;
+      hoveredItemId?: string | null;
+      selectedItemId?: string | null;
+    }
+  | {
+      type: "linkHover";
+      position: Position;
+      url: string;
+      text: string;
+      x: number;
+      y: number;
+      segmentIndex: number;
+    }
+  | {
+      type: "linkEdit";
+      position: Position;
+      url: string;
+      text: string;
+      x: number;
+      y: number;
+      segmentIndex: number;
+    }
+  | {
+      type: "imageUpload";
+      blockIndex: number;
+      x: number;
+      y: number;
+      uploadStatus?: "uploading" | "complete" | "error";
+    };
 
 // Document State - Only this goes in undo/redo
 export interface DocumentState {
@@ -56,12 +90,12 @@ export interface CompositionState {
 }
 
 // Active formats mode for typing
-export type ActiveFormatsMode = 
-  | { type: 'inherit' } // Inherit formatting from previous character (normal typing)
-  | { type: 'explicit'; formats: readonly TextFormat[] }; // Explicit formatting mode (Ctrl+B toggled on/off)
+export type ActiveFormatsMode =
+  | { type: "inherit" } // Inherit formatting from previous character (normal typing)
+  | { type: "explicit"; formats: readonly TextFormat[] }; // Explicit formatting mode (Ctrl+B toggled on/off)
 
 // Drag handle position on an image
-export type DragHandlePosition = 'left' | 'right' | 'bottom' | null;
+export type DragHandlePosition = "left" | "right" | "bottom" | null;
 
 // Drag state for image resize
 export interface ImageDragState {
@@ -69,9 +103,9 @@ export interface ImageDragState {
   readonly handle: DragHandlePosition;
   readonly startX: number;
   readonly startY: number;
-  readonly startWidth: number | 'full';
+  readonly startWidth: number | "full";
   readonly startHeight: number;
-  readonly startObjectFit: 'cover' | 'contain';
+  readonly startObjectFit: "cover" | "contain";
 }
 
 // Image Hover State - Not a menu, just visual feedback
@@ -132,14 +166,14 @@ export interface SelectionState {
   readonly lastUpdate: number;
   /**
    * Tracks initial selection boundaries from double/triple-click gestures.
-   * 
+   *
    * When a user double-clicks a word or triple-clicks a line, this boundary preserves
    * the original selected range. As the user drags to extend the selection, the anchor
    * point dynamically adjusts based on drag direction:
    * - Dragging before the start: anchor moves to end, focus follows cursor
    * - Dragging after the end: anchor stays at start, focus follows cursor
    * - Dragging within boundary: keeps the full boundary selected
-   * 
+   *
    * This ensures intuitive word/line-level selection expansion while maintaining
    * the originally selected unit. Should NOT be preserved when creating programmatic
    * selections (like Select All) that don't originate from user gestures.
@@ -176,6 +210,7 @@ export interface ViewportState {
   readonly scrollY: number;
   readonly width: number;
   readonly height: number;
+  readonly documentHeight: number;
 }
 
 export interface TouchState {

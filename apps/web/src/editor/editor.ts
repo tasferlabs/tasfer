@@ -135,11 +135,28 @@ export default function createEditor(
 
   let isRendering = false;
 
+  // Cache for canvas bounding rect to avoid getBoundingClientRect in render loop
+  let cachedRect = { left: 0, top: 0 };
+  let rectNeedsUpdate = true;
+
+  const updateCachedRect = () => {
+    const containerRect = contentCanvas.getBoundingClientRect();
+    cachedRect = {
+      left: containerRect.left,
+      top: containerRect.top,
+    };
+    rectNeedsUpdate = false;
+  };
+
   // Dirty flags for each layer
   let dirtyLayers = {
     content: true, // Start with true for initial render
     cursor: true,
   };
+
+  // Cache for document height (expensive to calculate)
+  let cachedDocumentHeight = 0;
+  let documentHeightDirty = true;
 
   let lastCursorBlinkState = false; // Track cursor blink state changes
 
@@ -201,12 +218,10 @@ export default function createEditor(
     isRendering = true;
 
     try {
-      // Get current canvas position for event coordinate adjustment
-      const containerRect = contentCanvas.getBoundingClientRect();
-      const rect = {
-        left: containerRect.left,
-        top: containerRect.top,
-      };
+      // Update cached rect only when needed (avoids expensive getBoundingClientRect every frame)
+      if (rectNeedsUpdate) {
+        updateCachedRect();
+      }
 
       const prevState = state;
       state = handleEvents(
@@ -215,7 +230,7 @@ export default function createEditor(
         visibility,
         eventsQueue,
         documentHeight,
-        rect,
+        cachedRect,
         updateViewport,
         pendingClipboardData
       );
@@ -232,6 +247,7 @@ export default function createEditor(
         if (prevState.document.page !== state.document.page) {
           dirtyLayers.content = true;
           dirtyLayers.cursor = true; // Cursor position may have changed
+          documentHeightDirty = true; // Blocks changed, need to recalculate height
         }
 
         // Check if selection changed (requires content layer update)
@@ -277,9 +293,14 @@ export default function createEditor(
       if (needsAnyRender) {
         // Render content layer if dirty (expensive)
         if (dirtyLayers.content) {
+          // Recalculate document height only when needed
+          if (documentHeightDirty) {
+            cachedDocumentHeight = calculateDocumentHeight();
+            documentHeightDirty = false;
+          }
+
           // Pre-calculate document height to clamp viewport before rendering
-          const newDocumentHeight = getDocumentHeight();
-          const maxScroll = Math.max(0, newDocumentHeight - viewport.height);
+          const maxScroll = Math.max(0, cachedDocumentHeight - viewport.height);
           if (viewport.scrollY > maxScroll) {
             viewport = { ...viewport, scrollY: maxScroll };
           }
@@ -640,6 +661,11 @@ export default function createEditor(
   // Click handler for focusing input (stored for cleanup)
   let canvasClickHandler: (() => void) | null = null;
 
+  // Handler to invalidate cached rect when canvas position might change
+  const invalidateRectCache = () => {
+    rectNeedsUpdate = true;
+  };
+
   // Initialize the editor and start the render loop
   (() => {
     scheduleRender(); // Schedule initial render
@@ -685,6 +711,10 @@ export default function createEditor(
     });
     window.addEventListener("keydown", eventsHandler);
     window.addEventListener("paste", eventsHandler);
+
+    // Invalidate rect cache when canvas position might change
+    window.addEventListener("resize", invalidateRectCache);
+    window.addEventListener("scroll", invalidateRectCache, true);
 
     // Set up hidden input handlers for mobile keyboard support
     if (hiddenInput) {
@@ -752,6 +782,8 @@ export default function createEditor(
     contentCanvas.removeEventListener("touchcancel", eventsHandler);
     window.removeEventListener("keydown", eventsHandler);
     window.removeEventListener("paste", eventsHandler);
+    window.removeEventListener("resize", invalidateRectCache);
+    window.removeEventListener("scroll", invalidateRectCache, true);
 
     // Unregister font change callback
     onFontFamilyChange(() => {});
@@ -780,6 +812,7 @@ export default function createEditor(
     // Clear block height cache if width changed (affects text wrapping)
     if (viewport.width !== oldWidth) {
       clearAllBlockCaches(state.document.page.blocks);
+      documentHeightDirty = true; // Width change affects text wrapping and height
     }
 
     // Schedule render for viewport changes
@@ -787,7 +820,7 @@ export default function createEditor(
     renderFrame();
   }
 
-  function getDocumentHeight(): number {
+  function calculateDocumentHeight(): number {
     // Calculate total document height based on all blocks
     const styles = getEditorStyles();
     const maxWidth = viewport.width - 2 * styles.canvas.paddingLeft;
@@ -800,7 +833,18 @@ export default function createEditor(
       totalHeight += blockHeight;
     }
 
-    return totalHeight + styles.canvas.paddingBottom;
+    const documentHeight = totalHeight + styles.canvas.paddingBottom;
+    viewport = { ...viewport, documentHeight };
+    return documentHeight;
+  }
+
+  function getDocumentHeight(): number {
+    // Return cached height, recalculating only if dirty
+    if (documentHeightDirty) {
+      cachedDocumentHeight = calculateDocumentHeight();
+      documentHeightDirty = false;
+    }
+    return cachedDocumentHeight;
   }
 
   function setFocus(focused: boolean, shouldClearSelection: boolean = false) {
