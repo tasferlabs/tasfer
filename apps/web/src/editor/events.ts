@@ -4530,25 +4530,26 @@ function handleTouchEnd(
         const isTapBelowContent =
           tapPosition.y > totalContentHeight - viewport.scrollY;
 
-        // If tapping below content and last block is an image, select it
+        // If tapping below content and last block is an image, create a new paragraph
         if (isTapBelowContent && lastBlock.type === "image") {
-          const imagePosition = { blockIndex: lastBlockIndex, textIndex: 0 };
-          state = updateCursor(state, imagePosition);
+          const newParagraph: Block = {
+            id: generateBlockId(),
+            type: "paragraph",
+            content: [{ content: "" }],
+          };
 
-          // Select the image block
+          const newBlocks = [
+            ...state.document.page.blocks,
+            newParagraph,
+          ];
+          const newPage = { ...state.document.page, blocks: newBlocks };
+
           state = {
             ...state,
-            document: {
-              ...state.document,
-              selection: {
-                anchor: imagePosition,
-                focus: imagePosition,
-                isForward: true,
-                isCollapsed: false,
-                lastUpdate: Date.now(),
-              },
-            },
+            document: { ...state.document, page: newPage },
           };
+          state = clearSelection(state);
+          state = moveCursorToPosition(state, lastBlockIndex + 1, 0);
 
           touchState = null;
           return {
@@ -4655,6 +4656,42 @@ function handleTouchEnd(
               },
             },
           };
+        } else {
+          // Tapped on image block area but not on the actual image visual
+          // If this is the last block, create a new paragraph below
+          const isLastBlock = position.blockIndex === state.document.page.blocks.length - 1;
+          if (isLastBlock) {
+            const newParagraph: Block = {
+              id: generateBlockId(),
+              type: "paragraph",
+              content: [{ content: "" }],
+            };
+
+            const newBlocks = [
+              ...state.document.page.blocks,
+              newParagraph,
+            ];
+            const newPage = { ...state.document.page, blocks: newBlocks };
+
+            state = {
+              ...state,
+              document: { ...state.document, page: newPage },
+            };
+            state = clearSelection(state);
+            state = moveCursorToPosition(state, position.blockIndex + 1, 0);
+
+            touchState = null;
+            return {
+              ...updateMode(state, "edit"),
+              view: {
+                ...state.view,
+                scrollbar: {
+                  ...state.view.scrollbar,
+                  lastInteraction: Date.now(),
+                },
+              },
+            };
+          }
         }
       }
 
