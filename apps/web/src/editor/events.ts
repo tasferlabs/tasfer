@@ -1147,6 +1147,86 @@ export function handleEvents(
         },
       };
     }
+  } else if (autoScrollState.isActive && state.ui.imageDrag) {
+    // Apply auto-scroll for image drag (constant speed, no acceleration)
+    const { blockIndex, handle } = state.ui.imageDrag;
+    const block = state.document.page.blocks[blockIndex];
+    const cursorY = autoScrollState.lastMouseY;
+
+    // Check if we should block scrolling down (bottom handle + near bottom + at max height)
+    let shouldBlockBottomScroll = false;
+    const objectFit = block.type === "image" ? (block.objectFit ?? "cover") : "cover";
+    if (handle === "bottom" && objectFit === "cover" && block.type === "image" && block.url) {
+      const cachedImage = imageCache.get(block.url);
+      if (cachedImage && cachedImage.complete) {
+        const imgAspectRatio =
+          cachedImage.naturalWidth / cachedImage.naturalHeight;
+        const containerWidth =
+          typeof block.width === "number" ? block.width : viewport.width;
+        const maxHeightForRatio = containerWidth / imgAspectRatio;
+        // Use startHeight + delta to get current effective height
+        const currentHeight = state.ui.imageDrag.startHeight + (cursorY - state.ui.imageDrag.startY);
+        const isAtMaxHeight = currentHeight >= maxHeightForRatio - 1;
+        const isNearBottomEdge =
+          cursorY > viewport.height - EDGE_SCROLL_THRESHOLD ||
+          cursorY > viewport.height;
+        shouldBlockBottomScroll = isAtMaxHeight && isNearBottomEdge;
+      }
+    }
+
+    // Stop auto-scroll if we should block bottom scroll
+    if (shouldBlockBottomScroll) {
+      stopAutoScroll();
+    } else {
+      let autoScrollDelta = 0;
+
+      // Use constant speed (no acceleration for image drag)
+      if (cursorY < 0) {
+        autoScrollDelta = -EDGE_SCROLL_SPEED;
+      } else if (cursorY < EDGE_SCROLL_THRESHOLD) {
+        const proximity = 1 - cursorY / EDGE_SCROLL_THRESHOLD;
+        autoScrollDelta = -EDGE_SCROLL_SPEED * proximity;
+      } else if (cursorY > viewport.height) {
+        autoScrollDelta = EDGE_SCROLL_SPEED;
+      } else if (cursorY > viewport.height - EDGE_SCROLL_THRESHOLD) {
+        const proximity =
+          (cursorY - (viewport.height - EDGE_SCROLL_THRESHOLD)) /
+          EDGE_SCROLL_THRESHOLD;
+        autoScrollDelta = EDGE_SCROLL_SPEED * proximity;
+      }
+
+      if (autoScrollDelta !== 0 && updateViewportCallback) {
+        const maxScroll = documentHeight - viewport.height;
+        const newScrollY = Math.max(
+          0,
+          Math.min(maxScroll, viewport.scrollY + autoScrollDelta)
+        );
+
+        if (newScrollY !== viewport.scrollY) {
+          updateViewportCallback({ scrollY: newScrollY });
+
+          // Continue updating image drag as we scroll
+          // Adjust startY to account for the scroll so the image continues to resize
+          const scrollAdjustment = newScrollY - viewport.scrollY;
+          state = {
+            ...state,
+            ui: {
+              ...state.ui,
+              imageDrag: {
+                ...state.ui.imageDrag!,
+                startY: state.ui.imageDrag!.startY - scrollAdjustment,
+              },
+            },
+          };
+          state = updateImageDrag(
+            state,
+            viewport,
+            autoScrollState.lastMouseX,
+            autoScrollState.lastMouseY
+          );
+        }
+      }
+    }
   }
 
   // Apply momentum scrolling if active (even when no events)
@@ -1927,6 +2007,51 @@ function handleMouseMove(
 
   // Handle image drag resize
   if (state.ui.imageDrag) {
+    const { blockIndex, handle } = state.ui.imageDrag;
+    const block = state.document.page.blocks[blockIndex];
+
+    // Check if we should allow auto-scroll for bottom edge
+    // Only block scrolling down if: bottom handle + near bottom edge + image at max height
+    let shouldBlockBottomScroll = false;
+    const objectFit = block.type === "image" ? (block.objectFit ?? "cover") : "cover";
+    if (handle === "bottom" && objectFit === "cover" && block.type === "image" && block.url) {
+      const cachedImage = imageCache.get(block.url);
+      if (cachedImage && cachedImage.complete) {
+        const imgAspectRatio =
+          cachedImage.naturalWidth / cachedImage.naturalHeight;
+        const containerWidth =
+          typeof block.width === "number" ? block.width : viewport.width;
+        const maxHeightForRatio = containerWidth / imgAspectRatio;
+        // Use startHeight + delta to get current effective height
+        const currentHeight = state.ui.imageDrag.startHeight + (canvasY - state.ui.imageDrag.startY);
+        const isAtMaxHeight = currentHeight >= maxHeightForRatio - 1;
+        const isNearBottomEdge =
+          canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
+          canvasY > viewport.height;
+        shouldBlockBottomScroll = isAtMaxHeight && isNearBottomEdge;
+      }
+    }
+
+    // Check for edge scrolling during image drag
+    const isNearTopEdge = canvasY < EDGE_SCROLL_THRESHOLD || canvasY < 0;
+    const isNearBottomEdge =
+      canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
+      canvasY > viewport.height;
+    const isNearEdge = isNearTopEdge || isNearBottomEdge;
+
+    // Allow scroll if near edge, but block bottom scroll if image is at max
+    if (isNearEdge && !(shouldBlockBottomScroll && isNearBottomEdge)) {
+      if (!autoScrollState.isActive) {
+        startAutoScroll();
+      }
+      autoScrollState.lastMouseX = canvasX;
+      autoScrollState.lastMouseY = canvasY;
+    } else {
+      if (autoScrollState.isActive) {
+        stopAutoScroll();
+      }
+    }
+
     return updateImageDrag(state, viewport, canvasX, canvasY);
   }
 
@@ -3801,10 +3926,57 @@ function handleTouchMove(
       };
     }
 
-    // Handle image drag resize (no auto-scroll - resize only)
+    // Handle image drag resize
     if (state.ui.imageDrag) {
       touchState.lastY = canvasY;
       touchState.lastTime = currentTime;
+      touchState.currentTouchX = canvasX;
+      touchState.currentTouchY = canvasY;
+
+      const { blockIndex, handle } = state.ui.imageDrag;
+      const block = state.document.page.blocks[blockIndex];
+
+      // Check if we should allow auto-scroll for bottom edge
+      // Only block scrolling down if: bottom handle + near bottom edge + image at max height
+      let shouldBlockBottomScroll = false;
+      const objectFit = block.type === "image" ? (block.objectFit ?? "cover") : "cover";
+      if (handle === "bottom" && objectFit === "cover" && block.type === "image" && block.url) {
+        const cachedImage = imageCache.get(block.url);
+        if (cachedImage && cachedImage.complete) {
+          const imgAspectRatio =
+            cachedImage.naturalWidth / cachedImage.naturalHeight;
+          const containerWidth =
+            typeof block.width === "number" ? block.width : viewport.width;
+          const maxHeightForRatio = containerWidth / imgAspectRatio;
+          // Use startHeight + delta to get current effective height
+          const currentHeight = state.ui.imageDrag.startHeight + (canvasY - state.ui.imageDrag.startY);
+          const isAtMaxHeight = currentHeight >= maxHeightForRatio - 1;
+          const isNearBottomEdge =
+            canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
+            canvasY > viewport.height;
+          shouldBlockBottomScroll = isAtMaxHeight && isNearBottomEdge;
+        }
+      }
+
+      // Check for edge scrolling during image drag
+      const isNearTopEdge = canvasY < EDGE_SCROLL_THRESHOLD || canvasY < 0;
+      const isNearBottomEdge =
+        canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
+        canvasY > viewport.height;
+      const isNearEdge = isNearTopEdge || isNearBottomEdge;
+
+      // Allow scroll if near edge, but block bottom scroll if image is at max
+      if (isNearEdge && !(shouldBlockBottomScroll && isNearBottomEdge)) {
+        if (!autoScrollState.isActive) {
+          startAutoScroll();
+        }
+        autoScrollState.lastMouseX = canvasX;
+        autoScrollState.lastMouseY = canvasY;
+      } else {
+        if (autoScrollState.isActive) {
+          stopAutoScroll();
+        }
+      }
 
       return {
         ...updateImageDrag(state, viewport, canvasX, canvasY),
