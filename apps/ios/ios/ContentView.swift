@@ -164,6 +164,13 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
                     customWebView.updateToolbarIcon(iconType: iconType)
                 }
             }
+        case "open-url":
+            if let urlString = body["url"] as? String,
+               let url = URL(string: urlString) {
+                DispatchQueue.main.async {
+                    UIApplication.shared.open(url)
+                }
+            }
         case "formatting-state":
             if let isBold = body["bold"] as? Bool,
                 let isItalic = body["italic"] as? Bool,

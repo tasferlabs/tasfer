@@ -109,6 +109,18 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     fun updateFormattingState(isBold: Boolean, isItalic: Boolean, isCode: Boolean, isStrikethrough: Boolean) {
         (context as? MainActivity)?.updateFormattingState(isBold, isItalic, isCode, isStrikethrough)
     }
+
+    @JavascriptInterface
+    fun openUrl(url: String) {
+        (context as? MainActivity)?.runOnUiThread {
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                // Handle invalid URL or no browser available
+            }
+        }
+    }
 }
 
 class MainActivity : ComponentActivity() {

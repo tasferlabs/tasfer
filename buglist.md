@@ -80,7 +80,7 @@ Bugs list
 - [x] add link for inline rendering format but the styles should be resvered for links. Add parsing logic for links as well. Add menu for changing the link tile.
 - [x] ctrl click or command     click should open the link. But it should not matter if it happens in fly while selecting.
 - [x] hover on link should radix toolip and preview and with edit edit button and copy button. clicking on link preview should open it.
-- [ ] how to do the above on mobile.
+- [x] how to do the above on mobile.
 - [ ] do design overhaul.
 - [ ] Add support for windows ctrl + Y and make sure the shortcuts are intuitiave for all opearting systems.
 - [ ] consider if we need more animation and fluid text edting for example when I delete large portion text or copy large portion of text. Maybe show the scroll bar in this case.
@@ -213,3 +213,4 @@ Bugs list
 - [ ] increase font size for people who wants it.
 - [ ] Autorcorrect/autocomplete
 - [ ] dragging text
+- [ ] hover on checkbox should be pointer

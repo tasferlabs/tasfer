@@ -1666,8 +1666,14 @@ function handleMouseDown(
     if (position) {
       const linkData = getLinkAtPosition(position, state);
       if (linkData) {
-        // Open the link in a new tab
-        window.open(linkData.url, "_blank", "noopener,noreferrer");
+        // Open the link in a new tab using native bridge on mobile apps
+        if (window.IOSBridge?.postMessage) {
+          window.IOSBridge.postMessage({ action: "open-url", url: linkData.url });
+        } else if (window.AndroidBridge?.openUrl) {
+          window.AndroidBridge.openUrl(linkData.url);
+        } else {
+          window.open(linkData.url, "_blank", "noopener,noreferrer");
+        }
         // Clear any link hover state
         state = {
           ...state,

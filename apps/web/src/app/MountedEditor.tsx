@@ -843,11 +843,18 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
               x={linkTooltipState.x}
               y={linkTooltipState.y}
               onOpen={() => {
-                window.open(
-                  linkTooltipState.url,
-                  "_blank",
-                  "noopener,noreferrer"
-                );
+                // Use native bridge on mobile apps, fallback to window.open on web
+                if (window.IOSBridge?.postMessage) {
+                  window.IOSBridge.postMessage({ action: "open-url", url: linkTooltipState.url });
+                } else if (window.AndroidBridge?.openUrl) {
+                  window.AndroidBridge.openUrl(linkTooltipState.url);
+                } else {
+                  window.open(
+                    linkTooltipState.url,
+                    "_blank",
+                    "noopener,noreferrer"
+                  );
+                }
               }}
               onEdit={handleLinkEdit}
             />

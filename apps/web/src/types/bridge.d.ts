@@ -16,6 +16,7 @@ declare global {
         italic?: boolean;
         code?: boolean;
         strikethrough?: boolean;
+        url?: string;
       }) => void;
       setEditorFocused?: (focused: boolean) => void;
       // Editor methods (assigned by Web)
@@ -42,6 +43,7 @@ declare global {
       openCamera?: () => void;
       updateToolbarIcon?: (iconType: "link" | "image" | "format" | "none") => void;
       updateFormattingState?: (isBold: boolean, isItalic: boolean, isCode: boolean, isStrikethrough: boolean) => void;
+      openUrl?: (url: string) => void;
       // Editor methods (assigned by Web to allow native to call back)
       undo?: () => void;
       redo?: () => void;

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
-import { Link2, Trash2 } from "lucide-react";
+import { Link2, Trash2, ExternalLink } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -142,18 +142,39 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
       </div>
 
       {/* Actions */}
-      {url && onClear && (
-        <div className="flex items-center justify-start pt-2 border-t border-border">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleClear}
-            onMouseDown={(e) => e.preventDefault()}
-            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+      {url && (
+        <div className="flex items-center justify-between pt-2 border-t border-border">
+          <button
+            type="button"
+            onTouchEnd={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              // Use native bridge on mobile apps, fallback to window.open on web
+              if (window.IOSBridge?.postMessage) {
+                window.IOSBridge.postMessage({ action: "open-url", url: editedUrl });
+              } else if (window.AndroidBridge?.openUrl) {
+                window.AndroidBridge.openUrl(editedUrl);
+              } else {
+                window.open(editedUrl, "_blank", "noopener,noreferrer");
+              }
+            }}
+            className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 px-3"
           >
-            <Trash2 className="w-4 h-4 mr-2" />
-            {t("Clear Link")}
-          </Button>
+            <ExternalLink className="w-4 h-4" />
+            {t("Open Link")}
+          </button>
+          {onClear && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleClear}
+              onMouseDown={(e) => e.preventDefault()}
+              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              {t("Clear Link")}
+            </Button>
+          )}
         </div>
       )}
     </>

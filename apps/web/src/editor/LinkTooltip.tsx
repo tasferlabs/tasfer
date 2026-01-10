@@ -62,8 +62,14 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
     if (onOpen) {
       onOpen();
     } else {
-      // Default behavior: open in new tab
-      window.open(url, "_blank", "noopener,noreferrer");
+      // Use native bridge on mobile apps, fallback to window.open on web
+      if (window.IOSBridge?.postMessage) {
+        window.IOSBridge.postMessage({ action: "open-url", url });
+      } else if (window.AndroidBridge?.openUrl) {
+        window.AndroidBridge.openUrl(url);
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
     }
   };
 
