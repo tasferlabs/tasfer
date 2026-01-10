@@ -64,6 +64,7 @@ import {
   getCursorCoordinates,
   getLinkAtPosition,
   getTextPositionFromViewport,
+  isPointWithinSelectionRects,
   scrollToMakeCursorVisible,
 } from "./selection";
 import {
@@ -656,53 +657,6 @@ function isWithinClickDistance(
   const dx = pos1.x - pos2.x;
   const dy = pos1.y - pos2.y;
   return Math.sqrt(dx * dx + dy * dy) <= threshold;
-}
-
-function isPositionWithinSelection(
-  state: EditorState,
-  position: { blockIndex: number; textIndex: number }
-): boolean {
-  if (!state.document.selection) return false;
-
-  const { anchor, focus } = state.document.selection;
-
-  const selStart =
-    anchor.blockIndex < focus.blockIndex ||
-    (anchor.blockIndex === focus.blockIndex &&
-      anchor.textIndex <= focus.textIndex)
-      ? anchor
-      : focus;
-  const selEnd = selStart === anchor ? focus : anchor;
-
-  if (
-    selStart.blockIndex === selEnd.blockIndex &&
-    selStart.textIndex === selEnd.textIndex
-  ) {
-    return false;
-  }
-
-  if (
-    position.blockIndex < selStart.blockIndex ||
-    position.blockIndex > selEnd.blockIndex
-  ) {
-    return false;
-  }
-
-  if (
-    position.blockIndex === selStart.blockIndex &&
-    position.textIndex < selStart.textIndex
-  ) {
-    return false;
-  }
-
-  if (
-    position.blockIndex === selEnd.blockIndex &&
-    position.textIndex >= selEnd.textIndex
-  ) {
-    return false;
-  }
-
-  return true;
 }
 
 /**
@@ -3668,17 +3622,13 @@ function handleTouchStart(
       }
     }
 
-    // Check if touching within existing selection
-    const position = getTextPositionFromViewport(
+    // Check if touching within existing selection (use pixel-based check for accuracy)
+    const isTouchingSelection = isPointWithinSelectionRects(
       canvasX,
       canvasY,
       state,
-      viewport,
-      { start: 0, end: state.document.page.blocks.length - 1 }
+      viewport
     );
-    const isTouchingSelection = position
-      ? isPositionWithinSelection(state, position)
-      : false;
 
     // iOS-style: If touching scrollbar thumb, start hold timer (don't activate immediately)
     if (isScrollbarThumbTouch) {
@@ -4106,7 +4056,7 @@ function handleTouchMove(
         scrollbarPressState = null;
       }
 
-      // Close all menus on movement
+      // Close all menus on movement - scrolling has priority
       if (state.ui.activeMenu.type !== "none") {
         state = closeActiveMenu(state);
       }
@@ -4737,13 +4687,14 @@ function handleTouchEnd(
       if (isMultiTap && touchTapTracker.count >= 3) {
         state = selectLineAtPosition(state, position);
       }
-      // If tapping inside a selection (single or double tap), don't reset it (Apple Notes behavior)
-      else if (isPositionWithinSelection(state, position)) {
+      // If tapping inside a selection (single or double tap), open context menu (mobile UX)
+      // Use pixel-based check to account for text wrapping - only trigger if tap is on actual selection boxes
+      else if (isPointWithinSelectionRects(tapPosition.x, tapPosition.y, state, viewport)) {
         // Keep selection but update cursor position
         state = updateCursor(state, position);
-        // Close any active menu if open when tapping on selection
-        if (state.ui.activeMenu.type === "contextMenu") {
-          state = closeActiveMenu(state);
+        // Open context menu at tap position (or keep open if already open)
+        if (state.ui.activeMenu.type !== "contextMenu") {
+          state = openContextMenu(state, tapPosition.x, tapPosition.y);
         }
       }
       // Handle double-tap: select word

@@ -81,9 +81,8 @@ Bugs list
 - [x] ctrl click or command     click should open the link. But it should not matter if it happens in fly while selecting.
 - [x] hover on link should radix toolip and preview and with edit edit button and copy button. clicking on link preview should open it.
 - [x] how to do the above on mobile.
-- [ ] do design overhaul.
+- [-] do design overhaul.
 - [ ] Add support for windows ctrl + Y and make sure the shortcuts are intuitiave for all opearting systems.
-- [ ] consider if we need more animation and fluid text edting for example when I delete large portion text or copy large portion of text. Maybe show the scroll bar in this case.
 - [x] rendering is triggered to many times.
 - [ ] override webiew defaul 404 page
 - [x] rtl inline format rendering edge cases
@@ -120,7 +119,7 @@ Bugs list
 - [x] when text is going out of bounds then some character goes missing
 - [ ] ctrl + S should be prevented
 - [ ] rendering a large block has perforamce issues.
-- [ ] haptics on scrollbar. Improvement for scollbar.
+- [x] haptics on scrollbar. Improvement for scollbar.
 - [x] scrolling down while we have link overlay does not hide it.
 - [x] Undo/redo is broken on composition
 - [x] Navigation with arrow keys (home,end,page up and down too)during composition is broken
@@ -130,7 +129,7 @@ Bugs list
 - [x] start composition and unfocus the page does not cancel compositon.
 - [-] Composition state cleanup on error
 - [x] ios top toolbar is too high under the os notification bar
-- [ ] ios keyboard island is always visibile if for normal text inputs
+- [x] ios keyboard island is always visibile if for normal text inputs
 - [x] escaping slash menu does not work.
 - [x] word count does not work with CJK letters
 - [x] pasting is not invalidating blocked cached height.
@@ -176,18 +175,18 @@ Bugs list
 - [-] Remove an image. Improve EditImagePopover.
 - [x] word count should not count images.
 - [ ] copy and paste should work with images.
-- [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
+- [-] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
 - [ ] scrollbar should not hit bottom porition on mobile (or at least on ios)
 - [x] hide editimagepopover on mobile
 - [x] hide scrollbar when not scrolling
-- [ ] one click on selection should trigger context menu.
+- [x] one click on selection should trigger context menu.
 - [x] focus issue on context menu
 - [x] select all on mobile not working really, i we already have selection on some block. It would select from start of that exisitng selectio until the end.
 - [x] Android keyboard rendering stops after tap in selection - fixed by updating cursor position while preserving selection
 - [ ] I want drag context menu activation like native menu have.
-- [ ] drag thumb drag detection on mobile should have buffer area.
-- [ ] selection drag rtl is broken
-- [ ] draging image handle and scrolling should work too.
+- [x] drag thumb drag detection on mobile should have buffer area.
+- [x] selection drag rtl is broken
+- [x] draging image handle and scrolling should work too.
 - [x] android toolbar is super broken.
 - [x] scroll on pagearea is shard on mobile
 - [x] clicking on other text inputs (sidebar, page title) should not show toolbar/keyboard island
@@ -199,18 +198,18 @@ Bugs list
 - [ ] tapping under image that has no other blocks under should create new text block.
 - [ ] could we disable edge navigation on andorid?
 - [ ] on landscape oritentation the safe area taking to much and it is uncessary.
+- [ ] Safe area on sidebar
 - [ ] typing letters that conlicde with markdown fomratting should be escaped
 - [ ] intermidate state in todo list
 - [ ] memory leak somehow the old state being presisted on hot reloading.
 - [ ] indent with mixed direction rtl todo
 - [ ] Pen input, stylus support. Handwriting.
-- [ ] Safe area on sidebar
-- [ ] GPU process (0x1150d81e0) took 3.668330 seconds to launch, Networking process (0x115100190) took 3.640831 seconds to launch, WebContent process (0x115078100) took 5.709915 seconds to launch - Optimized with WKProcessPool reuse, background task handling, WebView prewarming, and lifecycle optimizations
 - [ ] protocol for opening cypher links.
-- [ ] too many functions the loops all the blocks.
+- [-] too many functions the loops all the blocks.
 - [ ] voice input/speeh-to-text
 - [ ] Accessiblity input?
-- [ ] increase font size for people who wants it.
+- [ ] increase font size for people who wants it. Use rem
 - [ ] Autorcorrect/autocomplete
 - [ ] dragging text
 - [ ] hover on checkbox should be pointer
+- [ ] should placeholder be visible on out of focus?

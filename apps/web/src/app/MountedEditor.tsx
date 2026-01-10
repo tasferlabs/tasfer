@@ -21,7 +21,7 @@ import { LinkTooltip } from "../editor/LinkTooltip";
 import { SlashCommandMenu } from "../editor/SlashCommandMenu";
 import { hasNativeBridge } from "../editor/clipboard";
 import { getSelectionRange, getFormatsAtPosition } from "../editor/commands";
-import { getBlockTextContent } from "../editor/state";
+import { getBlockTextContent, isTouchDevice } from "../editor/state";
 import {
   mountEditor,
   type MountedEditor as MountedEditorInstance,
@@ -503,7 +503,9 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       const isBold = activeFormats.some((f) => f.type === "bold");
       const isItalic = activeFormats.some((f) => f.type === "italic");
       const isCode = activeFormats.some((f) => f.type === "code");
-      const isStrikethrough = activeFormats.some((f) => f.type === "strikethrough");
+      const isStrikethrough = activeFormats.some(
+        (f) => f.type === "strikethrough"
+      );
 
       if (window.IOSBridge) {
         window.IOSBridge.postMessage({
@@ -516,7 +518,12 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       }
 
       if (window.AndroidBridge) {
-        window.AndroidBridge.updateFormattingState?.(isBold, isItalic, isCode, isStrikethrough);
+        window.AndroidBridge.updateFormattingState?.(
+          isBold,
+          isItalic,
+          isCode,
+          isStrikethrough
+        );
       }
     };
 
@@ -623,7 +630,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     }
 
     // Add Format submenu for desktop when text is selected
-    if (hasSelection) {
+    if (hasSelection && !isTouchDevice()) {
       // Get active formats from current selection
       const getActiveFormats = () => {
         const state = mountedRef.current?.editor.getState();
@@ -645,7 +652,9 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       const isBold = activeFormats.some((f) => f.type === "bold");
       const isItalic = activeFormats.some((f) => f.type === "italic");
       const isCode = activeFormats.some((f) => f.type === "code");
-      const isStrikethrough = activeFormats.some((f) => f.type === "strikethrough");
+      const isStrikethrough = activeFormats.some(
+        (f) => f.type === "strikethrough"
+      );
 
       items.push({
         id: "format",
@@ -845,7 +854,10 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
               onOpen={() => {
                 // Use native bridge on mobile apps, fallback to window.open on web
                 if (window.IOSBridge?.postMessage) {
-                  window.IOSBridge.postMessage({ action: "open-url", url: linkTooltipState.url });
+                  window.IOSBridge.postMessage({
+                    action: "open-url",
+                    url: linkTooltipState.url,
+                  });
                 } else if (window.AndroidBridge?.openUrl) {
                   window.AndroidBridge.openUrl(linkTooltipState.url);
                 } else {

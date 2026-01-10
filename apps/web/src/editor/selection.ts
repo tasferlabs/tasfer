@@ -1021,3 +1021,290 @@ export function getLinkAtPosition(
 
   return null;
 }
+
+/**
+ * Check if pixel coordinates (x, y) fall within the actual visual selection rectangles.
+ * This accounts for text wrapping and only returns true if the point is on highlighted text.
+ * Used for mobile tap detection to avoid clearing selection when tapping empty space.
+ */
+export function isPointWithinSelectionRects(
+  x: number,
+  y: number,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles()
+): boolean {
+  const selection = state.document.selection;
+  if (!selection || selection.isCollapsed) {
+    return false;
+  }
+
+  // Sort anchor and focus to get start and end
+  const start = selection.isForward ? selection.anchor : selection.focus;
+  const end = selection.isForward ? selection.focus : selection.anchor;
+
+  // If start equals end, no selection
+  if (
+    start.blockIndex === end.blockIndex &&
+    start.textIndex === end.textIndex
+  ) {
+    return false;
+  }
+
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  const fontFamily = getCurrentFontFamily();
+  const codePadding = styles.textFormats.code.padding;
+
+  // Iterate through blocks that are part of the selection
+  for (
+    let blockIndex = 0;
+    blockIndex < state.document.page.blocks.length;
+    blockIndex++
+  ) {
+    const block = state.document.page.blocks[blockIndex];
+    const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
+
+    // Skip blocks before selection
+    if (blockIndex < start.blockIndex) {
+      currentY += blockHeight;
+      continue;
+    }
+
+    // Stop after we pass the selection
+    if (blockIndex > end.blockIndex) {
+      break;
+    }
+
+    // Skip image blocks
+    if (!isNotImageBlock(block)) {
+      currentY += blockHeight;
+      continue;
+    }
+
+    const textStyle = getTextStyle(styles, block.type);
+    const fontMetrics = getFontMetrics(
+      textStyle.fontSize,
+      textStyle.fontWeight,
+      fontFamily
+    );
+    const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
+
+    // Calculate indent and marker space for list blocks
+    let indentOffset = 0;
+    let markerWidth = 0;
+    let adjustedMaxWidth = maxWidth;
+    let baseX = styles.canvas.paddingLeft;
+
+    if (isListBlock(block)) {
+      const indent = block.indent || 0;
+      indentOffset = indent * styles.list.indent.size;
+      markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
+      adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
+
+      const isRTL = getFormattedTextDirection(block.content) === "rtl";
+      if (isRTL) {
+        baseX = styles.canvas.paddingLeft + indentOffset;
+      } else {
+        baseX = styles.canvas.paddingLeft + indentOffset + markerWidth;
+      }
+    }
+
+    // Get wrapped lines for this block
+    const wrappedLines = wrapFormattedTextDetailed(
+      block.content,
+      adjustedMaxWidth,
+      textStyle.fontSize,
+      textStyle.fontWeight,
+      fontFamily,
+      codePadding
+    );
+
+    const isRTL = getFormattedTextDirection(block.content) === "rtl";
+    let lineY = currentY;
+    let textIndex = 0;
+
+    for (const wrappedLine of wrappedLines) {
+      const lineText = wrappedLine.text;
+      const lineStartIndex = textIndex;
+      // Account for consumed space in endIndex calculation
+      const lineEndIndex = textIndex + lineText.length + (wrappedLine.consumedSpace ? 1 : 0);
+
+      // Measure the line width
+      const lineWidth = measureFormattedTextUpToIndex(
+        block.content,
+        lineStartIndex,
+        lineStartIndex + lineText.length,
+        textStyle.fontSize,
+        textStyle.fontWeight,
+        fontFamily,
+        codePadding
+      );
+
+      const lineTop = lineY;
+      const lineBottom = lineY + lineHeight;
+
+      // Check if y is within this line's vertical bounds
+      if (y >= lineTop && y < lineBottom) {
+        // Determine selection bounds for this line
+        let selectionStartX = baseX;
+        let selectionEndX = baseX + lineWidth;
+        let hasSelection = false;
+
+        if (start.blockIndex === blockIndex && end.blockIndex === blockIndex) {
+          // Selection within same block
+          if (
+            start.textIndex <= lineEndIndex &&
+            end.textIndex >= lineStartIndex
+          ) {
+            hasSelection = true;
+
+            const selStartTextIndex = Math.max(lineStartIndex, start.textIndex);
+            const selEndTextIndex = Math.min(lineStartIndex + lineText.length, end.textIndex);
+
+            if (isRTL) {
+              const widthToSelStart = measureFormattedTextUpToIndex(
+                block.content,
+                lineStartIndex,
+                selStartTextIndex,
+                textStyle.fontSize,
+                textStyle.fontWeight,
+                fontFamily,
+                codePadding
+              );
+              const widthToSelEnd = measureFormattedTextUpToIndex(
+                block.content,
+                lineStartIndex,
+                selEndTextIndex,
+                textStyle.fontSize,
+                textStyle.fontWeight,
+                fontFamily,
+                codePadding
+              );
+              selectionEndX = baseX + adjustedMaxWidth - widthToSelStart;
+              selectionStartX = baseX + adjustedMaxWidth - widthToSelEnd;
+            } else {
+              if (start.textIndex > lineStartIndex) {
+                selectionStartX += measureFormattedTextUpToIndex(
+                  block.content,
+                  lineStartIndex,
+                  start.textIndex,
+                  textStyle.fontSize,
+                  textStyle.fontWeight,
+                  fontFamily,
+                  codePadding
+                );
+              }
+              if (end.textIndex < lineStartIndex + lineText.length) {
+                const selectedWidth = measureFormattedTextUpToIndex(
+                  block.content,
+                  Math.max(lineStartIndex, start.textIndex),
+                  Math.min(lineStartIndex + lineText.length, end.textIndex),
+                  textStyle.fontSize,
+                  textStyle.fontWeight,
+                  fontFamily,
+                  codePadding
+                );
+                selectionEndX = selectionStartX + selectedWidth;
+              }
+            }
+          }
+        } else if (
+          start.blockIndex < blockIndex &&
+          end.blockIndex > blockIndex
+        ) {
+          // Entire block is selected
+          hasSelection = true;
+          if (isRTL) {
+            const lineStartX = baseX + adjustedMaxWidth - lineWidth;
+            selectionStartX = lineStartX;
+            selectionEndX = lineStartX + lineWidth;
+          }
+        } else if (
+          start.blockIndex === blockIndex &&
+          end.blockIndex > blockIndex
+        ) {
+          // Selection starts in this block
+          if (start.textIndex <= lineEndIndex) {
+            hasSelection = true;
+            if (isRTL) {
+              const widthToSelStart = measureFormattedTextUpToIndex(
+                block.content,
+                lineStartIndex,
+                Math.max(lineStartIndex, start.textIndex),
+                textStyle.fontSize,
+                textStyle.fontWeight,
+                fontFamily,
+                codePadding
+              );
+              selectionEndX = baseX + adjustedMaxWidth - widthToSelStart;
+              const lineStartX = baseX + adjustedMaxWidth - lineWidth;
+              selectionStartX = lineStartX;
+            } else {
+              if (start.textIndex > lineStartIndex) {
+                selectionStartX += measureFormattedTextUpToIndex(
+                  block.content,
+                  lineStartIndex,
+                  start.textIndex,
+                  textStyle.fontSize,
+                  textStyle.fontWeight,
+                  fontFamily,
+                  codePadding
+                );
+              }
+            }
+          }
+        } else if (
+          start.blockIndex < blockIndex &&
+          end.blockIndex === blockIndex
+        ) {
+          // Selection ends in this block
+          if (end.textIndex >= lineStartIndex) {
+            hasSelection = true;
+            if (isRTL) {
+              const lineStartX = baseX + adjustedMaxWidth - lineWidth;
+              const widthToSelEnd = measureFormattedTextUpToIndex(
+                block.content,
+                lineStartIndex,
+                Math.min(lineStartIndex + lineText.length, end.textIndex),
+                textStyle.fontSize,
+                textStyle.fontWeight,
+                fontFamily,
+                codePadding
+              );
+              selectionStartX = baseX + adjustedMaxWidth - widthToSelEnd;
+              selectionEndX = lineStartX + lineWidth;
+            } else {
+              if (end.textIndex < lineStartIndex + lineText.length) {
+                selectionEndX =
+                  baseX +
+                  measureFormattedTextUpToIndex(
+                    block.content,
+                    lineStartIndex,
+                    end.textIndex,
+                    textStyle.fontSize,
+                    textStyle.fontWeight,
+                    fontFamily,
+                    codePadding
+                  );
+              }
+            }
+          }
+        }
+
+        // Check if point is within the selection rectangle
+        if (hasSelection && x >= selectionStartX && x <= selectionEndX) {
+          return true;
+        }
+      }
+
+      lineY += lineHeight;
+      textIndex = lineEndIndex;
+    }
+
+    currentY += blockHeight;
+  }
+
+  return false;
+}
