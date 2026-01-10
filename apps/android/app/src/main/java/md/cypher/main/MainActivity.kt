@@ -157,6 +157,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var taskListButton: Button
     private lateinit var bulletedListButton: Button
     private lateinit var imageButton: Button
+    private lateinit var dividerButton: Button
     
     // State tracking
     private var isBlockMenuOpen = false
@@ -216,6 +217,7 @@ class MainActivity : ComponentActivity() {
         taskListButton = blockTypeMenu.findViewById(R.id.taskListButton)
         bulletedListButton = blockTypeMenu.findViewById(R.id.bulletedListButton)
         imageButton = blockTypeMenu.findViewById(R.id.imageButton)
+        dividerButton = blockTypeMenu.findViewById(R.id.dividerButton)
         
         startSpinnerAnimation()
         setupWindowInsets()
@@ -494,6 +496,11 @@ class MainActivity : ComponentActivity() {
         
         imageButton.setOnClickListener {
             setBlockType("image")
+            closeBlockMenu()
+        }
+
+        dividerButton.setOnClickListener {
+            setBlockType("line")
             closeBlockMenu()
         }
     }

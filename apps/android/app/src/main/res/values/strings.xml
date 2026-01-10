@@ -20,4 +20,5 @@
     <string name="task_list">Task List</string>
     <string name="bulleted_list">Bulleted List</string>
     <string name="image">Image</string>
+    <string name="divider">Divider</string>
 </resources>

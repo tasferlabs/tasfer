@@ -32,7 +32,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:columnCount="2"
-            android:rowCount="4"
+            android:rowCount="5"
             android:alignmentMode="alignMargins"
             android:columnOrderPreserved="false"
             android:useDefaultMargins="false">
@@ -192,6 +192,26 @@
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
                 android:text="@string/image"
+                android:textAlignment="viewStart"
+                android:textAllCaps="false"
+                android:textColor="@color/foreground"
+                android:textSize="15sp" />
+
+            <!-- Divider Button -->
+            <Button
+                android:id="@+id/dividerButton"
+                style="@style/Widget.AppCompat.Button"
+                android:layout_width="0dp"
+                android:layout_height="60dp"
+                android:layout_columnWeight="1"
+                android:layout_margin="4dp"
+                android:background="@drawable/button_background"
+                android:drawableStart="@drawable/ic_line"
+                android:drawablePadding="12dp"
+                android:gravity="start|center_vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:text="@string/divider"
                 android:textAlignment="viewStart"
                 android:textAllCaps="false"
                 android:textColor="@color/foreground"

@@ -2459,6 +2459,12 @@ export function convertBlockType(
       url: "", // Will be filled when image is uploaded
       alt: "",
     };
+  } else if (blockType === "line") {
+    // Convert text block to line block (divider)
+    newBlock = {
+      id: oldBlock.id,
+      type: "line",
+    };
   } else {
     // Unknown type - shouldn't reach here
     return state;
@@ -2476,13 +2482,13 @@ export function convertBlockType(
     document: { ...state.document, page: newPage },
   };
 
-  // If converting to image, move cursor to next block and create one if needed
-  if (blockType === "image") {
+  // If converting to image or line, move cursor to next block and create one if needed
+  if (blockType === "image" || blockType === "line") {
     // Move cursor to next block (create new paragraph if needed)
     if (blockIndex + 1 < newBlocks.length) {
       newState = moveCursorToPosition(newState, blockIndex + 1, 0);
     } else {
-      // Create a new paragraph block after the image
+      // Create a new paragraph block after the image/line
       const newParagraph: Block = {
         id: generateBlockId(),
         type: "paragraph",

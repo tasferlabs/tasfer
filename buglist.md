@@ -214,3 +214,4 @@ Bugs list
 - [ ] hover on checkbox should be pointer
 - [ ] should placeholder be visible on out of focus?
 - [ ] page up and down should work with visual blocks.
+- [ ] empty line and selection drag

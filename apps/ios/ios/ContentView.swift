@@ -276,6 +276,7 @@ class BlockTypeInputView: UIView, UIInputViewAudioFeedback {
             ("Task List", "todo_list", "list_todo"),
             ("Bulleted List", "bullet_list", "list"),
             ("Image", "image", "image"),
+            ("Divider", "line", "line"),
         ]
 
         var buttons: [UIButton] = []
@@ -396,9 +397,15 @@ class BlockTypeInputView: UIView, UIInputViewAudioFeedback {
             buttons[7].widthAnchor.constraint(
                 equalTo: gridContainer.widthAnchor, multiplier: 0.5, constant: -4),
 
+            // Row 5: Divider (left)
+            buttons[8].topAnchor.constraint(equalTo: buttons[6].bottomAnchor, constant: 8),
+            buttons[8].leadingAnchor.constraint(equalTo: gridContainer.leadingAnchor),
+            buttons[8].heightAnchor.constraint(equalToConstant: 60),
+            buttons[8].widthAnchor.constraint(
+                equalTo: gridContainer.widthAnchor, multiplier: 0.5, constant: -4),
+
             // Bottom constraint for grid container
-            buttons[6].bottomAnchor.constraint(lessThanOrEqualTo: gridContainer.bottomAnchor),
-            buttons[7].bottomAnchor.constraint(lessThanOrEqualTo: gridContainer.bottomAnchor),
+            buttons[8].bottomAnchor.constraint(lessThanOrEqualTo: gridContainer.bottomAnchor),
         ])
     }
 }
