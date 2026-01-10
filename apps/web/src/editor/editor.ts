@@ -1,5 +1,5 @@
 import type { Block } from "../deserializer/loadPage";
-import { isNotImageBlock } from "../deserializer/loadPage";
+import { isVisualBlock } from "../deserializer/loadPage";
 import {
   applySlashCommand,
   convertBlockType,
@@ -1050,7 +1050,7 @@ export default function createEditor(
     }
 
     const block = state.document.page.blocks[start.blockIndex];
-    if (!block || !isNotImageBlock(block)) {
+    if (!block || !isVisualBlock(block)) {
       return;
     }
 

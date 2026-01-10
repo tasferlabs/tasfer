@@ -1,6 +1,6 @@
 import type { EditorState, Position } from "./types";
 import type { Block } from "../deserializer/loadPage";
-import { isNotImageBlock, isListBlock } from "../deserializer/loadPage";
+import { isVisualBlock, isListBlock } from "../deserializer/loadPage";
 import {
   getBlockTextContent,
   moveCursorToPosition,
@@ -120,8 +120,8 @@ function getSelectedContent(state: EditorState): {
     const block = state.document.page.blocks[start.blockIndex];
     const text = getBlockTextContent(block);
     
-    // Image cover blocks are included as-is
-    if (block.type === "image") {
+    // Image cover and line blocks are included as-is
+    if (block.type === "image" || block.type === "line") {
       return {
         blocks: [block],
         isPartial: false,
@@ -129,8 +129,8 @@ function getSelectedContent(state: EditorState): {
         end,
       };
     }
-    
-    if (!isNotImageBlock(block)) {
+
+    if (!isVisualBlock(block)) {
       return {
         blocks: [block],
         isPartial: false,
@@ -138,7 +138,7 @@ function getSelectedContent(state: EditorState): {
         end,
       };
     }
-    
+
     // Extract the selected portion while preserving formatting
     const selectedContent = deleteTextRangeInFormattedContent(
       deleteTextRangeInFormattedContent(block.content, 0, start.textIndex),
@@ -166,13 +166,13 @@ function getSelectedContent(state: EditorState): {
     const block = state.document.page.blocks[i];
     const text = getBlockTextContent(block);
 
-    // Image cover blocks are included as-is
-    if (block.type === "image") {
+    // Image cover and line blocks are included as-is
+    if (block.type === "image" || block.type === "line") {
       blocks.push(block);
       continue;
     }
 
-    if (!isNotImageBlock(block)) {
+    if (!isVisualBlock(block)) {
       blocks.push(block);
       continue;
     }
@@ -249,7 +249,12 @@ function blocksToHTML(blocks: Block[]): string {
       return `<img src="${block.url}"${altAttr} ${widthAttr} ${heightAttr} ${objectFitAttr} />`;
     }
 
-    if (!isNotImageBlock(block)) {
+    // Handle line/divider blocks
+    if (block.type === "line") {
+      return "<hr />";
+    }
+
+    if (!isVisualBlock(block)) {
       return "";
     }
 
@@ -873,12 +878,12 @@ function insertBlocksAtCursor(
   // If pasting a single block
   if (blocks.length === 1) {
     // Can't paste into non-text blocks
-    if (!isNotImageBlock(currentBlock)) {
+    if (!isVisualBlock(currentBlock)) {
       return state;
     }
     
     // Can't paste non-text blocks into text blocks
-    if (!isNotImageBlock(blocks[0])) {
+    if (!isVisualBlock(blocks[0])) {
       return state;
     }
     
@@ -945,12 +950,12 @@ function insertBlocksAtCursor(
     );
   } else {
     // Pasting multiple blocks - preserve formatting in split blocks
-    if (!isNotImageBlock(currentBlock)) {
+    if (!isVisualBlock(currentBlock)) {
       return state;
     }
     
     // Filter out non-text blocks from paste (or handle them separately)
-    const textBlocks = blocks.filter(isNotImageBlock);
+    const textBlocks = blocks.filter(isVisualBlock);
     if (textBlocks.length === 0) {
       return state;
     }

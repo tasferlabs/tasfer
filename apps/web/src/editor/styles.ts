@@ -93,6 +93,13 @@ export function getEditorStyles(): EditorStyles {
         lineHeight: 1.6,
         paddingBottom: 6,
       },
+      line: {
+        height: 32, // Total block height
+        lineHeight: 1, // Thickness of the line
+        color: getCSSVariable("--border"),
+        paddingTop: 16,
+        paddingBottom: 16,
+      },
       image: {
         placeholder: {
           backgroundColor: getCSSVariable("--muted"),

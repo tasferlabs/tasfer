@@ -195,7 +195,7 @@ Bugs list
 - [ ] Three-Finger Gestures
 - [x] canvas glitch on resizing.
 - [x] editing issue on android. Can not edit text after selection.
-- [ ] tapping under image that has no other blocks under should create new text block.
+- [x] tapping under image that has no other blocks under should create new text block.
 - [ ] could we disable edge navigation on andorid?
 - [ ] on landscape oritentation the safe area taking to much and it is uncessary.
 - [ ] Safe area on sidebar
@@ -213,3 +213,4 @@ Bugs list
 - [ ] dragging text
 - [ ] hover on checkbox should be pointer
 - [ ] should placeholder be visible on out of focus?
+- [ ] page up and down should work with visual blocks.

@@ -1,5 +1,5 @@
 import type { Block } from "../deserializer/loadPage";
-import { isNotImageBlock, isListBlock } from "../deserializer/loadPage";
+import { isVisualBlock, isListBlock } from "../deserializer/loadPage";
 import { SLASH_COMMANDS } from "./SlashCommandMenu";
 import { copySelectionToClipboard, pasteFromClipboardEvent } from "./clipboard";
 import {
@@ -246,6 +246,73 @@ function getImageBlockAtPoint(
         }
       }
       // If we found the block but it's not an image or not over the image area, return null
+      return null;
+    }
+
+    currentY += blockHeight;
+  }
+
+  return null;
+}
+
+/**
+ * Helper function to detect if mouse/touch is over a line block
+ */
+function getLineBlockAtPoint(
+  x: number,
+  y: number,
+  state: EditorState,
+  viewport: ViewportState
+): {
+  blockIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} | null {
+  const styles = getEditorStyles();
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+
+  // Iterate through blocks to find which one we're over
+  for (
+    let blockIndex = 0;
+    blockIndex < state.document.page.blocks.length;
+    blockIndex++
+  ) {
+    const block = state.document.page.blocks[blockIndex];
+    const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
+
+    // Check if y is within this block's bounds
+    if (y >= currentY && y < currentY + blockHeight) {
+      // Check if this is a line block
+      if (block.type === "line") {
+        const lineStyles = styles.blocks.line;
+
+        // Line block spans the full content width
+        const displayX = styles.canvas.paddingLeft;
+        const displayWidth = maxWidth;
+        const displayY = currentY;
+        const displayHeight = lineStyles.height;
+
+        // Check if mouse is within the line block area
+        if (
+          x >= displayX &&
+          x < displayX + displayWidth &&
+          y >= displayY &&
+          y < displayY + displayHeight
+        ) {
+          return {
+            blockIndex,
+            x: displayX,
+            y: displayY,
+            width: displayWidth,
+            height: displayHeight,
+          };
+        }
+      }
+      // If we found the block but it's not a line block or not over the line area, return null
       return null;
     }
 
@@ -1753,21 +1820,57 @@ function handleMouseDown(
     }
   }
 
-  // Check if we have an image selected but clicked outside its container
+  // Check if clicking on a line block
+  const lineBlock = getLineBlockAtPoint(canvasX, canvasY, state, viewport);
+  if (lineBlock) {
+    const block = state.document.page.blocks[lineBlock.blockIndex];
+    if (block.type === "line") {
+      // Select the line block (same as image block behavior)
+      const linePosition = { blockIndex: lineBlock.blockIndex, textIndex: 0 };
+
+      let newState = updateCursor(state, linePosition);
+
+      // Create a selection that spans the entire line block
+      if (event.shiftKey && state.document.selection) {
+        // Extend selection to include this line block
+        newState = updateSelectionFocus(newState, linePosition);
+      } else {
+        // Select just this line block (match image block selection behavior)
+        newState = {
+          ...newState,
+          document: {
+            ...newState.document,
+            selection: {
+              anchor: linePosition,
+              focus: linePosition,
+              isForward: true,
+              isCollapsed: false,
+              lastUpdate: Date.now(),
+            },
+          },
+        };
+      }
+
+      return updateMode(newState, "edit");
+    }
+  }
+
+  // Check if we have a visual block (image/line) selected but clicked outside its container
   if (
     !imageBlock &&
+    !lineBlock &&
     state.document.selection &&
     !state.document.selection.isCollapsed
   ) {
     const { anchor, focus } = state.document.selection;
-    // Check if this is an image selection (anchor and focus at same position on an image block)
+    // Check if this is a visual block selection (anchor and focus at same position on an image/line block)
     if (
       anchor.blockIndex === focus.blockIndex &&
       anchor.textIndex === focus.textIndex
     ) {
       const selectedBlock = state.document.page.blocks[anchor.blockIndex];
-      if (selectedBlock && selectedBlock.type === "image") {
-        // We have an image selected, but clicked outside it - clear the selection
+      if (selectedBlock && (selectedBlock.type === "image" || selectedBlock.type === "line")) {
+        // We have a visual block selected, but clicked outside it - clear the selection
         state = clearSelection(state);
       }
     }
@@ -2499,8 +2602,8 @@ function handleKeyDown(
           const { blockIndex, textIndex } = slashMenu;
           const block = state.document.page.blocks[blockIndex];
 
-          // Image cover blocks shouldn't have slash commands, but guard anyway
-          if (block.type === "image") {
+          // Visual blocks (image/line) don't have text content, so guard anyway
+          if (block.type === "image" || block.type === "line") {
             return closeSlashCommand(state);
           }
 
@@ -2684,7 +2787,7 @@ function handleKeyDown(
             state.document.cursor.position.blockIndex === blockIndex &&
             currentBlock?.id === blockId &&
             currentBlock.type === "paragraph" &&
-            isNotImageBlock(currentBlock) &&
+            isVisualBlock(currentBlock) &&
             getBlockTextContent(currentBlock) === "" &&
             getFormattedTextDirection(currentBlock.content) === "rtl"
           ) {
@@ -2706,8 +2809,9 @@ function handleKeyDown(
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, 0, 0);
 
-            // Select the image block
-            if (newState.document.page.blocks[0]?.type === "image") {
+            // Select the visual block (image/line)
+            const firstBlock = newState.document.page.blocks[0];
+            if (firstBlock?.type === "image" || firstBlock?.type === "line") {
               newState = {
                 ...newState,
                 document: {
@@ -2726,15 +2830,15 @@ function handleKeyDown(
           }
         }
 
-        // If there's a selection, check if it's an image block selection
+        // If there's a selection, check if it's a visual block selection (image/line)
         const range = getSelectionRange(newState);
-        const isImageSelection =
+        const startBlock = range ? state.document.page.blocks[range.start.blockIndex] : null;
+        const isVisualBlockSelection =
           range &&
-          state.document.page.blocks[range.start.blockIndex]?.type ===
-            "image" &&
+          (startBlock?.type === "image" || startBlock?.type === "line") &&
           range.start.blockIndex === range.end.blockIndex;
 
-        if (range && !isImageSelection) {
+        if (range && !isVisualBlockSelection) {
           // Regular text selection - move to the start of it
           newState = moveCursorToPosition(
             clearSelection(newState),
@@ -2747,14 +2851,14 @@ function handleKeyDown(
           newState = moveCursorLeft(clearSelection(newState));
         }
 
-        // If we moved to an image block, select it; otherwise leave just cursor
+        // If we moved to a visual block (image/line), select it; otherwise leave just cursor
         if (newState.document.cursor) {
           const targetBlock =
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (targetBlock && targetBlock.type === "image") {
-            const imagePosition = {
+          if (targetBlock && (targetBlock.type === "image" || targetBlock.type === "line")) {
+            const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
             };
@@ -2763,8 +2867,8 @@ function handleKeyDown(
               document: {
                 ...newState.document,
                 selection: {
-                  anchor: imagePosition,
-                  focus: imagePosition,
+                  anchor: visualBlockPosition,
+                  focus: visualBlockPosition,
                   isForward: true,
                   isCollapsed: false,
                   lastUpdate: Date.now(),
@@ -2794,7 +2898,7 @@ function handleKeyDown(
       } else if (keyEvent.shiftKey) {
         newState = extendSelectionRight(newState);
       } else {
-        // Check if we're on an image at the end of the page
+        // Check if we're on a visual block (image/line) at the end of the page
         if (state.document.cursor) {
           const currentBlock =
             state.document.page.blocks[
@@ -2804,8 +2908,8 @@ function handleKeyDown(
             state.document.cursor.position.blockIndex ===
             state.document.page.blocks.length - 1;
 
-          if (isLastBlock && currentBlock?.type === "image") {
-            // Create a new paragraph below the image
+          if (isLastBlock && (currentBlock?.type === "image" || currentBlock?.type === "line")) {
+            // Create a new paragraph below the visual block
             const newParagraph: Block = {
               id: generateBlockId(),
               type: "paragraph",
@@ -2838,7 +2942,7 @@ function handleKeyDown(
             state.document.cursor.position.blockIndex === blockIndex &&
             currentBlock?.id === blockId &&
             currentBlock.type === "paragraph" &&
-            isNotImageBlock(currentBlock) &&
+            isVisualBlock(currentBlock) &&
             getBlockTextContent(currentBlock) === "" &&
             getFormattedTextDirection(currentBlock.content) === "ltr"
           ) {
@@ -2856,12 +2960,13 @@ function handleKeyDown(
                 autoCreatedParagraph: null,
               },
             };
-            // Move cursor to the image that was below
+            // Move cursor to the visual block that was below
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, 0, 0);
 
-            // Select the image block
-            if (newState.document.page.blocks[0]?.type === "image") {
+            // Select the visual block (image/line)
+            const firstBlock = newState.document.page.blocks[0];
+            if (firstBlock?.type === "image" || firstBlock?.type === "line") {
               newState = {
                 ...newState,
                 document: {
@@ -2880,14 +2985,15 @@ function handleKeyDown(
           }
         }
 
-        // If there's a selection, check if it's an image block selection
+        // If there's a selection, check if it's a visual block selection (image/line)
         const range = getSelectionRange(newState);
-        const isImageSelection =
+        const endBlock = range ? state.document.page.blocks[range.end.blockIndex] : null;
+        const isVisualBlockSelection =
           range &&
-          state.document.page.blocks[range.end.blockIndex]?.type === "image" &&
+          (endBlock?.type === "image" || endBlock?.type === "line") &&
           range.start.blockIndex === range.end.blockIndex;
 
-        if (range && !isImageSelection) {
+        if (range && !isVisualBlockSelection) {
           // Regular text selection - move to the end of it
           newState = moveCursorToPosition(
             clearSelection(newState),
@@ -2900,14 +3006,14 @@ function handleKeyDown(
           newState = moveCursorRight(clearSelection(newState));
         }
 
-        // If we moved to an image block, select it; otherwise leave just cursor
+        // If we moved to a visual block (image/line), select it; otherwise leave just cursor
         if (newState.document.cursor) {
           const targetBlock =
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (targetBlock && targetBlock.type === "image") {
-            const imagePosition = {
+          if (targetBlock && (targetBlock.type === "image" || targetBlock.type === "line")) {
+            const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
             };
@@ -2916,8 +3022,8 @@ function handleKeyDown(
               document: {
                 ...newState.document,
                 selection: {
-                  anchor: imagePosition,
-                  focus: imagePosition,
+                  anchor: visualBlockPosition,
+                  focus: visualBlockPosition,
                   isForward: true,
                   isCollapsed: false,
                   lastUpdate: Date.now(),
@@ -2945,7 +3051,7 @@ function handleKeyDown(
       if (keyEvent.shiftKey) {
         newState = extendSelectionUp(newState, viewport);
       } else {
-        // Check if we're on an image at the start of the page
+        // Check if we're on a visual block (image/line) at the start of the page
         if (state.document.cursor) {
           const currentBlock =
             state.document.page.blocks[
@@ -2953,8 +3059,8 @@ function handleKeyDown(
             ];
           const isFirstBlock = state.document.cursor.position.blockIndex === 0;
 
-          if (isFirstBlock && currentBlock?.type === "image") {
-            // Create a new paragraph above the image
+          if (isFirstBlock && (currentBlock?.type === "image" || currentBlock?.type === "line")) {
+            // Create a new paragraph above the visual block
             const newParagraph: Block = {
               id: generateBlockId(),
               type: "paragraph",
@@ -2984,14 +3090,14 @@ function handleKeyDown(
         // Clear selection and move cursor
         newState = moveCursorUp(clearSelection(newState), viewport);
 
-        // If we moved to an image block, select it; otherwise leave just cursor
+        // If we moved to a visual block (image/line), select it; otherwise leave just cursor
         if (newState.document.cursor) {
           const targetBlock =
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (targetBlock && targetBlock.type === "image") {
-            const imagePosition = {
+          if (targetBlock && (targetBlock.type === "image" || targetBlock.type === "line")) {
+            const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
             };
@@ -3000,8 +3106,8 @@ function handleKeyDown(
               document: {
                 ...newState.document,
                 selection: {
-                  anchor: imagePosition,
-                  focus: imagePosition,
+                  anchor: visualBlockPosition,
+                  focus: visualBlockPosition,
                   isForward: true,
                   isCollapsed: false,
                   lastUpdate: Date.now(),
@@ -3042,10 +3148,10 @@ function handleKeyDown(
             state.document.cursor.position.blockIndex === blockIndex &&
             currentBlock?.id === blockId &&
             currentBlock.type === "paragraph" &&
-            isNotImageBlock(currentBlock) &&
+            isVisualBlock(currentBlock) &&
             getBlockTextContent(currentBlock) === ""
           ) {
-            // Remove the auto-created paragraph and move to the image below
+            // Remove the auto-created paragraph and move to the visual block below
             const newBlocks = state.document.page.blocks.filter(
               (_, i) => i !== blockIndex
             );
@@ -3059,12 +3165,13 @@ function handleKeyDown(
                 autoCreatedParagraph: null,
               },
             };
-            // Move cursor to the image that was below
+            // Move cursor to the visual block that was below
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, 0, 0);
 
-            // Select the image block
-            if (newState.document.page.blocks[0]?.type === "image") {
+            // Select the visual block (image/line)
+            const firstBlock = newState.document.page.blocks[0];
+            if (firstBlock?.type === "image" || firstBlock?.type === "line") {
               newState = {
                 ...newState,
                 document: {
@@ -3083,7 +3190,7 @@ function handleKeyDown(
           }
         }
 
-        // Check if we're on an image at the end of the page
+        // Check if we're on a visual block (image/line) at the end of the page
         if (state.document.cursor) {
           const currentBlock =
             state.document.page.blocks[
@@ -3093,8 +3200,8 @@ function handleKeyDown(
             state.document.cursor.position.blockIndex ===
             state.document.page.blocks.length - 1;
 
-          if (isLastBlock && currentBlock?.type === "image") {
-            // Create a new paragraph below the image
+          if (isLastBlock && (currentBlock?.type === "image" || currentBlock?.type === "line")) {
+            // Create a new paragraph below the visual block
             const newParagraph: Block = {
               id: generateBlockId(),
               type: "paragraph",
@@ -3117,14 +3224,14 @@ function handleKeyDown(
         // Clear selection and move cursor
         newState = moveCursorDown(clearSelection(newState), viewport);
 
-        // If we moved to an image block, select it; otherwise leave just cursor
+        // If we moved to a visual block (image/line), select it; otherwise leave just cursor
         if (newState.document.cursor) {
           const targetBlock =
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (targetBlock && targetBlock.type === "image") {
-            const imagePosition = {
+          if (targetBlock && (targetBlock.type === "image" || targetBlock.type === "line")) {
+            const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
             };
@@ -3133,8 +3240,8 @@ function handleKeyDown(
               document: {
                 ...newState.document,
                 selection: {
-                  anchor: imagePosition,
-                  focus: imagePosition,
+                  anchor: visualBlockPosition,
+                  focus: visualBlockPosition,
                   isForward: true,
                   isCollapsed: false,
                   lastUpdate: Date.now(),
@@ -4695,27 +4802,80 @@ function handleTouchEnd(
         }
       }
 
-      // Check if we have an image selected but tapped outside its container
+      // Check if tapped on a line block
+      if (tappedBlock && tappedBlock.type === "line") {
+        // Verify the tap is actually within the line block bounds
+        const lineBlockResult = getLineBlockAtPoint(
+          tapPosition.x,
+          tapPosition.y,
+          state,
+          viewport
+        );
+        if (lineBlockResult) {
+          // Select the line block (same behavior as image blocks)
+          const linePosition = {
+            blockIndex: lineBlockResult.blockIndex,
+            textIndex: 0,
+          };
+
+          // Close any active menu when selecting a line block
+          if (state.ui.activeMenu.type !== "none") {
+            state = closeActiveMenu(state);
+          }
+
+          // Create a selection that spans the line block
+          state = moveCursorToPosition(state, lineBlockResult.blockIndex, 0);
+          state = {
+            ...state,
+            document: {
+              ...state.document,
+              selection: {
+                anchor: linePosition,
+                focus: linePosition,
+                isForward: true,
+                isCollapsed: false,
+                lastUpdate: Date.now(),
+              },
+            },
+          };
+          state = updateMode(state, "edit");
+
+          touchState = null;
+          return {
+            ...state,
+            view: {
+              ...state.view,
+              scrollbar: {
+                ...state.view.scrollbar,
+                lastInteraction: Date.now(),
+              },
+            },
+          };
+        }
+      }
+
+      // Check if we have a visual block (image/line) selected but tapped outside its container
       if (
         tappedBlock?.type !== "image" &&
+        tappedBlock?.type !== "line" &&
         state.document.selection &&
         !state.document.selection.isCollapsed
       ) {
         const { anchor, focus } = state.document.selection;
-        // Check if this is an image selection (anchor and focus at same position on an image block)
+        // Check if this is a visual block selection (anchor and focus at same position on an image/line block)
         if (
           anchor.blockIndex === focus.blockIndex &&
           anchor.textIndex === focus.textIndex
         ) {
           const selectedBlock = state.document.page.blocks[anchor.blockIndex];
-          if (selectedBlock && selectedBlock.type === "image") {
-            // We have an image selected, but tapped outside it - clear the selection
+          if (selectedBlock && (selectedBlock.type === "image" || selectedBlock.type === "line")) {
+            // We have a visual block selected, but tapped outside it - clear the selection
             state = clearSelection(state);
           }
         }
       }
 
-      // Close any active menu when tapping on non-image blocks
+      // Close any active menu when tapping on non-visual blocks
       if (state.ui.activeMenu.type !== "none") {
         state = closeActiveMenu(state);
       }

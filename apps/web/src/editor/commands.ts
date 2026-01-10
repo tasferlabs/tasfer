@@ -1,7 +1,7 @@
 import type { Block, Text, TextFormat } from "../deserializer/loadPage";
 import {
   areFormatArraysEqual,
-  isNotImageBlock,
+  isVisualBlock,
   isListBlock,
 } from "../deserializer/loadPage";
 import { isCJKCharacter } from "./fonts";
@@ -159,7 +159,7 @@ export function getFormatsAtPosition(
   block: Block,
   textIndex: number
 ): readonly TextFormat[] | undefined {
-  if (!isNotImageBlock(block)) {
+  if (!isVisualBlock(block)) {
     return undefined;
   }
 
@@ -486,7 +486,7 @@ function applyMarkdownPrefix(
   block: Block,
   preserveType: boolean = false
 ): Block {
-  if (!isNotImageBlock(block)) {
+  if (!isVisualBlock(block)) {
     return block;
   }
   const text = block.content.map((t) => t.content).join("");
@@ -553,6 +553,11 @@ function applyMarkdownPrefix(
     block.type = "heading1";
     // Remove "# " prefix while preserving formatting
     block.content = deleteTextRangeInFormattedContent(block.content, 0, 2);
+  } else if (text.match(/^-{3,}$/)) {
+    // Line/divider block - three or more dashes with nothing else
+    (block as any).type = "line";
+    // Remove content property since line blocks don't have text content
+    delete (block as any).content;
   } else if (!preserveType) {
     block.type = "paragraph";
     // Content stays as-is with formatting preserved
@@ -595,7 +600,7 @@ export function deleteSelectedText(state: EditorState): EditorState {
     const block = state.document.page.blocks[start.blockIndex];
 
     // Handle image block deletion
-    if (!isNotImageBlock(block)) {
+    if (!isVisualBlock(block)) {
       // For image blocks (and other visual blocks), delete the entire block
       // Check if this is the only block - if so, replace with empty paragraph
       if (state.document.page.blocks.length === 1) {
@@ -670,8 +675,8 @@ export function deleteSelectedText(state: EditorState): EditorState {
     const endBlock = state.document.page.blocks[end.blockIndex];
 
     // Handle case where selection includes image blocks
-    const startIsText = isNotImageBlock(startBlock);
-    const endIsText = isNotImageBlock(endBlock);
+    const startIsText = isVisualBlock(startBlock);
+    const endIsText = isVisualBlock(endBlock);
 
     // If both start and end are non-text blocks, or if we're selecting multiple blocks
     // and at least one endpoint is a non-text block, we need special handling
@@ -784,7 +789,7 @@ export function insertText(state: EditorState, input: string): EditorState {
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
-  if (!isNotImageBlock(oldBlock)) {
+  if (!isVisualBlock(oldBlock)) {
     return state;
   }
 
@@ -896,7 +901,7 @@ export function deleteText(state: EditorState): EditorState {
 
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
-  if (!isNotImageBlock(oldBlock)) {
+  if (!isVisualBlock(oldBlock)) {
     return state;
   }
   if (textIndex > 0) {
@@ -940,7 +945,7 @@ export function deleteText(state: EditorState): EditorState {
           document: { ...state.document, page: newPage },
         };
         // Move cursor to end of previous block
-        const prevTextLength = isNotImageBlock(prevBlock)
+        const prevTextLength = isVisualBlock(prevBlock)
           ? getBlockTextContent(prevBlock).length
           : 0;
         return moveCursorToPosition(newState, blockIndex - 1, prevTextLength);
@@ -981,8 +986,8 @@ export function deleteText(state: EditorState): EditorState {
     const prevBlock = state.document.page.blocks[blockIndex - 1];
 
     // If previous block is not a text block (e.g., image)
-    if (!isNotImageBlock(prevBlock)) {
-      if (!isNotImageBlock(oldBlock)) {
+    if (!isVisualBlock(prevBlock)) {
+      if (!isVisualBlock(oldBlock)) {
         return state;
       }
 
@@ -1050,7 +1055,7 @@ export function deleteText(state: EditorState): EditorState {
       return newState;
     }
 
-    if (!isNotImageBlock(oldBlock)) {
+    if (!isVisualBlock(oldBlock)) {
       return state;
     }
 
@@ -1131,7 +1136,7 @@ export function deleteForward(state: EditorState): EditorState {
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
-  if (!isNotImageBlock(oldBlock)) {
+  if (!isVisualBlock(oldBlock)) {
     return state;
   }
 
@@ -1164,7 +1169,7 @@ export function deleteForward(state: EditorState): EditorState {
     const nextBlock = state.document.page.blocks[blockIndex + 1];
 
     // If next block is not a text block (e.g., image), delete the current text block
-    if (!isNotImageBlock(nextBlock)) {
+    if (!isVisualBlock(nextBlock)) {
       // Delete the current text block
       const newBlocks = [
         ...state.document.page.blocks.slice(0, blockIndex),
@@ -1378,7 +1383,7 @@ export function moveToPreviousWord(state: EditorState): EditorState {
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
 
-  if (!isNotImageBlock(block)) {
+  if (!isVisualBlock(block)) {
     return state;
   }
 
@@ -1416,7 +1421,7 @@ export function moveToNextWord(state: EditorState): EditorState {
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
 
-  if (!isNotImageBlock(block)) {
+  if (!isVisualBlock(block)) {
     return state;
   }
 
@@ -1456,7 +1461,7 @@ export function deleteWordForward(state: EditorState): EditorState {
 
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
-  if (!isNotImageBlock(oldBlock)) {
+  if (!isVisualBlock(oldBlock)) {
     return state;
   }
 
@@ -1494,7 +1499,7 @@ export function deleteWordForward(state: EditorState): EditorState {
 
     // At end of line - merge with next block, preserving formatting
     const nextBlock = state.document.page.blocks[blockIndex + 1];
-    if (!isNotImageBlock(nextBlock)) {
+    if (!isVisualBlock(nextBlock)) {
       return state;
     }
     const mergedContent = [...oldBlock.content, ...nextBlock.content];
@@ -1538,7 +1543,7 @@ export function deleteWordBackward(state: EditorState): EditorState {
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
-  if (!isNotImageBlock(oldBlock)) {
+  if (!isVisualBlock(oldBlock)) {
     return state;
   }
 
@@ -1576,7 +1581,7 @@ export function deleteWordBackward(state: EditorState): EditorState {
 
     // At start of line - merge with previous block, preserving formatting
     const prevBlock = state.document.page.blocks[blockIndex - 1];
-    if (!isNotImageBlock(prevBlock)) {
+    if (!isVisualBlock(prevBlock)) {
       return state;
     }
     const prevText = getBlockTextContent(prevBlock);
@@ -1888,7 +1893,7 @@ export function splitBlock(state: EditorState): EditorState {
     }
   }
 
-  if (!isNotImageBlock(oldBlock)) {
+  if (!isVisualBlock(oldBlock)) {
     return state;
   }
 
@@ -2189,7 +2194,7 @@ export function toggleFormat(
     // Single block selection
     const block = state.document.page.blocks[start.blockIndex];
 
-    if (!isNotImageBlock(block)) {
+    if (!isVisualBlock(block)) {
       return state;
     }
 
@@ -2246,7 +2251,7 @@ export function toggleFormat(
 
     for (let i = start.blockIndex; i <= end.blockIndex; i++) {
       const block = newBlocks[i];
-      if (!isNotImageBlock(block)) {
+      if (!isVisualBlock(block)) {
         continue; // Skip non-text blocks
       }
       const blockText = getBlockTextContent(block);
@@ -2277,7 +2282,7 @@ export function toggleFormat(
     // Now apply the formatting to each block
     for (let i = start.blockIndex; i <= end.blockIndex; i++) {
       const block = newBlocks[i];
-      if (!isNotImageBlock(block)) {
+      if (!isVisualBlock(block)) {
         continue; // Skip non-text blocks
       }
       const blockText = getBlockTextContent(block);
@@ -2404,7 +2409,7 @@ export function convertBlockType(
   const oldBlock = state.document.page.blocks[blockIndex];
 
   // Only text blocks can have content property
-  if (!isNotImageBlock(oldBlock)) {
+  if (!isVisualBlock(oldBlock)) {
     return state;
   }
 
@@ -2558,13 +2563,59 @@ export function applySlashCommand(
     return newState;
   }
 
+  // Special handling for line/divider blocks
+  if (command.type === "line") {
+    // For line blocks, we replace the current block with a line block
+    const newBlock: Block = {
+      id: block.id,
+      type: "line",
+    };
+
+    // Invalidate cache only for the changed block
+    invalidateBlockCache(newBlock);
+
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[blockIndex] = newBlock;
+    const newPage = { ...state.document.page, blocks: newBlocks };
+
+    // Update state
+    let newState: EditorState = {
+      ...state,
+      document: { ...state.document, page: newPage },
+    };
+    newState = closeSlashCommand(newState);
+
+    // Move cursor to next block (create one if needed)
+    if (blockIndex + 1 < newBlocks.length) {
+      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
+    } else {
+      // Create a new paragraph block after the line
+      const newParagraph: Block = {
+        id: generateBlockId(),
+        type: "paragraph",
+        content: [{ content: "", formats: undefined }],
+      };
+      const blocksWithNewParagraph = [...newBlocks, newParagraph];
+      newState = {
+        ...newState,
+        document: {
+          ...newState.document,
+          page: { ...newPage, blocks: blocksWithNewParagraph },
+        },
+      };
+      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
+    }
+
+    return newState;
+  }
+
   // Regular text-based blocks and list blocks
   // If the current block is already an image cover, just close the slash command
   if (block.type === "image") {
     return closeSlashCommand(state);
   }
 
-  if (!isNotImageBlock(block)) {
+  if (!isVisualBlock(block)) {
     return closeSlashCommand(state);
   }
 
@@ -2751,7 +2802,7 @@ export function convertToList(
   const { blockIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
-  if (!isNotImageBlock(oldBlock)) return state;
+  if (!isVisualBlock(oldBlock)) return state;
 
   // Create new list block
   let newBlock: Block;
@@ -2806,7 +2857,7 @@ export function updateLinkInBlock(
   const block = state.document.page.blocks[blockIndex];
   if (!block) return state;
 
-  if (!isNotImageBlock(block)) {
+  if (!isVisualBlock(block)) {
     return state;
   }
 
@@ -2852,7 +2903,7 @@ export function clearLinkInBlock(
   const block = state.document.page.blocks[blockIndex];
   if (!block) return state;
 
-  if (!isNotImageBlock(block)) {
+  if (!isVisualBlock(block)) {
     return state;
   }
 

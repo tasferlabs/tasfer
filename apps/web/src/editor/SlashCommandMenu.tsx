@@ -1,5 +1,5 @@
 import * as Popover from "@radix-ui/react-popover";
-import { Heading1, Heading2, Heading3, Image, LayoutList, List, ListOrdered, Type } from "lucide-react";
+import { Heading1, Heading2, Heading3, Image, LayoutList, List, ListOrdered, Minus, Type } from "lucide-react";
 import React, { useEffect } from "react";
 import type { SlashCommand } from "./types";
 
@@ -43,6 +43,14 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     description: "Image block.",
     icon: <Image size={20} />,
     keywords: ["image", "img", "picture", "photo", "upload"],
+  },
+  {
+    id: "line",
+    type: "line",
+    label: "Divider",
+    description: "Horizontal line divider.",
+    icon: <Minus size={20} />,
+    keywords: ["line", "divider", "hr", "horizontal", "separator", "---"],
   },
   {
     id: "bullet_list",

@@ -1,5 +1,5 @@
 import type { Block, Text } from "../deserializer/loadPage";
-import { isNotImageBlock, isListBlock } from "../deserializer/loadPage";
+import { isVisualBlock, isListBlock } from "../deserializer/loadPage";
 import {
   FONT_STACKS,
   getCurrentFontFamily,
@@ -32,7 +32,7 @@ function getContentWithComposition(
   content: Text[];
   compositionRange: { start: number; end: number } | null;
 } {
-  if (!isNotImageBlock(block)) {
+  if (!isVisualBlock(block)) {
     return { content: [], compositionRange: null };
   }
 
@@ -580,6 +580,11 @@ export const renderBlock = (
     );
   }
 
+  // Handle line/divider blocks
+  if (block.type === "line") {
+    return renderLineBlock(ctx, state, block, blockIndex, x, y, maxWidth, styles);
+  }
+
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
@@ -1009,7 +1014,7 @@ function renderSelection(
 ) {
   if (!state.document.selection) return;
 
-  if (!isNotImageBlock(block)) {
+  if (!isVisualBlock(block)) {
     return;
   }
 
@@ -1579,6 +1584,61 @@ function renderImageBlock(
   };
 }
 
+// Render line/divider block
+function renderLineBlock(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  block: Block,
+  blockIndex: number,
+  x: number,
+  y: number,
+  maxWidth: number,
+  styles: EditorStyles
+): RenderedBlock {
+  if (block.type !== "line") {
+    throw new Error("renderLineBlock called on non-line block");
+  }
+
+  const lineStyles = styles.blocks.line;
+  const lineY = y + lineStyles.paddingTop;
+
+  ctx.save();
+  ctx.fillStyle = lineStyles.color;
+  ctx.fillRect(x, lineY, maxWidth, lineStyles.lineHeight);
+  ctx.restore();
+
+  // Render selection overlay if this line block is selected
+  if (state.document.selection && !state.document.selection.isCollapsed) {
+    const { anchor, focus } = state.document.selection;
+    const start = anchor.blockIndex <= focus.blockIndex ? anchor : focus;
+    const end = anchor.blockIndex <= focus.blockIndex ? focus : anchor;
+
+    const isSelected =
+      blockIndex >= start.blockIndex && blockIndex <= end.blockIndex;
+
+    if (isSelected) {
+      ctx.save();
+      ctx.fillStyle = styles.selection.backgroundColor;
+      ctx.globalAlpha = styles.selection.opacity;
+      ctx.fillRect(x, y, maxWidth, lineStyles.height);
+      ctx.restore();
+    }
+  }
+
+  const blockBounds: BlockBounds = {
+    x,
+    y,
+    width: maxWidth,
+    height: lineStyles.height,
+  };
+
+  return {
+    block,
+    bounds: blockBounds,
+    lines: [], // Line blocks don't have text lines
+  };
+}
+
 // Calculate block height dynamically based on content and max width
 export const calculateBlockHeight = (
   block: Block,
@@ -1618,7 +1678,12 @@ export const calculateBlockHeight = (
     return displayHeight + padding;
   }
 
-  if (!isNotImageBlock(block)) {
+  // Handle line/divider blocks
+  if (block.type === "line") {
+    return styles.blocks.line.height;
+  }
+
+  if (!isVisualBlock(block)) {
     return 0;
   }
 
@@ -1714,7 +1779,7 @@ export function renderCursorLayer(
   const cursorBlockIndex = state.document.cursor.position.blockIndex;
   const block = state.document.page.blocks[cursorBlockIndex];
 
-  if (!isNotImageBlock(block)) {
+  if (!isVisualBlock(block)) {
     ctx.restore();
     return;
   }
@@ -2021,7 +2086,7 @@ function getPositionCoordinates(
   }
 
   const block = state.document.page.blocks[position.blockIndex];
-  if (!block || block.type === "image" || !isNotImageBlock(block)) {
+  if (!block || block.type === "image" || !isVisualBlock(block)) {
     return null;
   }
 

@@ -4,6 +4,7 @@ import type {
   Page,
   Paragraph,
   Image,
+  Line,
   Text,
   TextFormat,
   BulletListItem,
@@ -27,6 +28,7 @@ import {
   IMAGE_ALT_END,
   IMAGE_END,
   HTML_IMG,
+  HORIZONTAL_RULE,
   NEWLINE,
   STRIKETHROUGH_END,
   STRIKETHROUGH_START,
@@ -110,6 +112,7 @@ function parseBlock(context: ParserContext): Block {
   if (check(context, TODO_LIST_CHECKED)) return parseTodoListItem(context, indent, true);
   
   // Check for other block types
+  if (check(context, HORIZONTAL_RULE)) return parseHorizontalRule(context);
   if (check(context, HTML_IMG)) return parseHTMLImage(context);
   if (check(context, IMAGE_START)) return parseImage(context);
   if (match(context, HEADING_1)) return parseHeading(context, 1);
@@ -325,6 +328,16 @@ function parseTodoListItem(context: ParserContext, indent: number, checked: bool
     content: text,
     checked,
     indent,
+  };
+}
+
+function parseHorizontalRule(context: ParserContext): Line {
+  match(context, HORIZONTAL_RULE); // Consume the horizontal rule token
+  match(context, NEWLINE); // Consume optional newline
+
+  return {
+    id: `block-${context.blockIdCounter++}`,
+    type: "line",
   };
 }
 

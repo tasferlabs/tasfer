@@ -282,9 +282,18 @@ export interface BlockStyles {
   readonly heading3: TextStyle;
   readonly paragraph: TextStyle;
   readonly image: ImageStyles;
+  readonly line: LineStyles;
   readonly bulletList: TextStyle;
   readonly numberedList: TextStyle;
   readonly todoList: TextStyle;
+}
+
+export interface LineStyles {
+  readonly height: number; // Total height of the line block including padding
+  readonly lineHeight: number; // Thickness of the actual line
+  readonly color: string;
+  readonly paddingTop: number;
+  readonly paddingBottom: number;
 }
 
 export interface TextStyle {

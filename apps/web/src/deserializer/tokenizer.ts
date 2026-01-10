@@ -27,11 +27,38 @@ export const NUMBERED_LIST = "numbered_list";
 export const TODO_LIST_UNCHECKED = "todo_unchecked";
 export const TODO_LIST_CHECKED = "todo_checked";
 export const INDENT = "indent";
+export const HORIZONTAL_RULE = "horizontal_rule";
 export const NEWLINE = "newline";
 
-type FormatTokenType = "bold_start" | "bold_end" | "italic_start" | "italic_end" | "strikethrough_start" | "strikethrough_end" | "code_start" | "code_end" | "link_start" | "link_text_end" | "link_end" | "image_start" | "image_alt_end" | "image_end" | "html_img";
-type ListTokenType = "bullet_list" | "numbered_list" | "todo_unchecked" | "todo_checked" | "indent";
-type VisibleTokenType = "heading1" | "heading2" | "heading3" | "text" | FormatTokenType | ListTokenType;
+type FormatTokenType =
+  | "bold_start"
+  | "bold_end"
+  | "italic_start"
+  | "italic_end"
+  | "strikethrough_start"
+  | "strikethrough_end"
+  | "code_start"
+  | "code_end"
+  | "link_start"
+  | "link_text_end"
+  | "link_end"
+  | "image_start"
+  | "image_alt_end"
+  | "image_end"
+  | "html_img";
+type ListTokenType =
+  | "bullet_list"
+  | "numbered_list"
+  | "todo_unchecked"
+  | "todo_checked"
+  | "indent";
+type HeadingTokenTypes = "heading1" | "heading2" | "heading3";
+type VisibleTokenType =
+  | HeadingTokenTypes
+  | "text"
+  | "horizontal_rule"
+  | FormatTokenType
+  | ListTokenType;
 export type TokenType = VisibleTokenType | "newline";
 
 export type VisibleToken = {
@@ -83,6 +110,8 @@ export default function tokenizePage(content: string) {
       next(state);
     } else if (char === "#" && state.startOfLine) {
       tokenizeHeading(state, tokens);
+    } else if (state.startOfLine && tryTokenizeHorizontalRule(state, tokens)) {
+      // Horizontal rule was tokenized, continue
     } else if (state.startOfLine && tryTokenizeList(state, tokens)) {
       // List was tokenized, continue
       state.startOfLine = false;
@@ -92,6 +121,48 @@ export default function tokenizePage(content: string) {
   }
   return tokens;
 }
+// Try to tokenize horizontal rule (--- or more dashes at start of line)
+// Returns true if horizontal rule was found and tokenized
+function tryTokenizeHorizontalRule(
+  state: TokenizerState,
+  tokens: Token[]
+): boolean {
+  const char = current(state);
+
+  // Check for horizontal rule: --- or more dashes
+  if (char === "-") {
+    let dashCount = 0;
+    let i = 0;
+
+    // Count consecutive dashes
+    while (peek(state, i) === "-") {
+      dashCount++;
+      i++;
+    }
+
+    // Must have at least 3 dashes
+    if (dashCount >= 3) {
+      // Check that rest of line is empty (newline or end of file)
+      const nextChar = peek(state, i);
+      if (
+        nextChar === null ||
+        nextChar === "\n" ||
+        nextChar === "\r" ||
+        isEnd(state)
+      ) {
+        tokens.push({
+          type: HORIZONTAL_RULE,
+          content: "-".repeat(dashCount),
+        });
+        next(state, dashCount);
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 // Count leading spaces for indent detection (2 spaces = 1 indent level)
 function countLeadingSpaces(state: TokenizerState): number {
   let count = 0;
@@ -108,13 +179,17 @@ function countLeadingSpaces(state: TokenizerState): number {
 // Returns true if list marker was found and tokenized
 function tryTokenizeList(state: TokenizerState, tokens: Token[]): boolean {
   const char = current(state);
-  
+
   // Check for bullet list: "- ", "* ", "+ "
   if ((char === "-" || char === "*" || char === "+") && peek(state) === " ") {
     // Check if it's a todo list: "- [ ]" or "- [x]"
     if (char === "-" && peek(state, 2) === "[") {
       const checkChar = peek(state, 3);
-      if ((checkChar === " " || checkChar === "x" || checkChar === "X") && peek(state, 4) === "]" && peek(state, 5) === " ") {
+      if (
+        (checkChar === " " || checkChar === "x" || checkChar === "X") &&
+        peek(state, 4) === "]" &&
+        peek(state, 5) === " "
+      ) {
         // Todo list item
         const isChecked = checkChar === "x" || checkChar === "X";
         tokens.push({
@@ -125,7 +200,7 @@ function tryTokenizeList(state: TokenizerState, tokens: Token[]): boolean {
         return true;
       }
     }
-    
+
     // Regular bullet list
     tokens.push({
       type: BULLET_LIST,
@@ -134,12 +209,17 @@ function tryTokenizeList(state: TokenizerState, tokens: Token[]): boolean {
     next(state, 2); // Skip marker and space
     return true;
   }
-  
+
   // Check for numbered list: "1. ", "2. ", etc.
   if (char >= "0" && char <= "9") {
     let numEnd = 0;
     let nextChar = peek(state, numEnd);
-    while (nextChar !== null && nextChar >= "0" && nextChar <= "9" && !isEnd(state)) {
+    while (
+      nextChar !== null &&
+      nextChar >= "0" &&
+      nextChar <= "9" &&
+      !isEnd(state)
+    ) {
       numEnd++;
       nextChar = peek(state, numEnd);
     }
@@ -155,7 +235,7 @@ function tryTokenizeList(state: TokenizerState, tokens: Token[]): boolean {
       return true;
     }
   }
-  
+
   return false;
 }
 
@@ -175,7 +255,7 @@ function tokenizeHeading(state: TokenizerState, tokens: Token[]) {
   }
   if (peek(state, steps) == " ") {
     tokens.push({
-      type: `heading${steps}` as TokenType,
+      type: `heading${steps}` as HeadingTokenTypes,
       content: "#".repeat(steps),
     });
     next(state, steps + 1);
@@ -186,18 +266,31 @@ function tokenizeHeading(state: TokenizerState, tokens: Token[]) {
 }
 function tokenizeLine(state: TokenizerState, tokens: Token[]) {
   state.startOfLine = false;
-  const formatStack: Array<{ type: 'bold' | 'italic' | 'strikethrough'; marker: string }> = [];
-  
+  const formatStack: Array<{
+    type: "bold" | "italic" | "strikethrough";
+    marker: string;
+  }> = [];
+
   while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
     const char = current(state);
-    
+
     // Check for HTML img tags <img ... />
-    if (char === "<" && peek(state) === "i" && peek(state, 2) === "m" && peek(state, 3) === "g" && (peek(state, 4) === " " || peek(state, 4) === ">")) {
+    if (
+      char === "<" &&
+      peek(state) === "i" &&
+      peek(state, 2) === "m" &&
+      peek(state, 3) === "g" &&
+      (peek(state, 4) === " " || peek(state, 4) === ">")
+    ) {
       const start = state.index;
-      
+
       // Find the end of the tag (either /> or >)
       let foundEnd = false;
-      while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
+      while (
+        !isEnd(state) &&
+        current(state) !== "\n" &&
+        current(state) !== "\r"
+      ) {
         if (current(state) === ">") {
           foundEnd = true;
           next(state); // Include the >
@@ -205,7 +298,7 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
         }
         next(state);
       }
-      
+
       if (foundEnd) {
         // Extract the full HTML tag
         const htmlTag = state.content.slice(start, state.index);
@@ -222,12 +315,16 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
     // Check for images ![alt](url)
     else if (char === "!" && peek(state) === "[") {
       const start = state.index;
-      next(state, 2); // Skip ![ 
-      
+      next(state, 2); // Skip ![
+
       // Find closing ]
       let foundAltEnd = false;
       let altEndIndex = state.index;
-      while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
+      while (
+        !isEnd(state) &&
+        current(state) !== "\n" &&
+        current(state) !== "\r"
+      ) {
         if (current(state) === "]") {
           altEndIndex = state.index;
           foundAltEnd = true;
@@ -235,21 +332,25 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
         }
         next(state);
       }
-      
+
       // Check if followed by (url)
       if (foundAltEnd && peek(state) === "(") {
         next(state, 2); // Skip ] and (
         let urlStart = state.index;
         let foundUrlEnd = false;
-        
-        while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
+
+        while (
+          !isEnd(state) &&
+          current(state) !== "\n" &&
+          current(state) !== "\r"
+        ) {
           if (current(state) === ")") {
             foundUrlEnd = true;
             break;
           }
           next(state);
         }
-        
+
         if (foundUrlEnd) {
           // Valid image found
           tokens.push({ type: IMAGE_START, content: "![" });
@@ -267,7 +368,7 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
           continue;
         }
       }
-      
+
       // Not a valid image, treat as regular text
       state.index = start;
       // Consume the ! character and continue
@@ -279,11 +380,15 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
     else if (char === "[") {
       const start = state.index;
       next(state);
-      
+
       // Find closing ]
       let foundTextEnd = false;
       let textEndIndex = state.index;
-      while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
+      while (
+        !isEnd(state) &&
+        current(state) !== "\n" &&
+        current(state) !== "\r"
+      ) {
         if (current(state) === "]") {
           textEndIndex = state.index;
           foundTextEnd = true;
@@ -291,21 +396,25 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
         }
         next(state);
       }
-      
+
       // Check if followed by (url)
       if (foundTextEnd && peek(state) === "(") {
         next(state, 2); // Skip ] and (
         let urlStart = state.index;
         let foundUrlEnd = false;
-        
-        while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
+
+        while (
+          !isEnd(state) &&
+          current(state) !== "\n" &&
+          current(state) !== "\r"
+        ) {
           if (current(state) === ")") {
             foundUrlEnd = true;
             break;
           }
           next(state);
         }
-        
+
         if (foundUrlEnd) {
           // Valid link found
           tokens.push({ type: LINK_START, content: "[" });
@@ -323,7 +432,7 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
           continue;
         }
       }
-      
+
       // Not a valid link, treat as regular text
       state.index = start;
       // Consume the [ character and continue
@@ -335,17 +444,21 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
     else if (char === "`") {
       const start = state.index;
       next(state);
-      
+
       // Find closing backtick
       let foundEnd = false;
-      while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
+      while (
+        !isEnd(state) &&
+        current(state) !== "\n" &&
+        current(state) !== "\r"
+      ) {
         if (current(state) === "`") {
           foundEnd = true;
           break;
         }
         next(state);
       }
-      
+
       if (foundEnd) {
         tokens.push({ type: CODE_START, content: "`" });
         const codeContent = state.content.slice(start + 1, state.index);
@@ -365,13 +478,15 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
     // Check for strikethrough (~~)
     else if (char === "~") {
       if (peek(state) === "~") {
-        const existingIndex = formatStack.findIndex(f => f.type === 'strikethrough');
+        const existingIndex = formatStack.findIndex(
+          (f) => f.type === "strikethrough"
+        );
         if (existingIndex !== -1) {
           tokens.push({ type: STRIKETHROUGH_END, content: "~~" });
           formatStack.splice(existingIndex, 1);
         } else {
           tokens.push({ type: STRIKETHROUGH_START, content: "~~" });
-          formatStack.push({ type: 'strikethrough', marker: '~~' });
+          formatStack.push({ type: "strikethrough", marker: "~~" });
         }
         next(state, 2);
       } else {
@@ -383,23 +498,23 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
     // Check for bold (**) or italic (*)
     else if (char === "*") {
       if (peek(state) === "*") {
-        const existingIndex = formatStack.findIndex(f => f.type === 'bold');
+        const existingIndex = formatStack.findIndex((f) => f.type === "bold");
         if (existingIndex !== -1) {
           tokens.push({ type: BOLD_END, content: "**" });
           formatStack.splice(existingIndex, 1);
         } else {
           tokens.push({ type: BOLD_START, content: "**" });
-          formatStack.push({ type: 'bold', marker: '**' });
+          formatStack.push({ type: "bold", marker: "**" });
         }
         next(state, 2);
       } else {
-        const existingIndex = formatStack.findIndex(f => f.type === 'italic');
+        const existingIndex = formatStack.findIndex((f) => f.type === "italic");
         if (existingIndex !== -1) {
           tokens.push({ type: ITALIC_END, content: "*" });
           formatStack.splice(existingIndex, 1);
         } else {
           tokens.push({ type: ITALIC_START, content: "*" });
-          formatStack.push({ type: 'italic', marker: '*' });
+          formatStack.push({ type: "italic", marker: "*" });
         }
         next(state);
       }
@@ -413,20 +528,31 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
 
 function tokenizeRegularText(state: TokenizerState, tokens: Token[]) {
   const start = state.index;
-  
+
   // Consume characters until we hit a formatting marker or line end
   while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
     const char = current(state);
-    if (char === "*" || char === "`" || char === "~" || char === "[" || char === "!" || char === "<") {
+    if (
+      char === "*" ||
+      char === "`" ||
+      char === "~" ||
+      char === "[" ||
+      char === "!" ||
+      char === "<"
+    ) {
       break;
     }
     next(state);
   }
-  
+
   const text = state.content.slice(start, state.index);
   if (text.length > 0) {
     tokens.push({ type: TEXT, content: text });
-  } else if (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
+  } else if (
+    !isEnd(state) &&
+    current(state) !== "\n" &&
+    current(state) !== "\r"
+  ) {
     // If we didn't consume anything and we're at a special character that wasn't
     // handled by the caller, consume it as regular text to avoid infinite loop
     tokens.push({ type: TEXT, content: current(state) });

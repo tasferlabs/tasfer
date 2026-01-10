@@ -53,6 +53,12 @@ export interface Image extends BlockRuntimeState {
   objectFit?: "cover" | "contain"; // How image should be fitted
 }
 
+// Line block - horizontal divider/separator
+export interface Line extends BlockRuntimeState {
+  id: string; // Unique identifier for caching
+  type: "line";
+}
+
 // TODO: Normal inline image block (future implementation)
 // export interface Image {
 //   id: string;
@@ -110,15 +116,15 @@ export type TextBlock = Heading | Paragraph;
 // List blocks contain list items with text content
 export type ListBlock = BulletListItem | NumberedListItem | TodoListItem;
 
-// Visual blocks contain visual content (images, etc.)
-export type VisualBlock = Image;
+// Visual blocks contain visual content (images, lines, etc.)
+export type VisualBlock = Image | Line;
 
 // Block is a union of all block types
 export type Block = TextBlock | VisualBlock | ListBlock;
 
 // Type guards
-export function isNotImageBlock(block: Block): block is TextBlock | ListBlock {
-  return block.type !== "image";
+export function isVisualBlock(block: Block): block is TextBlock | ListBlock {
+  return block.type !== "image" && block.type !== "line";
 }
 
 export function isListBlock(block: Block): block is ListBlock {

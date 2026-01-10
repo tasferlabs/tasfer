@@ -1,5 +1,5 @@
 import type { Block, Text } from "../deserializer/loadPage";
-import { isNotImageBlock, isListBlock } from "../deserializer/loadPage";
+import { isVisualBlock, isListBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
   getFontMetrics,
@@ -38,15 +38,16 @@ export function getCursorCoordinates(
   const block = state.document.page.blocks[position.blockIndex];
   if (!block) return null;
 
-  // Image cover blocks don't have cursors - they shouldn't be used with this function
-  if (block.type === "image") return null;
+  // Image cover and line blocks don't have cursors - they shouldn't be used with this function
+  if (block.type === "image" || block.type === "line") return null;
+
+  if (!isVisualBlock(block)) {
+    return null;
+  }
 
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
-  if (!isNotImageBlock(block)) {
-    return null;
-  }
 
   const fontMetrics = getFontMetrics(
     textStyle.fontSize,
@@ -180,10 +181,10 @@ export function getCursorCoordinatesWithComposition(
   const block = state.document.page.blocks[position.blockIndex];
   if (!block) return null;
 
-  // Image cover blocks don't have cursors
-  if (block.type === "image") return null;
+  // Image cover and line blocks don't have cursors
+  if (block.type === "image" || block.type === "line") return null;
 
-  if (!isNotImageBlock(block)) {
+  if (!isVisualBlock(block)) {
     return null;
   }
 
@@ -432,8 +433,8 @@ function getPositionFromPaddingClick(
 
     // Check if click is within this block's Y bounds
     if (y >= currentY && y < currentY + blockHeight) {
-      // Image blocks - position at start
-      if (block.type === "image" || !isNotImageBlock(block)) {
+      // Image and line blocks - position at start (they don't have text content)
+      if (block.type === "image" || block.type === "line" || !isVisualBlock(block)) {
         return { blockIndex, textIndex: 0 };
       }
 
@@ -646,16 +647,16 @@ function getPositionWithinBlock(
   maxWidth: number,
   styles: EditorStyles
 ): Position {
-  // Image cover blocks don't have text content - position at start of block
+  // Image cover and line blocks don't have text content - position at start of block
   // The cursor will actually be in a neighboring text block
-  if (block.type === "image") {
+  if (block.type === "image" || block.type === "line") {
     return {
       blockIndex,
       textIndex: 0,
     };
   }
 
-  if (!isNotImageBlock(block)) {
+  if (!isVisualBlock(block)) {
     return {
       blockIndex,
       textIndex: 0,
@@ -795,7 +796,7 @@ function getPositionWithinLine(
   maxWidth: number,
   isRTL: boolean
 ): Position {
-  if (!isNotImageBlock(block)) {
+  if (!isVisualBlock(block)) {
     return {
       blockIndex: 0,
       textIndex: lineStartIndex,
@@ -989,8 +990,8 @@ export function getLinkAtPosition(
   const block = state.document.page.blocks[position.blockIndex];
   if (!block) return null;
 
-  // Image cover blocks don't have text content or links
-  if (block.type === "image") return null;
+  // Image cover and line blocks don't have text content or links
+  if (block.type === "image" || block.type === "line") return null;
 
   let currentIndex = 0;
 
@@ -1077,8 +1078,8 @@ export function isPointWithinSelectionRects(
       break;
     }
 
-    // Skip image blocks
-    if (!isNotImageBlock(block)) {
+    // Skip image and line blocks (they don't have text content)
+    if (!isVisualBlock(block)) {
       currentY += blockHeight;
       continue;
     }

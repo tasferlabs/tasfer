@@ -11,6 +11,11 @@ export function serializeToMarkdown(blocks: Block[]): string {
   const numbering: Map<number, number> = new Map();
   
   const serializedBlocks = blocks.map((block, index) => {
+    // Handle line/divider blocks
+    if (block.type === "line") {
+      return "---";
+    }
+
     // Handle image cover blocks separately
     if (block.type === "image") {
       const alt = block.alt || "";
@@ -127,12 +132,12 @@ export function serializeToMarkdown(blocks: Block[]): string {
   const lastBlock = blocks[blocks.length - 1];
   
   // Only check for empty content if it's a text block or list block
-  if (lastBlock.type !== "image") {
+  if (lastBlock.type !== "image" && lastBlock.type !== "line") {
     const hasContent = isListBlock(lastBlock) || lastBlock.type === "heading1" || lastBlock.type === "heading2" || lastBlock.type === "heading3" || lastBlock.type === "paragraph";
     if (hasContent) {
-      const lastBlockIsEmpty = lastBlock.content.length === 0 || 
+      const lastBlockIsEmpty = lastBlock.content.length === 0 ||
         (lastBlock.content.length === 1 && lastBlock.content[0].content === "");
-      
+
       if (lastBlockIsEmpty && blocks.length > 1) {
         return result + "\n";
       }
