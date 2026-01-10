@@ -143,6 +143,13 @@ export function getEditorStyles(): EditorStyles {
           ? getCSSVariable("--editor-selection")
           : getCSSVariable("--editor-selection-unfocused"),
       opacity: 0.2,
+      handles: {
+        size: 12, // Diameter of the handle circle
+        color: getCSSVariable("--editor-selection"),
+        touchTargetSize: 44, // Larger touch target for easier interaction
+        stemHeight: 8, // Height of the vertical stem
+        stemWidth: 2, // Width of the stem
+      },
     },
     placeholder: {
       heading1: {

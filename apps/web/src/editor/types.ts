@@ -108,6 +108,13 @@ export interface ImageDragState {
   readonly startObjectFit: "cover" | "contain";
 }
 
+// Drag state for selection handle (mobile text selection)
+export interface SelectionHandleDragState {
+  readonly handleType: "anchor" | "focus";
+  readonly startX: number;
+  readonly startY: number;
+}
+
 // Image Hover State - Not a menu, just visual feedback
 export interface ImageHoverState {
   readonly blockIndex: number;
@@ -127,6 +134,7 @@ export interface UIState {
   readonly activeFormatsMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
   readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)
   readonly imageDrag: ImageDragState | null; // Active image drag operation
+  readonly selectionHandleDrag: SelectionHandleDragState | null; // Active selection handle drag (mobile)
   readonly autoCreatedParagraph: { blockIndex: number; blockId: string } | null; // Track auto-created paragraphs from arrow up/down on images
 }
 
@@ -296,6 +304,15 @@ export interface CursorStyles {
 export interface SelectionStyles {
   readonly backgroundColor: string;
   readonly opacity: number;
+  readonly handles: SelectionHandleStyles;
+}
+
+export interface SelectionHandleStyles {
+  readonly size: number; // Diameter of the handle circle
+  readonly color: string; // Handle color (usually matches selection color)
+  readonly touchTargetSize: number; // Larger touch target for easier interaction
+  readonly stemHeight: number; // Height of the vertical stem below/above the circle
+  readonly stemWidth: number; // Width of the stem
 }
 
 export interface PlaceholderStyles {

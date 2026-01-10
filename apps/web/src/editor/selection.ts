@@ -920,6 +920,59 @@ function getPositionWithinLine(
 }
 
 /**
+ * Get selection handle positions for mobile selection dragging.
+ * Returns coordinates for both anchor and focus handles.
+ * The anchor handle appears at the start of selection, focus at the end.
+ */
+export function getSelectionHandlePositions(
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles()
+): {
+  anchor: { x: number; y: number; height: number; isTop: boolean } | null;
+  focus: { x: number; y: number; height: number; isTop: boolean } | null;
+} | null {
+  const selection = state.document.selection;
+  if (!selection || selection.isCollapsed) {
+    return null;
+  }
+
+  // Get coordinates for anchor and focus positions
+  const anchorCoords = getCursorCoordinates(selection.anchor, state, viewport, styles);
+  const focusCoords = getCursorCoordinates(selection.focus, state, viewport, styles);
+
+  if (!anchorCoords || !focusCoords) {
+    return null;
+  }
+
+  // Determine which is start and which is end based on selection direction
+  // isTop: true means the handle circle is above the stem (at top of selection)
+  // isTop: false means the handle circle is below the stem (at bottom of selection)
+  const isForward = selection.isForward;
+
+  return {
+    anchor: {
+      x: anchorCoords.x,
+      y: anchorCoords.y,
+      height: anchorCoords.height,
+      // Anchor is at the start of selection
+      // If forward, anchor is at top (isTop=true means circle on top)
+      // If backward, anchor is at bottom (isTop=false means circle on bottom)
+      isTop: isForward,
+    },
+    focus: {
+      x: focusCoords.x,
+      y: focusCoords.y,
+      height: focusCoords.height,
+      // Focus is at the end of selection
+      // If forward, focus is at bottom (isTop=false)
+      // If backward, focus is at top (isTop=true)
+      isTop: !isForward,
+    },
+  };
+}
+
+/**
  * Get link information at a given position
  * Returns the link data (url, text, start, end) if the position is within a link
  */

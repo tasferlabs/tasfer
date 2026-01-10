@@ -40,6 +40,7 @@ import {
   MOVEMENT_THRESHOLD,
   SCROLLBAR_HOLD_DURATION,
   SCROLLBAR_TOUCH_BUFFER,
+  SELECTION_HANDLE_TOUCH_TARGET,
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
 } from "./constants";
@@ -704,6 +705,112 @@ function isPositionWithinSelection(
   return true;
 }
 
+/**
+ * Helper function to get selection handle positions for touch detection.
+ * Returns the positions of both anchor and focus handles.
+ */
+function getSelectionHandlePositions(
+  state: EditorState,
+  viewport: ViewportState
+): {
+  anchor: { x: number; y: number; height: number; isTop: boolean } | null;
+  focus: { x: number; y: number; height: number; isTop: boolean } | null;
+} | null {
+  const selection = state.document.selection;
+  if (!selection || selection.isCollapsed) {
+    return null;
+  }
+
+  const anchorCoords = getCursorCoordinates(selection.anchor, state, viewport);
+  const focusCoords = getCursorCoordinates(selection.focus, state, viewport);
+
+  if (!anchorCoords || !focusCoords) {
+    return null;
+  }
+
+  const isForward = selection.isForward;
+
+  return {
+    anchor: {
+      x: anchorCoords.x,
+      y: anchorCoords.y,
+      height: anchorCoords.height,
+      isTop: isForward,
+    },
+    focus: {
+      x: focusCoords.x,
+      y: focusCoords.y,
+      height: focusCoords.height,
+      isTop: !isForward,
+    },
+  };
+}
+
+/**
+ * Detect if a touch point is on a selection handle.
+ * Returns "anchor", "focus", or null if not on any handle.
+ */
+function getSelectionHandleAtPoint(
+  touchX: number,
+  touchY: number,
+  state: EditorState,
+  viewport: ViewportState
+): "anchor" | "focus" | null {
+  const handlePositions = getSelectionHandlePositions(state, viewport);
+  if (!handlePositions) {
+    return null;
+  }
+
+  const styles = getEditorStyles();
+  const handleSize = styles.selection.handles.size;
+  const stemHeight = styles.selection.handles.stemHeight;
+  const touchTargetRadius = SELECTION_HANDLE_TOUCH_TARGET / 2;
+
+  // Check anchor handle
+  if (handlePositions.anchor) {
+    const { x, y, height, isTop } = handlePositions.anchor;
+    // Calculate center of the circle part of the handle
+    let circleY: number;
+    if (isTop) {
+      // Circle is above the line
+      circleY = y - stemHeight - handleSize / 2;
+    } else {
+      // Circle is below the line
+      circleY = y + height + stemHeight + handleSize / 2;
+    }
+
+    const distance = Math.sqrt(
+      Math.pow(touchX - x, 2) + Math.pow(touchY - circleY, 2)
+    );
+    if (distance <= touchTargetRadius) {
+      return "anchor";
+    }
+  }
+
+  // Check focus handle
+  if (handlePositions.focus) {
+    const { x, y, height, isTop } = handlePositions.focus;
+    // Calculate center of the circle part of the handle
+    let circleY: number;
+    if (isTop) {
+      // Circle is above the line
+      circleY = y - stemHeight - handleSize / 2;
+    } else {
+      // Circle is below the line
+      circleY = y + height + stemHeight + handleSize / 2;
+    }
+
+    const distance = Math.sqrt(
+      Math.pow(touchX - x, 2) + Math.pow(touchY - circleY, 2)
+    );
+    if (distance <= touchTargetRadius) {
+      return "focus";
+    }
+  }
+
+  return null;
+}
+
 export function handleEvents(
   state: EditorState,
   viewport: ViewportState,
@@ -748,7 +855,8 @@ export function handleEvents(
     !touchState.isLongPress &&
     !touchState.hasMoved &&
     !touchState.isScrollbarDrag &&
-    !state.ui.imageDrag // Don't open context menu if we're dragging an image
+    !state.ui.imageDrag && // Don't open context menu if we're dragging an image
+    !state.ui.selectionHandleDrag // Don't open context menu if we're dragging a selection handle
   ) {
     const timeSinceStart = Date.now() - touchState.startTime;
     if (timeSinceStart >= CONTEXT_MENU_DURATION) {
@@ -938,6 +1046,106 @@ export function handleEvents(
     if (position) {
       state = updateSelectionFocus(state, position);
       state = updateCursor(state, position);
+    }
+  } else if (autoScrollState.isActive && state.ui.selectionHandleDrag) {
+    // Apply auto-scroll for selection handle drag (touch)
+    const elapsedTime = Date.now() - autoScrollState.startTime;
+    const timeBasedMultiplier = Math.min(
+      Math.pow(EDGE_SCROLL_ACCELERATION_RATE, elapsedTime / 1000),
+      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED
+    );
+    autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
+
+    let autoScrollDelta = 0;
+    const touchY = autoScrollState.lastMouseY;
+
+    if (touchY < 0) {
+      const distance = Math.abs(touchY);
+      const speedMultiplier = Math.min(distance / 100, 3);
+      autoScrollDelta =
+        -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
+    } else if (touchY < EDGE_SCROLL_THRESHOLD) {
+      const proximity = 1 - touchY / EDGE_SCROLL_THRESHOLD;
+      autoScrollDelta = -EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
+    } else if (touchY > viewport.height) {
+      const distance = touchY - viewport.height;
+      const speedMultiplier = Math.min(distance / 100, 3);
+      autoScrollDelta =
+        EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
+    } else if (touchY > viewport.height - EDGE_SCROLL_THRESHOLD) {
+      const proximity =
+        (touchY - (viewport.height - EDGE_SCROLL_THRESHOLD)) /
+        EDGE_SCROLL_THRESHOLD;
+      autoScrollDelta = EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
+    }
+
+    if (autoScrollDelta !== 0 && updateViewportCallback) {
+      const maxScroll = documentHeight - viewport.height;
+      const newScrollY = Math.max(
+        0,
+        Math.min(maxScroll, viewport.scrollY + autoScrollDelta)
+      );
+
+      if (newScrollY !== viewport.scrollY) {
+        updateViewportCallback({ scrollY: newScrollY });
+      }
+    }
+
+    // Update selection based on new scroll position
+    const position = getTextPositionFromViewport(
+      autoScrollState.lastMouseX,
+      autoScrollState.lastMouseY,
+      state,
+      viewport,
+      { start: 0, end: state.document.page.blocks.length - 1 }
+    );
+
+    if (position && state.document.selection) {
+      const { handleType } = state.ui.selectionHandleDrag;
+      const { anchor, focus } = state.document.selection;
+
+      let newAnchor = anchor;
+      let newFocus = focus;
+
+      if (handleType === "anchor") {
+        newAnchor = position;
+      } else {
+        newFocus = position;
+      }
+
+      const isForward =
+        newAnchor.blockIndex < newFocus.blockIndex ||
+        (newAnchor.blockIndex === newFocus.blockIndex &&
+          newAnchor.textIndex <= newFocus.textIndex);
+
+      const isCollapsed =
+        newAnchor.blockIndex === newFocus.blockIndex &&
+        newAnchor.textIndex === newFocus.textIndex;
+
+      state = {
+        ...state,
+        document: {
+          ...state.document,
+          selection: {
+            anchor: newAnchor,
+            focus: newFocus,
+            isForward,
+            isCollapsed,
+            lastUpdate: Date.now(),
+          },
+          cursor: {
+            position: handleType === "anchor" ? newAnchor : newFocus,
+            lastUpdate: Date.now(),
+          },
+        },
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
+        },
+      };
     }
   }
 
@@ -3235,6 +3443,52 @@ function handleTouchStart(
       SCROLLBAR_TOUCH_BUFFER
     );
 
+    // Check if touching a selection handle for mobile selection dragging
+    const selectionHandle = getSelectionHandleAtPoint(canvasX, canvasY, state, viewport);
+    if (selectionHandle && !isScrollbarThumbTouch) {
+      // Start selection handle drag
+      touchState = {
+        startY: canvasY,
+        startScrollY: viewport.scrollY,
+        lastY: canvasY,
+        lastTime: currentTime,
+        velocityY: 0,
+        velocityHistory: [],
+        isScrollbarDrag: false,
+        startX: canvasX,
+        startTime: currentTime,
+        isLongPress: false,
+        hasMoved: false,
+        currentTouchX: canvasX,
+        currentTouchY: canvasY,
+        isTouchingSelection: true, // We're on a selection
+      };
+
+      return {
+        ...state,
+        ui: {
+          ...state.ui,
+          selectionHandleDrag: {
+            handleType: selectionHandle,
+            startX: canvasX,
+            startY: canvasY,
+          },
+        },
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
+          momentum: {
+            velocity: 0,
+            lastTime: Date.now(),
+            isActive: false,
+          },
+        },
+      };
+    }
+
     // Check if touching an image drag handle (with larger tolerance for touch)
     const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
     const TOUCH_TOLERANCE = 12; // Larger tolerance for touch devices
@@ -3547,13 +3801,105 @@ function handleTouchMove(
       };
     }
 
-    // Handle image drag resize
+    // Handle image drag resize (no auto-scroll - resize only)
     if (state.ui.imageDrag) {
       touchState.lastY = canvasY;
       touchState.lastTime = currentTime;
 
       return {
         ...updateImageDrag(state, viewport, canvasX, canvasY),
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
+        },
+      };
+    }
+
+    // Handle selection handle drag
+    if (state.ui.selectionHandleDrag) {
+      touchState.lastY = canvasY;
+      touchState.lastTime = currentTime;
+      touchState.currentTouchX = canvasX;
+      touchState.currentTouchY = canvasY;
+
+      // Check for edge scrolling during selection handle drag
+      const isNearEdge =
+        canvasY < EDGE_SCROLL_THRESHOLD ||
+        canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
+        canvasY < 0 ||
+        canvasY > viewport.height;
+
+      if (isNearEdge) {
+        if (!autoScrollState.isActive) {
+          startAutoScroll();
+        }
+        autoScrollState.lastMouseX = canvasX;
+        autoScrollState.lastMouseY = canvasY;
+      } else {
+        if (autoScrollState.isActive) {
+          stopAutoScroll();
+        }
+      }
+
+      // Get the new position based on touch location
+      const newPosition = getTextPositionFromViewport(
+        canvasX,
+        canvasY,
+        state,
+        viewport,
+        { start: 0, end: state.document.page.blocks.length - 1 }
+      );
+
+      if (newPosition && state.document.selection) {
+        const { handleType } = state.ui.selectionHandleDrag;
+        const { anchor, focus } = state.document.selection;
+
+        let newAnchor = anchor;
+        let newFocus = focus;
+
+        if (handleType === "anchor") {
+          // Dragging anchor - update anchor position, keep focus
+          newAnchor = newPosition;
+        } else {
+          // Dragging focus - update focus position, keep anchor
+          newFocus = newPosition;
+        }
+
+        // Determine if selection is now forward or backward
+        const isForward =
+          newAnchor.blockIndex < newFocus.blockIndex ||
+          (newAnchor.blockIndex === newFocus.blockIndex &&
+            newAnchor.textIndex <= newFocus.textIndex);
+
+        // Check if selection is collapsed
+        const isCollapsed =
+          newAnchor.blockIndex === newFocus.blockIndex &&
+          newAnchor.textIndex === newFocus.textIndex;
+
+        state = {
+          ...state,
+          document: {
+            ...state.document,
+            selection: {
+              anchor: newAnchor,
+              focus: newFocus,
+              isForward,
+              isCollapsed,
+              lastUpdate: Date.now(),
+            },
+            cursor: {
+              position: handleType === "anchor" ? newAnchor : newFocus,
+              lastUpdate: Date.now(),
+            },
+          },
+        };
+      }
+
+      return {
+        ...state,
         view: {
           ...state.view,
           scrollbar: {
@@ -3776,6 +4122,25 @@ function handleTouchEnd(
       view: {
         ...state.view,
         scrollbar: endScrollbarDrag(state.view.scrollbar),
+      },
+    };
+  }
+
+  // End selection handle drag if active
+  if (state.ui.selectionHandleDrag) {
+    touchState = null;
+    return {
+      ...state,
+      ui: {
+        ...state.ui,
+        selectionHandleDrag: null,
+      },
+      view: {
+        ...state.view,
+        scrollbar: {
+          ...state.view.scrollbar,
+          lastInteraction: Date.now(),
+        },
       },
     };
   }
@@ -4293,6 +4658,17 @@ function handleTouchCancel(state: EditorState): EditorState {
       view: {
         ...state.view,
         scrollbar: endScrollbarDrag(state.view.scrollbar),
+      },
+    };
+  }
+
+  // End selection handle drag if active
+  if (state.ui.selectionHandleDrag) {
+    state = {
+      ...state,
+      ui: {
+        ...state.ui,
+        selectionHandleDrag: null,
       },
     };
   }

@@ -543,6 +543,9 @@ export const renderPage = (
   // Add extra padding on mobile devices for keyboard space
   // documentHeight += styles.canvas.paddingBottom;
 
+  // Render selection handles for mobile (after selection rendering, before scrollbar)
+  renderSelectionHandles(ctx, state, viewport, styles);
+
   // Render scrollbar
   renderScrollbar(ctx, viewport, documentHeight, state.view.scrollbar);
 
@@ -1991,6 +1994,281 @@ function renderImageDragHandlesForBlock(
     ctx.strokeRect(x, y, width, height);
     ctx.setLineDash([]); // Reset dash pattern
     ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Get position coordinates for a text position (for selection handles).
+ * This is a simplified version of getCursorCoordinates to avoid circular imports.
+ */
+function getPositionCoordinates(
+  position: { blockIndex: number; textIndex: number },
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles
+): { x: number; y: number; height: number } | null {
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+
+  // Calculate Y position by summing heights of previous blocks
+  for (let i = 0; i < position.blockIndex; i++) {
+    const block = state.document.page.blocks[i];
+    currentY += getBlockHeight(block, maxWidth, styles, i);
+  }
+
+  const block = state.document.page.blocks[position.blockIndex];
+  if (!block || block.type === "image" || !isNotImageBlock(block)) {
+    return null;
+  }
+
+  const textStyle = getTextStyle(styles, block.type);
+  const fontFamily = getCurrentFontFamily();
+  const codePadding = styles.textFormats.code.padding;
+
+  const fontMetrics = getFontMetrics(
+    textStyle.fontSize,
+    textStyle.fontWeight,
+    fontFamily
+  );
+  const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
+
+  // Detect RTL
+  const isRTL = getFormattedTextDirection(block.content) === "rtl";
+
+  // Calculate indent and marker space for list blocks
+  let adjustedMaxWidth = maxWidth;
+  let baseX = styles.canvas.paddingLeft;
+
+  if (isListBlock(block)) {
+    const indent = block.indent || 0;
+    const indentOffset = indent * styles.list.indent.size;
+    const markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
+
+    adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
+
+    if (isRTL) {
+      baseX = styles.canvas.paddingLeft + indentOffset;
+    } else {
+      baseX = styles.canvas.paddingLeft + indentOffset + markerWidth;
+    }
+  }
+
+  // Calculate line wrapping
+  const lines = wrapFormattedTextDetailed(
+    block.content,
+    adjustedMaxWidth,
+    textStyle.fontSize,
+    textStyle.fontWeight,
+    fontFamily,
+    codePadding
+  );
+
+  let textIndex = 0;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const wrappedLine = lines[lineIndex];
+    const line = wrappedLine.text;
+    const lineEndIndex = textIndex + line.length;
+
+    if (position.textIndex >= textIndex && position.textIndex <= lineEndIndex) {
+      // Calculate X position
+      const widthFromStart = measureFormattedLineWidth(
+        block.content,
+        textIndex,
+        position.textIndex,
+        textStyle,
+        fontFamily,
+        codePadding
+      );
+
+      let x: number;
+      if (isRTL) {
+        x = baseX + adjustedMaxWidth - widthFromStart;
+      } else {
+        x = baseX + widthFromStart;
+      }
+
+      return {
+        x,
+        y: currentY,
+        height: lineHeight,
+      };
+    }
+
+    textIndex += line.length;
+    if (wrappedLine.consumedSpace) {
+      textIndex += 1;
+    }
+    currentY += lineHeight;
+  }
+
+  // Fallback for end of block
+  if (isRTL) {
+    return {
+      x: baseX + adjustedMaxWidth,
+      y: currentY,
+      height: lineHeight,
+    };
+  }
+
+  return {
+    x: baseX,
+    y: currentY,
+    height: lineHeight,
+  };
+}
+
+/**
+ * Get selection handle positions for rendering.
+ * Returns coordinates for both anchor and focus handles.
+ */
+function getSelectionHandlePositionsForRender(
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles
+): {
+  anchor: { x: number; y: number; height: number; isTop: boolean } | null;
+  focus: { x: number; y: number; height: number; isTop: boolean } | null;
+} | null {
+  const selection = state.document.selection;
+  if (!selection || selection.isCollapsed) {
+    return null;
+  }
+
+  const anchorCoords = getPositionCoordinates(selection.anchor, state, viewport, styles);
+  const focusCoords = getPositionCoordinates(selection.focus, state, viewport, styles);
+
+  if (!anchorCoords || !focusCoords) {
+    return null;
+  }
+
+  const isForward = selection.isForward;
+
+  return {
+    anchor: {
+      x: anchorCoords.x,
+      y: anchorCoords.y,
+      height: anchorCoords.height,
+      isTop: isForward,
+    },
+    focus: {
+      x: focusCoords.x,
+      y: focusCoords.y,
+      height: focusCoords.height,
+      isTop: !isForward,
+    },
+  };
+}
+
+/**
+ * Render selection handles for mobile text selection.
+ * Draws teardrop-shaped handles at the anchor and focus positions.
+ * Only renders on touch devices when there's an active selection.
+ */
+export function renderSelectionHandles(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles()
+) {
+  // Only render handles on touch devices
+  if (!isTouchDevice()) {
+    return;
+  }
+
+  const selection = state.document.selection;
+  if (!selection || selection.isCollapsed) {
+    return;
+  }
+
+  const handlePositions = getSelectionHandlePositionsForRender(state, viewport, styles);
+
+  if (!handlePositions) {
+    return;
+  }
+
+  const handleStyles = styles.selection.handles;
+
+  // Render anchor handle (at start of selection)
+  if (handlePositions.anchor) {
+    renderSelectionHandle(
+      ctx,
+      handlePositions.anchor.x,
+      handlePositions.anchor.y,
+      handlePositions.anchor.height,
+      handlePositions.anchor.isTop,
+      handleStyles
+    );
+  }
+
+  // Render focus handle (at end of selection)
+  if (handlePositions.focus) {
+    renderSelectionHandle(
+      ctx,
+      handlePositions.focus.x,
+      handlePositions.focus.y,
+      handlePositions.focus.height,
+      handlePositions.focus.isTop,
+      handleStyles
+    );
+  }
+}
+
+/**
+ * Render a single selection handle (teardrop shape)
+ * @param ctx Canvas context
+ * @param x X position (cursor position)
+ * @param y Y position (top of line)
+ * @param lineHeight Height of the text line
+ * @param isTop If true, circle is at top (above stem); if false, circle is at bottom
+ * @param styles Handle styles
+ */
+function renderSelectionHandle(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  lineHeight: number,
+  isTop: boolean,
+  styles: {
+    size: number;
+    color: string;
+    stemHeight: number;
+    stemWidth: number;
+  }
+) {
+  const { size, color, stemHeight, stemWidth } = styles;
+  const radius = size / 2;
+
+  ctx.save();
+  ctx.fillStyle = color;
+
+  if (isTop) {
+    // Handle at top of selection: circle above, stem going down
+    // Circle center is above the line
+    const circleY = y - stemHeight - radius;
+
+    // Draw the stem (vertical line from circle to top of line)
+    ctx.fillRect(x - stemWidth / 2, y - stemHeight, stemWidth, stemHeight);
+
+    // Draw the circle
+    ctx.beginPath();
+    ctx.arc(x, circleY, radius, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // Handle at bottom of selection: stem going up, circle below
+    // Circle center is below the line
+    const circleY = y + lineHeight + stemHeight + radius;
+
+    // Draw the stem (vertical line from bottom of line to circle)
+    ctx.fillRect(x - stemWidth / 2, y + lineHeight, stemWidth, stemHeight);
+
+    // Draw the circle
+    ctx.beginPath();
+    ctx.arc(x, circleY, radius, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   ctx.restore();
