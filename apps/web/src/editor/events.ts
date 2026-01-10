@@ -3270,6 +3270,43 @@ function handleKeyDown(
         newState = extendSelectionPageUp(newState, viewport);
       } else {
         newState = moveCursorPageUp(clearSelection(state), viewport);
+
+        // If we moved to a visual block (image/line), select it; otherwise leave just cursor
+        if (newState.document.cursor) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (targetBlock && (targetBlock.type === "image" || targetBlock.type === "line")) {
+            const visualBlockPosition = {
+              blockIndex: newState.document.cursor.position.blockIndex,
+              textIndex: 0,
+            };
+            newState = {
+              ...newState,
+              document: {
+                ...newState.document,
+                selection: {
+                  anchor: visualBlockPosition,
+                  focus: visualBlockPosition,
+                  isForward: true,
+                  isCollapsed: false,
+                  lastUpdate: Date.now(),
+                },
+              },
+            };
+          }
+
+          // Clear auto-created paragraph tracking only if we moved away from it
+          if (
+            state.ui.autoCreatedParagraph &&
+            newState.document.cursor &&
+            newState.document.cursor.position.blockIndex !==
+              state.ui.autoCreatedParagraph.blockIndex
+          ) {
+            newState = clearAutoCreatedParagraph(newState);
+          }
+        }
       }
       break;
     case "PageDown":
@@ -3280,6 +3317,43 @@ function handleKeyDown(
         newState = extendSelectionPageDown(newState, viewport);
       } else {
         newState = moveCursorPageDown(clearSelection(state), viewport);
+
+        // If we moved to a visual block (image/line), select it; otherwise leave just cursor
+        if (newState.document.cursor) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (targetBlock && (targetBlock.type === "image" || targetBlock.type === "line")) {
+            const visualBlockPosition = {
+              blockIndex: newState.document.cursor.position.blockIndex,
+              textIndex: 0,
+            };
+            newState = {
+              ...newState,
+              document: {
+                ...newState.document,
+                selection: {
+                  anchor: visualBlockPosition,
+                  focus: visualBlockPosition,
+                  isForward: true,
+                  isCollapsed: false,
+                  lastUpdate: Date.now(),
+                },
+              },
+            };
+          }
+
+          // Clear auto-created paragraph tracking only if we moved away from it
+          if (
+            state.ui.autoCreatedParagraph &&
+            newState.document.cursor &&
+            newState.document.cursor.position.blockIndex !==
+              state.ui.autoCreatedParagraph.blockIndex
+          ) {
+            newState = clearAutoCreatedParagraph(newState);
+          }
+        }
       }
       break;
     case "Home":
