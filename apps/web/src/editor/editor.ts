@@ -16,6 +16,7 @@ import {
   deleteCharsInRange,
   insertCharsAtPosition,
   formatCharsInRange,
+  applyRemoteOps,
 } from "./crdt-helpers";
 import {
   copySelectionToClipboard,
@@ -124,6 +125,8 @@ export interface Editor {
   closeActiveMenu: () => void;
   /** Update page content from CRDT sync (remote operations) */
   updatePageFromSync: (page: Page) => void;
+  /** Apply remote operations to the current page state */
+  applyRemoteOperations: (ops: Operation[]) => void;
   /** Set broadcast function for sending operations to peers */
   setBroadcast: (fn: ((ops: Operation[]) => void) | null) => void;
 }
@@ -278,7 +281,7 @@ export default function createEditor(
       }
 
       const prevState = state;
-      state = handleEvents(
+      const handleEventsResult = handleEvents(
         state,
         viewport,
         visibility,
@@ -288,6 +291,12 @@ export default function createEditor(
         updateViewport,
         pendingClipboardData
       );
+      state = handleEventsResult.state;
+
+      // Broadcast operations from events
+      if (handleEventsResult.ops.length > 0 && broadcastFn) {
+        broadcastFn(handleEventsResult.ops);
+      }
 
       // Clear clipboard data after it's been used
       pendingClipboardData = null;
@@ -1538,6 +1547,111 @@ export default function createEditor(
     broadcastFn = fn;
   }
 
+  function applyRemoteOperationsMethod(ops: Operation[]) {
+    if (ops.length === 0) return;
+
+    // Apply remote operations to current page state
+    const newPage = applyRemoteOps(state.document.page, ops);
+
+    // Clear all block caches since page structure may have changed
+    clearAllBlockCaches(newPage.blocks);
+
+    // Validate and adjust cursor position if needed
+    let cursor = state.document.cursor;
+    if (cursor && newPage.blocks.length > 0) {
+      const { blockIndex, textIndex } = cursor.position;
+      const maxBlockIndex = newPage.blocks.length - 1;
+
+      if (blockIndex > maxBlockIndex) {
+        // Cursor points to a block that no longer exists, move to end of last block
+        const lastBlock = newPage.blocks[maxBlockIndex];
+        const lastBlockText = getBlockTextContent(lastBlock);
+        cursor = {
+          ...cursor,
+          position: {
+            blockIndex: maxBlockIndex,
+            textIndex: lastBlockText.length,
+          },
+        };
+      } else {
+        // Validate textIndex for the block
+        const block = newPage.blocks[blockIndex];
+        if (block) {
+          const blockText = getBlockTextContent(block);
+          if (textIndex > blockText.length) {
+            cursor = {
+              ...cursor,
+              position: {
+                blockIndex,
+                textIndex: blockText.length,
+              },
+            };
+          }
+        }
+      }
+    } else if (cursor && newPage.blocks.length === 0) {
+      // No blocks, clear cursor
+      cursor = null;
+    }
+
+    // Validate selection as well
+    let selection = state.document.selection;
+    if (selection && newPage.blocks.length > 0) {
+      const maxBlockIndex = newPage.blocks.length - 1;
+      const { anchor, focus } = selection;
+
+      let newAnchor = anchor;
+      let newFocus = focus;
+
+      if (anchor.blockIndex > maxBlockIndex) {
+        const lastBlock = newPage.blocks[maxBlockIndex];
+        const lastBlockText = getBlockTextContent(lastBlock);
+        newAnchor = {
+          blockIndex: maxBlockIndex,
+          textIndex: lastBlockText.length,
+        };
+      }
+
+      if (focus.blockIndex > maxBlockIndex) {
+        const lastBlock = newPage.blocks[maxBlockIndex];
+        const lastBlockText = getBlockTextContent(lastBlock);
+        newFocus = {
+          blockIndex: maxBlockIndex,
+          textIndex: lastBlockText.length,
+        };
+      }
+
+      if (newAnchor !== anchor || newFocus !== focus) {
+        selection = {
+          ...selection,
+          anchor: newAnchor,
+          focus: newFocus,
+          isCollapsed:
+            newAnchor.blockIndex === newFocus.blockIndex &&
+            newAnchor.textIndex === newFocus.textIndex,
+        };
+      }
+    } else if (selection && newPage.blocks.length === 0) {
+      selection = null;
+    }
+
+    // Update the page in state
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        page: newPage,
+        cursor,
+        selection,
+      },
+    };
+
+    // Re-render
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
   return {
     getState,
     destroy,
@@ -1572,6 +1686,7 @@ export default function createEditor(
     closeActiveMenu: closeActiveMenuMethod,
     setPhysicalKeyboard,
     updatePageFromSync,
+    applyRemoteOperations: applyRemoteOperationsMethod,
     setBroadcast: setBroadcastMethod,
   };
 }

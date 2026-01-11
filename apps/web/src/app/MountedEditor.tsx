@@ -180,43 +180,10 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       const syncEngine = new SyncEngine(pageId);
       syncEngineRef.current = syncEngine;
 
-      // Subscribe to CRDT state changes for remote updates
-      const unsubscribeSync = syncEngine.onStateChange((newPageState) => {
-        // Convert PageState blocks to Page blocks format
-        const convertedBlocks = newPageState.blocks.map((blockState) => {
-          const baseBlock: any = {
-            id: blockState.id,
-            type: blockState.type,
-            chars: blockState.chars,
-            formats: blockState.formats,
-          };
-          
-          // Add type-specific properties from props
-          if (blockState.type === "bullet_list" || blockState.type === "numbered_list") {
-            baseBlock.indent = blockState.props.indent ?? 0;
-          } else if (blockState.type === "todo_list") {
-            baseBlock.checked = blockState.props.checked ?? false;
-            baseBlock.indent = blockState.props.indent ?? 0;
-          } else if (blockState.type === "image") {
-            baseBlock.url = blockState.props.url ?? "";
-            baseBlock.alt = blockState.props.alt;
-            baseBlock.width = blockState.props.width;
-            baseBlock.height = blockState.props.height;
-            baseBlock.objectFit = blockState.props.objectFit;
-          }
-          
-          return baseBlock;
-        });
-        
-        mounted.editor.updatePageFromSync({
-          id: pageId,
-          title: "",
-          blocks: convertedBlocks,
-        });
-      });
-
-      // Store cleanup function
-      (mounted as any)._syncCleanup = unsubscribeSync;
+      // Note: We don't subscribe to syncEngine.onStateChange anymore because:
+      // - The SyncEngine's state starts empty (no initial content operations)
+      // - Rebuilding from SyncEngine state would clear the editor's existing content
+      // - Instead, we apply remote operations directly to the editor's current state
 
       // Initialize WebRTC sync
       const webrtcSync = new WebRTCSync(syncEngine, {
@@ -227,6 +194,9 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         },
         onRemoteOperation: (ops) => {
           console.log("[WebRTC] Received remote operations:", ops.length);
+          // Apply remote operations directly to the editor's current state
+          // This preserves existing content instead of rebuilding from SyncEngine's empty state
+          mounted.editor.applyRemoteOperations(ops);
         },
         onFirstPeer: () => {
           console.log("[MountedEditor] First peer - loading initial content");
@@ -650,10 +620,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         webrtcSyncRef.current = null;
       }
 
-      // Clean up sync binding
-      if ((mounted as any)._syncCleanup) {
-        (mounted as any)._syncCleanup();
-      }
+      // Clean up sync engine
       if (syncEngineRef.current) {
         syncEngineRef.current = null;
       }

@@ -2,6 +2,7 @@ import type { Block } from "../deserializer/loadPage";
 import { isVisualBlock, isListBlock } from "../deserializer/loadPage";
 import { SLASH_COMMANDS } from "./SlashCommandMenu";
 import { copySelectionToClipboard, pasteFromClipboardEvent } from "./clipboard";
+import type { Operation } from "../sync/types";
 import {
   applySlashCommand,
   deleteForward,
@@ -841,7 +842,9 @@ export function handleEvents(
   containerRect: { left: number; top: number },
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
   clipboardData?: { html: string; text: string } | null
-): EditorState {
+): { state: EditorState; ops: Operation[] } {
+  // Collect operations from commands
+  let collectedOps: Operation[] = [];
   // Check for scrollbar long-press (iOS-style: hold to activate)
   if (scrollbarPressState && !state.view.scrollbar.isDragging) {
     const timeSinceStart = Date.now() - scrollbarPressState.startTime;
@@ -1301,7 +1304,7 @@ export function handleEvents(
         scrollbar: updateScrollbarFadeOpacity(state.view.scrollbar),
       },
     };
-    return state;
+    return { state, ops: collectedOps };
   }
 
   while (events.length > 0) {
@@ -1320,7 +1323,7 @@ export function handleEvents(
         if (isTouchDevice()) {
           break;
         }
-        state = handleMouseDown(
+        const mouseDownResult = handleMouseDown(
           state,
           viewport,
           event as unknown as MouseEvent,
@@ -1329,6 +1332,8 @@ export function handleEvents(
           documentHeight,
           updateViewportCallback
         );
+        state = mouseDownResult.state;
+        collectedOps.push(...mouseDownResult.ops);
         break;
       case "mousemove":
         if (isTouchDevice()) {
@@ -1360,16 +1365,25 @@ export function handleEvents(
         state = handlePointerCancel(state);
         break;
       case "keydown":
-        state = handleKeyDown(state, viewport, event, updateViewportCallback);
+        const keyResult = handleKeyDown(
+          state,
+          viewport,
+          event,
+          updateViewportCallback
+        );
+        state = keyResult.state;
+        collectedOps.push(...keyResult.ops);
         break;
       case "paste":
-        state = handlePaste(
+        const pasteResult = handlePaste(
           state,
           event as ClipboardEvent,
           viewport,
           updateViewportCallback,
           clipboardData
         );
+        state = pasteResult.state;
+        collectedOps.push(...pasteResult.ops);
         break;
       case "wheel":
         if (isTouchDevice()) {
@@ -1421,12 +1435,14 @@ export function handleEvents(
         state = handleCompositionUpdate(state, event as CompositionEvent);
         break;
       case "compositionend":
-        state = handleCompositionEnd(
+        const compResult = handleCompositionEnd(
           state,
           event as CompositionEvent,
           viewport,
           updateViewportCallback
         );
+        state = compResult.state;
+        collectedOps.push(...compResult.ops);
         break;
     }
 
@@ -1442,7 +1458,7 @@ export function handleEvents(
     },
   };
 
-  return state;
+  return { state, ops: collectedOps };
 }
 
 function handleContextMenu(
@@ -1500,25 +1516,30 @@ function handlePaste(
   viewport: ViewportState,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
   clipboardData?: { html: string; text: string } | null
-): EditorState {
+): { state: EditorState; ops: Operation[] } {
   // Prevent default paste behavior
   event.preventDefault();
 
   // If editor is not focused, ignore paste
   if (!state.view.isFocused) {
-    return state;
+    return { state, ops: [] };
   }
 
   // Block paste during composition - let IME handle input
   if (state.ui.composition?.isComposing) {
-    return state;
+    return { state, ops: [] };
   }
 
   // Use the tracked pasteAsPlainText flag (set during keydown)
   // Paste as plain text
-  const result = pasteFromClipboardEvent(state, event, state.crdt, clipboardData);
+  const result = pasteFromClipboardEvent(
+    state,
+    event,
+    state.crdt,
+    clipboardData
+  );
   if (!result) {
-    return state;
+    return { state, ops: [] };
   }
 
   const newState = result.state;
@@ -1535,7 +1556,7 @@ function handlePaste(
     }
   }
 
-  return newState;
+  return { state: newState, ops: result.ops };
 }
 
 // Helper function to detect and handle checkbox clicks for todo list items
@@ -1544,7 +1565,7 @@ function handleTodoCheckboxClick(
   canvasX: number,
   canvasY: number,
   viewport: ViewportState
-): EditorState | null {
+): { state: EditorState; ops: Operation[] } | null {
   const styles = getEditorStyles();
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
@@ -1613,7 +1634,7 @@ function handleTodoCheckboxClick(
           // Toggle the checkbox
           const newState = recordUndo(state);
           const result = toggleTodoChecked(newState, blockIndex, state.crdt);
-          return result.state;
+          return { state: result.state, ops: result.ops };
         }
       }
 
@@ -1640,13 +1661,14 @@ function handleMouseDown(
   visibility: { start: number; end: number },
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
-): EditorState {
+): { state: EditorState; ops: Operation[] } {
+  const ops: Operation[] = [];
   stopAutoScroll();
 
   // Ignore right-click - it will be handled by contextmenu event
   // This prevents clearing selection when right-clicking
   if (event.button === 2) {
-    return state;
+    return { state, ops };
   }
 
   // Close slash command menu on mouse click
@@ -1729,7 +1751,7 @@ function handleMouseDown(
           },
         };
         // Don't continue with normal click behavior - just return
-        return state;
+        return { state, ops };
       }
     }
   }
@@ -1747,16 +1769,19 @@ function handleMouseDown(
       )
     ) {
       return {
-        ...state,
-        view: {
-          ...state.view,
-          scrollbar: startScrollbarDrag(
-            state.view.scrollbar,
-            canvasY,
-            viewport,
-            documentHeight
-          ),
+        state: {
+          ...state,
+          view: {
+            ...state.view,
+            scrollbar: startScrollbarDrag(
+              state.view.scrollbar,
+              canvasY,
+              viewport,
+              documentHeight
+            ),
+          },
         },
+        ops,
       };
     } else {
       // Clicking on track - page scroll
@@ -1770,14 +1795,17 @@ function handleMouseDown(
         updateViewportCallback({ scrollY: newScrollY });
       }
       return {
-        ...state,
-        view: {
-          ...state.view,
-          scrollbar: {
-            ...state.view.scrollbar,
-            lastInteraction: Date.now(),
+        state: {
+          ...state,
+          view: {
+            ...state.view,
+            scrollbar: {
+              ...state.view.scrollbar,
+              lastInteraction: Date.now(),
+            },
           },
         },
+        ops,
       };
     }
   }
@@ -1790,7 +1818,7 @@ function handleMouseDown(
       // Check if clicking on a drag handle and start drag if applicable
       const dragState = startImageDrag(state, imageBlock, canvasX, canvasY);
       if (dragState) {
-        return dragState;
+        return { state: dragState, ops };
       }
 
       // If it's a placeholder (no URL), open the upload menu immediately
@@ -1802,16 +1830,19 @@ function handleMouseDown(
           previousMenu.blockIndex === imageBlock.blockIndex
         ) {
           // Just keep it closed
-          return state;
+          return { state, ops };
         }
 
         // Open the image upload menu at the click position
-        return setActiveMenu(state, {
-          type: "imageUpload",
-          blockIndex: imageBlock.blockIndex,
-          x: canvasX,
-          y: canvasY,
-        });
+        return {
+          state: setActiveMenu(state, {
+            type: "imageUpload",
+            blockIndex: imageBlock.blockIndex,
+            x: canvasX,
+            y: canvasY,
+          }),
+          ops,
+        };
       }
       // If it has an image, select the image block (same as arrow key behavior)
       // Position at the start of the image block (textIndex 0)
@@ -1840,7 +1871,7 @@ function handleMouseDown(
         };
       }
 
-      return updateMode(newState, "edit");
+      return { state: updateMode(newState, "edit"), ops };
     }
   }
 
@@ -1875,7 +1906,7 @@ function handleMouseDown(
         };
       }
 
-      return updateMode(newState, "edit");
+      return { state: updateMode(newState, "edit"), ops };
     }
   }
 
@@ -1911,7 +1942,7 @@ function handleMouseDown(
   // If clicking in top padding, clear selection
   if (isClickInTopPadding) {
     const clearedState = clearSelection(state);
-    return updateMode(clearedState, "edit");
+    return { state: updateMode(clearedState, "edit"), ops };
   }
 
   // Check if clicking in left/right padding area
@@ -1933,7 +1964,7 @@ function handleMouseDown(
     if (paddingPosition) {
       let newState = clearSelection(state);
       newState = updateCursor(newState, paddingPosition);
-      return updateMode(newState, "edit");
+      return { state: updateMode(newState, "edit"), ops };
     }
   }
 
@@ -1950,10 +1981,10 @@ function handleMouseDown(
     // Only clear selection if it's collapsed or doesn't exist
     if (!state.document.selection || state.document.selection.isCollapsed) {
       const clearedState = clearSelection(state);
-      return updateMode(clearedState, "edit");
+      return { state: updateMode(clearedState, "edit"), ops };
     }
     // Keep active selection and just switch to edit mode
-    return updateMode(state, "edit");
+    return { state: updateMode(state, "edit"), ops };
   }
 
   // If clicking below all blocks, check if last block is an image and select it
@@ -1986,7 +2017,7 @@ function handleMouseDown(
         },
       };
 
-      return updateMode(newState, "edit");
+      return { state: updateMode(newState, "edit"), ops };
     }
   }
 
@@ -1995,6 +2026,7 @@ function handleMouseDown(
   const currentPosition = { x: canvasX, y: canvasY };
 
   let isMultiClick = false;
+  let clickCount = 1;
 
   if (
     state.view.clickTracker.lastClickPosition &&
@@ -2004,28 +2036,31 @@ function handleMouseDown(
       state.view.clickTracker.lastClickPosition
     )
   ) {
-    state.view.clickTracker.count++;
+    clickCount = state.view.clickTracker.count + 1;
     isMultiClick = true;
-  } else {
-    state.view.clickTracker.count = 1;
   }
 
-  state.view.clickTracker.lastClickTime = currentTime;
-  state.view.clickTracker.lastClickPosition = currentPosition;
+  // Update state with new click tracker info
+  state = {
+    ...state,
+    view: {
+      ...state.view,
+      clickTracker: {
+        count: clickCount,
+        lastClickTime: currentTime,
+        lastClickPosition: currentPosition,
+      },
+    },
+  };
 
   // Handle triple-click: always select line (even inside selection)
-  if (isMultiClick && state.view.clickTracker.count >= 3) {
-    return selectLineAtPosition(state, position);
+  if (isMultiClick && clickCount >= 3) {
+    return { state: selectLineAtPosition(state, position), ops };
   }
 
-  // // If clicking inside a selection (single or double click), don't reset it (Apple Notes behavior)
-  // if (isPositionWithinSelection(state, position)) {
-  //   return state;
-  // }
-
   // Handle double-click: select word
-  if (isMultiClick && state.view.clickTracker.count === 2) {
-    return selectWordAtPosition(state, position);
+  if (isMultiClick && clickCount === 2) {
+    return { state: selectWordAtPosition(state, position), ops };
   }
 
   // Set cursor position
@@ -2035,12 +2070,11 @@ function handleMouseDown(
   if (event.shiftKey && state.document.selection) {
     newState = updateSelectionFocus(newState, position);
   } else {
-    // Start selection at cursor position
     newState = startSelection(newState, position);
     newState = updateMode(newState, "select");
   }
 
-  return newState;
+  return { state: newState, ops };
 }
 
 function handleMouseMove(
@@ -2459,7 +2493,8 @@ function handleKeyDown(
   viewport: ViewportState,
   event: Event,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
-): EditorState {
+): { state: EditorState; ops: Operation[] } {
+  const ops: Operation[] = [];
   const keyEvent = event as unknown as KeyboardEvent;
   const key = keyEvent.key;
   const code = keyEvent.code;
@@ -2467,23 +2502,23 @@ function handleKeyDown(
 
   // In locked mode, block all operations
   if (state.ui.mode === "locked") {
-    return state;
+    return { state, ops };
   }
 
   // If editor is not focused, ignore keyboard input
   if (!state.view.isFocused) {
-    return state;
+    return { state, ops };
   }
 
   // Block most operations during composition - let IME handle input
   if (state.ui.composition?.isComposing) {
     // Block undo/redo
     if (isCtrl && (code === "KeyZ" || code === "KeyY")) {
-      return state;
+      return { state, ops };
     }
     // Block cut operation
     if (isCtrl && code === "KeyX") {
-      return state;
+      return { state, ops };
     }
     // Block text input keys - let IME handle all text input
     if (
@@ -2493,7 +2528,7 @@ function handleKeyDown(
       key === " " ||
       key === "Space"
     ) {
-      return state;
+      return { state, ops };
     }
     // Block regular character input during composition
     if (
@@ -2502,7 +2537,7 @@ function handleKeyDown(
       !keyEvent.altKey &&
       !keyEvent.metaKey
     ) {
-      return state;
+      return { state, ops };
     }
   }
 
@@ -2511,17 +2546,17 @@ function handleKeyDown(
   if (isCtrl && code === "KeyZ" && !keyEvent.shiftKey) {
     const newState = undoState(state);
     ensureCursorVisible(newState, state, viewport, updateViewportCallback);
-    return newState;
+    return { state: newState, ops };
   }
   if (isCtrl && (code === "KeyY" || (keyEvent.shiftKey && code === "KeyZ"))) {
     const newState = redoState(state);
     ensureCursorVisible(newState, state, viewport, updateViewportCallback);
-    return newState;
+    return { state: newState, ops };
   }
 
   // Select All
   if (isCtrl && code === "KeyA") {
-    return selectAll(state);
+    return { state: selectAll(state), ops };
   }
 
   // Bold
@@ -2529,8 +2564,12 @@ function handleKeyDown(
     // Only record undo if there's a selection (actual document change)
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    const result = toggleBold(hasSelection ? recordUndo(state) : state, state.crdt);
-    return result.state;
+    const result = toggleBold(
+      hasSelection ? recordUndo(state) : state,
+      state.crdt
+    );
+    ops.push(...result.ops);
+    return { state: result.state, ops };
   }
 
   // Tab - indent/outdent list items
@@ -2544,29 +2583,31 @@ function handleKeyDown(
           // Shift+Tab: outdent
           const result = outdentListItem(recordUndo(state), state.crdt);
           const newState = result.state;
+          ops.push(...result.ops);
           ensureCursorVisible(
             newState,
             state,
             viewport,
             updateViewportCallback
           );
-          return newState;
+          return { state: newState, ops };
         } else {
           // Tab: indent
           const result = indentListItem(recordUndo(state), state.crdt);
           const newState = result.state;
+          ops.push(...result.ops);
           ensureCursorVisible(
             newState,
             state,
             viewport,
             updateViewportCallback
           );
-          return newState;
+          return { state: newState, ops };
         }
       }
     }
     // For non-list blocks, return state without preventing default
-    return state;
+    return { state, ops };
   }
 
   // Copy
@@ -2576,7 +2617,7 @@ function handleKeyDown(
     copySelectionToClipboard(state).catch((err) => {
       console.error("Copy failed:", err);
     });
-    return state;
+    return { state, ops };
   }
 
   // Cut
@@ -2590,10 +2631,11 @@ function handleKeyDown(
       // Then delete the selected text
       const result = deleteSelectedText(recordUndo(state), state.crdt);
       const newState = result.state;
+      ops.push(...result.ops);
       ensureCursorVisible(newState, state, viewport, updateViewportCallback);
-      return newState;
+      return { state: newState, ops };
     }
-    return state;
+    return { state, ops };
   }
 
   // Handle slash command menu navigation
@@ -2624,12 +2666,12 @@ function handleKeyDown(
             slashMenu.selectedIndex + 1,
             filteredCommands.length - 1
           );
-          return updateSlashCommandSelection(state, newIndex);
+          return { state: updateSlashCommandSelection(state, newIndex), ops };
         }
-        return state;
+        return { state, ops };
       case "ArrowUp":
         const newIndex = Math.max(slashMenu.selectedIndex - 1, 0);
-        return updateSlashCommandSelection(state, newIndex);
+        return { state: updateSlashCommandSelection(state, newIndex), ops };
       case "Enter":
         if (filteredCommands.length > 0 && state.document.cursor) {
           const selectedCommand = filteredCommands[slashMenu.selectedIndex];
@@ -2639,15 +2681,16 @@ function handleKeyDown(
             state.crdt
           );
           const newState = result.state;
+          ops.push(...result.ops);
           ensureCursorVisible(
             newState,
             state,
             viewport,
             updateViewportCallback
           );
-          return newState;
+          return { state: newState, ops };
         }
-        return closeSlashCommand(state);
+        return { state: closeSlashCommand(state), ops };
       case "Escape":
         // Close slash command and remove the "/" character
         if (state.document.cursor) {
@@ -2656,7 +2699,7 @@ function handleKeyDown(
 
           // Visual blocks (image/line) don't have text content, so guard anyway
           if (block.type === "image" || block.type === "line") {
-            return closeSlashCommand(state);
+            return { state: closeSlashCommand(state), ops };
           }
 
           // Remove the "/" and filter text using CRDT operations
@@ -2692,9 +2735,9 @@ function handleKeyDown(
             viewport,
             updateViewportCallback
           );
-          return newState;
+          return { state: newState, ops };
         }
-        return closeSlashCommand(state);
+        return { state: closeSlashCommand(state), ops };
       case "Backspace":
         // If at the start of filter, close menu
         if (
@@ -2706,13 +2749,14 @@ function handleKeyDown(
           // Close menu and delete the slash character - no recordUndo needed since deleteText already records
           const deleteResult = deleteText(recordUndo(state), state.crdt);
           const newState = closeSlashCommand(deleteResult.state);
+          ops.push(...deleteResult.ops);
           ensureCursorVisible(
             newState,
             state,
             viewport,
             updateViewportCallback
           );
-          return newState;
+          return { state: newState, ops };
         }
         // Otherwise update filter - deleteText handles recordUndo internally
         if (
@@ -2722,6 +2766,7 @@ function handleKeyDown(
           const slashMenu = state.ui.activeMenu;
           const result = deleteText(recordUndo(state), state.crdt);
           const newState = result.state;
+          ops.push(...result.ops);
           if (newState.document.cursor) {
             const block = newState.document.page.blocks[slashMenu.blockIndex];
             const text = getBlockTextContent(block);
@@ -2736,10 +2781,10 @@ function handleKeyDown(
               viewport,
               updateViewportCallback
             );
-            return finalState;
+            return { state: finalState, ops };
           }
         }
-        return state;
+        return { state, ops };
       default:
         // Handle typing to filter commands (including spaces)
         if (
@@ -2752,6 +2797,7 @@ function handleKeyDown(
           const slashMenu = state.ui.activeMenu;
           // insertText handles recordUndo internally
           const result = insertText(recordUndo(state), key, state.crdt);
+          ops.push(...result.ops);
           if (result.state.document.cursor) {
             const block =
               result.state.document.page.blocks[slashMenu.blockIndex];
@@ -2767,11 +2813,11 @@ function handleKeyDown(
               viewport,
               updateViewportCallback
             );
-            return finalState;
+            return { state: finalState, ops };
           }
-          return result.state;
+          return { state: result.state, ops };
         }
-        return state;
+        return { state, ops };
     }
   }
 
@@ -2790,7 +2836,7 @@ function handleKeyDown(
     "End",
   ];
   if (state.ui.composition?.isComposing && navigationKeys.includes(key)) {
-    return state;
+    return { state, ops };
   }
 
   // Navigation & selection
@@ -3485,14 +3531,16 @@ function handleKeyDown(
       }
       break;
     case "Escape":
-      return clearSelection(state);
+      return { state: clearSelection(state), ops };
     case "Backspace":
       if (isCtrl) {
         const result = deleteWordBackward(recordUndo(state), state.crdt);
         newState = result.state;
+        ops.push(...result.ops);
       } else {
         const result = deleteText(recordUndo(state), state.crdt);
         newState = result.state;
+        ops.push(...result.ops);
       }
       // Clear auto-created paragraph tracking on delete
       newState = clearAutoCreatedParagraph(newState);
@@ -3501,9 +3549,11 @@ function handleKeyDown(
       if (isCtrl) {
         const result = deleteWordForward(recordUndo(state), state.crdt);
         newState = result.state;
+        ops.push(...result.ops);
       } else {
         const result = deleteForward(recordUndo(state), state.crdt);
         newState = result.state;
+        ops.push(...result.ops);
       }
       // Clear auto-created paragraph tracking on delete
       newState = clearAutoCreatedParagraph(newState);
@@ -3511,6 +3561,7 @@ function handleKeyDown(
     case "Enter":
       const splitResult = splitBlock(recordUndo(state), state.crdt);
       newState = splitResult.state;
+      ops.push(...splitResult.ops);
       // Clear auto-created paragraph tracking on enter
       newState = clearAutoCreatedParagraph(newState);
       break;
@@ -3518,6 +3569,7 @@ function handleKeyDown(
     case "Space":
       const spaceResult = insertText(recordUndo(state), " ", state.crdt);
       newState = spaceResult.state;
+      ops.push(...spaceResult.ops);
       // Clear auto-created paragraph tracking on space (already cleared in insertText, but for safety)
       newState = clearAutoCreatedParagraph(newState);
       break;
@@ -3536,6 +3588,7 @@ function handleKeyDown(
         // Allow slash command anywhere in paragraphs and headings
         const slashResult = insertText(recordUndo(state), "/", state.crdt);
         const newState = slashResult.state;
+        ops.push(...slashResult.ops);
         if (newState.document.cursor) {
           const finalState = openSlashCommand(
             newState,
@@ -3548,9 +3601,9 @@ function handleKeyDown(
             viewport,
             updateViewportCallback
           );
-          return finalState;
+          return { state: finalState, ops };
         }
-        return newState;
+        return { state: newState, ops };
       }
 
       if (
@@ -3561,9 +3614,10 @@ function handleKeyDown(
       ) {
         const result = insertText(recordUndo(state), key, state.crdt);
         newState = result.state;
+        ops.push(...result.ops);
         break;
       }
-      return state;
+      return { state, ops };
   }
 
   if (
@@ -3581,7 +3635,7 @@ function handleKeyDown(
     }
   }
 
-  return newState;
+  return { state: newState, ops };
 }
 
 function handleWheel(
@@ -4786,7 +4840,7 @@ function handleTouchEnd(
     );
     if (checkboxTapResult) {
       touchState = null;
-      return checkboxTapResult;
+      return checkboxTapResult.state;
     }
 
     // Get text position for cursor/selection
@@ -5292,10 +5346,12 @@ function handleCompositionEnd(
   event: CompositionEvent,
   viewport: ViewportState,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
-): EditorState {
+): { state: EditorState; ops: Operation[] } {
+  const ops: Operation[] = [];
+
   // If editor is not focused, ignore composition
   if (!state.view.isFocused) {
-    return state;
+    return { state, ops };
   }
 
   // Insert the final composed text
@@ -5305,6 +5361,7 @@ function handleCompositionEnd(
     // Insert the composed text at the cursor position
     const result = insertText(recordUndo(state), composedText, state.crdt);
     state = result.state;
+    ops.push(...result.ops);
 
     // Scroll to make cursor visible
     if (state.document.cursor && updateViewportCallback) {
@@ -5321,10 +5378,13 @@ function handleCompositionEnd(
 
   // Clear composition state
   return {
-    ...state,
-    ui: {
-      ...state.ui,
-      composition: null,
+    state: {
+      ...state,
+      ui: {
+        ...state.ui,
+        composition: null,
+      },
     },
+    ops,
   };
 }
