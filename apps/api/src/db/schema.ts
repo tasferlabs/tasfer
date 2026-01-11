@@ -10,6 +10,8 @@ export const pages = pgTable("pages", {
   id: varchar("id", { length: 30 }).primaryKey(),
   title: text("title"),
   content: text("content"),
+  // CRDT operations log - stores serialized operations for sync
+  operations: text("operations"),
   parentId: varchar("parentId", { length: 30 }),
   order: integer("order").notNull().default(0),
   createdAt: timestamp("createdAt").notNull().defaultNow(),

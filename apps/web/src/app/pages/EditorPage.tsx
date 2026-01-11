@@ -92,6 +92,8 @@ export default function EditorPage() {
   const { mutateAsync: updatePage } = useUpdatePage();
   // State for loading page content once on mount
   const [pageContent, setPageContent] = useState<string | null>(null);
+  // CRDT operations for sync - loaded from server to prevent duplicates on refresh
+  const [pageOperations, setPageOperations] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
   // Live sync state
@@ -148,6 +150,8 @@ export default function EditorPage() {
         if (!cancelled) {
           const content = page.content || "";
           setPageContent(content);
+          // Load saved operations for CRDT sync
+          setPageOperations(page.operations || null);
           setIsLoading(false);
           // Update initial word count
           setWordCount(countWords(content));
@@ -170,11 +174,11 @@ export default function EditorPage() {
 
   // Debounced save callback
   const handleSave = useCallback(
-    async (content: string) => {
+    async ({ content, operations }: { content: string; operations: string }) => {
       if (!id) return;
 
       try {
-        await updatePage({ id, content });
+        await updatePage({ id, content, operations });
       } catch (error) {
         console.error("Failed to save content:", error);
       }
@@ -195,8 +199,8 @@ export default function EditorPage() {
 
   // Handle content changes from editor
   const handleContentChange = useCallback(
-    (content: string) => {
-      debouncedSave(content);
+    (content: string, operations: string) => {
+      debouncedSave({ content, operations });
       // Update word count with debouncing
       debouncedWordCountUpdate(content);
     },
@@ -263,6 +267,7 @@ export default function EditorPage() {
         pageId={id}
         signalingUrl={SIGNALING_URL}
         onSyncStateChange={setSyncState}
+        initialOperations={pageOperations ?? undefined}
       />
       <WordCountOverlay />
       {/* Sync status indicator */}

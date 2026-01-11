@@ -118,7 +118,7 @@ router.post("/create", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, content } = req.body;
+    const { title, content, operations } = req.body;
 
     const page = await db.query.pages.findFirst({
       where: eq(pages.id, id),
@@ -133,6 +133,7 @@ router.put("/:id", async (req, res) => {
       .set({
         title: title || page.title,
         content: content !== undefined ? content : page.content,
+        operations: operations !== undefined ? operations : page.operations,
         updatedAt: new Date(),
       })
       .where(eq(pages.id, id))

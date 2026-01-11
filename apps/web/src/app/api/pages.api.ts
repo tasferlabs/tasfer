@@ -14,6 +14,8 @@ export interface IPage {
   id: string;
   title: string;
   content: string | null;
+  // CRDT operations log - serialized JSON array of operations
+  operations: string | null;
   parentId: string | null;
   order: number;
   createdAt: string;
@@ -105,6 +107,8 @@ interface IUpdatePage {
   id: string;
   title?: string;
   content?: string;
+  // CRDT operations log - serialized JSON array of operations
+  operations?: string;
 }
 
 export async function updatePage(data: IUpdatePage): Promise<IPage> {

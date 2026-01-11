@@ -120,6 +120,21 @@ export class SyncEngine {
   }
 
   /**
+   * Load saved operations into the engine.
+   * This initializes the opLog and version vector from persisted state.
+   * Use this when loading a page that was previously edited.
+   *
+   * @param ops - Previously saved operations to load
+   */
+  loadOperations(ops: Operation[]): void {
+    for (const op of ops) {
+      this.opLog = appendOp(this.opLog, op);
+      // Update HLC to be at least as recent as loaded operations
+      this.hlc = receiveHLC(this.hlc, op.clock);
+    }
+  }
+
+  /**
    * Emit local operations.
    * Operations are added to the log. Listeners are NOT notified because
    * local operations are applied directly to EditorState for immediate feedback.

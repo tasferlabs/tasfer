@@ -40,7 +40,7 @@ import { uploadImage } from "./api/images.api";
 interface MountedEditorProps {
   content: string;
   className?: string;
-  onContentChange?: (content: string) => void;
+  onContentChange?: (content: string, operations: string) => void;
   autoFocus?: boolean;
   /** Unique page ID for CRDT sync - if provided, enables live collaboration */
   pageId: string;
@@ -48,6 +48,8 @@ interface MountedEditorProps {
   signalingUrl: string;
   /** Callback when sync state changes */
   onSyncStateChange?: (state: SyncState) => void;
+  /** Initial operations for CRDT sync - if provided, initializes SyncEngine with these */
+  initialOperations?: string;
 }
 
 export const MountedEditor: React.FC<MountedEditorProps> = ({
@@ -58,6 +60,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
   pageId,
   signalingUrl,
   onSyncStateChange,
+  initialOperations,
 }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
@@ -179,6 +182,20 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     if (signalingUrl) {
       const syncEngine = new SyncEngine(pageId);
       syncEngineRef.current = syncEngine;
+
+      // Load saved operations to initialize version vector
+      // This ensures sync requests only fetch missing operations, preventing duplicates
+      if (initialOperations) {
+        try {
+          const ops = JSON.parse(initialOperations);
+          if (Array.isArray(ops) && ops.length > 0) {
+            console.log("[MountedEditor] Loading", ops.length, "saved operations");
+            syncEngine.loadOperations(ops);
+          }
+        } catch (e) {
+          console.error("[MountedEditor] Failed to parse initial operations:", e);
+        }
+      }
 
       // Note: We don't subscribe to syncEngine.onStateChange anymore because:
       // - The SyncEngine's state starts empty (no initial content operations)
@@ -347,7 +364,11 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
           lastSerializedBlocksRef.current = currentBlocks;
           // console.log("currentBlocks", currentBlocks);
           const markdown = serializeToMarkdown(currentBlocks);
-          onContentChange(markdown);
+          // Get serialized operations from sync engine for persistence
+          const operations = syncEngineRef.current
+            ? JSON.stringify(syncEngineRef.current.getOperations())
+            : "[]";
+          onContentChange(markdown, operations);
         }
       }
 
@@ -648,6 +669,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     pageId,
     signalingUrl,
     onSyncStateChange,
+    initialOperations,
   ]);
 
   const handleSlashCommandSelect = (command: SlashCommand) => {
