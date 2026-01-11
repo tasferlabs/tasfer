@@ -6,10 +6,10 @@ import { useTranslation } from "react-i18next";
 import { Navigate, useParams, useNavigate } from "react-router-dom";
 import { debounce } from "lodash-es";
 import { MountedEditor } from "../MountedEditor";
-import type { SyncState } from "../../sync/webrtc";
+import type { SyncState } from "../../sync/websocket";
 
-// Signaling server URL - defaults to localhost for development
-const SIGNALING_URL = import.meta.env.VITE_SIGNALING_URL || "ws://localhost:8080";
+// WebSocket server URL - defaults to localhost for development
+const WEBSOCKET_URL = import.meta.env.VITE_WEBSOCKET_URL || "ws://localhost:8080";
 import {
   useCreatePage,
   getPage,
@@ -265,7 +265,7 @@ export default function EditorPage() {
         onContentChange={handleContentChange}
         autoFocus={true}
         pageId={id}
-        signalingUrl={SIGNALING_URL}
+        signalingUrl={WEBSOCKET_URL}
         onSyncStateChange={setSyncState}
         initialOperations={pageOperations ?? undefined}
       />

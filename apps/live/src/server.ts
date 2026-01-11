@@ -1,13 +1,13 @@
 /**
- * WebRTC Signaling Server
+ * WebSocket Sync Server
  *
- * A simple WebSocket server that helps peers discover each other
- * and exchange WebRTC signaling messages (offers, answers, ICE candidates).
+ * A WebSocket server that relays CRDT operations between clients.
  *
  * Room-based architecture:
  * - Peers join rooms (one room per document/page)
- * - Messages are relayed only between peers in the same room
- * - No message content is stored - just relayed in real-time
+ * - Operations are relayed to all peers in the same room
+ * - Sync requests are handled by relaying version vectors
+ * - No operation content is stored - just relayed in real-time
  */
 
 import { WebSocketServer, WebSocket } from "ws";
@@ -16,13 +16,13 @@ import { WebSocketServer, WebSocket } from "ws";
 // Types
 // =============================================================================
 
-/** Signaling message types */
-type SignalingMessage =
+/** Server message types */
+type ServerMessage =
   | { type: "join"; roomId: string; peerId: string }
   | { type: "leave"; roomId: string; peerId: string }
-  | { type: "offer"; from: string; to: string; sdp: RTCSessionDescriptionInit }
-  | { type: "answer"; from: string; to: string; sdp: RTCSessionDescriptionInit }
-  | { type: "ice-candidate"; from: string; to: string; candidate: RTCIceCandidateInit }
+  | { type: "sync-request"; versionVector: Record<string, number> }
+  | { type: "sync-response"; operations: any[]; versionVector: Record<string, number> }
+  | { type: "operations"; operations: any[] }
   | { type: "peer-joined"; peerId: string }
   | { type: "peer-left"; peerId: string }
   | { type: "room-peers"; peers: string[] }
@@ -59,7 +59,7 @@ const wss = new WebSocketServer({
   perMessageDeflate: false, // Disable compression for lower latency
 });
 
-console.log(`[Signaling] Server starting on port ${PORT}`);
+console.log(`[Sync Server] Starting on port ${PORT}`);
 
 wss.on("connection", (ws) => {
   const client: Client = {
@@ -69,14 +69,14 @@ wss.on("connection", (ws) => {
   };
   wsToClient.set(ws, client);
 
-  console.log("[Signaling] Client connected");
+  console.log("[Sync Server] Client connected");
 
   ws.on("message", (data) => {
     try {
-      const message = JSON.parse(data.toString()) as SignalingMessage;
+      const message = JSON.parse(data.toString()) as ServerMessage;
       handleMessage(client, message);
     } catch (error) {
-      console.error("[Signaling] Invalid message:", error);
+      console.error("[Sync Server] Invalid message:", error);
       send(ws, { type: "error", message: "Invalid message format" });
     }
   });
@@ -86,19 +86,19 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("error", (error) => {
-    console.error("[Signaling] WebSocket error:", error);
+    console.error("[Sync Server] WebSocket error:", error);
   });
 });
 
 wss.on("listening", () => {
-  console.log(`[Signaling] Server listening on ws://localhost:${PORT}`);
+  console.log(`[Sync Server] Listening on ws://localhost:${PORT}`);
 });
 
 // =============================================================================
 // Message Handlers
 // =============================================================================
 
-function handleMessage(client: Client, message: SignalingMessage): void {
+function handleMessage(client: Client, message: ServerMessage): void {
   switch (message.type) {
     case "join":
       handleJoin(client, message.roomId, message.peerId);
@@ -108,14 +108,16 @@ function handleMessage(client: Client, message: SignalingMessage): void {
       handleLeave(client);
       break;
 
-    case "offer":
-    case "answer":
-    case "ice-candidate":
-      relayMessage(message);
+    case "sync-request":
+      handleSyncRequest(client, message.versionVector);
+      break;
+
+    case "operations":
+      handleOperations(client, message.operations);
       break;
 
     default:
-      console.warn("[Signaling] Unknown message type:", (message as any).type);
+      console.warn("[Sync Server] Unknown message type:", (message as any).type);
   }
 }
 
@@ -143,7 +145,7 @@ function handleJoin(client: Client, roomId: string, peerId: string): void {
   // Add to room
   room.add(peerId);
 
-  console.log(`[Signaling] Peer ${peerId} joined room ${roomId} (${room.size} peers)`);
+  console.log(`[Sync Server] Peer ${peerId} joined room ${roomId} (${room.size} peers)`);
 
   // Send list of existing peers to the new peer
   send(client.ws, {
@@ -186,7 +188,7 @@ function handleLeave(client: Client): void {
       rooms.delete(client.roomId);
     }
 
-    console.log(`[Signaling] Peer ${client.peerId} left room ${client.roomId}`);
+    console.log(`[Sync Server] Peer ${client.peerId} left room ${client.roomId}`);
   }
 
   // Clean up client
@@ -196,16 +198,59 @@ function handleLeave(client: Client): void {
 }
 
 function handleDisconnect(client: Client): void {
-  console.log(`[Signaling] Client disconnected${client.peerId ? ` (${client.peerId})` : ""}`);
+  console.log(`[Sync Server] Client disconnected${client.peerId ? ` (${client.peerId})` : ""}`);
   handleLeave(client);
 }
 
-function relayMessage(message: SignalingMessage & { to: string }): void {
-  const targetClient = clients.get(message.to);
-  if (targetClient) {
-    send(targetClient.ws, message);
-  } else {
-    console.warn(`[Signaling] Target peer not found: ${message.to}`);
+function handleSyncRequest(client: Client, versionVector: Record<string, number>): void {
+  if (!client.roomId || !client.peerId) {
+    console.warn("[Sync Server] Sync request from client not in a room");
+    return;
+  }
+
+  console.log(`[Sync Server] Sync request from ${client.peerId} in room ${client.roomId}`);
+
+  // Relay sync request to all other peers in the room
+  // Each peer will respond with their operations
+  const room = rooms.get(client.roomId);
+  if (!room) return;
+
+  for (const peerId of room) {
+    if (peerId === client.peerId) continue; // Don't send to self
+
+    const otherClient = clients.get(peerId);
+    if (otherClient) {
+      // Ask this peer to send their operations
+      send(otherClient.ws, {
+        type: "sync-request",
+        versionVector,
+      });
+    }
+  }
+}
+
+function handleOperations(client: Client, operations: any[]): void {
+  if (!client.roomId || !client.peerId) {
+    console.warn("[Sync Server] Operations from client not in a room");
+    return;
+  }
+
+  console.log(`[Sync Server] Broadcasting ${operations.length} operations from ${client.peerId} in room ${client.roomId}`);
+
+  // Broadcast operations to all other peers in the room
+  const room = rooms.get(client.roomId);
+  if (!room) return;
+
+  for (const peerId of room) {
+    if (peerId === client.peerId) continue; // Don't send to self
+
+    const otherClient = clients.get(peerId);
+    if (otherClient) {
+      send(otherClient.ws, {
+        type: "operations",
+        operations,
+      });
+    }
   }
 }
 
@@ -213,7 +258,7 @@ function relayMessage(message: SignalingMessage & { to: string }): void {
 // Utilities
 // =============================================================================
 
-function send(ws: WebSocket, message: SignalingMessage): void {
+function send(ws: WebSocket, message: ServerMessage): void {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(message));
   }
@@ -224,7 +269,7 @@ function send(ws: WebSocket, message: SignalingMessage): void {
 // =============================================================================
 
 process.on("SIGINT", () => {
-  console.log("\n[Signaling] Shutting down...");
+  console.log("\n[Sync Server] Shutting down...");
 
   // Close all connections
   wss.clients.forEach((ws) => {
@@ -232,7 +277,7 @@ process.on("SIGINT", () => {
   });
 
   wss.close(() => {
-    console.log("[Signaling] Server closed");
+    console.log("[Sync Server] Server closed");
     process.exit(0);
   });
 });
@@ -242,6 +287,6 @@ setInterval(() => {
   const totalPeers = clients.size;
   const totalRooms = rooms.size;
   if (totalPeers > 0) {
-    console.log(`[Signaling] Stats: ${totalPeers} peers in ${totalRooms} rooms`);
+    console.log(`[Sync Server] Stats: ${totalPeers} peers in ${totalRooms} rooms`);
   }
 }, 60000);

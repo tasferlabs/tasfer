@@ -33,7 +33,7 @@ import {
 } from "../editor/state";
 import type { EditorState, SlashCommand } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
-import { WebRTCSync, type SyncState } from "../sync/webrtc";
+import { WebSocketSync, type SyncState } from "../sync/websocket";
 import { SyncEngine } from "../sync/index";
 import { uploadImage } from "./api/images.api";
 
@@ -65,7 +65,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
   const syncEngineRef = useRef<SyncEngine | null>(null);
-  const webrtcSyncRef = useRef<WebRTCSync | null>(null);
+  const websocketSyncRef = useRef<WebSocketSync | null>(null);
   const [slashMenuState, setSlashMenuState] = useState<{
     visible: boolean;
     x: number;
@@ -162,10 +162,10 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       mountedRef.current = null;
     }
 
-    // Clean up previous sync engine and WebRTC
-    if (webrtcSyncRef.current) {
-      webrtcSyncRef.current.leaveRoom();
-      webrtcSyncRef.current = null;
+    // Clean up previous sync engine and WebSocket
+    if (websocketSyncRef.current) {
+      websocketSyncRef.current.leaveRoom();
+      websocketSyncRef.current = null;
     }
     if (syncEngineRef.current) {
       syncEngineRef.current = null;
@@ -202,15 +202,15 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       // - Rebuilding from SyncEngine state would clear the editor's existing content
       // - Instead, we apply remote operations directly to the editor's current state
 
-      // Initialize WebRTC sync
-      const webrtcSync = new WebRTCSync(syncEngine, {
-        signalingUrl,
+      // Initialize WebSocket sync
+      const websocketSync = new WebSocketSync(syncEngine, {
+        serverUrl: signalingUrl,
         onStateChange: (state) => {
-          console.log("[WebRTC] State changed:", state);
+          console.log("[WebSocket] State changed:", state);
           onSyncStateChange?.(state);
         },
         onRemoteOperation: (ops) => {
-          console.log("[WebRTC] Received remote operations:", ops.length);
+          console.log("[WebSocket] Received remote operations:", ops.length);
           // Apply remote operations directly to the editor's current state
           // This preserves existing content instead of rebuilding from SyncEngine's empty state
           mounted.editor.applyRemoteOperations(ops);
@@ -221,19 +221,19 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
           // Sync engine will receive ops from editor's broadcast
         },
       });
-      webrtcSyncRef.current = webrtcSync;
+      websocketSyncRef.current = websocketSync;
 
-      // Connect editor's broadcast to WebRTC
+      // Connect editor's broadcast to WebSocket
       mounted.editor.setBroadcast((ops) => {
         // Add to sync engine's log
         syncEngine.emit(ops);
-        // Broadcast to peers
-        webrtcSync.broadcast(ops);
+        // Broadcast to peers via server
+        websocketSync.broadcast(ops);
       });
 
       // Join the room for this page
-      webrtcSync.joinRoom(pageId).catch((error) => {
-        console.error("[WebRTC] Failed to join room:", error);
+      websocketSync.joinRoom(pageId).catch((error) => {
+        console.error("[WebSocket] Failed to join room:", error);
         onSyncStateChange?.({ status: "error", error: error.message });
       });
     }
@@ -635,10 +635,10 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     return () => {
       unsubscribe();
 
-      // Clean up WebRTC sync
-      if (webrtcSyncRef.current) {
-        webrtcSyncRef.current.leaveRoom();
-        webrtcSyncRef.current = null;
+      // Clean up WebSocket sync
+      if (websocketSyncRef.current) {
+        websocketSyncRef.current.leaveRoom();
+        websocketSyncRef.current = null;
       }
 
       // Clean up sync engine
