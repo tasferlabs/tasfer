@@ -5,8 +5,9 @@ import type {
   Paragraph,
   Image,
   Line,
-  Text,
   TextFormat,
+  Char,
+  FormatSpan,
   BulletListItem,
   NumberedListItem,
   TodoListItem,
@@ -47,10 +48,17 @@ interface ParserContext {
   tokens: Token[];
   current: number;
   blockIdCounter: number; // Counter for generating unique block IDs
+  charIdCounter: number; // Counter for generating unique char IDs
+}
+
+// Generate a unique char ID
+function generateCharId(context: ParserContext): string {
+  return `init-${context.charIdCounter++}`;
 }
 
 function generateEmptyTree(): Page {
   return {
+    id: "default-page",
     title: "",
     blocks: [],
   };
@@ -58,12 +66,14 @@ function generateEmptyTree(): Page {
 function generateHeading(
   id: string,
   level: number,
-  ...content: Text[]
+  chars: Char[],
+  formats: FormatSpan[]
 ): Heading {
   return {
     id,
     type: ("heading" + level) as "heading1" | "heading2" | "heading3",
-    content: content || [],
+    chars,
+    formats,
   };
 }
 
@@ -74,6 +84,7 @@ export default function parsePage(tokens: Token[]): Page {
     tokens,
     current: 0,
     blockIdCounter: 0,
+    charIdCounter: 0,
   };
 
   // paresTitle(context);
@@ -124,192 +135,150 @@ function emptyBlock(context: ParserContext): Block {
   return {
     id: `block-${context.blockIdCounter++}`,
     type: "paragraph",
-    content: [],
+    chars: [],
+    formats: [],
   };
 }
 function parseHeading(context: ParserContext, level: number) {
-  const content = parseText(context);
+  const { chars, formats } = parseCharsAndFormats(context);
   const heading = generateHeading(
     `block-${context.blockIdCounter++}`,
     level,
-    ...content
+    chars,
+    formats
   );
   match(context, NEWLINE);
   return heading;
 }
-function parseText(context: ParserContext): Text[] {
-  const text: Text[] = [];
+// Parse text into Char[] and FormatSpan[] (CRDT native format)
+function parseCharsAndFormats(context: ParserContext): { chars: Char[]; formats: FormatSpan[] } {
+  const chars: Char[] = [];
+  const formats: FormatSpan[] = [];
   const formatStack: TextFormat[] = [];
-  let currentContent = "";
+  const activeFormats: Map<string, { format: TextFormat; startCharId: string }> = new Map();
 
   while (!isEnd(context) && nomatch(context, NEWLINE)) {
     const node = previous(context) as VisibleToken;
 
     // Handle format start tokens
     if (node.type === BOLD_START) {
-      if (currentContent) {
-        text.push({
-          content: currentContent,
-          formats: formatStack.length > 0 ? [...formatStack] : undefined,
-        });
-        currentContent = "";
-      }
       formatStack.push({ type: "bold" });
     } else if (node.type === ITALIC_START) {
-      if (currentContent) {
-        text.push({
-          content: currentContent,
-          formats: formatStack.length > 0 ? [...formatStack] : undefined,
-        });
-        currentContent = "";
-      }
       formatStack.push({ type: "italic" });
     } else if (node.type === STRIKETHROUGH_START) {
-      if (currentContent) {
-        text.push({
-          content: currentContent,
-          formats: formatStack.length > 0 ? [...formatStack] : undefined,
-        });
-        currentContent = "";
-      }
       formatStack.push({ type: "strikethrough" });
     } else if (node.type === CODE_START) {
-      if (currentContent) {
-        text.push({
-          content: currentContent,
-          formats: formatStack.length > 0 ? [...formatStack] : undefined,
-        });
-        currentContent = "";
-      }
       formatStack.push({ type: "code" });
     } else if (node.type === LINK_START) {
-      if (currentContent) {
-        text.push({
-          content: currentContent,
-          formats: formatStack.length > 0 ? [...formatStack] : undefined,
-        });
-        currentContent = "";
-      }
       // Start collecting link text
     } else if (node.type === LINK_TEXT_END) {
-      // Link text has ended, now URL starts
-      // Push the link text content
-      if (currentContent) {
-        // Collect URL from next TEXT token
-        let linkUrl = "";
-
-        // Peek ahead to get URL
-        if (!isEnd(context)) {
-          const nextToken = peek(context);
-          if (nextToken.type === "text") {
-            advance(context);
-            linkUrl = (previous(context) as VisibleToken).content;
-          }
+      // Collect URL from next TEXT token
+      let linkUrl = "";
+      if (!isEnd(context)) {
+        const nextToken = peek(context);
+        if (nextToken.type === "text") {
+          advance(context);
+          linkUrl = (previous(context) as VisibleToken).content;
         }
-
-        // Now add the link format with URL
-        formatStack.push({ type: "link", url: linkUrl });
-
-        text.push({
-          content: currentContent,
-          formats: formatStack.length > 0 ? [...formatStack] : undefined,
-        });
-        currentContent = "";
-
-        // Remove link from stack
-        const index = formatStack.findIndex((f) => f.type === "link");
-        if (index !== -1) formatStack.splice(index, 1);
       }
+      formatStack.push({ type: "link", url: linkUrl });
     } else if (node.type === LINK_END) {
-      // Link has ended, already handled in LINK_TEXT_END
+      // Link has ended - the format will be removed when we see the next format end or text end
+      const index = formatStack.findIndex((f) => f.type === "link");
+      if (index !== -1) formatStack.splice(index, 1);
     }
-    // Handle format end tokens (match closing with opening)
+    // Handle format end tokens
     else if (node.type === BOLD_END) {
-      if (currentContent) {
-        text.push({
-          content: currentContent,
-          formats: formatStack.length > 0 ? [...formatStack] : undefined,
-        });
-        currentContent = "";
-      }
       const index = formatStack.findIndex((f) => f.type === "bold");
       if (index !== -1) formatStack.splice(index, 1);
     } else if (node.type === ITALIC_END) {
-      if (currentContent) {
-        text.push({
-          content: currentContent,
-          formats: formatStack.length > 0 ? [...formatStack] : undefined,
-        });
-        currentContent = "";
-      }
       const index = formatStack.findIndex((f) => f.type === "italic");
       if (index !== -1) formatStack.splice(index, 1);
     } else if (node.type === STRIKETHROUGH_END) {
-      if (currentContent) {
-        text.push({
-          content: currentContent,
-          formats: formatStack.length > 0 ? [...formatStack] : undefined,
-        });
-        currentContent = "";
-      }
       const index = formatStack.findIndex((f) => f.type === "strikethrough");
       if (index !== -1) formatStack.splice(index, 1);
     } else if (node.type === CODE_END) {
-      if (currentContent) {
-        text.push({
-          content: currentContent,
-          formats: formatStack.length > 0 ? [...formatStack] : undefined,
-        });
-        currentContent = "";
-      }
       const index = formatStack.findIndex((f) => f.type === "code");
       if (index !== -1) formatStack.splice(index, 1);
     }
-    // Handle text content
-    else {
-      currentContent += node.content;
+    // Handle text content - create chars
+    else if (node.content) {
+      for (const char of node.content) {
+        const charId = generateCharId(context);
+        chars.push({ id: charId, char, deleted: false });
+        
+        // Create format spans for active formats
+        for (const format of formatStack) {
+          const formatKey = format.type + (format.url || "");
+          if (!activeFormats.has(formatKey)) {
+            activeFormats.set(formatKey, { format, startCharId: charId });
+          }
+        }
+        
+        // Close formats that are no longer active
+        for (const [key, active] of activeFormats.entries()) {
+          const stillActive = formatStack.some(f => (f.type + (f.url || "")) === key);
+          if (!stillActive) {
+            // This format ended - create a span
+            formats.push({
+              startCharId: active.startCharId,
+              endCharId: chars[chars.length - 2]?.id || active.startCharId,
+              format: active.format,
+              clock: Date.now(),
+            });
+            activeFormats.delete(key);
+          }
+        }
+      }
     }
   }
 
-  // Push any remaining content
-  if (currentContent) {
-    text.push({
-      content: currentContent,
-      formats: formatStack.length > 0 ? [...formatStack] : undefined,
-    });
+  // Close any remaining active formats
+  if (chars.length > 0) {
+    for (const [_, active] of activeFormats.entries()) {
+      formats.push({
+        startCharId: active.startCharId,
+        endCharId: chars[chars.length - 1].id,
+        format: active.format,
+        clock: Date.now(),
+      });
+    }
   }
 
   advance(context);
-  return text;
+  return { chars, formats };
 }
 
 function paresParagraph(context: ParserContext): Paragraph {
-  const text = parseText(context);
+  const { chars, formats } = parseCharsAndFormats(context);
   return {
     id: `block-${context.blockIdCounter++}`,
     type: "paragraph",
-    content: text,
+    chars,
+    formats,
   };
 }
 
 function parseBulletListItem(context: ParserContext, indent: number): BulletListItem {
   match(context, BULLET_LIST); // Consume the bullet marker
-  const text = parseText(context);
+  const { chars, formats } = parseCharsAndFormats(context);
   return {
     id: `block-${context.blockIdCounter++}`,
     type: "bullet_list",
-    content: text,
+    chars,
+    formats,
     indent,
   };
 }
 
 function parseNumberedListItem(context: ParserContext, indent: number): NumberedListItem {
   match(context, NUMBERED_LIST); // Consume the numbered marker
-  const text = parseText(context);
+  const { chars, formats } = parseCharsAndFormats(context);
   return {
     id: `block-${context.blockIdCounter++}`,
     type: "numbered_list",
-    content: text,
+    chars,
+    formats,
     indent,
   };
 }
@@ -321,11 +290,12 @@ function parseTodoListItem(context: ParserContext, indent: number, checked: bool
   } else {
     match(context, TODO_LIST_UNCHECKED);
   }
-  const text = parseText(context);
+  const { chars, formats } = parseCharsAndFormats(context);
   return {
     id: `block-${context.blockIdCounter++}`,
     type: "todo_list",
-    content: text,
+    chars,
+    formats,
     checked,
     indent,
   };

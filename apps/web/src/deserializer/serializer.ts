@@ -1,6 +1,83 @@
 import { IMAGE_DEFAULT_HEIGHT } from "@/editor/constants";
-import type { Block } from "./loadPage";
-import { isImageDefault, isListBlock } from "./loadPage";
+import type { Block, Char, FormatSpan, TextFormat } from "./loadPage";
+import { isImageDefault, isListBlock, isVisualBlock } from "./loadPage";
+
+// Helper to group chars with same formatting for serialization
+function groupCharsForSerialization(chars: Char[], formats: FormatSpan[]): { text: string; formats?: TextFormat[] }[] {
+  const visibleChars = chars.filter(c => !c.deleted);
+  if (visibleChars.length === 0) return [{ text: "" }];
+  
+  // Build format map: charId -> Set<TextFormat>
+  const formatMap = new Map<string, Set<string>>();
+  
+  for (const span of formats) {
+    const startIdx = visibleChars.findIndex(c => c.id === span.startCharId);
+    const endIdx = visibleChars.findIndex(c => c.id === span.endCharId);
+    
+    if (startIdx === -1 || endIdx === -1) continue;
+    
+    for (let i = startIdx; i <= endIdx; i++) {
+      const charId = visibleChars[i].id;
+      if (!formatMap.has(charId)) {
+        formatMap.set(charId, new Set());
+      }
+      const key = span.format.type + (span.format.url ? `:${span.format.url}` : '');
+      formatMap.get(charId)!.add(key);
+    }
+  }
+  
+  // Group consecutive chars with same formatting
+  const segments: { text: string; formats?: TextFormat[] }[] = [];
+  let currentChars: string[] = [];
+  let currentFormatKeys = new Set<string>();
+  
+  for (const char of visibleChars) {
+    const charFormats = formatMap.get(char.id) || new Set();
+    
+    if (setsEqual(currentFormatKeys, charFormats)) {
+      currentChars.push(char.char);
+    } else {
+      if (currentChars.length > 0) {
+        segments.push({
+          text: currentChars.join(""),
+          formats: formatKeysToFormats(currentFormatKeys),
+        });
+      }
+      currentChars = [char.char];
+      currentFormatKeys = new Set(charFormats);
+    }
+  }
+  
+  if (currentChars.length > 0) {
+    segments.push({
+      text: currentChars.join(""),
+      formats: formatKeysToFormats(currentFormatKeys),
+    });
+  }
+  
+  return segments.length > 0 ? segments : [{ text: "" }];
+}
+
+function setsEqual(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const item of a) {
+    if (!b.has(item)) return false;
+  }
+  return true;
+}
+
+function formatKeysToFormats(keys: Set<string>): TextFormat[] | undefined {
+  if (keys.size === 0) return undefined;
+  const formats: TextFormat[] = [];
+  for (const key of keys) {
+    if (key.startsWith('link:')) {
+      formats.push({ type: 'link', url: key.slice(5) });
+    } else {
+      formats.push({ type: key as any });
+    }
+  }
+  return formats.length > 0 ? formats : undefined;
+}
 
 export function serializeToMarkdown(blocks: Block[]): string {
   if (blocks.length === 0) {
@@ -42,10 +119,13 @@ export function serializeToMarkdown(blocks: Block[]): string {
     if (isListBlock(block)) {
       const indent = " ".repeat(block.indent * 2);
       
+      // Convert chars to segments for serialization
+      const segments = groupCharsForSerialization(block.chars, block.formats);
+      
       // Build content with inline formatting
       let content = "";
-      for (const segment of block.content) {
-        let text = segment.content;
+      for (const segment of segments) {
+        let text = segment.text;
         
         // Apply formats
         if (segment.formats) {
@@ -94,28 +174,33 @@ export function serializeToMarkdown(blocks: Block[]): string {
     // Handle text blocks (headings and paragraphs)
     let content = "";
     
-    // Build content with inline formatting
-    for (const segment of block.content) {
-      let text = segment.content;
+    if (isVisualBlock(block)) {
+      // Convert chars to segments for serialization
+      const segments = groupCharsForSerialization(block.chars, block.formats);
       
-      // Apply formats
-      if (segment.formats) {
-        for (const format of segment.formats) {
-          if (format.type === 'bold') {
-            text = `**${text}**`;
-          } else if (format.type === 'italic') {
-            text = `*${text}*`;
-          } else if (format.type === 'strikethrough') {
-            text = `~~${text}~~`;
-          } else if (format.type === 'code') {
-            text = `\`${text}\``;
-          } else if (format.type === 'link' && format.url) {
-            text = `[${text}](${format.url})`;
+      // Build content with inline formatting
+      for (const segment of segments) {
+        let text = segment.text;
+        
+        // Apply formats
+        if (segment.formats) {
+          for (const format of segment.formats) {
+            if (format.type === 'bold') {
+              text = `**${text}**`;
+            } else if (format.type === 'italic') {
+              text = `*${text}*`;
+            } else if (format.type === 'strikethrough') {
+              text = `~~${text}~~`;
+            } else if (format.type === 'code') {
+              text = `\`${text}\``;
+            } else if (format.type === 'link' && format.url) {
+              text = `[${text}](${format.url})`;
+            }
           }
         }
+        
+        content += text;
       }
-      
-      content += text;
     }
     
     let prefix = "";
@@ -134,9 +219,8 @@ export function serializeToMarkdown(blocks: Block[]): string {
   // Only check for empty content if it's a text block or list block
   if (lastBlock.type !== "image" && lastBlock.type !== "line") {
     const hasContent = isListBlock(lastBlock) || lastBlock.type === "heading1" || lastBlock.type === "heading2" || lastBlock.type === "heading3" || lastBlock.type === "paragraph";
-    if (hasContent) {
-      const lastBlockIsEmpty = lastBlock.content.length === 0 ||
-        (lastBlock.content.length === 1 && lastBlock.content[0].content === "");
+    if (hasContent && isVisualBlock(lastBlock)) {
+      const lastBlockIsEmpty = lastBlock.chars.filter(c => !c.deleted).length === 0;
 
       if (lastBlockIsEmpty && blocks.length > 1) {
         return result + "\n";

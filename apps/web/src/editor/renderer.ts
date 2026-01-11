@@ -1,17 +1,43 @@
-import type { Block, Text } from "../deserializer/loadPage";
-import { isVisualBlock, isListBlock } from "../deserializer/loadPage";
+import type {
+  Block,
+  Char,
+  FormatSpan,
+  TextFormat,
+} from "../deserializer/loadPage";
+import { isListBlock, isVisualBlock } from "../deserializer/loadPage";
+import { getVisibleText } from "./crdt-helpers";
 import {
   FONT_STACKS,
   getCurrentFontFamily,
   getFontMetrics,
   measureText,
-  wrapFormattedTextDetailed,
-  type FontFamily,
+  wrapCRDTText,
+  type FontFamily
 } from "./fonts";
+
+// Helper to get formats at a specific character index in the full chars array
+function getFormatsAtCharIndex(
+  charIndex: number,
+  chars: Char[],
+  formats: FormatSpan[]
+): TextFormat[] {
+  const activeFormats: TextFormat[] = [];
+  
+  for (const span of formats) {
+    const startIdx = chars.findIndex(c => c.id === span.startCharId);
+    const endIdx = chars.findIndex(c => c.id === span.endCharId);
+    
+    if (startIdx !== -1 && endIdx !== -1 && charIndex >= startIdx && charIndex <= endIdx) {
+      activeFormats.push(span.format);
+    }
+  }
+  
+  return activeFormats;
+}
+
 import { renderScrollbar } from "./scrollbar";
 import { getBlockTextContent, isCursorBlinking, isTouchDevice } from "./state";
 import { getEditorStyles, getTextStyle } from "./styles";
-import { getFormattedTextDirection } from "./rtl";
 import type {
   BlockBounds,
   EditorState,
@@ -23,17 +49,18 @@ import type {
   ViewportState,
 } from "./types";
 
-// Helper to inject composition text into block content for rendering
+// Helper to inject composition text into block for rendering
 function getContentWithComposition(
   block: Block,
   state: EditorState,
   blockIndex: number
 ): {
-  content: Text[];
+  chars: Char[];
+  formats: FormatSpan[];
   compositionRange: { start: number; end: number } | null;
 } {
   if (!isVisualBlock(block)) {
-    return { content: [], compositionRange: null };
+    return { chars: [], formats: [], compositionRange: null };
   }
 
   // Check if composition is active and cursor is in this block
@@ -43,89 +70,66 @@ function getContentWithComposition(
     !state.document.cursor ||
     state.document.cursor.position.blockIndex !== blockIndex
   ) {
-    return { content: block.content, compositionRange: null };
+    return {
+      chars: block.chars,
+      formats: block.formats,
+      compositionRange: null,
+    };
   }
 
   const compositionText = state.ui.composition.text;
   if (!compositionText) {
-    return { content: block.content, compositionRange: null };
+    return {
+      chars: block.chars,
+      formats: block.formats,
+      compositionRange: null,
+    };
   }
 
   const cursorTextIndex = state.document.cursor.position.textIndex;
 
-  // Handle empty block or cursor at the very end
-  if (block.content.length === 0 || cursorTextIndex === 0) {
-    // Insert composition at the start
-    return {
-      content: [{ content: compositionText, formats: [] }, ...block.content],
-      compositionRange: { start: 0, end: compositionText.length },
-    };
-  }
+  // Create temporary composition chars (without IDs since they're not persisted)
+  const compositionChars: Char[] = Array.from(compositionText).map(
+    (char, i) => ({
+      id: `composition-${i}`,
+      char,
+      deleted: false,
+    })
+  );
 
-  // Create a modified copy of the content with composition text inserted
-  const modifiedContent: Text[] = [];
-  let currentIndex = 0;
-  let compositionInserted = false;
+  // Insert composition chars at cursor position (visible index)
+  const modifiedChars: Char[] = [];
+  let visibleIndex = 0;
+  let insertionDone = false;
 
-  for (let i = 0; i < block.content.length; i++) {
-    const segment = block.content[i];
-    const segmentStart = currentIndex;
-    const segmentEnd = currentIndex + segment.content.length;
-
-    // Check if cursor is within this segment
-    if (cursorTextIndex >= segmentStart && cursorTextIndex <= segmentEnd) {
-      const offsetInSegment = cursorTextIndex - segmentStart;
-
-      // Split the segment at the cursor position
-      const beforeCursor = segment.content.substring(0, offsetInSegment);
-      const afterCursor = segment.content.substring(offsetInSegment);
-
-      // Add the part before cursor (if any)
-      if (beforeCursor) {
-        modifiedContent.push({
-          ...segment,
-          content: beforeCursor,
-        });
-      }
-
-      // Add composition text as a new segment
-      modifiedContent.push({
-        content: compositionText,
-        formats: segment.formats || [], // Inherit formats from current segment
-      });
-      compositionInserted = true;
-
-      // Add the part after cursor (if any)
-      if (afterCursor) {
-        modifiedContent.push({
-          ...segment,
-          content: afterCursor,
-        });
-      }
-    } else {
-      // Keep segment as is
-      modifiedContent.push(segment);
+  for (const char of block.chars) {
+    if (char.deleted) {
+      modifiedChars.push(char);
+      continue;
     }
 
-    currentIndex = segmentEnd;
+    if (visibleIndex === cursorTextIndex && !insertionDone) {
+      // Insert composition chars here
+      modifiedChars.push(...compositionChars);
+      insertionDone = true;
+    }
+
+    modifiedChars.push(char);
+    visibleIndex++;
   }
 
-  // If cursor is at the very end (after all segments), append composition
-  if (!compositionInserted) {
-    const lastSegment = block.content[block.content.length - 1];
-    modifiedContent.push({
-      content: compositionText,
-      formats: lastSegment?.formats || [],
-    });
+  // If cursor is at the end, append composition
+  if (!insertionDone) {
+    modifiedChars.push(...compositionChars);
   }
-
-  // Calculate composition range in the modified content
-  const compositionStart = cursorTextIndex;
-  const compositionEnd = cursorTextIndex + compositionText.length;
 
   return {
-    content: modifiedContent,
-    compositionRange: { start: compositionStart, end: compositionEnd },
+    chars: modifiedChars,
+    formats: block.formats, // Keep formats as-is
+    compositionRange: {
+      start: cursorTextIndex,
+      end: cursorTextIndex + compositionText.length,
+    },
   };
 }
 
@@ -172,76 +176,52 @@ export const clearAllBlockCaches = (blocks: Block[]) => {
 };
 
 // Rendering Functions
-// Helper function to measure the width of a portion of formatted text
-// This matches how renderFormattedLine advances currentX after each segment
-function measureFormattedLineWidth(
-  segments: Text[],
+// Helper function to measure the width of a portion of CRDT text
+function measureCRDTLineWidth(
+  chars: Char[],
+  formats: FormatSpan[],
   lineStartIndex: number,
   lineEndIndex: number,
   textStyle: TextStyle,
   fontFamily: FontFamily,
-  codePadding: number
+  _codePadding: number
 ): number {
   let width = 0;
-  let currentIndex = 0;
-
-  for (const segment of segments) {
-    const segmentStart = currentIndex;
-    const segmentEnd = currentIndex + segment.content.length;
-
-    if (segmentEnd <= lineStartIndex) {
-      // This entire segment is before our measurement range
-      currentIndex = segmentEnd;
-      continue;
+  let visibleIndex = 0;
+  
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+    
+    // Skip deleted characters
+    if (char.deleted) continue;
+    
+    // Check if we're in the range we want to measure
+    if (visibleIndex >= lineStartIndex && visibleIndex < lineEndIndex) {
+      const charFormats = getFormatsAtCharIndex(i, chars, formats);
+      
+      // Determine font weight
+      const isBold = charFormats.some(f => f.type === "bold");
+      const effectiveFontWeight = isBold ? "bold" : textStyle.fontWeight;
+      
+      // Measure character
+      const charWidth = measureText(char.char, textStyle.fontSize, effectiveFontWeight, fontFamily);
+      width += charWidth;
     }
-
-    if (segmentStart >= lineEndIndex) {
-      // We've passed our endpoint
-      break;
-    }
-
-    // This segment overlaps with our range
-    const overlapStart = Math.max(segmentStart, lineStartIndex);
-    const overlapEnd = Math.min(segmentEnd, lineEndIndex);
-    const textToMeasure = segment.content.substring(
-      overlapStart - segmentStart,
-      overlapEnd - segmentStart
-    );
-
-    const effectiveFontWeight = segment.formats?.some((f) => f.type === "bold")
-      ? "bold"
-      : textStyle.fontWeight;
-
-    let segmentWidth = measureText(
-      textToMeasure,
-      textStyle.fontSize,
-      effectiveFontWeight,
-      fontFamily
-    );
-
-    width += segmentWidth;
-
-    // Add code padding only if we've MOVED PAST this segment to the next one
-    // (not just at the end boundary, but actually beyond it)
-    // The cursor at the end of a code segment should be before the right padding
-    if (
-      segment.formats?.some((f) => f.type === "code") &&
-      overlapEnd === segmentEnd &&
-      lineEndIndex > segmentEnd
-    ) {
-      width += codePadding * 2;
-    }
-
-    currentIndex = segmentEnd;
+    
+    visibleIndex++;
+    
+    // Early exit if we've passed the end
+    if (visibleIndex >= lineEndIndex) break;
   }
-
+  
   return width;
 }
 
 // Helper to render underline decoration for composition text
 function renderCompositionUnderline(
   ctx: CanvasRenderingContext2D,
-  segments: Text[],
+  chars: Char[],
+  formats: FormatSpan[],
   lineStartIndex: number,
   lineEndIndex: number,
   compositionStart: number,
@@ -262,8 +242,9 @@ function renderCompositionUnderline(
   if (underlineStart >= underlineEnd) return;
 
   // Measure width from line start to underline start
-  const offsetToStart = measureFormattedLineWidth(
-    segments,
+  const offsetToStart = measureCRDTLineWidth(
+    chars,
+    formats,
     lineStartIndex,
     underlineStart,
     textStyle,
@@ -272,8 +253,9 @@ function renderCompositionUnderline(
   );
 
   // Measure width of the underlined portion
-  const underlineWidth = measureFormattedLineWidth(
-    segments,
+  const underlineWidth = measureCRDTLineWidth(
+    chars,
+    formats,
     underlineStart,
     underlineEnd,
     textStyle,
@@ -307,177 +289,145 @@ function renderCompositionUnderline(
   ctx.restore();
 }
 
-// Helper function to render a line with formatting
-function renderFormattedLine(
+// Helper function to render a line with CRDT formatting
+function renderCRDTLine(
   ctx: CanvasRenderingContext2D,
-  segments: Text[],
+  chars: Char[],
+  formats: FormatSpan[],
   lineStartIndex: number,
   lineEndIndex: number,
   x: number,
   y: number,
   textStyle: TextStyle,
   fontFamily: FontFamily,
-  styles: EditorStyles
+  styles: EditorStyles,
+  isRTL: boolean
 ) {
-  // Detect text direction for this line
-  const direction = getFormattedTextDirection(segments);
-  const isRTL = direction === "rtl";
-
   // Set canvas direction
-  ctx.direction = direction;
+  ctx.direction = isRTL ? "rtl" : "ltr";
 
   let currentX = x;
-  let currentIndex = 0;
-
-  // Iterate through segments and render the parts that belong to this line
-  for (const segment of segments) {
-    const segmentStart = currentIndex;
-    const segmentEnd = currentIndex + segment.content.length;
-
-    // Check if this segment overlaps with the current line
-    if (segmentEnd > lineStartIndex && segmentStart < lineEndIndex) {
-      // Calculate the part of the segment that belongs to this line
-      const overlapStart = Math.max(segmentStart, lineStartIndex);
-      const overlapEnd = Math.min(segmentEnd, lineEndIndex);
-      const textToRender = segment.content.substring(
-        overlapStart - segmentStart,
-        overlapEnd - segmentStart
-      );
-
-      // Determine effective font weight for measurement
-      const effectiveFontWeight = segment.formats?.some(
-        (f) => f.type === "bold"
-      )
-        ? "bold"
-        : textStyle.fontWeight;
-      const fontStyle = segment.formats?.some((f) => f.type === "italic")
-        ? "italic"
-        : "normal";
-
-      ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${FONT_STACKS[fontFamily]}`;
-      ctx.textBaseline = "alphabetic";
-
-      // Check if this is a link
-      const linkFormat = segment.formats?.find((f) => f.type === "link");
-      const isLink = !!linkFormat;
-
-      // Measure text width with correct font already set
-      const textWidth = ctx.measureText(textToRender).width;
-
-      // For RTL text with canvas direction="rtl":
-      // fillText(text, x, y) draws text ending at position x (text goes leftward from x)
-      // So for RTL, currentX is the RIGHT edge where text ends
-      const visualX = currentX;
-
-      // Handle code background
-      if (segment.formats?.some((f) => f.type === "code")) {
-        const codeStyle = styles.textFormats.code;
-        const padding = codeStyle.padding;
-
-        // Draw code background with rounded corners
-        ctx.save();
-        ctx.fillStyle = codeStyle.backgroundColor;
-
-        let rectX: number;
-        if (isRTL) {
-          // For RTL with direction="rtl", text is drawn ENDING at visualX going leftward
-          // So background should span from (visualX - textWidth - padding) to (visualX + padding)
-          rectX = visualX - textWidth - padding;
-        } else {
-          // For LTR, background starts just before text
-          rectX = visualX - padding;
-        }
-
-        const rectY = y - textStyle.fontSize - padding;
-        const rectWidth = textWidth + padding * 2;
-        const rectHeight = textStyle.fontSize * textStyle.lineHeight;
-
-        // Simple rounded rectangle
-        ctx.beginPath();
-        ctx.roundRect(
-          rectX,
-          rectY,
-          rectWidth,
-          rectHeight,
-          codeStyle.borderRadius
-        );
-        ctx.fill();
-        ctx.restore();
-
-        // Set code text color
-        ctx.fillStyle = codeStyle.color;
-      } else if (isLink) {
-        // Set link color from styles
-        ctx.fillStyle = styles.textFormats.link.color;
-      } else {
-        ctx.fillStyle = textStyle.color;
-      }
-
-      // Render the text
-      ctx.fillText(textToRender, visualX, y);
-
-      // Handle underline for links
-      if (isLink) {
-        const linkStyle = styles.textFormats.link;
-        ctx.save();
-        ctx.strokeStyle = linkStyle.color;
-        ctx.lineWidth = linkStyle.underlineThickness;
-        ctx.beginPath();
-
-        if (isRTL) {
-          // For RTL with direction="rtl", text ends at visualX and extends left
-          // Underline from left edge (visualX - textWidth) to right edge (visualX)
-          ctx.moveTo(visualX - textWidth, y + textStyle.fontSize * 0.1);
-          ctx.lineTo(visualX, y + textStyle.fontSize * 0.1);
-        } else {
-          // For LTR, underline from left to right
-          ctx.moveTo(visualX, y + textStyle.fontSize * 0.1);
-          ctx.lineTo(visualX + textWidth, y + textStyle.fontSize * 0.1);
-        }
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // Handle strikethrough
-      if (segment.formats?.some((f) => f.type === "strikethrough")) {
-        ctx.save();
-        ctx.strokeStyle = textStyle.color;
-        ctx.lineWidth = Math.max(1, textStyle.fontSize / 16);
-        ctx.beginPath();
-
-        if (isRTL) {
-          // For RTL with direction="rtl", strikethrough from left to right
-          ctx.moveTo(visualX - textWidth, y - textStyle.fontSize * 0.3);
-          ctx.lineTo(visualX, y - textStyle.fontSize * 0.3);
-        } else {
-          // For LTR, strikethrough from left to right
-          ctx.moveTo(visualX, y - textStyle.fontSize * 0.3);
-          ctx.lineTo(visualX + textWidth, y - textStyle.fontSize * 0.3);
-        }
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // Move X position for next segment
-      let segmentWidth = textWidth;
-      if (segment.formats?.some((f) => f.type === "code")) {
-        segmentWidth += styles.textFormats.code.padding * 2;
-      }
-
-      // For RTL, move LEFT (subtract); for LTR, move RIGHT (add)
-      if (isRTL) {
-        currentX -= segmentWidth;
-      } else {
-        currentX += segmentWidth;
-      }
+  let visibleIndex = 0;
+  
+  // Render each character in the line
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+    
+    // Skip deleted characters
+    if (char.deleted) continue;
+    
+    // Check if this character is in the line range
+    if (visibleIndex < lineStartIndex) {
+      visibleIndex++;
+      continue;
     }
-
-    currentIndex = segmentEnd;
-
-    // Stop if we've passed the end of the line
-    if (currentIndex >= lineEndIndex) break;
+    
+    if (visibleIndex >= lineEndIndex) {
+      break;
+    }
+    
+    // Get formats for this character
+    const charFormats = getFormatsAtCharIndex(i, chars, formats);
+    
+    // Determine font style
+    const isBold = charFormats.some(f => f.type === "bold");
+    const isItalic = charFormats.some(f => f.type === "italic");
+    const isCode = charFormats.some(f => f.type === "code");
+    const isStrikethrough = charFormats.some(f => f.type === "strikethrough");
+    const linkFormat = charFormats.find(f => f.type === "link");
+    const isLink = !!linkFormat;
+    
+    const effectiveFontWeight = isBold ? "bold" : textStyle.fontWeight;
+    const fontStyle = isItalic ? "italic" : "normal";
+    
+    ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${FONT_STACKS[fontFamily]}`;
+    ctx.textBaseline = "alphabetic";
+    
+    // Measure text width
+    const textWidth = ctx.measureText(char.char).width;
+    const visualX = currentX;
+    
+    // Handle code background
+    if (isCode) {
+      const codeStyle = styles.textFormats.code;
+      const padding = codeStyle.padding;
+      
+      ctx.save();
+      ctx.fillStyle = codeStyle.backgroundColor;
+      
+      let rectX: number;
+      if (isRTL) {
+        rectX = visualX - textWidth - padding;
+      } else {
+        rectX = visualX - padding;
+      }
+      
+      const rectY = y - textStyle.fontSize - padding;
+      const rectWidth = textWidth + padding * 2;
+      const rectHeight = textStyle.fontSize * textStyle.lineHeight;
+      
+      ctx.beginPath();
+      ctx.roundRect(rectX, rectY, rectWidth, rectHeight, codeStyle.borderRadius);
+      ctx.fill();
+      ctx.restore();
+      
+      ctx.fillStyle = codeStyle.color;
+    } else if (isLink) {
+      ctx.fillStyle = styles.textFormats.link.color;
+    } else {
+      ctx.fillStyle = textStyle.color;
+    }
+    
+    // Render the text
+    ctx.fillText(char.char, visualX, y);
+    
+    // Handle underline for links
+    if (isLink) {
+      const linkStyle = styles.textFormats.link;
+      ctx.save();
+      ctx.strokeStyle = linkStyle.color;
+      ctx.lineWidth = linkStyle.underlineThickness;
+      ctx.beginPath();
+      
+      if (isRTL) {
+        ctx.moveTo(visualX - textWidth, y + textStyle.fontSize * 0.1);
+        ctx.lineTo(visualX, y + textStyle.fontSize * 0.1);
+      } else {
+        ctx.moveTo(visualX, y + textStyle.fontSize * 0.1);
+        ctx.lineTo(visualX + textWidth, y + textStyle.fontSize * 0.1);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+    
+    // Handle strikethrough
+    if (isStrikethrough) {
+      ctx.save();
+      ctx.strokeStyle = textStyle.color;
+      ctx.lineWidth = Math.max(1, textStyle.fontSize / 16);
+      ctx.beginPath();
+      
+      if (isRTL) {
+        ctx.moveTo(visualX - textWidth, y - textStyle.fontSize * 0.3);
+        ctx.lineTo(visualX, y - textStyle.fontSize * 0.3);
+      } else {
+        ctx.moveTo(visualX, y - textStyle.fontSize * 0.3);
+        ctx.lineTo(visualX + textWidth, y - textStyle.fontSize * 0.3);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+    
+    // Advance position
+    if (isRTL) {
+      currentX -= textWidth;
+    } else {
+      currentX += textWidth;
+    }
+    
+    visibleIndex++;
   }
-
+  
   // Reset direction
   ctx.direction = "ltr";
 }
@@ -582,7 +532,16 @@ export const renderBlock = (
 
   // Handle line/divider blocks
   if (block.type === "line") {
-    return renderLineBlock(ctx, state, block, blockIndex, x, y, maxWidth, styles);
+    return renderLineBlock(
+      ctx,
+      state,
+      block,
+      blockIndex,
+      x,
+      y,
+      maxWidth,
+      styles
+    );
   }
 
   const textStyle = getTextStyle(styles, block.type);
@@ -597,10 +556,19 @@ export const renderBlock = (
   let markerX = x; // X position where marker should be rendered
 
   // Get content early to detect RTL for proper layout
-  const { content: renderContent, compositionRange } =
-    getContentWithComposition(block, state, blockIndex);
+  const {
+    chars: renderChars,
+    formats: renderFormats,
+    compositionRange,
+  } = getContentWithComposition(block, state, blockIndex);
 
-  const direction = getFormattedTextDirection(renderContent);
+  // Detect text direction
+  const visibleText = getVisibleText(renderChars);
+  const direction =
+    visibleText.length > 0 &&
+    /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(visibleText)
+      ? "rtl"
+      : "ltr";
   const isRTL = direction === "rtl";
 
   if (isListBlock(block)) {
@@ -626,10 +594,11 @@ export const renderBlock = (
     }
   }
 
-  // Calculate line wrapping using the render content (includes composition)
+  // Calculate line wrapping using CRDT data
   // Use adjusted max width for list blocks to account for indent and marker
-  const lines = wrapFormattedTextDetailed(
-    renderContent,
+  const lines = wrapCRDTText(
+    renderChars,
+    renderFormats,
     adjustedMaxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
@@ -678,17 +647,19 @@ export const renderBlock = (
       );
     }
 
-    // Render the line with formatting (using render content with composition)
-    renderFormattedLine(
+    // Render the line with formatting (using CRDT data with composition)
+    renderCRDTLine(
       ctx,
-      renderContent,
+      renderChars,
+      renderFormats,
       lineStartIndex,
       lineEndIndex,
       renderX,
       currentY + fontMetrics.ascent,
       textStyle,
       fontFamily,
-      styles
+      styles,
+      isRTL
     );
 
     // Render composition underline if this line contains composition text
@@ -700,7 +671,8 @@ export const renderBlock = (
       if (lineContainsComposition) {
         renderCompositionUnderline(
           ctx,
-          renderContent,
+          renderChars,
+          renderFormats,
           lineStartIndex,
           lineEndIndex,
           compositionRange.start,
@@ -711,7 +683,7 @@ export const renderBlock = (
           fontFamily,
           fontMetrics,
           codePadding,
-          direction === "rtl",
+          isRTL,
           maxWidth
         );
       }
@@ -721,8 +693,9 @@ export const renderBlock = (
     const textHeight = fontMetrics.ascent + fontMetrics.descent;
 
     // Measure the line width (need to account for formatting)
-    const lineWidth = measureFormattedLineWidth(
-      renderContent,
+    const lineWidth = measureCRDTLineWidth(
+      renderChars,
+      renderFormats,
       lineStartIndex,
       lineEndIndex,
       textStyle,
@@ -1027,7 +1000,10 @@ function renderSelection(
     : state.document.selection.anchor;
 
   // Detect if this is an RTL block
-  const isRTL = getFormattedTextDirection(block.content) === "rtl";
+  const blockVisibleText = getVisibleText(block.chars);
+  const isRTL =
+    blockVisibleText.length > 0 &&
+    /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(blockVisibleText);
 
   if (
     (start.blockIndex === blockIndex && end.blockIndex === blockIndex) ||
@@ -1082,8 +1058,9 @@ function renderSelection(
             const selEndTextIndex = Math.min(line.endIndex, end.textIndex);
 
             // Measure from line START to selection START
-            const widthToSelStart = measureFormattedLineWidth(
-              block.content,
+            const widthToSelStart = measureCRDTLineWidth(
+              block.chars,
+              block.formats,
               line.startIndex,
               selStartTextIndex,
               textStyle,
@@ -1092,8 +1069,9 @@ function renderSelection(
             );
 
             // Measure from line START to selection END
-            const widthToSelEnd = measureFormattedLineWidth(
-              block.content,
+            const widthToSelEnd = measureCRDTLineWidth(
+              block.chars,
+              block.formats,
               line.startIndex,
               selEndTextIndex,
               textStyle,
@@ -1110,8 +1088,9 @@ function renderSelection(
             // LTR logic (existing)
             if (start.textIndex > line.startIndex) {
               // Use format-aware measurement
-              selectionStartX += measureFormattedLineWidth(
-                block.content,
+              selectionStartX += measureCRDTLineWidth(
+                block.chars,
+                block.formats,
                 line.startIndex,
                 start.textIndex,
                 textStyle,
@@ -1121,8 +1100,9 @@ function renderSelection(
             }
             if (end.textIndex < line.endIndex) {
               // Use format-aware measurement
-              const selectedWidth = measureFormattedLineWidth(
-                block.content,
+              const selectedWidth = measureCRDTLineWidth(
+                block.chars,
+                block.formats,
                 Math.max(line.startIndex, start.textIndex),
                 Math.min(line.endIndex, end.textIndex),
                 textStyle,
@@ -1157,8 +1137,9 @@ function renderSelection(
             );
 
             // Measure from line start to selection start
-            const widthToSelStart = measureFormattedLineWidth(
-              block.content,
+            const widthToSelStart = measureCRDTLineWidth(
+              block.chars,
+              block.formats,
               line.startIndex,
               selStartTextIndex,
               textStyle,
@@ -1172,8 +1153,9 @@ function renderSelection(
           } else {
             if (start.textIndex > line.startIndex) {
               // Use format-aware measurement
-              selectionStartX += measureFormattedLineWidth(
-                block.content,
+              selectionStartX += measureCRDTLineWidth(
+                block.chars,
+                block.formats,
                 line.startIndex,
                 start.textIndex,
                 textStyle,
@@ -1196,8 +1178,9 @@ function renderSelection(
             const selEndTextIndex = Math.min(line.endIndex, end.textIndex);
 
             // Measure from line start to selection end
-            const widthToSelEnd = measureFormattedLineWidth(
-              block.content,
+            const widthToSelEnd = measureCRDTLineWidth(
+              block.chars,
+              block.formats,
               line.startIndex,
               selEndTextIndex,
               textStyle,
@@ -1213,8 +1196,9 @@ function renderSelection(
               // Use format-aware measurement
               selectionEndX =
                 x +
-                measureFormattedLineWidth(
-                  block.content,
+                measureCRDTLineWidth(
+                  block.chars,
+                  block.formats,
                   line.startIndex,
                   end.textIndex,
                   textStyle,
@@ -1704,8 +1688,10 @@ export const calculateBlockHeight = (
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
   }
 
-  const lines = wrapFormattedTextDetailed(
-    block.content,
+  // Use CRDT wrapping
+  const lines = wrapCRDTText(
+    block.chars,
+    block.formats,
     adjustedMaxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
@@ -1825,11 +1811,12 @@ export function renderCursorLayer(
   }
 
   // Get content with composition text injected (if composing in this block)
-  const { content: renderContent, compositionRange } =
+  const { chars: renderChars, formats: renderFormats, compositionRange } =
     getContentWithComposition(block, state, cursorBlockIndex);
 
-  const lines = wrapFormattedTextDetailed(
-    renderContent,
+  const lines = wrapCRDTText(
+    renderChars,
+    renderFormats,
     adjustedMaxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
@@ -1847,7 +1834,8 @@ export function renderCursorLayer(
 
   // Find which line the cursor is on
   const content = getBlockTextContent(block);
-  const isRTL = getFormattedTextDirection(renderContent) === "rtl";
+  const visibleText = getVisibleText(renderChars);
+  const isRTL = visibleText.length > 0 && /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(visibleText);
 
   // Adjust cursor X for list blocks based on text direction
   let baseX: number;
@@ -1887,8 +1875,9 @@ export function renderCursorLayer(
 
       // Calculate cursor position differently for RTL
       if (isRTL) {
-        const widthFromStart = measureFormattedLineWidth(
-          renderContent,
+        const widthFromStart = measureCRDTLineWidth(
+          renderChars,
+          renderFormats,
           lineStartIndex,
           targetCursorIndex,
           textStyle,
@@ -1899,8 +1888,9 @@ export function renderCursorLayer(
       } else {
         cursorX =
           baseX +
-          measureFormattedLineWidth(
-            renderContent,
+          measureCRDTLineWidth(
+            renderChars,
+            renderFormats,
             lineStartIndex,
             targetCursorIndex,
             textStyle,
@@ -1936,8 +1926,9 @@ export function renderCursorLayer(
     }
     lastLineY += lastLineIndex * lineHeight;
 
-    const lastLineWidth = measureFormattedLineWidth(
-      renderContent,
+    const lastLineWidth = measureCRDTLineWidth(
+      renderChars,
+      renderFormats,
       content.length - lastLine.text.length,
       content.length,
       textStyle,
@@ -2101,8 +2092,12 @@ function getPositionCoordinates(
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
+  const blockVisibleText = getVisibleText(block.chars);
+
   // Detect RTL
-  const isRTL = getFormattedTextDirection(block.content) === "rtl";
+  const isRTL =
+    blockVisibleText.length > 0 &&
+    /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(blockVisibleText);
 
   // Calculate indent and marker space for list blocks
   let adjustedMaxWidth = maxWidth;
@@ -2111,7 +2106,8 @@ function getPositionCoordinates(
   if (isListBlock(block)) {
     const indent = block.indent || 0;
     const indentOffset = indent * styles.list.indent.size;
-    const markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
+    const markerWidth =
+      styles.list.numbered.minWidth + styles.list.marker.textGap;
 
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
 
@@ -2123,8 +2119,9 @@ function getPositionCoordinates(
   }
 
   // Calculate line wrapping
-  const lines = wrapFormattedTextDetailed(
-    block.content,
+  const lines = wrapCRDTText(
+    block.chars,
+    block.formats,
     adjustedMaxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
@@ -2140,8 +2137,9 @@ function getPositionCoordinates(
 
     if (position.textIndex >= textIndex && position.textIndex <= lineEndIndex) {
       // Calculate X position
-      const widthFromStart = measureFormattedLineWidth(
-        block.content,
+      const widthFromStart = measureCRDTLineWidth(
+        block.chars,
+        block.formats,
         textIndex,
         position.textIndex,
         textStyle,
@@ -2203,8 +2201,18 @@ function getSelectionHandlePositionsForRender(
     return null;
   }
 
-  const anchorCoords = getPositionCoordinates(selection.anchor, state, viewport, styles);
-  const focusCoords = getPositionCoordinates(selection.focus, state, viewport, styles);
+  const anchorCoords = getPositionCoordinates(
+    selection.anchor,
+    state,
+    viewport,
+    styles
+  );
+  const focusCoords = getPositionCoordinates(
+    selection.focus,
+    state,
+    viewport,
+    styles
+  );
 
   if (!anchorCoords || !focusCoords) {
     return null;
@@ -2249,7 +2257,11 @@ export function renderSelectionHandles(
     return;
   }
 
-  const handlePositions = getSelectionHandlePositionsForRender(state, viewport, styles);
+  const handlePositions = getSelectionHandlePositionsForRender(
+    state,
+    viewport,
+    styles
+  );
 
   if (!handlePositions) {
     return;

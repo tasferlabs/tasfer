@@ -1,4 +1,4 @@
-import type { Block } from "../deserializer/loadPage";
+import type { Block, Page } from "../deserializer/loadPage";
 import { isVisualBlock } from "../deserializer/loadPage";
 import {
   applySlashCommand,
@@ -7,13 +7,16 @@ import {
   clearLinkInBlock,
   selectAll,
   getSelectionRange,
-  mergeAdjacentSegments,
-  extractSegmentsInRange,
   toggleBold,
   toggleItalic,
   toggleCode,
   toggleStrikethrough,
 } from "./commands";
+import {
+  deleteCharsInRange,
+  insertCharsAtPosition,
+  formatCharsInRange,
+} from "./crdt-helpers";
 import {
   copySelectionToClipboard,
   cutSelectionToClipboard,
@@ -43,12 +46,19 @@ import {
   setActiveMenu,
   closeActiveMenu,
   isTouchDevice,
-  getBlockTextContent,
   moveCursorToPosition,
   updatePhysicalKeyboardState,
+  getBlockTextContent,
 } from "./state";
 import { getEditorStyles } from "./styles";
-import type { EditorState, SlashCommand, ViewportState } from "./types";
+import type {
+  EditorState,
+  SlashCommand,
+  ViewportState,
+  CRDTContext,
+  CommandResult,
+} from "./types";
+import type { Operation, BlockSet, BlockDelete, BlockInsert } from "../sync/types";
 import { recordUndo, undoState, redoState } from "./undo";
 import type { CanvasLayers } from "./layers";
 import { onFontFamilyChange } from "./fonts";
@@ -81,11 +91,12 @@ export interface Editor {
   setBlockType: (type: Block["type"]) => void;
   updateLink: (
     blockIndex: number,
-    segmentIndex: number,
+    startIndex: number,
+    endIndex: number,
     newUrl: string,
     newText: string
   ) => void;
-  clearLink: (blockIndex: number, segmentIndex: number) => void;
+  clearLink: (blockIndex: number, startIndex: number, endIndex: number) => void;
   createLink: (url: string, text: string) => void;
   clearSelection: () => void;
   setMode: (mode: "edit" | "select" | "locked") => void;
@@ -111,13 +122,18 @@ export interface Editor {
     existingAlt?: string
   ) => void;
   closeActiveMenu: () => void;
+  /** Update page content from CRDT sync (remote operations) */
+  updatePageFromSync: (page: Page) => void;
+  /** Set broadcast function for sending operations to peers */
+  setBroadcast: (fn: ((ops: Operation[]) => void) | null) => void;
 }
 
 export default function createEditor(
   layers: CanvasLayers,
   initialState: EditorState,
   viewportProp: ViewportState,
-  hiddenInput?: HTMLInputElement
+  hiddenInput?: HTMLInputElement,
+  crdtContextParam?: CRDTContext
 ): Editor {
   // Extract contexts from layers
   const contentCtx = layers.content.ctx;
@@ -134,6 +150,44 @@ export default function createEditor(
   };
 
   let isRendering = false;
+
+  // Broadcast function for sending operations to peers
+  let broadcastFn: ((ops: Operation[]) => void) | null = null;
+
+  // CRDT context for generating IDs and clocks
+  // Use provided context or create a default one
+  const crdtContext: CRDTContext = crdtContextParam || {
+    pageId: "default-page",
+    idGen: () => `${Date.now()}-${Math.random()}`,
+    clock: () => ({
+      wall: Date.now(),
+      logical: 0,
+      peerId: "default-peer",
+    }),
+  };
+
+  /**
+   * Execute a command that returns { state, ops } and broadcast operations to peers.
+   * This is the central point for all state-modifying operations.
+   */
+  const executeCommand = (result: CommandResult): void => {
+    const { state: newState, ops } = result;
+
+    // Update local state
+    state = newState;
+
+    // Broadcast ops to peers (if any)
+    if (ops.length > 0 && broadcastFn) {
+      broadcastFn(ops);
+    }
+
+    // Trigger re-render
+    scheduleRender();
+    
+    // Notify listeners
+    const currentState = state;
+    listeners.forEach((listener) => listener(currentState));
+  };
 
   // Cache for canvas bounding rect to avoid getBoundingClientRect in render loop
   let cachedRect = { left: 0, top: 0 };
@@ -902,8 +956,8 @@ export default function createEditor(
   function executeSlashCommand(command: SlashCommand) {
     if (state.ui.activeMenu.type === "slashCommand" && state.document.cursor) {
       state = recordUndo(state);
-      state = applySlashCommand(state, command);
-      scheduleRender();
+      const result = applySlashCommand(state, command, crdtContext);
+      executeCommand(result);
     }
   }
 
@@ -915,9 +969,9 @@ export default function createEditor(
   }
 
   async function cut(): Promise<boolean> {
-    const result = await cutSelectionToClipboard(state);
-    if (result.success && result.newState) {
-      state = result.newState;
+    const result = await cutSelectionToClipboard(state, crdtContext);
+    if (result.success && result.result) {
+      executeCommand(result.result);
       state = closeContextMenu(state);
       scheduleRender();
       return true;
@@ -928,9 +982,9 @@ export default function createEditor(
   }
 
   async function paste(): Promise<boolean> {
-    const newState = await pasteFromNativeClipboardAPI(state);
-    if (newState) {
-      state = newState;
+    const result = await pasteFromNativeClipboardAPI(state, crdtContext);
+    if (result) {
+      executeCommand(result);
       state = closeContextMenu(state);
       scheduleRender();
       return true;
@@ -969,67 +1023,80 @@ export default function createEditor(
   function toggleBoldMethod() {
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    state = toggleBold(hasSelection ? recordUndo(state) : state);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    const result = toggleBold(
+      hasSelection ? recordUndo(state) : state,
+      crdtContext
+    );
+    executeCommand(result);
   }
 
   function toggleItalicMethod() {
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    state = toggleItalic(hasSelection ? recordUndo(state) : state);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    const result = toggleItalic(
+      hasSelection ? recordUndo(state) : state,
+      crdtContext
+    );
+    executeCommand(result);
   }
 
   function toggleCodeMethod() {
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    state = toggleCode(hasSelection ? recordUndo(state) : state);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    const result = toggleCode(
+      hasSelection ? recordUndo(state) : state,
+      crdtContext
+    );
+    executeCommand(result);
   }
 
   function toggleStrikethroughMethod() {
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    state = toggleStrikethrough(hasSelection ? recordUndo(state) : state);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    const result = toggleStrikethrough(
+      hasSelection ? recordUndo(state) : state,
+      crdtContext
+    );
+    executeCommand(result);
   }
 
   function setBlockType(type: Block["type"]) {
     if (!state.document.cursor) return;
     state = recordUndo(state);
-    state = convertBlockType(state, type);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    const result = convertBlockType(state, type, crdtContext);
+    executeCommand(result);
   }
 
   function updateLink(
     blockIndex: number,
-    segmentIndex: number,
+    startIndex: number,
+    endIndex: number,
     newUrl: string,
     newText: string
   ) {
     state = recordUndo(state);
-    state = updateLinkInBlock(state, blockIndex, segmentIndex, newUrl, newText);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    const result = updateLinkInBlock(
+      state,
+      blockIndex,
+      startIndex,
+      endIndex,
+      newUrl,
+      newText,
+      crdtContext
+    );
+    executeCommand(result);
   }
 
-  function clearLink(blockIndex: number, segmentIndex: number) {
+  function clearLink(blockIndex: number, startIndex: number, endIndex: number) {
     state = recordUndo(state);
-    state = clearLinkInBlock(state, blockIndex, segmentIndex);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    const result = clearLinkInBlock(
+      state,
+      blockIndex,
+      startIndex,
+      endIndex,
+      crdtContext
+    );
+    executeCommand(result);
   }
 
   function createLink(url: string, text: string) {
@@ -1054,29 +1121,45 @@ export default function createEditor(
       return;
     }
 
-    // Extract content before selection, after selection, and create link in between
-    const blockText = getBlockTextContent(block);
-    const beforeContent = extractSegmentsInRange(
-      block.content,
-      0,
-      start.textIndex
-    );
-    const afterContent = extractSegmentsInRange(
-      block.content,
-      end.textIndex,
-      blockText.length
-    );
+    const ops: Operation[] = [];
 
-    // Create the new content with the link in the middle
-    const newContent = [
-      ...beforeContent,
-      { content: text, formats: [{ type: "link" as const, url }] },
-      ...afterContent,
-    ];
+    // Delete the selected text first
+    const { newChars: charsAfterDelete, op: deleteOp } = deleteCharsInRange(
+      block.chars,
+      start.textIndex,
+      end.textIndex,
+      block.id,
+      crdtContext
+    );
+    ops.push(deleteOp);
+
+    // Insert the new link text
+    const { newChars: charsAfterInsert, op: insertOp } = insertCharsAtPosition(
+      charsAfterDelete,
+      start.textIndex,
+      text,
+      block.id,
+      crdtContext
+    );
+    ops.push(insertOp);
+
+    // Apply link formatting to the inserted text
+    const { newFormats, op: formatOp } = formatCharsInRange(
+      charsAfterInsert,
+      block.formats,
+      start.textIndex,
+      start.textIndex + text.length,
+      block.id,
+      { type: "link", url },
+      url,
+      crdtContext
+    );
+    ops.push(formatOp);
 
     const newBlock = {
       ...block,
-      content: mergeAdjacentSegments(newContent),
+      chars: charsAfterInsert,
+      formats: newFormats,
     };
 
     invalidateBlockCache(newBlock);
@@ -1084,7 +1167,7 @@ export default function createEditor(
     const newBlocks = [...state.document.page.blocks];
     newBlocks[start.blockIndex] = newBlock;
 
-    state = {
+    const newState = {
       ...state,
       document: {
         ...state.document,
@@ -1093,16 +1176,14 @@ export default function createEditor(
     };
 
     // Clear selection and move cursor to end of inserted link
-    state = clearSelection(state);
-    state = moveCursorToPosition(
-      state,
+    const stateWithClearedSelection = clearSelection(newState);
+    const finalState = moveCursorToPosition(
+      stateWithClearedSelection,
       start.blockIndex,
       start.textIndex + text.length
     );
 
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    executeCommand({ state: finalState, ops });
   }
 
   function clearSelectionMethod() {
@@ -1200,6 +1281,35 @@ export default function createEditor(
       };
     }
 
+    // Create CRDT operations for image property updates
+    const ops: Operation[] = [];
+    const blockId = block.id;
+    
+    if (updates.url !== undefined) {
+      const op: BlockSet = {
+        op: "block_set",
+        id: crdtContext.idGen(),
+        clock: crdtContext.clock(),
+        pageId: crdtContext.pageId,
+        blockId,
+        field: "url",
+        value: updates.url,
+      };
+      ops.push(op);
+    }
+    if (updates.alt !== undefined) {
+      const op: BlockSet = {
+        op: "block_set",
+        id: crdtContext.idGen(),
+        clock: crdtContext.clock(),
+        pageId: crdtContext.pageId,
+        blockId,
+        field: "alt",
+        value: updates.alt,
+      };
+      ops.push(op);
+    }
+
     state = {
       ...state,
       ui: newUIState,
@@ -1208,6 +1318,11 @@ export default function createEditor(
         page: { ...state.document.page, blocks: newBlocks },
       },
     };
+
+    // Broadcast operations
+    if (ops.length > 0 && broadcastFn) {
+      broadcastFn(ops);
+    }
 
     const currentState = state;
     scheduleRender();
@@ -1222,18 +1337,49 @@ export default function createEditor(
       return;
     }
 
+    // Get block ID before deletion
+    const blockId = block.id;
+
     state = recordUndo(state);
 
     const newBlocks = [...state.document.page.blocks];
     newBlocks.splice(blockIndex, 1);
 
+    // Create CRDT operations
+    const ops: Operation[] = [];
+    
+    // Delete the image block
+    const deleteOp: BlockDelete = {
+      op: "block_delete",
+      id: crdtContext.idGen(),
+      clock: crdtContext.clock(),
+      pageId: crdtContext.pageId,
+      blockId,
+    };
+    ops.push(deleteOp);
+
     // If we deleted the last block, add an empty paragraph
+    let newParagraphBlockId: string | null = null;
     if (newBlocks.length === 0) {
+      newParagraphBlockId = `b-${crdtContext.idGen()}`;
       newBlocks.push({
-        id: `block-${Date.now()}`,
+        id: newParagraphBlockId,
         type: "paragraph",
-        content: [{ content: "", formats: undefined }],
+        chars: [],
+        formats: [],
       });
+      
+      // Insert new paragraph block
+      const insertOp: BlockInsert = {
+        op: "block_insert",
+        id: crdtContext.idGen(),
+        clock: crdtContext.clock(),
+        pageId: crdtContext.pageId,
+        afterBlockId: null,
+        blockId: newParagraphBlockId,
+        blockType: "paragraph",
+      };
+      ops.push(insertOp);
     }
 
     state = {
@@ -1243,6 +1389,11 @@ export default function createEditor(
         page: { ...state.document.page, blocks: newBlocks },
       },
     };
+
+    // Broadcast operations
+    if (ops.length > 0 && broadcastFn) {
+      broadcastFn(ops);
+    }
 
     const currentState = state;
     scheduleRender();
@@ -1280,6 +1431,113 @@ export default function createEditor(
     scheduleRender();
   }
 
+  function updatePageFromSync(page: Page) {
+    // Update the page from CRDT sync while preserving cursor/selection
+    // This is called when remote operations are applied
+
+    // Clear all block caches since page structure may have changed
+    clearAllBlockCaches(page.blocks);
+
+    // Validate and adjust cursor position if needed
+    let cursor = state.document.cursor;
+    if (cursor && page.blocks.length > 0) {
+      const { blockIndex, textIndex } = cursor.position;
+      const maxBlockIndex = page.blocks.length - 1;
+
+      if (blockIndex > maxBlockIndex) {
+        // Cursor points to a block that no longer exists, move to end of last block
+        const lastBlock = page.blocks[maxBlockIndex];
+        const lastBlockText = getBlockTextContent(lastBlock);
+        cursor = {
+          ...cursor,
+          position: {
+            blockIndex: maxBlockIndex,
+            textIndex: lastBlockText.length,
+          },
+        };
+      } else {
+        // Validate textIndex for the block
+        const block = page.blocks[blockIndex];
+        if (block) {
+          const blockText = getBlockTextContent(block);
+          if (textIndex > blockText.length) {
+            cursor = {
+              ...cursor,
+              position: {
+                blockIndex,
+                textIndex: blockText.length,
+              },
+            };
+          }
+        }
+      }
+    } else if (cursor && page.blocks.length === 0) {
+      // No blocks, clear cursor
+      cursor = null;
+    }
+
+    // Validate selection as well
+    let selection = state.document.selection;
+    if (selection && page.blocks.length > 0) {
+      const maxBlockIndex = page.blocks.length - 1;
+      const { anchor, focus } = selection;
+
+      let newAnchor = anchor;
+      let newFocus = focus;
+
+      if (anchor.blockIndex > maxBlockIndex) {
+        const lastBlock = page.blocks[maxBlockIndex];
+        const lastBlockText = getBlockTextContent(lastBlock);
+        newAnchor = {
+          blockIndex: maxBlockIndex,
+          textIndex: lastBlockText.length,
+        };
+      }
+
+      if (focus.blockIndex > maxBlockIndex) {
+        const lastBlock = page.blocks[maxBlockIndex];
+        const lastBlockText = getBlockTextContent(lastBlock);
+        newFocus = {
+          blockIndex: maxBlockIndex,
+          textIndex: lastBlockText.length,
+        };
+      }
+
+      if (newAnchor !== anchor || newFocus !== focus) {
+        selection = {
+          ...selection,
+          anchor: newAnchor,
+          focus: newFocus,
+          isCollapsed:
+            newAnchor.blockIndex === newFocus.blockIndex &&
+            newAnchor.textIndex === newFocus.textIndex,
+        };
+      }
+    } else if (selection && page.blocks.length === 0) {
+      selection = null;
+    }
+
+    // Update the page in state
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        page,
+        cursor,
+        selection,
+      },
+    };
+
+    // Re-render
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  function setBroadcastMethod(fn: ((ops: Operation[]) => void) | null) {
+    broadcastFn = fn;
+  }
+
   return {
     getState,
     destroy,
@@ -1313,5 +1571,7 @@ export default function createEditor(
     openImageUploadMenu,
     closeActiveMenu: closeActiveMenuMethod,
     setPhysicalKeyboard,
+    updatePageFromSync,
+    setBroadcast: setBroadcastMethod,
   };
 }

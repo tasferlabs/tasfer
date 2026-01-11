@@ -7,6 +7,8 @@ export const initialUndoManagerState: UndoManagerState = {
   redoStack: [],
 };
 
+
+
 // Invalidate cache for blocks that changed between two states (for undo/redo)
 function invalidateChangedBlocks(oldBlocks: Block[], newBlocks: Block[]) {
   // Build a map of old blocks by ID for fast lookup

@@ -1,16 +1,16 @@
-import type { Block, Page } from "../deserializer/loadPage";
+import type { Block, Page, Char, FormatSpan } from "../deserializer/loadPage";
 import { isVisualBlock, isListBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
-  wrapFormattedTextDetailed,
-  measureFormattedTextUpToIndex,
+  measureText,
+  type FontFamily,
 } from "./fonts";
 import {
   createInitialMomentumState,
   createInitialScrollbarState,
 } from "./scrollbar";
 import { getEditorStyles, getTextStyle } from "./styles";
-import { getFormattedTextDirection } from "./rtl";
+import { isRTLChar } from "./rtl";
 import type {
   CursorState,
   EditorMode,
@@ -22,9 +22,221 @@ import type {
 } from "./types";
 import { initialUndoManagerState } from "./undo";
 
-// Block ID Generation - Centralized Counter
+// =============================================================================
+// CRDT-Native Helper Functions
+// =============================================================================
+
+/**
+ * Get text direction from CRDT chars
+ */
+function getCharsDirection(chars: Char[]): "rtl" | "ltr" {
+  const visibleChars = chars.filter(c => !c.deleted);
+  if (visibleChars.length === 0) return "ltr";
+  
+  let totalRtl = 0;
+  let totalLtr = 0;
+  
+  for (const char of visibleChars) {
+    if (isRTLChar(char.char)) {
+      totalRtl++;
+    } else if (/[a-zA-Z]/.test(char.char)) {
+      totalLtr++;
+    }
+  }
+  
+  const totalDirectional = totalRtl + totalLtr;
+  if (totalDirectional === 0) return "ltr";
+  
+  return totalRtl / totalDirectional > 0.3 ? "rtl" : "ltr";
+}
+
+/**
+ * Wrap text by measuring character widths directly from chars array
+ */
+interface WrappedLine {
+  text: string;
+  consumedSpace: boolean;
+}
+
+function wrapCharsDetailed(
+  chars: Char[],
+  formats: FormatSpan[],
+  maxWidth: number,
+  fontSize: number,
+  baseFontWeight: string,
+  fontFamily: FontFamily,
+  codePadding: number = 0
+): WrappedLine[] {
+  const visibleChars = chars.filter(c => !c.deleted);
+  if (visibleChars.length === 0) {
+    return [{ text: "", consumedSpace: false }];
+  }
+  
+  // Build a map of char ID to formats
+  const charIdToFormats = new Map<string, Set<string>>();
+  for (const span of formats) {
+    const startIdx = visibleChars.findIndex(c => c.id === span.startCharId);
+    const endIdx = visibleChars.findIndex(c => c.id === span.endCharId);
+    
+    if (startIdx === -1 || endIdx === -1) continue;
+    
+    for (let i = startIdx; i <= endIdx; i++) {
+      const charId = visibleChars[i].id;
+      if (!charIdToFormats.has(charId)) {
+        charIdToFormats.set(charId, new Set());
+      }
+      charIdToFormats.get(charId)!.add(span.format.type);
+    }
+  }
+  
+  const fullText = visibleChars.map(c => c.char).join("");
+  const lines: WrappedLine[] = [];
+  const words = fullText.split(" ");
+  let currentLine = "";
+  let currentLineWidth = 0;
+  let currentCharIndex = 0;
+  
+  const spaceWidth = measureText(" ", fontSize, baseFontWeight, fontFamily);
+  
+  // Measure a substring of visible chars
+  const measureSubstring = (start: number, end: number): number => {
+    let width = 0;
+    for (let i = start; i < end; i++) {
+      const char = visibleChars[i];
+      const formats = charIdToFormats.get(char.id);
+      const isBold = formats?.has("bold") || false;
+      const isCode = formats?.has("code") || false;
+      const fontWeight = isBold ? "bold" : baseFontWeight;
+      width += measureText(char.char, fontSize, fontWeight, fontFamily);
+      if (isCode) width += codePadding * 2;
+    }
+    return width;
+  };
+  
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const wordStart = currentCharIndex;
+    const wordEnd = currentCharIndex + word.length;
+    const wordWidth = measureSubstring(wordStart, wordEnd);
+    
+    const spaceIfNeeded = currentLine ? spaceWidth : 0;
+    
+    if (currentLineWidth + spaceIfNeeded + wordWidth <= maxWidth) {
+      currentLine = currentLine ? currentLine + " " + word : word;
+      currentLineWidth += spaceIfNeeded + wordWidth;
+      currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
+    } else {
+      if (currentLine) {
+        lines.push({ text: currentLine, consumedSpace: true });
+        currentLine = "";
+        currentLineWidth = 0;
+      }
+      
+      if (wordWidth <= maxWidth) {
+        currentLine = word;
+        currentLineWidth = wordWidth;
+        currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
+      } else {
+        // Word too long, split by character
+        let remainingWordStart = wordStart;
+        while (remainingWordStart < wordEnd) {
+          let splitIndex = remainingWordStart;
+          let currentWidth = 0;
+          
+          for (let j = remainingWordStart; j < wordEnd; j++) {
+            const char = visibleChars[j];
+            const formats = charIdToFormats.get(char.id);
+            const isBold = formats?.has("bold") || false;
+            const fontWeight = isBold ? "bold" : baseFontWeight;
+            const charWidth = measureText(char.char, fontSize, fontWeight, fontFamily);
+            
+            if (currentWidth + charWidth > maxWidth && j > remainingWordStart) {
+              splitIndex = j;
+              break;
+            }
+            currentWidth += charWidth;
+            splitIndex = j + 1;
+          }
+          
+          if (splitIndex === remainingWordStart) splitIndex++;
+          
+          const chunk = fullText.substring(remainingWordStart, splitIndex);
+          lines.push({ text: chunk, consumedSpace: false });
+          remainingWordStart = splitIndex;
+        }
+        
+        currentLine = "";
+        currentLineWidth = 0;
+        currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
+      }
+    }
+  }
+  
+  if (currentLine) {
+    lines.push({ text: currentLine, consumedSpace: false });
+  }
+  
+  return lines.length > 0 ? lines : [{ text: "", consumedSpace: false }];
+}
+
+/**
+ * Measure text width up to a specific index in the chars array
+ */
+function measureCharsUpToIndex(
+  chars: Char[],
+  formats: FormatSpan[],
+  startIndex: number,
+  endIndex: number,
+  fontSize: number,
+  baseFontWeight: string,
+  fontFamily: FontFamily,
+  codePadding: number = 0
+): number {
+  const visibleChars = chars.filter(c => !c.deleted);
+  
+  // Build format map
+  const charIdToFormats = new Map<string, Set<string>>();
+  for (const span of formats) {
+    const startIdx = visibleChars.findIndex(c => c.id === span.startCharId);
+    const endIdx = visibleChars.findIndex(c => c.id === span.endCharId);
+    
+    if (startIdx === -1 || endIdx === -1) continue;
+    
+    for (let i = startIdx; i <= endIdx; i++) {
+      const charId = visibleChars[i].id;
+      if (!charIdToFormats.has(charId)) {
+        charIdToFormats.set(charId, new Set());
+      }
+      charIdToFormats.get(charId)!.add(span.format.type);
+    }
+  }
+  
+  let width = 0;
+  for (let i = startIndex; i < endIndex && i < visibleChars.length; i++) {
+    const char = visibleChars[i];
+    const formats = charIdToFormats.get(char.id);
+    const isBold = formats?.has("bold") || false;
+    const isCode = formats?.has("code") || false;
+    const fontWeight = isBold ? "bold" : baseFontWeight;
+    width += measureText(char.char, fontSize, fontWeight, fontFamily);
+    if (isCode) width += codePadding * 2;
+  }
+  
+  return width;
+}
+
+// =============================================================================
+// Block ID Generation
+// =============================================================================
+
+// Centralized Counter
 let blockIdCounter = 10000; // Start high to avoid conflicts with parsed blocks
 
+/**
+ * Generate a unique block ID.
+ * Block IDs are generated in the CRDTContext passed to commands.
+ * This is a fallback for non-CRDT contexts (e.g., initial page load).
+ */
 export function generateBlockId(): string {
   return `block-${blockIdCounter++}`;
 }
@@ -59,6 +271,15 @@ export const createInitialState = (page: Page): EditorState => ({
     hasPhysicalKeyboard: false, // Default to false, will be updated by native
   },
   undoManager: initialUndoManagerState,
+  crdt: {
+    pageId: page.id,
+    idGen: () => `${Date.now()}-${Math.random()}`,
+    clock: () => ({
+      wall: Date.now(),
+      logical: 0,
+      peerId: "default-peer",
+    }),
+  },
 });
 
 // State Update Functions (Pure Functions)
@@ -162,27 +383,29 @@ export const createInitialCursorState = (state: EditorState): EditorState => {
 export const getBlockTextLength = (block: Block): number => {
   if (!block) return 0;
 
-  // Image cover blocks don't have text content
-  if (block.type === "image") return 0;
+  // Image and Line blocks don't have text content
+  if (block.type === "image" || block.type === "line") return 0;
 
   if (!isVisualBlock(block)) {
     return 0;
   }
 
-  return block.content.reduce((total, text) => total + text.content.length, 0);
+  // Count visible (non-deleted) chars
+  return block.chars.filter(c => !c.deleted).length;
 };
 
 export const getBlockTextContent = (block: Block): string => {
   if (!block) return "";
 
-  // Image cover blocks don't have text content
-  if (block.type === "image") return "";
+  // Image and Line blocks don't have text content
+  if (block.type === "image" || block.type === "line") return "";
 
   if (!isVisualBlock(block)) {
     return "";
   }
 
-  return block.content.map((text) => text.content).join("");
+  // Get visible text from chars (skip deleted)
+  return block.chars.filter(c => !c.deleted).map(c => c.char).join("");
 };
 
 export const isForwardSelection = (
@@ -290,7 +513,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
   }
 
   // Check if current block is RTL
-  const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
+  const isRTL = getCharsDirection(currentBlock.chars) === "rtl";
 
   if (isRTL) {
     // In RTL text, visual left is logical forward (increment)
@@ -310,7 +533,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
       if (!isVisualBlock(nextBlock)) {
         return state;
       }
-      const nextIsRTL = getFormattedTextDirection(nextBlock.content) === "rtl";
+      const nextIsRTL = getCharsDirection(nextBlock.chars) === "rtl";
 
       if (nextIsRTL) {
         // Next block is RTL, position at start (visual right edge)
@@ -337,7 +560,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
         return state;
       }
       const prevBlockLength = getBlockTextLength(prevBlock);
-      const prevIsRTL = getFormattedTextDirection(prevBlock.content) === "rtl";
+      const prevIsRTL = getCharsDirection(prevBlock.chars) === "rtl";
 
       if (prevIsRTL) {
         // Previous block is RTL, position at end (visual left edge)
@@ -380,7 +603,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   const currentBlockLength = getBlockTextLength(currentBlock);
 
   // Check if current block is RTL
-  const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
+  const isRTL = getCharsDirection(currentBlock.chars) === "rtl";
 
   if (isRTL) {
     // In RTL text, visual right is logical backward (decrement)
@@ -399,7 +622,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
         return state;
       }
       const prevBlockLength = getBlockTextLength(prevBlock);
-      const prevIsRTL = getFormattedTextDirection(prevBlock.content) === "rtl";
+      const prevIsRTL = getCharsDirection(prevBlock.chars) === "rtl";
 
       if (prevIsRTL) {
         // Previous block is RTL, position at end (visual left edge)
@@ -425,7 +648,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
       if (!isVisualBlock(nextBlock)) {
         return state;
       }
-      const nextIsRTL = getFormattedTextDirection(nextBlock.content) === "rtl";
+      const nextIsRTL = getCharsDirection(nextBlock.chars) === "rtl";
 
       if (nextIsRTL) {
         // Next block is RTL, position at start (visual right edge)
@@ -473,8 +696,9 @@ function getLineInfoAtPosition(
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
   }
 
-  const wrappedLines = wrapFormattedTextDetailed(
-    block.content,
+  const wrappedLines = wrapCharsDetailed(
+    block.chars,
+    block.formats,
     adjustedMaxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
@@ -534,7 +758,7 @@ function getTextIndexAtRelativePosition(
   }
 
   // Check if this is RTL text
-  const isRTL = getFormattedTextDirection(block.content) === "rtl";
+  const isRTL = getCharsDirection(block.chars) === "rtl";
 
   if (!isRTL) {
     // LTR: simple logical positioning
@@ -559,8 +783,9 @@ function getTextIndexAtRelativePosition(
     const charIndex = lineStartIndex + i;
 
     // Measure from line start to this character position
-    const widthFromStart = measureFormattedTextUpToIndex(
-      block.content,
+    const widthFromStart = measureCharsUpToIndex(
+      block.chars,
+      block.formats,
       lineStartIndex,
       charIndex,
       textStyle.fontSize,
@@ -631,7 +856,7 @@ export const moveCursorUp = (
   }
 
   // For RTL text, calculate visual position instead of logical position
-  const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
+  const isRTL = getCharsDirection(currentBlock.chars) === "rtl";
   let relativePosition: number;
 
   if (isRTL) {
@@ -642,8 +867,9 @@ export const moveCursorUp = (
     const codePadding = styles.textFormats.code.padding;
 
     // Measure from line start to cursor position
-    const widthFromStart = measureFormattedTextUpToIndex(
-      currentBlock.content,
+    const widthFromStart = measureCharsUpToIndex(
+      currentBlock.chars,
+      currentBlock.formats,
       lineInfo.lineStartIndex,
       textIndex,
       textStyle.fontSize,
@@ -701,8 +927,9 @@ export const moveCursorUp = (
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
 
-    const prevLines = wrapFormattedTextDetailed(
-      prevBlock.content,
+    const prevLines = wrapCharsDetailed(
+      prevBlock.chars,
+      prevBlock.formats,
       maxWidth,
       prevTextStyle.fontSize,
       prevTextStyle.fontWeight,
@@ -793,7 +1020,7 @@ export const moveCursorDown = (
   }
 
   // For RTL text, calculate visual position instead of logical position
-  const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
+  const isRTL = getCharsDirection(currentBlock.chars) === "rtl";
   let relativePosition: number;
 
   if (isRTL) {
@@ -804,8 +1031,9 @@ export const moveCursorDown = (
     const codePadding = styles.textFormats.code.padding;
 
     // Measure from line start to cursor position
-    const widthFromStart = measureFormattedTextUpToIndex(
-      currentBlock.content,
+    const widthFromStart = measureCharsUpToIndex(
+      currentBlock.chars,
+      currentBlock.formats,
       lineInfo.lineStartIndex,
       textIndex,
       textStyle.fontSize,
@@ -874,8 +1102,9 @@ export const moveCursorDown = (
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
 
-    const nextLines = wrapFormattedTextDetailed(
-      nextBlock.content,
+    const nextLines = wrapCharsDetailed(
+      nextBlock.chars,
+      nextBlock.formats,
       maxWidth,
       nextTextStyle.fontSize,
       nextTextStyle.fontWeight,
@@ -1338,7 +1567,8 @@ export const setLinkHover = (
     text: string;
     x: number;
     y: number;
-    segmentIndex: number;
+    startIndex: number;
+    endIndex: number;
   } | null
 ): EditorState =>
   linkHover
@@ -1349,7 +1579,8 @@ export const setLinkHover = (
         text: linkHover.text,
         x: linkHover.x,
         y: linkHover.y,
-        segmentIndex: linkHover.segmentIndex,
+        startIndex: linkHover.startIndex,
+        endIndex: linkHover.endIndex,
       })
     : closeActiveMenu(state);
 

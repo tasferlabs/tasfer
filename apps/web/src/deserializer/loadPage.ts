@@ -9,33 +9,38 @@ export interface BlockRuntimeState {
 export interface Heading extends BlockRuntimeState {
   id: string; // Unique identifier for caching
   type: "heading1" | "heading2" | "heading3";
-  content: Text[];
+  chars: Char[];           // Character-based (CRDT native)
+  formats: FormatSpan[];   // Format spans reference char IDs
 }
 export interface Paragraph extends BlockRuntimeState {
   id: string; // Unique identifier for caching
   type: "paragraph";
-  content: Text[];
+  chars: Char[];           // Character-based (CRDT native)
+  formats: FormatSpan[];   // Format spans reference char IDs
 }
 
 // List item blocks - support bullet, numbered, and todo lists with nesting
 export interface BulletListItem extends BlockRuntimeState {
   id: string; // Unique identifier for caching
   type: "bullet_list";
-  content: Text[];
+  chars: Char[];           // Character-based (CRDT native)
+  formats: FormatSpan[];   // Format spans reference char IDs
   indent: number; // 0-based indent level (0 = no indent)
 }
 
 export interface NumberedListItem extends BlockRuntimeState {
   id: string; // Unique identifier for caching
   type: "numbered_list";
-  content: Text[];
+  chars: Char[];           // Character-based (CRDT native)
+  formats: FormatSpan[];   // Format spans reference char IDs
   indent: number; // 0-based indent level (0 = no indent)
 }
 
 export interface TodoListItem extends BlockRuntimeState {
   id: string; // Unique identifier for caching
   type: "todo_list";
-  content: Text[];
+  chars: Char[];           // Character-based (CRDT native)
+  formats: FormatSpan[];   // Format spans reference char IDs
   checked: boolean;
   indent: number; // 0-based indent level (0 = no indent)
 }
@@ -74,9 +79,19 @@ export interface TextFormat {
   url?: string; // Only for link type
 }
 
-export interface Text {
-  content: string;
-  formats?: TextFormat[];
+// CRDT character with unique ID
+export interface Char {
+  id: string;        // Unique ID: "peerId:counter"
+  char: string;      // Single character
+  deleted?: boolean; // Tombstone flag for CRDT deletions
+}
+
+// Format span that references characters by ID
+export interface FormatSpan {
+  startCharId: string;
+  endCharId: string;
+  format: TextFormat;
+  clock: number;     // For LWW conflict resolution
 }
 
 // Helper function to compare two TextFormat objects
@@ -145,6 +160,7 @@ export function isImageDefault(block: Image): boolean {
 }
 
 export interface Page {
+  id: string;
   title: String;
   // color: string;
   // icon: string;

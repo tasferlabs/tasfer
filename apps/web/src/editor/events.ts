@@ -7,7 +7,6 @@ import {
   deleteForward,
   deleteSelectedText,
   deleteText,
-  deleteTextRangeInFormattedContent,
   deleteWordBackward,
   deleteWordForward,
   extendSelectionEnd,
@@ -29,6 +28,7 @@ import {
   toggleBold,
   toggleTodoChecked,
 } from "./commands";
+import { deleteCharsInRange } from "./crdt-helpers";
 import {
   CLICK_DISTANCE_THRESHOLD,
   CONTEXT_MENU_DURATION,
@@ -47,7 +47,7 @@ import {
 import { getBlockHeight, imageCache, invalidateBlockCache } from "./renderer";
 import { getEditorStyles, getTextStyle } from "./styles";
 import { getCurrentFontFamily, getFontMetrics } from "./fonts";
-import { getFormattedTextDirection } from "./rtl";
+import { getTextDirection } from "./rtl";
 import {
   applyMomentum,
   endScrollbarDrag,
@@ -920,7 +920,7 @@ export function handleEvents(
         if (position) {
           state = updateCursor(state, position);
         }
-        
+
         // Clear other menus
         state = closeActiveMenu({
           ...state,
@@ -1176,8 +1176,14 @@ export function handleEvents(
 
     // Check if we should block scrolling down (bottom handle + near bottom + at max height)
     let shouldBlockBottomScroll = false;
-    const objectFit = block.type === "image" ? (block.objectFit ?? "cover") : "cover";
-    if (handle === "bottom" && objectFit === "cover" && block.type === "image" && block.url) {
+    const objectFit =
+      block.type === "image" ? block.objectFit ?? "cover" : "cover";
+    if (
+      handle === "bottom" &&
+      objectFit === "cover" &&
+      block.type === "image" &&
+      block.url
+    ) {
       const cachedImage = imageCache.get(block.url);
       if (cachedImage && cachedImage.complete) {
         const imgAspectRatio =
@@ -1186,7 +1192,9 @@ export function handleEvents(
           typeof block.width === "number" ? block.width : viewport.width;
         const maxHeightForRatio = containerWidth / imgAspectRatio;
         // Use startHeight + delta to get current effective height
-        const currentHeight = state.ui.imageDrag.startHeight + (cursorY - state.ui.imageDrag.startY);
+        const currentHeight =
+          state.ui.imageDrag.startHeight +
+          (cursorY - state.ui.imageDrag.startY);
         const isAtMaxHeight = currentHeight >= maxHeightForRatio - 1;
         const isNearBottomEdge =
           cursorY > viewport.height - EDGE_SCROLL_THRESHOLD ||
@@ -1508,10 +1516,12 @@ function handlePaste(
 
   // Use the tracked pasteAsPlainText flag (set during keydown)
   // Paste as plain text
-  const newState = pasteFromClipboardEvent(state, event, clipboardData);
-  if (!newState) {
+  const result = pasteFromClipboardEvent(state, event, state.crdt, clipboardData);
+  if (!result) {
     return state;
   }
+
+  const newState = result.state;
 
   // Scroll to make the cursor (end of pasted content) visible
   if (newState.document.cursor && updateViewportCallback) {
@@ -1537,11 +1547,16 @@ function handleTodoCheckboxClick(
 ): EditorState | null {
   const styles = getEditorStyles();
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
-  const maxWidth = viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-  
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+
   // Iterate through blocks to find which one was clicked
   // Break early once we pass the visible area
-  for (let blockIndex = 0; blockIndex < state.document.page.blocks.length; blockIndex++) {
+  for (
+    let blockIndex = 0;
+    blockIndex < state.document.page.blocks.length;
+    blockIndex++
+  ) {
     const block = state.document.page.blocks[blockIndex];
     const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
 
@@ -1554,10 +1569,14 @@ function handleTodoCheckboxClick(
         const checkboxSize = styles.list.todo.checkboxSize;
 
         // Detect if this is RTL text
-        const isRTL = getFormattedTextDirection(block.content) === "rtl";
+        const blockText = isVisualBlock(block)
+          ? getBlockTextContent(block)
+          : "";
+        const isRTL = getTextDirection(blockText) === "rtl";
 
         // Calculate marker width to match rendering logic
-        const markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
+        const markerWidth =
+          styles.list.numbered.minWidth + styles.list.marker.textGap;
         const adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
 
         // Position checkbox based on text direction
@@ -1565,7 +1584,8 @@ function handleTodoCheckboxClick(
         if (isRTL) {
           // RTL: checkbox is in marker area on the right side
           // markerX = paddingLeft + indentOffset + adjustedMaxWidth
-          checkboxX = styles.canvas.paddingLeft + indentOffset + adjustedMaxWidth + 2;
+          checkboxX =
+            styles.canvas.paddingLeft + indentOffset + adjustedMaxWidth + 2;
         } else {
           // LTR: checkbox is in marker area on the left side
           // markerX = paddingLeft + indentOffset
@@ -1592,7 +1612,8 @@ function handleTodoCheckboxClick(
         ) {
           // Toggle the checkbox
           const newState = recordUndo(state);
-          return toggleTodoChecked(newState, blockIndex);
+          const result = toggleTodoChecked(newState, blockIndex, state.crdt);
+          return result.state;
         }
       }
 
@@ -1607,7 +1628,7 @@ function handleTodoCheckboxClick(
 
     currentY += blockHeight;
   }
-  
+
   return null;
 }
 
@@ -1689,7 +1710,10 @@ function handleMouseDown(
       if (linkData) {
         // Open the link in a new tab using native bridge on mobile apps
         if (window.IOSBridge?.postMessage) {
-          window.IOSBridge.postMessage({ action: "open-url", url: linkData.url });
+          window.IOSBridge.postMessage({
+            action: "open-url",
+            url: linkData.url,
+          });
         } else if (window.AndroidBridge?.openUrl) {
           window.AndroidBridge.openUrl(linkData.url);
         } else {
@@ -1869,7 +1893,10 @@ function handleMouseDown(
       anchor.textIndex === focus.textIndex
     ) {
       const selectedBlock = state.document.page.blocks[anchor.blockIndex];
-      if (selectedBlock && (selectedBlock.type === "image" || selectedBlock.type === "line")) {
+      if (
+        selectedBlock &&
+        (selectedBlock.type === "image" || selectedBlock.type === "line")
+      ) {
         // We have a visual block selected, but clicked outside it - clear the selection
         state = clearSelection(state);
       }
@@ -1922,8 +1949,8 @@ function handleMouseDown(
   if (!position) {
     // Only clear selection if it's collapsed or doesn't exist
     if (!state.document.selection || state.document.selection.isCollapsed) {
-    const clearedState = clearSelection(state);
-    return updateMode(clearedState, "edit");
+      const clearedState = clearSelection(state);
+      return updateMode(clearedState, "edit");
     }
     // Keep active selection and just switch to edit mode
     return updateMode(state, "edit");
@@ -2076,8 +2103,14 @@ function handleMouseMove(
     // Check if we should allow auto-scroll for bottom edge
     // Only block scrolling down if: bottom handle + near bottom edge + image at max height
     let shouldBlockBottomScroll = false;
-    const objectFit = block.type === "image" ? (block.objectFit ?? "cover") : "cover";
-    if (handle === "bottom" && objectFit === "cover" && block.type === "image" && block.url) {
+    const objectFit =
+      block.type === "image" ? block.objectFit ?? "cover" : "cover";
+    if (
+      handle === "bottom" &&
+      objectFit === "cover" &&
+      block.type === "image" &&
+      block.url
+    ) {
       const cachedImage = imageCache.get(block.url);
       if (cachedImage && cachedImage.complete) {
         const imgAspectRatio =
@@ -2086,7 +2119,9 @@ function handleMouseMove(
           typeof block.width === "number" ? block.width : viewport.width;
         const maxHeightForRatio = containerWidth / imgAspectRatio;
         // Use startHeight + delta to get current effective height
-        const currentHeight = state.ui.imageDrag.startHeight + (canvasY - state.ui.imageDrag.startY);
+        const currentHeight =
+          state.ui.imageDrag.startHeight +
+          (canvasY - state.ui.imageDrag.startY);
         const isAtMaxHeight = currentHeight >= maxHeightForRatio - 1;
         const isNearBottomEdge =
           canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
@@ -2215,7 +2250,7 @@ function handleMouseMove(
             // Calculate screen coordinates for tooltip at the link's start position
             const linkStartPos = {
               blockIndex: position.blockIndex,
-              textIndex: linkData.start,
+              textIndex: linkData.startIndex,
             };
             const linkCoords = getCursorCoordinates(
               linkStartPos,
@@ -2237,7 +2272,8 @@ function handleMouseMove(
                   viewport.scrollY +
                   linkCoords.height +
                   containerRect.top,
-                segmentIndex: linkData?.segmentIndex,
+                startIndex: linkData.startIndex,
+                endIndex: linkData.endIndex,
               });
 
               state = {
@@ -2493,7 +2529,8 @@ function handleKeyDown(
     // Only record undo if there's a selection (actual document change)
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    return toggleBold(hasSelection ? recordUndo(state) : state);
+    const result = toggleBold(hasSelection ? recordUndo(state) : state, state.crdt);
+    return result.state;
   }
 
   // Tab - indent/outdent list items
@@ -2501,17 +2538,29 @@ function handleKeyDown(
     if (state.document.cursor) {
       const { blockIndex } = state.document.cursor.position;
       const block = state.document.page.blocks[blockIndex];
-      
+
       if (isListBlock(block)) {
         if (keyEvent.shiftKey) {
           // Shift+Tab: outdent
-          const newState = outdentListItem(recordUndo(state));
-          ensureCursorVisible(newState, state, viewport, updateViewportCallback);
+          const result = outdentListItem(recordUndo(state), state.crdt);
+          const newState = result.state;
+          ensureCursorVisible(
+            newState,
+            state,
+            viewport,
+            updateViewportCallback
+          );
           return newState;
         } else {
           // Tab: indent
-          const newState = indentListItem(recordUndo(state));
-          ensureCursorVisible(newState, state, viewport, updateViewportCallback);
+          const result = indentListItem(recordUndo(state), state.crdt);
+          const newState = result.state;
+          ensureCursorVisible(
+            newState,
+            state,
+            viewport,
+            updateViewportCallback
+          );
           return newState;
         }
       }
@@ -2539,7 +2588,8 @@ function handleKeyDown(
         console.error("Cut (copy) failed:", err);
       });
       // Then delete the selected text
-      const newState = deleteSelectedText(recordUndo(state));
+      const result = deleteSelectedText(recordUndo(state), state.crdt);
+      const newState = result.state;
       ensureCursorVisible(newState, state, viewport, updateViewportCallback);
       return newState;
     }
@@ -2583,10 +2633,12 @@ function handleKeyDown(
       case "Enter":
         if (filteredCommands.length > 0 && state.document.cursor) {
           const selectedCommand = filteredCommands[slashMenu.selectedIndex];
-          const newState = applySlashCommand(
+          const result = applySlashCommand(
             recordUndo(state),
-            selectedCommand
+            selectedCommand,
+            state.crdt
           );
+          const newState = result.state;
           ensureCursorVisible(
             newState,
             state,
@@ -2607,17 +2659,21 @@ function handleKeyDown(
             return closeSlashCommand(state);
           }
 
-          // Remove the "/" and filter text, preserving formatting
-          const newContent = deleteTextRangeInFormattedContent(
-            block.content,
+          // Remove the "/" and filter text using CRDT operations
+          const { newChars } = deleteCharsInRange(
+            block.chars,
             textIndex - 1, // Remove the "/"
-            state.document.cursor.position.textIndex // Remove up to cursor (the filter text)
+            state.document.cursor.position.textIndex, // Remove up to cursor (the filter text)
+            block.id,
+            state.crdt
           );
 
           const newBlock: Block = {
             ...block,
-            content: newContent,
+            chars: newChars,
           };
+
+          invalidateBlockCache(newBlock);
 
           const newBlocks = [...state.document.page.blocks];
           newBlocks[blockIndex] = newBlock;
@@ -2648,7 +2704,8 @@ function handleKeyDown(
             state.ui.activeMenu.textIndex
         ) {
           // Close menu and delete the slash character - no recordUndo needed since deleteText already records
-          const newState = closeSlashCommand(deleteText(recordUndo(state)));
+          const deleteResult = deleteText(recordUndo(state), state.crdt);
+          const newState = closeSlashCommand(deleteResult.state);
           ensureCursorVisible(
             newState,
             state,
@@ -2663,7 +2720,8 @@ function handleKeyDown(
           state.ui.activeMenu.type === "slashCommand"
         ) {
           const slashMenu = state.ui.activeMenu;
-          const newState = deleteText(recordUndo(state));
+          const result = deleteText(recordUndo(state), state.crdt);
+          const newState = result.state;
           if (newState.document.cursor) {
             const block = newState.document.page.blocks[slashMenu.blockIndex];
             const text = getBlockTextContent(block);
@@ -2693,15 +2751,16 @@ function handleKeyDown(
         ) {
           const slashMenu = state.ui.activeMenu;
           // insertText handles recordUndo internally
-          const newState = insertText(recordUndo(state), key);
-          if (newState.document.cursor) {
-            const block = newState.document.page.blocks[slashMenu.blockIndex];
+          const result = insertText(recordUndo(state), key, state.crdt);
+          if (result.state.document.cursor) {
+            const block =
+              result.state.document.page.blocks[slashMenu.blockIndex];
             const text = getBlockTextContent(block);
             const filter = text.slice(
               slashMenu.textIndex,
-              newState.document.cursor.position.textIndex
+              result.state.document.cursor.position.textIndex
             );
-            const finalState = updateSlashCommandFilter(newState, filter);
+            const finalState = updateSlashCommandFilter(result.state, filter);
             ensureCursorVisible(
               finalState,
               state,
@@ -2710,7 +2769,7 @@ function handleKeyDown(
             );
             return finalState;
           }
-          return newState;
+          return result.state;
         }
         return state;
     }
@@ -2758,7 +2817,8 @@ function handleKeyDown(
             const newParagraph: Block = {
               id: generateBlockId(),
               type: "paragraph",
-              content: [{ content: "" }],
+              chars: [],
+              formats: [],
             };
 
             const newBlocks = [newParagraph, ...state.document.page.blocks];
@@ -2789,7 +2849,7 @@ function handleKeyDown(
             currentBlock.type === "paragraph" &&
             isVisualBlock(currentBlock) &&
             getBlockTextContent(currentBlock) === "" &&
-            getFormattedTextDirection(currentBlock.content) === "rtl"
+            getTextDirection(getBlockTextContent(currentBlock)) === "rtl"
           ) {
             // Remove the auto-created paragraph and move to the image below
             const newBlocks = state.document.page.blocks.filter(
@@ -2832,7 +2892,9 @@ function handleKeyDown(
 
         // If there's a selection, check if it's a visual block selection (image/line)
         const range = getSelectionRange(newState);
-        const startBlock = range ? state.document.page.blocks[range.start.blockIndex] : null;
+        const startBlock = range
+          ? state.document.page.blocks[range.start.blockIndex]
+          : null;
         const isVisualBlockSelection =
           range &&
           (startBlock?.type === "image" || startBlock?.type === "line") &&
@@ -2857,7 +2919,10 @@ function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (targetBlock && (targetBlock.type === "image" || targetBlock.type === "line")) {
+          if (
+            targetBlock &&
+            (targetBlock.type === "image" || targetBlock.type === "line")
+          ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -2908,12 +2973,16 @@ function handleKeyDown(
             state.document.cursor.position.blockIndex ===
             state.document.page.blocks.length - 1;
 
-          if (isLastBlock && (currentBlock?.type === "image" || currentBlock?.type === "line")) {
+          if (
+            isLastBlock &&
+            (currentBlock?.type === "image" || currentBlock?.type === "line")
+          ) {
             // Create a new paragraph below the visual block
             const newParagraph: Block = {
               id: generateBlockId(),
               type: "paragraph",
-              content: [{ content: "" }],
+              chars: [],
+              formats: [],
             };
 
             const newBlocks = [...state.document.page.blocks, newParagraph];
@@ -2944,7 +3013,7 @@ function handleKeyDown(
             currentBlock.type === "paragraph" &&
             isVisualBlock(currentBlock) &&
             getBlockTextContent(currentBlock) === "" &&
-            getFormattedTextDirection(currentBlock.content) === "ltr"
+            getTextDirection(getBlockTextContent(currentBlock)) === "ltr"
           ) {
             // Remove the auto-created paragraph and move to the image below
             const newBlocks = state.document.page.blocks.filter(
@@ -2987,7 +3056,9 @@ function handleKeyDown(
 
         // If there's a selection, check if it's a visual block selection (image/line)
         const range = getSelectionRange(newState);
-        const endBlock = range ? state.document.page.blocks[range.end.blockIndex] : null;
+        const endBlock = range
+          ? state.document.page.blocks[range.end.blockIndex]
+          : null;
         const isVisualBlockSelection =
           range &&
           (endBlock?.type === "image" || endBlock?.type === "line") &&
@@ -3012,7 +3083,10 @@ function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (targetBlock && (targetBlock.type === "image" || targetBlock.type === "line")) {
+          if (
+            targetBlock &&
+            (targetBlock.type === "image" || targetBlock.type === "line")
+          ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -3059,12 +3133,16 @@ function handleKeyDown(
             ];
           const isFirstBlock = state.document.cursor.position.blockIndex === 0;
 
-          if (isFirstBlock && (currentBlock?.type === "image" || currentBlock?.type === "line")) {
+          if (
+            isFirstBlock &&
+            (currentBlock?.type === "image" || currentBlock?.type === "line")
+          ) {
             // Create a new paragraph above the visual block
             const newParagraph: Block = {
               id: generateBlockId(),
               type: "paragraph",
-              content: [{ content: "" }],
+              chars: [],
+              formats: [],
             };
 
             const newBlocks = [newParagraph, ...state.document.page.blocks];
@@ -3096,7 +3174,10 @@ function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (targetBlock && (targetBlock.type === "image" || targetBlock.type === "line")) {
+          if (
+            targetBlock &&
+            (targetBlock.type === "image" || targetBlock.type === "line")
+          ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -3200,12 +3281,16 @@ function handleKeyDown(
             state.document.cursor.position.blockIndex ===
             state.document.page.blocks.length - 1;
 
-          if (isLastBlock && (currentBlock?.type === "image" || currentBlock?.type === "line")) {
+          if (
+            isLastBlock &&
+            (currentBlock?.type === "image" || currentBlock?.type === "line")
+          ) {
             // Create a new paragraph below the visual block
             const newParagraph: Block = {
               id: generateBlockId(),
               type: "paragraph",
-              content: [{ content: "" }],
+              chars: [],
+              formats: [],
             };
 
             const newBlocks = [...state.document.page.blocks, newParagraph];
@@ -3230,7 +3315,10 @@ function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (targetBlock && (targetBlock.type === "image" || targetBlock.type === "line")) {
+          if (
+            targetBlock &&
+            (targetBlock.type === "image" || targetBlock.type === "line")
+          ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -3277,7 +3365,10 @@ function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (targetBlock && (targetBlock.type === "image" || targetBlock.type === "line")) {
+          if (
+            targetBlock &&
+            (targetBlock.type === "image" || targetBlock.type === "line")
+          ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -3324,7 +3415,10 @@ function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (targetBlock && (targetBlock.type === "image" || targetBlock.type === "line")) {
+          if (
+            targetBlock &&
+            (targetBlock.type === "image" || targetBlock.type === "line")
+          ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -3394,30 +3488,36 @@ function handleKeyDown(
       return clearSelection(state);
     case "Backspace":
       if (isCtrl) {
-        newState = deleteWordBackward(recordUndo(state));
+        const result = deleteWordBackward(recordUndo(state), state.crdt);
+        newState = result.state;
       } else {
-        newState = deleteText(recordUndo(state));
+        const result = deleteText(recordUndo(state), state.crdt);
+        newState = result.state;
       }
       // Clear auto-created paragraph tracking on delete
       newState = clearAutoCreatedParagraph(newState);
       break;
     case "Delete":
       if (isCtrl) {
-        newState = deleteWordForward(recordUndo(state));
+        const result = deleteWordForward(recordUndo(state), state.crdt);
+        newState = result.state;
       } else {
-        newState = deleteForward(recordUndo(state));
+        const result = deleteForward(recordUndo(state), state.crdt);
+        newState = result.state;
       }
       // Clear auto-created paragraph tracking on delete
       newState = clearAutoCreatedParagraph(newState);
       break;
     case "Enter":
-      newState = splitBlock(recordUndo(state));
+      const splitResult = splitBlock(recordUndo(state), state.crdt);
+      newState = splitResult.state;
       // Clear auto-created paragraph tracking on enter
       newState = clearAutoCreatedParagraph(newState);
       break;
     case " ":
     case "Space":
-      newState = insertText(recordUndo(state), " ");
+      const spaceResult = insertText(recordUndo(state), " ", state.crdt);
+      newState = spaceResult.state;
       // Clear auto-created paragraph tracking on space (already cleared in insertText, but for safety)
       newState = clearAutoCreatedParagraph(newState);
       break;
@@ -3434,7 +3534,8 @@ function handleKeyDown(
         const { blockIndex } = state.document.cursor.position;
 
         // Allow slash command anywhere in paragraphs and headings
-        const newState = insertText(recordUndo(state), "/");
+        const slashResult = insertText(recordUndo(state), "/", state.crdt);
+        const newState = slashResult.state;
         if (newState.document.cursor) {
           const finalState = openSlashCommand(
             newState,
@@ -3458,7 +3559,8 @@ function handleKeyDown(
         !keyEvent.altKey &&
         !keyEvent.metaKey
       ) {
-        newState = insertText(recordUndo(state), key);
+        const result = insertText(recordUndo(state), key, state.crdt);
+        newState = result.state;
         break;
       }
       return state;
@@ -3651,10 +3753,10 @@ function handleTouchStart(
     const touch1 = event.touches[0];
     const touch2 = event.touches[1];
     const currentTime = Date.now();
-    
+
     // Calculate average position of both fingers
     const avgY = (touch1.clientY + touch2.clientY) / 2 - containerRect.top;
-    
+
     touchState = {
       startY: avgY,
       startScrollY: viewport.scrollY,
@@ -3710,7 +3812,12 @@ function handleTouchStart(
     );
 
     // Check if touching a selection handle for mobile selection dragging
-    const selectionHandle = getSelectionHandleAtPoint(canvasX, canvasY, state, viewport);
+    const selectionHandle = getSelectionHandleAtPoint(
+      canvasX,
+      canvasY,
+      state,
+      viewport
+    );
     if (selectionHandle && !isScrollbarThumbTouch) {
       // Start selection handle drag
       touchState = {
@@ -3901,7 +4008,7 @@ function handleTouchMove(
     // User lifted one finger during two-finger scroll - end the scroll with momentum
     const avgVelocity = touchState.velocityY;
     const minMomentumVelocity = 0.1; // pixels per ms
-    
+
     // Apply momentum if velocity is significant
     if (Math.abs(avgVelocity) > minMomentumVelocity) {
       const momentumMultiplier = 1.2;
@@ -3921,19 +4028,23 @@ function handleTouchMove(
         },
       };
     }
-    
+
     touchState = null;
     return state;
   }
 
   // Handle transition from single to two-finger scroll
-  if (event.touches.length === 2 && touchState && !touchState.isTwoFingerScroll) {
+  if (
+    event.touches.length === 2 &&
+    touchState &&
+    !touchState.isTwoFingerScroll
+  ) {
     // User added a second finger - switch to two-finger scroll mode
     const touch1 = event.touches[0];
     const touch2 = event.touches[1];
     const currentTime = Date.now();
     const avgY = (touch1.clientY + touch2.clientY) / 2 - containerRect.top;
-    
+
     touchState = {
       ...touchState,
       isTwoFingerScroll: true,
@@ -3945,7 +4056,7 @@ function handleTouchMove(
       isLongPress: false, // Cancel long press
       hasMoved: true, // Mark as moved to prevent tap detection
     };
-    
+
     // Stop any auto-scroll
     stopAutoScroll();
   }
@@ -3957,19 +4068,19 @@ function handleTouchMove(
     const touch2 = event.touches[1];
     const currentTime = Date.now();
     const deltaTime = currentTime - touchState.lastTime;
-    
+
     // Skip if no time has passed
     if (deltaTime === 0) return state;
-    
+
     // Calculate average position of both fingers
     const avgY = (touch1.clientY + touch2.clientY) / 2 - containerRect.top;
-    
+
     // Calculate scroll delta
     const scrollDeltaY = touchState.lastY - avgY;
-    
+
     // Calculate instantaneous velocity (pixels per millisecond)
     const instantVelocity = scrollDeltaY / deltaTime;
-    
+
     // Track velocity for momentum
     if (Math.abs(instantVelocity) > 0.01) {
       touchState.velocityHistory.push({
@@ -3977,12 +4088,12 @@ function handleTouchMove(
         time: currentTime,
       });
     }
-    
+
     // Keep only last 150ms of velocity history
     touchState.velocityHistory = touchState.velocityHistory.filter(
       (v) => currentTime - v.time < 150
     );
-    
+
     // Update velocity for momentum
     if (touchState.velocityHistory.length > 0) {
       const totalVelocity = touchState.velocityHistory.reduce(
@@ -3991,25 +4102,25 @@ function handleTouchMove(
       );
       touchState.velocityY = totalVelocity / touchState.velocityHistory.length;
     }
-    
+
     // Apply scroll with multiplier for responsive feel
     const touchScrollMultiplier = 1.5;
     const scrollDelta = (touchState.startY - avgY) * touchScrollMultiplier;
-    
+
     // Update scroll position with boundaries
     const maxScroll = documentHeight - viewport.height;
     const newScrollY = Math.max(
       0,
       Math.min(maxScroll, touchState.startScrollY + scrollDelta)
     );
-    
+
     if (updateViewportCallback) {
       updateViewportCallback({ scrollY: newScrollY });
     }
-    
+
     touchState.lastY = avgY;
     touchState.lastTime = currentTime;
-    
+
     // Clear any menus when scrolling
     return {
       ...state,
@@ -4076,8 +4187,14 @@ function handleTouchMove(
       // Check if we should allow auto-scroll for bottom edge
       // Only block scrolling down if: bottom handle + near bottom edge + image at max height
       let shouldBlockBottomScroll = false;
-      const objectFit = block.type === "image" ? (block.objectFit ?? "cover") : "cover";
-      if (handle === "bottom" && objectFit === "cover" && block.type === "image" && block.url) {
+      const objectFit =
+        block.type === "image" ? block.objectFit ?? "cover" : "cover";
+      if (
+        handle === "bottom" &&
+        objectFit === "cover" &&
+        block.type === "image" &&
+        block.url
+      ) {
         const cachedImage = imageCache.get(block.url);
         if (cachedImage && cachedImage.complete) {
           const imgAspectRatio =
@@ -4086,7 +4203,9 @@ function handleTouchMove(
             typeof block.width === "number" ? block.width : viewport.width;
           const maxHeightForRatio = containerWidth / imgAspectRatio;
           // Use startHeight + delta to get current effective height
-          const currentHeight = state.ui.imageDrag.startHeight + (canvasY - state.ui.imageDrag.startY);
+          const currentHeight =
+            state.ui.imageDrag.startHeight +
+            (canvasY - state.ui.imageDrag.startY);
           const isAtMaxHeight = currentHeight >= maxHeightForRatio - 1;
           const isNearBottomEdge =
             canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
@@ -4283,13 +4402,13 @@ function handleTouchMove(
             viewport,
             { start: 0, end: state.document.page.blocks.length - 1 }
           );
-          
+
           if (position) {
             state = startSelection(state, position);
             state = updateMode(state, "select");
           }
         }
-        
+
         if (!autoScrollState.isActive) {
           startAutoScroll();
         }
@@ -4394,7 +4513,7 @@ function handleTouchEnd(
   if (touchState?.isTwoFingerScroll) {
     const avgVelocity = touchState.velocityY;
     const minMomentumVelocity = 0.1; // pixels per ms
-    
+
     // Apply momentum if velocity is significant
     if (Math.abs(avgVelocity) > minMomentumVelocity) {
       const momentumMultiplier = 1.2;
@@ -4414,7 +4533,7 @@ function handleTouchEnd(
         },
       };
     }
-    
+
     touchState = null;
     return state;
   }
@@ -4707,7 +4826,8 @@ function handleTouchEnd(
 
         // Calculate if tap is below the last block's content
         // Use pre-computed viewport.documentHeight instead of iterating through all blocks
-        const totalContentHeight = viewport.documentHeight + styles.canvas.paddingTop;
+        const totalContentHeight =
+          viewport.documentHeight + styles.canvas.paddingTop;
         const isTapBelowContent =
           tapPosition.y > totalContentHeight - viewport.scrollY;
 
@@ -4716,13 +4836,11 @@ function handleTouchEnd(
           const newParagraph: Block = {
             id: generateBlockId(),
             type: "paragraph",
-            content: [{ content: "" }],
+            chars: [],
+            formats: [],
           };
 
-          const newBlocks = [
-            ...state.document.page.blocks,
-            newParagraph,
-          ];
+          const newBlocks = [...state.document.page.blocks, newParagraph];
           const newPage = { ...state.document.page, blocks: newBlocks };
 
           state = {
@@ -4840,18 +4958,17 @@ function handleTouchEnd(
         } else {
           // Tapped on image block area but not on the actual image visual
           // If this is the last block, create a new paragraph below
-          const isLastBlock = position.blockIndex === state.document.page.blocks.length - 1;
+          const isLastBlock =
+            position.blockIndex === state.document.page.blocks.length - 1;
           if (isLastBlock) {
             const newParagraph: Block = {
               id: generateBlockId(),
               type: "paragraph",
-              content: [{ content: "" }],
+              chars: [],
+              formats: [],
             };
 
-            const newBlocks = [
-              ...state.document.page.blocks,
-              newParagraph,
-            ];
+            const newBlocks = [...state.document.page.blocks, newParagraph];
             const newPage = { ...state.document.page, blocks: newBlocks };
 
             state = {
@@ -4942,7 +5059,10 @@ function handleTouchEnd(
           anchor.textIndex === focus.textIndex
         ) {
           const selectedBlock = state.document.page.blocks[anchor.blockIndex];
-          if (selectedBlock && (selectedBlock.type === "image" || selectedBlock.type === "line")) {
+          if (
+            selectedBlock &&
+            (selectedBlock.type === "image" || selectedBlock.type === "line")
+          ) {
             // We have a visual block selected, but tapped outside it - clear the selection
             state = clearSelection(state);
           }
@@ -4960,7 +5080,14 @@ function handleTouchEnd(
       }
       // If tapping inside a selection (single or double tap), open context menu (mobile UX)
       // Use pixel-based check to account for text wrapping - only trigger if tap is on actual selection boxes
-      else if (isPointWithinSelectionRects(tapPosition.x, tapPosition.y, state, viewport)) {
+      else if (
+        isPointWithinSelectionRects(
+          tapPosition.x,
+          tapPosition.y,
+          state,
+          viewport
+        )
+      ) {
         // Keep selection but update cursor position
         state = updateCursor(state, position);
         // Open context menu at tap position (or keep open if already open)
@@ -5110,7 +5237,8 @@ function handleCompositionStart(
   if (state.document.selection && !state.document.selection.isCollapsed) {
     const range = getSelectionRange(state);
     if (range) {
-      state = deleteSelectedText(state);
+      const result = deleteSelectedText(state, state.crdt);
+      state = result.state;
     }
   }
 
@@ -5175,7 +5303,8 @@ function handleCompositionEnd(
 
   if (composedText && state.document.cursor) {
     // Insert the composed text at the cursor position
-    state = insertText(recordUndo(state), composedText);
+    const result = insertText(recordUndo(state), composedText, state.crdt);
+    state = result.state;
 
     // Scroll to make cursor visible
     if (state.document.cursor && updateViewportCallback) {

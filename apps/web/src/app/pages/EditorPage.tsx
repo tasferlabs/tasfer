@@ -6,6 +6,10 @@ import { useTranslation } from "react-i18next";
 import { Navigate, useParams, useNavigate } from "react-router-dom";
 import { debounce } from "lodash-es";
 import { MountedEditor } from "../MountedEditor";
+import type { SyncState } from "../../sync/webrtc";
+
+// Signaling server URL - defaults to localhost for development
+const SIGNALING_URL = import.meta.env.VITE_SIGNALING_URL || "ws://localhost:8080";
 import {
   useCreatePage,
   getPage,
@@ -90,6 +94,8 @@ export default function EditorPage() {
   const [pageContent, setPageContent] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
+  // Live sync state
+  const [syncState, setSyncState] = useState<SyncState>({ status: "disconnected" });
 
   const { data: pages, isLoading: isLoadingPages } = useGetPages(null);
   const [lastPageId, setLastPageId] = useLocalStorage<string | null>(
@@ -254,8 +260,18 @@ export default function EditorPage() {
         className="w-full h-full"
         onContentChange={handleContentChange}
         autoFocus={true}
+        pageId={id}
+        signalingUrl={SIGNALING_URL}
+        onSyncStateChange={setSyncState}
       />
       <WordCountOverlay />
+      {/* Sync status indicator */}
+      {syncState.status === "connected" && syncState.peerCount > 0 && (
+        <div className="fixed bottom-4 right-4 bg-green-500/90 text-white px-3 py-1.5 rounded-full text-sm font-medium shadow-lg flex items-center gap-2">
+          <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
+          {syncState.peerCount} {syncState.peerCount === 1 ? "peer" : "peers"} connected
+        </div>
+      )}
     </>
   );
 }

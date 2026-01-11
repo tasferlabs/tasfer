@@ -20,16 +20,21 @@ import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
 import { SlashCommandMenu } from "../editor/SlashCommandMenu";
 import { hasNativeBridge } from "../editor/clipboard";
-import { getSelectionRange, getFormatsAtPosition } from "../editor/commands";
-import { getBlockTextContent, isTouchDevice } from "../editor/state";
+import { getFormatsAtPosition, getSelectionRange } from "../editor/commands";
 import {
   mountEditor,
   type MountedEditor as MountedEditorInstance,
 } from "../editor/mount";
 import { clearFailedImageCache } from "../editor/renderer";
 import { getLinkAtPosition } from "../editor/selection";
+import {
+  getBlockTextContent,
+  isTouchDevice,
+} from "../editor/state";
 import type { EditorState, SlashCommand } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
+import { WebRTCSync, type SyncState } from "../sync/webrtc";
+import { SyncEngine } from "../sync/index";
 import { uploadImage } from "./api/images.api";
 
 interface MountedEditorProps {
@@ -37,6 +42,12 @@ interface MountedEditorProps {
   className?: string;
   onContentChange?: (content: string) => void;
   autoFocus?: boolean;
+  /** Unique page ID for CRDT sync - if provided, enables live collaboration */
+  pageId: string;
+  /** WebSocket URL for signaling server (required if enableSync is true) */
+  signalingUrl: string;
+  /** Callback when sync state changes */
+  onSyncStateChange?: (state: SyncState) => void;
 }
 
 export const MountedEditor: React.FC<MountedEditorProps> = ({
@@ -44,9 +55,14 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
   className = "",
   onContentChange,
   autoFocus = false,
+  pageId,
+  signalingUrl,
+  onSyncStateChange,
 }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
+  const syncEngineRef = useRef<SyncEngine | null>(null);
+  const webrtcSyncRef = useRef<WebRTCSync | null>(null);
   const [slashMenuState, setSlashMenuState] = useState<{
     visible: boolean;
     x: number;
@@ -75,7 +91,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     url: string;
     text: string;
     blockIndex: number;
-    segmentIndex: number;
+    startIndex: number;
+    endIndex: number;
     savedCursor: EditorState["document"]["cursor"];
     savedSelection: EditorState["document"]["selection"];
   } | null>(null);
@@ -121,9 +138,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     linkText?: string;
     selectedText?: string;
     blockIndex?: number;
-    segmentIndex?: number;
-    startTextIndex?: number;
-    endTextIndex?: number;
+    startIndex?: number;
+    endIndex?: number;
   } | null>(null);
 
   const [nativeImageDrawerState, setNativeImageDrawerState] = useState<{
@@ -143,12 +159,97 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       mountedRef.current = null;
     }
 
+    // Clean up previous sync engine and WebRTC
+    if (webrtcSyncRef.current) {
+      webrtcSyncRef.current.leaveRoom();
+      webrtcSyncRef.current = null;
+    }
+    if (syncEngineRef.current) {
+      syncEngineRef.current = null;
+    }
+
     // Reset serialization tracking and initialization flag when content changes
     lastSerializedBlocksRef.current = null;
     editorInitializedRef.current = false;
 
     const mounted = mountEditor(el, content);
     mountedRef.current = mounted;
+
+    // Initialize sync engine if signaling URL is provided
+    if (signalingUrl) {
+      const syncEngine = new SyncEngine(pageId);
+      syncEngineRef.current = syncEngine;
+
+      // Subscribe to CRDT state changes for remote updates
+      const unsubscribeSync = syncEngine.onStateChange((newPageState) => {
+        // Convert PageState blocks to Page blocks format
+        const convertedBlocks = newPageState.blocks.map((blockState) => {
+          const baseBlock: any = {
+            id: blockState.id,
+            type: blockState.type,
+            chars: blockState.chars,
+            formats: blockState.formats,
+          };
+          
+          // Add type-specific properties from props
+          if (blockState.type === "bullet_list" || blockState.type === "numbered_list") {
+            baseBlock.indent = blockState.props.indent ?? 0;
+          } else if (blockState.type === "todo_list") {
+            baseBlock.checked = blockState.props.checked ?? false;
+            baseBlock.indent = blockState.props.indent ?? 0;
+          } else if (blockState.type === "image") {
+            baseBlock.url = blockState.props.url ?? "";
+            baseBlock.alt = blockState.props.alt;
+            baseBlock.width = blockState.props.width;
+            baseBlock.height = blockState.props.height;
+            baseBlock.objectFit = blockState.props.objectFit;
+          }
+          
+          return baseBlock;
+        });
+        
+        mounted.editor.updatePageFromSync({
+          id: pageId,
+          title: "",
+          blocks: convertedBlocks,
+        });
+      });
+
+      // Store cleanup function
+      (mounted as any)._syncCleanup = unsubscribeSync;
+
+      // Initialize WebRTC sync
+      const webrtcSync = new WebRTCSync(syncEngine, {
+        signalingUrl,
+        onStateChange: (state) => {
+          console.log("[WebRTC] State changed:", state);
+          onSyncStateChange?.(state);
+        },
+        onRemoteOperation: (ops) => {
+          console.log("[WebRTC] Received remote operations:", ops.length);
+        },
+        onFirstPeer: () => {
+          console.log("[MountedEditor] First peer - loading initial content");
+          // The editor already has the initial content loaded
+          // Sync engine will receive ops from editor's broadcast
+        },
+      });
+      webrtcSyncRef.current = webrtcSync;
+
+      // Connect editor's broadcast to WebRTC
+      mounted.editor.setBroadcast((ops) => {
+        // Add to sync engine's log
+        syncEngine.emit(ops);
+        // Broadcast to peers
+        webrtcSync.broadcast(ops);
+      });
+
+      // Join the room for this page
+      webrtcSync.joinRoom(pageId).catch((error) => {
+        console.error("[WebRTC] Failed to join room:", error);
+        onSyncStateChange?.({ status: "error", error: error.message });
+      });
+    }
 
     // Handle format button clicks from native
     // Returns true if handled, false if native should open block menu
@@ -192,7 +293,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
               url: linkData.url,
               linkText: linkData.text,
               blockIndex: state.document.cursor.position.blockIndex,
-              segmentIndex: linkData.segmentIndex,
+              startIndex: linkData.startIndex,
+              endIndex: linkData.endIndex,
             });
             return true;
           } else if (
@@ -216,8 +318,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
                   y: containerRect.top + 100,
                   selectedText,
                   blockIndex: start.blockIndex,
-                  startTextIndex: start.textIndex,
-                  endTextIndex: end.textIndex,
+                  startIndex: start.textIndex,
+                  endIndex: end.textIndex,
                 });
                 return true;
               }
@@ -541,6 +643,21 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
 
     return () => {
       unsubscribe();
+
+      // Clean up WebRTC sync
+      if (webrtcSyncRef.current) {
+        webrtcSyncRef.current.leaveRoom();
+        webrtcSyncRef.current = null;
+      }
+
+      // Clean up sync binding
+      if ((mounted as any)._syncCleanup) {
+        (mounted as any)._syncCleanup();
+      }
+      if (syncEngineRef.current) {
+        syncEngineRef.current = null;
+      }
+
       mounted.destroy();
 
       if (window.AndroidBridge) {
@@ -557,7 +674,14 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         mountedRef.current = null;
       }
     };
-  }, [content, onContentChange, autoFocus]);
+  }, [
+    content,
+    onContentChange,
+    autoFocus,
+    pageId,
+    signalingUrl,
+    onSyncStateChange,
+  ]);
 
   const handleSlashCommandSelect = (command: SlashCommand) => {
     if (mountedRef.current) {
@@ -744,7 +868,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
           url: linkData.url,
           text: linkData.text,
           blockIndex: linkData.position.blockIndex,
-          segmentIndex: linkData.segmentIndex,
+          startIndex: linkData.startIndex,
+          endIndex: linkData.endIndex,
           savedCursor,
           savedSelection,
         });
@@ -759,7 +884,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     const editor = mountedRef.current.editor;
     editor.updateLink(
       linkEditState.blockIndex,
-      linkEditState.segmentIndex,
+      linkEditState.startIndex,
+      linkEditState.endIndex,
       newUrl,
       newText
     );
@@ -771,7 +897,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     if (!linkEditState || !mountedRef.current) return;
 
     const editor = mountedRef.current.editor;
-    editor.clearLink(linkEditState.blockIndex, linkEditState.segmentIndex);
+    editor.clearLink(linkEditState.blockIndex, linkEditState.startIndex, linkEditState.endIndex);
     // Mark that an action was performed (don't restore selection on close)
     linkEditActionPerformedRef.current = true;
   };
@@ -1094,24 +1220,26 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
 
               if (
                 nativeLinkDrawerState.blockIndex !== undefined &&
-                nativeLinkDrawerState.segmentIndex !== undefined
+                nativeLinkDrawerState.startIndex !== undefined &&
+                nativeLinkDrawerState.endIndex !== undefined
               ) {
                 // Update existing link
                 editor.updateLink(
                   nativeLinkDrawerState.blockIndex,
-                  nativeLinkDrawerState.segmentIndex,
+                  nativeLinkDrawerState.startIndex,
+                  nativeLinkDrawerState.endIndex,
                   newUrl,
                   newText
                 );
               } else if (
                 nativeLinkDrawerState.blockIndex !== undefined &&
-                nativeLinkDrawerState.startTextIndex !== undefined &&
-                nativeLinkDrawerState.endTextIndex !== undefined
+                nativeLinkDrawerState.startIndex !== undefined &&
+                nativeLinkDrawerState.endIndex !== undefined
               ) {
                 // Create new link from selection - restore selection first
                 const blockIndex = nativeLinkDrawerState.blockIndex;
-                const startTextIndex = nativeLinkDrawerState.startTextIndex;
-                const endTextIndex = nativeLinkDrawerState.endTextIndex;
+                const startTextIndex = nativeLinkDrawerState.startIndex;
+                const endTextIndex = nativeLinkDrawerState.endIndex;
 
                 // Restore the selection by creating it programmatically
                 const anchor = { blockIndex, textIndex: startTextIndex };
@@ -1140,11 +1268,13 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
                     const editor = mountedRef.current.editor;
                     if (
                       nativeLinkDrawerState.blockIndex !== undefined &&
-                      nativeLinkDrawerState.segmentIndex !== undefined
+                      nativeLinkDrawerState.startIndex !== undefined &&
+                      nativeLinkDrawerState.endIndex !== undefined
                     ) {
                       editor.clearLink(
                         nativeLinkDrawerState.blockIndex,
-                        nativeLinkDrawerState.segmentIndex
+                        nativeLinkDrawerState.startIndex,
+                        nativeLinkDrawerState.endIndex
                       );
                     }
                     setNativeLinkDrawerState(null);

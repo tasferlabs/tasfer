@@ -128,6 +128,7 @@ export function mountEditor(
     width: initial.width,
     height: initial.height,
     scrollY: 0,
+    documentHeight: 0
   };
 
   // Load the page and create initial state before creating the editor

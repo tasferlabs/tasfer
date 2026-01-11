@@ -1,6 +1,7 @@
 import type { Block, Page, TextFormat } from "../deserializer/loadPage";
 import type { FontFamily } from "./fonts";
 import type { ScrollbarState, MomentumState } from "./scrollbar";
+import type { Operation, HLC } from "../sync/types";
 
 export interface SlashCommand {
   id: string;
@@ -56,7 +57,8 @@ export type ActiveMenu =
       text: string;
       x: number;
       y: number;
-      segmentIndex: number;
+      startIndex: number;
+      endIndex: number;
     }
   | {
       type: "linkEdit";
@@ -65,7 +67,8 @@ export type ActiveMenu =
       text: string;
       x: number;
       y: number;
-      segmentIndex: number;
+      startIndex: number;
+      endIndex: number;
     }
   | {
       type: "imageUpload";
@@ -159,6 +162,20 @@ export interface EditorState {
   readonly ui: UIState;
   readonly view: ViewState;
   readonly undoManager: UndoManagerState;
+  readonly crdt: CRDTContext;
+}
+
+// Command result - all commands return state + operations
+export interface CommandResult {
+  readonly state: EditorState;
+  readonly ops: Operation[];
+}
+
+// CRDT context - external dependencies for generating operations
+export interface CRDTContext {
+  readonly pageId: string;
+  readonly idGen: () => string;
+  readonly clock: () => HLC;
 }
 
 export interface CursorState {
