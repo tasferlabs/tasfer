@@ -217,7 +217,8 @@ Bugs list
 - [ ] empty line and selection drag
 - [x] deleting blocks not working on live update.I think we could consolidate @apps/web/src/sync/index.ts operations more, like why do we need dosen of operation lww properties.
 - [ ] tapping enter to split blocks does not not work well with crdt opreations.
-- [ ] arabic script stopped working after impelemting crdt 
+- [x] arabic script stopped working after impelemting crdt 
+- [ ] arabic text not breaking correcttly
 - [ ] when typing in the middle the other tab insert to the end.
 - [ ] fix stoarge problems with crdt
 - [ ] remote caret should not be showen when there is selection. 

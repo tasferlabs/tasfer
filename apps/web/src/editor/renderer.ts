@@ -305,7 +305,21 @@ function renderCompositionUnderline(
   ctx.restore();
 }
 
+// Helper to create a format key for batching characters with same formatting
+function getFormatKey(formats: TextFormat[]): string {
+  const keys: string[] = [];
+  for (const f of formats) {
+    if (f.type === "link") {
+      keys.push(`link:${f.url}`);
+    } else {
+      keys.push(f.type);
+    }
+  }
+  return keys.sort().join("|");
+}
+
 // Helper function to render a line with CRDT formatting
+// Batches consecutive characters with same formatting to preserve Arabic ligatures
 function renderCRDTLine(
   ctx: CanvasRenderingContext2D,
   chars: Char[],
@@ -322,10 +336,17 @@ function renderCRDTLine(
   // Set canvas direction
   ctx.direction = isRTL ? "rtl" : "ltr";
 
-  let currentX = x;
+  // First pass: collect characters with their formats for this line
+  interface CharWithFormat {
+    char: string;
+    charIndex: number;
+    formats: TextFormat[];
+    formatKey: string;
+  }
+
+  const lineChars: CharWithFormat[] = [];
   let visibleIndex = 0;
 
-  // Render each character in the line
   for (let i = 0; i < chars.length; i++) {
     const char = chars[i];
 
@@ -342,29 +363,75 @@ function renderCRDTLine(
       break;
     }
 
-    // Get formats for this character
     const charFormats = getFormatsAtCharIndex(i, chars, formats);
+    lineChars.push({
+      char: char.char,
+      charIndex: i,
+      formats: charFormats,
+      formatKey: getFormatKey(charFormats),
+    });
 
-    // Determine font style
-    const isBold = charFormats.some((f) => f.type === "bold");
-    const isItalic = charFormats.some((f) => f.type === "italic");
-    const isCode = charFormats.some((f) => f.type === "code");
-    const isStrikethrough = charFormats.some((f) => f.type === "strikethrough");
-    const linkFormat = charFormats.find((f) => f.type === "link");
-    const isLink = !!linkFormat;
+    visibleIndex++;
+  }
 
-    const effectiveFontWeight = isBold ? "bold" : textStyle.fontWeight;
-    const fontStyle = isItalic ? "italic" : "normal";
+  // Second pass: batch consecutive characters with same formatting
+  interface TextBatch {
+    text: string;
+    formats: TextFormat[];
+    isBold: boolean;
+    isItalic: boolean;
+    isCode: boolean;
+    isStrikethrough: boolean;
+    isLink: boolean;
+    linkUrl?: string;
+  }
+
+  const batches: TextBatch[] = [];
+  let currentBatch: TextBatch | null = null;
+
+  for (const charInfo of lineChars) {
+    if (currentBatch && currentBatch.formats.length === charInfo.formats.length &&
+        getFormatKey(currentBatch.formats) === charInfo.formatKey) {
+      // Same formatting, append to current batch
+      currentBatch.text += charInfo.char;
+    } else {
+      // Different formatting, start new batch
+      const isBold = charInfo.formats.some((f) => f.type === "bold");
+      const isItalic = charInfo.formats.some((f) => f.type === "italic");
+      const isCode = charInfo.formats.some((f) => f.type === "code");
+      const isStrikethrough = charInfo.formats.some((f) => f.type === "strikethrough");
+      const linkFormat = charInfo.formats.find((f) => f.type === "link");
+
+      currentBatch = {
+        text: charInfo.char,
+        formats: charInfo.formats,
+        isBold,
+        isItalic,
+        isCode,
+        isStrikethrough,
+        isLink: !!linkFormat,
+        linkUrl: linkFormat?.type === "link" ? linkFormat.url : undefined,
+      };
+      batches.push(currentBatch);
+    }
+  }
+
+  // Third pass: render each batch
+  let currentX = x;
+
+  for (const batch of batches) {
+    const effectiveFontWeight = batch.isBold ? "bold" : textStyle.fontWeight;
+    const fontStyle = batch.isItalic ? "italic" : "normal";
 
     ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${FONT_STACKS[fontFamily]}`;
     ctx.textBaseline = "alphabetic";
 
-    // Measure text width
-    const textWidth = ctx.measureText(char.char).width;
+    // Measure the entire batch text width
+    const textWidth = ctx.measureText(batch.text).width;
     const visualX = currentX;
 
     // Handle code background
-    if (isCode) {
+    if (batch.isCode) {
       const codeStyle = styles.textFormats.code;
       const padding = codeStyle.padding;
 
@@ -394,17 +461,17 @@ function renderCRDTLine(
       ctx.restore();
 
       ctx.fillStyle = codeStyle.color;
-    } else if (isLink) {
+    } else if (batch.isLink) {
       ctx.fillStyle = styles.textFormats.link.color;
     } else {
       ctx.fillStyle = textStyle.color;
     }
 
-    // Render the text
-    ctx.fillText(char.char, visualX, y);
+    // Render the entire batch text at once (preserves Arabic ligatures)
+    ctx.fillText(batch.text, visualX, y);
 
     // Handle underline for links
-    if (isLink) {
+    if (batch.isLink) {
       const linkStyle = styles.textFormats.link;
       ctx.save();
       ctx.strokeStyle = linkStyle.color;
@@ -423,7 +490,7 @@ function renderCRDTLine(
     }
 
     // Handle strikethrough
-    if (isStrikethrough) {
+    if (batch.isStrikethrough) {
       ctx.save();
       ctx.strokeStyle = textStyle.color;
       ctx.lineWidth = Math.max(1, textStyle.fontSize / 16);
@@ -446,8 +513,6 @@ function renderCRDTLine(
     } else {
       currentX += textWidth;
     }
-
-    visibleIndex++;
   }
 
   // Reset direction
