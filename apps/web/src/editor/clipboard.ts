@@ -1176,7 +1176,7 @@ function insertBlocksAtCursor(
             pageId: crdt.pageId,
             blockId: currentBlock.id,
             charIds,
-            format: pasteFormat.format.type as any,
+            format: pasteFormat.format,
             value:
               pasteFormat.format.type === "link"
                 ? pasteFormat.format.url || true
@@ -1308,7 +1308,7 @@ function insertBlocksAtCursor(
             pageId: crdt.pageId,
             blockId: currentBlock.id,
             charIds,
-            format: pasteFormat.format.type as any,
+            format: pasteFormat.format,
             value:
               pasteFormat.format.type === "link"
                 ? pasteFormat.format.url || true

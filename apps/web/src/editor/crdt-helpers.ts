@@ -143,7 +143,7 @@ export function formatCharsInRange(
         pageId: crdt.pageId,
         blockId,
         charIds: [],
-        format: format.type as any,
+        format,
         value,
       },
     };
@@ -178,10 +178,10 @@ export function formatCharsInRange(
     pageId: crdt.pageId,
     blockId,
     charIds,
-    format: format.type as any,
+    format,
     value,
   };
-  
+
   return { newFormats, op };
 }
 
@@ -431,16 +431,37 @@ function applyRemoteFormatSet(page: Page, op: FormatSet): Page {
     return page;
   }
 
-  const newSpan: FormatSpan = {
-    startCharId: op.charIds[0],
-    endCharId: op.charIds[op.charIds.length - 1],
-    format: op.format,
-    clock: op.clock,
-  };
+  if (op.charIds.length === 0) {
+    return page;
+  }
+
+  let newFormats: FormatSpan[];
+
+  if (op.value === false) {
+    // Remove format: filter out spans that match this format type and overlap with charIds
+    newFormats = block.formats.filter((span) => {
+      if (span.format.type !== op.format.type) return true;
+
+      // Check if this span overlaps with any of the charIds
+      const overlaps = op.charIds.some((charId) =>
+        isCharIdInSpan(charId, span, block.chars)
+      );
+      return !overlaps;
+    });
+  } else {
+    // Add format: create a new span
+    const newSpan: FormatSpan = {
+      startCharId: op.charIds[0],
+      endCharId: op.charIds[op.charIds.length - 1],
+      format: op.format,
+      clock: op.clock,
+    };
+    newFormats = [...block.formats, newSpan];
+  }
 
   const updatedBlock = {
     ...block,
-    formats: [...block.formats, newSpan],
+    formats: newFormats,
   };
 
   const newBlocks = [...page.blocks];
