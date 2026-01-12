@@ -1,10 +1,10 @@
 import { isTextualBlock } from "@/deserializer/loadPage";
-import type { Operation, HLC } from "@/sync";
+import type { Operation, HLC } from "../sync";
 import {
   toggleTodoChecked,
   selectLineAtPosition,
   selectWordAtPosition,
-} from "../commands";
+} from "../actions/commands";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
 import {
   autoScrollState,

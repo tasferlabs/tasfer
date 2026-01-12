@@ -1,5 +1,5 @@
-import type { Operation } from "@/sync";
-import { getSelectionRange, deleteSelectedText, insertText } from "../commands";
+import type { Operation } from "../sync";
+import { getSelectionRange, deleteSelectedText, insertText } from "../actions/commands";
 import { scrollToMakeCursorVisible } from "../selection";
 import type { EditorState, ViewportState } from "../types";
 

@@ -19,7 +19,7 @@ import {
 } from "../components/ui/drawer";
 import useResponsive from "../app/hooks/useResponsive";
 import { usePreventMobileKeyboard } from "../app/hooks/usePreventMobileKeyboard";
-import { hasNativeBridge } from "./clipboard";
+import { hasNativeBridge } from "./actions/clipboard";
 import { useTranslation } from "react-i18next";
 
 interface ImageUploadPopoverProps {

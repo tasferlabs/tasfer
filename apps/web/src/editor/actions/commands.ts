@@ -3,11 +3,11 @@ import type {
   Char,
   FormatSpan,
   TextFormat,
-} from "../deserializer/loadPage";
+} from "../../deserializer/loadPage";
 import {
   isListBlock,
   isTextualBlock,
-} from "../deserializer/loadPage";
+} from "../../deserializer/loadPage";
 import type { BlockInsert, BlockSet, Operation } from "../sync/types";
 import {
   allCharsHaveFormat,
@@ -17,10 +17,10 @@ import {
   getVisibleLength,
   getVisibleText,
   insertCharsAtPosition,
-} from "./crdt-helpers";
-import { isCJKCharacter } from "./fonts";
-import { invalidateBlockCache } from "./renderer";
-import { isRTLChar } from "./rtl";
+} from "../sync/crdt-helpers";
+import { isCJKCharacter } from "../fonts";
+import { invalidateBlockCache } from "../renderer";
+import { isRTLChar } from "../rtl";
 import {
   clearAutoCreatedParagraph,
   clearSelection,
@@ -31,20 +31,20 @@ import {
   startSelection,
   updateMode,
   updateSelectionFocus,
-} from "./state";
+} from "../state";
 import type {
   CommandResult,
   CRDTContext,
   EditorState,
   Position,
   SlashCommand,
-} from "./types";
+} from "../types";
 import {
   positionToCRDT,
   crdtToPosition,
   selectionRangeToCRDT,
   crdtToSelectionRange,
-} from "./undo";
+} from "../undo";
 
 /**
  * Helper to determine if text is RTL based on character array

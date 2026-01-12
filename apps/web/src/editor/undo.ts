@@ -9,7 +9,7 @@ import type {
 } from "./types";
 import type { Operation } from "../sync/types";
 import { invalidateBlockCache } from "./renderer";
-import { applyRemoteOps } from "./crdt-helpers";
+import { applyRemoteOps } from "./sync/crdt-helpers";
 import { invertOperations } from "./inverse";
 import { isTextualBlock, type Page } from "../deserializer/loadPage";
 import { updateCursor, updateSelection } from "./state";

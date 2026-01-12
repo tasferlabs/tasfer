@@ -19,8 +19,7 @@ import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
 import { SlashCommandMenu } from "../editor/SlashCommandMenu";
-import { hasNativeBridge } from "../editor/clipboard";
-import { getFormatsAtPosition, getSelectionRange } from "../editor/commands";
+import { getFormatsAtPosition, getSelectionRange } from "../editor/actions/commands";
 import {
   mountEditor,
   type MountedEditor as MountedEditorInstance,
@@ -33,10 +32,10 @@ import {
 } from "../editor/state";
 import type { EditorState, SlashCommand } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
-import { WebSocketSync, type SyncState } from "../sync/websocket";
-import { SyncEngine } from "../sync/index";
-import type { AwarenessState } from "../sync/awareness";
 import { uploadImage } from "./api/images.api";
+import { WebSocketSync, type SyncState } from "@/editor/sync/websocket";
+import { SyncEngine, type AwarenessState } from "@/editor/sync";
+import { hasNativeBridge } from "@/editor/actions/clipboard";
 
 interface MountedEditorProps {
   content: string;

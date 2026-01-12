@@ -5,12 +5,12 @@ import type {
   TextFormat,
 } from "../deserializer/loadPage";
 import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
-import type { AwarenessState } from "../sync/awareness";
+import type { AwarenessState } from "./sync/awareness";
 import {
   awarenessCursorToPosition,
   awarenessSelectionToSelection,
-} from "../sync/awareness";
-import { getVisibleText } from "./crdt-helpers";
+} from "./sync/awareness";
+import { getVisibleText } from "./sync/crdt-helpers";
 import {
   FONT_STACKS,
   getCurrentFontFamily,
@@ -55,6 +55,7 @@ import type {
   FontMetrics,
   RenderedBlock,
   RenderedLine,
+  SelectionState,
   TextStyle,
   ViewportState,
 } from "./types";
@@ -1302,7 +1303,7 @@ function renderRemoteSelection(
   fontFamily: FontFamily,
   block: Block,
   maxWidth: number,
-  selection: { anchor: any; focus: any; isForward: boolean },
+  selection: SelectionState,
   color: string
 ) {
   renderSelectionCore(

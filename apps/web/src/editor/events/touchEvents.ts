@@ -1,6 +1,6 @@
 import type { Block } from "@/deserializer/loadPage";
-import type { Operation } from "@/sync";
-import { selectLineAtPosition, selectWordAtPosition } from "../commands";
+import type { Operation } from "../sync";
+import { selectLineAtPosition, selectWordAtPosition } from "../actions/commands";
 import {
   DOUBLE_CLICK_TIME,
   EDGE_SCROLL_THRESHOLD,

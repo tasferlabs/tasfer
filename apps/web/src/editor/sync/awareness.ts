@@ -5,7 +5,8 @@
  * Tracks remote users' cursor positions, selections, and user information.
  */
 
-import type { Position, SelectionState } from "../editor/types";
+import type { Page } from "@/deserializer/loadPage";
+import type { Position, SelectionState } from "../../editor/types";
 
 // =============================================================================
 // Types
@@ -248,8 +249,6 @@ export class AwarenessManager {
 // Position Conversion Utilities
 // =============================================================================
 
-import type { Page } from "../deserializer/loadPage";
-
 /**
  * Convert editor Position to AwarenessCursor.
  * Uses block ID for stability across concurrent operations.
@@ -322,7 +321,7 @@ export function awarenessCursorToPosition(
 export function awarenessSelectionToSelection(
   awareness: AwarenessSelection,
   page: Page
-): Omit<SelectionState, "lastUpdate"> | null {
+): SelectionState | null {
   const anchor = awarenessCursorToPosition(awareness.anchor, page);
   const focus = awarenessCursorToPosition(awareness.focus, page);
 

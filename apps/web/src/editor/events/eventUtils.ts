@@ -1,5 +1,5 @@
 import type { Block } from "@/deserializer/loadPage";
-import type { HLC, Operation } from "@/sync";
+import type { HLC, Operation } from "../sync";
 import {
   CLICK_DISTANCE_THRESHOLD,
   SELECTION_HANDLE_TOUCH_TARGET,

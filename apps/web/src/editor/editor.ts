@@ -5,17 +5,17 @@ import type {
   BlockInsert,
   BlockSet,
   Operation,
-} from "../sync/types";
-import type { AwarenessState, AwarenessUser } from "../sync/awareness";
+} from "./sync/types";
+import type { AwarenessState, AwarenessUser } from "./sync/awareness";
 import {
   positionToAwarenessCursor,
   selectionToAwarenessSelection,
-} from "../sync/awareness";
+} from "./sync/awareness";
 import {
   copySelectionToClipboard,
   cutSelectionToClipboard,
   pasteFromNativeClipboardAPI,
-} from "./clipboard";
+} from "./actions/clipboard";
 import {
   applySlashCommand,
   clearLinkInBlock,
@@ -27,13 +27,13 @@ import {
   toggleItalic,
   toggleStrikethrough,
   updateLinkInBlock,
-} from "./commands";
+} from "./actions/commands";
 import {
   applyRemoteOps,
   deleteCharsInRange,
   formatCharsInRange,
   insertCharsAtPosition,
-} from "./crdt-helpers";
+} from "./sync/crdt-helpers";
 import { handleEvents } from "./events/events";
 import { isInLongPressMode } from "./events/touchEvents";
 import { onFontFamilyChange } from "./fonts";

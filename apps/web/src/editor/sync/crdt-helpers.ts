@@ -5,7 +5,7 @@
  * Also includes functions to apply remote CRDT operations to editor Page blocks.
  */
 
-import type { Block, Char, FormatSpan, Page, TextFormat } from "../deserializer/loadPage";
+import type { Block, Char, FormatSpan, Page, TextFormat } from "../../deserializer/loadPage";
 import type {
   BlockDelete,
   BlockInsert,
@@ -15,7 +15,7 @@ import type {
   TextDelete,
   TextInsert
 } from "../sync/types";
-import type { CRDTContext } from "./types";
+import type { CRDTContext } from "../types";
 import { compareIds } from "../sync/id";
 
 export interface InsertCharsResult {

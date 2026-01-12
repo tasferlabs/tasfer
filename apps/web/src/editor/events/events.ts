@@ -1,4 +1,4 @@
-import type { Operation } from "../../sync/types";
+import type { Operation } from "../sync/types";
 import {
   CONTEXT_MENU_DURATION,
   EDGE_SCROLL_ACCELERATION_RATE,

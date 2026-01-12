@@ -1,5 +1,5 @@
-import type { Operation } from "@/sync";
-import { pasteFromClipboardEvent } from "../clipboard";
+import type { Operation } from "../sync";
+import { pasteFromClipboardEvent } from "../actions/clipboard";
 import { scrollToMakeCursorVisible } from "../selection";
 import type { EditorState, ViewportState } from "../types";
 

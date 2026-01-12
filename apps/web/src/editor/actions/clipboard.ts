@@ -3,37 +3,37 @@ import type {
   Char,
   FormatSpan,
   TextFormat,
-} from "../deserializer/loadPage";
-import { isListBlock, isTextualBlock, loadPage } from "../deserializer/loadPage";
-import { serializeToMarkdown } from "../deserializer/serializer";
+} from "../../deserializer/loadPage";
+import { isListBlock, isTextualBlock, loadPage } from "../../deserializer/loadPage";
+import { serializeToMarkdown } from "../../deserializer/serializer";
 import type {
   BlockInsert,
   BlockSet,
   FormatSet,
   Operation,
 } from "../sync/types";
-import { deleteSelectedText, getSelectionRange } from "./commands";
-import { IMAGE_DEFAULT_HEIGHT } from "./constants";
+import { deleteSelectedText, getSelectionRange } from "../actions/commands";
+import { IMAGE_DEFAULT_HEIGHT } from "../constants";
 import {
   deleteCharsInRange,
   getVisibleText,
   insertCharsAtPosition,
-} from "./crdt-helpers";
-import { invalidateBlockCache } from "./renderer";
+} from "../sync/crdt-helpers";
+import { invalidateBlockCache } from "../renderer";
 import {
   clearSelection,
   generateBlockId,
   getBlockTextContent,
   getBlockTextLength,
   moveCursorToPosition,
-} from "./state";
+} from "../state";
 import type {
   CommandResult,
   CRDTContext,
   EditorState,
   Position,
-} from "./types";
-import {} from "./undo";
+} from "../types";
+import {} from "../undo";
 
 export function hasNativeBridge(): boolean {
   return !!(window.IOSBridge || window.AndroidBridge);

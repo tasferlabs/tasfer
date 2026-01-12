@@ -1,8 +1,8 @@
 import { isListBlock, type Block, isTextualBlock } from "@/deserializer/loadPage";
-import type { Operation } from "@/sync";
-import { copySelectionToClipboard } from "../clipboard";
-import { selectAll, toggleBold, outdentListItem, indentListItem, getSelectionRange, deleteSelectedText, applySlashCommand, deleteText, insertText, extendSelectionWordLeft, moveToPreviousWord, extendSelectionWordRight, moveToNextWord, extendSelectionHome, moveToLineStart, extendSelectionEnd, moveToLineEnd, deleteWordBackward, deleteWordForward, deleteForward, splitBlock } from "../commands";
-import { deleteCharsInRange } from "../crdt-helpers";
+import type { Operation } from "../sync";
+import { copySelectionToClipboard } from "../actions/clipboard";
+import { selectAll, toggleBold, outdentListItem, indentListItem, getSelectionRange, deleteSelectedText, applySlashCommand, deleteText, insertText, extendSelectionWordLeft, moveToPreviousWord, extendSelectionWordRight, moveToNextWord, extendSelectionHome, moveToLineStart, extendSelectionEnd, moveToLineEnd, deleteWordBackward, deleteWordForward, deleteForward, splitBlock } from "../actions/commands";
+import { deleteCharsInRange } from "../sync/crdt-helpers";
 import { ensureCursorVisible, isTouchDevice } from "./eventUtils";
 import { invalidateBlockCache } from "../renderer";
 import { getTextDirection } from "../rtl";

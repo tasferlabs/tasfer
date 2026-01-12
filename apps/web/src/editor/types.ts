@@ -1,7 +1,7 @@
 import type { Block, Page, TextFormat } from "../deserializer/loadPage";
 import type { FontFamily } from "./fonts";
 import type { ScrollbarState, MomentumState } from "./scrollbar";
-import type { Operation, HLC } from "../sync/types";
+import type { Operation, HLC } from "./sync/types";
 
 export interface SlashCommand {
   id: string;
@@ -198,7 +198,7 @@ export interface SelectionState {
   readonly focus: Position;
   readonly isForward: boolean;
   readonly isCollapsed: boolean;
-  readonly lastUpdate: number;
+  readonly lastUpdate?: number;
   /**
    * Tracks initial selection boundaries from double/triple-click gestures.
    *
