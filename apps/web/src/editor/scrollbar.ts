@@ -33,6 +33,84 @@ const isTouchDevice = (): boolean => {
   );
 };
 
+// Get safe area inset bottom value
+const getSafeAreaInsetBottom = (): number => {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return 0;
+  }
+
+  // Try to get from CSS custom property first (Android injects this)
+  const cssVar = getComputedStyle(document.documentElement)
+    .getPropertyValue("--safe-area-inset-bottom")
+    .trim();
+
+  if (cssVar) {
+    const parsed = parseFloat(cssVar);
+    if (!isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
+  // For iOS, we need to get the env() value via a computed style trick
+  // Create a temporary element to measure the safe area
+  const testEl = document.createElement("div");
+  testEl.style.position = "fixed";
+  testEl.style.bottom = "0";
+  testEl.style.paddingBottom = "env(safe-area-inset-bottom, 0px)";
+  testEl.style.visibility = "hidden";
+  testEl.style.pointerEvents = "none";
+  document.body.appendChild(testEl);
+
+  const computedPadding = getComputedStyle(testEl).paddingBottom;
+  const inset = parseFloat(computedPadding) || 0;
+
+  document.body.removeChild(testEl);
+
+  return inset;
+};
+
+// Cache the safe area inset value with window dimensions for invalidation
+let cachedSafeAreaInsetBottom: number | null = null;
+let cachedWindowWidth: number | null = null;
+let cachedWindowHeight: number | null = null;
+
+// Track keyboard state - when keyboard is open, don't apply safe area inset
+let isKeyboardOpen = false;
+
+export function setKeyboardOpen(open: boolean): void {
+  isKeyboardOpen = open;
+}
+
+export function getSafeAreaBottom(): number {
+  // Don't apply safe area when keyboard is open (keyboard covers the home indicator area)
+  if (isKeyboardOpen) {
+    return 0;
+  }
+
+  if (typeof window === "undefined") {
+    return 0;
+  }
+
+  // Invalidate cache if window dimensions changed (orientation change)
+  if (
+    cachedSafeAreaInsetBottom === null ||
+    cachedWindowWidth !== window.innerWidth ||
+    cachedWindowHeight !== window.innerHeight
+  ) {
+    cachedSafeAreaInsetBottom = getSafeAreaInsetBottom();
+    cachedWindowWidth = window.innerWidth;
+    cachedWindowHeight = window.innerHeight;
+  }
+  return cachedSafeAreaInsetBottom;
+}
+
+// Allow updating the cached value (call on orientation change)
+export function updateSafeAreaCache(): void {
+  cachedSafeAreaInsetBottom = null;
+  cachedWindowWidth = null;
+  cachedWindowHeight = null;
+}
+
 /**
  * Get CSS custom property value from the document root
  */
@@ -101,7 +179,8 @@ export function calculateScrollbarBounds(
   styles: ScrollbarStyles = getScrollbarStyles()
 ): ScrollbarBounds {
   const trackWidth = styles.width;
-  const trackHeight = viewport.height - styles.padding * 2;
+  const safeAreaBottom = getSafeAreaBottom();
+  const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
   const trackX = viewport.width - trackWidth - styles.padding;
   const trackY = styles.padding;
 
@@ -241,7 +320,8 @@ export function isPointInScrollbar(
   // But extend hit area to the left (invisible)
   const hitTrackX = viewport.width - hitWidth - styles.padding;
   const trackY = styles.padding;
-  const trackHeight = viewport.height - styles.padding * 2;
+  const safeAreaBottom = getSafeAreaBottom();
+  const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
 
   return (
     x >= hitTrackX &&
@@ -340,7 +420,8 @@ export function updateScrollFromThumbDrag(
   styles: ScrollbarStyles = getScrollbarStyles()
 ): number {
   const trackY = styles.padding;
-  const trackHeight = viewport.height - styles.padding * 2;
+  const safeAreaBottom = getSafeAreaBottom();
+  const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
 
   // Calculate thumb size
   const viewportRatio = viewport.height / documentHeight;

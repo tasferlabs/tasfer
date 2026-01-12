@@ -11,8 +11,11 @@ import type { AwarenessUser } from "@/editor/sync/awareness";
 
 // WebSocket server URL - defaults to using Vite proxy
 // Uses wss:// for HTTPS, ws:// for HTTP
-const WEBSOCKET_URL = import.meta.env.VITE_WEBSOCKET_URL || 
-  `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
+const WEBSOCKET_URL =
+  import.meta.env.VITE_WEBSOCKET_URL ||
+  `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${
+    window.location.host
+  }/ws`;
 import {
   useCreatePage,
   getPage,
@@ -33,7 +36,7 @@ import style from "./EditorPage.module.css";
 // Helper function to count words in markdown content
 function countWords(markdown: string): number {
   if (!markdown || markdown.trim() === "") return 0;
-  
+
   // Remove markdown syntax for more accurate word count
   const text = markdown
     // Remove code blocks
@@ -63,8 +66,9 @@ function countWords(markdown: string): number {
   let count = 0;
 
   // CJK (Chinese, Japanese, Korean) character ranges
-  const cjkRegex = /[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/g;
-  
+  const cjkRegex =
+    /[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/g;
+
   // Count CJK characters (each character is typically a word/concept)
   const cjkMatches = text.match(cjkRegex);
   if (cjkMatches) {
@@ -77,12 +81,12 @@ function countWords(markdown: string): number {
   // Split by whitespace and count non-CJK words
   const words = textWithoutCJK
     .split(/\s+/)
-    .map(word => 
+    .map((word) =>
       // Remove punctuation from the beginning and end of each word
       word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")
     )
-    .filter(word => word.length > 0);
-  
+    .filter((word) => word.length > 0);
+
   count += words.length;
 
   return count;
@@ -90,7 +94,11 @@ function countWords(markdown: string): number {
 
 export default function EditorPage() {
   const { id } = useParams<{ id: string }>();
-  const { setIsSaving: setGlobalIsSaving, setWordCount, setActiveUsers } = usePageSettings();
+  const {
+    setIsSaving: setGlobalIsSaving,
+    setWordCount,
+    setActiveUsers,
+  } = usePageSettings();
   const { getConfirmation } = useConfirmation();
   const { mutateAsync: updatePage } = useUpdatePage();
   // State for loading page content once on mount
@@ -100,7 +108,9 @@ export default function EditorPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
   // Live sync state
-  const [syncState, setSyncState] = useState<SyncState>({ status: "disconnected" });
+  const [syncState, setSyncState] = useState<SyncState>({
+    status: "disconnected",
+  });
 
   const { data: pages, isLoading: isLoadingPages } = useGetPages(null);
   const [lastPageId, setLastPageId] = useLocalStorage<string | null>(
@@ -178,7 +188,13 @@ export default function EditorPage() {
   // Debounced save callback - only called for local user-initiated changes
   // Remote peer updates are NOT persisted by this user; peers handle saving their own changes
   const handleSave = useCallback(
-    async ({ content, operations }: { content: string; operations: string }) => {
+    async ({
+      content,
+      operations,
+    }: {
+      content: string;
+      operations: string;
+    }) => {
       if (!id) return;
 
       try {
@@ -245,9 +261,12 @@ export default function EditorPage() {
   }, [flush, setGlobalIsSaving]);
 
   // Handle awareness changes from collaborators
-  const handleAwarenessChange = useCallback((users: AwarenessUser[]) => {
-    setActiveUsers(users);
-  }, [setActiveUsers]);
+  const handleAwarenessChange = useCallback(
+    (users: AwarenessUser[]) => {
+      setActiveUsers(users);
+    },
+    [setActiveUsers]
+  );
 
   // If no ID in URL
   if (!id) {
@@ -287,13 +306,6 @@ export default function EditorPage() {
         onAwarenessChange={handleAwarenessChange}
       />
       <WordCountOverlay />
-      {/* Sync status indicator */}
-      {syncState.status === "connected" && syncState.peerCount > 0 && (
-        <div className="fixed bottom-4 right-4 bg-green-500/90 text-white px-3 py-1.5 rounded-full text-sm font-medium shadow-lg flex items-center gap-2">
-          <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
-          {syncState.peerCount} {syncState.peerCount === 1 ? "peer" : "peers"} connected
-        </div>
-      )}
     </>
   );
 }

@@ -12,6 +12,7 @@ import {
   resizeCanvasLayers,
   destroyCanvasLayers,
 } from "./layers";
+import { setKeyboardOpen } from "./scrollbar";
 
 export interface MountedEditor {
   readonly editor: Editor;
@@ -167,9 +168,11 @@ export function mountEditor(
   const handleKeyboardMessage = (event: MessageEvent) => {
     if (event.data?.type === "keyboard-show") {
       keyboardHeight = event.data.height || 0;
+      setKeyboardOpen(true);
       resizeCanvasForKeyboard();
     } else if (event.data?.type === "keyboard-hide") {
       keyboardHeight = 0;
+      setKeyboardOpen(false);
       resizeCanvasForKeyboard();
     } else if (event.data?.type === "physical-keyboard-connected") {
       // Native side detected physical keyboard connection

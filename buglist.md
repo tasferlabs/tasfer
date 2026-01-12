@@ -220,9 +220,12 @@ Bugs list
 - [x] when typing in the middle the other tab insert to the end.
 - [x] arabic script stopped working after impelemting crdt 
 - [x] arabic text not breaking correcttly
+- [ ] select arabic text and arrow left/right does not work as expected.
 - [x] remote caret should not be showen when there is selection. 
 - [x] remote caret should have name tag
 - [x] remote selection should be seen in visual blocks
 - [x] we should show blobs of remote users in topactionbar
 - [ ] fix stoarge problems with crdt
-- [ ] select arabic text and arrow left/right does not work as expected.
+- [ ] Database Operations Table
+- [ ] peforamnce issues after crd
+- [ ] remote cursor not working correctly with visual blocks.

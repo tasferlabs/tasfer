@@ -1116,12 +1116,164 @@ function insertBlocksAtCursor(
 
   // If pasting a single block
   if (blocks.length === 1) {
+    // Handle pasting a single image block
+    if (blocks[0].type === "image") {
+      const imageBlock = blocks[0];
+      const newBlockId = generateBlockId();
+
+      // Create the image block
+      const newImageBlock: Block = {
+        id: newBlockId,
+        type: "image",
+        url: imageBlock.url,
+        alt: imageBlock.alt,
+        width: imageBlock.width,
+        height: imageBlock.height,
+        objectFit: imageBlock.objectFit,
+      };
+      invalidateBlockCache(newImageBlock);
+
+      // Create BlockInsert operation
+      const blockInsertOp: BlockInsert = {
+        op: "block_insert",
+        id: crdt.idGen(),
+        clock: crdt.clock(),
+        pageId: crdt.pageId,
+        afterBlockId: currentBlock.id,
+        blockId: newBlockId,
+        blockType: "image",
+      };
+      ops.push(blockInsertOp);
+
+      // Create BlockSet operations for image properties
+      if (imageBlock.url) {
+        const urlOp: BlockSet = {
+          op: "block_set",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          blockId: newBlockId,
+          field: "url",
+          value: imageBlock.url,
+        };
+        ops.push(urlOp);
+      }
+      if (imageBlock.alt) {
+        const altOp: BlockSet = {
+          op: "block_set",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          blockId: newBlockId,
+          field: "alt",
+          value: imageBlock.alt,
+        };
+        ops.push(altOp);
+      }
+      if (imageBlock.width !== undefined) {
+        const widthOp: BlockSet = {
+          op: "block_set",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          blockId: newBlockId,
+          field: "width",
+          value: imageBlock.width,
+        };
+        ops.push(widthOp);
+      }
+      if (imageBlock.height !== undefined) {
+        const heightOp: BlockSet = {
+          op: "block_set",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          blockId: newBlockId,
+          field: "height",
+          value: imageBlock.height,
+        };
+        ops.push(heightOp);
+      }
+      if (imageBlock.objectFit) {
+        const objectFitOp: BlockSet = {
+          op: "block_set",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          blockId: newBlockId,
+          field: "objectFit",
+          value: imageBlock.objectFit,
+        };
+        ops.push(objectFitOp);
+      }
+
+      // Insert the block after the current block
+      const newBlocks = [
+        ...newState.document.page.blocks.slice(0, blockIndex + 1),
+        newImageBlock,
+        ...newState.document.page.blocks.slice(blockIndex + 1),
+      ];
+
+      newState = {
+        ...newState,
+        document: {
+          ...newState.document,
+          page: { ...newState.document.page, blocks: newBlocks },
+        },
+      };
+
+      // Move cursor to the next block after the image
+      newState = moveCursorToPosition(newState, blockIndex + 2, 0);
+
+      return { state: clearSelection(newState), ops };
+    }
+
+    // Handle pasting a single line block
+    if (blocks[0].type === "line") {
+      const newBlockId = generateBlockId();
+
+      const newLineBlock: Block = {
+        id: newBlockId,
+        type: "line",
+      };
+      invalidateBlockCache(newLineBlock);
+
+      const blockInsertOp: BlockInsert = {
+        op: "block_insert",
+        id: crdt.idGen(),
+        clock: crdt.clock(),
+        pageId: crdt.pageId,
+        afterBlockId: currentBlock.id,
+        blockId: newBlockId,
+        blockType: "line",
+      };
+      ops.push(blockInsertOp);
+
+      const newBlocks = [
+        ...newState.document.page.blocks.slice(0, blockIndex + 1),
+        newLineBlock,
+        ...newState.document.page.blocks.slice(blockIndex + 1),
+      ];
+
+      newState = {
+        ...newState,
+        document: {
+          ...newState.document,
+          page: { ...newState.document.page, blocks: newBlocks },
+        },
+      };
+
+      newState = moveCursorToPosition(newState, blockIndex + 2, 0);
+
+      return { state: clearSelection(newState), ops };
+    }
+
     // Can't paste into non-text blocks
     if (!isTextualBlock(currentBlock)) {
       return { state, ops: [] };
     }
 
-    // Can't paste non-text blocks into text blocks
+    // Can't paste non-text blocks into text blocks (already handled image and line above)
     if (!isTextualBlock(blocks[0])) {
       return { state, ops: [] };
     }
@@ -1224,12 +1376,6 @@ function insertBlocksAtCursor(
       return { state, ops: [] };
     }
 
-    // Filter out non-text blocks from paste (or handle them separately)
-    const textBlocks = blocks.filter(isTextualBlock);
-    if (textBlocks.length === 0) {
-      return { state, ops: [] };
-    }
-
     const currentTextLength = getBlockTextLength(currentBlock);
 
     // Extract chars before and after cursor
@@ -1262,175 +1408,453 @@ function insertBlocksAtCursor(
       ops.push(deleteOp);
     }
 
-    // First block: keep current block, append first pasted block's content
-    const firstPastedText = getVisibleText(textBlocks[0].chars);
-    const { newChars: firstBlockChars, op: firstInsertOp } =
-      insertCharsAtPosition(
-        beforeChars,
-        beforeChars.filter((c) => !c.deleted).length,
-        firstPastedText,
-        currentBlock.id,
-        crdt
-      );
-    ops.push(firstInsertOp);
-
-    // Apply formats from first pasted block to inserted chars
-    let firstBlockFormats = beforeFormats;
-    for (const pasteFormat of textBlocks[0].formats) {
-      const pasteStartIdx = textBlocks[0].chars.findIndex(
-        (c) => c.id === pasteFormat.startCharId
-      );
-      const pasteEndIdx = textBlocks[0].chars.findIndex(
-        (c) => c.id === pasteFormat.endCharId
-      );
-
-      if (pasteStartIdx !== -1 && pasteEndIdx !== -1) {
-        const insertedChars = firstInsertOp.chars;
-        const newStartCharId = insertedChars[pasteStartIdx]?.id;
-        const newEndCharId = insertedChars[pasteEndIdx]?.id;
-
-        if (newStartCharId && newEndCharId) {
-          const newSpan: FormatSpan = {
-            startCharId: newStartCharId,
-            endCharId: newEndCharId,
-            format: pasteFormat.format,
-            clock: crdt.clock(),
-          };
-          firstBlockFormats = [...firstBlockFormats, newSpan];
-
-          const charIds = insertedChars
-            .slice(pasteStartIdx, pasteEndIdx + 1)
-            .map((c) => c.id);
-          const formatOp: FormatSet = {
-            op: "format_set",
-            id: crdt.idGen(),
-            clock: crdt.clock(),
-            pageId: crdt.pageId,
-            blockId: currentBlock.id,
-            charIds,
-            format: pasteFormat.format,
-            value:
-              pasteFormat.format.type === "link"
-                ? pasteFormat.format.url || true
-                : true,
-          };
-          ops.push(formatOp);
-        }
-      }
-    }
-
-    const firstBlock: Block = {
-      ...currentBlock,
-      chars: firstBlockChars,
-      formats: firstBlockFormats,
-    };
-    invalidateBlockCache(firstBlock);
-
-    // Middle blocks: insert as new blocks
-    const middleBlocks = textBlocks.slice(1, -1).map((block) => {
-      const newBlock = { ...block, id: generateBlockId() };
-      invalidateBlockCache(newBlock);
-
+    // Helper function to create image block operations
+    const createImageBlockOps = (
+      imageBlock: Block & { type: "image" },
+      newBlockId: string,
+      afterBlockId: string | null
+    ) => {
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
         id: crdt.idGen(),
         clock: crdt.clock(),
         pageId: crdt.pageId,
-        afterBlockId:
-          blockIndex === 0
-            ? null
-            : newState.document.page.blocks[blockIndex - 1]?.id || null,
-        blockId: newBlock.id,
-        blockType: newBlock.type as any,
+        afterBlockId,
+        blockId: newBlockId,
+        blockType: "image",
       };
       ops.push(blockInsertOp);
 
-      // Add list properties if needed
-      if (isListBlock(newBlock)) {
-        if (newBlock.indent > 0) {
-          const indentOp: BlockSet = {
-            op: "block_set",
-            id: crdt.idGen(),
-            clock: crdt.clock(),
-            pageId: crdt.pageId,
-            blockId: newBlock.id,
-            field: "indent",
-            value: newBlock.indent,
-          };
-          ops.push(indentOp);
-        }
-        if (newBlock.type === "todo_list") {
-          const checkedOp: BlockSet = {
-            op: "block_set",
-            id: crdt.idGen(),
-            clock: crdt.clock(),
-            pageId: crdt.pageId,
-            blockId: newBlock.id,
-            field: "checked",
-            value: newBlock.checked,
-          };
-          ops.push(checkedOp);
-        }
-      }
-
-      return newBlock;
-    });
-
-    // Last block: pasted content + after content from current block
-    const lastPastedBlock = textBlocks[textBlocks.length - 1];
-    const lastBlockId = generateBlockId();
-    const lastBlock: Block = {
-      ...lastPastedBlock,
-      id: lastBlockId,
-      chars: [...lastPastedBlock.chars, ...afterChars],
-      formats: [...lastPastedBlock.formats, ...afterFormats],
-    };
-    invalidateBlockCache(lastBlock);
-
-    const lastBlockInsertOp: BlockInsert = {
-      op: "block_insert",
-      id: crdt.idGen(),
-      clock: crdt.clock(),
-      pageId: crdt.pageId,
-      afterBlockId: currentBlock.id,
-      blockId: lastBlockId,
-      blockType: lastBlock.type as any,
-    };
-    ops.push(lastBlockInsertOp);
-
-    // Add list properties for last block if needed
-    if (isListBlock(lastBlock)) {
-      if (lastBlock.indent > 0) {
-        const indentOp: BlockSet = {
+      // Add image properties
+      if (imageBlock.url) {
+        ops.push({
           op: "block_set",
           id: crdt.idGen(),
           clock: crdt.clock(),
           pageId: crdt.pageId,
-          blockId: lastBlockId,
-          field: "indent",
-          value: lastBlock.indent,
-        };
-        ops.push(indentOp);
+          blockId: newBlockId,
+          field: "url",
+          value: imageBlock.url,
+        } as BlockSet);
       }
-      if (lastBlock.type === "todo_list") {
-        const checkedOp: BlockSet = {
+      if (imageBlock.alt) {
+        ops.push({
           op: "block_set",
           id: crdt.idGen(),
           clock: crdt.clock(),
           pageId: crdt.pageId,
-          blockId: lastBlockId,
-          field: "checked",
-          value: lastBlock.checked,
+          blockId: newBlockId,
+          field: "alt",
+          value: imageBlock.alt,
+        } as BlockSet);
+      }
+      if (imageBlock.width !== undefined) {
+        ops.push({
+          op: "block_set",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          blockId: newBlockId,
+          field: "width",
+          value: imageBlock.width,
+        } as BlockSet);
+      }
+      if (imageBlock.height !== undefined) {
+        ops.push({
+          op: "block_set",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          blockId: newBlockId,
+          field: "height",
+          value: imageBlock.height,
+        } as BlockSet);
+      }
+      if (imageBlock.objectFit) {
+        ops.push({
+          op: "block_set",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          blockId: newBlockId,
+          field: "objectFit",
+          value: imageBlock.objectFit,
+        } as BlockSet);
+      }
+    };
+
+    // Helper to create line block operations
+    const createLineBlockOps = (newBlockId: string, afterBlockId: string | null) => {
+      const blockInsertOp: BlockInsert = {
+        op: "block_insert",
+        id: crdt.idGen(),
+        clock: crdt.clock(),
+        pageId: crdt.pageId,
+        afterBlockId,
+        blockId: newBlockId,
+        blockType: "line",
+      };
+      ops.push(blockInsertOp);
+    };
+
+    const firstPastedBlock = blocks[0];
+    const lastPastedBlock = blocks[blocks.length - 1];
+    const resultBlocks: Block[] = [];
+    let lastInsertedBlockId = currentBlock.id;
+
+    // Handle first block
+    if (isTextualBlock(firstPastedBlock)) {
+      // Merge first pasted block's content with current block
+      const firstPastedText = getVisibleText(firstPastedBlock.chars);
+      const { newChars: firstBlockChars, op: firstInsertOp } =
+        insertCharsAtPosition(
+          beforeChars,
+          beforeChars.filter((c) => !c.deleted).length,
+          firstPastedText,
+          currentBlock.id,
+          crdt
+        );
+      ops.push(firstInsertOp);
+
+      // Apply formats from first pasted block to inserted chars
+      let firstBlockFormats = beforeFormats;
+      for (const pasteFormat of firstPastedBlock.formats) {
+        const pasteStartIdx = firstPastedBlock.chars.findIndex(
+          (c) => c.id === pasteFormat.startCharId
+        );
+        const pasteEndIdx = firstPastedBlock.chars.findIndex(
+          (c) => c.id === pasteFormat.endCharId
+        );
+
+        if (pasteStartIdx !== -1 && pasteEndIdx !== -1) {
+          const insertedChars = firstInsertOp.chars;
+          const newStartCharId = insertedChars[pasteStartIdx]?.id;
+          const newEndCharId = insertedChars[pasteEndIdx]?.id;
+
+          if (newStartCharId && newEndCharId) {
+            const newSpan: FormatSpan = {
+              startCharId: newStartCharId,
+              endCharId: newEndCharId,
+              format: pasteFormat.format,
+              clock: crdt.clock(),
+            };
+            firstBlockFormats = [...firstBlockFormats, newSpan];
+
+            const charIds = insertedChars
+              .slice(pasteStartIdx, pasteEndIdx + 1)
+              .map((c) => c.id);
+            const formatOp: FormatSet = {
+              op: "format_set",
+              id: crdt.idGen(),
+              clock: crdt.clock(),
+              pageId: crdt.pageId,
+              blockId: currentBlock.id,
+              charIds,
+              format: pasteFormat.format,
+              value:
+                pasteFormat.format.type === "link"
+                  ? pasteFormat.format.url || true
+                  : true,
+            };
+            ops.push(formatOp);
+          }
+        }
+      }
+
+      const firstBlock: Block = {
+        ...currentBlock,
+        chars: firstBlockChars,
+        formats: firstBlockFormats,
+      };
+      invalidateBlockCache(firstBlock);
+      resultBlocks.push(firstBlock);
+    } else if (firstPastedBlock.type === "image") {
+      // Keep current block with before-cursor content, insert image as new block
+      const firstBlock: Block = {
+        ...currentBlock,
+        chars: beforeChars,
+        formats: beforeFormats,
+      };
+      invalidateBlockCache(firstBlock);
+      resultBlocks.push(firstBlock);
+
+      const newImageBlockId = generateBlockId();
+      const newImageBlock: Block = {
+        id: newImageBlockId,
+        type: "image",
+        url: firstPastedBlock.url,
+        alt: firstPastedBlock.alt,
+        width: firstPastedBlock.width,
+        height: firstPastedBlock.height,
+        objectFit: firstPastedBlock.objectFit,
+      };
+      invalidateBlockCache(newImageBlock);
+      createImageBlockOps(firstPastedBlock as any, newImageBlockId, currentBlock.id);
+      resultBlocks.push(newImageBlock);
+      lastInsertedBlockId = newImageBlockId;
+    } else if (firstPastedBlock.type === "line") {
+      // Keep current block with before-cursor content, insert line as new block
+      const firstBlock: Block = {
+        ...currentBlock,
+        chars: beforeChars,
+        formats: beforeFormats,
+      };
+      invalidateBlockCache(firstBlock);
+      resultBlocks.push(firstBlock);
+
+      const newLineBlockId = generateBlockId();
+      const newLineBlock: Block = {
+        id: newLineBlockId,
+        type: "line",
+      };
+      invalidateBlockCache(newLineBlock);
+      createLineBlockOps(newLineBlockId, currentBlock.id);
+      resultBlocks.push(newLineBlock);
+      lastInsertedBlockId = newLineBlockId;
+    }
+
+    // Handle middle blocks (all blocks except first and last)
+    const middleBlocks = blocks.slice(1, -1);
+    for (const block of middleBlocks) {
+      const newBlockId = generateBlockId();
+
+      if (block.type === "image") {
+        const newImageBlock: Block = {
+          id: newBlockId,
+          type: "image",
+          url: block.url,
+          alt: block.alt,
+          width: block.width,
+          height: block.height,
+          objectFit: block.objectFit,
         };
-        ops.push(checkedOp);
+        invalidateBlockCache(newImageBlock);
+        createImageBlockOps(block as any, newBlockId, lastInsertedBlockId);
+        resultBlocks.push(newImageBlock);
+        lastInsertedBlockId = newBlockId;
+      } else if (block.type === "line") {
+        const newLineBlock: Block = {
+          id: newBlockId,
+          type: "line",
+        };
+        invalidateBlockCache(newLineBlock);
+        createLineBlockOps(newBlockId, lastInsertedBlockId);
+        resultBlocks.push(newLineBlock);
+        lastInsertedBlockId = newBlockId;
+      } else if (isTextualBlock(block)) {
+        const newBlock = { ...block, id: newBlockId };
+        invalidateBlockCache(newBlock);
+
+        const blockInsertOp: BlockInsert = {
+          op: "block_insert",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          afterBlockId: lastInsertedBlockId,
+          blockId: newBlockId,
+          blockType: newBlock.type as any,
+        };
+        ops.push(blockInsertOp);
+
+        // Add list properties if needed
+        if (isListBlock(newBlock)) {
+          if (newBlock.indent > 0) {
+            const indentOp: BlockSet = {
+              op: "block_set",
+              id: crdt.idGen(),
+              clock: crdt.clock(),
+              pageId: crdt.pageId,
+              blockId: newBlockId,
+              field: "indent",
+              value: newBlock.indent,
+            };
+            ops.push(indentOp);
+          }
+          if (newBlock.type === "todo_list") {
+            const checkedOp: BlockSet = {
+              op: "block_set",
+              id: crdt.idGen(),
+              clock: crdt.clock(),
+              pageId: crdt.pageId,
+              blockId: newBlockId,
+              field: "checked",
+              value: newBlock.checked,
+            };
+            ops.push(checkedOp);
+          }
+        }
+
+        resultBlocks.push(newBlock);
+        lastInsertedBlockId = newBlockId;
+      }
+    }
+
+    // Handle last block (if different from first block)
+    if (blocks.length > 1) {
+      if (isTextualBlock(lastPastedBlock)) {
+        // Last block: pasted content + after content from current block
+        const lastBlockId = generateBlockId();
+        const lastBlock: Block = {
+          ...lastPastedBlock,
+          id: lastBlockId,
+          chars: [...lastPastedBlock.chars, ...afterChars],
+          formats: [...lastPastedBlock.formats, ...afterFormats],
+        };
+        invalidateBlockCache(lastBlock);
+
+        const lastBlockInsertOp: BlockInsert = {
+          op: "block_insert",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          afterBlockId: lastInsertedBlockId,
+          blockId: lastBlockId,
+          blockType: lastBlock.type as any,
+        };
+        ops.push(lastBlockInsertOp);
+
+        // Add list properties for last block if needed
+        if (isListBlock(lastBlock)) {
+          if (lastBlock.indent > 0) {
+            const indentOp: BlockSet = {
+              op: "block_set",
+              id: crdt.idGen(),
+              clock: crdt.clock(),
+              pageId: crdt.pageId,
+              blockId: lastBlockId,
+              field: "indent",
+              value: lastBlock.indent,
+            };
+            ops.push(indentOp);
+          }
+          if (lastBlock.type === "todo_list") {
+            const checkedOp: BlockSet = {
+              op: "block_set",
+              id: crdt.idGen(),
+              clock: crdt.clock(),
+              pageId: crdt.pageId,
+              blockId: lastBlockId,
+              field: "checked",
+              value: lastBlock.checked,
+            };
+            ops.push(checkedOp);
+          }
+        }
+
+        resultBlocks.push(lastBlock);
+        lastInsertedBlockId = lastBlockId;
+      } else if (lastPastedBlock.type === "image") {
+        // Insert image as new block
+        const newImageBlockId = generateBlockId();
+        const newImageBlock: Block = {
+          id: newImageBlockId,
+          type: "image",
+          url: lastPastedBlock.url,
+          alt: lastPastedBlock.alt,
+          width: lastPastedBlock.width,
+          height: lastPastedBlock.height,
+          objectFit: lastPastedBlock.objectFit,
+        };
+        invalidateBlockCache(newImageBlock);
+        createImageBlockOps(lastPastedBlock as any, newImageBlockId, lastInsertedBlockId);
+        resultBlocks.push(newImageBlock);
+        lastInsertedBlockId = newImageBlockId;
+
+        // If there's after-cursor content, create a new paragraph for it
+        if (afterChars.length > 0 && afterChars.some((c) => !c.deleted)) {
+          const afterBlockId = generateBlockId();
+          const afterBlock: Block = {
+            id: afterBlockId,
+            type: "paragraph",
+            chars: afterChars,
+            formats: afterFormats,
+          };
+          invalidateBlockCache(afterBlock);
+
+          const afterBlockInsertOp: BlockInsert = {
+            op: "block_insert",
+            id: crdt.idGen(),
+            clock: crdt.clock(),
+            pageId: crdt.pageId,
+            afterBlockId: newImageBlockId,
+            blockId: afterBlockId,
+            blockType: "paragraph",
+          };
+          ops.push(afterBlockInsertOp);
+
+          resultBlocks.push(afterBlock);
+          lastInsertedBlockId = afterBlockId;
+        }
+      } else if (lastPastedBlock.type === "line") {
+        // Insert line as new block
+        const newLineBlockId = generateBlockId();
+        const newLineBlock: Block = {
+          id: newLineBlockId,
+          type: "line",
+        };
+        invalidateBlockCache(newLineBlock);
+        createLineBlockOps(newLineBlockId, lastInsertedBlockId);
+        resultBlocks.push(newLineBlock);
+        lastInsertedBlockId = newLineBlockId;
+
+        // If there's after-cursor content, create a new paragraph for it
+        if (afterChars.length > 0 && afterChars.some((c) => !c.deleted)) {
+          const afterBlockId = generateBlockId();
+          const afterBlock: Block = {
+            id: afterBlockId,
+            type: "paragraph",
+            chars: afterChars,
+            formats: afterFormats,
+          };
+          invalidateBlockCache(afterBlock);
+
+          const afterBlockInsertOp: BlockInsert = {
+            op: "block_insert",
+            id: crdt.idGen(),
+            clock: crdt.clock(),
+            pageId: crdt.pageId,
+            afterBlockId: newLineBlockId,
+            blockId: afterBlockId,
+            blockType: "paragraph",
+          };
+          ops.push(afterBlockInsertOp);
+
+          resultBlocks.push(afterBlock);
+          lastInsertedBlockId = afterBlockId;
+        }
+      }
+    } else {
+      // Single block case was already handled, but if we reach here with after content
+      // we need to create a new paragraph for it (only for non-textual first blocks)
+      if (!isTextualBlock(firstPastedBlock) && afterChars.length > 0 && afterChars.some((c) => !c.deleted)) {
+        const afterBlockId = generateBlockId();
+        const afterBlock: Block = {
+          id: afterBlockId,
+          type: "paragraph",
+          chars: afterChars,
+          formats: afterFormats,
+        };
+        invalidateBlockCache(afterBlock);
+
+        const afterBlockInsertOp: BlockInsert = {
+          op: "block_insert",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          afterBlockId: lastInsertedBlockId,
+          blockId: afterBlockId,
+          blockType: "paragraph",
+        };
+        ops.push(afterBlockInsertOp);
+
+        resultBlocks.push(afterBlock);
+        lastInsertedBlockId = afterBlockId;
       }
     }
 
     const newBlocks = [
       ...newState.document.page.blocks.slice(0, blockIndex),
-      firstBlock,
-      ...middleBlocks,
-      lastBlock,
+      ...resultBlocks,
       ...newState.document.page.blocks.slice(blockIndex + 1),
     ];
 
@@ -1442,14 +1866,23 @@ function insertBlocksAtCursor(
       },
     };
 
-    // Move cursor to end of last pasted block
-    const lastBlockIndex = blockIndex + textBlocks.length - 1;
-    const lastPastedText = getVisibleText(lastPastedBlock.chars);
-    newState = moveCursorToPosition(
-      newState,
-      lastBlockIndex,
-      lastPastedText.length
-    );
+    // Move cursor to appropriate position
+    const lastResultBlockIndex = blockIndex + resultBlocks.length - 1;
+    const lastResultBlock = resultBlocks[resultBlocks.length - 1];
+    if (isTextualBlock(lastResultBlock)) {
+      const lastBlockText = getVisibleText(lastResultBlock.chars);
+      // If the last block has after-cursor content, position cursor at the start of it
+      const afterTextLength = afterChars.filter((c) => !c.deleted).length;
+      const cursorPosition = lastBlockText.length - afterTextLength;
+      newState = moveCursorToPosition(newState, lastResultBlockIndex, Math.max(0, cursorPosition));
+    } else {
+      // For non-textual last block, move cursor to the next block if it exists
+      if (lastResultBlockIndex + 1 < newBlocks.length) {
+        newState = moveCursorToPosition(newState, lastResultBlockIndex + 1, 0);
+      } else {
+        newState = moveCursorToPosition(newState, lastResultBlockIndex, 0);
+      }
+    }
 
     return { state: clearSelection(newState), ops };
   }
