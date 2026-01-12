@@ -7,6 +7,7 @@
  */
 
 import type { Char, TextFormat } from "@/deserializer/loadPage";
+import { COMPACTION_GRACE_PERIOD_MS } from "../constants";
 import { createHLC, receiveHLC, tickHLC } from "./hlc";
 import { createIdGenerator, generateBlockId, generatePeerId } from "./id";
 import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
@@ -258,6 +259,55 @@ export class SyncEngine {
       }
     }
     return { ...latest };
+  }
+
+  /**
+   * Compact the operation log by removing operations that are already saved.
+   * Call this after successfully saving to the server to free memory.
+   *
+   * Operations are only removed if:
+   * 1. They are <= snapshotClock (already saved in snapshot)
+   * 2. They are older than COMPACTION_GRACE_PERIOD_MS
+   *
+   * The grace period prevents a race condition where a late-joining peer
+   * loads an older snapshot from the server but can't get recent ops from
+   * existing peers because they've already been compacted.
+   * See docs/crdt-compaction.md for detailed explanation.
+   *
+   * @param snapshotClock - Clock of the saved snapshot. Operations <= this clock may be removed.
+   * @returns Number of operations removed
+   */
+  compactOperations(snapshotClock: HLC): number {
+    const beforeCount = this.opLog.operations.length;
+    const now = Date.now();
+
+    // Keep operations that are either:
+    // 1. After the snapshot clock (not yet saved)
+    // 2. Within the grace period (might be needed by late-joining peers)
+    this.opLog.operations = this.opLog.operations.filter((op) => {
+      // Keep ops within grace period regardless of clock
+      if (now - op.clock.wall < COMPACTION_GRACE_PERIOD_MS) {
+        return true;
+      }
+
+      // Keep ops after snapshot clock
+      return (
+        op.clock.wall > snapshotClock.wall ||
+        (op.clock.wall === snapshotClock.wall &&
+          op.clock.logical > snapshotClock.logical) ||
+        (op.clock.wall === snapshotClock.wall &&
+          op.clock.logical === snapshotClock.logical &&
+          op.clock.peerId > snapshotClock.peerId)
+      );
+    });
+
+    const removed = beforeCount - this.opLog.operations.length;
+    if (removed > 0) {
+      console.log(
+        `[SyncEngine] Compacted ${removed} operations (${this.opLog.operations.length} remaining)`
+      );
+    }
+    return removed;
   }
 
   /**

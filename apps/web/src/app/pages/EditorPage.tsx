@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useParams, useNavigate } from "react-router-dom";
 import { debounce } from "lodash-es";
-import { MountedEditor } from "../MountedEditor";
+import { MountedEditor, type MountedEditorRef } from "../MountedEditor";
 import type { SyncState } from "../../editor/sync/websocket";
 import type { AwarenessUser } from "@/editor/sync/awareness";
 import type { Block } from "@/deserializer/loadPage";
@@ -110,6 +110,9 @@ export default function EditorPage() {
     null
   );
 
+  // Ref for MountedEditor - used to trigger compaction after save
+  const editorRef = useRef<MountedEditorRef>(null);
+
   // Create debounced word count updater (500ms delay for performance)
   const debouncedWordCountUpdate = useRef(
     debounce((blocks: Block[]) => {
@@ -182,16 +185,26 @@ export default function EditorPage() {
     async ({
       snapshot,
       operations,
+      clock,
     }: {
       snapshot: Block[];
       operations: string;
+      clock: HLC | null;
     }) => {
       if (!id) return;
 
       try {
         await updatePage({ id, snapshot, operations });
+        // After successful save, compact operations from memory
+        // This frees memory in long sessions while ensuring late joiners
+        // can still get operations from us until they're saved on server
+        // IMPORTANT: Use the clock that was actually saved, not the current clock
+        if (clock) {
+          editorRef.current?.compactOperations(clock);
+        }
       } catch (error) {
         console.error("Failed to save content:", error);
+        // Don't compact on failure - we still need these operations
       }
     },
     [id, updatePage]
@@ -210,8 +223,8 @@ export default function EditorPage() {
 
   // Handle content changes from editor (local changes only - for saving)
   const handleContentChange = useCallback(
-    (snapshot: Block[], operations: string) => {
-      debouncedSave({ snapshot, operations });
+    (snapshot: Block[], operations: string, clock: HLC | null) => {
+      debouncedSave({ snapshot, operations, clock });
     },
     [debouncedSave]
   );
@@ -285,6 +298,7 @@ export default function EditorPage() {
   return (
     <>
       <MountedEditor
+        ref={editorRef}
         snapshot={pageSnapshot}
         className="w-full h-full"
         onContentChange={handleContentChange}

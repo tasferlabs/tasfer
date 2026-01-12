@@ -10,7 +10,7 @@ import {
   Strikethrough,
   Type,
 } from "lucide-react";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useImperativeHandle } from "react";
 import { createPortal } from "react-dom";
 import type { Block } from "../deserializer/loadPage";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
@@ -41,7 +41,8 @@ import { hasNativeBridge } from "@/editor/actions/clipboard";
 interface MountedEditorProps {
   snapshot: Block[];
   className?: string;
-  onContentChange?: (snapshot: Block[], operations: string) => void;
+  /** Called when content changes. clock is the HLC of the latest operation - use for compaction after save. */
+  onContentChange?: (snapshot: Block[], operations: string, clock: HLC | null) => void;
   /** Callback for all content updates (local and remote) - used for word count, etc. */
   onContentUpdate?: (blocks: Block[]) => void;
   autoFocus?: boolean;
@@ -59,9 +60,17 @@ interface MountedEditorProps {
   onSnapshotClockUpdate?: (clock: HLC | null) => void;
   /** Callback when active users change */
   onAwarenessChange?: (users: AwarenessUser[]) => void;
+  /** Called after save completes successfully - triggers memory compaction */
+  onSaveComplete?: () => void;
 }
 
-export const MountedEditor: React.FC<MountedEditorProps> = ({
+/** Ref handle for MountedEditor - allows parent to trigger compaction after save */
+export interface MountedEditorRef {
+  /** Compact operations up to the specified clock. Call after save succeeds with the clock that was saved. */
+  compactOperations: (savedClock: HLC) => void;
+}
+
+export const MountedEditor = React.forwardRef<MountedEditorRef, MountedEditorProps>(({
   snapshot,
   className = "",
   onContentChange,
@@ -74,7 +83,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
   snapshotClock,
   onSnapshotClockUpdate,
   onAwarenessChange,
-}) => {
+}, ref) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
   const syncEngineRef = useRef<SyncEngine | null>(null);
@@ -149,6 +158,16 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
   useEffect(() => {
     snapshotClockRef.current = snapshotClock ?? null;
   }, [snapshotClock]);
+
+  // Expose compaction method to parent via ref
+  // Parent should call this after save succeeds with the clock that was actually saved
+  useImperativeHandle(ref, () => ({
+    compactOperations: (savedClock: HLC) => {
+      if (syncEngineRef.current) {
+        syncEngineRef.current.compactOperations(savedClock);
+      }
+    },
+  }), []);
 
   // Track current toolbar icon type
   const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">(
@@ -442,17 +461,21 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
               : [];
             const operations = JSON.stringify(deltaOps);
 
+            // Get the latest clock BEFORE updating snapshotClockRef
+            // This clock corresponds to the operations being saved
+            const latestClock = syncEngineRef.current?.getLatestClock() ?? null;
+
             // Update snapshotClock to latest after sending
             // This ensures next save only sends newer operations
-            if (syncEngineRef.current && onSnapshotClockUpdate) {
-              const latestClock = syncEngineRef.current.getLatestClock();
-              if (latestClock) {
-                snapshotClockRef.current = latestClock;
-                onSnapshotClockUpdate(latestClock);
-              }
+            // Note: Compaction happens AFTER save succeeds (parent calls ref.compactOperations with savedClock)
+            // This ensures late joiners can still get operations from us until they're on the server
+            if (latestClock && onSnapshotClockUpdate) {
+              snapshotClockRef.current = latestClock;
+              onSnapshotClockUpdate(latestClock);
             }
 
-            onContentChange(currentBlocks as Block[], operations);
+            // Pass the clock so parent knows which clock to compact to after save succeeds
+            onContentChange(currentBlocks as Block[], operations, latestClock);
           }
         }
       }
@@ -1442,4 +1465,6 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         )}
     </div>
   );
-};
+});
+
+MountedEditor.displayName = "MountedEditor";

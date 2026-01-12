@@ -13,3 +13,10 @@ export const IMAGE_DEFAULT_HEIGHT = 220;
 export const SCROLLBAR_HOLD_DURATION = 150; // Shorter than long press, iOS feels snappy
 export const SCROLLBAR_TOUCH_BUFFER = 16; // Pixels of buffer area around the thumb for touch detection
 export const SELECTION_HANDLE_TOUCH_TARGET = 44; // Touch target size for selection handles (iOS HIG minimum)
+
+// CRDT Sync Constants
+// Grace period before compacting operations from memory after save.
+// This ensures late-joining peers can still receive ops from us during the window
+// between when they load from server and when they sync with peers.
+// See docs/crdt-compaction.md for detailed explanation.
+export const COMPACTION_GRACE_PERIOD_MS = 10000; // 10 seconds
