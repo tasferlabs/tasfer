@@ -15,7 +15,7 @@ import type {
   Operation,
   TextDelete,
   TextInsert
-} from "../sync/types";
+} from "./sync/types";
 import type { EditorState } from "./types";
 
 /**

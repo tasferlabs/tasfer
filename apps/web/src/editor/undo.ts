@@ -7,7 +7,7 @@ import type {
   CRDTSelectionState,
   Position,
 } from "./types";
-import type { Operation } from "../sync/types";
+import type { Operation } from "./sync/types";
 import { invalidateBlockCache } from "./renderer";
 import { applyRemoteOps } from "./sync/crdt-helpers";
 import { invertOperations } from "./inverse";

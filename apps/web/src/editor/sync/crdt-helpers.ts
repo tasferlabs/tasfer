@@ -491,8 +491,20 @@ function applyRemoteFormatSet(page: Page, op: FormatSet): Page {
  * Apply a remote block insert operation to editor Page blocks
  */
 function applyRemoteBlockInsert(page: Page, op: BlockInsert): Page {
-  // Check if block already exists (idempotent)
-  if (page.blocks.some((b) => b.id === op.blockId)) {
+  // Check if block already exists
+  const existingBlockIndex = page.blocks.findIndex((b) => b.id === op.blockId);
+
+  if (existingBlockIndex !== -1) {
+    // Block exists - if it's tombstoned, restore it; otherwise it's idempotent (no-op)
+    const existingBlock = page.blocks[existingBlockIndex];
+    if (existingBlock.deleted) {
+      // Restore the tombstoned block by marking it as not deleted
+      const restoredBlock = { ...existingBlock, deleted: false };
+      const newBlocks = [...page.blocks];
+      newBlocks[existingBlockIndex] = restoredBlock;
+      return { ...page, blocks: newBlocks };
+    }
+    // Block already exists and is not deleted - idempotent, do nothing
     return page;
   }
 
@@ -502,6 +514,7 @@ function applyRemoteBlockInsert(page: Page, op: BlockInsert): Page {
     id: op.blockId,
     chars: [],
     formats: [],
+    afterId: op.afterBlockId, // Store the afterBlockId for position tracking
   };
 
   switch (op.blockType) {
@@ -536,10 +549,11 @@ function applyRemoteBlockInsert(page: Page, op: BlockInsert): Page {
         width: op.initialProps?.width,
         height: op.initialProps?.height,
         objectFit: op.initialProps?.objectFit,
+        afterId: op.afterBlockId, // Store for position tracking
       };
       break;
     case "line":
-      newBlock = { id: op.blockId, type: "line" };
+      newBlock = { id: op.blockId, type: "line", afterId: op.afterBlockId };
       break;
     default:
       newBlock = { ...baseBlock, type: "paragraph" };
@@ -562,9 +576,23 @@ function applyRemoteBlockInsert(page: Page, op: BlockInsert): Page {
 
 /**
  * Apply a remote block delete operation to editor Page blocks
+ * Marks the block as deleted (tombstone) instead of removing it,
+ * preserving position information for potential undo operations.
  */
 function applyRemoteBlockDelete(page: Page, op: BlockDelete): Page {
-  const newBlocks = page.blocks.filter((b) => b.id !== op.blockId);
+  const blockIndex = page.blocks.findIndex((b) => b.id === op.blockId);
+
+  if (blockIndex === -1) {
+    return page;
+  }
+
+  const block = page.blocks[blockIndex];
+
+  // Mark block as deleted (tombstone) instead of removing it
+  const updatedBlock = { ...block, deleted: true };
+  const newBlocks = [...page.blocks];
+  newBlocks[blockIndex] = updatedBlock;
+
   return { ...page, blocks: newBlocks };
 }
 

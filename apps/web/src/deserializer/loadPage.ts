@@ -1,4 +1,4 @@
-import type { HLC } from "@/sync";
+import type { HLC } from "../editor/sync";
 import { IMAGE_DEFAULT_HEIGHT } from "../editor/constants";
 import parsePage from "./parser";
 import tokenizePage from "./tokenizer";

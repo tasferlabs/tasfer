@@ -11,6 +11,7 @@ import {
 import type { BlockInsert, BlockSet, Operation } from "../sync/types";
 import {
   allCharsHaveFormat,
+  applyRemoteOps,
   deleteCharsInRange,
   formatCharsInRange,
   getFormatsAtCharPosition,
@@ -574,24 +575,13 @@ export function deleteSelectedText(
         ops.push(blockDeleteOp);
       }
 
-      const blocksToKeep = [
-        ...state.document.page.blocks.slice(0, start.blockIndex),
-        ...state.document.page.blocks.slice(end.blockIndex + 1),
-      ];
+      // Check if we need to create an empty paragraph (all blocks will be deleted)
+      const visibleBlocksCount = state.document.page.blocks.filter((b: Block) => !b.deleted).length;
+      const deletingAllBlocks = (end.blockIndex - start.blockIndex + 1) >= visibleBlocksCount;
 
-      // If we deleted all blocks, create an empty paragraph
-      const needsEmptyParagraph = blocksToKeep.length === 0;
-      let newBlocks: Block[];
-      
-      if (needsEmptyParagraph) {
+      if (deletingAllBlocks) {
         const emptyParagraphId = crdt.idGen();
-        const emptyParagraph: Block = {
-          id: emptyParagraphId,
-          type: "paragraph" as const,
-          chars: [],
-          formats: [],
-        };
-        
+
         const blockInsertOp: Operation = {
           op: "block_insert",
           id: crdt.idGen(),
@@ -602,16 +592,31 @@ export function deleteSelectedText(
           blockType: "paragraph",
         };
         ops.push(blockInsertOp);
-        
-        newBlocks = [emptyParagraph];
-      } else {
-        newBlocks = blocksToKeep;
       }
 
-      const newPage = { ...state.document.page, blocks: newBlocks };
+      // Apply operations to get new page state (blocks will be tombstoned, not removed)
+      const newPage = applyRemoteOps(state.document.page, ops);
 
-      // Move cursor to the start position (or 0 if all blocks were deleted)
-      const newBlockIndex = Math.min(start.blockIndex, newBlocks.length - 1);
+      // Find first non-deleted block at or after start position for cursor placement
+      let newBlockIndex = start.blockIndex;
+      while (newBlockIndex < newPage.blocks.length && newPage.blocks[newBlockIndex].deleted) {
+        newBlockIndex++;
+      }
+      // If no non-deleted block found after start, search backwards
+      if (newBlockIndex >= newPage.blocks.length || newPage.blocks[newBlockIndex].deleted) {
+        newBlockIndex = start.blockIndex - 1;
+        while (newBlockIndex >= 0 && newPage.blocks[newBlockIndex].deleted) {
+          newBlockIndex--;
+        }
+      }
+      // Fallback to first non-deleted block
+      if (newBlockIndex < 0 || newBlockIndex >= newPage.blocks.length || newPage.blocks[newBlockIndex].deleted) {
+        newBlockIndex = newPage.blocks.findIndex((b: Block) => !b.deleted);
+      }
+      // Final fallback to 0
+      if (newBlockIndex === -1) {
+        newBlockIndex = 0;
+      }
 
       let newState: EditorState = {
         ...state,
@@ -680,13 +685,17 @@ export function deleteSelectedText(
       ops.push(blockDeleteOp);
     }
 
-    // Remove all blocks from start+1 to end (inclusive) and replace start block
-    const newBlocks = [
-      ...state.document.page.blocks.slice(0, start.blockIndex),
-      blockCopy,
-      ...state.document.page.blocks.slice(end.blockIndex + 1),
-    ];
-    const newPage = { ...state.document.page, blocks: newBlocks };
+    // Apply operations to get new page state (blocks will be tombstoned, not removed)
+    // This properly applies text operations and block deletions
+    let newPage = applyRemoteOps(state.document.page, ops);
+
+    // Update the start block with merged chars (since text ops modified it)
+    const startBlockIndex = newPage.blocks.findIndex((b: Block) => b.id === startBlock.id);
+    if (startBlockIndex !== -1) {
+      const newBlocks = [...newPage.blocks];
+      newBlocks[startBlockIndex] = blockCopy;
+      newPage = { ...newPage, blocks: newBlocks };
+    }
 
     let newState: EditorState = {
       ...state,
