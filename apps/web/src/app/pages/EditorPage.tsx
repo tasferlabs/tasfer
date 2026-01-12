@@ -8,8 +8,10 @@ import { debounce } from "lodash-es";
 import { MountedEditor } from "../MountedEditor";
 import type { SyncState } from "../../sync/websocket";
 
-// WebSocket server URL - defaults to localhost for development
-const WEBSOCKET_URL = import.meta.env.VITE_WEBSOCKET_URL || "ws://localhost:8080";
+// WebSocket server URL - defaults to using Vite proxy
+// Uses wss:// for HTTPS, ws:// for HTTP
+const WEBSOCKET_URL = import.meta.env.VITE_WEBSOCKET_URL || 
+  `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
 import {
   useCreatePage,
   getPage,

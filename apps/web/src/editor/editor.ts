@@ -297,6 +297,7 @@ export default function createEditor(
         eventsQueue,
         documentHeight,
         cachedRect,
+        crdtContext,
         updateViewport,
         pendingClipboardData
       );

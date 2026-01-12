@@ -215,4 +215,4 @@ Bugs list
 - [ ] should placeholder be visible on out of focus?
 - [ ] page up and down should work with visual blocks.
 - [ ] empty line and selection drag
-- [x] deleting blocks not working on live update.
+- [x] deleting blocks not working on live update.I think we could consolidate @apps/web/src/sync/index.ts operations more, like why do we need dosen of operation lww properties, what do you think?

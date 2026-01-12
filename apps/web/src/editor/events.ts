@@ -1,6 +1,6 @@
 import type { Block } from "../deserializer/loadPage";
 import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
-import type { Operation } from "../sync/types";
+import type { HLC, Operation } from "../sync/types";
 import { SLASH_COMMANDS } from "./SlashCommandMenu";
 import { copySelectionToClipboard, pasteFromClipboardEvent } from "./clipboard";
 import {
@@ -98,10 +98,11 @@ import {
   updateMode,
   updateSelectionFocus,
   updateSlashCommandFilter,
-  updateSlashCommandSelection
+  updateSlashCommandSelection,
 } from "./state";
 import { getEditorStyles, getTextStyle } from "./styles";
 import type {
+  CRDTContext,
   EditorState,
   KeyboardEvent,
   MouseEvent,
@@ -650,22 +651,72 @@ function updateImageDrag(
 /**
  * End an image drag resize operation
  * @param state Current editor state
- * @returns Updated state with imageDrag cleared and undo recorded
+ * @param crdtContext CRDT context for generating operations
+ * @returns Updated state with imageDrag cleared and operations for the resize
  */
-function endImageDrag(state: EditorState): EditorState {
+function endImageDrag(
+  state: EditorState,
+  crdtContext: { pageId: string; idGen: () => string; clock: () => HLC }
+): { state: EditorState; ops: Operation[] } {
   if (!state.ui.imageDrag) {
-    return state;
+    return { state, ops: [] };
   }
 
-  // Record undo for the image resize operation
-  const finalState = state;
-  return {
-    ...finalState,
+  const ops: Operation[] = [];
+  const { blockIndex, startWidth, startHeight, startObjectFit } = state.ui.imageDrag;
+  const block = state.document.page.blocks[blockIndex];
+
+  if (block && block.type === "image") {
+    const blockId = block.id;
+
+    // Create operations only for fields that changed during the drag
+    // Compare final values with original values from when drag started
+    if (block.width !== startWidth) {
+      ops.push({
+        op: "block_set",
+        id: crdtContext.idGen(),
+        clock: crdtContext.clock(),
+        pageId: crdtContext.pageId,
+        blockId,
+        field: "width",
+        value: block.width,
+      });
+    }
+
+    if (block.height !== startHeight) {
+      ops.push({
+        op: "block_set",
+        id: crdtContext.idGen(),
+        clock: crdtContext.clock(),
+        pageId: crdtContext.pageId,
+        blockId,
+        field: "height",
+        value: block.height,
+      });
+    }
+
+    if (block.objectFit !== startObjectFit) {
+      ops.push({
+        op: "block_set",
+        id: crdtContext.idGen(),
+        clock: crdtContext.clock(),
+        pageId: crdtContext.pageId,
+        blockId,
+        field: "objectFit",
+        value: block.objectFit,
+      });
+    }
+  }
+
+  const finalState = {
+    ...state,
     ui: {
-      ...finalState.ui,
+      ...state.ui,
       imageDrag: null,
     },
   };
+
+  return { state: finalState, ops };
 }
 
 /**
@@ -839,6 +890,7 @@ export function handleEvents(
   events: Event[],
   documentHeight: number,
   containerRect: { left: number; top: number },
+  crdtContext: CRDTContext,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
   clipboardData?: { html: string; text: string } | null
 ): { state: EditorState; ops: Operation[] } {
@@ -1353,12 +1405,15 @@ export function handleEvents(
         if (isTouchDevice()) {
           break;
         }
-        state = handleMouseUp(
+        const mouseUpResult = handleMouseUp(
           state,
           viewport,
           event as unknown as MouseEvent,
-          visibility
+          visibility,
+          crdtContext
         );
+        state = mouseUpResult.state;
+        collectedOps.push(...mouseUpResult.ops);
         break;
       case "pointercancel":
         // Only cancel on pointercancel (not on leave)
@@ -1417,12 +1472,15 @@ export function handleEvents(
         );
         break;
       case "touchend":
-        state = handleTouchEnd(
+        const touchEndResult = handleTouchEnd(
           state,
           viewport,
           event as TouchEvent,
-          containerRect
+          containerRect,
+          crdtContext
         );
+        state = touchEndResult.state;
+        collectedOps.push(...touchEndResult.ops);
         break;
       case "touchcancel":
         // Cancel touch interaction
@@ -2410,8 +2468,10 @@ function handleMouseUp(
   state: EditorState,
   _viewport: ViewportState,
   _event: MouseEvent,
-  _visibility: { start: number; end: number }
-): EditorState {
+  _visibility: { start: number; end: number },
+  crdtContext: { pageId: string; idGen: () => string; clock: () => HLC }
+): { state: EditorState; ops: Operation[] } {
+  const ops: Operation[] = [];
   stopAutoScroll();
 
   // Clean up scrollbar press state
@@ -2421,17 +2481,21 @@ function handleMouseUp(
 
   if (state.view.scrollbar.isDragging) {
     return {
-      ...state,
-      view: {
-        ...state.view,
-        scrollbar: endScrollbarDrag(state.view.scrollbar),
+      state: {
+        ...state,
+        view: {
+          ...state.view,
+          scrollbar: endScrollbarDrag(state.view.scrollbar),
+        },
       },
+      ops,
     };
   }
 
   // End image drag if active
   if (state.ui.imageDrag) {
-    return endImageDrag(state);
+    const result = endImageDrag(state, crdtContext);
+    return result;
   }
 
   if (state.ui.mode === "select") {
@@ -2451,10 +2515,10 @@ function handleMouseUp(
         },
       };
     }
-    return updateMode(newState, "edit");
+    return { state: updateMode(newState, "edit"), ops };
   }
 
-  return state;
+  return { state, ops };
 }
 
 function handlePointerCancel(state: EditorState): EditorState {
@@ -4646,8 +4710,10 @@ function handleTouchEnd(
   state: EditorState,
   viewport: ViewportState,
   _event: TouchEvent,
-  _containerRect: { left: number; top: number }
-): EditorState {
+  _containerRect: { left: number; top: number },
+  crdtContext: CRDTContext
+): { state: EditorState; ops: Operation[] } {
+  const ops: Operation[] = [];
   stopAutoScroll();
 
   // Handle two-finger scroll end with momentum
@@ -4676,7 +4742,7 @@ function handleTouchEnd(
     }
 
     touchState = null;
-    return state;
+    return { state, ops };
   }
 
   // Clean up scrollbar press state (iOS-style hold)
@@ -4699,33 +4765,40 @@ function handleTouchEnd(
   if (state.ui.selectionHandleDrag) {
     touchState = null;
     return {
-      ...state,
-      ui: {
-        ...state.ui,
-        selectionHandleDrag: null,
-      },
-      view: {
-        ...state.view,
-        scrollbar: {
-          ...state.view.scrollbar,
-          lastInteraction: Date.now(),
+      state: {
+        ...state,
+        ui: {
+          ...state.ui,
+          selectionHandleDrag: null,
+        },
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
         },
       },
+      ops,
     };
   }
 
   // End image drag if active
   if (state.ui.imageDrag) {
     touchState = null;
+    const endDragResult = endImageDrag(state, crdtContext);
     return {
-      ...endImageDrag(state),
-      view: {
-        ...state.view,
-        scrollbar: {
-          ...state.view.scrollbar,
-          lastInteraction: Date.now(),
+      state: {
+        ...endDragResult.state,
+        view: {
+          ...endDragResult.state.view,
+          scrollbar: {
+            ...endDragResult.state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
         },
       },
+      ops: endDragResult.ops,
     };
   }
 
@@ -4741,28 +4814,34 @@ function handleTouchEnd(
       state = selectContextMenuItem(state, hoveredItemId);
       touchState = null;
       return {
-        ...state,
-        view: {
-          ...state.view,
-          scrollbar: {
-            ...state.view.scrollbar,
-            lastInteraction: Date.now(),
+        state: {
+          ...state,
+          view: {
+            ...state.view,
+            scrollbar: {
+              ...state.view.scrollbar,
+              lastInteraction: Date.now(),
+            },
           },
         },
+        ops,
       };
     } else {
       // User released but not on a menu item - keep menu open for tapping
       // Just clean up touch state and return
       touchState = null;
       return {
-        ...state,
-        view: {
-          ...state.view,
-          scrollbar: {
-            ...state.view.scrollbar,
-            lastInteraction: Date.now(),
+        state: {
+          ...state,
+          view: {
+            ...state.view,
+            scrollbar: {
+              ...state.view.scrollbar,
+              lastInteraction: Date.now(),
+            },
           },
         },
+        ops,
       };
     }
   }
@@ -4773,14 +4852,17 @@ function handleTouchEnd(
       // Long pressed on existing selection - context menu already shown, just cleanup
       touchState = null;
       return {
-        ...state,
-        view: {
-          ...state.view,
-          scrollbar: {
-            ...state.view.scrollbar,
-            lastInteraction: Date.now(),
+        state: {
+          ...state,
+          view: {
+            ...state.view,
+            scrollbar: {
+              ...state.view.scrollbar,
+              lastInteraction: Date.now(),
+            },
           },
         },
+        ops,
       };
     } else if (state.ui.mode === "select") {
       // Long press created a new selection (user dragged) - exit select mode
@@ -4803,14 +4885,17 @@ function handleTouchEnd(
       touchState = null;
 
       return {
-        ...state,
-        view: {
-          ...state.view,
-          scrollbar: {
-            ...state.view.scrollbar,
-            lastInteraction: Date.now(),
+        state: {
+          ...state,
+          view: {
+            ...state.view,
+            scrollbar: {
+              ...state.view.scrollbar,
+              lastInteraction: Date.now(),
+            },
           },
         },
+        ops,
       };
     } else {
       // Long press on non-selected text but user didn't drag - show context menu now
@@ -4821,14 +4906,17 @@ function handleTouchEnd(
       );
       touchState = null;
       return {
-        ...state,
-        view: {
-          ...state.view,
-          scrollbar: {
-            ...state.view.scrollbar,
-            lastInteraction: Date.now(),
+        state: {
+          ...state,
+          view: {
+            ...state.view,
+            scrollbar: {
+              ...state.view.scrollbar,
+              lastInteraction: Date.now(),
+            },
           },
         },
+        ops,
       };
     }
   }
@@ -4867,14 +4955,17 @@ function handleTouchEnd(
 
       touchState = null;
       return {
-        ...state,
-        view: {
-          ...state.view,
-          scrollbar: {
-            ...state.view.scrollbar,
-            lastInteraction: Date.now(),
+        state: {
+          ...state,
+          view: {
+            ...state.view,
+            scrollbar: {
+              ...state.view.scrollbar,
+              lastInteraction: Date.now(),
+            },
           },
         },
+        ops,
       };
     }
 
@@ -4906,14 +4997,17 @@ function handleTouchEnd(
 
         touchState = null;
         return {
-          ...state,
-          view: {
-            ...state.view,
-            scrollbar: {
-              ...state.view.scrollbar,
-              lastInteraction: Date.now(),
+          state: {
+            ...state,
+            view: {
+              ...state.view,
+              scrollbar: {
+                ...state.view.scrollbar,
+                lastInteraction: Date.now(),
+              },
             },
           },
+          ops,
         };
       }
     }
@@ -4927,7 +5021,10 @@ function handleTouchEnd(
     );
     if (checkboxTapResult) {
       touchState = null;
-      return checkboxTapResult.state;
+      return {
+        state: checkboxTapResult.state,
+        ops: checkboxTapResult.ops,
+      };
     }
 
     // Get text position for cursor/selection
@@ -5003,15 +5100,20 @@ function handleTouchEnd(
           state = moveCursorToPosition(state, lastBlockIndex + 1, 0);
 
           touchState = null;
+          const finalState = updateMode(state, "edit");
+          ops.push(blockInsertOp);
           return {
-            ...updateMode(state, "edit"),
-            view: {
-              ...state.view,
-              scrollbar: {
-                ...state.view.scrollbar,
-                lastInteraction: Date.now(),
+            state: {
+              ...finalState,
+              view: {
+                ...finalState.view,
+                scrollbar: {
+                  ...finalState.view.scrollbar,
+                  lastInteraction: Date.now(),
+                },
               },
             },
+            ops,
           };
         }
       }
@@ -5037,34 +5139,42 @@ function handleTouchEnd(
             ) {
               // Close image upload popover and keep it closed
               touchState = null;
+              const closedState = closeActiveMenu(state);
               return {
-                ...closeActiveMenu(state),
-                view: {
-                  ...state.view,
-                  scrollbar: {
-                    ...state.view.scrollbar,
-                    lastInteraction: Date.now(),
+                state: {
+                  ...closedState,
+                  view: {
+                    ...closedState.view,
+                    scrollbar: {
+                      ...closedState.view.scrollbar,
+                      lastInteraction: Date.now(),
+                    },
                   },
                 },
+                ops,
               };
             }
 
             // Open image upload popover
             touchState = null;
+            const menuState = setActiveMenu(state, {
+              type: "imageUpload",
+              blockIndex: position.blockIndex,
+              x: tapPosition.x,
+              y: tapPosition.y,
+            });
             return {
-              ...setActiveMenu(state, {
-                type: "imageUpload",
-                blockIndex: position.blockIndex,
-                x: tapPosition.x,
-                y: tapPosition.y,
-              }),
-              view: {
-                ...state.view,
-                scrollbar: {
-                  ...state.view.scrollbar,
-                  lastInteraction: Date.now(),
+              state: {
+                ...menuState,
+                view: {
+                  ...menuState.view,
+                  scrollbar: {
+                    ...menuState.view.scrollbar,
+                    lastInteraction: Date.now(),
+                  },
                 },
               },
+              ops,
             };
           }
 
@@ -5098,14 +5208,17 @@ function handleTouchEnd(
 
           touchState = null;
           return {
-            ...state,
-            view: {
-              ...state.view,
-              scrollbar: {
-                ...state.view.scrollbar,
-                lastInteraction: Date.now(),
+            state: {
+              ...state,
+              view: {
+                ...state.view,
+                scrollbar: {
+                  ...state.view.scrollbar,
+                  lastInteraction: Date.now(),
+                },
               },
             },
+            ops,
           };
         } else {
           // Tapped on image block area but not on the actual image visual
@@ -5144,17 +5257,22 @@ function handleTouchEnd(
             state = moveCursorToPosition(state, position.blockIndex + 1, 0);
 
             // Broadcast the operation
+            ops.push(blockInsertOp);
 
             touchState = null;
+            const finalState = updateMode(state, "edit");
             return {
-              ...updateMode(state, "edit"),
-              view: {
-                ...state.view,
-                scrollbar: {
-                  ...state.view.scrollbar,
-                  lastInteraction: Date.now(),
+              state: {
+                ...finalState,
+                view: {
+                  ...finalState.view,
+                  scrollbar: {
+                    ...finalState.view.scrollbar,
+                    lastInteraction: Date.now(),
+                  },
                 },
               },
+              ops,
             };
           }
         }
@@ -5200,14 +5318,17 @@ function handleTouchEnd(
 
           touchState = null;
           return {
-            ...state,
-            view: {
-              ...state.view,
-              scrollbar: {
-                ...state.view.scrollbar,
-                lastInteraction: Date.now(),
+            state: {
+              ...state,
+              view: {
+                ...state.view,
+                scrollbar: {
+                  ...state.view.scrollbar,
+                  lastInteraction: Date.now(),
+                },
               },
             },
+            ops,
           };
         }
       }
@@ -5291,14 +5412,17 @@ function handleTouchEnd(
 
     touchState = null;
     return {
-      ...state,
-      view: {
-        ...state.view,
-        scrollbar: {
-          ...state.view.scrollbar,
-          lastInteraction: Date.now(),
+      state: {
+        ...state,
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
         },
       },
+      ops,
     };
   }
 
@@ -5331,14 +5455,17 @@ function handleTouchEnd(
   touchState = null;
 
   return {
-    ...state,
-    view: {
-      ...state.view,
-      scrollbar: {
-        ...state.view.scrollbar,
-        lastInteraction: Date.now(),
+    state: {
+      ...state,
+      view: {
+        ...state.view,
+        scrollbar: {
+          ...state.view.scrollbar,
+          lastInteraction: Date.now(),
+        },
       },
     },
+    ops,
   };
 }
 
