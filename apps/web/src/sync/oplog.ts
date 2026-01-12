@@ -239,13 +239,3 @@ export function getLatestOp(log: OpLog): Operation | undefined {
   }
   return log.operations[log.operations.length - 1];
 }
-
-/**
- * Compact the operation log by removing redundant operations.
- * Currently a no-op - tombstones are kept for CRDT correctness.
- * Future: implement snapshotting.
- */
-export function compactOpLog(log: OpLog): OpLog {
-  // TODO: Implement snapshotting for large logs
-  return log;
-}
