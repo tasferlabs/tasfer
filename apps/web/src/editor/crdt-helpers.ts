@@ -365,6 +365,22 @@ function applyRemoteTextInsert(page: Page, op: TextInsert): Page {
   let insertAfter = op.afterCharId;
 
   for (const charData of op.chars) {
+    // Check if char with this ID already exists (e.g., tombstoned char being restored)
+    const existingCharIndex = newChars.findIndex((c) => c.id === charData.id);
+
+    if (existingCharIndex !== -1) {
+      // Char exists - if it's tombstoned, restore it; otherwise skip (idempotent)
+      if (newChars[existingCharIndex].deleted) {
+        newChars[existingCharIndex] = {
+          ...newChars[existingCharIndex],
+          deleted: false,
+        };
+      }
+      // Update insertAfter to this char's ID for next iteration
+      insertAfter = charData.id;
+      continue;
+    }
+
     const newChar: Char = {
       id: charData.id,
       char: charData.char,

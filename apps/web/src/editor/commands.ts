@@ -39,7 +39,12 @@ import type {
   Position,
   SlashCommand,
 } from "./types";
-import { } from "./undo";
+import {
+  positionToCRDT,
+  crdtToPosition,
+  selectionRangeToCRDT,
+  crdtToSelectionRange,
+} from "./undo";
 
 /**
  * Helper to determine if text is RTL based on character array
@@ -418,7 +423,15 @@ export function deleteSelectedText(
   if (!range) return { state, ops: [] };
 
   const ops: Operation[] = [];
-  const { start, end } = range;
+
+  // SAFETY: Convert selection to CRDT and back for validation against concurrent updates
+  const crdtRange = selectionRangeToCRDT(state.document.page, range);
+  if (!crdtRange) return { state, ops: [] };
+
+  const freshRange = crdtToSelectionRange(state.document.page, crdtRange);
+  if (!freshRange) return { state, ops: [] };
+
+  const { start, end } = freshRange;
 
   if (start.blockIndex === end.blockIndex) {
     // Single block selection
@@ -731,7 +744,14 @@ export function insertText(
     }
   }
 
-  const { blockIndex, textIndex } = state.document.cursor.position;
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+  if (!cursorCRDT) return { state, ops };
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return { state, ops };
+
+  const { blockIndex, textIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
   if (!isTextualBlock(oldBlock)) {
@@ -889,7 +909,14 @@ export function deleteText(
     return deleteSelectedText(state, crdt);
   }
 
-  const { blockIndex, textIndex } = state.document.cursor.position;
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+  if (!cursorCRDT) return { state, ops };
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return { state, ops };
+
+  const { blockIndex, textIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
   if (!isTextualBlock(oldBlock)) {
     return { state, ops };
@@ -1202,7 +1229,14 @@ export function deleteForward(
     return deleteSelectedText(state, crdt);
   }
 
-  const { blockIndex, textIndex } = state.document.cursor.position;
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+  if (!cursorCRDT) return { state, ops };
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return { state, ops };
+
+  const { blockIndex, textIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
   if (!isTextualBlock(oldBlock)) {
@@ -1491,7 +1525,15 @@ function findWordDeleteBoundaryRight(text: string, index: number): number {
 // Move cursor to previous word boundary
 export function moveToPreviousWord(state: EditorState): EditorState {
   if (!state.document.cursor) return state;
-  const { blockIndex, textIndex } = state.document.cursor.position;
+
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+  if (!cursorCRDT) return state;
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return state;
+
+  const { blockIndex, textIndex } = position;
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
 
@@ -1529,7 +1571,15 @@ export function moveToPreviousWord(state: EditorState): EditorState {
 // Move cursor to next word boundary
 export function moveToNextWord(state: EditorState): EditorState {
   if (!state.document.cursor) return state;
-  const { blockIndex, textIndex } = state.document.cursor.position;
+
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+  if (!cursorCRDT) return state;
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return state;
+
+  const { blockIndex, textIndex } = position;
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
 
@@ -1578,7 +1628,14 @@ export function deleteWordForward(
     return deleteSelectedText(state, crdt);
   }
 
-  const { blockIndex, textIndex } = state.document.cursor.position;
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+  if (!cursorCRDT) return { state, ops };
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return { state, ops };
+
+  const { blockIndex, textIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
   if (!isTextualBlock(oldBlock)) {
     return { state, ops };
@@ -1685,7 +1742,14 @@ export function deleteWordBackward(
     return deleteSelectedText(state, crdt);
   }
 
-  const { blockIndex, textIndex } = state.document.cursor.position;
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+  if (!cursorCRDT) return { state, ops };
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return { state, ops };
+
+  const { blockIndex, textIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
   if (!isTextualBlock(oldBlock)) {
@@ -1828,7 +1892,14 @@ export function selectWordAtPosition(
   state: EditorState,
   position: Position
 ): EditorState {
-  const { blockIndex, textIndex } = position;
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const positionCRDT = positionToCRDT(state.document.page, position);
+  if (!positionCRDT) return state;
+
+  const validPosition = crdtToPosition(state.document.page, positionCRDT);
+  if (!validPosition) return state;
+
+  const { blockIndex, textIndex } = validPosition;
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
 
@@ -1881,7 +1952,14 @@ export function selectLineAtPosition(
   state: EditorState,
   position: Position
 ): EditorState {
-  const { blockIndex } = position;
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const positionCRDT = positionToCRDT(state.document.page, position);
+  if (!positionCRDT) return state;
+
+  const validPosition = crdtToPosition(state.document.page, positionCRDT);
+  if (!validPosition) return state;
+
+  const { blockIndex } = validPosition;
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
 
@@ -1914,14 +1992,30 @@ export function selectLineAtPosition(
 // Move to start of current line (Home key)
 export function moveToLineStart(state: EditorState): EditorState {
   if (!state.document.cursor) return state;
-  const { blockIndex } = state.document.cursor.position;
+
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+  if (!cursorCRDT) return state;
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return state;
+
+  const { blockIndex } = position;
   return moveCursorToPosition(state, blockIndex, 0);
 }
 
 // Move to end of current line (End key)
 export function moveToLineEnd(state: EditorState): EditorState {
   if (!state.document.cursor) return state;
-  const { blockIndex } = state.document.cursor.position;
+
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+  if (!cursorCRDT) return state;
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return state;
+
+  const { blockIndex } = position;
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
   return moveCursorToPosition(state, blockIndex, text.length);
@@ -2024,7 +2118,15 @@ export function splitBlock(
   if (!state.document.cursor) return { state, ops: [] };
 
   const ops: Operation[] = [];
-  const { blockIndex, textIndex } = state.document.cursor.position;
+
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+  if (!cursorCRDT) return { state, ops: [] };
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return { state, ops: [] };
+
+  const { blockIndex, textIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
   // Handle Enter key on selected image: create new paragraph below
@@ -2340,7 +2442,20 @@ export function splitBlock(
 
   const newBlockId = crdt.idGen();
   let blockCopy2Chars: Char[] = [];
-  
+
+  // Insert the new block FIRST (before inserting text into it)
+  // This ensures remote peers have the block before receiving text operations for it
+  const blockInsertOp: BlockInsert = {
+    op: "block_insert",
+    id: crdt.idGen(),
+    clock: crdt.clock(),
+    pageId: crdt.pageId,
+    afterBlockId: oldBlock.id,
+    blockId: newBlockId,
+    blockType: blockCopy2Type,
+  };
+  ops.push(blockInsertOp);
+
   // Insert text into new block if there was text after cursor
   if (afterCharsText.length > 0) {
     const { newChars, op: insertOp } = insertCharsAtPosition(
@@ -2353,25 +2468,13 @@ export function splitBlock(
     blockCopy2Chars = newChars;
     ops.push(insertOp);
   }
-  
+
   const blockCopy2: Block = {
     id: newBlockId,
     type: blockCopy2Type,
     chars: blockCopy2Chars,
     formats: [],
   } as Block;
-  
-  // Insert the new block
-  const blockInsertOp: BlockInsert = {
-    op: "block_insert",
-    id: crdt.idGen(),
-    clock: crdt.clock(),
-    pageId: crdt.pageId,
-    afterBlockId: oldBlock.id,
-    blockId: newBlockId,
-    blockType: blockCopy2Type,
-  };
-  ops.push(blockInsertOp);
 
   // Invalidate cache for both new blocks
   invalidateBlockCache(blockCopy1);
@@ -2499,7 +2602,14 @@ export function toggleFormat(
       return { state, ops: [] };
     }
 
-    const { blockIndex, textIndex } = state.document.cursor.position;
+    // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+    const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+    if (!cursorCRDT) return { state, ops: [] };
+
+    const position = crdtToPosition(state.document.page, cursorCRDT);
+    if (!position) return { state, ops: [] };
+
+    const { blockIndex, textIndex } = position;
     const block = state.document.page.blocks[blockIndex];
 
     if (!isTextualBlock(block)) {
@@ -2538,7 +2648,14 @@ export function toggleFormat(
     };
   }
 
-  const { start, end } = range;
+  // SAFETY: Convert selection to CRDT and back for validation against concurrent updates
+  const crdtRange = selectionRangeToCRDT(state.document.page, range);
+  if (!crdtRange) return { state, ops: [] };
+
+  const freshRange = crdtToSelectionRange(state.document.page, crdtRange);
+  if (!freshRange) return { state, ops: [] };
+
+  const { start, end } = freshRange;
 
   if (start.blockIndex === end.blockIndex) {
     // Single block selection
@@ -2724,7 +2841,15 @@ export function convertBlockType(
   if (!state.document.cursor) return { state, ops: [] };
 
   const ops: Operation[] = [];
-  const { blockIndex } = state.document.cursor.position;
+
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+  if (!cursorCRDT) return { state, ops: [] };
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return { state, ops: [] };
+
+  const { blockIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
   // Only text blocks can have content property
@@ -3215,7 +3340,15 @@ export function indentListItem(
   if (!state.document.cursor) return { state, ops: [] };
 
   const ops: Operation[] = [];
-  const { blockIndex } = state.document.cursor.position;
+
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+  if (!cursorCRDT) return { state, ops: [] };
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return { state, ops: [] };
+
+  const { blockIndex } = position;
   const block = state.document.page.blocks[blockIndex];
 
   if (!isListBlock(block)) return { state, ops: [] };
@@ -3270,7 +3403,15 @@ export function outdentListItem(
   if (!state.document.cursor) return { state, ops: [] };
 
   const ops: Operation[] = [];
-  const { blockIndex } = state.document.cursor.position;
+
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+  if (!cursorCRDT) return { state, ops: [] };
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return { state, ops: [] };
+
+  const { blockIndex } = position;
   const block = state.document.page.blocks[blockIndex];
 
   if (!isListBlock(block)) return { state, ops: [] };
@@ -3356,6 +3497,12 @@ export function toggleTodoChecked(
   crdt: CRDTContext
 ): CommandResult {
   const ops: Operation[] = [];
+
+  // SAFETY: Validate blockIndex bounds before accessing
+  if (blockIndex < 0 || blockIndex >= state.document.page.blocks.length) {
+    return { state, ops: [] };
+  }
+
   const block = state.document.page.blocks[blockIndex];
 
   if (!block || block.type !== "todo_list") return { state, ops: [] };
@@ -3404,7 +3551,15 @@ export function convertToList(
   if (!state.document.cursor) return { state, ops: [] };
 
   const ops: Operation[] = [];
-  const { blockIndex } = state.document.cursor.position;
+
+  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
+  const cursorCRDT = positionToCRDT(state.document.page, state.document.cursor.position);
+  if (!cursorCRDT) return { state, ops: [] };
+
+  const position = crdtToPosition(state.document.page, cursorCRDT);
+  if (!position) return { state, ops: [] };
+
+  const { blockIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
   if (!isTextualBlock(oldBlock)) return { state, ops: [] };
@@ -3506,6 +3661,12 @@ export function updateLinkInBlock(
   crdt: CRDTContext
 ): CommandResult {
   const ops: Operation[] = [];
+
+  // SAFETY: Validate blockIndex bounds before accessing
+  if (blockIndex < 0 || blockIndex >= state.document.page.blocks.length) {
+    return { state, ops: [] };
+  }
+
   const block = state.document.page.blocks[blockIndex];
   if (!block) return { state, ops: [] };
 
@@ -3594,6 +3755,12 @@ export function clearLinkInBlock(
   crdt: CRDTContext
 ): CommandResult {
   const ops: Operation[] = [];
+
+  // SAFETY: Validate blockIndex bounds before accessing
+  if (blockIndex < 0 || blockIndex >= state.document.page.blocks.length) {
+    return { state, ops: [] };
+  }
+
   const block = state.document.page.blocks[blockIndex];
   if (!block) return { state, ops: [] };
 

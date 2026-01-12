@@ -180,10 +180,11 @@ export default function createEditor(
    */
   const executeCommand = (result: CommandResult): void => {
     const { state: newState, ops } = result;
+    const prevState = state;
 
-    // Update local state and record to undo stack
+    // Update local state and record to undo stack (pass both before/after states for cursor restoration)
     state = ops.length > 0
-      ? recordUndoOps(newState, ops, crdtContext.clock().peerId)
+      ? recordUndoOps(prevState, newState, ops, crdtContext.clock().peerId)
       : newState;
 
     // Broadcast ops to peers (if any)
@@ -310,8 +311,8 @@ export default function createEditor(
       if (handleEventsResult.ops.length > 0) {
         const undoManagerChanged = prevState.undoManager !== state.undoManager;
         if (!undoManagerChanged) {
-          // Regular operation - record to undo stack
-          state = recordUndoOps(state, handleEventsResult.ops, crdtContext.clock().peerId);
+          // Regular operation - record to undo stack (pass both before/after states for cursor restoration)
+          state = recordUndoOps(prevState, state, handleEventsResult.ops, crdtContext.clock().peerId);
         }
         // Broadcast ops to peers
         if (broadcastFn) {

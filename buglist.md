@@ -78,7 +78,7 @@ Bugs list
 - [-] I want to drag cursor. Solved by padding click.
 - [x] if click outside the box selection should be lost.
 - [x] add link for inline rendering format but the styles should be resvered for links. Add parsing logic for links as well. Add menu for changing the link tile.
-- [x] ctrl click or command     click should open the link. But it should not matter if it happens in fly while selecting.
+- [x] ctrl click or command click should open the link. But it should not matter if it happens in fly while selecting.
 - [x] hover on link should radix toolip and preview and with edit edit button and copy button. clicking on link preview should open it.
 - [x] how to do the above on mobile.
 - [-] do design overhaul.
@@ -215,4 +215,7 @@ Bugs list
 - [ ] should placeholder be visible on out of focus?
 - [ ] page up and down should work with visual blocks.
 - [ ] empty line and selection drag
-- [x] deleting blocks not working on live update.I think we could consolidate @apps/web/src/sync/index.ts operations more, like why do we need dosen of operation lww properties, what do you think?
+- [x] deleting blocks not working on live update.I think we could consolidate @apps/web/src/sync/index.ts operations more, like why do we need dosen of operation lww properties.
+- [ ] tapping enter to split blocks does not not work well with crdt opreations.
+- [ ] arabic script stopped working after impelemting crdt 
+- [ ] when typing in the middle the other tab insert to the end.

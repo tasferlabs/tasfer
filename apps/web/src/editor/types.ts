@@ -155,6 +155,10 @@ export interface ViewState {
 export interface UndoGroup {
   readonly operations: readonly Operation[]; // Original operations performed
   readonly peerId: string; // User who performed these operations
+  readonly cursorBefore: CRDTCursorState | null; // Cursor state before operations (restored on undo)
+  readonly selectionBefore: CRDTSelectionState | null; // Selection state before operations (restored on undo)
+  readonly cursorAfter: CRDTCursorState | null; // Cursor state after operations (restored on redo)
+  readonly selectionAfter: CRDTSelectionState | null; // Selection state after operations (restored on redo)
 }
 
 export interface UndoManagerState {
@@ -235,6 +239,30 @@ export interface PartialSelectionState {
 export interface Position {
   readonly blockIndex: number;
   readonly textIndex: number;
+}
+
+/**
+ * CRDT-compatible position that uses IDs instead of indexes.
+ * This survives concurrent operations since IDs are stable.
+ */
+export interface CRDTPosition {
+  readonly blockId: string; // Block ID (stable across operations)
+  readonly afterCharId: string | null; // Character ID the cursor is after, null = start of block
+}
+
+/**
+ * CRDT-compatible cursor state for undo/redo.
+ */
+export interface CRDTCursorState {
+  readonly position: CRDTPosition;
+}
+
+/**
+ * CRDT-compatible selection state for undo/redo.
+ */
+export interface CRDTSelectionState {
+  readonly anchor: CRDTPosition;
+  readonly focus: CRDTPosition;
 }
 
 export interface ViewportState {
