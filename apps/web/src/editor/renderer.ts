@@ -2,7 +2,6 @@ import type {
   Block,
   Char,
   FormatSpan,
-  TextFormat,
 } from "../deserializer/loadPage";
 import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
 import type { AwarenessState } from "./sync/awareness";
@@ -21,31 +20,6 @@ import {
   type FontFamily,
   type TextBatch,
 } from "./fonts";
-
-// Helper to get formats at a specific character index in the full chars array
-function getFormatsAtCharIndex(
-  charIndex: number,
-  chars: Char[],
-  formats: FormatSpan[]
-): TextFormat[] {
-  const activeFormats: TextFormat[] = [];
-
-  for (const span of formats) {
-    const startIdx = chars.findIndex((c) => c.id === span.startCharId);
-    const endIdx = chars.findIndex((c) => c.id === span.endCharId);
-
-    if (
-      startIdx !== -1 &&
-      endIdx !== -1 &&
-      charIndex >= startIdx &&
-      charIndex <= endIdx
-    ) {
-      activeFormats.push(span.format);
-    }
-  }
-
-  return activeFormats;
-}
 
 import { renderScrollbar } from "./scrollbar";
 import { getBlockTextContent, isCursorBlinking, isTouchDevice } from "./state";

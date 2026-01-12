@@ -241,7 +241,6 @@ export function PageLink({
   function handleAdd() {
     createPage({
       title: "",
-      content: "# ", // Empty heading 1
       parentId: data.id,
     });
   }

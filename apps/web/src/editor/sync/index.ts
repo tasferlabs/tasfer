@@ -208,6 +208,59 @@ export class SyncEngine {
   }
 
   /**
+   * Get operations after a specific HLC clock.
+   * Used for delta sync - only send operations not yet in the snapshot.
+   *
+   * @param clock - HLC clock to compare against (null returns all operations)
+   * @returns Operations with clock greater than the given clock
+   */
+  getOperationsAfterClock(clock: HLC | null): Operation[] {
+    if (!clock) {
+      return this.opLog.operations;
+    }
+
+    return this.opLog.operations.filter((op) => {
+      // Operation is after clock if:
+      // 1. wall > clock.wall, OR
+      // 2. wall == clock.wall AND logical > clock.logical, OR
+      // 3. wall == clock.wall AND logical == clock.logical AND peerId > clock.peerId
+      return (
+        op.clock.wall > clock.wall ||
+        (op.clock.wall === clock.wall && op.clock.logical > clock.logical) ||
+        (op.clock.wall === clock.wall &&
+          op.clock.logical === clock.logical &&
+          op.clock.peerId > clock.peerId)
+      );
+    });
+  }
+
+  /**
+   * Get the latest HLC clock from operations.
+   * Used to update snapshotClock after saving.
+   *
+   * @returns The latest HLC clock or null if no operations
+   */
+  getLatestClock(): HLC | null {
+    if (this.opLog.operations.length === 0) {
+      return null;
+    }
+
+    let latest = this.opLog.operations[0].clock;
+    for (const op of this.opLog.operations) {
+      if (
+        op.clock.wall > latest.wall ||
+        (op.clock.wall === latest.wall && op.clock.logical > latest.logical) ||
+        (op.clock.wall === latest.wall &&
+          op.clock.logical === latest.logical &&
+          op.clock.peerId > latest.peerId)
+      ) {
+        latest = op.clock;
+      }
+    }
+    return { ...latest };
+  }
+
+  /**
    * Get the current version vector.
    */
   getVersionVector(): VersionVector {

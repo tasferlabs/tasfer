@@ -77,91 +77,47 @@ const TEST_NAMES = [
   "Henry",
 ];
 
-/** Track assigned colors and names per peer */
-const assignedColors = new Map<string, string>();
-const assignedNames = new Map<string, string>();
-const usedColorIndices = new Set<number>();
-const usedNameIndices = new Set<number>();
-
 /**
- * Get a random unused index from an array, or random if all used.
+ * Simple hash function for strings.
+ * Produces a consistent numeric hash for deterministic color/name assignment.
  */
-function getRandomUnusedIndex(
-  usedIndices: Set<number>,
-  arrayLength: number
-): number {
-  // Find available indices
-  const availableIndices: number[] = [];
-  for (let i = 0; i < arrayLength; i++) {
-    if (!usedIndices.has(i)) {
-      availableIndices.push(i);
-    }
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash; // Convert to 32-bit integer
   }
-
-  // If all are used, pick randomly from all and reset tracking
-  if (availableIndices.length === 0) {
-    usedIndices.clear();
-    return Math.floor(Math.random() * arrayLength);
-  }
-
-  // Pick randomly from available
-  const randomIdx = Math.floor(Math.random() * availableIndices.length);
-  return availableIndices[randomIdx];
+  return Math.abs(hash);
 }
 
 /**
  * Get a color for a peer ID.
- * Assigns randomly from unused colors, avoiding repetition until all are used.
+ * Uses deterministic hashing so the same peer ID always gets the same color
+ * across all tabs and sessions.
  */
 export function getColorForPeer(peerId: string): string {
-  // Return existing assignment if peer already has a color
-  const existing = assignedColors.get(peerId);
-  if (existing) return existing;
-
-  // Get a random unused color
-  const index = getRandomUnusedIndex(usedColorIndices, AWARENESS_COLORS.length);
-  usedColorIndices.add(index);
-
-  const color = AWARENESS_COLORS[index];
-  assignedColors.set(peerId, color);
-  return color;
+  const index = hashString(peerId) % AWARENESS_COLORS.length;
+  return AWARENESS_COLORS[index];
 }
 
 /**
  * Get a test name for a peer ID.
- * Assigns randomly from unused names, avoiding repetition until all are used.
+ * Uses deterministic hashing so the same peer ID always gets the same name
+ * across all tabs and sessions.
  */
 export function getTestNameForPeer(peerId: string): string {
-  // Return existing assignment if peer already has a name
-  const existing = assignedNames.get(peerId);
-  if (existing) return existing;
-
-  // Get a random unused name
-  const index = getRandomUnusedIndex(usedNameIndices, TEST_NAMES.length);
-  usedNameIndices.add(index);
-
-  const name = TEST_NAMES[index];
-  assignedNames.set(peerId, name);
-  return name;
+  const index = hashString(peerId) % TEST_NAMES.length;
+  return TEST_NAMES[index];
 }
 
 /**
  * Clear assignment for a peer (call when peer leaves).
+ * No-op since assignments are now deterministic based on peer ID.
  */
-export function clearPeerAssignment(peerId: string): void {
-  const color = assignedColors.get(peerId);
-  if (color) {
-    const colorIndex = AWARENESS_COLORS.indexOf(color);
-    if (colorIndex !== -1) usedColorIndices.delete(colorIndex);
-    assignedColors.delete(peerId);
-  }
-
-  const name = assignedNames.get(peerId);
-  if (name) {
-    const nameIndex = TEST_NAMES.indexOf(name);
-    if (nameIndex !== -1) usedNameIndices.delete(nameIndex);
-    assignedNames.delete(peerId);
-  }
+export function clearPeerAssignment(_peerId: string): void {
+  // No-op: colors and names are now derived deterministically from peer ID
+  // so there's nothing to clear
 }
 
 // =============================================================================

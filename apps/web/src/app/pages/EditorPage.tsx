@@ -8,6 +8,7 @@ import { debounce } from "lodash-es";
 import { MountedEditor } from "../MountedEditor";
 import type { SyncState } from "../../editor/sync/websocket";
 import type { AwarenessUser } from "@/editor/sync/awareness";
+import type { Block } from "@/deserializer/loadPage";
 
 // WebSocket server URL - defaults to using Vite proxy
 // Uses wss:// for HTTPS, ws:// for HTTP
@@ -21,6 +22,7 @@ import {
   getPage,
   useUpdatePage,
   useGetPages,
+  type HLC,
 } from "../api/pages.api";
 import EmptyStateIllustration from "../components/illustrations/empty-state";
 import ErrorStateIllustration from "../components/illustrations/error-state";
@@ -33,61 +35,48 @@ import useLocalStorage from "../hooks/useLocalStorage";
 import { WordCountOverlay } from "../components/WordCountOverlay";
 import style from "./EditorPage.module.css";
 
-// Helper function to count words in markdown content
-function countWords(markdown: string): number {
-  if (!markdown || markdown.trim() === "") return 0;
-
-  // Remove markdown syntax for more accurate word count
-  const text = markdown
-    // Remove code blocks
-    .replace(/```[\s\S]*?```/g, "")
-    // Remove inline code
-    .replace(/`[^`]+`/g, "")
-    // Remove links but keep the text
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    // Remove images (markdown syntax)
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "")
-    // Remove images (HTML img tags)
-    .replace(/<img[^>]*>/g, "")
-    // Remove headings markers
-    .replace(/^#{1,6}\s+/gm, "")
-    // Remove bold/italic markers
-    .replace(/(\*\*|__)(.*?)\1/g, "$2")
-    .replace(/(\*|_)(.*?)\1/g, "$2")
-    // Remove blockquote markers
-    .replace(/^>\s+/gm, "")
-    // Remove list markers
-    .replace(/^[\*\-\+]\s+/gm, "")
-    .replace(/^\d+\.\s+/gm, "")
-    // Remove horizontal rules
-    .replace(/^[\*\-_]{3,}$/gm, "")
-    .trim();
-
+// Helper function to count words from blocks
+function countWordsFromBlocks(blocks: Block[]): number {
   let count = 0;
 
   // CJK (Chinese, Japanese, Korean) character ranges
   const cjkRegex =
     /[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/g;
 
-  // Count CJK characters (each character is typically a word/concept)
-  const cjkMatches = text.match(cjkRegex);
-  if (cjkMatches) {
-    count += cjkMatches.length;
+  for (const block of blocks) {
+    // Skip non-text blocks
+    if (block.type === "image" || block.type === "line") continue;
+    if (block.deleted) continue;
+
+    // Get text from chars array
+    const textBlock = block as { chars?: Array<{ char: string; deleted?: boolean }> };
+    if (!textBlock.chars) continue;
+
+    const text = textBlock.chars
+      .filter((c) => !c.deleted)
+      .map((c) => c.char)
+      .join("");
+
+    // Count CJK characters (each character is typically a word/concept)
+    const cjkMatches = text.match(cjkRegex);
+    if (cjkMatches) {
+      count += cjkMatches.length;
+    }
+
+    // Remove CJK characters for the remaining word count
+    const textWithoutCJK = text.replace(cjkRegex, "");
+
+    // Split by whitespace and count non-CJK words
+    const words = textWithoutCJK
+      .split(/\s+/)
+      .map((word) =>
+        // Remove punctuation from the beginning and end of each word
+        word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")
+      )
+      .filter((word) => word.length > 0);
+
+    count += words.length;
   }
-
-  // Remove CJK characters for the remaining word count
-  const textWithoutCJK = text.replace(cjkRegex, "");
-
-  // Split by whitespace and count non-CJK words
-  const words = textWithoutCJK
-    .split(/\s+/)
-    .map((word) =>
-      // Remove punctuation from the beginning and end of each word
-      word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")
-    )
-    .filter((word) => word.length > 0);
-
-  count += words.length;
 
   return count;
 }
@@ -101,14 +90,17 @@ export default function EditorPage() {
   } = usePageSettings();
   const { getConfirmation } = useConfirmation();
   const { mutateAsync: updatePage } = useUpdatePage();
-  // State for loading page content once on mount
-  const [pageContent, setPageContent] = useState<string | null>(null);
+  // State for loading page snapshot once on mount
+  const [pageSnapshot, setPageSnapshot] = useState<Block[] | null>(null);
   // CRDT operations for sync - loaded from server to prevent duplicates on refresh
   const [pageOperations, setPageOperations] = useState<string | null>(null);
+  // Snapshot clock - tracks which operations are already saved in the snapshot
+  // Used for delta sync - only send operations after this clock
+  const [snapshotClock, setSnapshotClock] = useState<HLC | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
   // Live sync state
-  const [syncState, setSyncState] = useState<SyncState>({
+  const [_syncState, setSyncState] = useState<SyncState>({
     status: "disconnected",
   });
 
@@ -118,10 +110,10 @@ export default function EditorPage() {
     null
   );
 
-  // Create debounced word count updater (1 second delay for performance)
+  // Create debounced word count updater (500ms delay for performance)
   const debouncedWordCountUpdate = useRef(
-    debounce((content: string) => {
-      const count = countWords(content);
+    debounce((blocks: Block[]) => {
+      const count = countWordsFromBlocks(blocks);
       setWordCount(count);
     }, 500)
   ).current;
@@ -145,29 +137,28 @@ export default function EditorPage() {
     };
   }, [debouncedWordCountUpdate]);
 
-  // Fetch page content once on mount or when ID changes
+  // Fetch page snapshot once on mount or when ID changes
   useEffect(() => {
     if (!id) return;
 
     let cancelled = false;
 
-    async function loadPage() {
+    async function loadPageData() {
       setIsLoading(true);
       setIsError(false);
 
       try {
-        // const page = {
-        //   content: await fetch("/sample.md").then((res) => res.text()),
-        // };
         const page = await getPage(id!);
         if (!cancelled) {
-          const content = page.content || "";
-          setPageContent(content);
+          const snapshot = page.snapshot || [];
+          setPageSnapshot(snapshot);
           // Load saved operations for CRDT sync
           setPageOperations(page.operations || null);
+          // Track snapshot clock for delta sync
+          setSnapshotClock(page.snapshotClock || null);
           setIsLoading(false);
-          // Update initial word count
-          setWordCount(countWords(content));
+          // Update initial word count from blocks
+          setWordCount(countWordsFromBlocks(snapshot));
         }
       } catch (error) {
         console.error("Failed to load page:", error);
@@ -178,7 +169,7 @@ export default function EditorPage() {
       }
     }
 
-    loadPage();
+    loadPageData();
 
     return () => {
       cancelled = true;
@@ -189,16 +180,16 @@ export default function EditorPage() {
   // Remote peer updates are NOT persisted by this user; peers handle saving their own changes
   const handleSave = useCallback(
     async ({
-      content,
+      snapshot,
       operations,
     }: {
-      content: string;
+      snapshot: Block[];
       operations: string;
     }) => {
       if (!id) return;
 
       try {
-        await updatePage({ id, content, operations });
+        await updatePage({ id, snapshot, operations });
       } catch (error) {
         console.error("Failed to save content:", error);
       }
@@ -219,16 +210,16 @@ export default function EditorPage() {
 
   // Handle content changes from editor (local changes only - for saving)
   const handleContentChange = useCallback(
-    (content: string, operations: string) => {
-      debouncedSave({ content, operations });
+    (snapshot: Block[], operations: string) => {
+      debouncedSave({ snapshot, operations });
     },
     [debouncedSave]
   );
 
   // Handle all content updates (local and remote - for word count)
   const handleContentUpdate = useCallback(
-    (content: string) => {
-      debouncedWordCountUpdate(content);
+    (blocks: Block[]) => {
+      debouncedWordCountUpdate(blocks);
     },
     [debouncedWordCountUpdate]
   );
@@ -285,16 +276,16 @@ export default function EditorPage() {
     return <EditorLoadingState />;
   }
 
-  if (isError || pageContent === null) {
+  if (isError || pageSnapshot === null) {
     return <EditorNotFoundState />;
   }
 
-  // Pass raw markdown content to the editor
-  // Content is loaded once on mount, editor manages state from there
+  // Pass snapshot blocks to the editor
+  // Snapshot is loaded once on mount, editor manages state from there
   return (
     <>
       <MountedEditor
-        content={pageContent}
+        snapshot={pageSnapshot}
         className="w-full h-full"
         onContentChange={handleContentChange}
         onContentUpdate={handleContentUpdate}
@@ -303,6 +294,8 @@ export default function EditorPage() {
         signalingUrl={WEBSOCKET_URL}
         onSyncStateChange={setSyncState}
         initialOperations={pageOperations ?? undefined}
+        snapshotClock={snapshotClock}
+        onSnapshotClockUpdate={setSnapshotClock}
         onAwarenessChange={handleAwarenessChange}
       />
       <WordCountOverlay />
@@ -341,7 +334,6 @@ function EditorEmptyState() {
   function handleAdd() {
     createPage({
       title: "",
-      content: "# ", // Empty heading 1
       parentId: null,
     });
   }

@@ -199,7 +199,7 @@ Bugs list
 - [ ] could we disable edge navigation on andorid?
 - [ ] on landscape oritentation the safe area taking to much and it is uncessary.
 - [ ] Safe area on sidebar
-- [ ] typing letters that conlicde with markdown fomratting should be escaped
+- [ ] typing letters that conlicde with markdown serlization should be escaped
 - [ ] intermidate state in todo list
 - [ ] memory leak somehow the old state being presisted on hot reloading.
 - [ ] indent with mixed direction rtl todo
@@ -218,14 +218,17 @@ Bugs list
 - [x] deleting blocks not working on live update.I think we could consolidate @apps/web/src/sync/index.ts operations more, like why do we need dosen of operation lww properties.
 - [x] tapping enter to split blocks does not not work well with crdt opreations.
 - [x] when typing in the middle the other tab insert to the end.
-- [x] arabic script stopped working after impelemting crdt 
+- [x] arabic script stopped working after impelemting crdt
 - [x] arabic text not breaking correcttly
 - [ ] select arabic text and arrow left/right does not work as expected.
-- [x] remote caret should not be showen when there is selection. 
+- [x] remote caret should not be showen when there is selection.
 - [x] remote caret should have name tag
 - [x] remote selection should be seen in visual blocks
 - [x] we should show blobs of remote users in topactionbar
 - [ ] fix stoarge problems with crdt
-- [ ] Database Operations Table
+- [x] Database Operations Table
+- [x] snapshotting
 - [ ] peforamnce issues after crdt
-- [ ] remote cursor not working correctly with visual blocks.
+- [ ] snapshot restore
+- [ ] why snapshot have hlc clock
+- [ ] do we have uncessary long ids in snapshot

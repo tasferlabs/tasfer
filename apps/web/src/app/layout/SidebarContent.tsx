@@ -83,7 +83,6 @@ export function SidebarContent({
   function handleAdd(parentId: string | null) {
     createPage({
       title: "",
-      content: "# ", // Empty heading 1
       parentId,
     });
   }

@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { serializeToMarkdown } from "../deserializer/serializer";
+import type { Block } from "../deserializer/loadPage";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
 import { LinkDrawer } from "../editor/LinkDrawer";
@@ -24,7 +24,7 @@ import {
   getSelectionRange,
 } from "../editor/actions/commands";
 import {
-  mountEditor,
+  mountEditorFromSnapshot,
   type MountedEditor as MountedEditorInstance,
 } from "../editor/mount";
 import { clearFailedImageCache } from "../editor/renderer";
@@ -34,16 +34,16 @@ import type { EditorState, SlashCommand } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { WebSocketSync, type SyncState } from "@/editor/sync/websocket";
-import { SyncEngine, type AwarenessState } from "@/editor/sync";
+import { SyncEngine, type AwarenessState, type HLC } from "@/editor/sync";
 import type { AwarenessUser } from "@/editor/sync/awareness";
 import { hasNativeBridge } from "@/editor/actions/clipboard";
 
 interface MountedEditorProps {
-  content: string;
+  snapshot: Block[];
   className?: string;
-  onContentChange?: (content: string, operations: string) => void;
+  onContentChange?: (snapshot: Block[], operations: string) => void;
   /** Callback for all content updates (local and remote) - used for word count, etc. */
-  onContentUpdate?: (content: string) => void;
+  onContentUpdate?: (blocks: Block[]) => void;
   autoFocus?: boolean;
   /** Unique page ID for CRDT sync - if provided, enables live collaboration */
   pageId: string;
@@ -53,12 +53,16 @@ interface MountedEditorProps {
   onSyncStateChange?: (state: SyncState) => void;
   /** Initial operations for CRDT sync - if provided, initializes SyncEngine with these */
   initialOperations?: string;
+  /** Clock of the latest operation in the snapshot - used for delta sync */
+  snapshotClock?: HLC | null;
+  /** Callback to update snapshotClock after operations are sent */
+  onSnapshotClockUpdate?: (clock: HLC | null) => void;
   /** Callback when active users change */
   onAwarenessChange?: (users: AwarenessUser[]) => void;
 }
 
 export const MountedEditor: React.FC<MountedEditorProps> = ({
-  content,
+  snapshot,
   className = "",
   onContentChange,
   onContentUpdate,
@@ -67,6 +71,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
   signalingUrl,
   onSyncStateChange,
   initialOperations,
+  snapshotClock,
+  onSnapshotClockUpdate,
   onAwarenessChange,
 }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -136,6 +142,13 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
   const editorInitializedRef = useRef(false);
   // Track when applying remote operations to prevent triggering saves for non-local changes
   const isApplyingRemoteOpsRef = useRef(false);
+  // Track snapshot clock for delta operations (operations after this clock need to be sent)
+  const snapshotClockRef = useRef<HLC | null>(snapshotClock ?? null);
+
+  // Update ref when prop changes
+  useEffect(() => {
+    snapshotClockRef.current = snapshotClock ?? null;
+  }, [snapshotClock]);
 
   // Track current toolbar icon type
   const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">(
@@ -180,11 +193,11 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       syncEngineRef.current = null;
     }
 
-    // Reset serialization tracking and initialization flag when content changes
+    // Reset serialization tracking and initialization flag when snapshot changes
     lastSerializedBlocksRef.current = null;
     editorInitializedRef.current = false;
 
-    const mounted = mountEditor(el, content);
+    const mounted = mountEditorFromSnapshot(el, snapshot);
     mountedRef.current = mounted;
 
     // Initialize sync engine if signaling URL is provided
@@ -416,19 +429,30 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         if (currentBlocks !== lastSerializedBlocksRef.current) {
           lastSerializedBlocksRef.current = currentBlocks;
 
-          const markdown = serializeToMarkdown(currentBlocks);
-
           // Notify of all content updates (local and remote) - used for word count, etc.
-          onContentUpdate?.(markdown);
+          onContentUpdate?.(currentBlocks as Block[]);
 
           // Only trigger saves for local user-initiated changes, not remote peer updates
           // Remote peers handle saving their own changes
           if (!isApplyingRemoteOpsRef.current && onContentChange) {
-            // Get serialized operations from sync engine for persistence
-            const operations = syncEngineRef.current
-              ? JSON.stringify(syncEngineRef.current.getOperations())
-              : "[]";
-            onContentChange(markdown, operations);
+            // Get only NEW operations (after snapshotClock) for delta sync
+            // This reduces bandwidth and storage since operations in snapshot don't need re-saving
+            const deltaOps = syncEngineRef.current
+              ? syncEngineRef.current.getOperationsAfterClock(snapshotClockRef.current)
+              : [];
+            const operations = JSON.stringify(deltaOps);
+
+            // Update snapshotClock to latest after sending
+            // This ensures next save only sends newer operations
+            if (syncEngineRef.current && onSnapshotClockUpdate) {
+              const latestClock = syncEngineRef.current.getLatestClock();
+              if (latestClock) {
+                snapshotClockRef.current = latestClock;
+                onSnapshotClockUpdate(latestClock);
+              }
+            }
+
+            onContentChange(currentBlocks as Block[], operations);
           }
         }
       }
@@ -724,7 +748,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       }
     };
   }, [
-    content,
+    snapshot,
     onContentChange,
     onContentUpdate,
     autoFocus,
@@ -732,6 +756,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     signalingUrl,
     onSyncStateChange,
     initialOperations,
+    onSnapshotClockUpdate,
   ]);
 
   const handleSlashCommandSelect = (command: SlashCommand) => {

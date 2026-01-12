@@ -5,7 +5,7 @@
  * Replaces WebRTC peer-to-peer with centralized server communication.
  */
 
-import { SyncEngine, serializeVV } from "./index";
+import { SyncEngine, serializeVV, deserializeVV } from "./index";
 import type { Operation } from "./types";
 import type { AwarenessState, AwarenessUser } from "./awareness";
 import { getColorForPeer, getTestNameForPeer } from "./awareness";
@@ -18,8 +18,8 @@ import { getColorForPeer, getTestNameForPeer } from "./awareness";
 export type ServerMessage =
   | { type: "join"; roomId: string; peerId: string; user?: AwarenessUser }
   | { type: "leave"; roomId: string; peerId: string }
-  | { type: "sync-request"; versionVector: Record<string, number> }
-  | { type: "sync-response"; operations: Operation[]; versionVector: Record<string, number> }
+  | { type: "sync-request"; versionVector: Record<string, number>; requesterId?: string }
+  | { type: "sync-response"; operations: Operation[]; versionVector: Record<string, number>; targetPeerId?: string }
   | { type: "operations"; operations: Operation[] }
   | { type: "peer-joined"; peerId: string; user?: AwarenessUser }
   | { type: "peer-left"; peerId: string }
@@ -208,6 +208,31 @@ export class WebSocketSync {
     });
   }
 
+  /**
+   * Handle incoming sync request from another peer.
+   * Respond with operations they don't have.
+   */
+  private handleIncomingSyncRequest(
+    requesterVV: Record<string, number>,
+    requesterId?: string
+  ): void {
+    // Convert serialized version vector back to Map
+    const vv = deserializeVV(requesterVV);
+
+    // Get operations the requester doesn't have
+    const missingOps = this.engine.getOpsSince(vv);
+
+    console.log(`[WebSocket] Responding to sync request with ${missingOps.length} operations`);
+
+    // Send sync response with our operations
+    this.send({
+      type: "sync-response",
+      operations: missingOps,
+      versionVector: serializeVV(this.engine.getVersionVector()),
+      targetPeerId: requesterId,
+    });
+  }
+
   // ==========================================================================
   // WebSocket Connection
   // ==========================================================================
@@ -349,6 +374,13 @@ export class WebSocketSync {
         // Received awareness update from a peer
         console.log(`[WebSocket] Received awareness from ${message.peerId}`);
         this.config.onAwarenessUpdate?.(message.peerId, message.state);
+        break;
+
+      case "sync-request":
+        // Another peer is requesting our operations
+        // Respond with operations they don't have based on their version vector
+        console.log(`[WebSocket] Received sync request from ${message.requesterId}`);
+        this.handleIncomingSyncRequest(message.versionVector, message.requesterId);
         break;
 
       case "sync-response":

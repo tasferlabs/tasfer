@@ -1,4 +1,5 @@
 import { useMutation, type UseMutationOptions, useQuery, type UseQueryOptions } from "@tanstack/react-query";
+import type { Block } from "@/deserializer/loadPage";
 
 const API_BASE = "/api";
 
@@ -10,11 +11,22 @@ export interface IListPage {
   hasChildren: boolean;
 }
 
+// HLC (Hybrid Logical Clock) for operation ordering
+export interface HLC {
+  wall: number;
+  logical: number;
+  peerId: string;
+}
+
 export interface IPage {
   id: string;
   title: string;
-  content: string | null;
-  // CRDT operations log - serialized JSON array of operations
+  // Block snapshot - replaces markdown content
+  snapshot: Block[] | null;
+  // Clock of the latest operation included in the snapshot
+  // Used by client to track which operations are already saved
+  snapshotClock: HLC | null;
+  // CRDT operations log - serialized JSON array of operations (only ops after snapshotClock)
   operations: string | null;
   parentId: string | null;
   order: number;
@@ -71,7 +83,6 @@ export function useGetPage(id?: string, options?: UseQueryOptions<IPage, Error, 
 // Create page
 interface ICreatePage {
   title: string;
-  content?: string;
   parentId: string | null;
 }
 
@@ -106,7 +117,8 @@ export function useCreatePage<TContext = unknown>(
 interface IUpdatePage {
   id: string;
   title?: string;
-  content?: string;
+  // Block snapshot
+  snapshot?: Block[];
   // CRDT operations log - serialized JSON array of operations
   operations?: string;
 }

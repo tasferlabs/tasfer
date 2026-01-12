@@ -48,8 +48,8 @@ interface AwarenessState {
 type ServerMessage =
   | { type: "join"; roomId: string; peerId: string; user?: AwarenessUser }
   | { type: "leave"; roomId: string; peerId: string }
-  | { type: "sync-request"; versionVector: Record<string, number> }
-  | { type: "sync-response"; operations: any[]; versionVector: Record<string, number> }
+  | { type: "sync-request"; versionVector: Record<string, number>; requesterId?: string }
+  | { type: "sync-response"; operations: any[]; versionVector: Record<string, number>; targetPeerId?: string }
   | { type: "operations"; operations: any[] }
   | { type: "peer-joined"; peerId: string; user?: AwarenessUser }
   | { type: "peer-left"; peerId: string }
@@ -141,6 +141,10 @@ function handleMessage(client: Client, message: ServerMessage): void {
 
     case "sync-request":
       handleSyncRequest(client, message.versionVector);
+      break;
+
+    case "sync-response":
+      handleSyncResponse(client, message.operations, message.versionVector, message.targetPeerId);
       break;
 
     case "operations":
@@ -277,11 +281,57 @@ function handleSyncRequest(client: Client, versionVector: Record<string, number>
 
     const otherClient = clients.get(peerId);
     if (otherClient) {
-      // Ask this peer to send their operations
+      // Ask this peer to send their operations, include requesterId for response routing
       send(otherClient.ws, {
         type: "sync-request",
         versionVector,
+        requesterId: client.peerId,
       });
+    }
+  }
+}
+
+function handleSyncResponse(
+  client: Client,
+  operations: any[],
+  versionVector: Record<string, number>,
+  targetPeerId?: string
+): void {
+  if (!client.roomId || !client.peerId) {
+    console.warn("[Sync Server] Sync response from client not in a room");
+    return;
+  }
+
+  // If targetPeerId is specified, route only to that peer
+  if (targetPeerId) {
+    const targetClient = clients.get(targetPeerId);
+    if (targetClient && targetClient.roomId === client.roomId) {
+      console.log(`[Sync Server] Routing sync response (${operations.length} ops) from ${client.peerId} to ${targetPeerId}`);
+      send(targetClient.ws, {
+        type: "sync-response",
+        operations,
+        versionVector,
+      });
+    } else {
+      console.warn(`[Sync Server] Target peer ${targetPeerId} not found or not in same room`);
+    }
+  } else {
+    // Fallback: broadcast to all peers in room (shouldn't happen with proper routing)
+    console.log(`[Sync Server] Broadcasting sync response from ${client.peerId} in room ${client.roomId}`);
+    const room = rooms.get(client.roomId);
+    if (!room) return;
+
+    for (const peerId of room) {
+      if (peerId === client.peerId) continue;
+
+      const otherClient = clients.get(peerId);
+      if (otherClient) {
+        send(otherClient.ws, {
+          type: "sync-response",
+          operations,
+          versionVector,
+        });
+      }
     }
   }
 }
