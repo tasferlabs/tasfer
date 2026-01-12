@@ -35,6 +35,7 @@ import type { EditorState, SlashCommand } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { WebSocketSync, type SyncState } from "../sync/websocket";
 import { SyncEngine } from "../sync/index";
+import type { AwarenessState } from "../sync/awareness";
 import { uploadImage } from "./api/images.api";
 
 interface MountedEditorProps {
@@ -220,6 +221,17 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
           // The editor already has the initial content loaded
           // Sync engine will receive ops from editor's broadcast
         },
+        onAwarenessUpdate: (peerId: string, state: AwarenessState | null) => {
+          console.log("[WebSocket] Awareness update from peer:", peerId);
+          mounted.editor.setRemoteAwareness(peerId, state);
+        },
+        onAwarenessStates: (states: Record<string, AwarenessState>) => {
+          console.log("[WebSocket] Received initial awareness states:", Object.keys(states).length);
+          // Apply all initial awareness states
+          for (const [peerId, state] of Object.entries(states)) {
+            mounted.editor.setRemoteAwareness(peerId, state);
+          }
+        },
       });
       websocketSyncRef.current = websocketSync;
 
@@ -230,6 +242,12 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         // Broadcast to peers via server
         websocketSync.broadcast(ops);
       });
+
+      // Connect editor's awareness broadcast to WebSocket
+      const localUser = websocketSync.getLocalUser();
+      mounted.editor.setAwarenessBroadcast((state: AwarenessState) => {
+        websocketSync.broadcastAwareness(state);
+      }, localUser);
 
       // Join the room for this page
       websocketSync.joinRoom(pageId).catch((error) => {

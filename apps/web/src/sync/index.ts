@@ -53,6 +53,25 @@ export {
   getVisibleText,
 } from "./reducer";
 
+// Re-export awareness
+export {
+  AwarenessManager,
+  createAwarenessManager,
+  getColorForPeer,
+  positionToAwarenessCursor,
+  selectionToAwarenessSelection,
+  awarenessCursorToPosition,
+  awarenessSelectionToSelection,
+} from "./awareness";
+export type {
+  AwarenessConfig,
+  AwarenessCursor,
+  AwarenessSelection,
+  AwarenessState,
+  AwarenessUser,
+  LocalAwarenessState,
+} from "./awareness";
+
 type StateChangeListener = (state: PageState) => void;
 
 /**

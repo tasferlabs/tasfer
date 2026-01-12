@@ -16,16 +16,45 @@ import { WebSocketServer, WebSocket } from "ws";
 // Types
 // =============================================================================
 
+/** User awareness info */
+interface AwarenessUser {
+  peerId: string;
+  name?: string;
+  color: string;
+}
+
+/** Cursor position for awareness */
+interface AwarenessCursor {
+  blockId: string;
+  textIndex: number;
+}
+
+/** Selection for awareness */
+interface AwarenessSelection {
+  anchor: AwarenessCursor;
+  focus: AwarenessCursor;
+  isForward: boolean;
+}
+
+/** Complete awareness state for a peer */
+interface AwarenessState {
+  user: AwarenessUser;
+  cursor: AwarenessCursor | null;
+  selection: AwarenessSelection | null;
+  lastUpdate: number;
+}
+
 /** Server message types */
 type ServerMessage =
-  | { type: "join"; roomId: string; peerId: string }
+  | { type: "join"; roomId: string; peerId: string; user?: AwarenessUser }
   | { type: "leave"; roomId: string; peerId: string }
   | { type: "sync-request"; versionVector: Record<string, number> }
   | { type: "sync-response"; operations: any[]; versionVector: Record<string, number> }
   | { type: "operations"; operations: any[] }
-  | { type: "peer-joined"; peerId: string }
+  | { type: "peer-joined"; peerId: string; user?: AwarenessUser }
   | { type: "peer-left"; peerId: string }
-  | { type: "room-peers"; peers: string[] }
+  | { type: "room-peers"; peers: string[]; awarenessStates?: Record<string, AwarenessState> }
+  | { type: "awareness"; peerId: string; state: AwarenessState }
   | { type: "error"; message: string };
 
 /** Connected client info */
@@ -33,6 +62,7 @@ interface Client {
   ws: WebSocket;
   peerId: string | null;
   roomId: string | null;
+  awarenessState: AwarenessState | null;
 }
 
 // =============================================================================
@@ -66,6 +96,7 @@ wss.on("connection", (ws) => {
     ws,
     peerId: null,
     roomId: null,
+    awarenessState: null,
   };
   wsToClient.set(ws, client);
 
@@ -101,7 +132,7 @@ wss.on("listening", () => {
 function handleMessage(client: Client, message: ServerMessage): void {
   switch (message.type) {
     case "join":
-      handleJoin(client, message.roomId, message.peerId);
+      handleJoin(client, message.roomId, message.peerId, message.user);
       break;
 
     case "leave":
@@ -116,12 +147,16 @@ function handleMessage(client: Client, message: ServerMessage): void {
       handleOperations(client, message.operations);
       break;
 
+    case "awareness":
+      handleAwareness(client, message.state);
+      break;
+
     default:
       console.warn("[Sync Server] Unknown message type:", (message as any).type);
   }
 }
 
-function handleJoin(client: Client, roomId: string, peerId: string): void {
+function handleJoin(client: Client, roomId: string, peerId: string, user?: AwarenessUser): void {
   // Leave current room if in one
   if (client.roomId) {
     handleLeave(client);
@@ -131,6 +166,16 @@ function handleJoin(client: Client, roomId: string, peerId: string): void {
   client.peerId = peerId;
   client.roomId = roomId;
   clients.set(peerId, client);
+
+  // Initialize awareness state if user info provided
+  if (user) {
+    client.awarenessState = {
+      user,
+      cursor: null,
+      selection: null,
+      lastUpdate: Date.now(),
+    };
+  }
 
   // Get or create room
   let room = rooms.get(roomId);
@@ -142,24 +187,35 @@ function handleJoin(client: Client, roomId: string, peerId: string): void {
   // Get existing peers before adding new one
   const existingPeers = Array.from(room);
 
+  // Collect awareness states from existing peers
+  const awarenessStates: Record<string, AwarenessState> = {};
+  for (const existingPeerId of existingPeers) {
+    const existingClient = clients.get(existingPeerId);
+    if (existingClient?.awarenessState) {
+      awarenessStates[existingPeerId] = existingClient.awarenessState;
+    }
+  }
+
   // Add to room
   room.add(peerId);
 
   console.log(`[Sync Server] Peer ${peerId} joined room ${roomId} (${room.size} peers)`);
 
-  // Send list of existing peers to the new peer
+  // Send list of existing peers and their awareness states to the new peer
   send(client.ws, {
     type: "room-peers",
     peers: existingPeers,
+    awarenessStates: Object.keys(awarenessStates).length > 0 ? awarenessStates : undefined,
   });
 
-  // Notify existing peers about new peer
+  // Notify existing peers about new peer (include user info if available)
   for (const existingPeerId of existingPeers) {
     const existingClient = clients.get(existingPeerId);
     if (existingClient) {
       send(existingClient.ws, {
         type: "peer-joined",
         peerId,
+        user: client.awarenessState?.user,
       });
     }
   }
@@ -195,6 +251,7 @@ function handleLeave(client: Client): void {
   clients.delete(client.peerId);
   client.roomId = null;
   client.peerId = null;
+  client.awarenessState = null;
 }
 
 function handleDisconnect(client: Client): void {
@@ -249,6 +306,33 @@ function handleOperations(client: Client, operations: any[]): void {
       send(otherClient.ws, {
         type: "operations",
         operations,
+      });
+    }
+  }
+}
+
+function handleAwareness(client: Client, state: AwarenessState): void {
+  if (!client.roomId || !client.peerId) {
+    console.warn("[Sync Server] Awareness from client not in a room");
+    return;
+  }
+
+  // Update stored awareness state
+  client.awarenessState = state;
+
+  // Broadcast awareness to all other peers in the room
+  const room = rooms.get(client.roomId);
+  if (!room) return;
+
+  for (const peerId of room) {
+    if (peerId === client.peerId) continue; // Don't send to self
+
+    const otherClient = clients.get(peerId);
+    if (otherClient) {
+      send(otherClient.ws, {
+        type: "awareness",
+        peerId: client.peerId,
+        state,
       });
     }
   }

@@ -6,6 +6,11 @@ import type {
   BlockSet,
   Operation,
 } from "../sync/types";
+import type { AwarenessState, AwarenessUser } from "../sync/awareness";
+import {
+  positionToAwarenessCursor,
+  selectionToAwarenessSelection,
+} from "../sync/awareness";
 import {
   copySelectionToClipboard,
   cutSelectionToClipboard,
@@ -134,6 +139,12 @@ export interface Editor {
   applyRemoteOperations: (ops: Operation[]) => void;
   /** Set broadcast function for sending operations to peers */
   setBroadcast: (fn: ((ops: Operation[]) => void) | null) => void;
+  /** Set callback for broadcasting awareness state changes */
+  setAwarenessBroadcast: (fn: ((state: AwarenessState) => void) | null, user?: AwarenessUser) => void;
+  /** Update a remote peer's awareness state */
+  setRemoteAwareness: (peerId: string, state: AwarenessState | null) => void;
+  /** Get all remote awareness states */
+  getRemoteAwareness: () => Map<string, AwarenessState>;
 }
 
 export default function createEditor(
@@ -161,6 +172,45 @@ export default function createEditor(
 
   // Broadcast function for sending operations to peers
   let broadcastFn: ((ops: Operation[]) => void) | null = null;
+
+  // Awareness state for remote peers
+  const remoteAwareness: Map<string, AwarenessState> = new Map();
+  type AwarenessBroadcastFn = (state: AwarenessState) => void;
+  let awarenessBroadcastFn: AwarenessBroadcastFn | null = null;
+
+  // Local user info for awareness
+  let localUser: AwarenessUser | null = null;
+
+  /**
+   * Broadcast local awareness state (cursor/selection) to peers.
+   * Called when cursor or selection changes.
+   */
+  const broadcastAwareness = (): void => {
+    if (!awarenessBroadcastFn || !localUser) return;
+
+    const page = state.document.page;
+    const cursor = state.document.cursor;
+    const selection = state.document.selection;
+
+    // Convert cursor to awareness cursor (uses block IDs for stability)
+    const awarenessCursor = cursor
+      ? positionToAwarenessCursor(cursor.position, page)
+      : null;
+
+    // Convert selection to awareness selection
+    const awarenessSelection = selection && !selection.isCollapsed
+      ? selectionToAwarenessSelection(selection, page)
+      : null;
+
+    const awarenessState: AwarenessState = {
+      user: localUser,
+      cursor: awarenessCursor,
+      selection: awarenessSelection,
+      lastUpdate: Date.now(),
+    };
+
+    awarenessBroadcastFn(awarenessState);
+  };
 
   // CRDT context for generating IDs and clocks
   // Use provided context or create a default one
@@ -357,6 +407,14 @@ export default function createEditor(
         if (prevState.view.scrollbar !== state.view.scrollbar) {
           dirtyLayers.content = true;
         }
+
+        // Broadcast awareness when cursor or selection changes
+        if (
+          prevState.document.cursor?.position !== state.document.cursor?.position ||
+          prevState.document.selection !== state.document.selection
+        ) {
+          broadcastAwareness();
+        }
       }
 
       // Check if cursor blink state changed (for cursor animation)
@@ -392,7 +450,7 @@ export default function createEditor(
 
           // Render the page content (text, blocks, selection, scrollbar)
           // Drag handles are now rendered within renderImageBlock for consistency
-          documentHeight = renderPage(contentCtx, state, viewport, visibility);
+          documentHeight = renderPage(contentCtx, state, viewport, visibility, undefined, remoteAwareness);
 
           // Update cursor style based on scrollbar hover and drag state
           updateCursorStyle(
@@ -407,7 +465,7 @@ export default function createEditor(
 
         // Render cursor layer if dirty (very cheap!)
         if (dirtyLayers.cursor) {
-          renderCursorLayer(cursorCtx, state, viewport);
+          renderCursorLayer(cursorCtx, state, viewport, getEditorStyles(), remoteAwareness);
           dirtyLayers.cursor = false;
         }
 
@@ -1581,6 +1639,31 @@ export default function createEditor(
     broadcastFn = fn;
   }
 
+  function setAwarenessBroadcastMethod(fn: AwarenessBroadcastFn | null, user?: AwarenessUser) {
+    awarenessBroadcastFn = fn;
+    if (user) {
+      localUser = user;
+    }
+    // Broadcast initial awareness state when connected
+    if (fn && localUser) {
+      broadcastAwareness();
+    }
+  }
+
+  function setRemoteAwarenessMethod(peerId: string, awarenessState: AwarenessState | null) {
+    if (awarenessState === null) {
+      remoteAwareness.delete(peerId);
+    } else {
+      remoteAwareness.set(peerId, awarenessState);
+    }
+    // Trigger re-render to show updated remote cursors
+    scheduleRender();
+  }
+
+  function getRemoteAwarenessMethod(): Map<string, AwarenessState> {
+    return new Map(remoteAwareness);
+  }
+
   function applyRemoteOperationsMethod(ops: Operation[]) {
     if (ops.length === 0) return;
 
@@ -1722,5 +1805,8 @@ export default function createEditor(
     updatePageFromSync,
     applyRemoteOperations: applyRemoteOperationsMethod,
     setBroadcast: setBroadcastMethod,
+    setAwarenessBroadcast: setAwarenessBroadcastMethod,
+    setRemoteAwareness: setRemoteAwarenessMethod,
+    getRemoteAwareness: getRemoteAwarenessMethod,
   };
 }

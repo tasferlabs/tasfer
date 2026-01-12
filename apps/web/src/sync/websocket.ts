@@ -7,6 +7,8 @@
 
 import { SyncEngine, serializeVV } from "./index";
 import type { Operation } from "./types";
+import type { AwarenessState, AwarenessUser } from "./awareness";
+import { getColorForPeer } from "./awareness";
 
 // =============================================================================
 // Types
@@ -14,26 +16,33 @@ import type { Operation } from "./types";
 
 /** Message types for server communication */
 export type ServerMessage =
-  | { type: "join"; roomId: string; peerId: string }
+  | { type: "join"; roomId: string; peerId: string; user?: AwarenessUser }
   | { type: "leave"; roomId: string; peerId: string }
   | { type: "sync-request"; versionVector: Record<string, number> }
   | { type: "sync-response"; operations: Operation[]; versionVector: Record<string, number> }
   | { type: "operations"; operations: Operation[] }
-  | { type: "peer-joined"; peerId: string }
+  | { type: "peer-joined"; peerId: string; user?: AwarenessUser }
   | { type: "peer-left"; peerId: string }
-  | { type: "room-peers"; peers: string[] }
+  | { type: "room-peers"; peers: string[]; awarenessStates?: Record<string, AwarenessState> }
+  | { type: "awareness"; peerId: string; state: AwarenessState }
   | { type: "error"; message: string };
 
 /** WebSocket sync configuration */
 export interface WebSocketSyncConfig {
   /** WebSocket server URL */
   serverUrl: string;
+  /** Local user name (optional, for awareness) */
+  userName?: string;
   /** Called when sync state changes */
   onStateChange?: (state: SyncState) => void;
   /** Called when a remote operation is received */
   onRemoteOperation?: (ops: Operation[]) => void;
   /** Called when you're the first/only peer in the room (load initial content) */
   onFirstPeer?: () => void;
+  /** Called when a remote peer's awareness state changes */
+  onAwarenessUpdate?: (peerId: string, state: AwarenessState | null) => void;
+  /** Called when initial awareness states are received on room join */
+  onAwarenessStates?: (states: Record<string, AwarenessState>) => void;
 }
 
 /** Overall sync state */
@@ -76,10 +85,33 @@ export class WebSocketSync {
   private reconnectDelay = 1000;
   private peerCount = 0;
   private messageQueue: ServerMessage[] = [];
+  private localUser: AwarenessUser;
 
   constructor(engine: SyncEngine, config: WebSocketSyncConfig) {
     this.engine = engine;
     this.config = config;
+
+    // Initialize local user for awareness
+    const peerId = engine.getPeerId();
+    this.localUser = {
+      peerId,
+      name: config.userName,
+      color: getColorForPeer(peerId),
+    };
+  }
+
+  /**
+   * Get the local user info.
+   */
+  getLocalUser(): AwarenessUser {
+    return this.localUser;
+  }
+
+  /**
+   * Update the local user name.
+   */
+  setUserName(name: string): void {
+    this.localUser = { ...this.localUser, name };
   }
 
   /**
@@ -108,6 +140,7 @@ export class WebSocketSync {
             type: "join",
             roomId,
             peerId: this.engine.getPeerId(),
+            user: this.localUser,
           });
           resolve();
         })
@@ -148,6 +181,18 @@ export class WebSocketSync {
     this.send({
       type: "operations",
       operations,
+    });
+  }
+
+  /**
+   * Broadcast local awareness state to all connected peers.
+   * Call this when cursor/selection changes to notify other users.
+   */
+  broadcastAwareness(state: AwarenessState): void {
+    this.send({
+      type: "awareness",
+      peerId: this.engine.getPeerId(),
+      state,
     });
   }
 
@@ -217,6 +262,7 @@ export class WebSocketSync {
                 type: "join",
                 roomId: this.roomId,
                 peerId: this.engine.getPeerId(),
+                user: this.localUser,
               });
             }
           })
@@ -262,19 +308,47 @@ export class WebSocketSync {
           console.log(`[WebSocket] Joining room with ${otherPeers.length} existing peers`);
           this.requestSync();
         }
+
+        // Notify about existing awareness states
+        if (message.awarenessStates && Object.keys(message.awarenessStates).length > 0) {
+          console.log(`[WebSocket] Received ${Object.keys(message.awarenessStates).length} awareness states`);
+          this.config.onAwarenessStates?.(message.awarenessStates);
+        }
+
         this.updateState();
         break;
 
       case "peer-joined":
         console.log(`[WebSocket] Peer joined: ${message.peerId}`);
         this.peerCount++;
+
+        // If the new peer has user info, notify about their initial awareness state
+        if (message.user) {
+          this.config.onAwarenessUpdate?.(message.peerId, {
+            user: message.user,
+            cursor: null,
+            selection: null,
+            lastUpdate: Date.now(),
+          });
+        }
+
         this.updateState();
         break;
 
       case "peer-left":
         console.log(`[WebSocket] Peer left: ${message.peerId}`);
         this.peerCount = Math.max(0, this.peerCount - 1);
+
+        // Notify that this peer's awareness should be removed
+        this.config.onAwarenessUpdate?.(message.peerId, null);
+
         this.updateState();
+        break;
+
+      case "awareness":
+        // Received awareness update from a peer
+        console.log(`[WebSocket] Received awareness from ${message.peerId}`);
+        this.config.onAwarenessUpdate?.(message.peerId, message.state);
         break;
 
       case "sync-response":

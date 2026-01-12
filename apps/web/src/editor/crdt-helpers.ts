@@ -83,11 +83,12 @@ export function deleteCharsInRange(
   
   const newChars = chars.map(char => {
     if (!char.deleted) {
-      if (visibleCount >= startIndex && visibleCount < endIndex) {
+      const shouldDelete = visibleCount >= startIndex && visibleCount < endIndex;
+      visibleCount++;
+      if (shouldDelete) {
         deletedIds.push(char.id);
         return { ...char, deleted: true };
       }
-      visibleCount++;
     }
     return char;
   });
