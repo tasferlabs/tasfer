@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Navigate, useParams, useNavigate } from "react-router-dom";
 import { debounce } from "lodash-es";
 import { MountedEditor } from "../MountedEditor";
-import type { SyncState } from "../../sync/websocket";
+import type { SyncState } from "../../editor/sync/websocket";
 
 // WebSocket server URL - defaults to using Vite proxy
 // Uses wss:// for HTTPS, ws:// for HTTP
@@ -174,7 +174,8 @@ export default function EditorPage() {
     };
   }, [id, setWordCount]);
 
-  // Debounced save callback
+  // Debounced save callback - only called for local user-initiated changes
+  // Remote peer updates are NOT persisted by this user; peers handle saving their own changes
   const handleSave = useCallback(
     async ({ content, operations }: { content: string; operations: string }) => {
       if (!id) return;

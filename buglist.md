@@ -219,3 +219,4 @@ Bugs list
 - [ ] tapping enter to split blocks does not not work well with crdt opreations.
 - [ ] arabic script stopped working after impelemting crdt 
 - [ ] when typing in the middle the other tab insert to the end.
+- [ ] fix stoarge problems with crdt

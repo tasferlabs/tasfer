@@ -19,17 +19,17 @@ import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
 import { SlashCommandMenu } from "../editor/SlashCommandMenu";
-import { getFormatsAtPosition, getSelectionRange } from "../editor/actions/commands";
+import {
+  getFormatsAtPosition,
+  getSelectionRange,
+} from "../editor/actions/commands";
 import {
   mountEditor,
   type MountedEditor as MountedEditorInstance,
 } from "../editor/mount";
 import { clearFailedImageCache } from "../editor/renderer";
 import { getLinkAtPosition } from "../editor/selection";
-import {
-  getBlockTextContent,
-  isTouchDevice,
-} from "../editor/state";
+import { getBlockTextContent, isTouchDevice } from "../editor/state";
 import type { EditorState, SlashCommand } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
@@ -127,6 +127,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     EditorState["document"]["page"]["blocks"] | null
   >(null);
   const editorInitializedRef = useRef(false);
+  // Track when applying remote operations to prevent triggering saves for non-local changes
+  const isApplyingRemoteOpsRef = useRef(false);
 
   // Track current toolbar icon type
   const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">(
@@ -189,11 +191,18 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         try {
           const ops = JSON.parse(initialOperations);
           if (Array.isArray(ops) && ops.length > 0) {
-            console.log("[MountedEditor] Loading", ops.length, "saved operations");
+            console.log(
+              "[MountedEditor] Loading",
+              ops.length,
+              "saved operations"
+            );
             syncEngine.loadOperations(ops);
           }
         } catch (e) {
-          console.error("[MountedEditor] Failed to parse initial operations:", e);
+          console.error(
+            "[MountedEditor] Failed to parse initial operations:",
+            e
+          );
         }
       }
 
@@ -211,9 +220,13 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         },
         onRemoteOperation: (ops) => {
           console.log("[WebSocket] Received remote operations:", ops.length);
+          // Mark that we're applying remote operations to prevent triggering saves
+          // Only local user-initiated changes should persist to the database
+          isApplyingRemoteOpsRef.current = true;
           // Apply remote operations directly to the editor's current state
           // This preserves existing content instead of rebuilding from SyncEngine's empty state
           mounted.editor.applyRemoteOperations(ops);
+          isApplyingRemoteOpsRef.current = false;
         },
         onFirstPeer: () => {
           console.log("[MountedEditor] First peer - loading initial content");
@@ -225,7 +238,10 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
           mounted.editor.setRemoteAwareness(peerId, state);
         },
         onAwarenessStates: (states: Record<string, AwarenessState>) => {
-          console.log("[WebSocket] Received initial awareness states:", Object.keys(states).length);
+          console.log(
+            "[WebSocket] Received initial awareness states:",
+            Object.keys(states).length
+          );
           // Apply all initial awareness states
           for (const [peerId, state] of Object.entries(states)) {
             mounted.editor.setRemoteAwareness(peerId, state);
@@ -379,13 +395,18 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         // Check if blocks reference has changed (indicates actual content modification)
         if (currentBlocks !== lastSerializedBlocksRef.current) {
           lastSerializedBlocksRef.current = currentBlocks;
-          // console.log("currentBlocks", currentBlocks);
-          const markdown = serializeToMarkdown(currentBlocks);
-          // Get serialized operations from sync engine for persistence
-          const operations = syncEngineRef.current
-            ? JSON.stringify(syncEngineRef.current.getOperations())
-            : "[]";
-          onContentChange(markdown, operations);
+
+          // Only trigger saves for local user-initiated changes, not remote peer updates
+          // Remote peers handle saving their own changes
+          if (!isApplyingRemoteOpsRef.current) {
+            // console.log("currentBlocks", currentBlocks);
+            const markdown = serializeToMarkdown(currentBlocks);
+            // Get serialized operations from sync engine for persistence
+            const operations = syncEngineRef.current
+              ? JSON.stringify(syncEngineRef.current.getOperations())
+              : "[]";
+            onContentChange(markdown, operations);
+          }
         }
       }
 
@@ -903,7 +924,11 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     if (!linkEditState || !mountedRef.current) return;
 
     const editor = mountedRef.current.editor;
-    editor.clearLink(linkEditState.blockIndex, linkEditState.startIndex, linkEditState.endIndex);
+    editor.clearLink(
+      linkEditState.blockIndex,
+      linkEditState.startIndex,
+      linkEditState.endIndex
+    );
     // Mark that an action was performed (don't restore selection on close)
     linkEditActionPerformedRef.current = true;
   };
