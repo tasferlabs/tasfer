@@ -7,7 +7,12 @@
  * - Format merging with Last-Writer-Wins (LWW)
  */
 
-import type { Char, BlockState, FormatSpan } from "./types";
+import type {
+  Block,
+  Char,
+  FormatSpan,
+  TextFormat,
+} from "@/deserializer/loadPage";
 import { compareHLC } from "./hlc";
 import { compareIds } from "./id";
 
@@ -29,7 +34,7 @@ export function compareChars(a: Char, b: Char): number {
  *
  * @returns negative if a < b, positive if a > b, 0 if equal
  */
-export function compareBlocks(a: BlockState, b: BlockState): number {
+export function compareBlocks(a: Block, b: Block): number {
   return compareIds(a.id, b.id);
 }
 
@@ -101,7 +106,7 @@ export function findCharInsertIndex(
  * @returns Index where the new block should be inserted
  */
 export function findBlockInsertIndex(
-  blocks: BlockState[],
+  blocks: Block[],
   afterBlockId: string | null,
   newBlockId: string
 ): number {
@@ -155,7 +160,7 @@ export function mergeFormatSpans(spans: FormatSpan[]): FormatSpan[] {
   if (spans.length === 0) return [];
 
   // Group spans by format type
-  const byFormat = new Map<string, FormatSpan[]>();
+  const byFormat = new Map<TextFormat, FormatSpan[]>();
 
   for (const span of spans) {
     const key = span.format;
@@ -170,7 +175,9 @@ export function mergeFormatSpans(spans: FormatSpan[]): FormatSpan[] {
   // Later spans override earlier ones for the same char range
   for (const [, formatSpans] of byFormat) {
     // Sort by clock (oldest first)
-    const sorted = [...formatSpans].sort((a, b) => compareHLC(a.clock, b.clock));
+    const sorted = [...formatSpans].sort((a, b) =>
+      compareHLC(a.clock, b.clock)
+    );
     result.push(...sorted);
   }
 
@@ -178,55 +185,20 @@ export function mergeFormatSpans(spans: FormatSpan[]): FormatSpan[] {
 }
 
 /**
- * Get the effective format value for a character.
- * Uses LWW - the format span with the latest clock wins.
- *
- * @param charId - Character ID to check
- * @param spans - All format spans
- * @param formatType - Format type to check
- * @returns The format value (boolean or string) or undefined if not formatted
- */
-export function getEffectiveFormat(
-  _charId: string,
-  spans: FormatSpan[],
-  formatType: string
-): boolean | string | undefined {
-  // Find all spans of this format type that include this character
-  const relevantSpans = spans.filter((s) => s.format === formatType);
-
-  if (relevantSpans.length === 0) {
-    return undefined;
-  }
-
-  // Find the span with the latest clock (LWW)
-  let latestSpan: FormatSpan | null = null;
-
-  for (const span of relevantSpans) {
-    // Check if charId is in this span's range
-    // This requires knowing the char order - simplified check for now
-    if (!latestSpan || compareHLC(span.clock, latestSpan.clock) > 0) {
-      latestSpan = span;
-    }
-  }
-
-  return latestSpan?.value;
-}
-
-/**
  * Resolve block ordering from linked list representation.
  * Handles concurrent inserts and deleted blocks.
  *
  * @param blocks - All blocks (unordered, may include deleted)
- * @returns Ordered array of non-deleted blocks
+ * @returns Ordered array of all blocks (including tombstones)
  */
-export function resolveBlockOrder(blocks: BlockState[]): BlockState[] {
+export function resolveBlockOrder(blocks: Block[]): Block[] {
   if (blocks.length === 0) return [];
 
   // Build adjacency map: afterId -> blocks that come after it
-  const afterMap = new Map<string | null, BlockState[]>();
+  const afterMap = new Map<string | null, Block[]>();
 
   for (const block of blocks) {
-    const key = block.afterId;
+    const key = block.afterId || null;
     const existing = afterMap.get(key) || [];
     existing.push(block);
     afterMap.set(key, existing);
@@ -239,7 +211,7 @@ export function resolveBlockOrder(blocks: BlockState[]): BlockState[] {
   }
 
   // Walk the linked list starting from null (beginning)
-  const ordered: BlockState[] = [];
+  const ordered: Block[] = [];
   const visited = new Set<string>();
 
   function visit(afterId: string | null) {
@@ -259,6 +231,6 @@ export function resolveBlockOrder(blocks: BlockState[]): BlockState[] {
 
   visit(null);
 
-  // Filter out deleted blocks for the final result
-  return ordered.filter((b) => !b.deleted);
+  // Keep tombstones in the ordering - filtering happens at render time
+  return ordered;
 }

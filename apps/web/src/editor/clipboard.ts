@@ -1,40 +1,39 @@
 import type {
-  EditorState,
-  Position,
-  CommandResult,
-  CRDTContext,
-} from "./types";
-import type {
   Block,
   Char,
   FormatSpan,
   TextFormat,
 } from "../deserializer/loadPage";
-import { isVisualBlock, isListBlock } from "../deserializer/loadPage";
+import { isListBlock, isTextualBlock, loadPage } from "../deserializer/loadPage";
+import { serializeToMarkdown } from "../deserializer/serializer";
+import type {
+  BlockInsert,
+  BlockSet,
+  FormatSet,
+  Operation,
+} from "../sync/types";
+import { deleteSelectedText, getSelectionRange } from "./commands";
+import { IMAGE_DEFAULT_HEIGHT } from "./constants";
 import {
+  deleteCharsInRange,
+  getVisibleText,
+  insertCharsAtPosition,
+} from "./crdt-helpers";
+import { invalidateBlockCache } from "./renderer";
+import {
+  clearSelection,
+  generateBlockId,
   getBlockTextContent,
   getBlockTextLength,
   moveCursorToPosition,
-  clearSelection,
-  generateBlockId,
 } from "./state";
-import { getSelectionRange, deleteSelectedText } from "./commands";
-import { recordUndo } from "./undo";
-import { invalidateBlockCache } from "./renderer";
-import { serializeToMarkdown } from "../deserializer/serializer";
-import { loadPage } from "../deserializer/loadPage";
-import { IMAGE_DEFAULT_HEIGHT } from "./constants";
 import type {
-  Operation,
-  BlockInsert,
-  FormatSet,
-  BlockSet,
-} from "../sync/types";
-import {
-  insertCharsAtPosition,
-  deleteCharsInRange,
-  getVisibleText,
-} from "./crdt-helpers";
+  CommandResult,
+  CRDTContext,
+  EditorState,
+  Position,
+} from "./types";
+import {} from "./undo";
 
 export function hasNativeBridge(): boolean {
   return !!(window.IOSBridge || window.AndroidBridge);
@@ -146,7 +145,7 @@ function getSelectedContent(state: EditorState): {
       };
     }
 
-    if (!isVisualBlock(block)) {
+    if (!isTextualBlock(block)) {
       return {
         blocks: [block],
         isPartial: false,
@@ -194,7 +193,7 @@ function getSelectedContent(state: EditorState): {
       continue;
     }
 
-    if (!isVisualBlock(block)) {
+    if (!isTextualBlock(block)) {
       blocks.push(block);
       continue;
     }
@@ -342,7 +341,7 @@ function blocksToHTML(blocks: Block[]): string {
       return "<hr />";
     }
 
-    if (!isVisualBlock(block)) {
+    if (!isTextualBlock(block)) {
       return "";
     }
 
@@ -500,7 +499,7 @@ export async function cutSelectionToClipboard(
     }
 
     if (success) {
-      const stateWithUndo = recordUndo(state);
+      const stateWithUndo = state;
 
       const result = deleteSelectedText(stateWithUndo, crdt);
       return { success: true, result };
@@ -574,7 +573,7 @@ function segmentsToCharsAndFormats(
   const chars: Char[] = [];
   const formats: FormatSpan[] = [];
   const idGen = makeClipboardIdGen();
-  const clock = Date.now();
+  const clock = { wall: Date.now(), logical: 0, peerId: "clipboard" };
 
   for (const segment of segments) {
     const startIdx = chars.length;
@@ -1084,7 +1083,7 @@ function insertBlocksAtCursor(
   const ops: Operation[] = [];
 
   // Record undo state before modification
-  let newState = recordUndo(state);
+  let newState = state;
 
   // If there's a selection, delete it first
   if (newState.document.selection && !newState.document.selection.isCollapsed) {
@@ -1118,12 +1117,12 @@ function insertBlocksAtCursor(
   // If pasting a single block
   if (blocks.length === 1) {
     // Can't paste into non-text blocks
-    if (!isVisualBlock(currentBlock)) {
+    if (!isTextualBlock(currentBlock)) {
       return { state, ops: [] };
     }
 
     // Can't paste non-text blocks into text blocks
-    if (!isVisualBlock(blocks[0])) {
+    if (!isTextualBlock(blocks[0])) {
       return { state, ops: [] };
     }
 
@@ -1162,7 +1161,7 @@ function insertBlocksAtCursor(
             startCharId: newStartCharId,
             endCharId: newEndCharId,
             format: pasteFormat.format,
-            clock: crdt.clock().wall,
+            clock: crdt.clock(),
           };
           newFormats = [...newFormats, newSpan];
 
@@ -1221,12 +1220,12 @@ function insertBlocksAtCursor(
     return { state: clearSelection(newState), ops };
   } else {
     // Pasting multiple blocks - split current block and insert pasted blocks
-    if (!isVisualBlock(currentBlock)) {
+    if (!isTextualBlock(currentBlock)) {
       return { state, ops: [] };
     }
 
     // Filter out non-text blocks from paste (or handle them separately)
-    const textBlocks = blocks.filter(isVisualBlock);
+    const textBlocks = blocks.filter(isTextualBlock);
     if (textBlocks.length === 0) {
       return { state, ops: [] };
     }
@@ -1295,7 +1294,7 @@ function insertBlocksAtCursor(
             startCharId: newStartCharId,
             endCharId: newEndCharId,
             format: pasteFormat.format,
-            clock: crdt.clock().wall,
+            clock: crdt.clock(),
           };
           firstBlockFormats = [...firstBlockFormats, newSpan];
 
@@ -1470,7 +1469,6 @@ export function pasteFromClipboardEvent(
   // Otherwise try to get from event (may be empty if not called synchronously)
   let html = "";
   let text = "";
-  console.log("extractedData", extractedData);
 
   if (extractedData) {
     html = extractedData.html;
@@ -1487,7 +1485,6 @@ export function pasteFromClipboardEvent(
 
   // Try to get HTML first
   if (html) {
-    console.log("html", html);
     const blocks = parseHTMLToBlocks(html);
     if (blocks.length > 0) {
       return insertBlocksAtCursor(state, blocks, crdt);

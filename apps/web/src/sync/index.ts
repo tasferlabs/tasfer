@@ -6,53 +6,52 @@
  * and subscribing to state changes.
  */
 
-import type {
-  PageState,
-  Operation,
-  VersionVector,
-  CharData,
-  FormatType,
-  BlockType,
-  BlockProps,
-  TextInsert,
-  TextDelete,
-  FormatSet,
-  BlockInsert,
-  BlockDelete,
-  BlockSet,
-  OpLog,
-  HLC,
-} from "./types";
-import { createHLC, tickHLC, receiveHLC } from "./hlc";
-import { generatePeerId, createIdGenerator, generateBlockId } from "./id";
-import { createOpLog, appendOp, mergeOps, getOpsSince } from "./oplog";
+import type { Char, TextFormat } from "@/deserializer/loadPage";
+import { createHLC, receiveHLC, tickHLC } from "./hlc";
+import { createIdGenerator, generateBlockId, generatePeerId } from "./id";
+import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
 import { findCharIdAtPosition, getCharIdsInRange } from "./reducer";
+import type {
+  BlockDelete,
+  BlockInsert,
+  BlockProps,
+  BlockSet,
+  BlockType,
+  FormatSet,
+  HLC,
+  Operation,
+  OpLog,
+  PageState,
+  TextDelete,
+  TextInsert,
+  VersionVector,
+} from "./types";
 
 // Re-export types for consumers
 export type {
-  PageState,
-  BlockState,
-  Char,
-  CharData,
-  FormatSpan,
-  FormatType,
-  BlockType,
-  BlockProps,
-  Operation,
-  TextInsert,
-  TextDelete,
-  FormatSet,
-  BlockInsert,
   BlockDelete,
+  BlockInsert,
+  BlockProps,
   BlockSet,
-  VersionVector,
+  BlockType,
+  FormatSet,
   HLC,
+  Operation,
+  PageState,
+  TextDelete,
+  TextInsert,
+  VersionVector,
 } from "./types";
 
 // Re-export utilities
-export { compareHLC, serializeHLC, deserializeHLC } from "./hlc";
-export { serializeVV, deserializeVV } from "./oplog";
-export { getVisibleText, getVisibleBlocks, findCharIdAtPosition, getCharIdsInRange } from "./reducer";
+export { compareHLC, deserializeHLC, serializeHLC } from "./hlc";
+export { deserializeVV, serializeVV } from "./oplog";
+export {
+  findCharIdAtPosition,
+  getCharIdsInRange,
+  getVisibleBlocks,
+  getVisibleText,
+} from "./reducer";
 
 type StateChangeListener = (state: PageState) => void;
 
@@ -245,7 +244,7 @@ export class SyncEngine {
   createTextInsert(
     blockId: string,
     afterCharId: string | null,
-    chars: CharData[]
+    chars: Char[]
   ): TextInsert {
     return {
       ...this.createBaseOp(),
@@ -282,7 +281,7 @@ export class SyncEngine {
   createFormatSet(
     blockId: string,
     charIds: string[],
-    format: FormatType,
+    format: TextFormat,
     value: boolean | string
   ): FormatSet {
     return {
@@ -365,7 +364,7 @@ export class SyncEngine {
     const block = this.getState().blocks.find((b) => b.id === blockId);
     const afterCharId = block ? findCharIdAtPosition(block, position) : null;
 
-    const chars: CharData[] = Array.from(text).map((char) => ({
+    const chars: Char[] = Array.from(text).map((char) => ({
       id: this.nextId(),
       char,
     }));
@@ -406,7 +405,7 @@ export class SyncEngine {
     blockId: string,
     startIndex: number,
     endIndex: number,
-    format: FormatType,
+    format: TextFormat,
     value: boolean | string
   ): FormatSet {
     const block = this.getState().blocks.find((b) => b.id === blockId);
@@ -444,7 +443,7 @@ export class SyncEngine {
    */
   toggleTodo(blockId: string): BlockSet {
     const block = this.getState().blocks.find((b) => b.id === blockId);
-    const currentChecked = block?.props.checked ?? false;
+    const currentChecked = (block && 'checked' in block) ? block.checked : false;
 
     return this.createBlockSet(blockId, "checked", !currentChecked);
   }

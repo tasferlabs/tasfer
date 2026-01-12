@@ -166,7 +166,7 @@ export function formatCharsInRange(
       startCharId: charIds[0],
       endCharId: charIds[charIds.length - 1],
       format,
-      clock: crdt.clock().wall,
+      clock: crdt.clock(),
     };
     newFormats = [...formats, newSpan];
   }
@@ -431,19 +431,11 @@ function applyRemoteFormatSet(page: Page, op: FormatSet): Page {
     return page;
   }
 
-  // Convert CRDT format to editor TextFormat
-  let format: TextFormat;
-  if (op.format === "link" && typeof op.value === "string") {
-    format = { type: "link", url: op.value };
-  } else {
-    format = { type: op.format as TextFormat["type"] };
-  }
-
   const newSpan: FormatSpan = {
     startCharId: op.charIds[0],
     endCharId: op.charIds[op.charIds.length - 1],
-    format,
-    clock: typeof op.clock === "number" ? op.clock : op.clock.wall,
+    format: op.format,
+    clock: op.clock,
   };
 
   const updatedBlock = {

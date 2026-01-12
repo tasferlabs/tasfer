@@ -1,5 +1,5 @@
 import type { Block, Char } from "../deserializer/loadPage";
-import { isVisualBlock, isListBlock } from "../deserializer/loadPage";
+import { isTextualBlock, isListBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
   getFontMetrics,
@@ -42,7 +42,7 @@ export function getCursorCoordinates(
   // Image cover and line blocks don't have cursors - they shouldn't be used with this function
   if (block.type === "image" || block.type === "line") return null;
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return null;
   }
 
@@ -188,7 +188,7 @@ export function getCursorCoordinatesWithComposition(
   // Image cover and line blocks don't have cursors
   if (block.type === "image" || block.type === "line") return null;
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return null;
   }
 
@@ -437,7 +437,7 @@ function getPositionFromPaddingClick(
       if (
         block.type === "image" ||
         block.type === "line" ||
-        !isVisualBlock(block)
+        !isTextualBlock(block)
       ) {
         return { blockIndex, textIndex: 0 };
       }
@@ -665,7 +665,7 @@ function getPositionWithinBlock(
     };
   }
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return {
       blockIndex,
       textIndex: 0,
@@ -807,7 +807,7 @@ function getPositionWithinLine(
   maxWidth: number,
   isRTL: boolean
 ): Position {
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return {
       blockIndex: 0,
       textIndex: lineStartIndex,
@@ -1016,7 +1016,7 @@ export function getLinkAtPosition(
   // Image cover and line blocks don't have text content or links
   if (block.type === "image" || block.type === "line") return null;
 
-  if (!isVisualBlock(block)) return null;
+  if (!isTextualBlock(block)) return null;
 
   // Find the char at this position
   let visibleIndex = 0;
@@ -1144,7 +1144,7 @@ export function isPointWithinSelectionRects(
     }
 
     // Skip image and line blocks (they don't have text content)
-    if (!isVisualBlock(block)) {
+    if (!isTextualBlock(block)) {
       currentY += blockHeight;
       continue;
     }

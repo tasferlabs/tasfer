@@ -5,27 +5,29 @@
  * This is the core of the CRDT engine - all state changes flow through here.
  */
 
-import type {
-  PageState,
-  BlockState,
-  Char,
-  FormatSpan,
-  Operation,
-  TextInsert,
-  TextDelete,
-  FormatSet,
-  BlockInsert,
-  BlockDelete,
-  BlockSet,
-  BlockProps,
-  BlockType,
-} from "./types";
-import { compareHLC } from "./hlc";
 import {
-  findCharInsertIndex,
+  isTextualBlock,
+  type Block,
+  type Char,
+  type FormatSpan,
+} from "@/deserializer/loadPage";
+import {
   findBlockInsertIndex,
+  findCharInsertIndex,
   resolveBlockOrder,
 } from "./conflicts";
+import { compareHLC } from "./hlc";
+import type {
+  BlockDelete,
+  BlockInsert,
+  BlockSet,
+  FormatSet,
+  BlockType,
+  Operation,
+  PageState,
+  TextDelete,
+  TextInsert,
+} from "./types";
 
 /**
  * Create an empty page state.
@@ -44,28 +46,69 @@ export function createEmptyPageState(pageId: string): PageState {
 export function createEmptyBlock(
   id: string,
   afterId: string | null,
-  type: BlockType,
-  props: BlockProps = {}
-): BlockState {
-  return {
+  type: BlockType
+): Block {
+  const base = {
     id,
     afterId,
     deleted: false,
-    type,
-    props,
-    chars: [],
-    formats: [],
   };
+
+  switch (type) {
+    case "heading1":
+    case "heading2":
+    case "heading3":
+    case "paragraph":
+      return {
+        ...base,
+        type,
+        chars: [],
+        formats: [],
+      };
+    case "bullet_list":
+      return {
+        ...base,
+        type: "bullet_list",
+        chars: [],
+        formats: [],
+        indent: 0,
+      };
+    case "numbered_list":
+      return {
+        ...base,
+        type: "numbered_list",
+        chars: [],
+        formats: [],
+        indent: 0,
+      };
+    case "todo_list":
+      return {
+        ...base,
+        type: "todo_list",
+        chars: [],
+        formats: [],
+        checked: false,
+        indent: 0,
+      };
+    case "image":
+      return {
+        ...base,
+        type: "image",
+        url: "",
+      };
+    case "line":
+      return {
+        ...base,
+        type: "line",
+      };
+  }
 }
 
 /**
  * Find a block by ID in the state.
  * Returns undefined if not found.
  */
-function findBlock(
-  state: PageState,
-  blockId: string
-): BlockState | undefined {
+function findBlock(state: PageState, blockId: string): Block | undefined {
   return state.blocks.find((b) => b.id === blockId);
 }
 
@@ -94,7 +137,7 @@ function applyTextInsert(state: PageState, op: TextInsert): PageState {
   const block = state.blocks[blockIndex];
 
   // Skip text operations on blocks that don't have text content
-  if (block.type === "image" || block.type === "line") {
+  if (!isTextualBlock(block)) {
     return state;
   }
 
@@ -124,7 +167,7 @@ function applyTextInsert(state: PageState, op: TextInsert): PageState {
   }
 
   // Create updated block
-  const updatedBlock: BlockState = {
+  const updatedBlock: Block = {
     ...block,
     chars: newChars,
   };
@@ -172,7 +215,7 @@ function applyTextDelete(state: PageState, op: TextDelete): PageState {
     return char;
   });
 
-  const updatedBlock: BlockState = {
+  const updatedBlock: Block = {
     ...block,
     chars: newChars,
   };
@@ -199,17 +242,20 @@ function applyFormatSet(state: PageState, op: FormatSet): PageState {
 
   const block = state.blocks[blockIndex];
 
+  if (!isTextualBlock(block)) {
+    return state;
+  }
+
   // Create a new format span
   const newSpan: FormatSpan = {
     startCharId: op.charIds[0],
     endCharId: op.charIds[op.charIds.length - 1],
     format: op.format,
-    value: op.value,
     clock: op.clock,
   };
 
   // Add to formats (LWW will be resolved when reading)
-  const updatedBlock: BlockState = {
+  const updatedBlock: Block = {
     ...block,
     formats: [...block.formats, newSpan],
   };
@@ -235,12 +281,16 @@ function applyBlockInsert(state: PageState, op: BlockInsert): PageState {
   }
 
   // Create the new block
-  const newBlock = createEmptyBlock(
+  const baseBlock = createEmptyBlock(
     op.blockId,
     op.afterBlockId,
-    op.blockType,
-    op.initialProps
+    op.blockType
   );
+
+  // Apply initial props if provided
+  const newBlock = op.initialProps
+    ? { ...baseBlock, ...op.initialProps }
+    : baseBlock;
 
   // Find insertion position
   const insertIndex = findBlockInsertIndex(
@@ -272,7 +322,7 @@ function applyBlockDelete(state: PageState, op: BlockDelete): PageState {
 
   const block = state.blocks[blockIndex];
 
-  const updatedBlock: BlockState = {
+  const updatedBlock: Block = {
     ...block,
     deleted: true,
   };
@@ -299,12 +349,21 @@ function applyBlockSet(state: PageState, op: BlockSet): PageState {
 
   const block = state.blocks[blockIndex];
 
-  // Handle 'type' field specially
+  // Handle 'type' field specially - need to rebuild block with proper shape
   if (op.field === "type") {
-    const updatedBlock: BlockState = {
-      ...block,
-      type: op.value as BlockType,
-    };
+    const newType = op.value as BlockType;
+    const newBlock = createEmptyBlock(block.id, block.afterId ?? null, newType);
+    
+    // Preserve chars and formats for textual blocks
+    const updatedBlock: Block = isTextualBlock(block) && isTextualBlock(newBlock)
+      ? {
+          ...newBlock,
+          chars: block.chars,
+          formats: block.formats,
+          cachedHeight: block.cachedHeight,
+          cachedWidth: block.cachedWidth,
+        }
+      : newBlock;
 
     const newBlocks = [...state.blocks];
     newBlocks[blockIndex] = updatedBlock;
@@ -315,15 +374,8 @@ function applyBlockSet(state: PageState, op: BlockSet): PageState {
     };
   }
 
-  // Handle property fields
-  const updatedProps: BlockProps = {
-    ...block.props,
-    [op.field]: op.value,
-  };
-
-  const updatedBlock: BlockState = {
+  const updatedBlock: Block = {
     ...block,
-    props: updatedProps,
   };
 
   const newBlocks = [...state.blocks];
@@ -389,15 +441,16 @@ export function rebuildState(pageId: string, ops: Operation[]): PageState {
 /**
  * Get visible text content from a block (excluding deleted chars).
  */
-export function getVisibleText(block: BlockState): string {
+export function getVisibleText(block: Block): string {
   // Image and Line blocks don't have text content
-  if (block.type === "image" || block.type === "line") {
+  if (!isTextualBlock(block)) {
     return "";
   }
   // Ensure chars array exists
   if (!block.chars) {
     return "";
   }
+
   return block.chars
     .filter((c) => !c.deleted)
     .map((c) => c.char)
@@ -407,7 +460,7 @@ export function getVisibleText(block: BlockState): string {
 /**
  * Get visible blocks from state (excluding deleted blocks).
  */
-export function getVisibleBlocks(state: PageState): BlockState[] {
+export function getVisibleBlocks(state: PageState): Block[] {
   return state.blocks.filter((b) => !b.deleted);
 }
 
@@ -416,7 +469,7 @@ export function getVisibleBlocks(state: PageState): BlockState[] {
  * Returns the character and its position in the full chars array.
  */
 export function findCharByVisibleIndex(
-  block: BlockState,
+  block: Block,
   visibleIndex: number
 ): { char: Char; fullIndex: number } | null {
   // Image and Line blocks don't have text content
@@ -444,7 +497,7 @@ export function findCharByVisibleIndex(
  * Returns null if position is at the beginning.
  */
 export function findCharIdAtPosition(
-  block: BlockState,
+  block: Block,
   position: number
 ): string | null {
   if (position === 0) {
@@ -459,7 +512,7 @@ export function findCharIdAtPosition(
  * Get character IDs for a range of visible text.
  */
 export function getCharIdsInRange(
-  block: BlockState,
+  block: Block,
   startIndex: number,
   endIndex: number
 ): string[] {

@@ -5,6 +5,12 @@
  * optimized for block-based editors.
  */
 
+import type {
+  Block,
+  Char,
+  TextFormat,
+} from "@/deserializer/loadPage";
+
 // =============================================================================
 // Hybrid Logical Clock (HLC)
 // =============================================================================
@@ -26,53 +32,9 @@ export interface HLC {
 // Character-Level CRDT (RGA-style)
 // =============================================================================
 
-/**
- * Character data for insertion operations.
- * Each character has a unique ID for conflict-free concurrent edits.
- */
-export interface CharData {
-  /** Unique ID: `${peerId}:${counter}` */
-  id: string;
-  /** The actual character */
-  char: string;
-}
-
-/**
- * Character in computed state with tombstone flag.
- */
-export interface Char extends CharData {
-  /** Tombstone - marks character as deleted but not removed */
-  deleted: boolean;
-}
-
 // =============================================================================
 // Formatting
 // =============================================================================
-
-/** Supported format types */
-export type FormatType =
-  | "bold"
-  | "italic"
-  | "code"
-  | "strikethrough"
-  | "link";
-
-/**
- * Format span applied to a range of characters.
- * Uses character IDs for position-independent ranges.
- */
-export interface FormatSpan {
-  /** Start character ID (inclusive) */
-  startCharId: string;
-  /** End character ID (inclusive) */
-  endCharId: string;
-  /** Format type being applied */
-  format: FormatType;
-  /** Format value - boolean for toggles, string for links */
-  value: boolean | string;
-  /** Clock for LWW conflict resolution */
-  clock: HLC;
-}
 
 // =============================================================================
 // Block Types
@@ -110,27 +72,6 @@ export interface BlockProps {
   objectFit?: "cover" | "contain";
 }
 
-/**
- * Block state in the computed document.
- * Uses linked list ordering via afterId.
- */
-export interface BlockState {
-  /** Unique block ID */
-  id: string;
-  /** ID of block this comes after (null = first block) */
-  afterId: string | null;
-  /** Tombstone - marks block as deleted */
-  deleted: boolean;
-  /** Block type */
-  type: BlockType;
-  /** Block properties */
-  props: BlockProps;
-  /** Text content as array of characters with IDs */
-  chars: Char[];
-  /** Format spans applied to text */
-  formats: FormatSpan[];
-}
-
 // =============================================================================
 // Page State
 // =============================================================================
@@ -144,7 +85,7 @@ export interface PageState {
   /** Page title */
   title: string;
   /** Ordered array of blocks (non-deleted, resolved from linked list) */
-  blocks: BlockState[];
+  blocks: Block[];
 }
 
 // =============================================================================
@@ -173,7 +114,7 @@ export interface TextInsert extends BaseOp {
   /** Insert after this character ID (null = beginning) */
   afterCharId: string | null;
   /** Characters to insert with their IDs */
-  chars: CharData[];
+  chars: Char[];
 }
 
 /**
@@ -196,8 +137,8 @@ export interface FormatSet extends BaseOp {
   blockId: string;
   /** Character IDs to format */
   charIds: string[];
-  /** Format type to apply */
-  format: FormatType;
+  /** Format to apply */
+  format: TextFormat;
   /** Format value (true/false for toggles, URL for links) */
   value: boolean | string;
 }

@@ -4,7 +4,7 @@ import type {
   FormatSpan,
   TextFormat,
 } from "../deserializer/loadPage";
-import { isListBlock, isVisualBlock } from "../deserializer/loadPage";
+import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
 import { getVisibleText } from "./crdt-helpers";
 import {
   FONT_STACKS,
@@ -59,7 +59,7 @@ function getContentWithComposition(
   formats: FormatSpan[];
   compositionRange: { start: number; end: number } | null;
 } {
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return { chars: [], formats: [], compositionRange: null };
   }
 
@@ -460,6 +460,11 @@ export const renderPage = (
   let foundVisibleBlock = false;
   for (let i = 0; i < state.document.page.blocks.length; i++) {
     const block = state.document.page.blocks[i];
+
+    // Skip tombstoned blocks
+    if (block.deleted) {
+      continue;
+    }
 
     // Get or calculate block height (cached on the block itself)
     const blockHeight = getBlockHeight(block, maxWidth, styles, i);
@@ -987,7 +992,7 @@ function renderSelection(
 ) {
   if (!state.document.selection) return;
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return;
   }
 
@@ -1667,7 +1672,7 @@ export const calculateBlockHeight = (
     return styles.blocks.line.height;
   }
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return 0;
   }
 
@@ -1765,7 +1770,7 @@ export function renderCursorLayer(
   const cursorBlockIndex = state.document.cursor.position.blockIndex;
   const block = state.document.page.blocks[cursorBlockIndex];
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     ctx.restore();
     return;
   }
@@ -2077,7 +2082,7 @@ function getPositionCoordinates(
   }
 
   const block = state.document.page.blocks[position.blockIndex];
-  if (!block || block.type === "image" || !isVisualBlock(block)) {
+  if (!block || block.type === "image" || !isTextualBlock(block)) {
     return null;
   }
 

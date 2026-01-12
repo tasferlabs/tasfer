@@ -1,13 +1,23 @@
 import type {
   Block,
-  FormatSpan,
   Char,
+  FormatSpan,
   TextFormat,
 } from "../deserializer/loadPage";
 import {
-  isVisualBlock,
   isListBlock,
+  isTextualBlock,
 } from "../deserializer/loadPage";
+import type { BlockInsert, BlockSet, Operation } from "../sync/types";
+import {
+  allCharsHaveFormat,
+  deleteCharsInRange,
+  formatCharsInRange,
+  getFormatsAtCharPosition,
+  getVisibleLength,
+  getVisibleText,
+  insertCharsAtPosition,
+} from "./crdt-helpers";
 import { isCJKCharacter } from "./fonts";
 import { invalidateBlockCache } from "./renderer";
 import { isRTLChar } from "./rtl";
@@ -24,23 +34,13 @@ import {
   updateSelectionFocus,
 } from "./state";
 import type {
+  CommandResult,
+  CRDTContext,
   EditorState,
   Position,
   SlashCommand,
-  CommandResult,
-  CRDTContext,
 } from "./types";
-import { recordUndo } from "./undo";
-import type { Operation, BlockInsert, BlockSet } from "../sync/types";
-import {
-  insertCharsAtPosition,
-  deleteCharsInRange,
-  formatCharsInRange,
-  getVisibleText,
-  getVisibleLength,
-  getFormatsAtCharPosition,
-  allCharsHaveFormat,
-} from "./crdt-helpers";
+import { } from "./undo";
 
 /**
  * Helper to determine if text is RTL based on character array
@@ -72,7 +72,7 @@ export function getFormatsAtPosition(
   block: Block,
   textIndex: number
 ): readonly TextFormat[] | undefined {
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return undefined;
   }
 
@@ -307,7 +307,7 @@ function applyMarkdownPrefix(
   block: Block,
   preserveType: boolean = false
 ): Block {
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return block;
   }
   const text = getVisibleText(block.chars);
@@ -426,7 +426,7 @@ export function deleteSelectedText(
     const block = state.document.page.blocks[start.blockIndex];
 
     // Handle image block deletion
-    if (!isVisualBlock(block)) {
+    if (!isTextualBlock(block)) {
       // For image blocks (and other visual blocks), delete the entire block
       // Check if this is the only block - if so, replace with empty paragraph
       if (state.document.page.blocks.length === 1) {
@@ -512,8 +512,8 @@ export function deleteSelectedText(
     const endBlock = state.document.page.blocks[end.blockIndex];
 
     // Handle case where selection includes image blocks
-    const startIsText = isVisualBlock(startBlock);
-    const endIsText = isVisualBlock(endBlock);
+    const startIsText = isTextualBlock(startBlock);
+    const endIsText = isTextualBlock(endBlock);
 
     // If both start and end are non-text blocks, or if we're selecting multiple blocks
     // and at least one endpoint is a non-text block, we need special handling
@@ -668,7 +668,7 @@ export function insertText(
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
-  if (!isVisualBlock(oldBlock)) {
+  if (!isTextualBlock(oldBlock)) {
     return { state, ops };
   }
 
@@ -753,7 +753,7 @@ export function insertText(
       stateBeforeMarkdown = updateMode(stateBeforeMarkdown, "edit");
 
       // Record the state with raw markdown
-      state = recordUndo(stateBeforeMarkdown);
+      state = (stateBeforeMarkdown);
 
       // Now apply the markdown transformation
       finalChars = markdownResult.chars;
@@ -825,7 +825,7 @@ export function deleteText(
 
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
-  if (!isVisualBlock(oldBlock)) {
+  if (!isTextualBlock(oldBlock)) {
     return { state, ops };
   }
   if (textIndex > 0) {
@@ -875,7 +875,7 @@ export function deleteText(
           document: { ...state.document, page: newPage },
         };
         // Move cursor to end of previous block
-        const prevTextLength = isVisualBlock(prevBlock)
+        const prevTextLength = isTextualBlock(prevBlock)
           ? getBlockTextContent(prevBlock).length
           : 0;
         newState = moveCursorToPosition(newState, blockIndex - 1, prevTextLength);
@@ -924,8 +924,8 @@ export function deleteText(
     const prevBlock = state.document.page.blocks[blockIndex - 1];
 
     // If previous block is not a text block (e.g., image)
-    if (!isVisualBlock(prevBlock)) {
-      if (!isVisualBlock(oldBlock)) {
+    if (!isTextualBlock(prevBlock)) {
+      if (!isTextualBlock(oldBlock)) {
         return { state, ops };
       }
 
@@ -994,7 +994,7 @@ export function deleteText(
       return { state: newState, ops };
     }
 
-    if (!isVisualBlock(oldBlock)) {
+    if (!isTextualBlock(oldBlock)) {
       return { state, ops };
     }
 
@@ -1096,7 +1096,7 @@ export function deleteForward(
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
-  if (!isVisualBlock(oldBlock)) {
+  if (!isTextualBlock(oldBlock)) {
     return { state, ops };
   }
 
@@ -1134,7 +1134,7 @@ export function deleteForward(
     const nextBlock = state.document.page.blocks[blockIndex + 1];
 
     // If next block is not a text block (e.g., image), delete the current text block
-    if (!isVisualBlock(nextBlock)) {
+    if (!isTextualBlock(nextBlock)) {
       // Delete the current text block
       const newBlocks = [
         ...state.document.page.blocks.slice(0, blockIndex),
@@ -1352,7 +1352,7 @@ export function moveToPreviousWord(state: EditorState): EditorState {
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return state;
   }
 
@@ -1390,7 +1390,7 @@ export function moveToNextWord(state: EditorState): EditorState {
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return state;
   }
 
@@ -1437,7 +1437,7 @@ export function deleteWordForward(
 
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
-  if (!isVisualBlock(oldBlock)) {
+  if (!isTextualBlock(oldBlock)) {
     return { state, ops };
   }
 
@@ -1480,7 +1480,7 @@ export function deleteWordForward(
 
     // At end of line - merge with next block, preserving formatting
     const nextBlock = state.document.page.blocks[blockIndex + 1];
-    if (!isVisualBlock(nextBlock)) {
+    if (!isTextualBlock(nextBlock)) {
       return { state, ops };
     }
     const mergedChars = [...oldBlock.chars, ...nextBlock.chars];
@@ -1534,7 +1534,7 @@ export function deleteWordBackward(
   const { blockIndex, textIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
-  if (!isVisualBlock(oldBlock)) {
+  if (!isTextualBlock(oldBlock)) {
     return { state, ops };
   }
 
@@ -1577,7 +1577,7 @@ export function deleteWordBackward(
 
     // At start of line - merge with previous block, preserving formatting
     const prevBlock = state.document.page.blocks[blockIndex - 1];
-    if (!isVisualBlock(prevBlock)) {
+    if (!isTextualBlock(prevBlock)) {
       return { state, ops };
     }
     const prevText = getBlockTextContent(prevBlock);
@@ -1911,7 +1911,7 @@ export function splitBlock(
     }
   }
 
-  if (!isVisualBlock(oldBlock)) {
+  if (!isTextualBlock(oldBlock)) {
     return { state, ops: [] };
   }
 
@@ -2337,7 +2337,7 @@ export function toggleFormat(
     const { blockIndex, textIndex } = state.document.cursor.position;
     const block = state.document.page.blocks[blockIndex];
 
-    if (!isVisualBlock(block)) {
+    if (!isTextualBlock(block)) {
       return { state, ops: [] };
     }
 
@@ -2379,7 +2379,7 @@ export function toggleFormat(
     // Single block selection
     const block = state.document.page.blocks[start.blockIndex];
 
-    if (!isVisualBlock(block)) {
+    if (!isTextualBlock(block)) {
       return { state, ops: [] };
     }
 
@@ -2427,7 +2427,7 @@ export function toggleFormat(
     let hasFormat = true;
     for (let i = start.blockIndex; i <= end.blockIndex; i++) {
       const block = newBlocks[i];
-      if (!isVisualBlock(block)) {
+      if (!isTextualBlock(block)) {
         continue;
       }
 
@@ -2466,7 +2466,7 @@ export function toggleFormat(
     // Now apply the formatting to each block
     for (let i = start.blockIndex; i <= end.blockIndex; i++) {
       const block = newBlocks[i];
-      if (!isVisualBlock(block)) {
+      if (!isTextualBlock(block)) {
         continue;
       }
 
@@ -2563,7 +2563,7 @@ export function convertBlockType(
   const oldBlock = state.document.page.blocks[blockIndex];
 
   // Only text blocks can have content property
-  if (!isVisualBlock(oldBlock)) {
+  if (!isTextualBlock(oldBlock)) {
     return { state, ops: [] };
   }
 
@@ -2760,7 +2760,7 @@ export function applySlashCommand(
     const newPage = { ...state.document.page, blocks: newBlocks };
 
     // Emit CRDT operations: delete all text and change block type
-    if (isVisualBlock(block)) {
+    if (isTextualBlock(block)) {
       const textLength = getVisibleLength(block.chars);
       if (textLength > 0) {
         const { op: deleteOp } = deleteCharsInRange(
@@ -2847,7 +2847,7 @@ export function applySlashCommand(
     const newPage = { ...state.document.page, blocks: newBlocks };
 
     // Emit CRDT operations: delete all text and change block type
-    if (isVisualBlock(block)) {
+    if (isTextualBlock(block)) {
       const textLength = getVisibleLength(block.chars);
       if (textLength > 0) {
         const { op: deleteOp } = deleteCharsInRange(
@@ -2924,7 +2924,7 @@ export function applySlashCommand(
     return { state: closeSlashCommand(state), ops: [] };
   }
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return { state: closeSlashCommand(state), ops: [] };
   }
 
@@ -3242,7 +3242,7 @@ export function convertToList(
   const { blockIndex } = state.document.cursor.position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
-  if (!isVisualBlock(oldBlock)) return { state, ops: [] };
+  if (!isTextualBlock(oldBlock)) return { state, ops: [] };
 
   // Create new list block
   let newBlock: Block;
@@ -3344,7 +3344,7 @@ export function updateLinkInBlock(
   const block = state.document.page.blocks[blockIndex];
   if (!block) return { state, ops: [] };
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return { state, ops: [] };
   }
 
@@ -3432,7 +3432,7 @@ export function clearLinkInBlock(
   const block = state.document.page.blocks[blockIndex];
   if (!block) return { state, ops: [] };
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return { state, ops: [] };
   }
 

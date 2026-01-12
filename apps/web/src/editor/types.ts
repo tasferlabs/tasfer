@@ -150,10 +150,16 @@ export interface ViewState {
   readonly hasPhysicalKeyboard: boolean; // Set by native side when hardware keyboard is connected
 }
 
-// Undo only tracks document state now
+// Undo tracks operations per user for independent undo/redo
+// Inverses are computed on-the-fly during undo using tombstones
+export interface UndoGroup {
+  readonly operations: readonly Operation[]; // Original operations performed
+  readonly peerId: string; // User who performed these operations
+}
+
 export interface UndoManagerState {
-  readonly undoStack: readonly DocumentState[];
-  readonly redoStack: readonly DocumentState[];
+  readonly undoStack: readonly UndoGroup[];
+  readonly redoStack: readonly UndoGroup[];
 }
 
 // New unified EditorState

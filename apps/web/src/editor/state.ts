@@ -1,16 +1,16 @@
-import type { Block, Page, Char, FormatSpan } from "../deserializer/loadPage";
-import { isVisualBlock, isListBlock } from "../deserializer/loadPage";
+import type { Block, Char, FormatSpan, Page } from "../deserializer/loadPage";
+import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
   measureText,
   type FontFamily,
 } from "./fonts";
+import { isRTLChar } from "./rtl";
 import {
   createInitialMomentumState,
   createInitialScrollbarState,
 } from "./scrollbar";
 import { getEditorStyles, getTextStyle } from "./styles";
-import { isRTLChar } from "./rtl";
 import type {
   CursorState,
   EditorMode,
@@ -386,7 +386,7 @@ export const getBlockTextLength = (block: Block): number => {
   // Image and Line blocks don't have text content
   if (block.type === "image" || block.type === "line") return 0;
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return 0;
   }
 
@@ -400,7 +400,7 @@ export const getBlockTextContent = (block: Block): string => {
   // Image and Line blocks don't have text content
   if (block.type === "image" || block.type === "line") return "";
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return "";
   }
 
@@ -492,7 +492,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
   const { blockIndex, textIndex } = state.document.cursor.position;
   const currentBlock = state.document.page.blocks[blockIndex];
 
-  if (!currentBlock) return state;
+  if (!currentBlock || currentBlock.deleted) return state;
 
   // Handle visual blocks (image/line) - move to previous block
   if (currentBlock.type === "image" || currentBlock.type === "line") {
@@ -500,7 +500,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
       const prevBlock = state.document.page.blocks[blockIndex - 1];
       if (prevBlock.type === "image" || prevBlock.type === "line") {
         return moveCursorToPosition(state, blockIndex - 1, 0);
-      } else if (isVisualBlock(prevBlock)) {
+      } else if (isTextualBlock(prevBlock)) {
         const prevBlockLength = getBlockTextLength(prevBlock);
         return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
       }
@@ -508,7 +508,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
     return state;
   }
 
-  if (!isVisualBlock(currentBlock)) {
+  if (!isTextualBlock(currentBlock)) {
     return state;
   }
 
@@ -530,7 +530,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
         return moveCursorToPosition(state, blockIndex + 1, 0);
       }
 
-      if (!isVisualBlock(nextBlock)) {
+      if (!isTextualBlock(nextBlock)) {
         return state;
       }
       const nextIsRTL = getCharsDirection(nextBlock.chars) === "rtl";
@@ -556,7 +556,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
         return moveCursorToPosition(state, blockIndex - 1, 0);
       }
 
-      if (!isVisualBlock(prevBlock)) {
+      if (!isTextualBlock(prevBlock)) {
         return state;
       }
       const prevBlockLength = getBlockTextLength(prevBlock);
@@ -581,7 +581,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   const { blockIndex, textIndex } = state.document.cursor.position;
   const currentBlock = state.document.page.blocks[blockIndex];
 
-  if (!currentBlock) return state;
+  if (!currentBlock || currentBlock.deleted) return state;
 
   // Handle visual blocks (image/line) - move to next block
   if (currentBlock.type === "image" || currentBlock.type === "line") {
@@ -589,14 +589,14 @@ export const moveCursorRight = (state: EditorState): EditorState => {
       const nextBlock = state.document.page.blocks[blockIndex + 1];
       if (nextBlock.type === "image" || nextBlock.type === "line") {
         return moveCursorToPosition(state, blockIndex + 1, 0);
-      } else if (isVisualBlock(nextBlock)) {
+      } else if (isTextualBlock(nextBlock)) {
         return moveCursorToPosition(state, blockIndex + 1, 0);
       }
     }
     return state;
   }
 
-  if (!isVisualBlock(currentBlock)) {
+  if (!isTextualBlock(currentBlock)) {
     return state;
   }
 
@@ -618,7 +618,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
         return moveCursorToPosition(state, blockIndex - 1, 0);
       }
 
-      if (!isVisualBlock(prevBlock)) {
+      if (!isTextualBlock(prevBlock)) {
         return state;
       }
       const prevBlockLength = getBlockTextLength(prevBlock);
@@ -645,7 +645,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
         return moveCursorToPosition(state, blockIndex + 1, 0);
       }
 
-      if (!isVisualBlock(nextBlock)) {
+      if (!isTextualBlock(nextBlock)) {
         return state;
       }
       const nextIsRTL = getCharsDirection(nextBlock.chars) === "rtl";
@@ -679,7 +679,7 @@ function getLineInfoAtPosition(
   totalLines: number;
   lines: string[];
 } | null {
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return null;
   }
 
@@ -752,7 +752,7 @@ function getTextIndexAtRelativePosition(
     return targetIndex;
   }
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     const lineLength = lineEndIndex - lineStartIndex;
     return lineStartIndex + Math.min(relativePosition, lineLength);
   }
@@ -819,7 +819,7 @@ export const moveCursorUp = (
   const { blockIndex, textIndex } = state.document.cursor.position;
   const currentBlock = state.document.page.blocks[blockIndex];
 
-  if (!currentBlock) return state;
+  if (!currentBlock || currentBlock.deleted) return state;
 
   // Handle visual blocks (image/line) - move to previous block
   if (currentBlock.type === "image" || currentBlock.type === "line") {
@@ -828,7 +828,7 @@ export const moveCursorUp = (
       if (prevBlock.type === "image" || prevBlock.type === "line") {
         // Move to previous visual block
         return moveCursorToPosition(state, blockIndex - 1, 0);
-      } else if (isVisualBlock(prevBlock)) {
+      } else if (isTextualBlock(prevBlock)) {
         // Move to end of previous text block
         const prevBlockLength = getBlockTextLength(prevBlock);
         return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
@@ -851,7 +851,7 @@ export const moveCursorUp = (
 
   if (!lineInfo) return state;
 
-  if (!isVisualBlock(currentBlock)) {
+  if (!isTextualBlock(currentBlock)) {
     return state;
   }
 
@@ -920,7 +920,7 @@ export const moveCursorUp = (
       return moveCursorToPosition(state, blockIndex - 1, 0);
     }
 
-    if (!isVisualBlock(prevBlock)) {
+    if (!isTextualBlock(prevBlock)) {
       return state;
     }
     const prevTextStyle = getTextStyle(styles, prevBlock.type);
@@ -984,7 +984,7 @@ export const moveCursorDown = (
   const { blockIndex, textIndex } = state.document.cursor.position;
   const currentBlock = state.document.page.blocks[blockIndex];
 
-  if (!currentBlock) return state;
+  if (!currentBlock || currentBlock.deleted) return state;
 
   // Handle visual blocks (image/line) - move to next block
   if (currentBlock.type === "image" || currentBlock.type === "line") {
@@ -993,7 +993,7 @@ export const moveCursorDown = (
       if (nextBlock.type === "image" || nextBlock.type === "line") {
         // Move to next visual block
         return moveCursorToPosition(state, blockIndex + 1, 0);
-      } else if (isVisualBlock(nextBlock)) {
+      } else if (isTextualBlock(nextBlock)) {
         // Move to start of next text block
         return moveCursorToPosition(state, blockIndex + 1, 0);
       }
@@ -1015,7 +1015,7 @@ export const moveCursorDown = (
 
   if (!lineInfo) return state;
 
-  if (!isVisualBlock(currentBlock)) {
+  if (!isTextualBlock(currentBlock)) {
     return state;
   }
 
@@ -1095,7 +1095,7 @@ export const moveCursorDown = (
       return moveCursorToPosition(state, blockIndex + 1, 0);
     }
 
-    if (!isVisualBlock(nextBlock)) {
+    if (!isTextualBlock(nextBlock)) {
       return state;
     }
     const nextTextStyle = getTextStyle(styles, nextBlock.type);

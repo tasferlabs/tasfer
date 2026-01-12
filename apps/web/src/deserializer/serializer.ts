@@ -1,6 +1,6 @@
 import { IMAGE_DEFAULT_HEIGHT } from "@/editor/constants";
 import type { Block, Char, FormatSpan, TextFormat } from "./loadPage";
-import { isImageDefault, isListBlock, isVisualBlock } from "./loadPage";
+import { isImageDefault, isListBlock, isTextualBlock } from "./loadPage";
 
 // Helper to group chars with same formatting for serialization
 function groupCharsForSerialization(chars: Char[], formats: FormatSpan[]): { text: string; formats?: TextFormat[] }[] {
@@ -174,7 +174,7 @@ export function serializeToMarkdown(blocks: Block[]): string {
     // Handle text blocks (headings and paragraphs)
     let content = "";
     
-    if (isVisualBlock(block)) {
+    if (isTextualBlock(block)) {
       // Convert chars to segments for serialization
       const segments = groupCharsForSerialization(block.chars, block.formats);
       
@@ -219,7 +219,7 @@ export function serializeToMarkdown(blocks: Block[]): string {
   // Only check for empty content if it's a text block or list block
   if (lastBlock.type !== "image" && lastBlock.type !== "line") {
     const hasContent = isListBlock(lastBlock) || lastBlock.type === "heading1" || lastBlock.type === "heading2" || lastBlock.type === "heading3" || lastBlock.type === "paragraph";
-    if (hasContent && isVisualBlock(lastBlock)) {
+    if (hasContent && isTextualBlock(lastBlock)) {
       const lastBlockIsEmpty = lastBlock.chars.filter(c => !c.deleted).length === 0;
 
       if (lastBlockIsEmpty && blocks.length > 1) {

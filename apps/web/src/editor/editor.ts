@@ -1,68 +1,73 @@
 import type { Block, Page } from "../deserializer/loadPage";
-import { isVisualBlock } from "../deserializer/loadPage";
-import {
-  applySlashCommand,
-  convertBlockType,
-  updateLinkInBlock,
-  clearLinkInBlock,
-  selectAll,
-  getSelectionRange,
-  toggleBold,
-  toggleItalic,
-  toggleCode,
-  toggleStrikethrough,
-} from "./commands";
-import {
-  deleteCharsInRange,
-  insertCharsAtPosition,
-  formatCharsInRange,
-  applyRemoteOps,
-} from "./crdt-helpers";
+import { isTextualBlock } from "../deserializer/loadPage";
+import type {
+  BlockDelete,
+  BlockInsert,
+  BlockSet,
+  Operation,
+} from "../sync/types";
 import {
   copySelectionToClipboard,
   cutSelectionToClipboard,
   pasteFromNativeClipboardAPI,
 } from "./clipboard";
-import { handleEvents, isInLongPressMode } from "./events";
 import {
-  renderPage,
-  renderCursorLayer,
+  applySlashCommand,
+  clearLinkInBlock,
+  convertBlockType,
+  getSelectionRange,
+  selectAll,
+  toggleBold,
+  toggleCode,
+  toggleItalic,
+  toggleStrikethrough,
+  updateLinkInBlock,
+} from "./commands";
+import {
+  applyRemoteOps,
+  deleteCharsInRange,
+  formatCharsInRange,
+  insertCharsAtPosition,
+} from "./crdt-helpers";
+import { handleEvents, isInLongPressMode } from "./events";
+import { onFontFamilyChange } from "./fonts";
+import type { CanvasLayers } from "./layers";
+import {
   clearAllBlockCaches,
-  invalidateBlockCache,
   getBlockHeight,
+  invalidateBlockCache,
+  renderCursorLayer,
+  renderPage,
 } from "./renderer";
 import {
   getCursorCoordinates,
   getCursorCoordinatesWithComposition,
 } from "./selection";
 import {
-  updateFocus,
-  isCursorBlinking,
-  closeContextMenu,
   clearSelection,
-  updateMode,
-  updateCursor,
-  updateSelection,
-  createInitialCursorState,
-  setActiveMenu,
   closeActiveMenu,
+  closeContextMenu,
+  createInitialCursorState,
+  getBlockTextContent,
+  isCursorBlinking,
   isTouchDevice,
   moveCursorToPosition,
+  setActiveMenu,
+  updateCursor,
+  updateFocus,
+  updateMode,
   updatePhysicalKeyboardState,
-  getBlockTextContent,
+  updateSelection,
 } from "./state";
 import { getEditorStyles } from "./styles";
 import type {
+  CRDTContext,
+  CommandResult,
   EditorState,
   SlashCommand,
   ViewportState,
-  CRDTContext,
-  CommandResult,
 } from "./types";
-import type { Operation, BlockSet, BlockDelete, BlockInsert } from "../sync/types";
-import { recordUndo, undoState, redoState } from "./undo";
-import type { CanvasLayers } from "./layers";
-import { onFontFamilyChange } from "./fonts";
+import { recordUndoOps, redoState, undoState } from "./undo";
 
 export interface Editor {
   getState: () => EditorState | null;
@@ -176,8 +181,10 @@ export default function createEditor(
   const executeCommand = (result: CommandResult): void => {
     const { state: newState, ops } = result;
 
-    // Update local state
-    state = newState;
+    // Update local state and record to undo stack
+    state = ops.length > 0
+      ? recordUndoOps(newState, ops, crdtContext.clock().peerId)
+      : newState;
 
     // Broadcast ops to peers (if any)
     if (ops.length > 0 && broadcastFn) {
@@ -186,7 +193,7 @@ export default function createEditor(
 
     // Trigger re-render
     scheduleRender();
-    
+
     // Notify listeners
     const currentState = state;
     listeners.forEach((listener) => listener(currentState));
@@ -281,6 +288,8 @@ export default function createEditor(
       }
 
       const prevState = state;
+
+      // Handle events to get state and operations
       const handleEventsResult = handleEvents(
         state,
         viewport,
@@ -291,11 +300,22 @@ export default function createEditor(
         updateViewport,
         pendingClipboardData
       );
+
+      // Update state with the result from events
       state = handleEventsResult.state;
 
-      // Broadcast operations from events
-      if (handleEventsResult.ops.length > 0 && broadcastFn) {
-        broadcastFn(handleEventsResult.ops);
+      // Record operations to undo stack (only if not from undo/redo)
+      // Undo/redo already updates undoManager internally, so check if it changed
+      if (handleEventsResult.ops.length > 0) {
+        const undoManagerChanged = prevState.undoManager !== state.undoManager;
+        if (!undoManagerChanged) {
+          // Regular operation - record to undo stack
+          state = recordUndoOps(state, handleEventsResult.ops, crdtContext.clock().peerId);
+        }
+        // Broadcast ops to peers
+        if (broadcastFn) {
+          broadcastFn(handleEventsResult.ops);
+        }
       }
 
       // Clear clipboard data after it's been used
@@ -891,6 +911,10 @@ export default function createEditor(
 
     for (let i = 0; i < state.document.page.blocks.length; i++) {
       const block = state.document.page.blocks[i];
+      // Skip tombstoned blocks
+      if (block.deleted) {
+        continue;
+      }
       // Use getBlockHeight to leverage caching for performance
       const blockHeight = getBlockHeight(block, maxWidth, styles, i);
       totalHeight += blockHeight;
@@ -964,7 +988,7 @@ export default function createEditor(
 
   function executeSlashCommand(command: SlashCommand) {
     if (state.ui.activeMenu.type === "slashCommand" && state.document.cursor) {
-      state = recordUndo(state);
+      state = (state);
       const result = applySlashCommand(state, command, crdtContext);
       executeCommand(result);
     }
@@ -1004,20 +1028,28 @@ export default function createEditor(
   }
 
   function undo() {
-    const newState = undoState(state);
-    if (newState !== state) {
-      state = newState;
+    const result = undoState(state);
+    if (result.state !== state) {
+      state = result.state;
       scheduleRender();
-      listeners.forEach((listener) => listener(newState));
+      listeners.forEach((listener) => listener(result.state));
+      // Broadcast inverse operations to sync engine
+      if (result.ops.length > 0 && broadcastFn) {
+        broadcastFn(result.ops);
+      }
     }
   }
 
   function redo() {
-    const newState = redoState(state);
-    if (newState !== state) {
-      state = newState;
+    const result = redoState(state);
+    if (result.state !== state) {
+      state = result.state;
       scheduleRender();
-      listeners.forEach((listener) => listener(newState));
+      listeners.forEach((listener) => listener(result.state));
+      // Broadcast redo operations to sync engine
+      if (result.ops.length > 0 && broadcastFn) {
+        broadcastFn(result.ops);
+      }
     }
   }
 
@@ -1033,7 +1065,7 @@ export default function createEditor(
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
     const result = toggleBold(
-      hasSelection ? recordUndo(state) : state,
+      hasSelection ? (state) : state,
       crdtContext
     );
     executeCommand(result);
@@ -1043,7 +1075,7 @@ export default function createEditor(
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
     const result = toggleItalic(
-      hasSelection ? recordUndo(state) : state,
+      hasSelection ? (state) : state,
       crdtContext
     );
     executeCommand(result);
@@ -1053,7 +1085,7 @@ export default function createEditor(
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
     const result = toggleCode(
-      hasSelection ? recordUndo(state) : state,
+      hasSelection ? (state) : state,
       crdtContext
     );
     executeCommand(result);
@@ -1063,7 +1095,7 @@ export default function createEditor(
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
     const result = toggleStrikethrough(
-      hasSelection ? recordUndo(state) : state,
+      hasSelection ? (state) : state,
       crdtContext
     );
     executeCommand(result);
@@ -1071,7 +1103,7 @@ export default function createEditor(
 
   function setBlockType(type: Block["type"]) {
     if (!state.document.cursor) return;
-    state = recordUndo(state);
+    state = (state);
     const result = convertBlockType(state, type, crdtContext);
     executeCommand(result);
   }
@@ -1083,7 +1115,7 @@ export default function createEditor(
     newUrl: string,
     newText: string
   ) {
-    state = recordUndo(state);
+    state = (state);
     const result = updateLinkInBlock(
       state,
       blockIndex,
@@ -1097,7 +1129,7 @@ export default function createEditor(
   }
 
   function clearLink(blockIndex: number, startIndex: number, endIndex: number) {
-    state = recordUndo(state);
+    state = (state);
     const result = clearLinkInBlock(
       state,
       blockIndex,
@@ -1113,7 +1145,7 @@ export default function createEditor(
       return; // Need a selection to create a link
     }
 
-    state = recordUndo(state);
+    state = (state);
 
     const range = getSelectionRange(state);
     if (!range) return;
@@ -1126,7 +1158,7 @@ export default function createEditor(
     }
 
     const block = state.document.page.blocks[start.blockIndex];
-    if (!block || !isVisualBlock(block)) {
+    if (!block || block.deleted || !isTextualBlock(block)) {
       return;
     }
 
@@ -1259,7 +1291,7 @@ export default function createEditor(
   ) {
     const block = state.document.page.blocks[blockIndex];
 
-    if (!block || block.type !== "image") {
+    if (!block || block.deleted || block.type !== "image") {
       console.error("Attempted to update non-image-cover block as image cover");
       return;
     }
@@ -1293,7 +1325,7 @@ export default function createEditor(
     // Create CRDT operations for image property updates
     const ops: Operation[] = [];
     const blockId = block.id;
-    
+
     if (updates.url !== undefined) {
       const op: BlockSet = {
         op: "block_set",
@@ -1341,7 +1373,7 @@ export default function createEditor(
   function deleteImageBlockMethod(blockIndex: number) {
     const block = state.document.page.blocks[blockIndex];
 
-    if (!block || block.type !== "image") {
+    if (!block || block.deleted || block.type !== "image") {
       console.error("Attempted to delete non-image block");
       return;
     }
@@ -1349,14 +1381,14 @@ export default function createEditor(
     // Get block ID before deletion
     const blockId = block.id;
 
-    state = recordUndo(state);
+    state = (state);
 
     const newBlocks = [...state.document.page.blocks];
     newBlocks.splice(blockIndex, 1);
 
     // Create CRDT operations
     const ops: Operation[] = [];
-    
+
     // Delete the image block
     const deleteOp: BlockDelete = {
       op: "block_delete",
@@ -1377,7 +1409,7 @@ export default function createEditor(
         chars: [],
         formats: [],
       });
-      
+
       // Insert new paragraph block
       const insertOp: BlockInsert = {
         op: "block_insert",

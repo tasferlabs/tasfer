@@ -1,8 +1,8 @@
 import type { Block } from "../deserializer/loadPage";
-import { isVisualBlock, isListBlock } from "../deserializer/loadPage";
+import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
+import type { Operation } from "../sync/types";
 import { SLASH_COMMANDS } from "./SlashCommandMenu";
 import { copySelectionToClipboard, pasteFromClipboardEvent } from "./clipboard";
-import type { Operation } from "../sync/types";
 import {
   applySlashCommand,
   deleteForward,
@@ -29,7 +29,6 @@ import {
   toggleBold,
   toggleTodoChecked,
 } from "./commands";
-import { deleteCharsInRange } from "./crdt-helpers";
 import {
   CLICK_DISTANCE_THRESHOLD,
   CONTEXT_MENU_DURATION,
@@ -45,9 +44,9 @@ import {
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
 } from "./constants";
-import { getBlockHeight, imageCache, invalidateBlockCache } from "./renderer";
-import { getEditorStyles, getTextStyle } from "./styles";
+import { deleteCharsInRange } from "./crdt-helpers";
 import { getCurrentFontFamily, getFontMetrics } from "./fonts";
+import { getBlockHeight, imageCache, invalidateBlockCache } from "./renderer";
 import { getTextDirection } from "./rtl";
 import {
   applyMomentum,
@@ -102,13 +101,14 @@ import {
   updateSlashCommandFilter,
   updateSlashCommandSelection,
 } from "./state";
+import { getEditorStyles, getTextStyle } from "./styles";
 import type {
   EditorState,
   KeyboardEvent,
   MouseEvent,
   ViewportState,
 } from "./types";
-import { recordUndo, redoState, undoState } from "./undo";
+import { redoState, undoState } from "./undo";
 
 function isTouchDevice(): boolean {
   return (
@@ -659,7 +659,7 @@ function endImageDrag(state: EditorState): EditorState {
   }
 
   // Record undo for the image resize operation
-  const finalState = recordUndo(state);
+  const finalState = state;
   return {
     ...finalState,
     ui: {
@@ -1304,6 +1304,7 @@ export function handleEvents(
         scrollbar: updateScrollbarFadeOpacity(state.view.scrollbar),
       },
     };
+
     return { state, ops: collectedOps };
   }
 
@@ -1590,7 +1591,7 @@ function handleTodoCheckboxClick(
         const checkboxSize = styles.list.todo.checkboxSize;
 
         // Detect if this is RTL text
-        const blockText = isVisualBlock(block)
+        const blockText = isTextualBlock(block)
           ? getBlockTextContent(block)
           : "";
         const isRTL = getTextDirection(blockText) === "rtl";
@@ -1632,8 +1633,7 @@ function handleTodoCheckboxClick(
           canvasY <= checkboxY + checkboxSize + clickPadding
         ) {
           // Toggle the checkbox
-          const newState = recordUndo(state);
-          const result = toggleTodoChecked(newState, blockIndex, state.crdt);
+          const result = toggleTodoChecked(state, blockIndex, state.crdt);
           return { state: result.state, ops: result.ops };
         }
       }
@@ -2544,14 +2544,14 @@ function handleKeyDown(
   // Undo/Redo - handle these first, even if slash command is open
   // Use code instead of key for keyboard layout independence
   if (isCtrl && code === "KeyZ" && !keyEvent.shiftKey) {
-    const newState = undoState(state);
-    ensureCursorVisible(newState, state, viewport, updateViewportCallback);
-    return { state: newState, ops };
+    const result = undoState(state);
+    ensureCursorVisible(result.state, state, viewport, updateViewportCallback);
+    return { state: result.state, ops: result.ops };
   }
   if (isCtrl && (code === "KeyY" || (keyEvent.shiftKey && code === "KeyZ"))) {
-    const newState = redoState(state);
-    ensureCursorVisible(newState, state, viewport, updateViewportCallback);
-    return { state: newState, ops };
+    const result = redoState(state);
+    ensureCursorVisible(result.state, state, viewport, updateViewportCallback);
+    return { state: result.state, ops: result.ops };
   }
 
   // Select All
@@ -2564,10 +2564,7 @@ function handleKeyDown(
     // Only record undo if there's a selection (actual document change)
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    const result = toggleBold(
-      hasSelection ? recordUndo(state) : state,
-      state.crdt
-    );
+    const result = toggleBold(hasSelection ? state : state, state.crdt);
     ops.push(...result.ops);
     return { state: result.state, ops };
   }
@@ -2581,7 +2578,7 @@ function handleKeyDown(
       if (isListBlock(block)) {
         if (keyEvent.shiftKey) {
           // Shift+Tab: outdent
-          const result = outdentListItem(recordUndo(state), state.crdt);
+          const result = outdentListItem(state, state.crdt);
           const newState = result.state;
           ops.push(...result.ops);
           ensureCursorVisible(
@@ -2593,7 +2590,7 @@ function handleKeyDown(
           return { state: newState, ops };
         } else {
           // Tab: indent
-          const result = indentListItem(recordUndo(state), state.crdt);
+          const result = indentListItem(state, state.crdt);
           const newState = result.state;
           ops.push(...result.ops);
           ensureCursorVisible(
@@ -2629,7 +2626,7 @@ function handleKeyDown(
         console.error("Cut (copy) failed:", err);
       });
       // Then delete the selected text
-      const result = deleteSelectedText(recordUndo(state), state.crdt);
+      const result = deleteSelectedText(state, state.crdt);
       const newState = result.state;
       ops.push(...result.ops);
       ensureCursorVisible(newState, state, viewport, updateViewportCallback);
@@ -2675,11 +2672,7 @@ function handleKeyDown(
       case "Enter":
         if (filteredCommands.length > 0 && state.document.cursor) {
           const selectedCommand = filteredCommands[slashMenu.selectedIndex];
-          const result = applySlashCommand(
-            recordUndo(state),
-            selectedCommand,
-            state.crdt
-          );
+          const result = applySlashCommand(state, selectedCommand, state.crdt);
           const newState = result.state;
           ops.push(...result.ops);
           ensureCursorVisible(
@@ -2746,8 +2739,8 @@ function handleKeyDown(
           state.document.cursor.position.textIndex <=
             state.ui.activeMenu.textIndex
         ) {
-          // Close menu and delete the slash character - no recordUndo needed since deleteText already records
-          const deleteResult = deleteText(recordUndo(state), state.crdt);
+          // Close menu and delete the slash character - no  needed since deleteText already records
+          const deleteResult = deleteText(state, state.crdt);
           const newState = closeSlashCommand(deleteResult.state);
           ops.push(...deleteResult.ops);
           ensureCursorVisible(
@@ -2758,13 +2751,13 @@ function handleKeyDown(
           );
           return { state: newState, ops };
         }
-        // Otherwise update filter - deleteText handles recordUndo internally
+        // Otherwise update filter - deleteText handles  internally
         if (
           state.document.cursor &&
           state.ui.activeMenu.type === "slashCommand"
         ) {
           const slashMenu = state.ui.activeMenu;
-          const result = deleteText(recordUndo(state), state.crdt);
+          const result = deleteText(state, state.crdt);
           const newState = result.state;
           ops.push(...result.ops);
           if (newState.document.cursor) {
@@ -2795,8 +2788,8 @@ function handleKeyDown(
           state.ui.activeMenu.type === "slashCommand"
         ) {
           const slashMenu = state.ui.activeMenu;
-          // insertText handles recordUndo internally
-          const result = insertText(recordUndo(state), key, state.crdt);
+          // insertText handles  internally
+          const result = insertText(state, key, state.crdt);
           ops.push(...result.ops);
           if (result.state.document.cursor) {
             const block =
@@ -2893,7 +2886,7 @@ function handleKeyDown(
             state.document.cursor.position.blockIndex === blockIndex &&
             currentBlock?.id === blockId &&
             currentBlock.type === "paragraph" &&
-            isVisualBlock(currentBlock) &&
+            isTextualBlock(currentBlock) &&
             getBlockTextContent(currentBlock) === "" &&
             getTextDirection(getBlockTextContent(currentBlock)) === "rtl"
           ) {
@@ -3057,7 +3050,7 @@ function handleKeyDown(
             state.document.cursor.position.blockIndex === blockIndex &&
             currentBlock?.id === blockId &&
             currentBlock.type === "paragraph" &&
-            isVisualBlock(currentBlock) &&
+            isTextualBlock(currentBlock) &&
             getBlockTextContent(currentBlock) === "" &&
             getTextDirection(getBlockTextContent(currentBlock)) === "ltr"
           ) {
@@ -3275,7 +3268,7 @@ function handleKeyDown(
             state.document.cursor.position.blockIndex === blockIndex &&
             currentBlock?.id === blockId &&
             currentBlock.type === "paragraph" &&
-            isVisualBlock(currentBlock) &&
+            isTextualBlock(currentBlock) &&
             getBlockTextContent(currentBlock) === ""
           ) {
             // Remove the auto-created paragraph and move to the visual block below
@@ -3534,11 +3527,11 @@ function handleKeyDown(
       return { state: clearSelection(state), ops };
     case "Backspace":
       if (isCtrl) {
-        const result = deleteWordBackward(recordUndo(state), state.crdt);
+        const result = deleteWordBackward(state, state.crdt);
         newState = result.state;
         ops.push(...result.ops);
       } else {
-        const result = deleteText(recordUndo(state), state.crdt);
+        const result = deleteText(state, state.crdt);
         newState = result.state;
         ops.push(...result.ops);
       }
@@ -3547,11 +3540,11 @@ function handleKeyDown(
       break;
     case "Delete":
       if (isCtrl) {
-        const result = deleteWordForward(recordUndo(state), state.crdt);
+        const result = deleteWordForward(state, state.crdt);
         newState = result.state;
         ops.push(...result.ops);
       } else {
-        const result = deleteForward(recordUndo(state), state.crdt);
+        const result = deleteForward(state, state.crdt);
         newState = result.state;
         ops.push(...result.ops);
       }
@@ -3559,7 +3552,7 @@ function handleKeyDown(
       newState = clearAutoCreatedParagraph(newState);
       break;
     case "Enter":
-      const splitResult = splitBlock(recordUndo(state), state.crdt);
+      const splitResult = splitBlock(state, state.crdt);
       newState = splitResult.state;
       ops.push(...splitResult.ops);
       // Clear auto-created paragraph tracking on enter
@@ -3567,7 +3560,7 @@ function handleKeyDown(
       break;
     case " ":
     case "Space":
-      const spaceResult = insertText(recordUndo(state), " ", state.crdt);
+      const spaceResult = insertText(state, " ", state.crdt);
       newState = spaceResult.state;
       ops.push(...spaceResult.ops);
       // Clear auto-created paragraph tracking on space (already cleared in insertText, but for safety)
@@ -3586,7 +3579,7 @@ function handleKeyDown(
         const { blockIndex } = state.document.cursor.position;
 
         // Allow slash command anywhere in paragraphs and headings
-        const slashResult = insertText(recordUndo(state), "/", state.crdt);
+        const slashResult = insertText(state, "/", state.crdt);
         const newState = slashResult.state;
         ops.push(...slashResult.ops);
         if (newState.document.cursor) {
@@ -3612,7 +3605,7 @@ function handleKeyDown(
         !keyEvent.altKey &&
         !keyEvent.metaKey
       ) {
-        const result = insertText(recordUndo(state), key, state.crdt);
+        const result = insertText(state, key, state.crdt);
         newState = result.state;
         ops.push(...result.ops);
         break;
@@ -5359,7 +5352,7 @@ function handleCompositionEnd(
 
   if (composedText && state.document.cursor) {
     // Insert the composed text at the cursor position
-    const result = insertText(recordUndo(state), composedText, state.crdt);
+    const result = insertText(state, composedText, state.crdt);
     state = result.state;
     ops.push(...result.ops);
 
