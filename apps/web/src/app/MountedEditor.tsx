@@ -41,6 +41,8 @@ interface MountedEditorProps {
   content: string;
   className?: string;
   onContentChange?: (content: string, operations: string) => void;
+  /** Callback for all content updates (local and remote) - used for word count, etc. */
+  onContentUpdate?: (content: string) => void;
   autoFocus?: boolean;
   /** Unique page ID for CRDT sync - if provided, enables live collaboration */
   pageId: string;
@@ -56,6 +58,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
   content,
   className = "",
   onContentChange,
+  onContentUpdate,
   autoFocus = false,
   pageId,
   signalingUrl,
@@ -381,10 +384,10 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     const handleStateChange = (state: EditorState) => {
       // Notify parent of content changes if callback is provided
       // Only serialize when blocks actually change (not on cursor blink, UI changes, etc.)
-      if (onContentChange && state.document.page?.blocks) {
+      if ((onContentChange || onContentUpdate) && state.document.page?.blocks) {
         const currentBlocks = state.document.page.blocks;
 
-        // On first state change, just store the initial blocks without triggering onContentChange
+        // On first state change, just store the initial blocks without triggering callbacks
         // This prevents the editor from overwriting backend content with empty state on mount
         if (!editorInitializedRef.current) {
           lastSerializedBlocksRef.current = currentBlocks;
@@ -396,11 +399,14 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         if (currentBlocks !== lastSerializedBlocksRef.current) {
           lastSerializedBlocksRef.current = currentBlocks;
 
+          const markdown = serializeToMarkdown(currentBlocks);
+
+          // Notify of all content updates (local and remote) - used for word count, etc.
+          onContentUpdate?.(markdown);
+
           // Only trigger saves for local user-initiated changes, not remote peer updates
           // Remote peers handle saving their own changes
-          if (!isApplyingRemoteOpsRef.current) {
-            // console.log("currentBlocks", currentBlocks);
-            const markdown = serializeToMarkdown(currentBlocks);
+          if (!isApplyingRemoteOpsRef.current && onContentChange) {
             // Get serialized operations from sync engine for persistence
             const operations = syncEngineRef.current
               ? JSON.stringify(syncEngineRef.current.getOperations())
@@ -703,6 +709,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
   }, [
     content,
     onContentChange,
+    onContentUpdate,
     autoFocus,
     pageId,
     signalingUrl,

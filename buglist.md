@@ -220,3 +220,8 @@ Bugs list
 - [ ] arabic script stopped working after impelemting crdt 
 - [ ] when typing in the middle the other tab insert to the end.
 - [ ] fix stoarge problems with crdt
+- [ ] remote caret should not be showen when there is selection. 
+- [ ] remote caret should have name tag
+- [ ] remote caret should blink 
+- [ ] remote selection should be seen in visual blocks
+- [ ] we should show blobs of remote users in topactionbar

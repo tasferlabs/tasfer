@@ -200,14 +200,20 @@ export default function EditorPage() {
     setGlobalIsSaving(isSaving);
   }, [isSaving, setGlobalIsSaving]);
 
-  // Handle content changes from editor
+  // Handle content changes from editor (local changes only - for saving)
   const handleContentChange = useCallback(
     (content: string, operations: string) => {
       debouncedSave({ content, operations });
-      // Update word count with debouncing
+    },
+    [debouncedSave]
+  );
+
+  // Handle all content updates (local and remote - for word count)
+  const handleContentUpdate = useCallback(
+    (content: string) => {
       debouncedWordCountUpdate(content);
     },
-    [debouncedSave, debouncedWordCountUpdate]
+    [debouncedWordCountUpdate]
   );
 
   // Warn user before leaving page if there are unsaved changes
@@ -266,6 +272,7 @@ export default function EditorPage() {
         content={pageContent}
         className="w-full h-full"
         onContentChange={handleContentChange}
+        onContentUpdate={handleContentUpdate}
         autoFocus={true}
         pageId={id}
         signalingUrl={WEBSOCKET_URL}
