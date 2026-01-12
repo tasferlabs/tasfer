@@ -25,7 +25,6 @@ import {
   clearAutoCreatedParagraph,
   clearSelection,
   closeSlashCommand,
-  generateBlockId,
   getBlockTextContent,
   getBlockTextLength,
   moveCursorToPosition,
@@ -430,14 +429,36 @@ export function deleteSelectedText(
       // For image blocks (and other visual blocks), delete the entire block
       // Check if this is the only block - if so, replace with empty paragraph
       if (state.document.page.blocks.length === 1) {
-        // TODO: Add block delete and insert operations to ops array
-        // For now, just handle the state change
+        // Delete the image block
+        const blockDeleteOp: Operation = {
+          op: "block_delete",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          blockId: block.id,
+        };
+        ops.push(blockDeleteOp);
+
+        // Create new empty paragraph
+        const emptyParagraphId = crdt.idGen();
         const emptyParagraph: Block = {
-          id: generateBlockId(),
+          id: emptyParagraphId,
           type: "paragraph",
           chars: [],
           formats: [],
         };
+        
+        const blockInsertOp: Operation = {
+          op: "block_insert",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          afterBlockId: null,
+          blockId: emptyParagraphId,
+          blockType: "paragraph",
+        };
+        ops.push(blockInsertOp);
+
         const newPage = { ...state.document.page, blocks: [emptyParagraph] };
 
         let newState: EditorState = {
@@ -449,7 +470,16 @@ export function deleteSelectedText(
         return { state: newState, ops };
       }
 
-      // TODO: Add block delete operation to ops array
+      // Delete the image block
+      const blockDeleteOp: Operation = {
+        op: "block_delete",
+        id: crdt.idGen(),
+        clock: crdt.clock(),
+        pageId: crdt.pageId,
+        blockId: block.id,
+      };
+      ops.push(blockDeleteOp);
+
       // Remove the image block
       const newBlocks = [
         ...state.document.page.blocks.slice(0, start.blockIndex),
@@ -518,8 +548,19 @@ export function deleteSelectedText(
     // If both start and end are non-text blocks, or if we're selecting multiple blocks
     // and at least one endpoint is a non-text block, we need special handling
     if (!startIsText || !endIsText) {
-      // TODO: Add block delete operations to ops array
       // Delete all blocks in the range
+      for (let i = start.blockIndex; i <= end.blockIndex; i++) {
+        const blockToDelete = state.document.page.blocks[i];
+        const blockDeleteOp: Operation = {
+          op: "block_delete",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          blockId: blockToDelete.id,
+        };
+        ops.push(blockDeleteOp);
+      }
+
       const blocksToKeep = [
         ...state.document.page.blocks.slice(0, start.blockIndex),
         ...state.document.page.blocks.slice(end.blockIndex + 1),
@@ -527,18 +568,32 @@ export function deleteSelectedText(
 
       // If we deleted all blocks, create an empty paragraph
       const needsEmptyParagraph = blocksToKeep.length === 0;
-      const newBlocks = needsEmptyParagraph
-        ? [
-            {
-              id: generateBlockId(),
-              type: "paragraph" as const,
-              chars: [],
-              formats: [],
-            },
-          ]
-        : blocksToKeep;
-
-      // TODO: Add block insert operation for empty paragraph if needed
+      let newBlocks: Block[];
+      
+      if (needsEmptyParagraph) {
+        const emptyParagraphId = crdt.idGen();
+        const emptyParagraph: Block = {
+          id: emptyParagraphId,
+          type: "paragraph" as const,
+          chars: [],
+          formats: [],
+        };
+        
+        const blockInsertOp: Operation = {
+          op: "block_insert",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          afterBlockId: null,
+          blockId: emptyParagraphId,
+          blockType: "paragraph",
+        };
+        ops.push(blockInsertOp);
+        
+        newBlocks = [emptyParagraph];
+      } else {
+        newBlocks = blocksToKeep;
+      }
 
       const newPage = { ...state.document.page, blocks: newBlocks };
 
@@ -599,6 +654,19 @@ export function deleteSelectedText(
     // Invalidate cache for merged block
     invalidateBlockCache(blockCopy);
 
+    // Delete all blocks from start+1 to end (inclusive)
+    for (let i = start.blockIndex + 1; i <= end.blockIndex; i++) {
+      const blockToDelete = state.document.page.blocks[i];
+      const blockDeleteOp: Operation = {
+        op: "block_delete",
+        id: crdt.idGen(),
+        clock: crdt.clock(),
+        pageId: crdt.pageId,
+        blockId: blockToDelete.id,
+      };
+      ops.push(blockDeleteOp);
+    }
+
     // Remove all blocks from start+1 to end (inclusive) and replace start block
     const newBlocks = [
       ...state.document.page.blocks.slice(0, start.blockIndex),
@@ -606,8 +674,6 @@ export function deleteSelectedText(
       ...state.document.page.blocks.slice(end.blockIndex + 1),
     ];
     const newPage = { ...state.document.page, blocks: newBlocks };
-
-    // TODO: Add block delete operations for intermediate blocks and end block
 
     let newState: EditorState = {
       ...state,
@@ -865,6 +931,17 @@ export function deleteText(
       // If block is empty, delete it instead of outdenting or converting
       if (currentText.length === 0) {
         const prevBlock = state.document.page.blocks[blockIndex - 1];
+        
+        // Delete the empty list block
+        const blockDeleteOp: Operation = {
+          op: "block_delete",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          blockId: oldBlock.id,
+        };
+        ops.push(blockDeleteOp);
+        
         const newBlocks = [
           ...state.document.page.blocks.slice(0, blockIndex),
           ...state.document.page.blocks.slice(blockIndex + 1),
@@ -935,6 +1012,16 @@ export function deleteText(
 
       // Only delete the current text block if it's empty
       if (currentText.length === 0) {
+        // Delete the empty text block
+        const blockDeleteOp: Operation = {
+          op: "block_delete",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          blockId: oldBlock.id,
+        };
+        ops.push(blockDeleteOp);
+        
         const newBlocks = [
           ...state.document.page.blocks.slice(0, blockIndex),
           ...state.document.page.blocks.slice(blockIndex + 1),
@@ -942,12 +1029,26 @@ export function deleteText(
 
         // If we deleted the last block, add an empty paragraph
         if (newBlocks.length === 0) {
-          newBlocks.push({
-            id: generateBlockId(),
+          const emptyParagraphId = crdt.idGen();
+          const emptyParagraph: Block = {
+            id: emptyParagraphId,
             type: "paragraph",
             chars: [],
             formats: [],
-          });
+          };
+          
+          const blockInsertOp: Operation = {
+            op: "block_insert",
+            id: crdt.idGen(),
+            clock: crdt.clock(),
+            pageId: crdt.pageId,
+            afterBlockId: null,
+            blockId: emptyParagraphId,
+            blockType: "paragraph",
+          };
+          ops.push(blockInsertOp);
+          
+          newBlocks.push(emptyParagraph);
         }
 
         const newPage = { ...state.document.page, blocks: newBlocks };
@@ -1006,6 +1107,17 @@ export function deleteText(
     // Determine which block to preserve
     const prevIsEmpty = prevText.length === 0;
     const blockToPreserve = prevIsEmpty ? oldBlock : prevBlock;
+    const blockToDelete = prevIsEmpty ? prevBlock : oldBlock;
+
+    // Delete the block that's being merged away
+    const blockDeleteOp: Operation = {
+      op: "block_delete",
+      id: crdt.idGen(),
+      clock: crdt.clock(),
+      pageId: crdt.pageId,
+      blockId: blockToDelete.id,
+    };
+    ops.push(blockDeleteOp);
 
     const blockCopy: Block = {
       ...blockToPreserve,
@@ -1028,9 +1140,6 @@ export function deleteText(
       ...state,
       document: { ...state.document, page: newPage },
     };
-
-    // TODO: Add CRDT operations for block merge when block operations are implemented
-    // For now, merging blocks doesn't generate operations
 
     newState = moveCursorToPosition(newState, blockIndex - 1, prevText.length);
     return { state: newState, ops };
@@ -1136,6 +1245,15 @@ export function deleteForward(
     // If next block is not a text block (e.g., image), delete the current text block
     if (!isTextualBlock(nextBlock)) {
       // Delete the current text block
+      const blockDeleteOp: Operation = {
+        op: "block_delete",
+        id: crdt.idGen(),
+        clock: crdt.clock(),
+        pageId: crdt.pageId,
+        blockId: oldBlock.id,
+      };
+      ops.push(blockDeleteOp);
+
       const newBlocks = [
         ...state.document.page.blocks.slice(0, blockIndex),
         ...state.document.page.blocks.slice(blockIndex + 1),
@@ -1143,12 +1261,26 @@ export function deleteForward(
 
       // If we deleted the last block, add an empty paragraph
       if (newBlocks.length === 0) {
-        newBlocks.push({
-          id: generateBlockId(),
+        const emptyParagraphId = crdt.idGen();
+        const emptyParagraph: Block = {
+          id: emptyParagraphId,
           type: "paragraph",
           chars: [],
           formats: [],
-        });
+        };
+        
+        const blockInsertOp: Operation = {
+          op: "block_insert",
+          id: crdt.idGen(),
+          clock: crdt.clock(),
+          pageId: crdt.pageId,
+          afterBlockId: null,
+          blockId: emptyParagraphId,
+          blockType: "paragraph",
+        };
+        ops.push(blockInsertOp);
+        
+        newBlocks.push(emptyParagraph);
       }
 
       const newPage = { ...state.document.page, blocks: newBlocks };
@@ -1184,6 +1316,17 @@ export function deleteForward(
     // Determine which block to preserve
     const currentIsEmpty = oldText.length === 0;
     const blockToPreserve = currentIsEmpty ? nextBlock : oldBlock;
+    const blockToDelete = currentIsEmpty ? oldBlock : nextBlock;
+
+    // Delete the block that's being merged away
+    const blockDeleteOp: Operation = {
+      op: "block_delete",
+      id: crdt.idGen(),
+      clock: crdt.clock(),
+      pageId: crdt.pageId,
+      blockId: blockToDelete.id,
+    };
+    ops.push(blockDeleteOp);
 
     const blockCopy: Block = {
       ...blockToPreserve,
@@ -1489,6 +1632,17 @@ export function deleteWordForward(
     // Determine which block to preserve
     const currentIsEmpty = oldText.length === 0;
     const blockToPreserve = currentIsEmpty ? nextBlock : oldBlock;
+    const blockToDelete = currentIsEmpty ? oldBlock : nextBlock;
+
+    // Delete the block that's being merged away
+    const blockDeleteOp: Operation = {
+      op: "block_delete",
+      id: crdt.idGen(),
+      clock: crdt.clock(),
+      pageId: crdt.pageId,
+      blockId: blockToDelete.id,
+    };
+    ops.push(blockDeleteOp);
 
     const blockCopy: Block = {
       ...blockToPreserve,
@@ -1587,6 +1741,17 @@ export function deleteWordBackward(
     // Determine which block to preserve
     const prevIsEmpty = prevText.length === 0;
     const blockToPreserve = prevIsEmpty ? oldBlock : prevBlock;
+    const blockToDelete = prevIsEmpty ? prevBlock : oldBlock;
+
+    // Delete the block that's being merged away
+    const blockDeleteOp: Operation = {
+      op: "block_delete",
+      id: crdt.idGen(),
+      clock: crdt.clock(),
+      pageId: crdt.pageId,
+      blockId: blockToDelete.id,
+    };
+    ops.push(blockDeleteOp);
 
     const blockCopy: Block = {
       ...blockToPreserve,

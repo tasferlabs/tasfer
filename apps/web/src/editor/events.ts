@@ -78,7 +78,6 @@ import {
   extendSelectionPageUp,
   extendSelectionRight,
   extendSelectionUp,
-  generateBlockId,
   getBlockTextContent,
   getBlockTextLength,
   moveCursorDown,
@@ -99,7 +98,7 @@ import {
   updateMode,
   updateSelectionFocus,
   updateSlashCommandFilter,
-  updateSlashCommandSelection,
+  updateSlashCommandSelection
 } from "./state";
 import { getEditorStyles, getTextStyle } from "./styles";
 import type {
@@ -2853,11 +2852,22 @@ function handleKeyDown(
 
           if (isFirstBlock && currentBlock?.type === "image") {
             // Create a new paragraph above the image
+            const newParagraphId = state.crdt.idGen();
             const newParagraph: Block = {
-              id: generateBlockId(),
+              id: newParagraphId,
               type: "paragraph",
               chars: [],
               formats: [],
+            };
+
+            const blockInsertOp: Operation = {
+              op: "block_insert",
+              id: state.crdt.idGen(),
+              clock: state.crdt.clock(),
+              pageId: state.crdt.pageId,
+              afterBlockId: null,
+              blockId: newParagraphId,
+              blockType: "paragraph",
             };
 
             const newBlocks = [newParagraph, ...state.document.page.blocks];
@@ -2869,6 +2879,9 @@ function handleKeyDown(
             };
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, 0, 0);
+
+            // Broadcast the operation
+
             break;
           }
         }
@@ -2891,6 +2904,16 @@ function handleKeyDown(
             getTextDirection(getBlockTextContent(currentBlock)) === "rtl"
           ) {
             // Remove the auto-created paragraph and move to the image below
+            const blockToDelete = state.document.page.blocks[blockIndex];
+
+            const blockDeleteOp: Operation = {
+              op: "block_delete",
+              id: state.crdt.idGen(),
+              clock: state.crdt.clock(),
+              pageId: state.crdt.pageId,
+              blockId: blockToDelete.id,
+            };
+
             const newBlocks = state.document.page.blocks.filter(
               (_, i) => i !== blockIndex
             );
@@ -2904,6 +2927,9 @@ function handleKeyDown(
                 autoCreatedParagraph: null,
               },
             };
+
+            // Broadcast the operation
+
             // Move cursor to the image that was below
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, 0, 0);
@@ -3017,11 +3043,22 @@ function handleKeyDown(
             (currentBlock?.type === "image" || currentBlock?.type === "line")
           ) {
             // Create a new paragraph below the visual block
+            const newParagraphId = state.crdt.idGen();
             const newParagraph: Block = {
-              id: generateBlockId(),
+              id: newParagraphId,
               type: "paragraph",
               chars: [],
               formats: [],
+            };
+
+            const blockInsertOp: Operation = {
+              op: "block_insert",
+              id: state.crdt.idGen(),
+              clock: state.crdt.clock(),
+              pageId: state.crdt.pageId,
+              afterBlockId: currentBlock.id,
+              blockId: newParagraphId,
+              blockType: "paragraph",
             };
 
             const newBlocks = [...state.document.page.blocks, newParagraph];
@@ -3033,6 +3070,9 @@ function handleKeyDown(
             };
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, newBlocks.length - 1, 0);
+
+            // Broadcast the operation
+
             break;
           }
         }
@@ -3055,6 +3095,16 @@ function handleKeyDown(
             getTextDirection(getBlockTextContent(currentBlock)) === "ltr"
           ) {
             // Remove the auto-created paragraph and move to the image below
+            const blockToDelete = state.document.page.blocks[blockIndex];
+
+            const blockDeleteOp: Operation = {
+              op: "block_delete",
+              id: state.crdt.idGen(),
+              clock: state.crdt.clock(),
+              pageId: state.crdt.pageId,
+              blockId: blockToDelete.id,
+            };
+
             const newBlocks = state.document.page.blocks.filter(
               (_, i) => i !== blockIndex
             );
@@ -3068,6 +3118,9 @@ function handleKeyDown(
                 autoCreatedParagraph: null,
               },
             };
+
+            // Broadcast the operation
+
             // Move cursor to the visual block that was below
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, 0, 0);
@@ -3177,11 +3230,22 @@ function handleKeyDown(
             (currentBlock?.type === "image" || currentBlock?.type === "line")
           ) {
             // Create a new paragraph above the visual block
+            const newParagraphId = state.crdt.idGen();
             const newParagraph: Block = {
-              id: generateBlockId(),
+              id: newParagraphId,
               type: "paragraph",
               chars: [],
               formats: [],
+            };
+
+            const blockInsertOp: Operation = {
+              op: "block_insert",
+              id: state.crdt.idGen(),
+              clock: state.crdt.clock(),
+              pageId: state.crdt.pageId,
+              afterBlockId: null,
+              blockId: newParagraphId,
+              blockType: "paragraph",
             };
 
             const newBlocks = [newParagraph, ...state.document.page.blocks];
@@ -3198,6 +3262,9 @@ function handleKeyDown(
                 },
               },
             };
+
+            // Broadcast the operation
+
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, 0, 0);
             break;
@@ -3272,6 +3339,16 @@ function handleKeyDown(
             getBlockTextContent(currentBlock) === ""
           ) {
             // Remove the auto-created paragraph and move to the visual block below
+            const blockToDelete = state.document.page.blocks[blockIndex];
+
+            const blockDeleteOp: Operation = {
+              op: "block_delete",
+              id: state.crdt.idGen(),
+              clock: state.crdt.clock(),
+              pageId: state.crdt.pageId,
+              blockId: blockToDelete.id,
+            };
+
             const newBlocks = state.document.page.blocks.filter(
               (_, i) => i !== blockIndex
             );
@@ -3285,6 +3362,9 @@ function handleKeyDown(
                 autoCreatedParagraph: null,
               },
             };
+
+            // Broadcast the operation
+
             // Move cursor to the visual block that was below
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, 0, 0);
@@ -3325,11 +3405,22 @@ function handleKeyDown(
             (currentBlock?.type === "image" || currentBlock?.type === "line")
           ) {
             // Create a new paragraph below the visual block
+            const newParagraphId = state.crdt.idGen();
             const newParagraph: Block = {
-              id: generateBlockId(),
+              id: newParagraphId,
               type: "paragraph",
               chars: [],
               formats: [],
+            };
+
+            const blockInsertOp: Operation = {
+              op: "block_insert",
+              id: state.crdt.idGen(),
+              clock: state.crdt.clock(),
+              pageId: state.crdt.pageId,
+              afterBlockId: currentBlock.id,
+              blockId: newParagraphId,
+              blockType: "paragraph",
             };
 
             const newBlocks = [...state.document.page.blocks, newParagraph];
@@ -3341,6 +3432,9 @@ function handleKeyDown(
             };
             newState = clearSelection(newState);
             newState = moveCursorToPosition(newState, newBlocks.length - 1, 0);
+
+            // Broadcast the operation
+
             break;
           }
         }
@@ -4880,11 +4974,22 @@ function handleTouchEnd(
 
         // If tapping below content and last block is an image, create a new paragraph
         if (isTapBelowContent && lastBlock.type === "image") {
+          const newParagraphId = state.crdt.idGen();
           const newParagraph: Block = {
-            id: generateBlockId(),
+            id: newParagraphId,
             type: "paragraph",
             chars: [],
             formats: [],
+          };
+
+          const blockInsertOp: Operation = {
+            op: "block_insert",
+            id: state.crdt.idGen(),
+            clock: state.crdt.clock(),
+            pageId: state.crdt.pageId,
+            afterBlockId: lastBlock.id,
+            blockId: newParagraphId,
+            blockType: "paragraph",
           };
 
           const newBlocks = [...state.document.page.blocks, newParagraph];
@@ -5008,11 +5113,24 @@ function handleTouchEnd(
           const isLastBlock =
             position.blockIndex === state.document.page.blocks.length - 1;
           if (isLastBlock) {
+            const currentBlock =
+              state.document.page.blocks[position.blockIndex];
+            const newParagraphId = state.crdt.idGen();
             const newParagraph: Block = {
-              id: generateBlockId(),
+              id: newParagraphId,
               type: "paragraph",
               chars: [],
               formats: [],
+            };
+
+            const blockInsertOp: Operation = {
+              op: "block_insert",
+              id: state.crdt.idGen(),
+              clock: state.crdt.clock(),
+              pageId: state.crdt.pageId,
+              afterBlockId: currentBlock.id,
+              blockId: newParagraphId,
+              blockType: "paragraph",
             };
 
             const newBlocks = [...state.document.page.blocks, newParagraph];
@@ -5024,6 +5142,8 @@ function handleTouchEnd(
             };
             state = clearSelection(state);
             state = moveCursorToPosition(state, position.blockIndex + 1, 0);
+
+            // Broadcast the operation
 
             touchState = null;
             return {

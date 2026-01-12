@@ -215,3 +215,4 @@ Bugs list
 - [ ] should placeholder be visible on out of focus?
 - [ ] page up and down should work with visual blocks.
 - [ ] empty line and selection drag
+- [x] deleting blocks not working on live update.
