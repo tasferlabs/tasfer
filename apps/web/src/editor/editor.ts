@@ -34,7 +34,8 @@ import {
   formatCharsInRange,
   insertCharsAtPosition,
 } from "./crdt-helpers";
-import { handleEvents, isInLongPressMode } from "./events";
+import { handleEvents } from "./events/events";
+import { isInLongPressMode } from "./events/touchEvents";
 import { onFontFamilyChange } from "./fonts";
 import type { CanvasLayers } from "./layers";
 import {
