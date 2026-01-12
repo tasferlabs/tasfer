@@ -53,36 +53,115 @@ export interface LocalAwarenessState {
 // Color Generation
 // =============================================================================
 
-/** Predefined colors for remote users */
-const AWARENESS_COLORS = ["#ff5789", "#ff7301", "#0365d6", "#ff7301"];
+/** Predefined colors for remote users (all unique) */
+const AWARENESS_COLORS = [
+  "#ff5789", // pink
+  "#ff7301", // orange
+  "#0365d6", // blue
+  "#10b981", // green
+  "#8b5cf6", // purple
+  "#f59e0b", // amber
+  "#ef4444", // red
+  "#06b6d4", // cyan
+];
 
 /** Test names for remote users */
-const TEST_NAMES = ["Alice", "Bob", "Charlie", "Diana"];
+const TEST_NAMES = [
+  "Alice",
+  "Bob",
+  "Charlie",
+  "Diana",
+  "Eve",
+  "Frank",
+  "Grace",
+  "Henry",
+];
+
+/** Track assigned colors and names per peer */
+const assignedColors = new Map<string, string>();
+const assignedNames = new Map<string, string>();
+const usedColorIndices = new Set<number>();
+const usedNameIndices = new Set<number>();
 
 /**
- * Generate a consistent color for a peer ID.
- * Uses a simple hash to ensure the same peer always gets the same color.
+ * Get a random unused index from an array, or random if all used.
  */
-export function getColorForPeer(peerId: string): string {
-  let hash = 0;
-  for (let i = 0; i < peerId.length; i++) {
-    hash = (hash << 5) - hash + peerId.charCodeAt(i);
-    hash = hash & hash; // Convert to 32-bit integer
+function getRandomUnusedIndex(
+  usedIndices: Set<number>,
+  arrayLength: number
+): number {
+  // Find available indices
+  const availableIndices: number[] = [];
+  for (let i = 0; i < arrayLength; i++) {
+    if (!usedIndices.has(i)) {
+      availableIndices.push(i);
+    }
   }
-  return AWARENESS_COLORS[Math.abs(hash) % AWARENESS_COLORS.length];
+
+  // If all are used, pick randomly from all and reset tracking
+  if (availableIndices.length === 0) {
+    usedIndices.clear();
+    return Math.floor(Math.random() * arrayLength);
+  }
+
+  // Pick randomly from available
+  const randomIdx = Math.floor(Math.random() * availableIndices.length);
+  return availableIndices[randomIdx];
 }
 
 /**
- * Generate a consistent test name for a peer ID.
- * Uses the same hash algorithm as color assignment for consistency.
+ * Get a color for a peer ID.
+ * Assigns randomly from unused colors, avoiding repetition until all are used.
+ */
+export function getColorForPeer(peerId: string): string {
+  // Return existing assignment if peer already has a color
+  const existing = assignedColors.get(peerId);
+  if (existing) return existing;
+
+  // Get a random unused color
+  const index = getRandomUnusedIndex(usedColorIndices, AWARENESS_COLORS.length);
+  usedColorIndices.add(index);
+
+  const color = AWARENESS_COLORS[index];
+  assignedColors.set(peerId, color);
+  return color;
+}
+
+/**
+ * Get a test name for a peer ID.
+ * Assigns randomly from unused names, avoiding repetition until all are used.
  */
 export function getTestNameForPeer(peerId: string): string {
-  let hash = 0;
-  for (let i = 0; i < peerId.length; i++) {
-    hash = (hash << 5) - hash + peerId.charCodeAt(i);
-    hash = hash & hash;
+  // Return existing assignment if peer already has a name
+  const existing = assignedNames.get(peerId);
+  if (existing) return existing;
+
+  // Get a random unused name
+  const index = getRandomUnusedIndex(usedNameIndices, TEST_NAMES.length);
+  usedNameIndices.add(index);
+
+  const name = TEST_NAMES[index];
+  assignedNames.set(peerId, name);
+  return name;
+}
+
+/**
+ * Clear assignment for a peer (call when peer leaves).
+ */
+export function clearPeerAssignment(peerId: string): void {
+  const color = assignedColors.get(peerId);
+  if (color) {
+    const colorIndex = AWARENESS_COLORS.indexOf(color);
+    if (colorIndex !== -1) usedColorIndices.delete(colorIndex);
+    assignedColors.delete(peerId);
   }
-  return TEST_NAMES[Math.abs(hash) % TEST_NAMES.length];
+
+  const name = assignedNames.get(peerId);
+  if (name) {
+    const nameIndex = TEST_NAMES.indexOf(name);
+    if (nameIndex !== -1) usedNameIndices.delete(nameIndex);
+    assignedNames.delete(peerId);
+  }
 }
 
 // =============================================================================
@@ -204,6 +283,7 @@ export class AwarenessManager {
    */
   removeRemoteState(peerId: string): void {
     if (this.remoteStates.delete(peerId)) {
+      clearPeerAssignment(peerId);
       this.notifyUpdate();
     }
   }
@@ -213,6 +293,9 @@ export class AwarenessManager {
    */
   clearRemoteStates(): void {
     if (this.remoteStates.size > 0) {
+      for (const peerId of this.remoteStates.keys()) {
+        clearPeerAssignment(peerId);
+      }
       this.remoteStates.clear();
       this.notifyUpdate();
     }
@@ -251,6 +334,7 @@ export class AwarenessManager {
     for (const [peerId, state] of this.remoteStates) {
       if (now - state.lastUpdate > this.staleTimeout) {
         this.remoteStates.delete(peerId);
+        clearPeerAssignment(peerId);
         hasChanges = true;
       }
     }

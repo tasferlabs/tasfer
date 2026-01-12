@@ -227,5 +227,5 @@ Bugs list
 - [x] we should show blobs of remote users in topactionbar
 - [ ] fix stoarge problems with crdt
 - [ ] Database Operations Table
-- [ ] peforamnce issues after crd
+- [ ] peforamnce issues after crdt
 - [ ] remote cursor not working correctly with visual blocks.
