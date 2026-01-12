@@ -3,6 +3,7 @@ import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
   measureText,
+  measureCRDTTextUpToIndex,
   type FontFamily,
 } from "./fonts";
 import { isRTLChar } from "./rtl";
@@ -181,6 +182,7 @@ function wrapCharsDetailed(
 
 /**
  * Measure text width up to a specific index in the chars array
+ * Uses batched measurement to preserve Arabic ligatures
  */
 function measureCharsUpToIndex(
   chars: Char[],
@@ -192,37 +194,18 @@ function measureCharsUpToIndex(
   fontFamily: FontFamily,
   codePadding: number = 0
 ): number {
-  const visibleChars = chars.filter(c => !c.deleted);
-  
-  // Build format map
-  const charIdToFormats = new Map<string, Set<string>>();
-  for (const span of formats) {
-    const startIdx = visibleChars.findIndex(c => c.id === span.startCharId);
-    const endIdx = visibleChars.findIndex(c => c.id === span.endCharId);
-    
-    if (startIdx === -1 || endIdx === -1) continue;
-    
-    for (let i = startIdx; i <= endIdx; i++) {
-      const charId = visibleChars[i].id;
-      if (!charIdToFormats.has(charId)) {
-        charIdToFormats.set(charId, new Set());
-      }
-      charIdToFormats.get(charId)!.add(span.format.type);
-    }
-  }
-  
-  let width = 0;
-  for (let i = startIndex; i < endIndex && i < visibleChars.length; i++) {
-    const char = visibleChars[i];
-    const formats = charIdToFormats.get(char.id);
-    const isBold = formats?.has("bold") || false;
-    const isCode = formats?.has("code") || false;
-    const fontWeight = isBold ? "bold" : baseFontWeight;
-    width += measureText(char.char, fontSize, fontWeight, fontFamily);
-    if (isCode) width += codePadding * 2;
-  }
-  
-  return width;
+  // Use the batched measurement function from fonts.ts
+  // This preserves Arabic ligatures by measuring text in batches with the same formatting
+  return measureCRDTTextUpToIndex(
+    chars,
+    formats,
+    startIndex,
+    endIndex,
+    fontSize,
+    baseFontWeight,
+    fontFamily,
+    codePadding
+  );
 }
 
 // =============================================================================

@@ -17,7 +17,9 @@ import {
   getFontMetrics,
   measureText,
   wrapCRDTText,
+  batchCRDTChars,
   type FontFamily,
+  type TextBatch,
 } from "./fonts";
 
 // Helper to get formats at a specific character index in the full chars array
@@ -188,6 +190,7 @@ export const clearAllBlockCaches = (blocks: Block[]) => {
 
 // Rendering Functions
 // Helper function to measure the width of a portion of CRDT text
+// Uses batched measurement to preserve Arabic ligatures
 function measureCRDTLineWidth(
   chars: Char[],
   formats: FormatSpan[],
@@ -197,37 +200,15 @@ function measureCRDTLineWidth(
   fontFamily: FontFamily,
   _codePadding: number
 ): number {
+  // Use batched measurement to preserve Arabic ligatures
+  // This is critical for accurate cursor positioning in Arabic text
+  const batches = batchCRDTChars(chars, formats, lineStartIndex, lineEndIndex);
+
   let width = 0;
-  let visibleIndex = 0;
-
-  for (let i = 0; i < chars.length; i++) {
-    const char = chars[i];
-
-    // Skip deleted characters
-    if (char.deleted) continue;
-
-    // Check if we're in the range we want to measure
-    if (visibleIndex >= lineStartIndex && visibleIndex < lineEndIndex) {
-      const charFormats = getFormatsAtCharIndex(i, chars, formats);
-
-      // Determine font weight
-      const isBold = charFormats.some((f) => f.type === "bold");
-      const effectiveFontWeight = isBold ? "bold" : textStyle.fontWeight;
-
-      // Measure character
-      const charWidth = measureText(
-        char.char,
-        textStyle.fontSize,
-        effectiveFontWeight,
-        fontFamily
-      );
-      width += charWidth;
-    }
-
-    visibleIndex++;
-
-    // Early exit if we've passed the end
-    if (visibleIndex >= lineEndIndex) break;
+  for (const batch of batches) {
+    const effectiveFontWeight = batch.isBold ? "bold" : textStyle.fontWeight;
+    // Measure the entire batch as a string (preserves ligature widths)
+    width += measureText(batch.text, textStyle.fontSize, effectiveFontWeight, fontFamily);
   }
 
   return width;
@@ -287,7 +268,6 @@ function renderCompositionUnderline(
   ctx.strokeStyle = textStyle.color;
   ctx.lineWidth = underlineThickness;
   ctx.beginPath();
-  11;
 
   if (isRTL) {
     // For RTL, x is already adjusted to right edge (x + maxWidth), so just subtract offset
@@ -305,18 +285,7 @@ function renderCompositionUnderline(
   ctx.restore();
 }
 
-// Helper to create a format key for batching characters with same formatting
-function getFormatKey(formats: TextFormat[]): string {
-  const keys: string[] = [];
-  for (const f of formats) {
-    if (f.type === "link") {
-      keys.push(`link:${f.url}`);
-    } else {
-      keys.push(f.type);
-    }
-  }
-  return keys.sort().join("|");
-}
+// Note: getFormatKey is now imported from fonts.ts
 
 // Helper function to render a line with CRDT formatting
 // Batches consecutive characters with same formatting to preserve Arabic ligatures
@@ -336,87 +305,10 @@ function renderCRDTLine(
   // Set canvas direction
   ctx.direction = isRTL ? "rtl" : "ltr";
 
-  // First pass: collect characters with their formats for this line
-  interface CharWithFormat {
-    char: string;
-    charIndex: number;
-    formats: TextFormat[];
-    formatKey: string;
-  }
+  // Batch characters by formatting to preserve Arabic ligatures
+  const batches: TextBatch[] = batchCRDTChars(chars, formats, lineStartIndex, lineEndIndex);
 
-  const lineChars: CharWithFormat[] = [];
-  let visibleIndex = 0;
-
-  for (let i = 0; i < chars.length; i++) {
-    const char = chars[i];
-
-    // Skip deleted characters
-    if (char.deleted) continue;
-
-    // Check if this character is in the line range
-    if (visibleIndex < lineStartIndex) {
-      visibleIndex++;
-      continue;
-    }
-
-    if (visibleIndex >= lineEndIndex) {
-      break;
-    }
-
-    const charFormats = getFormatsAtCharIndex(i, chars, formats);
-    lineChars.push({
-      char: char.char,
-      charIndex: i,
-      formats: charFormats,
-      formatKey: getFormatKey(charFormats),
-    });
-
-    visibleIndex++;
-  }
-
-  // Second pass: batch consecutive characters with same formatting
-  interface TextBatch {
-    text: string;
-    formats: TextFormat[];
-    isBold: boolean;
-    isItalic: boolean;
-    isCode: boolean;
-    isStrikethrough: boolean;
-    isLink: boolean;
-    linkUrl?: string;
-  }
-
-  const batches: TextBatch[] = [];
-  let currentBatch: TextBatch | null = null;
-
-  for (const charInfo of lineChars) {
-    if (currentBatch && currentBatch.formats.length === charInfo.formats.length &&
-        getFormatKey(currentBatch.formats) === charInfo.formatKey) {
-      // Same formatting, append to current batch
-      currentBatch.text += charInfo.char;
-    } else {
-      // Different formatting, start new batch
-      const isBold = charInfo.formats.some((f) => f.type === "bold");
-      const isItalic = charInfo.formats.some((f) => f.type === "italic");
-      const isCode = charInfo.formats.some((f) => f.type === "code");
-      const isStrikethrough = charInfo.formats.some((f) => f.type === "strikethrough");
-      const linkFormat = charInfo.formats.find((f) => f.type === "link");
-
-      currentBatch = {
-        text: charInfo.char,
-        formats: charInfo.formats,
-        isBold,
-        isItalic,
-        isCode,
-        isStrikethrough,
-        isLink: !!linkFormat,
-        linkUrl: linkFormat?.type === "link" ? linkFormat.url : undefined,
-      };
-      batches.push(currentBatch);
-    }
-  }
-
-  // Third pass: render each batch
+  // Render each batch
   let currentX = x;
 
   for (const batch of batches) {
@@ -621,7 +513,8 @@ export const renderBlock = (
       x,
       y,
       maxWidth,
-      styles
+      styles,
+      remoteAwareness
     );
   }
 
@@ -635,7 +528,8 @@ export const renderBlock = (
       x,
       y,
       maxWidth,
-      styles
+      styles,
+      remoteAwareness
     );
   }
 
@@ -1501,7 +1395,8 @@ function renderImageBlock(
   _x: number,
   y: number,
   _maxWidth: number,
-  styles: EditorStyles
+  styles: EditorStyles,
+  remoteAwareness?: Map<string, AwarenessState>
 ): RenderedBlock {
   if (block.type !== "image") {
     throw new Error("renderImageBlock called on non-image block");
@@ -1717,7 +1612,43 @@ function renderImageBlock(
     );
   }
 
-  // Render selection overlay if this image block is selected
+  // Render remote selection overlays first (so they appear behind local selection)
+  if (remoteAwareness && remoteAwareness.size > 0) {
+    for (const [_peerId, awareness] of remoteAwareness) {
+      if (!awareness.selection) continue;
+
+      const selection = awarenessSelectionToSelection(
+        awareness.selection,
+        state.document.page
+      );
+      if (!selection) continue;
+
+      // For visual blocks, check if this specific block is selected
+      // (visual block selections have anchor === focus on the block)
+      const isVisualBlockSelected =
+        selection.anchor.blockIndex === blockIndex &&
+        selection.focus.blockIndex === blockIndex;
+
+      // For multi-block selections that include this block
+      const { anchor, focus } = selection;
+      const start = anchor.blockIndex <= focus.blockIndex ? anchor : focus;
+      const end = anchor.blockIndex <= focus.blockIndex ? focus : anchor;
+      const isInMultiBlockSelection =
+        !selection.isCollapsed &&
+        blockIndex >= start.blockIndex &&
+        blockIndex <= end.blockIndex;
+
+      if (isVisualBlockSelected || isInMultiBlockSelection) {
+        ctx.save();
+        ctx.fillStyle = awareness.user.color;
+        ctx.globalAlpha = 0.2; // More transparent for remote selections
+        ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
+        ctx.restore();
+      }
+    }
+  }
+
+  // Render selection overlay if this image block is selected (local)
   if (state.document.selection && !state.document.selection.isCollapsed) {
     const { anchor, focus } = state.document.selection;
     const start = anchor.blockIndex <= focus.blockIndex ? anchor : focus;
@@ -1791,7 +1722,8 @@ function renderLineBlock(
   x: number,
   y: number,
   maxWidth: number,
-  styles: EditorStyles
+  styles: EditorStyles,
+  remoteAwareness?: Map<string, AwarenessState>
 ): RenderedBlock {
   if (block.type !== "line") {
     throw new Error("renderLineBlock called on non-line block");
@@ -1804,6 +1736,42 @@ function renderLineBlock(
   ctx.fillStyle = lineStyles.color;
   ctx.fillRect(x, lineY, maxWidth, lineStyles.lineHeight);
   ctx.restore();
+
+  // Render remote selection overlays first (so they appear behind local selection)
+  if (remoteAwareness && remoteAwareness.size > 0) {
+    for (const [_peerId, awareness] of remoteAwareness) {
+      if (!awareness.selection) continue;
+
+      const selection = awarenessSelectionToSelection(
+        awareness.selection,
+        state.document.page
+      );
+      if (!selection) continue;
+
+      // For visual blocks, check if this specific block is selected
+      // (visual block selections have anchor === focus on the block)
+      const isVisualBlockSelected =
+        selection.anchor.blockIndex === blockIndex &&
+        selection.focus.blockIndex === blockIndex;
+
+      // For multi-block selections that include this block
+      const { anchor, focus } = selection;
+      const start = anchor.blockIndex <= focus.blockIndex ? anchor : focus;
+      const end = anchor.blockIndex <= focus.blockIndex ? focus : anchor;
+      const isInMultiBlockSelection =
+        !selection.isCollapsed &&
+        blockIndex >= start.blockIndex &&
+        blockIndex <= end.blockIndex;
+
+      if (isVisualBlockSelected || isInMultiBlockSelection) {
+        ctx.save();
+        ctx.fillStyle = awareness.user.color;
+        ctx.globalAlpha = 0.2; // More transparent for remote selections
+        ctx.fillRect(x, y, maxWidth, lineStyles.height);
+        ctx.restore();
+      }
+    }
+  }
 
   // Render selection overlay if this line block is selected
   if (state.document.selection && !state.document.selection.isCollapsed) {
@@ -2095,6 +2063,9 @@ function renderRemoteCursors(
     // Skip if no cursor
     if (!awareness.cursor) continue;
 
+    // Skip if there is a selection (show selection highlight, not caret)
+    if (awareness.selection) continue;
+
     // Convert awareness cursor (blockId) to editor position (blockIndex)
     const position = awarenessCursorToPosition(
       awareness.cursor,
@@ -2116,7 +2087,12 @@ function renderRemoteCursors(
 
     // Draw the remote cursor with the peer's color
     ctx.fillStyle = awareness.user.color;
-    ctx.fillRect(cursorPos.x, cursorPos.y, styles.cursor.width, cursorPos.height);
+    ctx.fillRect(
+      cursorPos.x,
+      cursorPos.y,
+      styles.cursor.width,
+      cursorPos.height
+    );
 
     // Optionally draw a name label above the cursor
     if (awareness.user.name) {

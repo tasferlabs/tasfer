@@ -4,6 +4,7 @@ import {
   getCurrentFontFamily,
   getFontMetrics,
   measureCRDTTextUpToIndex,
+  measureCRDTPositions,
   wrapCRDTText,
   type FontFamily,
 } from "./fonts";
@@ -803,7 +804,7 @@ function getPositionWithinLine(
   textStyle: TextStyle,
   fontFamily: FontFamily,
   block: Block,
-  codePadding: number,
+  _codePadding: number,
   maxWidth: number,
   isRTL: boolean
 ): Position {
@@ -815,19 +816,21 @@ function getPositionWithinLine(
   }
 
   const relativeX = x - paddingLeft;
-
-  // Calculate line width first
   const lineEndIndex = lineStartIndex + line.length;
-  const lineWidth = measureCRDTTextUpToIndex(
+
+  // Pre-calculate widths for all positions using batched measurement
+  // This is more efficient and preserves Arabic ligatures consistently
+  const positionWidths = measureCRDTPositions(
     block.chars,
     block.formats,
     lineStartIndex,
     lineEndIndex,
     textStyle.fontSize,
     textStyle.fontWeight,
-    fontFamily,
-    codePadding
+    fontFamily
   );
+
+  const lineWidth = positionWidths[positionWidths.length - 1];
 
   if (isRTL) {
     // For RTL text rendered with canvas direction="rtl":
@@ -855,25 +858,14 @@ function getPositionWithinLine(
       };
     }
 
-    // Find closest position by checking each character
+    // Find closest position using pre-calculated widths
     // For RTL: logical index 0 is at the RIGHT, logical index N is at the LEFT
     let bestPosition = lineStartIndex;
     let minDistance = Infinity;
 
     for (let i = 0; i <= line.length; i++) {
-      const charIndex = lineStartIndex + i;
-
-      // Measure text width from line start to this position
-      const widthFromStart = measureCRDTTextUpToIndex(
-        block.chars,
-        block.formats,
-        lineStartIndex,
-        charIndex,
-        textStyle.fontSize,
-        textStyle.fontWeight,
-        fontFamily,
-        codePadding
-      );
+      // Use pre-calculated width from positionWidths array
+      const widthFromStart = positionWidths[i];
 
       // For RTL, cursor at charIndex appears at: maxWidth - widthFromStart
       // (further we are from start logically, further LEFT we are visually)
@@ -882,7 +874,7 @@ function getPositionWithinLine(
 
       if (distance < minDistance) {
         minDistance = distance;
-        bestPosition = charIndex;
+        bestPosition = lineStartIndex + i;
       }
     }
 
@@ -891,7 +883,7 @@ function getPositionWithinLine(
       textIndex: bestPosition,
     };
   } else {
-    // LTR logic (existing)
+    // LTR logic
     // If click is before the line start, position at line start
     if (relativeX <= 0) {
       return {
@@ -903,27 +895,16 @@ function getPositionWithinLine(
     let bestPosition = lineStartIndex;
     let minDistance = Math.abs(relativeX);
 
-    // Check each character position to find the closest one
+    // Find closest position using pre-calculated widths
     for (let i = 0; i <= line.length; i++) {
-      const charIndex = lineStartIndex + i;
-
-      // Measure from line start to this position using format-aware measurement
-      const currentX = measureCRDTTextUpToIndex(
-        block.chars,
-        block.formats,
-        lineStartIndex,
-        charIndex,
-        textStyle.fontSize,
-        textStyle.fontWeight,
-        fontFamily,
-        codePadding
-      );
+      // Use pre-calculated width from positionWidths array
+      const currentX = positionWidths[i];
 
       const distance = Math.abs(relativeX - currentX);
 
       if (distance < minDistance) {
         minDistance = distance;
-        bestPosition = charIndex;
+        bestPosition = lineStartIndex + i;
       }
     }
 

@@ -393,13 +393,13 @@
   position: relative;
 }
 
-.usersList > .userAvatar:nth-child(1) {
+.usersList > :nth-child(1) .userAvatar {
   z-index: 2; /* Higher z-index for the first element */
 }
 
 .userAvatar {
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   overflow: hidden;
   display: flex;
@@ -408,16 +408,18 @@
   /* flex-direction: row-reverse; */
   background-color: var(--avatar-color);
   color: var(--avatar-color-text);
-  border: 3px solid var(--background);
-  margin-inline-start: -5px;
+  border: 2px solid var(--background);
+  margin-inline-start: -8px;
   box-sizing: content-box;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--background), transparent 80%);
-  transition: margin-inline-start 0.2s ease, opacity 0.1s ease;
-  opacity: 0.6;
+  transition: margin-inline-start 0.2s ease, transform 0.2s ease;
+  cursor: pointer;
+  font-size: 0.65rem;
+  font-weight: 600;
 }
 
-.usersList .userAvatar:hover {
-  opacity: 1;
+.userAvatar:hover {
+  transform: scale(1.1);
+  z-index: 10;
 }
 
 .usersList:hover .userAvatar {

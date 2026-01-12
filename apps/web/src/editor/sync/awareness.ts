@@ -56,6 +56,9 @@ export interface LocalAwarenessState {
 /** Predefined colors for remote users */
 const AWARENESS_COLORS = ["#ff5789", "#ff7301", "#0365d6", "#ff7301"];
 
+/** Test names for remote users */
+const TEST_NAMES = ["Alice", "Bob", "Charlie", "Diana"];
+
 /**
  * Generate a consistent color for a peer ID.
  * Uses a simple hash to ensure the same peer always gets the same color.
@@ -67,6 +70,19 @@ export function getColorForPeer(peerId: string): string {
     hash = hash & hash; // Convert to 32-bit integer
   }
   return AWARENESS_COLORS[Math.abs(hash) % AWARENESS_COLORS.length];
+}
+
+/**
+ * Generate a consistent test name for a peer ID.
+ * Uses the same hash algorithm as color assignment for consistency.
+ */
+export function getTestNameForPeer(peerId: string): string {
+  let hash = 0;
+  for (let i = 0; i < peerId.length; i++) {
+    hash = (hash << 5) - hash + peerId.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return TEST_NAMES[Math.abs(hash) % TEST_NAMES.length];
 }
 
 // =============================================================================

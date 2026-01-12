@@ -421,7 +421,7 @@ function isCharInSpan(
 }
 
 // Helper: Get formats that apply to a character at a given index
-function getFormatsAtIndex(
+export function getFormatsAtIndex(
   charIndex: number,
   chars: Char[],
   formats: FormatSpan[]
@@ -437,7 +437,164 @@ function getFormatsAtIndex(
   return activeFormats;
 }
 
+// === Batching utilities for Arabic/RTL text support ===
+// These batch consecutive characters with the same formatting together
+// to preserve ligatures and cursive connections in scripts like Arabic
+
+// Create a unique key for a set of formats (for batching comparison)
+export function getFormatKey(formats: TextFormat[]): string {
+  const keys: string[] = [];
+  for (const f of formats) {
+    if (f.type === "link") {
+      keys.push(`link:${f.url}`);
+    } else {
+      keys.push(f.type);
+    }
+  }
+  return keys.sort().join("|");
+}
+
+// A batch of consecutive characters with the same formatting
+export interface TextBatch {
+  text: string;
+  formats: TextFormat[];
+  isBold: boolean;
+  isItalic: boolean;
+  isCode: boolean;
+  isStrikethrough: boolean;
+  isLink: boolean;
+  linkUrl?: string;
+}
+
+// Batch CRDT characters by formatting within a visible index range
+// This preserves Arabic ligatures by keeping same-formatted chars together
+export function batchCRDTChars(
+  chars: Char[],
+  formats: FormatSpan[],
+  startIndex: number,
+  endIndex: number
+): TextBatch[] {
+  const batches: TextBatch[] = [];
+  let currentBatch: TextBatch | null = null;
+  let visibleIndex = 0;
+
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+
+    // Skip deleted characters
+    if (char.deleted) continue;
+
+    // Check if this character is in the range
+    if (visibleIndex < startIndex) {
+      visibleIndex++;
+      continue;
+    }
+
+    if (visibleIndex >= endIndex) {
+      break;
+    }
+
+    const charFormats = getFormatsAtIndex(i, chars, formats);
+    const formatKey = getFormatKey(charFormats);
+
+    if (currentBatch && getFormatKey(currentBatch.formats) === formatKey) {
+      // Same formatting, append to current batch
+      currentBatch.text += char.char;
+    } else {
+      // Different formatting, start new batch
+      const isBold = charFormats.some((f) => f.type === "bold");
+      const isItalic = charFormats.some((f) => f.type === "italic");
+      const isCode = charFormats.some((f) => f.type === "code");
+      const isStrikethrough = charFormats.some((f) => f.type === "strikethrough");
+      const linkFormat = charFormats.find((f) => f.type === "link");
+
+      currentBatch = {
+        text: char.char,
+        formats: charFormats,
+        isBold,
+        isItalic,
+        isCode,
+        isStrikethrough,
+        isLink: !!linkFormat,
+        linkUrl: linkFormat?.type === "link" ? linkFormat.url : undefined,
+      };
+      batches.push(currentBatch);
+    }
+
+    visibleIndex++;
+  }
+
+  return batches;
+}
+
+// Measure width of batched text (preserves Arabic ligatures)
+export function measureBatchedText(
+  batches: TextBatch[],
+  fontSize: number,
+  baseFontWeight: string,
+  fontFamily: FontFamily
+): number {
+  let width = 0;
+
+  for (const batch of batches) {
+    const effectiveFontWeight = batch.isBold ? "bold" : baseFontWeight;
+    // Measure the entire batch as a string (preserves ligature widths)
+    width += measureText(batch.text, fontSize, effectiveFontWeight, fontFamily);
+  }
+
+  return width;
+}
+
+/**
+ * Calculate cumulative widths for all character positions in a range.
+ * Optimized for cursor positioning while preserving Arabic ligatures.
+ *
+ * For Arabic and other connected scripts, ligatures can form across formatting boundaries.
+ * To measure positions accurately, we measure from the line start for each position,
+ * ensuring ligatures are formed correctly throughout the entire line.
+ *
+ * @param chars - CRDT character array
+ * @param formats - Format spans
+ * @param startIndex - Start of visible character range
+ * @param endIndex - End of visible character range
+ * @param fontSize - Font size in pixels
+ * @param baseFontWeight - Base font weight (before bold formatting)
+ * @param fontFamily - Font family to use
+ * @returns Array where index i contains the cumulative width from startIndex to startIndex+i
+ */
+export function measureCRDTPositions(
+  chars: Char[],
+  formats: FormatSpan[],
+  startIndex: number,
+  endIndex: number,
+  fontSize: number,
+  baseFontWeight: string,
+  fontFamily: FontFamily
+): number[] {
+  const lineLength = endIndex - startIndex;
+  const positions: number[] = new Array(lineLength + 1);
+
+  positions[0] = 0;
+
+  // For each position, measure from the start to that position
+  // This ensures Arabic ligatures are formed correctly across formatting boundaries
+  for (let i = 1; i <= lineLength; i++) {
+    positions[i] = measureCRDTTextUpToIndex(
+      chars,
+      formats,
+      startIndex,
+      startIndex + i,
+      fontSize,
+      baseFontWeight,
+      fontFamily
+    );
+  }
+
+  return positions;
+}
+
 // Measure width of CRDT text (Char[] with FormatSpan[]) up to a specific character position
+// Uses batching to preserve Arabic ligature widths
 export const measureCRDTTextUpToIndex = (
   chars: Char[],
   formats: FormatSpan[],
@@ -448,40 +605,9 @@ export const measureCRDTTextUpToIndex = (
   fontFamily: FontFamily,
   _codePadding: number = 0
 ): number => {
-  let width = 0;
-  let visibleIndex = 0;
-
-  for (let i = 0; i < chars.length; i++) {
-    const char = chars[i];
-
-    // Skip deleted characters
-    if (char.deleted) continue;
-
-    // Check if we're in the range we want to measure
-    if (visibleIndex >= startIndex && visibleIndex < endIndex) {
-      const charFormats = getFormatsAtIndex(i, chars, formats);
-
-      // Determine font weight
-      const isBold = charFormats.some((f) => f.type === "bold");
-      const effectiveFontWeight = isBold ? "bold" : baseFontWeight;
-
-      // Measure character
-      const charWidth = measureText(
-        char.char,
-        fontSize,
-        effectiveFontWeight,
-        fontFamily
-      );
-      width += charWidth;
-    }
-
-    visibleIndex++;
-
-    // Early exit if we've passed the end
-    if (visibleIndex >= endIndex) break;
-  }
-
-  return width;
+  // Use batched measurement to preserve Arabic ligatures
+  const batches = batchCRDTChars(chars, formats, startIndex, endIndex);
+  return measureBatchedText(batches, fontSize, baseFontWeight, fontFamily);
 };
 
 // Measure total width of CRDT text
@@ -660,6 +786,7 @@ export const containsCJK = (text: string): boolean => {
 };
 
 // Wrap CRDT text (Char[] with FormatSpan[]) for rendering
+// Uses batched measurement to preserve Arabic ligatures
 export const wrapCRDTText = (
   chars: Char[],
   formats: FormatSpan[],
@@ -683,7 +810,7 @@ export const wrapCRDTText = (
 
   const lines: WrappedLine[] = [];
   let currentLine = "";
-  let currentLineWidth = 0;
+  let lineStartIndex = 0; // Track start of current line for batched measurement
 
   for (
     let visibleIndex = 0;
@@ -694,24 +821,25 @@ export const wrapCRDTText = (
     const isCJK = isCJKCharacter(char);
     const isSpace = char === " ";
 
-    // Get formats for this character
-    const realCharIndex = chars.findIndex(
-      (c) => c.id === visibleChars[visibleIndex].id
+    // Measure current line + new character using batched measurement (preserves Arabic ligatures)
+    const proposedLineWidth = measureCRDTTextUpToIndex(
+      chars,
+      formats,
+      lineStartIndex,
+      visibleIndex + 1,
+      fontSize,
+      baseFontWeight,
+      fontFamily
     );
-    const charFormats = getFormatsAtIndex(realCharIndex, chars, formats);
-    const isBold = charFormats.some((f) => f.type === "bold");
-    const fontWeight = isBold ? "bold" : baseFontWeight;
-
-    const charWidth = measureText(char, fontSize, fontWeight, fontFamily);
 
     // Check if adding this character would exceed max width
-    if (currentLineWidth + charWidth > maxWidth && currentLine.length > 0) {
+    if (proposedLineWidth > maxWidth && currentLine.length > 0) {
       // Line is full, need to wrap
       if (isCJK || isSpace || hasCJK) {
         // For CJK or spaces, break here
         lines.push({ text: currentLine, consumedSpace: isSpace });
         currentLine = isSpace ? "" : char;
-        currentLineWidth = isSpace ? 0 : charWidth;
+        lineStartIndex = isSpace ? visibleIndex + 1 : visibleIndex;
       } else {
         // Latin character - try to find last space in current line
         const lastSpaceIndex = currentLine.lastIndexOf(" ");
@@ -722,23 +850,17 @@ export const wrapCRDTText = (
 
           // Start new line with text after the space
           currentLine = currentLine.substring(lastSpaceIndex + 1) + char;
-          currentLineWidth = measureText(
-            currentLine,
-            fontSize,
-            fontWeight,
-            fontFamily
-          );
+          lineStartIndex = visibleIndex - (currentLine.length - 1);
         } else {
           // No space found, force break
           lines.push({ text: currentLine, consumedSpace: false });
           currentLine = char;
-          currentLineWidth = charWidth;
+          lineStartIndex = visibleIndex;
         }
       }
     } else {
       // Character fits on current line
       currentLine += char;
-      currentLineWidth += charWidth;
     }
   }
 

@@ -9,6 +9,7 @@ import { PageSettingsDrawer } from "../components/PageSettingsDrawer";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useGetPage } from "../api/pages.api";
 import { useParams, Link } from "react-router-dom";
+import { ActiveUsersAvatars } from "../components/ActiveUsersAvatars";
 
 export function TopActionBar({
   open,
@@ -20,7 +21,7 @@ export function TopActionBar({
   const { id } = useParams<{ id: string }>();
   const { data: page, isLoading, isError } = useGetPage(id);
   const isMobile = useResponsive("(max-width: 768px)");
-  const { isSaving } = usePageSettings();
+  const { isSaving, activeUsers } = usePageSettings();
   
   return (
     <div className={style.appHeader}>
@@ -58,6 +59,7 @@ export function TopActionBar({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        <ActiveUsersAvatars users={activeUsers} />
         <SavingIndicator isSaving={isSaving} />
         {id && !isLoading && !isError && <PageSettingsDrawer />}
       </div>

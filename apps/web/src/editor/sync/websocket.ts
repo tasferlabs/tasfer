@@ -8,7 +8,7 @@
 import { SyncEngine, serializeVV } from "./index";
 import type { Operation } from "./types";
 import type { AwarenessState, AwarenessUser } from "./awareness";
-import { getColorForPeer } from "./awareness";
+import { getColorForPeer, getTestNameForPeer } from "./awareness";
 
 // =============================================================================
 // Types
@@ -95,7 +95,7 @@ export class WebSocketSync {
     const peerId = engine.getPeerId();
     this.localUser = {
       peerId,
-      name: config.userName,
+      name: config.userName || getTestNameForPeer(peerId),
       color: getColorForPeer(peerId),
     };
   }

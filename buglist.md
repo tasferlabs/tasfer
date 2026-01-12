@@ -216,13 +216,13 @@ Bugs list
 - [ ] page up and down should work with visual blocks.
 - [ ] empty line and selection drag
 - [x] deleting blocks not working on live update.I think we could consolidate @apps/web/src/sync/index.ts operations more, like why do we need dosen of operation lww properties.
-- [ ] tapping enter to split blocks does not not work well with crdt opreations.
+- [x] tapping enter to split blocks does not not work well with crdt opreations.
+- [x] when typing in the middle the other tab insert to the end.
 - [x] arabic script stopped working after impelemting crdt 
-- [ ] arabic text not breaking correcttly
-- [ ] when typing in the middle the other tab insert to the end.
+- [x] arabic text not breaking correcttly
+- [x] remote caret should not be showen when there is selection. 
+- [x] remote caret should have name tag
+- [x] remote selection should be seen in visual blocks
+- [x] we should show blobs of remote users in topactionbar
 - [ ] fix stoarge problems with crdt
-- [ ] remote caret should not be showen when there is selection. 
-- [ ] remote caret should have name tag
-- [ ] remote caret should blink 
-- [ ] remote selection should be seen in visual blocks
-- [ ] we should show blobs of remote users in topactionbar
+- [ ] select arabic text and arrow left/right does not work as expected.

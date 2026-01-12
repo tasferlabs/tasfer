@@ -7,6 +7,7 @@ import { Navigate, useParams, useNavigate } from "react-router-dom";
 import { debounce } from "lodash-es";
 import { MountedEditor } from "../MountedEditor";
 import type { SyncState } from "../../editor/sync/websocket";
+import type { AwarenessUser } from "@/editor/sync/awareness";
 
 // WebSocket server URL - defaults to using Vite proxy
 // Uses wss:// for HTTPS, ws:// for HTTP
@@ -89,7 +90,7 @@ function countWords(markdown: string): number {
 
 export default function EditorPage() {
   const { id } = useParams<{ id: string }>();
-  const { setIsSaving: setGlobalIsSaving, setWordCount } = usePageSettings();
+  const { setIsSaving: setGlobalIsSaving, setWordCount, setActiveUsers } = usePageSettings();
   const { getConfirmation } = useConfirmation();
   const { mutateAsync: updatePage } = useUpdatePage();
   // State for loading page content once on mount
@@ -243,6 +244,11 @@ export default function EditorPage() {
     };
   }, [flush, setGlobalIsSaving]);
 
+  // Handle awareness changes from collaborators
+  const handleAwarenessChange = useCallback((users: AwarenessUser[]) => {
+    setActiveUsers(users);
+  }, [setActiveUsers]);
+
   // If no ID in URL
   if (!id) {
     if (isLoadingPages) {
@@ -278,6 +284,7 @@ export default function EditorPage() {
         signalingUrl={WEBSOCKET_URL}
         onSyncStateChange={setSyncState}
         initialOperations={pageOperations ?? undefined}
+        onAwarenessChange={handleAwarenessChange}
       />
       <WordCountOverlay />
       {/* Sync status indicator */}

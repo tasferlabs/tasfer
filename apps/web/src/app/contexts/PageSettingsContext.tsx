@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { setCurrentFontFamily, type FontFamily } from "../../editor/fonts";
 import useLocalStorage from "../hooks/useLocalStorage";
+import type { AwarenessUser } from "@/editor/sync/awareness";
 
 export type FontStyle = "default" | "serif";
 
@@ -13,6 +14,8 @@ interface PageSettingsContextType {
   setShowWordCount: (show: boolean) => void;
   wordCount: number;
   setWordCount: (count: number) => void;
+  activeUsers: AwarenessUser[];
+  setActiveUsers: (users: AwarenessUser[]) => void;
 }
 
 const PageSettingsContext = createContext<PageSettingsContextType | undefined>(
@@ -30,6 +33,7 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [showWordCount, setShowWordCountState] = useLocalStorage<boolean>("pageSettings.showWordCount", false);
   const [wordCount, setWordCount] = useState(0);
+  const [activeUsers, setActiveUsers] = useState<AwarenessUser[]>([]);
 
   // Apply font family on mount and when fontStyle changes
   useEffect(() => {
@@ -58,6 +62,8 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         setShowWordCount,
         wordCount,
         setWordCount,
+        activeUsers,
+        setActiveUsers,
       }}
     >
       {children}

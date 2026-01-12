@@ -35,6 +35,7 @@ import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { WebSocketSync, type SyncState } from "@/editor/sync/websocket";
 import { SyncEngine, type AwarenessState } from "@/editor/sync";
+import type { AwarenessUser } from "@/editor/sync/awareness";
 import { hasNativeBridge } from "@/editor/actions/clipboard";
 
 interface MountedEditorProps {
@@ -52,6 +53,8 @@ interface MountedEditorProps {
   onSyncStateChange?: (state: SyncState) => void;
   /** Initial operations for CRDT sync - if provided, initializes SyncEngine with these */
   initialOperations?: string;
+  /** Callback when active users change */
+  onAwarenessChange?: (users: AwarenessUser[]) => void;
 }
 
 export const MountedEditor: React.FC<MountedEditorProps> = ({
@@ -64,6 +67,7 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
   signalingUrl,
   onSyncStateChange,
   initialOperations,
+  onAwarenessChange,
 }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
@@ -239,6 +243,13 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         onAwarenessUpdate: (peerId: string, state: AwarenessState | null) => {
           console.log("[WebSocket] Awareness update from peer:", peerId);
           mounted.editor.setRemoteAwareness(peerId, state);
+
+          // Extract and pass active users to parent
+          if (onAwarenessChange) {
+            const remoteAwareness = mounted.editor.getRemoteAwareness();
+            const users = Array.from(remoteAwareness.values()).map(s => s.user);
+            onAwarenessChange(users);
+          }
         },
         onAwarenessStates: (states: Record<string, AwarenessState>) => {
           console.log(
@@ -248,6 +259,12 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
           // Apply all initial awareness states
           for (const [peerId, state] of Object.entries(states)) {
             mounted.editor.setRemoteAwareness(peerId, state);
+          }
+
+          // Extract and pass active users to parent
+          if (onAwarenessChange) {
+            const users = Object.values(states).map(s => s.user);
+            onAwarenessChange(users);
           }
         },
       });
