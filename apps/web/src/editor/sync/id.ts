@@ -18,7 +18,7 @@
 export function generatePeerId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     // Use short form of UUID (first 8 chars) for more compact IDs
-    return crypto.randomUUID().slice(0, 8);
+    return crypto.randomUUID().slice(0, 4);
   }
 
   // Fallback: generate random hex string

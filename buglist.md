@@ -237,7 +237,8 @@ Bugs list
 - [ ] loading apge should show spinner.
 - [ ] change content should reculate hights/documentb height in
 - [ ] on load document there is not scrollbar
-- [ ] 1.  Fix IDs - Quick win, no architectural changes, ~70% ID size reduction
-- [ ] 2.  Block squashing - Bigger change to data model, ~80-90% fewer char objects
+- [x] 1. Fix IDs - Quick win, no architectural changes, ~70% ID size reduction
+- [ ] 2. Block squashing - Bigger change to data model, ~80-90% fewer char objects
 - [ ] 3. Binary encoding - Replace JSON serialization, ~50% total reduction
 - [ ] 4. Delta compression - Only after the others are stable, complex to get right
+- [ ] We should brodacast page delete
