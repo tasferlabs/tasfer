@@ -58,6 +58,8 @@ interface MountedEditorProps {
   onSnapshotClockUpdate?: (clock: HLC | null) => void;
   /** Callback when active users change */
   onAwarenessChange?: (users: AwarenessUser[]) => void;
+  /** Callback when restore function is ready */
+  onRestoreReady?: (restoreFn: (blocks: Block[]) => void) => void;
 }
 
 export function MountedEditor({
@@ -72,6 +74,7 @@ export function MountedEditor({
   snapshotClock,
   onSnapshotClockUpdate,
   onAwarenessChange,
+  onRestoreReady,
 }: MountedEditorProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
@@ -201,6 +204,17 @@ export function MountedEditor({
 
     const mounted = mountEditor(el, snapshot);
     mountedRef.current = mounted;
+
+    // Expose restore function to parent
+    if (onRestoreReady) {
+      onRestoreReady((blocks: Block[]) => {
+        mounted.editor.updatePageFromSync({
+          id: pageId,
+          title: "",
+          blocks,
+        });
+      });
+    }
 
     // Initialize sync engine if signaling URL is provided
     if (signalingUrl) {

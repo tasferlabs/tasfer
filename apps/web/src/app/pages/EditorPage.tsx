@@ -82,6 +82,9 @@ export default function EditorPage() {
     setIsSaving: setGlobalIsSaving,
     setWordCount,
     setActiveUsers,
+    setPageId,
+    setCurrentBlocks,
+    setOnRestoreSnapshot,
   } = usePageSettings();
   const { getConfirmation } = useConfirmation();
   const { mutateAsync: updatePage } = useUpdatePage();
@@ -95,6 +98,8 @@ export default function EditorPage() {
   const [_syncState, setSyncState] = useState<SyncState>({
     status: "disconnected",
   });
+  // Restore function ref from MountedEditor
+  const restoreFnRef = useRef<((blocks: Block[]) => void) | null>(null);
 
   const { data: pages, isLoading: isLoadingPages } = useGetPages(null);
   const [lastPageId, setLastPageId] = useLocalStorage<string | null>(
@@ -113,8 +118,12 @@ export default function EditorPage() {
   useEffect(() => {
     if (id) {
       setLastPageId(id);
+      setPageId(id);
     }
-  }, [id, setLastPageId]);
+    return () => {
+      setPageId(null);
+    };
+  }, [id, setLastPageId, setPageId]);
 
   useEffect(() => {
     if (isError) {
@@ -210,9 +219,30 @@ export default function EditorPage() {
   const handleContentUpdate = useCallback(
     (blocks: Block[]) => {
       debouncedWordCountUpdate(blocks);
+      setCurrentBlocks(blocks);
     },
-    [debouncedWordCountUpdate]
+    [debouncedWordCountUpdate, setCurrentBlocks]
   );
+
+  // Handle snapshot restoration
+  const handleRestoreSnapshot = useCallback(
+    (blocks: Block[]) => {
+      if (restoreFnRef.current) {
+        restoreFnRef.current(blocks);
+        // Trigger save after restore
+        debouncedSave({ snapshot: blocks, clock: null });
+      }
+    },
+    [debouncedSave]
+  );
+
+  // Expose restore callback to context
+  useEffect(() => {
+    setOnRestoreSnapshot(() => handleRestoreSnapshot);
+    return () => {
+      setOnRestoreSnapshot(null);
+    };
+  }, [handleRestoreSnapshot, setOnRestoreSnapshot]);
 
   // Warn user before leaving page if there are unsaved changes
   useEffect(() => {
@@ -286,6 +316,9 @@ export default function EditorPage() {
         snapshotClock={snapshotClock}
         onSnapshotClockUpdate={setSnapshotClock}
         onAwarenessChange={handleAwarenessChange}
+        onRestoreReady={(restoreFn) => {
+          restoreFnRef.current = restoreFn;
+        }}
       />
       <WordCountOverlay />
     </>

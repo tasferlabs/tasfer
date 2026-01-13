@@ -13,16 +13,35 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
-import { MoreVertical } from "lucide-react";
+import { History, MoreVertical } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import useResponsive from "../hooks/useResponsive";
 import {
   usePageSettings,
   type FontStyle,
 } from "../contexts/PageSettingsContext";
+import useResponsive from "../hooks/useResponsive";
+import { SnapshotRestore } from "./SnapshotRestore";
 
-export function PageSettingsDrawer() {
+export function PageSettings() {
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+
+  return (
+    <>
+      <PageSettingsImpl setShowVersionHistory={setShowVersionHistory} />
+      <SnapshotRestore
+        open={showVersionHistory}
+        onOpenChange={setShowVersionHistory}
+      />
+    </>
+  );
+}
+
+function PageSettingsImpl({
+  setShowVersionHistory,
+}: {
+  setShowVersionHistory: (open: boolean) => void;
+}) {
   const { t, i18n } = useTranslation("PageSettingsDrawer");
   const [open, setOpen] = useState(false);
   const {
@@ -108,6 +127,18 @@ export function PageSettingsDrawer() {
             onCheckedChange={setShowWordCount}
           />
         </div>
+      </div>
+
+      <div className="pt-3 border-t border-border">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+          onClick={() => setShowVersionHistory(true)}
+        >
+          <History className="h-4 w-4" />
+          {t`Version history`}
+        </Button>
       </div>
     </div>
   );

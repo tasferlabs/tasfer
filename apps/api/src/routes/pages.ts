@@ -2,9 +2,12 @@ import { Router } from "express";
 import { createId } from "@paralleldrive/cuid2";
 import db from "../db/index";
 import { pages, snapshots } from "../db/schema";
-import { eq, and, isNull, sql, inArray } from "drizzle-orm";
+import { eq, and, isNull, sql, inArray, desc } from "drizzle-orm";
 import { encodeSnapshot, decodeSnapshot, type Block } from "../lib/snapshot";
 import { writeFile, readFile, deleteFile } from "../handlers/files";
+
+// Maximum number of snapshots to keep per page
+const MAX_SNAPSHOTS_PER_PAGE = 50;
 
 const router = Router();
 
@@ -71,11 +74,14 @@ router.get("/:id", async (req, res) => {
       SELECT id, title FROM parent_pages ORDER BY depth DESC
     `);
 
-    // Load snapshot from file
+    // Load latest snapshot from file
     let snapshotBlocks: Block[] = [];
-    const snapshotRecord = await db.query.snapshots.findFirst({
-      where: eq(snapshots.pageId, id),
-    });
+    const [snapshotRecord] = await db
+      .select()
+      .from(snapshots)
+      .where(eq(snapshots.pageId, id))
+      .orderBy(desc(snapshots.createdAt))
+      .limit(1);
 
     if (snapshotRecord) {
       const compressedBuffer = await readFile(snapshotRecord.filePath, {
@@ -115,6 +121,79 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+// Get all snapshots for a page (version history)
+router.get("/:id/snapshots", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const page = await db.query.pages.findFirst({
+      where: eq(pages.id, id),
+    });
+
+    if (!page) {
+      return res.status(404).json({ success: false, error: "Page not found" });
+    }
+
+    // Get all snapshot records ordered by creation date (newest first)
+    // Skip the first one (current state) - users want to restore to previous versions
+    const snapshotRecords = await db
+      .select()
+      .from(snapshots)
+      .where(eq(snapshots.pageId, id))
+      .orderBy(desc(snapshots.createdAt));
+
+    // Skip the most recent snapshot (that's the current state)
+    const previousSnapshots = snapshotRecords.slice(1);
+
+    // Load and decode each snapshot
+    const snapshotsWithBlocks = await Promise.all(
+      previousSnapshots.map(async (record) => {
+        try {
+          const compressedBuffer = await readFile(record.filePath, {
+            bucketName: "snapshots",
+          });
+
+          if (!compressedBuffer) {
+            return null;
+          }
+
+          const blocks = decodeSnapshot(compressedBuffer);
+
+          return {
+            id: record.id,
+            pageId: record.pageId,
+            blocks,
+            size: record.size,
+            clock: record.clockWall !== null
+              ? {
+                  wall: record.clockWall,
+                  logical: record.clockLogical!,
+                  peerId: record.clockPeerId!,
+                }
+              : null,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt,
+          };
+        } catch (err) {
+          console.error(`Failed to load snapshot ${record.id}:`, err);
+          return null;
+        }
+      })
+    );
+
+    // Filter out any failed loads
+    const validSnapshots = snapshotsWithBlocks.filter(Boolean);
+
+    res.json({
+      success: true,
+      data: validSnapshots,
+    });
+  } catch (error) {
+    console.error("Get snapshots error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
 // Create page
 router.post("/create", async (req, res) => {
   try {
@@ -148,6 +227,7 @@ router.post("/create", async (req, res) => {
       .returning();
 
     // Create initial snapshot with empty heading1 block
+    const snapshotId = createId();
     const initialSnapshot: Block[] = [
       {
         id: createId(),
@@ -157,13 +237,14 @@ router.post("/create", async (req, res) => {
       },
     ];
     const compressed = encodeSnapshot(initialSnapshot);
-    const filePath = `${pageId}.bin`;
+    // Use unique file path per snapshot version
+    const filePath = `${pageId}/${snapshotId}.bin`;
 
     await writeFile(compressed, filePath, { bucketName: "snapshots" });
 
     // Create snapshot record
     await db.insert(snapshots).values({
-      id: createId(),
+      id: snapshotId,
       pageId: pageId,
       filePath: filePath,
       size: compressed.length,
@@ -206,41 +287,51 @@ router.put("/:id", async (req, res) => {
       .where(eq(pages.id, id))
       .returning();
 
-    // Save snapshot to file
+    // Save snapshot to file - create new version each time
     if (snapshotBlocks && Array.isArray(snapshotBlocks)) {
+      const snapshotId = createId();
       const compressed = encodeSnapshot(snapshotBlocks as Block[]);
-      const filePath = `${id}.bin`;
+      // Use unique file path per snapshot version
+      const filePath = `${id}/${snapshotId}.bin`;
 
       await writeFile(compressed, filePath, { bucketName: "snapshots" });
 
-      // Upsert snapshot record with clock
-      const existingSnapshot = await db.query.snapshots.findFirst({
-        where: eq(snapshots.pageId, id),
-      });
-
-      const snapshotData = {
+      // Create new snapshot record
+      await db.insert(snapshots).values({
+        id: snapshotId,
+        pageId: id,
         filePath: filePath,
         size: compressed.length,
-        updatedAt: new Date(),
         // Track the snapshot clock for delta sync
         ...(snapshotClock && {
           clockWall: snapshotClock.wall,
           clockLogical: snapshotClock.logical,
           clockPeerId: snapshotClock.peerId,
         }),
-      };
+      });
 
-      if (existingSnapshot) {
-        await db
-          .update(snapshots)
-          .set(snapshotData)
-          .where(eq(snapshots.pageId, id));
-      } else {
-        await db.insert(snapshots).values({
-          id: createId(),
-          pageId: id,
-          ...snapshotData,
-        });
+      // Prune old snapshots if exceeding limit
+      const allSnapshots = await db
+        .select({ id: snapshots.id, filePath: snapshots.filePath })
+        .from(snapshots)
+        .where(eq(snapshots.pageId, id))
+        .orderBy(desc(snapshots.createdAt));
+
+      if (allSnapshots.length > MAX_SNAPSHOTS_PER_PAGE) {
+        const snapshotsToDelete = allSnapshots.slice(MAX_SNAPSHOTS_PER_PAGE);
+
+        // Delete old snapshot files
+        for (const snapshot of snapshotsToDelete) {
+          try {
+            await deleteFile(snapshot.filePath, { bucketName: "snapshots" });
+          } catch (err) {
+            console.error(`Failed to delete old snapshot file ${snapshot.filePath}:`, err);
+          }
+        }
+
+        // Delete old snapshot records
+        const idsToDelete = snapshotsToDelete.map(s => s.id);
+        await db.delete(snapshots).where(inArray(snapshots.id, idsToDelete));
       }
     }
 

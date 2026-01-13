@@ -196,7 +196,7 @@ Bugs list
 - [x] canvas glitch on resizing.
 - [x] editing issue on android. Can not edit text after selection.
 - [x] tapping under image that has no other blocks under should create new text block.
-- [ ] could we disable edge navigation on andorid?
+- [-] could we disable edge navigation on andorid?
 - [ ] on landscape oritentation the safe area taking to much and it is uncessary.
 - [ ] Safe area on sidebar
 - [ ] typing letters that conlicde with markdown serlization should be escaped
@@ -244,3 +244,6 @@ Bugs list
 - [ ] 4. Delta compression
 - [ ] We should brodacast page delete
 - [ ] test users and test functions
+- [ ] everything should suited for mobile, including flaoting sidebar. 
+- [ ] add snapshot previewing
+- [ ] dawers hould have scroll

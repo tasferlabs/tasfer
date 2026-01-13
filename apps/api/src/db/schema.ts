@@ -19,7 +19,7 @@ export const pages = pgTable("pages", {
 
 export const snapshots = pgTable("snapshots", {
   id: varchar("id", { length: 30 }).primaryKey(),
-  pageId: varchar("pageId", { length: 30 }).notNull().unique(),
+  pageId: varchar("pageId", { length: 30 }).notNull(),
   filePath: text("filePath").notNull(),
   size: integer("size").notNull(),
   // HLC of the latest operation included in this snapshot
@@ -39,4 +39,3 @@ export const images = pgTable("images", {
   size: integer("size").notNull(),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
 });
-

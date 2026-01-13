@@ -254,3 +254,37 @@ export function updateTitleFromCache(_id: string, _title: string, _editingPageId
   // For now, we'll let the mutation handle it
 }
 
+// =============================================================================
+// Snapshot API
+// =============================================================================
+
+export interface ISnapshot {
+  id: string;
+  pageId: string;
+  blocks: Block[];
+  size: number;
+  clock: HLC | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Get all snapshots for a page (version history)
+export async function getPageSnapshots(pageId: string): Promise<ISnapshot[]> {
+  const response = await fetch(`${API_BASE}/pages/${pageId}/snapshots`);
+  const data = await response.json();
+
+  if (!data.success) {
+    throw new Error(data.error || "Failed to fetch snapshots");
+  }
+
+  return data.data;
+}
+
+export function useGetPageSnapshots(pageId?: string) {
+  return useQuery({
+    queryKey: ["page-snapshots", pageId],
+    queryFn: () => getPageSnapshots(pageId!),
+    enabled: !!pageId,
+  });
+}
+

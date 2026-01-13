@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import { setCurrentFontFamily, type FontFamily } from "../../editor/fonts";
 import useLocalStorage from "../hooks/useLocalStorage";
 import type { AwarenessUser } from "@/editor/sync/awareness";
+import type { Block } from "@/deserializer/loadPage";
 
 export type FontStyle = "default" | "serif";
 
@@ -16,6 +17,13 @@ interface PageSettingsContextType {
   setWordCount: (count: number) => void;
   activeUsers: AwarenessUser[];
   setActiveUsers: (users: AwarenessUser[]) => void;
+  // Snapshot restore
+  pageId: string | null;
+  setPageId: (pageId: string | null) => void;
+  currentBlocks: Block[];
+  setCurrentBlocks: (blocks: Block[]) => void;
+  onRestoreSnapshot: ((blocks: Block[]) => void) | null;
+  setOnRestoreSnapshot: (callback: ((blocks: Block[]) => void) | null) => void;
 }
 
 const PageSettingsContext = createContext<PageSettingsContextType | undefined>(
@@ -34,6 +42,10 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [showWordCount, setShowWordCountState] = useLocalStorage<boolean>("pageSettings.showWordCount", false);
   const [wordCount, setWordCount] = useState(0);
   const [activeUsers, setActiveUsers] = useState<AwarenessUser[]>([]);
+  // Snapshot restore state
+  const [pageId, setPageId] = useState<string | null>(null);
+  const [currentBlocks, setCurrentBlocks] = useState<Block[]>([]);
+  const [onRestoreSnapshot, setOnRestoreSnapshotState] = useState<((blocks: Block[]) => void) | null>(null);
 
   // Apply font family on mount and when fontStyle changes
   useEffect(() => {
@@ -51,6 +63,11 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     setShowWordCountState(show);
   }, [setShowWordCountState]);
 
+  // Wrap setOnRestoreSnapshot to handle function state properly
+  const setOnRestoreSnapshot = useCallback((callback: ((blocks: Block[]) => void) | null) => {
+    setOnRestoreSnapshotState(() => callback);
+  }, []);
+
   return (
     <PageSettingsContext.Provider
       value={{
@@ -64,6 +81,12 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         setWordCount,
         activeUsers,
         setActiveUsers,
+        pageId,
+        setPageId,
+        currentBlocks,
+        setCurrentBlocks,
+        onRestoreSnapshot,
+        setOnRestoreSnapshot,
       }}
     >
       {children}

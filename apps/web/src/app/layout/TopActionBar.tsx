@@ -5,7 +5,7 @@ import { clsx } from "clsx";
 import { ListIcon, CaretRightIcon } from "@phosphor-icons/react";
 import useResponsive from "../hooks/useResponsive";
 import { SavingIndicator } from "../components/SavingIndicator";
-import { PageSettingsDrawer } from "../components/PageSettingsDrawer";
+import { PageSettings } from "../components/PageSettings";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useGetPage } from "../api/pages.api";
 import { useParams, Link } from "react-router-dom";
@@ -22,7 +22,7 @@ export function TopActionBar({
   const { data: page, isLoading, isError } = useGetPage(id);
   const isMobile = useResponsive("(max-width: 768px)");
   const { isSaving, activeUsers } = usePageSettings();
-  
+
   return (
     <div className={style.appHeader}>
       {(!open || isMobile) && (
@@ -61,7 +61,7 @@ export function TopActionBar({
       <div className="ml-auto flex items-center gap-2">
         <ActiveUsersAvatars users={activeUsers} />
         <SavingIndicator isSaving={isSaving} />
-        {id && !isLoading && !isError && <PageSettingsDrawer />}
+        {id && !isLoading && !isError && <PageSettings />}
       </div>
     </div>
   );
