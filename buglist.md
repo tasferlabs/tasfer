@@ -228,7 +228,6 @@ Bugs list
 - [x] fix stoarge problems with crdt
 - [x] Database Operations Table
 - [x] snapshotting
-- [ ] peforamnce issues after crdt
 - [ ] snapshot restore
 - [ ] why snapshot have hlc clock
 - [ ] do we have uncessary long ids in snapshot
@@ -236,7 +235,8 @@ Bugs list
 - [ ] loading page is slow
 - [ ] loading apge should show spinner.
 - [ ] change content should reculate hights/documentb height in
-- [ ] on load document there is not scrollbar
+- [x] on load document there is not scrollbar
+- [ ] peforamnce issues after crdt
 - [x] 1. Fix IDs
 - [x] 2. chair squashing
 - [x] 2. op chain

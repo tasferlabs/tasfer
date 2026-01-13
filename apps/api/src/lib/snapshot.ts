@@ -200,11 +200,25 @@ interface Long {
 
 // Convert TypeScript CharRun to Protobuf CharRun
 function charRunToProto(charRun: CharRun): object {
+  // When deletedMask comes from JSON, it may be a plain array or object, not Uint8Array
+  let deletedMask: Uint8Array | undefined;
+  if (charRun.deletedMask) {
+    if (charRun.deletedMask instanceof Uint8Array) {
+      deletedMask = charRun.deletedMask;
+    } else if (Array.isArray(charRun.deletedMask)) {
+      deletedMask = new Uint8Array(charRun.deletedMask);
+    } else if (typeof charRun.deletedMask === "object") {
+      // Handle object like {0: 1, 1: 0, ...} from JSON serialization
+      const values = Object.values(charRun.deletedMask) as number[];
+      deletedMask = new Uint8Array(values);
+    }
+  }
+
   return {
     peerId: charRun.peerId,
     startCounter: charRun.startCounter,
     text: charRun.text,
-    deletedMask: charRun.deletedMask,
+    ...(deletedMask && { deletedMask }),
   };
 }
 

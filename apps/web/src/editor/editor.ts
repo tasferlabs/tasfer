@@ -1794,6 +1794,9 @@ export default function createEditor(
       },
     };
 
+    // Mark document height as dirty since remote ops may have added/removed content
+    documentHeightDirty = true;
+
     // Re-render
     const currentState = state;
     scheduleRender();
