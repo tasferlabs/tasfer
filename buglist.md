@@ -225,10 +225,15 @@ Bugs list
 - [x] remote caret should have name tag
 - [x] remote selection should be seen in visual blocks
 - [x] we should show blobs of remote users in topactionbar
-- [ ] fix stoarge problems with crdt
+- [x] fix stoarge problems with crdt
 - [x] Database Operations Table
 - [x] snapshotting
 - [ ] peforamnce issues after crdt
 - [ ] snapshot restore
 - [ ] why snapshot have hlc clock
 - [ ] do we have uncessary long ids in snapshot
+- [x] crdt pasting ad docoumet paste only first block 
+- [ ] loading page is slow
+- [ ] loading apge should show spinner.
+- [ ] change content should reculate hights/documentb height in 
+- [ ] on load document there is not scrollbar

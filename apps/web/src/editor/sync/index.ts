@@ -6,7 +6,7 @@
  * and subscribing to state changes.
  */
 
-import type { Char, TextFormat } from "@/deserializer/loadPage";
+import type { Char, Page, TextFormat } from "@/deserializer/loadPage";
 import { COMPACTION_GRACE_PERIOD_MS } from "../constants";
 import { createHLC, receiveHLC, tickHLC } from "./hlc";
 import { createIdGenerator, generateBlockId, generatePeerId } from "./id";
@@ -22,7 +22,6 @@ import type {
   HLC,
   Operation,
   OpLog,
-  PageState,
   TextDelete,
   TextInsert,
   VersionVector,
@@ -38,7 +37,6 @@ export type {
   FormatSet,
   HLC,
   Operation,
-  PageState,
   TextDelete,
   TextInsert,
   VersionVector,
@@ -48,6 +46,7 @@ export type {
 export { compareHLC, deserializeHLC, serializeHLC } from "./hlc";
 export { deserializeVV, serializeVV } from "./oplog";
 export {
+  cleanSnapshotForSave,
   findCharIdAtPosition,
   getCharIdsInRange,
   getVisibleBlocks,
@@ -73,7 +72,7 @@ export type {
   LocalAwarenessState,
 } from "./awareness";
 
-type StateChangeListener = (state: PageState) => void;
+type StateChangeListener = (state: Page) => void;
 
 /**
  * SyncEngine manages the CRDT state for a single page.
@@ -187,7 +186,7 @@ export class SyncEngine {
   /**
    * Get the current computed state.
    */
-  getState(): PageState {
+  getState(): Page {
     return this.opLog.state;
   }
 
@@ -565,7 +564,7 @@ export class SyncEngine {
    */
   toggleTodo(blockId: string): BlockSet {
     const block = this.getState().blocks.find((b) => b.id === blockId);
-    const currentChecked = (block && 'checked' in block) ? block.checked : false;
+    const currentChecked = block && "checked" in block ? block.checked : false;
 
     return this.createBlockSet(blockId, "checked", !currentChecked);
   }

@@ -10,6 +10,7 @@ import {
   awarenessSelectionToSelection,
 } from "./sync/awareness";
 import { getVisibleText } from "./sync/crdt-helpers";
+import { getVisibleBlocks } from "./sync";
 import {
   FONT_STACKS,
   getCurrentFontFamily,
@@ -410,32 +411,40 @@ export const renderPage = (
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
   const documentHeight = viewport.documentHeight;
 
-  // Render each block
+  // Render each visible block
+  const visibleBlocks = getVisibleBlocks(state.document.page);
   let foundVisibleBlock = false;
-  for (let i = 0; i < state.document.page.blocks.length; i++) {
-    const block = state.document.page.blocks[i];
-
-    // Skip tombstoned blocks
-    if (block.deleted) {
-      continue;
+  
+  // Map to track original indices for compatibility
+  const allBlocks = state.document.page.blocks;
+  let originalIndex = 0;
+  
+  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+    const block = visibleBlocks[visibleIdx];
+    
+    // Find the original index of this block in the full array
+    while (originalIndex < allBlocks.length && allBlocks[originalIndex].id !== block.id) {
+      originalIndex++;
     }
-
+    
+    if (originalIndex >= allBlocks.length) break;
+    
     // Get or calculate block height (cached on the block itself)
-    const blockHeight = getBlockHeight(block, maxWidth, styles, i);
+    const blockHeight = getBlockHeight(block, maxWidth, styles, originalIndex);
 
-    // Only render if block is visible
+    // Only render if block is visible in viewport
     if (isBlockVisible(currentY, blockHeight, viewport)) {
       if (!foundVisibleBlock) {
-        visibility.start = i;
+        visibility.start = originalIndex;
         foundVisibleBlock = true;
       }
-      visibility.end = i;
+      visibility.end = originalIndex;
 
       const renderedBlock = renderBlock(
         ctx,
         state,
         block,
-        i,
+        originalIndex,
         styles.canvas.paddingLeft,
         currentY,
         maxWidth,
@@ -448,6 +457,7 @@ export const renderPage = (
       break;
     }
     currentY += blockHeight;
+    originalIndex++;
   }
 
   // Add extra padding on mobile devices for keyboard space
@@ -770,6 +780,7 @@ function calculateListItemNumber(
   blockIndex: number
 ): number {
   const currentBlock = state.document.page.blocks[blockIndex];
+  if (!currentBlock || currentBlock.deleted) return 0;
   if (!isListBlock(currentBlock) || currentBlock.type !== "numbered_list") {
     return 1;
   }
@@ -778,8 +789,19 @@ function calculateListItemNumber(
   let number = 1;
 
   // Count backwards to find previous numbered list items at the same indent level
-  for (let i = blockIndex - 1; i >= 0; i--) {
-    const prevBlock = state.document.page.blocks[i];
+  // Only consider visible blocks
+  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const allBlocks = state.document.page.blocks;
+  
+  // Find visible blocks before the current block
+  for (let i = visibleBlocks.length - 1; i >= 0; i--) {
+    const visibleBlock = visibleBlocks[i];
+    const visibleBlockIndex = allBlocks.findIndex(b => b.id === visibleBlock.id);
+    
+    // Only consider blocks before the current block
+    if (visibleBlockIndex >= blockIndex) continue;
+    
+    const prevBlock = visibleBlock;
 
     // Stop if we hit a non-list block or different list type
     if (!isListBlock(prevBlock) || prevBlock.type !== "numbered_list") {
@@ -1904,11 +1926,16 @@ function calculateCursorPosition(
 
   // Calculate block position
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
-  for (let i = 0; i < position.blockIndex; i++) {
-    const prevBlock = state.document.page.blocks[i];
-    if (prevBlock.deleted) continue;
-    const blockHeight = getBlockHeight(prevBlock, maxWidth, styles, i);
-    currentY += blockHeight;
+  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const allBlocks = state.document.page.blocks;
+  
+  for (const block of visibleBlocks) {
+    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    if (blockIndex >= position.blockIndex) break;
+    if (blockIndex !== -1) {
+      const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
+      currentY += blockHeight;
+    }
   }
 
   // Get text style
@@ -2048,6 +2075,8 @@ function renderRemoteCursors(
     if (!position) continue;
 
     const block = state.document.page.blocks[position.blockIndex];
+  if (!block || block.deleted) return null;
+    if (!block || block.deleted) continue;
     if (!block || block.deleted || !isTextualBlock(block)) continue;
 
     const cursorPos = calculateCursorPosition(
@@ -2143,6 +2172,7 @@ export function renderCursorLayer(
 
   const cursorBlockIndex = state.document.cursor.position.blockIndex;
   const block = state.document.page.blocks[cursorBlockIndex];
+  if (!block || block.deleted) return;
 
   if (!isTextualBlock(block)) {
     ctx.restore();
@@ -2153,10 +2183,17 @@ export function renderCursorLayer(
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
-  for (let i = 0; i < cursorBlockIndex; i++) {
-    const prevBlock = state.document.page.blocks[i];
-    const blockHeight = getBlockHeight(prevBlock, maxWidth, styles, i);
-    currentY += blockHeight;
+  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const allBlocks = state.document.page.blocks;
+  
+  for (const visibleBlock of visibleBlocks) {
+    const blockIndex = allBlocks.findIndex(b => b.id === visibleBlock.id);
+    if (blockIndex >= cursorBlockIndex) break;
+    if (blockIndex !== -1) {
+      // Only account for visible blocks in Y position calculation
+      const blockHeight = getBlockHeight(visibleBlock, maxWidth, styles, blockIndex);
+      currentY += blockHeight;
+    }
   }
 
   const blockHeight = getBlockHeight(block, maxWidth, styles, cursorBlockIndex);
@@ -2323,12 +2360,19 @@ function getPositionCoordinates(
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
 
   // Calculate Y position by summing heights of previous blocks
-  for (let i = 0; i < position.blockIndex; i++) {
-    const block = state.document.page.blocks[i];
-    currentY += getBlockHeight(block, maxWidth, styles, i);
+  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const allBlocks = state.document.page.blocks;
+  
+  for (const block of visibleBlocks) {
+    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    if (blockIndex >= position.blockIndex) break;
+    if (blockIndex !== -1) {
+      currentY += getBlockHeight(block, maxWidth, styles, blockIndex);
+    }
   }
 
   const block = state.document.page.blocks[position.blockIndex];
+  if (!block || block.deleted) return null;
   if (!block || block.type === "image" || !isTextualBlock(block)) {
     return null;
   }

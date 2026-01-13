@@ -6,7 +6,7 @@
  */
 
 import { SyncEngine, serializeVV, deserializeVV } from "./index";
-import type { Operation } from "./types";
+import type { HLC, Operation } from "./types";
 import type { AwarenessState, AwarenessUser } from "./awareness";
 import { getColorForPeer, getTestNameForPeer } from "./awareness";
 
@@ -18,7 +18,7 @@ import { getColorForPeer, getTestNameForPeer } from "./awareness";
 export type ServerMessage =
   | { type: "join"; roomId: string; peerId: string; user?: AwarenessUser }
   | { type: "leave"; roomId: string; peerId: string }
-  | { type: "sync-request"; versionVector: Record<string, number>; requesterId?: string }
+  | { type: "sync-request"; versionVector: Record<string, number>; snapshotClock?: HLC | null; requesterId?: string }
   | { type: "sync-response"; operations: Operation[]; versionVector: Record<string, number>; targetPeerId?: string }
   | { type: "operations"; operations: Operation[] }
   | { type: "peer-joined"; peerId: string; user?: AwarenessUser }
@@ -86,6 +86,7 @@ export class WebSocketSync {
   private peerCount = 0;
   private messageQueue: ServerMessage[] = [];
   private localUser: AwarenessUser;
+  private snapshotClock: HLC | null = null;
 
   constructor(engine: SyncEngine, config: WebSocketSyncConfig) {
     this.engine = engine;
@@ -112,6 +113,21 @@ export class WebSocketSync {
    */
   setUserName(name: string): void {
     this.localUser = { ...this.localUser, name };
+  }
+
+  /**
+   * Set the snapshot clock for delta sync.
+   * Operations before this clock are already in the snapshot and don't need to be synced.
+   */
+  setSnapshotClock(clock: HLC | null): void {
+    this.snapshotClock = clock;
+  }
+
+  /**
+   * Get the current snapshot clock.
+   */
+  getSnapshotClock(): HLC | null {
+    return this.snapshotClock;
   }
 
   /**
@@ -198,29 +214,51 @@ export class WebSocketSync {
 
   /**
    * Request sync from the server.
-   * Sends our version vector and receives missing operations.
+   * Sends our version vector and snapshot clock to receive only missing operations.
    */
   private requestSync(): void {
     const vv = this.engine.getVersionVector();
     this.send({
       type: "sync-request",
       versionVector: serializeVV(vv),
+      snapshotClock: this.snapshotClock,
     });
   }
 
   /**
    * Handle incoming sync request from another peer.
-   * Respond with operations they don't have.
+   * Respond with operations they don't have, filtered by their snapshot clock.
    */
   private handleIncomingSyncRequest(
     requesterVV: Record<string, number>,
+    requesterSnapshotClock: HLC | null | undefined,
     requesterId?: string
   ): void {
     // Convert serialized version vector back to Map
     const vv = deserializeVV(requesterVV);
 
-    // Get operations the requester doesn't have
-    const missingOps = this.engine.getOpsSince(vv);
+    // Get operations the requester doesn't have based on version vector
+    let missingOps = this.engine.getOpsSince(vv);
+
+    // If requester has a snapshot clock, filter out operations already in their snapshot
+    // This prevents sending operations that are already persisted in the snapshot
+    if (requesterSnapshotClock) {
+      const beforeFilter = missingOps.length;
+      missingOps = missingOps.filter((op) => {
+        // Only include operations AFTER the requester's snapshot clock
+        return (
+          op.clock.wall > requesterSnapshotClock.wall ||
+          (op.clock.wall === requesterSnapshotClock.wall &&
+            op.clock.logical > requesterSnapshotClock.logical) ||
+          (op.clock.wall === requesterSnapshotClock.wall &&
+            op.clock.logical === requesterSnapshotClock.logical &&
+            op.clock.peerId > requesterSnapshotClock.peerId)
+        );
+      });
+      console.log(
+        `[WebSocket] Filtered ${beforeFilter - missingOps.length} ops already in requester's snapshot`
+      );
+    }
 
     console.log(`[WebSocket] Responding to sync request with ${missingOps.length} operations`);
 
@@ -378,9 +416,13 @@ export class WebSocketSync {
 
       case "sync-request":
         // Another peer is requesting our operations
-        // Respond with operations they don't have based on their version vector
+        // Respond with operations they don't have based on their version vector and snapshot clock
         console.log(`[WebSocket] Received sync request from ${message.requesterId}`);
-        this.handleIncomingSyncRequest(message.versionVector, message.requesterId);
+        this.handleIncomingSyncRequest(
+          message.versionVector,
+          message.snapshotClock,
+          message.requesterId
+        );
         break;
 
       case "sync-response":

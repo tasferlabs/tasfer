@@ -121,6 +121,8 @@ interface IUpdatePage {
   snapshot?: Block[];
   // CRDT operations log - serialized JSON array of operations
   operations?: string;
+  // Clock of the latest operation in the snapshot - used for delta sync
+  snapshotClock?: HLC | null;
 }
 
 export async function updatePage(data: IUpdatePage): Promise<IPage> {

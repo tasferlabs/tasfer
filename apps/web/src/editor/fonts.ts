@@ -786,7 +786,7 @@ export const containsCJK = (text: string): boolean => {
 };
 
 // Wrap CRDT text (Char[] with FormatSpan[]) for rendering
-// Uses batched measurement to preserve Arabic ligatures
+// Uses incremental character measurement for O(n) complexity
 export const wrapCRDTText = (
   chars: Char[],
   formats: FormatSpan[],
@@ -808,9 +808,28 @@ export const wrapCRDTText = (
   // Check if text contains CJK characters
   const hasCJK = containsCJK(fullText);
 
+  // Pre-compute format info for each visible character (O(n) once)
+  // Map from visible index to original chars array index
+  const visibleToOriginalIndex: number[] = [];
+  for (let i = 0; i < chars.length; i++) {
+    if (!chars[i].deleted) {
+      visibleToOriginalIndex.push(i);
+    }
+  }
+
+  // Helper to get font weight for a character at visible index
+  const getFontWeightAtIndex = (visibleIndex: number): string => {
+    const originalIndex = visibleToOriginalIndex[visibleIndex];
+    const charFormats = getFormatsAtIndex(originalIndex, chars, formats);
+    return charFormats.some((f) => f.type === "bold") ? "bold" : baseFontWeight;
+  };
+
   const lines: WrappedLine[] = [];
   let currentLine = "";
-  let lineStartIndex = 0; // Track start of current line for batched measurement
+  let currentLineWidth = 0;
+
+  // Track character widths for the current line (for backtracking on word wrap)
+  let lineCharWidths: number[] = [];
 
   for (
     let visibleIndex = 0;
@@ -821,25 +840,19 @@ export const wrapCRDTText = (
     const isCJK = isCJKCharacter(char);
     const isSpace = char === " ";
 
-    // Measure current line + new character using batched measurement (preserves Arabic ligatures)
-    const proposedLineWidth = measureCRDTTextUpToIndex(
-      chars,
-      formats,
-      lineStartIndex,
-      visibleIndex + 1,
-      fontSize,
-      baseFontWeight,
-      fontFamily
-    );
+    // Measure this single character (O(1) per character)
+    const fontWeight = getFontWeightAtIndex(visibleIndex);
+    const charWidth = measureText(char, fontSize, fontWeight, fontFamily);
 
     // Check if adding this character would exceed max width
-    if (proposedLineWidth > maxWidth && currentLine.length > 0) {
+    if (currentLineWidth + charWidth > maxWidth && currentLine.length > 0) {
       // Line is full, need to wrap
       if (isCJK || isSpace || hasCJK) {
         // For CJK or spaces, break here
         lines.push({ text: currentLine, consumedSpace: isSpace });
         currentLine = isSpace ? "" : char;
-        lineStartIndex = isSpace ? visibleIndex + 1 : visibleIndex;
+        currentLineWidth = isSpace ? 0 : charWidth;
+        lineCharWidths = isSpace ? [] : [charWidth];
       } else {
         // Latin character - try to find last space in current line
         const lastSpaceIndex = currentLine.lastIndexOf(" ");
@@ -848,19 +861,35 @@ export const wrapCRDTText = (
           const lineToAdd = currentLine.substring(0, lastSpaceIndex);
           lines.push({ text: lineToAdd, consumedSpace: true });
 
-          // Start new line with text after the space
-          currentLine = currentLine.substring(lastSpaceIndex + 1) + char;
-          lineStartIndex = visibleIndex - (currentLine.length - 1);
+          // Start new line with text after the space + current char
+          const afterSpace = currentLine.substring(lastSpaceIndex + 1);
+          currentLine = afterSpace + char;
+
+          // Recalculate width for the carried-over text
+          // Sum up the widths of characters after the space
+          const charsAfterSpace = currentLine.length - 1; // -1 for new char
+          let newLineWidth = charWidth;
+          for (let i = 0; i < charsAfterSpace; i++) {
+            newLineWidth += lineCharWidths[lastSpaceIndex + 1 + i];
+          }
+          currentLineWidth = newLineWidth;
+
+          // Update lineCharWidths
+          lineCharWidths = lineCharWidths.slice(lastSpaceIndex + 1);
+          lineCharWidths.push(charWidth);
         } else {
           // No space found, force break
           lines.push({ text: currentLine, consumedSpace: false });
           currentLine = char;
-          lineStartIndex = visibleIndex;
+          currentLineWidth = charWidth;
+          lineCharWidths = [charWidth];
         }
       }
     } else {
       // Character fits on current line
       currentLine += char;
+      currentLineWidth += charWidth;
+      lineCharWidths.push(charWidth);
     }
   }
 

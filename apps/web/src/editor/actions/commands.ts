@@ -19,6 +19,8 @@ import {
   getVisibleText,
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
+import { getVisibleBlocks } from "../sync";
+import { findNextVisibleBlockIndex, findPreviousVisibleBlockIndex } from "../sync/reducer";
 import { isCJKCharacter } from "../fonts";
 import { invalidateBlockCache } from "../renderer";
 import { isRTLChar } from "../rtl";
@@ -441,8 +443,9 @@ export function deleteSelectedText(
     // Handle image block deletion
     if (!isTextualBlock(block)) {
       // For image blocks (and other visual blocks), delete the entire block
-      // Check if this is the only block - if so, replace with empty paragraph
-      if (state.document.page.blocks.length === 1) {
+      // Check if this is the only visible block - if so, replace with empty paragraph
+      const visibleBlocks = getVisibleBlocks(state.document.page);
+      if (visibleBlocks.length === 1) {
         // Delete the image block
         const blockDeleteOp: Operation = {
           op: "block_delete",
@@ -554,6 +557,9 @@ export function deleteSelectedText(
     // Multi-block selection
     const startBlock = state.document.page.blocks[start.blockIndex];
     const endBlock = state.document.page.blocks[end.blockIndex];
+    if (!startBlock || startBlock.deleted || !endBlock || endBlock.deleted) {
+      return { state, ops: [] };
+    }
 
     // Handle case where selection includes image blocks
     const startIsText = isTextualBlock(startBlock);
@@ -576,7 +582,7 @@ export function deleteSelectedText(
       }
 
       // Check if we need to create an empty paragraph (all blocks will be deleted)
-      const visibleBlocksCount = state.document.page.blocks.filter((b: Block) => !b.deleted).length;
+      const visibleBlocksCount = getVisibleBlocks(state.document.page).length;
       const deletingAllBlocks = (end.blockIndex - start.blockIndex + 1) >= visibleBlocksCount;
 
       if (deletingAllBlocks) {
@@ -1281,12 +1287,18 @@ export function deleteForward(
     // Preserve active formats when deleting during typing
     newState = moveCursorToPosition(newState, blockIndex, textIndex, true);
     return { state: newState, ops };
-  } else if (blockIndex < state.document.page.blocks.length - 1) {
-    // Merge with next block, preserving formatting
-    const nextBlock = state.document.page.blocks[blockIndex + 1];
+  } else {
+    // Check for next visible block to merge with
+    const nextBlockIndex = findNextVisibleBlockIndex(
+      state.document.page.blocks,
+      blockIndex
+    );
+    if (nextBlockIndex !== null) {
+      // Merge with next block, preserving formatting
+      const nextBlock = state.document.page.blocks[nextBlockIndex];
 
-    // If next block is not a text block (e.g., image), delete the current text block
-    if (!isTextualBlock(nextBlock)) {
+      // If next block is not a text block (e.g., image), delete the current text block
+      if (!isTextualBlock(nextBlock)) {
       // Delete the current text block
       const blockDeleteOp: Operation = {
         op: "block_delete",
@@ -1385,7 +1397,7 @@ export function deleteForward(
     const newBlocks = [
       ...state.document.page.blocks.slice(0, blockIndex),
       blockCopy,
-      ...state.document.page.blocks.slice(blockIndex + 2),
+      ...state.document.page.blocks.slice(nextBlockIndex + 1),
     ];
     const newPage = { ...state.document.page, blocks: newBlocks };
     let newState: EditorState = {
@@ -1394,6 +1406,7 @@ export function deleteForward(
     };
     newState = moveCursorToPosition(newState, blockIndex, textIndex);
     return { state: newState, ops };
+    }
   }
   return { state, ops };
 }
@@ -1558,20 +1571,32 @@ export function moveToPreviousWord(state: EditorState): EditorState {
     if (textIndex < text.length) {
       const newIndex = findWordBoundary(text, textIndex, "right");
       return moveCursorToPosition(state, blockIndex, newIndex);
-    } else if (blockIndex < state.document.page.blocks.length - 1) {
-      // Move to start of next block
-      return moveCursorToPosition(state, blockIndex + 1, 0);
+    } else {
+      // Move to start of next visible block
+      const nextBlockIndex = findNextVisibleBlockIndex(
+        state.document.page.blocks,
+        blockIndex
+      );
+      if (nextBlockIndex !== null) {
+        return moveCursorToPosition(state, nextBlockIndex, 0);
+      }
     }
   } else {
     // LTR behavior (original)
     if (textIndex > 0) {
       const newIndex = findWordBoundary(text, textIndex, "left");
       return moveCursorToPosition(state, blockIndex, newIndex);
-    } else if (blockIndex > 0) {
-      // Move to end of previous block
-      const prevBlock = state.document.page.blocks[blockIndex - 1];
-      const prevText = getBlockTextContent(prevBlock);
-      return moveCursorToPosition(state, blockIndex - 1, prevText.length);
+    } else {
+      // Move to end of previous visible block
+      const prevBlockIndex = findPreviousVisibleBlockIndex(
+        state.document.page.blocks,
+        blockIndex
+      );
+      if (prevBlockIndex !== null) {
+        const prevBlock = state.document.page.blocks[prevBlockIndex];
+        const prevText = getBlockTextContent(prevBlock);
+        return moveCursorToPosition(state, prevBlockIndex, prevText.length);
+      }
     }
   }
   return state;
@@ -1604,20 +1629,32 @@ export function moveToNextWord(state: EditorState): EditorState {
     if (textIndex > 0) {
       const newIndex = findWordBoundary(text, textIndex, "left");
       return moveCursorToPosition(state, blockIndex, newIndex);
-    } else if (blockIndex > 0) {
-      // Move to end of previous block
-      const prevBlock = state.document.page.blocks[blockIndex - 1];
-      const prevText = getBlockTextContent(prevBlock);
-      return moveCursorToPosition(state, blockIndex - 1, prevText.length);
+    } else {
+      // Move to end of previous visible block
+      const prevBlockIndex = findPreviousVisibleBlockIndex(
+        state.document.page.blocks,
+        blockIndex
+      );
+      if (prevBlockIndex !== null) {
+        const prevBlock = state.document.page.blocks[prevBlockIndex];
+        const prevText = getBlockTextContent(prevBlock);
+        return moveCursorToPosition(state, prevBlockIndex, prevText.length);
+      }
     }
   } else {
     // LTR behavior (original)
     if (textIndex < text.length) {
       const newIndex = findWordBoundary(text, textIndex, "right");
       return moveCursorToPosition(state, blockIndex, newIndex);
-    } else if (blockIndex < state.document.page.blocks.length - 1) {
-      // Move to start of next block
-      return moveCursorToPosition(state, blockIndex + 1, 0);
+    } else {
+      // Move to start of next visible block
+      const nextBlockIndex = findNextVisibleBlockIndex(
+        state.document.page.blocks,
+        blockIndex
+      );
+      if (nextBlockIndex !== null) {
+        return moveCursorToPosition(state, nextBlockIndex, 0);
+      }
     }
   }
   return state;
@@ -1680,15 +1717,21 @@ export function deleteWordForward(
     // Preserve active formats when deleting during typing
     newState = moveCursorToPosition(newState, blockIndex, textIndex, true);
     return { state: newState, ops };
-  } else if (blockIndex < state.document.page.blocks.length - 1) {
-    // Special handling for list blocks at end of text: don't merge, just return
-    // This prevents Ctrl+Delete from merging list items when at the end
-    if (isListBlock(oldBlock)) {
-      return { state, ops };
-    }
+  } else {
+    // Check for next visible block
+    const nextBlockIndex = findNextVisibleBlockIndex(
+      state.document.page.blocks,
+      blockIndex
+    );
+    if (nextBlockIndex !== null) {
+      // Special handling for list blocks at end of text: don't merge, just return
+      // This prevents Ctrl+Delete from merging list items when at the end
+      if (isListBlock(oldBlock)) {
+        return { state, ops };
+      }
 
-    // At end of line - merge with next block, preserving formatting
-    const nextBlock = state.document.page.blocks[blockIndex + 1];
+      // At end of line - merge with next block, preserving formatting
+      const nextBlock = state.document.page.blocks[nextBlockIndex];
     if (!isTextualBlock(nextBlock)) {
       return { state, ops };
     }
@@ -1724,7 +1767,7 @@ export function deleteWordForward(
     const newBlocks = [
       ...state.document.page.blocks.slice(0, blockIndex),
       blockCopy,
-      ...state.document.page.blocks.slice(blockIndex + 2),
+      ...state.document.page.blocks.slice(nextBlockIndex + 1),
     ];
     const newPage = { ...state.document.page, blocks: newBlocks };
     let newState: EditorState = {
@@ -1733,6 +1776,7 @@ export function deleteWordForward(
     };
     newState = moveCursorToPosition(newState, blockIndex, textIndex);
     return { state: newState, ops };
+    }
   }
   return { state, ops };
 }
@@ -2101,15 +2145,20 @@ export function extendSelectionEnd(
   }
   // Move cursor to end of line or document
   const movedState = isCtrl
-    ? moveCursorToPosition(
-        newState,
-        newState.document.page.blocks.length - 1,
-        getBlockTextLength(
-          newState.document.page.blocks[
-            newState.document.page.blocks.length - 1
-          ]
-        )
-      )
+    ? (() => {
+        // Get last visible block and find its index in the full array
+        const visibleBlocks = getVisibleBlocks(newState.document.page);
+        if (visibleBlocks.length === 0) return newState;
+        const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
+        const allBlocks = newState.document.page.blocks;
+        const lastVisibleBlockIndex = allBlocks.findIndex(b => b.id === lastVisibleBlock.id);
+        if (lastVisibleBlockIndex === -1) return newState;
+        return moveCursorToPosition(
+          newState,
+          lastVisibleBlockIndex,
+          getBlockTextLength(lastVisibleBlock)
+        );
+      })()
     : moveToLineEnd(newState);
   if (movedState.document.cursor) {
     return updateSelectionFocus(
@@ -2520,11 +2569,21 @@ function findInsertIndex(chars: Char[], visiblePosition: number): number {
 }
 
 export function selectAll(state: EditorState): EditorState {
-  if (state.document.page.blocks.length === 0) return state;
+  const visibleBlocks = getVisibleBlocks(state.document.page);
+  if (visibleBlocks.length === 0) return state;
 
-  const startPos: Position = { blockIndex: 0, textIndex: 0 };
-  const lastBlockIndex = state.document.page.blocks.length - 1;
-  const lastBlock = state.document.page.blocks[lastBlockIndex];
+  const allBlocks = state.document.page.blocks;
+  const firstVisibleBlock = visibleBlocks[0];
+  const firstBlockIndex = allBlocks.findIndex(b => b.id === firstVisibleBlock.id);
+  const startPos: Position = { 
+    blockIndex: firstBlockIndex >= 0 ? firstBlockIndex : 0, 
+    textIndex: 0 
+  };
+  
+  const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
+  const lastBlockIndex = allBlocks.findIndex(b => b.id === lastVisibleBlock.id);
+  if (lastBlockIndex === -1) return state;
+  const lastBlock = allBlocks[lastBlockIndex];
   const lastBlockText = getBlockTextContent(lastBlock);
   const endPos: Position = {
     blockIndex: lastBlockIndex,
@@ -3507,14 +3566,14 @@ export function toggleTodoChecked(
 ): CommandResult {
   const ops: Operation[] = [];
 
-  // SAFETY: Validate blockIndex bounds before accessing
+  // SAFETY: Validate blockIndex bounds and check block is not deleted
   if (blockIndex < 0 || blockIndex >= state.document.page.blocks.length) {
     return { state, ops: [] };
   }
-
   const block = state.document.page.blocks[blockIndex];
-
-  if (!block || block.type !== "todo_list") return { state, ops: [] };
+  if (!block || block.deleted || block.type !== "todo_list") {
+    return { state, ops: [] };
+  }
 
   // Toggle checked state
   const newBlock: Block = {
@@ -3671,15 +3730,12 @@ export function updateLinkInBlock(
 ): CommandResult {
   const ops: Operation[] = [];
 
-  // SAFETY: Validate blockIndex bounds before accessing
+  // SAFETY: Validate blockIndex bounds and check block is not deleted
   if (blockIndex < 0 || blockIndex >= state.document.page.blocks.length) {
     return { state, ops: [] };
   }
-
   const block = state.document.page.blocks[blockIndex];
-  if (!block) return { state, ops: [] };
-
-  if (!isTextualBlock(block)) {
+  if (!block || block.deleted || !isTextualBlock(block)) {
     return { state, ops: [] };
   }
 
@@ -3765,15 +3821,12 @@ export function clearLinkInBlock(
 ): CommandResult {
   const ops: Operation[] = [];
 
-  // SAFETY: Validate blockIndex bounds before accessing
+  // SAFETY: Validate blockIndex bounds and check block is not deleted
   if (blockIndex < 0 || blockIndex >= state.document.page.blocks.length) {
     return { state, ops: [] };
   }
-
   const block = state.document.page.blocks[blockIndex];
-  if (!block) return { state, ops: [] };
-
-  if (!isTextualBlock(block)) {
+  if (!block || block.deleted || !isTextualBlock(block)) {
     return { state, ops: [] };
   }
 

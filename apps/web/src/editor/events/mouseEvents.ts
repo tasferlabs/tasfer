@@ -1,5 +1,6 @@
 import { isTextualBlock } from "@/deserializer/loadPage";
 import type { Operation, HLC } from "../sync";
+import { getVisibleBlocks } from "../sync";
 import {
   toggleTodoChecked,
   selectLineAtPosition,
@@ -70,14 +71,15 @@ export function handleTodoCheckboxClick(
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
-  // Iterate through blocks to find which one was clicked
+  // Iterate through visible blocks to find which one was clicked
   // Break early once we pass the visible area
-  for (
-    let blockIndex = 0;
-    blockIndex < state.document.page.blocks.length;
-    blockIndex++
-  ) {
-    const block = state.document.page.blocks[blockIndex];
+  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const allBlocks = state.document.page.blocks;
+  
+  for (const block of visibleBlocks) {
+    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    if (blockIndex === -1) continue;
+    
     const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
 
     // Check if click is within this block's Y bounds
@@ -421,6 +423,7 @@ export function handleMouseDown(
       anchor.textIndex === focus.textIndex
     ) {
       const selectedBlock = state.document.page.blocks[anchor.blockIndex];
+      if (!selectedBlock || selectedBlock.deleted) return { state, ops };
       if (
         selectedBlock &&
         (selectedBlock.type === "image" || selectedBlock.type === "line")
@@ -485,9 +488,12 @@ export function handleMouseDown(
   }
 
   // If clicking below all blocks, check if last block is an image and select it
-  const lastBlockIndex = state.document.page.blocks.length - 1;
-  if (lastBlockIndex >= 0 && position.blockIndex === lastBlockIndex) {
-    const lastBlock = state.document.page.blocks[lastBlockIndex];
+  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const lastVisibleBlockIndex = visibleBlocks.length > 0
+    ? state.document.page.blocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
+    : -1;
+  if (lastVisibleBlockIndex >= 0 && position.blockIndex === lastVisibleBlockIndex) {
+    const lastBlock = state.document.page.blocks[lastVisibleBlockIndex];
 
     // Calculate if click is below the last block's content
     // Use pre-computed documentHeight instead of iterating through all blocks
@@ -496,7 +502,7 @@ export function handleMouseDown(
 
     // If clicking below content and last block is an image, select it
     if (isClickBelowContent && lastBlock.type === "image") {
-      const imagePosition = { blockIndex: lastBlockIndex, textIndex: 0 };
+      const imagePosition = { blockIndex: lastVisibleBlockIndex, textIndex: 0 };
       let newState = updateCursor(state, imagePosition);
 
       // Select the image block

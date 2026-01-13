@@ -194,7 +194,7 @@ export default function EditorPage() {
       if (!id) return;
 
       try {
-        await updatePage({ id, snapshot, operations });
+        await updatePage({ id, snapshot, operations, snapshotClock: clock });
         // After successful save, compact operations from memory
         // This frees memory in long sessions while ensuring late joiners
         // can still get operations from us until they're saved on server

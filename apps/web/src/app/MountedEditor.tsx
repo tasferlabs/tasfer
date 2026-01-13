@@ -34,7 +34,7 @@ import type { EditorState, SlashCommand } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { WebSocketSync, type SyncState } from "@/editor/sync/websocket";
-import { SyncEngine, type AwarenessState, type HLC } from "@/editor/sync";
+import { SyncEngine, cleanSnapshotForSave, type AwarenessState, type HLC } from "@/editor/sync";
 import type { AwarenessUser } from "@/editor/sync/awareness";
 import { hasNativeBridge } from "@/editor/actions/clipboard";
 
@@ -154,9 +154,13 @@ export const MountedEditor = React.forwardRef<MountedEditorRef, MountedEditorPro
   // Track snapshot clock for delta operations (operations after this clock need to be sent)
   const snapshotClockRef = useRef<HLC | null>(snapshotClock ?? null);
 
-  // Update ref when prop changes
+  // Update ref and WebSocketSync when snapshotClock prop changes
   useEffect(() => {
     snapshotClockRef.current = snapshotClock ?? null;
+    // Keep WebSocketSync in sync so it sends correct snapshotClock in sync-requests
+    if (websocketSyncRef.current) {
+      websocketSyncRef.current.setSnapshotClock(snapshotClock ?? null);
+    }
   }, [snapshotClock]);
 
   // Expose compaction method to parent via ref
@@ -301,6 +305,9 @@ export const MountedEditor = React.forwardRef<MountedEditorRef, MountedEditorPro
         },
       });
       websocketSyncRef.current = websocketSync;
+
+      // Set initial snapshotClock so sync-requests filter correctly
+      websocketSync.setSnapshotClock(snapshotClockRef.current);
 
       // Connect editor's broadcast to WebSocket
       mounted.editor.setBroadcast((ops) => {
@@ -471,11 +478,17 @@ export const MountedEditor = React.forwardRef<MountedEditorRef, MountedEditorPro
             // This ensures late joiners can still get operations from us until they're on the server
             if (latestClock && onSnapshotClockUpdate) {
               snapshotClockRef.current = latestClock;
+              // Keep WebSocketSync in sync for sync-requests
+              if (websocketSyncRef.current) {
+                websocketSyncRef.current.setSnapshotClock(latestClock);
+              }
               onSnapshotClockUpdate(latestClock);
             }
 
             // Pass the clock so parent knows which clock to compact to after save succeeds
-            onContentChange(currentBlocks as Block[], operations, latestClock);
+            // Clean the snapshot by removing tombstones to reduce storage size
+            const cleanedBlocks = cleanSnapshotForSave(currentBlocks as Block[]);
+            onContentChange(cleanedBlocks, operations, latestClock);
           }
         }
       }

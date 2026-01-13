@@ -19,6 +19,7 @@ import {
   updateScrollbarFadeOpacity,
 } from "../scrollbar";
 import { getTextPositionFromViewport } from "../selection";
+import { getVisibleBlocks } from "../sync";
 import {
   closeActiveMenu,
   openContextMenu,
@@ -207,12 +208,17 @@ export function handleEvents(
       }
     }
 
+    const visibleBlocks = getVisibleBlocks(state.document.page);
+    const allBlocks = state.document.page.blocks;
+    const lastVisibleBlockIndex = visibleBlocks.length > 0
+      ? allBlocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
+      : -1;
     const position = getTextPositionFromViewport(
       touch.clientX,
       touch.clientY,
       state,
       viewport,
-      { start: 0, end: state.document.page.blocks.length - 1 }
+      { start: 0, end: lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0 }
     );
 
     if (position) {
@@ -338,12 +344,17 @@ export function handleEvents(
     }
 
     // Update selection based on new scroll position
+    const visibleBlocks = getVisibleBlocks(state.document.page);
+    const allBlocks = state.document.page.blocks;
+    const lastVisibleBlockIndex = visibleBlocks.length > 0
+      ? allBlocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
+      : -1;
     const position = getTextPositionFromViewport(
       autoScrollState.lastMouseX,
       autoScrollState.lastMouseY,
       state,
       viewport,
-      { start: 0, end: state.document.page.blocks.length - 1 }
+      { start: 0, end: lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0 }
     );
 
     if (position && state.document.selection) {

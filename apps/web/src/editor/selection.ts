@@ -12,6 +12,7 @@ import { getBlockHeight } from "./renderer";
 import { getBlockTextContent } from "./state";
 import { getEditorStyles, getTextStyle } from "./styles";
 import { getVisibleText } from "./sync/crdt-helpers";
+import { getVisibleBlocks } from "./sync";
 import { getTextDirection } from "./rtl";
 import type {
   EditorState,
@@ -32,12 +33,23 @@ export function getCursorCoordinates(
 
   let currentY = styles.canvas.paddingTop;
 
-  for (let i = 0; i < position.blockIndex; i++) {
-    const block = state.document.page.blocks[i];
-    currentY += getBlockHeight(block, maxWidth, styles, i);
+  // Iterate through visible blocks up to the target block
+  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const allBlocks = state.document.page.blocks;
+  const targetBlock = allBlocks[position.blockIndex];
+  
+  if (!targetBlock) return null;
+  
+  // Find visible blocks before the target block
+  for (const block of visibleBlocks) {
+    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    if (blockIndex >= position.blockIndex) break;
+    if (blockIndex !== -1) {
+      currentY += getBlockHeight(block, maxWidth, styles, blockIndex);
+    }
   }
 
-  const block = state.document.page.blocks[position.blockIndex];
+  const block = targetBlock;
   if (!block) return null;
 
   // Image cover and line blocks don't have cursors - they shouldn't be used with this function
@@ -184,6 +196,7 @@ export function getCursorCoordinatesWithComposition(
 
   const position = state.document.cursor.position;
   const block = state.document.page.blocks[position.blockIndex];
+  if (!block || block.deleted) return null;
   if (!block) return null;
 
   // Image cover and line blocks don't have cursors
@@ -246,10 +259,15 @@ export function getCursorCoordinatesWithComposition(
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
   let currentY = styles.canvas.paddingTop;
 
-  // Add heights of blocks before this one
-  for (let i = 0; i < position.blockIndex; i++) {
-    const prevBlock = state.document.page.blocks[i];
-    currentY += getBlockHeight(prevBlock, maxWidth, styles, i);
+  // Add heights of blocks before this one (only visible blocks)
+  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const allBlocks = state.document.page.blocks;
+  for (const block of visibleBlocks) {
+    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    if (blockIndex >= position.blockIndex) break;
+    if (blockIndex !== -1) {
+      currentY += getBlockHeight(block, maxWidth, styles, blockIndex);
+    }
   }
 
   const textStyle = getTextStyle(styles, block.type);
@@ -424,12 +442,12 @@ function getPositionFromPaddingClick(
 ): Position | null {
   let currentY = startY;
 
-  for (
-    let blockIndex = 0;
-    blockIndex < state.document.page.blocks.length;
-    blockIndex++
-  ) {
-    const block = state.document.page.blocks[blockIndex];
+  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const allBlocks = state.document.page.blocks;
+  
+  for (const block of visibleBlocks) {
+    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    if (blockIndex === -1) continue;
     const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
 
     // Check if click is within this block's Y bounds
@@ -542,10 +560,15 @@ function getPositionFromPaddingClick(
     currentY += blockHeight;
   }
 
-  // Click is below all blocks - position at end of last block
-  if (state.document.page.blocks.length > 0) {
-    const lastBlockIndex = state.document.page.blocks.length - 1;
-    const lastBlock = state.document.page.blocks[lastBlockIndex];
+  // Click is below all blocks - position at end of last visible block
+  if (visibleBlocks.length > 0) {
+    const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
+    const allBlocks = state.document.page.blocks;
+    const lastBlockIndex = allBlocks.findIndex(
+      (b) => b.id === lastVisibleBlock.id
+    );
+    if (lastBlockIndex === -1) return null;
+    const lastBlock = allBlocks[lastBlockIndex];
     const content = getBlockTextContent(lastBlock);
 
     return {
@@ -588,12 +611,14 @@ export function getTextPositionFromViewport(
 
   // We need to iterate through blocks from the start to get correct Y positions
   // (same as renderPage does), but we can break early once we pass the visible area
-  for (
-    let blockIndex = 0;
-    blockIndex < state.document.page.blocks.length;
-    blockIndex++
-  ) {
-    const block = state.document.page.blocks[blockIndex];
+  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const allBlocks = state.document.page.blocks;
+
+  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+    const block = visibleBlocks[visibleIdx];
+    // Find the original index of this block in the full array
+    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    if (blockIndex === -1) continue;
     const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
 
     // Check if click is within this block's Y bounds
@@ -618,10 +643,14 @@ export function getTextPositionFromViewport(
     currentY += blockHeight;
   }
 
-  // If click is below all blocks, position at end of last block
-  if (y >= currentY && state.document.page.blocks.length > 0) {
-    const lastBlockIndex = state.document.page.blocks.length - 1;
-    const lastBlock = state.document.page.blocks[lastBlockIndex];
+  // If click is below all blocks, position at end of last visible block
+  if (y >= currentY && visibleBlocks.length > 0) {
+    const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
+    const lastBlockIndex = allBlocks.findIndex(
+      (b) => b.id === lastVisibleBlock.id
+    );
+    if (lastBlockIndex === -1) return null;
+    const lastBlock = allBlocks[lastBlockIndex];
     const content = getBlockTextContent(lastBlock);
 
     return {
@@ -630,13 +659,18 @@ export function getTextPositionFromViewport(
     };
   }
 
-  // If click is above all blocks, position at start of first block
+  // If click is above all blocks, position at start of first visible block
   if (
     y < styles.canvas.paddingTop - viewport.scrollY &&
-    state.document.page.blocks.length > 0
+    visibleBlocks.length > 0
   ) {
+    const firstVisibleBlock = visibleBlocks[0];
+    const allBlocks = state.document.page.blocks;
+    const firstBlockIndex = allBlocks.findIndex(
+      (b) => b.id === firstVisibleBlock.id
+    );
     return {
-      blockIndex: 0,
+      blockIndex: firstBlockIndex >= 0 ? firstBlockIndex : 0,
       textIndex: 0,
     };
   }
@@ -992,6 +1026,7 @@ export function getLinkAtPosition(
   endIndex: number;
 } | null {
   const block = state.document.page.blocks[position.blockIndex];
+  if (!block || block.deleted) return null;
   if (!block) return null;
 
   // Image cover and line blocks don't have text content or links
@@ -1002,10 +1037,10 @@ export function getLinkAtPosition(
   // Find the char at this position
   let visibleIndex = 0;
   let charIdAtPosition: string | null = null;
-  
+
   for (const char of block.chars) {
     if (char.deleted) continue;
-    
+
     if (visibleIndex === position.textIndex) {
       charIdAtPosition = char.id;
       break;
@@ -1020,11 +1055,19 @@ export function getLinkAtPosition(
     if (formatSpan.format.type !== "link") continue;
 
     // Check if charIdAtPosition is within this span
-    const startIdx = block.chars.findIndex(c => c.id === formatSpan.startCharId);
-    const endIdx = block.chars.findIndex(c => c.id === formatSpan.endCharId);
-    const charIdx = block.chars.findIndex(c => c.id === charIdAtPosition);
+    const startIdx = block.chars.findIndex(
+      (c) => c.id === formatSpan.startCharId
+    );
+    const endIdx = block.chars.findIndex((c) => c.id === formatSpan.endCharId);
+    const charIdx = block.chars.findIndex((c) => c.id === charIdAtPosition);
 
-    if (startIdx !== -1 && endIdx !== -1 && charIdx !== -1 && charIdx >= startIdx && charIdx <= endIdx) {
+    if (
+      startIdx !== -1 &&
+      endIdx !== -1 &&
+      charIdx !== -1 &&
+      charIdx >= startIdx &&
+      charIdx <= endIdx
+    ) {
       // Found a link span containing this position
       // Calculate visible start and end indices
       let visStart = 0;
@@ -1052,8 +1095,8 @@ export function getLinkAtPosition(
         // Get the text of the link
         const linkText = block.chars
           .slice(startIdx, endIdx + 1)
-          .filter(c => !c.deleted)
-          .map(c => c.char)
+          .filter((c) => !c.deleted)
+          .map((c) => c.char)
           .join("");
 
         return {
@@ -1104,13 +1147,13 @@ export function isPointWithinSelectionRects(
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
 
-  // Iterate through blocks that are part of the selection
-  for (
-    let blockIndex = 0;
-    blockIndex < state.document.page.blocks.length;
-    blockIndex++
-  ) {
-    const block = state.document.page.blocks[blockIndex];
+  // Iterate through blocks that are part of the selection (only visible blocks)
+  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const allBlocks = state.document.page.blocks;
+  
+  for (const block of visibleBlocks) {
+    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    if (blockIndex === -1) continue;
     const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
 
     // Skip blocks before selection

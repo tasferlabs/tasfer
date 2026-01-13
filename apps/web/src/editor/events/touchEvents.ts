@@ -1,5 +1,6 @@
 import type { Block } from "@/deserializer/loadPage";
 import type { Operation } from "../sync";
+import { getVisibleBlocks } from "../sync";
 import { selectLineAtPosition, selectWordAtPosition } from "../actions/commands";
 import {
   DOUBLE_CLICK_TIME,
@@ -659,7 +660,14 @@ export function handleTouchMove(
         canvasY,
         state,
         viewport,
-        { start: 0, end: state.document.page.blocks.length - 1 }
+        (() => {
+          const visibleBlocks = getVisibleBlocks(state.document.page);
+          const allBlocks = state.document.page.blocks;
+          const lastVisibleBlockIndex = visibleBlocks.length > 0
+            ? allBlocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
+            : -1;
+          return { start: 0, end: lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0 };
+        })()
       );
 
       if (newPosition && state.document.selection) {
@@ -776,12 +784,17 @@ export function handleTouchMove(
       if (!touchState.isTouchingSelection) {
         // Start selection mode if not already in it
         if (state.ui.mode !== "select") {
+          const visibleBlocks = getVisibleBlocks(state.document.page);
+          const allBlocks = state.document.page.blocks;
+          const lastVisibleBlockIndex = visibleBlocks.length > 0
+            ? allBlocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
+            : -1;
           const position = getTextPositionFromViewport(
             touchState.startX,
             touchState.startY,
             state,
             viewport,
-            { start: 0, end: state.document.page.blocks.length - 1 }
+            { start: 0, end: lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0 }
           );
 
           if (position) {
@@ -1153,12 +1166,17 @@ export function handleTouchEnd(
 
     // If tapping in left/right padding, position cursor at start/end of line and clear selection
     if (isTapInLeftPadding || isTapInRightPadding) {
+      const visibleBlocks = getVisibleBlocks(state.document.page);
+      const allBlocks = state.document.page.blocks;
+      const lastVisibleBlockIndex = visibleBlocks.length > 0
+        ? allBlocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
+        : -1;
       const paddingPosition = getTextPositionFromViewport(
         tapPosition.x,
         tapPosition.y,
         state,
         viewport,
-        { start: 0, end: state.document.page.blocks.length - 1 }
+        { start: 0, end: lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0 }
       );
 
       if (paddingPosition) {
@@ -1203,12 +1221,17 @@ export function handleTouchEnd(
     }
 
     // Get text position for cursor/selection
+    const visibleBlocks = getVisibleBlocks(state.document.page);
+    const allBlocks = state.document.page.blocks;
+    const lastVisibleBlockIndex = visibleBlocks.length > 0
+      ? allBlocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
+      : -1;
     const position = getTextPositionFromViewport(
       tapPosition.x,
       tapPosition.y,
       state,
       viewport,
-      { start: 0, end: state.document.page.blocks.length - 1 }
+      { start: 0, end: lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0 }
     );
 
     // Check for multi-tap (double/triple) - use larger threshold for touch
@@ -1233,9 +1256,12 @@ export function handleTouchEnd(
 
     if (position) {
       // If tapping below all blocks, check if last block is an image and select it
-      const lastBlockIndex = state.document.page.blocks.length - 1;
-      if (lastBlockIndex >= 0 && position.blockIndex === lastBlockIndex) {
-        const lastBlock = state.document.page.blocks[lastBlockIndex];
+      const visibleBlocks = getVisibleBlocks(state.document.page);
+      const lastVisibleBlockIndex = visibleBlocks.length > 0
+        ? state.document.page.blocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
+        : -1;
+      if (lastVisibleBlockIndex >= 0 && position.blockIndex === lastVisibleBlockIndex) {
+        const lastBlock = state.document.page.blocks[lastVisibleBlockIndex];
 
         // Calculate if tap is below the last block's content
         // Use pre-computed viewport.documentHeight instead of iterating through all blocks
@@ -1272,7 +1298,7 @@ export function handleTouchEnd(
             document: { ...state.document, page: newPage },
           };
           state = clearSelection(state);
-          state = moveCursorToPosition(state, lastBlockIndex + 1, 0);
+          state = moveCursorToPosition(state, lastVisibleBlockIndex + 1, 0);
 
           touchState = null;
           const finalState = updateMode(state, "edit");
@@ -1295,6 +1321,7 @@ export function handleTouchEnd(
 
       // Check if tapped on an image cover block
       const tappedBlock = state.document.page.blocks[position.blockIndex];
+      if (!tappedBlock || tappedBlock.deleted) return { state, ops };
       if (tappedBlock && tappedBlock.type === "image") {
         // Verify the tap is actually within the image bounds, not just in the block
         const imageBlock = getImageBlockAtPoint(
@@ -1398,8 +1425,11 @@ export function handleTouchEnd(
         } else {
           // Tapped on image block area but not on the actual image visual
           // If this is the last block, create a new paragraph below
-          const isLastBlock =
-            position.blockIndex === state.document.page.blocks.length - 1;
+          const visibleBlocks = getVisibleBlocks(state.document.page);
+          const lastVisibleBlockIndex = visibleBlocks.length > 0
+            ? state.document.page.blocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
+            : -1;
+          const isLastBlock = position.blockIndex === lastVisibleBlockIndex;
           if (isLastBlock) {
             const currentBlock =
               state.document.page.blocks[position.blockIndex];
@@ -1522,6 +1552,7 @@ export function handleTouchEnd(
           anchor.textIndex === focus.textIndex
         ) {
           const selectedBlock = state.document.page.blocks[anchor.blockIndex];
+          if (!selectedBlock || selectedBlock.deleted) return { state, ops };
           if (
             selectedBlock &&
             (selectedBlock.type === "image" || selectedBlock.type === "line")

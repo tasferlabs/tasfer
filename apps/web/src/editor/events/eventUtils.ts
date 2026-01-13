@@ -1,5 +1,6 @@
 import type { Block } from "@/deserializer/loadPage";
 import type { HLC, Operation } from "../sync";
+import { getVisibleBlocks } from "../sync";
 import {
   CLICK_DISTANCE_THRESHOLD,
   SELECTION_HANDLE_TOUCH_TARGET,
@@ -36,13 +37,14 @@ export function getImageBlockAtPoint(
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
-  // Iterate through blocks to find which one we're over
-  for (
-    let blockIndex = 0;
-    blockIndex < state.document.page.blocks.length;
-    blockIndex++
-  ) {
-    const block = state.document.page.blocks[blockIndex];
+  // Iterate through visible blocks to find which one we're over
+  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const allBlocks = state.document.page.blocks;
+  
+  for (const block of visibleBlocks) {
+    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    if (blockIndex === -1) continue;
+    
     const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
 
     // Special handling for first block image covers that bleed into padding
@@ -175,13 +177,14 @@ export function getLineBlockAtPoint(
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
-  // Iterate through blocks to find which one we're over
-  for (
-    let blockIndex = 0;
-    blockIndex < state.document.page.blocks.length;
-    blockIndex++
-  ) {
-    const block = state.document.page.blocks[blockIndex];
+  // Iterate through visible blocks to find which one we're over
+  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const allBlocks = state.document.page.blocks;
+  
+  for (const block of visibleBlocks) {
+    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    if (blockIndex === -1) continue;
+    
     const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
 
     // Check if y is within this block's bounds

@@ -10,6 +10,7 @@ import {
   type Block,
   type Char,
   type FormatSpan,
+  type Page,
 } from "@/deserializer/loadPage";
 import {
   findBlockInsertIndex,
@@ -21,10 +22,9 @@ import type {
   BlockDelete,
   BlockInsert,
   BlockSet,
-  FormatSet,
   BlockType,
+  FormatSet,
   Operation,
-  PageState,
   TextDelete,
   TextInsert,
 } from "./types";
@@ -32,7 +32,7 @@ import type {
 /**
  * Create an empty page state.
  */
-export function createEmptyPageState(pageId: string): PageState {
+export function createEmptyPageState(pageId: string): Page {
   return {
     id: pageId,
     title: "",
@@ -108,7 +108,7 @@ export function createEmptyBlock(
  * Find a block by ID in the state.
  * Returns undefined if not found.
  */
-function findBlock(state: PageState, blockId: string): Block | undefined {
+function findBlock(state: Page, blockId: string): Block | undefined {
   return state.blocks.find((b) => b.id === blockId);
 }
 
@@ -116,7 +116,7 @@ function findBlock(state: PageState, blockId: string): Block | undefined {
  * Find block index by ID in the state.
  * Returns -1 if not found.
  */
-function findBlockIndex(state: PageState, blockId: string): number {
+function findBlockIndex(state: Page, blockId: string): number {
   return state.blocks.findIndex((b) => b.id === blockId);
 }
 
@@ -124,7 +124,7 @@ function findBlockIndex(state: PageState, blockId: string): number {
  * Apply a text insert operation.
  * Inserts characters after the specified character ID.
  */
-function applyTextInsert(state: PageState, op: TextInsert): PageState {
+function applyTextInsert(state: Page, op: TextInsert): Page {
   const blockIndex = findBlockIndex(state, op.blockId);
 
   if (blockIndex === -1) {
@@ -186,7 +186,7 @@ function applyTextInsert(state: PageState, op: TextInsert): PageState {
  * Apply a text delete operation.
  * Marks characters as deleted (tombstone).
  */
-function applyTextDelete(state: PageState, op: TextDelete): PageState {
+function applyTextDelete(state: Page, op: TextDelete): Page {
   const blockIndex = findBlockIndex(state, op.blockId);
 
   if (blockIndex === -1) {
@@ -233,7 +233,7 @@ function applyTextDelete(state: PageState, op: TextDelete): PageState {
  * Apply a format set operation.
  * Adds or updates a format span on the specified characters.
  */
-function applyFormatSet(state: PageState, op: FormatSet): PageState {
+function applyFormatSet(state: Page, op: FormatSet): Page {
   const blockIndex = findBlockIndex(state, op.blockId);
 
   if (blockIndex === -1) {
@@ -273,7 +273,7 @@ function applyFormatSet(state: PageState, op: FormatSet): PageState {
  * Apply a block insert operation.
  * Inserts a new block after the specified block ID.
  */
-function applyBlockInsert(state: PageState, op: BlockInsert): PageState {
+function applyBlockInsert(state: Page, op: BlockInsert): Page {
   // Check if block already exists
   if (findBlock(state, op.blockId)) {
     // Block already exists - idempotent, skip
@@ -281,11 +281,7 @@ function applyBlockInsert(state: PageState, op: BlockInsert): PageState {
   }
 
   // Create the new block
-  const baseBlock = createEmptyBlock(
-    op.blockId,
-    op.afterBlockId,
-    op.blockType
-  );
+  const baseBlock = createEmptyBlock(op.blockId, op.afterBlockId, op.blockType);
 
   // Apply initial props if provided
   const newBlock = op.initialProps
@@ -313,7 +309,7 @@ function applyBlockInsert(state: PageState, op: BlockInsert): PageState {
  * Apply a block delete operation.
  * Marks the block as deleted (tombstone).
  */
-function applyBlockDelete(state: PageState, op: BlockDelete): PageState {
+function applyBlockDelete(state: Page, op: BlockDelete): Page {
   const blockIndex = findBlockIndex(state, op.blockId);
 
   if (blockIndex === -1) {
@@ -340,7 +336,7 @@ function applyBlockDelete(state: PageState, op: BlockDelete): PageState {
  * Apply a block set operation.
  * Updates a block property using Last-Writer-Wins.
  */
-function applyBlockSet(state: PageState, op: BlockSet): PageState {
+function applyBlockSet(state: Page, op: BlockSet): Page {
   const blockIndex = findBlockIndex(state, op.blockId);
 
   if (blockIndex === -1) {
@@ -353,17 +349,18 @@ function applyBlockSet(state: PageState, op: BlockSet): PageState {
   if (op.field === "type") {
     const newType = op.value as BlockType;
     const newBlock = createEmptyBlock(block.id, block.afterId ?? null, newType);
-    
+
     // Preserve chars and formats for textual blocks
-    const updatedBlock: Block = isTextualBlock(block) && isTextualBlock(newBlock)
-      ? {
-          ...newBlock,
-          chars: block.chars,
-          formats: block.formats,
-          cachedHeight: block.cachedHeight,
-          cachedWidth: block.cachedWidth,
-        }
-      : newBlock;
+    const updatedBlock: Block =
+      isTextualBlock(block) && isTextualBlock(newBlock)
+        ? {
+            ...newBlock,
+            chars: block.chars,
+            formats: block.formats,
+            cachedHeight: block.cachedHeight,
+            cachedWidth: block.cachedWidth,
+          }
+        : newBlock;
 
     const newBlocks = [...state.blocks];
     newBlocks[blockIndex] = updatedBlock;
@@ -390,7 +387,7 @@ function applyBlockSet(state: PageState, op: BlockSet): PageState {
 /**
  * Apply a single operation to the state.
  */
-export function applyOp(state: PageState, op: Operation): PageState {
+export function applyOp(state: Page, op: Operation): Page {
   switch (op.op) {
     case "text_insert":
       return applyTextInsert(state, op);
@@ -418,7 +415,7 @@ export function applyOp(state: PageState, op: Operation): PageState {
  * @param ops - All operations to apply
  * @returns Computed page state
  */
-export function rebuildState(pageId: string, ops: Operation[]): PageState {
+export function rebuildState(pageId: string, ops: Operation[]): Page {
   // Sort operations by HLC
   const sorted = [...ops].sort((a, b) => compareHLC(a.clock, b.clock));
 
@@ -460,8 +457,58 @@ export function getVisibleText(block: Block): string {
 /**
  * Get visible blocks from state (excluding deleted blocks).
  */
-export function getVisibleBlocks(state: PageState): Block[] {
+export function getVisibleBlocks(state: Page): Block[] {
   return state.blocks.filter((b) => !b.deleted);
+}
+
+/**
+ * Clean a snapshot by removing all tombstones (deleted blocks and chars).
+ * Use this before saving to reduce storage size.
+ * The cleaned snapshot is safe to save because:
+ * - It represents the visible state users see
+ * - CRDT operations are stored separately for sync
+ * - Delete operations on already-removed items are no-ops
+ */
+export function cleanSnapshotForSave(blocks: Block[]): Block[] {
+  return blocks
+    .filter((block) => !block.deleted)
+    .map((block) => {
+      // For non-textual blocks, return as-is
+      if (!isTextualBlock(block)) {
+        return block;
+      }
+
+      // For textual blocks, filter out deleted chars
+      return {
+        ...block,
+        chars: block.chars.filter((char) => !char.deleted),
+      };
+    });
+}
+
+// Helper functions to find next/previous visible block
+export function findNextVisibleBlockIndex(
+  blocks: Block[],
+  startIndex: number
+): number | null {
+  for (let i = startIndex + 1; i < blocks.length; i++) {
+    if (!blocks[i].deleted) {
+      return i;
+    }
+  }
+  return null;
+}
+
+export function findPreviousVisibleBlockIndex(
+  blocks: Block[],
+  startIndex: number
+): number | null {
+  for (let i = startIndex - 1; i >= 0; i--) {
+    if (!blocks[i].deleted) {
+      return i;
+    }
+  }
+  return null;
 }
 
 /**

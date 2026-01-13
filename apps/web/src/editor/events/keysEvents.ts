@@ -1,5 +1,6 @@
 import { isListBlock, type Block, isTextualBlock } from "@/deserializer/loadPage";
 import type { Operation } from "../sync";
+import { getVisibleBlocks } from "../sync";
 import { copySelectionToClipboard } from "../actions/clipboard";
 import { selectAll, toggleBold, outdentListItem, indentListItem, getSelectionRange, deleteSelectedText, applySlashCommand, deleteText, insertText, extendSelectionWordLeft, moveToPreviousWord, extendSelectionWordRight, moveToNextWord, extendSelectionHome, moveToLineStart, extendSelectionEnd, moveToLineEnd, deleteWordBackward, deleteWordForward, deleteForward, splitBlock } from "../actions/commands";
 import { deleteCharsInRange } from "../sync/crdt-helpers";
@@ -205,6 +206,7 @@ export function handleKeyDown(
         if (state.document.cursor) {
           const { blockIndex, textIndex } = slashMenu;
           const block = state.document.page.blocks[blockIndex];
+          if (!block || block.deleted) return { state, ops };
 
           // Visual blocks (image/line) don't have text content, so guard anyway
           if (block.type === "image" || block.type === "line") {
@@ -274,6 +276,7 @@ export function handleKeyDown(
           ops.push(...result.ops);
           if (newState.document.cursor) {
             const block = newState.document.page.blocks[slashMenu.blockIndex];
+            if (!block || block.deleted) return { state, ops };
             const text = getBlockTextContent(block);
             const filter = text.slice(
               slashMenu.textIndex,
@@ -303,6 +306,7 @@ export function handleKeyDown(
           ops.push(...result.ops);
           if (result.state.document.cursor) {
             const block = result.state.document.page.blocks[slashMenu.blockIndex];
+            if (!block || block.deleted) return { state, ops };
             const text = getBlockTextContent(block);
             const filter = text.slice(
               slashMenu.textIndex,
@@ -355,7 +359,10 @@ export function handleKeyDown(
         // Check if we're on an image at the start of the page
         if (state.document.cursor) {
           const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
-          const isFirstBlock = state.document.cursor.position.blockIndex === 0;
+          if (!currentBlock || currentBlock.deleted) return { state, ops };
+          const visibleBlocks = getVisibleBlocks(state.document.page);
+          const firstVisibleBlock = visibleBlocks.length > 0 ? visibleBlocks[0] : null;
+          const isFirstBlock = firstVisibleBlock && currentBlock.id === firstVisibleBlock.id;
 
           if (isFirstBlock && currentBlock?.type === "image") {
             // Create a new paragraph above the image
@@ -438,7 +445,8 @@ export function handleKeyDown(
             newState = moveCursorToPosition(newState, 0, 0);
 
             // Select the visual block (image/line)
-            const firstBlock = newState.document.page.blocks[0];
+            const visibleBlocks = getVisibleBlocks(newState.document.page);
+            const firstBlock = visibleBlocks.length > 0 ? visibleBlocks[0] : null;
             if (firstBlock?.type === "image" || firstBlock?.type === "line") {
               newState = {
                 ...newState,
@@ -526,8 +534,11 @@ export function handleKeyDown(
         // Check if we're on a visual block (image/line) at the end of the page
         if (state.document.cursor) {
           const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
-          const isLastBlock = state.document.cursor.position.blockIndex ===
-            state.document.page.blocks.length - 1;
+          const visibleBlocks = getVisibleBlocks(state.document.page);
+          const lastVisibleBlockIndex = visibleBlocks.length > 0
+            ? state.document.page.blocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
+            : -1;
+          const isLastBlock = state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
 
           if (isLastBlock &&
             (currentBlock?.type === "image" || currentBlock?.type === "line")) {
@@ -611,7 +622,8 @@ export function handleKeyDown(
             newState = moveCursorToPosition(newState, 0, 0);
 
             // Select the visual block (image/line)
-            const firstBlock = newState.document.page.blocks[0];
+            const visibleBlocks = getVisibleBlocks(newState.document.page);
+            const firstBlock = visibleBlocks.length > 0 ? visibleBlocks[0] : null;
             if (firstBlock?.type === "image" || firstBlock?.type === "line") {
               newState = {
                 ...newState,
@@ -831,7 +843,8 @@ export function handleKeyDown(
             newState = moveCursorToPosition(newState, 0, 0);
 
             // Select the visual block (image/line)
-            const firstBlock = newState.document.page.blocks[0];
+            const visibleBlocks = getVisibleBlocks(newState.document.page);
+            const firstBlock = visibleBlocks.length > 0 ? visibleBlocks[0] : null;
             if (firstBlock?.type === "image" || firstBlock?.type === "line") {
               newState = {
                 ...newState,
@@ -854,8 +867,11 @@ export function handleKeyDown(
         // Check if we're on a visual block (image/line) at the end of the page
         if (state.document.cursor) {
           const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
-          const isLastBlock = state.document.cursor.position.blockIndex ===
-            state.document.page.blocks.length - 1;
+          const visibleBlocks = getVisibleBlocks(state.document.page);
+          const lastVisibleBlockIndex = visibleBlocks.length > 0
+            ? state.document.page.blocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
+            : -1;
+          const isLastBlock = state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
 
           if (isLastBlock &&
             (currentBlock?.type === "image" || currentBlock?.type === "line")) {
@@ -1040,13 +1056,24 @@ export function handleKeyDown(
         newState = extendSelectionEnd(newState, isCtrl);
       } else {
         if (isCtrl) {
-          newState = moveCursorToPosition(
-            clearSelection(state),
-            state.document.page.blocks.length - 1,
-            getBlockTextLength(
-              state.document.page.blocks[state.document.page.blocks.length - 1]
-            )
-          );
+          // Get last visible block and find its index in the full array
+          const visibleBlocks = getVisibleBlocks(state.document.page);
+          if (visibleBlocks.length === 0) {
+            newState = clearSelection(state);
+          } else {
+            const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
+            const allBlocks = state.document.page.blocks;
+            const lastVisibleBlockIndex = allBlocks.findIndex(b => b.id === lastVisibleBlock.id);
+            if (lastVisibleBlockIndex !== -1) {
+              newState = moveCursorToPosition(
+                clearSelection(state),
+                lastVisibleBlockIndex,
+                getBlockTextLength(lastVisibleBlock)
+              );
+            } else {
+              newState = clearSelection(state);
+            }
+          }
         } else {
           newState = moveToLineEnd(clearSelection(state));
         }

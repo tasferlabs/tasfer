@@ -34,6 +34,7 @@ import {
   formatCharsInRange,
   insertCharsAtPosition,
 } from "./sync/crdt-helpers";
+import { getVisibleBlocks } from "./sync";
 import { handleEvents } from "./events/events";
 import { isInLongPressMode } from "./events/touchEvents";
 import { onFontFamilyChange } from "./fonts";
@@ -970,14 +971,15 @@ export default function createEditor(
     const maxWidth = viewport.width - 2 * styles.canvas.paddingLeft;
     let totalHeight = styles.canvas.paddingTop;
 
-    for (let i = 0; i < state.document.page.blocks.length; i++) {
-      const block = state.document.page.blocks[i];
-      // Skip tombstoned blocks
-      if (block.deleted) {
-        continue;
-      }
+    const visibleBlocks = getVisibleBlocks(state.document.page);
+    const allBlocks = state.document.page.blocks;
+    for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+      const block = visibleBlocks[visibleIdx];
+      // Find original index for height calculation
+      const originalIndex = allBlocks.findIndex(b => b.id === block.id);
+      if (originalIndex === -1) continue;
       // Use getBlockHeight to leverage caching for performance
-      const blockHeight = getBlockHeight(block, maxWidth, styles, i);
+      const blockHeight = getBlockHeight(block, maxWidth, styles, originalIndex);
       totalHeight += blockHeight;
     }
 
@@ -1013,7 +1015,7 @@ export default function createEditor(
 
   function setInitialCursor() {
     // Only set cursor if there isn't one already
-    if (!state.document.cursor && state.document.page.blocks.length > 0) {
+    if (!state.document.cursor && getVisibleBlocks(state.document.page).length > 0) {
       state = createInitialCursorState(state);
       scheduleRender();
     }
@@ -1542,13 +1544,16 @@ export default function createEditor(
 
     // Validate and adjust cursor position if needed
     let cursor = state.document.cursor;
-    if (cursor && page.blocks.length > 0) {
+    const visibleBlocks = getVisibleBlocks(page);
+    if (cursor && visibleBlocks.length > 0) {
       const { blockIndex, textIndex } = cursor.position;
-      const maxBlockIndex = page.blocks.length - 1;
+      // Find the last visible block's index in the full array
+      const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
+      const maxBlockIndex = page.blocks.findIndex(b => b.id === lastVisibleBlock.id);
 
       if (blockIndex > maxBlockIndex) {
-        // Cursor points to a block that no longer exists, move to end of last block
-        const lastBlock = page.blocks[maxBlockIndex];
+        // Cursor points to a block that no longer exists, move to end of last visible block
+        const lastBlock = lastVisibleBlock;
         const lastBlockText = getBlockTextContent(lastBlock);
         cursor = {
           ...cursor,
@@ -1573,15 +1578,17 @@ export default function createEditor(
           }
         }
       }
-    } else if (cursor && page.blocks.length === 0) {
-      // No blocks, clear cursor
+    } else if (cursor && visibleBlocks.length === 0) {
+      // No visible blocks, clear cursor
       cursor = null;
     }
 
     // Validate selection as well
     let selection = state.document.selection;
-    if (selection && page.blocks.length > 0) {
-      const maxBlockIndex = page.blocks.length - 1;
+    if (selection && visibleBlocks.length > 0) {
+      // Find the last visible block's index in the full array
+      const lastVisibleBlockForSelection = visibleBlocks[visibleBlocks.length - 1];
+      const maxBlockIndex = page.blocks.findIndex(b => b.id === lastVisibleBlockForSelection.id);
       const { anchor, focus } = selection;
 
       let newAnchor = anchor;
@@ -1615,7 +1622,7 @@ export default function createEditor(
             newAnchor.textIndex === newFocus.textIndex,
         };
       }
-    } else if (selection && page.blocks.length === 0) {
+    } else if (selection && visibleBlocks.length === 0) {
       selection = null;
     }
 
@@ -1676,13 +1683,16 @@ export default function createEditor(
 
     // Validate and adjust cursor position if needed
     let cursor = state.document.cursor;
-    if (cursor && newPage.blocks.length > 0) {
+    const visibleBlocksForOps = getVisibleBlocks(newPage);
+    if (cursor && visibleBlocksForOps.length > 0) {
       const { blockIndex, textIndex } = cursor.position;
-      const maxBlockIndex = newPage.blocks.length - 1;
+      // Find the last visible block's index in the full array
+      const lastVisibleBlockForOps = visibleBlocksForOps[visibleBlocksForOps.length - 1];
+      const maxBlockIndex = newPage.blocks.findIndex(b => b.id === lastVisibleBlockForOps.id);
 
       if (blockIndex > maxBlockIndex) {
-        // Cursor points to a block that no longer exists, move to end of last block
-        const lastBlock = newPage.blocks[maxBlockIndex];
+        // Cursor points to a block that no longer exists, move to end of last visible block
+        const lastBlock = lastVisibleBlockForOps;
         const lastBlockText = getBlockTextContent(lastBlock);
         cursor = {
           ...cursor,
@@ -1707,15 +1717,17 @@ export default function createEditor(
           }
         }
       }
-    } else if (cursor && newPage.blocks.length === 0) {
-      // No blocks, clear cursor
+    } else if (cursor && visibleBlocksForOps.length === 0) {
+      // No visible blocks, clear cursor
       cursor = null;
     }
 
     // Validate selection as well
     let selection = state.document.selection;
-    if (selection && newPage.blocks.length > 0) {
-      const maxBlockIndex = newPage.blocks.length - 1;
+    if (selection && visibleBlocksForOps.length > 0) {
+      // Find the last visible block's index in the full array
+      const lastVisibleBlockForSelectionOps = visibleBlocksForOps[visibleBlocksForOps.length - 1];
+      const maxBlockIndex = newPage.blocks.findIndex(b => b.id === lastVisibleBlockForSelectionOps.id);
       const { anchor, focus } = selection;
 
       let newAnchor = anchor;
@@ -1749,7 +1761,7 @@ export default function createEditor(
             newAnchor.textIndex === newFocus.textIndex,
         };
       }
-    } else if (selection && newPage.blocks.length === 0) {
+    } else if (selection && visibleBlocksForOps.length === 0) {
       selection = null;
     }
 

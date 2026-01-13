@@ -5,11 +5,7 @@
  * optimized for block-based editors.
  */
 
-import type {
-  Block,
-  Char,
-  TextFormat,
-} from "@/deserializer/loadPage";
+import type { Char, Page, TextFormat } from "@/deserializer/loadPage";
 
 // =============================================================================
 // Hybrid Logical Clock (HLC)
@@ -75,18 +71,6 @@ export interface BlockProps {
 // =============================================================================
 // Page State
 // =============================================================================
-
-/**
- * Computed page state derived from operations.
- */
-export interface PageState {
-  /** Page ID */
-  id: string;
-  /** Page title */
-  title: string;
-  /** Ordered array of blocks (non-deleted, resolved from linked list) */
-  blocks: Block[];
-}
 
 // =============================================================================
 // Operations
@@ -212,7 +196,7 @@ export interface OpLog {
   /** Version vector of seen operations */
   versionVector: VersionVector;
   /** Computed state from operations */
-  state: PageState;
+  state: Page;
 }
 
 // =============================================================================

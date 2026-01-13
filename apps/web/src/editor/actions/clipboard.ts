@@ -11,6 +11,7 @@ import type {
   BlockSet,
   FormatSet,
   Operation,
+  TextInsert,
 } from "../sync/types";
 import { deleteSelectedText, getSelectionRange } from "../actions/commands";
 import { IMAGE_DEFAULT_HEIGHT } from "../constants";
@@ -19,6 +20,7 @@ import {
   getVisibleText,
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
+import { getVisibleBlocks } from "../sync";
 import { invalidateBlockCache } from "../renderer";
 import {
   clearSelection,
@@ -133,6 +135,7 @@ function getSelectedContent(state: EditorState): {
   // If selection is in a single block
   if (start.blockIndex === end.blockIndex) {
     const block = state.document.page.blocks[start.blockIndex];
+    if (!block || block.deleted) return null;
     const textLength = getBlockTextLength(block);
 
     // Image cover and line blocks are included as-is
@@ -185,6 +188,7 @@ function getSelectedContent(state: EditorState): {
 
   for (let i = start.blockIndex; i <= end.blockIndex; i++) {
     const block = state.document.page.blocks[i];
+    if (!block || block.deleted) continue;
     const textLength = getBlockTextLength(block);
 
     // Image cover and line blocks are included as-is
@@ -1097,10 +1101,19 @@ function insertBlocksAtCursor(
   let textIndex: number;
 
   if (!newState.document.cursor) {
-    // Insert at the end of the last block
-    blockIndex = newState.document.page.blocks.length - 1;
-    const lastBlock = newState.document.page.blocks[blockIndex];
-    textIndex = getBlockTextLength(lastBlock);
+    // Insert at the end of the last visible block
+    const visibleBlocks = getVisibleBlocks(newState.document.page);
+    if (visibleBlocks.length === 0) {
+      // No visible blocks, create a default position
+      blockIndex = 0;
+      textIndex = 0;
+    } else {
+      const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
+      const allBlocks = newState.document.page.blocks;
+      const lastVisibleBlockIndex = allBlocks.findIndex(b => b.id === lastVisibleBlock.id);
+      blockIndex = lastVisibleBlockIndex !== -1 ? lastVisibleBlockIndex : 0;
+      textIndex = getBlockTextLength(lastVisibleBlock);
+    }
   } else {
     blockIndex = newState.document.cursor.position.blockIndex;
     textIndex = newState.document.cursor.position.textIndex;
@@ -1108,9 +1121,18 @@ function insertBlocksAtCursor(
 
   // Ensure cursor position is valid
   if (blockIndex < 0 || blockIndex >= newState.document.page.blocks.length) {
-    blockIndex = newState.document.page.blocks.length - 1;
-    const lastBlock = newState.document.page.blocks[blockIndex];
-    textIndex = getBlockTextLength(lastBlock);
+    // Fallback to last visible block
+    const visibleBlocks = getVisibleBlocks(newState.document.page);
+    if (visibleBlocks.length === 0) {
+      blockIndex = 0;
+      textIndex = 0;
+    } else {
+      const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
+      const allBlocks = newState.document.page.blocks;
+      const lastVisibleBlockIndex = allBlocks.findIndex(b => b.id === lastVisibleBlock.id);
+      blockIndex = lastVisibleBlockIndex !== -1 ? lastVisibleBlockIndex : 0;
+      textIndex = getBlockTextLength(lastVisibleBlock);
+    }
   }
   const currentBlock = newState.document.page.blocks[blockIndex];
 
@@ -1642,7 +1664,45 @@ function insertBlocksAtCursor(
         resultBlocks.push(newLineBlock);
         lastInsertedBlockId = newBlockId;
       } else if (isTextualBlock(block)) {
-        const newBlock = { ...block, id: newBlockId };
+        // Generate new chars with new IDs for CRDT sync
+        const newChars: Char[] = block.chars
+          .filter((c) => !c.deleted)
+          .map((c) => ({
+            id: crdt.idGen(),
+            char: c.char,
+            deleted: false,
+          }));
+
+        // Build a mapping from old char IDs to new char IDs for format spans
+        const visibleOldChars = block.chars.filter((c) => !c.deleted);
+        const oldToNewCharIdMap = new Map<string, string>();
+        visibleOldChars.forEach((oldChar, idx) => {
+          oldToNewCharIdMap.set(oldChar.id, newChars[idx].id);
+        });
+
+        // Map formats to use new char IDs
+        const newFormats: FormatSpan[] = block.formats
+          .map((f) => {
+            const newStartId = oldToNewCharIdMap.get(f.startCharId);
+            const newEndId = oldToNewCharIdMap.get(f.endCharId);
+            if (newStartId && newEndId) {
+              return {
+                ...f,
+                startCharId: newStartId,
+                endCharId: newEndId,
+                clock: crdt.clock(),
+              };
+            }
+            return null;
+          })
+          .filter((f): f is FormatSpan => f !== null);
+
+        const newBlock: Block = {
+          ...block,
+          id: newBlockId,
+          chars: newChars,
+          formats: newFormats,
+        };
         invalidateBlockCache(newBlock);
 
         const blockInsertOp: BlockInsert = {
@@ -1655,6 +1715,43 @@ function insertBlocksAtCursor(
           blockType: newBlock.type as any,
         };
         ops.push(blockInsertOp);
+
+        // Add text_insert operation for the block's content
+        if (newChars.length > 0) {
+          const textInsertOp: TextInsert = {
+            op: "text_insert",
+            id: crdt.idGen(),
+            clock: crdt.clock(),
+            pageId: crdt.pageId,
+            blockId: newBlockId,
+            afterCharId: null, // Insert at beginning of new block
+            chars: newChars.map((c) => ({ id: c.id, char: c.char })),
+          };
+          ops.push(textInsertOp);
+        }
+
+        // Add format_set operations for each format span
+        for (const format of newFormats) {
+          const startIdx = newChars.findIndex((c) => c.id === format.startCharId);
+          const endIdx = newChars.findIndex((c) => c.id === format.endCharId);
+          if (startIdx !== -1 && endIdx !== -1) {
+            const charIds = newChars.slice(startIdx, endIdx + 1).map((c) => c.id);
+            const formatOp: FormatSet = {
+              op: "format_set",
+              id: crdt.idGen(),
+              clock: crdt.clock(),
+              pageId: crdt.pageId,
+              blockId: newBlockId,
+              charIds,
+              format: format.format,
+              value:
+                format.format.type === "link"
+                  ? format.format.url || true
+                  : true,
+            };
+            ops.push(formatOp);
+          }
+        }
 
         // Add list properties if needed
         if (isListBlock(newBlock)) {
@@ -1694,11 +1791,81 @@ function insertBlocksAtCursor(
       if (isTextualBlock(lastPastedBlock)) {
         // Last block: pasted content + after content from current block
         const lastBlockId = generateBlockId();
+
+        // Generate new chars with new IDs for pasted content
+        const visiblePastedChars = lastPastedBlock.chars.filter(
+          (c) => !c.deleted
+        );
+        const newPastedChars: Char[] = visiblePastedChars.map((c) => ({
+          id: crdt.idGen(),
+          char: c.char,
+          deleted: false,
+        }));
+
+        // Build mapping from old pasted char IDs to new IDs
+        const pastedOldToNewMap = new Map<string, string>();
+        visiblePastedChars.forEach((oldChar, idx) => {
+          pastedOldToNewMap.set(oldChar.id, newPastedChars[idx].id);
+        });
+
+        // Generate new chars with new IDs for after content
+        const visibleAfterChars = afterChars.filter((c) => !c.deleted);
+        const newAfterChars: Char[] = visibleAfterChars.map((c) => ({
+          id: crdt.idGen(),
+          char: c.char,
+          deleted: false,
+        }));
+
+        // Build mapping from old after char IDs to new IDs
+        const afterOldToNewMap = new Map<string, string>();
+        visibleAfterChars.forEach((oldChar, idx) => {
+          afterOldToNewMap.set(oldChar.id, newAfterChars[idx].id);
+        });
+
+        // Combine all chars for the new block
+        const allNewChars = [...newPastedChars, ...newAfterChars];
+
+        // Map pasted formats to use new char IDs
+        const newPastedFormats: FormatSpan[] = lastPastedBlock.formats
+          .map((f) => {
+            const newStartId = pastedOldToNewMap.get(f.startCharId);
+            const newEndId = pastedOldToNewMap.get(f.endCharId);
+            if (newStartId && newEndId) {
+              return {
+                ...f,
+                startCharId: newStartId,
+                endCharId: newEndId,
+                clock: crdt.clock(),
+              };
+            }
+            return null;
+          })
+          .filter((f): f is FormatSpan => f !== null);
+
+        // Map after formats to use new char IDs
+        const newAfterFormats: FormatSpan[] = afterFormats
+          .map((f) => {
+            const newStartId = afterOldToNewMap.get(f.startCharId);
+            const newEndId = afterOldToNewMap.get(f.endCharId);
+            if (newStartId && newEndId) {
+              return {
+                ...f,
+                startCharId: newStartId,
+                endCharId: newEndId,
+                clock: crdt.clock(),
+              };
+            }
+            return null;
+          })
+          .filter((f): f is FormatSpan => f !== null);
+
+        const allNewFormats = [...newPastedFormats, ...newAfterFormats];
+
         const lastBlock: Block = {
           ...lastPastedBlock,
           id: lastBlockId,
-          chars: [...lastPastedBlock.chars, ...afterChars],
-          formats: [...lastPastedBlock.formats, ...afterFormats],
+          chars: allNewChars,
+          formats: allNewFormats,
         };
         invalidateBlockCache(lastBlock);
 
@@ -1712,6 +1879,49 @@ function insertBlocksAtCursor(
           blockType: lastBlock.type as any,
         };
         ops.push(lastBlockInsertOp);
+
+        // Add text_insert operation for the block's content
+        if (allNewChars.length > 0) {
+          const textInsertOp: TextInsert = {
+            op: "text_insert",
+            id: crdt.idGen(),
+            clock: crdt.clock(),
+            pageId: crdt.pageId,
+            blockId: lastBlockId,
+            afterCharId: null, // Insert at beginning of new block
+            chars: allNewChars.map((c) => ({ id: c.id, char: c.char })),
+          };
+          ops.push(textInsertOp);
+        }
+
+        // Add format_set operations for each format span
+        for (const format of allNewFormats) {
+          const startIdx = allNewChars.findIndex(
+            (c) => c.id === format.startCharId
+          );
+          const endIdx = allNewChars.findIndex(
+            (c) => c.id === format.endCharId
+          );
+          if (startIdx !== -1 && endIdx !== -1) {
+            const charIds = allNewChars
+              .slice(startIdx, endIdx + 1)
+              .map((c) => c.id);
+            const formatOp: FormatSet = {
+              op: "format_set",
+              id: crdt.idGen(),
+              clock: crdt.clock(),
+              pageId: crdt.pageId,
+              blockId: lastBlockId,
+              charIds,
+              format: format.format,
+              value:
+                format.format.type === "link"
+                  ? format.format.url || true
+                  : true,
+            };
+            ops.push(formatOp);
+          }
+        }
 
         // Add list properties for last block if needed
         if (isListBlock(lastBlock)) {
@@ -1763,11 +1973,45 @@ function insertBlocksAtCursor(
         // If there's after-cursor content, create a new paragraph for it
         if (afterChars.length > 0 && afterChars.some((c) => !c.deleted)) {
           const afterBlockId = generateBlockId();
+
+          // Generate new chars with new IDs for after content
+          const visibleAfterCharsForImg = afterChars.filter((c) => !c.deleted);
+          const newAfterCharsForImg: Char[] = visibleAfterCharsForImg.map(
+            (c) => ({
+              id: crdt.idGen(),
+              char: c.char,
+              deleted: false,
+            })
+          );
+
+          // Build mapping from old after char IDs to new IDs
+          const afterOldToNewMapForImg = new Map<string, string>();
+          visibleAfterCharsForImg.forEach((oldChar, idx) => {
+            afterOldToNewMapForImg.set(oldChar.id, newAfterCharsForImg[idx].id);
+          });
+
+          // Map after formats to use new char IDs
+          const newAfterFormatsForImg: FormatSpan[] = afterFormats
+            .map((f) => {
+              const newStartId = afterOldToNewMapForImg.get(f.startCharId);
+              const newEndId = afterOldToNewMapForImg.get(f.endCharId);
+              if (newStartId && newEndId) {
+                return {
+                  ...f,
+                  startCharId: newStartId,
+                  endCharId: newEndId,
+                  clock: crdt.clock(),
+                };
+              }
+              return null;
+            })
+            .filter((f): f is FormatSpan => f !== null);
+
           const afterBlock: Block = {
             id: afterBlockId,
             type: "paragraph",
-            chars: afterChars,
-            formats: afterFormats,
+            chars: newAfterCharsForImg,
+            formats: newAfterFormatsForImg,
           };
           invalidateBlockCache(afterBlock);
 
@@ -1781,6 +2025,49 @@ function insertBlocksAtCursor(
             blockType: "paragraph",
           };
           ops.push(afterBlockInsertOp);
+
+          // Add text_insert operation for after content
+          if (newAfterCharsForImg.length > 0) {
+            const textInsertOp: TextInsert = {
+              op: "text_insert",
+              id: crdt.idGen(),
+              clock: crdt.clock(),
+              pageId: crdt.pageId,
+              blockId: afterBlockId,
+              afterCharId: null,
+              chars: newAfterCharsForImg.map((c) => ({ id: c.id, char: c.char })),
+            };
+            ops.push(textInsertOp);
+          }
+
+          // Add format_set operations
+          for (const format of newAfterFormatsForImg) {
+            const startIdx = newAfterCharsForImg.findIndex(
+              (c) => c.id === format.startCharId
+            );
+            const endIdx = newAfterCharsForImg.findIndex(
+              (c) => c.id === format.endCharId
+            );
+            if (startIdx !== -1 && endIdx !== -1) {
+              const charIds = newAfterCharsForImg
+                .slice(startIdx, endIdx + 1)
+                .map((c) => c.id);
+              const formatOp: FormatSet = {
+                op: "format_set",
+                id: crdt.idGen(),
+                clock: crdt.clock(),
+                pageId: crdt.pageId,
+                blockId: afterBlockId,
+                charIds,
+                format: format.format,
+                value:
+                  format.format.type === "link"
+                    ? format.format.url || true
+                    : true,
+              };
+              ops.push(formatOp);
+            }
+          }
 
           resultBlocks.push(afterBlock);
           lastInsertedBlockId = afterBlockId;
@@ -1800,11 +2087,48 @@ function insertBlocksAtCursor(
         // If there's after-cursor content, create a new paragraph for it
         if (afterChars.length > 0 && afterChars.some((c) => !c.deleted)) {
           const afterBlockId = generateBlockId();
+
+          // Generate new chars with new IDs for after content
+          const visibleAfterCharsForLine = afterChars.filter((c) => !c.deleted);
+          const newAfterCharsForLine: Char[] = visibleAfterCharsForLine.map(
+            (c) => ({
+              id: crdt.idGen(),
+              char: c.char,
+              deleted: false,
+            })
+          );
+
+          // Build mapping from old after char IDs to new IDs
+          const afterOldToNewMapForLine = new Map<string, string>();
+          visibleAfterCharsForLine.forEach((oldChar, idx) => {
+            afterOldToNewMapForLine.set(
+              oldChar.id,
+              newAfterCharsForLine[idx].id
+            );
+          });
+
+          // Map after formats to use new char IDs
+          const newAfterFormatsForLine: FormatSpan[] = afterFormats
+            .map((f) => {
+              const newStartId = afterOldToNewMapForLine.get(f.startCharId);
+              const newEndId = afterOldToNewMapForLine.get(f.endCharId);
+              if (newStartId && newEndId) {
+                return {
+                  ...f,
+                  startCharId: newStartId,
+                  endCharId: newEndId,
+                  clock: crdt.clock(),
+                };
+              }
+              return null;
+            })
+            .filter((f): f is FormatSpan => f !== null);
+
           const afterBlock: Block = {
             id: afterBlockId,
             type: "paragraph",
-            chars: afterChars,
-            formats: afterFormats,
+            chars: newAfterCharsForLine,
+            formats: newAfterFormatsForLine,
           };
           invalidateBlockCache(afterBlock);
 
@@ -1819,6 +2143,52 @@ function insertBlocksAtCursor(
           };
           ops.push(afterBlockInsertOp);
 
+          // Add text_insert operation for after content
+          if (newAfterCharsForLine.length > 0) {
+            const textInsertOp: TextInsert = {
+              op: "text_insert",
+              id: crdt.idGen(),
+              clock: crdt.clock(),
+              pageId: crdt.pageId,
+              blockId: afterBlockId,
+              afterCharId: null,
+              chars: newAfterCharsForLine.map((c) => ({
+                id: c.id,
+                char: c.char,
+              })),
+            };
+            ops.push(textInsertOp);
+          }
+
+          // Add format_set operations
+          for (const format of newAfterFormatsForLine) {
+            const startIdx = newAfterCharsForLine.findIndex(
+              (c) => c.id === format.startCharId
+            );
+            const endIdx = newAfterCharsForLine.findIndex(
+              (c) => c.id === format.endCharId
+            );
+            if (startIdx !== -1 && endIdx !== -1) {
+              const charIds = newAfterCharsForLine
+                .slice(startIdx, endIdx + 1)
+                .map((c) => c.id);
+              const formatOp: FormatSet = {
+                op: "format_set",
+                id: crdt.idGen(),
+                clock: crdt.clock(),
+                pageId: crdt.pageId,
+                blockId: afterBlockId,
+                charIds,
+                format: format.format,
+                value:
+                  format.format.type === "link"
+                    ? format.format.url || true
+                    : true,
+              };
+              ops.push(formatOp);
+            }
+          }
+
           resultBlocks.push(afterBlock);
           lastInsertedBlockId = afterBlockId;
         }
@@ -1826,13 +2196,51 @@ function insertBlocksAtCursor(
     } else {
       // Single block case was already handled, but if we reach here with after content
       // we need to create a new paragraph for it (only for non-textual first blocks)
-      if (!isTextualBlock(firstPastedBlock) && afterChars.length > 0 && afterChars.some((c) => !c.deleted)) {
+      if (
+        !isTextualBlock(firstPastedBlock) &&
+        afterChars.length > 0 &&
+        afterChars.some((c) => !c.deleted)
+      ) {
         const afterBlockId = generateBlockId();
+
+        // Generate new chars with new IDs for after content
+        const visibleAfterCharsSingle = afterChars.filter((c) => !c.deleted);
+        const newAfterCharsSingle: Char[] = visibleAfterCharsSingle.map(
+          (c) => ({
+            id: crdt.idGen(),
+            char: c.char,
+            deleted: false,
+          })
+        );
+
+        // Build mapping from old after char IDs to new IDs
+        const afterOldToNewMapSingle = new Map<string, string>();
+        visibleAfterCharsSingle.forEach((oldChar, idx) => {
+          afterOldToNewMapSingle.set(oldChar.id, newAfterCharsSingle[idx].id);
+        });
+
+        // Map after formats to use new char IDs
+        const newAfterFormatsSingle: FormatSpan[] = afterFormats
+          .map((f) => {
+            const newStartId = afterOldToNewMapSingle.get(f.startCharId);
+            const newEndId = afterOldToNewMapSingle.get(f.endCharId);
+            if (newStartId && newEndId) {
+              return {
+                ...f,
+                startCharId: newStartId,
+                endCharId: newEndId,
+                clock: crdt.clock(),
+              };
+            }
+            return null;
+          })
+          .filter((f): f is FormatSpan => f !== null);
+
         const afterBlock: Block = {
           id: afterBlockId,
           type: "paragraph",
-          chars: afterChars,
-          formats: afterFormats,
+          chars: newAfterCharsSingle,
+          formats: newAfterFormatsSingle,
         };
         invalidateBlockCache(afterBlock);
 
@@ -1846,6 +2254,49 @@ function insertBlocksAtCursor(
           blockType: "paragraph",
         };
         ops.push(afterBlockInsertOp);
+
+        // Add text_insert operation for after content
+        if (newAfterCharsSingle.length > 0) {
+          const textInsertOp: TextInsert = {
+            op: "text_insert",
+            id: crdt.idGen(),
+            clock: crdt.clock(),
+            pageId: crdt.pageId,
+            blockId: afterBlockId,
+            afterCharId: null,
+            chars: newAfterCharsSingle.map((c) => ({ id: c.id, char: c.char })),
+          };
+          ops.push(textInsertOp);
+        }
+
+        // Add format_set operations
+        for (const format of newAfterFormatsSingle) {
+          const startIdx = newAfterCharsSingle.findIndex(
+            (c) => c.id === format.startCharId
+          );
+          const endIdx = newAfterCharsSingle.findIndex(
+            (c) => c.id === format.endCharId
+          );
+          if (startIdx !== -1 && endIdx !== -1) {
+            const charIds = newAfterCharsSingle
+              .slice(startIdx, endIdx + 1)
+              .map((c) => c.id);
+            const formatOp: FormatSet = {
+              op: "format_set",
+              id: crdt.idGen(),
+              clock: crdt.clock(),
+              pageId: crdt.pageId,
+              blockId: afterBlockId,
+              charIds,
+              format: format.format,
+              value:
+                format.format.type === "link"
+                  ? format.format.url || true
+                  : true,
+            };
+            ops.push(formatOp);
+          }
+        }
 
         resultBlocks.push(afterBlock);
         lastInsertedBlockId = afterBlockId;
