@@ -6,10 +6,10 @@
  * and subscribing to state changes.
  */
 
-import type { Char, Page, TextFormat } from "@/deserializer/loadPage";
+import type { Char, CharRun, Page, TextFormat } from "@/deserializer/loadPage";
 import { COMPACTION_GRACE_PERIOD_MS } from "../constants";
 import { createHLC, receiveHLC, tickHLC } from "./hlc";
-import { createIdGenerator, generateBlockId, generatePeerId } from "./id";
+import { createIdGenerator, generateBlockId, generatePeerId, extractPeerId, extractCounter } from "./id";
 import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
 import { findCharIdAtPosition, getCharIdsInRange } from "./reducer";
 import type {
@@ -432,19 +432,19 @@ export class SyncEngine {
    *
    * @param blockId - Block to insert into
    * @param afterCharId - Insert after this char ID (null = beginning)
-   * @param chars - Characters to insert with IDs
+   * @param charRuns - Character runs to insert
    */
   createTextInsert(
     blockId: string,
     afterCharId: string | null,
-    chars: Char[]
+    charRuns: CharRun[]
   ): TextInsert {
     return {
       ...this.createBaseOp(),
       op: "text_insert",
       blockId,
       afterCharId,
-      chars,
+      charRuns,
     };
   }
 
@@ -545,6 +545,95 @@ export class SyncEngine {
   // ==========================================================================
 
   /**
+   * Convert Char[] to CharRun[] for storage.
+   * Handles chars from multiple peers by splitting into separate runs.
+   */
+  private charsToCharRuns(chars: Char[]): CharRun[] {
+    if (chars.length === 0) return [];
+
+    const runs: CharRun[] = [];
+    let currentPeerId = extractPeerId(chars[0].id);
+    let currentStartCounter = extractCounter(chars[0].id);
+    let currentText = "";
+    let currentDeleted: boolean[] = [];
+
+    for (let i = 0; i < chars.length; i++) {
+      const char = chars[i];
+      const peerId = extractPeerId(char.id);
+      const counter = extractCounter(char.id);
+
+      // Check if continues current run (same peer, consecutive counter)
+      if (
+        peerId === currentPeerId &&
+        counter === currentStartCounter + currentText.length
+      ) {
+        currentText += char.char;
+        currentDeleted.push(char.deleted ?? false);
+      } else {
+        // Finish current run
+        if (currentText.length > 0) {
+          runs.push(
+            this.createCharRunFromDeleted(
+              currentPeerId,
+              currentStartCounter,
+              currentText,
+              currentDeleted
+            )
+          );
+        }
+
+        // Start new run
+        currentPeerId = peerId;
+        currentStartCounter = counter;
+        currentText = char.char;
+        currentDeleted = [char.deleted ?? false];
+      }
+    }
+
+    // Finish last run
+    if (currentText.length > 0) {
+      runs.push(
+        this.createCharRunFromDeleted(
+          currentPeerId,
+          currentStartCounter,
+          currentText,
+          currentDeleted
+        )
+      );
+    }
+
+    return runs;
+  }
+
+  /**
+   * Helper to create CharRun with optional deletedMask
+   */
+  private createCharRunFromDeleted(
+    peerId: string,
+    startCounter: number,
+    text: string,
+    deleted: boolean[]
+  ): CharRun {
+    const hasDeleted = deleted.some((d) => d);
+
+    if (!hasDeleted) {
+      return { peerId, startCounter, text };
+    }
+
+    // Create deletedMask bitmap
+    const deletedMask = new Uint8Array(Math.ceil(deleted.length / 8));
+    deleted.forEach((isDeleted, i) => {
+      if (isDeleted) {
+        const byteIndex = Math.floor(i / 8);
+        const bitIndex = i % 8;
+        deletedMask[byteIndex] |= 1 << bitIndex;
+      }
+    });
+
+    return { peerId, startCounter, text, deletedMask };
+  }
+
+  /**
    * Insert text at a position in a block.
    * Convenience method that creates char IDs automatically.
    *
@@ -562,7 +651,8 @@ export class SyncEngine {
       char,
     }));
 
-    return this.createTextInsert(blockId, afterCharId, chars);
+    const charRuns = this.charsToCharRuns(chars);
+    return this.createTextInsert(blockId, afterCharId, charRuns);
   }
 
   /**

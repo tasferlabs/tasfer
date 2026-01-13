@@ -1,25 +1,24 @@
-import type { Block, Char, CharRun } from "../deserializer/loadPage";
-import { isTextualBlock, isListBlock } from "../deserializer/loadPage";
+import type { Block, Char } from "../deserializer/loadPage";
+import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
   getFontMetrics,
-  measureCRDTTextUpToIndex,
   measureCRDTPositions,
+  measureCRDTTextUpToIndex,
   wrapCRDTText,
   type FontFamily,
 } from "./fonts";
 import { getBlockHeight } from "./renderer";
+import { getTextDirection } from "./rtl";
 import { getBlockTextContent } from "./state";
 import { getEditorStyles, getTextStyle } from "./styles";
+import {
+  charRunsToChars,
+  findCharInRuns,
+  iterateVisibleChars,
+} from "./sync/char-runs";
 import { getVisibleText } from "./sync/crdt-helpers";
 import { getVisibleBlocks } from "./sync/sync";
-import { getTextDirection } from "./rtl";
-import {
-  getCharIdFromRun,
-  isCharDeleted,
-  iterateVisibleChars,
-  findCharInRuns,
-} from "./sync/char-runs";
 import type {
   EditorState,
   EditorStyles,
@@ -29,28 +28,13 @@ import type {
 } from "./types";
 
 /**
- * Convert charRuns to Char[] for compatibility with existing measurement functions
- */
-function charRunsToChars(charRuns: CharRun[] | undefined): Char[] {
-  if (!charRuns) return [];
-  const chars: Char[] = [];
-  for (const run of charRuns) {
-    for (let offset = 0; offset < run.text.length; offset++) {
-      chars.push({
-        id: getCharIdFromRun(run, offset),
-        char: run.text[offset],
-        deleted: isCharDeleted(run, offset),
-      });
-    }
-  }
-  return chars;
-}
-
-/**
  * Get visible text from Char[] array (filters out deleted chars)
  */
 function getVisibleTextFromChars(chars: Char[]): string {
-  return chars.filter(c => !c.deleted).map(c => c.char).join("");
+  return chars
+    .filter((c) => !c.deleted)
+    .map((c) => c.char)
+    .join("");
 }
 
 export function getCursorCoordinates(
@@ -68,12 +52,12 @@ export function getCursorCoordinates(
   const visibleBlocks = getVisibleBlocks(state.document.page);
   const allBlocks = state.document.page.blocks;
   const targetBlock = allBlocks[position.blockIndex];
-  
+
   if (!targetBlock) return null;
-  
+
   // Find visible blocks before the target block
   for (const block of visibleBlocks) {
-    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    const blockIndex = allBlocks.findIndex((b) => b.id === block.id);
     if (blockIndex >= position.blockIndex) break;
     if (blockIndex !== -1) {
       currentY += getBlockHeight(block, maxWidth, styles, blockIndex);
@@ -296,7 +280,7 @@ export function getCursorCoordinatesWithComposition(
   const visibleBlocks = getVisibleBlocks(state.document.page);
   const allBlocks = state.document.page.blocks;
   for (const block of visibleBlocks) {
-    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    const blockIndex = allBlocks.findIndex((b) => b.id === block.id);
     if (blockIndex >= position.blockIndex) break;
     if (blockIndex !== -1) {
       currentY += getBlockHeight(block, maxWidth, styles, blockIndex);
@@ -313,7 +297,8 @@ export function getCursorCoordinatesWithComposition(
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
-  const isRTL = getTextDirection(getVisibleTextFromChars(modifiedChars)) === "rtl";
+  const isRTL =
+    getTextDirection(getVisibleTextFromChars(modifiedChars)) === "rtl";
 
   // Calculate indent and marker space for list blocks
   let indentOffset = 0;
@@ -477,9 +462,9 @@ function getPositionFromPaddingClick(
 
   const visibleBlocks = getVisibleBlocks(state.document.page);
   const allBlocks = state.document.page.blocks;
-  
+
   for (const block of visibleBlocks) {
-    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    const blockIndex = allBlocks.findIndex((b) => b.id === block.id);
     if (blockIndex === -1) continue;
     const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
 
@@ -650,7 +635,7 @@ export function getTextPositionFromViewport(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const block = visibleBlocks[visibleIdx];
     // Find the original index of this block in the full array
-    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    const blockIndex = allBlocks.findIndex((b) => b.id === block.id);
     if (blockIndex === -1) continue;
     const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
 
@@ -1180,9 +1165,9 @@ export function isPointWithinSelectionRects(
   // Iterate through blocks that are part of the selection (only visible blocks)
   const visibleBlocks = getVisibleBlocks(state.document.page);
   const allBlocks = state.document.page.blocks;
-  
+
   for (const block of visibleBlocks) {
-    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    const blockIndex = allBlocks.findIndex((b) => b.id === block.id);
     if (blockIndex === -1) continue;
     const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
 

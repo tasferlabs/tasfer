@@ -238,7 +238,8 @@ Bugs list
 - [ ] change content should reculate hights/documentb height in
 - [ ] on load document there is not scrollbar
 - [x] 1. Fix IDs
-- [x] 2. Block squashing
+- [x] 2. chair squashing
+- [x] 2. op chain
 - [ ] 3. Binary encoding
 - [ ] 4. Delta compression
 - [ ] We should brodacast page delete

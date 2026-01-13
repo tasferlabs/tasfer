@@ -22,7 +22,8 @@ import {
   moveCursorToPosition,
 } from "../state";
 import {
-  iterateVisibleChars
+  iterateVisibleChars,
+  charRunsToChars
 } from "../sync/char-runs";
 import {
   deleteCharsInRange,
@@ -1423,7 +1424,7 @@ function insertBlocksAtCursor(
 
       if (pasteStartIdx !== -1 && pasteEndIdx !== -1) {
         // Map to the newly inserted chars
-        const insertedChars = insertOp.chars;
+        const insertedChars = charRunsToChars(insertOp.charRuns);
         const newStartCharId = insertedChars[pasteStartIdx]?.id;
         const newEndCharId = insertedChars[pasteEndIdx]?.id;
 
@@ -1659,7 +1660,7 @@ function insertBlocksAtCursor(
         );
 
         if (pasteStartIdx !== -1 && pasteEndIdx !== -1) {
-          const insertedChars = firstInsertOp.chars;
+          const insertedChars = charRunsToChars(firstInsertOp.charRuns);
           const newStartCharId = insertedChars[pasteStartIdx]?.id;
           const newEndCharId = insertedChars[pasteEndIdx]?.id;
 
@@ -1834,6 +1835,7 @@ function insertBlocksAtCursor(
 
         // Add text_insert operation for the block's content
         if (newChars.length > 0) {
+          const charRuns = charsToRuns(newChars);
           const textInsertOp: TextInsert = {
             op: "text_insert",
             id: nextId(),
@@ -1841,7 +1843,7 @@ function insertBlocksAtCursor(
             pageId: getPageId(),
             blockId: newBlockId,
             afterCharId: null, // Insert at beginning of new block
-            chars: newChars.map((c) => ({ id: c.id, char: c.char })),
+            charRuns: charRuns,
           };
           ops.push(textInsertOp);
         }
@@ -2003,6 +2005,7 @@ function insertBlocksAtCursor(
 
         // Add text_insert operation for the block's content
         if (allNewChars.length > 0) {
+          const charRuns = charsToRuns(allNewChars);
           const textInsertOp: TextInsert = {
             op: "text_insert",
             id: nextId(),
@@ -2010,7 +2013,7 @@ function insertBlocksAtCursor(
             pageId: getPageId(),
             blockId: lastBlockId,
             afterCharId: null, // Insert at beginning of new block
-            chars: allNewChars.map((c) => ({ id: c.id, char: c.char })),
+            charRuns: charRuns,
           };
           ops.push(textInsertOp);
         }
@@ -2153,6 +2156,7 @@ function insertBlocksAtCursor(
 
           // Add text_insert operation for after content
           if (newAfterCharsForImg.length > 0) {
+            const charRuns = charsToRuns(newAfterCharsForImg);
             const textInsertOp: TextInsert = {
               op: "text_insert",
               id: nextId(),
@@ -2160,10 +2164,7 @@ function insertBlocksAtCursor(
               pageId: getPageId(),
               blockId: afterBlockId,
               afterCharId: null,
-              chars: newAfterCharsForImg.map((c) => ({
-                id: c.id,
-                char: c.char,
-              })),
+              charRuns: charRuns,
             };
             ops.push(textInsertOp);
           }
@@ -2273,6 +2274,7 @@ function insertBlocksAtCursor(
 
           // Add text_insert operation for after content
           if (newAfterCharsForLine.length > 0) {
+            const charRuns = charsToRuns(newAfterCharsForLine);
             const textInsertOp: TextInsert = {
               op: "text_insert",
               id: nextId(),
@@ -2280,10 +2282,7 @@ function insertBlocksAtCursor(
               pageId: getPageId(),
               blockId: afterBlockId,
               afterCharId: null,
-              chars: newAfterCharsForLine.map((c) => ({
-                id: c.id,
-                char: c.char,
-              })),
+              charRuns: charRuns,
             };
             ops.push(textInsertOp);
           }
@@ -2385,6 +2384,7 @@ function insertBlocksAtCursor(
 
         // Add text_insert operation for after content
         if (newAfterCharsSingle.length > 0) {
+          const charRuns = charsToRuns(newAfterCharsSingle);
           const textInsertOp: TextInsert = {
             op: "text_insert",
             id: nextId(),
@@ -2392,7 +2392,7 @@ function insertBlocksAtCursor(
             pageId: getPageId(),
             blockId: afterBlockId,
             afterCharId: null,
-            chars: newAfterCharsSingle.map((c) => ({ id: c.id, char: c.char })),
+            charRuns: charRuns,
           };
           ops.push(textInsertOp);
         }

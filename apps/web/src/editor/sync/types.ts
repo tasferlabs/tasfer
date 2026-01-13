@@ -5,7 +5,7 @@
  * optimized for block-based editors.
  */
 
-import type { Char, Page, TextFormat } from "@/deserializer/loadPage";
+import type { CharRun, Page, TextFormat } from "@/deserializer/loadPage";
 
 // =============================================================================
 // Hybrid Logical Clock (HLC)
@@ -97,8 +97,8 @@ export interface TextInsert extends BaseOp {
   blockId: string;
   /** Insert after this character ID (null = beginning) */
   afterCharId: string | null;
-  /** Characters to insert with their IDs */
-  chars: Char[];
+  /** Character runs to insert (compressed format) */
+  charRuns: CharRun[];
 }
 
 /**

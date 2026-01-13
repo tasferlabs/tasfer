@@ -6,11 +6,13 @@
  * This allows undo/redo to work independently per user in a CRDT environment.
  */
 
-import type { Block, Char } from "@/deserializer/loadPage";
+import type { Block, Char, CharRun } from "@/deserializer/loadPage";
 import { getClock, nextId } from "./sync/sync";
 import {
   iterateAllChars,
+  charRunsToChars,
 } from "./sync/char-runs";
+import { extractPeerId, extractCounter } from "./sync/id";
 import type {
   BlockDelete,
   BlockInsert,
@@ -23,6 +25,95 @@ import type {
 import type { EditorState } from "./types";
 
 /**
+ * Convert Char[] to CharRun[] (for inverse operations).
+ * Handles chars from multiple peers by splitting into separate runs.
+ */
+function charsToCharRuns(chars: Char[]): CharRun[] {
+  if (chars.length === 0) return [];
+
+  const runs: CharRun[] = [];
+  let currentPeerId = extractPeerId(chars[0].id);
+  let currentStartCounter = extractCounter(chars[0].id);
+  let currentText = "";
+  let currentDeleted: boolean[] = [];
+
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+    const peerId = extractPeerId(char.id);
+    const counter = extractCounter(char.id);
+
+    // Check if continues current run (same peer, consecutive counter)
+    if (
+      peerId === currentPeerId &&
+      counter === currentStartCounter + currentText.length
+    ) {
+      currentText += char.char;
+      currentDeleted.push(char.deleted ?? false);
+    } else {
+      // Finish current run
+      if (currentText.length > 0) {
+        runs.push(
+          createCharRunFromDeleted(
+            currentPeerId,
+            currentStartCounter,
+            currentText,
+            currentDeleted
+          )
+        );
+      }
+
+      // Start new run
+      currentPeerId = peerId;
+      currentStartCounter = counter;
+      currentText = char.char;
+      currentDeleted = [char.deleted ?? false];
+    }
+  }
+
+  // Finish last run
+  if (currentText.length > 0) {
+    runs.push(
+      createCharRunFromDeleted(
+        currentPeerId,
+        currentStartCounter,
+        currentText,
+        currentDeleted
+      )
+    );
+  }
+
+  return runs;
+}
+
+/**
+ * Helper to create CharRun with optional deletedMask
+ */
+function createCharRunFromDeleted(
+  peerId: string,
+  startCounter: number,
+  text: string,
+  deleted: boolean[]
+): CharRun {
+  const hasDeleted = deleted.some((d) => d);
+
+  if (!hasDeleted) {
+    return { peerId, startCounter, text };
+  }
+
+  // Create deletedMask bitmap
+  const deletedMask = new Uint8Array(Math.ceil(deleted.length / 8));
+  deleted.forEach((isDeleted, i) => {
+    if (isDeleted) {
+      const byteIndex = Math.floor(i / 8);
+      const bitIndex = i % 8;
+      deletedMask[byteIndex] |= 1 << bitIndex;
+    }
+  });
+
+  return { peerId, startCounter, text, deletedMask };
+}
+
+/**
  * Compute the inverse of a text insert operation.
  * Inverse: Delete the inserted characters.
  */
@@ -31,7 +122,9 @@ function invertTextInsert(
   _state: EditorState
 ): TextDelete | null {
   // To invert a text insert, we need to delete the characters that were inserted
-  const charIds = op.chars.map((c) => c.id);
+  // Convert charRuns back to chars to get the IDs
+  const chars = charRunsToChars(op.charRuns);
+  const charIds = chars.map((c) => c.id);
 
   if (charIds.length === 0) {
     return null;
@@ -111,6 +204,9 @@ function invertTextDelete(
     }
   }
 
+  // Convert to CharRuns
+  const charRuns = charsToCharRuns(charsToReinsert);
+
   return {
     op: "text_insert",
     id: nextId(),
@@ -118,7 +214,7 @@ function invertTextDelete(
     pageId: op.pageId,
     blockId: op.blockId,
     afterCharId,
-    chars: charsToReinsert,
+    charRuns: charRuns,
   };
 }
 

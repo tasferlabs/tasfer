@@ -1,4 +1,10 @@
-import type { Block, Char, CharRun, FormatSpan, Page } from "../deserializer/loadPage";
+import type {
+  Block,
+  Char,
+  CharRun,
+  FormatSpan,
+  Page,
+} from "../deserializer/loadPage";
 import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
@@ -14,6 +20,7 @@ import {
   getVisibleLengthFromRuns,
   getCharIdFromRun,
   isCharDeleted,
+  charRunsToChars,
 } from "./sync/char-runs";
 import {
   createInitialMomentumState,
@@ -39,24 +46,6 @@ import {
 // =============================================================================
 // CRDT-Native Helper Functions
 // =============================================================================
-
-/**
- * Convert charRuns to Char[] for compatibility with existing measurement functions
- */
-function charRunsToChars(charRuns: CharRun[] | undefined): Char[] {
-  if (!charRuns) return [];
-  const chars: Char[] = [];
-  for (const run of charRuns) {
-    for (let offset = 0; offset < run.text.length; offset++) {
-      chars.push({
-        id: getCharIdFromRun(run, offset),
-        char: run.text[offset],
-        deleted: isCharDeleted(run, offset),
-      });
-    }
-  }
-  return chars;
-}
 
 /**
  * Get text direction from CRDT charRuns
@@ -267,10 +256,10 @@ export function generateBlockId(): string {
 // State Creation Functions
 export const createInitialState = (page: Page): EditorState => {
   const peerId = generatePeerId();
-  
+
   // Initialize global CRDT context
   setCRDTContext(page.id, peerId);
-  
+
   return {
     document: {
       page,

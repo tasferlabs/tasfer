@@ -25,6 +25,7 @@ import {
   getCharIdAtVisiblePosition,
   iterateVisibleChars,
   mergeAdjacentRuns,
+  charRunsToChars,
 } from "./char-runs";
 import type {
   BlockDelete,
@@ -149,8 +150,11 @@ function applyTextInsert(state: Page, op: TextInsert): Page {
     return state;
   }
 
+  // Convert CharRuns to Char[] for insertion
+  const chars = charRunsToChars(op.charRuns);
+
   // Insert chars into runs
-  const newCharRuns = insertIntoRuns(block.charRuns, op.afterCharId, op.chars);
+  const newCharRuns = insertIntoRuns(block.charRuns, op.afterCharId, chars);
 
   // Create updated block
   const updatedBlock: Block = {

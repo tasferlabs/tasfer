@@ -636,3 +636,33 @@ export function findInsertPosition(
     offset: runs.length > 0 ? runs[runs.length - 1].text.length : 0,
   };
 }
+
+// =============================================================================
+// Conversion Utilities
+// =============================================================================
+
+/**
+ * Convert CharRuns to Char[] array for operation application.
+ * Used when applying TextInsert operations to existing state.
+ *
+ * Each character's ID is computed as `${peerId}:${startCounter + offset}`.
+ * Preserves deletion flags from the deletedMask bitmap.
+ */
+export function charRunsToChars(runs: CharRun[]): Char[] {
+  const chars: Char[] = [];
+
+  for (const run of runs) {
+    for (let i = 0; i < run.text.length; i++) {
+      const id = getCharIdFromRun(run, i);
+      const deleted = isCharDeleted(run, i);
+
+      chars.push({
+        id,
+        char: run.text[i],
+        ...(deleted ? { deleted: true } : {}),
+      });
+    }
+  }
+
+  return chars;
+}

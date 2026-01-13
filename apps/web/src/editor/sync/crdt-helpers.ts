@@ -17,6 +17,7 @@ import type {
   TextInsert
 } from "../sync/types";
 import { getPageId, nextId, getClock } from "./sync";
+import { extractPeerId, extractCounter } from "./id";
 import {
   insertIntoRuns,
   deleteFromRuns,
@@ -25,6 +26,7 @@ import {
   getCharIdAtVisiblePosition,
   iterateVisibleChars,
   isCharIdInRange,
+  charRunsToChars,
 } from "./char-runs";
 
 export interface InsertCharsResult {
@@ -51,12 +53,36 @@ export function insertCharsAtPosition(
   text: string,
   blockId: string
 ): InsertCharsResult {
+  if (text.length === 0) {
+    // No text to insert - return unchanged
+    throw new Error("Cannot insert empty text");
+  }
+
   const afterCharId = getCharIdAtVisiblePosition(charRuns, position);
 
-  // Create new Char objects for the operation payload
-  // Each char gets a unique ID from nextId()
-  const newCharObjects: Char[] = Array.from(text).map((char) => ({
-    id: nextId(),
+  // Generate consecutive IDs for the text
+  const firstId = nextId();
+  const peerId = extractPeerId(firstId);
+  const startCounter = extractCounter(firstId);
+
+  // Pre-allocate remaining IDs to maintain sequence
+  // This ensures IDs are consecutive: peerId:N, peerId:N+1, peerId:N+2, ...
+  for (let i = 1; i < text.length; i++) {
+    nextId(); // Consume ID to maintain counter sequence
+  }
+
+  // Create CharRun directly for the operation
+  const newCharRun: CharRun = {
+    peerId,
+    startCounter,
+    text,
+    // deletedMask omitted (no deletions on new text)
+  };
+
+  // Create Char[] for insertion into existing runs
+  // This is needed to work with insertIntoRuns()
+  const newCharObjects: Char[] = Array.from(text).map((char, i) => ({
+    id: `${peerId}:${startCounter + i}`,
     char,
   }));
 
@@ -70,7 +96,7 @@ export function insertCharsAtPosition(
     pageId: getPageId(),
     blockId,
     afterCharId,
-    chars: newCharObjects,
+    charRuns: [newCharRun], // NEW: Use CharRun instead of Char[]
   };
 
   return { newCharRuns, op };
@@ -282,8 +308,11 @@ function applyRemoteTextInsert(page: Page, op: TextInsert): Page {
     return page;
   }
 
+  // Convert CharRuns to Char[] for insertion
+  const chars = charRunsToChars(op.charRuns);
+
   // Insert into charRuns
-  const newCharRuns = insertIntoRuns(block.charRuns, op.afterCharId, op.chars);
+  const newCharRuns = insertIntoRuns(block.charRuns, op.afterCharId, chars);
 
   const updatedBlock = { ...block, charRuns: newCharRuns };
   const newBlocks = [...page.blocks];
