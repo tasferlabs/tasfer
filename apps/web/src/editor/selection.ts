@@ -12,7 +12,7 @@ import { getBlockHeight } from "./renderer";
 import { getBlockTextContent } from "./state";
 import { getEditorStyles, getTextStyle } from "./styles";
 import { getVisibleText } from "./sync/crdt-helpers";
-import { getVisibleBlocks } from "./sync";
+import { getVisibleBlocks } from "./sync/sync";
 import { getTextDirection } from "./rtl";
 import type {
   EditorState,

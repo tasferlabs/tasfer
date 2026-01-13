@@ -10,7 +10,7 @@ import {
   awarenessSelectionToSelection,
 } from "./sync/awareness";
 import { getVisibleText } from "./sync/crdt-helpers";
-import { getVisibleBlocks } from "./sync";
+import { getVisibleBlocks } from "./sync/sync";
 import {
   FONT_STACKS,
   getCurrentFontFamily,

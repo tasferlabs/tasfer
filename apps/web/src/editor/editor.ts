@@ -1,16 +1,5 @@
 import type { Block, Page } from "../deserializer/loadPage";
 import { isTextualBlock } from "../deserializer/loadPage";
-import type {
-  BlockDelete,
-  BlockInsert,
-  BlockSet,
-  Operation,
-} from "./sync/types";
-import type { AwarenessState, AwarenessUser } from "./sync/awareness";
-import {
-  positionToAwarenessCursor,
-  selectionToAwarenessSelection,
-} from "./sync/awareness";
 import {
   copySelectionToClipboard,
   cutSelectionToClipboard,
@@ -28,13 +17,6 @@ import {
   toggleStrikethrough,
   updateLinkInBlock,
 } from "./actions/commands";
-import {
-  applyRemoteOps,
-  deleteCharsInRange,
-  formatCharsInRange,
-  insertCharsAtPosition,
-} from "./sync/crdt-helpers";
-import { getVisibleBlocks } from "./sync";
 import { handleEvents } from "./events/events";
 import { isInLongPressMode } from "./events/touchEvents";
 import { onFontFamilyChange } from "./fonts";
@@ -67,8 +49,31 @@ import {
   updateSelection,
 } from "./state";
 import { getEditorStyles } from "./styles";
+import {
+  getVisibleBlocks,
+  getPeerId,
+  getPageId,
+  nextId,
+  getClock,
+} from "./sync/sync";
+import type { AwarenessState, AwarenessUser } from "./sync/awareness";
+import {
+  positionToAwarenessCursor,
+  selectionToAwarenessSelection,
+} from "./sync/awareness";
+import {
+  applyRemoteOps,
+  deleteCharsInRange,
+  formatCharsInRange,
+  insertCharsAtPosition,
+} from "./sync/crdt-helpers";
 import type {
-  CRDTContext,
+  BlockDelete,
+  BlockInsert,
+  BlockSet,
+  Operation,
+} from "./sync/types";
+import type {
   CommandResult,
   EditorState,
   SlashCommand,
@@ -142,7 +147,10 @@ export interface Editor {
   /** Set broadcast function for sending operations to peers */
   setBroadcast: (fn: ((ops: Operation[]) => void) | null) => void;
   /** Set callback for broadcasting awareness state changes */
-  setAwarenessBroadcast: (fn: ((state: AwarenessState) => void) | null, user?: AwarenessUser) => void;
+  setAwarenessBroadcast: (
+    fn: ((state: AwarenessState) => void) | null,
+    user?: AwarenessUser
+  ) => void;
   /** Update a remote peer's awareness state */
   setRemoteAwareness: (peerId: string, state: AwarenessState | null) => void;
   /** Get all remote awareness states */
@@ -153,8 +161,7 @@ export default function createEditor(
   layers: CanvasLayers,
   initialState: EditorState,
   viewportProp: ViewportState,
-  hiddenInput?: HTMLInputElement,
-  crdtContextParam?: CRDTContext
+  hiddenInput?: HTMLInputElement
 ): Editor {
   // Extract contexts from layers
   const contentCtx = layers.content.ctx;
@@ -200,9 +207,10 @@ export default function createEditor(
       : null;
 
     // Convert selection to awareness selection
-    const awarenessSelection = selection && !selection.isCollapsed
-      ? selectionToAwarenessSelection(selection, page)
-      : null;
+    const awarenessSelection =
+      selection && !selection.isCollapsed
+        ? selectionToAwarenessSelection(selection, page)
+        : null;
 
     const awarenessState: AwarenessState = {
       user: localUser,
@@ -214,18 +222,6 @@ export default function createEditor(
     awarenessBroadcastFn(awarenessState);
   };
 
-  // CRDT context for generating IDs and clocks
-  // Use provided context or create a default one
-  const crdtContext: CRDTContext = crdtContextParam || {
-    pageId: "default-page",
-    idGen: () => `${Date.now()}-${Math.random()}`,
-    clock: () => ({
-      wall: Date.now(),
-      logical: 0,
-      peerId: "default-peer",
-    }),
-  };
-
   /**
    * Execute a command that returns { state, ops } and broadcast operations to peers.
    * This is the central point for all state-modifying operations.
@@ -235,9 +231,10 @@ export default function createEditor(
     const prevState = state;
 
     // Update local state and record to undo stack (pass both before/after states for cursor restoration)
-    state = ops.length > 0
-      ? recordUndoOps(prevState, newState, ops, crdtContext.clock().peerId)
-      : newState;
+    state =
+      ops.length > 0
+        ? recordUndoOps(prevState, newState, ops, getPeerId())
+        : newState;
 
     // Broadcast ops to peers (if any)
     if (ops.length > 0 && broadcastFn) {
@@ -350,7 +347,6 @@ export default function createEditor(
         eventsQueue,
         documentHeight,
         cachedRect,
-        crdtContext,
         updateViewport,
         pendingClipboardData
       );
@@ -364,7 +360,12 @@ export default function createEditor(
         const undoManagerChanged = prevState.undoManager !== state.undoManager;
         if (!undoManagerChanged) {
           // Regular operation - record to undo stack (pass both before/after states for cursor restoration)
-          state = recordUndoOps(prevState, state, handleEventsResult.ops, crdtContext.clock().peerId);
+          state = recordUndoOps(
+            prevState,
+            state,
+            handleEventsResult.ops,
+            getPeerId()
+          );
         }
         // Broadcast ops to peers
         if (broadcastFn) {
@@ -412,7 +413,8 @@ export default function createEditor(
 
         // Broadcast awareness when cursor or selection changes
         if (
-          prevState.document.cursor?.position !== state.document.cursor?.position ||
+          prevState.document.cursor?.position !==
+            state.document.cursor?.position ||
           prevState.document.selection !== state.document.selection
         ) {
           broadcastAwareness();
@@ -452,7 +454,14 @@ export default function createEditor(
 
           // Render the page content (text, blocks, selection, scrollbar)
           // Drag handles are now rendered within renderImageBlock for consistency
-          documentHeight = renderPage(contentCtx, state, viewport, visibility, undefined, remoteAwareness);
+          documentHeight = renderPage(
+            contentCtx,
+            state,
+            viewport,
+            visibility,
+            undefined,
+            remoteAwareness
+          );
 
           // Update cursor style based on scrollbar hover and drag state
           updateCursorStyle(
@@ -467,7 +476,13 @@ export default function createEditor(
 
         // Render cursor layer if dirty (very cheap!)
         if (dirtyLayers.cursor) {
-          renderCursorLayer(cursorCtx, state, viewport, getEditorStyles(), remoteAwareness);
+          renderCursorLayer(
+            cursorCtx,
+            state,
+            viewport,
+            getEditorStyles(),
+            remoteAwareness
+          );
           dirtyLayers.cursor = false;
         }
 
@@ -976,10 +991,15 @@ export default function createEditor(
     for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
       const block = visibleBlocks[visibleIdx];
       // Find original index for height calculation
-      const originalIndex = allBlocks.findIndex(b => b.id === block.id);
+      const originalIndex = allBlocks.findIndex((b) => b.id === block.id);
       if (originalIndex === -1) continue;
       // Use getBlockHeight to leverage caching for performance
-      const blockHeight = getBlockHeight(block, maxWidth, styles, originalIndex);
+      const blockHeight = getBlockHeight(
+        block,
+        maxWidth,
+        styles,
+        originalIndex
+      );
       totalHeight += blockHeight;
     }
 
@@ -1015,7 +1035,10 @@ export default function createEditor(
 
   function setInitialCursor() {
     // Only set cursor if there isn't one already
-    if (!state.document.cursor && getVisibleBlocks(state.document.page).length > 0) {
+    if (
+      !state.document.cursor &&
+      getVisibleBlocks(state.document.page).length > 0
+    ) {
       state = createInitialCursorState(state);
       scheduleRender();
     }
@@ -1051,8 +1074,8 @@ export default function createEditor(
 
   function executeSlashCommand(command: SlashCommand) {
     if (state.ui.activeMenu.type === "slashCommand" && state.document.cursor) {
-      state = (state);
-      const result = applySlashCommand(state, command, crdtContext);
+      state = state;
+      const result = applySlashCommand(state, command);
       executeCommand(result);
     }
   }
@@ -1065,7 +1088,7 @@ export default function createEditor(
   }
 
   async function cut(): Promise<boolean> {
-    const result = await cutSelectionToClipboard(state, crdtContext);
+    const result = await cutSelectionToClipboard(state);
     if (result.success && result.result) {
       executeCommand(result.result);
       state = closeContextMenu(state);
@@ -1078,7 +1101,7 @@ export default function createEditor(
   }
 
   async function paste(): Promise<boolean> {
-    const result = await pasteFromNativeClipboardAPI(state, crdtContext);
+    const result = await pasteFromNativeClipboardAPI(state);
     if (result) {
       executeCommand(result);
       state = closeContextMenu(state);
@@ -1127,47 +1150,35 @@ export default function createEditor(
   function toggleBoldMethod() {
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    const result = toggleBold(
-      hasSelection ? (state) : state,
-      crdtContext
-    );
+    const result = toggleBold(hasSelection ? state : state);
     executeCommand(result);
   }
 
   function toggleItalicMethod() {
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    const result = toggleItalic(
-      hasSelection ? (state) : state,
-      crdtContext
-    );
+    const result = toggleItalic(hasSelection ? state : state);
     executeCommand(result);
   }
 
   function toggleCodeMethod() {
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    const result = toggleCode(
-      hasSelection ? (state) : state,
-      crdtContext
-    );
+    const result = toggleCode(hasSelection ? state : state);
     executeCommand(result);
   }
 
   function toggleStrikethroughMethod() {
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    const result = toggleStrikethrough(
-      hasSelection ? (state) : state,
-      crdtContext
-    );
+    const result = toggleStrikethrough(hasSelection ? state : state);
     executeCommand(result);
   }
 
   function setBlockType(type: Block["type"]) {
     if (!state.document.cursor) return;
-    state = (state);
-    const result = convertBlockType(state, type, crdtContext);
+    state = state;
+    const result = convertBlockType(state, type);
     executeCommand(result);
   }
 
@@ -1178,28 +1189,21 @@ export default function createEditor(
     newUrl: string,
     newText: string
   ) {
-    state = (state);
+    state = state;
     const result = updateLinkInBlock(
       state,
       blockIndex,
       startIndex,
       endIndex,
       newUrl,
-      newText,
-      crdtContext
+      newText
     );
     executeCommand(result);
   }
 
   function clearLink(blockIndex: number, startIndex: number, endIndex: number) {
-    state = (state);
-    const result = clearLinkInBlock(
-      state,
-      blockIndex,
-      startIndex,
-      endIndex,
-      crdtContext
-    );
+    state = state;
+    const result = clearLinkInBlock(state, blockIndex, startIndex, endIndex);
     executeCommand(result);
   }
 
@@ -1208,7 +1212,7 @@ export default function createEditor(
       return; // Need a selection to create a link
     }
 
-    state = (state);
+    state = state;
 
     const range = getSelectionRange(state);
     if (!range) return;
@@ -1232,8 +1236,7 @@ export default function createEditor(
       block.chars,
       start.textIndex,
       end.textIndex,
-      block.id,
-      crdtContext
+      block.id
     );
     ops.push(deleteOp);
 
@@ -1242,8 +1245,7 @@ export default function createEditor(
       charsAfterDelete,
       start.textIndex,
       text,
-      block.id,
-      crdtContext
+      block.id
     );
     ops.push(insertOp);
 
@@ -1255,8 +1257,7 @@ export default function createEditor(
       start.textIndex + text.length,
       block.id,
       { type: "link", url },
-      url,
-      crdtContext
+      url
     );
     ops.push(formatOp);
 
@@ -1392,9 +1393,9 @@ export default function createEditor(
     if (updates.url !== undefined) {
       const op: BlockSet = {
         op: "block_set",
-        id: crdtContext.idGen(),
-        clock: crdtContext.clock(),
-        pageId: crdtContext.pageId,
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
         blockId,
         field: "url",
         value: updates.url,
@@ -1404,9 +1405,9 @@ export default function createEditor(
     if (updates.alt !== undefined) {
       const op: BlockSet = {
         op: "block_set",
-        id: crdtContext.idGen(),
-        clock: crdtContext.clock(),
-        pageId: crdtContext.pageId,
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
         blockId,
         field: "alt",
         value: updates.alt,
@@ -1444,7 +1445,7 @@ export default function createEditor(
     // Get block ID before deletion
     const blockId = block.id;
 
-    state = (state);
+    state = state;
 
     const newBlocks = [...state.document.page.blocks];
     newBlocks.splice(blockIndex, 1);
@@ -1455,9 +1456,9 @@ export default function createEditor(
     // Delete the image block
     const deleteOp: BlockDelete = {
       op: "block_delete",
-      id: crdtContext.idGen(),
-      clock: crdtContext.clock(),
-      pageId: crdtContext.pageId,
+      id: nextId(),
+      clock: getClock(),
+      pageId: getPageId(),
       blockId,
     };
     ops.push(deleteOp);
@@ -1465,7 +1466,7 @@ export default function createEditor(
     // If we deleted the last block, add an empty paragraph
     let newParagraphBlockId: string | null = null;
     if (newBlocks.length === 0) {
-      newParagraphBlockId = `b-${crdtContext.idGen()}`;
+      newParagraphBlockId = `b-${nextId()}`;
       newBlocks.push({
         id: newParagraphBlockId,
         type: "paragraph",
@@ -1476,9 +1477,9 @@ export default function createEditor(
       // Insert new paragraph block
       const insertOp: BlockInsert = {
         op: "block_insert",
-        id: crdtContext.idGen(),
-        clock: crdtContext.clock(),
-        pageId: crdtContext.pageId,
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
         afterBlockId: null,
         blockId: newParagraphBlockId,
         blockType: "paragraph",
@@ -1549,7 +1550,9 @@ export default function createEditor(
       const { blockIndex, textIndex } = cursor.position;
       // Find the last visible block's index in the full array
       const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
-      const maxBlockIndex = page.blocks.findIndex(b => b.id === lastVisibleBlock.id);
+      const maxBlockIndex = page.blocks.findIndex(
+        (b) => b.id === lastVisibleBlock.id
+      );
 
       if (blockIndex > maxBlockIndex) {
         // Cursor points to a block that no longer exists, move to end of last visible block
@@ -1587,8 +1590,11 @@ export default function createEditor(
     let selection = state.document.selection;
     if (selection && visibleBlocks.length > 0) {
       // Find the last visible block's index in the full array
-      const lastVisibleBlockForSelection = visibleBlocks[visibleBlocks.length - 1];
-      const maxBlockIndex = page.blocks.findIndex(b => b.id === lastVisibleBlockForSelection.id);
+      const lastVisibleBlockForSelection =
+        visibleBlocks[visibleBlocks.length - 1];
+      const maxBlockIndex = page.blocks.findIndex(
+        (b) => b.id === lastVisibleBlockForSelection.id
+      );
       const { anchor, focus } = selection;
 
       let newAnchor = anchor;
@@ -1647,7 +1653,10 @@ export default function createEditor(
     broadcastFn = fn;
   }
 
-  function setAwarenessBroadcastMethod(fn: AwarenessBroadcastFn | null, user?: AwarenessUser) {
+  function setAwarenessBroadcastMethod(
+    fn: AwarenessBroadcastFn | null,
+    user?: AwarenessUser
+  ) {
     awarenessBroadcastFn = fn;
     if (user) {
       localUser = user;
@@ -1658,7 +1667,10 @@ export default function createEditor(
     }
   }
 
-  function setRemoteAwarenessMethod(peerId: string, awarenessState: AwarenessState | null) {
+  function setRemoteAwarenessMethod(
+    peerId: string,
+    awarenessState: AwarenessState | null
+  ) {
     if (awarenessState === null) {
       remoteAwareness.delete(peerId);
     } else {
@@ -1687,8 +1699,11 @@ export default function createEditor(
     if (cursor && visibleBlocksForOps.length > 0) {
       const { blockIndex, textIndex } = cursor.position;
       // Find the last visible block's index in the full array
-      const lastVisibleBlockForOps = visibleBlocksForOps[visibleBlocksForOps.length - 1];
-      const maxBlockIndex = newPage.blocks.findIndex(b => b.id === lastVisibleBlockForOps.id);
+      const lastVisibleBlockForOps =
+        visibleBlocksForOps[visibleBlocksForOps.length - 1];
+      const maxBlockIndex = newPage.blocks.findIndex(
+        (b) => b.id === lastVisibleBlockForOps.id
+      );
 
       if (blockIndex > maxBlockIndex) {
         // Cursor points to a block that no longer exists, move to end of last visible block
@@ -1726,8 +1741,11 @@ export default function createEditor(
     let selection = state.document.selection;
     if (selection && visibleBlocksForOps.length > 0) {
       // Find the last visible block's index in the full array
-      const lastVisibleBlockForSelectionOps = visibleBlocksForOps[visibleBlocksForOps.length - 1];
-      const maxBlockIndex = newPage.blocks.findIndex(b => b.id === lastVisibleBlockForSelectionOps.id);
+      const lastVisibleBlockForSelectionOps =
+        visibleBlocksForOps[visibleBlocksForOps.length - 1];
+      const maxBlockIndex = newPage.blocks.findIndex(
+        (b) => b.id === lastVisibleBlockForSelectionOps.id
+      );
       const { anchor, focus } = selection;
 
       let newAnchor = anchor;

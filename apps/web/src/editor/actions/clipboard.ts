@@ -4,7 +4,11 @@ import type {
   FormatSpan,
   TextFormat,
 } from "../../deserializer/loadPage";
-import { isListBlock, isTextualBlock, loadPage } from "../../deserializer/loadPage";
+import {
+  isListBlock,
+  isTextualBlock,
+  loadPage,
+} from "../../deserializer/loadPage";
 import { serializeToMarkdown } from "../../deserializer/serializer";
 import type {
   BlockInsert,
@@ -20,7 +24,7 @@ import {
   getVisibleText,
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
-import { getVisibleBlocks } from "../sync";
+import { getVisibleBlocks } from "../sync/sync";
 import { invalidateBlockCache } from "../renderer";
 import {
   clearSelection,
@@ -29,12 +33,8 @@ import {
   getBlockTextLength,
   moveCursorToPosition,
 } from "../state";
-import type {
-  CommandResult,
-  CRDTContext,
-  EditorState,
-  Position,
-} from "../types";
+import type { CommandResult, EditorState, Position } from "../types";
+import { getPageId, nextId, getClock } from "../sync/sync";
 import {} from "../undo";
 
 export function hasNativeBridge(): boolean {
@@ -483,8 +483,7 @@ export async function copySelectionToClipboard(
 }
 
 export async function cutSelectionToClipboard(
-  state: EditorState,
-  crdt: CRDTContext
+  state: EditorState
 ): Promise<{ success: boolean; result: CommandResult | null }> {
   try {
     const selectedContent = getSelectedContent(state);
@@ -505,7 +504,7 @@ export async function cutSelectionToClipboard(
     if (success) {
       const stateWithUndo = state;
 
-      const result = deleteSelectedText(stateWithUndo, crdt);
+      const result = deleteSelectedText(stateWithUndo);
       return { success: true, result };
     }
 
@@ -1055,8 +1054,7 @@ function parsePlainTextToBlocks(text: string): Block[] {
  * Paste content from native clipboard (for mobile apps)
  */
 export async function pasteFromNativeClipboardAPI(
-  state: EditorState,
-  crdt: CRDTContext
+  state: EditorState
 ): Promise<CommandResult | null> {
   try {
     const text = await pasteFromNativeClipboard();
@@ -1065,7 +1063,7 @@ export async function pasteFromNativeClipboardAPI(
     const blocks = parsePlainTextToBlocks(text);
     if (blocks.length === 0) return null;
 
-    return insertBlocksAtCursor(state, blocks, crdt);
+    return insertBlocksAtCursor(state, blocks);
   } catch (error) {
     console.error("Failed to paste from native clipboard:", error);
     return null;
@@ -1079,8 +1077,7 @@ export async function pasteFromNativeClipboardAPI(
  */
 function insertBlocksAtCursor(
   state: EditorState,
-  blocks: Block[],
-  crdt: CRDTContext
+  blocks: Block[]
 ): CommandResult {
   if (blocks.length === 0) return { state, ops: [] };
 
@@ -1091,7 +1088,7 @@ function insertBlocksAtCursor(
 
   // If there's a selection, delete it first
   if (newState.document.selection && !newState.document.selection.isCollapsed) {
-    const deleteResult = deleteSelectedText(newState, crdt);
+    const deleteResult = deleteSelectedText(newState);
     newState = deleteResult.state;
     ops.push(...deleteResult.ops);
   }
@@ -1110,7 +1107,9 @@ function insertBlocksAtCursor(
     } else {
       const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
       const allBlocks = newState.document.page.blocks;
-      const lastVisibleBlockIndex = allBlocks.findIndex(b => b.id === lastVisibleBlock.id);
+      const lastVisibleBlockIndex = allBlocks.findIndex(
+        (b) => b.id === lastVisibleBlock.id
+      );
       blockIndex = lastVisibleBlockIndex !== -1 ? lastVisibleBlockIndex : 0;
       textIndex = getBlockTextLength(lastVisibleBlock);
     }
@@ -1129,7 +1128,9 @@ function insertBlocksAtCursor(
     } else {
       const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
       const allBlocks = newState.document.page.blocks;
-      const lastVisibleBlockIndex = allBlocks.findIndex(b => b.id === lastVisibleBlock.id);
+      const lastVisibleBlockIndex = allBlocks.findIndex(
+        (b) => b.id === lastVisibleBlock.id
+      );
       blockIndex = lastVisibleBlockIndex !== -1 ? lastVisibleBlockIndex : 0;
       textIndex = getBlockTextLength(lastVisibleBlock);
     }
@@ -1158,9 +1159,9 @@ function insertBlocksAtCursor(
       // Create BlockInsert operation
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
-        id: crdt.idGen(),
-        clock: crdt.clock(),
-        pageId: crdt.pageId,
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
         afterBlockId: currentBlock.id,
         blockId: newBlockId,
         blockType: "image",
@@ -1171,9 +1172,9 @@ function insertBlocksAtCursor(
       if (imageBlock.url) {
         const urlOp: BlockSet = {
           op: "block_set",
-          id: crdt.idGen(),
-          clock: crdt.clock(),
-          pageId: crdt.pageId,
+          id: nextId(),
+          clock: getClock(),
+          pageId: getPageId(),
           blockId: newBlockId,
           field: "url",
           value: imageBlock.url,
@@ -1183,9 +1184,9 @@ function insertBlocksAtCursor(
       if (imageBlock.alt) {
         const altOp: BlockSet = {
           op: "block_set",
-          id: crdt.idGen(),
-          clock: crdt.clock(),
-          pageId: crdt.pageId,
+          id: nextId(),
+          clock: getClock(),
+          pageId: getPageId(),
           blockId: newBlockId,
           field: "alt",
           value: imageBlock.alt,
@@ -1195,9 +1196,9 @@ function insertBlocksAtCursor(
       if (imageBlock.width !== undefined) {
         const widthOp: BlockSet = {
           op: "block_set",
-          id: crdt.idGen(),
-          clock: crdt.clock(),
-          pageId: crdt.pageId,
+          id: nextId(),
+          clock: getClock(),
+          pageId: getPageId(),
           blockId: newBlockId,
           field: "width",
           value: imageBlock.width,
@@ -1207,9 +1208,9 @@ function insertBlocksAtCursor(
       if (imageBlock.height !== undefined) {
         const heightOp: BlockSet = {
           op: "block_set",
-          id: crdt.idGen(),
-          clock: crdt.clock(),
-          pageId: crdt.pageId,
+          id: nextId(),
+          clock: getClock(),
+          pageId: getPageId(),
           blockId: newBlockId,
           field: "height",
           value: imageBlock.height,
@@ -1219,9 +1220,9 @@ function insertBlocksAtCursor(
       if (imageBlock.objectFit) {
         const objectFitOp: BlockSet = {
           op: "block_set",
-          id: crdt.idGen(),
-          clock: crdt.clock(),
-          pageId: crdt.pageId,
+          id: nextId(),
+          clock: getClock(),
+          pageId: getPageId(),
           blockId: newBlockId,
           field: "objectFit",
           value: imageBlock.objectFit,
@@ -1262,9 +1263,9 @@ function insertBlocksAtCursor(
 
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
-        id: crdt.idGen(),
-        clock: crdt.clock(),
-        pageId: crdt.pageId,
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
         afterBlockId: currentBlock.id,
         blockId: newBlockId,
         blockType: "line",
@@ -1308,8 +1309,7 @@ function insertBlocksAtCursor(
       currentBlock.chars,
       textIndex,
       pasteText,
-      currentBlock.id,
-      crdt
+      currentBlock.id
     );
     ops.push(insertOp);
 
@@ -1335,7 +1335,7 @@ function insertBlocksAtCursor(
             startCharId: newStartCharId,
             endCharId: newEndCharId,
             format: pasteFormat.format,
-            clock: crdt.clock(),
+            clock: getClock(),
           };
           newFormats = [...newFormats, newSpan];
 
@@ -1345,9 +1345,9 @@ function insertBlocksAtCursor(
             .map((c) => c.id);
           const formatOp: FormatSet = {
             op: "format_set",
-            id: crdt.idGen(),
-            clock: crdt.clock(),
-            pageId: crdt.pageId,
+            id: nextId(),
+            clock: getClock(),
+            pageId: getPageId(),
             blockId: currentBlock.id,
             charIds,
             format: pasteFormat.format,
@@ -1424,8 +1424,7 @@ function insertBlocksAtCursor(
         currentBlock.chars,
         textIndex,
         currentTextLength,
-        currentBlock.id,
-        crdt
+        currentBlock.id
       );
       ops.push(deleteOp);
     }
@@ -1438,9 +1437,9 @@ function insertBlocksAtCursor(
     ) => {
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
-        id: crdt.idGen(),
-        clock: crdt.clock(),
-        pageId: crdt.pageId,
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
         afterBlockId,
         blockId: newBlockId,
         blockType: "image",
@@ -1451,9 +1450,9 @@ function insertBlocksAtCursor(
       if (imageBlock.url) {
         ops.push({
           op: "block_set",
-          id: crdt.idGen(),
-          clock: crdt.clock(),
-          pageId: crdt.pageId,
+          id: nextId(),
+          clock: getClock(),
+          pageId: getPageId(),
           blockId: newBlockId,
           field: "url",
           value: imageBlock.url,
@@ -1462,9 +1461,9 @@ function insertBlocksAtCursor(
       if (imageBlock.alt) {
         ops.push({
           op: "block_set",
-          id: crdt.idGen(),
-          clock: crdt.clock(),
-          pageId: crdt.pageId,
+          id: nextId(),
+          clock: getClock(),
+          pageId: getPageId(),
           blockId: newBlockId,
           field: "alt",
           value: imageBlock.alt,
@@ -1473,9 +1472,9 @@ function insertBlocksAtCursor(
       if (imageBlock.width !== undefined) {
         ops.push({
           op: "block_set",
-          id: crdt.idGen(),
-          clock: crdt.clock(),
-          pageId: crdt.pageId,
+          id: nextId(),
+          clock: getClock(),
+          pageId: getPageId(),
           blockId: newBlockId,
           field: "width",
           value: imageBlock.width,
@@ -1484,9 +1483,9 @@ function insertBlocksAtCursor(
       if (imageBlock.height !== undefined) {
         ops.push({
           op: "block_set",
-          id: crdt.idGen(),
-          clock: crdt.clock(),
-          pageId: crdt.pageId,
+          id: nextId(),
+          clock: getClock(),
+          pageId: getPageId(),
           blockId: newBlockId,
           field: "height",
           value: imageBlock.height,
@@ -1495,9 +1494,9 @@ function insertBlocksAtCursor(
       if (imageBlock.objectFit) {
         ops.push({
           op: "block_set",
-          id: crdt.idGen(),
-          clock: crdt.clock(),
-          pageId: crdt.pageId,
+          id: nextId(),
+          clock: getClock(),
+          pageId: getPageId(),
           blockId: newBlockId,
           field: "objectFit",
           value: imageBlock.objectFit,
@@ -1506,12 +1505,15 @@ function insertBlocksAtCursor(
     };
 
     // Helper to create line block operations
-    const createLineBlockOps = (newBlockId: string, afterBlockId: string | null) => {
+    const createLineBlockOps = (
+      newBlockId: string,
+      afterBlockId: string | null
+    ) => {
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
-        id: crdt.idGen(),
-        clock: crdt.clock(),
-        pageId: crdt.pageId,
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
         afterBlockId,
         blockId: newBlockId,
         blockType: "line",
@@ -1533,8 +1535,7 @@ function insertBlocksAtCursor(
           beforeChars,
           beforeChars.filter((c) => !c.deleted).length,
           firstPastedText,
-          currentBlock.id,
-          crdt
+          currentBlock.id
         );
       ops.push(firstInsertOp);
 
@@ -1558,7 +1559,7 @@ function insertBlocksAtCursor(
               startCharId: newStartCharId,
               endCharId: newEndCharId,
               format: pasteFormat.format,
-              clock: crdt.clock(),
+              clock: getClock(),
             };
             firstBlockFormats = [...firstBlockFormats, newSpan];
 
@@ -1567,9 +1568,9 @@ function insertBlocksAtCursor(
               .map((c) => c.id);
             const formatOp: FormatSet = {
               op: "format_set",
-              id: crdt.idGen(),
-              clock: crdt.clock(),
-              pageId: crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               blockId: currentBlock.id,
               charIds,
               format: pasteFormat.format,
@@ -1611,7 +1612,11 @@ function insertBlocksAtCursor(
         objectFit: firstPastedBlock.objectFit,
       };
       invalidateBlockCache(newImageBlock);
-      createImageBlockOps(firstPastedBlock as any, newImageBlockId, currentBlock.id);
+      createImageBlockOps(
+        firstPastedBlock as any,
+        newImageBlockId,
+        currentBlock.id
+      );
       resultBlocks.push(newImageBlock);
       lastInsertedBlockId = newImageBlockId;
     } else if (firstPastedBlock.type === "line") {
@@ -1668,7 +1673,7 @@ function insertBlocksAtCursor(
         const newChars: Char[] = block.chars
           .filter((c) => !c.deleted)
           .map((c) => ({
-            id: crdt.idGen(),
+            id: nextId(),
             char: c.char,
             deleted: false,
           }));
@@ -1690,7 +1695,7 @@ function insertBlocksAtCursor(
                 ...f,
                 startCharId: newStartId,
                 endCharId: newEndId,
-                clock: crdt.clock(),
+                clock: getClock(),
               };
             }
             return null;
@@ -1707,9 +1712,9 @@ function insertBlocksAtCursor(
 
         const blockInsertOp: BlockInsert = {
           op: "block_insert",
-          id: crdt.idGen(),
-          clock: crdt.clock(),
-          pageId: crdt.pageId,
+          id: nextId(),
+          clock: getClock(),
+          pageId: getPageId(),
           afterBlockId: lastInsertedBlockId,
           blockId: newBlockId,
           blockType: newBlock.type as any,
@@ -1720,9 +1725,9 @@ function insertBlocksAtCursor(
         if (newChars.length > 0) {
           const textInsertOp: TextInsert = {
             op: "text_insert",
-            id: crdt.idGen(),
-            clock: crdt.clock(),
-            pageId: crdt.pageId,
+            id: nextId(),
+            clock: getClock(),
+            pageId: getPageId(),
             blockId: newBlockId,
             afterCharId: null, // Insert at beginning of new block
             chars: newChars.map((c) => ({ id: c.id, char: c.char })),
@@ -1732,15 +1737,19 @@ function insertBlocksAtCursor(
 
         // Add format_set operations for each format span
         for (const format of newFormats) {
-          const startIdx = newChars.findIndex((c) => c.id === format.startCharId);
+          const startIdx = newChars.findIndex(
+            (c) => c.id === format.startCharId
+          );
           const endIdx = newChars.findIndex((c) => c.id === format.endCharId);
           if (startIdx !== -1 && endIdx !== -1) {
-            const charIds = newChars.slice(startIdx, endIdx + 1).map((c) => c.id);
+            const charIds = newChars
+              .slice(startIdx, endIdx + 1)
+              .map((c) => c.id);
             const formatOp: FormatSet = {
               op: "format_set",
-              id: crdt.idGen(),
-              clock: crdt.clock(),
-              pageId: crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               blockId: newBlockId,
               charIds,
               format: format.format,
@@ -1758,9 +1767,9 @@ function insertBlocksAtCursor(
           if (newBlock.indent > 0) {
             const indentOp: BlockSet = {
               op: "block_set",
-              id: crdt.idGen(),
-              clock: crdt.clock(),
-              pageId: crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               blockId: newBlockId,
               field: "indent",
               value: newBlock.indent,
@@ -1770,9 +1779,9 @@ function insertBlocksAtCursor(
           if (newBlock.type === "todo_list") {
             const checkedOp: BlockSet = {
               op: "block_set",
-              id: crdt.idGen(),
-              clock: crdt.clock(),
-              pageId: crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               blockId: newBlockId,
               field: "checked",
               value: newBlock.checked,
@@ -1797,7 +1806,7 @@ function insertBlocksAtCursor(
           (c) => !c.deleted
         );
         const newPastedChars: Char[] = visiblePastedChars.map((c) => ({
-          id: crdt.idGen(),
+          id: nextId(),
           char: c.char,
           deleted: false,
         }));
@@ -1811,7 +1820,7 @@ function insertBlocksAtCursor(
         // Generate new chars with new IDs for after content
         const visibleAfterChars = afterChars.filter((c) => !c.deleted);
         const newAfterChars: Char[] = visibleAfterChars.map((c) => ({
-          id: crdt.idGen(),
+          id: nextId(),
           char: c.char,
           deleted: false,
         }));
@@ -1835,7 +1844,7 @@ function insertBlocksAtCursor(
                 ...f,
                 startCharId: newStartId,
                 endCharId: newEndId,
-                clock: crdt.clock(),
+                clock: getClock(),
               };
             }
             return null;
@@ -1852,7 +1861,7 @@ function insertBlocksAtCursor(
                 ...f,
                 startCharId: newStartId,
                 endCharId: newEndId,
-                clock: crdt.clock(),
+                clock: getClock(),
               };
             }
             return null;
@@ -1871,9 +1880,9 @@ function insertBlocksAtCursor(
 
         const lastBlockInsertOp: BlockInsert = {
           op: "block_insert",
-          id: crdt.idGen(),
-          clock: crdt.clock(),
-          pageId: crdt.pageId,
+          id: nextId(),
+          clock: getClock(),
+          pageId: getPageId(),
           afterBlockId: lastInsertedBlockId,
           blockId: lastBlockId,
           blockType: lastBlock.type as any,
@@ -1884,9 +1893,9 @@ function insertBlocksAtCursor(
         if (allNewChars.length > 0) {
           const textInsertOp: TextInsert = {
             op: "text_insert",
-            id: crdt.idGen(),
-            clock: crdt.clock(),
-            pageId: crdt.pageId,
+            id: nextId(),
+            clock: getClock(),
+            pageId: getPageId(),
             blockId: lastBlockId,
             afterCharId: null, // Insert at beginning of new block
             chars: allNewChars.map((c) => ({ id: c.id, char: c.char })),
@@ -1908,9 +1917,9 @@ function insertBlocksAtCursor(
               .map((c) => c.id);
             const formatOp: FormatSet = {
               op: "format_set",
-              id: crdt.idGen(),
-              clock: crdt.clock(),
-              pageId: crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               blockId: lastBlockId,
               charIds,
               format: format.format,
@@ -1928,9 +1937,9 @@ function insertBlocksAtCursor(
           if (lastBlock.indent > 0) {
             const indentOp: BlockSet = {
               op: "block_set",
-              id: crdt.idGen(),
-              clock: crdt.clock(),
-              pageId: crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               blockId: lastBlockId,
               field: "indent",
               value: lastBlock.indent,
@@ -1940,9 +1949,9 @@ function insertBlocksAtCursor(
           if (lastBlock.type === "todo_list") {
             const checkedOp: BlockSet = {
               op: "block_set",
-              id: crdt.idGen(),
-              clock: crdt.clock(),
-              pageId: crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               blockId: lastBlockId,
               field: "checked",
               value: lastBlock.checked,
@@ -1966,7 +1975,11 @@ function insertBlocksAtCursor(
           objectFit: lastPastedBlock.objectFit,
         };
         invalidateBlockCache(newImageBlock);
-        createImageBlockOps(lastPastedBlock as any, newImageBlockId, lastInsertedBlockId);
+        createImageBlockOps(
+          lastPastedBlock as any,
+          newImageBlockId,
+          lastInsertedBlockId
+        );
         resultBlocks.push(newImageBlock);
         lastInsertedBlockId = newImageBlockId;
 
@@ -1978,7 +1991,7 @@ function insertBlocksAtCursor(
           const visibleAfterCharsForImg = afterChars.filter((c) => !c.deleted);
           const newAfterCharsForImg: Char[] = visibleAfterCharsForImg.map(
             (c) => ({
-              id: crdt.idGen(),
+              id: nextId(),
               char: c.char,
               deleted: false,
             })
@@ -2000,7 +2013,7 @@ function insertBlocksAtCursor(
                   ...f,
                   startCharId: newStartId,
                   endCharId: newEndId,
-                  clock: crdt.clock(),
+                  clock: getClock(),
                 };
               }
               return null;
@@ -2017,9 +2030,9 @@ function insertBlocksAtCursor(
 
           const afterBlockInsertOp: BlockInsert = {
             op: "block_insert",
-            id: crdt.idGen(),
-            clock: crdt.clock(),
-            pageId: crdt.pageId,
+            id: nextId(),
+            clock: getClock(),
+            pageId: getPageId(),
             afterBlockId: newImageBlockId,
             blockId: afterBlockId,
             blockType: "paragraph",
@@ -2030,12 +2043,15 @@ function insertBlocksAtCursor(
           if (newAfterCharsForImg.length > 0) {
             const textInsertOp: TextInsert = {
               op: "text_insert",
-              id: crdt.idGen(),
-              clock: crdt.clock(),
-              pageId: crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               blockId: afterBlockId,
               afterCharId: null,
-              chars: newAfterCharsForImg.map((c) => ({ id: c.id, char: c.char })),
+              chars: newAfterCharsForImg.map((c) => ({
+                id: c.id,
+                char: c.char,
+              })),
             };
             ops.push(textInsertOp);
           }
@@ -2054,9 +2070,9 @@ function insertBlocksAtCursor(
                 .map((c) => c.id);
               const formatOp: FormatSet = {
                 op: "format_set",
-                id: crdt.idGen(),
-                clock: crdt.clock(),
-                pageId: crdt.pageId,
+                id: nextId(),
+                clock: getClock(),
+                pageId: getPageId(),
                 blockId: afterBlockId,
                 charIds,
                 format: format.format,
@@ -2092,7 +2108,7 @@ function insertBlocksAtCursor(
           const visibleAfterCharsForLine = afterChars.filter((c) => !c.deleted);
           const newAfterCharsForLine: Char[] = visibleAfterCharsForLine.map(
             (c) => ({
-              id: crdt.idGen(),
+              id: nextId(),
               char: c.char,
               deleted: false,
             })
@@ -2117,7 +2133,7 @@ function insertBlocksAtCursor(
                   ...f,
                   startCharId: newStartId,
                   endCharId: newEndId,
-                  clock: crdt.clock(),
+                  clock: getClock(),
                 };
               }
               return null;
@@ -2134,9 +2150,9 @@ function insertBlocksAtCursor(
 
           const afterBlockInsertOp: BlockInsert = {
             op: "block_insert",
-            id: crdt.idGen(),
-            clock: crdt.clock(),
-            pageId: crdt.pageId,
+            id: nextId(),
+            clock: getClock(),
+            pageId: getPageId(),
             afterBlockId: newLineBlockId,
             blockId: afterBlockId,
             blockType: "paragraph",
@@ -2147,9 +2163,9 @@ function insertBlocksAtCursor(
           if (newAfterCharsForLine.length > 0) {
             const textInsertOp: TextInsert = {
               op: "text_insert",
-              id: crdt.idGen(),
-              clock: crdt.clock(),
-              pageId: crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               blockId: afterBlockId,
               afterCharId: null,
               chars: newAfterCharsForLine.map((c) => ({
@@ -2174,9 +2190,9 @@ function insertBlocksAtCursor(
                 .map((c) => c.id);
               const formatOp: FormatSet = {
                 op: "format_set",
-                id: crdt.idGen(),
-                clock: crdt.clock(),
-                pageId: crdt.pageId,
+                id: nextId(),
+                clock: getClock(),
+                pageId: getPageId(),
                 blockId: afterBlockId,
                 charIds,
                 format: format.format,
@@ -2207,7 +2223,7 @@ function insertBlocksAtCursor(
         const visibleAfterCharsSingle = afterChars.filter((c) => !c.deleted);
         const newAfterCharsSingle: Char[] = visibleAfterCharsSingle.map(
           (c) => ({
-            id: crdt.idGen(),
+            id: nextId(),
             char: c.char,
             deleted: false,
           })
@@ -2229,7 +2245,7 @@ function insertBlocksAtCursor(
                 ...f,
                 startCharId: newStartId,
                 endCharId: newEndId,
-                clock: crdt.clock(),
+                clock: getClock(),
               };
             }
             return null;
@@ -2246,9 +2262,9 @@ function insertBlocksAtCursor(
 
         const afterBlockInsertOp: BlockInsert = {
           op: "block_insert",
-          id: crdt.idGen(),
-          clock: crdt.clock(),
-          pageId: crdt.pageId,
+          id: nextId(),
+          clock: getClock(),
+          pageId: getPageId(),
           afterBlockId: lastInsertedBlockId,
           blockId: afterBlockId,
           blockType: "paragraph",
@@ -2259,9 +2275,9 @@ function insertBlocksAtCursor(
         if (newAfterCharsSingle.length > 0) {
           const textInsertOp: TextInsert = {
             op: "text_insert",
-            id: crdt.idGen(),
-            clock: crdt.clock(),
-            pageId: crdt.pageId,
+            id: nextId(),
+            clock: getClock(),
+            pageId: getPageId(),
             blockId: afterBlockId,
             afterCharId: null,
             chars: newAfterCharsSingle.map((c) => ({ id: c.id, char: c.char })),
@@ -2283,9 +2299,9 @@ function insertBlocksAtCursor(
               .map((c) => c.id);
             const formatOp: FormatSet = {
               op: "format_set",
-              id: crdt.idGen(),
-              clock: crdt.clock(),
-              pageId: crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               blockId: afterBlockId,
               charIds,
               format: format.format,
@@ -2325,7 +2341,11 @@ function insertBlocksAtCursor(
       // If the last block has after-cursor content, position cursor at the start of it
       const afterTextLength = afterChars.filter((c) => !c.deleted).length;
       const cursorPosition = lastBlockText.length - afterTextLength;
-      newState = moveCursorToPosition(newState, lastResultBlockIndex, Math.max(0, cursorPosition));
+      newState = moveCursorToPosition(
+        newState,
+        lastResultBlockIndex,
+        Math.max(0, cursorPosition)
+      );
     } else {
       // For non-textual last block, move cursor to the next block if it exists
       if (lastResultBlockIndex + 1 < newBlocks.length) {
@@ -2346,7 +2366,6 @@ function insertBlocksAtCursor(
 export function pasteFromClipboardEvent(
   state: EditorState,
   event: ClipboardEvent,
-  crdt: CRDTContext,
   extractedData?: { html: string; text: string } | null
 ): CommandResult | null {
   // Use extracted data if provided (from immediate event handler)
@@ -2371,7 +2390,7 @@ export function pasteFromClipboardEvent(
   if (html) {
     const blocks = parseHTMLToBlocks(html);
     if (blocks.length > 0) {
-      return insertBlocksAtCursor(state, blocks, crdt);
+      return insertBlocksAtCursor(state, blocks);
     }
   }
 
@@ -2379,7 +2398,7 @@ export function pasteFromClipboardEvent(
   if (text) {
     const blocks = parsePlainTextToBlocks(text);
     if (blocks.length > 0) {
-      return insertBlocksAtCursor(state, blocks, crdt);
+      return insertBlocksAtCursor(state, blocks);
     }
   }
 
@@ -2392,8 +2411,7 @@ export function pasteFromClipboardEvent(
  */
 export function pasteFromClipboardEventAsPlainText(
   state: EditorState,
-  event: ClipboardEvent,
-  crdt: CRDTContext
+  event: ClipboardEvent
 ): Promise<CommandResult | null> {
   return new Promise((resolve) => {
     try {
@@ -2420,7 +2438,7 @@ export function pasteFromClipboardEventAsPlainText(
         return;
       }
 
-      resolve(insertBlocksAtCursor(state, blocks, crdt));
+      resolve(insertBlocksAtCursor(state, blocks));
     } catch (error) {
       console.error("Failed to paste plain text from clipboard event:", error);
       resolve(null);

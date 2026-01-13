@@ -1,6 +1,6 @@
 import type { Block } from "@/deserializer/loadPage";
-import type { Operation } from "../sync";
-import { getVisibleBlocks } from "../sync";
+import type { Operation } from "../sync/sync";
+import { getVisibleBlocks, getPageId, nextId, getClock } from "../sync/sync";
 import { selectLineAtPosition, selectWordAtPosition } from "../actions/commands";
 import {
   DOUBLE_CLICK_TIME,
@@ -47,7 +47,7 @@ import {
   updateMode,
 } from "../state";
 import { getEditorStyles } from "../styles";
-import type { CRDTContext, EditorState, ViewportState } from "../types";
+import type { EditorState, ViewportState } from "../types";
 
 // Touch state storage (needs to be outside functions to persist between events)
 export let touchState: {
@@ -898,8 +898,7 @@ export function handleTouchEnd(
   state: EditorState,
   viewport: ViewportState,
   _event: TouchEvent,
-  _containerRect: { left: number; top: number },
-  crdtContext: CRDTContext
+  _containerRect: { left: number; top: number }
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
   stopAutoScroll();
@@ -974,7 +973,7 @@ export function handleTouchEnd(
   // End image drag if active
   if (state.ui.imageDrag) {
     touchState = null;
-    const endDragResult = endImageDrag(state, crdtContext);
+    const endDragResult = endImageDrag(state);
     return {
       state: {
         ...endDragResult.state,
@@ -1272,7 +1271,7 @@ export function handleTouchEnd(
 
         // If tapping below content and last block is an image, create a new paragraph
         if (isTapBelowContent && lastBlock.type === "image") {
-          const newParagraphId = state.crdt.idGen();
+          const newParagraphId = nextId();
           const newParagraph: Block = {
             id: newParagraphId,
             type: "paragraph",
@@ -1282,9 +1281,9 @@ export function handleTouchEnd(
 
           const blockInsertOp: Operation = {
             op: "block_insert",
-            id: state.crdt.idGen(),
-            clock: state.crdt.clock(),
-            pageId: state.crdt.pageId,
+            id: nextId(),
+            clock: getClock(),
+            pageId: getPageId(),
             afterBlockId: lastBlock.id,
             blockId: newParagraphId,
             blockType: "paragraph",
@@ -1433,7 +1432,7 @@ export function handleTouchEnd(
           if (isLastBlock) {
             const currentBlock =
               state.document.page.blocks[position.blockIndex];
-            const newParagraphId = state.crdt.idGen();
+            const newParagraphId = nextId();
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
@@ -1443,9 +1442,9 @@ export function handleTouchEnd(
 
             const blockInsertOp: Operation = {
               op: "block_insert",
-              id: state.crdt.idGen(),
-              clock: state.crdt.clock(),
-              pageId: state.crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               afterBlockId: currentBlock.id,
               blockId: newParagraphId,
               blockType: "paragraph",

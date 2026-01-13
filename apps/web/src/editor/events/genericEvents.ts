@@ -1,4 +1,4 @@
-import type { Operation } from "../sync";
+import type { Operation } from "../sync/sync";
 import { pasteFromClipboardEvent } from "../actions/clipboard";
 import { scrollToMakeCursorVisible } from "../selection";
 import type { EditorState, ViewportState } from "../types";
@@ -27,7 +27,6 @@ export function handlePaste(
   const result = pasteFromClipboardEvent(
     state,
     event,
-    state.crdt,
     clipboardData
   );
   if (!result) {

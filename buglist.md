@@ -232,8 +232,12 @@ Bugs list
 - [ ] snapshot restore
 - [ ] why snapshot have hlc clock
 - [ ] do we have uncessary long ids in snapshot
-- [x] crdt pasting ad docoumet paste only first block 
+- [x] crdt pasting ad docoumet paste only first block
 - [ ] loading page is slow
 - [ ] loading apge should show spinner.
-- [ ] change content should reculate hights/documentb height in 
+- [ ] change content should reculate hights/documentb height in
 - [ ] on load document there is not scrollbar
+- [ ] 1.  Fix IDs - Quick win, no architectural changes, ~70% ID size reduction
+- [ ] 2.  Block squashing - Bigger change to data model, ~80-90% fewer char objects
+- [ ] 3. Binary encoding - Replace JSON serialization, ~50% total reduction
+- [ ] 4. Delta compression - Only after the others are stable, complex to get right

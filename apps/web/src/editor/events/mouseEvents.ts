@@ -1,62 +1,62 @@
 import { isTextualBlock } from "@/deserializer/loadPage";
-import type { Operation, HLC } from "../sync";
-import { getVisibleBlocks } from "../sync";
 import {
-  toggleTodoChecked,
   selectLineAtPosition,
   selectWordAtPosition,
+  toggleTodoChecked,
 } from "../actions/commands";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
+import { getCurrentFontFamily, getFontMetrics } from "../fonts";
+import { getBlockHeight, imageCache } from "../renderer";
+import { getTextDirection } from "../rtl";
+import {
+  endScrollbarDrag,
+  isPointInScrollbar,
+  isPointInThumb,
+  startScrollbarDrag,
+  updateScrollFromThumbDrag,
+  updateScrollFromTrackClick,
+  updateScrollFromWheel,
+  updateScrollbarHover,
+} from "../scrollbar";
+import {
+  getCursorCoordinates,
+  getLinkAtPosition,
+  getTextPositionFromViewport,
+} from "../selection";
+import {
+  clearAutoCreatedParagraph,
+  clearSelection,
+  closeActiveMenu,
+  closeSlashCommand,
+  getBlockTextContent,
+  setActiveMenu,
+  startSelection,
+  updateCursor,
+  updateFocus,
+  updateMode,
+  updateSelectionFocus,
+} from "../state";
+import { getEditorStyles, getTextStyle } from "../styles";
+import type { Operation } from "../sync/sync";
+import { getVisibleBlocks } from "../sync/sync";
+import type { EditorState, MouseEvent, ViewportState } from "../types";
 import {
   autoScrollState,
   clearScrollPress,
   scrollbarPressState
 } from "./eventsState";
 import {
-  getImageBlockAtPoint,
-  startImageDrag,
-  getLineBlockAtPoint,
-  isWithinClickDistance,
-  updateImageDrag,
-  isTouchDevice,
-  getDragHandleAtPoint,
-  endImageDrag,
   cancelImageDrag,
+  endImageDrag,
+  getDragHandleAtPoint,
+  getImageBlockAtPoint,
+  getLineBlockAtPoint,
+  isTouchDevice,
+  isWithinClickDistance,
+  startImageDrag,
+  updateImageDrag,
 } from "./eventUtils";
-import { getCurrentFontFamily, getFontMetrics } from "../fonts";
-import { getBlockHeight, imageCache } from "../renderer";
-import { getTextDirection } from "../rtl";
-import {
-  isPointInScrollbar,
-  isPointInThumb,
-  startScrollbarDrag,
-  updateScrollFromTrackClick,
-  updateScrollFromThumbDrag,
-  updateScrollbarHover,
-  endScrollbarDrag,
-  updateScrollFromWheel,
-} from "../scrollbar";
-import {
-  getTextPositionFromViewport,
-  getLinkAtPosition,
-  getCursorCoordinates,
-} from "../selection";
-import {
-  getBlockTextContent,
-  closeSlashCommand,
-  closeActiveMenu,
-  updateFocus,
-  clearAutoCreatedParagraph,
-  setActiveMenu,
-  updateCursor,
-  updateSelectionFocus,
-  updateMode,
-  clearSelection,
-  startSelection,
-} from "../state";
-import { getEditorStyles, getTextStyle } from "../styles";
-import { stopAutoScroll, startAutoScroll } from "./touchEvents";
-import type { EditorState, ViewportState, MouseEvent } from "../types";
+import { startAutoScroll, stopAutoScroll } from "./touchEvents";
 
 // Helper function to detect and handle checkbox clicks for todo list items
 
@@ -133,7 +133,7 @@ export function handleTodoCheckboxClick(
           canvasY <= checkboxY + checkboxSize + clickPadding
         ) {
           // Toggle the checkbox
-          const result = toggleTodoChecked(state, blockIndex, state.crdt);
+          const result = toggleTodoChecked(state, blockIndex);
           return { state: result.state, ops: result.ops };
         }
       }
@@ -912,8 +912,7 @@ export function handleMouseUp(
   state: EditorState,
   _viewport: ViewportState,
   _event: MouseEvent,
-  _visibility: { start: number; end: number },
-  crdtContext: { pageId: string; idGen: () => string; clock: () => HLC }
+  _visibility: { start: number; end: number }
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
   stopAutoScroll();
@@ -938,7 +937,7 @@ export function handleMouseUp(
 
   // End image drag if active
   if (state.ui.imageDrag) {
-    const result = endImageDrag(state, crdtContext);
+    const result = endImageDrag(state);
     return result;
   }
 

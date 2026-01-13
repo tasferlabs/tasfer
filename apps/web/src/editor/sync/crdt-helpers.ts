@@ -15,8 +15,8 @@ import type {
   TextDelete,
   TextInsert
 } from "../sync/types";
-import type { CRDTContext } from "../types";
 import { compareIds } from "../sync/id";
+import { getPageId, nextId, getClock } from "./sync";
 
 export interface InsertCharsResult {
   newChars: Char[];
@@ -40,13 +40,12 @@ export function insertCharsAtPosition(
   chars: Char[],
   position: number,
   text: string,
-  blockId: string,
-  crdt: CRDTContext
+  blockId: string
 ): InsertCharsResult {
   const afterCharId = findCharIdAtPosition(chars, position);
   
   const newCharObjects: Char[] = Array.from(text).map(char => ({
-    id: crdt.idGen(),
+    id: nextId(),
     char,
     deleted: false,
   }));
@@ -57,9 +56,9 @@ export function insertCharsAtPosition(
   
   const op: TextInsert = {
     op: "text_insert",
-    id: crdt.idGen(),
-    clock: crdt.clock(),
-    pageId: crdt.pageId,
+    id: nextId(),
+    clock: getClock(),
+    pageId: getPageId(),
     blockId,
     afterCharId,
     chars: newCharObjects.map(c => ({ id: c.id, char: c.char })),
@@ -75,8 +74,7 @@ export function deleteCharsInRange(
   chars: Char[],
   startIndex: number,
   endIndex: number,
-  blockId: string,
-  crdt: CRDTContext,
+  blockId: string
 ): DeleteCharsResult {
   const deletedIds: string[] = [];
   let visibleCount = 0;
@@ -95,9 +93,9 @@ export function deleteCharsInRange(
   
   const op: TextDelete = {
     op: "text_delete",
-    id: crdt.idGen(),
-    clock: crdt.clock(),
-    pageId: crdt.pageId,
+    id: nextId(),
+    clock: getClock(),
+    pageId: getPageId(),
     blockId,
     charIds: deletedIds,
   };
@@ -129,8 +127,7 @@ export function formatCharsInRange(
   endIndex: number,
   blockId: string,
   format: TextFormat,
-  value: boolean | string,
-  crdt: CRDTContext
+  value: boolean | string
 ): FormatCharsResult {
   const charIds = getCharIdsInRange(chars, startIndex, endIndex);
   
@@ -139,9 +136,9 @@ export function formatCharsInRange(
       newFormats: formats,
       op: {
         op: "format_set",
-        id: crdt.idGen(),
-        clock: crdt.clock(),
-        pageId: crdt.pageId,
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
         blockId,
         charIds: [],
         format,
@@ -167,16 +164,16 @@ export function formatCharsInRange(
       startCharId: charIds[0],
       endCharId: charIds[charIds.length - 1],
       format,
-      clock: crdt.clock(),
+      clock: getClock(),
     };
     newFormats = [...formats, newSpan];
   }
   
   const op: FormatSet = {
     op: "format_set",
-    id: crdt.idGen(),
-    clock: crdt.clock(),
-    pageId: crdt.pageId,
+    id: nextId(),
+    clock: getClock(),
+    pageId: getPageId(),
     blockId,
     charIds,
     format,

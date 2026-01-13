@@ -5,7 +5,7 @@
  * Replaces WebRTC peer-to-peer with centralized server communication.
  */
 
-import { SyncEngine, serializeVV, deserializeVV } from "./index";
+import { SyncEngine, serializeVV, deserializeVV } from "./sync";
 import type { HLC, Operation } from "./types";
 import type { AwarenessState, AwarenessUser } from "./awareness";
 import { getColorForPeer, getTestNameForPeer } from "./awareness";

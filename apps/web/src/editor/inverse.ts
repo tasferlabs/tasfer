@@ -7,6 +7,7 @@
  */
 
 import type { Block, Char } from "@/deserializer/loadPage";
+import { getClock, nextId } from "./sync/sync";
 import type {
   BlockDelete,
   BlockInsert,
@@ -24,7 +25,7 @@ import type { EditorState } from "./types";
  */
 function invertTextInsert(
   op: TextInsert,
-  state: EditorState
+  _state: EditorState
 ): TextDelete | null {
   // To invert a text insert, we need to delete the characters that were inserted
   const charIds = op.chars.map((c) => c.id);
@@ -35,8 +36,8 @@ function invertTextInsert(
 
   return {
     op: "text_delete",
-    id: state.crdt.idGen(),
-    clock: state.crdt.clock(),
+    id: nextId(),
+    clock: getClock(),
     pageId: op.pageId,
     blockId: op.blockId,
     charIds,
@@ -104,8 +105,8 @@ function invertTextDelete(
 
   return {
     op: "text_insert",
-    id: state.crdt.idGen(),
-    clock: state.crdt.clock(),
+    id: nextId(),
+    clock: getClock(),
     pageId: op.pageId,
     blockId: op.blockId,
     afterCharId,
@@ -140,8 +141,8 @@ function invertFormatSet(op: FormatSet, state: EditorState): FormatSet | null {
 
   return {
     op: "format_set",
-    id: state.crdt.idGen(),
-    clock: state.crdt.clock(),
+    id: nextId(),
+    clock: getClock(),
     pageId: op.pageId,
     blockId: op.blockId,
     charIds: op.charIds,
@@ -156,12 +157,12 @@ function invertFormatSet(op: FormatSet, state: EditorState): FormatSet | null {
  */
 function invertBlockInsert(
   op: BlockInsert,
-  state: EditorState
+  _state: EditorState
 ): BlockDelete | null {
   return {
     op: "block_delete",
-    id: state.crdt.idGen(),
-    clock: state.crdt.clock(),
+    id: nextId(),
+    clock: getClock(),
     pageId: op.pageId,
     blockId: op.blockId,
   };
@@ -204,8 +205,8 @@ function invertBlockDelete(
 
   return {
     op: "block_insert",
-    id: state.crdt.idGen(),
-    clock: state.crdt.clock(),
+    id: nextId(),
+    clock: getClock(),
     pageId: op.pageId,
     afterBlockId: afterBlockId || null,
     blockId: op.blockId,
@@ -238,8 +239,8 @@ function invertBlockSet(op: BlockSet, state: EditorState): BlockSet | null {
 
   return {
     op: "block_set",
-    id: state.crdt.idGen(),
-    clock: state.crdt.clock(),
+    id: nextId(),
+    clock: getClock(),
     pageId: op.pageId,
     blockId: op.blockId,
     field: op.field,

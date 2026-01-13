@@ -24,7 +24,7 @@ import {
   getSelectionRange,
 } from "../editor/actions/commands";
 import {
-  mountEditorFromSnapshot,
+  mountEditor,
   type MountedEditor as MountedEditorInstance,
 } from "../editor/mount";
 import { clearFailedImageCache } from "../editor/renderer";
@@ -34,7 +34,7 @@ import type { EditorState, SlashCommand } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { WebSocketSync, type SyncState } from "@/editor/sync/websocket";
-import { SyncEngine, cleanSnapshotForSave, type AwarenessState, type HLC } from "@/editor/sync";
+import { SyncEngine, cleanSnapshotForSave, type AwarenessState, type HLC } from "@/editor/sync/sync";
 import type { AwarenessUser } from "@/editor/sync/awareness";
 import { hasNativeBridge } from "@/editor/actions/clipboard";
 
@@ -220,7 +220,7 @@ export const MountedEditor = React.forwardRef<MountedEditorRef, MountedEditorPro
     lastSerializedBlocksRef.current = null;
     editorInitializedRef.current = false;
 
-    const mounted = mountEditorFromSnapshot(el, snapshot);
+    const mounted = mountEditor(el, snapshot);
     mountedRef.current = mounted;
 
     // Initialize sync engine if signaling URL is provided

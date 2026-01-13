@@ -19,7 +19,7 @@ import {
   updateScrollbarFadeOpacity,
 } from "../scrollbar";
 import { getTextPositionFromViewport } from "../selection";
-import { getVisibleBlocks } from "../sync";
+import { getVisibleBlocks } from "../sync/sync";
 import {
   closeActiveMenu,
   openContextMenu,
@@ -29,7 +29,6 @@ import {
   updateSelectionFocus,
 } from "../state";
 import type {
-  CRDTContext,
   EditorState,
   MouseEvent,
   ViewportState,
@@ -62,7 +61,6 @@ export function handleEvents(
   events: Event[],
   documentHeight: number,
   containerRect: { left: number; top: number },
-  crdtContext: CRDTContext,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
   clipboardData?: { html: string; text: string } | null
 ): { state: EditorState; ops: Operation[] } {
@@ -591,8 +589,7 @@ export function handleEvents(
           state,
           viewport,
           event as unknown as MouseEvent,
-          visibility,
-          crdtContext
+          visibility
         );
         state = mouseUpResult.state;
         collectedOps.push(...mouseUpResult.ops);
@@ -658,8 +655,7 @@ export function handleEvents(
           state,
           viewport,
           event as TouchEvent,
-          containerRect,
-          crdtContext
+          containerRect
         );
         state = touchEndResult.state;
         collectedOps.push(...touchEndResult.ops);

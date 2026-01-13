@@ -1,4 +1,4 @@
-import type { Operation } from "../sync";
+import type { Operation } from "../sync/sync";
 import { getSelectionRange, deleteSelectedText, insertText } from "../actions/commands";
 import { scrollToMakeCursorVisible } from "../selection";
 import type { EditorState, ViewportState } from "../types";
@@ -21,7 +21,7 @@ export function handleCompositionStart(
   if (state.document.selection && !state.document.selection.isCollapsed) {
     const range = getSelectionRange(state);
     if (range) {
-      const result = deleteSelectedText(state, state.crdt);
+      const result = deleteSelectedText(state);
       state = result.state;
       ops.push(...result.ops);
     }
@@ -94,7 +94,7 @@ export function handleCompositionEnd(
 
   if (composedText && state.document.cursor) {
     // Insert the composed text at the cursor position
-    const result = insertText(state, composedText, state.crdt);
+    const result = insertText(state, composedText);
     state = result.state;
     ops.push(...result.ops);
 

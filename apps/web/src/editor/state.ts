@@ -6,6 +6,8 @@ import {
   measureCRDTTextUpToIndex,
   type FontFamily,
 } from "./fonts";
+import { createIdGenerator, generatePeerId } from "./sync/id";
+import { setCRDTContext } from "./sync/sync";
 import { isRTLChar } from "./rtl";
 import {
   createInitialMomentumState,
@@ -22,8 +24,11 @@ import type {
   ViewportState,
 } from "./types";
 import { initialUndoManagerState } from "./undo";
-import { getVisibleBlocks } from "./sync";
-import { findNextVisibleBlockIndex, findPreviousVisibleBlockIndex } from "./sync/reducer";
+import { getVisibleBlocks } from "./sync/sync";
+import {
+  findNextVisibleBlockIndex,
+  findPreviousVisibleBlockIndex,
+} from "./sync/reducer";
 
 // =============================================================================
 // CRDT-Native Helper Functions
@@ -232,45 +237,52 @@ export function generateBlockId(): string {
 }
 
 // State Creation Functions
-export const createInitialState = (page: Page): EditorState => ({
-  document: {
-    page,
-    cursor: null,
-    selection: null,
-  },
-  ui: {
-    mode: "edit" as EditorMode,
-    activeMenu: { type: "none" },
-    isHoveringLinkWithModifier: false,
-    composition: null,
-    activeFormatsMode: { type: "inherit" },
-    imageHover: null,
-    imageDrag: null,
-    selectionHandleDrag: null,
-    autoCreatedParagraph: null,
-  },
-  view: {
-    isFocused: false,
-    clickTracker: {
-      count: 0,
-      lastClickTime: 0,
-      lastClickPosition: null,
+export const createInitialState = (page: Page): EditorState => {
+  const peerId = generatePeerId();
+  
+  // Initialize global CRDT context
+  setCRDTContext(page.id, peerId);
+  
+  return {
+    document: {
+      page,
+      cursor: null,
+      selection: null,
     },
-    scrollbar: createInitialScrollbarState(),
-    momentum: createInitialMomentumState(),
-    hasPhysicalKeyboard: false, // Default to false, will be updated by native
-  },
-  undoManager: initialUndoManagerState,
-  crdt: {
-    pageId: page.id,
-    idGen: () => `${Date.now()}-${Math.random()}`,
-    clock: () => ({
-      wall: Date.now(),
-      logical: 0,
-      peerId: "default-peer",
-    }),
-  },
-});
+    ui: {
+      mode: "edit" as EditorMode,
+      activeMenu: { type: "none" },
+      isHoveringLinkWithModifier: false,
+      composition: null,
+      activeFormatsMode: { type: "inherit" },
+      imageHover: null,
+      imageDrag: null,
+      selectionHandleDrag: null,
+      autoCreatedParagraph: null,
+    },
+    view: {
+      isFocused: false,
+      clickTracker: {
+        count: 0,
+        lastClickTime: 0,
+        lastClickPosition: null,
+      },
+      scrollbar: createInitialScrollbarState(),
+      momentum: createInitialMomentumState(),
+      hasPhysicalKeyboard: false, // Default to false, will be updated by native
+    },
+    undoManager: initialUndoManagerState,
+    crdt: {
+      pageId: page.id,
+      idGen: createIdGenerator(peerId),
+      clock: () => ({
+        wall: Date.now(),
+        logical: 0,
+        peerId,
+      }),
+    },
+  };
+};
 
 // State Update Functions (Pure Functions)
 export const updateCursor = (
@@ -448,17 +460,16 @@ export const moveCursorToPosition = (
 ): EditorState => {
   const visibleBlocks = getVisibleBlocks(state.document.page);
   if (visibleBlocks.length === 0) return state;
-  
+
   // Find the actual block index in the full array for the last visible block
   const allBlocks = state.document.page.blocks;
   const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
-  const lastVisibleBlockIndex = allBlocks.findIndex(b => b.id === lastVisibleBlock.id);
-  const maxBlockIndex = lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0;
-  
-  const clampedBlockIndex = Math.max(
-    0,
-    Math.min(blockIndex, maxBlockIndex)
+  const lastVisibleBlockIndex = allBlocks.findIndex(
+    (b) => b.id === lastVisibleBlock.id
   );
+  const maxBlockIndex = lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0;
+
+  const clampedBlockIndex = Math.max(0, Math.min(blockIndex, maxBlockIndex));
   const block = state.document.page.blocks[clampedBlockIndex];
 
   if (!block || block.deleted) return state;

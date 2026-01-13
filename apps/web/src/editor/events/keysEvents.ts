@@ -1,23 +1,83 @@
-import { isListBlock, type Block, isTextualBlock } from "@/deserializer/loadPage";
-import type { Operation } from "../sync";
-import { getVisibleBlocks } from "../sync";
+import {
+  isListBlock,
+  type Block,
+  isTextualBlock,
+} from "@/deserializer/loadPage";
+import type { Operation } from "../sync/sync";
+import { getVisibleBlocks, getPageId, nextId, getClock } from "../sync/sync";
 import { copySelectionToClipboard } from "../actions/clipboard";
-import { selectAll, toggleBold, outdentListItem, indentListItem, getSelectionRange, deleteSelectedText, applySlashCommand, deleteText, insertText, extendSelectionWordLeft, moveToPreviousWord, extendSelectionWordRight, moveToNextWord, extendSelectionHome, moveToLineStart, extendSelectionEnd, moveToLineEnd, deleteWordBackward, deleteWordForward, deleteForward, splitBlock } from "../actions/commands";
+import {
+  selectAll,
+  toggleBold,
+  outdentListItem,
+  indentListItem,
+  getSelectionRange,
+  deleteSelectedText,
+  applySlashCommand,
+  deleteText,
+  insertText,
+  extendSelectionWordLeft,
+  moveToPreviousWord,
+  extendSelectionWordRight,
+  moveToNextWord,
+  extendSelectionHome,
+  moveToLineStart,
+  extendSelectionEnd,
+  moveToLineEnd,
+  deleteWordBackward,
+  deleteWordForward,
+  deleteForward,
+  splitBlock,
+} from "../actions/commands";
 import { deleteCharsInRange } from "../sync/crdt-helpers";
 import { ensureCursorVisible, isTouchDevice } from "./eventUtils";
 import { invalidateBlockCache } from "../renderer";
 import { getTextDirection } from "../rtl";
-import { scrollToMakeCursorVisible, getTextPositionFromViewport } from "../selection";
+import {
+  scrollToMakeCursorVisible,
+  getTextPositionFromViewport,
+} from "../selection";
 import { SLASH_COMMANDS } from "../SlashCommandMenu";
-import { closeSlashCommand, updateSlashCommandSelection, moveCursorToPosition, getBlockTextContent, updateSlashCommandFilter, updateFocus, extendSelectionLeft, clearSelection, moveCursorLeft, clearAutoCreatedParagraph, extendSelectionRight, moveCursorRight, extendSelectionUp, moveCursorUp, extendSelectionDown, moveCursorDown, extendSelectionPageUp, moveCursorPageUp, extendSelectionPageDown, moveCursorPageDown, getBlockTextLength, openSlashCommand, updateCursor, openContextMenu } from "../state";
-import type { EditorState, ViewportState, KeyboardEvent, MouseEvent } from "../types";
+import {
+  closeSlashCommand,
+  updateSlashCommandSelection,
+  moveCursorToPosition,
+  getBlockTextContent,
+  updateSlashCommandFilter,
+  updateFocus,
+  extendSelectionLeft,
+  clearSelection,
+  moveCursorLeft,
+  clearAutoCreatedParagraph,
+  extendSelectionRight,
+  moveCursorRight,
+  extendSelectionUp,
+  moveCursorUp,
+  extendSelectionDown,
+  moveCursorDown,
+  extendSelectionPageUp,
+  moveCursorPageUp,
+  extendSelectionPageDown,
+  moveCursorPageDown,
+  getBlockTextLength,
+  openSlashCommand,
+  updateCursor,
+  openContextMenu,
+} from "../state";
+import type {
+  EditorState,
+  ViewportState,
+  KeyboardEvent,
+  MouseEvent,
+} from "../types";
 import { undoState, redoState } from "../undo";
 
 export function handleKeyDown(
   state: EditorState,
   viewport: ViewportState,
   event: Event,
-  updateViewportCallback?: (viewport: Partial<ViewportState>) => void): { state: EditorState; ops: Operation[]; } {
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
+): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
   const keyEvent = event as unknown as KeyboardEvent;
   const key = keyEvent.key;
@@ -45,18 +105,22 @@ export function handleKeyDown(
       return { state, ops };
     }
     // Block text input keys - let IME handle all text input
-    if (key === "Backspace" ||
+    if (
+      key === "Backspace" ||
       key === "Delete" ||
       key === "Enter" ||
       key === " " ||
-      key === "Space") {
+      key === "Space"
+    ) {
       return { state, ops };
     }
     // Block regular character input during composition
-    if (key.length === 1 &&
+    if (
+      key.length === 1 &&
       !keyEvent.ctrlKey &&
       !keyEvent.altKey &&
-      !keyEvent.metaKey) {
+      !keyEvent.metaKey
+    ) {
       return { state, ops };
     }
   }
@@ -82,8 +146,9 @@ export function handleKeyDown(
   // Bold
   if (isCtrl && code === "KeyB") {
     // Only record undo if there's a selection (actual document change)
-    const hasSelection = state.document.selection && !state.document.selection.isCollapsed;
-    const result = toggleBold(hasSelection ? state : state, state.crdt);
+    const hasSelection =
+      state.document.selection && !state.document.selection.isCollapsed;
+    const result = toggleBold(hasSelection ? state : state);
     ops.push(...result.ops);
     return { state: result.state, ops };
   }
@@ -97,7 +162,7 @@ export function handleKeyDown(
       if (isListBlock(block)) {
         if (keyEvent.shiftKey) {
           // Shift+Tab: outdent
-          const result = outdentListItem(state, state.crdt);
+          const result = outdentListItem(state);
           const newState = result.state;
           ops.push(...result.ops);
           ensureCursorVisible(
@@ -109,7 +174,7 @@ export function handleKeyDown(
           return { state: newState, ops };
         } else {
           // Tab: indent
-          const result = indentListItem(state, state.crdt);
+          const result = indentListItem(state);
           const newState = result.state;
           ops.push(...result.ops);
           ensureCursorVisible(
@@ -145,7 +210,7 @@ export function handleKeyDown(
         console.error("Cut (copy) failed:", err);
       });
       // Then delete the selected text
-      const result = deleteSelectedText(state, state.crdt);
+      const result = deleteSelectedText(state);
       const newState = result.state;
       ops.push(...result.ops);
       ensureCursorVisible(newState, state, viewport, updateViewportCallback);
@@ -159,13 +224,15 @@ export function handleKeyDown(
     const slashMenu = state.ui.activeMenu;
     const filteredCommands = slashMenu.filter
       ? SLASH_COMMANDS.filter(
-        (cmd) => cmd.label.toLowerCase().includes(slashMenu.filter.toLowerCase()) ||
-          cmd.description
-            .toLowerCase()
-            .includes(slashMenu.filter.toLowerCase()) ||
-          cmd.keywords?.some((keyword) => keyword.toLowerCase().startsWith(slashMenu.filter.toLowerCase())
-          )
-      )
+          (cmd) =>
+            cmd.label.toLowerCase().includes(slashMenu.filter.toLowerCase()) ||
+            cmd.description
+              .toLowerCase()
+              .includes(slashMenu.filter.toLowerCase()) ||
+            cmd.keywords?.some((keyword) =>
+              keyword.toLowerCase().startsWith(slashMenu.filter.toLowerCase())
+            )
+        )
       : SLASH_COMMANDS;
 
     switch (key) {
@@ -189,7 +256,7 @@ export function handleKeyDown(
       case "Enter":
         if (filteredCommands.length > 0 && state.document.cursor) {
           const selectedCommand = filteredCommands[slashMenu.selectedIndex];
-          const result = applySlashCommand(state, selectedCommand, state.crdt);
+          const result = applySlashCommand(state, selectedCommand);
           const newState = result.state;
           ops.push(...result.ops);
           ensureCursorVisible(
@@ -218,8 +285,7 @@ export function handleKeyDown(
             block.chars,
             textIndex - 1, // Remove the "/"
             state.document.cursor.position.textIndex, // Remove up to cursor (the filter text)
-            block.id,
-            state.crdt
+            block.id
           );
 
           const newBlock: Block = {
@@ -251,12 +317,14 @@ export function handleKeyDown(
         return { state: closeSlashCommand(state), ops };
       case "Backspace":
         // If at the start of filter, close menu
-        if (state.document.cursor &&
+        if (
+          state.document.cursor &&
           state.ui.activeMenu.type === "slashCommand" &&
           state.document.cursor.position.textIndex <=
-          state.ui.activeMenu.textIndex) {
+            state.ui.activeMenu.textIndex
+        ) {
           // Close menu and delete the slash character - no  needed since deleteText already records
-          const deleteResult = deleteText(state, state.crdt);
+          const deleteResult = deleteText(state);
           const newState = closeSlashCommand(deleteResult.state);
           ops.push(...deleteResult.ops);
           ensureCursorVisible(
@@ -268,10 +336,12 @@ export function handleKeyDown(
           return { state: newState, ops };
         }
         // Otherwise update filter - deleteText handles  internally
-        if (state.document.cursor &&
-          state.ui.activeMenu.type === "slashCommand") {
+        if (
+          state.document.cursor &&
+          state.ui.activeMenu.type === "slashCommand"
+        ) {
           const slashMenu = state.ui.activeMenu;
-          const result = deleteText(state, state.crdt);
+          const result = deleteText(state);
           const newState = result.state;
           ops.push(...result.ops);
           if (newState.document.cursor) {
@@ -295,17 +365,20 @@ export function handleKeyDown(
         return { state, ops };
       default:
         // Handle typing to filter commands (including spaces)
-        if (key.length === 1 &&
+        if (
+          key.length === 1 &&
           !keyEvent.ctrlKey &&
           !keyEvent.altKey &&
           !keyEvent.metaKey &&
-          state.ui.activeMenu.type === "slashCommand") {
+          state.ui.activeMenu.type === "slashCommand"
+        ) {
           const slashMenu = state.ui.activeMenu;
           // insertText handles  internally
-          const result = insertText(state, key, state.crdt);
+          const result = insertText(state, key);
           ops.push(...result.ops);
           if (result.state.document.cursor) {
-            const block = result.state.document.page.blocks[slashMenu.blockIndex];
+            const block =
+              result.state.document.page.blocks[slashMenu.blockIndex];
             if (!block || block.deleted) return { state, ops };
             const text = getBlockTextContent(block);
             const filter = text.slice(
@@ -358,15 +431,20 @@ export function handleKeyDown(
       } else {
         // Check if we're on an image at the start of the page
         if (state.document.cursor) {
-          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
           if (!currentBlock || currentBlock.deleted) return { state, ops };
           const visibleBlocks = getVisibleBlocks(state.document.page);
-          const firstVisibleBlock = visibleBlocks.length > 0 ? visibleBlocks[0] : null;
-          const isFirstBlock = firstVisibleBlock && currentBlock.id === firstVisibleBlock.id;
+          const firstVisibleBlock =
+            visibleBlocks.length > 0 ? visibleBlocks[0] : null;
+          const isFirstBlock =
+            firstVisibleBlock && currentBlock.id === firstVisibleBlock.id;
 
           if (isFirstBlock && currentBlock?.type === "image") {
             // Create a new paragraph above the image
-            const newParagraphId = state.crdt.idGen();
+            const newParagraphId = nextId();
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
@@ -376,9 +454,9 @@ export function handleKeyDown(
 
             const blockInsertOp: Operation = {
               op: "block_insert",
-              id: state.crdt.idGen(),
-              clock: state.crdt.clock(),
-              pageId: state.crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               afterBlockId: null,
               blockId: newParagraphId,
               blockType: "paragraph",
@@ -404,23 +482,28 @@ export function handleKeyDown(
         // Check if we should remove an auto-created paragraph (RTL: left = forward)
         if (state.ui.autoCreatedParagraph && state.document.cursor) {
           const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
-          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
 
           // Check if cursor is on the auto-created paragraph and it's RTL and empty
-          if (state.document.cursor.position.blockIndex === blockIndex &&
+          if (
+            state.document.cursor.position.blockIndex === blockIndex &&
             currentBlock?.id === blockId &&
             currentBlock.type === "paragraph" &&
             isTextualBlock(currentBlock) &&
             getBlockTextContent(currentBlock) === "" &&
-            getTextDirection(getBlockTextContent(currentBlock)) === "rtl") {
+            getTextDirection(getBlockTextContent(currentBlock)) === "rtl"
+          ) {
             // Remove the auto-created paragraph and move to the image below
             const blockToDelete = state.document.page.blocks[blockIndex];
 
             const blockDeleteOp: Operation = {
               op: "block_delete",
-              id: state.crdt.idGen(),
-              clock: state.crdt.clock(),
-              pageId: state.crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               blockId: blockToDelete.id,
             };
             ops.push(blockDeleteOp);
@@ -446,7 +529,8 @@ export function handleKeyDown(
 
             // Select the visual block (image/line)
             const visibleBlocks = getVisibleBlocks(newState.document.page);
-            const firstBlock = visibleBlocks.length > 0 ? visibleBlocks[0] : null;
+            const firstBlock =
+              visibleBlocks.length > 0 ? visibleBlocks[0] : null;
             if (firstBlock?.type === "image" || firstBlock?.type === "line") {
               newState = {
                 ...newState,
@@ -471,7 +555,8 @@ export function handleKeyDown(
         const startBlock = range
           ? state.document.page.blocks[range.start.blockIndex]
           : null;
-        const isVisualBlockSelection = range &&
+        const isVisualBlockSelection =
+          range &&
           (startBlock?.type === "image" || startBlock?.type === "line") &&
           range.start.blockIndex === range.end.blockIndex;
 
@@ -490,9 +575,14 @@ export function handleKeyDown(
 
         // If we moved to a visual block (image/line), select it; otherwise leave just cursor
         if (newState.document.cursor) {
-          const targetBlock = newState.document.page.blocks[newState.document.cursor.position.blockIndex];
-          if (targetBlock &&
-            (targetBlock.type === "image" || targetBlock.type === "line")) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (
+            targetBlock &&
+            (targetBlock.type === "image" || targetBlock.type === "line")
+          ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -513,10 +603,12 @@ export function handleKeyDown(
           }
 
           // Clear auto-created paragraph tracking only if we moved away from it
-          if (state.ui.autoCreatedParagraph &&
+          if (
+            state.ui.autoCreatedParagraph &&
             newState.document.cursor &&
             newState.document.cursor.position.blockIndex !==
-            state.ui.autoCreatedParagraph.blockIndex) {
+              state.ui.autoCreatedParagraph.blockIndex
+          ) {
             newState = clearAutoCreatedParagraph(newState);
           }
         }
@@ -533,17 +625,26 @@ export function handleKeyDown(
       } else {
         // Check if we're on a visual block (image/line) at the end of the page
         if (state.document.cursor) {
-          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
           const visibleBlocks = getVisibleBlocks(state.document.page);
-          const lastVisibleBlockIndex = visibleBlocks.length > 0
-            ? state.document.page.blocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
-            : -1;
-          const isLastBlock = state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
+          const lastVisibleBlockIndex =
+            visibleBlocks.length > 0
+              ? state.document.page.blocks.findIndex(
+                  (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id
+                )
+              : -1;
+          const isLastBlock =
+            state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
 
-          if (isLastBlock &&
-            (currentBlock?.type === "image" || currentBlock?.type === "line")) {
+          if (
+            isLastBlock &&
+            (currentBlock?.type === "image" || currentBlock?.type === "line")
+          ) {
             // Create a new paragraph below the visual block
-            const newParagraphId = state.crdt.idGen();
+            const newParagraphId = nextId();
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
@@ -553,9 +654,9 @@ export function handleKeyDown(
 
             const blockInsertOp: Operation = {
               op: "block_insert",
-              id: state.crdt.idGen(),
-              clock: state.crdt.clock(),
-              pageId: state.crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               afterBlockId: currentBlock.id,
               blockId: newParagraphId,
               blockType: "paragraph",
@@ -581,23 +682,28 @@ export function handleKeyDown(
         // Check if we should remove an auto-created paragraph (LTR: right = forward)
         if (state.ui.autoCreatedParagraph && state.document.cursor) {
           const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
-          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
 
           // Check if cursor is on the auto-created paragraph and it's LTR and empty
-          if (state.document.cursor.position.blockIndex === blockIndex &&
+          if (
+            state.document.cursor.position.blockIndex === blockIndex &&
             currentBlock?.id === blockId &&
             currentBlock.type === "paragraph" &&
             isTextualBlock(currentBlock) &&
             getBlockTextContent(currentBlock) === "" &&
-            getTextDirection(getBlockTextContent(currentBlock)) === "ltr") {
+            getTextDirection(getBlockTextContent(currentBlock)) === "ltr"
+          ) {
             // Remove the auto-created paragraph and move to the image below
             const blockToDelete = state.document.page.blocks[blockIndex];
 
             const blockDeleteOp: Operation = {
               op: "block_delete",
-              id: state.crdt.idGen(),
-              clock: state.crdt.clock(),
-              pageId: state.crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               blockId: blockToDelete.id,
             };
             ops.push(blockDeleteOp);
@@ -623,7 +729,8 @@ export function handleKeyDown(
 
             // Select the visual block (image/line)
             const visibleBlocks = getVisibleBlocks(newState.document.page);
-            const firstBlock = visibleBlocks.length > 0 ? visibleBlocks[0] : null;
+            const firstBlock =
+              visibleBlocks.length > 0 ? visibleBlocks[0] : null;
             if (firstBlock?.type === "image" || firstBlock?.type === "line") {
               newState = {
                 ...newState,
@@ -648,7 +755,8 @@ export function handleKeyDown(
         const endBlock = range
           ? state.document.page.blocks[range.end.blockIndex]
           : null;
-        const isVisualBlockSelection = range &&
+        const isVisualBlockSelection =
+          range &&
           (endBlock?.type === "image" || endBlock?.type === "line") &&
           range.start.blockIndex === range.end.blockIndex;
 
@@ -667,9 +775,14 @@ export function handleKeyDown(
 
         // If we moved to a visual block (image/line), select it; otherwise leave just cursor
         if (newState.document.cursor) {
-          const targetBlock = newState.document.page.blocks[newState.document.cursor.position.blockIndex];
-          if (targetBlock &&
-            (targetBlock.type === "image" || targetBlock.type === "line")) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (
+            targetBlock &&
+            (targetBlock.type === "image" || targetBlock.type === "line")
+          ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -690,10 +803,12 @@ export function handleKeyDown(
           }
 
           // Clear auto-created paragraph tracking only if we moved away from it
-          if (state.ui.autoCreatedParagraph &&
+          if (
+            state.ui.autoCreatedParagraph &&
             newState.document.cursor &&
             newState.document.cursor.position.blockIndex !==
-            state.ui.autoCreatedParagraph.blockIndex) {
+              state.ui.autoCreatedParagraph.blockIndex
+          ) {
             newState = clearAutoCreatedParagraph(newState);
           }
         }
@@ -708,13 +823,18 @@ export function handleKeyDown(
       } else {
         // Check if we're on a visual block (image/line) at the start of the page
         if (state.document.cursor) {
-          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
           const isFirstBlock = state.document.cursor.position.blockIndex === 0;
 
-          if (isFirstBlock &&
-            (currentBlock?.type === "image" || currentBlock?.type === "line")) {
+          if (
+            isFirstBlock &&
+            (currentBlock?.type === "image" || currentBlock?.type === "line")
+          ) {
             // Create a new paragraph above the visual block
-            const newParagraphId = state.crdt.idGen();
+            const newParagraphId = nextId();
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
@@ -724,9 +844,9 @@ export function handleKeyDown(
 
             const blockInsertOp: Operation = {
               op: "block_insert",
-              id: state.crdt.idGen(),
-              clock: state.crdt.clock(),
-              pageId: state.crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               afterBlockId: null,
               blockId: newParagraphId,
               blockType: "paragraph",
@@ -761,9 +881,14 @@ export function handleKeyDown(
 
         // If we moved to a visual block (image/line), select it; otherwise leave just cursor
         if (newState.document.cursor) {
-          const targetBlock = newState.document.page.blocks[newState.document.cursor.position.blockIndex];
-          if (targetBlock &&
-            (targetBlock.type === "image" || targetBlock.type === "line")) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (
+            targetBlock &&
+            (targetBlock.type === "image" || targetBlock.type === "line")
+          ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -784,10 +909,12 @@ export function handleKeyDown(
           }
 
           // Clear auto-created paragraph tracking only if we moved away from it
-          if (state.ui.autoCreatedParagraph &&
+          if (
+            state.ui.autoCreatedParagraph &&
             newState.document.cursor &&
             newState.document.cursor.position.blockIndex !==
-            state.ui.autoCreatedParagraph.blockIndex) {
+              state.ui.autoCreatedParagraph.blockIndex
+          ) {
             newState = clearAutoCreatedParagraph(newState);
           }
         }
@@ -803,22 +930,27 @@ export function handleKeyDown(
         // Check if we should remove an auto-created paragraph
         if (state.ui.autoCreatedParagraph && state.document.cursor) {
           const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
-          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
 
           // If cursor is on the auto-created paragraph and it's still empty
-          if (state.document.cursor.position.blockIndex === blockIndex &&
+          if (
+            state.document.cursor.position.blockIndex === blockIndex &&
             currentBlock?.id === blockId &&
             currentBlock.type === "paragraph" &&
             isTextualBlock(currentBlock) &&
-            getBlockTextContent(currentBlock) === "") {
+            getBlockTextContent(currentBlock) === ""
+          ) {
             // Remove the auto-created paragraph and move to the visual block below
             const blockToDelete = state.document.page.blocks[blockIndex];
 
             const blockDeleteOp: Operation = {
               op: "block_delete",
-              id: state.crdt.idGen(),
-              clock: state.crdt.clock(),
-              pageId: state.crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               blockId: blockToDelete.id,
             };
             ops.push(blockDeleteOp);
@@ -844,7 +976,8 @@ export function handleKeyDown(
 
             // Select the visual block (image/line)
             const visibleBlocks = getVisibleBlocks(newState.document.page);
-            const firstBlock = visibleBlocks.length > 0 ? visibleBlocks[0] : null;
+            const firstBlock =
+              visibleBlocks.length > 0 ? visibleBlocks[0] : null;
             if (firstBlock?.type === "image" || firstBlock?.type === "line") {
               newState = {
                 ...newState,
@@ -866,17 +999,26 @@ export function handleKeyDown(
 
         // Check if we're on a visual block (image/line) at the end of the page
         if (state.document.cursor) {
-          const currentBlock = state.document.page.blocks[state.document.cursor.position.blockIndex];
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
           const visibleBlocks = getVisibleBlocks(state.document.page);
-          const lastVisibleBlockIndex = visibleBlocks.length > 0
-            ? state.document.page.blocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
-            : -1;
-          const isLastBlock = state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
+          const lastVisibleBlockIndex =
+            visibleBlocks.length > 0
+              ? state.document.page.blocks.findIndex(
+                  (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id
+                )
+              : -1;
+          const isLastBlock =
+            state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
 
-          if (isLastBlock &&
-            (currentBlock?.type === "image" || currentBlock?.type === "line")) {
+          if (
+            isLastBlock &&
+            (currentBlock?.type === "image" || currentBlock?.type === "line")
+          ) {
             // Create a new paragraph below the visual block
-            const newParagraphId = state.crdt.idGen();
+            const newParagraphId = nextId();
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
@@ -886,9 +1028,9 @@ export function handleKeyDown(
 
             const blockInsertOp: Operation = {
               op: "block_insert",
-              id: state.crdt.idGen(),
-              clock: state.crdt.clock(),
-              pageId: state.crdt.pageId,
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
               afterBlockId: currentBlock.id,
               blockId: newParagraphId,
               blockType: "paragraph",
@@ -916,9 +1058,14 @@ export function handleKeyDown(
 
         // If we moved to a visual block (image/line), select it; otherwise leave just cursor
         if (newState.document.cursor) {
-          const targetBlock = newState.document.page.blocks[newState.document.cursor.position.blockIndex];
-          if (targetBlock &&
-            (targetBlock.type === "image" || targetBlock.type === "line")) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (
+            targetBlock &&
+            (targetBlock.type === "image" || targetBlock.type === "line")
+          ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -939,10 +1086,12 @@ export function handleKeyDown(
           }
 
           // Clear auto-created paragraph tracking only if we moved away from it
-          if (state.ui.autoCreatedParagraph &&
+          if (
+            state.ui.autoCreatedParagraph &&
             newState.document.cursor &&
             newState.document.cursor.position.blockIndex !==
-            state.ui.autoCreatedParagraph.blockIndex) {
+              state.ui.autoCreatedParagraph.blockIndex
+          ) {
             newState = clearAutoCreatedParagraph(newState);
           }
         }
@@ -959,9 +1108,14 @@ export function handleKeyDown(
 
         // If we moved to a visual block (image/line), select it; otherwise leave just cursor
         if (newState.document.cursor) {
-          const targetBlock = newState.document.page.blocks[newState.document.cursor.position.blockIndex];
-          if (targetBlock &&
-            (targetBlock.type === "image" || targetBlock.type === "line")) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (
+            targetBlock &&
+            (targetBlock.type === "image" || targetBlock.type === "line")
+          ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -982,10 +1136,12 @@ export function handleKeyDown(
           }
 
           // Clear auto-created paragraph tracking only if we moved away from it
-          if (state.ui.autoCreatedParagraph &&
+          if (
+            state.ui.autoCreatedParagraph &&
             newState.document.cursor &&
             newState.document.cursor.position.blockIndex !==
-            state.ui.autoCreatedParagraph.blockIndex) {
+              state.ui.autoCreatedParagraph.blockIndex
+          ) {
             newState = clearAutoCreatedParagraph(newState);
           }
         }
@@ -1002,9 +1158,14 @@ export function handleKeyDown(
 
         // If we moved to a visual block (image/line), select it; otherwise leave just cursor
         if (newState.document.cursor) {
-          const targetBlock = newState.document.page.blocks[newState.document.cursor.position.blockIndex];
-          if (targetBlock &&
-            (targetBlock.type === "image" || targetBlock.type === "line")) {
+          const targetBlock =
+            newState.document.page.blocks[
+              newState.document.cursor.position.blockIndex
+            ];
+          if (
+            targetBlock &&
+            (targetBlock.type === "image" || targetBlock.type === "line")
+          ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -1025,10 +1186,12 @@ export function handleKeyDown(
           }
 
           // Clear auto-created paragraph tracking only if we moved away from it
-          if (state.ui.autoCreatedParagraph &&
+          if (
+            state.ui.autoCreatedParagraph &&
             newState.document.cursor &&
             newState.document.cursor.position.blockIndex !==
-            state.ui.autoCreatedParagraph.blockIndex) {
+              state.ui.autoCreatedParagraph.blockIndex
+          ) {
             newState = clearAutoCreatedParagraph(newState);
           }
         }
@@ -1063,7 +1226,9 @@ export function handleKeyDown(
           } else {
             const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
             const allBlocks = state.document.page.blocks;
-            const lastVisibleBlockIndex = allBlocks.findIndex(b => b.id === lastVisibleBlock.id);
+            const lastVisibleBlockIndex = allBlocks.findIndex(
+              (b) => b.id === lastVisibleBlock.id
+            );
             if (lastVisibleBlockIndex !== -1) {
               newState = moveCursorToPosition(
                 clearSelection(state),
@@ -1083,11 +1248,11 @@ export function handleKeyDown(
       return { state: clearSelection(state), ops };
     case "Backspace":
       if (isCtrl) {
-        const result = deleteWordBackward(state, state.crdt);
+        const result = deleteWordBackward(state);
         newState = result.state;
         ops.push(...result.ops);
       } else {
-        const result = deleteText(state, state.crdt);
+        const result = deleteText(state);
         newState = result.state;
         ops.push(...result.ops);
       }
@@ -1096,11 +1261,11 @@ export function handleKeyDown(
       break;
     case "Delete":
       if (isCtrl) {
-        const result = deleteWordForward(state, state.crdt);
+        const result = deleteWordForward(state);
         newState = result.state;
         ops.push(...result.ops);
       } else {
-        const result = deleteForward(state, state.crdt);
+        const result = deleteForward(state);
         newState = result.state;
         ops.push(...result.ops);
       }
@@ -1108,7 +1273,7 @@ export function handleKeyDown(
       newState = clearAutoCreatedParagraph(newState);
       break;
     case "Enter":
-      const splitResult = splitBlock(state, state.crdt);
+      const splitResult = splitBlock(state);
       newState = splitResult.state;
       ops.push(...splitResult.ops);
       // Clear auto-created paragraph tracking on enter
@@ -1116,7 +1281,7 @@ export function handleKeyDown(
       break;
     case " ":
     case "Space":
-      const spaceResult = insertText(state, " ", state.crdt);
+      const spaceResult = insertText(state, " ");
       newState = spaceResult.state;
       ops.push(...spaceResult.ops);
       // Clear auto-created paragraph tracking on space (already cleared in insertText, but for safety)
@@ -1124,16 +1289,18 @@ export function handleKeyDown(
       break;
     default:
       // Check if typing "/" at the start of a block (only on desktop)
-      if (key === "/" &&
+      if (
+        key === "/" &&
         !isTouchDevice() &&
         state.document.cursor &&
         !keyEvent.ctrlKey &&
         !keyEvent.altKey &&
-        !keyEvent.metaKey) {
+        !keyEvent.metaKey
+      ) {
         const { blockIndex } = state.document.cursor.position;
 
         // Allow slash command anywhere in paragraphs and headings
-        const slashResult = insertText(state, "/", state.crdt);
+        const slashResult = insertText(state, "/");
         const newState = slashResult.state;
         ops.push(...slashResult.ops);
         if (newState.document.cursor) {
@@ -1153,11 +1320,13 @@ export function handleKeyDown(
         return { state: newState, ops };
       }
 
-      if (key.length === 1 &&
+      if (
+        key.length === 1 &&
         !keyEvent.ctrlKey &&
         !keyEvent.altKey &&
-        !keyEvent.metaKey) {
-        const result = insertText(state, key, state.crdt);
+        !keyEvent.metaKey
+      ) {
+        const result = insertText(state, key);
         newState = result.state;
         ops.push(...result.ops);
         break;
@@ -1165,9 +1334,11 @@ export function handleKeyDown(
       return { state, ops };
   }
 
-  if (newState !== state &&
+  if (
+    newState !== state &&
     newState.document.cursor &&
-    updateViewportCallback) {
+    updateViewportCallback
+  ) {
     const newScrollY = scrollToMakeCursorVisible(
       newState.document.cursor.position,
       newState,
@@ -1184,8 +1355,9 @@ export function handleContextMenu(
   state: EditorState,
   viewport: ViewportState,
   event: MouseEvent,
-  containerRect: { left: number; top: number; },
-  visibility: { start: number; end: number; }): EditorState {
+  containerRect: { left: number; top: number },
+  visibility: { start: number; end: number }
+): EditorState {
   event.preventDefault();
 
   // Don't open context menu if we're dragging an image

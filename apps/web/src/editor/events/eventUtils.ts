@@ -1,13 +1,13 @@
 import type { Block } from "@/deserializer/loadPage";
-import type { HLC, Operation } from "../sync";
-import { getVisibleBlocks } from "../sync";
 import {
   CLICK_DISTANCE_THRESHOLD,
   SELECTION_HANDLE_TOUCH_TARGET,
 } from "../constants";
 import { getBlockHeight, imageCache, invalidateBlockCache } from "../renderer";
-import { scrollToMakeCursorVisible, getCursorCoordinates } from "../selection";
+import { getCursorCoordinates, scrollToMakeCursorVisible } from "../selection";
 import { getEditorStyles } from "../styles";
+import type { Operation } from "../sync/sync";
+import { getClock, getPageId, getVisibleBlocks, nextId } from "../sync/sync";
 import type { EditorState, ViewportState } from "../types";
 
 export function isTouchDevice(): boolean {
@@ -556,8 +556,7 @@ export function updateImageDrag(
  */
 
 export function endImageDrag(
-  state: EditorState,
-  crdtContext: { pageId: string; idGen: () => string; clock: () => HLC }
+  state: EditorState
 ): { state: EditorState; ops: Operation[] } {
   if (!state.ui.imageDrag) {
     return { state, ops: [] };
@@ -576,9 +575,9 @@ export function endImageDrag(
     if (block.width !== startWidth) {
       ops.push({
         op: "block_set",
-        id: crdtContext.idGen(),
-        clock: crdtContext.clock(),
-        pageId: crdtContext.pageId,
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
         blockId,
         field: "width",
         value: block.width,
@@ -588,9 +587,9 @@ export function endImageDrag(
     if (block.height !== startHeight) {
       ops.push({
         op: "block_set",
-        id: crdtContext.idGen(),
-        clock: crdtContext.clock(),
-        pageId: crdtContext.pageId,
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
         blockId,
         field: "height",
         value: block.height,
@@ -600,9 +599,9 @@ export function endImageDrag(
     if (block.objectFit !== startObjectFit) {
       ops.push({
         op: "block_set",
-        id: crdtContext.idGen(),
-        clock: crdtContext.clock(),
-        pageId: crdtContext.pageId,
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
         blockId,
         field: "objectFit",
         value: block.objectFit,

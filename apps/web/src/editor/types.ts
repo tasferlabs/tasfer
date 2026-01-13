@@ -1,7 +1,7 @@
 import type { Block, Page, TextFormat } from "../deserializer/loadPage";
 import type { FontFamily } from "./fonts";
-import type { ScrollbarState, MomentumState } from "./scrollbar";
-import type { Operation, HLC } from "./sync/types";
+import type { MomentumState, ScrollbarState } from "./scrollbar";
+import type { HLC, Operation } from "./sync/types";
 
 export interface SlashCommand {
   id: string;

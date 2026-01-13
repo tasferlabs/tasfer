@@ -10,6 +10,7 @@ import type {
 import type { Operation } from "./sync/types";
 import { invalidateBlockCache } from "./renderer";
 import { applyRemoteOps } from "./sync/crdt-helpers";
+import { getPeerId } from "./sync/sync";
 import { invertOperations } from "./inverse";
 import { isTextualBlock, type Page } from "../deserializer/loadPage";
 import { updateCursor, updateSelection } from "./state";
@@ -327,7 +328,7 @@ export function undoState(state: EditorState): {
   ops: Operation[];
 } {
   const { undoStack, redoStack } = state.undoManager;
-  const currentPeerId = state.crdt.clock().peerId;
+  const currentPeerId = getPeerId();
 
   // Find the last undo group from this user
   let lastUserGroupIndex = -1;
@@ -424,7 +425,7 @@ export function redoState(state: EditorState): {
   ops: Operation[];
 } {
   const { undoStack, redoStack } = state.undoManager;
-  const currentPeerId = state.crdt.clock().peerId;
+  const currentPeerId = getPeerId();
 
   // Find the last redo group from this user
   let lastUserGroupIndex = -1;
