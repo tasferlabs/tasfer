@@ -1,10 +1,19 @@
 import { IMAGE_DEFAULT_HEIGHT } from "@/editor/constants";
-import type { Block, Char, FormatSpan, TextFormat } from "./loadPage";
+import type { Block, CharRun, FormatSpan, TextFormat } from "./loadPage";
 import { isImageDefault, isListBlock, isTextualBlock } from "./loadPage";
+import {
+  getVisibleTextFromRuns,
+  iterateVisibleChars,
+} from "../editor/sync/char-runs";
 
 // Helper to group chars with same formatting for serialization
-function groupCharsForSerialization(chars: Char[], formats: FormatSpan[]): { text: string; formats?: TextFormat[] }[] {
-  const visibleChars = chars.filter(c => !c.deleted);
+function groupCharsForSerialization(charRuns: CharRun[], formats: FormatSpan[]): { text: string; formats?: TextFormat[] }[] {
+  // Convert charRuns to visible chars array for format mapping
+  const visibleChars: Array<{ id: string; char: string }> = [];
+  for (const { id, char } of iterateVisibleChars(charRuns)) {
+    visibleChars.push({ id, char });
+  }
+  
   if (visibleChars.length === 0) return [{ text: "" }];
   
   // Build format map: charId -> Set<TextFormat>
@@ -119,8 +128,8 @@ export function serializeToMarkdown(blocks: Block[]): string {
     if (isListBlock(block)) {
       const indent = " ".repeat(block.indent * 2);
       
-      // Convert chars to segments for serialization
-      const segments = groupCharsForSerialization(block.chars, block.formats);
+      // Convert charRuns to segments for serialization
+      const segments = groupCharsForSerialization(block.charRuns, block.formats);
       
       // Build content with inline formatting
       let content = "";
@@ -175,8 +184,8 @@ export function serializeToMarkdown(blocks: Block[]): string {
     let content = "";
     
     if (isTextualBlock(block)) {
-      // Convert chars to segments for serialization
-      const segments = groupCharsForSerialization(block.chars, block.formats);
+      // Convert charRuns to segments for serialization
+      const segments = groupCharsForSerialization(block.charRuns, block.formats);
       
       // Build content with inline formatting
       for (const segment of segments) {
@@ -220,7 +229,7 @@ export function serializeToMarkdown(blocks: Block[]): string {
   if (lastBlock.type !== "image" && lastBlock.type !== "line") {
     const hasContent = isListBlock(lastBlock) || lastBlock.type === "heading1" || lastBlock.type === "heading2" || lastBlock.type === "heading3" || lastBlock.type === "paragraph";
     if (hasContent && isTextualBlock(lastBlock)) {
-      const lastBlockIsEmpty = lastBlock.chars.filter(c => !c.deleted).length === 0;
+      const lastBlockIsEmpty = getVisibleTextFromRuns(lastBlock.charRuns).length === 0;
 
       if (lastBlockIsEmpty && blocks.length > 1) {
         return result + "\n";

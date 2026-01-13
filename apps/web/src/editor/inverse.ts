@@ -8,6 +8,9 @@
 
 import type { Block, Char } from "@/deserializer/loadPage";
 import { getClock, nextId } from "./sync/sync";
+import {
+  iterateAllChars,
+} from "./sync/char-runs";
 import type {
   BlockDelete,
   BlockInsert,
@@ -73,11 +76,12 @@ function invertTextDelete(
   const charsToReinsert: Char[] = [];
   const charIdSet = new Set(op.charIds);
 
-  for (const char of block.chars) {
-    if (charIdSet.has(char.id) && char.deleted) {
+  // Iterate through all chars (including deleted) to find tombstoned ones
+  for (const { id, char, deleted } of iterateAllChars(block.charRuns)) {
+    if (charIdSet.has(id) && deleted) {
       charsToReinsert.push({
-        id: char.id,
-        char: char.char,
+        id,
+        char,
       });
     }
   }
@@ -90,16 +94,20 @@ function invertTextDelete(
   let afterCharId: string | null = null;
   const firstDeletedId = charsToReinsert[0].id;
 
-  for (let i = 0; i < block.chars.length; i++) {
-    if (block.chars[i].id === firstDeletedId) {
-      // Look backwards for first non-deleted char
-      for (let j = i - 1; j >= 0; j--) {
-        if (!block.chars[j].deleted) {
-          afterCharId = block.chars[j].id;
-          break;
-        }
+  // Find the first deleted char and look backwards for a non-deleted char
+  const allChars: Array<{ id: string; deleted: boolean }> = [];
+  for (const { id, deleted } of iterateAllChars(block.charRuns)) {
+    allChars.push({ id, deleted });
+  }
+
+  const firstDeletedIndex = allChars.findIndex((c) => c.id === firstDeletedId);
+  if (firstDeletedIndex !== -1) {
+    // Look backwards for first non-deleted char
+    for (let j = firstDeletedIndex - 1; j >= 0; j--) {
+      if (!allChars[j].deleted) {
+        afterCharId = allChars[j].id;
+        break;
       }
-      break;
     }
   }
 

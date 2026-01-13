@@ -7,11 +7,13 @@ import type {
   Line,
   TextFormat,
   Char,
+  CharRun,
   FormatSpan,
   BulletListItem,
   NumberedListItem,
   TodoListItem,
 } from "./loadPage";
+import { extractPeerId, extractCounter } from "../editor/sync/id";
 import {
   BOLD_END,
   BOLD_START,
@@ -56,6 +58,83 @@ function generateCharId(context: ParserContext): string {
   return `init-${context.charIdCounter++}`;
 }
 
+/**
+ * Convert Char[] to CharRun[] for efficient storage.
+ * Groups consecutive characters from the same peer into runs.
+ */
+function charsToRuns(chars: Char[]): CharRun[] {
+  if (chars.length === 0) return [];
+
+  const runs: CharRun[] = [];
+  let currentPeerId = extractPeerId(chars[0].id);
+  let currentStartCounter = extractCounter(chars[0].id);
+  let currentText = "";
+  let currentDeletedMask: Uint8Array | undefined = undefined;
+
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+    const peerId = extractPeerId(char.id);
+    const counter = extractCounter(char.id);
+
+    // Check if this char continues the current run
+    const expectedCounter = currentStartCounter + currentText.length;
+    if (peerId === currentPeerId && counter === expectedCounter) {
+      currentText += char.char;
+      
+      // Update deletion mask if needed
+      if (char.deleted) {
+        if (!currentDeletedMask) {
+          const requiredBytes = Math.ceil(currentText.length / 8);
+          currentDeletedMask = new Uint8Array(requiredBytes);
+        } else if (currentText.length > currentDeletedMask.length * 8) {
+          // Expand mask if needed
+          const requiredBytes = Math.ceil(currentText.length / 8);
+          const newMask = new Uint8Array(requiredBytes);
+          newMask.set(currentDeletedMask);
+          currentDeletedMask = newMask;
+        }
+        const offset = currentText.length - 1;
+        const byteIndex = Math.floor(offset / 8);
+        const bitIndex = offset % 8;
+        currentDeletedMask[byteIndex] |= 1 << bitIndex;
+      }
+    } else {
+      // Save current run if non-empty
+      if (currentText.length > 0) {
+        runs.push({
+          peerId: currentPeerId,
+          startCounter: currentStartCounter,
+          text: currentText,
+          deletedMask: currentDeletedMask,
+        });
+      }
+      // Start new run
+      currentPeerId = peerId;
+      currentStartCounter = counter;
+      currentText = char.char;
+      if (char.deleted) {
+        const requiredBytes = Math.ceil(1 / 8);
+        currentDeletedMask = new Uint8Array(requiredBytes);
+        currentDeletedMask[0] = 1; // First char is deleted
+      } else {
+        currentDeletedMask = undefined;
+      }
+    }
+  }
+
+  // Save final run
+  if (currentText.length > 0) {
+    runs.push({
+      peerId: currentPeerId,
+      startCounter: currentStartCounter,
+      text: currentText,
+      deletedMask: currentDeletedMask,
+    });
+  }
+
+  return runs;
+}
+
 function generateEmptyTree(): Page {
   return {
     id: "default-page",
@@ -72,7 +151,7 @@ function generateHeading(
   return {
     id,
     type: ("heading" + level) as "heading1" | "heading2" | "heading3",
-    chars,
+    charRuns: charsToRuns(chars),
     formats,
   };
 }
@@ -135,7 +214,7 @@ function emptyBlock(context: ParserContext): Block {
   return {
     id: `block-${context.blockIdCounter++}`,
     type: "paragraph",
-    chars: [],
+    charRuns: [],
     formats: [],
   };
 }
@@ -254,7 +333,7 @@ function paresParagraph(context: ParserContext): Paragraph {
   return {
     id: `block-${context.blockIdCounter++}`,
     type: "paragraph",
-    chars,
+    charRuns: charsToRuns(chars),
     formats,
   };
 }
@@ -265,7 +344,7 @@ function parseBulletListItem(context: ParserContext, indent: number): BulletList
   return {
     id: `block-${context.blockIdCounter++}`,
     type: "bullet_list",
-    chars,
+    charRuns: charsToRuns(chars),
     formats,
     indent,
   };
@@ -277,7 +356,7 @@ function parseNumberedListItem(context: ParserContext, indent: number): Numbered
   return {
     id: `block-${context.blockIdCounter++}`,
     type: "numbered_list",
-    chars,
+    charRuns: charsToRuns(chars),
     formats,
     indent,
   };
@@ -294,7 +373,7 @@ function parseTodoListItem(context: ParserContext, indent: number, checked: bool
   return {
     id: `block-${context.blockIdCounter++}`,
     type: "todo_list",
-    chars,
+    charRuns: charsToRuns(chars),
     formats,
     checked,
     indent,

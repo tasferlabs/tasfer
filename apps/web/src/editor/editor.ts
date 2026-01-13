@@ -1232,8 +1232,8 @@ export default function createEditor(
     const ops: Operation[] = [];
 
     // Delete the selected text first
-    const { newChars: charsAfterDelete, op: deleteOp } = deleteCharsInRange(
-      block.chars,
+    const { newCharRuns: charRunsAfterDelete, op: deleteOp } = deleteCharsInRange(
+      block.charRuns,
       start.textIndex,
       end.textIndex,
       block.id
@@ -1241,8 +1241,8 @@ export default function createEditor(
     ops.push(deleteOp);
 
     // Insert the new link text
-    const { newChars: charsAfterInsert, op: insertOp } = insertCharsAtPosition(
-      charsAfterDelete,
+    const { newCharRuns: charRunsAfterInsert, op: insertOp } = insertCharsAtPosition(
+      charRunsAfterDelete,
       start.textIndex,
       text,
       block.id
@@ -1251,7 +1251,7 @@ export default function createEditor(
 
     // Apply link formatting to the inserted text
     const { newFormats, op: formatOp } = formatCharsInRange(
-      charsAfterInsert,
+      charRunsAfterInsert,
       block.formats,
       start.textIndex,
       start.textIndex + text.length,
@@ -1263,7 +1263,7 @@ export default function createEditor(
 
     const newBlock = {
       ...block,
-      chars: charsAfterInsert,
+      charRuns: charRunsAfterInsert,
       formats: newFormats,
     };
 
@@ -1470,7 +1470,7 @@ export default function createEditor(
       newBlocks.push({
         id: newParagraphBlockId,
         type: "paragraph",
-        chars: [],
+        charRuns: [],
         formats: [],
       });
 

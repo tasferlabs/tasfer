@@ -1,6 +1,7 @@
 import type {
   Block,
   Char,
+  CharRun,
   FormatSpan,
   TextFormat,
 } from "../../deserializer/loadPage";
@@ -10,21 +11,8 @@ import {
   loadPage,
 } from "../../deserializer/loadPage";
 import { serializeToMarkdown } from "../../deserializer/serializer";
-import type {
-  BlockInsert,
-  BlockSet,
-  FormatSet,
-  Operation,
-  TextInsert,
-} from "../sync/types";
 import { deleteSelectedText, getSelectionRange } from "../actions/commands";
 import { IMAGE_DEFAULT_HEIGHT } from "../constants";
-import {
-  deleteCharsInRange,
-  getVisibleText,
-  insertCharsAtPosition,
-} from "../sync/crdt-helpers";
-import { getVisibleBlocks } from "../sync/sync";
 import { invalidateBlockCache } from "../renderer";
 import {
   clearSelection,
@@ -33,9 +21,96 @@ import {
   getBlockTextLength,
   moveCursorToPosition,
 } from "../state";
+import {
+  iterateVisibleChars
+} from "../sync/char-runs";
+import {
+  deleteCharsInRange,
+  getVisibleText,
+  insertCharsAtPosition,
+} from "../sync/crdt-helpers";
+import { extractCounter, extractPeerId } from "../sync/id";
+import { getClock, getPageId, getVisibleBlocks, nextId } from "../sync/sync";
+import type {
+  BlockInsert,
+  BlockSet,
+  FormatSet,
+  Operation,
+  TextInsert,
+} from "../sync/types";
 import type { CommandResult, EditorState, Position } from "../types";
-import { getPageId, nextId, getClock } from "../sync/sync";
-import {} from "../undo";
+import { } from "../undo";
+
+/**
+ * Convert Char[] to CharRun[] for storage
+ */
+function charsToRuns(chars: Char[]): CharRun[] {
+  if (chars.length === 0) return [];
+  const runs: CharRun[] = [];
+  let currentPeerId = extractPeerId(chars[0].id);
+  let currentStartCounter = extractCounter(chars[0].id);
+  let currentText = "";
+  let currentDeletedMask: Uint8Array | undefined = undefined;
+
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+    const peerId = extractPeerId(char.id);
+    const counter = extractCounter(char.id);
+    const expectedCounter = currentStartCounter + currentText.length;
+
+    // Check if this char continues the current run
+    if (peerId === currentPeerId && counter === expectedCounter) {
+      currentText += char.char;
+      if (char.deleted) {
+        if (!currentDeletedMask) {
+          currentDeletedMask = new Uint8Array(Math.ceil(currentText.length / 8));
+        }
+        const offset = currentText.length - 1;
+        const byteIndex = Math.floor(offset / 8);
+        const bitIndex = offset % 8;
+        if (byteIndex >= currentDeletedMask.length) {
+          // Expand mask if needed
+          const newMask = new Uint8Array(Math.ceil(currentText.length / 8));
+          newMask.set(currentDeletedMask);
+          currentDeletedMask = newMask;
+        }
+        currentDeletedMask[byteIndex] |= 1 << bitIndex;
+      }
+    } else {
+      // Save current run if non-empty
+      if (currentText.length > 0) {
+        runs.push({
+          peerId: currentPeerId,
+          startCounter: currentStartCounter,
+          text: currentText,
+          deletedMask: currentDeletedMask,
+        });
+      }
+      // Start new run
+      currentPeerId = peerId;
+      currentStartCounter = counter;
+      currentText = char.char;
+      if (char.deleted) {
+        currentDeletedMask = new Uint8Array(Math.ceil(1 / 8));
+        currentDeletedMask[0] = 1;
+      } else {
+        currentDeletedMask = undefined;
+      }
+    }
+  }
+
+  // Save final run
+  if (currentText.length > 0) {
+    runs.push({
+      peerId: currentPeerId,
+      startCounter: currentStartCounter,
+      text: currentText,
+      deletedMask: currentDeletedMask,
+    });
+  }
+
+  return runs;
+}
 
 export function hasNativeBridge(): boolean {
   return !!(window.IOSBridge || window.AndroidBridge);
@@ -159,19 +234,19 @@ function getSelectedContent(state: EditorState): {
 
     // Extract the selected portion of chars and formats
     const selectedChars = extractCharsInRange(
-      block.chars,
+      block.charRuns,
       start.textIndex,
       end.textIndex
     );
     const selectedFormats = extractFormatsForChars(
       block.formats,
       selectedChars,
-      block.chars
+      block.charRuns
     );
 
     const partialBlock: Block = {
       ...block,
-      chars: selectedChars,
+      charRuns: charsToRuns(selectedChars),
       formats: selectedFormats,
     };
 
@@ -202,23 +277,25 @@ function getSelectedContent(state: EditorState): {
       continue;
     }
 
-    let chars = block.chars;
+    let charRuns = block.charRuns;
     let formats = block.formats;
 
     if (i === start.blockIndex) {
       // First block - cut from start position
-      chars = extractCharsInRange(block.chars, start.textIndex, textLength);
-      formats = extractFormatsForChars(block.formats, chars, block.chars);
+      const chars = extractCharsInRange(block.charRuns, start.textIndex, textLength);
+      charRuns = charsToRuns(chars);
+      formats = extractFormatsForChars(block.formats, chars, block.charRuns);
     } else if (i === end.blockIndex) {
       // Last block - cut to end position
-      chars = extractCharsInRange(block.chars, 0, end.textIndex);
-      formats = extractFormatsForChars(block.formats, chars, block.chars);
+      const chars = extractCharsInRange(block.charRuns, 0, end.textIndex);
+      charRuns = charsToRuns(chars);
+      formats = extractFormatsForChars(block.formats, chars, block.charRuns);
     }
     // Middle blocks - include full content
 
     const newBlock: Block = {
       ...block,
-      chars,
+      charRuns,
       formats,
     };
 
@@ -235,23 +312,22 @@ function getSelectedContent(state: EditorState): {
 
 /**
  * Extract chars in a visible range (accounting for deleted chars)
+ * Returns Char[] for compatibility with existing code
  */
 function extractCharsInRange(
-  chars: Char[],
+  charRuns: CharRun[],
   startIndex: number,
   endIndex: number
 ): Char[] {
   const result: Char[] = [];
   let visibleCount = 0;
 
-  for (const char of chars) {
-    if (!char.deleted) {
-      if (visibleCount >= startIndex && visibleCount < endIndex) {
-        result.push(char);
-      }
-      visibleCount++;
-      if (visibleCount >= endIndex) break;
+  for (const { id, char } of iterateVisibleChars(charRuns)) {
+    if (visibleCount >= startIndex && visibleCount < endIndex) {
+      result.push({ id, char, deleted: false });
     }
+    visibleCount++;
+    if (visibleCount >= endIndex) break;
   }
 
   return result;
@@ -263,30 +339,42 @@ function extractCharsInRange(
 function extractFormatsForChars(
   formats: FormatSpan[],
   extractedChars: Char[],
-  originalChars: Char[]
+  originalCharRuns: CharRun[]
 ): FormatSpan[] {
   if (extractedChars.length === 0) return [];
 
   const charIdSet = new Set(extractedChars.map((c) => c.id));
   const result: FormatSpan[] = [];
 
+  // Build a map of char ID to index for original charRuns
+  const originalCharMap = new Map<string, number>();
+  let index = 0;
+  for (const { id } of iterateVisibleChars(originalCharRuns)) {
+    originalCharMap.set(id, index);
+    index++;
+  }
+
   for (const span of formats) {
     // Check if this span overlaps with extracted chars
-    const startIdx = originalChars.findIndex((c) => c.id === span.startCharId);
-    const endIdx = originalChars.findIndex((c) => c.id === span.endCharId);
+    const startIdx = originalCharMap.get(span.startCharId);
+    const endIdx = originalCharMap.get(span.endCharId);
 
-    if (startIdx === -1 || endIdx === -1) continue;
+    if (startIdx === undefined || endIdx === undefined) continue;
 
     // Find intersection with extracted chars
     let newStartCharId: string | null = null;
     let newEndCharId: string | null = null;
 
-    for (let i = startIdx; i <= endIdx; i++) {
-      const char = originalChars[i];
-      if (charIdSet.has(char.id)) {
-        if (!newStartCharId) newStartCharId = char.id;
-        newEndCharId = char.id;
+    let currentIdx = 0;
+    for (const { id } of iterateVisibleChars(originalCharRuns)) {
+      if (currentIdx >= startIdx && currentIdx <= endIdx) {
+        if (charIdSet.has(id)) {
+          if (!newStartCharId) newStartCharId = id;
+          newEndCharId = id;
+        }
       }
+      currentIdx++;
+      if (currentIdx > endIdx) break;
     }
 
     if (newStartCharId && newEndCharId) {
@@ -351,7 +439,10 @@ function blocksToHTML(blocks: Block[]): string {
 
     // Build content with inline formatting as HTML
     let htmlContent = "";
-    const visibleChars = block.chars.filter((c) => !c.deleted);
+    const visibleChars: Char[] = [];
+    for (const { id, char } of iterateVisibleChars(block.charRuns)) {
+      visibleChars.push({ id, char, deleted: false });
+    }
 
     // Build a map of char ID to formats
     const charFormats = new Map<string, TextFormat[]>();
@@ -820,7 +911,7 @@ function parseHTMLToBlocks(html: string): Block[] {
       blocks.push({
         id: generateBlockId(),
         type: "paragraph",
-        chars,
+        charRuns: charsToRuns(chars),
         formats,
       });
     }
@@ -840,7 +931,7 @@ function parseHTMLToBlocks(html: string): Block[] {
         blocks.push({
           id: generateBlockId(),
           type: "paragraph",
-          chars,
+          charRuns: charsToRuns(chars),
           formats,
         });
       }
@@ -907,7 +998,7 @@ function parseHTMLToBlocks(html: string): Block[] {
         blocks.push({
           id: generateBlockId(),
           type: "todo_list",
-          chars,
+          charRuns: charsToRuns(chars),
           formats,
           checked,
           indent,
@@ -916,7 +1007,7 @@ function parseHTMLToBlocks(html: string): Block[] {
         blocks.push({
           id: generateBlockId(),
           type: "numbered_list",
-          chars,
+          charRuns: charsToRuns(chars),
           formats,
           indent,
         });
@@ -925,7 +1016,7 @@ function parseHTMLToBlocks(html: string): Block[] {
         blocks.push({
           id: generateBlockId(),
           type: "bullet_list",
-          chars,
+          charRuns: charsToRuns(chars),
           formats,
           indent,
         });
@@ -967,7 +1058,7 @@ function parseHTMLToBlocks(html: string): Block[] {
     const block: Block = {
       id: generateBlockId(),
       type: blockType,
-      chars,
+      charRuns: charsToRuns(chars),
       formats,
     };
 
@@ -986,7 +1077,7 @@ function parseHTMLToBlocks(html: string): Block[] {
         blocks.push({
           id: generateBlockId(),
           type: "paragraph",
-          chars,
+          charRuns: charsToRuns(chars),
           formats,
         });
       }
@@ -1039,7 +1130,7 @@ function parsePlainTextToBlocks(text: string): Block[] {
       block = {
         id: generateBlockId(),
         type: blockType,
-        chars,
+        charRuns: charsToRuns(chars),
         formats,
       };
 
@@ -1302,11 +1393,11 @@ function insertBlocksAtCursor(
     }
 
     const pasteBlock = blocks[0];
-    const pasteText = getVisibleText(pasteBlock.chars);
+    const pasteText = getVisibleText(pasteBlock.charRuns);
 
     // Insert the pasted text at cursor position
-    const { newChars, op: insertOp } = insertCharsAtPosition(
-      currentBlock.chars,
+    const { newCharRuns, op: insertOp } = insertCharsAtPosition(
+      currentBlock.charRuns,
       textIndex,
       pasteText,
       currentBlock.id
@@ -1315,12 +1406,18 @@ function insertBlocksAtCursor(
 
     // Apply formatting from pasted block
     let newFormats = currentBlock.formats;
+    // Convert pasteBlock.charRuns to Char[] for finding indices
+    const pasteChars: Char[] = [];
+    for (const { id, char } of iterateVisibleChars(pasteBlock.charRuns)) {
+      pasteChars.push({ id, char, deleted: false });
+    }
+    
     for (const pasteFormat of pasteBlock.formats) {
       // Find the new char IDs in the inserted range
-      const pasteStartIdx = pasteBlock.chars.findIndex(
+      const pasteStartIdx = pasteChars.findIndex(
         (c) => c.id === pasteFormat.startCharId
       );
-      const pasteEndIdx = pasteBlock.chars.findIndex(
+      const pasteEndIdx = pasteChars.findIndex(
         (c) => c.id === pasteFormat.endCharId
       );
 
@@ -1363,7 +1460,7 @@ function insertBlocksAtCursor(
 
     const newBlock: Block = {
       ...currentBlock,
-      chars: newChars,
+      charRuns: newCharRuns,
       formats: newFormats,
     };
 
@@ -1401,27 +1498,27 @@ function insertBlocksAtCursor(
     const currentTextLength = getBlockTextLength(currentBlock);
 
     // Extract chars before and after cursor
-    const beforeChars = extractCharsInRange(currentBlock.chars, 0, textIndex);
+    const beforeChars = extractCharsInRange(currentBlock.charRuns, 0, textIndex);
     const afterChars = extractCharsInRange(
-      currentBlock.chars,
+      currentBlock.charRuns,
       textIndex,
       currentTextLength
     );
     const beforeFormats = extractFormatsForChars(
       currentBlock.formats,
       beforeChars,
-      currentBlock.chars
+      currentBlock.charRuns
     );
     const afterFormats = extractFormatsForChars(
       currentBlock.formats,
       afterChars,
-      currentBlock.chars
+      currentBlock.charRuns
     );
 
     // Delete text after cursor in current block
     if (textIndex < currentTextLength) {
       const { op: deleteOp } = deleteCharsInRange(
-        currentBlock.chars,
+        currentBlock.charRuns,
         textIndex,
         currentTextLength,
         currentBlock.id
@@ -1529,23 +1626,35 @@ function insertBlocksAtCursor(
     // Handle first block
     if (isTextualBlock(firstPastedBlock)) {
       // Merge first pasted block's content with current block
-      const firstPastedText = getVisibleText(firstPastedBlock.chars);
-      const { newChars: firstBlockChars, op: firstInsertOp } =
+      const firstPastedText = getVisibleText(firstPastedBlock.charRuns);
+      const beforeCharRuns = charsToRuns(beforeChars);
+      const beforeLength = beforeChars.filter((c) => !c.deleted).length;
+      const { newCharRuns: firstBlockCharRuns, op: firstInsertOp } =
         insertCharsAtPosition(
-          beforeChars,
-          beforeChars.filter((c) => !c.deleted).length,
+          beforeCharRuns,
+          beforeLength,
           firstPastedText,
           currentBlock.id
         );
+      // Convert back to Char[] for format mapping
+      const firstBlockChars: Char[] = [];
+      for (const { id, char } of iterateVisibleChars(firstBlockCharRuns)) {
+        firstBlockChars.push({ id, char, deleted: false });
+      }
       ops.push(firstInsertOp);
 
       // Apply formats from first pasted block to inserted chars
       let firstBlockFormats = beforeFormats;
+      // Convert firstPastedBlock.charRuns to Char[] for finding indices
+      const firstPasteChars: Char[] = [];
+      for (const { id, char } of iterateVisibleChars(firstPastedBlock.charRuns)) {
+        firstPasteChars.push({ id, char, deleted: false });
+      }
       for (const pasteFormat of firstPastedBlock.formats) {
-        const pasteStartIdx = firstPastedBlock.chars.findIndex(
+        const pasteStartIdx = firstPasteChars.findIndex(
           (c) => c.id === pasteFormat.startCharId
         );
-        const pasteEndIdx = firstPastedBlock.chars.findIndex(
+        const pasteEndIdx = firstPasteChars.findIndex(
           (c) => c.id === pasteFormat.endCharId
         );
 
@@ -1586,7 +1695,7 @@ function insertBlocksAtCursor(
 
       const firstBlock: Block = {
         ...currentBlock,
-        chars: firstBlockChars,
+        charRuns: firstBlockCharRuns,
         formats: firstBlockFormats,
       };
       invalidateBlockCache(firstBlock);
@@ -1595,7 +1704,7 @@ function insertBlocksAtCursor(
       // Keep current block with before-cursor content, insert image as new block
       const firstBlock: Block = {
         ...currentBlock,
-        chars: beforeChars,
+        charRuns: charsToRuns(beforeChars),
         formats: beforeFormats,
       };
       invalidateBlockCache(firstBlock);
@@ -1623,7 +1732,7 @@ function insertBlocksAtCursor(
       // Keep current block with before-cursor content, insert line as new block
       const firstBlock: Block = {
         ...currentBlock,
-        chars: beforeChars,
+        charRuns: charsToRuns(beforeChars),
         formats: beforeFormats,
       };
       invalidateBlockCache(firstBlock);
@@ -1670,16 +1779,18 @@ function insertBlocksAtCursor(
         lastInsertedBlockId = newBlockId;
       } else if (isTextualBlock(block)) {
         // Generate new chars with new IDs for CRDT sync
-        const newChars: Char[] = block.chars
-          .filter((c) => !c.deleted)
-          .map((c) => ({
-            id: nextId(),
-            char: c.char,
-            deleted: false,
-          }));
+        const visibleOldChars: Array<{ id: string; char: string }> = [];
+        for (const { id, char } of iterateVisibleChars(block.charRuns)) {
+          visibleOldChars.push({ id, char });
+        }
+
+        const newChars: Char[] = visibleOldChars.map((c) => ({
+          id: nextId(),
+          char: c.char,
+          deleted: false,
+        }));
 
         // Build a mapping from old char IDs to new char IDs for format spans
-        const visibleOldChars = block.chars.filter((c) => !c.deleted);
         const oldToNewCharIdMap = new Map<string, string>();
         visibleOldChars.forEach((oldChar, idx) => {
           oldToNewCharIdMap.set(oldChar.id, newChars[idx].id);
@@ -1705,7 +1816,7 @@ function insertBlocksAtCursor(
         const newBlock: Block = {
           ...block,
           id: newBlockId,
-          chars: newChars,
+          charRuns: charsToRuns(newChars),
           formats: newFormats,
         };
         invalidateBlockCache(newBlock);
@@ -1802,9 +1913,10 @@ function insertBlocksAtCursor(
         const lastBlockId = generateBlockId();
 
         // Generate new chars with new IDs for pasted content
-        const visiblePastedChars = lastPastedBlock.chars.filter(
-          (c) => !c.deleted
-        );
+        const visiblePastedChars: Array<{ id: string; char: string }> = [];
+        for (const { id, char } of iterateVisibleChars(lastPastedBlock.charRuns)) {
+          visiblePastedChars.push({ id, char });
+        }
         const newPastedChars: Char[] = visiblePastedChars.map((c) => ({
           id: nextId(),
           char: c.char,
@@ -1873,7 +1985,7 @@ function insertBlocksAtCursor(
         const lastBlock: Block = {
           ...lastPastedBlock,
           id: lastBlockId,
-          chars: allNewChars,
+          charRuns: charsToRuns(allNewChars),
           formats: allNewFormats,
         };
         invalidateBlockCache(lastBlock);
@@ -2023,7 +2135,7 @@ function insertBlocksAtCursor(
           const afterBlock: Block = {
             id: afterBlockId,
             type: "paragraph",
-            chars: newAfterCharsForImg,
+            charRuns: charsToRuns(newAfterCharsForImg),
             formats: newAfterFormatsForImg,
           };
           invalidateBlockCache(afterBlock);
@@ -2143,7 +2255,7 @@ function insertBlocksAtCursor(
           const afterBlock: Block = {
             id: afterBlockId,
             type: "paragraph",
-            chars: newAfterCharsForLine,
+            charRuns: charsToRuns(newAfterCharsForLine),
             formats: newAfterFormatsForLine,
           };
           invalidateBlockCache(afterBlock);
@@ -2255,7 +2367,7 @@ function insertBlocksAtCursor(
         const afterBlock: Block = {
           id: afterBlockId,
           type: "paragraph",
-          chars: newAfterCharsSingle,
+          charRuns: charsToRuns(newAfterCharsSingle),
           formats: newAfterFormatsSingle,
         };
         invalidateBlockCache(afterBlock);
@@ -2337,7 +2449,7 @@ function insertBlocksAtCursor(
     const lastResultBlockIndex = blockIndex + resultBlocks.length - 1;
     const lastResultBlock = resultBlocks[resultBlocks.length - 1];
     if (isTextualBlock(lastResultBlock)) {
-      const lastBlockText = getVisibleText(lastResultBlock.chars);
+      const lastBlockText = getVisibleText(lastResultBlock.charRuns);
       // If the last block has after-cursor content, position cursor at the start of it
       const afterTextLength = afterChars.filter((c) => !c.deleted).length;
       const cursorPosition = lastBlockText.length - afterTextLength;

@@ -7,6 +7,8 @@
 
 import type { Page } from "@/deserializer/loadPage";
 import type { Position, SelectionState } from "../../editor/types";
+import { getVisibleLengthFromRuns } from "./char-runs";
+import { isTextualBlock } from "@/deserializer/loadPage";
 
 // =============================================================================
 // Types
@@ -356,9 +358,9 @@ export function awarenessCursorToPosition(
 
   // Clamp text index to valid range
   let textIndex = cursor.textIndex;
-  if ("chars" in block && block.chars) {
+  if (isTextualBlock(block) && block.charRuns) {
     // Count non-deleted characters
-    const visibleLength = block.chars.filter((c) => !c.deleted).length;
+    const visibleLength = getVisibleLengthFromRuns(block.charRuns);
     textIndex = Math.min(textIndex, visibleLength);
   } else {
     textIndex = 0;

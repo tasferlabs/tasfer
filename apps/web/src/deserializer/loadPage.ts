@@ -12,33 +12,33 @@ export interface BlockRuntimeState {
 }
 export interface Heading extends BlockRuntimeState {
   type: "heading1" | "heading2" | "heading3";
-  chars: Char[]; // Character-based (CRDT native)
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
   formats: FormatSpan[]; // Format spans reference char IDs
 }
 export interface Paragraph extends BlockRuntimeState {
   type: "paragraph";
-  chars: Char[]; // Character-based (CRDT native)
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
   formats: FormatSpan[]; // Format spans reference char IDs
 }
 
 // List item blocks - support bullet, numbered, and todo lists with nesting
 export interface BulletListItem extends BlockRuntimeState {
   type: "bullet_list";
-  chars: Char[]; // Character-based (CRDT native)
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
   formats: FormatSpan[]; // Format spans reference char IDs
   indent: number; // 0-based indent level (0 = no indent)
 }
 
 export interface NumberedListItem extends BlockRuntimeState {
   type: "numbered_list";
-  chars: Char[]; // Character-based (CRDT native)
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
   formats: FormatSpan[]; // Format spans reference char IDs
   indent: number; // 0-based indent level (0 = no indent)
 }
 
 export interface TodoListItem extends BlockRuntimeState {
   type: "todo_list";
-  chars: Char[]; // Character-based (CRDT native)
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
   formats: FormatSpan[]; // Format spans reference char IDs
   checked: boolean;
   indent: number; // 0-based indent level (0 = no indent)
@@ -76,11 +76,23 @@ export interface TextFormat {
   url?: string; // Only for link type
 }
 
-// CRDT character with unique ID
+// CRDT character with unique ID (legacy - kept for operation payloads)
 export interface Char {
   id: string; // Unique ID: "peerId:counter"
   char: string; // Single character
   deleted?: boolean; // Tombstone flag for CRDT deletions
+}
+
+/**
+ * CharRun represents consecutive characters from the same peer.
+ * Each character's ID is computed as: `${peerId}:${startCounter + offset}`
+ * where offset is the character's position within the run (0-indexed).
+ */
+export interface CharRun {
+  peerId: string; // Peer that created these chars
+  startCounter: number; // Counter of first char in run
+  text: string; // Multiple chars as string (e.g., "Hello")
+  deletedMask?: Uint8Array; // Bitmask: bit i set = char at offset i is deleted
 }
 
 // Format span that references characters by ID

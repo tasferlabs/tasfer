@@ -1,19 +1,23 @@
-import type {
-  EditorState,
-  UndoManagerState,
-  UndoGroup,
-  CRDTPosition,
-  CRDTCursorState,
-  CRDTSelectionState,
-  Position,
-} from "./types";
-import type { Operation } from "./sync/types";
+import { isTextualBlock, type Page } from "../deserializer/loadPage";
+import { invertOperations } from "./inverse";
 import { invalidateBlockCache } from "./renderer";
+import { updateCursor, updateSelection } from "./state";
+import {
+  findCharInRuns,
+  iterateVisibleChars
+} from "./sync/char-runs";
 import { applyRemoteOps } from "./sync/crdt-helpers";
 import { getPeerId } from "./sync/sync";
-import { invertOperations } from "./inverse";
-import { isTextualBlock, type Page } from "../deserializer/loadPage";
-import { updateCursor, updateSelection } from "./state";
+import type { Operation } from "./sync/types";
+import type {
+  CRDTCursorState,
+  CRDTPosition,
+  CRDTSelectionState,
+  EditorState,
+  Position,
+  UndoGroup,
+  UndoManagerState,
+} from "./types";
 
 export const initialUndoManagerState: UndoManagerState = {
   undoStack: [],
@@ -40,7 +44,10 @@ export function positionToCRDT(
   }
 
   // Find the character ID at the given text index
-  const visibleChars = block.chars.filter((c) => !c.deleted);
+  const visibleChars: Array<{ id: string }> = [];
+  for (const { id } of iterateVisibleChars(block.charRuns)) {
+    visibleChars.push({ id });
+  }
 
   if (position.textIndex === 0) {
     return {
@@ -105,10 +112,16 @@ export function crdtToPosition(
   }
 
   // Find the visible index of the character
-  const visibleChars = block.chars.filter((c) => !c.deleted);
-  const charVisibleIndex = visibleChars.findIndex(
-    (c) => c.id === crdtPos.afterCharId
-  );
+  const visibleChars: Array<{ id: string }> = [];
+  let charVisibleIndex = -1;
+  let visibleIndex = 0;
+  for (const { id } of iterateVisibleChars(block.charRuns)) {
+    visibleChars.push({ id });
+    if (id === crdtPos.afterCharId) {
+      charVisibleIndex = visibleIndex;
+    }
+    visibleIndex++;
+  }
 
   if (charVisibleIndex !== -1) {
     // textIndex is the position after the character, so add 1
@@ -120,17 +133,17 @@ export function crdtToPosition(
 
   // Character was deleted - find the best fallback position
   // Look for the character in all chars (including deleted) to find its neighbors
-  const allCharsIndex = block.chars.findIndex(
-    (c) => c.id === crdtPos.afterCharId
-  );
+  const charResult = findCharInRuns(block.charRuns, crdtPos.afterCharId);
 
-  if (allCharsIndex !== -1) {
+  if (charResult) {
     // Find the nearest visible character before this position
+    // We need to count visible chars before this one
     let visibleCountBefore = 0;
-    for (let i = 0; i < allCharsIndex; i++) {
-      if (!block.chars[i].deleted) {
-        visibleCountBefore++;
+    for (const { id } of iterateVisibleChars(block.charRuns)) {
+      if (id === crdtPos.afterCharId) {
+        break;
       }
+      visibleCountBefore++;
     }
     return {
       blockIndex,

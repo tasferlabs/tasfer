@@ -18,10 +18,11 @@ interface TextFormat {
   url?: string;
 }
 
-interface Char {
-  id: string;
-  char: string;
-  deleted?: boolean;
+interface CharRun {
+  peerId: string;
+  startCounter: number;
+  text: string;
+  deletedMask?: Uint8Array;
 }
 
 interface FormatSpan {
@@ -38,7 +39,7 @@ interface BlockBase {
 }
 
 interface TextBlockBase extends BlockBase {
-  chars: Char[];
+  charRuns: CharRun[];
   formats: FormatSpan[];
 }
 
@@ -197,25 +198,31 @@ interface Long {
   toNumber(): number;
 }
 
-// Convert TypeScript char to Protobuf char
-function charToProto(char: Char): object {
+// Convert TypeScript CharRun to Protobuf CharRun
+function charRunToProto(charRun: CharRun): object {
   return {
-    id: char.id,
-    char: char.char,
-    deleted: char.deleted || false,
+    peerId: charRun.peerId,
+    startCounter: charRun.startCounter,
+    text: charRun.text,
+    deletedMask: charRun.deletedMask,
   };
 }
 
-// Convert Protobuf char to TypeScript char
-function protoToChar(proto: {
-  id: string;
-  char: string;
-  deleted: boolean;
-}): Char {
+// Convert Protobuf CharRun to TypeScript CharRun
+function protoToCharRun(proto: {
+  peerId: string;
+  startCounter: number | Long;
+  text: string;
+  deletedMask?: Uint8Array;
+}): CharRun {
   return {
-    id: proto.id,
-    char: proto.char,
-    ...(proto.deleted && { deleted: true }),
+    peerId: proto.peerId,
+    startCounter:
+      typeof proto.startCounter === "number"
+        ? proto.startCounter
+        : (proto.startCounter as Long).toNumber(),
+    text: proto.text,
+    ...(proto.deletedMask && { deletedMask: proto.deletedMask }),
   };
 }
 
@@ -266,7 +273,7 @@ function blocksToProto(blocks: Block[]): object {
           ...base,
           textBlock: {
             type: blockTypeToEnum[block.type],
-            chars: textBlock.chars.map(charToProto),
+            charRuns: textBlock.charRuns.map(charRunToProto),
             formats: textBlock.formats.map(formatSpanToProto),
           },
         };
@@ -283,7 +290,7 @@ function blocksToProto(blocks: Block[]): object {
           ...base,
           listBlock: {
             type: blockTypeToEnum[block.type],
-            chars: listBlock.chars.map(charToProto),
+            charRuns: listBlock.charRuns.map(charRunToProto),
             formats: listBlock.formats.map(formatSpanToProto),
             indent: listBlock.indent || 0,
             checked: "checked" in listBlock ? listBlock.checked : false,
@@ -329,7 +336,12 @@ interface ProtoBlock {
   afterId?: string;
   textBlock?: {
     type: number;
-    chars: Array<{ id: string; char: string; deleted: boolean }>;
+    charRuns: Array<{
+      peerId: string;
+      startCounter: number | Long;
+      text: string;
+      deletedMask?: Uint8Array;
+    }>;
     formats: Array<{
       startCharId: string;
       endCharId: string;
@@ -339,7 +351,12 @@ interface ProtoBlock {
   };
   listBlock?: {
     type: number;
-    chars: Array<{ id: string; char: string; deleted: boolean }>;
+    charRuns: Array<{
+      peerId: string;
+      startCounter: number | Long;
+      text: string;
+      deletedMask?: Uint8Array;
+    }>;
     formats: Array<{
       startCharId: string;
       endCharId: string;
@@ -379,7 +396,7 @@ function protoToBlocks(proto: { blocks: ProtoBlock[] }): Block[] {
       return {
         ...base,
         type: blockType,
-        chars: protoBlock.textBlock.chars.map(protoToChar),
+        charRuns: protoBlock.textBlock.charRuns.map(protoToCharRun),
         formats: protoBlock.textBlock.formats.map(protoToFormatSpan),
       } as Heading | Paragraph;
     }
@@ -393,7 +410,7 @@ function protoToBlocks(proto: { blocks: ProtoBlock[] }): Block[] {
       const listBase = {
         ...base,
         type: blockType,
-        chars: protoBlock.listBlock.chars.map(protoToChar),
+        charRuns: protoBlock.listBlock.charRuns.map(protoToCharRun),
         formats: protoBlock.listBlock.formats.map(protoToFormatSpan),
         indent: protoBlock.listBlock.indent || 0,
       };
@@ -439,7 +456,7 @@ function protoToBlocks(proto: { blocks: ProtoBlock[] }): Block[] {
     return {
       ...base,
       type: "paragraph" as const,
-      chars: [],
+      charRuns: [],
       formats: [],
     } as Paragraph;
   });

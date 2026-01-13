@@ -1,4 +1,4 @@
-import type { Block, Char, FormatSpan, Page } from "../deserializer/loadPage";
+import type { Block, Char, CharRun, FormatSpan, Page } from "../deserializer/loadPage";
 import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
@@ -9,6 +9,12 @@ import {
 import { createIdGenerator, generatePeerId } from "./sync/id";
 import { setCRDTContext } from "./sync/sync";
 import { isRTLChar } from "./rtl";
+import {
+  getVisibleTextFromRuns,
+  getVisibleLengthFromRuns,
+  getCharIdFromRun,
+  isCharDeleted,
+} from "./sync/char-runs";
 import {
   createInitialMomentumState,
   createInitialScrollbarState,
@@ -35,19 +41,37 @@ import {
 // =============================================================================
 
 /**
- * Get text direction from CRDT chars
+ * Convert charRuns to Char[] for compatibility with existing measurement functions
  */
-function getCharsDirection(chars: Char[]): "rtl" | "ltr" {
-  const visibleChars = chars.filter((c) => !c.deleted);
-  if (visibleChars.length === 0) return "ltr";
+function charRunsToChars(charRuns: CharRun[] | undefined): Char[] {
+  if (!charRuns) return [];
+  const chars: Char[] = [];
+  for (const run of charRuns) {
+    for (let offset = 0; offset < run.text.length; offset++) {
+      chars.push({
+        id: getCharIdFromRun(run, offset),
+        char: run.text[offset],
+        deleted: isCharDeleted(run, offset),
+      });
+    }
+  }
+  return chars;
+}
+
+/**
+ * Get text direction from CRDT charRuns
+ */
+function getCharsDirection(charRuns: CharRun[] | undefined): "rtl" | "ltr" {
+  const visibleText = getVisibleTextFromRuns(charRuns);
+  if (visibleText.length === 0) return "ltr";
 
   let totalRtl = 0;
   let totalLtr = 0;
 
-  for (const char of visibleChars) {
-    if (isRTLChar(char.char)) {
+  for (const char of visibleText) {
+    if (isRTLChar(char)) {
       totalRtl++;
-    } else if (/[a-zA-Z]/.test(char.char)) {
+    } else if (/[a-zA-Z]/.test(char)) {
       totalLtr++;
     }
   }
@@ -67,7 +91,7 @@ interface WrappedLine {
 }
 
 function wrapCharsDetailed(
-  chars: Char[],
+  charRuns: CharRun[],
   formats: FormatSpan[],
   maxWidth: number,
   fontSize: number,
@@ -75,6 +99,8 @@ function wrapCharsDetailed(
   fontFamily: FontFamily,
   codePadding: number = 0
 ): WrappedLine[] {
+  // Convert charRuns to Char[] for compatibility with existing measurement code
+  const chars = charRunsToChars(charRuns);
   const visibleChars = chars.filter((c) => !c.deleted);
   if (visibleChars.length === 0) {
     return [{ text: "", consumedSpace: false }];
@@ -197,7 +223,7 @@ function wrapCharsDetailed(
  * Uses batched measurement to preserve Arabic ligatures
  */
 function measureCharsUpToIndex(
-  chars: Char[],
+  charRuns: CharRun[],
   formats: FormatSpan[],
   startIndex: number,
   endIndex: number,
@@ -206,6 +232,8 @@ function measureCharsUpToIndex(
   fontFamily: FontFamily,
   codePadding: number = 0
 ): number {
+  // Convert charRuns to Char[] for compatibility with existing measurement code
+  const chars = charRunsToChars(charRuns);
   // Use the batched measurement function from fonts.ts
   // This preserves Arabic ligatures by measuring text in batches with the same formatting
   return measureCRDTTextUpToIndex(
@@ -392,8 +420,8 @@ export const getBlockTextLength = (block: Block): number => {
     return 0;
   }
 
-  // Count visible (non-deleted) chars
-  return block.chars.filter((c) => !c.deleted).length;
+  // Count visible (non-deleted) chars from charRuns
+  return getVisibleLengthFromRuns(block.charRuns);
 };
 
 export const getBlockTextContent = (block: Block): string => {
@@ -406,11 +434,8 @@ export const getBlockTextContent = (block: Block): string => {
     return "";
   }
 
-  // Get visible text from chars (skip deleted)
-  return block.chars
-    .filter((c) => !c.deleted)
-    .map((c) => c.char)
-    .join("");
+  // Get visible text from charRuns
+  return getVisibleTextFromRuns(block.charRuns);
 };
 
 export const isForwardSelection = (
@@ -530,7 +555,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
   }
 
   // Check if current block is RTL
-  const isRTL = getCharsDirection(currentBlock.chars) === "rtl";
+  const isRTL = getCharsDirection(currentBlock.charRuns) === "rtl";
 
   if (isRTL) {
     // In RTL text, visual left is logical forward (increment)
@@ -555,7 +580,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
         if (!isTextualBlock(nextBlock)) {
           return state;
         }
-        const nextIsRTL = getCharsDirection(nextBlock.chars) === "rtl";
+        const nextIsRTL = getCharsDirection(nextBlock.charRuns) === "rtl";
 
         if (nextIsRTL) {
           // Next block is RTL, position at start (visual right edge)
@@ -588,7 +613,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
           return state;
         }
         const prevBlockLength = getBlockTextLength(prevBlock);
-        const prevIsRTL = getCharsDirection(prevBlock.chars) === "rtl";
+        const prevIsRTL = getCharsDirection(prevBlock.charRuns) === "rtl";
 
         if (prevIsRTL) {
           // Previous block is RTL, position at end (visual left edge)
@@ -636,7 +661,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   const currentBlockLength = getBlockTextLength(currentBlock);
 
   // Check if current block is RTL
-  const isRTL = getCharsDirection(currentBlock.chars) === "rtl";
+  const isRTL = getCharsDirection(currentBlock.charRuns) === "rtl";
 
   if (isRTL) {
     // In RTL text, visual right is logical backward (decrement)
@@ -660,7 +685,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
           return state;
         }
         const prevBlockLength = getBlockTextLength(prevBlock);
-        const prevIsRTL = getCharsDirection(prevBlock.chars) === "rtl";
+        const prevIsRTL = getCharsDirection(prevBlock.charRuns) === "rtl";
 
         if (prevIsRTL) {
           // Previous block is RTL, position at end (visual left edge)
@@ -692,7 +717,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
         if (!isTextualBlock(nextBlock)) {
           return state;
         }
-        const nextIsRTL = getCharsDirection(nextBlock.chars) === "rtl";
+        const nextIsRTL = getCharsDirection(nextBlock.charRuns) === "rtl";
 
         if (nextIsRTL) {
           // Next block is RTL, position at start (visual right edge)
@@ -743,7 +768,7 @@ function getLineInfoAtPosition(
   }
 
   const wrappedLines = wrapCharsDetailed(
-    block.chars,
+    block.charRuns,
     block.formats,
     adjustedMaxWidth,
     textStyle.fontSize,
@@ -804,7 +829,7 @@ function getTextIndexAtRelativePosition(
   }
 
   // Check if this is RTL text
-  const isRTL = getCharsDirection(block.chars) === "rtl";
+  const isRTL = getCharsDirection(block.charRuns) === "rtl";
 
   if (!isRTL) {
     // LTR: simple logical positioning
@@ -830,7 +855,7 @@ function getTextIndexAtRelativePosition(
 
     // Measure from line start to this character position
     const widthFromStart = measureCharsUpToIndex(
-      block.chars,
+      block.charRuns,
       block.formats,
       lineStartIndex,
       charIndex,
@@ -906,7 +931,7 @@ export const moveCursorUp = (
   }
 
   // For RTL text, calculate visual position instead of logical position
-  const isRTL = getCharsDirection(currentBlock.chars) === "rtl";
+  const isRTL = getCharsDirection(currentBlock.charRuns) === "rtl";
   let relativePosition: number;
 
   if (isRTL) {
@@ -918,7 +943,7 @@ export const moveCursorUp = (
 
     // Measure from line start to cursor position
     const widthFromStart = measureCharsUpToIndex(
-      currentBlock.chars,
+      currentBlock.charRuns,
       currentBlock.formats,
       lineInfo.lineStartIndex,
       textIndex,
@@ -982,7 +1007,7 @@ export const moveCursorUp = (
     const codePadding = styles.textFormats.code.padding;
 
     const prevLines = wrapCharsDetailed(
-      prevBlock.chars,
+      prevBlock.charRuns,
       prevBlock.formats,
       maxWidth,
       prevTextStyle.fontSize,
@@ -1078,7 +1103,7 @@ export const moveCursorDown = (
   }
 
   // For RTL text, calculate visual position instead of logical position
-  const isRTL = getCharsDirection(currentBlock.chars) === "rtl";
+  const isRTL = getCharsDirection(currentBlock.charRuns) === "rtl";
   let relativePosition: number;
 
   if (isRTL) {
@@ -1090,7 +1115,7 @@ export const moveCursorDown = (
 
     // Measure from line start to cursor position
     const widthFromStart = measureCharsUpToIndex(
-      currentBlock.chars,
+      currentBlock.charRuns,
       currentBlock.formats,
       lineInfo.lineStartIndex,
       textIndex,
@@ -1165,7 +1190,7 @@ export const moveCursorDown = (
     const codePadding = styles.textFormats.code.padding;
 
     const nextLines = wrapCharsDetailed(
-      nextBlock.chars,
+      nextBlock.charRuns,
       nextBlock.formats,
       maxWidth,
       nextTextStyle.fontSize,

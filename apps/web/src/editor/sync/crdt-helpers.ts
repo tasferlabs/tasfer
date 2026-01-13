@@ -5,7 +5,8 @@
  * Also includes functions to apply remote CRDT operations to editor Page blocks.
  */
 
-import type { Block, Char, FormatSpan, Page, TextFormat } from "../../deserializer/loadPage";
+import type { Block, Char, CharRun, FormatSpan, Page, TextFormat } from "../../deserializer/loadPage";
+import { isTextualBlock } from "../../deserializer/loadPage";
 import type {
   BlockDelete,
   BlockInsert,
@@ -15,16 +16,24 @@ import type {
   TextDelete,
   TextInsert
 } from "../sync/types";
-import { compareIds } from "../sync/id";
 import { getPageId, nextId, getClock } from "./sync";
+import {
+  insertIntoRuns,
+  deleteFromRuns,
+  getVisibleTextFromRuns,
+  getVisibleLengthFromRuns,
+  getCharIdAtVisiblePosition,
+  iterateVisibleChars,
+  isCharIdInRange,
+} from "./char-runs";
 
 export interface InsertCharsResult {
-  newChars: Char[];
+  newCharRuns: CharRun[];
   op: TextInsert;
 }
 
 export interface DeleteCharsResult {
-  newChars: Char[];
+  newCharRuns: CharRun[];
   op: TextDelete;
 }
 
@@ -34,26 +43,26 @@ export interface FormatCharsResult {
 }
 
 /**
- * Insert text at a position - returns new chars AND the operation
+ * Insert text at a position - returns new charRuns AND the operation
  */
 export function insertCharsAtPosition(
-  chars: Char[],
+  charRuns: CharRun[] | undefined,
   position: number,
   text: string,
   blockId: string
 ): InsertCharsResult {
-  const afterCharId = findCharIdAtPosition(chars, position);
-  
-  const newCharObjects: Char[] = Array.from(text).map(char => ({
+  const afterCharId = getCharIdAtVisiblePosition(charRuns, position);
+
+  // Create new Char objects for the operation payload
+  // Each char gets a unique ID from nextId()
+  const newCharObjects: Char[] = Array.from(text).map((char) => ({
     id: nextId(),
     char,
-    deleted: false,
   }));
-  
-  const insertIndex = findInsertIndex(chars, position);
-  const newChars = [...chars];
-  newChars.splice(insertIndex, 0, ...newCharObjects);
-  
+
+  // Insert into runs
+  const newCharRuns = insertIntoRuns(charRuns, afterCharId, newCharObjects);
+
   const op: TextInsert = {
     op: "text_insert",
     id: nextId(),
@@ -61,36 +70,27 @@ export function insertCharsAtPosition(
     pageId: getPageId(),
     blockId,
     afterCharId,
-    chars: newCharObjects.map(c => ({ id: c.id, char: c.char })),
+    chars: newCharObjects,
   };
-  
-  return { newChars, op };
+
+  return { newCharRuns, op };
 }
 
 /**
- * Delete text in a range - returns new chars AND the operation
+ * Delete text in a range - returns new charRuns AND the operation
  */
 export function deleteCharsInRange(
-  chars: Char[],
+  charRuns: CharRun[] | undefined,
   startIndex: number,
   endIndex: number,
   blockId: string
 ): DeleteCharsResult {
-  const deletedIds: string[] = [];
-  let visibleCount = 0;
-  
-  const newChars = chars.map(char => {
-    if (!char.deleted) {
-      const shouldDelete = visibleCount >= startIndex && visibleCount < endIndex;
-      visibleCount++;
-      if (shouldDelete) {
-        deletedIds.push(char.id);
-        return { ...char, deleted: true };
-      }
-    }
-    return char;
-  });
-  
+  // Get char IDs to delete
+  const deletedIds = getCharIdsInRange(charRuns, startIndex, endIndex);
+
+  // Delete from runs
+  const newCharRuns = deleteFromRuns(charRuns, deletedIds);
+
   const op: TextDelete = {
     op: "text_delete",
     id: nextId(),
@@ -99,21 +99,16 @@ export function deleteCharsInRange(
     blockId,
     charIds: deletedIds,
   };
-  
-  return { newChars, op };
+
+  return { newCharRuns, op };
 }
 
 /**
  * Check if a character ID is within a format span
  */
-function isCharIdInSpan(charId: string, span: FormatSpan, chars: Char[]): boolean {
-  const startIdx = chars.findIndex(c => c.id === span.startCharId);
-  const endIdx = chars.findIndex(c => c.id === span.endCharId);
-  const charIdx = chars.findIndex(c => c.id === charId);
-  
-  if (startIdx === -1 || endIdx === -1 || charIdx === -1) return false;
-  
-  return charIdx >= startIdx && charIdx <= endIdx;
+function isCharIdInSpan(charId: string, span: FormatSpan, charRuns: CharRun[] | undefined): boolean {
+  if (!charRuns) return false;
+  return isCharIdInRange(charRuns, charId, span.startCharId, span.endCharId);
 }
 
 /**
@@ -121,7 +116,7 @@ function isCharIdInSpan(charId: string, span: FormatSpan, chars: Char[]): boolea
  * When value is false, removes the format from the range
  */
 export function formatCharsInRange(
-  chars: Char[],
+  charRuns: CharRun[] | undefined,
   formats: FormatSpan[],
   startIndex: number,
   endIndex: number,
@@ -129,8 +124,8 @@ export function formatCharsInRange(
   format: TextFormat,
   value: boolean | string
 ): FormatCharsResult {
-  const charIds = getCharIdsInRange(chars, startIndex, endIndex);
-  
+  const charIds = getCharIdsInRange(charRuns, startIndex, endIndex);
+
   if (charIds.length === 0) {
     return {
       newFormats: formats,
@@ -146,16 +141,16 @@ export function formatCharsInRange(
       },
     };
   }
-  
+
   let newFormats: FormatSpan[];
-  
+
   if (value === false) {
     // Remove format: filter out spans that match this format type and overlap with our range
     newFormats = formats.filter(span => {
       if (span.format.type !== format.type) return true;
-      
+
       // Check if this span overlaps with any of our charIds
-      const overlaps = charIds.some(charId => isCharIdInSpan(charId, span, chars));
+      const overlaps = charIds.some(charId => isCharIdInSpan(charId, span, charRuns));
       return !overlaps;
     });
   } else {
@@ -168,7 +163,7 @@ export function formatCharsInRange(
     };
     newFormats = [...formats, newSpan];
   }
-  
+
   const op: FormatSet = {
     op: "format_set",
     id: nextId(),
@@ -183,79 +178,59 @@ export function formatCharsInRange(
   return { newFormats, op };
 }
 
-export function getVisibleText(chars: Char[]): string {
-  return chars.filter(c => !c.deleted).map(c => c.char).join("");
+export function getVisibleText(charRuns: CharRun[]): string {
+  return getVisibleTextFromRuns(charRuns);
 }
 
-export function getVisibleLength(chars: Char[]): number {
-  return chars.filter(c => !c.deleted).length;
+export function getVisibleLength(charRuns: CharRun[]): number {
+  return getVisibleLengthFromRuns(charRuns);
 }
 
 export function getCharIdsInRange(
-  chars: Char[],
+  charRuns: CharRun[] | undefined,
   startIndex: number,
   endIndex: number
 ): string[] {
+  if (!charRuns) return [];
+
   const ids: string[] = [];
   let visibleCount = 0;
-  
-  for (const char of chars) {
-    if (!char.deleted) {
-      if (visibleCount >= startIndex && visibleCount < endIndex) {
-        ids.push(char.id);
-      }
-      visibleCount++;
-      if (visibleCount >= endIndex) break;
+
+  for (const { id } of iterateVisibleChars(charRuns)) {
+    if (visibleCount >= startIndex && visibleCount < endIndex) {
+      ids.push(id);
     }
+    visibleCount++;
+    if (visibleCount >= endIndex) break;
   }
-  
+
   return ids;
 }
 
-function findCharIdAtPosition(chars: Char[], position: number): string | null {
-  if (position === 0) return null;
-  
-  let visibleCount = 0;
-  for (const char of chars) {
-    if (!char.deleted) {
-      visibleCount++;
-      if (visibleCount === position) {
-        return char.id;
-      }
-    }
-  }
-  return null;
-}
-
-function findInsertIndex(chars: Char[], visiblePosition: number): number {
-  let visibleCount = 0;
-  for (let i = 0; i < chars.length; i++) {
-    if (!chars[i].deleted) {
-      if (visibleCount === visiblePosition) return i;
-      visibleCount++;
-    }
-  }
-  return chars.length;
+function findCharIdAtPosition(charRuns: CharRun[] | undefined, position: number): string | null {
+  return getCharIdAtVisiblePosition(charRuns, position);
 }
 
 /**
  * Check if all characters in a range have a specific format
  */
 export function allCharsHaveFormat(
-  chars: Char[],
+  charRuns: CharRun[] | undefined,
   formats: FormatSpan[],
   startIndex: number,
   endIndex: number,
   formatType: TextFormat["type"]
 ): boolean {
-  const charIds = getCharIdsInRange(chars, startIndex, endIndex);
+  if (!charRuns) return false;
+
+  const charIds = getCharIdsInRange(charRuns, startIndex, endIndex);
   if (charIds.length === 0) return false;
-  
+
   // Check if all char IDs are covered by format spans of the given type
-  return charIds.every(charId => 
-    formats.some(span => 
-      span.format.type === formatType && 
-      isCharIdInSpan(charId, span, chars)
+  return charIds.every(charId =>
+    formats.some(span =>
+      span.format.type === formatType &&
+      isCharIdInSpan(charId, span, charRuns)
     )
   );
 }
@@ -264,20 +239,20 @@ export function allCharsHaveFormat(
  * Get formats at a specific position (for cursor)
  */
 export function getFormatsAtCharPosition(
-  chars: Char[],
+  charRuns: CharRun[],
   formats: FormatSpan[],
   position: number
 ): TextFormat[] {
   if (position === 0) return [];
 
-  // Get the char ID at position - 1 (inherit from previous char)
-  const charId = findCharIdAtPosition(chars, position);
+  // Get the char ID at position (inherit from previous char)
+  const charId = findCharIdAtPosition(charRuns, position);
   if (!charId) return [];
 
   // Find all format spans that include this char
   const activeFormats: TextFormat[] = [];
   for (const span of formats) {
-    if (isCharIdInSpan(charId, span, chars)) {
+    if (isCharIdInSpan(charId, span, charRuns)) {
       activeFormats.push(span.format);
     }
   }
@@ -288,53 +263,6 @@ export function getFormatsAtCharPosition(
 // =============================================================================
 // Remote Operation Application
 // =============================================================================
-
-/**
- * Find insertion index for a new character in sorted char array.
- * Characters with the same afterCharId are sorted by their own ID.
- * (Local version that works with editor's Char type where deleted is optional)
- */
-function findCharInsertIndexLocal(
-  chars: Char[],
-  afterCharId: string | null,
-  newCharId: string
-): number {
-  if (afterCharId === null) {
-    // Insert at beginning, but after any other chars also inserted at beginning
-    // that have a smaller ID (for deterministic ordering)
-    let index = 0;
-    while (index < chars.length) {
-      if (index === 0 || compareIds(chars[index].id, newCharId) >= 0) {
-        break;
-      }
-      index++;
-    }
-    return index;
-  }
-
-  // Find the position of afterCharId
-  const afterIndex = chars.findIndex((c) => c.id === afterCharId);
-
-  if (afterIndex === -1) {
-    // afterCharId not found - insert at the end as fallback
-    return chars.length;
-  }
-
-  // Insert after afterIndex, but respect ordering of concurrent inserts
-  let insertIndex = afterIndex + 1;
-
-  // Skip past any characters that were also inserted after afterCharId
-  // but have a smaller ID than newCharId
-  while (insertIndex < chars.length) {
-    const existingChar = chars[insertIndex];
-    if (compareIds(existingChar.id, newCharId) >= 0) {
-      break;
-    }
-    insertIndex++;
-  }
-
-  return insertIndex;
-}
 
 /**
  * Apply a remote text insert operation to editor Page blocks
@@ -350,47 +278,14 @@ function applyRemoteTextInsert(page: Page, op: TextInsert): Page {
   const block = page.blocks[blockIndex];
 
   // Skip text operations on blocks that don't have text content
-  if (block.type === "image" || block.type === "line") {
+  if (!isTextualBlock(block)) {
     return page;
   }
 
-  if (!block.chars) {
-    return page;
-  }
+  // Insert into charRuns
+  const newCharRuns = insertIntoRuns(block.charRuns, op.afterCharId, op.chars);
 
-  // Create new chars array with insertions
-  const newChars = [...block.chars];
-  let insertAfter = op.afterCharId;
-
-  for (const charData of op.chars) {
-    // Check if char with this ID already exists (e.g., tombstoned char being restored)
-    const existingCharIndex = newChars.findIndex((c) => c.id === charData.id);
-
-    if (existingCharIndex !== -1) {
-      // Char exists - if it's tombstoned, restore it; otherwise skip (idempotent)
-      if (newChars[existingCharIndex].deleted) {
-        newChars[existingCharIndex] = {
-          ...newChars[existingCharIndex],
-          deleted: false,
-        };
-      }
-      // Update insertAfter to this char's ID for next iteration
-      insertAfter = charData.id;
-      continue;
-    }
-
-    const newChar: Char = {
-      id: charData.id,
-      char: charData.char,
-      deleted: false,
-    };
-
-    const insertIndex = findCharInsertIndexLocal(newChars, insertAfter, charData.id);
-    newChars.splice(insertIndex, 0, newChar);
-    insertAfter = charData.id;
-  }
-
-  const updatedBlock = { ...block, chars: newChars };
+  const updatedBlock = { ...block, charRuns: newCharRuns };
   const newBlocks = [...page.blocks];
   newBlocks[blockIndex] = updatedBlock;
 
@@ -409,20 +304,14 @@ function applyRemoteTextDelete(page: Page, op: TextDelete): Page {
 
   const block = page.blocks[blockIndex];
 
-  if (block.type === "image" || block.type === "line" || !block.chars) {
+  if (!isTextualBlock(block)) {
     return page;
   }
 
-  const charIdsToDelete = new Set(op.charIds);
+  // Delete from charRuns
+  const newCharRuns = deleteFromRuns(block.charRuns, op.charIds);
 
-  const newChars = block.chars.map((char) => {
-    if (charIdsToDelete.has(char.id)) {
-      return { ...char, deleted: true };
-    }
-    return char;
-  });
-
-  const updatedBlock = { ...block, chars: newChars };
+  const updatedBlock = { ...block, charRuns: newCharRuns };
   const newBlocks = [...page.blocks];
   newBlocks[blockIndex] = updatedBlock;
 
@@ -441,7 +330,7 @@ function applyRemoteFormatSet(page: Page, op: FormatSet): Page {
 
   const block = page.blocks[blockIndex];
 
-  if (block.type === "image" || block.type === "line") {
+  if (!isTextualBlock(block)) {
     return page;
   }
 
@@ -458,7 +347,7 @@ function applyRemoteFormatSet(page: Page, op: FormatSet): Page {
 
       // Check if this span overlaps with any of the charIds
       const overlaps = op.charIds.some((charId) =>
-        isCharIdInSpan(charId, span, block.chars)
+        isCharIdInSpan(charId, span, block.charRuns)
       );
       return !overlaps;
     });
@@ -509,8 +398,8 @@ function applyRemoteBlockInsert(page: Page, op: BlockInsert): Page {
   let newBlock: Block;
   const baseBlock = {
     id: op.blockId,
-    chars: [],
-    formats: [],
+    charRuns: [] as CharRun[],
+    formats: [] as FormatSpan[],
     afterId: op.afterBlockId, // Store the afterBlockId for position tracking
   };
 

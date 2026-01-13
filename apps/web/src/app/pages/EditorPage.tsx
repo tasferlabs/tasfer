@@ -8,7 +8,8 @@ import { debounce } from "lodash-es";
 import { MountedEditor, type MountedEditorRef } from "../MountedEditor";
 import type { SyncState } from "../../editor/sync/websocket";
 import type { AwarenessUser } from "@/editor/sync/awareness";
-import type { Block } from "@/deserializer/loadPage";
+import { isTextualBlock, type Block, type TextualBlock } from "@/deserializer/loadPage";
+import { getVisibleTextFromRuns } from "@/editor/sync/char-runs";
 
 // WebSocket server URL - defaults to using Vite proxy
 // Uses wss:// for HTTPS, ws:// for HTTP
@@ -45,17 +46,11 @@ function countWordsFromBlocks(blocks: Block[]): number {
 
   for (const block of blocks) {
     // Skip non-text blocks
-    if (block.type === "image" || block.type === "line") continue;
+    if (!isTextualBlock(block)) continue;
     if (block.deleted) continue;
 
-    // Get text from chars array
-    const textBlock = block as { chars?: Array<{ char: string; deleted?: boolean }> };
-    if (!textBlock.chars) continue;
-
-    const text = textBlock.chars
-      .filter((c) => !c.deleted)
-      .map((c) => c.char)
-      .join("");
+    // Get text from charRuns
+    const text = getVisibleTextFromRuns((block as TextualBlock).charRuns);
 
     // Count CJK characters (each character is typically a word/concept)
     const cjkMatches = text.match(cjkRegex);

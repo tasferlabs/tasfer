@@ -1,26 +1,32 @@
 import type {
   Block,
   Char,
+  CharRun,
   FormatSpan,
 } from "../deserializer/loadPage";
 import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
-import type { AwarenessState } from "./sync/awareness";
 import {
-  awarenessCursorToPosition,
-  awarenessSelectionToSelection,
-} from "./sync/awareness";
-import { getVisibleText } from "./sync/crdt-helpers";
-import { getVisibleBlocks } from "./sync/sync";
-import {
+  batchCRDTChars,
   FONT_STACKS,
   getCurrentFontFamily,
   getFontMetrics,
   measureText,
   wrapCRDTText,
-  batchCRDTChars,
   type FontFamily,
   type TextBatch,
 } from "./fonts";
+import type { AwarenessState } from "./sync/awareness";
+import {
+  awarenessCursorToPosition,
+  awarenessSelectionToSelection,
+} from "./sync/awareness";
+import {
+  getCharIdFromRun,
+  getVisibleTextFromRuns,
+  isCharDeleted,
+  iterateVisibleChars,
+} from "./sync/char-runs";
+import { getVisibleBlocks } from "./sync/sync";
 
 import { renderScrollbar } from "./scrollbar";
 import { getBlockTextContent, isCursorBlinking, isTouchDevice } from "./state";
@@ -36,6 +42,31 @@ import type {
   TextStyle,
   ViewportState,
 } from "./types";
+
+/**
+ * Convert charRuns to Char[] for compatibility with measurement functions
+ */
+function charRunsToChars(charRuns: CharRun[] | undefined): Char[] {
+  if (!charRuns) return [];
+  const chars: Char[] = [];
+  for (const run of charRuns) {
+    for (let offset = 0; offset < run.text.length; offset++) {
+      chars.push({
+        id: getCharIdFromRun(run, offset),
+        char: run.text[offset],
+        deleted: isCharDeleted(run, offset),
+      });
+    }
+  }
+  return chars;
+}
+
+/**
+ * Get visible text from Char[] array (filters out deleted chars)
+ */
+function getVisibleTextFromChars(chars: Char[]): string {
+  return chars.filter(c => !c.deleted).map(c => c.char).join("");
+}
 
 // Helper to inject composition text into block for rendering
 function getContentWithComposition(
@@ -59,7 +90,7 @@ function getContentWithComposition(
     state.document.cursor.position.blockIndex !== blockIndex
   ) {
     return {
-      chars: block.chars,
+      chars: charRunsToChars(block.charRuns),
       formats: block.formats,
       compositionRange: null,
     };
@@ -68,7 +99,7 @@ function getContentWithComposition(
   const compositionText = state.ui.composition.text;
   if (!compositionText) {
     return {
-      chars: block.chars,
+      chars: charRunsToChars(block.charRuns),
       formats: block.formats,
       compositionRange: null,
     };
@@ -90,19 +121,15 @@ function getContentWithComposition(
   let visibleIndex = 0;
   let insertionDone = false;
 
-  for (const char of block.chars) {
-    if (char.deleted) {
-      modifiedChars.push(char);
-      continue;
-    }
-
+  // Convert charRuns to chars and insert composition
+  for (const { id, char } of iterateVisibleChars(block.charRuns)) {
     if (visibleIndex === cursorTextIndex && !insertionDone) {
       // Insert composition chars here
       modifiedChars.push(...compositionChars);
       insertionDone = true;
     }
 
-    modifiedChars.push(char);
+    modifiedChars.push({ id, char, deleted: false });
     visibleIndex++;
   }
 
@@ -536,7 +563,7 @@ export const renderBlock = (
   } = getContentWithComposition(block, state, blockIndex);
 
   // Detect text direction
-  const visibleText = getVisibleText(renderChars);
+  const visibleText = getVisibleTextFromRuns(block.charRuns);
   const direction =
     visibleText.length > 0 &&
     /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(visibleText)
@@ -569,9 +596,11 @@ export const renderBlock = (
 
   // Calculate line wrapping using CRDT data
   // Use adjusted max width for list blocks to account for indent and marker
+  // Convert charRuns to chars for measurement functions
+  const charsForWrapping = renderChars || charRunsToChars(block.charRuns);
   const lines = wrapCRDTText(
-    renderChars,
-    renderFormats,
+    charsForWrapping,
+    renderFormats || block.formats,
     adjustedMaxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
@@ -1005,7 +1034,7 @@ function renderSelectionCore(
   let end = selection.isForward ? selection.focus : selection.anchor;
 
   // Detect if this is an RTL block
-  const blockVisibleText = getVisibleText(block.chars);
+  const blockVisibleText = getVisibleTextFromRuns(block.charRuns);
   const isRTL =
     blockVisibleText.length > 0 &&
     /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(blockVisibleText);
@@ -1057,8 +1086,9 @@ function renderSelectionCore(
             );
             const selEndTextIndex = Math.min(line.endIndex, end.textIndex);
 
+            const blockChars = charRunsToChars(block.charRuns);
             const widthToSelStart = measureCRDTLineWidth(
-              block.chars,
+              blockChars,
               block.formats,
               line.startIndex,
               selStartTextIndex,
@@ -1068,7 +1098,7 @@ function renderSelectionCore(
             );
 
             const widthToSelEnd = measureCRDTLineWidth(
-              block.chars,
+              blockChars,
               block.formats,
               line.startIndex,
               selEndTextIndex,
@@ -1081,9 +1111,10 @@ function renderSelectionCore(
             selectionStartX = x + maxWidth - widthToSelEnd;
           } else {
             // LTR logic
+            const blockChars = charRunsToChars(block.charRuns);
             if (start.textIndex > line.startIndex) {
               selectionStartX += measureCRDTLineWidth(
-                block.chars,
+                blockChars,
                 block.formats,
                 line.startIndex,
                 start.textIndex,
@@ -1094,7 +1125,7 @@ function renderSelectionCore(
             }
             if (end.textIndex < line.endIndex) {
               const selectedWidth = measureCRDTLineWidth(
-                block.chars,
+                blockChars,
                 block.formats,
                 Math.max(line.startIndex, start.textIndex),
                 Math.min(line.endIndex, end.textIndex),
@@ -1128,8 +1159,9 @@ function renderSelectionCore(
               start.textIndex
             );
 
+            const blockChars = charRunsToChars(block.charRuns);
             const widthToSelStart = measureCRDTLineWidth(
-              block.chars,
+              blockChars,
               block.formats,
               line.startIndex,
               selStartTextIndex,
@@ -1141,9 +1173,10 @@ function renderSelectionCore(
             selectionEndX = x + maxWidth - widthToSelStart;
             selectionStartX = x + maxWidth - line.width;
           } else {
+            const blockChars = charRunsToChars(block.charRuns);
             if (start.textIndex > line.startIndex) {
               selectionStartX += measureCRDTLineWidth(
-                block.chars,
+                blockChars,
                 block.formats,
                 line.startIndex,
                 start.textIndex,
@@ -1165,8 +1198,9 @@ function renderSelectionCore(
           if (isRTL) {
             const selEndTextIndex = Math.min(line.endIndex, end.textIndex);
 
+            const blockChars = charRunsToChars(block.charRuns);
             const widthToSelEnd = measureCRDTLineWidth(
-              block.chars,
+              blockChars,
               block.formats,
               line.startIndex,
               selEndTextIndex,
@@ -1178,11 +1212,12 @@ function renderSelectionCore(
             selectionEndX = x + maxWidth;
             selectionStartX = x + maxWidth - widthToSelEnd;
           } else {
+            const blockChars = charRunsToChars(block.charRuns);
             if (end.textIndex < line.endIndex) {
               selectionEndX =
                 x +
                 measureCRDTLineWidth(
-                  block.chars,
+                  blockChars,
                   block.formats,
                   line.startIndex,
                   end.textIndex,
@@ -1867,8 +1902,9 @@ export const calculateBlockHeight = (
   }
 
   // Use CRDT wrapping
+  const blockChars = charRunsToChars(block.charRuns);
   const lines = wrapCRDTText(
-    block.chars,
+    blockChars,
     block.formats,
     adjustedMaxWidth,
     textStyle.fontSize,
@@ -1956,7 +1992,7 @@ function calculateCursorPosition(
   }
 
   // Use provided chars/formats or default to block's
-  const chars = renderChars ?? block.chars;
+  const chars = renderChars ?? charRunsToChars(block.charRuns);
   const formats = renderFormats ?? block.formats;
 
   const lines = wrapCRDTText(
@@ -1978,7 +2014,7 @@ function calculateCursorPosition(
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
   // Calculate cursor position
-  const visibleText = getVisibleText(chars);
+  const visibleText = getVisibleTextFromChars(chars);
   const isRTL =
     visibleText.length > 0 &&
     /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(visibleText);
@@ -2388,7 +2424,7 @@ function getPositionCoordinates(
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
-  const blockVisibleText = getVisibleText(block.chars);
+  const blockVisibleText = getVisibleTextFromRuns(block.charRuns);
 
   // Detect RTL
   const isRTL =
@@ -2415,8 +2451,9 @@ function getPositionCoordinates(
   }
 
   // Calculate line wrapping
+  const blockChars = charRunsToChars(block.charRuns);
   const lines = wrapCRDTText(
-    block.chars,
+    blockChars,
     block.formats,
     adjustedMaxWidth,
     textStyle.fontSize,
@@ -2433,8 +2470,9 @@ function getPositionCoordinates(
 
     if (position.textIndex >= textIndex && position.textIndex <= lineEndIndex) {
       // Calculate X position
+      const blockChars = charRunsToChars(block.charRuns);
       const widthFromStart = measureCRDTLineWidth(
-        block.chars,
+        blockChars,
         block.formats,
         textIndex,
         position.textIndex,

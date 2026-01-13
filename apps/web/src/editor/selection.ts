@@ -1,4 +1,4 @@
-import type { Block, Char } from "../deserializer/loadPage";
+import type { Block, Char, CharRun } from "../deserializer/loadPage";
 import { isTextualBlock, isListBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
@@ -14,6 +14,12 @@ import { getEditorStyles, getTextStyle } from "./styles";
 import { getVisibleText } from "./sync/crdt-helpers";
 import { getVisibleBlocks } from "./sync/sync";
 import { getTextDirection } from "./rtl";
+import {
+  getCharIdFromRun,
+  isCharDeleted,
+  iterateVisibleChars,
+  findCharInRuns,
+} from "./sync/char-runs";
 import type {
   EditorState,
   EditorStyles,
@@ -21,6 +27,31 @@ import type {
   TextStyle,
   ViewportState,
 } from "./types";
+
+/**
+ * Convert charRuns to Char[] for compatibility with existing measurement functions
+ */
+function charRunsToChars(charRuns: CharRun[] | undefined): Char[] {
+  if (!charRuns) return [];
+  const chars: Char[] = [];
+  for (const run of charRuns) {
+    for (let offset = 0; offset < run.text.length; offset++) {
+      chars.push({
+        id: getCharIdFromRun(run, offset),
+        char: run.text[offset],
+        deleted: isCharDeleted(run, offset),
+      });
+    }
+  }
+  return chars;
+}
+
+/**
+ * Get visible text from Char[] array (filters out deleted chars)
+ */
+function getVisibleTextFromChars(chars: Char[]): string {
+  return chars.filter(c => !c.deleted).map(c => c.char).join("");
+}
 
 export function getCursorCoordinates(
   position: Position,
@@ -71,7 +102,7 @@ export function getCursorCoordinates(
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
   // Detect if this is an RTL block
-  const isRTL = getTextDirection(getVisibleText(block.chars)) === "rtl";
+  const isRTL = getTextDirection(getVisibleText(block.charRuns)) === "rtl";
 
   // Calculate indent and marker space for list blocks
   let indentOffset = 0;
@@ -100,7 +131,7 @@ export function getCursorCoordinates(
 
   // Use CRDT text wrapping
   const lines = wrapCRDTText(
-    block.chars,
+    charRunsToChars(block.charRuns),
     block.formats,
     adjustedMaxWidth,
     textStyle.fontSize,
@@ -122,7 +153,7 @@ export function getCursorCoordinates(
         // - Cursor at logical index N appears at the LEFT
         // Measure from line start to cursor position
         const widthFromStart = measureCRDTTextUpToIndex(
-          block.chars,
+          charRunsToChars(block.charRuns),
           block.formats,
           textIndex,
           position.textIndex,
@@ -141,7 +172,7 @@ export function getCursorCoordinates(
         // LTR: Calculate X using format-aware measurement
         // Measure from the line start to the cursor position
         const textWidth = measureCRDTTextUpToIndex(
-          block.chars,
+          charRunsToChars(block.charRuns),
           block.formats,
           textIndex,
           position.textIndex,
@@ -230,7 +261,9 @@ export function getCursorCoordinatesWithComposition(
   let visibleIndex = 0;
   let insertionDone = false;
 
-  for (const char of block.chars) {
+  // Convert charRuns to chars for composition insertion
+  const blockChars = charRunsToChars(block.charRuns);
+  for (const char of blockChars) {
     if (char.deleted) {
       modifiedChars.push(char);
       continue;
@@ -280,7 +313,7 @@ export function getCursorCoordinatesWithComposition(
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
-  const isRTL = getTextDirection(getVisibleText(modifiedChars)) === "rtl";
+  const isRTL = getTextDirection(getVisibleTextFromChars(modifiedChars)) === "rtl";
 
   // Calculate indent and marker space for list blocks
   let indentOffset = 0;
@@ -462,7 +495,7 @@ function getPositionFromPaddingClick(
       }
 
       // Detect text direction
-      const isRTL = getTextDirection(getVisibleText(block.chars)) === "rtl";
+      const isRTL = getTextDirection(getVisibleText(block.charRuns)) === "rtl";
 
       // Get text style for line height calculation
       const textStyle = getTextStyle(styles, block.type);
@@ -481,7 +514,7 @@ function getPositionFromPaddingClick(
 
       // Wrap text to get lines
       const lines = wrapCRDTText(
-        block.chars,
+        charRunsToChars(block.charRuns),
         block.formats,
         adjustedMaxWidth,
         textStyle.fontSize,
@@ -712,7 +745,7 @@ function getPositionWithinBlock(
   const codePadding = styles.textFormats.code.padding;
 
   // Detect if this is an RTL block
-  const isRTL = getTextDirection(getVisibleText(block.chars)) === "rtl";
+  const isRTL = getTextDirection(getVisibleText(block.charRuns)) === "rtl";
 
   // Calculate indent and marker space for list blocks
   let indentOffset = 0;
@@ -749,7 +782,7 @@ function getPositionWithinBlock(
 
   // Wrap text to get lines using CRDT text wrapping
   const lines = wrapCRDTText(
-    block.chars,
+    charRunsToChars(block.charRuns),
     block.formats,
     adjustedMaxWidth,
     textStyle.fontSize,
@@ -855,7 +888,7 @@ function getPositionWithinLine(
   // Pre-calculate widths for all positions using batched measurement
   // This is more efficient and preserves Arabic ligatures consistently
   const positionWidths = measureCRDTPositions(
-    block.chars,
+    charRunsToChars(block.charRuns),
     block.formats,
     lineStartIndex,
     lineEndIndex,
@@ -1038,11 +1071,9 @@ export function getLinkAtPosition(
   let visibleIndex = 0;
   let charIdAtPosition: string | null = null;
 
-  for (const char of block.chars) {
-    if (char.deleted) continue;
-
+  for (const { id } of iterateVisibleChars(block.charRuns)) {
     if (visibleIndex === position.textIndex) {
-      charIdAtPosition = char.id;
+      charIdAtPosition = id;
       break;
     }
     visibleIndex++;
@@ -1054,58 +1085,57 @@ export function getLinkAtPosition(
   for (const formatSpan of block.formats) {
     if (formatSpan.format.type !== "link") continue;
 
-    // Check if charIdAtPosition is within this span
-    const startIdx = block.chars.findIndex(
-      (c) => c.id === formatSpan.startCharId
-    );
-    const endIdx = block.chars.findIndex((c) => c.id === formatSpan.endCharId);
-    const charIdx = block.chars.findIndex((c) => c.id === charIdAtPosition);
+    // Check if charIdAtPosition is within this span using findCharInRuns
+    const startChar = findCharInRuns(block.charRuns, formatSpan.startCharId);
+    const endChar = findCharInRuns(block.charRuns, formatSpan.endCharId);
+    const charAtPos = findCharInRuns(block.charRuns, charIdAtPosition);
+
+    if (!startChar || !endChar || !charAtPos) continue;
+
+    // Check if charAtPos is between startChar and endChar
+    // We need to compare positions by iterating through visible chars
+    let startVisIndex = -1;
+    let endVisIndex = -1;
+    let charAtPosVisIndex = -1;
+    visibleIndex = 0;
+
+    for (const { id } of iterateVisibleChars(block.charRuns)) {
+      if (id === formatSpan.startCharId) {
+        startVisIndex = visibleIndex;
+      }
+      if (id === formatSpan.endCharId) {
+        endVisIndex = visibleIndex;
+      }
+      if (id === charIdAtPosition) {
+        charAtPosVisIndex = visibleIndex;
+      }
+      visibleIndex++;
+    }
 
     if (
-      startIdx !== -1 &&
-      endIdx !== -1 &&
-      charIdx !== -1 &&
-      charIdx >= startIdx &&
-      charIdx <= endIdx
+      startVisIndex !== -1 &&
+      endVisIndex !== -1 &&
+      charAtPosVisIndex !== -1 &&
+      charAtPosVisIndex >= startVisIndex &&
+      charAtPosVisIndex <= endVisIndex
     ) {
-      // Found a link span containing this position
-      // Calculate visible start and end indices
-      let visStart = 0;
-      let visEnd = 0;
-      let foundStart = false;
-      let foundEnd = false;
+      // Get the text of the link
+      const linkText: string[] = [];
       visibleIndex = 0;
-
-      for (let i = 0; i < block.chars.length; i++) {
-        if (block.chars[i].deleted) continue;
-
-        if (i === startIdx) {
-          visStart = visibleIndex;
-          foundStart = true;
+      for (const { char } of iterateVisibleChars(block.charRuns)) {
+        if (visibleIndex >= startVisIndex && visibleIndex <= endVisIndex) {
+          linkText.push(char);
         }
-        if (i === endIdx) {
-          visEnd = visibleIndex;
-          foundEnd = true;
-          break;
-        }
+        if (visibleIndex > endVisIndex) break;
         visibleIndex++;
       }
 
-      if (foundStart && foundEnd) {
-        // Get the text of the link
-        const linkText = block.chars
-          .slice(startIdx, endIdx + 1)
-          .filter((c) => !c.deleted)
-          .map((c) => c.char)
-          .join("");
-
-        return {
-          url: formatSpan.format.url || "",
-          text: linkText,
-          startIndex: visStart,
-          endIndex: visEnd + 1,
-        };
-      }
+      return {
+        url: formatSpan.format.url || "",
+        text: linkText.join(""),
+        startIndex: startVisIndex,
+        endIndex: endVisIndex + 1,
+      };
     }
   }
 
@@ -1193,7 +1223,7 @@ export function isPointWithinSelectionRects(
       markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
       adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
 
-      const isRTL = getTextDirection(getVisibleText(block.chars)) === "rtl";
+      const isRTL = getTextDirection(getVisibleText(block.charRuns)) === "rtl";
       if (isRTL) {
         baseX = styles.canvas.paddingLeft + indentOffset;
       } else {
@@ -1203,7 +1233,7 @@ export function isPointWithinSelectionRects(
 
     // Get wrapped lines for this block
     const wrappedLines = wrapCRDTText(
-      block.chars,
+      charRunsToChars(block.charRuns),
       block.formats,
       adjustedMaxWidth,
       textStyle.fontSize,
@@ -1212,7 +1242,7 @@ export function isPointWithinSelectionRects(
       codePadding
     );
 
-    const isRTL = getTextDirection(getVisibleText(block.chars)) === "rtl";
+    const isRTL = getTextDirection(getVisibleText(block.charRuns)) === "rtl";
     let lineY = currentY;
     let textIndex = 0;
 
@@ -1225,7 +1255,7 @@ export function isPointWithinSelectionRects(
 
       // Measure the line width
       const lineWidth = measureCRDTTextUpToIndex(
-        block.chars,
+        charRunsToChars(block.charRuns),
         block.formats,
         lineStartIndex,
         lineStartIndex + lineText.length,
@@ -1261,7 +1291,7 @@ export function isPointWithinSelectionRects(
 
             if (isRTL) {
               const widthToSelStart = measureCRDTTextUpToIndex(
-                block.chars,
+                charRunsToChars(block.charRuns),
                 block.formats,
                 lineStartIndex,
                 selStartTextIndex,
@@ -1271,7 +1301,7 @@ export function isPointWithinSelectionRects(
                 codePadding
               );
               const widthToSelEnd = measureCRDTTextUpToIndex(
-                block.chars,
+                charRunsToChars(block.charRuns),
                 block.formats,
                 lineStartIndex,
                 selEndTextIndex,
@@ -1285,7 +1315,7 @@ export function isPointWithinSelectionRects(
             } else {
               if (start.textIndex > lineStartIndex) {
                 selectionStartX += measureCRDTTextUpToIndex(
-                  block.chars,
+                  charRunsToChars(block.charRuns),
                   block.formats,
                   lineStartIndex,
                   start.textIndex,
@@ -1297,7 +1327,7 @@ export function isPointWithinSelectionRects(
               }
               if (end.textIndex < lineStartIndex + lineText.length) {
                 const selectedWidth = measureCRDTTextUpToIndex(
-                  block.chars,
+                  charRunsToChars(block.charRuns),
                   block.formats,
                   Math.max(lineStartIndex, start.textIndex),
                   Math.min(lineStartIndex + lineText.length, end.textIndex),
@@ -1330,7 +1360,7 @@ export function isPointWithinSelectionRects(
             hasSelection = true;
             if (isRTL) {
               const widthToSelStart = measureCRDTTextUpToIndex(
-                block.chars,
+                charRunsToChars(block.charRuns),
                 block.formats,
                 lineStartIndex,
                 Math.max(lineStartIndex, start.textIndex),
@@ -1345,7 +1375,7 @@ export function isPointWithinSelectionRects(
             } else {
               if (start.textIndex > lineStartIndex) {
                 selectionStartX += measureCRDTTextUpToIndex(
-                  block.chars,
+                  charRunsToChars(block.charRuns),
                   block.formats,
                   lineStartIndex,
                   start.textIndex,
@@ -1367,7 +1397,7 @@ export function isPointWithinSelectionRects(
             if (isRTL) {
               const lineStartX = baseX + adjustedMaxWidth - lineWidth;
               const widthToSelEnd = measureCRDTTextUpToIndex(
-                block.chars,
+                charRunsToChars(block.charRuns),
                 block.formats,
                 lineStartIndex,
                 Math.min(lineStartIndex + lineText.length, end.textIndex),
@@ -1383,7 +1413,7 @@ export function isPointWithinSelectionRects(
                 selectionEndX =
                   baseX +
                   measureCRDTTextUpToIndex(
-                    block.chars,
+                    charRunsToChars(block.charRuns),
                     block.formats,
                     lineStartIndex,
                     end.textIndex,

@@ -196,7 +196,7 @@ router.post("/create", async (req, res) => {
       {
         id: createId(),
         type: "heading1",
-        chars: [],
+        charRuns: [],
         formats: [],
       },
     ];

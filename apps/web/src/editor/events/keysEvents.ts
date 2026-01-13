@@ -281,8 +281,8 @@ export function handleKeyDown(
           }
 
           // Remove the "/" and filter text using CRDT operations
-          const { newChars } = deleteCharsInRange(
-            block.chars,
+          const { newCharRuns } = deleteCharsInRange(
+            block.charRuns,
             textIndex - 1, // Remove the "/"
             state.document.cursor.position.textIndex, // Remove up to cursor (the filter text)
             block.id
@@ -290,7 +290,7 @@ export function handleKeyDown(
 
           const newBlock: Block = {
             ...block,
-            chars: newChars,
+            charRuns: newCharRuns,
           };
 
           invalidateBlockCache(newBlock);
@@ -448,7 +448,7 @@ export function handleKeyDown(
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
-              chars: [],
+              charRuns: [],
               formats: [],
             };
 
@@ -648,7 +648,7 @@ export function handleKeyDown(
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
-              chars: [],
+              charRuns: [],
               formats: [],
             };
 
@@ -838,7 +838,7 @@ export function handleKeyDown(
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
-              chars: [],
+              charRuns: [],
               formats: [],
             };
 
@@ -1022,7 +1022,7 @@ export function handleKeyDown(
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
-              chars: [],
+              charRuns: [],
               formats: [],
             };
 

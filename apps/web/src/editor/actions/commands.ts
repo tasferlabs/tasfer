@@ -1,26 +1,10 @@
 import type {
   Block,
-  Char,
+  CharRun,
   FormatSpan,
-  TextFormat,
+  TextFormat
 } from "../../deserializer/loadPage";
 import { isListBlock, isTextualBlock } from "../../deserializer/loadPage";
-import type { BlockInsert, BlockSet, Operation } from "../sync/types";
-import {
-  allCharsHaveFormat,
-  applyRemoteOps,
-  deleteCharsInRange,
-  formatCharsInRange,
-  getFormatsAtCharPosition,
-  getVisibleLength,
-  getVisibleText,
-  insertCharsAtPosition,
-} from "../sync/crdt-helpers";
-import { getVisibleBlocks } from "../sync/sync";
-import {
-  findNextVisibleBlockIndex,
-  findPreviousVisibleBlockIndex,
-} from "../sync/reducer";
 import { isCJKCharacter } from "../fonts";
 import { invalidateBlockCache } from "../renderer";
 import { isRTLChar } from "../rtl";
@@ -35,32 +19,47 @@ import {
   updateMode,
   updateSelectionFocus,
 } from "../state";
+import { deleteFromRuns, iterateVisibleChars } from "../sync/char-runs";
+import {
+  allCharsHaveFormat,
+  applyRemoteOps,
+  deleteCharsInRange,
+  formatCharsInRange,
+  getFormatsAtCharPosition,
+  getVisibleLength,
+  getVisibleText,
+  insertCharsAtPosition,
+} from "../sync/crdt-helpers";
+import {
+  findNextVisibleBlockIndex,
+  findPreviousVisibleBlockIndex,
+} from "../sync/reducer";
+import { getClock, getPageId, getVisibleBlocks, nextId } from "../sync/sync";
+import type { BlockInsert, BlockSet, Operation } from "../sync/types";
 import type {
   CommandResult,
   EditorState,
   Position,
   SlashCommand,
 } from "../types";
-import { getPageId, nextId, getClock } from "../sync/sync";
 import {
-  positionToCRDT,
   crdtToPosition,
-  selectionRangeToCRDT,
   crdtToSelectionRange,
+  positionToCRDT,
+  selectionRangeToCRDT,
 } from "../undo";
 
 /**
- * Helper to determine if text is RTL based on character array
+ * Helper to determine if text is RTL based on charRuns
  */
-function isBlockRTL(chars: Char[]): boolean {
+function isBlockRTL(charRuns: CharRun[]): boolean {
   let totalRtl = 0;
   let totalLtr = 0;
 
-  for (const char of chars) {
-    if (char.deleted) continue;
-    if (isRTLChar(char.char)) {
+  for (const { char } of iterateVisibleChars(charRuns)) {
+    if (isRTLChar(char)) {
       totalRtl++;
-    } else if (/[a-zA-Z]/.test(char.char)) {
+    } else if (/[a-zA-Z]/.test(char)) {
       totalLtr++;
     }
   }
@@ -83,7 +82,7 @@ export function getFormatsAtPosition(
     return undefined;
   }
 
-  return getFormatsAtCharPosition(block.chars, block.formats, textIndex);
+  return getFormatsAtCharPosition(block.charRuns, block.formats, textIndex);
 }
 
 /**
@@ -91,17 +90,17 @@ export function getFormatsAtPosition(
  * Returns null if no pattern was matched, otherwise returns the transformed content and new cursor position
  */
 function detectAndApplyInlineMarkdown(
-  chars: Char[],
+  charRuns: CharRun[],
   formats: FormatSpan[],
   textIndex: number,
   blockId: string
 ): {
-  chars: Char[];
+  charRuns: CharRun[];
   formats: FormatSpan[];
   newTextIndex: number;
   ops: Operation[];
 } | null {
-  const fullText = getVisibleText(chars);
+  const fullText = getVisibleText(charRuns);
   const ops: Operation[] = [];
 
   // Patterns to match (in order of precedence to avoid conflicts)
@@ -118,25 +117,22 @@ function detectAndApplyInlineMarkdown(
     const innerTextEnd = matchStart + 2 + boldMatch[1].length;
 
     // Delete the opening and closing ** markers
-    const { newChars: charsAfterFirst, op: deleteOp1 } = deleteCharsInRange(
-      chars,
-      matchEnd - 2,
-      matchEnd,
-      blockId
-    );
+    const { newCharRuns: charRunsAfterFirst, op: deleteOp1 } =
+      deleteCharsInRange(charRuns, matchEnd - 2, matchEnd, blockId);
     ops.push(deleteOp1);
 
-    const { newChars: charsAfterSecond, op: deleteOp2 } = deleteCharsInRange(
-      charsAfterFirst,
-      matchStart,
-      matchStart + 2,
-      blockId
-    );
+    const { newCharRuns: charRunsAfterSecond, op: deleteOp2 } =
+      deleteCharsInRange(
+        charRunsAfterFirst,
+        matchStart,
+        matchStart + 2,
+        blockId
+      );
     ops.push(deleteOp2);
 
     // Apply bold formatting to the inner text
     const { newFormats: updatedFormats, op: formatOp } = formatCharsInRange(
-      charsAfterSecond,
+      charRunsAfterSecond,
       formats,
       matchStart,
       innerTextEnd - 4, // Adjust for deleted markers
@@ -147,7 +143,7 @@ function detectAndApplyInlineMarkdown(
     ops.push(formatOp);
 
     return {
-      chars: charsAfterSecond,
+      charRuns: charRunsAfterSecond,
       formats: updatedFormats,
       newTextIndex: matchStart + boldMatch[1].length,
       ops,
@@ -164,25 +160,22 @@ function detectAndApplyInlineMarkdown(
     const innerTextEnd = matchStart + 1 + italicMatch[1].length;
 
     // Delete the opening and closing * markers
-    const { newChars: charsAfterFirst, op: deleteOp1 } = deleteCharsInRange(
-      chars,
-      matchEnd - 1,
-      matchEnd,
-      blockId
-    );
+    const { newCharRuns: charRunsAfterFirst, op: deleteOp1 } =
+      deleteCharsInRange(charRuns, matchEnd - 1, matchEnd, blockId);
     ops.push(deleteOp1);
 
-    const { newChars: charsAfterSecond, op: deleteOp2 } = deleteCharsInRange(
-      charsAfterFirst,
-      matchStart,
-      matchStart + 1,
-      blockId
-    );
+    const { newCharRuns: charRunsAfterSecond, op: deleteOp2 } =
+      deleteCharsInRange(
+        charRunsAfterFirst,
+        matchStart,
+        matchStart + 1,
+        blockId
+      );
     ops.push(deleteOp2);
 
     // Apply italic formatting to the inner text
     const { newFormats: updatedFormats, op: formatOp } = formatCharsInRange(
-      charsAfterSecond,
+      charRunsAfterSecond,
       formats,
       matchStart,
       innerTextEnd - 2, // Adjust for deleted markers
@@ -193,7 +186,7 @@ function detectAndApplyInlineMarkdown(
     ops.push(formatOp);
 
     return {
-      chars: charsAfterSecond,
+      charRuns: charRunsAfterSecond,
       formats: updatedFormats,
       newTextIndex: matchStart + italicMatch[1].length,
       ops,
@@ -208,25 +201,22 @@ function detectAndApplyInlineMarkdown(
     const innerTextEnd = matchStart + 2 + strikethroughMatch[1].length;
 
     // Delete the opening and closing ~~ markers
-    const { newChars: charsAfterFirst, op: deleteOp1 } = deleteCharsInRange(
-      chars,
-      matchEnd - 2,
-      matchEnd,
-      blockId
-    );
+    const { newCharRuns: charRunsAfterFirst, op: deleteOp1 } =
+      deleteCharsInRange(charRuns, matchEnd - 2, matchEnd, blockId);
     ops.push(deleteOp1);
 
-    const { newChars: charsAfterSecond, op: deleteOp2 } = deleteCharsInRange(
-      charsAfterFirst,
-      matchStart,
-      matchStart + 2,
-      blockId
-    );
+    const { newCharRuns: charRunsAfterSecond, op: deleteOp2 } =
+      deleteCharsInRange(
+        charRunsAfterFirst,
+        matchStart,
+        matchStart + 2,
+        blockId
+      );
     ops.push(deleteOp2);
 
     // Apply strikethrough formatting to the inner text
     const { newFormats: updatedFormats, op: formatOp } = formatCharsInRange(
-      charsAfterSecond,
+      charRunsAfterSecond,
       formats,
       matchStart,
       innerTextEnd - 4, // Adjust for deleted markers
@@ -237,7 +227,7 @@ function detectAndApplyInlineMarkdown(
     ops.push(formatOp);
 
     return {
-      chars: charsAfterSecond,
+      charRuns: charRunsAfterSecond,
       formats: updatedFormats,
       newTextIndex: matchStart + strikethroughMatch[1].length,
       ops,
@@ -252,25 +242,22 @@ function detectAndApplyInlineMarkdown(
     const innerTextEnd = matchStart + 1 + codeMatch[1].length;
 
     // Delete the opening and closing ` markers
-    const { newChars: charsAfterFirst, op: deleteOp1 } = deleteCharsInRange(
-      chars,
-      matchEnd - 1,
-      matchEnd,
-      blockId
-    );
+    const { newCharRuns: charRunsAfterFirst, op: deleteOp1 } =
+      deleteCharsInRange(charRuns, matchEnd - 1, matchEnd, blockId);
     ops.push(deleteOp1);
 
-    const { newChars: charsAfterSecond, op: deleteOp2 } = deleteCharsInRange(
-      charsAfterFirst,
-      matchStart,
-      matchStart + 1,
-      blockId
-    );
+    const { newCharRuns: charRunsAfterSecond, op: deleteOp2 } =
+      deleteCharsInRange(
+        charRunsAfterFirst,
+        matchStart,
+        matchStart + 1,
+        blockId
+      );
     ops.push(deleteOp2);
 
     // Apply code formatting to the inner text
     const { newFormats: updatedFormats, op: formatOp } = formatCharsInRange(
-      charsAfterSecond,
+      charRunsAfterSecond,
       formats,
       matchStart,
       innerTextEnd - 2, // Adjust for deleted markers
@@ -281,7 +268,7 @@ function detectAndApplyInlineMarkdown(
     ops.push(formatOp);
 
     return {
-      chars: charsAfterSecond,
+      charRuns: charRunsAfterSecond,
       formats: updatedFormats,
       newTextIndex: matchStart + codeMatch[1].length,
       ops,
@@ -303,27 +290,27 @@ function applyMarkdownPrefix(
   if (!isTextualBlock(block)) {
     return block;
   }
-  const text = getVisibleText(block.chars);
+  const text = getVisibleText(block.charRuns);
 
   // Calculate indent level from leading spaces (2 spaces = 1 indent)
   const leadingSpaces = text.match(/^ +/)?.[0].length || 0;
   const indentLevel = Math.floor(leadingSpaces / 2);
   const textAfterSpaces = text.slice(leadingSpaces);
 
-  // Helper to remove prefix characters (mutates block.chars)
+  // Helper to remove prefix characters (mutates block.charRuns)
   const removePrefix = (startIdx: number, endIdx: number) => {
-    // Mark chars as deleted within the range
+    // Get char IDs to delete
+    const charIds: string[] = [];
     let visibleCount = 0;
-    block.chars = block.chars.map((char) => {
-      if (!char.deleted) {
-        if (visibleCount >= startIdx && visibleCount < endIdx) {
-          visibleCount++;
-          return { ...char, deleted: true };
-        }
-        visibleCount++;
+    for (const { id } of iterateVisibleChars(block.charRuns)) {
+      if (visibleCount >= startIdx && visibleCount < endIdx) {
+        charIds.push(id);
       }
-      return char;
-    });
+      visibleCount++;
+      if (visibleCount >= endIdx) break;
+    }
+    // Delete from runs
+    block.charRuns = deleteFromRuns(block.charRuns, charIds);
   };
 
   // Check for list markers
@@ -368,7 +355,7 @@ function applyMarkdownPrefix(
     // Line/divider block - three or more dashes with nothing else
     (block as any).type = "line";
     // Line blocks don't have chars - clear them
-    (block as any).chars = [];
+    (block as any).charRuns = [];
   } else if (!preserveType) {
     block.type = "paragraph";
     // Chars stay as-is with formatting preserved
@@ -444,7 +431,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
         const emptyParagraph: Block = {
           id: emptyParagraphId,
           type: "paragraph",
-          chars: [],
+          charRuns: [],
           formats: [],
         };
 
@@ -503,15 +490,15 @@ export function deleteSelectedText(state: EditorState): CommandResult {
     }
 
     // Handle text block deletion using CRDT helper
-    const { newChars, op } = deleteCharsInRange(
-      block.chars,
+    const { newCharRuns, op } = deleteCharsInRange(
+      block.charRuns,
       start.textIndex,
       end.textIndex,
       block.id
     );
     ops.push(op);
 
-    const blockCopy: Block = { ...block, chars: newChars };
+    const blockCopy: Block = { ...block, charRuns: newCharRuns };
 
     if (block.type === "paragraph") {
       applyMarkdownPrefix(blockCopy);
@@ -628,38 +615,40 @@ export function deleteSelectedText(state: EditorState): CommandResult {
 
     // Both are text blocks - delete text from start and end, merge blocks
     // Delete from start position to end of start block
-    const startBlockLen = getVisibleLength(startBlock.chars);
-    const { newChars: startNewChars, op: startDeleteOp } = deleteCharsInRange(
-      startBlock.chars,
-      start.textIndex,
-      startBlockLen,
-      startBlock.id
-    );
+    const startBlockLen = getVisibleLength(startBlock.charRuns);
+    const { newCharRuns: startNewCharRuns, op: startDeleteOp } =
+      deleteCharsInRange(
+        startBlock.charRuns,
+        start.textIndex,
+        startBlockLen,
+        startBlock.id
+      );
     ops.push(startDeleteOp);
 
     // Get the chars to keep from end block (after end.textIndex)
     const endBlockText = getBlockTextContent(endBlock);
     const textToKeep = endBlockText.slice(end.textIndex);
 
-    // Merge: start block's chars (up to start.textIndex) + end block's chars (from end.textIndex)
-    let mergedChars = startNewChars;
+    // Merge: start block's charRuns (up to start.textIndex) + end block's charRuns (from end.textIndex)
+    let mergedCharRuns = startNewCharRuns;
 
     if (textToKeep.length > 0) {
       // Insert the remaining text from end block into start block
-      const { newChars: finalChars, op: insertOp } = insertCharsAtPosition(
-        mergedChars,
-        start.textIndex,
-        textToKeep,
-        startBlock.id
-      );
-      mergedChars = finalChars;
+      const { newCharRuns: finalCharRuns, op: insertOp } =
+        insertCharsAtPosition(
+          mergedCharRuns,
+          start.textIndex,
+          textToKeep,
+          startBlock.id
+        );
+      mergedCharRuns = finalCharRuns;
       ops.push(insertOp);
     }
 
     // TODO: Merge format spans from both blocks
     const blockCopy: Block = {
       ...startBlock,
-      chars: mergedChars,
+      charRuns: mergedCharRuns,
     };
 
     if (startBlock.type === "paragraph") {
@@ -767,8 +756,8 @@ export function insertText(state: EditorState, input: string): CommandResult {
 
   // Use CRDT helper to insert chars and generate operation atomically
   // This ensures the data and operation always match by construction
-  const { newChars, op } = insertCharsAtPosition(
-    oldBlock.chars,
+  const { newCharRuns, op } = insertCharsAtPosition(
+    oldBlock.charRuns,
     textIndex,
     input,
     oldBlock.id
@@ -785,7 +774,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
     // Apply each active format to the newly inserted characters
     for (const format of activeFormats) {
       const { newFormats: updatedFormats, op: formatOp } = formatCharsInRange(
-        newChars,
+        newCharRuns,
         newFormats,
         textIndex,
         newTextIndex,
@@ -800,13 +789,13 @@ export function insertText(state: EditorState, input: string): CommandResult {
 
   // Inline markdown detection (only on closing delimiter characters)
   const isClosingDelimiter = input === "*" || input === "`" || input === "~";
-  let finalChars = newChars;
+  let finalCharRuns = newCharRuns;
   let finalFormats = newFormats;
   let finalTextIndex = newTextIndex;
 
   if (isClosingDelimiter) {
     const markdownResult = detectAndApplyInlineMarkdown(
-      newChars,
+      newCharRuns,
       newFormats,
       newTextIndex,
       oldBlock.id
@@ -815,7 +804,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
       // Save history BEFORE applying markdown (with raw markdown text)
       const blockBeforeMarkdown: Block = {
         ...oldBlock,
-        chars: newChars,
+        charRuns: newCharRuns,
         formats: newFormats,
       };
       applyMarkdownPrefix(blockBeforeMarkdown, oldBlock.type !== "paragraph");
@@ -846,17 +835,17 @@ export function insertText(state: EditorState, input: string): CommandResult {
       state = stateBeforeMarkdown;
 
       // Now apply the markdown transformation
-      finalChars = markdownResult.chars;
+      finalCharRuns = markdownResult.charRuns;
       finalFormats = markdownResult.formats;
       finalTextIndex = markdownResult.newTextIndex;
       ops.push(...markdownResult.ops);
     }
   }
 
-  // Create updated block with new chars and formats
+  // Create updated block with new charRuns and formats
   const blockCopy: Block = {
     ...oldBlock,
-    chars: finalChars,
+    charRuns: finalCharRuns,
     formats: finalFormats,
   };
   applyMarkdownPrefix(blockCopy, oldBlock.type !== "paragraph");
@@ -927,15 +916,15 @@ export function deleteText(state: EditorState): CommandResult {
   }
   if (textIndex > 0) {
     // Delete one character before cursor using CRDT helper
-    const { newChars, op } = deleteCharsInRange(
-      oldBlock.chars,
+    const { newCharRuns, op } = deleteCharsInRange(
+      oldBlock.charRuns,
       textIndex - 1,
       textIndex,
       oldBlock.id
     );
     ops.push(op);
 
-    const blockCopy: Block = { ...oldBlock, chars: newChars };
+    const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
     if (oldBlock.type === "paragraph") {
       applyMarkdownPrefix(blockCopy);
     }
@@ -1015,7 +1004,7 @@ export function deleteText(state: EditorState): CommandResult {
         const paragraphBlock: Block = {
           id: oldBlock.id,
           type: "paragraph",
-          chars: oldBlock.chars,
+          charRuns: oldBlock.charRuns,
           formats: oldBlock.formats,
         };
         invalidateBlockCache(paragraphBlock);
@@ -1067,7 +1056,7 @@ export function deleteText(state: EditorState): CommandResult {
           const emptyParagraph: Block = {
             id: emptyParagraphId,
             type: "paragraph",
-            chars: [],
+            charRuns: [],
             formats: [],
           };
 
@@ -1134,8 +1123,8 @@ export function deleteText(state: EditorState): CommandResult {
     }
 
     const prevText = getBlockTextContent(prevBlock);
-    // Merge the chars and formats arrays
-    const mergedChars = [...prevBlock.chars, ...oldBlock.chars];
+    // Merge the charRuns and formats arrays
+    const mergedCharRuns = [...prevBlock.charRuns, ...oldBlock.charRuns];
     const mergedFormats = [...prevBlock.formats, ...oldBlock.formats];
 
     // Determine which block to preserve
@@ -1155,7 +1144,7 @@ export function deleteText(state: EditorState): CommandResult {
 
     const blockCopy: Block = {
       ...blockToPreserve,
-      chars: mergedChars,
+      charRuns: mergedCharRuns,
       formats: mergedFormats,
     };
     // Only apply markdown prefix if the resulting type is a paragraph
@@ -1186,7 +1175,7 @@ export function deleteText(state: EditorState): CommandResult {
         const paragraphBlock: Block = {
           id: oldBlock.id,
           type: "paragraph",
-          chars: oldBlock.chars,
+          charRuns: oldBlock.charRuns,
           formats: oldBlock.formats,
         };
         invalidateBlockCache(paragraphBlock);
@@ -1254,15 +1243,15 @@ export function deleteForward(state: EditorState): CommandResult {
 
   if (textIndex < oldText.length) {
     // Delete character after cursor using CRDT helper
-    const { newChars, op } = deleteCharsInRange(
-      oldBlock.chars,
+    const { newCharRuns, op } = deleteCharsInRange(
+      oldBlock.charRuns,
       textIndex,
       textIndex + 1,
       oldBlock.id
     );
     ops.push(op);
 
-    const blockCopy: Block = { ...oldBlock, chars: newChars };
+    const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
     if (oldBlock.type === "paragraph") {
       applyMarkdownPrefix(blockCopy);
     }
@@ -1311,7 +1300,7 @@ export function deleteForward(state: EditorState): CommandResult {
           const emptyParagraph: Block = {
             id: emptyParagraphId,
             type: "paragraph",
-            chars: [],
+            charRuns: [],
             formats: [],
           };
 
@@ -1356,7 +1345,7 @@ export function deleteForward(state: EditorState): CommandResult {
         return { state: newState, ops };
       }
 
-      const mergedChars = [...oldBlock.chars, ...nextBlock.chars];
+      const mergedCharRuns = [...oldBlock.charRuns, ...nextBlock.charRuns];
       const mergedFormats = [...oldBlock.formats, ...nextBlock.formats];
 
       // Determine which block to preserve
@@ -1376,7 +1365,7 @@ export function deleteForward(state: EditorState): CommandResult {
 
       const blockCopy: Block = {
         ...blockToPreserve,
-        chars: mergedChars,
+        charRuns: mergedCharRuns,
         formats: mergedFormats,
       };
       // Only apply markdown prefix if the resulting type is a paragraph
@@ -1558,7 +1547,7 @@ export function moveToPreviousWord(state: EditorState): EditorState {
   }
 
   // Check if current block is RTL
-  const isRTL = isBlockRTL(block.chars);
+  const isRTL = isBlockRTL(block.charRuns);
 
   if (isRTL) {
     // In RTL, "previous word" (Ctrl+Left) should move visually left, which is logically forward
@@ -1619,7 +1608,7 @@ export function moveToNextWord(state: EditorState): EditorState {
   }
 
   // Check if current block is RTL
-  const isRTL = isBlockRTL(block.chars);
+  const isRTL = isBlockRTL(block.charRuns);
 
   if (isRTL) {
     // In RTL, "next word" (Ctrl+Right) should move visually right, which is logically backward
@@ -1689,15 +1678,15 @@ export function deleteWordForward(state: EditorState): CommandResult {
   if (textIndex < oldText.length) {
     // Delete word forward within the current line using CRDT helper
     const endIndex = findWordDeleteBoundaryRight(oldText, textIndex);
-    const { newChars, op } = deleteCharsInRange(
-      oldBlock.chars,
+    const { newCharRuns, op } = deleteCharsInRange(
+      oldBlock.charRuns,
       textIndex,
       endIndex,
       oldBlock.id
     );
     ops.push(op);
 
-    const blockCopy: Block = { ...oldBlock, chars: newChars };
+    const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
     if (oldBlock.type === "paragraph") {
       applyMarkdownPrefix(blockCopy);
     }
@@ -1731,7 +1720,7 @@ export function deleteWordForward(state: EditorState): CommandResult {
       if (!isTextualBlock(nextBlock)) {
         return { state, ops };
       }
-      const mergedChars = [...oldBlock.chars, ...nextBlock.chars];
+      const mergedCharRuns = [...oldBlock.charRuns, ...nextBlock.charRuns];
       const mergedFormats = [...oldBlock.formats, ...nextBlock.formats];
 
       // Determine which block to preserve
@@ -1751,7 +1740,7 @@ export function deleteWordForward(state: EditorState): CommandResult {
 
       const blockCopy: Block = {
         ...blockToPreserve,
-        chars: mergedChars,
+        charRuns: mergedCharRuns,
         formats: mergedFormats,
       };
       // Only apply markdown prefix if the resulting type is a paragraph
@@ -1810,15 +1799,15 @@ export function deleteWordBackward(state: EditorState): CommandResult {
   if (textIndex > 0) {
     // Delete word backward within the current line using CRDT helper
     const startIndex = findWordDeleteBoundaryLeft(oldText, textIndex);
-    const { newChars, op } = deleteCharsInRange(
-      oldBlock.chars,
+    const { newCharRuns, op } = deleteCharsInRange(
+      oldBlock.charRuns,
       startIndex,
       textIndex,
       oldBlock.id
     );
     ops.push(op);
 
-    const blockCopy: Block = { ...oldBlock, chars: newChars };
+    const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
     if (oldBlock.type === "paragraph") {
       applyMarkdownPrefix(blockCopy);
     }
@@ -1847,7 +1836,7 @@ export function deleteWordBackward(state: EditorState): CommandResult {
       return { state, ops };
     }
     const prevText = getBlockTextContent(prevBlock);
-    const mergedChars = [...prevBlock.chars, ...oldBlock.chars];
+    const mergedCharRuns = [...prevBlock.charRuns, ...oldBlock.charRuns];
     const mergedFormats = [...prevBlock.formats, ...oldBlock.formats];
 
     // Determine which block to preserve
@@ -1867,7 +1856,7 @@ export function deleteWordBackward(state: EditorState): CommandResult {
 
     const blockCopy: Block = {
       ...blockToPreserve,
-      chars: mergedChars,
+      charRuns: mergedCharRuns,
       formats: mergedFormats,
     };
     // Only apply markdown prefix if the resulting type is a paragraph
@@ -2205,7 +2194,7 @@ export function splitBlock(state: EditorState): CommandResult {
         const newParagraph: Block = {
           id: newParagraphId,
           type: "paragraph",
-          chars: [],
+          charRuns: [],
           formats: [],
         };
 
@@ -2243,7 +2232,7 @@ export function splitBlock(state: EditorState): CommandResult {
     return { state, ops: [] };
   }
 
-  const oldText = getVisibleText(oldBlock.chars);
+  const oldText = getVisibleText(oldBlock.charRuns);
 
   // Preserve the original block type for both blocks
   const originalType = oldBlock.type;
@@ -2262,7 +2251,7 @@ export function splitBlock(state: EditorState): CommandResult {
         const newParagraph: Block = {
           id: oldBlock.id,
           type: "paragraph",
-          chars: [],
+          charRuns: [],
           formats: [],
         };
 
@@ -2326,28 +2315,22 @@ export function splitBlock(state: EditorState): CommandResult {
     const afterCharsText = oldText.slice(textIndex);
 
     // Delete text after cursor from first block
+    let blockCopy1CharRuns = oldBlock.charRuns;
     if (textIndex < oldText.length) {
-      const { op: deleteOp } = deleteCharsInRange(
-        oldBlock.chars,
+      const { newCharRuns, op: deleteOp } = deleteCharsInRange(
+        oldBlock.charRuns,
         textIndex,
         oldText.length,
         oldBlock.id
       );
+      blockCopy1CharRuns = newCharRuns;
       ops.push(deleteOp);
     }
 
     // Create new list item of same type
     const blockCopy1: Block = {
       ...oldBlock,
-      chars:
-        textIndex < oldText.length
-          ? oldBlock.chars.map((char, i) => {
-              if (i >= findInsertIndex(oldBlock.chars, textIndex)) {
-                return { ...char, deleted: true };
-              }
-              return char;
-            })
-          : oldBlock.chars,
+      charRuns: blockCopy1CharRuns,
     };
 
     const newBlockId = nextId();
@@ -2356,7 +2339,7 @@ export function splitBlock(state: EditorState): CommandResult {
       blockCopy2 = {
         id: newBlockId,
         type: "bullet_list",
-        chars: [],
+        charRuns: [],
         formats: [],
         indent: oldBlock.indent,
       };
@@ -2364,7 +2347,7 @@ export function splitBlock(state: EditorState): CommandResult {
       blockCopy2 = {
         id: newBlockId,
         type: "numbered_list",
-        chars: [],
+        charRuns: [],
         formats: [],
         indent: oldBlock.indent,
       };
@@ -2372,7 +2355,7 @@ export function splitBlock(state: EditorState): CommandResult {
       blockCopy2 = {
         id: newBlockId,
         type: "todo_list",
-        chars: [],
+        charRuns: [],
         formats: [],
         checked: false, // New todo items start unchecked
         indent: oldBlock.indent,
@@ -2397,13 +2380,13 @@ export function splitBlock(state: EditorState): CommandResult {
 
     // Insert text into new block if there was text after cursor
     if (afterCharsText.length > 0) {
-      const { newChars, op: insertOp } = insertCharsAtPosition(
-        blockCopy2.chars,
+      const { newCharRuns, op: insertOp } = insertCharsAtPosition(
+        blockCopy2.charRuns,
         0,
         afterCharsText,
         newBlockId
       );
-      blockCopy2.chars = newChars;
+      blockCopy2.charRuns = newCharRuns;
       ops.push(insertOp);
     }
 
@@ -2463,7 +2446,7 @@ export function splitBlock(state: EditorState): CommandResult {
   // Delete text after cursor from first block if needed
   if (textIndex < oldText.length) {
     const { op: deleteOp } = deleteCharsInRange(
-      oldBlock.chars,
+      oldBlock.charRuns,
       textIndex,
       oldText.length,
       oldBlock.id
@@ -2471,18 +2454,22 @@ export function splitBlock(state: EditorState): CommandResult {
     ops.push(deleteOp);
   }
 
+  // Delete text after cursor from first block if needed
+  let blockCopy1CharRuns = oldBlock.charRuns;
+  if (textIndex < oldText.length) {
+    const { newCharRuns } = deleteCharsInRange(
+      oldBlock.charRuns,
+      textIndex,
+      oldText.length,
+      oldBlock.id
+    );
+    blockCopy1CharRuns = newCharRuns;
+  }
+
   const blockCopy1: Block = {
     id: oldBlock.id,
     type: blockCopy1Type,
-    chars:
-      textIndex < oldText.length
-        ? oldBlock.chars.map((char, i) => {
-            if (i >= findInsertIndex(oldBlock.chars, textIndex)) {
-              return { ...char, deleted: true };
-            }
-            return char;
-          })
-        : oldBlock.chars,
+    charRuns: blockCopy1CharRuns,
     formats: oldBlock.formats,
   };
 
@@ -2506,7 +2493,6 @@ export function splitBlock(state: EditorState): CommandResult {
   }
 
   const newBlockId = nextId();
-  let blockCopy2Chars: Char[] = [];
 
   // Insert the new block FIRST (before inserting text into it)
   // This ensures remote peers have the block before receiving text operations for it
@@ -2522,21 +2508,22 @@ export function splitBlock(state: EditorState): CommandResult {
   ops.push(blockInsertOp);
 
   // Insert text into new block if there was text after cursor
+  let blockCopy2CharRuns: CharRun[] = [];
   if (afterCharsText.length > 0) {
-    const { newChars, op: insertOp } = insertCharsAtPosition(
+    const { newCharRuns, op: insertOp } = insertCharsAtPosition(
       [],
       0,
       afterCharsText,
       newBlockId
     );
-    blockCopy2Chars = newChars;
+    blockCopy2CharRuns = newCharRuns;
     ops.push(insertOp);
   }
 
   const blockCopy2: Block = {
     id: newBlockId,
     type: blockCopy2Type,
-    chars: blockCopy2Chars,
+    charRuns: blockCopy2CharRuns,
     formats: [],
   } as Block;
 
@@ -2560,18 +2547,6 @@ export function splitBlock(state: EditorState): CommandResult {
     state: moveCursorToPosition(newState, blockIndex + 1, 0),
     ops,
   };
-}
-
-// Helper function to find insert index (used in splitBlock)
-function findInsertIndex(chars: Char[], visiblePosition: number): number {
-  let visibleCount = 0;
-  for (let i = 0; i < chars.length; i++) {
-    if (!chars[i].deleted) {
-      if (visibleCount === visiblePosition) return i;
-      visibleCount++;
-    }
-  }
-  return chars.length;
 }
 
 export function selectAll(state: EditorState): EditorState {
@@ -2703,7 +2678,7 @@ export function toggleFormat(
     } else {
       // Inherit mode: check formatting at cursor position
       currentFormats = getFormatsAtCharPosition(
-        block.chars,
+        block.charRuns,
         block.formats,
         textIndex
       );
@@ -2751,7 +2726,7 @@ export function toggleFormat(
 
     // Check if all characters in the range already have the format
     const hasFormat = allCharsHaveFormat(
-      block.chars,
+      block.charRuns,
       block.formats,
       start.textIndex,
       end.textIndex,
@@ -2760,7 +2735,7 @@ export function toggleFormat(
 
     // Toggle formatting: use helper to get new formats and operation
     const { newFormats, op } = formatCharsInRange(
-      block.chars,
+      block.charRuns,
       block.formats,
       start.textIndex,
       end.textIndex,
@@ -2804,18 +2779,18 @@ export function toggleFormat(
         formatEnd = end.textIndex;
       } else if (i === start.blockIndex) {
         formatStart = start.textIndex;
-        formatEnd = getVisibleLength(block.chars);
+        formatEnd = getVisibleLength(block.charRuns);
       } else if (i === end.blockIndex) {
         formatStart = 0;
         formatEnd = end.textIndex;
       } else {
         formatStart = 0;
-        formatEnd = getVisibleLength(block.chars);
+        formatEnd = getVisibleLength(block.charRuns);
       }
 
       if (formatStart < formatEnd) {
         const blockHasFormat = allCharsHaveFormat(
-          block.chars,
+          block.charRuns,
           block.formats,
           formatStart,
           formatEnd,
@@ -2843,18 +2818,18 @@ export function toggleFormat(
         formatEnd = end.textIndex;
       } else if (i === start.blockIndex) {
         formatStart = start.textIndex;
-        formatEnd = getVisibleLength(block.chars);
+        formatEnd = getVisibleLength(block.charRuns);
       } else if (i === end.blockIndex) {
         formatStart = 0;
         formatEnd = end.textIndex;
       } else {
         formatStart = 0;
-        formatEnd = getVisibleLength(block.chars);
+        formatEnd = getVisibleLength(block.charRuns);
       }
 
       if (formatStart < formatEnd) {
         const { newFormats, op } = formatCharsInRange(
-          block.chars,
+          block.charRuns,
           block.formats,
           formatStart,
           formatEnd,
@@ -2948,7 +2923,7 @@ export function convertBlockType(
     newBlock = {
       id: oldBlock.id,
       type: "bullet_list",
-      chars: oldBlock.chars,
+      charRuns: oldBlock.charRuns,
       formats: oldBlock.formats,
       indent: isListBlock(oldBlock) ? oldBlock.indent : 0,
     };
@@ -2956,7 +2931,7 @@ export function convertBlockType(
     newBlock = {
       id: oldBlock.id,
       type: "numbered_list",
-      chars: oldBlock.chars,
+      charRuns: oldBlock.charRuns,
       formats: oldBlock.formats,
       indent: isListBlock(oldBlock) ? oldBlock.indent : 0,
     };
@@ -2964,7 +2939,7 @@ export function convertBlockType(
     newBlock = {
       id: oldBlock.id,
       type: "todo_list",
-      chars: oldBlock.chars,
+      charRuns: oldBlock.charRuns,
       formats: oldBlock.formats,
       checked:
         isListBlock(oldBlock) && oldBlock.type === "todo_list"
@@ -2981,7 +2956,7 @@ export function convertBlockType(
     newBlock = {
       id: oldBlock.id,
       type: blockType,
-      chars: oldBlock.chars,
+      charRuns: oldBlock.charRuns,
       formats: oldBlock.formats,
     };
   } else if (blockType === "image") {
@@ -3082,7 +3057,7 @@ export function convertBlockType(
       const newParagraph: Block = {
         id: newParagraphId,
         type: "paragraph",
-        chars: [],
+        charRuns: [],
         formats: [],
       };
 
@@ -3144,10 +3119,10 @@ export function applySlashCommand(
 
     // Emit CRDT operations: delete all text and change block type
     if (isTextualBlock(block)) {
-      const textLength = getVisibleLength(block.chars);
+      const textLength = getVisibleLength(block.charRuns);
       if (textLength > 0) {
         const { op: deleteOp } = deleteCharsInRange(
-          block.chars,
+          block.charRuns,
           0,
           textLength,
           block.id
@@ -3183,7 +3158,7 @@ export function applySlashCommand(
       const newParagraph: Block = {
         id: newParagraphId,
         type: "paragraph",
-        chars: [],
+        charRuns: [],
         formats: [],
       };
 
@@ -3230,10 +3205,10 @@ export function applySlashCommand(
 
     // Emit CRDT operations: delete all text and change block type
     if (isTextualBlock(block)) {
-      const textLength = getVisibleLength(block.chars);
+      const textLength = getVisibleLength(block.charRuns);
       if (textLength > 0) {
         const { op: deleteOp } = deleteCharsInRange(
-          block.chars,
+          block.charRuns,
           0,
           textLength,
           block.id
@@ -3269,7 +3244,7 @@ export function applySlashCommand(
       const newParagraph: Block = {
         id: newParagraphId,
         type: "paragraph",
-        chars: [],
+        charRuns: [],
         formats: [],
       };
 
@@ -3314,15 +3289,15 @@ export function applySlashCommand(
   const deleteEnd = state.document.cursor.position.textIndex;
 
   // Delete the slash command text using CRDT helper
-  let updatedChars = block.chars;
+  let updatedCharRuns = block.charRuns;
   if (deleteEnd > deleteStart) {
-    const { newChars, op: deleteOp } = deleteCharsInRange(
-      block.chars,
+    const { newCharRuns, op: deleteOp } = deleteCharsInRange(
+      block.charRuns,
       deleteStart,
       deleteEnd,
       block.id
     );
-    updatedChars = newChars;
+    updatedCharRuns = newCharRuns;
     ops.push(deleteOp);
   }
 
@@ -3332,7 +3307,7 @@ export function applySlashCommand(
     newBlock = {
       id: block.id,
       type: "bullet_list",
-      chars: updatedChars,
+      charRuns: updatedCharRuns,
       formats: block.formats,
       indent: 0,
     };
@@ -3340,7 +3315,7 @@ export function applySlashCommand(
     newBlock = {
       id: block.id,
       type: "numbered_list",
-      chars: updatedChars,
+      charRuns: updatedCharRuns,
       formats: block.formats,
       indent: 0,
     };
@@ -3348,7 +3323,7 @@ export function applySlashCommand(
     newBlock = {
       id: block.id,
       type: "todo_list",
-      chars: updatedChars,
+      charRuns: updatedCharRuns,
       formats: block.formats,
       checked: false,
       indent: 0,
@@ -3358,7 +3333,7 @@ export function applySlashCommand(
     newBlock = {
       id: block.id,
       type: command.type as "heading1" | "heading2" | "heading3" | "paragraph",
-      chars: updatedChars,
+      charRuns: updatedCharRuns,
       formats: block.formats,
     };
   }
@@ -3516,7 +3491,7 @@ export function outdentListItem(state: EditorState): CommandResult {
     const newBlock: Block = {
       id: block.id,
       type: "paragraph",
-      chars: block.chars,
+      charRuns: block.charRuns,
       formats: block.formats,
     };
 
@@ -3665,7 +3640,7 @@ export function convertToList(
     newBlock = {
       id: oldBlock.id,
       type: "bullet_list",
-      chars: oldBlock.chars,
+      charRuns: oldBlock.charRuns,
       formats: oldBlock.formats,
       indent: 0,
     };
@@ -3673,7 +3648,7 @@ export function convertToList(
     newBlock = {
       id: oldBlock.id,
       type: "numbered_list",
-      chars: oldBlock.chars,
+      charRuns: oldBlock.charRuns,
       formats: oldBlock.formats,
       indent: 0,
     };
@@ -3681,7 +3656,7 @@ export function convertToList(
     newBlock = {
       id: oldBlock.id,
       type: "todo_list",
-      chars: oldBlock.chars,
+      charRuns: oldBlock.charRuns,
       formats: oldBlock.formats,
       checked: false,
       indent: 0,
@@ -3771,36 +3746,28 @@ export function updateLinkInBlock(
     return { state, ops: [] };
   }
 
-  const oldText = getVisibleText(block.chars).slice(startIndex, endIndex);
-  let updatedChars = block.chars;
+  const oldText = getVisibleText(block.charRuns).slice(startIndex, endIndex);
+  let updatedCharRuns = block.charRuns;
   let updatedFormats = block.formats;
 
   // If text changed, delete old text and insert new text
   if (oldText !== newText) {
     // Delete old text
-    const { newChars: charsAfterDelete, op: deleteOp } = deleteCharsInRange(
-      updatedChars,
-      startIndex,
-      endIndex,
-      block.id
-    );
-    updatedChars = charsAfterDelete;
+    const { newCharRuns: charRunsAfterDelete, op: deleteOp } =
+      deleteCharsInRange(updatedCharRuns, startIndex, endIndex, block.id);
+    updatedCharRuns = charRunsAfterDelete;
     ops.push(deleteOp);
 
     // Insert new text
-    const { newChars: charsAfterInsert, op: insertOp } = insertCharsAtPosition(
-      updatedChars,
-      startIndex,
-      newText,
-      block.id
-    );
-    updatedChars = charsAfterInsert;
+    const { newCharRuns: charRunsAfterInsert, op: insertOp } =
+      insertCharsAtPosition(updatedCharRuns, startIndex, newText, block.id);
+    updatedCharRuns = charRunsAfterInsert;
     ops.push(insertOp);
   }
 
   // Apply link formatting
   const { newFormats, op: formatOp } = formatCharsInRange(
-    updatedChars,
+    updatedCharRuns,
     updatedFormats,
     startIndex,
     startIndex + newText.length,
@@ -3813,7 +3780,7 @@ export function updateLinkInBlock(
 
   const newBlock: Block = {
     ...block,
-    chars: updatedChars,
+    charRuns: updatedCharRuns,
     formats: updatedFormats,
   };
   invalidateBlockCache(newBlock);
@@ -3854,7 +3821,7 @@ export function clearLinkInBlock(
 
   // Remove link formatting by setting value to false
   const { newFormats, op } = formatCharsInRange(
-    block.chars,
+    block.charRuns,
     block.formats,
     startIndex,
     endIndex,

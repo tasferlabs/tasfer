@@ -24,14 +24,14 @@ message Block {
 // Shared text content for text and list blocks
 message TextBlockData {
   BlockType type = 1;
-  repeated Char chars = 2;
+  repeated CharRun char_runs = 2;
   repeated FormatSpan formats = 3;
 }
 
 // List blocks have additional indent (and checked for todo)
 message ListBlockData {
   BlockType type = 1;
-  repeated Char chars = 2;
+  repeated CharRun char_runs = 2;
   repeated FormatSpan formats = 3;
   int32 indent = 4;
   bool checked = 5;
@@ -50,11 +50,12 @@ message ImageBlockData {
 // Line block (no additional data)
 message LineBlockData {}
 
-// Character with CRDT ID
-message Char {
-  string id = 1;
-  string char = 2;
-  bool deleted = 3;
+// Character run - consecutive characters from the same peer
+message CharRun {
+  string peer_id = 1;
+  int64 start_counter = 2;
+  string text = 3;
+  optional bytes deleted_mask = 4;
 }
 
 // Format span for rich text

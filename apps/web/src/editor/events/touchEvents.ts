@@ -1275,7 +1275,7 @@ export function handleTouchEnd(
           const newParagraph: Block = {
             id: newParagraphId,
             type: "paragraph",
-            chars: [],
+            charRuns: [],
             formats: [],
           };
 
@@ -1436,7 +1436,7 @@ export function handleTouchEnd(
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
-              chars: [],
+              charRuns: [],
               formats: [],
             };
 

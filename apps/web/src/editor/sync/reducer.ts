@@ -9,15 +9,23 @@ import {
   isTextualBlock,
   type Block,
   type Char,
+  type CharRun,
   type FormatSpan,
   type Page,
 } from "@/deserializer/loadPage";
 import {
   findBlockInsertIndex,
-  findCharInsertIndex,
   resolveBlockOrder,
 } from "./conflicts";
 import { compareHLC } from "./hlc";
+import {
+  insertIntoRuns,
+  deleteFromRuns,
+  getVisibleTextFromRuns,
+  getCharIdAtVisiblePosition,
+  iterateVisibleChars,
+  mergeAdjacentRuns,
+} from "./char-runs";
 import type {
   BlockDelete,
   BlockInsert,
@@ -62,14 +70,14 @@ export function createEmptyBlock(
       return {
         ...base,
         type,
-        chars: [],
+        charRuns: [],
         formats: [],
       };
     case "bullet_list":
       return {
         ...base,
         type: "bullet_list",
-        chars: [],
+        charRuns: [],
         formats: [],
         indent: 0,
       };
@@ -77,7 +85,7 @@ export function createEmptyBlock(
       return {
         ...base,
         type: "numbered_list",
-        chars: [],
+        charRuns: [],
         formats: [],
         indent: 0,
       };
@@ -85,7 +93,7 @@ export function createEmptyBlock(
       return {
         ...base,
         type: "todo_list",
-        chars: [],
+        charRuns: [],
         formats: [],
         checked: false,
         indent: 0,
@@ -141,35 +149,13 @@ function applyTextInsert(state: Page, op: TextInsert): Page {
     return state;
   }
 
-  // Ensure chars array exists
-  if (!block.chars) {
-    return state;
-  }
-
-  // Create new chars array with insertions
-  const newChars = [...block.chars];
-
-  // Insert chars one by one, maintaining order
-  let insertAfter = op.afterCharId;
-
-  for (const charData of op.chars) {
-    const newChar: Char = {
-      id: charData.id,
-      char: charData.char,
-      deleted: false,
-    };
-
-    const insertIndex = findCharInsertIndex(newChars, insertAfter, charData.id);
-    newChars.splice(insertIndex, 0, newChar);
-
-    // Next char inserts after this one
-    insertAfter = charData.id;
-  }
+  // Insert chars into runs
+  const newCharRuns = insertIntoRuns(block.charRuns, op.afterCharId, op.chars);
 
   // Create updated block
   const updatedBlock: Block = {
     ...block,
-    chars: newChars,
+    charRuns: newCharRuns,
   };
 
   // Update state with new block
@@ -196,28 +182,16 @@ function applyTextDelete(state: Page, op: TextDelete): Page {
   const block = state.blocks[blockIndex];
 
   // Skip text operations on blocks that don't have text content
-  if (block.type === "image" || block.type === "line") {
+  if (!isTextualBlock(block)) {
     return state;
   }
 
-  // Ensure chars array exists
-  if (!block.chars) {
-    return state;
-  }
-
-  const charIdsToDelete = new Set(op.charIds);
-
-  // Mark chars as deleted
-  const newChars = block.chars.map((char) => {
-    if (charIdsToDelete.has(char.id)) {
-      return { ...char, deleted: true };
-    }
-    return char;
-  });
+  // Delete chars from runs
+  const newCharRuns = deleteFromRuns(block.charRuns, op.charIds);
 
   const updatedBlock: Block = {
     ...block,
-    chars: newChars,
+    charRuns: newCharRuns,
   };
 
   const newBlocks = [...state.blocks];
@@ -350,12 +324,12 @@ function applyBlockSet(state: Page, op: BlockSet): Page {
     const newType = op.value as BlockType;
     const newBlock = createEmptyBlock(block.id, block.afterId ?? null, newType);
 
-    // Preserve chars and formats for textual blocks
+    // Preserve charRuns and formats for textual blocks
     const updatedBlock: Block =
       isTextualBlock(block) && isTextualBlock(newBlock)
         ? {
             ...newBlock,
-            chars: block.chars,
+            charRuns: block.charRuns,
             formats: block.formats,
             cachedHeight: block.cachedHeight,
             cachedWidth: block.cachedWidth,
@@ -443,15 +417,8 @@ export function getVisibleText(block: Block): string {
   if (!isTextualBlock(block)) {
     return "";
   }
-  // Ensure chars array exists
-  if (!block.chars) {
-    return "";
-  }
 
-  return block.chars
-    .filter((c) => !c.deleted)
-    .map((c) => c.char)
-    .join("");
+  return getVisibleTextFromRuns(block.charRuns);
 }
 
 /**
@@ -478,10 +445,58 @@ export function cleanSnapshotForSave(blocks: Block[]): Block[] {
         return block;
       }
 
-      // For textual blocks, filter out deleted chars
+      // For textual blocks, rebuild runs without deleted chars
+      const cleanedRuns: CharRun[] = [];
+
+      for (const run of block.charRuns) {
+        // Check if any chars are deleted in this run
+        if (!run.deletedMask) {
+          // No deletions, keep as-is
+          cleanedRuns.push({ ...run });
+          continue;
+        }
+
+        // Build new run with only non-deleted chars
+        let currentText = "";
+        let currentStartCounter = run.startCounter;
+        let runStarted = false;
+
+        for (let i = 0; i < run.text.length; i++) {
+          const byteIndex = Math.floor(i / 8);
+          const bitIndex = i % 8;
+          const isDeleted = (run.deletedMask[byteIndex] & (1 << bitIndex)) !== 0;
+
+          if (!isDeleted) {
+            if (!runStarted) {
+              currentStartCounter = run.startCounter + i;
+              runStarted = true;
+            }
+            currentText += run.text[i];
+          } else if (runStarted && currentText.length > 0) {
+            // Deletion breaks the run, save current segment
+            cleanedRuns.push({
+              peerId: run.peerId,
+              startCounter: currentStartCounter,
+              text: currentText,
+            });
+            currentText = "";
+            runStarted = false;
+          }
+        }
+
+        // Save final segment if any
+        if (currentText.length > 0) {
+          cleanedRuns.push({
+            peerId: run.peerId,
+            startCounter: currentStartCounter,
+            text: currentText,
+          });
+        }
+      }
+
       return {
         ...block,
-        chars: block.chars.filter((char) => !char.deleted),
+        charRuns: mergeAdjacentRuns(cleanedRuns),
       };
     });
 }
@@ -513,27 +528,28 @@ export function findPreviousVisibleBlockIndex(
 
 /**
  * Find character by index in visible characters.
- * Returns the character and its position in the full chars array.
+ * Returns the character info and its location in the runs.
  */
 export function findCharByVisibleIndex(
   block: Block,
   visibleIndex: number
-): { char: Char; fullIndex: number } | null {
+): { char: Char; runIndex: number; offset: number } | null {
   // Image and Line blocks don't have text content
-  if (block.type === "image" || block.type === "line" || !block.chars) {
+  if (!isTextualBlock(block)) {
     return null;
   }
 
   let visibleCount = 0;
 
-  for (let i = 0; i < block.chars.length; i++) {
-    const char = block.chars[i];
-    if (!char.deleted) {
-      if (visibleCount === visibleIndex) {
-        return { char, fullIndex: i };
-      }
-      visibleCount++;
+  for (const { id, char, runIndex, offset } of iterateVisibleChars(block.charRuns)) {
+    if (visibleCount === visibleIndex) {
+      return {
+        char: { id, char },
+        runIndex,
+        offset,
+      };
     }
+    visibleCount++;
   }
 
   return null;
@@ -547,12 +563,11 @@ export function findCharIdAtPosition(
   block: Block,
   position: number
 ): string | null {
-  if (position === 0) {
+  if (!isTextualBlock(block)) {
     return null;
   }
 
-  const result = findCharByVisibleIndex(block, position - 1);
-  return result?.char.id ?? null;
+  return getCharIdAtVisiblePosition(block.charRuns, position);
 }
 
 /**
@@ -564,22 +579,20 @@ export function getCharIdsInRange(
   endIndex: number
 ): string[] {
   // Image and Line blocks don't have text content
-  if (block.type === "image" || block.type === "line" || !block.chars) {
+  if (!isTextualBlock(block)) {
     return [];
   }
 
   const ids: string[] = [];
   let visibleCount = 0;
 
-  for (const char of block.chars) {
-    if (!char.deleted) {
-      if (visibleCount >= startIndex && visibleCount < endIndex) {
-        ids.push(char.id);
-      }
-      visibleCount++;
-      if (visibleCount >= endIndex) {
-        break;
-      }
+  for (const { id } of iterateVisibleChars(block.charRuns)) {
+    if (visibleCount >= startIndex && visibleCount < endIndex) {
+      ids.push(id);
+    }
+    visibleCount++;
+    if (visibleCount >= endIndex) {
+      break;
     }
   }
 
