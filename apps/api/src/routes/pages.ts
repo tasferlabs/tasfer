@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { createId } from "@paralleldrive/cuid2";
 import db from "../db/index";
-import { pages, operations, snapshots } from "../db/schema";
-import { eq, and, or, isNull, sql, asc, gt, inArray } from "drizzle-orm";
+import { pages, snapshots } from "../db/schema";
+import { eq, and, isNull, sql, inArray } from "drizzle-orm";
 import { encodeSnapshot, decodeSnapshot, type Block } from "../lib/snapshot";
 import { writeFile, readFile, deleteFile } from "../handlers/files";
 
@@ -86,49 +86,6 @@ router.get("/:id", async (req, res) => {
       }
     }
 
-    // Load operations AFTER the snapshot clock (operations not yet in snapshot)
-    // Operations at or before snapshot clock are already included in the snapshot
-    let opsQuery = db
-      .select()
-      .from(operations)
-      .where(eq(operations.pageId, id));
-
-    // Filter to only return operations after the snapshot clock
-    if (snapshotRecord?.clockWall !== null && snapshotRecord?.clockWall !== undefined) {
-      opsQuery = db
-        .select()
-        .from(operations)
-        .where(
-          and(
-            eq(operations.pageId, id),
-            sql`(
-              ${operations.clockWall} > ${snapshotRecord.clockWall} OR
-              (${operations.clockWall} = ${snapshotRecord.clockWall} AND ${operations.clockLogical} > ${snapshotRecord.clockLogical}) OR
-              (${operations.clockWall} = ${snapshotRecord.clockWall} AND ${operations.clockLogical} = ${snapshotRecord.clockLogical} AND ${operations.clockPeerId} > ${snapshotRecord.clockPeerId})
-            )`
-          )
-        );
-    }
-
-    const ops = await opsQuery.orderBy(
-      asc(operations.clockWall),
-      asc(operations.clockLogical),
-      asc(operations.clockPeerId)
-    );
-
-    // Reconstruct operations in the format expected by the client
-    const reconstructedOps = ops.map((row) => ({
-      id: row.id,
-      op: row.op,
-      pageId: row.pageId,
-      clock: {
-        wall: row.clockWall,
-        logical: row.clockLogical,
-        peerId: row.clockPeerId,
-      },
-      ...(row.payload as object),
-    }));
-
     // Include snapshot clock in response for client-side delta tracking
     const snapshotClock = snapshotRecord?.clockWall !== null && snapshotRecord?.clockWall !== undefined
       ? {
@@ -148,8 +105,7 @@ router.get("/:id", async (req, res) => {
         createdAt: page.createdAt,
         updatedAt: page.updatedAt,
         snapshot: snapshotBlocks,
-        snapshotClock, // Client uses this to track which operations are already saved
-        operations: JSON.stringify(reconstructedOps),
+        snapshotClock,
         parents: parentsResult.rows,
       },
     });
@@ -230,7 +186,7 @@ router.post("/create", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, snapshot: snapshotBlocks, operations: operationsJson } = req.body;
+    const { title, snapshot: snapshotBlocks, snapshotClock } = req.body;
 
     const page = await db.query.pages.findFirst({
       where: eq(pages.id, id),
@@ -250,32 +206,7 @@ router.put("/:id", async (req, res) => {
       .where(eq(pages.id, id))
       .returning();
 
-    // Parse operations to find the latest clock
-    type OpType = "text_insert" | "text_delete" | "format_set" | "block_insert" | "block_delete" | "block_set";
-    let latestClock: { wall: number; logical: number; peerId: string } | null = null;
-    let parsedOps: Array<{
-      id: string;
-      op: OpType;
-      pageId: string;
-      clock: { wall: number; logical: number; peerId: string };
-      [key: string]: unknown;
-    }> = [];
-
-    if (operationsJson) {
-      parsedOps = JSON.parse(operationsJson);
-
-      // Find the latest clock (for snapshot tracking)
-      for (const op of parsedOps) {
-        if (!latestClock ||
-            op.clock.wall > latestClock.wall ||
-            (op.clock.wall === latestClock.wall && op.clock.logical > latestClock.logical) ||
-            (op.clock.wall === latestClock.wall && op.clock.logical === latestClock.logical && op.clock.peerId > latestClock.peerId)) {
-          latestClock = op.clock;
-        }
-      }
-    }
-
-    // Save snapshot to file with clock tracking
+    // Save snapshot to file
     if (snapshotBlocks && Array.isArray(snapshotBlocks)) {
       const compressed = encodeSnapshot(snapshotBlocks as Block[]);
       const filePath = `${id}.bin`;
@@ -291,11 +222,11 @@ router.put("/:id", async (req, res) => {
         filePath: filePath,
         size: compressed.length,
         updatedAt: new Date(),
-        // Track the latest operation clock included in this snapshot
-        ...(latestClock && {
-          clockWall: latestClock.wall,
-          clockLogical: latestClock.logical,
-          clockPeerId: latestClock.peerId,
+        // Track the snapshot clock for delta sync
+        ...(snapshotClock && {
+          clockWall: snapshotClock.wall,
+          clockLogical: snapshotClock.logical,
+          clockPeerId: snapshotClock.peerId,
         }),
       };
 
@@ -304,73 +235,12 @@ router.put("/:id", async (req, res) => {
           .update(snapshots)
           .set(snapshotData)
           .where(eq(snapshots.pageId, id));
-
-        // Garbage collect: delete operations that are now in the snapshot
-        // Only delete if we have a valid clock to compare against
-        if (latestClock) {
-          await db.delete(operations).where(
-            and(
-              eq(operations.pageId, id),
-              sql`(
-                ${operations.clockWall} < ${latestClock.wall} OR
-                (${operations.clockWall} = ${latestClock.wall} AND ${operations.clockLogical} < ${latestClock.logical}) OR
-                (${operations.clockWall} = ${latestClock.wall} AND ${operations.clockLogical} = ${latestClock.logical} AND ${operations.clockPeerId} <= ${latestClock.peerId})
-              )`
-            )
-          );
-        }
       } else {
         await db.insert(snapshots).values({
           id: createId(),
           pageId: id,
           ...snapshotData,
         });
-      }
-    }
-
-    // Save only NEW operations (operations after the snapshot clock)
-    // Client should only send delta operations, but we filter server-side for safety
-    if (parsedOps.length > 0) {
-      // Get current snapshot clock
-      const snapshotRecord = await db.query.snapshots.findFirst({
-        where: eq(snapshots.pageId, id),
-      });
-
-      // Filter to only operations after the snapshot clock
-      const newOps = snapshotRecord?.clockWall
-        ? parsedOps.filter(op => {
-            const snapshotClock = {
-              wall: snapshotRecord.clockWall!,
-              logical: snapshotRecord.clockLogical!,
-              peerId: snapshotRecord.clockPeerId!,
-            };
-            return (
-              op.clock.wall > snapshotClock.wall ||
-              (op.clock.wall === snapshotClock.wall && op.clock.logical > snapshotClock.logical) ||
-              (op.clock.wall === snapshotClock.wall && op.clock.logical === snapshotClock.logical && op.clock.peerId > snapshotClock.peerId)
-            );
-          })
-        : parsedOps;
-
-      if (newOps.length > 0) {
-        const rows = newOps.map((op) => {
-          const { id: opId, op: opType, pageId: opPageId, clock, ...payload } = op;
-          return {
-            id: opId,
-            pageId: opPageId,
-            op: opType,
-            clockWall: clock.wall,
-            clockLogical: clock.logical,
-            clockPeerId: clock.peerId,
-            payload,
-          };
-        });
-
-        // Upsert operations (insert or ignore if exists)
-        await db
-          .insert(operations)
-          .values(rows)
-          .onConflictDoNothing({ target: operations.id });
       }
     }
 
@@ -406,11 +276,6 @@ router.delete("/:id", async (req, res) => {
     `);
 
     const pageIds = childPagesResult.rows.map((row: { id: string }) => row.id);
-
-    // Delete operations for all pages being deleted
-    if (pageIds.length > 0) {
-      await db.delete(operations).where(inArray(operations.pageId, pageIds));
-    }
 
     // Delete snapshots for all pages being deleted
     if (pageIds.length > 0) {
@@ -651,68 +516,6 @@ router.get("/tree/all", async (req, res) => {
     res.json({ success: true, data: rootPages });
   } catch (error) {
     console.error("Get tree error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-// Get operations for delta sync (operations after a certain clock)
-router.get("/:id/operations", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { afterWall, afterLogical, afterPeerId } = req.query;
-
-    // Base query for page operations
-    let query = db
-      .select()
-      .from(operations)
-      .where(eq(operations.pageId, id));
-
-    // If clock params provided, filter for operations after that clock
-    if (afterWall && afterLogical && afterPeerId) {
-      const wall = Number(afterWall);
-      const logical = Number(afterLogical);
-      const peerId = String(afterPeerId);
-
-      // Operations with greater HLC: (wall > afterWall) OR
-      // (wall == afterWall AND logical > afterLogical) OR
-      // (wall == afterWall AND logical == afterLogical AND peerId > afterPeerId)
-      query = db
-        .select()
-        .from(operations)
-        .where(
-          and(
-            eq(operations.pageId, id),
-            sql`(
-              ${operations.clockWall} > ${wall} OR
-              (${operations.clockWall} = ${wall} AND ${operations.clockLogical} > ${logical}) OR
-              (${operations.clockWall} = ${wall} AND ${operations.clockLogical} = ${logical} AND ${operations.clockPeerId} > ${peerId})
-            )`
-          )
-        );
-    }
-
-    const ops = await query.orderBy(
-      asc(operations.clockWall),
-      asc(operations.clockLogical),
-      asc(operations.clockPeerId)
-    );
-
-    // Reconstruct operations
-    const reconstructedOps = ops.map((row) => ({
-      id: row.id,
-      op: row.op,
-      pageId: row.pageId,
-      clock: {
-        wall: row.clockWall,
-        logical: row.clockLogical,
-        peerId: row.clockPeerId,
-      },
-      ...(row.payload as object),
-    }));
-
-    res.json({ success: true, data: reconstructedOps });
-  } catch (error) {
-    console.error("Get operations error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 });

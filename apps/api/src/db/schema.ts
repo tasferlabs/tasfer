@@ -1,24 +1,11 @@
 import {
   bigint,
-  index,
   integer,
-  jsonb,
-  pgEnum,
   pgTable,
   text,
   timestamp,
   varchar,
 } from "drizzle-orm/pg-core";
-
-// CRDT operation types enum
-export const operationTypeEnum = pgEnum("operation_type", [
-  "text_insert",
-  "text_delete",
-  "format_set",
-  "block_insert",
-  "block_delete",
-  "block_set",
-]);
 
 export const pages = pgTable("pages", {
   id: varchar("id", { length: 30 }).primaryKey(),
@@ -53,37 +40,3 @@ export const images = pgTable("images", {
   createdAt: timestamp("createdAt").notNull().defaultNow(),
 });
 
-/**
- * CRDT operations table for efficient storage and delta sync.
- * Each operation is stored as a separate row instead of JSON blob.
- */
-export const operations = pgTable(
-  "operations",
-  {
-    // Operation ID: "peerId:counter" format
-    id: varchar("id", { length: 64 }).primaryKey(),
-    // Page this operation belongs to
-    pageId: varchar("pageId", { length: 30 }).notNull(),
-    // Operation type
-    op: operationTypeEnum("op").notNull(),
-    // HLC components for ordering
-    clockWall: bigint("clockWall", { mode: "number" }).notNull(),
-    clockLogical: integer("clockLogical").notNull(),
-    clockPeerId: varchar("clockPeerId", { length: 16 }).notNull(),
-    // Operation-specific payload (blockId, chars, charIds, format, value, etc.)
-    payload: jsonb("payload").notNull(),
-    // When this operation was persisted (for debugging/cleanup)
-    createdAt: timestamp("createdAt").notNull().defaultNow(),
-  },
-  (table) => [
-    // Index for loading all operations for a page in HLC order
-    index("operations_page_clock_idx").on(
-      table.pageId,
-      table.clockWall,
-      table.clockLogical,
-      table.clockPeerId
-    ),
-    // Index for delta sync queries (operations after a certain clock)
-    index("operations_page_id_idx").on(table.pageId),
-  ]
-);

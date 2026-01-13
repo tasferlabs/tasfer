@@ -24,7 +24,6 @@ import {
   getVisibleTextFromRuns,
   getCharIdAtVisiblePosition,
   iterateVisibleChars,
-  mergeAdjacentRuns,
   charRunsToChars,
 } from "./char-runs";
 import type {
@@ -433,76 +432,12 @@ export function getVisibleBlocks(state: Page): Block[] {
 }
 
 /**
- * Clean a snapshot by removing all tombstones (deleted blocks and chars).
- * Use this before saving to reduce storage size.
- * The cleaned snapshot is safe to save because:
- * - It represents the visible state users see
- * - CRDT operations are stored separately for sync
- * - Delete operations on already-removed items are no-ops
+ * Returns blocks for saving. Tombstones (deleted blocks/chars) are preserved
+ * to support offline sync - peers need tombstone info to properly merge.
+ * Pruning of old tombstones can be done separately.
  */
 export function cleanSnapshotForSave(blocks: Block[]): Block[] {
-  return blocks
-    .filter((block) => !block.deleted)
-    .map((block) => {
-      // For non-textual blocks, return as-is
-      if (!isTextualBlock(block)) {
-        return block;
-      }
-
-      // For textual blocks, rebuild runs without deleted chars
-      const cleanedRuns: CharRun[] = [];
-
-      for (const run of block.charRuns) {
-        // Check if any chars are deleted in this run
-        if (!run.deletedMask) {
-          // No deletions, keep as-is
-          cleanedRuns.push({ ...run });
-          continue;
-        }
-
-        // Build new run with only non-deleted chars
-        let currentText = "";
-        let currentStartCounter = run.startCounter;
-        let runStarted = false;
-
-        for (let i = 0; i < run.text.length; i++) {
-          const byteIndex = Math.floor(i / 8);
-          const bitIndex = i % 8;
-          const isDeleted = (run.deletedMask[byteIndex] & (1 << bitIndex)) !== 0;
-
-          if (!isDeleted) {
-            if (!runStarted) {
-              currentStartCounter = run.startCounter + i;
-              runStarted = true;
-            }
-            currentText += run.text[i];
-          } else if (runStarted && currentText.length > 0) {
-            // Deletion breaks the run, save current segment
-            cleanedRuns.push({
-              peerId: run.peerId,
-              startCounter: currentStartCounter,
-              text: currentText,
-            });
-            currentText = "";
-            runStarted = false;
-          }
-        }
-
-        // Save final segment if any
-        if (currentText.length > 0) {
-          cleanedRuns.push({
-            peerId: run.peerId,
-            startCounter: currentStartCounter,
-            text: currentText,
-          });
-        }
-      }
-
-      return {
-        ...block,
-        charRuns: mergeAdjacentRuns(cleanedRuns),
-      };
-    });
+  return blocks;
 }
 
 // Helper functions to find next/previous visible block

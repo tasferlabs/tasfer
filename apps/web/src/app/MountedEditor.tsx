@@ -10,7 +10,7 @@ import {
   Strikethrough,
   Type,
 } from "lucide-react";
-import React, { useEffect, useRef, useState, useImperativeHandle } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Block } from "../deserializer/loadPage";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
@@ -34,15 +34,15 @@ import type { EditorState, SlashCommand } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { WebSocketSync, type SyncState } from "@/editor/sync/websocket";
-import { SyncEngine, cleanSnapshotForSave, type AwarenessState, type HLC } from "@/editor/sync/sync";
+import { SyncEngine, type AwarenessState, type HLC } from "@/editor/sync/sync";
 import type { AwarenessUser } from "@/editor/sync/awareness";
 import { hasNativeBridge } from "@/editor/actions/clipboard";
 
 interface MountedEditorProps {
   snapshot: Block[];
   className?: string;
-  /** Called when content changes. clock is the HLC of the latest operation - use for compaction after save. */
-  onContentChange?: (snapshot: Block[], operations: string, clock: HLC | null) => void;
+  /** Called when content changes. clock is the HLC of the latest operation. */
+  onContentChange?: (snapshot: Block[], clock: HLC | null) => void;
   /** Callback for all content updates (local and remote) - used for word count, etc. */
   onContentUpdate?: (blocks: Block[]) => void;
   autoFocus?: boolean;
@@ -52,25 +52,15 @@ interface MountedEditorProps {
   signalingUrl: string;
   /** Callback when sync state changes */
   onSyncStateChange?: (state: SyncState) => void;
-  /** Initial operations for CRDT sync - if provided, initializes SyncEngine with these */
-  initialOperations?: string;
-  /** Clock of the latest operation in the snapshot - used for delta sync */
+  /** Clock of the snapshot - used for delta sync */
   snapshotClock?: HLC | null;
   /** Callback to update snapshotClock after operations are sent */
   onSnapshotClockUpdate?: (clock: HLC | null) => void;
   /** Callback when active users change */
   onAwarenessChange?: (users: AwarenessUser[]) => void;
-  /** Called after save completes successfully - triggers memory compaction */
-  onSaveComplete?: () => void;
 }
 
-/** Ref handle for MountedEditor - allows parent to trigger compaction after save */
-export interface MountedEditorRef {
-  /** Compact operations up to the specified clock. Call after save succeeds with the clock that was saved. */
-  compactOperations: (savedClock: HLC) => void;
-}
-
-export const MountedEditor = React.forwardRef<MountedEditorRef, MountedEditorProps>(({
+export function MountedEditor({
   snapshot,
   className = "",
   onContentChange,
@@ -79,11 +69,10 @@ export const MountedEditor = React.forwardRef<MountedEditorRef, MountedEditorPro
   pageId,
   signalingUrl,
   onSyncStateChange,
-  initialOperations,
   snapshotClock,
   onSnapshotClockUpdate,
   onAwarenessChange,
-}, ref) => {
+}: MountedEditorProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
   const syncEngineRef = useRef<SyncEngine | null>(null);
@@ -163,16 +152,6 @@ export const MountedEditor = React.forwardRef<MountedEditorRef, MountedEditorPro
     }
   }, [snapshotClock]);
 
-  // Expose compaction method to parent via ref
-  // Parent should call this after save succeeds with the clock that was actually saved
-  useImperativeHandle(ref, () => ({
-    compactOperations: (savedClock: HLC) => {
-      if (syncEngineRef.current) {
-        syncEngineRef.current.compactOperations(savedClock);
-      }
-    },
-  }), []);
-
   // Track current toolbar icon type
   const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">(
     "format"
@@ -227,27 +206,6 @@ export const MountedEditor = React.forwardRef<MountedEditorRef, MountedEditorPro
     if (signalingUrl) {
       const syncEngine = new SyncEngine(pageId);
       syncEngineRef.current = syncEngine;
-
-      // Load saved operations to initialize version vector
-      // This ensures sync requests only fetch missing operations, preventing duplicates
-      if (initialOperations) {
-        try {
-          const ops = JSON.parse(initialOperations);
-          if (Array.isArray(ops) && ops.length > 0) {
-            console.log(
-              "[MountedEditor] Loading",
-              ops.length,
-              "saved operations"
-            );
-            syncEngine.loadOperations(ops);
-          }
-        } catch (e) {
-          console.error(
-            "[MountedEditor] Failed to parse initial operations:",
-            e
-          );
-        }
-      }
 
       // Note: We don't subscribe to syncEngine.onStateChange anymore because:
       // - The SyncEngine's state starts empty (no initial content operations)
@@ -461,21 +419,10 @@ export const MountedEditor = React.forwardRef<MountedEditorRef, MountedEditorPro
           // Only trigger saves for local user-initiated changes, not remote peer updates
           // Remote peers handle saving their own changes
           if (!isApplyingRemoteOpsRef.current && onContentChange) {
-            // Get only NEW operations (after snapshotClock) for delta sync
-            // This reduces bandwidth and storage since operations in snapshot don't need re-saving
-            const deltaOps = syncEngineRef.current
-              ? syncEngineRef.current.getOperationsAfterClock(snapshotClockRef.current)
-              : [];
-            const operations = JSON.stringify(deltaOps);
-
-            // Get the latest clock BEFORE updating snapshotClockRef
-            // This clock corresponds to the operations being saved
+            // Get the latest clock
             const latestClock = syncEngineRef.current?.getLatestClock() ?? null;
 
             // Update snapshotClock to latest after sending
-            // This ensures next save only sends newer operations
-            // Note: Compaction happens AFTER save succeeds (parent calls ref.compactOperations with savedClock)
-            // This ensures late joiners can still get operations from us until they're on the server
             if (latestClock && onSnapshotClockUpdate) {
               snapshotClockRef.current = latestClock;
               // Keep WebSocketSync in sync for sync-requests
@@ -485,10 +432,8 @@ export const MountedEditor = React.forwardRef<MountedEditorRef, MountedEditorPro
               onSnapshotClockUpdate(latestClock);
             }
 
-            // Pass the clock so parent knows which clock to compact to after save succeeds
-            // Clean the snapshot by removing tombstones to reduce storage size
-            const cleanedBlocks = cleanSnapshotForSave(currentBlocks as Block[]);
-            onContentChange(cleanedBlocks, operations, latestClock);
+            // Save snapshot with tombstones preserved for offline sync
+            onContentChange(currentBlocks as Block[], latestClock);
           }
         }
       }
@@ -791,7 +736,6 @@ export const MountedEditor = React.forwardRef<MountedEditorRef, MountedEditorPro
     pageId,
     signalingUrl,
     onSyncStateChange,
-    initialOperations,
     onSnapshotClockUpdate,
   ]);
 
@@ -1478,6 +1422,4 @@ export const MountedEditor = React.forwardRef<MountedEditorRef, MountedEditorPro
         )}
     </div>
   );
-});
-
-MountedEditor.displayName = "MountedEditor";
+}

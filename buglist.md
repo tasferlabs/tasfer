@@ -243,3 +243,4 @@ Bugs list
 - [ ] 3. Binary encoding
 - [ ] 4. Delta compression
 - [ ] We should brodacast page delete
+- [ ] test users and test functions

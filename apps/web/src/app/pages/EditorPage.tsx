@@ -1,11 +1,11 @@
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useParams, useNavigate } from "react-router-dom";
 import { debounce } from "lodash-es";
-import { MountedEditor, type MountedEditorRef } from "../MountedEditor";
+import { MountedEditor } from "../MountedEditor";
 import type { SyncState } from "../../editor/sync/websocket";
 import type { AwarenessUser } from "@/editor/sync/awareness";
 import { isTextualBlock, type Block, type TextualBlock } from "@/deserializer/loadPage";
@@ -87,10 +87,7 @@ export default function EditorPage() {
   const { mutateAsync: updatePage } = useUpdatePage();
   // State for loading page snapshot once on mount
   const [pageSnapshot, setPageSnapshot] = useState<Block[] | null>(null);
-  // CRDT operations for sync - loaded from server to prevent duplicates on refresh
-  const [pageOperations, setPageOperations] = useState<string | null>(null);
-  // Snapshot clock - tracks which operations are already saved in the snapshot
-  // Used for delta sync - only send operations after this clock
+  // Snapshot clock - used for delta sync
   const [snapshotClock, setSnapshotClock] = useState<HLC | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
@@ -104,9 +101,6 @@ export default function EditorPage() {
     "lastPageId",
     null
   );
-
-  // Ref for MountedEditor - used to trigger compaction after save
-  const editorRef = useRef<MountedEditorRef>(null);
 
   // Create debounced word count updater (500ms delay for performance)
   const debouncedWordCountUpdate = useRef(
@@ -150,8 +144,6 @@ export default function EditorPage() {
         if (!cancelled) {
           const snapshot = page.snapshot || [];
           setPageSnapshot(snapshot);
-          // Load saved operations for CRDT sync
-          setPageOperations(page.operations || null);
           // Track snapshot clock for delta sync
           setSnapshotClock(page.snapshotClock || null);
           setIsLoading(false);
@@ -179,27 +171,17 @@ export default function EditorPage() {
   const handleSave = useCallback(
     async ({
       snapshot,
-      operations,
       clock,
     }: {
       snapshot: Block[];
-      operations: string;
       clock: HLC | null;
     }) => {
       if (!id) return;
 
       try {
-        await updatePage({ id, snapshot, operations, snapshotClock: clock });
-        // After successful save, compact operations from memory
-        // This frees memory in long sessions while ensuring late joiners
-        // can still get operations from us until they're saved on server
-        // IMPORTANT: Use the clock that was actually saved, not the current clock
-        if (clock) {
-          editorRef.current?.compactOperations(clock);
-        }
+        await updatePage({ id, snapshot, snapshotClock: clock });
       } catch (error) {
         console.error("Failed to save content:", error);
-        // Don't compact on failure - we still need these operations
       }
     },
     [id, updatePage]
@@ -218,8 +200,8 @@ export default function EditorPage() {
 
   // Handle content changes from editor (local changes only - for saving)
   const handleContentChange = useCallback(
-    (snapshot: Block[], operations: string, clock: HLC | null) => {
-      debouncedSave({ snapshot, operations, clock });
+    (snapshot: Block[], clock: HLC | null) => {
+      debouncedSave({ snapshot, clock });
     },
     [debouncedSave]
   );
@@ -293,7 +275,6 @@ export default function EditorPage() {
   return (
     <>
       <MountedEditor
-        ref={editorRef}
         snapshot={pageSnapshot}
         className="w-full h-full"
         onContentChange={handleContentChange}
@@ -302,7 +283,6 @@ export default function EditorPage() {
         pageId={id}
         signalingUrl={WEBSOCKET_URL}
         onSyncStateChange={setSyncState}
-        initialOperations={pageOperations ?? undefined}
         snapshotClock={snapshotClock}
         onSnapshotClockUpdate={setSnapshotClock}
         onAwarenessChange={handleAwarenessChange}

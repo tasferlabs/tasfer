@@ -21,13 +21,10 @@ export interface HLC {
 export interface IPage {
   id: string;
   title: string;
-  // Block snapshot - replaces markdown content
+  // Block snapshot
   snapshot: Block[] | null;
-  // Clock of the latest operation included in the snapshot
-  // Used by client to track which operations are already saved
+  // Clock of the snapshot - used for delta sync
   snapshotClock: HLC | null;
-  // CRDT operations log - serialized JSON array of operations (only ops after snapshotClock)
-  operations: string | null;
   parentId: string | null;
   order: number;
   createdAt: string;
@@ -117,11 +114,9 @@ export function useCreatePage<TContext = unknown>(
 interface IUpdatePage {
   id: string;
   title?: string;
-  // Block snapshot
+  // Block snapshot (includes tombstones for offline sync)
   snapshot?: Block[];
-  // CRDT operations log - serialized JSON array of operations
-  operations?: string;
-  // Clock of the latest operation in the snapshot - used for delta sync
+  // Clock of the snapshot - used for delta sync
   snapshotClock?: HLC | null;
 }
 
