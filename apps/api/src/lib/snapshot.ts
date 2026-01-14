@@ -22,7 +22,7 @@ interface CharRun {
   peerId: string;
   startCounter: number;
   text: string;
-  deletedMask?: Uint8Array;
+  deletedMask?: number[];
 }
 
 interface FormatSpan {
@@ -200,12 +200,10 @@ interface Long {
 
 // Convert TypeScript CharRun to Protobuf CharRun
 function charRunToProto(charRun: CharRun): object {
-  // When deletedMask comes from JSON, it may be a plain array or object, not Uint8Array
+  // Convert number[] to Uint8Array for protobuf
   let deletedMask: Uint8Array | undefined;
   if (charRun.deletedMask) {
-    if (charRun.deletedMask instanceof Uint8Array) {
-      deletedMask = charRun.deletedMask;
-    } else if (Array.isArray(charRun.deletedMask)) {
+    if (Array.isArray(charRun.deletedMask)) {
       deletedMask = new Uint8Array(charRun.deletedMask);
     } else if (typeof charRun.deletedMask === "object") {
       // Handle object like {0: 1, 1: 0, ...} from JSON serialization
@@ -236,7 +234,7 @@ function protoToCharRun(proto: {
         ? proto.startCounter
         : (proto.startCounter as Long).toNumber(),
     text: proto.text,
-    ...(proto.deletedMask && { deletedMask: proto.deletedMask }),
+    ...(proto.deletedMask && { deletedMask: Array.from(proto.deletedMask) }),
   };
 }
 

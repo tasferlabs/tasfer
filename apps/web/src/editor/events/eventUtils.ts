@@ -327,6 +327,7 @@ export function startImageDrag(
   extraTolerance: number = 4
 ): EditorState | null {
   const block = state.document.page.blocks[imageBlock.blockIndex];
+  if (!block || block.deleted) return null;
   if (block.type !== "image") {
     return null;
   }
@@ -400,6 +401,7 @@ export function updateImageDrag(
     startObjectFit,
   } = state.ui.imageDrag;
   const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return state;
 
   if (block.type !== "image") {
     return state;

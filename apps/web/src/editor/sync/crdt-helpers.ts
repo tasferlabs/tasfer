@@ -303,8 +303,8 @@ function applyRemoteTextInsert(page: Page, op: TextInsert): Page {
 
   const block = page.blocks[blockIndex];
 
-  // Skip text operations on blocks that don't have text content
-  if (!isTextualBlock(block)) {
+  // Skip operations on deleted blocks or blocks without text content
+  if (!block || block.deleted || !isTextualBlock(block)) {
     return page;
   }
 
@@ -333,7 +333,8 @@ function applyRemoteTextDelete(page: Page, op: TextDelete): Page {
 
   const block = page.blocks[blockIndex];
 
-  if (!isTextualBlock(block)) {
+  // Skip operations on deleted blocks or blocks without text content
+  if (!block || block.deleted || !isTextualBlock(block)) {
     return page;
   }
 
@@ -359,7 +360,8 @@ function applyRemoteFormatSet(page: Page, op: FormatSet): Page {
 
   const block = page.blocks[blockIndex];
 
-  if (!isTextualBlock(block)) {
+  // Skip operations on deleted blocks or blocks without text content
+  if (!block || block.deleted || !isTextualBlock(block)) {
     return page;
   }
 
@@ -502,7 +504,11 @@ function applyRemoteBlockDelete(page: Page, op: BlockDelete): Page {
   }
 
   const block = page.blocks[blockIndex];
+  if (!block) {
+    return page;
+  }
 
+  // Note: We don't check block.deleted here because block_delete can be idempotent
   // Mark block as deleted (tombstone) instead of removing it
   const updatedBlock = { ...block, deleted: true };
   const newBlocks = [...page.blocks];
@@ -522,6 +528,9 @@ function applyRemoteBlockSet(page: Page, op: BlockSet): Page {
   }
 
   const block = page.blocks[blockIndex];
+  if (!block || block.deleted) {
+    return page;
+  }
 
   // Handle 'type' field - block type change
   if (op.field === "type") {

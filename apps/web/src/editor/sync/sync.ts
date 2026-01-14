@@ -621,7 +621,7 @@ export class SyncEngine {
     }
 
     // Create deletedMask bitmap
-    const deletedMask = new Uint8Array(Math.ceil(deleted.length / 8));
+    const deletedMask: number[] = new Array(Math.ceil(deleted.length / 8)).fill(0);
     deleted.forEach((isDeleted, i) => {
       if (isDeleted) {
         const byteIndex = Math.floor(i / 8);

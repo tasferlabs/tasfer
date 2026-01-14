@@ -22,9 +22,13 @@ export function generatePeerId(): string {
   }
 
   // Fallback: generate random hex string
-  const array = new Uint8Array(4);
+  const array: number[] = [0, 0, 0, 0];
   if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    crypto.getRandomValues(array);
+    const tempArray = new Uint8Array(4);
+    crypto.getRandomValues(tempArray);
+    for (let i = 0; i < 4; i++) {
+      array[i] = tempArray[i];
+    }
   } else {
     // Last resort: Math.random (not cryptographically secure)
     for (let i = 0; i < array.length; i++) {
@@ -32,7 +36,7 @@ export function generatePeerId(): string {
     }
   }
 
-  return Array.from(array)
+  return array
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }

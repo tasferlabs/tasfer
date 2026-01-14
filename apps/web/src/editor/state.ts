@@ -1,6 +1,5 @@
 import type {
   Block,
-  Char,
   CharRun,
   FormatSpan,
   Page,
@@ -18,8 +17,6 @@ import { isRTLChar } from "./rtl";
 import {
   getVisibleTextFromRuns,
   getVisibleLengthFromRuns,
-  getCharIdFromRun,
-  isCharDeleted,
   charRunsToChars,
 } from "./sync/char-runs";
 import {

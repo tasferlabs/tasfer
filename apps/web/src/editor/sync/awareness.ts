@@ -316,7 +316,7 @@ export function positionToAwarenessCursor(
   page: Page
 ): AwarenessCursor | null {
   const block = page.blocks[position.blockIndex];
-  if (!block) return null;
+  if (!block || block.deleted) return null;
 
   return {
     blockId: block.id,
@@ -355,6 +355,7 @@ export function awarenessCursorToPosition(
   if (blockIndex === -1) return null;
 
   const block = page.blocks[blockIndex];
+  if (!block || block.deleted) return null;
 
   // Clamp text index to valid range
   let textIndex = cursor.textIndex;

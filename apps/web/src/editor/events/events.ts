@@ -406,6 +406,7 @@ export function handleEvents(
     // Apply auto-scroll for image drag (constant speed, no acceleration)
     const { blockIndex, handle } = state.ui.imageDrag;
     const block = state.document.page.blocks[blockIndex];
+    if (!block || block.deleted) return { state, ops: [] };
     const cursorY = autoScrollState.lastMouseY;
 
     // Check if we should block scrolling down (bottom handle + near bottom + at max height)

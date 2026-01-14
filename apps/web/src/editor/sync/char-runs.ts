@@ -311,13 +311,13 @@ export function insertIntoRuns(
  * Slice a deleted mask for a portion of a run.
  */
 function sliceDeletedMask(
-  mask: Uint8Array,
+  mask: number[],
   start: number,
   end: number
-): Uint8Array | undefined {
+): number[] | undefined {
   const length = end - start;
   const requiredBytes = Math.ceil(length / 8);
-  const result = new Uint8Array(requiredBytes);
+  const result: number[] = new Array(requiredBytes).fill(0);
 
   let hasAnyDeleted = false;
   for (let i = 0; i < length; i++) {
@@ -362,8 +362,8 @@ export function deleteFromRuns(
 
   // Clone runs and update deletion masks
   return runs.map((run) => {
-    let newMask: Uint8Array | undefined = run.deletedMask
-      ? new Uint8Array(run.deletedMask)
+    let newMask: number[] | undefined = run.deletedMask
+      ? [...run.deletedMask]
       : undefined;
     let modified = false;
 
@@ -371,7 +371,7 @@ export function deleteFromRuns(
       const charId = getCharIdFromRun(run, offset);
       if (toDelete.has(charId) && !isCharDeleted(run, offset)) {
         if (!newMask) {
-          newMask = new Uint8Array(Math.ceil(run.text.length / 8));
+          newMask = new Array(Math.ceil(run.text.length / 8)).fill(0);
         }
         const byteIndex = Math.floor(offset / 8);
         const bitIndex = offset % 8;
@@ -407,10 +407,10 @@ function mergeTwoRuns(run1: CharRun, run2: CharRun): CharRun {
   const text = run1.text + run2.text;
 
   // Merge deletion masks
-  let deletedMask: Uint8Array | undefined;
+  let deletedMask: number[] | undefined;
   if (run1.deletedMask || run2.deletedMask) {
     const requiredBytes = Math.ceil(text.length / 8);
-    deletedMask = new Uint8Array(requiredBytes);
+    deletedMask = new Array(requiredBytes).fill(0);
 
     // Copy run1's mask
     if (run1.deletedMask) {

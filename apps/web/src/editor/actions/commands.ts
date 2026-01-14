@@ -409,6 +409,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
   if (start.blockIndex === end.blockIndex) {
     // Single block selection
     const block = state.document.page.blocks[start.blockIndex];
+    if (!block || block.deleted) return { state, ops: [] };
 
     // Handle image block deletion
     if (!isTextualBlock(block)) {
@@ -540,6 +541,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
       // Delete all blocks in the range
       for (let i = start.blockIndex; i <= end.blockIndex; i++) {
         const blockToDelete = state.document.page.blocks[i];
+        if (!blockToDelete || blockToDelete.deleted) continue;
         const blockDeleteOp: Operation = {
           op: "block_delete",
           id: nextId(),
@@ -661,6 +663,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
     // Delete all blocks from start+1 to end (inclusive)
     for (let i = start.blockIndex + 1; i <= end.blockIndex; i++) {
       const blockToDelete = state.document.page.blocks[i];
+      if (!blockToDelete || blockToDelete.deleted) continue;
       const blockDeleteOp: Operation = {
         op: "block_delete",
         id: nextId(),
@@ -722,7 +725,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
       anchor.textIndex === focus.textIndex
     ) {
       const block = state.document.page.blocks[anchor.blockIndex];
-      if (block && block.type === "image") {
+      if (block && !block.deleted && block.type === "image") {
         // Block typing on selected image
         return { state, ops: [] };
       }
@@ -1601,6 +1604,7 @@ export function moveToNextWord(state: EditorState): EditorState {
 
   const { blockIndex, textIndex } = position;
   const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return state;
   const text = getBlockTextContent(block);
 
   if (!isTextualBlock(block)) {
@@ -1938,6 +1942,7 @@ export function selectWordAtPosition(
 
   const { blockIndex, textIndex } = validPosition;
   const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return state;
   const text = getBlockTextContent(block);
 
   if (text.length === 0) return state;
@@ -1998,6 +2003,7 @@ export function selectLineAtPosition(
 
   const { blockIndex } = validPosition;
   const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return state;
   const text = getBlockTextContent(block);
 
   const startPos: Position = { blockIndex, textIndex: 0 };
@@ -2060,6 +2066,7 @@ export function moveToLineEnd(state: EditorState): EditorState {
 
   const { blockIndex } = position;
   const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return state;
   const text = getBlockTextContent(block);
   return moveCursorToPosition(state, blockIndex, text.length);
 }
@@ -2188,7 +2195,7 @@ export function splitBlock(state: EditorState): CommandResult {
       anchor.textIndex === focus.textIndex
     ) {
       const block = state.document.page.blocks[anchor.blockIndex];
-      if (block && block.type === "image") {
+      if (block && !block.deleted && block.type === "image") {
         // Create a new paragraph below the image
         const newParagraphId = nextId();
         const newParagraph: Block = {
@@ -2596,7 +2603,7 @@ export function selectCurrentBlock(state: EditorState): EditorState {
   const { blockIndex } = state.document.cursor.position;
   const block = state.document.page.blocks[blockIndex];
 
-  if (!block) return state;
+  if (!block || block.deleted) return state;
 
   // For image blocks, select the block by marking it with a selection
   if (block.type === "image") {
@@ -2666,6 +2673,7 @@ export function toggleFormat(
 
     const { blockIndex, textIndex } = position;
     const block = state.document.page.blocks[blockIndex];
+    if (!block || block.deleted) return { state, ops: [] };
 
     if (!isTextualBlock(block)) {
       return { state, ops: [] };
@@ -2719,6 +2727,7 @@ export function toggleFormat(
   if (start.blockIndex === end.blockIndex) {
     // Single block selection
     const block = state.document.page.blocks[start.blockIndex];
+    if (!block || block.deleted) return { state, ops: [] };
 
     if (!isTextualBlock(block)) {
       return { state, ops: [] };
@@ -3099,6 +3108,7 @@ export function applySlashCommand(
 
   // Remove the "/" and filter text, preserving formatting
   const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return { state, ops: [] };
 
   // Special handling for image cover blocks
   if (command.type === "image") {
@@ -3419,6 +3429,7 @@ export function indentListItem(state: EditorState): CommandResult {
 
   const { blockIndex } = position;
   const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return { state, ops: [] };
 
   if (!isListBlock(block)) return { state, ops: [] };
 
@@ -3482,6 +3493,7 @@ export function outdentListItem(state: EditorState): CommandResult {
 
   const { blockIndex } = position;
   const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return { state, ops: [] };
 
   if (!isListBlock(block)) return { state, ops: [] };
 

@@ -2111,8 +2111,6 @@ function renderRemoteCursors(
     if (!position) continue;
 
     const block = state.document.page.blocks[position.blockIndex];
-  if (!block || block.deleted) return null;
-    if (!block || block.deleted) continue;
     if (!block || block.deleted || !isTextualBlock(block)) continue;
 
     const cursorPos = calculateCursorPosition(

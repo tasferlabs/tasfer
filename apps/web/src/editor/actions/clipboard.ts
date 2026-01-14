@@ -51,7 +51,7 @@ function charsToRuns(chars: Char[]): CharRun[] {
   let currentPeerId = extractPeerId(chars[0].id);
   let currentStartCounter = extractCounter(chars[0].id);
   let currentText = "";
-  let currentDeletedMask: Uint8Array | undefined = undefined;
+  let currentDeletedMask: number[] | undefined = undefined;
 
   for (let i = 0; i < chars.length; i++) {
     const char = chars[i];
@@ -64,15 +64,17 @@ function charsToRuns(chars: Char[]): CharRun[] {
       currentText += char.char;
       if (char.deleted) {
         if (!currentDeletedMask) {
-          currentDeletedMask = new Uint8Array(Math.ceil(currentText.length / 8));
+          currentDeletedMask = new Array(Math.ceil(currentText.length / 8)).fill(0);
         }
         const offset = currentText.length - 1;
         const byteIndex = Math.floor(offset / 8);
         const bitIndex = offset % 8;
         if (byteIndex >= currentDeletedMask.length) {
           // Expand mask if needed
-          const newMask = new Uint8Array(Math.ceil(currentText.length / 8));
-          newMask.set(currentDeletedMask);
+          const newMask = new Array(Math.ceil(currentText.length / 8)).fill(0);
+          for (let j = 0; j < currentDeletedMask.length; j++) {
+            newMask[j] = currentDeletedMask[j];
+          }
           currentDeletedMask = newMask;
         }
         currentDeletedMask[byteIndex] |= 1 << bitIndex;
@@ -92,8 +94,7 @@ function charsToRuns(chars: Char[]): CharRun[] {
       currentStartCounter = counter;
       currentText = char.char;
       if (char.deleted) {
-        currentDeletedMask = new Uint8Array(Math.ceil(1 / 8));
-        currentDeletedMask[0] = 1;
+        currentDeletedMask = [1];
       } else {
         currentDeletedMask = undefined;
       }

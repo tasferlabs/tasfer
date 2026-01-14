@@ -92,7 +92,7 @@ export interface CharRun {
   peerId: string; // Peer that created these chars
   startCounter: number; // Counter of first char in run
   text: string; // Multiple chars as string (e.g., "Hello")
-  deletedMask?: Uint8Array; // Bitmask: bit i set = char at offset i is deleted
+  deletedMask?: number[]; // Bitmask: bit i set = char at offset i is deleted
 }
 
 // Format span that references characters by ID

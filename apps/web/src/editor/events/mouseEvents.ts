@@ -43,7 +43,7 @@ import type { EditorState, MouseEvent, ViewportState } from "../types";
 import {
   autoScrollState,
   clearScrollPress,
-  scrollbarPressState
+  scrollbarPressState,
 } from "./eventsState";
 import {
   cancelImageDrag,
@@ -75,11 +75,11 @@ export function handleTodoCheckboxClick(
   // Break early once we pass the visible area
   const visibleBlocks = getVisibleBlocks(state.document.page);
   const allBlocks = state.document.page.blocks;
-  
+
   for (const block of visibleBlocks) {
-    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
+    const blockIndex = allBlocks.findIndex((b) => b.id === block.id);
     if (blockIndex === -1) continue;
-    
+
     const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
 
     // Check if click is within this block's Y bounds
@@ -313,6 +313,7 @@ export function handleMouseDown(
   const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
   if (imageBlock) {
     const block = state.document.page.blocks[imageBlock.blockIndex];
+    if (!block || block.deleted) return { state: state, ops };
     if (block.type === "image") {
       // Check if clicking on a drag handle and start drag if applicable
       const dragState = startImageDrag(state, imageBlock, canvasX, canvasY);
@@ -378,6 +379,9 @@ export function handleMouseDown(
   const lineBlock = getLineBlockAtPoint(canvasX, canvasY, state, viewport);
   if (lineBlock) {
     const block = state.document.page.blocks[lineBlock.blockIndex];
+    if (!block || block.deleted || block.type !== "line") {
+      return { state, ops };
+    }
     if (block.type === "line") {
       // Select the line block (same as image block behavior)
       const linePosition = { blockIndex: lineBlock.blockIndex, textIndex: 0 };
@@ -489,10 +493,16 @@ export function handleMouseDown(
 
   // If clicking below all blocks, check if last block is an image and select it
   const visibleBlocks = getVisibleBlocks(state.document.page);
-  const lastVisibleBlockIndex = visibleBlocks.length > 0
-    ? state.document.page.blocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
-    : -1;
-  if (lastVisibleBlockIndex >= 0 && position.blockIndex === lastVisibleBlockIndex) {
+  const lastVisibleBlockIndex =
+    visibleBlocks.length > 0
+      ? state.document.page.blocks.findIndex(
+          (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id
+        )
+      : -1;
+  if (
+    lastVisibleBlockIndex >= 0 &&
+    position.blockIndex === lastVisibleBlockIndex
+  ) {
     const lastBlock = state.document.page.blocks[lastVisibleBlockIndex];
 
     // Calculate if click is below the last block's content
@@ -635,6 +645,7 @@ export function handleMouseMove(
   if (state.ui.imageDrag) {
     const { blockIndex, handle } = state.ui.imageDrag;
     const block = state.document.page.blocks[blockIndex];
+    if (!block || block.deleted) return state;
 
     // Check if we should allow auto-scroll for bottom edge
     // Only block scrolling down if: bottom handle + near bottom edge + image at max height
@@ -696,8 +707,10 @@ export function handleMouseMove(
     if (imageBlock) {
       // Get the block to check its object-fit mode
       const block = state.document.page.blocks[imageBlock.blockIndex];
-      const objectFit =
-        block.type === "image" ? block.objectFit ?? "cover" : "cover";
+      if (!block || block.deleted || block.type !== "image") {
+        return state;
+      }
+      const objectFit = block.objectFit ?? "cover";
 
       // Check if hovering over a drag handle
       const hoveredHandle = getDragHandleAtPoint(

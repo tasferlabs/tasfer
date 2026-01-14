@@ -1568,7 +1568,7 @@ export default function createEditor(
       } else {
         // Validate textIndex for the block
         const block = page.blocks[blockIndex];
-        if (block) {
+        if (block && !block.deleted) {
           const blockText = getBlockTextContent(block);
           if (textIndex > blockText.length) {
             cursor = {
@@ -1719,7 +1719,7 @@ export default function createEditor(
       } else {
         // Validate textIndex for the block
         const block = newPage.blocks[blockIndex];
-        if (block) {
+        if (block && !block.deleted) {
           const blockText = getBlockTextContent(block);
           if (textIndex > blockText.length) {
             cursor = {

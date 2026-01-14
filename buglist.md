@@ -247,3 +247,5 @@ Bugs list
 - [ ] everything should suited for mobile, including flaoting sidebar. 
 - [ ] add snapshot previewing
 - [ ] dawers hould have scroll
+- [ ] undo or any edting opeartion should ensureCursor visible
+- [ ] render where otehr user is on scroll bar

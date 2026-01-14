@@ -565,6 +565,7 @@ export function handleTouchMove(
 
       const { blockIndex, handle } = state.ui.imageDrag;
       const block = state.document.page.blocks[blockIndex];
+      if (!block || block.deleted) return state;
 
       // Check if we should allow auto-scroll for bottom edge
       // Only block scrolling down if: bottom handle + near bottom edge + image at max height

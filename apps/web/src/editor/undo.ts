@@ -94,6 +94,7 @@ export function crdtToPosition(
   if (blockIndex === -1) return null;
 
   const block = page.blocks[blockIndex];
+  if (!block || block.deleted) return null;
 
   // For non-textual blocks, always return position 0
   if (!isTextualBlock(block)) {

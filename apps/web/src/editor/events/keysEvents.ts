@@ -158,6 +158,7 @@ export function handleKeyDown(
     if (state.document.cursor) {
       const { blockIndex } = state.document.cursor.position;
       const block = state.document.page.blocks[blockIndex];
+      if (!block || block.deleted) return { state, ops };
 
       if (isListBlock(block)) {
         if (keyEvent.shiftKey) {

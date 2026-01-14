@@ -9,7 +9,6 @@ import {
   isTextualBlock,
   type Block,
   type Char,
-  type CharRun,
   type FormatSpan,
   type Page,
 } from "@/deserializer/loadPage";
@@ -144,8 +143,8 @@ function applyTextInsert(state: Page, op: TextInsert): Page {
 
   const block = state.blocks[blockIndex];
 
-  // Skip text operations on blocks that don't have text content
-  if (!isTextualBlock(block)) {
+  // Skip operations on deleted blocks or blocks without text content
+  if (!block || block.deleted || !isTextualBlock(block)) {
     return state;
   }
 
@@ -184,8 +183,8 @@ function applyTextDelete(state: Page, op: TextDelete): Page {
 
   const block = state.blocks[blockIndex];
 
-  // Skip text operations on blocks that don't have text content
-  if (!isTextualBlock(block)) {
+  // Skip operations on deleted blocks or blocks without text content
+  if (!block || block.deleted || !isTextualBlock(block)) {
     return state;
   }
 
@@ -219,7 +218,8 @@ function applyFormatSet(state: Page, op: FormatSet): Page {
 
   const block = state.blocks[blockIndex];
 
-  if (!isTextualBlock(block)) {
+  // Skip operations on deleted blocks or blocks without text content
+  if (!block || block.deleted || !isTextualBlock(block)) {
     return state;
   }
 
@@ -294,7 +294,11 @@ function applyBlockDelete(state: Page, op: BlockDelete): Page {
   }
 
   const block = state.blocks[blockIndex];
+  if (!block) {
+    return state;
+  }
 
+  // Note: We don't check block.deleted here because block_delete can be idempotent
   const updatedBlock: Block = {
     ...block,
     deleted: true,
@@ -321,6 +325,9 @@ function applyBlockSet(state: Page, op: BlockSet): Page {
   }
 
   const block = state.blocks[blockIndex];
+  if (!block || block.deleted) {
+    return state;
+  }
 
   // Handle 'type' field specially - need to rebuild block with proper shape
   if (op.field === "type") {
