@@ -249,3 +249,7 @@ Bugs list
 - [ ] dawers should have scroll
 - [-] undo or any edting opeartion should ensureCursor visible
 - [ ] render where other user is on scroll bar
+- [ ] Interleaving on Concurrent Inserts
+- [ ] Short Peer IDs
+- [ ] tombstone pruning
+- [ ] format span accumlation

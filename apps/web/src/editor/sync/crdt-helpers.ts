@@ -291,9 +291,12 @@ export function getFormatsAtCharPosition(
 // =============================================================================
 
 /**
- * Apply a remote text insert operation to editor Page blocks
+ * Apply a text insert operation to a page.
+ * Shared logic used by both local and remote text insert handlers.
+ * Inserts characters after the specified character ID.
+ * If chars already exist (as tombstones), un-tombstones them instead of duplicating.
  */
-function applyRemoteTextInsert(page: Page, op: TextInsert): Page {
+export function applyTextInsertOp(page: Page, op: TextInsert): Page {
   const blockIndex = page.blocks.findIndex((b) => b.id === op.blockId);
 
   if (blockIndex === -1) {
@@ -311,14 +314,63 @@ function applyRemoteTextInsert(page: Page, op: TextInsert): Page {
   // Convert CharRuns to Char[] for insertion
   const chars = charRunsToChars(op.charRuns);
 
-  // Insert into charRuns
-  const newCharRuns = insertIntoRuns(block.charRuns, op.afterCharId, chars);
+  // Check if any chars already exist (as tombstones) - if so, un-tombstone them
+  // This handles undo operations that restore deleted characters
+  const existingCharIds = new Set<string>();
+  for (const run of block.charRuns || []) {
+    for (let i = 0; i < run.text.length; i++) {
+      const charId = `${run.peerId}:${run.startCounter + i}`;
+      existingCharIds.add(charId);
+    }
+  }
+
+  const charsToRestore = chars.filter((c) => existingCharIds.has(c.id));
+  const charsToInsert = chars.filter((c) => !existingCharIds.has(c.id));
+
+  let newCharRuns = block.charRuns || [];
+
+  // Un-tombstone existing chars (restore them)
+  if (charsToRestore.length > 0) {
+    const charIdsToRestore = new Set(charsToRestore.map((c) => c.id));
+    newCharRuns = newCharRuns.map((run) => {
+      let modified = false;
+      let newMask = run.deletedMask ? [...run.deletedMask] : undefined;
+
+      for (let i = 0; i < run.text.length; i++) {
+        const charId = `${run.peerId}:${run.startCounter + i}`;
+        if (charIdsToRestore.has(charId) && newMask) {
+          const byteIndex = Math.floor(i / 8);
+          const bitIndex = i % 8;
+          if (byteIndex < newMask.length && (newMask[byteIndex] & (1 << bitIndex)) !== 0) {
+            newMask[byteIndex] &= ~(1 << bitIndex);
+            modified = true;
+          }
+        }
+      }
+
+      if (modified) {
+        // Check if mask is all zeros now
+        const hasAnyDeleted = newMask?.some((byte) => byte !== 0);
+        return { ...run, deletedMask: hasAnyDeleted ? newMask : undefined };
+      }
+      return run;
+    });
+  }
+
+  // Insert truly new chars
+  if (charsToInsert.length > 0) {
+    newCharRuns = insertIntoRuns(newCharRuns, op.afterCharId, charsToInsert);
+  }
 
   const updatedBlock = { ...block, charRuns: newCharRuns };
   const newBlocks = [...page.blocks];
   newBlocks[blockIndex] = updatedBlock;
 
   return { ...page, blocks: newBlocks };
+}
+
+function applyRemoteTextInsert(page: Page, op: TextInsert): Page {
+  return applyTextInsertOp(page, op);
 }
 
 /**
@@ -390,6 +442,19 @@ function applyRemoteFormatSet(page: Page, op: FormatSet): Page {
       format: op.format,
       clock: op.clock,
     };
+
+    // Check if this exact span already exists (idempotency check)
+    // Use clock as unique identifier - same clock means same operation
+    const spanExists = block.formats.some(
+      (span) =>
+        span.clock.logical === op.clock.logical &&
+        span.clock.peerId === op.clock.peerId
+    );
+
+    if (spanExists) {
+      return page;
+    }
+
     newFormats = [...block.formats, newSpan];
   }
 

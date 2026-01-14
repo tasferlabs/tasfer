@@ -12,18 +12,13 @@ import {
   type FormatSpan,
   type Page,
 } from "@/deserializer/loadPage";
-import {
-  findBlockInsertIndex,
-  resolveBlockOrder,
-} from "./conflicts";
+import { findBlockInsertIndex, resolveBlockOrder } from "./conflicts";
 import { compareHLC } from "./hlc";
 import {
-  insertIntoRuns,
   deleteFromRuns,
   getVisibleTextFromRuns,
   getCharIdAtVisiblePosition,
   iterateVisibleChars,
-  charRunsToChars,
 } from "./char-runs";
 import type {
   BlockDelete,
@@ -35,6 +30,7 @@ import type {
   TextDelete,
   TextInsert,
 } from "./types";
+import { applyTextInsertOp } from "./crdt-helpers";
 
 /**
  * Create an empty page state.
@@ -130,44 +126,10 @@ function findBlockIndex(state: Page, blockId: string): number {
 /**
  * Apply a text insert operation.
  * Inserts characters after the specified character ID.
+ * If chars already exist (as tombstones), un-tombstones them instead of duplicating.
  */
 function applyTextInsert(state: Page, op: TextInsert): Page {
-  const blockIndex = findBlockIndex(state, op.blockId);
-
-  if (blockIndex === -1) {
-    // Block not found - operation targets non-existent block
-    // This can happen if block was created in a concurrent op not yet applied
-    // Store operation for later or ignore
-    return state;
-  }
-
-  const block = state.blocks[blockIndex];
-
-  // Skip operations on deleted blocks or blocks without text content
-  if (!block || block.deleted || !isTextualBlock(block)) {
-    return state;
-  }
-
-  // Convert CharRuns to Char[] for insertion
-  const chars = charRunsToChars(op.charRuns);
-
-  // Insert chars into runs
-  const newCharRuns = insertIntoRuns(block.charRuns, op.afterCharId, chars);
-
-  // Create updated block
-  const updatedBlock: Block = {
-    ...block,
-    charRuns: newCharRuns,
-  };
-
-  // Update state with new block
-  const newBlocks = [...state.blocks];
-  newBlocks[blockIndex] = updatedBlock;
-
-  return {
-    ...state,
-    blocks: newBlocks,
-  };
+  return applyTextInsertOp(state, op);
 }
 
 /**
@@ -231,6 +193,18 @@ function applyFormatSet(state: Page, op: FormatSet): Page {
     clock: op.clock,
   };
 
+  // Check if this exact span already exists (idempotency check)
+  // Use clock as unique identifier - same clock means same operation
+  const spanExists = block.formats.some(
+    (span) =>
+      span.clock.logical === op.clock.logical &&
+      span.clock.peerId === op.clock.peerId
+  );
+
+  if (spanExists) {
+    return state;
+  }
+
   // Add to formats (LWW will be resolved when reading)
   const updatedBlock: Block = {
     ...block,
@@ -249,11 +223,22 @@ function applyFormatSet(state: Page, op: FormatSet): Page {
 /**
  * Apply a block insert operation.
  * Inserts a new block after the specified block ID.
+ * If block already exists as tombstone, restores it.
  */
 function applyBlockInsert(state: Page, op: BlockInsert): Page {
   // Check if block already exists
-  if (findBlock(state, op.blockId)) {
-    // Block already exists - idempotent, skip
+  const existingBlock = findBlock(state, op.blockId);
+  if (existingBlock) {
+    // Block exists - if it's tombstoned, restore it; otherwise it's idempotent (no-op)
+    if (existingBlock.deleted) {
+      // Restore the tombstoned block by marking it as not deleted
+      const blockIndex = findBlockIndex(state, op.blockId);
+      const restoredBlock = { ...existingBlock, deleted: false };
+      const newBlocks = [...state.blocks];
+      newBlocks[blockIndex] = restoredBlock;
+      return { ...state, blocks: newBlocks };
+    }
+    // Block already exists and is not deleted - idempotent, do nothing
     return state;
   }
 
@@ -355,9 +340,11 @@ function applyBlockSet(state: Page, op: BlockSet): Page {
     };
   }
 
+  // Apply the field update
   const updatedBlock: Block = {
     ...block,
-  };
+    [op.field]: op.value,
+  } as Block;
 
   const newBlocks = [...state.blocks];
   newBlocks[blockIndex] = updatedBlock;
@@ -487,7 +474,9 @@ export function findCharByVisibleIndex(
 
   let visibleCount = 0;
 
-  for (const { id, char, runIndex, offset } of iterateVisibleChars(block.charRuns)) {
+  for (const { id, char, runIndex, offset } of iterateVisibleChars(
+    block.charRuns
+  )) {
     if (visibleCount === visibleIndex) {
       return {
         char: { id, char },
