@@ -37,7 +37,7 @@ function getVisibleTextFromChars(chars: Char[]): string {
     .join("");
 }
 
-export function getCursorCoordinates(
+export function getCursorDocumentCoords(
   position: Position,
   state: EditorState,
   viewport: ViewportState,
@@ -223,7 +223,7 @@ export function getCursorCoordinatesWithComposition(
 
   // If not composing, use regular cursor coordinates
   if (!state.ui.composition?.isComposing || !state.ui.composition.text) {
-    return getCursorCoordinates(position, state, viewport, styles);
+    return getCursorDocumentCoords(position, state, viewport, styles);
   }
 
   // When composing, we need to account for the composition text
@@ -412,7 +412,7 @@ export function getCursorYPosition(
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles()
 ): { top: number; bottom: number } | null {
-  const coords = getCursorCoordinates(position, state, viewport, styles);
+  const coords = getCursorDocumentCoords(position, state, viewport, styles);
   if (!coords) return null;
   return {
     top: coords.y,
@@ -986,13 +986,13 @@ export function getSelectionHandlePositions(
   }
 
   // Get coordinates for anchor and focus positions
-  const anchorCoords = getCursorCoordinates(
+  const anchorCoords = getCursorDocumentCoords(
     selection.anchor,
     state,
     viewport,
     styles
   );
-  const focusCoords = getCursorCoordinates(
+  const focusCoords = getCursorDocumentCoords(
     selection.focus,
     state,
     viewport,

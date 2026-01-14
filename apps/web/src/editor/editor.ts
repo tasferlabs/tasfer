@@ -29,7 +29,7 @@ import {
   renderPage,
 } from "./renderer";
 import {
-  getCursorCoordinates,
+  getCursorDocumentCoords,
   getCursorCoordinatesWithComposition,
 } from "./selection";
 import {
@@ -972,6 +972,9 @@ export default function createEditor(
 
     viewport = { ...viewport, ...newViewport };
 
+    // Invalidate cached bounding rect since viewport dimensions changed
+    invalidateRectCache();
+
     // Clear block height cache if width changed (affects text wrapping)
     if (viewport.width !== oldWidth) {
       clearAllBlockCaches(state.document.page.blocks);
@@ -1050,7 +1053,7 @@ export default function createEditor(
   function getCursorScreenPosition() {
     if (!state.document.cursor) return null;
 
-    const coords = getCursorCoordinates(
+    const coords = getCursorDocumentCoords(
       state.document.cursor.position,
       state,
       viewport,

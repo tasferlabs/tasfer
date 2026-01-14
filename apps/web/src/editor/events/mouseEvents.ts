@@ -19,7 +19,7 @@ import {
   updateScrollbarHover,
 } from "../scrollbar";
 import {
-  getCursorCoordinates,
+  getCursorDocumentCoords,
   getLinkAtPosition,
   getTextPositionFromViewport,
 } from "../selection";
@@ -801,7 +801,7 @@ export function handleMouseMove(
               blockIndex: position.blockIndex,
               textIndex: linkData.startIndex,
             };
-            const linkCoords = getCursorCoordinates(
+            const linkCoords = getCursorDocumentCoords(
               linkStartPos,
               state,
               viewport

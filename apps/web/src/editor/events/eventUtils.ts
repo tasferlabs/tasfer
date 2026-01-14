@@ -4,7 +4,7 @@ import {
   SELECTION_HANDLE_TOUCH_TARGET,
 } from "../constants";
 import { getBlockHeight, imageCache, invalidateBlockCache } from "../renderer";
-import { getCursorCoordinates, scrollToMakeCursorVisible } from "../selection";
+import { getCursorDocumentCoords, scrollToMakeCursorVisible } from "../selection";
 import { getEditorStyles } from "../styles";
 import type { Operation } from "../sync/sync";
 import { getClock, getPageId, getVisibleBlocks, nextId } from "../sync/sync";
@@ -693,8 +693,8 @@ function getSelectionHandlePositions(
     return null;
   }
 
-  const anchorCoords = getCursorCoordinates(selection.anchor, state, viewport);
-  const focusCoords = getCursorCoordinates(selection.focus, state, viewport);
+  const anchorCoords = getCursorDocumentCoords(selection.anchor, state, viewport);
+  const focusCoords = getCursorDocumentCoords(selection.focus, state, viewport);
 
   if (!anchorCoords || !focusCoords) {
     return null;
