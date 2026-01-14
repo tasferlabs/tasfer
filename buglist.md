@@ -246,6 +246,6 @@ Bugs list
 - [ ] test users and test functions
 - [ ] everything should suited for mobile, including flaoting sidebar. 
 - [ ] add snapshot previewing
-- [ ] dawers hould have scroll
-- [ ] undo or any edting opeartion should ensureCursor visible
-- [ ] render where otehr user is on scroll bar
+- [ ] dawers should have scroll
+- [-] undo or any edting opeartion should ensureCursor visible
+- [ ] render where other user is on scroll bar

@@ -206,13 +206,10 @@ export function MountedEditor({
     mountedRef.current = mounted;
 
     // Expose restore function to parent
+    // Uses restoreFromSnapshot which generates and broadcasts operations
     if (onRestoreReady) {
       onRestoreReady((blocks: Block[]) => {
-        mounted.editor.updatePageFromSync({
-          id: pageId,
-          title: "",
-          blocks,
-        });
+        mounted.editor.restoreFromSnapshot(blocks);
       });
     }
 

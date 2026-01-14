@@ -102,7 +102,7 @@ function SheetContent({
         style={getSafeAreaStyle()}
         {...props}
       >
-        {children}
+        <div className="flex-1 overflow-y-auto">{children}</div>
         {showCloseButton && (
           <SheetPrimitive.Close data-slot="sheet-close" asChild>
             <Button

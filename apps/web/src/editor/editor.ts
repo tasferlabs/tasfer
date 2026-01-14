@@ -67,6 +67,7 @@ import {
   formatCharsInRange,
   insertCharsAtPosition,
 } from "./sync/crdt-helpers";
+import { generateRestoreOperations } from "./sync/snapshot-diff";
 import type {
   BlockDelete,
   BlockInsert,
@@ -142,6 +143,8 @@ export interface Editor {
   closeActiveMenu: () => void;
   /** Update page content from CRDT sync (remote operations) */
   updatePageFromSync: (page: Page) => void;
+  /** Restore from snapshot - generates and broadcasts operations */
+  restoreFromSnapshot: (blocks: Block[]) => void;
   /** Apply remote operations to the current page state */
   applyRemoteOperations: (ops: Operation[]) => void;
   /** Set broadcast function for sending operations to peers */
@@ -1643,7 +1646,71 @@ export default function createEditor(
       },
     };
 
+    // Mark document height as dirty since page content changed
+    documentHeightDirty = true;
+
     // Re-render
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  /**
+   * Restore from snapshot by generating operations.
+   * This is for user-initiated restores - generates and broadcasts ops to peers.
+   */
+  function restoreFromSnapshotMethod(newBlocks: Block[]) {
+    const currentPage = state.document.page;
+    const prevState = state;
+
+    // Generate operations using the snapshot-diff utility
+    const ops = generateRestoreOperations({
+      currentBlocks: getVisibleBlocks(currentPage),
+      newBlocks,
+      pageId: getPageId(),
+      peerId: getPeerId(),
+      nextId,
+      getClock,
+    });
+
+    if (ops.length === 0) return;
+
+    // Apply operations to local state
+    const newPage = applyRemoteOps(currentPage, ops);
+
+    // Clear all block caches
+    clearAllBlockCaches(newPage.blocks);
+
+    // Update state with new page and reset cursor to beginning
+    const visibleBlocks = getVisibleBlocks(newPage);
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        page: newPage,
+        cursor:
+          visibleBlocks.length > 0
+            ? {
+                position: { blockIndex: 0, textIndex: 0 },
+                lastUpdate: Date.now(),
+              }
+            : null,
+        selection: null,
+      },
+    };
+
+    // Record to undo stack
+    state = recordUndoOps(prevState, state, ops, getPeerId());
+
+    // Broadcast operations to peers
+    if (broadcastFn) {
+      broadcastFn(ops);
+    }
+
+    // Mark document height as dirty
+    documentHeightDirty = true;
+
+    // Re-render and notify listeners
     const currentState = state;
     scheduleRender();
     listeners.forEach((listener) => listener(currentState));
@@ -1837,6 +1904,7 @@ export default function createEditor(
     closeActiveMenu: closeActiveMenuMethod,
     setPhysicalKeyboard,
     updatePageFromSync,
+    restoreFromSnapshot: restoreFromSnapshotMethod,
     applyRemoteOperations: applyRemoteOperationsMethod,
     setBroadcast: setBroadcastMethod,
     setAwarenessBroadcast: setAwarenessBroadcastMethod,

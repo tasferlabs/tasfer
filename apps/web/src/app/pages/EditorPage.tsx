@@ -238,7 +238,7 @@ export default function EditorPage() {
 
   // Expose restore callback to context
   useEffect(() => {
-    setOnRestoreSnapshot(() => handleRestoreSnapshot);
+    setOnRestoreSnapshot(handleRestoreSnapshot);
     return () => {
       setOnRestoreSnapshot(null);
     };

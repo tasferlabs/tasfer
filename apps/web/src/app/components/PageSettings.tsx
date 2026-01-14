@@ -74,8 +74,8 @@ function PageSettingsImpl({
   ];
 
   const content = (
-    <div className="space-y-6 flex-1 p-4">
-      <div className="space-y-3">
+    <div className="space-y-6 flex-1 py-4">
+      <div className="space-y-3 px-4">
         <label className="text-sm font-medium sr-only">{t`Font style`}</label>
         <div className="grid grid-cols-2 gap-2">
           {fontOptions.map((option) => (
@@ -108,7 +108,7 @@ function PageSettingsImpl({
         </div>
       </div>
 
-      <div className="space-y-3 pt-3 border-t border-border">
+      <div className="space-y-3 pt-3 border-t border-border px-4">
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
             <label htmlFor="word-count-toggle" className="text-sm font-medium">
@@ -129,11 +129,11 @@ function PageSettingsImpl({
         </div>
       </div>
 
-      <div className="pt-3 border-t border-border">
+      <div className="pt-3 border-t border-border px-2">
         <Button
           variant="ghost"
           size="sm"
-          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2"
           onClick={() => setShowVersionHistory(true)}
         >
           <History className="h-4 w-4" />

@@ -6,10 +6,21 @@
  */
 
 import type {
-  Block
+  Block,
+  CharRun,
+  FormatSpan,
 } from "@/deserializer/loadPage";
-import { isTextualBlock } from "@/deserializer/loadPage";
-import { getVisibleTextFromRuns } from "./char-runs";
+import { isListBlock, isTextualBlock } from "@/deserializer/loadPage";
+import { getVisibleTextFromRuns, iterateVisibleChars } from "./char-runs";
+import type {
+  BlockDelete,
+  BlockInsert,
+  BlockSet,
+  FormatSet,
+  HLC,
+  Operation,
+  TextInsert,
+} from "./types";
 
 // =============================================================================
 // Types
@@ -221,6 +232,219 @@ function diffBlocks(current: Block, snapshot: Block): BlockChanges | null {
 // =============================================================================
 // Restore Operations Generator
 // =============================================================================
+
+/**
+ * Context needed to generate restore operations.
+ */
+export interface RestoreContext {
+  /** Current visible blocks */
+  currentBlocks: Block[];
+  /** Blocks to restore to */
+  newBlocks: Block[];
+  /** Page ID for operations */
+  pageId: string;
+  /** Peer ID for char runs */
+  peerId: string;
+  /** Function to generate unique IDs */
+  nextId: () => string;
+  /** Function to get current HLC */
+  getClock: () => HLC;
+}
+
+/**
+ * Generate operations to restore from snapshot.
+ * Deletes all current blocks and inserts all new blocks with their content.
+ */
+export function generateRestoreOperations(ctx: RestoreContext): Operation[] {
+  const ops: Operation[] = [];
+  const { currentBlocks, newBlocks, pageId, peerId, nextId, getClock } = ctx;
+
+  // Step 1: Delete all current visible blocks
+  for (const block of currentBlocks) {
+    if (block.deleted) continue;
+    const deleteOp: BlockDelete = {
+      op: "block_delete",
+      id: nextId(),
+      clock: getClock(),
+      pageId,
+      blockId: block.id,
+    };
+    ops.push(deleteOp);
+  }
+
+  // Step 2: Insert all new blocks with their content
+  let lastInsertedBlockId: string | null = null;
+
+  for (const block of newBlocks) {
+    if (block.deleted) continue;
+
+    const newBlockId = `b-${nextId()}`;
+
+    if (block.type === "image") {
+      // Insert image block
+      const blockInsertOp: BlockInsert = {
+        op: "block_insert",
+        id: nextId(),
+        clock: getClock(),
+        pageId,
+        afterBlockId: lastInsertedBlockId,
+        blockId: newBlockId,
+        blockType: "image",
+        initialProps: {
+          url: block.url,
+          alt: block.alt,
+          width: block.width,
+          height: block.height,
+          objectFit: block.objectFit,
+        },
+      };
+      ops.push(blockInsertOp);
+      lastInsertedBlockId = newBlockId;
+    } else if (block.type === "line") {
+      // Insert line block
+      const blockInsertOp: BlockInsert = {
+        op: "block_insert",
+        id: nextId(),
+        clock: getClock(),
+        pageId,
+        afterBlockId: lastInsertedBlockId,
+        blockId: newBlockId,
+        blockType: "line",
+      };
+      ops.push(blockInsertOp);
+      lastInsertedBlockId = newBlockId;
+    } else if (isTextualBlock(block)) {
+      // Collect visible chars and generate new IDs for them
+      const visibleOldChars: Array<{ id: string; char: string }> = [];
+      for (const { id, char } of iterateVisibleChars(block.charRuns)) {
+        visibleOldChars.push({ id, char });
+      }
+
+      // Generate new char IDs and build mapping
+      const newCharIds: string[] = [];
+      const oldToNewCharIdMap = new Map<string, string>();
+
+      for (let i = 0; i < visibleOldChars.length; i++) {
+        const newId = nextId();
+        newCharIds.push(newId);
+        oldToNewCharIdMap.set(visibleOldChars[i].id, newId);
+      }
+
+      // Map formats to use new char IDs
+      const newFormats: FormatSpan[] = block.formats
+        .map((f) => {
+          const newStartId = oldToNewCharIdMap.get(f.startCharId);
+          const newEndId = oldToNewCharIdMap.get(f.endCharId);
+          if (newStartId && newEndId) {
+            return {
+              ...f,
+              startCharId: newStartId,
+              endCharId: newEndId,
+              clock: getClock(),
+            };
+          }
+          return null;
+        })
+        .filter((f): f is FormatSpan => f !== null);
+
+      // Insert block
+      const blockInsertOp: BlockInsert = {
+        op: "block_insert",
+        id: nextId(),
+        clock: getClock(),
+        pageId,
+        afterBlockId: lastInsertedBlockId,
+        blockId: newBlockId,
+        blockType: block.type as any,
+      };
+      ops.push(blockInsertOp);
+
+      // Insert text content - create CharRun directly
+      if (visibleOldChars.length > 0) {
+        // Build text string from visible chars
+        const text = visibleOldChars.map((c) => c.char).join("");
+
+        // Extract startCounter from first new char ID (format: "peerId:counter")
+        const firstCharId = newCharIds[0];
+        const startCounter = parseInt(firstCharId.split(":")[1], 10);
+
+        const charRun: CharRun = {
+          peerId,
+          startCounter,
+          text,
+        };
+
+        const textInsertOp: TextInsert = {
+          op: "text_insert",
+          id: nextId(),
+          clock: getClock(),
+          pageId,
+          blockId: newBlockId,
+          afterCharId: null,
+          charRuns: [charRun],
+        };
+        ops.push(textInsertOp);
+      }
+
+      // Add format operations
+      for (const format of newFormats) {
+        const startIdx = newCharIds.findIndex(
+          (id) => id === format.startCharId
+        );
+        const endIdx = newCharIds.findIndex((id) => id === format.endCharId);
+        if (startIdx !== -1 && endIdx !== -1) {
+          const charIds = newCharIds.slice(startIdx, endIdx + 1);
+          const formatOp: FormatSet = {
+            op: "format_set",
+            id: nextId(),
+            clock: getClock(),
+            pageId,
+            blockId: newBlockId,
+            charIds,
+            format: format.format,
+            value:
+              format.format.type === "link"
+                ? format.format.url || true
+                : true,
+          };
+          ops.push(formatOp);
+        }
+      }
+
+      // Add list properties if needed
+      if (isListBlock(block)) {
+        if (block.indent > 0) {
+          const indentOp: BlockSet = {
+            op: "block_set",
+            id: nextId(),
+            clock: getClock(),
+            pageId,
+            blockId: newBlockId,
+            field: "indent",
+            value: block.indent,
+          };
+          ops.push(indentOp);
+        }
+        if (block.type === "todo_list") {
+          const checkedOp: BlockSet = {
+            op: "block_set",
+            id: nextId(),
+            clock: getClock(),
+            pageId,
+            blockId: newBlockId,
+            field: "checked",
+            value: block.checked,
+          };
+          ops.push(checkedOp);
+        }
+      }
+
+      lastInsertedBlockId = newBlockId;
+    }
+  }
+
+  return ops;
+}
 
 // =============================================================================
 // Utility Functions
