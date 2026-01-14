@@ -60,7 +60,7 @@ const AWARENESS_COLORS = [
   "#ff5789", // pink
   "#ff7301", // orange
   "#0365d6", // blue
-  "#10b981", // green
+  // "#10b981", // green
   "#8b5cf6", // purple
   "#f59e0b", // amber
   "#ef4444", // red
@@ -72,7 +72,7 @@ const TEST_NAMES = [
   "Alice",
   "Bob",
   "Charlie",
-  "Diana",
+  // "Diana",
   "Eve",
   "Frank",
   "Grace",

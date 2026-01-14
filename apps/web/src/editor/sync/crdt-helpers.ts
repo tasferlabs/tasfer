@@ -187,7 +187,14 @@ export function formatCharsInRange(
       format,
       clock: getClock(),
     };
-    newFormats = [...formats, newSpan];
+    // Filter out existing spans of same format type that overlap with new range
+    // This prevents format span accumulation
+    const filteredFormats = formats.filter(span => {
+      if (span.format.type !== format.type) return true;
+      const overlaps = charIds.some(charId => isCharIdInSpan(charId, span, charRuns));
+      return !overlaps;
+    });
+    newFormats = [...filteredFormats, newSpan];
   }
 
   const op: FormatSet = {
@@ -455,7 +462,16 @@ function applyRemoteFormatSet(page: Page, op: FormatSet): Page {
       return page;
     }
 
-    newFormats = [...block.formats, newSpan];
+    // Filter out existing spans of same format type that overlap with new range
+    // This prevents format span accumulation
+    const filteredFormats = block.formats.filter((span) => {
+      if (span.format.type !== op.format.type) return true;
+      const overlaps = op.charIds.some((charId) =>
+        isCharIdInSpan(charId, span, block.charRuns)
+      );
+      return !overlaps;
+    });
+    newFormats = [...filteredFormats, newSpan];
   }
 
   const updatedBlock = {
