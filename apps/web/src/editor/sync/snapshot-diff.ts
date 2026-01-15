@@ -238,7 +238,7 @@ function diffBlocks(current: Block, snapshot: Block): BlockChanges | null {
  */
 export interface RestoreContext {
   /** Current visible blocks */
-  currentBlocks: Block[];
+  currentBlocks: readonly Block[];
   /** Blocks to restore to */
   newBlocks: Block[];
   /** Page ID for operations */

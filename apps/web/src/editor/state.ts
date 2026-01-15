@@ -469,7 +469,7 @@ export const moveCursorToPosition = (
   textIndex: number,
   preserveActiveFormats: boolean = false
 ): EditorState => {
-  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const visibleBlocks = state.view.visibleBlocks;
   if (visibleBlocks.length === 0) return state;
 
   // Find the actual block index in the full array for the last visible block
@@ -513,7 +513,7 @@ export const moveCursorToPosition = (
 export const moveCursorLeft = (state: EditorState): EditorState => {
   if (!state.document.cursor) return createInitialCursorState(state);
 
-  const { blockIndex, textIndex } = state.document.cursor.position;
+  const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
   const currentBlock = state.document.page.blocks[blockIndex];
 
   if (!currentBlock || currentBlock.deleted) return state;
@@ -618,7 +618,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
 export const moveCursorRight = (state: EditorState): EditorState => {
   if (!state.document.cursor) return createInitialCursorState(state);
 
-  const { blockIndex, textIndex } = state.document.cursor.position;
+  const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
   const currentBlock = state.document.page.blocks[blockIndex];
 
   if (!currentBlock || currentBlock.deleted) return state;
@@ -873,7 +873,7 @@ export const moveCursorUp = (
 ): EditorState => {
   if (!state.document.cursor) return createInitialCursorState(state);
 
-  const { blockIndex, textIndex } = state.document.cursor.position;
+  const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
   const currentBlock = state.document.page.blocks[blockIndex];
 
   if (!currentBlock || currentBlock.deleted) return state;
@@ -1046,7 +1046,7 @@ export const moveCursorDown = (
 ): EditorState => {
   if (!state.document.cursor) return createInitialCursorState(state);
 
-  const { blockIndex, textIndex } = state.document.cursor.position;
+  const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
   const currentBlock = state.document.page.blocks[blockIndex];
 
   if (!currentBlock || currentBlock.deleted) return state;

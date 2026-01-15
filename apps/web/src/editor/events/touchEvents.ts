@@ -1,7 +1,10 @@
 import type { Block } from "@/deserializer/loadPage";
 import type { Operation } from "../sync/sync";
 import { getVisibleBlocks, getPageId, nextId, getClock } from "../sync/sync";
-import { selectLineAtPosition, selectWordAtPosition } from "../actions/commands";
+import {
+  selectLineAtPosition,
+  selectWordAtPosition,
+} from "../actions/commands";
 import {
   DOUBLE_CLICK_TIME,
   EDGE_SCROLL_THRESHOLD,
@@ -14,15 +17,17 @@ import {
   activateScroll,
   autoScrollState,
   clearScrollPress,
-  scrollbarPressState
+  scrollbarPressState,
 } from "./eventsState";
 import { handleTodoCheckboxClick } from "./mouseEvents";
 import {
   endImageDrag,
   getImageBlockAtPoint,
   getLineBlockAtPoint,
-  getSelectionHandleAtPoint, isWithinClickDistance, startImageDrag,
-  updateImageDrag
+  getSelectionHandleAtPoint,
+  isWithinClickDistance,
+  startImageDrag,
+  updateImageDrag,
 } from "./eventUtils";
 import { imageCache } from "../renderer";
 import {
@@ -660,15 +665,7 @@ export function handleTouchMove(
         canvasX,
         canvasY,
         state,
-        viewport,
-        (() => {
-          const visibleBlocks = getVisibleBlocks(state.document.page);
-          const allBlocks = state.document.page.blocks;
-          const lastVisibleBlockIndex = visibleBlocks.length > 0
-            ? allBlocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
-            : -1;
-          return { start: 0, end: lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0 };
-        })()
+        viewport
       );
 
       if (newPosition && state.document.selection) {
@@ -785,17 +782,11 @@ export function handleTouchMove(
       if (!touchState.isTouchingSelection) {
         // Start selection mode if not already in it
         if (state.ui.mode !== "select") {
-          const visibleBlocks = getVisibleBlocks(state.document.page);
-          const allBlocks = state.document.page.blocks;
-          const lastVisibleBlockIndex = visibleBlocks.length > 0
-            ? allBlocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
-            : -1;
           const position = getTextPositionFromViewport(
             touchState.startX,
             touchState.startY,
             state,
-            viewport,
-            { start: 0, end: lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0 }
+            viewport
           );
 
           if (position) {
@@ -1166,17 +1157,11 @@ export function handleTouchEnd(
 
     // If tapping in left/right padding, position cursor at start/end of line and clear selection
     if (isTapInLeftPadding || isTapInRightPadding) {
-      const visibleBlocks = getVisibleBlocks(state.document.page);
-      const allBlocks = state.document.page.blocks;
-      const lastVisibleBlockIndex = visibleBlocks.length > 0
-        ? allBlocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
-        : -1;
       const paddingPosition = getTextPositionFromViewport(
         tapPosition.x,
         tapPosition.y,
         state,
-        viewport,
-        { start: 0, end: lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0 }
+        viewport
       );
 
       if (paddingPosition) {
@@ -1221,17 +1206,11 @@ export function handleTouchEnd(
     }
 
     // Get text position for cursor/selection
-    const visibleBlocks = getVisibleBlocks(state.document.page);
-    const allBlocks = state.document.page.blocks;
-    const lastVisibleBlockIndex = visibleBlocks.length > 0
-      ? allBlocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
-      : -1;
     const position = getTextPositionFromViewport(
       tapPosition.x,
       tapPosition.y,
       state,
       viewport,
-      { start: 0, end: lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0 }
     );
 
     // Check for multi-tap (double/triple) - use larger threshold for touch
@@ -1256,11 +1235,12 @@ export function handleTouchEnd(
 
     if (position) {
       // If tapping below all blocks, check if last block is an image and select it
-      const visibleBlocks = getVisibleBlocks(state.document.page);
-      const lastVisibleBlockIndex = visibleBlocks.length > 0
-        ? state.document.page.blocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
-        : -1;
-      if (lastVisibleBlockIndex >= 0 && position.blockIndex === lastVisibleBlockIndex) {
+      const visibleBlocks = state.view.visibleBlocks;
+      const lastVisibleBlockIndex = visibleBlocks.length - 1;
+      if (
+        lastVisibleBlockIndex >= 0 &&
+        position.blockIndex === lastVisibleBlockIndex
+      ) {
         const lastBlock = state.document.page.blocks[lastVisibleBlockIndex];
 
         // Calculate if tap is below the last block's content
@@ -1425,10 +1405,13 @@ export function handleTouchEnd(
         } else {
           // Tapped on image block area but not on the actual image visual
           // If this is the last block, create a new paragraph below
-          const visibleBlocks = getVisibleBlocks(state.document.page);
-          const lastVisibleBlockIndex = visibleBlocks.length > 0
-            ? state.document.page.blocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
-            : -1;
+          const visibleBlocks = state.view.visibleBlocks;
+          const lastVisibleBlockIndex =
+            visibleBlocks.length > 0
+              ? state.document.page.blocks.findIndex(
+                  (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id
+                )
+              : -1;
           const isLastBlock = position.blockIndex === lastVisibleBlockIndex;
           if (isLastBlock) {
             const currentBlock =

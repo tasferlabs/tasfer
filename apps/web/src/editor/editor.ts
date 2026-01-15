@@ -335,6 +335,8 @@ export default function createEditor(
     isRendering = true;
 
     try {
+      state.view.visibleBlocks = state.view.visibleBlocks;
+
       // Update cached rect only when needed (avoids expensive getBoundingClientRect every frame)
       if (rectNeedsUpdate) {
         updateCachedRect();
@@ -992,20 +994,12 @@ export default function createEditor(
     const maxWidth = viewport.width - 2 * styles.canvas.paddingLeft;
     let totalHeight = styles.canvas.paddingTop;
 
-    const visibleBlocks = getVisibleBlocks(state.document.page);
-    const allBlocks = state.document.page.blocks;
+    const visibleBlocks = state.view.visibleBlocks;
     for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
       const block = visibleBlocks[visibleIdx];
-      // Find original index for height calculation
-      const originalIndex = allBlocks.findIndex((b) => b.id === block.id);
-      if (originalIndex === -1) continue;
+
       // Use getBlockHeight to leverage caching for performance
-      const blockHeight = getBlockHeight(
-        block,
-        maxWidth,
-        styles,
-        originalIndex
-      );
+      const blockHeight = getBlockHeight(block, maxWidth, styles, visibleIdx === 0);
       totalHeight += blockHeight;
     }
 
@@ -1043,7 +1037,7 @@ export default function createEditor(
     // Only set cursor if there isn't one already
     if (
       !state.document.cursor &&
-      getVisibleBlocks(state.document.page).length > 0
+      state.view.visibleBlocks.length > 0
     ) {
       state = createInitialCursorState(state);
       scheduleRender();
@@ -1238,21 +1232,23 @@ export default function createEditor(
     const ops: Operation[] = [];
 
     // Delete the selected text first
-    const { newCharRuns: charRunsAfterDelete, op: deleteOp } = deleteCharsInRange(
-      block.charRuns,
-      start.textIndex,
-      end.textIndex,
-      block.id
-    );
+    const { newCharRuns: charRunsAfterDelete, op: deleteOp } =
+      deleteCharsInRange(
+        block.charRuns,
+        start.textIndex,
+        end.textIndex,
+        block.id
+      );
     ops.push(deleteOp);
 
     // Insert the new link text
-    const { newCharRuns: charRunsAfterInsert, op: insertOp } = insertCharsAtPosition(
-      charRunsAfterDelete,
-      start.textIndex,
-      text,
-      block.id
-    );
+    const { newCharRuns: charRunsAfterInsert, op: insertOp } =
+      insertCharsAtPosition(
+        charRunsAfterDelete,
+        start.textIndex,
+        text,
+        block.id
+      );
     ops.push(insertOp);
 
     // Apply link formatting to the inserted text
@@ -1543,6 +1539,7 @@ export default function createEditor(
   }
 
   function updatePageFromSync(page: Page) {
+    const visibleBlocks = state.view.visibleBlocks;
     // Update the page from CRDT sync while preserving cursor/selection
     // This is called when remote operations are applied
 
@@ -1551,9 +1548,8 @@ export default function createEditor(
 
     // Validate and adjust cursor position if needed
     let cursor = state.document.cursor;
-    const visibleBlocks = getVisibleBlocks(page);
     if (cursor && visibleBlocks.length > 0) {
-      const { blockIndex, textIndex } = cursor.position;
+      const { blockIndex: blockIndex, textIndex } = cursor.position;
       // Find the last visible block's index in the full array
       const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
       const maxBlockIndex = page.blocks.findIndex(
@@ -1580,7 +1576,7 @@ export default function createEditor(
             cursor = {
               ...cursor,
               position: {
-                blockIndex,
+                blockIndex: blockIndex,
                 textIndex: blockText.length,
               },
             };
@@ -1668,7 +1664,7 @@ export default function createEditor(
 
     // Generate operations using the snapshot-diff utility
     const ops = generateRestoreOperations({
-      currentBlocks: getVisibleBlocks(currentPage),
+      currentBlocks: state.view.visibleBlocks,
       newBlocks,
       pageId: getPageId(),
       peerId: getPeerId(),
@@ -1685,7 +1681,7 @@ export default function createEditor(
     clearAllBlockCaches(newPage.blocks);
 
     // Update state with new page and reset cursor to beginning
-    const visibleBlocks = getVisibleBlocks(newPage);
+    const visibleBlocks = state.view.visibleBlocks;
     state = {
       ...state,
       document: {
@@ -1765,9 +1761,9 @@ export default function createEditor(
 
     // Validate and adjust cursor position if needed
     let cursor = state.document.cursor;
-    const visibleBlocksForOps = getVisibleBlocks(newPage);
+    const visibleBlocksForOps = state.view.visibleBlocks;
     if (cursor && visibleBlocksForOps.length > 0) {
-      const { blockIndex, textIndex } = cursor.position;
+      const { blockIndex: blockIndex, textIndex } = cursor.position;
       // Find the last visible block's index in the full array
       const lastVisibleBlockForOps =
         visibleBlocksForOps[visibleBlocksForOps.length - 1];
@@ -1795,7 +1791,7 @@ export default function createEditor(
             cursor = {
               ...cursor,
               position: {
-                blockIndex,
+                blockIndex: blockIndex,
                 textIndex: blockText.length,
               },
             };

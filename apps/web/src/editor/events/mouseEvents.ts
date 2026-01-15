@@ -73,26 +73,27 @@ export function handleTodoCheckboxClick(
 
   // Iterate through visible blocks to find which one was clicked
   // Break early once we pass the visible area
-  const visibleBlocks = getVisibleBlocks(state.document.page);
-  const allBlocks = state.document.page.blocks;
+  const visibleBlocks = state.view.visibleBlocks;
 
-  for (const block of visibleBlocks) {
-    const blockIndex = allBlocks.findIndex((b) => b.id === block.id);
-    if (blockIndex === -1) continue;
-
-    const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
-
+  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+    const visibleBlock = visibleBlocks[visibleIdx];
+    const blockHeight = getBlockHeight(
+      visibleBlock,
+      maxWidth,
+      styles,
+      visibleIdx === 0
+    );
     // Check if click is within this block's Y bounds
     if (canvasY >= currentY && canvasY < currentY + blockHeight) {
       // Check if this is a todo list item
-      if (block.type === "todo_list") {
-        const indent = block.indent || 0;
+      if (visibleBlock.type === "todo_list") {
+        const indent = visibleBlock.indent || 0;
         const indentOffset = indent * styles.list.indent.size;
         const checkboxSize = styles.list.todo.checkboxSize;
 
         // Detect if this is RTL text
-        const blockText = isTextualBlock(block)
-          ? getBlockTextContent(block)
+        const blockText = isTextualBlock(visibleBlock)
+          ? getBlockTextContent(visibleBlock)
           : "";
         const isRTL = getTextDirection(blockText) === "rtl";
 
@@ -115,7 +116,7 @@ export function handleTodoCheckboxClick(
         }
 
         // Get font metrics for proper vertical alignment
-        const textStyle = getTextStyle(styles, block.type);
+        const textStyle = getTextStyle(styles, visibleBlock.type);
         const fontFamily = getCurrentFontFamily();
         const fontMetrics = getFontMetrics(
           textStyle.fontSize,
@@ -133,7 +134,7 @@ export function handleTodoCheckboxClick(
           canvasY <= checkboxY + checkboxSize + clickPadding
         ) {
           // Toggle the checkbox
-          const result = toggleTodoChecked(state, blockIndex);
+          const result = toggleTodoChecked(state, visibleIdx);
           return { state: result.state, ops: result.ops };
         }
       }
@@ -157,7 +158,6 @@ export function handleMouseDown(
   viewport: ViewportState,
   event: MouseEvent,
   containerRect: { left: number; top: number },
-  visibility: { start: number; end: number },
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): { state: EditorState; ops: Operation[] } {
@@ -222,8 +222,7 @@ export function handleMouseDown(
       canvasX,
       canvasY,
       state,
-      viewport,
-      visibility
+      viewport
     );
 
     if (position) {
@@ -461,8 +460,7 @@ export function handleMouseDown(
       canvasX,
       canvasY,
       state,
-      viewport,
-      visibility
+      viewport
     );
 
     if (paddingPosition) {
@@ -476,8 +474,7 @@ export function handleMouseDown(
     canvasX,
     canvasY,
     state,
-    viewport,
-    visibility
+    viewport
   );
 
   // If clicking in padding/outside editor area, preserve active selections
@@ -492,7 +489,7 @@ export function handleMouseDown(
   }
 
   // If clicking below all blocks, check if last block is an image and select it
-  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const visibleBlocks = state.view.visibleBlocks;
   const lastVisibleBlockIndex =
     visibleBlocks.length > 0
       ? state.document.page.blocks.findIndex(
@@ -594,7 +591,6 @@ export function handleMouseMove(
   viewport: ViewportState,
   event: MouseEvent,
   containerRect: { left: number; top: number },
-  visibility: { start: number; end: number },
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
@@ -774,8 +770,7 @@ export function handleMouseMove(
         canvasX,
         canvasY,
         state,
-        viewport,
-        visibility
+        viewport
       );
 
       let isOverLink = false;
@@ -887,8 +882,7 @@ export function handleMouseMove(
     canvasX,
     canvasY,
     state,
-    viewport,
-    visibility
+    viewport
   );
 
   if (!position) return state;

@@ -156,7 +156,7 @@ export function handleKeyDown(
   // Tab - indent/outdent list items
   if (key === "Tab") {
     if (state.document.cursor) {
-      const { blockIndex } = state.document.cursor.position;
+      const { blockIndex: blockIndex } = state.document.cursor.position;
       const block = state.document.page.blocks[blockIndex];
       if (!block || block.deleted) return { state, ops };
 
@@ -437,7 +437,7 @@ export function handleKeyDown(
               state.document.cursor.position.blockIndex
             ];
           if (!currentBlock || currentBlock.deleted) return { state, ops };
-          const visibleBlocks = getVisibleBlocks(state.document.page);
+          const visibleBlocks = state.view.visibleBlocks;
           const firstVisibleBlock =
             visibleBlocks.length > 0 ? visibleBlocks[0] : null;
           const isFirstBlock =
@@ -529,7 +529,7 @@ export function handleKeyDown(
             newState = moveCursorToPosition(newState, 0, 0);
 
             // Select the visual block (image/line)
-            const visibleBlocks = getVisibleBlocks(newState.document.page);
+            const visibleBlocks = newState.view.visibleBlocks;
             const firstBlock =
               visibleBlocks.length > 0 ? visibleBlocks[0] : null;
             if (firstBlock?.type === "image" || firstBlock?.type === "line") {
@@ -630,7 +630,7 @@ export function handleKeyDown(
             state.document.page.blocks[
               state.document.cursor.position.blockIndex
             ];
-          const visibleBlocks = getVisibleBlocks(state.document.page);
+          const visibleBlocks = state.view.visibleBlocks;
           const lastVisibleBlockIndex =
             visibleBlocks.length > 0
               ? state.document.page.blocks.findIndex(
@@ -729,7 +729,7 @@ export function handleKeyDown(
             newState = moveCursorToPosition(newState, 0, 0);
 
             // Select the visual block (image/line)
-            const visibleBlocks = getVisibleBlocks(newState.document.page);
+            const visibleBlocks = newState.view.visibleBlocks;
             const firstBlock =
               visibleBlocks.length > 0 ? visibleBlocks[0] : null;
             if (firstBlock?.type === "image" || firstBlock?.type === "line") {
@@ -976,7 +976,7 @@ export function handleKeyDown(
             newState = moveCursorToPosition(newState, 0, 0);
 
             // Select the visual block (image/line)
-            const visibleBlocks = getVisibleBlocks(newState.document.page);
+            const visibleBlocks = newState.view.visibleBlocks;
             const firstBlock =
               visibleBlocks.length > 0 ? visibleBlocks[0] : null;
             if (firstBlock?.type === "image" || firstBlock?.type === "line") {
@@ -1004,7 +1004,7 @@ export function handleKeyDown(
             state.document.page.blocks[
               state.document.cursor.position.blockIndex
             ];
-          const visibleBlocks = getVisibleBlocks(state.document.page);
+          const visibleBlocks = state.view.visibleBlocks;
           const lastVisibleBlockIndex =
             visibleBlocks.length > 0
               ? state.document.page.blocks.findIndex(
@@ -1221,7 +1221,7 @@ export function handleKeyDown(
       } else {
         if (isCtrl) {
           // Get last visible block and find its index in the full array
-          const visibleBlocks = getVisibleBlocks(state.document.page);
+          const visibleBlocks = state.view.visibleBlocks;
           if (visibleBlocks.length === 0) {
             newState = clearSelection(state);
           } else {
@@ -1298,7 +1298,7 @@ export function handleKeyDown(
         !keyEvent.altKey &&
         !keyEvent.metaKey
       ) {
-        const { blockIndex } = state.document.cursor.position;
+        const { blockIndex: blockIndex } = state.document.cursor.position;
 
         // Allow slash command anywhere in paragraphs and headings
         const slashResult = insertText(state, "/");
@@ -1356,8 +1356,7 @@ export function handleContextMenu(
   state: EditorState,
   viewport: ViewportState,
   event: MouseEvent,
-  containerRect: { left: number; top: number },
-  visibility: { start: number; end: number }
+  containerRect: { left: number; top: number }
 ): EditorState {
   event.preventDefault();
 
@@ -1373,8 +1372,7 @@ export function handleContextMenu(
     canvasX,
     canvasY,
     state,
-    viewport,
-    visibility
+    viewport
   );
 
   // Always open context menu at click position if we have a valid position

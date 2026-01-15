@@ -21,10 +21,7 @@ import {
   getBlockTextLength,
   moveCursorToPosition,
 } from "../state";
-import {
-  iterateVisibleChars,
-  charRunsToChars
-} from "../sync/char-runs";
+import { iterateVisibleChars, charRunsToChars } from "../sync/char-runs";
 import {
   deleteCharsInRange,
   getVisibleText,
@@ -40,7 +37,7 @@ import type {
   TextInsert,
 } from "../sync/types";
 import type { CommandResult, EditorState, Position } from "../types";
-import { } from "../undo";
+import {} from "../undo";
 
 /**
  * Convert Char[] to CharRun[] for storage
@@ -64,7 +61,9 @@ function charsToRuns(chars: Char[]): CharRun[] {
       currentText += char.char;
       if (char.deleted) {
         if (!currentDeletedMask) {
-          currentDeletedMask = new Array(Math.ceil(currentText.length / 8)).fill(0);
+          currentDeletedMask = new Array(
+            Math.ceil(currentText.length / 8)
+          ).fill(0);
         }
         const offset = currentText.length - 1;
         const byteIndex = Math.floor(offset / 8);
@@ -284,7 +283,11 @@ function getSelectedContent(state: EditorState): {
 
     if (i === start.blockIndex) {
       // First block - cut from start position
-      const chars = extractCharsInRange(block.charRuns, start.textIndex, textLength);
+      const chars = extractCharsInRange(
+        block.charRuns,
+        start.textIndex,
+        textLength
+      );
       charRuns = charsToRuns(chars);
       formats = extractFormatsForChars(block.formats, chars, block.charRuns);
     } else if (i === end.blockIndex) {
@@ -1192,7 +1195,7 @@ function insertBlocksAtCursor(
 
   if (!newState.document.cursor) {
     // Insert at the end of the last visible block
-    const visibleBlocks = getVisibleBlocks(newState.document.page);
+    const visibleBlocks = newState.view.visibleBlocks;
     if (visibleBlocks.length === 0) {
       // No visible blocks, create a default position
       blockIndex = 0;
@@ -1214,7 +1217,7 @@ function insertBlocksAtCursor(
   // Ensure cursor position is valid
   if (blockIndex < 0 || blockIndex >= newState.document.page.blocks.length) {
     // Fallback to last visible block
-    const visibleBlocks = getVisibleBlocks(newState.document.page);
+    const visibleBlocks = newState.view.visibleBlocks;
     if (visibleBlocks.length === 0) {
       blockIndex = 0;
       textIndex = 0;
@@ -1413,7 +1416,7 @@ function insertBlocksAtCursor(
     for (const { id, char } of iterateVisibleChars(pasteBlock.charRuns)) {
       pasteChars.push({ id, char, deleted: false });
     }
-    
+
     for (const pasteFormat of pasteBlock.formats) {
       // Find the new char IDs in the inserted range
       const pasteStartIdx = pasteChars.findIndex(
@@ -1500,7 +1503,11 @@ function insertBlocksAtCursor(
     const currentTextLength = getBlockTextLength(currentBlock);
 
     // Extract chars before and after cursor
-    const beforeChars = extractCharsInRange(currentBlock.charRuns, 0, textIndex);
+    const beforeChars = extractCharsInRange(
+      currentBlock.charRuns,
+      0,
+      textIndex
+    );
     const afterChars = extractCharsInRange(
       currentBlock.charRuns,
       textIndex,
@@ -1649,7 +1656,9 @@ function insertBlocksAtCursor(
       let firstBlockFormats = beforeFormats;
       // Convert firstPastedBlock.charRuns to Char[] for finding indices
       const firstPasteChars: Char[] = [];
-      for (const { id, char } of iterateVisibleChars(firstPastedBlock.charRuns)) {
+      for (const { id, char } of iterateVisibleChars(
+        firstPastedBlock.charRuns
+      )) {
         firstPasteChars.push({ id, char, deleted: false });
       }
       for (const pasteFormat of firstPastedBlock.formats) {
@@ -1917,7 +1926,9 @@ function insertBlocksAtCursor(
 
         // Generate new chars with new IDs for pasted content
         const visiblePastedChars: Array<{ id: string; char: string }> = [];
-        for (const { id, char } of iterateVisibleChars(lastPastedBlock.charRuns)) {
+        for (const { id, char } of iterateVisibleChars(
+          lastPastedBlock.charRuns
+        )) {
           visiblePastedChars.push({ id, char });
         }
         const newPastedChars: Char[] = visiblePastedChars.map((c) => ({

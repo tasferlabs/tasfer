@@ -1,4 +1,3 @@
-import type { Operation } from "../sync/types";
 import {
   CONTEXT_MENU_DURATION,
   EDGE_SCROLL_ACCELERATION_RATE,
@@ -7,11 +6,6 @@ import {
   EDGE_SCROLL_THRESHOLD,
   SCROLLBAR_HOLD_DURATION,
 } from "../constants";
-import {
-  handleCompositionStart,
-  handleCompositionUpdate,
-  handleCompositionEnd,
-} from "./compositionEvents";
 import { imageCache } from "../renderer";
 import {
   applyMomentum,
@@ -19,7 +13,6 @@ import {
   updateScrollbarFadeOpacity,
 } from "../scrollbar";
 import { getTextPositionFromViewport } from "../selection";
-import { getVisibleBlocks } from "../sync/sync";
 import {
   closeActiveMenu,
   openContextMenu,
@@ -28,21 +21,17 @@ import {
   updateMode,
   updateSelectionFocus,
 } from "../state";
-import type {
-  EditorState,
-  MouseEvent,
-  ViewportState,
-} from "../types";
+import type { Operation } from "../sync/types";
+import type { EditorState, MouseEvent, ViewportState } from "../types";
 import {
-  triggerHapticFeedback,
-  stopAutoScroll,
-  handleTouchStart,
-  handleTouchMove,
-  handleTouchEnd,
-  handleTouchCancel,
-  touchState,
-} from "./touchEvents";
-import { updateImageDrag, isTouchDevice } from "./eventUtils";
+  handleCompositionEnd,
+  handleCompositionStart,
+  handleCompositionUpdate,
+} from "./compositionEvents";
+import { autoScrollState, scrollbarPressState } from "./eventsState";
+import { isTouchDevice, updateImageDrag } from "./eventUtils";
+import { handlePaste } from "./genericEvents";
+import { handleContextMenu, handleKeyDown } from "./keysEvents";
 import {
   handleMouseDown,
   handleMouseMove,
@@ -50,9 +39,15 @@ import {
   handlePointerCancel,
   handleWheel,
 } from "./mouseEvents";
-import { handleKeyDown, handleContextMenu } from "./keysEvents";
-import { handlePaste } from "./genericEvents";
-import { scrollbarPressState, autoScrollState } from "./eventsState";
+import {
+  handleTouchCancel,
+  handleTouchEnd,
+  handleTouchMove,
+  handleTouchStart,
+  stopAutoScroll,
+  touchState,
+  triggerHapticFeedback,
+} from "./touchEvents";
 
 export function handleEvents(
   state: EditorState,
@@ -111,8 +106,7 @@ export function handleEvents(
         touchState.currentTouchX,
         touchState.currentTouchY,
         state,
-        viewport,
-        visibility
+        viewport
       );
 
       // Long press behavior depends on whether touching selected text
@@ -206,17 +200,11 @@ export function handleEvents(
       }
     }
 
-    const visibleBlocks = getVisibleBlocks(state.document.page);
-    const allBlocks = state.document.page.blocks;
-    const lastVisibleBlockIndex = visibleBlocks.length > 0
-      ? allBlocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
-      : -1;
     const position = getTextPositionFromViewport(
       touch.clientX,
       touch.clientY,
       state,
-      viewport,
-      { start: 0, end: lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0 }
+      viewport
     );
 
     if (position) {
@@ -289,8 +277,7 @@ export function handleEvents(
       autoScrollState.lastMouseX,
       autoScrollState.lastMouseY,
       state,
-      viewport,
-      visibility // Use current visibility which might be slightly stale but acceptable for one frame
+      viewport
     );
 
     if (position) {
@@ -342,17 +329,11 @@ export function handleEvents(
     }
 
     // Update selection based on new scroll position
-    const visibleBlocks = getVisibleBlocks(state.document.page);
-    const allBlocks = state.document.page.blocks;
-    const lastVisibleBlockIndex = visibleBlocks.length > 0
-      ? allBlocks.findIndex(b => b.id === visibleBlocks[visibleBlocks.length - 1].id)
-      : -1;
     const position = getTextPositionFromViewport(
       autoScrollState.lastMouseX,
       autoScrollState.lastMouseY,
       state,
-      viewport,
-      { start: 0, end: lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0 }
+      viewport
     );
 
     if (position && state.document.selection) {
@@ -548,8 +529,7 @@ export function handleEvents(
           state,
           viewport,
           event as unknown as MouseEvent,
-          containerRect,
-          visibility
+          containerRect
         );
         break;
       case "mousedown":
@@ -561,7 +541,6 @@ export function handleEvents(
           viewport,
           event as unknown as MouseEvent,
           containerRect,
-          visibility,
           documentHeight,
           updateViewportCallback
         );
@@ -577,7 +556,6 @@ export function handleEvents(
           viewport,
           event as unknown as MouseEvent,
           containerRect,
-          visibility,
           documentHeight,
           updateViewportCallback
         );
@@ -707,5 +685,3 @@ export function handleEvents(
 
   return { state, ops: collectedOps };
 }
-
-

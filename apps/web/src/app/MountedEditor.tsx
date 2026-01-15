@@ -662,7 +662,7 @@ export function MountedEditor({
         }
         // Inherit mode: get formats from cursor position
         if (state.document.cursor) {
-          const { blockIndex, textIndex } = state.document.cursor.position;
+          const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
           const block = state.document.page.blocks[blockIndex];
           return getFormatsAtPosition(block, textIndex) || [];
         }
@@ -832,7 +832,7 @@ export function MountedEditor({
         }
         // Inherit mode: get formats from cursor position
         if (state.document.cursor) {
-          const { blockIndex, textIndex } = state.document.cursor.position;
+          const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
           const block = state.document.page.blocks[blockIndex];
           return getFormatsAtPosition(block, textIndex) || [];
         }

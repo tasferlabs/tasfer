@@ -4,7 +4,10 @@ import {
   SELECTION_HANDLE_TOUCH_TARGET,
 } from "../constants";
 import { getBlockHeight, imageCache, invalidateBlockCache } from "../renderer";
-import { getCursorDocumentCoords, scrollToMakeCursorVisible } from "../selection";
+import {
+  getCursorDocumentCoords,
+  scrollToMakeCursorVisible,
+} from "../selection";
 import { getEditorStyles } from "../styles";
 import type { Operation } from "../sync/sync";
 import { getClock, getPageId, getVisibleBlocks, nextId } from "../sync/sync";
@@ -38,21 +41,24 @@ export function getImageBlockAtPoint(
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
   // Iterate through visible blocks to find which one we're over
-  const visibleBlocks = getVisibleBlocks(state.document.page);
-  const allBlocks = state.document.page.blocks;
-  
-  for (const block of visibleBlocks) {
-    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
-    if (blockIndex === -1) continue;
-    
-    const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
+  const visibleBlocks = state.view.visibleBlocks;
+
+  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+    const visibleBlock = visibleBlocks[visibleIdx];
+
+    const blockHeight = getBlockHeight(
+      visibleBlock,
+      maxWidth,
+      styles,
+      visibleIdx === 0
+    );
 
     // Special handling for first block image covers that bleed into padding
-    const isFirstBlock = blockIndex === 0;
-    const isImage = block.type === "image";
+    const isFirstBlock = visibleIdx === 0;
+    const isImage = visibleBlock.type === "image";
 
     // Get image width early to determine if it should bleed
-    const imageWidth = isImage ? block.width ?? "full" : "full";
+    const imageWidth = isImage ? visibleBlock.width ?? "full" : "full";
     const shouldBleed = isFirstBlock && isImage && imageWidth === "full";
 
     // For first block image covers that bleed, check from the top of the viewport (adjusted for padding)
@@ -68,8 +74,8 @@ export function getImageBlockAtPoint(
           styles.blocks.image.dimensions;
 
         // Image properties already calculated above
-        const imageHeight = block.height ?? defaultImageHeight;
-        const objectFit = block.objectFit ?? "cover";
+        const imageHeight = visibleBlock.height ?? defaultImageHeight;
+        const objectFit = visibleBlock.objectFit ?? "cover";
 
         // Calculate container dimensions based on width setting
         let displayWidth: number;
@@ -81,7 +87,7 @@ export function getImageBlockAtPoint(
           displayWidth =
             maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
           displayX = 0;
-          displayHeight = block.url ? imageHeight : placeholderHeight;
+          displayHeight = visibleBlock.url ? imageHeight : placeholderHeight;
         } else {
           // Custom width: respect padding and constrain to container
           const requestedWidth = imageWidth;
@@ -90,12 +96,12 @@ export function getImageBlockAtPoint(
 
           // Adjust height proportionally if width was constrained
           // This ensures images resized on desktop don't get distorted on mobile
-          if (block.url && displayWidth < requestedWidth) {
+          if (visibleBlock.url && displayWidth < requestedWidth) {
             // Width was constrained - adjust height proportionally
             const widthRatio = displayWidth / requestedWidth;
             displayHeight = imageHeight * widthRatio;
           } else {
-            displayHeight = block.url ? imageHeight : placeholderHeight;
+            displayHeight = visibleBlock.url ? imageHeight : placeholderHeight;
           }
         }
 
@@ -118,9 +124,9 @@ export function getImageBlockAtPoint(
           let finalWidth = displayWidth;
           let finalHeight = adjustedHeight;
 
-          if (objectFit === "contain" && block.url) {
+          if (objectFit === "contain" && visibleBlock.url) {
             // Try to get the cached image to calculate actual bounds
-            const cachedImage = imageCache.get(block.url);
+            const cachedImage = imageCache.get(visibleBlock.url);
             if (cachedImage && cachedImage.complete) {
               const imgAspectRatio =
                 cachedImage.naturalWidth / cachedImage.naturalHeight;
@@ -139,7 +145,7 @@ export function getImageBlockAtPoint(
           }
 
           return {
-            blockIndex,
+            blockIndex: visibleIdx,
             x: finalX,
             y: finalY,
             width: finalWidth,
@@ -178,19 +184,16 @@ export function getLineBlockAtPoint(
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
   // Iterate through visible blocks to find which one we're over
-  const visibleBlocks = getVisibleBlocks(state.document.page);
-  const allBlocks = state.document.page.blocks;
-  
-  for (const block of visibleBlocks) {
-    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
-    if (blockIndex === -1) continue;
-    
-    const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
+  const visibleBlocks = state.view.visibleBlocks;
+
+  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+    const visibleBlock = visibleBlocks[visibleIdx];
+    const blockHeight = getBlockHeight(visibleBlock, maxWidth, styles, visibleIdx === 0);
 
     // Check if y is within this block's bounds
     if (y >= currentY && y < currentY + blockHeight) {
       // Check if this is a line block
-      if (block.type === "line") {
+      if (visibleBlock.type === "line") {
         const lineStyles = styles.blocks.line;
 
         // Line block spans the full content width
@@ -207,7 +210,7 @@ export function getLineBlockAtPoint(
           y < displayY + displayHeight
         ) {
           return {
-            blockIndex,
+            blockIndex: visibleIdx,
             x: displayX,
             y: displayY,
             width: displayWidth,
@@ -557,9 +560,10 @@ export function updateImageDrag(
  * @returns Updated state with imageDrag cleared and operations for the resize
  */
 
-export function endImageDrag(
-  state: EditorState
-): { state: EditorState; ops: Operation[] } {
+export function endImageDrag(state: EditorState): {
+  state: EditorState;
+  ops: Operation[];
+} {
   if (!state.ui.imageDrag) {
     return { state, ops: [] };
   }
@@ -693,7 +697,11 @@ function getSelectionHandlePositions(
     return null;
   }
 
-  const anchorCoords = getCursorDocumentCoords(selection.anchor, state, viewport);
+  const anchorCoords = getCursorDocumentCoords(
+    selection.anchor,
+    state,
+    viewport
+  );
   const focusCoords = getCursorDocumentCoords(selection.focus, state, viewport);
 
   if (!anchorCoords || !focusCoords) {

@@ -99,7 +99,7 @@ export function crdtToPosition(
   // For non-textual blocks, always return position 0
   if (!isTextualBlock(block)) {
     return {
-      blockIndex,
+      blockIndex: blockIndex,
       textIndex: 0,
     };
   }
@@ -107,7 +107,7 @@ export function crdtToPosition(
   // If no afterCharId, cursor is at position 0
   if (crdtPos.afterCharId === null) {
     return {
-      blockIndex,
+      blockIndex: blockIndex,
       textIndex: 0,
     };
   }
@@ -127,7 +127,7 @@ export function crdtToPosition(
   if (charVisibleIndex !== -1) {
     // textIndex is the position after the character, so add 1
     return {
-      blockIndex,
+      blockIndex: blockIndex,
       textIndex: charVisibleIndex + 1,
     };
   }
@@ -147,14 +147,14 @@ export function crdtToPosition(
       visibleCountBefore++;
     }
     return {
-      blockIndex,
+      blockIndex: blockIndex,
       textIndex: visibleCountBefore,
     };
   }
 
   // Character ID not found at all, default to end of block
   return {
-    blockIndex,
+    blockIndex: blockIndex,
     textIndex: visibleChars.length,
   };
 }

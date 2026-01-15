@@ -415,7 +415,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
     if (!isTextualBlock(block)) {
       // For image blocks (and other visual blocks), delete the entire block
       // Check if this is the only visible block - if so, replace with empty paragraph
-      const visibleBlocks = getVisibleBlocks(state.document.page);
+      const visibleBlocks = state.view.visibleBlocks;
       if (visibleBlocks.length === 1) {
         // Delete the image block
         const blockDeleteOp: Operation = {
@@ -553,7 +553,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
       }
 
       // Check if we need to create an empty paragraph (all blocks will be deleted)
-      const visibleBlocksCount = getVisibleBlocks(state.document.page).length;
+      const visibleBlocksCount = state.view.visibleBlocks.length;
       const deletingAllBlocks =
         end.blockIndex - start.blockIndex + 1 >= visibleBlocksCount;
 
@@ -750,7 +750,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
   const position = crdtToPosition(state.document.page, cursorCRDT);
   if (!position) return { state, ops };
 
-  const { blockIndex, textIndex } = position;
+  const { blockIndex: blockIndex, textIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
   if (!isTextualBlock(oldBlock)) {
@@ -912,7 +912,7 @@ export function deleteText(state: EditorState): CommandResult {
   const position = crdtToPosition(state.document.page, cursorCRDT);
   if (!position) return { state, ops };
 
-  const { blockIndex, textIndex } = position;
+  const { blockIndex: blockIndex, textIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
   if (!isTextualBlock(oldBlock)) {
     return { state, ops };
@@ -1235,7 +1235,7 @@ export function deleteForward(state: EditorState): CommandResult {
   const position = crdtToPosition(state.document.page, cursorCRDT);
   if (!position) return { state, ops };
 
-  const { blockIndex, textIndex } = position;
+  const { blockIndex: blockIndex, textIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
   if (!isTextualBlock(oldBlock)) {
@@ -1541,7 +1541,7 @@ export function moveToPreviousWord(state: EditorState): EditorState {
   const position = crdtToPosition(state.document.page, cursorCRDT);
   if (!position) return state;
 
-  const { blockIndex, textIndex } = position;
+  const { blockIndex: blockIndex, textIndex } = position;
   const block = state.document.page.blocks[blockIndex];
   const text = getBlockTextContent(block);
 
@@ -1602,7 +1602,7 @@ export function moveToNextWord(state: EditorState): EditorState {
   const position = crdtToPosition(state.document.page, cursorCRDT);
   if (!position) return state;
 
-  const { blockIndex, textIndex } = position;
+  const { blockIndex: blockIndex, textIndex } = position;
   const block = state.document.page.blocks[blockIndex];
   if (!block || block.deleted) return state;
   const text = getBlockTextContent(block);
@@ -1671,7 +1671,7 @@ export function deleteWordForward(state: EditorState): CommandResult {
   const position = crdtToPosition(state.document.page, cursorCRDT);
   if (!position) return { state, ops };
 
-  const { blockIndex, textIndex } = position;
+  const { blockIndex: blockIndex, textIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
   if (!isTextualBlock(oldBlock)) {
     return { state, ops };
@@ -1791,7 +1791,7 @@ export function deleteWordBackward(state: EditorState): CommandResult {
   const position = crdtToPosition(state.document.page, cursorCRDT);
   if (!position) return { state, ops };
 
-  const { blockIndex, textIndex } = position;
+  const { blockIndex: blockIndex, textIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
   if (!isTextualBlock(oldBlock)) {
@@ -1940,7 +1940,7 @@ export function selectWordAtPosition(
   const validPosition = crdtToPosition(state.document.page, positionCRDT);
   if (!validPosition) return state;
 
-  const { blockIndex, textIndex } = validPosition;
+  const { blockIndex: blockIndex, textIndex } = validPosition;
   const block = state.document.page.blocks[blockIndex];
   if (!block || block.deleted) return state;
   const text = getBlockTextContent(block);
@@ -1963,8 +1963,8 @@ export function selectWordAtPosition(
   // If we're not in a word, don't select anything
   if (wordStart === wordEnd) return state;
 
-  const startPos: Position = { blockIndex, textIndex: wordStart };
-  const endPos: Position = { blockIndex, textIndex: wordEnd };
+  const startPos: Position = { blockIndex: blockIndex, textIndex: wordStart };
+  const endPos: Position = { blockIndex: blockIndex, textIndex: wordEnd };
 
   // Create selection from word start to word end, with cursor at end
   // Store initial boundary so anchor can adjust properly on drag
@@ -2001,13 +2001,13 @@ export function selectLineAtPosition(
   const validPosition = crdtToPosition(state.document.page, positionCRDT);
   if (!validPosition) return state;
 
-  const { blockIndex } = validPosition;
+  const { blockIndex: blockIndex } = validPosition;
   const block = state.document.page.blocks[blockIndex];
   if (!block || block.deleted) return state;
   const text = getBlockTextContent(block);
 
-  const startPos: Position = { blockIndex, textIndex: 0 };
-  const endPos: Position = { blockIndex, textIndex: text.length };
+  const startPos: Position = { blockIndex: blockIndex, textIndex: 0 };
+  const endPos: Position = { blockIndex: blockIndex, textIndex: text.length };
 
   // Create selection for entire block
   // Store initial boundary so anchor can adjust properly on drag
@@ -2046,7 +2046,7 @@ export function moveToLineStart(state: EditorState): EditorState {
   const position = crdtToPosition(state.document.page, cursorCRDT);
   if (!position) return state;
 
-  const { blockIndex } = position;
+  const { blockIndex: blockIndex } = position;
   return moveCursorToPosition(state, blockIndex, 0);
 }
 
@@ -2064,7 +2064,7 @@ export function moveToLineEnd(state: EditorState): EditorState {
   const position = crdtToPosition(state.document.page, cursorCRDT);
   if (!position) return state;
 
-  const { blockIndex } = position;
+  const { blockIndex: blockIndex } = position;
   const block = state.document.page.blocks[blockIndex];
   if (!block || block.deleted) return state;
   const text = getBlockTextContent(block);
@@ -2144,7 +2144,7 @@ export function extendSelectionEnd(
   const movedState = isCtrl
     ? (() => {
         // Get last visible block and find its index in the full array
-        const visibleBlocks = getVisibleBlocks(newState.document.page);
+        const visibleBlocks = newState.view.visibleBlocks;
         if (visibleBlocks.length === 0) return newState;
         const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
         const allBlocks = newState.document.page.blocks;
@@ -2183,7 +2183,7 @@ export function splitBlock(state: EditorState): CommandResult {
   const position = crdtToPosition(state.document.page, cursorCRDT);
   if (!position) return { state, ops: [] };
 
-  const { blockIndex, textIndex } = position;
+  const { blockIndex: blockIndex, textIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
   // Handle Enter key on selected image: create new paragraph below
@@ -2557,7 +2557,7 @@ export function splitBlock(state: EditorState): CommandResult {
 }
 
 export function selectAll(state: EditorState): EditorState {
-  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const visibleBlocks = state.view.visibleBlocks;
   if (visibleBlocks.length === 0) return state;
 
   const allBlocks = state.document.page.blocks;
@@ -2600,14 +2600,14 @@ export function selectAll(state: EditorState): EditorState {
 export function selectCurrentBlock(state: EditorState): EditorState {
   if (!state.document.cursor) return state;
 
-  const { blockIndex } = state.document.cursor.position;
+  const { blockIndex: blockIndex } = state.document.cursor.position;
   const block = state.document.page.blocks[blockIndex];
 
   if (!block || block.deleted) return state;
 
   // For image blocks, select the block by marking it with a selection
   if (block.type === "image") {
-    const imagePosition: Position = { blockIndex, textIndex: 0 };
+    const imagePosition: Position = { blockIndex: blockIndex, textIndex: 0 };
 
     let newState = moveCursorToPosition(state, blockIndex, 0);
 
@@ -2635,8 +2635,8 @@ export function selectCurrentBlock(state: EditorState): EditorState {
 
   // For text blocks, select all text in the block
   const blockLength = getBlockTextLength(block);
-  const startPos: Position = { blockIndex, textIndex: 0 };
-  const endPos: Position = { blockIndex, textIndex: blockLength };
+  const startPos: Position = { blockIndex: blockIndex, textIndex: 0 };
+  const endPos: Position = { blockIndex: blockIndex, textIndex: blockLength };
 
   let newState = moveCursorToPosition(state, blockIndex, blockLength);
   newState = startSelection(newState, startPos);
@@ -2671,7 +2671,7 @@ export function toggleFormat(
     const position = crdtToPosition(state.document.page, cursorCRDT);
     if (!position) return { state, ops: [] };
 
-    const { blockIndex, textIndex } = position;
+    const { blockIndex: blockIndex, textIndex } = position;
     const block = state.document.page.blocks[blockIndex];
     if (!block || block.deleted) return { state, ops: [] };
 
@@ -2917,7 +2917,7 @@ export function convertBlockType(
   const position = crdtToPosition(state.document.page, cursorCRDT);
   if (!position) return { state, ops: [] };
 
-  const { blockIndex } = position;
+  const { blockIndex: blockIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
   // Only text blocks can have content property
@@ -3427,7 +3427,7 @@ export function indentListItem(state: EditorState): CommandResult {
   const position = crdtToPosition(state.document.page, cursorCRDT);
   if (!position) return { state, ops: [] };
 
-  const { blockIndex } = position;
+  const { blockIndex: blockIndex } = position;
   const block = state.document.page.blocks[blockIndex];
   if (!block || block.deleted) return { state, ops: [] };
 
@@ -3491,7 +3491,7 @@ export function outdentListItem(state: EditorState): CommandResult {
   const position = crdtToPosition(state.document.page, cursorCRDT);
   if (!position) return { state, ops: [] };
 
-  const { blockIndex } = position;
+  const { blockIndex: blockIndex } = position;
   const block = state.document.page.blocks[blockIndex];
   if (!block || block.deleted) return { state, ops: [] };
 
@@ -3641,7 +3641,7 @@ export function convertToList(
   const position = crdtToPosition(state.document.page, cursorCRDT);
   if (!position) return { state, ops: [] };
 
-  const { blockIndex } = position;
+  const { blockIndex: blockIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
   if (!isTextualBlock(oldBlock)) return { state, ops: [] };

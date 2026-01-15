@@ -65,7 +65,10 @@ function charRunsToChars(charRuns: CharRun[] | undefined): Char[] {
  * Get visible text from Char[] array (filters out deleted chars)
  */
 function getVisibleTextFromChars(chars: Char[]): string {
-  return chars.filter(c => !c.deleted).map(c => c.char).join("");
+  return chars
+    .filter((c) => !c.deleted)
+    .map((c) => c.char)
+    .join("");
 }
 
 // Helper to inject composition text into block for rendering
@@ -153,7 +156,7 @@ export const getBlockHeight = (
   block: Block,
   maxWidth: number,
   styles: EditorStyles,
-  blockIndex?: number
+  first: boolean
 ): number => {
   // Calculate the base height (with caching)
   let height: number;
@@ -168,7 +171,7 @@ export const getBlockHeight = (
   // Special handling for first block image covers that bleed into top padding
   // They use up the padding space, so we subtract it from the effective height
   // Only apply this for full-width images that actually bleed
-  if (blockIndex === 0 && block.type === "image") {
+  if (first && block.type === "image") {
     const imageWidth = block.width ?? "full";
     const shouldBleed = imageWidth === "full";
     if (shouldBleed) {
@@ -210,7 +213,12 @@ function measureCRDTLineWidth(
   for (const batch of batches) {
     const effectiveFontWeight = batch.isBold ? "bold" : textStyle.fontWeight;
     // Measure the entire batch as a string (preserves ligature widths)
-    width += measureText(batch.text, textStyle.fontSize, effectiveFontWeight, fontFamily);
+    width += measureText(
+      batch.text,
+      textStyle.fontSize,
+      effectiveFontWeight,
+      fontFamily
+    );
   }
 
   return width;
@@ -308,7 +316,12 @@ function renderCRDTLine(
   ctx.direction = isRTL ? "rtl" : "ltr";
 
   // Batch characters by formatting to preserve Arabic ligatures
-  const batches: TextBatch[] = batchCRDTChars(chars, formats, lineStartIndex, lineEndIndex);
+  const batches: TextBatch[] = batchCRDTChars(
+    chars,
+    formats,
+    lineStartIndex,
+    lineEndIndex
+  );
 
   // Render each batch
   let currentX = x;
@@ -439,39 +452,33 @@ export const renderPage = (
   const documentHeight = viewport.documentHeight;
 
   // Render each visible block
-  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const visibleBlocks = state.view.visibleBlocks;
   let foundVisibleBlock = false;
-  
-  // Map to track original indices for compatibility
-  const allBlocks = state.document.page.blocks;
-  let originalIndex = 0;
-  
+
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const block = visibleBlocks[visibleIdx];
-    
-    // Find the original index of this block in the full array
-    while (originalIndex < allBlocks.length && allBlocks[originalIndex].id !== block.id) {
-      originalIndex++;
-    }
-    
-    if (originalIndex >= allBlocks.length) break;
-    
+
     // Get or calculate block height (cached on the block itself)
-    const blockHeight = getBlockHeight(block, maxWidth, styles, originalIndex);
+    const blockHeight = getBlockHeight(
+      block,
+      maxWidth,
+      styles,
+      visibleIdx === 0
+    );
 
     // Only render if block is visible in viewport
     if (isBlockVisible(currentY, blockHeight, viewport)) {
       if (!foundVisibleBlock) {
-        visibility.start = originalIndex;
+        visibility.start = visibleIdx;
         foundVisibleBlock = true;
       }
-      visibility.end = originalIndex;
+      visibility.end = visibleIdx;
 
       const renderedBlock = renderBlock(
         ctx,
         state,
         block,
-        originalIndex,
+        visibleIdx,
         styles.canvas.paddingLeft,
         currentY,
         maxWidth,
@@ -484,7 +491,6 @@ export const renderPage = (
       break;
     }
     currentY += blockHeight;
-    originalIndex++;
   }
 
   // Add extra padding on mobile devices for keyboard space
@@ -819,17 +825,19 @@ function calculateListItemNumber(
 
   // Count backwards to find previous numbered list items at the same indent level
   // Only consider visible blocks
-  const visibleBlocks = getVisibleBlocks(state.document.page);
+  const visibleBlocks = state.view.visibleBlocks;
   const allBlocks = state.document.page.blocks;
-  
+
   // Find visible blocks before the current block
   for (let i = visibleBlocks.length - 1; i >= 0; i--) {
     const visibleBlock = visibleBlocks[i];
-    const visibleBlockIndex = allBlocks.findIndex(b => b.id === visibleBlock.id);
-    
+    const visibleBlockIndex = allBlocks.findIndex(
+      (b) => b.id === visibleBlock.id
+    );
+
     // Only consider blocks before the current block
     if (visibleBlockIndex >= blockIndex) continue;
-    
+
     const prevBlock = visibleBlock;
 
     // Stop if we hit a non-list block or different list type
@@ -1962,16 +1970,17 @@ function calculateCursorPosition(
 
   // Calculate block position
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
-  const visibleBlocks = getVisibleBlocks(state.document.page);
-  const allBlocks = state.document.page.blocks;
-  
-  for (const block of visibleBlocks) {
-    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
-    if (blockIndex >= position.blockIndex) break;
-    if (blockIndex !== -1) {
-      const blockHeight = getBlockHeight(block, maxWidth, styles, blockIndex);
-      currentY += blockHeight;
-    }
+  const visibleBlocks = state.view.visibleBlocks;
+
+  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+    const visibleBlock = visibleBlocks[visibleIdx];
+    const blockHeight = getBlockHeight(
+      visibleBlock,
+      maxWidth,
+      styles,
+      visibleIdx === 0
+    );
+    currentY += blockHeight;
   }
 
   // Get text style
@@ -2217,20 +2226,25 @@ export function renderCursorLayer(
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
-  const visibleBlocks = getVisibleBlocks(state.document.page);
-  const allBlocks = state.document.page.blocks;
-  
-  for (const visibleBlock of visibleBlocks) {
-    const blockIndex = allBlocks.findIndex(b => b.id === visibleBlock.id);
-    if (blockIndex >= cursorBlockIndex) break;
-    if (blockIndex !== -1) {
-      // Only account for visible blocks in Y position calculation
-      const blockHeight = getBlockHeight(visibleBlock, maxWidth, styles, blockIndex);
-      currentY += blockHeight;
-    }
+  const visibleBlocks = state.view.visibleBlocks;
+
+  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+    const visibleBlock = visibleBlocks[visibleIdx];
+    const blockHeight = getBlockHeight(
+      visibleBlock,
+      maxWidth,
+      styles,
+      visibleIdx === 0
+    );
+    currentY += blockHeight;
   }
 
-  const blockHeight = getBlockHeight(block, maxWidth, styles, cursorBlockIndex);
+  const blockHeight = getBlockHeight(
+    block,
+    maxWidth,
+    styles,
+    visibleBlocks.length - 1 === cursorBlockIndex
+  );
   if (currentY + blockHeight < 0 || currentY > viewport.height) {
     // Cursor block is not visible in viewport
     ctx.restore();
@@ -2394,22 +2408,22 @@ function getPositionCoordinates(
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
 
   // Calculate Y position by summing heights of previous blocks
-  const visibleBlocks = getVisibleBlocks(state.document.page);
-  const allBlocks = state.document.page.blocks;
-  
-  for (const block of visibleBlocks) {
-    const blockIndex = allBlocks.findIndex(b => b.id === block.id);
-    if (blockIndex >= position.blockIndex) break;
-    if (blockIndex !== -1) {
-      currentY += getBlockHeight(block, maxWidth, styles, blockIndex);
-    }
+  const visibleBlocks = state.view.visibleBlocks;
+
+  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+    const visibleBlock = visibleBlocks[visibleIdx];
+    currentY += getBlockHeight(
+      visibleBlock,
+      maxWidth,
+      styles,
+      visibleIdx === 0
+    );
   }
 
-  const block = state.document.page.blocks[position.blockIndex];
-  if (!block || block.deleted) return null;
-  if (!block || block.type === "image" || !isTextualBlock(block)) {
-    return null;
-  }
+  const block = visibleBlocks[position.blockIndex];
+  if (!block) return null;
+  if (block.deleted) return null;
+  if (!isTextualBlock(block)) return null;
 
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();

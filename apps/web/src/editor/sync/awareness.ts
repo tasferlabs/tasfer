@@ -368,7 +368,7 @@ export function awarenessCursorToPosition(
   }
 
   return {
-    blockIndex,
+    blockIndex: blockIndex,
     textIndex: Math.max(0, textIndex),
   };
 }

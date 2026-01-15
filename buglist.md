@@ -249,3 +249,4 @@ Bugs list
 - [ ] dawers should have scroll
 - [-] undo or any edting opeartion should ensureCursor visible
 - [ ] render where other user is on scroll bar
+- [ ] wehn deleting a block and undoing it merges them
