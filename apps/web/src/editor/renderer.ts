@@ -15,6 +15,9 @@ import {
   type FontFamily,
   type TextBatch,
 } from "./fonts";
+import { renderScrollbar } from "./scrollbar";
+import { getBlockTextContent, isCursorBlinking, isTouchDevice } from "./state";
+import { getEditorStyles, getTextStyle } from "./styles";
 import type { AwarenessState } from "./sync/awareness";
 import {
   awarenessCursorToPosition,
@@ -26,9 +29,6 @@ import {
   isCharDeleted,
   iterateVisibleChars,
 } from "./sync/char-runs";
-import { renderScrollbar } from "./scrollbar";
-import { getBlockTextContent, isCursorBlinking, isTouchDevice } from "./state";
-import { getEditorStyles, getTextStyle } from "./styles";
 import type {
   BlockBounds,
   EditorState,
@@ -162,7 +162,7 @@ export const getBlockHeight = (
     height = block.cachedHeight;
   } else {
     if (first) {
-      console.log("NOT CACHED")
+      console.log("NOT CACHED");
     }
     height = calculateBlockHeight(block, maxWidth, styles);
     block.cachedHeight = height;
@@ -433,7 +433,7 @@ export const renderPage = (
   viewport: ViewportState,
   visibility: { start: number; end: number },
   styles: EditorStyles = getEditorStyles(),
-  remoteAwareness?: Map<string, AwarenessState>
+  remoteAwareness: Map<string, AwarenessState>
 ) => {
   // Save context state
   ctx.save();
@@ -479,7 +479,7 @@ export const renderPage = (
         ctx,
         state,
         block,
-        visibleIdx,
+        block.originalIndex,
         styles.canvas.paddingLeft,
         currentY,
         maxWidth,
@@ -501,7 +501,7 @@ export const renderPage = (
   renderSelectionHandles(ctx, state, viewport, styles);
 
   // Render scrollbar
-  renderScrollbar(ctx, viewport, documentHeight, state.view.scrollbar);
+  renderScrollbar(ctx, viewport, documentHeight, state, remoteAwareness);
 
   // Restore context state (undo scaling)
   ctx.restore();
@@ -2101,6 +2101,87 @@ function calculateCursorPosition(
  * Render remote user cursors.
  * Each cursor is drawn with the peer's color.
  */
+interface OutOfViewPeer {
+  awareness: AwarenessState;
+  direction: "above" | "below";
+  x: number;
+}
+
+function renderOutOfViewIndicators(
+  ctx: CanvasRenderingContext2D,
+  peers: OutOfViewPeer[],
+  viewport: ViewportState
+) {
+  const abovePeers = peers.filter((p) => p.direction === "above");
+  const belowPeers = peers.filter((p) => p.direction === "below");
+
+  const pillHeight = 24;
+  const pillPadding = 8;
+  const fontSize = 12;
+  const chevronSize = 6;
+  const gap = 8;
+
+  ctx.font = `600 ${fontSize}px ${FONT_STACKS.poppins}`;
+
+  // Render indicators for peers above viewport
+  abovePeers.forEach((peer, i) => {
+    const initial = peer.awareness.user.name?.charAt(0).toUpperCase() || "?";
+    const textWidth = ctx.measureText(initial).width;
+    const pillWidth = textWidth + pillPadding * 2;
+
+    const x = pillPadding + i * (pillWidth + gap);
+    const y = pillPadding + chevronSize;
+
+    // Draw chevron pointing up
+    ctx.fillStyle = peer.awareness.user.color;
+    ctx.beginPath();
+    ctx.moveTo(x + pillWidth / 2, y - chevronSize);
+    ctx.lineTo(x + pillWidth / 2 - chevronSize, y);
+    ctx.lineTo(x + pillWidth / 2 + chevronSize, y);
+    ctx.closePath();
+    ctx.fill();
+
+    // Draw pill background
+    ctx.beginPath();
+    ctx.roundRect(x, y, pillWidth, pillHeight, pillHeight / 2);
+    ctx.fill();
+
+    // Draw initial
+    ctx.fillStyle = "#FFFFFF";
+    ctx.textBaseline = "middle";
+    ctx.fillText(initial, x + pillPadding, y + pillHeight / 2);
+  });
+
+  // Render indicators for peers below viewport
+  belowPeers.forEach((peer, i) => {
+    const initial = peer.awareness.user.name?.charAt(0).toUpperCase() || "?";
+    const textWidth = ctx.measureText(initial).width;
+    const pillWidth = textWidth + pillPadding * 2;
+
+    const x = pillPadding + i * (pillWidth + gap);
+    const y = viewport.height - pillPadding - pillHeight - chevronSize;
+
+    // Draw pill background
+    ctx.fillStyle = peer.awareness.user.color;
+    ctx.beginPath();
+    ctx.roundRect(x, y, pillWidth, pillHeight, pillHeight / 2);
+    ctx.fill();
+
+    // Draw chevron pointing down
+    ctx.beginPath();
+    ctx.moveTo(x + pillWidth / 2, y + pillHeight + chevronSize);
+    ctx.lineTo(x + pillWidth / 2 - chevronSize, y + pillHeight);
+    ctx.lineTo(x + pillWidth / 2 + chevronSize, y + pillHeight);
+    ctx.closePath();
+    ctx.fill();
+
+    // Draw initial
+    ctx.fillStyle = "#FFFFFF";
+    ctx.textBaseline = "middle";
+    ctx.fillText(initial, x + pillPadding, y + pillHeight / 2);
+  });
+}
+
 function renderRemoteCursors(
   ctx: CanvasRenderingContext2D,
   state: EditorState,
@@ -2108,6 +2189,8 @@ function renderRemoteCursors(
   styles: EditorStyles,
   remoteAwareness: Map<string, AwarenessState>
 ) {
+  const outOfViewPeers: OutOfViewPeer[] = [];
+
   for (const [_peerId, awareness] of remoteAwareness) {
     // Skip if no cursor
     if (!awareness.cursor) continue;
@@ -2133,6 +2216,16 @@ function renderRemoteCursors(
       styles
     );
     if (!cursorPos) continue;
+
+    // Check if cursor is out of viewport
+    if (cursorPos.y + cursorPos.height < 0) {
+      outOfViewPeers.push({ awareness, direction: "above", x: cursorPos.x });
+      continue;
+    }
+    if (cursorPos.y > viewport.height) {
+      outOfViewPeers.push({ awareness, direction: "below", x: cursorPos.x });
+      continue;
+    }
 
     // Draw the remote cursor with the peer's color
     ctx.fillStyle = awareness.user.color;
@@ -2172,6 +2265,11 @@ function renderRemoteCursors(
         cursorPos.y - labelPadding - 4
       );
     }
+  }
+
+  // Render out-of-view indicators
+  if (outOfViewPeers.length > 0) {
+    renderOutOfViewIndicators(ctx, outOfViewPeers, viewport);
   }
 }
 
