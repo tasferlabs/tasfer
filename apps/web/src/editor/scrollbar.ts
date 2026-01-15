@@ -4,7 +4,7 @@ import {
   awarenessCursorToPosition,
   type AwarenessState,
 } from "./sync/awareness";
-import type { EditorState, EditorStyles, ViewportState } from "./types";
+import type { EditorState, ViewportState } from "./types";
 
 export interface ScrollbarState {
   readonly isDragging: boolean;
@@ -193,7 +193,7 @@ export interface ScrollbarBounds {
 export function calculateScrollbarBounds(
   viewport: ViewportState,
   documentHeight: number,
-  state: ScrollbarState,
+  _state: ScrollbarState,
   styles: ScrollbarStyles = getScrollbarStyles()
 ): ScrollbarBounds {
   const trackWidth = styles.width;
@@ -325,7 +325,14 @@ export function renderScrollbar(
       viewport,
       documentHeight
     );
-    renderScrollbarPeerMarkers(ctx, viewport, documentHeight, peerMarkers, styles, opacity);
+    renderScrollbarPeerMarkers(
+      ctx,
+      viewport,
+      documentHeight,
+      peerMarkers,
+      styles,
+      opacity
+    );
   }
 }
 

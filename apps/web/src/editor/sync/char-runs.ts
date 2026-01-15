@@ -8,7 +8,8 @@
  * ID computation: Each character's ID = `${peerId}:${startCounter + offset}`
  */
 
-import type { Char, CharRun } from "@/deserializer/loadPage";
+import type { Block, Char, CharRun, TextualBlock } from "@/deserializer/loadPage";
+import { isTextualBlock } from "@/deserializer/loadPage";
 import { extractPeerId, extractCounter, compareIds } from "./id";
 
 // =============================================================================
@@ -665,4 +666,73 @@ export function charRunsToChars(runs: CharRun[]): Char[] {
   }
 
   return chars;
+}
+
+// =============================================================================
+// Title Extraction
+// =============================================================================
+
+const MAX_TITLE_LENGTH = 100;
+
+/**
+ * Extract a title from blocks by finding the first non-empty text block.
+ * Prefers headings over paragraphs/lists.
+ * Returns empty string if no suitable title is found.
+ *
+ * @param blocks - Array of blocks to search
+ * @param maxLength - Maximum title length (default: 100)
+ */
+export function extractTitleFromBlocks(
+  blocks: Block[] | undefined,
+  maxLength: number = MAX_TITLE_LENGTH
+): string {
+  if (!blocks || blocks.length === 0) return "";
+
+  // First pass: look for first non-empty heading
+  for (const block of blocks) {
+    if (block.deleted) continue;
+    if (
+      block.type === "heading1" ||
+      block.type === "heading2" ||
+      block.type === "heading3"
+    ) {
+      const text = getVisibleTextFromRuns((block as TextualBlock).charRuns);
+      const trimmed = text.trim();
+      if (trimmed.length > 0) {
+        return truncateTitle(trimmed, maxLength);
+      }
+    }
+  }
+
+  // Second pass: look for first non-empty text block (paragraph or list)
+  for (const block of blocks) {
+    if (block.deleted) continue;
+    if (isTextualBlock(block)) {
+      const text = getVisibleTextFromRuns((block as TextualBlock).charRuns);
+      const trimmed = text.trim();
+      if (trimmed.length > 0) {
+        return truncateTitle(trimmed, maxLength);
+      }
+    }
+  }
+
+  return "";
+}
+
+/**
+ * Truncate title to max length, breaking at word boundary if possible.
+ */
+function truncateTitle(title: string, maxLength: number): string {
+  if (title.length <= maxLength) return title;
+
+  // Try to break at a word boundary
+  const truncated = title.slice(0, maxLength);
+  const lastSpace = truncated.lastIndexOf(" ");
+
+  if (lastSpace > maxLength * 0.6) {
+    // Only break at space if it's not too far back
+    return truncated.slice(0, lastSpace);
+  }
+
+  return truncated;
 }

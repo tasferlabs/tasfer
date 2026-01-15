@@ -21,11 +21,12 @@ router.get("/list", async (req, res) => {
       .select({
         id: pages.id,
         title: pages.title,
+        autoTitle: pages.autoTitle,
         parentId: pages.parentId,
         order: pages.order,
         createdAt: pages.createdAt,
         hasChildren: sql<boolean>`CASE WHEN EXISTS (
-          SELECT 1 FROM pages p2 
+          SELECT 1 FROM pages p2
           WHERE p2."parentId" = pages.id
         ) THEN true ELSE false END`,
       })
@@ -106,6 +107,7 @@ router.get("/:id", async (req, res) => {
       data: {
         id: page.id,
         title: page.title,
+        autoTitle: page.autoTitle,
         parentId: page.parentId,
         order: page.order,
         createdAt: page.createdAt,
@@ -267,7 +269,7 @@ router.post("/create", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, snapshot: snapshotBlocks, snapshotClock } = req.body;
+    const { title, autoTitle, snapshot: snapshotBlocks, snapshotClock } = req.body;
 
     const page = await db.query.pages.findFirst({
       where: eq(pages.id, id),
@@ -277,13 +279,25 @@ router.put("/:id", async (req, res) => {
       return res.status(404).json({ success: false, error: "Page not found" });
     }
 
+    // Build update object
+    const updateData: { title?: string; autoTitle?: boolean; updatedAt: Date } = {
+      updatedAt: new Date(),
+    };
+
+    // Update title if provided
+    if (title !== undefined) {
+      updateData.title = title;
+    }
+
+    // Update autoTitle flag if provided
+    if (autoTitle !== undefined) {
+      updateData.autoTitle = autoTitle;
+    }
+
     // Update page metadata
     const updated = await db
       .update(pages)
-      .set({
-        title: title || page.title,
-        updatedAt: new Date(),
-      })
+      .set(updateData)
       .where(eq(pages.id, id))
       .returning();
 

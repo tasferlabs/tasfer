@@ -1,5 +1,6 @@
 import {
   bigint,
+  boolean,
   integer,
   pgTable,
   text,
@@ -10,6 +11,8 @@ import {
 export const pages = pgTable("pages", {
   id: varchar("id", { length: 30 }).primaryKey(),
   title: text("title"),
+  // When true, title is auto-generated from content; when false, user has set it manually
+  autoTitle: boolean("autoTitle").notNull().default(true),
 
   parentId: varchar("parentId", { length: 30 }),
   order: integer("order").notNull().default(0),

@@ -174,16 +174,16 @@ Bugs list
 - [ ] change position of cover image.
 - [-] Remove an image. Improve EditImagePopover.
 - [x] word count should not count images.
-- [ ] copy and paste should work with images.
+- [x] copy and paste should work with images.
 - [-] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
-- [ ] scrollbar should not hit bottom porition on mobile (or at least on ios)
+- [x] scrollbar should not hit bottom porition on mobile (or at least on ios)
 - [x] hide editimagepopover on mobile
 - [x] hide scrollbar when not scrolling
 - [x] one click on selection should trigger context menu.
 - [x] focus issue on context menu
 - [x] select all on mobile not working really, i we already have selection on some block. It would select from start of that exisitng selectio until the end.
 - [x] Android keyboard rendering stops after tap in selection - fixed by updating cursor position while preserving selection
-- [ ] I want drag context menu activation like native menu have.
+- [ ] ˜˜I want drag context menu activation like native menu have.˜˜
 - [x] drag thumb drag detection on mobile should have buffer area.
 - [x] selection drag rtl is broken
 - [x] draging image handle and scrolling should work too.
@@ -228,7 +228,7 @@ Bugs list
 - [x] fix stoarge problems with crdt
 - [x] Database Operations Table
 - [x] snapshotting
-- [ ] snapshot restore
+- [x] snapshot restore
 - [ ] why snapshot have hlc clock
 - [ ] do we have uncessary long ids in snapshot
 - [x] crdt pasting ad docoumet paste only first block
@@ -253,5 +253,14 @@ Bugs list
 - [ ] Interleaving on Concurrent Inserts
 - [ ] Short Peer IDs
 - [ ] tombstone pruning
-- [ ] format span accumlation
+- [x] format span accumlation
 - [ ] genreatic get block at positons
+- [ ] export/import features
+- [ ] iamge place holder
+- [x] title not updating in sidebar when triggering auto update.
+- [ ] saving indictor loads for ever when editing offline.
+
+
+
+reloading page edited offline not working, it is not saving the content, the should queue operations and not rest requests.
+All listed pages are not available offline, how should we fix it?

@@ -206,13 +206,14 @@ export function PageLink({
         (old) => {
           return old?.map((page) => {
             if (page.id === data.id) {
-              return { ...page, title: localTitle };
+              return { ...page, title: localTitle, autoTitle: false };
             }
             return page;
           });
         }
       );
-      updatePage({ id: data.id, title: localTitle });
+      // Set autoTitle=false since user is manually setting the title
+      updatePage({ id: data.id, title: localTitle, autoTitle: false });
     }
     setEditingPageId(null);
   }

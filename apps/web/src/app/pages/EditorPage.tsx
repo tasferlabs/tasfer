@@ -9,7 +9,7 @@ import { MountedEditor } from "../MountedEditor";
 import type { SyncState } from "../../editor/sync/websocket";
 import type { AwarenessUser } from "@/editor/sync/awareness";
 import { isTextualBlock, type Block, type TextualBlock } from "@/deserializer/loadPage";
-import { getVisibleTextFromRuns } from "@/editor/sync/char-runs";
+import { getVisibleTextFromRuns, extractTitleFromBlocks } from "@/editor/sync/char-runs";
 
 // WebSocket server URL - defaults to using Vite proxy
 // Uses wss:// for HTTPS, ws:// for HTTP
@@ -78,6 +78,7 @@ function countWordsFromBlocks(blocks: Block[]): number {
 
 export default function EditorPage() {
   const { id } = useParams<{ id: string }>();
+  const queryClient = useQueryClient();
   const {
     setIsSaving: setGlobalIsSaving,
     setWordCount,
@@ -94,6 +95,9 @@ export default function EditorPage() {
   const [snapshotClock, setSnapshotClock] = useState<HLC | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
+  // Auto-title state - when true, title is auto-generated from content
+  const [autoTitle, setAutoTitle] = useState(true);
+  const [currentTitle, setCurrentTitle] = useState<string>("");
   // Live sync state
   const [_syncState, setSyncState] = useState<SyncState>({
     status: "disconnected",
@@ -114,6 +118,16 @@ export default function EditorPage() {
       setWordCount(count);
     }, 500)
   ).current;
+
+  // Refs for auto-title to avoid stale closures
+  const autoTitleRef = useRef(autoTitle);
+  const currentTitleRef = useRef(currentTitle);
+  useEffect(() => {
+    autoTitleRef.current = autoTitle;
+  }, [autoTitle]);
+  useEffect(() => {
+    currentTitleRef.current = currentTitle;
+  }, [currentTitle]);
 
   useEffect(() => {
     if (id) {
@@ -155,6 +169,9 @@ export default function EditorPage() {
           setPageSnapshot(snapshot);
           // Track snapshot clock for delta sync
           setSnapshotClock(page.snapshotClock || null);
+          // Track auto-title state
+          setAutoTitle(page.autoTitle);
+          setCurrentTitle(page.title || "");
           setIsLoading(false);
           // Update initial word count from blocks
           setWordCount(countWordsFromBlocks(snapshot));
@@ -188,12 +205,36 @@ export default function EditorPage() {
       if (!id) return;
 
       try {
-        await updatePage({ id, snapshot, snapshotClock: clock });
+        // Check if we should auto-update the title
+        const updateData: {
+          id: string;
+          snapshot: Block[];
+          snapshotClock: HLC | null;
+          title?: string;
+        } = { id, snapshot, snapshotClock: clock };
+
+        let titleChanged = false;
+        if (autoTitleRef.current) {
+          const extractedTitle = extractTitleFromBlocks(snapshot);
+          if (extractedTitle !== currentTitleRef.current) {
+            updateData.title = extractedTitle;
+            setCurrentTitle(extractedTitle);
+            titleChanged = true;
+          }
+        }
+
+        await updatePage(updateData);
+
+        // Invalidate page list queries AFTER save completes so sidebar gets updated title
+        if (titleChanged) {
+          queryClient.invalidateQueries({ queryKey: ["pages"] });
+          queryClient.invalidateQueries({ queryKey: ["page"] });
+        }
       } catch (error) {
         console.error("Failed to save content:", error);
       }
     },
-    [id, updatePage]
+    [id, updatePage, queryClient]
   );
 
   const {

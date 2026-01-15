@@ -148,7 +148,7 @@ export interface ViewState {
   readonly scrollbar: ScrollbarState;
   readonly momentum: MomentumState;
   readonly hasPhysicalKeyboard: boolean; // Set by native side when hardware keyboard is connected
-  visibleBlocks: readonly (Block & { originalIndex: number })[];
+  visibleBlocks: (Block & { originalIndex: number })[];
 }
 
 // Undo tracks operations per user for independent undo/redo

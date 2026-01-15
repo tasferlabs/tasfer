@@ -37,6 +37,7 @@ import { WebSocketSync, type SyncState } from "@/editor/sync/websocket";
 import { SyncEngine, type AwarenessState, type HLC } from "@/editor/sync/sync";
 import type { AwarenessUser } from "@/editor/sync/awareness";
 import { hasNativeBridge } from "@/editor/actions/clipboard";
+import { OfflineStore } from "@/offline/store";
 
 interface MountedEditorProps {
   snapshot: Block[];
@@ -44,7 +45,7 @@ interface MountedEditorProps {
   /** Called when content changes. clock is the HLC of the latest operation. */
   onContentChange?: (snapshot: Block[], clock: HLC | null) => void;
   /** Callback for all content updates (local and remote) - used for word count, etc. */
-  onContentUpdate?: (blocks: Block[]) => void;
+  onContentUpdate?: (blocks: (Block & { originalIndex: number })[]) => void;
   autoFocus?: boolean;
   /** Unique page ID for CRDT sync - if provided, enables live collaboration */
   pageId: string;
@@ -80,6 +81,7 @@ export function MountedEditor({
   const mountedRef = useRef<MountedEditorInstance | null>(null);
   const syncEngineRef = useRef<SyncEngine | null>(null);
   const websocketSyncRef = useRef<WebSocketSync | null>(null);
+  const offlineStoreRef = useRef<OfflineStore | null>(null);
   const [slashMenuState, setSlashMenuState] = useState<{
     visible: boolean;
     x: number;
@@ -202,8 +204,23 @@ export function MountedEditor({
     lastSerializedBlocksRef.current = null;
     editorInitializedRef.current = false;
 
+    // Initialize offline store for this page
+    const offlineStore = new OfflineStore(pageId);
+    offlineStoreRef.current = offlineStore;
+
     const mounted = mountEditor(el, snapshot);
     mountedRef.current = mounted;
+
+    // Load persisted operations from IndexedDB (if any)
+    // This restores local changes that weren't synced before page reload
+    offlineStore.loadOperations().then((persistedOps) => {
+      if (persistedOps.length > 0 && syncEngineRef.current) {
+        console.log(
+          `[Offline] Loading ${persistedOps.length} persisted operations`
+        );
+        syncEngineRef.current.loadOperations(persistedOps);
+      }
+    });
 
     // Expose restore function to parent
     // Uses restoreFromSnapshot which generates and broadcasts operations
@@ -252,7 +269,9 @@ export function MountedEditor({
           // Extract and pass active users to parent
           if (onAwarenessChange) {
             const remoteAwareness = mounted.editor.getRemoteAwareness();
-            const users = Array.from(remoteAwareness.values()).map(s => s.user);
+            const users = Array.from(remoteAwareness.values()).map(
+              (s) => s.user
+            );
             onAwarenessChange(users);
           }
         },
@@ -268,7 +287,7 @@ export function MountedEditor({
 
           // Extract and pass active users to parent
           if (onAwarenessChange) {
-            const users = Object.values(states).map(s => s.user);
+            const users = Object.values(states).map((s) => s.user);
             onAwarenessChange(users);
           }
         },
@@ -284,6 +303,8 @@ export function MountedEditor({
         syncEngine.emit(ops);
         // Broadcast to peers via server
         websocketSync.broadcast(ops);
+        // Persist to IndexedDB for offline support
+        offlineStoreRef.current?.persistOperations(ops);
       });
 
       // Connect editor's awareness broadcast to WebSocket
@@ -425,7 +446,7 @@ export function MountedEditor({
           lastSerializedBlocksRef.current = currentBlocks;
 
           // Notify of all content updates (local and remote) - used for word count, etc.
-          onContentUpdate?.(currentBlocks as Block[]);
+          onContentUpdate?.(state.view.visibleBlocks);
 
           // Only trigger saves for local user-initiated changes, not remote peer updates
           // Remote peers handle saving their own changes
@@ -441,6 +462,10 @@ export function MountedEditor({
                 websocketSyncRef.current.setSnapshotClock(latestClock);
               }
               onSnapshotClockUpdate(latestClock);
+              // Mark operations as synced in IndexedDB, then clean up
+              offlineStoreRef.current?.markSynced(latestClock).then(() => {
+                offlineStoreRef.current?.compactSynced();
+              });
             }
 
             // Save snapshot with tombstones preserved for offline sync
@@ -662,7 +687,8 @@ export function MountedEditor({
         }
         // Inherit mode: get formats from cursor position
         if (state.document.cursor) {
-          const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
+          const { blockIndex: blockIndex, textIndex } =
+            state.document.cursor.position;
           const block = state.document.page.blocks[blockIndex];
           return getFormatsAtPosition(block, textIndex) || [];
         }
@@ -723,6 +749,11 @@ export function MountedEditor({
         syncEngineRef.current = null;
       }
 
+      // Clean up offline store
+      if (offlineStoreRef.current) {
+        offlineStoreRef.current = null;
+      }
+
       mounted.destroy();
 
       if (window.AndroidBridge) {
@@ -749,6 +780,20 @@ export function MountedEditor({
     onSyncStateChange,
     onSnapshotClockUpdate,
   ]);
+
+  // Reconnect WebSocket when browser comes back online
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log("[MountedEditor] Browser came online, reconnecting WebSocket...");
+      websocketSyncRef.current?.reconnect();
+    };
+
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+    };
+  }, []);
 
   const handleSlashCommandSelect = (command: SlashCommand) => {
     if (mountedRef.current) {
@@ -832,7 +877,8 @@ export function MountedEditor({
         }
         // Inherit mode: get formats from cursor position
         if (state.document.cursor) {
-          const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
+          const { blockIndex: blockIndex, textIndex } =
+            state.document.cursor.position;
           const block = state.document.page.blocks[blockIndex];
           return getFormatsAtPosition(block, textIndex) || [];
         }

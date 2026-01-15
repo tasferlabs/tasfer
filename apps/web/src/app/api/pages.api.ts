@@ -6,6 +6,7 @@ const API_BASE = "/api";
 export interface IListPage {
   id: string;
   title: string;
+  autoTitle: boolean;
   parentId: string | null;
   order: number;
   hasChildren: boolean;
@@ -21,6 +22,7 @@ export interface HLC {
 export interface IPage {
   id: string;
   title: string;
+  autoTitle: boolean;
   // Block snapshot
   snapshot: Block[] | null;
   // Clock of the snapshot - used for delta sync
@@ -114,6 +116,7 @@ export function useCreatePage<TContext = unknown>(
 interface IUpdatePage {
   id: string;
   title?: string;
+  autoTitle?: boolean;
   // Block snapshot (includes tombstones for offline sync)
   snapshot?: Block[];
   // Clock of the snapshot - used for delta sync
@@ -121,21 +124,36 @@ interface IUpdatePage {
 }
 
 export async function updatePage(data: IUpdatePage): Promise<IPage> {
-  const response = await fetch(`${API_BASE}/pages/${data.id}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
-  
-  const result = await response.json();
-  
-  if (!result.success) {
-    throw new Error(result.error || "Failed to update page");
+  // Use AbortController for timeout - ensures save indicator doesn't spin forever
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+  try {
+    const response = await fetch(`${API_BASE}/pages/${data.id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    const result = await response.json();
+
+    if (!result.success) {
+      throw new Error(result.error || "Failed to update page");
+    }
+
+    return result.data;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    // Re-throw with more context for network errors
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Save timed out - changes will sync when online");
+    }
+    throw error;
   }
-  
-  return result.data;
 }
 
 export function useUpdatePage<TContext = unknown>(

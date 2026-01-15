@@ -165,6 +165,45 @@ export class WebSocketSync {
   }
 
   /**
+   * Reconnect to the WebSocket server.
+   * Resets reconnect attempts and initiates a new connection.
+   * Useful when the browser comes back online after being offline.
+   */
+  async reconnect(): Promise<void> {
+    if (!this.roomId) {
+      console.log("[WebSocket] Cannot reconnect - no room to rejoin");
+      return;
+    }
+
+    // If already connected, no need to reconnect
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      console.log("[WebSocket] Already connected, skipping reconnect");
+      return;
+    }
+
+    console.log("[WebSocket] Reconnecting after coming back online...");
+
+    // Reset reconnect attempts to allow fresh retry
+    this.reconnectAttempts = 0;
+    this.setState({ status: "connecting" });
+
+    try {
+      await this.connectWebSocket();
+      if (this.roomId) {
+        this.send({
+          type: "join",
+          roomId: this.roomId,
+          peerId: this.engine.getPeerId(),
+          user: this.localUser,
+        });
+      }
+    } catch (error) {
+      console.error("[WebSocket] Reconnection failed:", error);
+      this.setState({ status: "error", error: "Failed to reconnect" });
+    }
+  }
+
+  /**
    * Leave the current room.
    * Closes the WebSocket connection.
    */
@@ -223,6 +262,22 @@ export class WebSocketSync {
       versionVector: serializeVV(vv),
       snapshotClock: this.snapshotClock,
     });
+  }
+
+  /**
+   * Broadcast local operations that peers might not have.
+   * Called after rejoining a room to ensure offline operations reach other peers.
+   * Only broadcasts operations after our snapshot clock (recent/offline ops).
+   */
+  private broadcastLocalOps(): void {
+    // Get operations after the snapshot clock - these are recent/offline operations
+    // that peers might not have received
+    const localOps = this.engine.getOperationsAfterClock(this.snapshotClock);
+
+    if (localOps.length > 0) {
+      console.log(`[WebSocket] Broadcasting ${localOps.length} local operations to peers`);
+      this.broadcast(localOps);
+    }
   }
 
   /**
@@ -370,6 +425,8 @@ export class WebSocketSync {
           // There are other peers, request sync to get their operations
           console.log(`[WebSocket] Joining room with ${otherPeers.length} existing peers`);
           this.requestSync();
+          // Also broadcast our local operations to ensure peers get any offline edits
+          this.broadcastLocalOps();
         }
 
         // Notify about existing awareness states
