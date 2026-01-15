@@ -133,7 +133,7 @@ function PageSettingsImpl({
         <Button
           variant="ghost"
           size="sm"
-          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2 py-5"
           onClick={() => setShowVersionHistory(true)}
         >
           <History className="h-4 w-4" />

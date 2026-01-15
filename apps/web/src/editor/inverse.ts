@@ -183,26 +183,25 @@ function invertTextDelete(
     return null; // All chars already restored or missing
   }
 
-  // Find the position to insert after (skip tombstoned chars when looking backwards)
+  // Find the position to insert after
+  // Look for the character IMMEDIATELY BEFORE the first char to restore in the charRuns sequence
+  // This preserves the original CRDT position regardless of tombstone status
   let afterCharId: string | null = null;
   const firstDeletedId = charsToReinsert[0].id;
 
-  // Find the first deleted char and look backwards for a non-deleted char
+  // Get all chars in order to find the preceding char
   const allChars: Array<{ id: string; deleted: boolean }> = [];
   for (const { id, deleted } of iterateAllChars(block.charRuns)) {
     allChars.push({ id, deleted });
   }
 
   const firstDeletedIndex = allChars.findIndex((c) => c.id === firstDeletedId);
-  if (firstDeletedIndex !== -1) {
-    // Look backwards for first non-deleted char
-    for (let j = firstDeletedIndex - 1; j >= 0; j--) {
-      if (!allChars[j].deleted) {
-        afterCharId = allChars[j].id;
-        break;
-      }
-    }
+  if (firstDeletedIndex > 0) {
+    // Use the character immediately before (regardless of its deleted status)
+    // This preserves the original CRDT ordering
+    afterCharId = allChars[firstDeletedIndex - 1].id;
   }
+  // If firstDeletedIndex is 0 or -1, afterCharId stays null (insert at beginning)
 
   // Convert to CharRuns
   const charRuns = charsToCharRuns(charsToReinsert);
