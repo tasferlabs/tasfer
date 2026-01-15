@@ -34,7 +34,7 @@ import {
   findNextVisibleBlockIndex,
   findPreviousVisibleBlockIndex,
 } from "../sync/reducer";
-import { getClock, getPageId, getVisibleBlocks, nextId } from "../sync/sync";
+import { getClock, getPageId, nextId } from "../sync/sync";
 import type { BlockInsert, BlockSet, Operation } from "../sync/types";
 import type {
   CommandResult,

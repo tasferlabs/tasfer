@@ -38,7 +38,6 @@ import {
 } from "../state";
 import { getEditorStyles, getTextStyle } from "../styles";
 import type { Operation } from "../sync/sync";
-import { getVisibleBlocks } from "../sync/sync";
 import type { EditorState, MouseEvent, ViewportState } from "../types";
 import {
   autoScrollState,

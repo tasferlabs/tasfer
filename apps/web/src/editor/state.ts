@@ -284,6 +284,7 @@ export const createInitialState = (page: Page): EditorState => {
       scrollbar: createInitialScrollbarState(),
       momentum: createInitialMomentumState(),
       hasPhysicalKeyboard: false, // Default to false, will be updated by native
+      visibleBlocks: getVisibleBlocks(page),
     },
     undoManager: initialUndoManagerState,
     crdt: {
@@ -445,21 +446,14 @@ export const isCollapsedSelection = (
 
 export function isCursorBlinking(cursor: CursorState, styles: EditorStyles) {
   const now = Date.now();
-  const untilNextBlink = now % styles.cursor.blinkInterval;
-  const endTime = cursor.lastUpdate + untilNextBlink;
-  // if the cursor has been recently updated, it should be visible
-  if (endTime > now) {
+
+  // If the cursor was recently updated (within one blink interval), always show it
+  if (now - cursor.lastUpdate < styles.cursor.blinkInterval) {
     return false;
   }
 
-  // otherwise, it should blink
-  return (
-    Math.floor(
-      (Date.now() - styles.cursor.blinkInterval) / styles.cursor.blinkInterval
-    ) %
-      2 !==
-    0
-  );
+  // Otherwise, blink based on time (alternating every blinkInterval)
+  return Math.floor(now / styles.cursor.blinkInterval) % 2 !== 0;
 }
 
 // Cursor Movement Functions
@@ -469,19 +463,14 @@ export const moveCursorToPosition = (
   textIndex: number,
   preserveActiveFormats: boolean = false
 ): EditorState => {
-  const visibleBlocks = state.view.visibleBlocks;
-  if (visibleBlocks.length === 0) return state;
-
-  // Find the actual block index in the full array for the last visible block
   const allBlocks = state.document.page.blocks;
-  const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
-  const lastVisibleBlockIndex = allBlocks.findIndex(
-    (b) => b.id === lastVisibleBlock.id
-  );
-  const maxBlockIndex = lastVisibleBlockIndex >= 0 ? lastVisibleBlockIndex : 0;
+  if (allBlocks.length === 0) return state;
 
-  const clampedBlockIndex = Math.max(0, Math.min(blockIndex, maxBlockIndex));
-  const block = state.document.page.blocks[clampedBlockIndex];
+  const clampedBlockIndex = Math.max(
+    0,
+    Math.min(blockIndex, allBlocks.length - 1)
+  );
+  const block = allBlocks[clampedBlockIndex];
 
   if (!block || block.deleted) return state;
 

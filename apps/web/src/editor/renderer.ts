@@ -26,8 +26,6 @@ import {
   isCharDeleted,
   iterateVisibleChars,
 } from "./sync/char-runs";
-import { getVisibleBlocks } from "./sync/sync";
-
 import { renderScrollbar } from "./scrollbar";
 import { getBlockTextContent, isCursorBlinking, isTouchDevice } from "./state";
 import { getEditorStyles, getTextStyle } from "./styles";
@@ -163,6 +161,9 @@ export const getBlockHeight = (
   if (block.cachedHeight !== undefined && block.cachedWidth === maxWidth) {
     height = block.cachedHeight;
   } else {
+    if (first) {
+      console.log("NOT CACHED")
+    }
     height = calculateBlockHeight(block, maxWidth, styles);
     block.cachedHeight = height;
     block.cachedWidth = maxWidth;
@@ -1974,6 +1975,8 @@ function calculateCursorPosition(
 
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const visibleBlock = visibleBlocks[visibleIdx];
+    if (visibleBlock.originalIndex >= position.blockIndex) break;
+
     const blockHeight = getBlockHeight(
       visibleBlock,
       maxWidth,
@@ -2230,6 +2233,8 @@ export function renderCursorLayer(
 
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const visibleBlock = visibleBlocks[visibleIdx];
+    if (visibleBlock.originalIndex >= cursorBlockIndex) break;
+
     const blockHeight = getBlockHeight(
       visibleBlock,
       maxWidth,
@@ -2412,6 +2417,8 @@ function getPositionCoordinates(
 
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const visibleBlock = visibleBlocks[visibleIdx];
+    if (visibleBlock.originalIndex >= position.blockIndex) break;
+
     currentY += getBlockHeight(
       visibleBlock,
       maxWidth,
@@ -2420,7 +2427,7 @@ function getPositionCoordinates(
     );
   }
 
-  const block = visibleBlocks[position.blockIndex];
+  const block = state.document.page.blocks[position.blockIndex];
   if (!block) return null;
   if (block.deleted) return null;
   if (!isTextualBlock(block)) return null;

@@ -4,7 +4,7 @@ import {
   isTextualBlock,
 } from "@/deserializer/loadPage";
 import type { Operation } from "../sync/sync";
-import { getVisibleBlocks, getPageId, nextId, getClock } from "../sync/sync";
+import { getPageId, nextId, getClock } from "../sync/sync";
 import { copySelectionToClipboard } from "../actions/clipboard";
 import {
   selectAll,

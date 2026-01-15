@@ -1,4 +1,5 @@
 import type { Operation } from "../sync/sync";
+import { getVisibleBlocks } from "../sync/sync";
 import { pasteFromClipboardEvent } from "../actions/clipboard";
 import { scrollToMakeCursorVisible } from "../selection";
 import type { EditorState, ViewportState } from "../types";
@@ -33,7 +34,14 @@ export function handlePaste(
     return { state, ops: [] };
   }
 
-  const newState = result.state;
+  // Update visibleBlocks since page content changed (needed for scroll calculation)
+  let newState: EditorState = {
+    ...result.state,
+    view: {
+      ...result.state.view,
+      visibleBlocks: getVisibleBlocks(result.state.document.page),
+    },
+  };
 
   // Scroll to make the cursor (end of pasted content) visible
   if (newState.document.cursor && updateViewportCallback) {

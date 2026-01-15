@@ -388,6 +388,7 @@ export default function createEditor(
       if (stateChanged) {
         // Check if page content changed (requires content layer update)
         if (prevState.document.page !== state.document.page) {
+          state.view.visibleBlocks = getVisibleBlocks(state.document.page); // ADD HERE
           dirtyLayers.content = true;
           dirtyLayers.cursor = true; // Cursor position may have changed
           documentHeightDirty = true; // Blocks changed, need to recalculate height
@@ -999,7 +1000,12 @@ export default function createEditor(
       const block = visibleBlocks[visibleIdx];
 
       // Use getBlockHeight to leverage caching for performance
-      const blockHeight = getBlockHeight(block, maxWidth, styles, visibleIdx === 0);
+      const blockHeight = getBlockHeight(
+        block,
+        maxWidth,
+        styles,
+        visibleIdx === 0
+      );
       totalHeight += blockHeight;
     }
 
@@ -1035,10 +1041,7 @@ export default function createEditor(
 
   function setInitialCursor() {
     // Only set cursor if there isn't one already
-    if (
-      !state.document.cursor &&
-      state.view.visibleBlocks.length > 0
-    ) {
+    if (!state.document.cursor && state.view.visibleBlocks.length > 0) {
       state = createInitialCursorState(state);
       scheduleRender();
     }

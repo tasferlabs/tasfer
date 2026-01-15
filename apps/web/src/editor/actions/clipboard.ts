@@ -28,7 +28,7 @@ import {
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
 import { extractCounter, extractPeerId } from "../sync/id";
-import { getClock, getPageId, getVisibleBlocks, nextId } from "../sync/sync";
+import { getClock, getPageId, nextId } from "../sync/sync";
 import type {
   BlockInsert,
   BlockSet,

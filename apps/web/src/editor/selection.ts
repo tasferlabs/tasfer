@@ -18,7 +18,6 @@ import {
   iterateVisibleChars,
 } from "./sync/char-runs";
 import { getVisibleText } from "./sync/crdt-helpers";
-import { getVisibleBlocks } from "./sync/sync";
 import type {
   EditorState,
   EditorStyles,
@@ -58,6 +57,8 @@ export function getCursorDocumentCoords(
   // Find visible blocks before the target block
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const block = visibleBlocks[visibleIdx];
+    if (block.originalIndex >= position.blockIndex) break;
+
     currentY += getBlockHeight(block, maxWidth, styles, visibleIdx === 0);
   }
 
@@ -277,6 +278,8 @@ export function getCursorCoordinatesWithComposition(
   const visibleBlocks = state.view.visibleBlocks;
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const block = visibleBlocks[visibleIdx];
+    if (block.originalIndex >= position.blockIndex) break;
+
     currentY += getBlockHeight(block, maxWidth, styles, visibleIdx === 0);
   }
 
@@ -472,7 +475,7 @@ function getPositionFromPaddingClick(
         block.type === "line" ||
         !isTextualBlock(block)
       ) {
-        return { blockIndex: visibleIdx, textIndex: 0 };
+        return { blockIndex: block.originalIndex, textIndex: 0 };
       }
 
       // Detect text direction
@@ -530,12 +533,12 @@ function getPositionFromPaddingClick(
           // RTL: left → end, right → start
           if (isLeftPadding) {
             return {
-              blockIndex: visibleIdx,
+              blockIndex: block.originalIndex,
               textIndex: isRTL ? lineEndIndex : lineStartIndex,
             };
           } else {
             return {
-              blockIndex: visibleIdx,
+              blockIndex: block.originalIndex,
               textIndex: isRTL ? lineStartIndex : lineEndIndex,
             };
           }
@@ -557,18 +560,18 @@ function getPositionFromPaddingClick(
 
         if (isLeftPadding) {
           return {
-            blockIndex: visibleIdx,
+            blockIndex: block.originalIndex,
             textIndex: isRTL ? lastLineEndIndex : lastLineStartIndex,
           };
         } else {
           return {
-            blockIndex: visibleIdx,
+            blockIndex: block.originalIndex,
             textIndex: isRTL ? lastLineStartIndex : lastLineEndIndex,
           };
         }
       }
 
-      return { blockIndex: visibleIdx, textIndex: 0 };
+      return { blockIndex: block.originalIndex, textIndex: 0 };
     }
 
     currentY += blockHeight;
@@ -641,7 +644,7 @@ export function getTextPositionFromViewport(
       return getPositionWithinBlock(
         x,
         y,
-        visibleIdx,
+        block.originalIndex,
         block,
         currentY,
         styles.canvas.paddingLeft,
@@ -660,12 +663,12 @@ export function getTextPositionFromViewport(
 
   // If click is below all blocks, position at end of last visible block
   if (y >= currentY && visibleBlocks.length > 0) {
-    const lastBlockIndex = visibleBlocks.length - 1;
-    const lastBlock = allBlocks[lastBlockIndex];
+    const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
+    const lastBlock = allBlocks[lastVisibleBlock.originalIndex];
     const content = getBlockTextContent(lastBlock);
 
     return {
-      blockIndex: lastBlockIndex,
+      blockIndex: lastVisibleBlock.originalIndex,
       textIndex: content.length,
     };
   }
@@ -675,9 +678,8 @@ export function getTextPositionFromViewport(
     y < styles.canvas.paddingTop - viewport.scrollY &&
     visibleBlocks.length > 0
   ) {
-    const firstBlockIndex = 0;
     return {
-      blockIndex: firstBlockIndex,
+      blockIndex: visibleBlocks[0].originalIndex,
       textIndex: 0,
     };
   }
@@ -1164,13 +1166,13 @@ export function isPointWithinSelectionRects(
     );
 
     // Skip blocks before selection
-    if (visibleIdx < start.blockIndex) {
+    if (block.originalIndex < start.blockIndex) {
       currentY += blockHeight;
       continue;
     }
 
     // Stop after we pass the selection
-    if (visibleIdx > end.blockIndex) {
+    if (block.originalIndex > end.blockIndex) {
       break;
     }
 
@@ -1252,7 +1254,7 @@ export function isPointWithinSelectionRects(
         let selectionEndX = baseX + lineWidth;
         let hasSelection = false;
 
-        if (start.blockIndex === visibleIdx && end.blockIndex === visibleIdx) {
+        if (start.blockIndex === block.originalIndex && end.blockIndex === block.originalIndex) {
           // Selection within same block
           if (
             start.textIndex <= lineEndIndex &&
@@ -1318,8 +1320,8 @@ export function isPointWithinSelectionRects(
             }
           }
         } else if (
-          start.blockIndex < visibleIdx &&
-          end.blockIndex > visibleIdx
+          start.blockIndex < block.originalIndex &&
+          end.blockIndex > block.originalIndex
         ) {
           // Entire block is selected
           hasSelection = true;
@@ -1329,8 +1331,8 @@ export function isPointWithinSelectionRects(
             selectionEndX = lineStartX + lineWidth;
           }
         } else if (
-          start.blockIndex === visibleIdx &&
-          end.blockIndex > visibleIdx
+          start.blockIndex === block.originalIndex &&
+          end.blockIndex > block.originalIndex
         ) {
           // Selection starts in this block
           if (start.textIndex <= lineEndIndex) {
@@ -1365,8 +1367,8 @@ export function isPointWithinSelectionRects(
             }
           }
         } else if (
-          start.blockIndex < visibleIdx &&
-          end.blockIndex === visibleIdx
+          start.blockIndex < block.originalIndex &&
+          end.blockIndex === block.originalIndex
         ) {
           // Selection ends in this block
           if (end.textIndex >= lineStartIndex) {

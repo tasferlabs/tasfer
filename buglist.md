@@ -254,3 +254,4 @@ Bugs list
 - [ ] Short Peer IDs
 - [ ] tombstone pruning
 - [ ] format span accumlation
+- [ ] genreatic get block at positons

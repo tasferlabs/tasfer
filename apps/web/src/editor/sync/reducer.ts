@@ -420,9 +420,14 @@ export function getVisibleText(block: Block): string {
 
 /**
  * Get visible blocks from state (excluding deleted blocks).
+ * Each block includes its originalIndex in the full blocks array.
  */
-export function getVisibleBlocks(state: Page): Block[] {
-  return state.blocks.filter((b) => !b.deleted);
+export function getVisibleBlocks(
+  state: Page
+): (Block & { originalIndex: number })[] {
+  return state.blocks
+    .map((b, i) => Object.assign(b, { originalIndex: i }))
+    .filter((b) => !b.deleted);
 }
 
 /**
