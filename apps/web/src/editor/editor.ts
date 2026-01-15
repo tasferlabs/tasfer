@@ -329,13 +329,23 @@ export default function createEditor(
     }
   };
 
+  // Track last rendered page to detect remote operation changes
+  let lastRenderedPageRef: Page | null = null;
+
   // Render a single frame synchronously
   const renderFrame = async () => {
     if (isRendering) return;
     isRendering = true;
 
     try {
-      state.view.visibleBlocks = state.view.visibleBlocks;
+      // Check if page changed since last render (handles remote ops that bypass handleEvents)
+      if (lastRenderedPageRef !== state.document.page) {
+        state.view.visibleBlocks = getVisibleBlocks(state.document.page);
+        dirtyLayers.content = true;
+        dirtyLayers.cursor = true;
+        documentHeightDirty = true;
+        lastRenderedPageRef = state.document.page;
+      }
 
       // Update cached rect only when needed (avoids expensive getBoundingClientRect every frame)
       if (rectNeedsUpdate) {
