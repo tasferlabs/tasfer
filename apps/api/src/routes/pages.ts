@@ -380,7 +380,7 @@ router.delete("/:id", async (req, res) => {
       SELECT id FROM child_pages
     `);
 
-    const pageIds = childPagesResult.rows.map((row: { id: string }) => row.id);
+    const pageIds = (childPagesResult.rows as { id: string }[]).map((row) => row.id);
 
     // Delete snapshots for all pages being deleted
     if (pageIds.length > 0) {

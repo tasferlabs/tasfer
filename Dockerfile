@@ -56,21 +56,45 @@ RUN npm ci --omit=dev
 # Copy built artifacts
 WORKDIR /app
 COPY --from=builder /app/apps/web/dist ./apps/web/dist
-COPY --from=builder /app/apps/web/server.ts ./apps/web/server.ts
+COPY --from=builder /app/apps/web/server.js ./apps/web/server.js
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/live/dist ./apps/live/dist
 
-# Install tsx for the web server only
-WORKDIR /app/apps/web
-RUN npm install tsx
+# Create startup script with health check
+RUN cat > /app/start.sh << 'EOF'
+#!/bin/sh
+set -e
 
-# Create startup script
-WORKDIR /app
-RUN echo '#!/bin/sh' > /app/start.sh && \
-    echo 'cd /app/apps/api && PORT=3000 node dist/index.js &' >> /app/start.sh && \
-    echo 'cd /app/apps/live && PORT=8080 node dist/server.js &' >> /app/start.sh && \
-    echo 'cd /app/apps/web && node --import tsx server.ts' >> /app/start.sh && \
-    chmod +x /app/start.sh
+# Run database migrations
+echo "Running database migrations..."
+cd /app/apps/api && node dist/db/migrate.js
+
+# Start API server in background
+cd /app/apps/api && PORT=3000 node dist/index.js &
+API_PID=$!
+
+# Start Live server in background
+cd /app/apps/live && PORT=8080 node dist/server.js &
+LIVE_PID=$!
+
+# Wait for API server to be ready
+echo "Waiting for API server..."
+for i in $(seq 1 30); do
+  if wget -q --spider http://localhost:3000/health 2>/dev/null; then
+    echo "API server is ready"
+    break
+  fi
+  if ! kill -0 $API_PID 2>/dev/null; then
+    echo "API server crashed!"
+    exit 1
+  fi
+  sleep 1
+done
+
+# Start web server (foreground)
+cd /app/apps/web && exec node server.js
+EOF
+RUN chmod +x /app/start.sh
 
 WORKDIR /app
 
