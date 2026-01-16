@@ -29,6 +29,13 @@ declare global {
       toggleItalic?: () => void;
       toggleCode?: () => void;
       toggleStrikethrough?: () => void;
+      // Native storage methods (same interface as AndroidBridge)
+      storageWrite?: (path: string, base64Data: string) => Promise<boolean>;
+      storageRead?: (path: string) => Promise<string | null>;
+      storageDelete?: (path: string) => Promise<boolean>;
+      storageList?: (path: string) => Promise<string[]>;
+      storageExists?: (path: string) => Promise<boolean>;
+      getStorageInfo?: () => Promise<{ free: number; total: number }>;
     };
 
     AndroidBridge?: {
@@ -41,9 +48,23 @@ declare global {
       setEditorFocused?: (focused: boolean) => void;
       openPhotoLibrary?: () => void;
       openCamera?: () => void;
-      updateToolbarIcon?: (iconType: "link" | "image" | "format" | "none") => void;
-      updateFormattingState?: (isBold: boolean, isItalic: boolean, isCode: boolean, isStrikethrough: boolean) => void;
+      updateToolbarIcon?: (
+        iconType: "link" | "image" | "format" | "none"
+      ) => void;
+      updateFormattingState?: (
+        isBold: boolean,
+        isItalic: boolean,
+        isCode: boolean,
+        isStrikethrough: boolean
+      ) => void;
       openUrl?: (url: string) => void;
+      // Native storage methods (bypass browser quota limits)
+      storageWrite?: (path: string, base64Data: string) => boolean;
+      storageRead?: (path: string) => string | null;
+      storageDelete?: (path: string) => boolean;
+      storageList?: (path: string) => string;
+      storageExists?: (path: string) => boolean;
+      getStorageInfo?: () => string;
       // Editor methods (assigned by Web to allow native to call back)
       undo?: () => void;
       redo?: () => void;

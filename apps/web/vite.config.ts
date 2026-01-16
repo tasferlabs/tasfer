@@ -6,7 +6,7 @@ import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
   plugins: [
-    basicSsl(),
+    // basicSsl(),
     tailwindcss(),
     react(),
     VitePWA({
@@ -15,7 +15,7 @@ export default defineConfig({
       filename: "sw.ts",
       registerType: "autoUpdate",
       injectManifest: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff,woff2}"],
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff,woff2,json}"],
       },
       manifest: false,
       devOptions: {

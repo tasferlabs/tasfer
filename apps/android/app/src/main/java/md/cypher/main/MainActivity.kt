@@ -121,6 +121,94 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
             }
         }
     }
+
+    // Native storage methods - bypasses browser storage quota limits
+    private val storageBaseDir: File
+        get() {
+            val dir = File(context.filesDir, "cypher")
+            if (!dir.exists()) dir.mkdirs()
+            return dir
+        }
+
+    @JavascriptInterface
+    fun storageWrite(path: String, base64Data: String): Boolean {
+        return try {
+            val file = File(storageBaseDir, path)
+            file.parentFile?.mkdirs()
+            val bytes = Base64.decode(base64Data, Base64.NO_WRAP)
+            file.writeBytes(bytes)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    @JavascriptInterface
+    fun storageRead(path: String): String? {
+        return try {
+            val file = File(storageBaseDir, path)
+            if (file.exists()) {
+                Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    @JavascriptInterface
+    fun storageDelete(path: String): Boolean {
+        return try {
+            val file = File(storageBaseDir, path)
+            if (file.exists()) {
+                file.deleteRecursively()
+            } else {
+                true
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    @JavascriptInterface
+    fun storageList(path: String): String {
+        return try {
+            val dir = File(storageBaseDir, path)
+            val files = if (dir.exists() && dir.isDirectory) {
+                dir.listFiles()?.map { it.name } ?: emptyList()
+            } else {
+                emptyList()
+            }
+            org.json.JSONArray(files).toString()
+        } catch (e: Exception) {
+            "[]"
+        }
+    }
+
+    @JavascriptInterface
+    fun storageExists(path: String): Boolean {
+        return try {
+            File(storageBaseDir, path).exists()
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    @JavascriptInterface
+    fun getStorageInfo(): String {
+        return try {
+            val stat = android.os.StatFs(context.filesDir.path)
+            val free = stat.availableBytes
+            val total = stat.totalBytes
+            org.json.JSONObject().apply {
+                put("free", free)
+                put("total", total)
+            }.toString()
+        } catch (e: Exception) {
+            """{"free":0,"total":0}"""
+        }
+    }
 }
 
 class MainActivity : ComponentActivity() {

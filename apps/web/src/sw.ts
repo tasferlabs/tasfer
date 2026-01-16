@@ -1,7 +1,12 @@
 /// <reference lib="webworker" />
 /// <reference types="@types/serviceworker" />
-import { precacheAndRoute, cleanupOutdatedCaches } from "workbox-precaching";
-import { registerRoute } from "workbox-routing";
+import {
+  precacheAndRoute,
+  cleanupOutdatedCaches,
+  createHandlerBoundToURL,
+  matchPrecache,
+} from "workbox-precaching";
+import { registerRoute, NavigationRoute } from "workbox-routing";
 import {
   CacheFirst,
   NetworkFirst,
@@ -14,26 +19,89 @@ declare let self: ServiceWorkerGlobalScope;
 
 console.log("[SW] Service worker script loaded");
 
-// Log when SW installs
-self.addEventListener("install", () => {
+// Activate immediately on install, and cache index.html as a guaranteed fallback
+self.addEventListener("install", (event) => {
   console.log("[SW] Installing...");
+  event.waitUntil(
+    (async () => {
+      // Cache index.html with a known key for offline fallback
+      const cache = await caches.open("offline-fallback");
+      await cache.add(new Request("/index.html", { cache: "reload" }));
+      console.log("[SW] Cached index.html for offline fallback");
+      self.skipWaiting();
+    })()
+  );
 });
 
-// Log when SW activates
+// Claim clients immediately on activate
 self.addEventListener("activate", (event) => {
   console.log("[SW] Activating, claiming clients...");
   event.waitUntil(self.clients.claim());
 });
 
-// Debug: Log ALL fetch events (first handler, runs before Workbox)
-self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-  console.log("[SW] Fetch intercepted:", event.request.method, url.pathname);
-});
-
 // Precache static assets (injected by vite-plugin-pwa at build time)
+// Must be called before matchPrecache can be used
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
+
+// Handle navigation requests with offline fallback.
+// This catches hard reloads where browser sends cache:'reload' mode.
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+
+  // Only handle navigation requests (HTML pages)
+  if (request.mode !== "navigate") return;
+
+  // Don't handle API routes
+  if (new URL(request.url).pathname.startsWith("/api/")) return;
+
+  event.respondWith(
+    (async () => {
+      try {
+        // Try network first
+        const response = await fetch(request);
+        return response;
+      } catch {
+        console.log("[SW] Network failed, serving cached index.html");
+
+        // 1. Check our dedicated offline-fallback cache first
+        const fallbackCache = await caches.open("offline-fallback");
+        const fallback = await fallbackCache.match("/index.html");
+        if (fallback) return fallback;
+
+        // 2. Try Workbox's precache
+        const precached = await matchPrecache("/index.html");
+        if (precached) return precached;
+
+        // 3. Search all caches manually
+        const allCacheNames = await caches.keys();
+        for (const cacheName of allCacheNames) {
+          const cache = await caches.open(cacheName);
+          const keys = await cache.keys();
+          for (const key of keys) {
+            if (key.url.includes("index.html")) {
+              const match = await cache.match(key);
+              if (match) return match;
+            }
+          }
+        }
+
+        // Last resort
+        return new Response(
+          "<!DOCTYPE html><html><body><h1>Offline</h1><p>Please reconnect.</p></body></html>",
+          { headers: { "Content-Type": "text/html" } }
+        );
+      }
+    })()
+  );
+});
+
+// SPA navigation fallback for normal requests (handled by Workbox routing)
+registerRoute(
+  new NavigationRoute(createHandlerBoundToURL("/index.html"), {
+    denylist: [/^\/api\//],
+  })
+);
 
 // Cache page list with stale-while-revalidate
 // Navigation should feel instant, but fresh data is preferred
@@ -78,6 +146,22 @@ registerRoute(
       new ExpirationPlugin({
         maxEntries: 200,
         maxAgeSeconds: 31536000, // 1 year
+      }),
+    ],
+  })
+);
+
+// Cache locale files with stale-while-revalidate
+// Translations should load instantly but update in background
+registerRoute(
+  ({ url }) => url.pathname.startsWith("/app/locales/"),
+  new StaleWhileRevalidate({
+    cacheName: "locales",
+    plugins: [
+      new CacheableResponsePlugin({ statuses: [200] }),
+      new ExpirationPlugin({
+        maxEntries: 20,
+        maxAgeSeconds: 2592000, // 30 days
       }),
     ],
   })
@@ -203,11 +287,4 @@ self.addEventListener("fetch", (event) => {
       }
     })()
   );
-});
-
-// Listen for skip waiting message from client
-self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "SKIP_WAITING") {
-    self.skipWaiting();
-  }
 });

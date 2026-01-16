@@ -42,7 +42,7 @@ function PageSettingsImpl({
 }: {
   setShowVersionHistory: (open: boolean) => void;
 }) {
-  const { t, i18n } = useTranslation("PageSettingsDrawer");
+  const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
   const {
     fontStyle,

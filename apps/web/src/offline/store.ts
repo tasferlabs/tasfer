@@ -2,17 +2,21 @@ import { getDB, type CachedPage, type PendingImage } from "./db";
 import type { Operation, HLC } from "@/editor/sync/types";
 import type { Block } from "@/deserializer/loadPage";
 import { isHLCLessOrEqual } from "@/editor/sync/hlc";
+import { NativeStorage, PageStorage, ImageStorage } from "./native-storage";
 
 export class OfflineStore {
   private pageId: string;
+  private nativeStorage: PageStorage;
 
   constructor(pageId: string) {
     this.pageId = pageId;
+    this.nativeStorage = new PageStorage(pageId);
   }
 
   /**
    * Persist operations to IndexedDB.
    * Called after local operations are emitted.
+   * Note: Operations stay in IndexedDB for indexed queries; they're compacted after sync.
    */
   async persistOperations(operations: Operation[]): Promise<void> {
     const db = await getDB();
@@ -104,24 +108,50 @@ export class OfflineStore {
 
   /**
    * Cache page snapshot for offline access.
+   * Uses native storage on iOS/Android (GB+ available), IndexedDB on web (50MB limit).
    */
   async cachePageSnapshot(
     snapshot: Block[],
     clock: HLC | null
   ): Promise<void> {
-    const db = await getDB();
-    await db.put("pages", {
-      id: this.pageId,
-      snapshot,
-      snapshotClock: clock,
-      cachedAt: Date.now(),
-    });
+    if (NativeStorage.isNativeAvailable()) {
+      // Use native file system storage (no browser quota limits)
+      await this.nativeStorage.saveSnapshot({
+        blocks: snapshot,
+        clock,
+        savedAt: Date.now(),
+      });
+    } else {
+      // Fall back to IndexedDB for web
+      const db = await getDB();
+      await db.put("pages", {
+        id: this.pageId,
+        snapshot,
+        snapshotClock: clock,
+        cachedAt: Date.now(),
+      });
+    }
   }
 
   /**
    * Get cached page snapshot.
+   * Tries native storage first on iOS/Android, then IndexedDB.
    */
   async getCachedSnapshot(): Promise<CachedPage | null> {
+    if (NativeStorage.isNativeAvailable()) {
+      // Try native storage first
+      const native = await this.nativeStorage.loadSnapshot();
+      if (native) {
+        return {
+          id: this.pageId,
+          snapshot: native.blocks as Block[],
+          snapshotClock: native.clock as HLC | null,
+          cachedAt: native.savedAt,
+        };
+      }
+    }
+
+    // Fall back to IndexedDB
     const db = await getDB();
     const cached = await db.get("pages", this.pageId);
     return cached ?? null;
@@ -129,6 +159,7 @@ export class OfflineStore {
 
   /**
    * Store an image blob for offline upload.
+   * Uses native storage on iOS/Android for larger capacity.
    */
   async storePendingImage(
     localId: string,
@@ -137,30 +168,74 @@ export class OfflineStore {
     mimeType: string,
     blockId: string
   ): Promise<void> {
-    const db = await getDB();
-    await db.put("pendingImages", {
-      localId,
-      blob,
-      fileName,
-      mimeType,
-      pageId: this.pageId,
-      blockId,
-      createdAt: Date.now(),
-    });
+    if (NativeStorage.isNativeAvailable()) {
+      // Store image data in native storage
+      const arrayBuffer = await blob.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      await ImageStorage.saveImage(localId, bytes);
+
+      // Store metadata in IndexedDB (small, for querying)
+      const db = await getDB();
+      await db.put("pendingImages", {
+        localId,
+        blob: new Blob(), // Empty blob - actual data in native storage
+        fileName,
+        mimeType,
+        pageId: this.pageId,
+        blockId,
+        createdAt: Date.now(),
+      });
+    } else {
+      // Web: store everything in IndexedDB
+      const db = await getDB();
+      await db.put("pendingImages", {
+        localId,
+        blob,
+        fileName,
+        mimeType,
+        pageId: this.pageId,
+        blockId,
+        createdAt: Date.now(),
+      });
+    }
   }
 
   /**
    * Get all pending images for this page.
+   * Reconstructs blobs from native storage on iOS/Android.
    */
   async getPendingImages(): Promise<PendingImage[]> {
     const db = await getDB();
-    return db.getAllFromIndex("pendingImages", "by-page", this.pageId);
+    const images = await db.getAllFromIndex("pendingImages", "by-page", this.pageId);
+
+    if (NativeStorage.isNativeAvailable()) {
+      // Reconstruct blobs from native storage
+      const results: PendingImage[] = [];
+      for (const img of images) {
+        const bytes = await ImageStorage.loadImage(img.localId);
+        if (bytes) {
+          results.push({
+            ...img,
+            blob: new Blob([bytes], { type: img.mimeType }),
+          });
+        }
+      }
+      return results;
+    }
+
+    return images;
   }
 
   /**
    * Remove a pending image after successful upload.
    */
   async removePendingImage(localId: string): Promise<void> {
+    if (NativeStorage.isNativeAvailable()) {
+      // Remove from native storage
+      await ImageStorage.deleteImage(localId);
+    }
+
+    // Remove metadata from IndexedDB
     const db = await getDB();
     await db.delete("pendingImages", localId);
   }
@@ -170,6 +245,11 @@ export class OfflineStore {
    * Use when page is deleted.
    */
   async clearPageData(): Promise<void> {
+    // Clear native storage if available
+    if (NativeStorage.isNativeAvailable()) {
+      await this.nativeStorage.clearAll();
+    }
+
     const db = await getDB();
 
     // Clear operations
@@ -181,7 +261,7 @@ export class OfflineStore {
     }
     await opsTx.done;
 
-    // Clear cached snapshot
+    // Clear cached snapshot from IndexedDB
     await db.delete("pages", this.pageId);
 
     // Clear pending images
@@ -189,6 +269,9 @@ export class OfflineStore {
     const imgsIndex = imgsTx.store.index("by-page");
     const imgs = await imgsIndex.getAll(this.pageId);
     for (const img of imgs) {
+      if (NativeStorage.isNativeAvailable()) {
+        await ImageStorage.deleteImage(img.localId);
+      }
       await imgsTx.store.delete(img.localId);
     }
     await imgsTx.done;
@@ -216,4 +299,20 @@ export async function getCachedPageList(
   const db = await getDB();
   const cached = await db.get("pageList", parentId ?? "root");
   return cached?.pages ?? null;
+}
+
+/**
+ * Get storage information across all storage backends.
+ */
+export async function getStorageStats(): Promise<{
+  platform: "ios" | "android" | "web";
+  free: number;
+  total: number;
+  used: number;
+}> {
+  const info = await NativeStorage.getStorageInfo();
+  return {
+    platform: NativeStorage.getPlatform(),
+    ...info,
+  };
 }

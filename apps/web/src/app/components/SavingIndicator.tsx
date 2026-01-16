@@ -10,7 +10,7 @@ interface SavingIndicatorProps {
 }
 
 export function SavingIndicator({ isSaving, className }: SavingIndicatorProps) {
-  const { t } = useTranslation("SavingIndicator");
+  const { t } = useTranslation();
   const [showSaved, setShowSaved] = useState(false);
   const [hasSaved, setHasSaved] = useState(false);
 
@@ -22,7 +22,7 @@ export function SavingIndicator({ isSaving, className }: SavingIndicatorProps) {
     } else if (hasSaved) {
       // Only show "Saved" if there was a previous save operation
       setShowSaved(true);
-      
+
       // Hide after 2 seconds
       const timer = setTimeout(() => {
         setShowSaved(false);
@@ -34,7 +34,12 @@ export function SavingIndicator({ isSaving, className }: SavingIndicatorProps) {
 
   if (isSaving) {
     return (
-      <div className={cn("flex items-center gap-2 text-sm text-muted-foreground", className)}>
+      <div
+        className={cn(
+          "flex items-center gap-2 text-sm text-muted-foreground",
+          className
+        )}
+      >
         <Loader2 className="h-4 w-4 animate-spin" />
         <span>{t`Saving...`}</span>
       </div>
@@ -48,7 +53,10 @@ export function SavingIndicator({ isSaving, className }: SavingIndicatorProps) {
           initial={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.3 }}
-          className={cn("flex items-center gap-2 text-sm text-muted-foreground", className)}
+          className={cn(
+            "flex items-center gap-2 text-sm text-muted-foreground",
+            className
+          )}
         >
           <Check className="h-4 w-4" />
           <span>{t`Saved`}</span>
@@ -57,4 +65,3 @@ export function SavingIndicator({ isSaving, className }: SavingIndicatorProps) {
     </AnimatePresence>
   );
 }
-

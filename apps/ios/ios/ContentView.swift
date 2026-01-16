@@ -31,8 +31,10 @@ struct ContentView: View {
             Color("Background")
                 .edgesIgnoringSafeArea(.all)
 
-            WebView(url: URL(string: "https://192.168.68.53:5173/")!, isLoading: $isLoading)
-                .edgesIgnoringSafeArea(.all)
+            WebView(
+                url: URL(string: "https://5dkdmnx5-4000.euw.devtunnels.ms/")!, isLoading: $isLoading
+            )
+            .edgesIgnoringSafeArea(.all)
 
             if isLoading {
                 LoadingView()
@@ -109,6 +111,140 @@ class ImagePickerCoordinator: NSObject, UINavigationControllerDelegate,
     }
 }
 
+class StorageBridge: NSObject, WKScriptMessageHandler {
+    weak var webView: WKWebView?
+    private let fileManager = FileManager.default
+
+    private lazy var baseURL: URL = {
+        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let cypher = docs.appendingPathComponent("cypher", isDirectory: true)
+        try? fileManager.createDirectory(
+            at: cypher, withIntermediateDirectories: true, attributes: nil)
+        return cypher
+    }()
+
+    func userContentController(
+        _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
+    ) {
+        guard let body = message.body as? [String: Any],
+            let action = body["action"] as? String,
+            let callbackId = body["callbackId"] as? String
+        else {
+            return
+        }
+
+        var result: Any = NSNull()
+        var errorMsg: String? = nil
+
+        switch action {
+        case "write":
+            if let path = body["path"] as? String,
+                let dataStr = body["data"] as? String,
+                let bytes = Data(base64Encoded: dataStr)
+            {
+                do {
+                    let url = baseURL.appendingPathComponent(path)
+                    try fileManager.createDirectory(
+                        at: url.deletingLastPathComponent(),
+                        withIntermediateDirectories: true,
+                        attributes: nil
+                    )
+                    try bytes.write(to: url)
+                    result = true
+                } catch {
+                    errorMsg = error.localizedDescription
+                }
+            } else {
+                errorMsg = "Invalid path or data"
+            }
+
+        case "read":
+            if let path = body["path"] as? String {
+                let url = baseURL.appendingPathComponent(path)
+                if let data = fileManager.contents(atPath: url.path) {
+                    result = data.base64EncodedString()
+                } else {
+                    errorMsg = "File not found"
+                }
+            } else {
+                errorMsg = "Invalid path"
+            }
+
+        case "delete":
+            if let path = body["path"] as? String {
+                let url = baseURL.appendingPathComponent(path)
+                do {
+                    if fileManager.fileExists(atPath: url.path) {
+                        try fileManager.removeItem(at: url)
+                    }
+                    result = true
+                } catch {
+                    errorMsg = error.localizedDescription
+                }
+            } else {
+                errorMsg = "Invalid path"
+            }
+
+        case "list":
+            if let path = body["path"] as? String {
+                let url = baseURL.appendingPathComponent(path)
+                do {
+                    if fileManager.fileExists(atPath: url.path) {
+                        let files = try fileManager.contentsOfDirectory(atPath: url.path)
+                        result = files
+                    } else {
+                        result = [String]()
+                    }
+                } catch {
+                    result = [String]()
+                }
+            } else {
+                errorMsg = "Invalid path"
+            }
+
+        case "exists":
+            if let path = body["path"] as? String {
+                let url = baseURL.appendingPathComponent(path)
+                result = fileManager.fileExists(atPath: url.path)
+            } else {
+                errorMsg = "Invalid path"
+            }
+
+        case "getStorageInfo":
+            do {
+                let attrs = try fileManager.attributesOfFileSystem(forPath: baseURL.path)
+                let free = (attrs[.systemFreeSize] as? Int64) ?? 0
+                let total = (attrs[.systemSize] as? Int64) ?? 0
+                result = ["free": free, "total": total]
+            } catch {
+                errorMsg = error.localizedDescription
+            }
+
+        default:
+            errorMsg = "Unknown action: \(action)"
+        }
+
+        // Send response back to JavaScript
+        var response: [String: Any]
+        if let error = errorMsg {
+            response = ["error": error]
+        } else {
+            response = ["result": result]
+        }
+
+        if let jsonData = try? JSONSerialization.data(withJSONObject: response),
+            let jsonStr = String(data: jsonData, encoding: .utf8)
+        {
+            let escapedJson = jsonStr.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
+            let javascript = "window.__nativeStorageCallbacks?.get?.('\(callbackId)')?.(\(jsonStr))"
+            DispatchQueue.main.async {
+                self.webView?.evaluateJavaScript(javascript, completionHandler: nil)
+            }
+        }
+    }
+}
+
 class ClipboardBridge: NSObject, WKScriptMessageHandler {
     weak var webView: WKWebView?
     weak var imagePickerCoordinator: ImagePickerCoordinator?
@@ -166,7 +302,8 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
             }
         case "open-url":
             if let urlString = body["url"] as? String,
-               let url = URL(string: urlString) {
+                let url = URL(string: urlString)
+            {
                 DispatchQueue.main.async {
                     UIApplication.shared.open(url)
                 }
@@ -1279,22 +1416,81 @@ struct WebView: UIViewRepresentable {
         // Create and store bridges in coordinator to keep them alive
         let clipboardBridge = ClipboardBridge()
         let imagePickerCoordinator = ImagePickerCoordinator()
+        let storageBridge = StorageBridge()
         clipboardBridge.imagePickerCoordinator = imagePickerCoordinator
 
         // Store in coordinator
         context.coordinator.clipboardBridge = clipboardBridge
         context.coordinator.imagePickerCoordinator = imagePickerCoordinator
+        context.coordinator.storageBridge = storageBridge
 
         userContentController.add(clipboardBridge, name: "IOSBridge")
+        userContentController.add(storageBridge, name: "Storage")
 
         // Inject alias for IOSBridge as a wrapper object to allow extension
+        // Also inject storage methods that return Promises (wrapping the async webkit callbacks)
         let scriptSource = """
-            window.IOSBridge = {
-                postMessage: function(msg) { window.webkit.messageHandlers.IOSBridge.postMessage(msg); },
-                setEditorFocused: function(focused) { 
-                    window.webkit.messageHandlers.IOSBridge.postMessage({action: 'editor-focus', focused: focused}); 
+            (function() {
+                // Callback registry for async storage responses
+                window.__nativeStorageCallbacks = new Map();
+                let callbackCounter = 0;
+
+                // Helper to call native storage and return a Promise
+                function callStorage(action, params) {
+                    return new Promise((resolve, reject) => {
+                        const callbackId = 'cb_' + (++callbackCounter) + '_' + Date.now();
+
+                        window.__nativeStorageCallbacks.set(callbackId, function(response) {
+                            window.__nativeStorageCallbacks.delete(callbackId);
+                            if (response.error) {
+                                reject(new Error(response.error));
+                            } else {
+                                resolve(response.result);
+                            }
+                        });
+
+                        window.webkit.messageHandlers.Storage.postMessage({
+                            action: action,
+                            callbackId: callbackId,
+                            ...params
+                        });
+
+                        // Timeout after 30 seconds
+                        setTimeout(function() {
+                            if (window.__nativeStorageCallbacks.has(callbackId)) {
+                                window.__nativeStorageCallbacks.delete(callbackId);
+                                reject(new Error('Native storage call timed out'));
+                            }
+                        }, 30000);
+                    });
                 }
-            };
+
+                window.IOSBridge = {
+                    postMessage: function(msg) { window.webkit.messageHandlers.IOSBridge.postMessage(msg); },
+                    setEditorFocused: function(focused) {
+                        window.webkit.messageHandlers.IOSBridge.postMessage({action: 'editor-focus', focused: focused});
+                    },
+                    // Storage methods (same interface as AndroidBridge, but returning Promises)
+                    storageWrite: function(path, base64Data) {
+                        return callStorage('write', { path: path, data: base64Data });
+                    },
+                    storageRead: function(path) {
+                        return callStorage('read', { path: path });
+                    },
+                    storageDelete: function(path) {
+                        return callStorage('delete', { path: path });
+                    },
+                    storageList: function(path) {
+                        return callStorage('list', { path: path });
+                    },
+                    storageExists: function(path) {
+                        return callStorage('exists', { path: path });
+                    },
+                    getStorageInfo: function() {
+                        return callStorage('getStorageInfo', {});
+                    }
+                };
+            })();
             """
         let script = WKUserScript(
             source: scriptSource, injectionTime: .atDocumentStart, forMainFrameOnly: false)
@@ -1402,6 +1598,7 @@ struct WebView: UIViewRepresentable {
 
         clipboardBridge.webView = webView
         imagePickerCoordinator.webView = webView
+        storageBridge.webView = webView
 
         // Delay setting the presenting view controller to ensure the view hierarchy is ready
         DispatchQueue.main.async {
@@ -1481,6 +1678,7 @@ struct WebView: UIViewRepresentable {
         var parent: WebView
         var clipboardBridge: ClipboardBridge?
         var imagePickerCoordinator: ImagePickerCoordinator?
+        var storageBridge: StorageBridge?
 
         init(_ parent: WebView) {
             self.parent = parent

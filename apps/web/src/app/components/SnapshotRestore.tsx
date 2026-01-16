@@ -119,7 +119,7 @@ interface SnapshotItemProps {
 }
 
 function SnapshotItem({ snapshot, onRestore }: SnapshotItemProps) {
-  const { t } = useTranslation("SnapshotRestore");
+  const { t } = useTranslation();
 
   return (
     <div className="flex items-center justify-between py-2.5 px-1 group hover:bg-accent/50 rounded-md transition-colors">
@@ -157,7 +157,7 @@ function SnapshotRestoreContent({
   isLoading,
   onRestore,
 }: SnapshotRestoreContentProps) {
-  const { t } = useTranslation("SnapshotRestore");
+  const { t } = useTranslation();
   const groupedSnapshots = useMemo(
     () => groupSnapshots(snapshots),
     [snapshots]
@@ -241,7 +241,7 @@ export function SnapshotRestore({
   open: controlledOpen,
   onOpenChange,
 }: SnapshotRestoreProps) {
-  const { t } = useTranslation("SnapshotRestore");
+  const { t } = useTranslation();
   const [internalOpen, setInternalOpen] = useState(false);
   const isMobile = useResponsive("(max-width: 768px)");
 
@@ -270,26 +270,29 @@ export function SnapshotRestore({
     }));
   }, [snapshotsData]);
 
-  const handleRestore = useCallback(async (snapshot: Snapshot) => {
-    const confirmed = await getConfirmation({
-      title: t`Restore this version?`,
-      description: t`This will replace your current content with the selected snapshot. Any unsaved changes will be lost.`,
-      cancelText: t`Cancel`,
-      confirmText: t`Restore`,
-    });
+  const handleRestore = useCallback(
+    async (snapshot: Snapshot) => {
+      const confirmed = await getConfirmation({
+        title: t`Restore this version?`,
+        description: t`This will replace your current content with the selected snapshot. Any unsaved changes will be lost.`,
+        cancelText: t`Cancel`,
+        confirmText: t`Restore`,
+      });
 
-    if (!confirmed) return;
+      if (!confirmed) return;
 
-    // Call the restore function with the snapshot blocks
-    if (onRestoreSnapshot && snapshot.blocks.length > 0) {
-      onRestoreSnapshot(snapshot.blocks);
-      setOpen(false);
-    } else {
-      console.warn("No restore function available or snapshot has no blocks");
-    }
+      // Call the restore function with the snapshot blocks
+      if (onRestoreSnapshot && snapshot.blocks.length > 0) {
+        onRestoreSnapshot(snapshot.blocks);
+        setOpen(false);
+      } else {
+        console.warn("No restore function available or snapshot has no blocks");
+      }
 
-    onRestore?.(snapshot);
-  }, [getConfirmation, t, onRestoreSnapshot, setOpen, onRestore]);
+      onRestore?.(snapshot);
+    },
+    [getConfirmation, t, onRestoreSnapshot, setOpen, onRestore]
+  );
 
   if (isMobile) {
     return (

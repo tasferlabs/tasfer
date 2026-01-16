@@ -8,8 +8,15 @@ import { debounce } from "lodash-es";
 import { MountedEditor } from "../MountedEditor";
 import type { SyncState } from "../../editor/sync/websocket";
 import type { AwarenessUser } from "@/editor/sync/awareness";
-import { isTextualBlock, type Block, type TextualBlock } from "@/deserializer/loadPage";
-import { getVisibleTextFromRuns, extractTitleFromBlocks } from "@/editor/sync/char-runs";
+import {
+  isTextualBlock,
+  type Block,
+  type TextualBlock,
+} from "@/deserializer/loadPage";
+import {
+  getVisibleTextFromRuns,
+  extractTitleFromBlocks,
+} from "@/editor/sync/char-runs";
 
 // WebSocket server URL - defaults to using Vite proxy
 // Uses wss:// for HTTPS, ws:// for HTTP
@@ -195,13 +202,7 @@ export default function EditorPage() {
   // Debounced save callback - only called for local user-initiated changes
   // Remote peer updates are NOT persisted by this user; peers handle saving their own changes
   const handleSave = useCallback(
-    async ({
-      snapshot,
-      clock,
-    }: {
-      snapshot: Block[];
-      clock: HLC | null;
-    }) => {
+    async ({ snapshot, clock }: { snapshot: Block[]; clock: HLC | null }) => {
       if (!id) return;
 
       try {
@@ -381,7 +382,7 @@ function EditorLoadingState() {
 }
 
 function EditorEmptyState() {
-  const { t } = useTranslation("PagesLinks");
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
@@ -416,7 +417,7 @@ function EditorEmptyState() {
 }
 
 function EditorNotFoundState() {
-  const { t } = useTranslation("PagesLinks");
+  const { t } = useTranslation();
   return (
     <div className={style.appErrorState}>
       <NotFoundStateIllustration />
@@ -429,7 +430,7 @@ function EditorNotFoundState() {
 }
 
 export function EditorErrorState() {
-  const { t } = useTranslation("PagesLinks");
+  const { t } = useTranslation();
   return (
     <div className={style.appErrorState}>
       <ErrorStateIllustration />
