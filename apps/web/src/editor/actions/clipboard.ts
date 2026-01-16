@@ -672,7 +672,7 @@ function segmentsToCharsAndFormats(
   const chars: Char[] = [];
   const formats: FormatSpan[] = [];
   const idGen = makeClipboardIdGen();
-  const clock = { wall: Date.now(), logical: 0, peerId: "clipboard" };
+  const clock = { counter: 0, peerId: "clipboard" };
 
   for (const segment of segments) {
     const startIdx = chars.length;

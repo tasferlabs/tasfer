@@ -72,11 +72,10 @@ message TextFormat {
   optional string url = 2;
 }
 
-// HLC for conflict resolution
+// HLC for conflict resolution (Lamport clock)
 message HLC {
-  int64 wall = 1;
-  int32 logical = 2;
-  string peer_id = 3;
+  int64 counter = 1;
+  string peer_id = 2;
 }
 
 // Block type enum

@@ -454,7 +454,7 @@ function applyRemoteFormatSet(page: Page, op: FormatSet): Page {
     // Use clock as unique identifier - same clock means same operation
     const spanExists = block.formats.some(
       (span) =>
-        span.clock.logical === op.clock.logical &&
+        span.clock.counter === op.clock.counter &&
         span.clock.peerId === op.clock.peerId
     );
 

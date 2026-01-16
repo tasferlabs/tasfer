@@ -7,8 +7,7 @@
  */
 
 import type { Char, CharRun, Page, TextFormat } from "@/deserializer/loadPage";
-import { COMPACTION_GRACE_PERIOD_MS } from "../constants";
-import { createHLC, receiveHLC, tickHLC } from "./hlc";
+import { compareHLC, createHLC, receiveHLC, tickHLC } from "./hlc";
 import { createIdGenerator, generateBlockId, generatePeerId, extractPeerId, extractCounter } from "./id";
 import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
 import { findCharIdAtPosition, getCharIdsInRange } from "./reducer";
@@ -291,19 +290,7 @@ export class SyncEngine {
       return this.opLog.operations;
     }
 
-    return this.opLog.operations.filter((op) => {
-      // Operation is after clock if:
-      // 1. wall > clock.wall, OR
-      // 2. wall == clock.wall AND logical > clock.logical, OR
-      // 3. wall == clock.wall AND logical == clock.logical AND peerId > clock.peerId
-      return (
-        op.clock.wall > clock.wall ||
-        (op.clock.wall === clock.wall && op.clock.logical > clock.logical) ||
-        (op.clock.wall === clock.wall &&
-          op.clock.logical === clock.logical &&
-          op.clock.peerId > clock.peerId)
-      );
-    });
+    return this.opLog.operations.filter((op) => compareHLC(op.clock, clock) > 0);
   }
 
   /**
@@ -319,13 +306,7 @@ export class SyncEngine {
 
     let latest = this.opLog.operations[0].clock;
     for (const op of this.opLog.operations) {
-      if (
-        op.clock.wall > latest.wall ||
-        (op.clock.wall === latest.wall && op.clock.logical > latest.logical) ||
-        (op.clock.wall === latest.wall &&
-          op.clock.logical === latest.logical &&
-          op.clock.peerId > latest.peerId)
-      ) {
+      if (compareHLC(op.clock, latest) > 0) {
         latest = op.clock;
       }
     }
@@ -336,41 +317,19 @@ export class SyncEngine {
    * Compact the operation log by removing operations that are already saved.
    * Call this after successfully saving to the server to free memory.
    *
-   * Operations are only removed if:
-   * 1. They are <= snapshotClock (already saved in snapshot)
-   * 2. They are older than COMPACTION_GRACE_PERIOD_MS
+   * Operations are removed if they are <= snapshotClock (already saved in snapshot).
+   * Late-joining peers will load from the snapshot, so they don't need these ops.
    *
-   * The grace period prevents a race condition where a late-joining peer
-   * loads an older snapshot from the server but can't get recent ops from
-   * existing peers because they've already been compacted.
-   * See docs/crdt-compaction.md for detailed explanation.
-   *
-   * @param snapshotClock - Clock of the saved snapshot. Operations <= this clock may be removed.
+   * @param snapshotClock - Clock of the saved snapshot. Operations <= this clock will be removed.
    * @returns Number of operations removed
    */
   compactOperations(snapshotClock: HLC): number {
     const beforeCount = this.opLog.operations.length;
-    const now = Date.now();
 
-    // Keep operations that are either:
-    // 1. After the snapshot clock (not yet saved)
-    // 2. Within the grace period (might be needed by late-joining peers)
-    this.opLog.operations = this.opLog.operations.filter((op) => {
-      // Keep ops within grace period regardless of clock
-      if (now - op.clock.wall < COMPACTION_GRACE_PERIOD_MS) {
-        return true;
-      }
-
-      // Keep ops after snapshot clock
-      return (
-        op.clock.wall > snapshotClock.wall ||
-        (op.clock.wall === snapshotClock.wall &&
-          op.clock.logical > snapshotClock.logical) ||
-        (op.clock.wall === snapshotClock.wall &&
-          op.clock.logical === snapshotClock.logical &&
-          op.clock.peerId > snapshotClock.peerId)
-      );
-    });
+    // Keep only operations after the snapshot clock (not yet saved)
+    this.opLog.operations = this.opLog.operations.filter(
+      (op) => compareHLC(op.clock, snapshotClock) > 0
+    );
 
     const removed = beforeCount - this.opLog.operations.length;
     if (removed > 0) {

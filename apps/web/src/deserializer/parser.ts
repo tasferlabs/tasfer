@@ -303,7 +303,7 @@ function parseCharsAndFormats(context: ParserContext): { chars: Char[]; formats:
               startCharId: active.startCharId,
               endCharId: chars[chars.length - 2]?.id || active.startCharId,
               format: active.format,
-              clock: { wall: Date.now(), logical: 0, peerId: "parser" },
+              clock: { counter: 0, peerId: "parser" },
             });
             activeFormats.delete(key);
           }
@@ -319,7 +319,7 @@ function parseCharsAndFormats(context: ParserContext): { chars: Char[]; formats:
         startCharId: active.startCharId,
         endCharId: chars[chars.length - 1].id,
         format: active.format,
-        clock: { wall: Date.now(), logical: 0, peerId: "parser" },
+        clock: { counter: 0, peerId: "parser" },
       });
     }
   }

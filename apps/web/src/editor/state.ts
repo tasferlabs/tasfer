@@ -291,8 +291,7 @@ export const createInitialState = (page: Page): EditorState => {
       pageId: page.id,
       idGen: createIdGenerator(peerId),
       clock: () => ({
-        wall: Date.now(),
-        logical: 0,
+        counter: 0,
         peerId,
       }),
     },

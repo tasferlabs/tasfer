@@ -8,8 +8,7 @@ const __dirname = path.dirname(__filename);
 
 // Block types (matching web app types)
 interface HLC {
-  wall: number;
-  logical: number;
+  counter: number;
   peerId: string;
 }
 
@@ -171,24 +170,21 @@ function protoToFormat(proto: {
 // Convert TypeScript HLC to Protobuf HLC
 function hlcToProto(hlc: HLC): object {
   return {
-    wall: hlc.wall,
-    logical: hlc.logical,
+    counter: hlc.counter,
     peerId: hlc.peerId,
   };
 }
 
 // Convert Protobuf HLC to TypeScript HLC
 function protoToHlc(proto: {
-  wall: number | Long;
-  logical: number;
+  counter: number | Long;
   peerId: string;
 }): HLC {
   return {
-    wall:
-      typeof proto.wall === "number"
-        ? proto.wall
-        : (proto.wall as Long).toNumber(),
-    logical: proto.logical,
+    counter:
+      typeof proto.counter === "number"
+        ? proto.counter
+        : (proto.counter as Long).toNumber(),
     peerId: proto.peerId,
   };
 }
@@ -253,7 +249,7 @@ function protoToFormatSpan(proto: {
   startCharId: string;
   endCharId: string;
   format: { type: number; url?: string };
-  clock: { wall: number | Long; logical: number; peerId: string };
+  clock: { counter: number | Long; peerId: string };
 }): FormatSpan {
   return {
     startCharId: proto.startCharId,
@@ -358,7 +354,7 @@ interface ProtoBlock {
       startCharId: string;
       endCharId: string;
       format: { type: number; url?: string };
-      clock: { wall: number | Long; logical: number; peerId: string };
+      clock: { counter: number | Long; peerId: string };
     }>;
   };
   listBlock?: {
@@ -373,7 +369,7 @@ interface ProtoBlock {
       startCharId: string;
       endCharId: string;
       format: { type: number; url?: string };
-      clock: { wall: number | Long; logical: number; peerId: string };
+      clock: { counter: number | Long; peerId: string };
     }>;
     indent: number;
     checked: boolean;

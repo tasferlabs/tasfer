@@ -14,8 +14,7 @@ export interface IListPage {
 
 // HLC (Hybrid Logical Clock) for operation ordering
 export interface HLC {
-  wall: number;
-  logical: number;
+  counter: number;
   peerId: string;
 }
 

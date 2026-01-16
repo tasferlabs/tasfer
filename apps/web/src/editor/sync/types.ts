@@ -13,13 +13,12 @@ import type { CharRun, Page, TextFormat } from "@/deserializer/loadPage";
 
 /**
  * Hybrid Logical Clock for total ordering of operations.
- * Combines physical wall clock with logical counter for causality.
+ * Pure Lamport clock: counter + peerId for causality tracking.
+ * No wall clock dependency - immune to system clock skew.
  */
 export interface HLC {
-  /** Physical wall clock time (Date.now()) */
-  wall: number;
-  /** Logical counter - increments when wall time equals previous */
-  logical: number;
+  /** Logical counter - increments on each operation */
+  counter: number;
   /** Peer ID - tie-breaker for concurrent operations */
   peerId: string;
 }

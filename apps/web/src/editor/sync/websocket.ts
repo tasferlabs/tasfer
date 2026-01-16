@@ -5,7 +5,7 @@
  * Replaces WebRTC peer-to-peer with centralized server communication.
  */
 
-import { SyncEngine, serializeVV, deserializeVV } from "./sync";
+import { SyncEngine, serializeVV, deserializeVV, compareHLC } from "./sync";
 import type { HLC, Operation } from "./types";
 import type { AwarenessState, AwarenessUser } from "./awareness";
 import { getColorForPeer, getTestNameForPeer } from "./awareness";
@@ -299,17 +299,9 @@ export class WebSocketSync {
     // This prevents sending operations that are already persisted in the snapshot
     if (requesterSnapshotClock) {
       const beforeFilter = missingOps.length;
-      missingOps = missingOps.filter((op) => {
-        // Only include operations AFTER the requester's snapshot clock
-        return (
-          op.clock.wall > requesterSnapshotClock.wall ||
-          (op.clock.wall === requesterSnapshotClock.wall &&
-            op.clock.logical > requesterSnapshotClock.logical) ||
-          (op.clock.wall === requesterSnapshotClock.wall &&
-            op.clock.logical === requesterSnapshotClock.logical &&
-            op.clock.peerId > requesterSnapshotClock.peerId)
-        );
-      });
+      missingOps = missingOps.filter(
+        (op) => compareHLC(op.clock, requesterSnapshotClock) > 0
+      );
       console.log(
         `[WebSocket] Filtered ${beforeFilter - missingOps.length} ops already in requester's snapshot`
       );
