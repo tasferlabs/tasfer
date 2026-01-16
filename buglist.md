@@ -259,6 +259,7 @@ Bugs list
 - [ ] iamge place holder
 - [x] title not updating in sidebar when triggering auto update.
 - [ ] saving indictor loads for ever when editing offline.
+- [ ] more shimming rendering
 
 
 

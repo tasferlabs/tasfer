@@ -56,10 +56,12 @@ import {
   nextId,
   getClock,
 } from "./sync/sync";
-import type { AwarenessState, AwarenessUser } from "./sync/awareness";
+import type { AwarenessCursor, AwarenessSelection, AwarenessState, AwarenessUser } from "./sync/awareness";
 import {
   positionToAwarenessCursor,
   selectionToAwarenessSelection,
+  awarenessCursorsEqual,
+  awarenessSelectionsEqual,
 } from "./sync/awareness";
 import {
   applyRemoteOps,
@@ -193,9 +195,14 @@ export default function createEditor(
   // Local user info for awareness
   let localUser: AwarenessUser | null = null;
 
+  // Track last broadcast awareness state to avoid redundant broadcasts
+  let lastBroadcastCursor: AwarenessCursor | null = null;
+  let lastBroadcastSelection: AwarenessSelection | null = null;
+
   /**
    * Broadcast local awareness state (cursor/selection) to peers.
    * Called when cursor or selection changes.
+   * Only broadcasts if the position has actually changed.
    */
   const broadcastAwareness = (): void => {
     if (!awarenessBroadcastFn || !localUser) return;
@@ -214,6 +221,18 @@ export default function createEditor(
       selection && !selection.isCollapsed
         ? selectionToAwarenessSelection(selection, page)
         : null;
+
+    // Skip broadcast if cursor and selection haven't changed
+    if (
+      awarenessCursorsEqual(awarenessCursor, lastBroadcastCursor) &&
+      awarenessSelectionsEqual(awarenessSelection, lastBroadcastSelection)
+    ) {
+      return;
+    }
+
+    // Update last broadcast state
+    lastBroadcastCursor = awarenessCursor;
+    lastBroadcastSelection = awarenessSelection;
 
     const awarenessState: AwarenessState = {
       user: localUser,

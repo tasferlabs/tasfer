@@ -399,6 +399,38 @@ export function awarenessSelectionToSelection(
 }
 
 // =============================================================================
+// Comparison Utilities
+// =============================================================================
+
+/**
+ * Compare two awareness cursors for equality by value.
+ */
+export function awarenessCursorsEqual(
+  a: AwarenessCursor | null,
+  b: AwarenessCursor | null
+): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  return a.blockId === b.blockId && a.textIndex === b.textIndex;
+}
+
+/**
+ * Compare two awareness selections for equality by value.
+ */
+export function awarenessSelectionsEqual(
+  a: AwarenessSelection | null,
+  b: AwarenessSelection | null
+): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  return (
+    awarenessCursorsEqual(a.anchor, b.anchor) &&
+    awarenessCursorsEqual(a.focus, b.focus) &&
+    a.isForward === b.isForward
+  );
+}
+
+// =============================================================================
 // Factory
 // =============================================================================
 

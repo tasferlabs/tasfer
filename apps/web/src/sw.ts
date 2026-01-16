@@ -12,6 +12,25 @@ import { CacheableResponsePlugin } from "workbox-cacheable-response";
 
 declare let self: ServiceWorkerGlobalScope;
 
+console.log("[SW] Service worker script loaded");
+
+// Log when SW installs
+self.addEventListener("install", () => {
+  console.log("[SW] Installing...");
+});
+
+// Log when SW activates
+self.addEventListener("activate", (event) => {
+  console.log("[SW] Activating, claiming clients...");
+  event.waitUntil(self.clients.claim());
+});
+
+// Debug: Log ALL fetch events (first handler, runs before Workbox)
+self.addEventListener("fetch", (event) => {
+  const url = new URL(event.request.url);
+  console.log("[SW] Fetch intercepted:", event.request.method, url.pathname);
+});
+
 // Precache static assets (injected by vite-plugin-pwa at build time)
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
@@ -64,11 +83,61 @@ registerRoute(
   })
 );
 
+// Generate realistic API response for offline mutations
+function generateSyntheticResponse(
+  url: URL,
+  method: string,
+  body: Record<string, unknown>
+): { success: boolean; data?: unknown; message?: string } {
+  const pathname = url.pathname;
+
+  // POST /api/pages/create
+  if (pathname === "/api/pages/create" && method === "POST") {
+    return {
+      success: true,
+      data: {
+        id: body.id || crypto.randomUUID(),
+        title: body.title || "",
+        autoTitle: body.autoTitle ?? true,
+        parentId: body.parentId ?? null,
+        order: body.order ?? 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  // PUT /api/pages/:id
+  if (/^\/api\/pages\/[^/]+$/.test(pathname) && method === "PUT") {
+    return {
+      success: true,
+      data: {
+        id: pathname.split("/").pop(),
+        ...body,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  // DELETE endpoints
+  if (method === "DELETE") {
+    return { success: true, message: "Deleted" };
+  }
+
+  // POST move/reorder
+  if (/\/(move|reorder)$/.test(pathname) && method === "POST") {
+    return { success: true, message: "OK" };
+  }
+
+  // Default fallback
+  return { success: true };
+}
+
 // Helper to queue mutation and return synthetic response
 async function queueMutationAndRespond(request: Request): Promise<Response> {
   try {
-    // Clone request to read body
     const body = await request.clone().json();
+    const url = new URL(request.url);
 
     // Send message to client to queue mutation
     const clients = await self.clients.matchAll({ type: "window" });
@@ -83,29 +152,16 @@ async function queueMutationAndRespond(request: Request): Promise<Response> {
       });
     });
 
-    // Return synthetic success response
-    return new Response(
-      JSON.stringify({
-        success: true,
-        queued: true,
-        message: "Queued for sync when online",
-      }),
-      {
-        status: 202,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+    // Return realistic 200 response so app doesn't know it's offline
+    const responseBody = generateSyntheticResponse(url, request.method, body);
+    return new Response(JSON.stringify(responseBody), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch {
-    // If we can't read the body, return an error
     return new Response(
-      JSON.stringify({
-        success: false,
-        error: "Failed to queue mutation",
-      }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      }
+      JSON.stringify({ success: false, error: "Failed to queue mutation" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 }
@@ -154,9 +210,4 @@ self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") {
     self.skipWaiting();
   }
-});
-
-// Claim clients on activation
-self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
 });

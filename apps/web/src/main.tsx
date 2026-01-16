@@ -20,6 +20,10 @@ const queryClient = new QueryClient({
     queries: {
       refetchOnWindowFocus: false,
       retry: 1,
+      networkMode: "always", // Always attempt fetch - let service worker handle offline
+    },
+    mutations: {
+      networkMode: "always",
     },
   },
 });
