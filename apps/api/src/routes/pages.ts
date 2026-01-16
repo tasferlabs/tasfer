@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { createId } from "@paralleldrive/cuid2";
-import db from "../db/index";
-import { pages, snapshots } from "../db/schema";
+import db from "../db/index.js";
+import { pages, snapshots } from "../db/schema.js";
 import { eq, and, isNull, sql, inArray, desc } from "drizzle-orm";
-import { encodeSnapshot, decodeSnapshot, type Block } from "../lib/snapshot";
-import { writeFile, readFile, deleteFile } from "../handlers/files";
+import { encodeSnapshot, decodeSnapshot, type Block } from "../lib/snapshot.js";
+import { writeFile, readFile, deleteFile } from "../handlers/files.js";
 
 // Maximum number of snapshots to keep per page
 const MAX_SNAPSHOTS_PER_PAGE = 50;

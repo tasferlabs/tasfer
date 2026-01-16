@@ -1,4 +1,5 @@
 import express from "express";
+import basicAuth from "express-basic-auth";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -9,6 +10,17 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 const API_URL = process.env.API_URL || "http://localhost:3000";
 const LIVE_URL = process.env.LIVE_URL || "http://localhost:8080";
+
+// Basic auth (enabled when AUTH_USER and AUTH_PASS are set)
+if (process.env.AUTH_USER && process.env.AUTH_PASS) {
+  app.use(
+    basicAuth({
+      users: { [process.env.AUTH_USER]: process.env.AUTH_PASS },
+      challenge: true,
+      realm: "Cypher",
+    })
+  );
+}
 
 // Proxy API requests
 const apiProxy = createProxyMiddleware({

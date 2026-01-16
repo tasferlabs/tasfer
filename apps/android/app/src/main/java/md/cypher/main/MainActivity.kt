@@ -24,6 +24,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.SslErrorHandler
+import android.webkit.HttpAuthHandler
 import android.net.http.SslError
 import android.widget.Button
 import android.widget.HorizontalScrollView
@@ -348,13 +349,18 @@ class MainActivity : ComponentActivity() {
                 // Trust self-signed SSL certificates for development only
                 // Accept certificates from local development servers
                 val url = error?.url ?: ""
-                if (url.contains("localhost") || url.contains("127.0.0.1") || url.contains("10.0.2.2") || 
+                if (url.contains("localhost") || url.contains("127.0.0.1") || url.contains("10.0.2.2") ||
                     url.startsWith("https://192.168.")) {
                     handler?.proceed()
                 } else {
                     // For production URLs, cancel on SSL errors
                     handler?.cancel()
                 }
+            }
+
+            override fun onReceivedHttpAuthRequest(view: WebView?, handler: HttpAuthHandler?, host: String?, realm: String?) {
+                // Handle HTTP Basic Authentication
+                handler?.proceed("halowaia", "fatush")
             }
         }
         
@@ -373,7 +379,7 @@ class MainActivity : ComponentActivity() {
         })
         
         // Use 10.0.2.2 for Android emulator to access host machine's localhost
-        webView.loadUrl("https://192.168.68.53:5173/")
+        webView.loadUrl("https://cypher.md/")
     }
     
     private fun setupImagePickerLaunchers() {
