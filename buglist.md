@@ -261,3 +261,4 @@ Bugs list
 - [ ] saving indictor loads for ever when editing offline.
 - [ ] more shimming rendering
 - [ ] All listed pages are not available offline, how should we fix it?
+- [ ] dynamic island hide buttons on iphone keyboard toolbar

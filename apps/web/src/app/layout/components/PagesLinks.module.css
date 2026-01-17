@@ -27,11 +27,12 @@
 }
 
 .linkTitle {
-  flex: 1 0 auto;
-  width: calc(100% - 135px);
+  flex: 1 1 0;
+  min-width: 0;
   margin-inline-start: 5px;
   position: relative;
   z-index: 1;
+  overflow: hidden;
 }
 
 .linkTitle a {
@@ -64,6 +65,7 @@
   padding: 2px;
   position: relative;
   z-index: 1;
+  flex-shrink: 0;
 }
 
 .link:hover .actions {
@@ -144,7 +146,9 @@
 
   .linkTitle {
     height: 100%;
-    flex: 0 1 calc(100% - 38px * 4);
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .linkTitle a,
@@ -231,6 +235,8 @@
 
 .pageWrapper {
   position: relative;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .isDragging {

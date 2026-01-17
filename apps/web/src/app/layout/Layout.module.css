@@ -109,6 +109,7 @@
   display: flex;
   align-items: center;
   max-width: 70vw;
+  min-width: 0;
   user-select: none;
 }
 
@@ -123,10 +124,19 @@
   padding: 0.125rem 0.5rem;
   border-radius: 4px;
   font-size: 0.875rem;
+  min-width: 40px;
+  flex-shrink: 10;
+}
+
+/* Last breadcrumb item (current page) should be more visible */
+.appHeaderTitle:last-child {
+  flex-shrink: 1;
+  min-width: 80px;
 }
 
 .appHeaderTitleSeparator {
   color: var(--foreground);
+  flex-shrink: 0;
 }
 
 .appHeaderTitle:hover {
@@ -202,6 +212,7 @@
 .appSidebarMain {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -210,6 +221,7 @@
 
 .appSidebarMain > div {
   height: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
@@ -225,15 +237,25 @@
 .appSidebarScrollArea {
   height: 100%;
   flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Override Radix ScrollArea's internal table display */
+.appSidebarScrollArea :global([data-radix-scroll-area-viewport]) > div {
+  display: block !important;
+  min-width: 0 !important;
 }
 
 .appSidebarScrollArea > div {
   display: block !important;
   height: 100%;
+  min-width: 0;
 }
 
 .appSidebarScrollArea > div > div {
   height: 100%;
+  min-width: 0;
 }
 
 .appSidebarSectionTitle {
@@ -378,6 +400,8 @@
   /* min-height: 50px; */
   /* padding-bottom: 0.5rem; */
   border-radius: 4px;
+  overflow: hidden;
+  min-width: 0;
 
   /* for touch dragging to work */
   -webkit-touch-callout: none;
