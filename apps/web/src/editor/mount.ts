@@ -298,6 +298,18 @@ export function mountEditor(
   window.addEventListener("focus", handleWindowFocus);
   window.addEventListener("blur", handleWindowBlur);
 
+  // Watch for theme changes (dark class toggle on document root)
+  const themeObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.attributeName === "class") {
+        // Theme changed, force re-render to pick up new CSS variables
+        editor.forceRender();
+        break;
+      }
+    }
+  });
+  themeObserver.observe(document.documentElement, { attributes: true });
+
   const refocus = () => {
     if (hiddenInput && !destroyed && window.IOSBridge) {
       hiddenInput.focus({ preventScroll: true });
@@ -315,6 +327,7 @@ export function mountEditor(
     window.removeEventListener("message", handleKeyboardMessage);
     window.removeEventListener("focus", handleWindowFocus);
     window.removeEventListener("blur", handleWindowBlur);
+    themeObserver.disconnect();
     document.removeEventListener("mousedown", handleDocumentClick);
     document.removeEventListener("touchstart", handleDocumentClick);
     container.removeEventListener("touchstart", handleTouchStart);
