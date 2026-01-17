@@ -2,7 +2,7 @@
 
 set -e
 
-REMOTE_IP="192.168.68.56"
+REMOTE_IP="home-server"
 REMOTE_USER="hamza"
 REMOTE_PATH="/home/hamza/apps/cypher/"
 

@@ -260,8 +260,4 @@ Bugs list
 - [x] title not updating in sidebar when triggering auto update.
 - [ ] saving indictor loads for ever when editing offline.
 - [ ] more shimming rendering
-
-
-
-reloading page edited offline not working, it is not saving the content, the should queue operations and not rest requests.
-All listed pages are not available offline, how should we fix it?
+- [ ] All listed pages are not available offline, how should we fix it?
