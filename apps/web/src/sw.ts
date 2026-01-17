@@ -5,14 +5,26 @@ import {
   cleanupOutdatedCaches,
   matchPrecache,
 } from "workbox-precaching";
-import { Wayne } from "@jcubic/wayne";
+import { Router } from "./sw-router";
 
 declare let self: ServiceWorkerGlobalScope;
 
-console.log("[SW] Service worker script loaded");
+// Initialize router
+const app = new Router();
 
-// Initialize Wayne router
-const app = new Wayne();
+// Register fetch event handler
+self.addEventListener("fetch", (event) => {
+  event.respondWith(
+    (async () => {
+      const response = await app.handleRequest(event.request);
+      if (response) return response;
+      // No route matched, pass through to network
+      return fetch(event.request);
+    })()
+  );
+});
+
+console.log("[SW] Service worker script loaded");
 
 // Activate immediately on install, and cache index.html as a guaranteed fallback
 self.addEventListener("install", (event) => {
@@ -97,7 +109,7 @@ async function getOfflineIndexHtml(): Promise<Response> {
 }
 
 // ============================================================
-// Wayne Routes
+// Routes
 // ============================================================
 
 // Cache page list with stale-while-revalidate
@@ -318,8 +330,6 @@ app.post("/api/pages/create", async (req, res) => {
 app.post("/api/pages/{id}/move", async (req, res) => {
   const request = req._request;
 
-  // If definitely offline, queue immediately
-
   // If online, try the network but fall back to queueing on failure
   try {
     const response = await fetch(request.clone());
@@ -332,8 +342,6 @@ app.post("/api/pages/{id}/move", async (req, res) => {
 
 app.post("/api/pages/{id}/reorder", async (req, res) => {
   const request = req._request;
-
-  // If definitely offline, queue immediately
 
   // If online, try the network but fall back to queueing on failure
   try {
@@ -348,8 +356,6 @@ app.post("/api/pages/{id}/reorder", async (req, res) => {
 // Catch-all for other API mutations (POST/PUT/DELETE)
 app.post("/api/{path+}", async (req, res) => {
   const request = req._request;
-
-  // If definitely offline, queue immediately
 
   try {
     return res.send(await fetch(request.clone()));
