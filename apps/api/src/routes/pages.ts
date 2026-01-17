@@ -94,13 +94,15 @@ router.get("/:id", async (req, res) => {
     }
 
     // Include snapshot clock in response for client-side delta tracking
-    const snapshotClock = snapshotRecord?.clockWall !== null && snapshotRecord?.clockWall !== undefined
-      ? {
-          wall: snapshotRecord.clockWall,
-          logical: snapshotRecord.clockLogical!,
-          peerId: snapshotRecord.clockPeerId!,
-        }
-      : null;
+    const snapshotClock =
+      snapshotRecord?.clockWall !== null &&
+      snapshotRecord?.clockWall !== undefined
+        ? {
+            wall: snapshotRecord.clockWall,
+            logical: snapshotRecord.clockLogical!,
+            peerId: snapshotRecord.clockPeerId!,
+          }
+        : null;
 
     res.json({
       success: true,
@@ -166,13 +168,14 @@ router.get("/:id/snapshots", async (req, res) => {
             pageId: record.pageId,
             blocks,
             size: record.size,
-            clock: record.clockWall !== null
-              ? {
-                  wall: record.clockWall,
-                  logical: record.clockLogical!,
-                  peerId: record.clockPeerId!,
-                }
-              : null,
+            clock:
+              record.clockWall !== null
+                ? {
+                    wall: record.clockWall,
+                    logical: record.clockLogical!,
+                    peerId: record.clockPeerId!,
+                  }
+                : null,
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,
           };
@@ -269,7 +272,12 @@ router.post("/create", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, autoTitle, snapshot: snapshotBlocks, snapshotClock } = req.body;
+    const {
+      title,
+      autoTitle,
+      snapshot: snapshotBlocks,
+      snapshotClock,
+    } = req.body;
 
     const page = await db.query.pages.findFirst({
       where: eq(pages.id, id),
@@ -280,9 +288,10 @@ router.put("/:id", async (req, res) => {
     }
 
     // Build update object
-    const updateData: { title?: string; autoTitle?: boolean; updatedAt: Date } = {
-      updatedAt: new Date(),
-    };
+    const updateData: { title?: string; autoTitle?: boolean; updatedAt: Date } =
+      {
+        updatedAt: new Date(),
+      };
 
     // Update title if provided
     if (title !== undefined) {
@@ -339,12 +348,15 @@ router.put("/:id", async (req, res) => {
           try {
             await deleteFile(snapshot.filePath, { bucketName: "snapshots" });
           } catch (err) {
-            console.error(`Failed to delete old snapshot file ${snapshot.filePath}:`, err);
+            console.error(
+              `Failed to delete old snapshot file ${snapshot.filePath}:`,
+              err
+            );
           }
         }
 
         // Delete old snapshot records
-        const idsToDelete = snapshotsToDelete.map(s => s.id);
+        const idsToDelete = snapshotsToDelete.map((s) => s.id);
         await db.delete(snapshots).where(inArray(snapshots.id, idsToDelete));
       }
     }
@@ -380,7 +392,9 @@ router.delete("/:id", async (req, res) => {
       SELECT id FROM child_pages
     `);
 
-    const pageIds = (childPagesResult.rows as { id: string }[]).map((row) => row.id);
+    const pageIds = (childPagesResult.rows as { id: string }[]).map(
+      (row) => row.id
+    );
 
     // Delete snapshots for all pages being deleted
     if (pageIds.length > 0) {
@@ -394,7 +408,10 @@ router.delete("/:id", async (req, res) => {
         try {
           await deleteFile(snapshot.filePath, { bucketName: "snapshots" });
         } catch (err) {
-          console.error(`Failed to delete snapshot file ${snapshot.filePath}:`, err);
+          console.error(
+            `Failed to delete snapshot file ${snapshot.filePath}:`,
+            err
+          );
         }
       }
 
@@ -436,9 +453,9 @@ router.post("/:id/move", async (req, res) => {
 
     // Prevent moving a page to itself
     if (id === parentId) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "Cannot move a page to itself" 
+      return res.status(400).json({
+        success: false,
+        error: "Cannot move a page to itself",
       });
     }
 
@@ -453,13 +470,13 @@ router.post("/:id/move", async (req, res) => {
         )
         SELECT EXISTS(SELECT 1 FROM child_pages WHERE id = ${parentId}) AS "isDescendant"
       `);
-      
+
       const isDescendant = descendantsCheck.rows[0]?.isDescendant;
-      
+
       if (isDescendant) {
-        return res.status(400).json({ 
-          success: false, 
-          error: "Cannot move a page into its own descendant" 
+        return res.status(400).json({
+          success: false,
+          error: "Cannot move a page into its own descendant",
         });
       }
     }
@@ -585,42 +602,6 @@ router.post("/:id/reorder", async (req, res) => {
     res.json({ success: true, message: "Page reordered" });
   } catch (error) {
     console.error("Reorder page error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-// Get page tree
-router.get("/tree/all", async (req, res) => {
-  try {
-    const allPages = await db.query.pages.findMany({
-      orderBy: [pages.order, pages.title],
-    });
-
-    // Build tree structure
-    const pageMap = new Map();
-    const rootPages: any[] = [];
-
-    // First pass: create map
-    allPages.forEach((page) => {
-      pageMap.set(page.id, { ...page, children: [] });
-    });
-
-    // Second pass: build tree
-    allPages.forEach((page) => {
-      const pageWithChildren = pageMap.get(page.id);
-      if (page.parentId) {
-        const parent = pageMap.get(page.parentId);
-        if (parent) {
-          parent.children.push(pageWithChildren);
-        }
-      } else {
-        rootPages.push(pageWithChildren);
-      }
-    });
-
-    res.json({ success: true, data: rootPages });
-  } catch (error) {
-    console.error("Get tree error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 });

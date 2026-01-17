@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef } from "react";
 import { getMutationQueue } from "../mutation-queue";
+import { OfflineStore } from "../store";
 
 /**
  * Hook to handle offline mutation queueing and auto-sync.
@@ -31,6 +32,13 @@ export function useOfflineStatus(): void {
         await mutationQueue.enqueue(url, method, body);
       } else if (event.data.type === "PROCESS_MUTATION_QUEUE") {
         await syncQueue();
+      } else if (event.data.type === "PAGE_DELETED") {
+        const { pageId } = event.data;
+        console.log("[Offline] Cleaning up local data for deleted page:", pageId);
+
+        // Clean up IndexedDB and native storage
+        const store = new OfflineStore(pageId);
+        store.clearPageData().catch(console.error);
       }
     };
 

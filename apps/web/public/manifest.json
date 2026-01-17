@@ -1,7 +1,7 @@
 {
   "name": "Cypher",
   "short_name": "Cypher",
-  "description": "Canvas-based collaborative markdown editor",
+  "description": "Collaborative markdown editor",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
