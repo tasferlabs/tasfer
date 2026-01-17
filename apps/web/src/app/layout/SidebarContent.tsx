@@ -29,6 +29,7 @@ import Icons from "../components/uiKit/Icons/Icons";
 import VisuallyHidden from "../components/uiKit/VisuallyHidden/VisuallyHidden";
 import { PagesArea } from "./components/PagesArea";
 import style from "./Layout.module.css";
+import { Link as RouterLink } from "react-router-dom";
 
 // Mock t function
 const t = (s: string | TemplateStringsArray) => s.toString();
@@ -114,12 +115,14 @@ export function SidebarContent({
     const isDescendant = (pageId: string, targetId: string | null): boolean => {
       if (!targetId) return false;
       if (pageId === targetId) return true;
-      
+
       // Check using parentsStack if available
       if (overData?.parentsStack) {
-        return overData.parentsStack.some((parent: any) => parent.id === pageId);
+        return overData.parentsStack.some(
+          (parent: any) => parent.id === pageId
+        );
       }
-      
+
       return false;
     };
 
@@ -130,9 +133,12 @@ export function SidebarContent({
         return;
       }
     }
-    
+
     // For other drop zones, check if the parent is a descendant
-    if (overData?.type === "drop-zone" && (overData.position === "before" || overData.position === "after")) {
+    if (
+      overData?.type === "drop-zone" &&
+      (overData.position === "before" || overData.position === "after")
+    ) {
       if (isDescendant(activeData.id, overData.targetPageId)) {
         console.warn("Cannot move a page to become a sibling of itself");
         return;
@@ -241,12 +247,12 @@ export function SidebarContent({
         </button>
       </div>
       <div className={style.appNavigationLinks}>
-        <button className={style.appNavigationLink}>
+        <RouterLink className={style.appNavigationLink} to={"/settings"}>
           <div className={style.appNavigationLinkIcon}>
             <Icons.Gear width={24} height={24} />
           </div>
           {t`Settings`}
-        </button>
+        </RouterLink>
         <button className={style.appNavigationLink}>
           <div className={style.appNavigationLinkIcon}>
             <Icons.Tray width={24} height={24} />

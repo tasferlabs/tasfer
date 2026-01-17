@@ -61,6 +61,8 @@ interface MountedEditorProps {
   onAwarenessChange?: (users: AwarenessUser[]) => void;
   /** Callback when restore function is ready */
   onRestoreReady?: (restoreFn: (blocks: Block[]) => void) => void;
+  /** Callback when confirmSave function is ready - call this after backend save succeeds */
+  onConfirmSaveReady?: (confirmFn: (clock: HLC) => void) => void;
 }
 
 export function MountedEditor({
@@ -76,6 +78,7 @@ export function MountedEditor({
   onSnapshotClockUpdate,
   onAwarenessChange,
   onRestoreReady,
+  onConfirmSaveReady,
 }: MountedEditorProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
@@ -227,6 +230,25 @@ export function MountedEditor({
     if (onRestoreReady) {
       onRestoreReady((blocks: Block[]) => {
         mounted.editor.restoreFromSnapshot(blocks);
+      });
+    }
+
+    // Expose confirmSave function to parent
+    // Called after backend confirms save succeeded - updates snapshotClock and marks ops as synced
+    if (onConfirmSaveReady) {
+      onConfirmSaveReady((clock: HLC) => {
+        // Update local snapshotClock ref
+        snapshotClockRef.current = clock;
+        // Keep WebSocketSync in sync for sync-requests
+        if (websocketSyncRef.current) {
+          websocketSyncRef.current.setSnapshotClock(clock);
+        }
+        // Notify parent of clock update
+        onSnapshotClockUpdate?.(clock);
+        // Mark operations as synced in IndexedDB, then clean up
+        offlineStoreRef.current?.markSynced(clock).then(() => {
+          offlineStoreRef.current?.compactSynced();
+        });
       });
     }
 
@@ -451,22 +473,13 @@ export function MountedEditor({
           // Only trigger saves for local user-initiated changes, not remote peer updates
           // Remote peers handle saving their own changes
           if (!isApplyingRemoteOpsRef.current && onContentChange) {
-            // Get the latest clock
+            // Get the latest clock for the save request
             const latestClock = syncEngineRef.current?.getLatestClock() ?? null;
 
-            // Update snapshotClock to latest after sending
-            if (latestClock && onSnapshotClockUpdate) {
-              snapshotClockRef.current = latestClock;
-              // Keep WebSocketSync in sync for sync-requests
-              if (websocketSyncRef.current) {
-                websocketSyncRef.current.setSnapshotClock(latestClock);
-              }
-              onSnapshotClockUpdate(latestClock);
-              // Mark operations as synced in IndexedDB, then clean up
-              offlineStoreRef.current?.markSynced(latestClock).then(() => {
-                offlineStoreRef.current?.compactSynced();
-              });
-            }
+            // NOTE: snapshotClock is NOT updated here - it will be updated
+            // by confirmSave() after the backend confirms the save succeeded.
+            // This prevents offline operations from being marked as synced
+            // before they're actually persisted to the server.
 
             // Save snapshot with tombstones preserved for offline sync
             onContentChange(currentBlocks as Block[], latestClock);

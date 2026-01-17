@@ -229,7 +229,7 @@ Bugs list
 - [x] Database Operations Table
 - [x] snapshotting
 - [x] snapshot restore
-- [ ] why snapshot have hlc clock
+- [x] why snapshot have hlc clock
 - [ ] do we have uncessary long ids in snapshot
 - [x] crdt pasting ad docoumet paste only first block
 - [ ] loading page is slow

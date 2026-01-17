@@ -111,6 +111,8 @@ export default function EditorPage() {
   });
   // Restore function ref from MountedEditor
   const restoreFnRef = useRef<((blocks: Block[]) => void) | null>(null);
+  // Confirm save function ref from MountedEditor - called after backend confirms save
+  const confirmSaveFnRef = useRef<((clock: HLC) => void) | null>(null);
 
   const { data: pages, isLoading: isLoadingPages } = useGetPages(null);
   const [lastPageId, setLastPageId] = useLocalStorage<string | null>(
@@ -225,6 +227,12 @@ export default function EditorPage() {
         }
 
         await updatePage(updateData);
+
+        // Confirm save succeeded - update snapshotClock and mark operations as synced
+        // This is only called after the backend confirms the save, not optimistically
+        if (clock && confirmSaveFnRef.current) {
+          confirmSaveFnRef.current(clock);
+        }
 
         // Invalidate page list queries AFTER save completes so sidebar gets updated title
         if (titleChanged) {
@@ -360,6 +368,9 @@ export default function EditorPage() {
         onAwarenessChange={handleAwarenessChange}
         onRestoreReady={(restoreFn) => {
           restoreFnRef.current = restoreFn;
+        }}
+        onConfirmSaveReady={(confirmFn) => {
+          confirmSaveFnRef.current = confirmFn;
         }}
       />
       <WordCountOverlay />

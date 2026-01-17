@@ -3,6 +3,9 @@ import { Navigate, useRoutes } from "react-router-dom";
 import Layout from "../layout/Layout";
 
 const EditorPage = React.lazy(() => import("../pages/EditorPage"));
+const SettingsPage = React.lazy(
+  () => import("../pages/SettingsPage/SettingsPage")
+);
 
 export default function Router() {
   return useRoutes([
@@ -22,6 +25,10 @@ export default function Router() {
           path: "page",
           element: <EditorPage />,
         },
+        {
+          path: "settings",
+          element: <SettingsPage />,
+        },
       ],
     },
     {
@@ -30,4 +37,3 @@ export default function Router() {
     },
   ]);
 }
-
