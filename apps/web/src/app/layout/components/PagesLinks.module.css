@@ -147,7 +147,7 @@
   .linkTitle {
     height: 100%;
     flex: 1 1 0;
-    min-width: 0;
+    min-width: 40px;
     overflow: hidden;
   }
 
@@ -161,7 +161,7 @@
   .actions {
     display: flex;
     justify-content: flex-end;
-    flex: 99999 0 calc(32px * 3);
+    flex: 0 0 auto;
     gap: 0;
     padding: 0;
   }

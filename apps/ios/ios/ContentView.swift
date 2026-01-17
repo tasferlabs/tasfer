@@ -1411,6 +1411,14 @@ struct WebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
+
+        // Enable persistent storage for offline support (Cache API, IndexedDB, localStorage)
+        // This is equivalent to Android's domStorageEnabled and databaseEnabled
+        configuration.websiteDataStore = WKWebsiteDataStore.default()
+
+        // Enable offline web application cache
+        configuration.preferences.setValue(true, forKey: "offlineApplicationCacheIsEnabled")
+
         let userContentController = WKUserContentController()
 
         // Create and store bridges in coordinator to keep them alive
