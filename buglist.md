@@ -262,3 +262,4 @@ Bugs list
 - [ ] more shimming rendering
 - [ ] All listed pages are not available offline, how should we fix it?
 - [ ] dynamic island hide buttons on iphone keyboard toolbar
+- [ ] strike through should follow same color as text

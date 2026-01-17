@@ -1416,6 +1416,10 @@ struct WebView: UIViewRepresentable {
         // This is equivalent to Android's domStorageEnabled and databaseEnabled
         configuration.websiteDataStore = WKWebsiteDataStore.default()
 
+        // Enable app-bound domains for service worker support
+        // This is required for service workers to function in WKWebView on iOS
+        configuration.limitsNavigationsToAppBoundDomains = true
+
         // Enable offline web application cache
         configuration.preferences.setValue(true, forKey: "offlineApplicationCacheIsEnabled")
 

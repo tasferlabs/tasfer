@@ -413,23 +413,9 @@ app.get("*", async (req, res) => {
     return res.fetch(request);
   }
 
-  try {
-    // Try network first
-    const response = await fetch(request);
-    return res.send(response);
-  } catch {
-    if (pathname === "/") {
-      // Serve cached index.html for root navigation
-      const offlineIndex = await getOfflineIndexHtml();
-      return res.send(offlineIndex);
-    }
+  // For SPA navigation, use cache-first with network update
+  // This ensures fast offline loading while keeping content fresh when online
+  const cachedIndex = await getOfflineIndexHtml();
 
-    // Network failed
-    return res.json(
-      {
-        success: false,
-      },
-      { status: 503 }
-    );
-  }
+  return res.send(cachedIndex);
 });
