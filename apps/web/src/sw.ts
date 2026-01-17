@@ -3,31 +3,25 @@
 import {
   precacheAndRoute,
   cleanupOutdatedCaches,
-  createHandlerBoundToURL,
   matchPrecache,
 } from "workbox-precaching";
-import { registerRoute, NavigationRoute } from "workbox-routing";
-import {
-  CacheFirst,
-  NetworkFirst,
-  StaleWhileRevalidate,
-} from "workbox-strategies";
-import { ExpirationPlugin } from "workbox-expiration";
-import { CacheableResponsePlugin } from "workbox-cacheable-response";
+import { Wayne } from "@jcubic/wayne";
 
 declare let self: ServiceWorkerGlobalScope;
 
 console.log("[SW] Service worker script loaded");
 
+// Initialize Wayne router
+const app = new Wayne();
+
 // Activate immediately on install, and cache index.html as a guaranteed fallback
 self.addEventListener("install", (event) => {
-  console.log("[SW] Installing...");
   event.waitUntil(
     (async () => {
       // Cache index.html with a known key for offline fallback
       const cache = await caches.open("offline-fallback");
       await cache.add(new Request("/index.html", { cache: "reload" }));
-      console.log("[SW] Cached index.html for offline fallback");
+
       self.skipWaiting();
     })()
   );
@@ -35,7 +29,6 @@ self.addEventListener("install", (event) => {
 
 // Claim clients immediately on activate
 self.addEventListener("activate", (event) => {
-  console.log("[SW] Activating, claiming clients...");
   event.waitUntil(self.clients.claim());
 });
 
@@ -44,140 +37,269 @@ self.addEventListener("activate", (event) => {
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
-// Handle navigation requests with offline fallback.
-// This catches hard reloads where browser sends cache:'reload' mode.
-self.addEventListener("fetch", (event) => {
-  const { request } = event;
+// Helper to clean up caches when a page is deleted
+async function cleanupPageCaches(pageId: string): Promise<void> {
+  // Delete from pages-data cache
+  const pagesDataCache = await caches.open("pages-data");
+  await pagesDataCache.delete(`/api/pages/${pageId}`);
 
-  // Only handle navigation requests (HTML pages)
-  if (request.mode !== "navigate") return;
+  // Clear pages-list cache (forces fresh fetch on next request)
+  const pagesListCache = await caches.open("pages-list");
+  const keys = await pagesListCache.keys();
+  for (const key of keys) {
+    await pagesListCache.delete(key);
+  }
 
-  // Don't handle API routes
-  if (new URL(request.url).pathname.startsWith("/api/")) return;
+  // Notify client to clean up IndexedDB and native storage
+  const clients = await self.clients.matchAll({ type: "window" });
+  clients.forEach((client) => {
+    client.postMessage({
+      type: "PAGE_DELETED",
+      pageId,
+    });
+  });
+}
 
-  event.respondWith(
-    (async () => {
-      try {
-        // Try network first
-        const response = await fetch(request);
-        return response;
-      } catch {
-        console.log("[SW] Network failed, serving cached index.html");
+// Helper to queue mutation and return synthetic response
+async function queueMutation(request: Request) {
+  const body = await request.clone().json();
 
-        // 1. Check our dedicated offline-fallback cache first
-        const fallbackCache = await caches.open("offline-fallback");
-        const fallback = await fallbackCache.match("/index.html");
-        if (fallback) return fallback;
+  // Send message to client to queue mutation
+  const clients = await self.clients.matchAll({ type: "window" });
+  clients.forEach((client) => {
+    client.postMessage({
+      type: "QUEUE_MUTATION",
+      payload: {
+        url: request.url,
+        method: request.method,
+        body,
+      },
+    });
+  });
+}
 
-        // 2. Try Workbox's precache
-        const precached = await matchPrecache("/index.html");
-        if (precached) return precached;
+// Helper to get cached index.html for offline navigation
+async function getOfflineIndexHtml(): Promise<Response> {
+  // 1. Check our dedicated offline-fallback cache first
+  const fallbackCache = await caches.open("offline-fallback");
+  const fallback = await fallbackCache.match("/index.html");
+  if (fallback) return fallback;
 
-        // 3. Search all caches manually
-        const allCacheNames = await caches.keys();
-        for (const cacheName of allCacheNames) {
-          const cache = await caches.open(cacheName);
-          const keys = await cache.keys();
-          for (const key of keys) {
-            if (key.url.includes("index.html")) {
-              const match = await cache.match(key);
-              if (match) return match;
-            }
-          }
-        }
+  // 2. Try Workbox's precache
+  const precached = await matchPrecache("/index.html");
+  if (precached) return precached;
 
-        // Last resort
-        return new Response(
-          "<!DOCTYPE html><html><body><h1>Offline</h1><p>Please reconnect.</p></body></html>",
-          { headers: { "Content-Type": "text/html" } }
-        );
-      }
-    })()
+  // Last resort
+  return new Response(
+    "<!DOCTYPE html><html><body><h1>Offline</h1><p>Please reconnect.</p></body></html>",
+    { headers: { "Content-Type": "text/html" } }
   );
-});
+}
 
-// SPA navigation fallback for normal requests (handled by Workbox routing)
-registerRoute(
-  new NavigationRoute(createHandlerBoundToURL("/index.html"), {
-    denylist: [/^\/api\//],
-  })
-);
+// ============================================================
+// Wayne Routes
+// ============================================================
 
 // Cache page list with stale-while-revalidate
 // Navigation should feel instant, but fresh data is preferred
-registerRoute(
-  ({ url }) => url.pathname === "/api/pages/list",
-  new StaleWhileRevalidate({
-    cacheName: "pages-list",
-    plugins: [
-      new CacheableResponsePlugin({ statuses: [200] }),
-      new ExpirationPlugin({
-        maxEntries: 50,
-        maxAgeSeconds: 86400, // 1 day
-      }),
-    ],
-  })
-);
+app.get("/api/pages/list", async (req, res) => {
+  const cache = await caches.open("pages-list");
+  const request = req._request;
 
-// Cache individual pages with network-first
+  // Try to get from cache first (stale)
+  const cached = await cache.match(request);
+
+  // Revalidate in background
+  const fetchPromise = fetch(request.clone())
+    .then(async (response) => {
+      if (response.ok) {
+        await cache.put(request, response.clone());
+      }
+      return response;
+    })
+    .catch(() => null);
+
+  // Return cached if available, otherwise wait for network
+  if (cached) {
+    // Fire and forget the revalidation
+    fetchPromise.catch(() => {});
+    return res.send(cached);
+  }
+
+  // No cache, wait for network
+  const response = await fetchPromise;
+  if (response) {
+    return res.send(response);
+  }
+
+  // Offline and no cache
+  return res.json(
+    { success: false, error: "Offline and no cached data" },
+    { status: 503 }
+  );
+});
+
+// Cache individual pages with network-first and 404 cache cleanup
 // Content should be fresh when online, cached when offline
-registerRoute(
-  ({ url }) => /^\/api\/pages\/[^/]+$/.test(url.pathname),
-  new NetworkFirst({
-    cacheName: "pages-data",
-    plugins: [
-      new CacheableResponsePlugin({ statuses: [200] }),
-      new ExpirationPlugin({
-        maxEntries: 100,
-        maxAgeSeconds: 604800, // 7 days
-      }),
-    ],
-    networkTimeoutSeconds: 3,
-  })
-);
+app.get("/api/pages/{id}", async (req, res) => {
+  const cache = await caches.open("pages-data");
+  const request = req._request;
+  const pageId = req.params.id;
+
+  try {
+    const response = await fetch(request.clone());
+
+    if (response.status === 404 && pageId) {
+      // Page was deleted - clean up caches
+      await cleanupPageCaches(pageId);
+      return res.send(response);
+    }
+
+    if (response.ok) {
+      // Cache successful response
+      await cache.put(request, response.clone());
+    }
+
+    return res.send(response);
+  } catch {
+    // Offline - serve from cache
+    const cached = await cache.match(request);
+    if (cached) return res.send(cached);
+
+    // No cache, return offline error
+    return res.json(
+      { success: false, error: "Offline and no cached data" },
+      { status: 503 }
+    );
+  }
+});
 
 // Cache images with cache-first (immutable by ID)
-registerRoute(
-  ({ url }) => /^\/api\/images\/[^/]+$/.test(url.pathname),
-  new CacheFirst({
-    cacheName: "images",
-    plugins: [
-      new CacheableResponsePlugin({ statuses: [200] }),
-      new ExpirationPlugin({
-        maxEntries: 200,
-        maxAgeSeconds: 31536000, // 1 year
-      }),
-    ],
-  })
-);
+app.get("/api/images/{id}", async (req, res) => {
+  const cache = await caches.open("images");
+  const request = req._request;
+
+  // Check cache first
+  const cached = await cache.match(request);
+  if (cached) {
+    return res.send(cached);
+  }
+
+  // Not in cache, fetch from network
+  try {
+    const response = await fetch(request.clone());
+    if (response.ok) {
+      await cache.put(request, response.clone());
+    }
+    return res.send(response);
+  } catch {
+    return res.json(
+      { success: false, error: "Offline and image not cached" },
+      { status: 503 }
+    );
+  }
+});
 
 // Cache locale files with stale-while-revalidate
 // Translations should load instantly but update in background
-registerRoute(
-  ({ url }) => url.pathname.startsWith("/app/locales/"),
-  new StaleWhileRevalidate({
-    cacheName: "locales",
-    plugins: [
-      new CacheableResponsePlugin({ statuses: [200] }),
-      new ExpirationPlugin({
-        maxEntries: 20,
-        maxAgeSeconds: 2592000, // 30 days
-      }),
-    ],
-  })
-);
+app.get("/app/locales/{path+}", async (req, res) => {
+  const cache = await caches.open("locales");
+  const request = req._request;
 
-// Generate realistic API response for offline mutations
-function generateSyntheticResponse(
-  url: URL,
-  method: string,
-  body: Record<string, unknown>
-): { success: boolean; data?: unknown; message?: string } {
-  const pathname = url.pathname;
+  // Try to get from cache first (stale)
+  const cached = await cache.match(request);
 
-  // POST /api/pages/create
-  if (pathname === "/api/pages/create" && method === "POST") {
-    return {
+  // Revalidate in background
+  const fetchPromise = fetch(request.clone())
+    .then(async (response) => {
+      if (response.ok) {
+        await cache.put(request, response.clone());
+      }
+      return response;
+    })
+    .catch(() => null);
+
+  // Return cached if available, otherwise wait for network
+  if (cached) {
+    // Fire and forget the revalidation
+    fetchPromise.catch(() => {});
+    return res.send(cached);
+  }
+
+  // No cache, wait for network
+  const response = await fetchPromise;
+  if (response) {
+    return res.send(response);
+  }
+
+  // Offline and no cache
+  return res.json(
+    { success: false, error: "Offline and no cached data" },
+    { status: 503 }
+  );
+});
+
+// Handle page mutations (PUT)
+app.put("/api/pages/{id}", async (req, res) => {
+  const request = req._request;
+
+  // If definitely offline, queue immediately
+  if (!navigator.onLine) {
+    await queueMutation(request);
+    return res.json({ success: true });
+  }
+
+  // If online, try the network but fall back to queueing on failure
+  try {
+    const response = await fetch(request.clone());
+    return res.send(response);
+  } catch {
+    // Network error - queue mutation for later
+    await queueMutation(request);
+    return res.json({ success: true });
+  }
+});
+
+// Handle page deletion
+app.delete("/api/pages/{id}", async (req, res) => {
+  const request = req._request;
+  const pageId = req.params.id;
+
+  // If definitely offline, queue immediately
+  if (!navigator.onLine) {
+    await queueMutation(request);
+    await cleanupPageCaches(pageId);
+    return res.json({ success: true });
+  }
+
+  // If online, try the network but fall back to queueing on failure
+  try {
+    const response = await fetch(request.clone());
+    // Clean up caches on successful delete OR 404 (already deleted)
+    if (response.ok || response.status === 404) {
+      await cleanupPageCaches(pageId);
+    }
+    return res.send(response);
+  } catch {
+    // Network error - queue mutation for later
+    await queueMutation(request);
+    await cleanupPageCaches(pageId);
+    return res.json({ success: true });
+  }
+});
+
+// Handle page creation
+app.post("/api/pages/create", async (req, res) => {
+  const request = req._request;
+
+  // If online, try the network but fall back to queueing on failure
+  try {
+    const response = await fetch(request.clone());
+    return res.send(response);
+  } catch {
+    await queueMutation(request);
+    const body = await request.clone().json();
+    return res.json({
       success: true,
       data: {
         id: body.id || crypto.randomUUID(),
@@ -188,103 +310,120 @@ function generateSyntheticResponse(
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
-    };
-  }
-
-  // PUT /api/pages/:id
-  if (/^\/api\/pages\/[^/]+$/.test(pathname) && method === "PUT") {
-    return {
-      success: true,
-      data: {
-        id: pathname.split("/").pop(),
-        ...body,
-        updatedAt: new Date().toISOString(),
-      },
-    };
-  }
-
-  // DELETE endpoints
-  if (method === "DELETE") {
-    return { success: true, message: "Deleted" };
-  }
-
-  // POST move/reorder
-  if (/\/(move|reorder)$/.test(pathname) && method === "POST") {
-    return { success: true, message: "OK" };
-  }
-
-  // Default fallback
-  return { success: true };
-}
-
-// Helper to queue mutation and return synthetic response
-async function queueMutationAndRespond(request: Request): Promise<Response> {
-  try {
-    const body = await request.clone().json();
-    const url = new URL(request.url);
-
-    // Send message to client to queue mutation
-    const clients = await self.clients.matchAll({ type: "window" });
-    clients.forEach((client) => {
-      client.postMessage({
-        type: "QUEUE_MUTATION",
-        payload: {
-          url: request.url,
-          method: request.method,
-          body,
-        },
-      });
     });
-
-    // Return realistic 200 response so app doesn't know it's offline
-    const responseBody = generateSyntheticResponse(url, request.method, body);
-    return new Response(JSON.stringify(responseBody), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch {
-    return new Response(
-      JSON.stringify({ success: false, error: "Failed to queue mutation" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
   }
-}
+});
 
-// Handle offline mutations
-// Queue PUT/POST/DELETE requests when offline or network fails
-self.addEventListener("fetch", (event) => {
-  const { request } = event;
-  const url = new URL(request.url);
-
-  // Only intercept API mutation requests
-  if (
-    !url.pathname.startsWith("/api/") ||
-    !["PUT", "POST", "DELETE"].includes(request.method)
-  ) {
-    return;
-  }
-
-  // Let Workbox handle GET requests
-  if (request.method === "GET") {
-    return;
-  }
+// Handle move/reorder operations
+app.post("/api/pages/{id}/move", async (req, res) => {
+  const request = req._request;
 
   // If definitely offline, queue immediately
-  if (!navigator.onLine) {
-    event.respondWith(queueMutationAndRespond(request));
-    return;
-  }
 
   // If online, try the network but fall back to queueing on failure
-  event.respondWith(
-    (async () => {
-      try {
-        const response = await fetch(request.clone());
-        return response;
-      } catch {
-        // Network error - queue mutation for later
-        return queueMutationAndRespond(request);
-      }
-    })()
-  );
+  try {
+    const response = await fetch(request.clone());
+    return res.send(response);
+  } catch {
+    await queueMutation(request);
+    return res.json({ success: true });
+  }
+});
+
+app.post("/api/pages/{id}/reorder", async (req, res) => {
+  const request = req._request;
+
+  // If definitely offline, queue immediately
+
+  // If online, try the network but fall back to queueing on failure
+  try {
+    const response = await fetch(request.clone());
+    return res.send(response);
+  } catch {
+    await queueMutation(request);
+    return res.json({ success: true });
+  }
+});
+
+// Catch-all for other API mutations (POST/PUT/DELETE)
+app.post("/api/{path+}", async (req, res) => {
+  const request = req._request;
+
+  // If definitely offline, queue immediately
+
+  try {
+    return res.send(await fetch(request.clone()));
+  } catch {
+    await queueMutation(request);
+    return res.json({ success: true });
+  }
+});
+
+app.put("/api/{path+}", async (req, res) => {
+  const request = req._request;
+
+  try {
+    return res.send(await fetch(request.clone()));
+  } catch {
+    await queueMutation(request);
+    return res.json({ success: true });
+  }
+});
+
+app.delete("/api/{path+}", async (req, res) => {
+  const request = req._request;
+
+  try {
+    return res.send(await fetch(request.clone()));
+  } catch {
+    await queueMutation(request);
+    return res.json({ success: true });
+  }
+});
+
+// Pass through other API GET requests to network
+app.get("/api/{path+}", async (req, res) => {
+  try {
+    return res.send(await fetch(req._request.clone()));
+  } catch {
+    return res.json({ success: false, error: "Offline" }, { status: 503 });
+  }
+});
+
+// Navigation handler - catch-all for non-API requests
+// This handles SPA navigation with offline fallback
+app.get("*", async (req, res) => {
+  const request = req._request;
+
+  // Only handle navigation requests (HTML pages)
+  if (request.mode !== "navigate") {
+    // Let it pass through to network
+    return res.fetch(request);
+  }
+
+  const pathname = new URL(request.url).pathname;
+  // Don't handle API routes (already handled above, but just in case)
+  if (pathname.startsWith("/api/")) {
+    return res.fetch(request);
+  }
+
+  try {
+    // Try network first
+    const response = await fetch(request);
+    return res.send(response);
+  } catch {
+    if (pathname === "/") {
+      // Serve cached index.html for root navigation
+      const offlineIndex = await getOfflineIndexHtml();
+      return res.send(offlineIndex);
+    }
+
+    // Network failed
+    return res.json(
+      {
+        success: false,
+      },
+      { status: 503 }
+    );
+  }
 });

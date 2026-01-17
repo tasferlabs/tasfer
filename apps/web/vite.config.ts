@@ -14,13 +14,9 @@ export default defineConfig({
       srcDir: "src",
       filename: "sw.ts",
       registerType: "autoUpdate",
-      injectManifest: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff,woff2,json}"],
-      },
       manifest: false,
       devOptions: {
-        enabled: true,
-        type: "module",
+        enabled: false,
       },
     }),
   ],
