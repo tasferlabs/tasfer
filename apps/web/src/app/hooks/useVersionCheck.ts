@@ -9,7 +9,6 @@ export interface UpdateUrls {
 }
 
 export interface VersionInfo {
-  apiVersion: string;
   minClientVersion: string;
   recommendedClientVersion: string;
   updateMessage: string | null;

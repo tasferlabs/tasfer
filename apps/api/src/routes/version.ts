@@ -13,7 +13,6 @@ interface VersionConfig {
   clientVersion: string;
   minClientVersion: string;
   recommendedClientVersion: string;
-  apiVersion: string;
   updateMessage: string | null;
   updateUrls: {
     ios: string | null;
@@ -33,7 +32,6 @@ function getVersionConfig(): VersionConfig {
       clientVersion: "1.0.0",
       minClientVersion: "1.0.0",
       recommendedClientVersion: "1.0.0",
-      apiVersion: "1.0.0",
       updateMessage: null,
       updateUrls: {
         ios: null,
@@ -62,7 +60,6 @@ router.get("/", (req, res) => {
   res.json({
     success: true,
     data: {
-      apiVersion: config.apiVersion,
       minClientVersion: config.minClientVersion,
       recommendedClientVersion: config.recommendedClientVersion,
       updateMessage: config.updateMessage,

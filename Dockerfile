@@ -23,6 +23,7 @@ WORKDIR /app
 COPY apps/web ./apps/web
 COPY apps/api ./apps/api
 COPY apps/live ./apps/live
+COPY version.json .
 
 # Build all apps
 WORKDIR /app/apps/web
