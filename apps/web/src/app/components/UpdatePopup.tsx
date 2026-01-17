@@ -1,0 +1,85 @@
+import { AnimatePresence, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
+import { useVersion } from "../contexts/VersionContext";
+
+export default function UpdatePopup() {
+  const { t } = useTranslation();
+  const {
+    updateAvailable,
+    updateDismissed,
+    meetsMinimum,
+    versionInfo,
+    dismissUpdate,
+    performUpdate,
+  } = useVersion();
+
+  // Don't show popup if:
+  // - No update available
+  // - User dismissed this update
+  // - Minimum version not met (ForceUpdatePage handles this)
+  const showPopup = updateAvailable && !updateDismissed && meetsMinimum;
+
+  const popupVariants = {
+    hidden: { y: 80, opacity: 0 },
+    visible: { y: 0, opacity: 1, transition: { duration: 0.5 } },
+    exit: { y: 80, opacity: 0, transition: { duration: 0.5 } },
+  };
+
+  return (
+    <AnimatePresence>
+      {showPopup && (
+        <motion.div
+          className="z-[2000] fixed bottom-2 left-2 right-2 md:left-2 md:bottom-2 pointer-events-auto"
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+          variants={popupVariants}
+          role="dialog"
+          aria-labelledby="update-popup-title"
+          aria-describedby="update-popup-description"
+        >
+          <div className="max-w-md w-full bg-card text-card-foreground rounded-lg shadow-lg overflow-hidden border border-border">
+            {/* Header */}
+            <div className="flex justify-between items-center px-4 pt-4">
+              <h2 id="update-popup-title" className="text-lg font-semibold">
+                {t`Update Available`}
+              </h2>
+            </div>
+
+            {/* Main content */}
+            <div className="px-4 pt-4">
+              <p
+                id="update-popup-description"
+                className="text-sm text-muted-foreground"
+              >
+                {versionInfo?.updateMessage ||
+                  t`A new version of the app is available. Update now to get the latest features and improvements.`}
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div className="mt-4 px-4 pb-4">
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={dismissUpdate}
+                  aria-label={t`Dismiss update notification`}
+                >
+                  {t`Later`}
+                </Button>
+                <Button
+                  variant="default"
+                  onClick={performUpdate}
+                  aria-label={t`Update the app now`}
+                >
+                  {t`Update now`}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}

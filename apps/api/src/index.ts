@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import pagesRouter from "./routes/pages.js";
 import imagesRouter from "./routes/images.js";
+import versionRouter from "./routes/version.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,6 +19,7 @@ app.get("/health", (req, res) => {
 
 app.use("/api/pages", pagesRouter);
 app.use("/api/images", imagesRouter);
+app.use("/api/version", versionRouter);
 
 // 404 handler
 app.use((req, res) => {

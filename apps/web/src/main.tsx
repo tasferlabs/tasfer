@@ -7,8 +7,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { registerSW } from "virtual:pwa-register";
 import App from "./app/App";
 import { ThemeProvider } from "./app/hooks/useTheme";
+import { VersionProvider } from "./app/contexts/VersionContext";
 import { loadFonts } from "./editor/fonts";
 import LoadingScreen from "./components/ui/loading-screen";
+import { serviceWorkerBridge } from "./serviceWorkerBridge";
 import "./i18n";
 
 // Load fonts and initialize metrics cache before rendering the app
@@ -32,9 +34,11 @@ createRoot(document.getElementById("root")!).render(
   <QueryClientProvider client={queryClient}>
     <ThemeProvider>
       <BrowserRouter>
-        <Suspense fallback={<LoadingScreen />}>
-          <App />
-        </Suspense>
+        <VersionProvider>
+          <Suspense fallback={<LoadingScreen />}>
+            <App />
+          </Suspense>
+        </VersionProvider>
       </BrowserRouter>
     </ThemeProvider>
   </QueryClientProvider>
@@ -43,13 +47,21 @@ createRoot(document.getElementById("root")!).render(
 // Register service worker for offline support
 const updateSW = registerSW({
   onNeedRefresh() {
-    // New version available - could prompt user to refresh
+    // New version available - notify VersionContext via bridge
     console.log("[SW] New version available");
+    serviceWorkerBridge.triggerUpdate();
   },
   onOfflineReady() {
     console.log("[SW] App ready to work offline");
   },
   onRegisteredSW(swUrl, r) {
+    // Store the update function for VersionContext via bridge
+    if (r) {
+      serviceWorkerBridge.setActivator(() => {
+        r.waiting?.postMessage({ type: "SKIP_WAITING" });
+      });
+    }
+
     // Register for background sync if supported
     if (r && "sync" in r) {
       r.sync.register("sync-mutations").catch(() => {
@@ -62,3 +74,6 @@ const updateSW = registerSW({
     console.error("[SW] Registration error:", error);
   },
 });
+
+// Export updateSW for manual triggering if needed
+export { updateSW };

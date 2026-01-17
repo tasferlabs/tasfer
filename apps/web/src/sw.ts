@@ -44,6 +44,13 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// Handle skip waiting message from client
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
+
 // Precache static assets (injected by vite-plugin-pwa at build time)
 // Must be called before matchPrecache can be used
 precacheAndRoute(self.__WB_MANIFEST);
