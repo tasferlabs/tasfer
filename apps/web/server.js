@@ -46,8 +46,19 @@ app.use("/ws", wsProxy);
 // Serve static files from dist
 app.use(express.static(path.join(__dirname, "dist")));
 
-// SPA fallback - serve index.html for all other routes
+// SPA fallback - serve index.html for navigation requests only
+// Don't serve index.html for asset requests (they should 404 if not found)
 app.use((req, res) => {
+  // Check if this looks like a static asset request
+  const isAssetRequest = /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|map|json)$/i.test(req.path);
+
+  if (isAssetRequest) {
+    // Asset not found - return 404 instead of index.html
+    res.status(404).send('Not found');
+    return;
+  }
+
+  // Navigation request - serve index.html for SPA routing
   res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
