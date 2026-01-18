@@ -362,9 +362,21 @@ app.get("*", async (req, res) => {
     return res.fetch(request);
   }
 
-  // For SPA navigation, use cache-first with network update
-  // This ensures fast offline loading while keeping content fresh when online
-  const cachedIndex = await getOfflineIndexHtml();
+  // Network-first for navigation to ensure fresh index.html with correct asset hashes
+  // Fall back to cached index.html only when offline
+  try {
+    const response = await fetch(request.clone());
+    if (response.ok) {
+      // Update the offline fallback cache with fresh index.html
+      const cache = await caches.open("offline-fallback");
+      await cache.put("/index.html", response.clone());
+      return res.send(response);
+    }
+  } catch {
+    // Network failed (offline) - use cached fallback
+  }
 
+  // Offline or network error - serve cached index.html
+  const cachedIndex = await getOfflineIndexHtml();
   return res.send(cachedIndex);
 });

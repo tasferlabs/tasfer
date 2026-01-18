@@ -102,11 +102,30 @@ export function VersionProvider({ children }: { children: ReactNode }) {
   const performUpdate = useCallback(() => {
     // If service worker has a waiting update, activate it
     if (activateServiceWorker) {
-      activateServiceWorker();
-      // Reload after a brief delay to let SW activate
-      setTimeout(() => {
+      // Wait for the new service worker to actually take control before reloading
+      const onControllerChange = () => {
+        navigator.serviceWorker.removeEventListener(
+          "controllerchange",
+          onControllerChange
+        );
         window.location.reload();
-      }, 100);
+      };
+      navigator.serviceWorker.addEventListener(
+        "controllerchange",
+        onControllerChange
+      );
+
+      // Send skip waiting message to activate the waiting SW
+      activateServiceWorker();
+
+      // Fallback: if controllerchange doesn't fire within 2s, reload anyway
+      setTimeout(() => {
+        navigator.serviceWorker.removeEventListener(
+          "controllerchange",
+          onControllerChange
+        );
+        window.location.reload();
+      }, 2000);
       return;
     }
 

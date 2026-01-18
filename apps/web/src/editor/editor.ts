@@ -709,12 +709,13 @@ export default function createEditor(
     // Don't focus input if a context menu just opened (it would close the menu)
     const hasContextMenu = state.ui.activeMenu.type === "contextMenu";
 
-    // Focus input if ending long press or on tap (but not when context menu is open)
+    // Focus input if ending long press or on tap (but not when context menu is open or in readonly mode)
     if (
       hiddenInput &&
       isTouchDevice() &&
       (wasLongPress || wasTap) &&
-      !hasContextMenu
+      !hasContextMenu &&
+      !state.ui.isReadonlyBase
     ) {
       try {
         hiddenInput.focus({ preventScroll: true });
@@ -947,7 +948,8 @@ export default function createEditor(
 
     // Add click/mousedown handler to canvas as fallback for focusing input
     canvasClickHandler = () => {
-      if (hiddenInput) {
+      // Don't focus input in readonly mode (prevents keyboard from opening)
+      if (hiddenInput && !state.ui.isReadonlyBase) {
         try {
           hiddenInput.focus({ preventScroll: true });
         } catch (err) {
