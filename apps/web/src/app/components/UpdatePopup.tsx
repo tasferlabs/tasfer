@@ -53,8 +53,7 @@ export default function UpdatePopup() {
                 id="update-popup-description"
                 className="text-sm text-muted-foreground"
               >
-                {versionInfo?.updateMessage ||
-                  t`A new version of the app is available. Update now to get the latest features and improvements.`}
+                {t`A new version of the app is available. Update now to get the latest features and improvements.`}
               </p>
             </div>
 

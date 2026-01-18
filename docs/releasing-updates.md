@@ -4,31 +4,29 @@ All version configuration lives in `/version.json` at the monorepo root.
 
 ## Version Fields
 
-| Field                      | Purpose                                                            |
-| -------------------------- | ------------------------------------------------------------------ |
-| `clientVersion`            | Current version baked into the client at build time                |
-| `minClientVersion`         | Minimum required version - clients below this are forced to update |
-| `recommendedClientVersion` | Suggested version - shows a dismissible update prompt              |
-| `updateMessage`            | Optional message shown in the update prompt                        |
-| `updateUrls`               | Platform-specific URLs (ios, android, web)                         |
+| Field        | Purpose                                                            |
+| ------------ | ------------------------------------------------------------------ |
+| `version`    | Current version (integer) baked into the client at build time      |
+| `minVersion` | Minimum required version - clients below this are forced to update |
+| `updateUrls` | Platform-specific URLs (ios, android, web)                         |
 
 ## How It Works
 
-1. **Build time**: Vite reads `version.json` and injects `clientVersion` into the web bundle
+1. **Build time**: Vite reads `version.json` and injects `version` into the web bundle
 2. **Runtime**: Client calls `GET /api/version` to check compatibility
-3. **Comparison**: Client compares its baked-in version against `minClientVersion` and `recommendedClientVersion`
+3. **Comparison**: Client compares its baked-in version against `minVersion` and `latestVersion`
 
 ## Release Process
 
 ### Standard Release
 
-1. Bump `clientVersion` in `version.json`:
+1. Bump `version` in `version.json`:
 
    ```json
    {
-     "clientVersion": "1.1.0",
-     "minClientVersion": "1.0.0",
-     "recommendedClientVersion": "1.1.0"
+     "version": 2,
+     "minVersion": 1,
+     "updateUrls": { "ios": null, "android": null, "web": null }
    }
    ```
 
@@ -43,9 +41,9 @@ If a release has breaking changes and old clients must update:
 
 ```json
 {
-  "clientVersion": "2.0.0",
-  "minClientVersion": "2.0.0",
-  "recommendedClientVersion": "2.0.0"
+  "version": 2,
+  "minVersion": 2,
+  "updateUrls": { "ios": null, "android": null, "web": null }
 }
 ```
 
@@ -53,8 +51,8 @@ This blocks old clients with a full-screen update page.
 
 ## Update Behavior
 
-| Scenario                              | User Experience                     |
-| ------------------------------------- | ----------------------------------- |
-| `version < minClientVersion`          | Full-screen block, must update      |
-| `version < recommendedClientVersion`  | Dismissible popup suggesting update |
-| `version >= recommendedClientVersion` | No prompt                           |
+| Scenario                   | User Experience                     |
+| -------------------------- | ----------------------------------- |
+| `version < minVersion`     | Full-screen block, must update      |
+| `version < latestVersion`  | Dismissible popup suggesting update |
+| `version >= latestVersion` | No prompt                           |

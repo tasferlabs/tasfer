@@ -7,7 +7,7 @@ export default function ForceUpdatePage() {
   const { t } = useTranslation();
   const { versionInfo, updateUrl, performUpdate } = useVersion();
 
-  const minVersion = versionInfo?.minClientVersion ?? "unknown";
+  const minVersion = versionInfo?.minVersion ?? "unknown";
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -36,8 +36,7 @@ export default function ForceUpdatePage() {
 
         {/* Description */}
         <p className="text-muted-foreground">
-          {versionInfo?.updateMessage ||
-            t`A new version of the app is required to continue. Please update to access the latest features and security improvements.`}
+          {t`A new version of the app is required to continue. Please update to access the latest features and security improvements.`}
         </p>
 
         {/* Version info */}

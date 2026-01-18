@@ -10,10 +10,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const versionConfigPath = join(__dirname, "../../../../version.json");
 
 interface VersionConfig {
-  clientVersion: string;
-  minClientVersion: string;
-  recommendedClientVersion: string;
-  updateMessage: string | null;
+  version: number;
+  minVersion: number;
   updateUrls: {
     ios: string | null;
     android: string | null;
@@ -22,24 +20,8 @@ interface VersionConfig {
 }
 
 function getVersionConfig(): VersionConfig {
-  try {
-    const content = readFileSync(versionConfigPath, "utf-8");
-    return JSON.parse(content);
-  } catch (error) {
-    console.error("[Version] Failed to read version.json:", error);
-    // Fallback defaults
-    return {
-      clientVersion: "1.0.0",
-      minClientVersion: "1.0.0",
-      recommendedClientVersion: "1.0.0",
-      updateMessage: null,
-      updateUrls: {
-        ios: null,
-        android: null,
-        web: null,
-      },
-    };
-  }
+  const content = readFileSync(versionConfigPath, "utf-8");
+  return JSON.parse(content);
 }
 
 /**
@@ -60,12 +42,11 @@ router.get("/", (req, res) => {
   res.json({
     success: true,
     data: {
-      minClientVersion: config.minClientVersion,
-      recommendedClientVersion: config.recommendedClientVersion,
-      updateMessage: config.updateMessage,
+      minVersion: config.minVersion,
+      latestVersion: config.version,
       updateUrls: config.updateUrls,
       // Include client info in response for debugging
-      clientVersion: clientVersion || null,
+      clientVersion: clientVersion ? parseInt(clientVersion, 10) : null,
       clientPlatform: clientPlatform || null,
     },
   });

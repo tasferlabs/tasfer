@@ -34,7 +34,7 @@ self.addEventListener("install", (event) => {
       const cache = await caches.open("offline-fallback");
       await cache.add(new Request("/index.html", { cache: "reload" }));
 
-      self.skipWaiting();
+      // self.skipWaiting();
     })()
   );
 });
@@ -119,43 +119,30 @@ async function getOfflineIndexHtml(): Promise<Response> {
 // Routes
 // ============================================================
 
-// Cache page list with stale-while-revalidate
-// Navigation should feel instant, but fresh data is preferred
+// Cache page list with network-first
+// Fresh data when online, cached data when offline
 app.get("/api/pages/list", async (req, res) => {
   const cache = await caches.open("pages-list");
   const request = req._request;
 
-  // Try to get from cache first (stale)
-  const cached = await cache.match(request);
+  try {
+    // Try network first for fresh data
+    const response = await fetch(request.clone());
 
-  // Revalidate in background
-  const fetchPromise = fetch(request.clone())
-    .then(async (response) => {
-      if (response.ok) {
-        await cache.put(request, response.clone());
-      }
-      return response;
-    })
-    .catch(() => null);
+    if (response.ok) {
+      // Cache successful response
+      await cache.put(request, response.clone());
+    }
 
-  // Return cached if available, otherwise wait for network
-  if (cached) {
-    // Fire and forget the revalidation
-    fetchPromise.catch(() => {});
-    return res.send(cached);
-  }
-
-  // No cache, wait for network
-  const response = await fetchPromise;
-  if (response) {
     return res.send(response);
-  }
+  } catch {
+    // Offline - serve from cache
+    const cached = await cache.match(request);
+    if (cached) return res.send(cached);
 
-  // Offline and no cache
-  return res.json(
-    { success: false, error: "Offline and no cached data" },
-    { status: 503 }
-  );
+    // No cache, return offline error
+    return res.json({ success: false }, { status: 503 });
+  }
 });
 
 // Cache individual pages with network-first and 404 cache cleanup
@@ -186,10 +173,7 @@ app.get("/api/pages/{id}", async (req, res) => {
     if (cached) return res.send(cached);
 
     // No cache, return offline error
-    return res.json(
-      { success: false, error: "Offline and no cached data" },
-      { status: 503 }
-    );
+    return res.json({ success: false }, { status: 503 });
   }
 });
 
@@ -212,50 +196,8 @@ app.get("/api/images/{id}", async (req, res) => {
     }
     return res.send(response);
   } catch {
-    return res.json(
-      { success: false, error: "Offline and image not cached" },
-      { status: 503 }
-    );
+    return res.json({ success: false }, { status: 503 });
   }
-});
-
-// Cache locale files with stale-while-revalidate
-// Translations should load instantly but update in background
-app.get("/app/locales/{path+}", async (req, res) => {
-  const cache = await caches.open("locales");
-  const request = req._request;
-
-  // Try to get from cache first (stale)
-  const cached = await cache.match(request);
-
-  // Revalidate in background
-  const fetchPromise = fetch(request.clone())
-    .then(async (response) => {
-      if (response.ok) {
-        await cache.put(request, response.clone());
-      }
-      return response;
-    })
-    .catch(() => null);
-
-  // Return cached if available, otherwise wait for network
-  if (cached) {
-    // Fire and forget the revalidation
-    fetchPromise.catch(() => {});
-    return res.send(cached);
-  }
-
-  // No cache, wait for network
-  const response = await fetchPromise;
-  if (response) {
-    return res.send(response);
-  }
-
-  // Offline and no cache
-  return res.json(
-    { success: false, error: "Offline and no cached data" },
-    { status: 503 }
-  );
 });
 
 // Handle page mutations (PUT)
@@ -399,7 +341,7 @@ app.get("/api/{path+}", async (req, res) => {
   try {
     return res.send(await fetch(req._request.clone()));
   } catch {
-    return res.json({ success: false, error: "Offline" }, { status: 503 });
+    return res.json({ success: false }, { status: 503 });
   }
 });
 

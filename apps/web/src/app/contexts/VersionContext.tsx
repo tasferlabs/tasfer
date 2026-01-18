@@ -62,16 +62,16 @@ export function VersionProvider({ children }: { children: ReactNode }) {
     // Check if user already dismissed this version
     const dismissed = localStorage.getItem(DISMISS_KEY);
     if (dismissed && versionInfo) {
-      return dismissed === versionInfo.recommendedClientVersion;
+      return dismissed === String(versionInfo.latestVersion);
     }
     return false;
   });
 
-  // Reset dismissed state if recommended version changes
+  // Reset dismissed state if latest version changes
   useEffect(() => {
     if (versionInfo) {
       const dismissed = localStorage.getItem(DISMISS_KEY);
-      if (dismissed !== versionInfo.recommendedClientVersion) {
+      if (dismissed !== String(versionInfo.latestVersion)) {
         setUpdateDismissed(false);
       }
     }
@@ -95,7 +95,7 @@ export function VersionProvider({ children }: { children: ReactNode }) {
   const dismissUpdate = useCallback(() => {
     setUpdateDismissed(true);
     if (versionInfo) {
-      localStorage.setItem(DISMISS_KEY, versionInfo.recommendedClientVersion);
+      localStorage.setItem(DISMISS_KEY, String(versionInfo.latestVersion));
     }
   }, [versionInfo]);
 

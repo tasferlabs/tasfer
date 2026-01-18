@@ -33,7 +33,7 @@ export default defineConfig({
   ],
   define: {
     __BUILD_TIMESTAMP__: JSON.stringify(buildTimestamp),
-    __CLIENT_VERSION__: JSON.stringify(versionConfig.clientVersion),
+    __CLIENT_VERSION__: versionConfig.version,
   },
   resolve: {
     alias: {

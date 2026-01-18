@@ -1,8 +1,6 @@
 {
-  "clientVersion": "5.0.0",
-  "minClientVersion": "5.0.0",
-  "recommendedClientVersion": "5.0.0",
-  "updateMessage": null,
+  "version": 1,
+  "minVersion": 1,
   "updateUrls": {
     "ios": null,
     "android": null,

@@ -9,9 +9,8 @@ export interface UpdateUrls {
 }
 
 export interface VersionInfo {
-  minClientVersion: string;
-  recommendedClientVersion: string;
-  updateMessage: string | null;
+  minVersion: number;
+  latestVersion: number;
   updateUrls: UpdateUrls;
 }
 
@@ -24,7 +23,7 @@ export interface VersionCheckResult {
   versionInfo: VersionInfo | null;
   /** Whether the client meets minimum version requirements */
   meetsMinimum: boolean;
-  /** Whether a newer recommended version is available */
+  /** Whether a newer version is available */
   updateAvailable: boolean;
   /** Current platform */
   platform: Platform;
@@ -47,7 +46,7 @@ export function useVersionCheck(): VersionCheckResult {
     try {
       const response = await fetch("/api/version", {
         headers: {
-          "X-Client-Version": CLIENT_VERSION,
+          "X-Client-Version": String(CLIENT_VERSION),
           "X-Client-Platform": platform,
         },
       });
@@ -94,11 +93,11 @@ export function useVersionCheck(): VersionCheckResult {
 
   // Calculate derived state
   const meetsMinimum = versionInfo
-    ? meetsMinimumVersion(CLIENT_VERSION, versionInfo.minClientVersion)
+    ? meetsMinimumVersion(CLIENT_VERSION, versionInfo.minVersion)
     : true; // Assume OK if we can't check
 
   const updateAvailable = versionInfo
-    ? !meetsMinimumVersion(CLIENT_VERSION, versionInfo.recommendedClientVersion)
+    ? CLIENT_VERSION < versionInfo.latestVersion
     : false;
 
   // Get platform-specific update URL
