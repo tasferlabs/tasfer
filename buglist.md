@@ -264,3 +264,4 @@ Bugs list
 - [ ] dynamic island hide buttons on iphone keyboard toolbar
 - [ ] strike through should follow same color as text
 - [ ] test native storage.
+- [ ] improve websockets to handle more events.

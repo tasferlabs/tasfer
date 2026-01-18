@@ -12,7 +12,7 @@ const API_URL = process.env.API_URL || "http://localhost:3000";
 const LIVE_URL = process.env.LIVE_URL || "http://localhost:8080";
 
 // Serve PWA assets publicly (before auth)
-const publicAssets = ["/manifest.json", "/favicon.png", "/icon-192.png", "/icon-512.png", "/spinner.png"];
+const publicAssets = ["/manifest.json", "/favicon.png", "/icon-192.png", "/icon-512.png"];
 app.use(publicAssets, express.static(path.join(__dirname, "dist")));
 
 // Basic auth (enabled when AUTH_USER and AUTH_PASS are set)
