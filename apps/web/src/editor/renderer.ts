@@ -73,7 +73,7 @@ function getVisibleTextFromChars(chars: Char[]): string {
 function getContentWithComposition(
   block: Block,
   state: EditorState,
-  blockIndex: number
+  blockIndex: number,
 ): {
   chars: Char[];
   formats: FormatSpan[];
@@ -114,7 +114,7 @@ function getContentWithComposition(
       id: `composition-${i}`,
       char,
       deleted: false,
-    })
+    }),
   );
 
   // Insert composition chars at cursor position (visible index)
@@ -154,16 +154,13 @@ export const getBlockHeight = (
   block: Block,
   maxWidth: number,
   styles: EditorStyles,
-  first: boolean
+  first: boolean,
 ): number => {
   // Calculate the base height (with caching)
   let height: number;
   if (block.cachedHeight !== undefined && block.cachedWidth === maxWidth) {
     height = block.cachedHeight;
   } else {
-    if (first) {
-      console.log("NOT CACHED");
-    }
     height = calculateBlockHeight(block, maxWidth, styles);
     block.cachedHeight = height;
     block.cachedWidth = maxWidth;
@@ -204,7 +201,7 @@ function measureCRDTLineWidth(
   lineEndIndex: number,
   textStyle: TextStyle,
   fontFamily: FontFamily,
-  _codePadding: number
+  _codePadding: number,
 ): number {
   // Use batched measurement to preserve Arabic ligatures
   // This is critical for accurate cursor positioning in Arabic text
@@ -218,7 +215,7 @@ function measureCRDTLineWidth(
       batch.text,
       textStyle.fontSize,
       effectiveFontWeight,
-      fontFamily
+      fontFamily,
     );
   }
 
@@ -241,7 +238,7 @@ function renderCompositionUnderline(
   fontMetrics: FontMetrics,
   codePadding: number,
   isRTL: boolean,
-  _maxWidth: number
+  _maxWidth: number,
 ) {
   // Calculate the overlap between this line and the composition range
   const underlineStart = Math.max(lineStartIndex, compositionStart);
@@ -257,7 +254,7 @@ function renderCompositionUnderline(
     underlineStart,
     textStyle,
     fontFamily,
-    codePadding
+    codePadding,
   );
 
   // Measure width of the underlined portion
@@ -268,7 +265,7 @@ function renderCompositionUnderline(
     underlineEnd,
     textStyle,
     fontFamily,
-    codePadding
+    codePadding,
   );
 
   // Calculate underline position
@@ -311,7 +308,7 @@ function renderCRDTLine(
   textStyle: TextStyle,
   fontFamily: FontFamily,
   styles: EditorStyles,
-  isRTL: boolean
+  isRTL: boolean,
 ) {
   // Set canvas direction
   ctx.direction = isRTL ? "rtl" : "ltr";
@@ -321,7 +318,7 @@ function renderCRDTLine(
     chars,
     formats,
     lineStartIndex,
-    lineEndIndex
+    lineEndIndex,
   );
 
   // Render each batch
@@ -363,7 +360,7 @@ function renderCRDTLine(
         rectY,
         rectWidth,
         rectHeight,
-        codeStyle.borderRadius
+        codeStyle.borderRadius,
       );
       ctx.fill();
       ctx.restore();
@@ -433,7 +430,7 @@ export const renderPage = (
   viewport: ViewportState,
   visibility: { start: number; end: number },
   styles: EditorStyles = getEditorStyles(),
-  remoteAwareness: Map<string, AwarenessState>
+  remoteAwareness: Map<string, AwarenessState>,
 ) => {
   // Save context state
   ctx.save();
@@ -464,7 +461,7 @@ export const renderPage = (
       block,
       maxWidth,
       styles,
-      visibleIdx === 0
+      visibleIdx === 0,
     );
 
     // Only render if block is visible in viewport
@@ -484,7 +481,7 @@ export const renderPage = (
         currentY,
         maxWidth,
         styles,
-        remoteAwareness
+        remoteAwareness,
       );
       renderedBlocks.push(renderedBlock);
     } else if (foundVisibleBlock) {
@@ -519,7 +516,7 @@ export const renderBlock = (
   y: number,
   maxWidth: number,
   styles: EditorStyles = getEditorStyles(),
-  remoteAwareness?: Map<string, AwarenessState>
+  remoteAwareness?: Map<string, AwarenessState>,
 ): RenderedBlock => {
   // Handle image cover blocks
   if (block.type === "image") {
@@ -532,7 +529,7 @@ export const renderBlock = (
       y,
       maxWidth,
       styles,
-      remoteAwareness
+      remoteAwareness,
     );
   }
 
@@ -547,7 +544,7 @@ export const renderBlock = (
       y,
       maxWidth,
       styles,
-      remoteAwareness
+      remoteAwareness,
     );
   }
 
@@ -589,10 +586,10 @@ export const renderBlock = (
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
 
     if (isRTL) {
-      // RTL: [TEXT_AREA][MARKER]
-      // Text area starts at left, marker is on the right
-      adjustedX = x + indentOffset;
-      markerX = x + indentOffset + adjustedMaxWidth;
+      // RTL: [TEXT_AREA][MARKER][INDENT]
+      // Text area starts at left, marker after text, indent space on the right
+      adjustedX = x;
+      markerX = x + adjustedMaxWidth;
     } else {
       // LTR: [MARKER][TEXT_AREA]
       // Marker on left, text area on the right
@@ -613,13 +610,13 @@ export const renderBlock = (
     textStyle.fontWeight,
     fontFamily,
     codePadding,
-    compositionRange
+    compositionRange,
   );
 
   const fontMetrics = getFontMetrics(
     textStyle.fontSize,
     textStyle.fontWeight,
-    fontFamily
+    fontFamily,
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
@@ -652,7 +649,7 @@ export const renderBlock = (
         styles,
         state,
         blockIndex,
-        markerWidth
+        markerWidth,
       );
     }
 
@@ -668,7 +665,7 @@ export const renderBlock = (
       textStyle,
       fontFamily,
       styles,
-      isRTL
+      isRTL,
     );
 
     // Render composition underline if this line contains composition text
@@ -693,7 +690,7 @@ export const renderBlock = (
           fontMetrics,
           codePadding,
           isRTL,
-          maxWidth
+          maxWidth,
         );
       }
     }
@@ -709,7 +706,7 @@ export const renderBlock = (
       lineEndIndex,
       textStyle,
       fontFamily,
-      codePadding
+      codePadding,
     );
 
     // Store rendered line
@@ -747,7 +744,7 @@ export const renderBlock = (
       fontFamily,
       block,
       adjustedMaxWidth,
-      remoteAwareness
+      remoteAwareness,
     );
   }
 
@@ -765,7 +762,7 @@ export const renderBlock = (
       textStyle,
       fontFamily,
       block,
-      adjustedMaxWidth
+      adjustedMaxWidth,
     );
   }
 
@@ -789,7 +786,7 @@ export const renderBlock = (
       styles,
       textStyle,
       block.type,
-      state
+      state,
     );
   }
 
@@ -814,7 +811,7 @@ export const renderBlock = (
 // Helper function to calculate the item number for a numbered list
 function calculateListItemNumber(
   state: EditorState,
-  blockIndex: number
+  blockIndex: number,
 ): number {
   const currentBlock = state.document.page.blocks[blockIndex];
   if (!currentBlock || currentBlock.deleted) return 0;
@@ -834,7 +831,7 @@ function calculateListItemNumber(
   for (let i = visibleBlocks.length - 1; i >= 0; i--) {
     const visibleBlock = visibleBlocks[i];
     const visibleBlockIndex = allBlocks.findIndex(
-      (b) => b.id === visibleBlock.id
+      (b) => b.id === visibleBlock.id,
     );
 
     // Only consider blocks before the current block
@@ -871,7 +868,7 @@ function renderListMarker(
   styles: EditorStyles,
   state: EditorState,
   blockIndex: number,
-  _markerWidth: number
+  _markerWidth: number,
 ) {
   if (!isListBlock(block)) return;
 
@@ -924,7 +921,7 @@ function renderListMarker(
       checkboxY,
       checkboxSize,
       checkboxSize,
-      styles.list.todo.checkboxBorderRadius
+      styles.list.todo.checkboxBorderRadius,
     );
     ctx.stroke();
 
@@ -970,7 +967,7 @@ function renderPlaceholder(
     | "bullet_list"
     | "numbered_list"
     | "todo_list",
-  state: EditorState
+  state: EditorState,
 ) {
   ctx.save();
   ctx.fillStyle = styles.placeholder.color;
@@ -1033,7 +1030,7 @@ function renderSelectionCore(
   maxWidth: number,
   selection: { anchor: any; focus: any; isForward: boolean },
   fillStyle: string,
-  opacity: number
+  opacity: number,
 ) {
   if (!isTextualBlock(block)) {
     return;
@@ -1065,7 +1062,7 @@ function renderSelectionCore(
       const fontMetrics = getFontMetrics(
         textStyle.fontSize,
         textStyle.fontWeight,
-        fontFamily
+        fontFamily,
       );
       const emptyBlockHeight = fontMetrics.fontSize * textStyle.lineHeight;
       const minSelectionWidth = textStyle.fontSize * 0.5;
@@ -1092,7 +1089,7 @@ function renderSelectionCore(
           if (isRTL) {
             const selStartTextIndex = Math.max(
               line.startIndex,
-              start.textIndex
+              start.textIndex,
             );
             const selEndTextIndex = Math.min(line.endIndex, end.textIndex);
 
@@ -1104,7 +1101,7 @@ function renderSelectionCore(
               selStartTextIndex,
               textStyle,
               fontFamily,
-              codePadding
+              codePadding,
             );
 
             const widthToSelEnd = measureCRDTLineWidth(
@@ -1114,7 +1111,7 @@ function renderSelectionCore(
               selEndTextIndex,
               textStyle,
               fontFamily,
-              codePadding
+              codePadding,
             );
 
             selectionEndX = x + maxWidth - widthToSelStart;
@@ -1130,7 +1127,7 @@ function renderSelectionCore(
                 start.textIndex,
                 textStyle,
                 fontFamily,
-                codePadding
+                codePadding,
               );
             }
             if (end.textIndex < line.endIndex) {
@@ -1141,7 +1138,7 @@ function renderSelectionCore(
                 Math.min(line.endIndex, end.textIndex),
                 textStyle,
                 fontFamily,
-                codePadding
+                codePadding,
               );
               selectionEndX = selectionStartX + selectedWidth;
             }
@@ -1166,7 +1163,7 @@ function renderSelectionCore(
           if (isRTL) {
             const selStartTextIndex = Math.max(
               line.startIndex,
-              start.textIndex
+              start.textIndex,
             );
 
             const blockChars = charRunsToChars(block.charRuns);
@@ -1177,7 +1174,7 @@ function renderSelectionCore(
               selStartTextIndex,
               textStyle,
               fontFamily,
-              codePadding
+              codePadding,
             );
 
             selectionEndX = x + maxWidth - widthToSelStart;
@@ -1192,7 +1189,7 @@ function renderSelectionCore(
                 start.textIndex,
                 textStyle,
                 fontFamily,
-                codePadding
+                codePadding,
               );
             }
           }
@@ -1216,7 +1213,7 @@ function renderSelectionCore(
               selEndTextIndex,
               textStyle,
               fontFamily,
-              codePadding
+              codePadding,
             );
 
             selectionEndX = x + maxWidth;
@@ -1233,7 +1230,7 @@ function renderSelectionCore(
                   end.textIndex,
                   textStyle,
                   fontFamily,
-                  codePadding
+                  codePadding,
                 );
             }
           }
@@ -1245,7 +1242,7 @@ function renderSelectionCore(
           selectionStartX,
           line.y,
           selectionEndX - selectionStartX,
-          lineHeight
+          lineHeight,
         );
       }
     }
@@ -1266,7 +1263,7 @@ function renderSelection(
   textStyle: TextStyle,
   fontFamily: FontFamily,
   block: Block,
-  maxWidth: number
+  maxWidth: number,
 ) {
   if (!state.document.selection) return;
 
@@ -1284,7 +1281,7 @@ function renderSelection(
     maxWidth,
     state.document.selection,
     styles.selection.backgroundColor,
-    styles.selection.opacity
+    styles.selection.opacity,
   );
 }
 
@@ -1304,7 +1301,7 @@ function renderRemoteSelection(
   block: Block,
   maxWidth: number,
   selection: SelectionState,
-  color: string
+  color: string,
 ) {
   renderSelectionCore(
     blockIndex,
@@ -1320,7 +1317,7 @@ function renderRemoteSelection(
     maxWidth,
     selection,
     color,
-    0.2 // More transparent for remote selections
+    0.2, // More transparent for remote selections
   );
 }
 
@@ -1340,7 +1337,7 @@ function renderRemoteSelections(
   fontFamily: FontFamily,
   block: Block,
   maxWidth: number,
-  remoteAwareness: Map<string, AwarenessState>
+  remoteAwareness: Map<string, AwarenessState>,
 ) {
   for (const [_peerId, awareness] of remoteAwareness) {
     if (!awareness.selection) continue;
@@ -1348,7 +1345,7 @@ function renderRemoteSelections(
     // Convert awareness selection to editor selection
     const selection = awarenessSelectionToSelection(
       awareness.selection,
-      state.document.page
+      state.document.page,
     );
     if (!selection) continue;
 
@@ -1368,7 +1365,7 @@ function renderRemoteSelections(
       block,
       maxWidth,
       selection,
-      awareness.user.color
+      awareness.user.color,
     );
   }
 }
@@ -1437,7 +1434,7 @@ function renderImageBlock(
   y: number,
   _maxWidth: number,
   styles: EditorStyles,
-  remoteAwareness?: Map<string, AwarenessState>
+  remoteAwareness?: Map<string, AwarenessState>,
 ): RenderedBlock {
   if (block.type !== "image") {
     throw new Error("renderImageBlock called on non-image block");
@@ -1512,7 +1509,7 @@ function renderImageBlock(
     ctx.fillText(
       styles.blocks.image.uploading.text,
       displayX + displayWidth / 2,
-      adjustedY + adjustedHeight / 2
+      adjustedY + adjustedHeight / 2,
     );
   } else if (uploadStatus === "error") {
     // Error state
@@ -1525,12 +1522,12 @@ function renderImageBlock(
     ctx.fillText(
       styles.blocks.image.error.text,
       displayX + displayWidth / 2,
-      adjustedY + adjustedHeight / 2
+      adjustedY + adjustedHeight / 2,
     );
     ctx.fillText(
       styles.blocks.image.error.retryText,
       displayX + displayWidth / 2,
-      adjustedY + adjustedHeight / 2 + 20
+      adjustedY + adjustedHeight / 2 + 20,
     );
   } else if (block.url) {
     // Check if this image previously failed to load
@@ -1545,12 +1542,12 @@ function renderImageBlock(
       ctx.fillText(
         styles.blocks.image.error.text,
         displayX + displayWidth / 2,
-        adjustedY + adjustedHeight / 2
+        adjustedY + adjustedHeight / 2,
       );
       ctx.fillText(
         styles.blocks.image.error.retryText,
         displayX + displayWidth / 2,
-        adjustedY + adjustedHeight / 2 + 20
+        adjustedY + adjustedHeight / 2 + 20,
       );
     } else {
       // Try to load and draw the actual image
@@ -1608,7 +1605,7 @@ function renderImageBlock(
           destX,
           destY,
           destWidth,
-          destHeight // Destination rectangle
+          destHeight, // Destination rectangle
         );
       } else {
         // Show loading placeholder while image loads
@@ -1621,7 +1618,7 @@ function renderImageBlock(
         ctx.fillText(
           styles.blocks.image.loading.text,
           displayX + displayWidth / 2,
-          adjustedY + adjustedHeight / 2
+          adjustedY + adjustedHeight / 2,
         );
 
         // Start loading the image
@@ -1649,7 +1646,7 @@ function renderImageBlock(
     ctx.fillText(
       styles.blocks.image.placeholder.text,
       displayX + displayWidth / 2,
-      adjustedY + adjustedHeight / 2
+      adjustedY + adjustedHeight / 2,
     );
   }
 
@@ -1660,7 +1657,7 @@ function renderImageBlock(
 
       const selection = awarenessSelectionToSelection(
         awareness.selection,
-        state.document.page
+        state.document.page,
       );
       if (!selection) continue;
 
@@ -1734,7 +1731,7 @@ function renderImageBlock(
       adjustedHeight,
       objectFit,
       hoveredHandle,
-      styles
+      styles,
     );
   }
 
@@ -1764,7 +1761,7 @@ function renderLineBlock(
   y: number,
   maxWidth: number,
   styles: EditorStyles,
-  remoteAwareness?: Map<string, AwarenessState>
+  remoteAwareness?: Map<string, AwarenessState>,
 ): RenderedBlock {
   if (block.type !== "line") {
     throw new Error("renderLineBlock called on non-line block");
@@ -1785,7 +1782,7 @@ function renderLineBlock(
 
       const selection = awarenessSelectionToSelection(
         awareness.selection,
-        state.document.page
+        state.document.page,
       );
       if (!selection) continue;
 
@@ -1850,7 +1847,7 @@ function renderLineBlock(
 export const calculateBlockHeight = (
   block: Block,
   maxWidth: number,
-  styles: EditorStyles
+  styles: EditorStyles,
 ): number => {
   // Handle image cover blocks
   if (block.type === "image") {
@@ -1920,13 +1917,13 @@ export const calculateBlockHeight = (
     textStyle.fontSize,
     textStyle.fontWeight,
     fontFamily,
-    codePadding
+    codePadding,
   );
 
   const fontMetrics = getFontMetrics(
     textStyle.fontSize,
     textStyle.fontWeight,
-    fontFamily
+    fontFamily,
   );
 
   return (
@@ -1939,7 +1936,7 @@ export const calculateBlockHeight = (
 const isBlockVisible = (
   blockY: number,
   blockHeight: number,
-  viewport: { scrollY: number; height: number }
+  viewport: { scrollY: number; height: number },
 ): boolean => {
   const blockTop = blockY;
   const blockBottom = blockY + blockHeight;
@@ -1963,7 +1960,7 @@ function calculateCursorPosition(
   styles: EditorStyles,
   compositionRange: { start: number; end: number } | null = null,
   renderChars?: Char[],
-  renderFormats?: FormatSpan[]
+  renderFormats?: FormatSpan[],
 ): { x: number; y: number; height: number } | null {
   if (!isTextualBlock(block)) return null;
 
@@ -1982,7 +1979,7 @@ function calculateCursorPosition(
       visibleBlock,
       maxWidth,
       styles,
-      visibleIdx === 0
+      visibleIdx === 0,
     );
     currentY += blockHeight;
   }
@@ -2016,13 +2013,13 @@ function calculateCursorPosition(
     textStyle.fontWeight,
     fontFamily,
     codePadding,
-    compositionRange
+    compositionRange,
   );
 
   const fontMetrics = getFontMetrics(
     textStyle.fontSize,
     textStyle.fontWeight,
-    fontFamily
+    fontFamily,
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
@@ -2035,7 +2032,8 @@ function calculateCursorPosition(
   let baseX: number;
   if (isListBlock(block)) {
     if (isRTL) {
-      baseX = styles.canvas.paddingLeft + indentOffset;
+      // RTL: indent is on the right side, text starts at left
+      baseX = styles.canvas.paddingLeft;
     } else {
       baseX = styles.canvas.paddingLeft + indentOffset + markerWidth;
     }
@@ -2069,7 +2067,7 @@ function calculateCursorPosition(
           targetCursorIndex,
           textStyle,
           fontFamily,
-          codePadding
+          codePadding,
         );
         cursorX = baseX + adjustedMaxWidth - widthFromStart;
       } else {
@@ -2082,7 +2080,7 @@ function calculateCursorPosition(
             targetCursorIndex,
             textStyle,
             fontFamily,
-            codePadding
+            codePadding,
           );
       }
       break;
@@ -2111,7 +2109,7 @@ interface OutOfViewPeer {
 function renderOutOfViewIndicators(
   ctx: CanvasRenderingContext2D,
   peers: OutOfViewPeer[],
-  viewport: ViewportState
+  viewport: ViewportState,
 ) {
   const abovePeers = peers.filter((p) => p.direction === "above");
   const belowPeers = peers.filter((p) => p.direction === "below");
@@ -2188,7 +2186,7 @@ function renderRemoteCursors(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles,
-  remoteAwareness: Map<string, AwarenessState>
+  remoteAwareness: Map<string, AwarenessState>,
 ) {
   const outOfViewPeers: OutOfViewPeer[] = [];
 
@@ -2202,7 +2200,7 @@ function renderRemoteCursors(
     // Convert awareness cursor (blockId) to editor position (blockIndex)
     const position = awarenessCursorToPosition(
       awareness.cursor,
-      state.document.page
+      state.document.page,
     );
     if (!position) continue;
 
@@ -2214,7 +2212,7 @@ function renderRemoteCursors(
       block,
       state,
       viewport,
-      styles
+      styles,
     );
     if (!cursorPos) continue;
 
@@ -2234,7 +2232,7 @@ function renderRemoteCursors(
       cursorPos.x,
       cursorPos.y,
       styles.cursor.width,
-      cursorPos.height
+      cursorPos.height,
     );
 
     // Optionally draw a name label above the cursor
@@ -2254,7 +2252,7 @@ function renderRemoteCursors(
         cursorPos.y - labelHeight - 2,
         labelWidth,
         labelHeight,
-        2
+        2,
       );
       ctx.fill();
 
@@ -2263,7 +2261,7 @@ function renderRemoteCursors(
       ctx.fillText(
         awareness.user.name,
         cursorPos.x + labelPadding,
-        cursorPos.y - labelPadding - 4
+        cursorPos.y - labelPadding - 4,
       );
     }
   }
@@ -2283,7 +2281,7 @@ export function renderCursorLayer(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(),
-  remoteAwareness?: Map<string, AwarenessState>
+  remoteAwareness?: Map<string, AwarenessState>,
 ) {
   // Save context state
   ctx.save();
@@ -2340,7 +2338,7 @@ export function renderCursorLayer(
       visibleBlock,
       maxWidth,
       styles,
-      visibleIdx === 0
+      visibleIdx === 0,
     );
     currentY += blockHeight;
   }
@@ -2349,7 +2347,7 @@ export function renderCursorLayer(
     block,
     maxWidth,
     styles,
-    visibleBlocks.length - 1 === cursorBlockIndex
+    visibleBlocks.length - 1 === cursorBlockIndex,
   );
   if (currentY + blockHeight < 0 || currentY > viewport.height) {
     // Cursor block is not visible in viewport
@@ -2380,7 +2378,7 @@ export function renderCursorLayer(
     styles,
     compositionRange,
     renderChars,
-    renderFormats
+    renderFormats,
   );
 
   if (!cursorPos) {
@@ -2408,7 +2406,7 @@ function renderImageDragHandlesForBlock(
   height: number,
   objectFit: "cover" | "contain",
   hoveredHandle: "left" | "right" | "bottom" | null,
-  styles: EditorStyles
+  styles: EditorStyles,
 ) {
   const { vertical, horizontal } = styles.imageResize.dragHandles;
   const {
@@ -2428,7 +2426,7 @@ function renderImageDragHandlesForBlock(
     barY: number,
     barWidth: number,
     barHeight: number,
-    isHovered: boolean
+    isHovered: boolean,
   ) => {
     ctx.save();
 
@@ -2459,7 +2457,7 @@ function renderImageDragHandlesForBlock(
     y + (height - vertical.length) / 2,
     vertical.thickness,
     vertical.length,
-    hoveredHandle === "left"
+    hoveredHandle === "left",
   );
 
   // Right vertical bar (centered vertically with specified length)
@@ -2468,7 +2466,7 @@ function renderImageDragHandlesForBlock(
     y + (height - vertical.length) / 2,
     vertical.thickness,
     vertical.length,
-    hoveredHandle === "right"
+    hoveredHandle === "right",
   );
 
   // Bottom horizontal bar (centered horizontally with specified length)
@@ -2479,7 +2477,7 @@ function renderImageDragHandlesForBlock(
       y + height - horizontal.inset - horizontal.thickness,
       horizontal.length,
       horizontal.thickness,
-      hoveredHandle === "bottom"
+      hoveredHandle === "bottom",
     );
   }
 
@@ -2506,7 +2504,7 @@ function getPositionCoordinates(
   position: { blockIndex: number; textIndex: number },
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles
+  styles: EditorStyles,
 ): { x: number; y: number; height: number } | null {
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
@@ -2524,7 +2522,7 @@ function getPositionCoordinates(
       visibleBlock,
       maxWidth,
       styles,
-      visibleIdx === 0
+      visibleIdx === 0,
     );
   }
 
@@ -2540,7 +2538,7 @@ function getPositionCoordinates(
   const fontMetrics = getFontMetrics(
     textStyle.fontSize,
     textStyle.fontWeight,
-    fontFamily
+    fontFamily,
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
@@ -2564,7 +2562,8 @@ function getPositionCoordinates(
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
 
     if (isRTL) {
-      baseX = styles.canvas.paddingLeft + indentOffset;
+      // RTL: indent is on the right side, text starts at left
+      baseX = styles.canvas.paddingLeft;
     } else {
       baseX = styles.canvas.paddingLeft + indentOffset + markerWidth;
     }
@@ -2579,7 +2578,7 @@ function getPositionCoordinates(
     textStyle.fontSize,
     textStyle.fontWeight,
     fontFamily,
-    codePadding
+    codePadding,
   );
 
   let textIndex = 0;
@@ -2598,7 +2597,7 @@ function getPositionCoordinates(
         position.textIndex,
         textStyle,
         fontFamily,
-        codePadding
+        codePadding,
       );
 
       let x: number;
@@ -2645,7 +2644,7 @@ function getPositionCoordinates(
 function getSelectionHandlePositionsForRender(
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles
+  styles: EditorStyles,
 ): {
   anchor: { x: number; y: number; height: number; isTop: boolean } | null;
   focus: { x: number; y: number; height: number; isTop: boolean } | null;
@@ -2659,13 +2658,13 @@ function getSelectionHandlePositionsForRender(
     selection.anchor,
     state,
     viewport,
-    styles
+    styles,
   );
   const focusCoords = getPositionCoordinates(
     selection.focus,
     state,
     viewport,
-    styles
+    styles,
   );
 
   if (!anchorCoords || !focusCoords) {
@@ -2699,7 +2698,7 @@ export function renderSelectionHandles(
   ctx: CanvasRenderingContext2D,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ) {
   // Only render handles on touch devices
   if (!isTouchDevice()) {
@@ -2714,7 +2713,7 @@ export function renderSelectionHandles(
   const handlePositions = getSelectionHandlePositionsForRender(
     state,
     viewport,
-    styles
+    styles,
   );
 
   if (!handlePositions) {
@@ -2731,7 +2730,7 @@ export function renderSelectionHandles(
       handlePositions.anchor.y,
       handlePositions.anchor.height,
       handlePositions.anchor.isTop,
-      handleStyles
+      handleStyles,
     );
   }
 
@@ -2743,7 +2742,7 @@ export function renderSelectionHandles(
       handlePositions.focus.y,
       handlePositions.focus.height,
       handlePositions.focus.isTop,
-      handleStyles
+      handleStyles,
     );
   }
 }
@@ -2768,7 +2767,7 @@ function renderSelectionHandle(
     color: string;
     stemHeight: number;
     stemWidth: number;
-  }
+  },
 ) {
   const { size, color, stemHeight, stemWidth } = styles;
   const radius = size / 2;

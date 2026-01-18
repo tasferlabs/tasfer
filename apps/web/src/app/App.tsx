@@ -7,6 +7,7 @@ import { useOfflineStatus } from "@/offline/hooks/useOfflineStatus";
 import { useVersion } from "./contexts/VersionContext";
 import ForceUpdatePage from "./pages/ForceUpdatePage";
 import UpdatePopup from "./components/UpdatePopup";
+import { DevToolbar } from "./components/DevToolbar";
 
 // WebSocket server URL - defaults to using Vite proxy
 // Uses wss:// for HTTPS, ws:// for HTTP
@@ -33,6 +34,7 @@ const App: React.FC = () => {
         <ConfirmationDialogProvider>
           <Router />
           <UpdatePopup />
+          <DevToolbar />
         </ConfirmationDialogProvider>
       </PageSettingsProvider>
     </WebSocketProvider>

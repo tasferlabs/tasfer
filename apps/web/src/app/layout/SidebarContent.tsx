@@ -45,7 +45,7 @@ export function SidebarContent({
   const [activeDragData, setActiveDragData] = useState<IListPage | null>(null);
 
   // Subscribe to real-time page events from other users
-  usePageEventsWithQueryClient(queryClient);
+  usePageEventsWithQueryClient();
 
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: (newPage, variables) => {
@@ -81,7 +81,7 @@ export function SidebarContent({
         delay: 800, // 800ms delay for touch devices
         tolerance: 8, // 8px of movement allowed during delay
       },
-    })
+    }),
   );
 
   function handleAdd(parentId: string | null) {
@@ -122,7 +122,7 @@ export function SidebarContent({
       // Check using parentsStack if available
       if (overData?.parentsStack) {
         return overData.parentsStack.some(
-          (parent: any) => parent.id === pageId
+          (parent: any) => parent.id === pageId,
         );
       }
 
@@ -231,8 +231,6 @@ export function SidebarContent({
     }
   }
 
-  // Mock data
-  const inboxCount = 0;
   const filteredGroups: { id: string; name: string }[] = [];
 
   return (

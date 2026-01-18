@@ -46,20 +46,19 @@ export class OfflineStore {
 
   /**
    * Get unsynced operations for this page.
-   * Used to determine what needs to be sent to server.
+   * Used to determine what needs to be sent to peers/server.
    */
   async getUnsyncedOperations(): Promise<Operation[]> {
     const db = await getDB();
     const tx = db.transaction("operations", "readonly");
-    const index = tx.store.index("by-synced");
+    const index = tx.store.index("by-page");
 
-    // Get unsynced ops (synced = false = 0)
-    const unsyncedOps = await index.getAll(
-      IDBKeyRange.only([this.pageId, false])
-    );
+    // Get all ops for this page and filter unsynced ones in JS
+    // (avoids compound index type mismatch issues)
+    const allOps = await index.getAll(this.pageId);
 
     await tx.done;
-    return unsyncedOps.map((o) => o.operation);
+    return allOps.filter((o) => !o.synced).map((o) => o.operation);
   }
 
   /**

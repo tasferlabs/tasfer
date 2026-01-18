@@ -7,7 +7,9 @@
 
 import { useEffect, useRef } from "react";
 import { useWebSocket } from "@/app/contexts/WebSocketContext";
+import { useQueryClient } from "@tanstack/react-query";
 import type { PageEventCallbacks, PageInfo } from "../types";
+import type { IPage } from "@/app/api/pages.api";
 
 // =============================================================================
 // Types
@@ -115,20 +117,14 @@ export function usePageEvents(handlers: PageEventHandlers): void {
  * Use this in components that use React Query for page data.
  *
  * @example
- * import { useQueryClient } from "@tanstack/react-query";
- *
  * function Sidebar() {
- *   const queryClient = useQueryClient();
- *   usePageEventsWithQueryClient(queryClient);
+ *   usePageEventsWithQueryClient();
  *   // ...
  * }
  */
-export function usePageEventsWithQueryClient(
-  queryClient: {
-    invalidateQueries: (options: { queryKey: any[] }) => void;
-    setQueryData: (key: any[], updater: (old: any) => any) => void;
-  }
-): void {
+export function usePageEventsWithQueryClient(): void {
+  const queryClient = useQueryClient();
+
   usePageEvents({
     onPageCreated: (page) => {
       // Invalidate the parent's page list
@@ -190,6 +186,25 @@ export function usePageEventsWithQueryClient(
         if (!old) return old;
         return { ...old, title };
       });
+
+      // Update parents array in all cached pages that have this page as a parent
+      const cache = queryClient.getQueryCache();
+      const pageQueries = cache.findAll({ queryKey: ["page"] });
+      for (const query of pageQueries) {
+        const data = query.state.data as IPage | undefined;
+        if (data?.parents?.some((p) => p.id === pageId)) {
+          queryClient.setQueryData(query.queryKey, (old: IPage | undefined) => {
+            if (!old?.parents) return old;
+            return {
+              ...old,
+              parents: old.parents.map((p) =>
+                p.id === pageId ? { ...p, title } : p
+              ),
+            };
+          });
+        }
+      }
+
       // Also invalidate page lists in case title affects sorting
       queryClient.invalidateQueries({ queryKey: ["pages"] });
     },

@@ -331,7 +331,8 @@ export function renderScrollbar(
       documentHeight,
       peerMarkers,
       styles,
-      opacity
+      opacity,
+      scale
     );
   }
 }
@@ -574,16 +575,18 @@ export function renderScrollbarPeerMarkers(
   documentHeight: number,
   markers: PeerMarker[],
   styles: ScrollbarStyles = getScrollbarStyles(),
-  opacity: number = 1
+  opacity: number = 1,
+  scale: number = 1
 ): void {
   if (documentHeight <= viewport.height || markers.length === 0) {
     return;
   }
 
-  const trackWidth = styles.width;
+  const trackWidth = styles.width * scale;
   const safeAreaBottom = getSafeAreaBottom();
   const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
-  const trackX = viewport.width - trackWidth - styles.padding;
+  const trackWidthDiff = trackWidth - styles.width;
+  const trackX = viewport.width - styles.width - styles.padding - trackWidthDiff;
   const trackY = styles.padding;
 
   const markerHeight = 3;

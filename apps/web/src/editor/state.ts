@@ -271,6 +271,7 @@ export const createInitialState = (
       isReadonlyBase: options?.mode === "readonly",
       activeMenu: { type: "none" },
       isHoveringLinkWithModifier: false,
+      isHoveringCheckbox: false,
       composition: null,
       activeFormatsMode: { type: "inherit" },
       imageHover: null,

@@ -137,8 +137,8 @@ export function handleTodoCheckboxClick(
           canvasY >= checkboxY - clickPadding &&
           canvasY <= checkboxY + checkboxSize + clickPadding
         ) {
-          // Toggle the checkbox
-          const result = toggleTodoChecked(state, visibleIdx);
+          // Toggle the checkbox - use originalIndex since visibleBlocks filters deleted blocks
+          const result = toggleTodoChecked(state, visibleBlock.originalIndex);
           return { state: result.state, ops: result.ops };
         }
       }
@@ -157,6 +157,85 @@ export function handleTodoCheckboxClick(
 
   return null;
 }
+
+// Helper to detect if a point is over a todo checkbox (for hover cursor)
+export function isPointOverCheckbox(
+  state: EditorState,
+  canvasX: number,
+  canvasY: number,
+  viewport: ViewportState
+): boolean {
+  const styles = getEditorStyles();
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+
+  const visibleBlocks = state.view.visibleBlocks;
+
+  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+    const visibleBlock = visibleBlocks[visibleIdx];
+    const blockHeight = getBlockHeight(
+      visibleBlock,
+      maxWidth,
+      styles,
+      visibleIdx === 0
+    );
+
+    if (canvasY >= currentY && canvasY < currentY + blockHeight) {
+      if (visibleBlock.type === "todo_list") {
+        const indent = visibleBlock.indent || 0;
+        const indentOffset = indent * styles.list.indent.size;
+        const checkboxSize = styles.list.todo.checkboxSize;
+
+        const blockText = isTextualBlock(visibleBlock)
+          ? getBlockTextContent(visibleBlock)
+          : "";
+        const isRTL = getTextDirection(blockText) === "rtl";
+
+        const markerWidth =
+          styles.list.numbered.minWidth + styles.list.marker.textGap;
+        const adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
+
+        let checkboxX: number;
+        if (isRTL) {
+          checkboxX =
+            styles.canvas.paddingLeft + indentOffset + adjustedMaxWidth + 2;
+        } else {
+          checkboxX = styles.canvas.paddingLeft + indentOffset + 2;
+        }
+
+        const textStyle = getTextStyle(styles, visibleBlock.type);
+        const fontFamily = getCurrentFontFamily();
+        const fontMetrics = getFontMetrics(
+          textStyle.fontSize,
+          textStyle.fontWeight,
+          fontFamily
+        );
+        const checkboxY = currentY + fontMetrics.ascent - checkboxSize + 2;
+
+        const hoverPadding = 4;
+        if (
+          canvasX >= checkboxX - hoverPadding &&
+          canvasX <= checkboxX + checkboxSize + hoverPadding &&
+          canvasY >= checkboxY - hoverPadding &&
+          canvasY <= checkboxY + checkboxSize + hoverPadding
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    if (currentY > viewport.height) {
+      break;
+    }
+
+    currentY += blockHeight;
+  }
+
+  return false;
+}
+
 export function handleMouseDown(
   state: EditorState,
   viewport: ViewportState,
@@ -643,6 +722,18 @@ export function handleMouseMove(
       ),
     },
   };
+
+  // Check for checkbox hover (for pointer cursor)
+  const isOverCheckbox = isPointOverCheckbox(state, canvasX, canvasY, viewport);
+  if (isOverCheckbox !== state.ui.isHoveringCheckbox) {
+    state = {
+      ...state,
+      ui: {
+        ...state.ui,
+        isHoveringCheckbox: isOverCheckbox,
+      },
+    };
+  }
 
   // Handle image drag resize
   if (state.ui.imageDrag) {

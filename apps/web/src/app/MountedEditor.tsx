@@ -184,11 +184,17 @@ export function MountedEditor({
   const onRoomAwarenessStatesRef = useRef<
     ((states: Record<string, AwarenessState>) => void) | null
   >(null);
+  const onRoomJoinedRef = useRef<((hasOtherPeers: boolean) => void) | null>(
+    null
+  );
+  // Track sync state for confirmSave callback
+  const syncStateRef = useRef<SyncState>({ status: "disconnected" });
 
   // Use the global WebSocket room subscription
   const {
     broadcast: roomBroadcast,
     broadcastAwareness: roomBroadcastAwareness,
+    sendSyncRequest: roomSendSyncRequest,
     sendSyncResponse: roomSendSyncResponse,
     syncState,
     localUser,
@@ -219,7 +225,15 @@ export function MountedEditor({
     onAwarenessStates: useCallback((states: Record<string, AwarenessState>) => {
       onRoomAwarenessStatesRef.current?.(states);
     }, []),
+    onJoined: useCallback((hasOtherPeers: boolean) => {
+      onRoomJoinedRef.current?.(hasOtherPeers);
+    }, []),
   });
+
+  // Keep syncStateRef up to date for use in callbacks
+  useEffect(() => {
+    syncStateRef.current = syncState;
+  }, [syncState]);
 
   // Notify parent of sync state changes
   useEffect(() => {
@@ -352,10 +366,13 @@ export function MountedEditor({
         snapshotClockRef.current = clock;
         // Notify parent of clock update
         onSnapshotClockUpdate?.(clock);
-        // Mark operations as synced in IndexedDB, then clean up
-        offlineStoreRef.current?.markSynced(clock).then(() => {
-          offlineStoreRef.current?.compactSynced();
-        });
+        // Only mark operations as synced and compact if WebSocket is connected
+        // This ensures operations aren't deleted before they've been broadcast to peers
+        if (syncStateRef.current.status === "connected") {
+          offlineStoreRef.current?.markSynced(clock).then(() => {
+            offlineStoreRef.current?.compactSynced();
+          });
+        }
       });
     }
 
@@ -412,6 +429,23 @@ export function MountedEditor({
       if (onAwarenessChange) {
         const users = Object.values(states).map((s) => s.user);
         onAwarenessChange(users);
+      }
+    };
+
+    // Handle room join/rejoin - broadcast unsynced ops and request sync
+    onRoomJoinedRef.current = (hasOtherPeers) => {
+      // Broadcast any unsynced operations from IndexedDB
+      // This handles both: initial load with pending ops, and reconnect after offline typing
+      offlineStore.getUnsyncedOperations().then((unsyncedOps) => {
+        if (unsyncedOps.length > 0) {
+          roomBroadcast(unsyncedOps);
+        }
+      });
+
+      // If there are other peers, request sync to get any operations we missed
+      if (hasOtherPeers) {
+        const localVV = serializeVV(syncEngine.getVersionVector());
+        roomSendSyncRequest(localVV, snapshotClockRef.current);
       }
     };
 
@@ -846,6 +880,7 @@ export function MountedEditor({
       onRoomAwarenessRef.current = null;
       onRoomFirstPeerRef.current = null;
       onRoomAwarenessStatesRef.current = null;
+      onRoomJoinedRef.current = null;
 
       // Clean up sync engine
       if (syncEngineRef.current) {
@@ -881,6 +916,7 @@ export function MountedEditor({
     pageId,
     roomBroadcast,
     roomBroadcastAwareness,
+    roomSendSyncRequest,
     roomSendSyncResponse,
     localUser,
     peerId,

@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
-import { History, MoreVertical } from "lucide-react";
+import { History, MoreVertical, Download, Upload } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -22,16 +22,32 @@ import {
 } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
 import { SnapshotRestore } from "./SnapshotRestore";
+import { ExportDialog } from "./ExportDialog";
+import { ImportDialog } from "./ImportDialog";
 
 export function PageSettings() {
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   return (
     <>
-      <PageSettingsImpl setShowVersionHistory={setShowVersionHistory} />
+      <PageSettingsImpl
+        setShowVersionHistory={setShowVersionHistory}
+        setShowExportDialog={setShowExportDialog}
+        setShowImportDialog={setShowImportDialog}
+      />
       <SnapshotRestore
         open={showVersionHistory}
         onOpenChange={setShowVersionHistory}
+      />
+      <ExportDialog
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+      />
+      <ImportDialog
+        open={showImportDialog}
+        onOpenChange={setShowImportDialog}
       />
     </>
   );
@@ -39,8 +55,12 @@ export function PageSettings() {
 
 function PageSettingsImpl({
   setShowVersionHistory,
+  setShowExportDialog,
+  setShowImportDialog,
 }: {
   setShowVersionHistory: (open: boolean) => void;
+  setShowExportDialog: (open: boolean) => void;
+  setShowImportDialog: (open: boolean) => void;
 }) {
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -129,7 +149,25 @@ function PageSettingsImpl({
         </div>
       </div>
 
-      <div className="pt-3 border-t border-border px-2">
+      <div className="pt-3 border-t border-border px-2 space-y-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2 py-5"
+          onClick={() => setShowImportDialog(true)}
+        >
+          <Upload className="h-4 w-4" />
+          {t`Import`}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2 py-5"
+          onClick={() => setShowExportDialog(true)}
+        >
+          <Download className="h-4 w-4" />
+          {t`Export`}
+        </Button>
         <Button
           variant="ghost"
           size="sm"

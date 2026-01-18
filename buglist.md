@@ -197,12 +197,12 @@ Bugs list
 - [x] editing issue on android. Can not edit text after selection.
 - [x] tapping under image that has no other blocks under should create new text block.
 - [-] could we disable edge navigation on andorid?
-- [ ] on landscape oritentation the safe area taking to much and it is uncessary.
-- [ ] Safe area on sidebar
+- [x] on landscape oritentation the safe area taking to much and it is uncessary.
+- [x] Safe area on sidebar
 - [ ] typing letters that conlicde with markdown serlization should be escaped
 - [ ] intermidate state in todo list
 - [ ] memory leak somehow the old state being presisted on hot reloading.
-- [ ] indent with mixed direction rtl todo
+- [x] indent with mixed direction rtl todo
 - [ ] Pen input, stylus support. Handwriting.
 - [ ] protocol for opening cypher links.
 - [-] too many functions the loops all the blocks.
@@ -265,3 +265,6 @@ Bugs list
 - [ ] strike through should follow same color as text
 - [ ] test native storage.
 - [ ] improve websockets to handle more events.
+- [ ] reload on disconencted the operations are lost.
+- [ ] click on checkbox no longer working
+- [ ] broadcast new update

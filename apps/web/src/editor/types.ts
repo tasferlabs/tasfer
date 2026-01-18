@@ -134,6 +134,7 @@ export interface UIState {
   readonly isReadonlyBase: boolean; // True if editor was initialized in readonly mode (persists through select mode)
   readonly activeMenu: ActiveMenu; // Unified menu system - replaces slashCommand, contextMenu, linkHover, imageUpload
   readonly isHoveringLinkWithModifier: boolean;
+  readonly isHoveringCheckbox: boolean;
   readonly composition: CompositionState | null;
   readonly activeFormatsMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
   readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)

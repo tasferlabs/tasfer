@@ -83,8 +83,21 @@ export async function getDB(): Promise<IDBPDatabase<CypherDB>> {
     return dbPromise;
   }
 
-  dbPromise = openDB<CypherDB>("cypher-offline", 1, {
-    upgrade(db) {
+  dbPromise = openDB<CypherDB>("cypher-offline", 2, {
+    upgrade(db, oldVersion) {
+      // Handle upgrade from version 1: recreate operations store to fix index
+      if (oldVersion === 1) {
+        if (db.objectStoreNames.contains("operations")) {
+          db.deleteObjectStore("operations");
+        }
+        // Recreate operations store with proper indexes
+        const opsStore = db.createObjectStore("operations", { keyPath: "key" });
+        opsStore.createIndex("by-page", "pageId");
+        opsStore.createIndex("by-synced", ["pageId", "synced"]);
+        return; // Other stores should already exist from v1
+      }
+
+      // Fresh install (oldVersion === 0)
       // Operations store
       const opsStore = db.createObjectStore("operations", { keyPath: "key" });
       opsStore.createIndex("by-page", "pageId");

@@ -361,7 +361,7 @@ export function SnapshotRestore({
     <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:!max-w-xl md:!max-w-3xl lg:!max-w-5xl xl:!max-w-6xl flex flex-col"
+        className="w-full sm:!max-w-xl md:!max-w-4xl lg:!max-w-5xl xl:!max-w-6xl flex flex-col"
       >
         <SheetHeader>
           <SheetTitle>{t`Version history`}</SheetTitle>

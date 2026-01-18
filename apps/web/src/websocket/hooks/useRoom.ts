@@ -25,6 +25,8 @@ export interface RoomConfig {
   onOperations?: (operations: Operation[]) => void;
   /** Called when you're the first/only peer in the room (load initial content) */
   onFirstPeer?: () => void;
+  /** Called when joining/rejoining the room (e.g., after reconnect) - use to broadcast offline ops */
+  onJoined?: (hasOtherPeers: boolean) => void;
   /** Called when receiving sync request from a peer */
   onSyncRequest?: (
     versionVector: Record<string, number>,
@@ -188,6 +190,9 @@ export function useRoom(
         if (awarenessStates && Object.keys(awarenessStates).length > 0) {
           configRef.current.onAwarenessStates?.(awarenessStates);
         }
+
+        // Notify that we've joined/rejoined the room - use to request sync
+        configRef.current.onJoined?.(otherPeers.length > 0);
 
         hasJoinedRef.current = true;
       },

@@ -187,7 +187,7 @@ export class GlobalWebSocket {
   joinRoom(
     roomId: string,
     callbacks: RoomCallbacks,
-    user?: RoomUser
+    user?: RoomUser,
   ): () => void {
     const subscription: RoomSubscription = {
       roomId,
@@ -227,12 +227,18 @@ export class GlobalWebSocket {
 
   /**
    * Broadcast operations to a room.
+   * If not connected, operations are not sent (they're persisted in IndexedDB
+   * and will be broadcast on reconnect via onJoined callback).
    */
   broadcastOperations(roomId: string, operations: Operation[]): void {
     if (!this.roomSubscriptions.has(roomId)) {
       console.warn(
-        `[GlobalWebSocket] Cannot broadcast to room ${roomId} - not subscribed`
+        `[GlobalWebSocket] Cannot broadcast to room ${roomId} - not subscribed`,
       );
+      return;
+    }
+
+    if (this.ws?.readyState !== WebSocket.OPEN) {
       return;
     }
 
@@ -248,7 +254,7 @@ export class GlobalWebSocket {
   broadcastAwareness(roomId: string, state: AwarenessState): void {
     if (!this.roomSubscriptions.has(roomId)) {
       console.warn(
-        `[GlobalWebSocket] Cannot broadcast awareness to room ${roomId} - not subscribed`
+        `[GlobalWebSocket] Cannot broadcast awareness to room ${roomId} - not subscribed`,
       );
       return;
     }
@@ -266,11 +272,11 @@ export class GlobalWebSocket {
   sendSyncRequest(
     roomId: string,
     versionVector: Record<string, number>,
-    snapshotClock?: { counter: number; peerId: string } | null
+    snapshotClock?: { counter: number; peerId: string } | null,
   ): void {
     if (!this.roomSubscriptions.has(roomId)) {
       console.warn(
-        `[GlobalWebSocket] Cannot send sync request to room ${roomId} - not subscribed`
+        `[GlobalWebSocket] Cannot send sync request to room ${roomId} - not subscribed`,
       );
       return;
     }
@@ -289,11 +295,11 @@ export class GlobalWebSocket {
     roomId: string,
     operations: Operation[],
     versionVector: Record<string, number>,
-    targetPeerId?: string
+    targetPeerId?: string,
   ): void {
     if (!this.roomSubscriptions.has(roomId)) {
       console.warn(
-        `[GlobalWebSocket] Cannot send sync response to room ${roomId} - not subscribed`
+        `[GlobalWebSocket] Cannot send sync response to room ${roomId} - not subscribed`,
       );
       return;
     }
@@ -373,10 +379,7 @@ export class GlobalWebSocket {
     this.ws = null;
 
     // Attempt reconnect if we have subscriptions
-    if (
-      this.roomSubscriptions.size > 0 ||
-      this.pageEventListeners.size > 0
-    ) {
+    if (this.roomSubscriptions.size > 0 || this.pageEventListeners.size > 0) {
       this.attemptReconnect();
     } else {
       this.setConnectionState("disconnected");
@@ -386,7 +389,10 @@ export class GlobalWebSocket {
   private attemptReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error("[GlobalWebSocket] Max reconnect attempts reached");
-      this.setConnectionState("error", "Connection lost - max retries exceeded");
+      this.setConnectionState(
+        "error",
+        "Connection lost - max retries exceeded",
+      );
       return;
     }
 
@@ -394,7 +400,8 @@ export class GlobalWebSocket {
     this.setConnectionState("connecting");
 
     // Exponential backoff
-    const delay = this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    const delay =
+      this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
 
     this.reconnectTimer = setTimeout(() => {
       this.createConnection().catch((error) => {
@@ -465,10 +472,10 @@ export class GlobalWebSocket {
       case "room-peers":
         // Find which room this is for (most recently joined room)
         // The server doesn't include roomId in room-peers, so we route to the last joined room
-        for (const [_roomId, subscription] of this.roomSubscriptions) {
+        for (const [, subscription] of this.roomSubscriptions) {
           subscription.callbacks.onRoomPeers?.(
             message.peers,
-            message.awarenessStates
+            message.awarenessStates,
           );
         }
         break;
@@ -496,7 +503,7 @@ export class GlobalWebSocket {
           subscription.callbacks.onSyncRequest?.(
             message.versionVector,
             message.snapshotClock,
-            message.requesterId
+            message.requesterId,
           );
         }
         break;
@@ -505,7 +512,7 @@ export class GlobalWebSocket {
         for (const subscription of this.roomSubscriptions.values()) {
           subscription.callbacks.onSyncResponse?.(
             message.operations,
-            message.versionVector
+            message.versionVector,
           );
         }
         break;
@@ -539,11 +546,15 @@ export class GlobalWebSocket {
             callbacks.onPageMoved?.(
               event.pageId,
               event.oldParentId,
-              event.newParentId
+              event.newParentId,
             );
             break;
           case "page-reordered":
-            callbacks.onPageReordered?.(event.pageId, event.parentId, event.order);
+            callbacks.onPageReordered?.(
+              event.pageId,
+              event.parentId,
+              event.order,
+            );
             break;
           case "page-title-updated":
             callbacks.onPageTitleUpdated?.(event.pageId, event.title);
