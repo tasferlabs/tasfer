@@ -604,6 +604,10 @@ class AccessoryIslandView: UIView {
     private var formattingButtonsStack: UIStackView!
     private var dividerView: UIView!
 
+    // Constraints for safe area adjustment (Dynamic Island support)
+    private var containerLeadingConstraint: NSLayoutConstraint?
+    private var containerTrailingConstraint: NSLayoutConstraint?
+
     private var isFormattingExpanded = false
 
     var currentIconType: String = "format"
@@ -616,6 +620,15 @@ class AccessoryIslandView: UIView {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupUI()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Adjust for safe area insets (Dynamic Island in landscape)
+        let leadingInset = max(safeAreaInsets.left, 8)
+        let trailingInset = max(safeAreaInsets.right, 8)
+        containerLeadingConstraint?.constant = leadingInset
+        containerTrailingConstraint?.constant = -trailingInset
     }
 
     private func setupUI() {
@@ -689,10 +702,14 @@ class AccessoryIslandView: UIView {
             ])
         }
 
+        // Store constraints for safe area adjustment
+        containerLeadingConstraint = container.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8)
+        containerTrailingConstraint = container.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+
         NSLayoutConstraint.activate([
             // Container spans full width with padding (floating island style)
-            container.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            container.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            containerLeadingConstraint!,
+            containerTrailingConstraint!,
             container.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             container.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
             container.heightAnchor.constraint(equalToConstant: 44),

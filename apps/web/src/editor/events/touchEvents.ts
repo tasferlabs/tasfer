@@ -140,6 +140,9 @@ export function handleTouchStart(
     return state;
   }
 
+  // In readonly mode, only allow scrolling (no selection handle drag or image drag)
+  const isReadonly = state.ui.mode === "readonly";
+
   // Handle two-finger scroll
   if (event.touches.length === 2) {
     const touch1 = event.touches[0];
@@ -204,12 +207,10 @@ export function handleTouchStart(
     );
 
     // Check if touching a selection handle for mobile selection dragging
-    const selectionHandle = getSelectionHandleAtPoint(
-      canvasX,
-      canvasY,
-      state,
-      viewport
-    );
+    // Block selection handle drag in readonly mode
+    const selectionHandle = !isReadonly
+      ? getSelectionHandleAtPoint(canvasX, canvasY, state, viewport)
+      : null;
     if (selectionHandle && !isScrollbarThumbTouch) {
       // Start selection handle drag
       touchState = {
@@ -255,9 +256,10 @@ export function handleTouchStart(
     }
 
     // Check if touching an image drag handle (with larger tolerance for touch)
+    // Block image drag in readonly mode
     const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
     const TOUCH_TOLERANCE = 12; // Larger tolerance for touch devices
-    if (imageBlock && !isScrollbarThumbTouch) {
+    if (imageBlock && !isScrollbarThumbTouch && !isReadonly) {
       const dragState = startImageDrag(
         state,
         imageBlock,
@@ -750,7 +752,8 @@ export function handleTouchMove(
     }
 
     // Handle long press text selection mode
-    if (touchState.isLongPress) {
+    // Block long-press text selection in readonly mode
+    if (touchState.isLongPress && state.ui.mode !== "readonly") {
       // If context menu is open, allow drag-and-release interaction
       // Don't start text selection - user might be dragging to menu item
       if (state.ui.activeMenu.type === "contextMenu") {
@@ -1251,7 +1254,8 @@ export function handleTouchEnd(
           tapPosition.y > totalContentHeight - viewport.scrollY;
 
         // If tapping below content and last block is an image, create a new paragraph
-        if (isTapBelowContent && lastBlock.type === "image") {
+        // Block in readonly mode
+        if (isTapBelowContent && lastBlock.type === "image" && state.ui.mode !== "readonly") {
           const newParagraphId = nextId();
           const newParagraph: Block = {
             id: newParagraphId,
@@ -1312,7 +1316,8 @@ export function handleTouchEnd(
         );
         if (imageBlock) {
           // If it's a placeholder (no URL), open upload menu
-          if (!tappedBlock.url) {
+          // Block in readonly mode
+          if (!tappedBlock.url && state.ui.mode !== "readonly") {
             // If the upload menu was already open for this same block, don't reopen it (let it stay closed)
             // This allows tapping on an open upload menu to close it
             if (
@@ -1413,7 +1418,8 @@ export function handleTouchEnd(
                 )
               : -1;
           const isLastBlock = position.blockIndex === lastVisibleBlockIndex;
-          if (isLastBlock) {
+          // Block paragraph creation in readonly mode
+          if (isLastBlock && state.ui.mode !== "readonly") {
             const currentBlock =
               state.document.page.blocks[position.blockIndex];
             const newParagraphId = nextId();

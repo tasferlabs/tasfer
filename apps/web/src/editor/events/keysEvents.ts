@@ -89,6 +89,28 @@ export function handleKeyDown(
     return { state, ops };
   }
 
+  // In readonly mode, only allow navigation, selection, and copy operations
+  if (state.ui.mode === "readonly") {
+    const isNavigationKey = [
+      "ArrowLeft",
+      "ArrowRight",
+      "ArrowUp",
+      "ArrowDown",
+      "PageUp",
+      "PageDown",
+      "Home",
+      "End",
+    ].includes(key);
+    const isCopy = isCtrl && code === "KeyC";
+    const isSelectAll = isCtrl && code === "KeyA";
+    const isEscape = key === "Escape";
+
+    // Allow navigation, copy, select all, and escape in readonly mode
+    if (!isNavigationKey && !isCopy && !isSelectAll && !isEscape) {
+      return { state, ops };
+    }
+  }
+
   // If editor is not focused, ignore keyboard input
   if (!state.view.isFocused) {
     return { state, ops };

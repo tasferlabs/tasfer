@@ -65,6 +65,11 @@ export function handleTodoCheckboxClick(
   canvasY: number,
   viewport: ViewportState
 ): { state: EditorState; ops: Operation[] } | null {
+  // Block checkbox toggle in readonly mode
+  if (state.ui.mode === "readonly") {
+    return null;
+  }
+
   const styles = getEditorStyles();
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
@@ -313,34 +318,37 @@ export function handleMouseDown(
     const block = state.document.page.blocks[imageBlock.blockIndex];
     if (!block || block.deleted) return { state: state, ops };
     if (block.type === "image") {
-      // Check if clicking on a drag handle and start drag if applicable
-      const dragState = startImageDrag(state, imageBlock, canvasX, canvasY);
-      if (dragState) {
-        return { state: dragState, ops };
-      }
-
-      // If it's a placeholder (no URL), open the upload menu immediately
-      if (!block.url) {
-        // Don't reopen if we just closed the menu for this same block
-        if (
-          wasMenuOpen &&
-          previousMenu.type === "imageUpload" &&
-          previousMenu.blockIndex === imageBlock.blockIndex
-        ) {
-          // Just keep it closed
-          return { state, ops };
+      // In readonly mode, don't allow image drag/resize or placeholder clicks
+      if (state.ui.mode !== "readonly") {
+        // Check if clicking on a drag handle and start drag if applicable
+        const dragState = startImageDrag(state, imageBlock, canvasX, canvasY);
+        if (dragState) {
+          return { state: dragState, ops };
         }
 
-        // Open the image upload menu at the click position
-        return {
-          state: setActiveMenu(state, {
-            type: "imageUpload",
-            blockIndex: imageBlock.blockIndex,
-            x: canvasX,
-            y: canvasY,
-          }),
-          ops,
-        };
+        // If it's a placeholder (no URL), open the upload menu immediately
+        if (!block.url) {
+          // Don't reopen if we just closed the menu for this same block
+          if (
+            wasMenuOpen &&
+            previousMenu.type === "imageUpload" &&
+            previousMenu.blockIndex === imageBlock.blockIndex
+          ) {
+            // Just keep it closed
+            return { state, ops };
+          }
+
+          // Open the image upload menu at the click position
+          return {
+            state: setActiveMenu(state, {
+              type: "imageUpload",
+              blockIndex: imageBlock.blockIndex,
+              x: canvasX,
+              y: canvasY,
+            }),
+            ops,
+          };
+        }
       }
       // If it has an image, select the image block (same as arrow key behavior)
       // Position at the start of the image block (textIndex 0)
@@ -1005,7 +1013,7 @@ export function handleWheel(
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void
 ): EditorState {
-  // In locked mode, block scrolling
+  // In locked mode, block scrolling (but allow in readonly mode)
   if (state.ui.mode === "locked") {
     return state;
   }

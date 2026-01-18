@@ -234,7 +234,7 @@ Bugs list
 - [x] crdt pasting ad docoumet paste only first block
 - [ ] loading page is slow
 - [ ] loading apge should show spinner.
-- [ ] change content should reculate hights/documentb height in
+- [x] change content should reculate hights/documentb height in
 - [x] on load document there is not scrollbar
 - [ ] peforamnce issues after crdt
 - [x] 1. Fix IDs
@@ -242,7 +242,7 @@ Bugs list
 - [x] 2. op chain
 - [ ] 3. Binary encoding
 - [ ] 4. Delta compression
-- [ ] We should brodacast page delete
+- [x] We should brodacast page delete
 - [ ] test users and test functions
 - [ ] everything should suited for mobile, including flaoting sidebar. 
 - [ ] add snapshot previewing

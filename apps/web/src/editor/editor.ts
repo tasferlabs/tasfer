@@ -192,6 +192,51 @@ export default function createEditor(
   type AwarenessBroadcastFn = (state: AwarenessState) => void;
   let awarenessBroadcastFn: AwarenessBroadcastFn | null = null;
 
+  // Idle timeout for filtering inactive peers from UI (10 seconds)
+  const AWARENESS_IDLE_TIMEOUT = 10000;
+  // Stale timeout for removing peers from memory (30 seconds)
+  const AWARENESS_STALE_TIMEOUT = 30000;
+
+  /**
+   * Get remote awareness states, filtering out idle peers.
+   * Peers who haven't sent updates within AWARENESS_IDLE_TIMEOUT are excluded.
+   */
+  const getActiveRemoteAwareness = (): Map<string, AwarenessState> => {
+    const now = Date.now();
+    const active = new Map<string, AwarenessState>();
+
+    for (const [peerId, state] of remoteAwareness) {
+      if (now - state.lastUpdate <= AWARENESS_IDLE_TIMEOUT) {
+        active.set(peerId, state);
+      }
+    }
+
+    return active;
+  };
+
+  /**
+   * Cleanup stale awareness states from memory.
+   * Removes peers who haven't sent updates within AWARENESS_STALE_TIMEOUT.
+   */
+  const cleanupStaleAwareness = (): void => {
+    const now = Date.now();
+    let hasChanges = false;
+
+    for (const [peerId, state] of remoteAwareness) {
+      if (now - state.lastUpdate > AWARENESS_STALE_TIMEOUT) {
+        remoteAwareness.delete(peerId);
+        hasChanges = true;
+      }
+    }
+
+    if (hasChanges) {
+      scheduleRender();
+    }
+  };
+
+  // Cleanup interval for stale awareness states (runs every 10 seconds)
+  const awarenessCleanupInterval = setInterval(cleanupStaleAwareness, 10000);
+
   // Local user info for awareness
   let localUser: AwarenessUser | null = null;
 
@@ -495,7 +540,7 @@ export default function createEditor(
             viewport,
             visibility,
             undefined,
-            remoteAwareness
+            getActiveRemoteAwareness()
           );
 
           // Update cursor style based on scrollbar hover and drag state
@@ -516,7 +561,7 @@ export default function createEditor(
             state,
             viewport,
             getEditorStyles(),
-            remoteAwareness
+            getActiveRemoteAwareness()
           );
           dirtyLayers.cursor = false;
         }
@@ -705,6 +750,12 @@ export default function createEditor(
   function hiddenInputHandler(e: Event) {
     if (!hiddenInput) return;
 
+    // Block input in readonly or locked mode
+    if (state.ui.mode === "readonly" || state.ui.mode === "locked") {
+      hiddenInput.value = " ";
+      return;
+    }
+
     const inputEvent = e as InputEvent;
 
     // Skip processing during IME composition - composition events will handle it
@@ -774,6 +825,34 @@ export default function createEditor(
 
     // Check if this is a keyboard shortcut (Ctrl/Cmd + key)
     const isShortcut = e.ctrlKey || e.metaKey;
+
+    // In readonly mode, only allow navigation and copy
+    if (state.ui.mode === "readonly") {
+      const isNavigationKey = [
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "PageUp",
+        "PageDown",
+        "Home",
+        "End",
+      ].includes(e.key);
+      const isCopy = isShortcut && e.code === "KeyC";
+      const isSelectAll = isShortcut && e.code === "KeyA";
+      const isEscape = e.key === "Escape";
+
+      if (!isNavigationKey && !isCopy && !isSelectAll && !isEscape) {
+        e.preventDefault();
+        return;
+      }
+    }
+
+    // In locked mode, block everything
+    if (state.ui.mode === "locked") {
+      e.preventDefault();
+      return;
+    }
 
     // During composition (IME input), block most keys
     // Let the IME handle these keys for mobile composition
@@ -997,6 +1076,9 @@ export default function createEditor(
       );
       hiddenInput.removeEventListener("compositionend", compositionEndHandler);
     }
+
+    // Clean up awareness cleanup interval
+    clearInterval(awarenessCleanupInterval);
   }
 
   function updateViewport(newViewport: Partial<ViewportState>) {
@@ -1779,7 +1861,7 @@ export default function createEditor(
   }
 
   function getRemoteAwarenessMethod(): Map<string, AwarenessState> {
-    return new Map(remoteAwareness);
+    return getActiveRemoteAwareness();
   }
 
   function applyRemoteOperationsMethod(ops: Operation[]) {

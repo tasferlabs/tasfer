@@ -64,6 +64,8 @@ interface MountedEditorProps {
   onRestoreReady?: (restoreFn: (blocks: Block[]) => void) => void;
   /** Callback when confirmSave function is ready - call this after backend save succeeds */
   onConfirmSaveReady?: (confirmFn: (clock: HLC) => void) => void;
+  /** When true, editor is read-only - no editing, no CRDT sync, no native bridge updates */
+  readonly?: boolean;
 }
 
 export function MountedEditor({
@@ -80,6 +82,7 @@ export function MountedEditor({
   onAwarenessChange,
   onRestoreReady,
   onConfirmSaveReady,
+  readonly = false,
 }: MountedEditorProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
@@ -261,12 +264,66 @@ export function MountedEditor({
     lastSerializedBlocksRef.current = null;
     editorInitializedRef.current = false;
 
+    const mounted = mountEditor(el, snapshot, { readonly });
+    mountedRef.current = mounted;
+
+    // Skip offline store and sync setup in readonly mode
+    if (readonly) {
+      // In readonly mode, we only render the content - no sync, no offline store
+      // Subscribe to state changes for context menu only
+      const unsubscribe = mounted.editor.subscribe((state: EditorState) => {
+        // Calculate context menu state for readonly mode
+        let newContextMenuState: typeof contextMenuState = null;
+        if (state.ui.activeMenu.type === "contextMenu") {
+          const containerRect = wrapperRef.current?.getBoundingClientRect();
+          if (containerRect) {
+            const hasSelection = !!getSelectionRange(state);
+            newContextMenuState = {
+              x: containerRect.left + state.ui.activeMenu.x,
+              y: containerRect.top + state.ui.activeMenu.y,
+              hasSelection,
+              hoveredItemId: state.ui.activeMenu.hoveredItemId,
+            };
+
+            // Handle drag-and-release selection
+            if (state.ui.activeMenu.selectedItemId) {
+              const selectedItemId = state.ui.activeMenu.selectedItemId;
+              // Execute the action asynchronously
+              setTimeout(async () => {
+                if (!mountedRef.current) return;
+                const editor = mountedRef.current.editor;
+                switch (selectedItemId) {
+                  case "copy":
+                    await editor.copy();
+                    break;
+                  case "selectAll":
+                    editor.selectAll();
+                    break;
+                }
+              }, 0);
+              newContextMenuState = null;
+            }
+          }
+        }
+
+        if (!shallowEqual(newContextMenuState, lastContextMenuStateRef.current)) {
+          lastContextMenuStateRef.current = newContextMenuState;
+          setContextMenuState(newContextMenuState);
+        }
+      });
+
+      return () => {
+        unsubscribe();
+        mounted.destroy();
+        if (mountedRef.current === mounted) {
+          mountedRef.current = null;
+        }
+      };
+    }
+
     // Initialize offline store for this page
     const offlineStore = new OfflineStore(pageId);
     offlineStoreRef.current = offlineStore;
-
-    const mounted = mountEditor(el, snapshot);
-    mountedRef.current = mounted;
 
     // Load persisted operations from IndexedDB (if any)
     // This restores local changes that weren't synced before page reload
@@ -828,6 +885,7 @@ export function MountedEditor({
     localUser,
     peerId,
     onSnapshotClockUpdate,
+    readonly,
   ]);
 
   // Note: WebSocket reconnection is handled by the global WebSocketProvider
@@ -884,26 +942,30 @@ export function MountedEditor({
         action: () => handleContextMenuAction("copy"),
         disabled: !hasSelection,
       },
-      {
+    ];
+
+    // Hide edit-related items in readonly mode
+    if (!readonly) {
+      items.push({
         id: "cut",
         label: "Cut",
         icon: <Scissors size={16} />,
         action: () => handleContextMenuAction("cut"),
         disabled: !hasSelection,
-      },
-    ];
-
-    if (canPaste) {
-      items.push({
-        id: "paste",
-        label: "Paste",
-        icon: <Clipboard size={16} />,
-        action: () => handleContextMenuAction("paste"),
       });
+
+      if (canPaste) {
+        items.push({
+          id: "paste",
+          label: "Paste",
+          icon: <Clipboard size={16} />,
+          action: () => handleContextMenuAction("paste"),
+        });
+      }
     }
 
-    // Add Format submenu for desktop when text is selected
-    if (hasSelection && !isTouchDevice()) {
+    // Add Format submenu for desktop when text is selected (not in readonly mode)
+    if (hasSelection && !isTouchDevice() && !readonly) {
       // Get active formats from current selection
       const getActiveFormats = () => {
         const state = mountedRef.current?.editor.getState();

@@ -131,6 +131,7 @@ export interface ImageHoverState {
 // UI State - Transient interaction state (menus, popovers, mode)
 export interface UIState {
   readonly mode: EditorMode;
+  readonly isReadonlyBase: boolean; // True if editor was initialized in readonly mode (persists through select mode)
   readonly activeMenu: ActiveMenu; // Unified menu system - replaces slashCommand, contextMenu, linkHover, imageUpload
   readonly isHoveringLinkWithModifier: boolean;
   readonly composition: CompositionState | null;
@@ -282,7 +283,7 @@ export interface TouchState {
   readonly isScrolling: boolean;
 }
 
-export type EditorMode = "edit" | "select" | "locked";
+export type EditorMode = "edit" | "select" | "locked" | "readonly";
 
 // Rendering Types
 export interface RenderedBlock {

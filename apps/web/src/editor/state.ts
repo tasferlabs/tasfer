@@ -251,7 +251,10 @@ export function generateBlockId(): string {
 }
 
 // State Creation Functions
-export const createInitialState = (page: Page): EditorState => {
+export const createInitialState = (
+  page: Page,
+  options?: { mode?: EditorMode }
+): EditorState => {
   const peerId = generatePeerId();
 
   // Initialize global CRDT context
@@ -264,7 +267,8 @@ export const createInitialState = (page: Page): EditorState => {
       selection: null,
     },
     ui: {
-      mode: "edit" as EditorMode,
+      mode: (options?.mode ?? "edit") as EditorMode,
+      isReadonlyBase: options?.mode === "readonly",
       activeMenu: { type: "none" },
       isHoveringLinkWithModifier: false,
       composition: null,
@@ -342,10 +346,30 @@ export const updateSelection = (
 export const updateMode = (
   state: EditorState,
   mode: EditorMode
-): EditorState => ({
-  ...state,
-  ui: { ...state.ui, mode },
-});
+): EditorState => {
+  // If editor was initialized as readonly, enforce readonly behavior
+  if (state.ui.isReadonlyBase) {
+    // Allow switching to "select" for drag selection, or "locked"
+    if (mode === "select" || mode === "locked") {
+      return {
+        ...state,
+        ui: { ...state.ui, mode },
+      };
+    }
+    // When trying to go to "edit", return to "readonly" instead
+    if (mode === "edit") {
+      return {
+        ...state,
+        ui: { ...state.ui, mode: "readonly" },
+      };
+    }
+    return state;
+  }
+  return {
+    ...state,
+    ui: { ...state.ui, mode },
+  };
+};
 
 export const updateFocus = (
   state: EditorState,

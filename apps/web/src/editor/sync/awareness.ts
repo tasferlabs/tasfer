@@ -133,6 +133,10 @@ export interface AwarenessConfig {
   userName?: string;
   /** Called when remote awareness states change */
   onRemoteUpdate?: (states: Map<string, AwarenessState>) => void;
+  /** Idle timeout in ms - peers without updates are considered idle (default: 10000) */
+  idleTimeout?: number;
+  /** Stale timeout in ms - peers without updates are removed (default: 30000) */
+  staleTimeout?: number;
 }
 
 /**
@@ -167,12 +171,16 @@ export class AwarenessManager {
   private remoteStates: Map<string, AwarenessState> = new Map();
   private localUser: AwarenessUser;
 
-  /** Stale timeout in ms - remote states older than this are considered stale */
-  private staleTimeout = 30000; // 30 seconds
+  /** Idle timeout in ms - peers without updates are considered idle */
+  private idleTimeout: number;
+  /** Stale timeout in ms - remote states older than this are removed */
+  private staleTimeout: number;
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(config: AwarenessConfig) {
     this.config = config;
+    this.idleTimeout = config.idleTimeout ?? 10000; // 10 seconds default
+    this.staleTimeout = config.staleTimeout ?? 30000; // 30 seconds default
     this.localUser = {
       peerId: config.peerId,
       name: config.userName,
@@ -180,7 +188,7 @@ export class AwarenessManager {
     };
 
     // Start cleanup interval for stale states
-    this.cleanupInterval = setInterval(() => this.cleanupStaleStates(), 10000);
+    this.cleanupInterval = setInterval(() => this.cleanupStaleStates(), 5000);
   }
 
   /**
@@ -198,10 +206,36 @@ export class AwarenessManager {
   }
 
   /**
-   * Get all remote awareness states.
+   * Get all remote awareness states (includes idle peers).
    */
   getRemoteStates(): Map<string, AwarenessState> {
     return new Map(this.remoteStates);
+  }
+
+  /**
+   * Get only active (non-idle) remote awareness states.
+   * Filters out peers who haven't sent updates within the idle timeout.
+   */
+  getActiveRemoteStates(): Map<string, AwarenessState> {
+    const now = Date.now();
+    const active = new Map<string, AwarenessState>();
+
+    for (const [peerId, state] of this.remoteStates) {
+      if (now - state.lastUpdate <= this.idleTimeout) {
+        active.set(peerId, state);
+      }
+    }
+
+    return active;
+  }
+
+  /**
+   * Check if a specific peer is idle.
+   */
+  isPeerIdle(peerId: string): boolean {
+    const state = this.remoteStates.get(peerId);
+    if (!state) return true;
+    return Date.now() - state.lastUpdate > this.idleTimeout;
   }
 
   /**

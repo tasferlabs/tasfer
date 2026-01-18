@@ -14,6 +14,11 @@ export function handleCompositionStart(
     return { state, ops };
   }
 
+  // Block composition in readonly or locked mode
+  if (state.ui.mode === "readonly" || state.ui.mode === "locked") {
+    return { state, ops };
+  }
+
   // When composition starts, save the current cursor position
   if (!state.document.cursor) return { state, ops };
 
@@ -56,6 +61,11 @@ export function handleCompositionUpdate(
     return { state, ops };
   }
 
+  // Block composition in readonly or locked mode
+  if (state.ui.mode === "readonly" || state.ui.mode === "locked") {
+    return { state, ops };
+  }
+
   if (!state.ui.composition) {
     // If composition wasn't started properly, start it now
     return handleCompositionStart(state, event);
@@ -86,6 +96,11 @@ export function handleCompositionEnd(
 
   // If editor is not focused, ignore composition
   if (!state.view.isFocused) {
+    return { state, ops };
+  }
+
+  // Block composition in readonly or locked mode
+  if (state.ui.mode === "readonly" || state.ui.mode === "locked") {
     return { state, ops };
   }
 

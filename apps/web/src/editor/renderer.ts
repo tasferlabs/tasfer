@@ -773,13 +773,14 @@ export const renderBlock = (
   const hasActiveSelection =
     state.document.selection && !state.document.selection.isCollapsed;
 
-  // Handle placeholder rendering
+  // Handle placeholder rendering (not in readonly mode)
   if (
     state.document.cursor &&
     state.document.cursor.position.blockIndex === blockIndex &&
     fullContent.length === 0 &&
     !state.ui.composition &&
-    !hasActiveSelection
+    !hasActiveSelection &&
+    state.ui.mode !== "readonly"
   ) {
     renderPlaceholder(
       ctx,
@@ -2297,9 +2298,11 @@ export function renderCursorLayer(
   }
 
   // Only render if cursor exists, editor is focused, and cursor is visible (not blinking)
+  // Don't render cursor in readonly mode
   if (
     !state.document.cursor ||
     !state.view.isFocused ||
+    state.ui.mode === "readonly" ||
     isCursorBlinking(state.document.cursor, styles)
   ) {
     ctx.restore();

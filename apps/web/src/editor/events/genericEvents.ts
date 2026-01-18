@@ -23,6 +23,11 @@ export function handlePaste(
     return { state, ops: [] };
   }
 
+  // Block paste in readonly or locked mode
+  if (state.ui.mode === "readonly" || state.ui.mode === "locked") {
+    return { state, ops: [] };
+  }
+
   // Use the tracked pasteAsPlainText flag (set during keydown)
   // Paste as plain text
   const result = pasteFromClipboardEvent(

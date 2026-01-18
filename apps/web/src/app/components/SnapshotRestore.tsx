@@ -22,25 +22,21 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { History, Clock, RotateCcw } from "lucide-react";
+import { History, Clock, Eye as EyeIcon, Eye } from "lucide-react";
 import { useState, useMemo, useCallback } from "react";
+import { RelativeDate } from "@/components/ui/relative-date";
 import { useTranslation } from "react-i18next";
 import useResponsive from "../hooks/useResponsive";
 import { useConfirmation } from "./ConfirmationDialog";
-import dayjs from "dayjs";
-import relativeTime from "dayjs/plugin/relativeTime";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useGetPageSnapshots } from "../api/pages.api";
 import type { Block } from "@/deserializer/loadPage";
-
-// Initialize dayjs plugins
-dayjs.extend(relativeTime);
+import { SnapshotPreview } from "./SnapshotPreview";
 
 // Snapshot data type
 interface Snapshot {
   id: string;
   createdAt: Date;
-  title: string;
   blockCount: number;
   blocks: Block[]; // Actual block data for restoration
 }
@@ -109,16 +105,12 @@ function groupSnapshots(snapshots: Snapshot[]): SnapshotGroup[] {
     }));
 }
 
-function formatTime(date: Date): string {
-  return dayjs(date).fromNow();
-}
-
 interface SnapshotItemProps {
   snapshot: Snapshot;
-  onRestore: (snapshot: Snapshot) => void;
+  onPreview: (snapshot: Snapshot) => void;
 }
 
-function SnapshotItem({ snapshot, onRestore }: SnapshotItemProps) {
+function SnapshotItem({ snapshot, onPreview }: SnapshotItemProps) {
   const { t } = useTranslation();
 
   return (
@@ -126,9 +118,12 @@ function SnapshotItem({ snapshot, onRestore }: SnapshotItemProps) {
       <div className="flex items-center gap-3 min-w-0 flex-1">
         <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium truncate">{snapshot.title}</p>
+          <RelativeDate
+            date={snapshot.createdAt}
+            className="text-sm font-medium truncate block"
+          />
           <p className="text-xs text-muted-foreground">
-            {formatTime(snapshot.createdAt)} · {snapshot.blockCount}{" "}
+            {snapshot.blockCount}{" "}
             {snapshot.blockCount === 1 ? t`block` : t`blocks`}
           </p>
         </div>
@@ -136,11 +131,11 @@ function SnapshotItem({ snapshot, onRestore }: SnapshotItemProps) {
       <Button
         variant="ghost"
         size="sm"
-        onClick={() => onRestore(snapshot)}
+        onClick={() => onPreview(snapshot)}
         className="text-muted-foreground hover:text-foreground shrink-0"
       >
-        <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
-        {t`Restore`}
+        <EyeIcon className="h-3.5 w-3.5 mr-1.5" />
+        {t`Preview`}
       </Button>
     </div>
   );
@@ -149,13 +144,13 @@ function SnapshotItem({ snapshot, onRestore }: SnapshotItemProps) {
 interface SnapshotRestoreContentProps {
   snapshots: Snapshot[];
   isLoading?: boolean;
-  onRestore: (snapshot: Snapshot) => void;
+  onPreview: (snapshot: Snapshot) => void;
 }
 
 function SnapshotRestoreContent({
   snapshots,
   isLoading,
-  onRestore,
+  onPreview,
 }: SnapshotRestoreContentProps) {
   const { t } = useTranslation();
   const groupedSnapshots = useMemo(
@@ -166,8 +161,8 @@ function SnapshotRestoreContent({
   // Get first group key for default expanded state
   const defaultExpanded = groupedSnapshots[0]?.label;
 
-  const handleRestore = (snapshot: Snapshot) => {
-    onRestore(snapshot);
+  const handlePreview = (snapshot: Snapshot) => {
+    onPreview(snapshot);
   };
 
   if (isLoading) {
@@ -216,7 +211,7 @@ function SnapshotRestoreContent({
                     <SnapshotItem
                       key={snapshot.id}
                       snapshot={snapshot}
-                      onRestore={handleRestore}
+                      onPreview={handlePreview}
                     />
                   ))}
                 </div>
@@ -231,18 +226,21 @@ function SnapshotRestoreContent({
 
 interface SnapshotRestoreProps {
   trigger?: React.ReactNode;
-  onRestore?: (snapshot: Snapshot) => void;
+  onPreview?: (snapshot: Snapshot) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
 
 export function SnapshotRestore({
-  onRestore,
+  onPreview,
   open: controlledOpen,
   onOpenChange,
 }: SnapshotRestoreProps) {
   const { t } = useTranslation();
   const [internalOpen, setInternalOpen] = useState(false);
+  const [previewingSnapshot, setPreviewingSnapshot] = useState<Snapshot | null>(
+    null
+  );
   const isMobile = useResponsive("(max-width: 768px)");
 
   // Use controlled state if provided, otherwise use internal state
@@ -251,6 +249,14 @@ export function SnapshotRestore({
 
   const { onRestoreSnapshot, pageId } = usePageSettings();
   const { getConfirmation } = useConfirmation();
+
+  // Clear preview when closing
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen) {
+      setPreviewingSnapshot(null);
+    }
+    setOpen(newOpen);
+  };
 
   // Fetch all snapshots from API (version history)
   const { data: snapshotsData, isLoading } = useGetPageSnapshots(
@@ -264,7 +270,6 @@ export function SnapshotRestore({
     return snapshotsData.map((s) => ({
       id: s.id,
       createdAt: new Date(s.createdAt),
-      title: dayjs(s.createdAt).format("MMM D, YYYY h:mm A"),
       blockCount: s.blocks.filter((b) => !b.deleted).length,
       blocks: s.blocks,
     }));
@@ -284,46 +289,79 @@ export function SnapshotRestore({
       // Call the restore function with the snapshot blocks
       if (onRestoreSnapshot && snapshot.blocks.length > 0) {
         onRestoreSnapshot(snapshot.blocks);
+        setPreviewingSnapshot(null);
         setOpen(false);
       } else {
         console.warn("No restore function available or snapshot has no blocks");
       }
 
-      onRestore?.(snapshot);
+      onPreview?.(snapshot);
     },
-    [getConfirmation, t, onRestoreSnapshot, setOpen, onRestore]
+    [getConfirmation, t, onRestoreSnapshot, setOpen, onPreview]
   );
+
+  const handleBackFromPreview = useCallback(() => {
+    setPreviewingSnapshot(null);
+  }, []);
+
+  const handleRestoreFromPreview = useCallback(async () => {
+    if (previewingSnapshot) {
+      await handleRestore(previewingSnapshot);
+    }
+  }, [previewingSnapshot, handleRestore]);
+
+  const handlePreview = useCallback((snapshot: Snapshot) => {
+    setPreviewingSnapshot(snapshot);
+  }, []);
 
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={setOpen}>
-        <DrawerContent className="max-h-[85vh]">
-          <DrawerHeader>
-            <DrawerTitle>{t`Version history`}</DrawerTitle>
-            <DrawerDescription>
-              {t`Restore a previous version of this page`}
-            </DrawerDescription>
-          </DrawerHeader>
-          <SnapshotRestoreContent
-            snapshots={snapshots}
-            isLoading={isLoading}
-            onRestore={handleRestore}
-          />
-          <DrawerFooter>
-            <DrawerClose asChild>
-              <Button variant="outline">{t`Cancel`}</Button>
-            </DrawerClose>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
+      <>
+        <Drawer open={open} onOpenChange={handleOpenChange}>
+          <DrawerContent className="max-h-[85vh]">
+            <DrawerHeader>
+              <DrawerTitle>{t`Version history`}</DrawerTitle>
+              <DrawerDescription>
+                {t`Restore a previous version of this page`}
+              </DrawerDescription>
+            </DrawerHeader>
+            <SnapshotRestoreContent
+              snapshots={snapshots}
+              isLoading={isLoading}
+              onPreview={handlePreview}
+            />
+            <DrawerFooter>
+              <DrawerClose asChild>
+                <Button variant="outline">{t`Cancel`}</Button>
+              </DrawerClose>
+            </DrawerFooter>
+          </DrawerContent>
+        </Drawer>
+
+        {/* Preview drawer for mobile */}
+        <Drawer
+          open={!!previewingSnapshot}
+          onOpenChange={(open) => !open && setPreviewingSnapshot(null)}
+        >
+          <DrawerContent className="h-[95vh]">
+            {previewingSnapshot && (
+              <SnapshotPreview
+                snapshot={previewingSnapshot}
+                onBack={handleBackFromPreview}
+                onRestore={handleRestoreFromPreview}
+              />
+            )}
+          </DrawerContent>
+        </Drawer>
+      </>
     );
   }
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-lg md:max-w-xl lg:max-w-2xl"
+        className="w-full sm:!max-w-xl md:!max-w-3xl lg:!max-w-5xl xl:!max-w-6xl flex flex-col"
       >
         <SheetHeader>
           <SheetTitle>{t`Version history`}</SheetTitle>
@@ -331,11 +369,32 @@ export function SnapshotRestore({
             {t`Restore a previous version of this page`}
           </SheetDescription>
         </SheetHeader>
-        <SnapshotRestoreContent
-          snapshots={snapshots}
-          isLoading={isLoading}
-          onRestore={handleRestore}
-        />
+        <div className="flex flex-1 basis-full gap-4 overflow-hidden mt-4">
+          {/* Snapshot list */}
+
+          {/* Preview area */}
+          <div className="flex-1 overflow-hidden h-full">
+            {previewingSnapshot ? (
+              <SnapshotPreview
+                snapshot={previewingSnapshot}
+                onBack={handleBackFromPreview}
+                onRestore={handleRestoreFromPreview}
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
+                <Eye className="h-12 w-12 mb-4 opacity-50" />
+                <p>{t`Select a snapshot to preview`}</p>
+              </div>
+            )}
+          </div>
+          <div className="w-80 shrink-0 border-l pr-4">
+            <SnapshotRestoreContent
+              snapshots={snapshots}
+              isLoading={isLoading}
+              onPreview={handlePreview}
+            />
+          </div>
+        </div>
       </SheetContent>
     </Sheet>
   );

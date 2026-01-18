@@ -44,13 +44,18 @@ function createCanvasContainer(parentContainer: HTMLElement): HTMLDivElement {
   return canvasContainer;
 }
 
+export interface MountEditorOptions {
+  readonly?: boolean;
+}
+
 /**
  * Mounts the canvas editor from a pre-loaded snapshot (Block[]) instead of parsing markdown.
  * This is used when loading pages with snapshot storage.
  */
 export function mountEditor(
   container: HTMLElement,
-  blocks: Block[]
+  blocks: Block[],
+  options?: MountEditorOptions
 ): MountedEditor {
   // Create a Page object from the blocks
   const page: Page = {
@@ -137,7 +142,9 @@ export function mountEditor(
   };
 
   // Create initial state from the page (blocks already loaded)
-  const initialState = createInitialState(page);
+  const initialState = createInitialState(page, {
+    mode: options?.readonly ? "readonly" : "edit",
+  });
 
   // Create editor with initial state and layered canvases
   const editor = createEditor(
