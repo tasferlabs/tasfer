@@ -1,7 +1,7 @@
 {
-  "clientVersion": "2.0.0",
-  "minClientVersion": "2.0.0",
-  "recommendedClientVersion": "2.0.0",
+  "clientVersion": "5.0.0",
+  "minClientVersion": "5.0.0",
+  "recommendedClientVersion": "5.0.0",
   "updateMessage": null,
   "updateUrls": {
     "ios": null,

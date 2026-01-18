@@ -23,7 +23,7 @@ WORKDIR /app
 COPY apps/web ./apps/web
 COPY apps/api ./apps/api
 COPY apps/live ./apps/live
-COPY version.json .
+COPY version.json ./version.json
 
 # Build all apps
 WORKDIR /app/apps/web
@@ -60,6 +60,7 @@ COPY --from=builder /app/apps/web/dist ./apps/web/dist
 COPY --from=builder /app/apps/web/server.js ./apps/web/server.js
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/live/dist ./apps/live/dist
+COPY --from=builder /app/version.json ./version.json
 
 # Create startup script with health check
 RUN cat > /app/start.sh << 'EOF'

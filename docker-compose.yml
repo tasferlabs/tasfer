@@ -19,6 +19,8 @@ services:
       - REDIS_URL=redis://cache:6379
       - AUTH_USER=halowaia
       - AUTH_PASS=fatush
+    volumes:
+      - ./cdn:/app/cdn
     restart: always
     networks:
       - hamza
