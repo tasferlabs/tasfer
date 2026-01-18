@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { RelativeDate } from "@/components/ui/relative-date";
 import type { Block } from "@/deserializer/loadPage";
-import { ArrowRight, ChevronRight, FileText, RotateCcw, X } from "lucide-react";
+import { ChevronRight, FileText, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { MountedEditor } from "../MountedEditor";
 
