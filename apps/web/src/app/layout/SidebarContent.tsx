@@ -1,3 +1,4 @@
+import { usePageEventsWithQueryClient } from "@/websocket/hooks/usePageEvents";
 import {
   closestCenter,
   DndContext,
@@ -17,7 +18,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { ScrollArea } from "../../components/ui/scroll-area";
 import {
   useCreatePage,
@@ -29,8 +30,6 @@ import Icons from "../components/uiKit/Icons/Icons";
 import VisuallyHidden from "../components/uiKit/VisuallyHidden/VisuallyHidden";
 import { PagesArea } from "./components/PagesArea";
 import style from "./Layout.module.css";
-import { Link as RouterLink } from "react-router-dom";
-import { usePageEventsWithQueryClient } from "@/websocket/hooks/usePageEvents";
 
 // Mock t function
 const t = (s: string | TemplateStringsArray) => s.toString();
@@ -257,7 +256,7 @@ export function SidebarContent({
           </div>
           {t`Settings`}
         </RouterLink>
-        <button className={style.appNavigationLink}>
+        {/* <button className={style.appNavigationLink}>
           <div className={style.appNavigationLinkIcon}>
             <Icons.Tray width={24} height={24} />
           </div>
@@ -271,7 +270,7 @@ export function SidebarContent({
             <Icons.AddGroup />
           </div>
           {t`Add group`}
-        </button>
+        </button> */}
       </div>
 
       <div className={style.appSidebarMain}>
