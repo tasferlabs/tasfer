@@ -11,19 +11,19 @@ const PORT = process.env.PORT || 4000;
 const API_URL = process.env.API_URL || "http://localhost:3000";
 const LIVE_URL = process.env.LIVE_URL || "http://localhost:8080";
 
-// Serve PWA assets publicly (before auth)
-const publicAssets = ["/manifest.json", "/favicon.png", "/icon-192.png", "/icon-512.png"];
-app.use(publicAssets, express.static(path.join(__dirname, "dist")));
-
 // Basic auth (enabled when AUTH_USER and AUTH_PASS are set)
+// PWA assets are excluded so the app can be installed without auth
+const publicAssets = ["/manifest.json", "/favicon.png", "/icon-192.png", "/icon-512.png"];
 if (process.env.AUTH_USER && process.env.AUTH_PASS) {
-  app.use(
-    basicAuth({
-      users: { [process.env.AUTH_USER]: process.env.AUTH_PASS },
-      challenge: true,
-      realm: "Cypher",
-    })
-  );
+  const auth = basicAuth({
+    users: { [process.env.AUTH_USER]: process.env.AUTH_PASS },
+    challenge: true,
+    realm: "Cypher",
+  });
+  app.use((req, res, next) => {
+    if (publicAssets.includes(req.path)) return next();
+    auth(req, res, next);
+  });
 }
 
 // Proxy API requests

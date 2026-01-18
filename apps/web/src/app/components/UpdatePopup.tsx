@@ -1,6 +1,6 @@
+import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
 import { useVersion } from "../contexts/VersionContext";
 
 export default function UpdatePopup() {
@@ -9,7 +9,6 @@ export default function UpdatePopup() {
     updateAvailable,
     updateDismissed,
     meetsMinimum,
-    versionInfo,
     dismissUpdate,
     performUpdate,
   } = useVersion();
