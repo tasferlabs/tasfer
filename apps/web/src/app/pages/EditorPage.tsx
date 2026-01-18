@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Navigate, useParams, useNavigate } from "react-router-dom";
 import { debounce } from "lodash-es";
 import { MountedEditor } from "../MountedEditor";
-import type { SyncState } from "../../editor/sync/websocket";
+import type { SyncState } from "@/websocket/hooks/useRoom";
 import type { AwarenessUser } from "@/editor/sync/awareness";
 import {
   isTextualBlock,
@@ -18,13 +18,6 @@ import {
   extractTitleFromBlocks,
 } from "@/editor/sync/char-runs";
 
-// WebSocket server URL - defaults to using Vite proxy
-// Uses wss:// for HTTPS, ws:// for HTTP
-const WEBSOCKET_URL =
-  import.meta.env.VITE_WEBSOCKET_URL ||
-  `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${
-    window.location.host
-  }/ws`;
 import {
   useCreatePage,
   getPage,
@@ -32,6 +25,7 @@ import {
   useGetPages,
   type HLC,
 } from "../api/pages.api";
+import { usePageEvents } from "@/websocket/hooks/usePageEvents";
 import EmptyStateIllustration from "../components/illustrations/empty-state";
 import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
@@ -102,6 +96,12 @@ export default function EditorPage() {
   const [snapshotClock, setSnapshotClock] = useState<HLC | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
+  // Track if page was deleted by another user (via WebSocket)
+  const [isDeletedByOther, setIsDeletedByOther] = useState(false);
+  // Persisted editor state - once entered, stays until user takes action
+  const [persistedState, setPersistedState] = useState<
+    "empty" | "not-found" | "error" | null
+  >(null);
   // Auto-title state - when true, title is auto-generated from content
   const [autoTitle, setAutoTitle] = useState(true);
   const [currentTitle, setCurrentTitle] = useState<string>("");
@@ -142,17 +142,58 @@ export default function EditorPage() {
     if (id) {
       setLastPageId(id);
       setPageId(id);
+      // Reset deleted state when navigating to a new page
+      setIsDeletedByOther(false);
     }
+    // Reset persisted state when ID changes (user navigated)
+    setPersistedState(null);
     return () => {
       setPageId(null);
     };
   }, [id, setLastPageId, setPageId]);
+
+  // Listen for page deletion events from other users
+  usePageEvents({
+    onPageDeleted: (deletedPageId) => {
+      if (deletedPageId === id) {
+        // Page was deleted by another user, show not found state
+        setIsDeletedByOther(true);
+      }
+    },
+  });
 
   useEffect(() => {
     if (isError) {
       setLastPageId(null);
     }
   }, [isError, setLastPageId]);
+
+  // Set persisted state when entering error/empty conditions
+  // Once set, this state persists until user navigates (id changes)
+  useEffect(() => {
+    if (persistedState !== null) return; // Already in a persisted state
+
+    if (!id) {
+      // No page ID - check if we should show empty state
+      if (!isLoadingPages && (!pages || pages.length === 0)) {
+        setPersistedState("empty");
+      }
+    } else {
+      // Have page ID - check if we should show not-found state
+      if (!isLoading && (isError || pageSnapshot === null || isDeletedByOther)) {
+        setPersistedState("not-found");
+      }
+    }
+  }, [
+    id,
+    isLoadingPages,
+    pages,
+    isLoading,
+    isError,
+    pageSnapshot,
+    isDeletedByOther,
+    persistedState,
+  ]);
 
   // Cleanup debounced word count on unmount
   useEffect(() => {
@@ -329,6 +370,17 @@ export default function EditorPage() {
     [setActiveUsers]
   );
 
+  // Check persisted state first - once entered, stay until user navigates
+  if (persistedState === "empty") {
+    return <EditorEmptyState />;
+  }
+  if (persistedState === "not-found") {
+    return <EditorNotFoundState />;
+  }
+  if (persistedState === "error") {
+    return <EditorErrorState />;
+  }
+
   // If no ID in URL
   if (!id) {
     if (isLoadingPages) {
@@ -339,6 +391,7 @@ export default function EditorPage() {
       return <Navigate to={`/page/${lastPageId || pages[0].id}`} replace />;
     }
 
+    // Will trigger persistedState effect on next render
     return <EditorEmptyState />;
   }
 
@@ -346,7 +399,8 @@ export default function EditorPage() {
     return <EditorLoadingState />;
   }
 
-  if (isError || pageSnapshot === null) {
+  if (isError || pageSnapshot === null || isDeletedByOther) {
+    // Will trigger persistedState effect on next render
     return <EditorNotFoundState />;
   }
 
@@ -361,7 +415,6 @@ export default function EditorPage() {
         onContentUpdate={handleContentUpdate}
         autoFocus={true}
         pageId={id}
-        signalingUrl={WEBSOCKET_URL}
         onSyncStateChange={setSyncState}
         snapshotClock={snapshotClock}
         onSnapshotClockUpdate={setSnapshotClock}

@@ -30,6 +30,7 @@ import VisuallyHidden from "../components/uiKit/VisuallyHidden/VisuallyHidden";
 import { PagesArea } from "./components/PagesArea";
 import style from "./Layout.module.css";
 import { Link as RouterLink } from "react-router-dom";
+import { usePageEventsWithQueryClient } from "@/websocket/hooks/usePageEvents";
 
 // Mock t function
 const t = (s: string | TemplateStringsArray) => s.toString();
@@ -43,6 +44,9 @@ export function SidebarContent({
   const navigate = useNavigate();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeDragData, setActiveDragData] = useState<IListPage | null>(null);
+
+  // Subscribe to real-time page events from other users
+  usePageEventsWithQueryClient(queryClient);
 
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: (newPage, variables) => {

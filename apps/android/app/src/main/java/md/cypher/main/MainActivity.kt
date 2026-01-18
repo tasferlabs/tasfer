@@ -112,6 +112,11 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     }
 
     @JavascriptInterface
+    fun setTheme(theme: String) {
+        (context as? MainActivity)?.onWebThemeChanged(theme)
+    }
+
+    @JavascriptInterface
     fun openUrl(url: String) {
         (context as? MainActivity)?.runOnUiThread {
             try {
@@ -255,6 +260,8 @@ class MainActivity : ComponentActivity() {
     private var topInset = 0
     private var isEditorFocused = false  // Track if canvas editor is focused
     private var hasPhysicalKeyboard = false  // Track hardware keyboard status
+    private var isNightMode = false  // Track current night mode state
+    private var themeMode = "system"  // Track web app theme mode: "light", "dark", or "system"
     
     // Image picker
     private var currentPhotoUri: Uri? = null
@@ -313,6 +320,9 @@ class MainActivity : ComponentActivity() {
         setupToolbarListeners()
         setupBlockMenuListeners()
         detectPhysicalKeyboard()
+
+        // Initialize night mode state
+        isNightMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         
         // Disable WebView scrollbars - let web content handle scrolling
         webView.isVerticalScrollBarEnabled = false
@@ -610,7 +620,7 @@ class MainActivity : ComponentActivity() {
         dismissButton.setImageResource(R.drawable.ic_close)
 
         // Highlight block type button with primary color
-        blockTypeButton.setColorFilter(getColor(R.color.primary))
+        blockTypeButton.setColorFilter(getThemeColor(R.color.light_primary, R.color.dark_primary))
 
         // Hide keyboard
         hideKeyboard()
@@ -700,8 +710,8 @@ class MainActivity : ComponentActivity() {
 
     fun updateFormattingState(isBold: Boolean, isItalic: Boolean, isCode: Boolean, isStrikethrough: Boolean) {
         runOnUiThread {
-            val activeColor = getColor(R.color.primary)
-            val inactiveColor = getColor(R.color.foreground)
+            val activeColor = getThemeColor(R.color.light_primary, R.color.dark_primary)
+            val inactiveColor = getThemeColor(R.color.light_foreground, R.color.dark_foreground)
 
             boldButton.setColorFilter(if (isBold) activeColor else inactiveColor)
             italicButton.setColorFilter(if (isItalic) activeColor else inactiveColor)
@@ -1007,5 +1017,118 @@ class MainActivity : ComponentActivity() {
         // Re-detect physical keyboard when configuration changes
         // This catches keyboard connect/disconnect events
         detectPhysicalKeyboard()
+
+        // Handle system theme changes when web app is in "system" mode
+        if (themeMode == "system") {
+            val newNightMode = (newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            if (newNightMode != isNightMode) {
+                isNightMode = newNightMode
+
+                // Update native UI colors
+                updateToolbarColors()
+                updateBlockMenuColors()
+                loadingScreen.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
+                updateSystemBarsAppearance(isNightMode)
+            }
+        }
+    }
+
+    fun onWebThemeChanged(theme: String) {
+        runOnUiThread {
+            themeMode = theme
+
+            // Determine if we should use dark mode
+            isNightMode = when (theme) {
+                "dark" -> true
+                "light" -> false
+                "system" -> {
+                    // Follow system theme
+                    val currentNightMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+                    currentNightMode == Configuration.UI_MODE_NIGHT_YES
+                }
+                else -> false
+            }
+
+            // Update native UI colors
+            updateToolbarColors()
+            updateBlockMenuColors()
+
+            // Update loading screen background (in case it's still visible)
+            loadingScreen.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
+
+            // Update system UI (status bar and navigation bar) appearance
+            updateSystemBarsAppearance(isNightMode)
+        }
+    }
+
+    private fun updateSystemBarsAppearance(isDark: Boolean) {
+        // Update status bar and navigation bar icon colors
+        val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
+        // Light appearance = dark icons (for light theme)
+        // Dark appearance = light icons (for dark theme)
+        windowInsetsController.isAppearanceLightStatusBars = !isDark
+        windowInsetsController.isAppearanceLightNavigationBars = !isDark
+    }
+
+    // Get color based on current theme (isNightMode) rather than system settings
+    private fun getThemeColor(lightColorRes: Int, darkColorRes: Int): Int {
+        return getColor(if (isNightMode) darkColorRes else lightColorRes)
+    }
+
+    private fun updateToolbarColors() {
+        // Update toolbar background
+        keyboardToolbar.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
+
+        // Update toolbar inner background (shape drawable)
+        val toolbarInner = keyboardToolbar.findViewById<View>(R.id.toolbarInner)
+        (toolbarInner?.background as? android.graphics.drawable.GradientDrawable)?.setColor(
+            getThemeColor(R.color.light_muted, R.color.dark_muted)
+        )
+
+        // Update button colors
+        val foregroundColor = getThemeColor(R.color.light_foreground, R.color.dark_foreground)
+        undoButton.setColorFilter(foregroundColor)
+        redoButton.setColorFilter(foregroundColor)
+        inlineFormatButton.setColorFilter(foregroundColor)
+        if (!isBlockMenuOpen) {
+            blockTypeButton.setColorFilter(foregroundColor)
+        }
+        dismissButton.setColorFilter(foregroundColor)
+
+        // Update formatting buttons
+        boldButton.setColorFilter(foregroundColor)
+        italicButton.setColorFilter(foregroundColor)
+        codeButton.setColorFilter(foregroundColor)
+        strikethroughButton.setColorFilter(foregroundColor)
+        closeFormattingButton.setColorFilter(foregroundColor)
+
+        // Update divider
+        val divider = keyboardToolbar.findViewById<View>(R.id.toolbarDivider)
+        divider?.setBackgroundColor(getThemeColor(R.color.light_border, R.color.dark_border))
+    }
+
+    private fun updateBlockMenuColors() {
+        // Update block menu background
+        blockTypeMenu.setBackgroundColor(getThemeColor(R.color.light_card, R.color.dark_card))
+
+        // Update block menu header
+        val headerText = blockTypeMenu.findViewById<android.widget.TextView>(R.id.blockMenuHeader)
+        headerText?.setTextColor(getThemeColor(R.color.light_foreground, R.color.dark_foreground))
+
+        // Update all block type buttons
+        val buttonIds = listOf(
+            R.id.heading1Button, R.id.heading2Button, R.id.heading3Button,
+            R.id.paragraphButton, R.id.numberedListButton, R.id.taskListButton,
+            R.id.bulletedListButton, R.id.imageButton, R.id.dividerButton
+        )
+        val foregroundColor = getThemeColor(R.color.light_foreground, R.color.dark_foreground)
+        val mutedColor = getThemeColor(R.color.light_muted, R.color.dark_muted)
+
+        for (buttonId in buttonIds) {
+            val button = blockTypeMenu.findViewById<Button>(buttonId)
+            button?.setTextColor(foregroundColor)
+            // Update shape drawable background color
+            (button?.background as? android.graphics.drawable.GradientDrawable)?.setColor(mutedColor)
+        }
     }
 }

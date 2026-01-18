@@ -8,9 +8,14 @@
  * - Operations are relayed to all peers in the same room
  * - Sync requests are handled by relaying version vectors
  * - No operation content is stored - just relayed in real-time
+ *
+ * Page Events (via Redis):
+ * - Subscribes to page lifecycle events from API server
+ * - Broadcasts page events to all connected clients
  */
 
 import { WebSocketServer, WebSocket } from "ws";
+import Redis from "ioredis";
 
 // =============================================================================
 // Types
@@ -44,7 +49,23 @@ interface AwarenessState {
   lastUpdate: number;
 }
 
-/** Server message types */
+/** Page info for page events */
+interface PageInfo {
+  id: string;
+  title: string | null;
+  parentId: string | null;
+  order: number;
+}
+
+/** Page lifecycle events (from Redis) */
+type PageEvent =
+  | { type: "page-created"; page: PageInfo }
+  | { type: "page-deleted"; pageId: string }
+  | { type: "page-moved"; pageId: string; oldParentId: string | null; newParentId: string | null }
+  | { type: "page-reordered"; pageId: string; parentId: string | null; order: number }
+  | { type: "page-title-updated"; pageId: string; title: string };
+
+/** Server message types (room messages + page events) */
 type ServerMessage =
   | { type: "join"; roomId: string; peerId: string; user?: AwarenessUser }
   | { type: "leave"; roomId: string; peerId: string }
@@ -55,7 +76,8 @@ type ServerMessage =
   | { type: "peer-left"; peerId: string }
   | { type: "room-peers"; peers: string[]; awarenessStates?: Record<string, AwarenessState> }
   | { type: "awareness"; peerId: string; state: AwarenessState }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | PageEvent;
 
 /** Connected client info */
 interface Client {
@@ -124,6 +146,70 @@ wss.on("connection", (ws) => {
 wss.on("listening", () => {
   console.log(`[Sync Server] Listening on ws://localhost:${PORT}`);
 });
+
+// =============================================================================
+// Redis Subscriber (Page Events)
+// =============================================================================
+
+const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+const REDIS_CHANNEL = "cypher:page-events";
+
+let redisSubscriber: Redis | null = null;
+
+async function setupRedisSubscriber(): Promise<void> {
+  try {
+    redisSubscriber = new Redis(REDIS_URL);
+
+    redisSubscriber.on("error", (error) => {
+      console.error("[Sync Server] Redis error:", error);
+    });
+
+    redisSubscriber.on("connect", () => {
+      console.log("[Sync Server] Connected to Redis");
+    });
+
+    // Subscribe to page events channel
+    await redisSubscriber.subscribe(REDIS_CHANNEL);
+    console.log(`[Sync Server] Subscribed to Redis channel: ${REDIS_CHANNEL}`);
+
+    // Handle incoming messages
+    redisSubscriber.on("message", (channel, message) => {
+      if (channel !== REDIS_CHANNEL) return;
+
+      try {
+        const event = JSON.parse(message) as PageEvent;
+        console.log(`[Sync Server] Received page event: ${event.type}`);
+        broadcastPageEventToAll(event);
+      } catch (error) {
+        console.error("[Sync Server] Invalid Redis message:", error);
+      }
+    });
+  } catch (error) {
+    console.error("[Sync Server] Failed to connect to Redis:", error);
+    console.log("[Sync Server] Page events will not be available");
+  }
+}
+
+/**
+ * Broadcast a page event to all connected clients.
+ * Page events are sent to everyone, not just room members.
+ */
+function broadcastPageEventToAll(event: PageEvent): void {
+  const message = JSON.stringify(event);
+  let sentCount = 0;
+
+  wss.clients.forEach((ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(message);
+      sentCount++;
+    }
+  });
+
+  console.log(`[Sync Server] Broadcast ${event.type} to ${sentCount} clients`);
+}
+
+// Initialize Redis subscriber
+setupRedisSubscriber();
 
 // =============================================================================
 // Message Handlers
@@ -402,10 +488,17 @@ function send(ws: WebSocket, message: ServerMessage): void {
 // Graceful Shutdown
 // =============================================================================
 
-process.on("SIGINT", () => {
+process.on("SIGINT", async () => {
   console.log("\n[Sync Server] Shutting down...");
 
-  // Close all connections
+  // Close Redis subscriber
+  if (redisSubscriber) {
+    await redisSubscriber.unsubscribe(REDIS_CHANNEL);
+    await redisSubscriber.quit();
+    console.log("[Sync Server] Redis connection closed");
+  }
+
+  // Close all WebSocket connections
   wss.clients.forEach((ws) => {
     ws.close(1000, "Server shutting down");
   });

@@ -9,6 +9,7 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
+    "ioredis": "^5.9.2",
     "ws": "^8.18.0"
   },
   "devDependencies": {

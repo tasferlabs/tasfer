@@ -9,6 +9,7 @@ import {
   useCreatePage,
   useDeletePage,
   useUpdatePage,
+  useGetPages,
 } from "../../api/pages.api";
 import { useConfirmation } from "../../components/ConfirmationDialog";
 import Icons from "../../components/uiKit/Icons/Icons";
@@ -52,6 +53,9 @@ export function PageLink({
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [localTitle, setLocalTitle] = useState(data.title);
+
+  // Get root pages to determine navigation after deletion
+  const { data: rootPages } = useGetPages(null);
 
   const { mutate: updatePage } = useUpdatePage<{
     previousPages: IListPage[] | undefined;
@@ -233,7 +237,15 @@ export function PageLink({
     if (confirmed) {
       // If we're deleting the currently open page, navigate away first
       if (currentPageId === data.id) {
-        navigate("/page");
+        // Find the first root page that is NOT the one being deleted
+        const remainingPages = rootPages?.filter((page) => page.id !== data.id);
+        if (remainingPages && remainingPages.length > 0) {
+          // Navigate to the first available page
+          navigate(`/page/${remainingPages[0].id}`);
+        } else {
+          // No pages left, navigate to /page which will show empty state
+          navigate("/page");
+        }
       }
       deletePage({ id: data.id });
     }

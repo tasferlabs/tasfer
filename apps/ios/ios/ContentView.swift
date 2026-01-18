@@ -323,6 +323,10 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
                     )
                 }
             }
+        case "theme-change":
+            if let theme = body["theme"] as? String {
+                updateAppTheme(theme: theme)
+            }
         default:
             break
         }
@@ -342,6 +346,27 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
         }
         generator.prepare()
         generator.impactOccurred()
+    }
+
+    private func updateAppTheme(theme: String) {
+        DispatchQueue.main.async {
+            // Update window's user interface style to match web app theme
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let window = windowScene.windows.first
+            {
+                switch theme {
+                case "dark":
+                    window.overrideUserInterfaceStyle = .dark
+                case "light":
+                    window.overrideUserInterfaceStyle = .light
+                case "system":
+                    // Follow system theme
+                    window.overrideUserInterfaceStyle = .unspecified
+                default:
+                    window.overrideUserInterfaceStyle = .unspecified
+                }
+            }
+        }
     }
 }
 
@@ -1664,22 +1689,6 @@ struct WebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        // Update background color when color scheme changes
-        if let backgroundColor = UIColor(named: "Background") {
-            webView.backgroundColor = backgroundColor
-            webView.scrollView.backgroundColor = backgroundColor
-
-            // Update the web content background color
-            let backgroundColorHex = backgroundColor.toHex()
-            let themeScript = """
-                document.documentElement.style.backgroundColor = '\(backgroundColorHex)';
-                if (document.body) {
-                    document.body.style.backgroundColor = '\(backgroundColorHex)';
-                }
-                """
-            webView.evaluateJavaScript(themeScript, completionHandler: nil)
-        }
-
         if webView.url == nil {
             let request = URLRequest(url: url)
             webView.load(request)

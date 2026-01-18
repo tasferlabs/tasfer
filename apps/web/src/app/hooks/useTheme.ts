@@ -33,24 +33,45 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const root = document.documentElement;
 
+    // Sync color scheme to native platforms (iOS/Android)
+    // This ensures keyboard, context menus, and other native UI match the app theme
+    const syncNativeColorScheme = (scheme: "light" | "dark") => {
+      // Set CSS color-scheme for browser/webview hints
+      root.style.colorScheme = scheme;
+
+      // Sync to iOS native
+      if (window.IOSBridge?.postMessage) {
+        window.IOSBridge.postMessage({ action: "setColorScheme", colorScheme: scheme });
+      }
+
+      // Sync to Android native
+      if (window.AndroidBridge?.setColorScheme) {
+        window.AndroidBridge.setColorScheme(scheme);
+      }
+    };
+
     // Update effective theme based on theme setting
     const updateEffectiveTheme = () => {
+      let newEffectiveTheme: "light" | "dark";
+
       if (theme === "system") {
         const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-        setEffectiveTheme(isDark ? "dark" : "light");
-        if (isDark) {
-          root.classList.add("dark");
-        } else {
-          root.classList.remove("dark");
-        }
+        newEffectiveTheme = isDark ? "dark" : "light";
       } else {
-        setEffectiveTheme(theme === "dark" ? "dark" : "light");
-        if (theme === "dark") {
-          root.classList.add("dark");
-        } else {
-          root.classList.remove("dark");
-        }
+        newEffectiveTheme = theme === "dark" ? "dark" : "light";
       }
+
+      setEffectiveTheme(newEffectiveTheme);
+
+      // Update DOM class
+      if (newEffectiveTheme === "dark") {
+        root.classList.add("dark");
+      } else {
+        root.classList.remove("dark");
+      }
+
+      // Sync to native platforms
+      syncNativeColorScheme(newEffectiveTheme);
     };
 
     updateEffectiveTheme();

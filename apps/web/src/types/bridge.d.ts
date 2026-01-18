@@ -17,6 +17,7 @@ declare global {
         code?: boolean;
         strikethrough?: boolean;
         url?: string;
+        colorScheme?: "light" | "dark";
       }) => void;
       setEditorFocused?: (focused: boolean) => void;
       // Editor methods (assigned by Web)
@@ -75,6 +76,7 @@ declare global {
       toggleItalic?: () => void;
       toggleCode?: () => void;
       toggleStrikethrough?: () => void;
+      setColorScheme?: (scheme: "light" | "dark") => void;
     };
   }
 }

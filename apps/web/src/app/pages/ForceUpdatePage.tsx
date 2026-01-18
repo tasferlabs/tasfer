@@ -1,13 +1,11 @@
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import { CLIENT_VERSION, BUILD_TIMESTAMP } from "@/version";
+import { BUILD_TIMESTAMP } from "@/version";
 import { useVersion } from "../contexts/VersionContext";
 
 export default function ForceUpdatePage() {
   const { t } = useTranslation();
-  const { versionInfo, updateUrl, performUpdate } = useVersion();
-
-  const minVersion = versionInfo?.minVersion ?? "unknown";
+  const { performUpdate } = useVersion();
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -39,21 +37,9 @@ export default function ForceUpdatePage() {
           {t`A new version of the app is required to continue. Please update to access the latest features and security improvements.`}
         </p>
 
-        {/* Version info */}
-        <div className="bg-muted/50 rounded-lg p-4 text-sm space-y-1">
-          <div className="flex justify-between text-muted-foreground">
-            <span>{t`Your version`}</span>
-            <span className="font-mono">{CLIENT_VERSION}</span>
-          </div>
-          <div className="flex justify-between text-muted-foreground">
-            <span>{t`Required version`}</span>
-            <span className="font-mono">{minVersion}</span>
-          </div>
-        </div>
-
         {/* Update button */}
         <Button onClick={performUpdate} size="lg" className="w-full">
-          {updateUrl ? t`Update Now` : t`Reload`}
+          {t`Update Now`}
         </Button>
 
         {/* Build info for debugging */}

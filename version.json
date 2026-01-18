@@ -1,6 +1,6 @@
 {
-  "version": 3,
-  "minVersion": 1,
+  "version": 4,
+  "minVersion": 4,
   "updateUrls": {
     "ios": null,
     "android": null,

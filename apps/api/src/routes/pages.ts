@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { createId } from "@paralleldrive/cuid2";
+import { Redis } from "ioredis";
 import db from "../db/index.js";
 import { pages, snapshots } from "../db/schema.js";
 import { eq, and, isNull, sql, inArray, desc } from "drizzle-orm";
@@ -8,6 +9,58 @@ import { writeFile, readFile, deleteFile } from "../handlers/files.js";
 
 // Maximum number of snapshots to keep per page
 const MAX_SNAPSHOTS_PER_PAGE = 50;
+
+// =============================================================================
+// Redis Publisher (Page Events)
+// =============================================================================
+
+const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+const REDIS_CHANNEL = "cypher:page-events";
+
+let redisPublisher: Redis | null = null;
+
+async function getRedisPublisher(): Promise<Redis | null> {
+  if (redisPublisher) return redisPublisher;
+
+  try {
+    redisPublisher = new Redis(REDIS_URL);
+    redisPublisher.on("error", (error: Error) => {
+      console.error("[Pages API] Redis error:", error);
+    });
+    console.log("[Pages API] Connected to Redis for page events");
+    return redisPublisher;
+  } catch (error) {
+    console.error("[Pages API] Failed to connect to Redis:", error);
+    return null;
+  }
+}
+
+// Initialize Redis connection
+getRedisPublisher();
+
+/** Page event types */
+type PageEvent =
+  | { type: "page-created"; page: { id: string; title: string | null; parentId: string | null; order: number } }
+  | { type: "page-deleted"; pageId: string }
+  | { type: "page-moved"; pageId: string; oldParentId: string | null; newParentId: string | null }
+  | { type: "page-reordered"; pageId: string; parentId: string | null; order: number }
+  | { type: "page-title-updated"; pageId: string; title: string };
+
+/**
+ * Publish a page event to Redis.
+ * Fails silently if Redis is not available.
+ */
+async function publishPageEvent(event: PageEvent): Promise<void> {
+  try {
+    const redis = await getRedisPublisher();
+    if (redis) {
+      await redis.publish(REDIS_CHANNEL, JSON.stringify(event));
+      console.log(`[Pages API] Published event: ${event.type}`);
+    }
+  } catch (error) {
+    console.error("[Pages API] Failed to publish page event:", error);
+  }
+}
 
 const router = Router();
 
@@ -255,6 +308,17 @@ router.post("/create", async (req, res) => {
       size: compressed.length,
     });
 
+    // Publish page-created event
+    await publishPageEvent({
+      type: "page-created",
+      page: {
+        id: newPage[0].id,
+        title: newPage[0].title,
+        parentId: newPage[0].parentId,
+        order: newPage[0].order,
+      },
+    });
+
     res.json({
       success: true,
       data: {
@@ -303,12 +367,25 @@ router.put("/:id", async (req, res) => {
       updateData.autoTitle = autoTitle;
     }
 
+    // Track if title was changed
+    const previousTitle = page.title;
+    const titleChanged = title !== undefined && title !== previousTitle;
+
     // Update page metadata
     const updated = await db
       .update(pages)
       .set(updateData)
       .where(eq(pages.id, id))
       .returning();
+
+    // Publish title-updated event if title changed
+    if (titleChanged && updated[0].title !== null) {
+      await publishPageEvent({
+        type: "page-title-updated",
+        pageId: id,
+        title: updated[0].title,
+      });
+    }
 
     // Save snapshot to file - create new version each time
     if (snapshotBlocks && Array.isArray(snapshotBlocks)) {
@@ -430,6 +507,12 @@ router.delete("/:id", async (req, res) => {
       DELETE FROM ${pages} WHERE id IN (SELECT id FROM child_pages)
     `);
 
+    // Publish page-deleted event
+    await publishPageEvent({
+      type: "page-deleted",
+      pageId: id,
+    });
+
     res.json({ success: true, message: "Page deleted" });
   } catch (error) {
     console.error("Delete page error:", error);
@@ -490,6 +573,9 @@ router.post("/:id/move", async (req, res) => {
     const maxOrder = maxOrderResult[0]?.maxOrder ?? -1;
     const newOrder = typeof order === "number" ? order : maxOrder + 1;
 
+    // Track old parent for event
+    const oldParentId = page.parentId;
+
     // Update page
     await db
       .update(pages)
@@ -530,6 +616,14 @@ router.post("/:id/move", async (req, res) => {
           WHERE ${pages.id} = "OrderedUpdates".id
         `
     );
+
+    // Publish page-moved event
+    await publishPageEvent({
+      type: "page-moved",
+      pageId: id,
+      oldParentId: oldParentId,
+      newParentId: parentId || null,
+    });
 
     res.json({ success: true, message: "Page moved" });
   } catch (error) {
@@ -598,6 +692,14 @@ router.post("/:id/reorder", async (req, res) => {
       .update(pages)
       .set({ order: target, updatedAt: new Date() })
       .where(eq(pages.id, id));
+
+    // Publish page-reordered event
+    await publishPageEvent({
+      type: "page-reordered",
+      pageId: id,
+      parentId: page.parentId,
+      order: target,
+    });
 
     res.json({ success: true, message: "Page reordered" });
   } catch (error) {
