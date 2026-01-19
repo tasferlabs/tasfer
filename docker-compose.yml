@@ -22,5 +22,6 @@ services:
     volumes:
       - ./cdn:/app/cdn
     restart: always
+    stop_grace_period: 15s
     networks:
       - hamza

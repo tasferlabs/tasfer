@@ -62,10 +62,37 @@ COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/live/dist ./apps/live/dist
 COPY --from=builder /app/version.json ./version.json
 
-# Create startup script with health check
+# Create startup script with health check and graceful shutdown
 RUN cat > /app/start.sh << 'EOF'
 #!/bin/sh
 set -e
+
+# PIDs for signal forwarding
+API_PID=""
+LIVE_PID=""
+WEB_PID=""
+
+# Graceful shutdown handler - forward signals to all processes
+shutdown() {
+  echo "Received shutdown signal, stopping services gracefully..."
+
+  # Send SIGTERM to all processes (they have their own graceful shutdown handlers)
+  [ -n "$WEB_PID" ] && kill -TERM $WEB_PID 2>/dev/null
+  [ -n "$LIVE_PID" ] && kill -TERM $LIVE_PID 2>/dev/null
+  [ -n "$API_PID" ] && kill -TERM $API_PID 2>/dev/null
+
+  # Wait for processes to exit gracefully (with timeout)
+  echo "Waiting for services to stop..."
+  wait $WEB_PID 2>/dev/null
+  wait $LIVE_PID 2>/dev/null
+  wait $API_PID 2>/dev/null
+
+  echo "All services stopped"
+  exit 0
+}
+
+# Trap SIGTERM and SIGINT
+trap shutdown TERM INT
 
 # Run database migrations
 echo "Running database migrations..."
@@ -93,8 +120,18 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# Start web server (foreground)
-cd /app/apps/web && exec node server.js
+# Start web server in background (not exec, so we can handle signals)
+cd /app/apps/web && node server.js &
+WEB_PID=$!
+
+echo "All services started"
+
+# Wait for any process to exit
+wait -n $API_PID $LIVE_PID $WEB_PID 2>/dev/null || true
+
+# If we get here without a signal, a process crashed
+echo "A service exited unexpectedly"
+shutdown
 EOF
 RUN chmod +x /app/start.sh
 
