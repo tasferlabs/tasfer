@@ -124,7 +124,7 @@ export class Router {
             headers: { "Content-Type": "application/json" },
           });
         },
-        fetch: (input: Request | string) => fetch(input),
+        fetch: (input: Request | string) => fetch(input, { credentials: "include" }),
       };
 
       return route.handler(req, res);

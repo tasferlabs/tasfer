@@ -33,7 +33,7 @@ self.addEventListener("fetch", (event) => {
       const response = await app.handleRequest(event.request);
       if (response) return response;
       // No route matched, pass through to network
-      return fetch(event.request);
+      return authFetch(event.request);
     })()
   );
 });
@@ -52,7 +52,7 @@ self.addEventListener("install", (event) => {
 
       // Cache fresh index.html for offline fallback
       const cache = await caches.open("offline-fallback");
-      await cache.add(new Request("/index.html", { cache: "reload" }));
+      await cache.add(new Request("/index.html", { cache: "reload", credentials: "include" }));
 
       console.log("[SW] Install complete");
     })()
@@ -117,6 +117,11 @@ async function queueMutation(request: Request) {
   });
 }
 
+// Helper to fetch with credentials (for basic auth support)
+function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, { ...init, credentials: "include" });
+}
+
 // Helper to get cached index.html for offline navigation
 async function getOfflineIndexHtml(): Promise<Response> {
   // 1. Check our dedicated offline-fallback cache first
@@ -147,7 +152,7 @@ app.get("/api/pages/list", async (req, res) => {
 
   try {
     // Try network first for fresh data
-    const response = await fetch(request.clone());
+    const response = await authFetch(request.clone());
 
     if (response.ok) {
       // Cache successful response
@@ -173,7 +178,7 @@ app.get("/api/pages/{id}", async (req, res) => {
   const pageId = req.params.id;
 
   try {
-    const response = await fetch(request.clone());
+    const response = await authFetch(request.clone());
 
     if (response.status === 404 && pageId) {
       // Page was deleted - clean up caches
@@ -210,7 +215,7 @@ app.get("/api/images/{id}", async (req, res) => {
 
   // Not in cache, fetch from network
   try {
-    const response = await fetch(request.clone());
+    const response = await authFetch(request.clone());
     if (response.ok) {
       await cache.put(request, response.clone());
     }
@@ -232,7 +237,7 @@ app.put("/api/pages/{id}", async (req, res) => {
 
   // If online, try the network but fall back to queueing on failure
   try {
-    const response = await fetch(request.clone());
+    const response = await authFetch(request.clone());
     return res.send(response);
   } catch {
     // Network error - queue mutation for later
@@ -255,7 +260,7 @@ app.delete("/api/pages/{id}", async (req, res) => {
 
   // If online, try the network but fall back to queueing on failure
   try {
-    const response = await fetch(request.clone());
+    const response = await authFetch(request.clone());
     // Clean up caches on successful delete OR 404 (already deleted)
     if (response.ok || response.status === 404) {
       await cleanupPageCaches(pageId);
@@ -275,7 +280,7 @@ app.post("/api/pages/create", async (req, res) => {
 
   // If online, try the network but fall back to queueing on failure
   try {
-    const response = await fetch(request.clone());
+    const response = await authFetch(request.clone());
     return res.send(response);
   } catch {
     await queueMutation(request);
@@ -301,7 +306,7 @@ app.post("/api/pages/{id}/move", async (req, res) => {
 
   // If online, try the network but fall back to queueing on failure
   try {
-    const response = await fetch(request.clone());
+    const response = await authFetch(request.clone());
     return res.send(response);
   } catch {
     await queueMutation(request);
@@ -314,7 +319,7 @@ app.post("/api/pages/{id}/reorder", async (req, res) => {
 
   // If online, try the network but fall back to queueing on failure
   try {
-    const response = await fetch(request.clone());
+    const response = await authFetch(request.clone());
     return res.send(response);
   } catch {
     await queueMutation(request);
@@ -327,7 +332,7 @@ app.post("/api/{path+}", async (req, res) => {
   const request = req._request;
 
   try {
-    return res.send(await fetch(request.clone()));
+    return res.send(await authFetch(request.clone()));
   } catch {
     await queueMutation(request);
     return res.json({ success: true });
@@ -338,7 +343,7 @@ app.put("/api/{path+}", async (req, res) => {
   const request = req._request;
 
   try {
-    return res.send(await fetch(request.clone()));
+    return res.send(await authFetch(request.clone()));
   } catch {
     await queueMutation(request);
     return res.json({ success: true });
@@ -349,7 +354,7 @@ app.delete("/api/{path+}", async (req, res) => {
   const request = req._request;
 
   try {
-    return res.send(await fetch(request.clone()));
+    return res.send(await authFetch(request.clone()));
   } catch {
     await queueMutation(request);
     return res.json({ success: true });
@@ -359,7 +364,7 @@ app.delete("/api/{path+}", async (req, res) => {
 // Pass through other API GET requests to network
 app.get("/api/{path+}", async (req, res) => {
   try {
-    return res.send(await fetch(req._request.clone()));
+    return res.send(await authFetch(req._request.clone()));
   } catch {
     return res.json({ success: false }, { status: 503 });
   }
@@ -386,7 +391,7 @@ app.get("*", async (req, res) => {
   // Falls back to cached index.html on any network failure for offline support
   // The recovery script in index.html handles stale cached assets
   try {
-    const response = await fetch(request.clone());
+    const response = await authFetch(request.clone());
     if (response.ok) {
       // Update the offline fallback cache with fresh index.html
       const cache = await caches.open("offline-fallback");
