@@ -38,6 +38,9 @@ RUN npm run build
 # Production stage
 FROM node:22-alpine AS runner
 
+# Install tini for proper signal handling
+RUN apk add --no-cache tini
+
 WORKDIR /app
 
 # Install production dependencies for all apps
@@ -62,76 +65,35 @@ COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/live/dist ./apps/live/dist
 COPY --from=builder /app/version.json ./version.json
 
-# Create startup script with health check and graceful shutdown
+# Create startup script - tini handles signal forwarding to all children
 RUN cat > /app/start.sh << 'EOF'
 #!/bin/sh
-set -e
-
-# PIDs for signal forwarding
-API_PID=""
-LIVE_PID=""
-WEB_PID=""
-
-# Graceful shutdown handler - forward signals to all processes
-shutdown() {
-  echo "Received shutdown signal, stopping services gracefully..."
-
-  # Send SIGTERM to all processes (they have their own graceful shutdown handlers)
-  [ -n "$WEB_PID" ] && kill -TERM $WEB_PID 2>/dev/null
-  [ -n "$LIVE_PID" ] && kill -TERM $LIVE_PID 2>/dev/null
-  [ -n "$API_PID" ] && kill -TERM $API_PID 2>/dev/null
-
-  # Wait for processes to exit gracefully (with timeout)
-  echo "Waiting for services to stop..."
-  wait $WEB_PID 2>/dev/null
-  wait $LIVE_PID 2>/dev/null
-  wait $API_PID 2>/dev/null
-
-  echo "All services stopped"
-  exit 0
-}
-
-# Trap SIGTERM and SIGINT
-trap shutdown TERM INT
 
 # Run database migrations
-echo "Running database migrations..."
+echo "[startup] Running database migrations..."
 cd /app/apps/api && node dist/db/migrate.js
 
 # Start API server in background
+echo "[startup] Starting API server..."
 cd /app/apps/api && PORT=3000 node dist/index.js &
-API_PID=$!
 
 # Start Live server in background
+echo "[startup] Starting Live server..."
 cd /app/apps/live && PORT=8080 node dist/server.js &
-LIVE_PID=$!
 
 # Wait for API server to be ready
-echo "Waiting for API server..."
+echo "[startup] Waiting for API server to be ready..."
 for i in $(seq 1 30); do
   if wget -q --spider http://localhost:3000/health 2>/dev/null; then
-    echo "API server is ready"
+    echo "[startup] API server is ready"
     break
-  fi
-  if ! kill -0 $API_PID 2>/dev/null; then
-    echo "API server crashed!"
-    exit 1
   fi
   sleep 1
 done
 
-# Start web server in background (not exec, so we can handle signals)
-cd /app/apps/web && node server.js &
-WEB_PID=$!
-
-echo "All services started"
-
-# Wait for any process to exit
-wait -n $API_PID $LIVE_PID $WEB_PID 2>/dev/null || true
-
-# If we get here without a signal, a process crashed
-echo "A service exited unexpectedly"
-shutdown
+# Start web server in foreground
+echo "[startup] Starting Web server..."
+cd /app/apps/web && exec node server.js
 EOF
 RUN chmod +x /app/start.sh
 
@@ -146,4 +108,6 @@ ENV PORT=4000
 ENV API_URL=http://localhost:3000
 ENV LIVE_URL=http://localhost:8080
 
+# Use tini as init - it forwards SIGTERM to all child processes
+ENTRYPOINT ["/sbin/tini", "-g", "--"]
 CMD ["/app/start.sh"]
