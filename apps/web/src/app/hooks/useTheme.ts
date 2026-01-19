@@ -39,6 +39,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       // Set CSS color-scheme for browser/webview hints
       root.style.colorScheme = scheme;
 
+      // Update color-scheme meta tag (required for keyboard theme on some browsers/webviews)
+      const metaColorScheme = document.querySelector('meta[name="color-scheme"]');
+      if (metaColorScheme) {
+        metaColorScheme.setAttribute("content", scheme);
+      }
+
       // Sync to iOS native
       if (window.IOSBridge?.postMessage) {
         window.IOSBridge.postMessage({ action: "setColorScheme", colorScheme: scheme });

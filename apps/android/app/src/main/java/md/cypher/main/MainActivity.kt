@@ -117,6 +117,13 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     }
 
     @JavascriptInterface
+    fun setColorScheme(colorScheme: String) {
+        // Update UI based on effective color scheme (light/dark)
+        // This affects keyboard appearance and other native UI elements
+        (context as? MainActivity)?.onWebColorSchemeChanged(colorScheme)
+    }
+
+    @JavascriptInterface
     fun openUrl(url: String) {
         (context as? MainActivity)?.runOnUiThread {
             try {
@@ -1048,6 +1055,24 @@ class MainActivity : ComponentActivity() {
                 }
                 else -> false
             }
+
+            // Update native UI colors
+            updateToolbarColors()
+            updateBlockMenuColors()
+
+            // Update loading screen background (in case it's still visible)
+            loadingScreen.setBackgroundColor(getThemeColor(R.color.light_background, R.color.dark_background))
+
+            // Update system UI (status bar and navigation bar) appearance
+            updateSystemBarsAppearance(isNightMode)
+        }
+    }
+
+    fun onWebColorSchemeChanged(colorScheme: String) {
+        runOnUiThread {
+            // Update based on effective color scheme (light/dark)
+            // This ensures keyboard and other native UI match the web app's theme
+            isNightMode = colorScheme == "dark"
 
             // Update native UI colors
             updateToolbarColors()

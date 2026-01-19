@@ -327,6 +327,10 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
             if let theme = body["theme"] as? String {
                 updateAppTheme(theme: theme)
             }
+        case "setColorScheme":
+            if let colorScheme = body["colorScheme"] as? String {
+                updateAppColorScheme(colorScheme: colorScheme)
+            }
         default:
             break
         }
@@ -364,6 +368,25 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
                     window.overrideUserInterfaceStyle = .unspecified
                 default:
                     window.overrideUserInterfaceStyle = .unspecified
+                }
+            }
+        }
+    }
+
+    private func updateAppColorScheme(colorScheme: String) {
+        DispatchQueue.main.async {
+            // Update window's user interface style based on effective color scheme
+            // This affects keyboard appearance and other native UI elements
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let window = windowScene.windows.first
+            {
+                switch colorScheme {
+                case "dark":
+                    window.overrideUserInterfaceStyle = .dark
+                case "light":
+                    window.overrideUserInterfaceStyle = .light
+                default:
+                    break
                 }
             }
         }
