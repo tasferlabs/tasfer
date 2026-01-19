@@ -109,10 +109,7 @@ export class OfflineStore {
    * Cache page snapshot for offline access.
    * Uses native storage on iOS/Android (GB+ available), IndexedDB on web (50MB limit).
    */
-  async cachePageSnapshot(
-    snapshot: Block[],
-    clock: HLC | null
-  ): Promise<void> {
+  async cachePageSnapshot(snapshot: Block[], clock: HLC | null): Promise<void> {
     if (NativeStorage.isNativeAvailable()) {
       // Use native file system storage (no browser quota limits)
       await this.nativeStorage.saveSnapshot({
@@ -165,7 +162,7 @@ export class OfflineStore {
     blob: Blob,
     fileName: string,
     mimeType: string,
-    blockId: string
+    blockId: string,
   ): Promise<void> {
     if (NativeStorage.isNativeAvailable()) {
       // Store image data in native storage
@@ -205,13 +202,19 @@ export class OfflineStore {
    */
   async getPendingImages(): Promise<PendingImage[]> {
     const db = await getDB();
-    const images = await db.getAllFromIndex("pendingImages", "by-page", this.pageId);
+    const images = await db.getAllFromIndex(
+      "pendingImages",
+      "by-page",
+      this.pageId,
+    );
 
     if (NativeStorage.isNativeAvailable()) {
       // Reconstruct blobs from native storage
       const results: PendingImage[] = [];
       for (const img of images) {
-        const bytes = await ImageStorage.loadImage(img.localId);
+        const bytes = (await ImageStorage.loadImage(
+          img.localId,
+        )) as unknown as ArrayBuffer;
         if (bytes) {
           results.push({
             ...img,
@@ -282,7 +285,7 @@ export class OfflineStore {
  */
 export async function cachePageList(
   parentId: string | null,
-  pages: import("@/app/api/pages.api").IListPage[]
+  pages: import("@/app/api/pages.api").IListPage[],
 ): Promise<void> {
   const db = await getDB();
   await db.put("pageList", {
@@ -293,7 +296,7 @@ export async function cachePageList(
 }
 
 export async function getCachedPageList(
-  parentId: string | null
+  parentId: string | null,
 ): Promise<import("@/app/api/pages.api").IListPage[] | null> {
   const db = await getDB();
   const cached = await db.get("pageList", parentId ?? "root");

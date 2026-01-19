@@ -1,5 +1,4 @@
-Bugs list
-
+# Bugs list
 - [x] when double clicking on word it does focus is at the start not the end.
 - [x] when double clicking on word on desktop and instead of going fowarding and going backward than we shoud the reverse the anchor. Now focus depends where move the selection direction this is correct, but the anchor position on first word selection on desktop this should not be locked.
 - [x] Could not expand selection beyond non alphanumeric characters for example dots or commas.
@@ -23,8 +22,8 @@ Bugs list
 - [x] when selection going outside the screen the viewport should follow the selection.
 - [x] hold press and selecting down on mobile does not work correctly because cursor is not moving down.
 - [x] when end edge scrolling we should open keyboard on mobile.
-- [-] max selection dragging scroll speed should not be limited. Or limted but very large number. Because we don not how large the document could be.
-- [-] Maybe specify how large of document we should supprt.
+- [ ] ~~max selection dragging scroll speed should not be limited. Or limted but very large number. Because we don not how large the document could b~~e.
+- [ ] ~~Maybe specify how large of document we should suppr~~t.
 - [x] add three dots right of saving the opens drawer for page settings.
 - [x] change the font family in page settings
 - [x] add word count if enabled in setings.
@@ -71,18 +70,18 @@ Bugs list
 - [x] we should add inline formatting options in android keyboard toolbar.
 - [x] On desktop we should add formating inline options on cotnext menu.
 - [x] delete at start of text after an image, delete the text.
-- [-] Add more animations to make the app more visually apealing.
-- [-] Remove the markdown style when copying plain text.
-- [-] Typing two spaces should exit inline styling, consult someone if this actaully good pratice.
+- [ ] Add more animations to make the app more visually apealing.
+- [ ] ~~Remove the markdown style when copying plain tex~~t.
+- [ ] ~~Typing two spaces should exit inline styling, consult someone if this actaully good pratic~~e.
 - [x] consider adding selection dragging on mobiles on both anchor and foucus. Like it is on ios. This for epxanding the selection and shrinking.
-- [-] I want to drag cursor. Solved by padding click.
+- [ ] I want to drag cursor. Solved by padding click.
 - [x] if click outside the box selection should be lost.
 - [x] add link for inline rendering format but the styles should be resvered for links. Add parsing logic for links as well. Add menu for changing the link tile.
 - [x] ctrl click or command click should open the link. But it should not matter if it happens in fly while selecting.
 - [x] hover on link should radix toolip and preview and with edit edit button and copy button. clicking on link preview should open it.
 - [x] how to do the above on mobile.
-- [-] do design overhaul.
-- [ ] Add support for windows ctrl + Y and make sure the shortcuts are intuitiave for all opearting systems.
+- [ ] do design overhaul.
+- [x] Add support for windows ctrl + Y and make sure the shortcuts are intuitiave for all opearting systems.
 - [x] rendering is triggered to many times.
 - [ ] override webiew defaul 404 page
 - [x] rtl inline format rendering edge cases
@@ -127,7 +126,7 @@ Bugs list
 - [x] one delete on mobile keyboard does cancel the compositon
 - [x] Very long composition text does not break correcly, like if do not accept compositon and do it in batch.
 - [x] start composition and unfocus the page does not cancel compositon.
-- [-] Composition state cleanup on error
+- [ ] Composition state cleanup on error
 - [x] ios top toolbar is too high under the os notification bar
 - [x] ios keyboard island is always visibile if for normal text inputs
 - [x] escaping slash menu does not work.
@@ -167,15 +166,15 @@ Bugs list
 - [x] If we create new block before image and or after image and it not used we move down, the we should delete it.
 - [x] should not image drag more than its container.
 - [x] drag the images.
-- [-] we should not store the image in absolute values we should istead use relative values such as perecentage.
+- [ ] ~~we should not store the image in absolute values we should istead use relative values such as perecentag~~e.
 - [x] when click outside the image we should lose focus
 - [x] conflict between scroll bar and drag handle.
 - [x] placeholder image should drag handles.
 - [ ] change position of cover image.
-- [-] Remove an image. Improve EditImagePopover.
+- [ ] ~~Remove an image. Improve EditImagePopove~~r.
 - [x] word count should not count images.
 - [x] copy and paste should work with images.
-- [-] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
+- [ ] ~~upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not mov~~e.
 - [x] scrollbar should not hit bottom porition on mobile (or at least on ios)
 - [x] hide editimagepopover on mobile
 - [x] hide scrollbar when not scrolling
@@ -183,7 +182,7 @@ Bugs list
 - [x] focus issue on context menu
 - [x] select all on mobile not working really, i we already have selection on some block. It would select from start of that exisitng selectio until the end.
 - [x] Android keyboard rendering stops after tap in selection - fixed by updating cursor position while preserving selection
-- [ ] ˜˜I want drag context menu activation like native menu have.˜˜
+- [ ] ~~I want drag context menu activation like native menu hav~~e.
 - [x] drag thumb drag detection on mobile should have buffer area.
 - [x] selection drag rtl is broken
 - [x] draging image handle and scrolling should work too.
@@ -196,7 +195,7 @@ Bugs list
 - [x] canvas glitch on resizing.
 - [x] editing issue on android. Can not edit text after selection.
 - [x] tapping under image that has no other blocks under should create new text block.
-- [-] could we disable edge navigation on andorid?
+- [ ] ~~could we disable edge navigation on andori~~d?
 - [x] on landscape oritentation the safe area taking to much and it is uncessary.
 - [x] Safe area on sidebar
 - [ ] typing letters that conlicde with markdown serlization should be escaped
@@ -205,7 +204,7 @@ Bugs list
 - [x] indent with mixed direction rtl todo
 - [ ] Pen input, stylus support. Handwriting.
 - [ ] protocol for opening cypher links.
-- [-] too many functions the loops all the blocks.
+- [ ] too many functions the loops all the blocks.
 - [ ] voice input/speeh-to-text
 - [ ] Accessiblity input?
 - [ ] increase font size for people who wants it. Use rem
@@ -247,7 +246,7 @@ Bugs list
 - [ ] everything should suited for mobile, including flaoting sidebar. 
 - [ ] add snapshot previewing
 - [ ] dawers should have scroll
-- [-] undo or any edting opeartion should ensureCursor visible
+- [ ] ~~undo or any edting opeartion should ensureCursor visib~~le
 - [x] render where other user is on scroll bar
 - [ ] wehn deleting a block and undoing it merges them
 - [ ] Interleaving on Concurrent Inserts
@@ -269,3 +268,25 @@ Bugs list
 - [ ] click on checkbox no longer working
 - [ ] broadcast new update
 - [ ] import and export not working on mobile
+- [ ] close connections gracefully on app close
+- [ ] **on deploy ios blacking o**ut
+- [ ] Combination of bold and italic did not work one time.
+- [ ] ending wiht "`" not wokring
+- [ ] Typing double space should clear fomrating or may do it by context menu
+- [ ] Clering one letter, clears everything in format span
+- [ ] Add way to add link
+- [ ] Pasting link should make link after we typing space
+- [ ] If close the page sometimes we do not gett confimration dialog, maybe on bad network. **We lose data sometimes**!
+- [ ] Sequential numbered list not always working with indents
+- [ ] Checkbox square should be bit brighter on dark mode for contrast.
+- [ ] Hover on buttons for  pagelink  that active should have better style
+- [ ] Search functioanllity
+- [ ] Onboarding
+- [ ] Quote block
+- [ ] code block
+- [ ] maths code block
+- [ ] confirmation dialog when leaving page is reversed.
+- [ ] context menu options on image are meaningless
+- [ ] start dag outside and continue is not working really well.
+- [ ] copying to do list block copys as markdown.
+- [ ] action bar options should only visible on editor page 

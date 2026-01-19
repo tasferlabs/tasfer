@@ -40,15 +40,21 @@ self.addEventListener("fetch", (event) => {
 
 console.log("[SW] Service worker script loaded");
 
-// Activate immediately on install, and cache index.html as a guaranteed fallback
+// On install, clear stale offline-fallback and cache fresh index.html
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
-      // Cache index.html with a known key for offline fallback
+      console.log("[SW] Installing new version");
+
+      // Clear old offline-fallback cache (may have stale index.html with old asset hashes)
+      // Keep pages-list and pages-data - user data shouldn't be cleared on app updates
+      await caches.delete("offline-fallback");
+
+      // Cache fresh index.html for offline fallback
       const cache = await caches.open("offline-fallback");
       await cache.add(new Request("/index.html", { cache: "reload" }));
 
-      // self.skipWaiting();
+      console.log("[SW] Install complete");
     })()
   );
 });
@@ -377,7 +383,8 @@ app.get("*", async (req, res) => {
   }
 
   // Network-first for navigation to ensure fresh index.html with correct asset hashes
-  // Fall back to cached index.html only when offline
+  // Falls back to cached index.html on any network failure for offline support
+  // The recovery script in index.html handles stale cached assets
   try {
     const response = await fetch(request.clone());
     if (response.ok) {
@@ -386,11 +393,12 @@ app.get("*", async (req, res) => {
       await cache.put("/index.html", response.clone());
       return res.send(response);
     }
+    // Non-OK response (4xx, 5xx) - still return it so browser/recovery can handle
+    return res.send(response);
   } catch {
-    // Network failed (offline) - use cached fallback
+    // Network failed - serve cached index.html for offline support
+    // If cached assets are stale, the recovery script in index.html will handle it
+    const cachedIndex = await getOfflineIndexHtml();
+    return res.send(cachedIndex);
   }
-
-  // Offline or network error - serve cached index.html
-  const cachedIndex = await getOfflineIndexHtml();
-  return res.send(cachedIndex);
 });

@@ -43,6 +43,17 @@ const VersionContext = createContext<VersionContextValue | null>(null);
 
 const DISMISS_KEY = "update-dismissed-version";
 
+// Clear all service worker caches before update
+async function clearAllCaches(): Promise<void> {
+  try {
+    const cacheNames = await caches.keys();
+    await Promise.all(cacheNames.map((name) => caches.delete(name)));
+    console.log("[Version] Cleared caches:", cacheNames);
+  } catch (e) {
+    console.error("[Version] Failed to clear caches:", e);
+  }
+}
+
 export function VersionProvider({ children }: { children: ReactNode }) {
   const {
     isLoading,
@@ -99,7 +110,10 @@ export function VersionProvider({ children }: { children: ReactNode }) {
     }
   }, [versionInfo]);
 
-  const performUpdate = useCallback(() => {
+  const performUpdate = useCallback(async () => {
+    // Clear all caches first to ensure fresh resources
+    await clearAllCaches();
+
     // If service worker has a waiting update, activate it
     if (activateServiceWorker) {
       // Wait for the new service worker to actually take control before reloading
@@ -108,7 +122,8 @@ export function VersionProvider({ children }: { children: ReactNode }) {
           "controllerchange",
           onControllerChange
         );
-        window.location.reload();
+        window.location.href =
+          window.location.pathname + "?_update=" + Date.now();
       };
       navigator.serviceWorker.addEventListener(
         "controllerchange",
@@ -124,7 +139,8 @@ export function VersionProvider({ children }: { children: ReactNode }) {
           "controllerchange",
           onControllerChange
         );
-        window.location.reload();
+        window.location.href =
+          window.location.pathname + "?_update=" + Date.now();
       }, 2000);
       return;
     }
@@ -135,8 +151,8 @@ export function VersionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Default: just reload to get latest assets
-    window.location.reload();
+    // Default: reload with cache-busting to get latest assets
+    window.location.href = window.location.pathname + "?_update=" + Date.now();
   }, [activateServiceWorker, updateUrl]);
 
   return (
