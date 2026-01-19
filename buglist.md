@@ -268,7 +268,7 @@
 - [ ] click on checkbox no longer working
 - [ ] broadcast new update
 - [ ] import and export not working on mobile
-- [ ] close connections gracefully on app close
+- [ ] close connections gracefully on app clogse
 - [ ] **on deploy ios blacking o**ut
 - [ ] Combination of bold and italic did not work one time.
 - [ ] ending wiht "`" not wokring
