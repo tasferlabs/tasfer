@@ -268,3 +268,4 @@ Bugs list
 - [ ] reload on disconencted the operations are lost.
 - [ ] click on checkbox no longer working
 - [ ] broadcast new update
+- [ ] import and export not working on mobile

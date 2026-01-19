@@ -14,6 +14,20 @@ const app = new Router();
 
 // Register fetch event handler
 self.addEventListener("fetch", (event) => {
+  const url = new URL(event.request.url);
+  const pathname = url.pathname;
+
+  // Don't intercept static assets - let Workbox's precacheAndRoute handle them
+  // This ensures precached assets are served from cache during app updates,
+  // preventing 404 errors when old files are deleted from the server
+  if (
+    url.origin === self.location.origin &&
+    !pathname.startsWith("/api/") &&
+    event.request.mode !== "navigate"
+  ) {
+    return; // Don't call respondWith - let Workbox handle it
+  }
+
   event.respondWith(
     (async () => {
       const response = await app.handleRequest(event.request);
