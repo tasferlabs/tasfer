@@ -27,7 +27,8 @@ export type ServerMessage =
   | { type: "room-peers"; peers: string[]; awarenessStates?: Record<string, AwarenessState> }
   | { type: "awareness"; peerId: string; state: AwarenessState }
   | { type: "error"; message: string }
-  | { type: "update-available"; serverVersion: number; clientVersion: number; forceUpdate: boolean };
+  | { type: "update-available"; serverVersion: number; clientVersion: number; forceUpdate: boolean }
+  | { type: "server-shutdown"; reason: string };
 
 /** WebSocket sync configuration */
 export interface WebSocketSyncConfig {
@@ -91,6 +92,7 @@ export class WebSocketSync {
   private messageQueue: ServerMessage[] = [];
   private localUser: AwarenessUser;
   private snapshotClock: HLC | null = null;
+  private serverShutdownPending = false;
 
   constructor(engine: SyncEngine, config: WebSocketSyncConfig) {
     this.engine = engine;
@@ -365,9 +367,19 @@ export class WebSocketSync {
   }
 
   private handleClose(): void {
+    // If server is shutting down, reset attempts for fresh reconnection
+    if (this.serverShutdownPending) {
+      console.log("[WebSocket] Server shutdown - resetting reconnect attempts");
+      this.reconnectAttempts = 0;
+      this.serverShutdownPending = false;
+    }
+
     if (this.roomId && this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
       this.setState({ status: "connecting" });
+
+      // Use shorter delay for server shutdown reconnects
+      const delay = this.reconnectAttempts === 1 ? 500 : this.reconnectDelay * this.reconnectAttempts;
 
       setTimeout(() => {
         console.log(`[WebSocket] Reconnecting... (attempt ${this.reconnectAttempts})`);
@@ -387,7 +399,7 @@ export class WebSocketSync {
             console.error("[WebSocket] Reconnection failed:", error);
             this.setState({ status: "error", error: "Failed to reconnect" });
           });
-      }, this.reconnectDelay * this.reconnectAttempts);
+      }, delay);
     } else if (this.roomId) {
       this.setState({ status: "error", error: "Connection lost" });
     }
@@ -505,6 +517,13 @@ export class WebSocketSync {
       case "update-available":
         console.log(`[WebSocket] Update available: server v${message.serverVersion}, client v${message.clientVersion}${message.forceUpdate ? " (FORCE)" : ""}`);
         this.config.onUpdateAvailable?.(message);
+        break;
+
+      case "server-shutdown":
+        // Server is shutting down (deploy), prepare for clean reconnect
+        console.log(`[WebSocket] Server shutdown: ${message.reason}`);
+        this.serverShutdownPending = true;
+        // Connection will close shortly, handleClose will initiate reconnect
         break;
     }
   }

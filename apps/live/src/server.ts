@@ -104,6 +104,7 @@ type ServerMessage =
   | { type: "awareness"; peerId: string; state: AwarenessState }
   | { type: "error"; message: string }
   | { type: "update-available"; serverVersion: number; clientVersion: number; forceUpdate: boolean }
+  | { type: "server-shutdown"; reason: string }
   | PageEvent;
 
 /** Connected client info */
@@ -527,26 +528,62 @@ function send(ws: WebSocket, message: ServerMessage): void {
 // Graceful Shutdown
 // =============================================================================
 
-process.on("SIGINT", async () => {
-  console.log("\n[Sync Server] Shutting down...");
+let isShuttingDown = false;
+
+async function gracefulShutdown(signal: string): Promise<void> {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  console.log(`\n[Sync Server] Received ${signal}, shutting down gracefully...`);
+
+  // Set a hard timeout to force exit if graceful shutdown takes too long
+  const forceExitTimeout = setTimeout(() => {
+    console.error("[Sync Server] Graceful shutdown timed out, forcing exit");
+    process.exit(1);
+  }, 10000); // 10 second timeout
+
+  // Notify all clients that server is shutting down (so they can reconnect)
+  const shutdownMessage = JSON.stringify({
+    type: "server-shutdown",
+    reason: "Server is restarting, please reconnect",
+  });
+
+  wss.clients.forEach((ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(shutdownMessage);
+    }
+  });
+
+  // Give clients a moment to receive the shutdown message
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
   // Close Redis subscriber
   if (redisSubscriber) {
-    await redisSubscriber.unsubscribe(REDIS_CHANNEL);
-    await redisSubscriber.quit();
-    console.log("[Sync Server] Redis connection closed");
+    try {
+      await redisSubscriber.unsubscribe(REDIS_CHANNEL);
+      await redisSubscriber.quit();
+      console.log("[Sync Server] Redis connection closed");
+    } catch (error) {
+      console.error("[Sync Server] Error closing Redis:", error);
+    }
   }
 
-  // Close all WebSocket connections
+  // Close all WebSocket connections with clean close code
   wss.clients.forEach((ws) => {
-    ws.close(1000, "Server shutting down");
+    ws.close(1001, "Server shutting down"); // 1001 = Going Away
   });
 
+  // Close the WebSocket server
   wss.close(() => {
     console.log("[Sync Server] Server closed");
+    clearTimeout(forceExitTimeout);
     process.exit(0);
   });
-});
+}
+
+// Handle termination signals (SIGTERM is used by deployment systems, SIGINT is Ctrl+C)
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // Log stats periodically
 setInterval(() => {
