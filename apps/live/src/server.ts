@@ -16,6 +16,32 @@
 
 import { WebSocketServer, WebSocket } from "ws";
 import Redis from "ioredis";
+import { readFileSync } from "fs";
+import { resolve } from "path";
+
+// =============================================================================
+// Version Loading
+// =============================================================================
+
+interface VersionConfig {
+  version: number;
+  minVersion: number;
+}
+
+function loadVersionConfig(): VersionConfig {
+  try {
+    const versionPath = resolve(__dirname, "../../../version.json");
+    const content = readFileSync(versionPath, "utf-8");
+    const config = JSON.parse(content);
+    console.log(`[Sync Server] Loaded version config: v${config.version} (min: v${config.minVersion})`);
+    return config;
+  } catch (error) {
+    console.warn("[Sync Server] Failed to load version.json, using defaults");
+    return { version: 1, minVersion: 1 };
+  }
+}
+
+const versionConfig = loadVersionConfig();
 
 // =============================================================================
 // Types
@@ -67,7 +93,7 @@ type PageEvent =
 
 /** Server message types (room messages + page events) */
 type ServerMessage =
-  | { type: "join"; roomId: string; peerId: string; user?: AwarenessUser }
+  | { type: "join"; roomId: string; peerId: string; user?: AwarenessUser; clientVersion?: number }
   | { type: "leave"; roomId: string; peerId: string }
   | { type: "sync-request"; versionVector: Record<string, number>; requesterId?: string }
   | { type: "sync-response"; operations: any[]; versionVector: Record<string, number>; targetPeerId?: string }
@@ -77,6 +103,7 @@ type ServerMessage =
   | { type: "room-peers"; peers: string[]; awarenessStates?: Record<string, AwarenessState> }
   | { type: "awareness"; peerId: string; state: AwarenessState }
   | { type: "error"; message: string }
+  | { type: "update-available"; serverVersion: number; clientVersion: number; forceUpdate: boolean }
   | PageEvent;
 
 /** Connected client info */
@@ -218,7 +245,7 @@ setupRedisSubscriber();
 function handleMessage(client: Client, message: ServerMessage): void {
   switch (message.type) {
     case "join":
-      handleJoin(client, message.roomId, message.peerId, message.user);
+      handleJoin(client, message.roomId, message.peerId, message.user, message.clientVersion);
       break;
 
     case "leave":
@@ -246,7 +273,7 @@ function handleMessage(client: Client, message: ServerMessage): void {
   }
 }
 
-function handleJoin(client: Client, roomId: string, peerId: string, user?: AwarenessUser): void {
+function handleJoin(client: Client, roomId: string, peerId: string, user?: AwarenessUser, clientVersion?: number): void {
   // Leave current room if in one
   if (client.roomId) {
     handleLeave(client);
@@ -265,6 +292,18 @@ function handleJoin(client: Client, roomId: string, peerId: string, user?: Aware
       selection: null,
       lastUpdate: Date.now(),
     };
+  }
+
+  // Check client version and notify if update available
+  if (clientVersion !== undefined && clientVersion < versionConfig.version) {
+    const forceUpdate = clientVersion < versionConfig.minVersion;
+    console.log(`[Sync Server] Client ${peerId} has outdated version (v${clientVersion} < v${versionConfig.version})${forceUpdate ? " - FORCE UPDATE" : ""}`);
+    send(client.ws, {
+      type: "update-available",
+      serverVersion: versionConfig.version,
+      clientVersion,
+      forceUpdate,
+    });
   }
 
   // Get or create room

@@ -19,6 +19,7 @@ import { isPageEvent } from "./types";
 import type { AwarenessState } from "@/editor/sync/awareness";
 import { getColorForPeer, getTestNameForPeer } from "@/editor/sync/awareness";
 import { generatePeerId } from "@/editor/sync/id";
+import { CLIENT_VERSION } from "@/version";
 
 // =============================================================================
 // Types
@@ -31,6 +32,13 @@ interface RoomSubscription {
 }
 
 type ConnectionListener = (info: ConnectionInfo) => void;
+
+/** Callback for update available notifications */
+export type UpdateAvailableCallback = (info: {
+  serverVersion: number;
+  clientVersion: number;
+  forceUpdate: boolean;
+}) => void;
 
 // =============================================================================
 // GlobalWebSocket Class
@@ -55,6 +63,7 @@ export class GlobalWebSocket {
   private roomSubscriptions: Map<string, RoomSubscription> = new Map();
   private connectionListeners: Set<ConnectionListener> = new Set();
   private pageEventListeners: Set<PageEventCallbacks> = new Set();
+  private updateAvailableListeners: Set<UpdateAvailableCallback> = new Set();
 
   // Peer identity
   private _peerId: string;
@@ -177,6 +186,16 @@ export class GlobalWebSocket {
     this.pageEventListeners.add(callbacks);
     return () => {
       this.pageEventListeners.delete(callbacks);
+    };
+  }
+
+  /**
+   * Subscribe to update available notifications.
+   */
+  onUpdateAvailable(callback: UpdateAvailableCallback): () => void {
+    this.updateAvailableListeners.add(callback);
+    return () => {
+      this.updateAvailableListeners.delete(callback);
     };
   }
 
@@ -457,6 +476,7 @@ export class GlobalWebSocket {
       roomId,
       peerId: this._peerId,
       user: user || this.localUser,
+      clientVersion: CLIENT_VERSION,
     });
   }
 
@@ -527,6 +547,23 @@ export class GlobalWebSocket {
         console.error("[GlobalWebSocket] Server error:", message.message);
         for (const subscription of this.roomSubscriptions.values()) {
           subscription.callbacks.onError?.(message.message);
+        }
+        break;
+
+      case "update-available":
+        console.log(
+          `[GlobalWebSocket] Update available: server v${message.serverVersion}, client v${message.clientVersion}${message.forceUpdate ? " (FORCE)" : ""}`,
+        );
+        for (const callback of this.updateAvailableListeners) {
+          try {
+            callback({
+              serverVersion: message.serverVersion,
+              clientVersion: message.clientVersion,
+              forceUpdate: message.forceUpdate,
+            });
+          } catch (e) {
+            console.error("[GlobalWebSocket] Update available callback error:", e);
+          }
         }
         break;
     }

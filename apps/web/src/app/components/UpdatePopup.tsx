@@ -29,7 +29,12 @@ export default function UpdatePopup() {
     <AnimatePresence>
       {showPopup && (
         <motion.div
-          className="z-[2000] fixed bottom-2 left-2 right-2 md:left-2 md:bottom-2 pointer-events-auto"
+          className="z-[2000] fixed pointer-events-auto"
+          style={{
+            bottom: "calc(0.5rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
+            left: "calc(0.5rem + var(--safe-area-inset-left, env(safe-area-inset-left, 0px)))",
+            right: "calc(0.5rem + var(--safe-area-inset-right, env(safe-area-inset-right, 0px)))",
+          }}
           initial="hidden"
           animate="visible"
           exit="exit"

@@ -40,6 +40,7 @@ export interface JoinMessage {
   roomId: string;
   peerId: string;
   user?: RoomUser;
+  clientVersion?: number;
 }
 
 /** Leave a document room */
@@ -104,6 +105,14 @@ export interface ErrorMessage {
   message: string;
 }
 
+/** Server notifies client of available update */
+export interface UpdateAvailableMessage {
+  type: "update-available";
+  serverVersion: number;
+  clientVersion: number;
+  forceUpdate: boolean;
+}
+
 // =============================================================================
 // Page Events (New - Page Lifecycle)
 // =============================================================================
@@ -166,7 +175,8 @@ export type RoomMessage =
   | PeerLeftMessage
   | RoomPeersMessage
   | AwarenessMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | UpdateAvailableMessage;
 
 /** Page lifecycle events */
 export type PageEvent =
@@ -204,6 +214,7 @@ export function isRoomMessage(msg: ServerMessage): msg is RoomMessage {
     "room-peers",
     "awareness",
     "error",
+    "update-available",
   ].includes(msg.type);
 }
 

@@ -19,7 +19,11 @@
 }
 
 .link.active {
-  background-color: var(--accent);
+  background-color: color-mix(in srgb, var(--primary), transparent 85%);
+}
+
+.link.active:hover {
+  background-color: color-mix(in srgb, var(--primary), transparent 75%);
 }
 
 .link.isOver {

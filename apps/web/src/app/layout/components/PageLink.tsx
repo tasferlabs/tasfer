@@ -299,7 +299,10 @@ export function PageLink({
 
       <div
         ref={setNodeRef}
-        className={clsx(style.link, { [style.isDragging]: isDragging })}
+        className={clsx(style.link, {
+          [style.isDragging]: isDragging,
+          [style.active]: currentPageId === data.id,
+        })}
         style={{ opacity: isDragging ? 0.4 : 1 }}
         {...attributes}
         {...listeners}

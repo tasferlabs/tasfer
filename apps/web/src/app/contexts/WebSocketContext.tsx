@@ -16,6 +16,7 @@ import React, {
 import {
   GlobalWebSocket,
   getGlobalWebSocket,
+  type UpdateAvailableCallback,
 } from "@/websocket/GlobalWebSocket";
 import type {
   ConnectionState,
@@ -75,11 +76,13 @@ interface WebSocketContextValue {
   ) => void;
   /** Subscribe to page lifecycle events */
   onPageEvents: (callbacks: PageEventCallbacks) => () => void;
+  /** Subscribe to update available notifications */
+  onUpdateAvailable: (callback: UpdateAvailableCallback) => () => void;
   /** Update local user name */
   setUserName: (name: string) => void;
 }
 
-const WebSocketContext = createContext<WebSocketContextValue | null>(null);
+export const WebSocketContext = createContext<WebSocketContextValue | null>(null);
 
 // =============================================================================
 // Provider Props
@@ -247,6 +250,13 @@ export function WebSocketProvider({
     return wsRef.current.onPageEvents(callbacks);
   }, []);
 
+  const onUpdateAvailable = useCallback((callback: UpdateAvailableCallback) => {
+    if (!wsRef.current) {
+      return () => {};
+    }
+    return wsRef.current.onUpdateAvailable(callback);
+  }, []);
+
   const setUserName = useCallback((name: string) => {
     if (!wsRef.current) return;
     wsRef.current.setUserName(name);
@@ -273,6 +283,7 @@ export function WebSocketProvider({
     sendSyncRequest,
     sendSyncResponse,
     onPageEvents,
+    onUpdateAvailable,
     setUserName,
   };
 

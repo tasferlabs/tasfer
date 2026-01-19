@@ -9,6 +9,7 @@ import { SyncEngine, serializeVV, deserializeVV, compareHLC } from "./sync";
 import type { HLC, Operation } from "./types";
 import type { AwarenessState, AwarenessUser } from "./awareness";
 import { getColorForPeer, getTestNameForPeer } from "./awareness";
+import { CLIENT_VERSION } from "@/version";
 
 // =============================================================================
 // Types
@@ -16,7 +17,7 @@ import { getColorForPeer, getTestNameForPeer } from "./awareness";
 
 /** Message types for server communication */
 export type ServerMessage =
-  | { type: "join"; roomId: string; peerId: string; user?: AwarenessUser }
+  | { type: "join"; roomId: string; peerId: string; user?: AwarenessUser; clientVersion?: number }
   | { type: "leave"; roomId: string; peerId: string }
   | { type: "sync-request"; versionVector: Record<string, number>; snapshotClock?: HLC | null; requesterId?: string }
   | { type: "sync-response"; operations: Operation[]; versionVector: Record<string, number>; targetPeerId?: string }
@@ -25,7 +26,8 @@ export type ServerMessage =
   | { type: "peer-left"; peerId: string }
   | { type: "room-peers"; peers: string[]; awarenessStates?: Record<string, AwarenessState> }
   | { type: "awareness"; peerId: string; state: AwarenessState }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "update-available"; serverVersion: number; clientVersion: number; forceUpdate: boolean };
 
 /** WebSocket sync configuration */
 export interface WebSocketSyncConfig {
@@ -43,6 +45,8 @@ export interface WebSocketSyncConfig {
   onAwarenessUpdate?: (peerId: string, state: AwarenessState | null) => void;
   /** Called when initial awareness states are received on room join */
   onAwarenessStates?: (states: Record<string, AwarenessState>) => void;
+  /** Called when server indicates an update is available */
+  onUpdateAvailable?: (info: { serverVersion: number; clientVersion: number; forceUpdate: boolean }) => void;
 }
 
 /** Overall sync state */
@@ -157,6 +161,7 @@ export class WebSocketSync {
             roomId,
             peerId: this.engine.getPeerId(),
             user: this.localUser,
+            clientVersion: CLIENT_VERSION,
           });
           resolve();
         })
@@ -195,6 +200,7 @@ export class WebSocketSync {
           roomId: this.roomId,
           peerId: this.engine.getPeerId(),
           user: this.localUser,
+          clientVersion: CLIENT_VERSION,
         });
       }
     } catch (error) {
@@ -373,6 +379,7 @@ export class WebSocketSync {
                 roomId: this.roomId,
                 peerId: this.engine.getPeerId(),
                 user: this.localUser,
+                clientVersion: CLIENT_VERSION,
               });
             }
           })
@@ -493,6 +500,11 @@ export class WebSocketSync {
       case "error":
         console.error("[WebSocket] Server error:", message.message);
         this.setState({ status: "error", error: message.message });
+        break;
+
+      case "update-available":
+        console.log(`[WebSocket] Update available: server v${message.serverVersion}, client v${message.clientVersion}${message.forceUpdate ? " (FORCE)" : ""}`);
+        this.config.onUpdateAvailable?.(message);
         break;
     }
   }

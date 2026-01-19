@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useContext } from "react";
 import { CLIENT_VERSION, meetsMinimumVersion } from "@/version";
 import { getPlatform, type Platform } from "@/platform";
+import { WebSocketContext } from "@/app/contexts/WebSocketContext";
 
 export interface UpdateUrls {
   ios: string | null;
@@ -39,8 +40,16 @@ export function useVersionCheck(): VersionCheckResult {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+  // Track if WebSocket notified us of an update (instant notification on reconnect)
+  const [wsUpdateInfo, setWsUpdateInfo] = useState<{
+    serverVersion: number;
+    forceUpdate: boolean;
+  } | null>(null);
 
   const platform = getPlatform();
+
+  // Get WebSocket context if available (may be null if outside WebSocketProvider)
+  const wsContext = useContext(WebSocketContext);
 
   const checkVersion = useCallback(async () => {
     try {
@@ -91,14 +100,36 @@ export function useVersionCheck(): VersionCheckResult {
     return () => window.removeEventListener("online", handleOnline);
   }, [checkVersion]);
 
-  // Calculate derived state
-  const meetsMinimum = versionInfo
-    ? meetsMinimumVersion(CLIENT_VERSION, versionInfo.minVersion)
-    : true; // Assume OK if we can't check
+  // Subscribe to WebSocket update-available notifications (if WebSocket context is available)
+  // This provides instant notification on reconnect after server deploy
+  useEffect(() => {
+    if (!wsContext) return;
 
-  const updateAvailable = versionInfo
-    ? CLIENT_VERSION < versionInfo.latestVersion
-    : false;
+    const unsubscribe = wsContext.onUpdateAvailable((info) => {
+      console.log("[VersionCheck] WebSocket update notification:", info);
+      setWsUpdateInfo({
+        serverVersion: info.serverVersion,
+        forceUpdate: info.forceUpdate,
+      });
+      // Also trigger an HTTP check to get full version info (update URLs, etc.)
+      checkVersion();
+    });
+    return unsubscribe;
+  }, [wsContext, checkVersion]);
+
+  // Calculate derived state
+  // Use WebSocket info if available (instant), fall back to HTTP info
+  const meetsMinimum = wsUpdateInfo
+    ? !wsUpdateInfo.forceUpdate
+    : versionInfo
+      ? meetsMinimumVersion(CLIENT_VERSION, versionInfo.minVersion)
+      : true; // Assume OK if we can't check
+
+  const updateAvailable = wsUpdateInfo
+    ? true // WebSocket told us there's an update
+    : versionInfo
+      ? CLIENT_VERSION < versionInfo.latestVersion
+      : false;
 
   // Get platform-specific update URL
   const updateUrl = versionInfo?.updateUrls?.[platform] ?? null;
