@@ -14,10 +14,11 @@
  * - Broadcasts page events to all connected clients
  */
 
-import { WebSocketServer, WebSocket } from "ws";
-import Redis from "ioredis";
 import { readFileSync } from "fs";
-import { resolve } from "path";
+import Redis from "ioredis";
+import { join } from "path";
+import { WebSocket, WebSocketServer } from "ws";
+
 
 // =============================================================================
 // Version Loading
@@ -30,7 +31,10 @@ interface VersionConfig {
 
 function loadVersionConfig(): VersionConfig {
   try {
-    const versionPath = resolve(__dirname, "../../../version.json");
+    const versionPath =
+      process.env.NODE_ENV === "production"
+        ? "/app/version.json"
+        : join(__dirname, "../../../version.json");
     const content = readFileSync(versionPath, "utf-8");
     const config = JSON.parse(content);
     console.log(`[Sync Server] Loaded version config: v${config.version} (min: v${config.minVersion})`);

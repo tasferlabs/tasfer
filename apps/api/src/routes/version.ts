@@ -5,9 +5,11 @@ import { fileURLToPath } from "url";
 
 const router = Router();
 
-// Read version config from monorepo root
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const versionConfigPath = join(__dirname, "../../../../version.json");
+const versionConfigPath =
+  process.env.NODE_ENV === "production"
+    ? "/app/version.json"
+    : join(__dirname, "../../../../version.json");
 
 interface VersionConfig {
   version: number;
