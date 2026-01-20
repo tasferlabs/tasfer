@@ -1,7 +1,10 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
+import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useVersion } from "../contexts/VersionContext";
+import { useKeyboardOpen } from "../hooks/useKeyboardOpen";
 
 export default function UpdatePopup() {
   const { t } = useTranslation();
@@ -12,12 +15,20 @@ export default function UpdatePopup() {
     dismissUpdate,
     performUpdate,
   } = useVersion();
+  const [isUpdating, setIsUpdating] = useState(false);
+  const isKeyboardOpen = useKeyboardOpen();
+
+  const handleUpdate = async () => {
+    setIsUpdating(true);
+    await performUpdate();
+  };
 
   // Don't show popup if:
   // - No update available
   // - User dismissed this update
   // - Minimum version not met (ForceUpdatePage handles this)
-  const showPopup = updateAvailable && !updateDismissed && meetsMinimum;
+  // - Keyboard is open (avoid covering content while typing)
+  const showPopup = updateAvailable && !updateDismissed && meetsMinimum && !isKeyboardOpen;
 
   const popupVariants = {
     hidden: { y: 80, opacity: 0 },
@@ -73,9 +84,11 @@ export default function UpdatePopup() {
                 </Button>
                 <Button
                   variant="default"
-                  onClick={performUpdate}
+                  onClick={handleUpdate}
+                  disabled={isUpdating}
                   aria-label={t`Update the app now`}
                 >
+                  {isUpdating && <Loader2 className="animate-spin" />}
                   {t`Update now`}
                 </Button>
               </div>
