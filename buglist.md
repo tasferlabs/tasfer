@@ -257,19 +257,19 @@
 - [ ] export/import features
 - [ ] iamge place holder
 - [x] title not updating in sidebar when triggering auto update.
-- [ ] saving indictor loads for ever when editing offline.
+- [x] saving indictor loads for ever when editing offline.
 - [ ] more shimming rendering
 - [ ] All listed pages are not available offline, how should we fix it?
-- [ ] dynamic island hide buttons on iphone keyboard toolbar
+- [x] dynamic island hide buttons on iphone keyboard toolbar
 - [ ] strike through should follow same color as text
 - [ ] test native storage.
 - [ ] improve websockets to handle more events.
-- [ ] reload on disconencted the operations are lost.
-- [ ] click on checkbox no longer working
+- [x] reload on disconencted the operations are lost.
+- [x] click on checkbox no longer working
 - [ ] broadcast new update
 - [ ] import and export not working on mobile
-- [ ] close connections gracefully on app clogse
-- [ ] **on deploy ios blacking o**ut
+- [x] close connections gracefully on app close
+- [x] **on deploy ios blacking o**ut
 - [ ] Combination of bold and italic did not work one time.
 - [ ] ending wiht "`" not wokring
 - [ ] Typing double space should clear fomrating or may do it by context menu
@@ -290,3 +290,4 @@
 - [ ] start dag outside and continue is not working really well.
 - [ ] copying to do list block copys as markdown.
 - [ ] action bar options should only visible on editor page 
+- [ ] if there are mutliple formats should we close context menu directly on click on format sub menu?

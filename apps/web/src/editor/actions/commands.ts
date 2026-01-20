@@ -135,7 +135,7 @@ function detectAndApplyInlineMarkdown(
       charRunsAfterSecond,
       formats,
       matchStart,
-      innerTextEnd - 4, // Adjust for deleted markers
+      innerTextEnd - 2, // Adjust for deleted opening marker only
       blockId,
       { type: "bold" },
       true
@@ -178,7 +178,7 @@ function detectAndApplyInlineMarkdown(
       charRunsAfterSecond,
       formats,
       matchStart,
-      innerTextEnd - 2, // Adjust for deleted markers
+      innerTextEnd - 1, // Adjust for deleted opening marker only
       blockId,
       { type: "italic" },
       true
@@ -219,7 +219,7 @@ function detectAndApplyInlineMarkdown(
       charRunsAfterSecond,
       formats,
       matchStart,
-      innerTextEnd - 4, // Adjust for deleted markers
+      innerTextEnd - 2, // Adjust for deleted opening marker only
       blockId,
       { type: "strikethrough" },
       true
@@ -260,7 +260,7 @@ function detectAndApplyInlineMarkdown(
       charRunsAfterSecond,
       formats,
       matchStart,
-      innerTextEnd - 2, // Adjust for deleted markers
+      innerTextEnd - 1, // Adjust for deleted opening marker only
       blockId,
       { type: "code" },
       true

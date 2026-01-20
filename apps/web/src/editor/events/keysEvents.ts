@@ -167,6 +167,7 @@ export function handleKeyDown(
 
   // Bold
   if (isCtrl && code === "KeyB") {
+    event.preventDefault();
     // Only record undo if there's a selection (actual document change)
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;

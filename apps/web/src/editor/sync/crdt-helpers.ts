@@ -171,14 +171,72 @@ export function formatCharsInRange(
   let newFormats: FormatSpan[];
 
   if (value === false) {
-    // Remove format: filter out spans that match this format type and overlap with our range
-    newFormats = formats.filter(span => {
-      if (span.format.type !== format.type) return true;
+    // Remove format: split spans that overlap with our range
+    // Instead of removing entire spans, preserve parts outside the selection
+    newFormats = [];
+    const selectionCharIdSet = new Set(charIds);
+
+    for (const span of formats) {
+      if (span.format.type !== format.type) {
+        // Different format type, keep as-is
+        newFormats.push(span);
+        continue;
+      }
 
       // Check if this span overlaps with any of our charIds
       const overlaps = charIds.some(charId => isCharIdInSpan(charId, span, charRuns));
-      return !overlaps;
-    });
+      if (!overlaps) {
+        // No overlap, keep span as-is
+        newFormats.push(span);
+        continue;
+      }
+
+      // Span overlaps with selection - need to split it
+      // Find chars in the span that are NOT in the selection
+      const spanChars: string[] = [];
+      let inSpan = false;
+      for (const { id } of iterateVisibleChars(charRuns)) {
+        if (id === span.startCharId) inSpan = true;
+        if (inSpan) spanChars.push(id);
+        if (id === span.endCharId) break;
+      }
+
+      // Build new spans for parts outside selection
+      let currentSpanStart: string | null = null;
+      let currentSpanEnd: string | null = null;
+
+      for (const charId of spanChars) {
+        if (!selectionCharIdSet.has(charId)) {
+          // This char is in the span but NOT in selection - keep it formatted
+          if (currentSpanStart === null) {
+            currentSpanStart = charId;
+          }
+          currentSpanEnd = charId;
+        } else {
+          // This char IS in selection - close any open span
+          if (currentSpanStart !== null && currentSpanEnd !== null) {
+            newFormats.push({
+              startCharId: currentSpanStart,
+              endCharId: currentSpanEnd,
+              format: span.format,
+              clock: span.clock,
+            });
+            currentSpanStart = null;
+            currentSpanEnd = null;
+          }
+        }
+      }
+
+      // Close final span if any
+      if (currentSpanStart !== null && currentSpanEnd !== null) {
+        newFormats.push({
+          startCharId: currentSpanStart,
+          endCharId: currentSpanEnd,
+          format: span.format,
+          clock: span.clock,
+        });
+      }
+    }
   } else {
     // Add format: create a new span
     const newSpan: FormatSpan = {

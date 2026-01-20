@@ -522,8 +522,7 @@ function blocksToHTML(blocks: Block[]): string {
             : false;
         const indentStyle =
           indent > 0 ? ` style="margin-left: ${indent * 24}px"` : "";
-        const checkbox = checked ? "[x]" : "[ ]";
-        return `<li${indentStyle} data-list-type="todo" data-checked="${checked}">${checkbox} ${htmlContent}</li>`;
+        return `<li${indentStyle} data-list-type="todo" data-checked="${checked}">${htmlContent}</li>`;
       }
       case "paragraph":
       default:

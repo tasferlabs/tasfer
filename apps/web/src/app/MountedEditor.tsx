@@ -23,6 +23,8 @@ import {
   getFormatsAtPosition,
   getSelectionRange,
 } from "../editor/actions/commands";
+import { allCharsHaveFormat } from "../editor/sync/crdt-helpers";
+import { isTextualBlock } from "../deserializer/loadPage";
 import {
   mountEditor,
   type MountedEditor as MountedEditorInstance,
@@ -577,11 +579,13 @@ export function MountedEditor({
       if ((onContentChange || onContentUpdate) && state.document.page?.blocks) {
         const currentBlocks = state.document.page.blocks;
 
-        // On first state change, just store the initial blocks without triggering callbacks
-        // This prevents the editor from overwriting backend content with empty state on mount
+        // On first state change, store the initial blocks and notify for read-only callbacks
+        // Skip onContentChange to prevent overwriting backend content with empty state on mount
         if (!editorInitializedRef.current) {
           lastSerializedBlocksRef.current = currentBlocks;
           editorInitializedRef.current = true;
+          // Still call onContentUpdate for read-only purposes (word count, export)
+          onContentUpdate?.(state.view.visibleBlocks);
           return;
         }
 
@@ -816,27 +820,45 @@ export function MountedEditor({
       }
 
       // Send formatting state to native bridge
-      const getActiveFormats = () => {
-        if (state.ui.activeFormatsMode.type === "explicit") {
-          return state.ui.activeFormatsMode.formats;
-        }
-        // Inherit mode: get formats from cursor position
-        if (state.document.cursor) {
-          const { blockIndex: blockIndex, textIndex } =
-            state.document.cursor.position;
-          const block = state.document.page.blocks[blockIndex];
-          return getFormatsAtPosition(block, textIndex) || [];
-        }
-        return [];
-      };
+      // When there's a selection, check if ALL chars have the format
+      const range = getSelectionRange(state);
+      let isBold: boolean;
+      let isItalic: boolean;
+      let isCode: boolean;
+      let isStrikethrough: boolean;
 
-      const activeFormats = getActiveFormats();
-      const isBold = activeFormats.some((f) => f.type === "bold");
-      const isItalic = activeFormats.some((f) => f.type === "italic");
-      const isCode = activeFormats.some((f) => f.type === "code");
-      const isStrikethrough = activeFormats.some(
-        (f) => f.type === "strikethrough"
-      );
+      if (range && range.start.blockIndex === range.end.blockIndex) {
+        // Single block selection: check if all chars have each format
+        const block = state.document.page.blocks[range.start.blockIndex];
+        if (isTextualBlock(block)) {
+          isBold = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "bold");
+          isItalic = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "italic");
+          isCode = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "code");
+          isStrikethrough = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "strikethrough");
+        } else {
+          isBold = isItalic = isCode = isStrikethrough = false;
+        }
+      } else {
+        // No selection or multi-block: use cursor position
+        const getActiveFormats = () => {
+          if (state.ui.activeFormatsMode.type === "explicit") {
+            return state.ui.activeFormatsMode.formats;
+          }
+          if (state.document.cursor) {
+            const { blockIndex, textIndex } = state.document.cursor.position;
+            const block = state.document.page.blocks[blockIndex];
+            return getFormatsAtPosition(block, textIndex) || [];
+          }
+          return [];
+        };
+        const activeFormats = getActiveFormats();
+        isBold = activeFormats.some((f) => f.type === "bold");
+        isItalic = activeFormats.some((f) => f.type === "italic");
+        isCode = activeFormats.some((f) => f.type === "code");
+        isStrikethrough = activeFormats.some(
+          (f) => f.type === "strikethrough"
+        );
+      }
 
       if (window.IOSBridge) {
         window.IOSBridge.postMessage({
@@ -1003,30 +1025,46 @@ export function MountedEditor({
     // Add Format submenu for desktop when text is selected (not in readonly mode)
     if (hasSelection && !isTouchDevice() && !readonly) {
       // Get active formats from current selection
-      const getActiveFormats = () => {
-        const state = mountedRef.current?.editor.getState();
-        if (!state) return [];
+      // When there's a selection, check if ALL chars have the format
+      const state = mountedRef.current?.editor.getState();
+      let isBold = false;
+      let isItalic = false;
+      let isCode = false;
+      let isStrikethrough = false;
 
-        if (state.ui.activeFormatsMode.type === "explicit") {
-          return state.ui.activeFormatsMode.formats;
+      if (state) {
+        const range = getSelectionRange(state);
+        if (range && range.start.blockIndex === range.end.blockIndex) {
+          // Single block selection: check if all chars have each format
+          const block = state.document.page.blocks[range.start.blockIndex];
+          if (isTextualBlock(block)) {
+            isBold = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "bold");
+            isItalic = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "italic");
+            isCode = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "code");
+            isStrikethrough = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "strikethrough");
+          }
+        } else {
+          // No selection or multi-block: use cursor position
+          const getActiveFormats = () => {
+            if (state.ui.activeFormatsMode.type === "explicit") {
+              return state.ui.activeFormatsMode.formats;
+            }
+            if (state.document.cursor) {
+              const { blockIndex, textIndex } = state.document.cursor.position;
+              const block = state.document.page.blocks[blockIndex];
+              return getFormatsAtPosition(block, textIndex) || [];
+            }
+            return [];
+          };
+          const activeFormats = getActiveFormats();
+          isBold = activeFormats.some((f) => f.type === "bold");
+          isItalic = activeFormats.some((f) => f.type === "italic");
+          isCode = activeFormats.some((f) => f.type === "code");
+          isStrikethrough = activeFormats.some(
+            (f) => f.type === "strikethrough"
+          );
         }
-        // Inherit mode: get formats from cursor position
-        if (state.document.cursor) {
-          const { blockIndex: blockIndex, textIndex } =
-            state.document.cursor.position;
-          const block = state.document.page.blocks[blockIndex];
-          return getFormatsAtPosition(block, textIndex) || [];
-        }
-        return [];
-      };
-
-      const activeFormats = getActiveFormats();
-      const isBold = activeFormats.some((f) => f.type === "bold");
-      const isItalic = activeFormats.some((f) => f.type === "italic");
-      const isCode = activeFormats.some((f) => f.type === "code");
-      const isStrikethrough = activeFormats.some(
-        (f) => f.type === "strikethrough"
-      );
+      }
 
       items.push({
         id: "format",
