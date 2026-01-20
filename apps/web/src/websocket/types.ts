@@ -34,6 +34,12 @@ export interface ConnectionInfo {
 /** User awareness info for room messages */
 export interface RoomUser extends AwarenessUser {}
 
+/** Hello message sent on connect to register client version */
+export interface HelloMessage {
+  type: "hello";
+  clientVersion: number;
+}
+
 /** Join a document room for CRDT sync */
 export interface JoinMessage {
   type: "join";
@@ -191,6 +197,7 @@ export type ServerMessage = RoomMessage | PageEvent;
 
 /** Client-to-server messages */
 export type ClientMessage =
+  | HelloMessage
   | JoinMessage
   | LeaveMessage
   | SyncRequestMessage

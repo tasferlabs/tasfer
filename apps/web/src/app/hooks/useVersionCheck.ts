@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useContext } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { CLIENT_VERSION, meetsMinimumVersion } from "@/version";
 import { getPlatform, type Platform } from "@/platform";
-import { WebSocketContext } from "@/app/contexts/WebSocketContext";
+import { getGlobalWebSocket } from "@/websocket/GlobalWebSocket";
 
 export interface UpdateUrls {
   ios: string | null;
@@ -47,9 +47,6 @@ export function useVersionCheck(): VersionCheckResult {
   } | null>(null);
 
   const platform = getPlatform();
-
-  // Get WebSocket context if available (may be null if outside WebSocketProvider)
-  const wsContext = useContext(WebSocketContext);
 
   const checkVersion = useCallback(async () => {
     try {
@@ -100,12 +97,18 @@ export function useVersionCheck(): VersionCheckResult {
     return () => window.removeEventListener("online", handleOnline);
   }, [checkVersion]);
 
-  // Subscribe to WebSocket update-available notifications (if WebSocket context is available)
-  // This provides instant notification on reconnect after server deploy
+  // Subscribe to WebSocket update-available notifications
+  // Uses GlobalWebSocket singleton directly (doesn't require WebSocketProvider context)
   useEffect(() => {
-    if (!wsContext) return;
+    // Get or create the global WebSocket instance
+    // Use same URL construction as Layout.tsx to ensure consistency
+    const wsBaseUrl = import.meta.env.VITE_WEBSOCKET_URL ||
+      `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`;
+    const authKey = import.meta.env.VITE_LIVE_AUTH_KEY || "";
+    const wsUrl = authKey ? `${wsBaseUrl}?key=${authKey}` : wsBaseUrl;
+    const ws = getGlobalWebSocket(wsUrl);
 
-    const unsubscribe = wsContext.onUpdateAvailable((info) => {
+    const unsubscribe = ws.onUpdateAvailable((info) => {
       console.log("[VersionCheck] WebSocket update notification:", info);
       setWsUpdateInfo({
         serverVersion: info.serverVersion,
@@ -115,7 +118,7 @@ export function useVersionCheck(): VersionCheckResult {
       checkVersion();
     });
     return unsubscribe;
-  }, [wsContext, checkVersion]);
+  }, [checkVersion]);
 
   // Calculate derived state
   // Use WebSocket info if available (instant), fall back to HTTP info

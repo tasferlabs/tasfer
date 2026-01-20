@@ -359,6 +359,10 @@ export class GlobalWebSocket {
         this.ws.onopen = () => {
           this.reconnectAttempts = 0;
           this.setConnectionState("connected");
+
+          // Send hello message with client version immediately
+          this.send({ type: "hello", clientVersion: CLIENT_VERSION });
+
           this.flushMessageQueue();
 
           // Rejoin all subscribed rooms

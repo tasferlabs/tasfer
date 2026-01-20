@@ -104,6 +104,7 @@ type PageEvent =
 
 /** Server message types (room messages + page events) */
 type ServerMessage =
+  | { type: "hello"; clientVersion: number }
   | { type: "join"; roomId: string; peerId: string; user?: AwarenessUser; clientVersion?: number }
   | { type: "leave"; roomId: string; peerId: string }
   | { type: "sync-request"; versionVector: Record<string, number>; requesterId?: string }
@@ -434,18 +435,24 @@ function handleSystemMessage(message: SystemMessage): void {
       console.log(`[Sync Server] Received version announcement from instance ${message.sourceInstanceId.slice(0, 8)}: v${message.version}`);
 
       // Notify all local clients who have an outdated version
-      for (const [peerId, client] of clients) {
-        if (client.clientVersion !== null && client.clientVersion < message.version) {
+      // Iterate over all connected WebSockets (not just room members)
+      let notifiedCount = 0;
+      for (const ws of wss.clients) {
+        const client = wsToClient.get(ws);
+        if (!client || client.clientVersion === null) continue;
+        if (client.clientVersion < message.version) {
           const forceUpdate = client.clientVersion < message.minVersion;
-          console.log(`[Sync Server] Notifying ${peerId} of update (v${client.clientVersion} < v${message.version})${forceUpdate ? " - FORCE UPDATE" : ""}`);
-          send(client.ws, {
+          console.log(`[Sync Server] Notifying ${client.peerId || "unknown"} of update (v${client.clientVersion} < v${message.version})${forceUpdate ? " - FORCE UPDATE" : ""}`);
+          send(ws, {
             type: "update-available",
             serverVersion: message.version,
             clientVersion: client.clientVersion,
             forceUpdate,
           });
+          notifiedCount++;
         }
       }
+      console.log(`[Sync Server] Notified ${notifiedCount} clients of update`);
       break;
   }
 }
@@ -480,6 +487,10 @@ setupRedisSubscriber();
 
 function handleMessage(client: Client, message: ServerMessage): void {
   switch (message.type) {
+    case "hello":
+      handleHello(client, message.clientVersion);
+      break;
+
     case "join":
       handleJoin(client, message.roomId, message.peerId, message.user, message.clientVersion);
       break;
@@ -506,6 +517,27 @@ function handleMessage(client: Client, message: ServerMessage): void {
 
     default:
       console.warn("[Sync Server] Unknown message type:", (message as any).type);
+  }
+}
+
+/**
+ * Handle hello message - client registers its version on connect.
+ * This allows the server to notify the client of updates even before they join a room.
+ */
+function handleHello(client: Client, clientVersion: number): void {
+  client.clientVersion = clientVersion;
+  console.log(`[Sync Server] Client registered version: v${clientVersion}`);
+
+  // Check if client needs update
+  if (clientVersion < versionConfig.version) {
+    const forceUpdate = clientVersion < versionConfig.minVersion;
+    console.log(`[Sync Server] Client has outdated version (v${clientVersion} < v${versionConfig.version})${forceUpdate ? " - FORCE UPDATE" : ""}`);
+    send(client.ws, {
+      type: "update-available",
+      serverVersion: versionConfig.version,
+      clientVersion,
+      forceUpdate,
+    });
   }
 }
 
