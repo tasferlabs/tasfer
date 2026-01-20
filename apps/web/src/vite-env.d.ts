@@ -18,6 +18,7 @@ interface ServiceWorkerRegistration {
 interface ImportMetaEnv {
   readonly VITE_WEBSOCKET_URL?: string;
   readonly VITE_STAGING?: string;
+  readonly VITE_LIVE_AUTH_KEY?: string;
 }
 
 interface ImportMeta {

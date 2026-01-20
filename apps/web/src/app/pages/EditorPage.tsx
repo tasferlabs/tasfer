@@ -245,9 +245,18 @@ export default function EditorPage() {
 
   // Debounced save callback - only called for local user-initiated changes
   // Remote peer updates are NOT persisted by this user; peers handle saving their own changes
+  // IMPORTANT: pageId is passed with the data to avoid race conditions when switching pages
   const handleSave = useCallback(
-    async ({ snapshot, clock }: { snapshot: Block[]; clock: HLC | null }) => {
-      if (!id) return;
+    async ({
+      pageId,
+      snapshot,
+      clock,
+    }: {
+      pageId: string;
+      snapshot: Block[];
+      clock: HLC | null;
+    }) => {
+      if (!pageId) return;
 
       try {
         // Check if we should auto-update the title
@@ -256,10 +265,11 @@ export default function EditorPage() {
           snapshot: Block[];
           snapshotClock: HLC | null;
           title?: string;
-        } = { id, snapshot, snapshotClock: clock };
+        } = { id: pageId, snapshot, snapshotClock: clock };
 
         let titleChanged = false;
-        if (autoTitleRef.current) {
+        // Only update title if we're still on the same page
+        if (autoTitleRef.current && pageId === id) {
           const extractedTitle = extractTitleFromBlocks(snapshot);
           if (extractedTitle !== currentTitleRef.current) {
             updateData.title = extractedTitle;
@@ -272,7 +282,8 @@ export default function EditorPage() {
 
         // Confirm save succeeded - update snapshotClock and mark operations as synced
         // This is only called after the backend confirms the save, not optimistically
-        if (clock && confirmSaveFnRef.current) {
+        // Only confirm if we're still on the same page
+        if (clock && confirmSaveFnRef.current && pageId === id) {
           confirmSaveFnRef.current(clock);
         }
 
@@ -304,11 +315,13 @@ export default function EditorPage() {
   isSavingRef.current = isSaving;
 
   // Handle content changes from editor (local changes only - for saving)
+  // Captures current page ID to ensure save targets the correct page
   const handleContentChange = useCallback(
     (snapshot: Block[], clock: HLC | null) => {
-      debouncedSave({ snapshot, clock });
+      if (!id) return;
+      debouncedSave({ pageId: id, snapshot, clock });
     },
-    [debouncedSave],
+    [id, debouncedSave],
   );
 
   // Handle all content updates (local and remote - for word count)
@@ -323,13 +336,14 @@ export default function EditorPage() {
   // Handle snapshot restoration
   const handleRestoreSnapshot = useCallback(
     (blocks: Block[]) => {
+      if (!id) return;
       if (restoreFnRef.current) {
         restoreFnRef.current(blocks);
-        // Trigger save after restore
-        debouncedSave({ snapshot: blocks, clock: null });
+        // Trigger save after restore - include pageId for correct targeting
+        debouncedSave({ pageId: id, snapshot: blocks, clock: null });
       }
     },
-    [debouncedSave],
+    [id, debouncedSave],
   );
 
   // Expose restore callback to context

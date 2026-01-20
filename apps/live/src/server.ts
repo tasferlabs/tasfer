@@ -23,6 +23,9 @@ import { WebSocket, WebSocketServer } from "ws";
 // Unique instance ID for multi-instance coordination
 const INSTANCE_ID = crypto.randomUUID();
 
+// Auth key for basic protection (clients must pass this in query string)
+const AUTH_KEY = process.env.LIVE_AUTH_KEY || "zADL7WxuMcUM8uVbPwBJOqxH9haeU3K4X2vWdohIo5E";
+
 
 // =============================================================================
 // Version Loading
@@ -121,6 +124,7 @@ interface Client {
   peerId: string | null;
   roomId: string | null;
   awarenessState: AwarenessState | null;
+  clientVersion: number | null;
 }
 
 // =============================================================================
@@ -145,6 +149,18 @@ const PORT = parseInt(process.env.PORT || "8080", 10);
 const wss = new WebSocketServer({
   port: PORT,
   perMessageDeflate: false, // Disable compression for lower latency
+  verifyClient: (info, callback) => {
+    const url = new URL(info.req.url || "", `http://${info.req.headers.host}`);
+    const key = url.searchParams.get("key");
+
+    if (key !== AUTH_KEY) {
+      console.log(`[Sync Server] Rejected connection: invalid auth key`);
+      callback(false, 401, "Unauthorized");
+      return;
+    }
+
+    callback(true);
+  },
 });
 
 console.log(`[Sync Server] Starting on port ${PORT}`);
@@ -155,6 +171,7 @@ wss.on("connection", (ws) => {
     peerId: null,
     roomId: null,
     awarenessState: null,
+    clientVersion: null,
   };
   wsToClient.set(ws, client);
 
@@ -189,6 +206,11 @@ wss.on("listening", () => {
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const REDIS_CHANNEL = "cypher:page-events";
+const REDIS_SYSTEM_CHANNEL = "cypher:system";
+
+/** System-wide messages between instances */
+type SystemMessage =
+  | { type: "version-announcement"; version: number; minVersion: number; sourceInstanceId: string };
 
 let redisSubscriber: Redis | null = null;
 let redisPublisher: Redis | null = null;
@@ -237,9 +259,9 @@ async function setupRedisSubscriber(): Promise<void> {
       console.log(`[Sync Server] Connected to Redis (instance: ${INSTANCE_ID.slice(0, 8)})`);
     });
 
-    // Subscribe to page events channel
-    await redisSubscriber.subscribe(REDIS_CHANNEL);
-    console.log(`[Sync Server] Subscribed to Redis channel: ${REDIS_CHANNEL}`);
+    // Subscribe to page events and system channels
+    await redisSubscriber.subscribe(REDIS_CHANNEL, REDIS_SYSTEM_CHANNEL);
+    console.log(`[Sync Server] Subscribed to Redis channels: ${REDIS_CHANNEL}, ${REDIS_SYSTEM_CHANNEL}`);
 
     // Handle incoming messages
     redisSubscriber.on("message", (channel, message) => {
@@ -251,6 +273,21 @@ async function setupRedisSubscriber(): Promise<void> {
           broadcastPageEventToAll(event);
         } catch (error) {
           console.error("[Sync Server] Invalid Redis page event:", error);
+        }
+        return;
+      }
+
+      // Handle system messages
+      if (channel === REDIS_SYSTEM_CHANNEL) {
+        try {
+          const systemMessage = JSON.parse(message) as SystemMessage;
+
+          // Skip messages from this instance
+          if (systemMessage.sourceInstanceId === INSTANCE_ID) return;
+
+          handleSystemMessage(systemMessage);
+        } catch (error) {
+          console.error("[Sync Server] Invalid Redis system message:", error);
         }
         return;
       }
@@ -269,6 +306,9 @@ async function setupRedisSubscriber(): Promise<void> {
         }
       }
     });
+
+    // Announce our version to other instances
+    announceVersion();
   } catch (error) {
     console.error("[Sync Server] Failed to connect to Redis:", error);
     console.log("[Sync Server] Page events and multi-instance sync will not be available");
@@ -384,6 +424,53 @@ function broadcastPageEventToAll(event: PageEvent): void {
   console.log(`[Sync Server] Broadcast ${event.type} to ${sentCount} clients`);
 }
 
+/**
+ * Handle a system message received from Redis (from another instance).
+ * Used for cross-instance coordination like version announcements.
+ */
+function handleSystemMessage(message: SystemMessage): void {
+  switch (message.type) {
+    case "version-announcement":
+      console.log(`[Sync Server] Received version announcement from instance ${message.sourceInstanceId.slice(0, 8)}: v${message.version}`);
+
+      // Notify all local clients who have an outdated version
+      for (const [peerId, client] of clients) {
+        if (client.clientVersion !== null && client.clientVersion < message.version) {
+          const forceUpdate = client.clientVersion < message.minVersion;
+          console.log(`[Sync Server] Notifying ${peerId} of update (v${client.clientVersion} < v${message.version})${forceUpdate ? " - FORCE UPDATE" : ""}`);
+          send(client.ws, {
+            type: "update-available",
+            serverVersion: message.version,
+            clientVersion: client.clientVersion,
+            forceUpdate,
+          });
+        }
+      }
+      break;
+  }
+}
+
+/**
+ * Announce this instance's version to other instances via Redis.
+ * Called when this instance starts up.
+ */
+function announceVersion(): void {
+  if (!redisPublisher) return;
+
+  const message: SystemMessage = {
+    type: "version-announcement",
+    version: versionConfig.version,
+    minVersion: versionConfig.minVersion,
+    sourceInstanceId: INSTANCE_ID,
+  };
+
+  redisPublisher.publish(REDIS_SYSTEM_CHANNEL, JSON.stringify(message)).then(() => {
+    console.log(`[Sync Server] Announced version v${versionConfig.version} to other instances`);
+  }).catch((error) => {
+    console.error("[Sync Server] Failed to announce version:", error);
+  });
+}
+
 // Initialize Redis subscriber
 setupRedisSubscriber();
 
@@ -431,6 +518,7 @@ function handleJoin(client: Client, roomId: string, peerId: string, user?: Aware
   // Update client info
   client.peerId = peerId;
   client.roomId = roomId;
+  client.clientVersion = clientVersion ?? null;
   clients.set(peerId, client);
 
   // Initialize awareness state if user info provided

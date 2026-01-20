@@ -17,11 +17,17 @@ import { DevToolbar } from "../components/DevToolbar";
 import { useOfflineStatus } from "@/offline/hooks/useOfflineStatus";
 
 // WebSocket server URL - defaults to using Vite proxy
-const WEBSOCKET_URL =
+const WEBSOCKET_BASE_URL =
   import.meta.env.VITE_WEBSOCKET_URL ||
   `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${
     window.location.host
   }/ws`;
+
+// Auth key for WebSocket connection
+const LIVE_AUTH_KEY = import.meta.env.VITE_LIVE_AUTH_KEY || "";
+const WEBSOCKET_URL = LIVE_AUTH_KEY
+  ? `${WEBSOCKET_BASE_URL}?key=${LIVE_AUTH_KEY}`
+  : WEBSOCKET_BASE_URL;
 
 export default function Layout() {
   const [resizableOpen, setResizableOpen] = useLocalStorage(
