@@ -14,10 +14,14 @@
  * - Broadcasts page events to all connected clients
  */
 
+import crypto from "crypto";
 import { readFileSync } from "fs";
 import Redis from "ioredis";
 import { join } from "path";
 import { WebSocket, WebSocketServer } from "ws";
+
+// Unique instance ID for multi-instance coordination
+const INSTANCE_ID = crypto.randomUUID();
 
 
 // =============================================================================
@@ -187,17 +191,50 @@ const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const REDIS_CHANNEL = "cypher:page-events";
 
 let redisSubscriber: Redis | null = null;
+let redisPublisher: Redis | null = null;
+
+/** Track which room channels this instance is subscribed to */
+const subscribedRooms = new Set<string>();
+
+/** Get Redis channel name for a room */
+function getRoomChannel(roomId: string): string {
+  return `cypher:room:${roomId}`;
+}
+
+/** Messages relayed via Redis between instances */
+type RedisRoomMessage =
+  | { type: "operations"; roomId: string; peerId: string; operations: any[]; sourceInstanceId: string }
+  | { type: "awareness"; roomId: string; peerId: string; state: AwarenessState; sourceInstanceId: string }
+  | { type: "sync-request"; roomId: string; versionVector: Record<string, number>; requesterId: string; sourceInstanceId: string }
+  | { type: "sync-response"; roomId: string; operations: any[]; versionVector: Record<string, number>; targetPeerId: string; sourceInstanceId: string }
+  | { type: "peer-joined"; roomId: string; peerId: string; user?: AwarenessUser; sourceInstanceId: string }
+  | { type: "peer-left"; roomId: string; peerId: string; sourceInstanceId: string };
+
+/** Publish a message to a room's Redis channel */
+function publishToRedis(roomId: string, message: RedisRoomMessage): void {
+  if (!redisPublisher) return;
+
+  const channel = getRoomChannel(roomId);
+  redisPublisher.publish(channel, JSON.stringify(message)).catch((error) => {
+    console.error(`[Sync Server] Failed to publish to Redis channel ${channel}:`, error);
+  });
+}
 
 async function setupRedisSubscriber(): Promise<void> {
   try {
     redisSubscriber = new Redis(REDIS_URL);
+    redisPublisher = new Redis(REDIS_URL);
 
     redisSubscriber.on("error", (error) => {
-      console.error("[Sync Server] Redis error:", error);
+      console.error("[Sync Server] Redis subscriber error:", error);
+    });
+
+    redisPublisher.on("error", (error) => {
+      console.error("[Sync Server] Redis publisher error:", error);
     });
 
     redisSubscriber.on("connect", () => {
-      console.log("[Sync Server] Connected to Redis");
+      console.log(`[Sync Server] Connected to Redis (instance: ${INSTANCE_ID.slice(0, 8)})`);
     });
 
     // Subscribe to page events channel
@@ -206,19 +243,126 @@ async function setupRedisSubscriber(): Promise<void> {
 
     // Handle incoming messages
     redisSubscriber.on("message", (channel, message) => {
-      if (channel !== REDIS_CHANNEL) return;
+      // Handle page events
+      if (channel === REDIS_CHANNEL) {
+        try {
+          const event = JSON.parse(message) as PageEvent;
+          console.log(`[Sync Server] Received page event: ${event.type}`);
+          broadcastPageEventToAll(event);
+        } catch (error) {
+          console.error("[Sync Server] Invalid Redis page event:", error);
+        }
+        return;
+      }
 
-      try {
-        const event = JSON.parse(message) as PageEvent;
-        console.log(`[Sync Server] Received page event: ${event.type}`);
-        broadcastPageEventToAll(event);
-      } catch (error) {
-        console.error("[Sync Server] Invalid Redis message:", error);
+      // Handle room messages
+      if (channel.startsWith("cypher:room:")) {
+        try {
+          const roomMessage = JSON.parse(message) as RedisRoomMessage;
+
+          // Skip messages from this instance
+          if (roomMessage.sourceInstanceId === INSTANCE_ID) return;
+
+          handleRedisRoomMessage(roomMessage);
+        } catch (error) {
+          console.error("[Sync Server] Invalid Redis room message:", error);
+        }
       }
     });
   } catch (error) {
     console.error("[Sync Server] Failed to connect to Redis:", error);
-    console.log("[Sync Server] Page events will not be available");
+    console.log("[Sync Server] Page events and multi-instance sync will not be available");
+  }
+}
+
+/**
+ * Handle a room message received from Redis (from another instance).
+ * Broadcasts to local peers in the room.
+ */
+function handleRedisRoomMessage(message: RedisRoomMessage): void {
+  const room = rooms.get(message.roomId);
+  if (!room || room.size === 0) return;
+
+  switch (message.type) {
+    case "operations":
+      // Broadcast operations to all local peers in the room
+      for (const peerId of room) {
+        const client = clients.get(peerId);
+        if (client) {
+          send(client.ws, {
+            type: "operations",
+            operations: message.operations,
+          });
+        }
+      }
+      break;
+
+    case "awareness":
+      // Broadcast awareness to all local peers in the room
+      for (const peerId of room) {
+        const client = clients.get(peerId);
+        if (client) {
+          send(client.ws, {
+            type: "awareness",
+            peerId: message.peerId,
+            state: message.state,
+          });
+        }
+      }
+      break;
+
+    case "sync-request":
+      // Forward sync request to all local peers (they'll respond if they have data)
+      for (const peerId of room) {
+        const client = clients.get(peerId);
+        if (client) {
+          send(client.ws, {
+            type: "sync-request",
+            versionVector: message.versionVector,
+            requesterId: message.requesterId,
+          });
+        }
+      }
+      break;
+
+    case "sync-response":
+      // Route sync response to target peer if they're local
+      const targetClient = clients.get(message.targetPeerId);
+      if (targetClient && targetClient.roomId === message.roomId) {
+        send(targetClient.ws, {
+          type: "sync-response",
+          operations: message.operations,
+          versionVector: message.versionVector,
+        });
+      }
+      break;
+
+    case "peer-joined":
+      // Notify local peers about remote peer joining
+      for (const peerId of room) {
+        const client = clients.get(peerId);
+        if (client) {
+          send(client.ws, {
+            type: "peer-joined",
+            peerId: message.peerId,
+            user: message.user,
+          });
+        }
+      }
+      break;
+
+    case "peer-left":
+      // Notify local peers about remote peer leaving
+      for (const peerId of room) {
+        const client = clients.get(peerId);
+        if (client) {
+          send(client.ws, {
+            type: "peer-left",
+            peerId: message.peerId,
+          });
+        }
+      }
+      break;
   }
 }
 
@@ -313,9 +457,21 @@ function handleJoin(client: Client, roomId: string, peerId: string, user?: Aware
 
   // Get or create room
   let room = rooms.get(roomId);
+  const isFirstLocalPeer = !room || room.size === 0;
   if (!room) {
     room = new Set();
     rooms.set(roomId, room);
+  }
+
+  // Subscribe to room channel if this is the first local peer
+  if (isFirstLocalPeer && redisSubscriber && !subscribedRooms.has(roomId)) {
+    const channel = getRoomChannel(roomId);
+    redisSubscriber.subscribe(channel).then(() => {
+      subscribedRooms.add(roomId);
+      console.log(`[Sync Server] Subscribed to room channel: ${channel}`);
+    }).catch((error) => {
+      console.error(`[Sync Server] Failed to subscribe to room channel ${channel}:`, error);
+    });
   }
 
   // Get existing peers before adding new one
@@ -342,7 +498,7 @@ function handleJoin(client: Client, roomId: string, peerId: string, user?: Aware
     awarenessStates: Object.keys(awarenessStates).length > 0 ? awarenessStates : undefined,
   });
 
-  // Notify existing peers about new peer (include user info if available)
+  // Notify existing local peers about new peer (include user info if available)
   for (const existingPeerId of existingPeers) {
     const existingClient = clients.get(existingPeerId);
     if (existingClient) {
@@ -353,36 +509,67 @@ function handleJoin(client: Client, roomId: string, peerId: string, user?: Aware
       });
     }
   }
+
+  // Publish peer-joined to Redis for other instances
+  publishToRedis(roomId, {
+    type: "peer-joined",
+    roomId,
+    peerId,
+    user: client.awarenessState?.user,
+    sourceInstanceId: INSTANCE_ID,
+  });
 }
 
 function handleLeave(client: Client): void {
   if (!client.roomId || !client.peerId) return;
 
-  const room = rooms.get(client.roomId);
-  if (room) {
-    room.delete(client.peerId);
+  const roomId = client.roomId;
+  const peerId = client.peerId;
 
-    // Notify other peers
-    for (const peerId of room) {
-      const otherClient = clients.get(peerId);
+  const room = rooms.get(roomId);
+  if (room) {
+    room.delete(peerId);
+
+    // Notify other local peers
+    for (const otherPeerId of room) {
+      const otherClient = clients.get(otherPeerId);
       if (otherClient) {
         send(otherClient.ws, {
           type: "peer-left",
-          peerId: client.peerId,
+          peerId,
         });
       }
     }
 
+    // Publish peer-left to Redis for other instances
+    publishToRedis(roomId, {
+      type: "peer-left",
+      roomId,
+      peerId,
+      sourceInstanceId: INSTANCE_ID,
+    });
+
     // Clean up empty room
     if (room.size === 0) {
-      rooms.delete(client.roomId);
+      rooms.delete(roomId);
+
+      // Unsubscribe from room channel when last local peer leaves
+      if (redisSubscriber && subscribedRooms.has(roomId)) {
+        const channel = getRoomChannel(roomId);
+        redisSubscriber.unsubscribe(channel).then(() => {
+          subscribedRooms.delete(roomId);
+          console.log(`[Sync Server] Unsubscribed from room channel: ${channel}`);
+        }).catch((error) => {
+          console.error(`[Sync Server] Failed to unsubscribe from room channel ${channel}:`, error);
+        });
+      }
     }
 
-    console.log(`[Sync Server] Peer ${client.peerId} left room ${client.roomId}`);
+    console.log(`[Sync Server] Peer ${peerId} left room ${roomId}`);
   }
 
   // Clean up client
-  clients.delete(client.peerId);
+  clients.delete(peerId);
   client.roomId = null;
   client.peerId = null;
   client.awarenessState = null;
@@ -401,7 +588,7 @@ function handleSyncRequest(client: Client, versionVector: Record<string, number>
 
   console.log(`[Sync Server] Sync request from ${client.peerId} in room ${client.roomId}`);
 
-  // Relay sync request to all other peers in the room
+  // Relay sync request to all other local peers in the room
   // Each peer will respond with their operations
   const room = rooms.get(client.roomId);
   if (!room) return;
@@ -419,6 +606,15 @@ function handleSyncRequest(client: Client, versionVector: Record<string, number>
       });
     }
   }
+
+  // Publish sync request to Redis for peers on other instances
+  publishToRedis(client.roomId, {
+    type: "sync-request",
+    roomId: client.roomId,
+    versionVector,
+    requesterId: client.peerId,
+    sourceInstanceId: INSTANCE_ID,
+  });
 }
 
 function handleSyncResponse(
@@ -436,6 +632,7 @@ function handleSyncResponse(
   if (targetPeerId) {
     const targetClient = clients.get(targetPeerId);
     if (targetClient && targetClient.roomId === client.roomId) {
+      // Target peer is local, send directly
       console.log(`[Sync Server] Routing sync response (${operations.length} ops) from ${client.peerId} to ${targetPeerId}`);
       send(targetClient.ws, {
         type: "sync-response",
@@ -443,7 +640,16 @@ function handleSyncResponse(
         versionVector,
       });
     } else {
-      console.warn(`[Sync Server] Target peer ${targetPeerId} not found or not in same room`);
+      // Target peer might be on another instance, publish to Redis
+      console.log(`[Sync Server] Routing sync response (${operations.length} ops) from ${client.peerId} to ${targetPeerId} via Redis`);
+      publishToRedis(client.roomId, {
+        type: "sync-response",
+        roomId: client.roomId,
+        operations,
+        versionVector,
+        targetPeerId,
+        sourceInstanceId: INSTANCE_ID,
+      });
     }
   } else {
     // Fallback: broadcast to all peers in room (shouldn't happen with proper routing)
@@ -474,7 +680,7 @@ function handleOperations(client: Client, operations: any[]): void {
 
   console.log(`[Sync Server] Broadcasting ${operations.length} operations from ${client.peerId} in room ${client.roomId}`);
 
-  // Broadcast operations to all other peers in the room
+  // Broadcast operations to all other local peers in the room
   const room = rooms.get(client.roomId);
   if (!room) return;
 
@@ -489,6 +695,15 @@ function handleOperations(client: Client, operations: any[]): void {
       });
     }
   }
+
+  // Publish operations to Redis for peers on other instances
+  publishToRedis(client.roomId, {
+    type: "operations",
+    roomId: client.roomId,
+    peerId: client.peerId,
+    operations,
+    sourceInstanceId: INSTANCE_ID,
+  });
 }
 
 function handleAwareness(client: Client, state: AwarenessState): void {
@@ -500,7 +715,7 @@ function handleAwareness(client: Client, state: AwarenessState): void {
   // Update stored awareness state
   client.awarenessState = state;
 
-  // Broadcast awareness to all other peers in the room
+  // Broadcast awareness to all other local peers in the room
   const room = rooms.get(client.roomId);
   if (!room) return;
 
@@ -516,6 +731,15 @@ function handleAwareness(client: Client, state: AwarenessState): void {
       });
     }
   }
+
+  // Publish awareness to Redis for peers on other instances
+  publishToRedis(client.roomId, {
+    type: "awareness",
+    roomId: client.roomId,
+    peerId: client.peerId,
+    state,
+    sourceInstanceId: INSTANCE_ID,
+  });
 }
 
 // =============================================================================
@@ -561,15 +785,28 @@ async function gracefulShutdown(signal: string): Promise<void> {
   // Give clients a moment to receive the shutdown message
   await new Promise((resolve) => setTimeout(resolve, 100));
 
-  // Close Redis subscriber
-  if (redisSubscriber) {
-    try {
+  // Close Redis connections
+  try {
+    if (redisSubscriber) {
+      // Unsubscribe from page events channel
       await redisSubscriber.unsubscribe(REDIS_CHANNEL);
+
+      // Unsubscribe from all room channels
+      for (const roomId of subscribedRooms) {
+        await redisSubscriber.unsubscribe(getRoomChannel(roomId));
+      }
+      subscribedRooms.clear();
+
       await redisSubscriber.quit();
-      console.log("[Sync Server] Redis connection closed");
-    } catch (error) {
-      console.error("[Sync Server] Error closing Redis:", error);
+      console.log("[Sync Server] Redis subscriber closed");
     }
+
+    if (redisPublisher) {
+      await redisPublisher.quit();
+      console.log("[Sync Server] Redis publisher closed");
+    }
+  } catch (error) {
+    console.error("[Sync Server] Error closing Redis:", error);
   }
 
   // Close all WebSocket connections with clean close code
