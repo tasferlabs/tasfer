@@ -271,7 +271,7 @@
 - [x] close connections gracefully on app close
 - [x] **on deploy ios blacking o**ut
 - [ ] Combination of bold and italic did not work one time.
-- [ ] ending wiht "`" not wokring
+- [x] ending wiht "`" not wokring
 - [ ] Typing double space should clear fomrating or may do it by context menu
 - [ ] Clering one letter, clears everything in format span
 - [ ] Add way to add link

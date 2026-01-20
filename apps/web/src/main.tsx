@@ -3,9 +3,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Suspense } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { RouterProvider } from "react-router-dom";
 import { registerSW } from "virtual:pwa-register";
-import App from "./app/App";
+import { router } from "./app/routes/Router";
 import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
 import LoadingScreen from "./components/ui/loading-screen";
@@ -33,13 +33,11 @@ const queryClient = new QueryClient({
 createRoot(document.getElementById("root")!).render(
   <QueryClientProvider client={queryClient}>
     <ThemeProvider>
-      <BrowserRouter>
-        <VersionProvider>
-          <Suspense fallback={<LoadingScreen />}>
-            <App />
-          </Suspense>
-        </VersionProvider>
-      </BrowserRouter>
+      <VersionProvider>
+        <Suspense fallback={<LoadingScreen />}>
+          <RouterProvider router={router} />
+        </Suspense>
+      </VersionProvider>
     </ThemeProvider>
   </QueryClientProvider>,
 );

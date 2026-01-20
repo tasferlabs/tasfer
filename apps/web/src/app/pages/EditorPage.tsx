@@ -31,7 +31,6 @@ import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
 import { useDebouncedSave } from "../hooks/useDebouncedSave";
 import { usePageSettings } from "../contexts/PageSettingsContext";
-import { useConfirmation } from "../components/ConfirmationDialog";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useLocalStorage from "../hooks/useLocalStorage";
 import { WordCountOverlay } from "../components/WordCountOverlay";
@@ -67,7 +66,7 @@ function countWordsFromBlocks(blocks: Block[]): number {
       .split(/\s+/)
       .map((word) =>
         // Remove punctuation from the beginning and end of each word
-        word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")
+        word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""),
       )
       .filter((word) => word.length > 0);
 
@@ -88,7 +87,6 @@ export default function EditorPage() {
     setCurrentBlocks,
     setOnRestoreSnapshot,
   } = usePageSettings();
-  const { getConfirmation } = useConfirmation();
   const { mutateAsync: updatePage } = useUpdatePage();
   // State for loading page snapshot once on mount
   const [pageSnapshot, setPageSnapshot] = useState<Block[] | null>(null);
@@ -117,7 +115,7 @@ export default function EditorPage() {
   const { data: pages, isLoading: isLoadingPages } = useGetPages(null);
   const [lastPageId, setLastPageId] = useLocalStorage<string | null>(
     "lastPageId",
-    null
+    null,
   );
 
   // Create debounced word count updater (500ms delay for performance)
@@ -125,7 +123,7 @@ export default function EditorPage() {
     debounce((blocks: Block[]) => {
       const count = countWordsFromBlocks(blocks);
       setWordCount(count);
-    }, 500)
+    }, 500),
   ).current;
 
   // Refs for auto-title to avoid stale closures
@@ -180,7 +178,10 @@ export default function EditorPage() {
       }
     } else {
       // Have page ID - check if we should show not-found state
-      if (!isLoading && (isError || pageSnapshot === null || isDeletedByOther)) {
+      if (
+        !isLoading &&
+        (isError || pageSnapshot === null || isDeletedByOther)
+      ) {
         setPersistedState("not-found");
       }
     }
@@ -284,7 +285,7 @@ export default function EditorPage() {
         console.error("Failed to save content:", error);
       }
     },
-    [id, updatePage, queryClient]
+    [id, updatePage, queryClient],
   );
 
   const {
@@ -298,12 +299,16 @@ export default function EditorPage() {
     setGlobalIsSaving(isSaving);
   }, [isSaving, setGlobalIsSaving]);
 
+  // Keep a ref to isSaving for beforeunload handler (avoids stale closure)
+  const isSavingRef = useRef(isSaving);
+  isSavingRef.current = isSaving;
+
   // Handle content changes from editor (local changes only - for saving)
   const handleContentChange = useCallback(
     (snapshot: Block[], clock: HLC | null) => {
       debouncedSave({ snapshot, clock });
     },
-    [debouncedSave]
+    [debouncedSave],
   );
 
   // Handle all content updates (local and remote - for word count)
@@ -312,7 +317,7 @@ export default function EditorPage() {
       debouncedWordCountUpdate(blocks);
       setCurrentBlocks(blocks);
     },
-    [debouncedWordCountUpdate, setCurrentBlocks]
+    [debouncedWordCountUpdate, setCurrentBlocks],
   );
 
   // Handle snapshot restoration
@@ -324,7 +329,7 @@ export default function EditorPage() {
         debouncedSave({ snapshot: blocks, clock: null });
       }
     },
-    [debouncedSave]
+    [debouncedSave],
   );
 
   // Expose restore callback to context
@@ -338,7 +343,7 @@ export default function EditorPage() {
   // Warn user before leaving page if there are unsaved changes
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isSaving) {
+      if (isSavingRef.current) {
         e.preventDefault();
         e.returnValue = "";
         return "";
@@ -349,10 +354,10 @@ export default function EditorPage() {
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [isSaving]);
+  }, []);
 
   // Prompt user before in-app navigation if saving
-  useNavigationPrompt(isSaving, getConfirmation);
+  useNavigationPrompt(isSaving);
 
   // Flush pending saves and reset saving state before unmount
   useEffect(() => {
@@ -367,7 +372,7 @@ export default function EditorPage() {
     (users: AwarenessUser[]) => {
       setActiveUsers(users);
     },
-    [setActiveUsers]
+    [setActiveUsers],
   );
 
   // Check persisted state first - once entered, stay until user navigates
