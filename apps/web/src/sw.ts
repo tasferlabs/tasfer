@@ -133,9 +133,39 @@ async function getOfflineIndexHtml(): Promise<Response> {
   const precached = await matchPrecache("/index.html");
   if (precached) return precached;
 
-  // Last resort
+  // Last resort - styled fallback matching recovery UI
   return new Response(
-    "<!DOCTYPE html><html><body><h1>Offline</h1><p>Please reconnect.</p></body></html>",
+    `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cypher - Offline</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      text-align: center;
+      background: #fff;
+      color: #09090b;
+    }
+    h1 { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
+    p { font-size: 14px; margin: 0; opacity: 0.6; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #09090b; color: #fafafa; }
+    }
+  </style>
+</head>
+<body>
+  <h1>You're offline</h1>
+  <p>Please reconnect to continue.</p>
+</body>
+</html>`,
     { headers: { "Content-Type": "text/html" } }
   );
 }
