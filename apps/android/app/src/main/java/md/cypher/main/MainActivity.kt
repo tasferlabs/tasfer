@@ -377,7 +377,7 @@ class MainActivity : ComponentActivity() {
 
             override fun onReceivedHttpAuthRequest(view: WebView?, handler: HttpAuthHandler?, host: String?, realm: String?) {
                 // Handle HTTP Basic Authentication
-                handler?.proceed("halowaia", "fatush")
+                handler?.proceed("wawaweia", "fatush")
             }
         }
         

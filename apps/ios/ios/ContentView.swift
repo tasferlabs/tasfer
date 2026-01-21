@@ -1774,7 +1774,7 @@ struct WebView: UIViewRepresentable {
             // Handle HTTP Basic Authentication
             if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodHTTPBasic {
                 let credential = URLCredential(
-                    user: "halowaia",
+                    user: "wawaweia",
                     password: "fatush",
                     persistence: .forSession
                 )
