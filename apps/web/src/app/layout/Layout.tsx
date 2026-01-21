@@ -42,8 +42,16 @@ export default function Layout() {
 
   const { isLoading, meetsMinimum } = useVersion();
 
-  // Show force update page if minimum version not met
-  if (!isLoading && !meetsMinimum) {
+  // Track if app ever mounted with valid version (user was working)
+  const hadValidVersion = React.useRef(false);
+  if (!isLoading && meetsMinimum) {
+    hadValidVersion.current = true;
+  }
+
+  const needsForceUpdate = !isLoading && !meetsMinimum;
+
+  // If force update needed on first load, show update page directly
+  if (needsForceUpdate && !hadValidVersion.current) {
     return <ForceUpdatePage />;
   }
 
@@ -52,7 +60,7 @@ export default function Layout() {
       <PageSettingsProvider>
         <ConfirmationDialogProvider>
           <UnsavedChangesDialogProvider>
-            <div className={style.appContainer}>
+            <div className={style.appContainer} inert={needsForceUpdate ? (true as unknown as boolean) : undefined}>
               {isMobile ? (
                 <FloatingSidebar open={floatingOpen} setOpen={setFloatingOpen} />
               ) : (
@@ -71,6 +79,7 @@ export default function Layout() {
             </div>
             <UpdatePopup />
             <DevToolbar />
+            {needsForceUpdate && <ForceUpdatePage />}
           </UnsavedChangesDialogProvider>
         </ConfirmationDialogProvider>
       </PageSettingsProvider>

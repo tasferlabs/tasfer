@@ -29,6 +29,7 @@ import {
 import Icons from "../components/uiKit/Icons/Icons";
 import VisuallyHidden from "../components/uiKit/VisuallyHidden/VisuallyHidden";
 import { PagesArea } from "./components/PagesArea";
+import { setRecentDragEnd } from "./components/PageLink";
 import style from "./Layout.module.css";
 
 // Mock t function
@@ -99,6 +100,7 @@ export function SidebarContent({
   function handleDragEnd(event: DragEndEvent) {
     setActiveId(null);
     setActiveDragData(null);
+    setRecentDragEnd();
 
     const { active, over } = event;
 
