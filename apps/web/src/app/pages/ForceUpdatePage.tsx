@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import { Loader2, WifiOff } from "lucide-react";
 import { BUILD_TIMESTAMP } from "@/version";
+import { WifiOff } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useVersion } from "../contexts/VersionContext";
 
 export default function ForceUpdatePage() {
@@ -74,7 +74,10 @@ export default function ForceUpdatePage() {
         </div>
 
         {/* Title */}
-        <h1 id="force-update-title" className="text-2xl font-semibold text-foreground">
+        <h1
+          id="force-update-title"
+          className="text-2xl font-semibold text-foreground"
+        >
           {isOnline ? t`Update Required` : t`You're Offline`}
         </h1>
 
@@ -89,11 +92,10 @@ export default function ForceUpdatePage() {
         <Button
           ref={buttonRef}
           onClick={handleUpdate}
-          disabled={isUpdating}
+          loading={isUpdating}
           size="lg"
           className="w-full"
         >
-          {isUpdating && <Loader2 className="animate-spin" />}
           {isOnline ? t`Update Now` : t`Try Update`}
         </Button>
 

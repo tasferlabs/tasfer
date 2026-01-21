@@ -1,7 +1,6 @@
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
-import { Loader2 } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useVersion } from "../contexts/VersionContext";
 import { useKeyboardOpen } from "../hooks/useKeyboardOpen";
@@ -85,10 +84,9 @@ export default function UpdatePopup() {
                 <Button
                   variant="default"
                   onClick={handleUpdate}
-                  disabled={isUpdating}
+                  loading={isUpdating}
                   aria-label={t`Update the app now`}
                 >
-                  {isUpdating && <Loader2 className="animate-spin" />}
                   {t`Update now`}
                 </Button>
               </div>
