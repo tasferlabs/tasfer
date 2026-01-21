@@ -51,6 +51,23 @@ function Button({
   }) {
   const Comp = asChild ? Slot.Root : "button"
 
+  // When asChild is true, Slot expects a single child element - don't wrap in extra elements
+  if (asChild) {
+    return (
+      <Comp
+        data-slot="button"
+        data-variant={variant}
+        data-size={size}
+        disabled={disabled || loading}
+        aria-busy={loading}
+        className={cn("relative", buttonVariants({ variant, size, className }))}
+        {...props}
+      >
+        {children}
+      </Comp>
+    )
+  }
+
   return (
     <Comp
       data-slot="button"
