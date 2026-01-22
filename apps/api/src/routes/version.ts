@@ -1,15 +1,11 @@
 import { Router } from "express";
 import { readFileSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { join } from "path";
+import { getAppDir } from "../lib/paths.js";
 
 const router = Router();
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const versionConfigPath =
-  process.env.NODE_ENV === "production"
-    ? "/app/version.json"
-    : join(__dirname, "../../../../version.json");
+const versionConfigPath = join(getAppDir(), "version.json");
 
 interface VersionConfig {
   version: number;

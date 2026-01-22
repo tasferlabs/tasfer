@@ -1,10 +1,8 @@
 import path from "path";
-import { fileURLToPath } from "url";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { getRootDir } from "../lib/paths.js";
 
 const connectionString =
   process.env.DATABASE_URL ||
@@ -18,8 +16,7 @@ async function runMigrations() {
   });
   const db = drizzle({ client: pool });
 
-  // Path relative to this file's location (dist/db/) -> dist/drizzle/
-  const migrationsFolder = path.join(__dirname, "..", "drizzle");
+  const migrationsFolder = path.join(getRootDir(), "drizzle");
   await migrate(db, { migrationsFolder });
 
   console.log("Migrations completed successfully");

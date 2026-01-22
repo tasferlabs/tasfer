@@ -15,13 +15,7 @@ This guide covers setting up the development environment for Cypher.
 Create a PostgreSQL 15 container named `cypher`:
 
 ```bash
-docker run -d \
-  --name cypher \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=cypher \
-  -p 5432:5432 \
-  postgres:15
+docker run -d --name cypher -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=cypher -p 5432:5432 postgres:15
 ```
 
 ### Redis
@@ -29,10 +23,7 @@ docker run -d \
 Create a Redis container named `cypher-cache`:
 
 ```bash
-docker run -d \
-  --name cypher-cache \
-  -p 6379:6379 \
-  redis:latest
+docker run -d --name cypher-cache -p 6379:6379 redis:latest
 ```
 
 ## Starting the Services

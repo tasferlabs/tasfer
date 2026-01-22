@@ -19,6 +19,7 @@ import { readFileSync } from "fs";
 import Redis from "ioredis";
 import { join } from "path";
 import { WebSocket, WebSocketServer } from "ws";
+import { getAppDir } from "./lib/paths";
 
 // Unique instance ID for multi-instance coordination
 const INSTANCE_ID = crypto.randomUUID();
@@ -38,10 +39,7 @@ interface VersionConfig {
 
 function loadVersionConfig(): VersionConfig {
   try {
-    const versionPath =
-      process.env.NODE_ENV === "production"
-        ? "/app/version.json"
-        : join(__dirname, "../../../version.json");
+    const versionPath = join(getAppDir(), "version.json");
     const content = readFileSync(versionPath, "utf-8");
     const config = JSON.parse(content);
     console.log(`[Sync Server] Loaded version config: v${config.version} (min: v${config.minVersion})`);
