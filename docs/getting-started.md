@@ -33,15 +33,18 @@ After the containers are running, start each service:
 ```bash
 # Terminal 1 - API Server
 cd apps/api
+npm i
 npm run db:migrate  # Run migrations first
 npm run dev
 
 # Terminal 2 - WebSocket Server
 cd apps/live
+npm i
 npm run dev
 
 # Terminal 3 - Web App
 cd apps/web
+npm i
 npm run dev
 ```
 
