@@ -1,191 +1,33 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
-    <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#1db984" />
-    <meta name="color-scheme" content="light dark" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
-    />
-    <title>Cypher</title>
-    <script>
-      (function () {
-        // Recovery timeout - if app doesn't signal ready in 10s, assume failure
-        var recoveryTimeout = setTimeout(function () {
-          triggerRecovery("App failed to load");
-        }, 10000);
 
-        // Export for main.tsx to cancel timeout on successful load
-        window.__cancelRecoveryTimeout = function () {
-          clearTimeout(recoveryTimeout);
-        };
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#1db984" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Cypher</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="preload" href="/node_modules/@fontsource/poppins/files/poppins-latin-400-normal.woff2" as="font"
+    type="font/woff2" crossorigin />
+  <link rel="preload" href="/node_modules/@fontsource/poppins/files/poppins-latin-500-normal.woff2" as="font"
+    type="font/woff2" crossorigin />
+  <link rel="preload" href="/node_modules/@fontsource/poppins/files/poppins-latin-600-normal.woff2" as="font"
+    type="font/woff2" crossorigin />
+  <link rel="preload" href="/node_modules/@fontsource/poppins/files/poppins-latin-700-normal.woff2" as="font"
+    type="font/woff2" crossorigin />
+  <link rel="preload" href="/node_modules/@fontsource/merriweather/files/merriweather-latin-400-normal.woff2" as="font"
+    type="font/woff2" crossorigin />
+  <link rel="preload" href="/node_modules/@fontsource/merriweather/files/merriweather-latin-700-normal.woff2" as="font"
+    type="font/woff2" crossorigin />
+</head>
 
-        // Detect critical script load failures
-        window.addEventListener(
-          "error",
-          function (e) {
-            if (e.target && e.target.tagName === "SCRIPT") {
-              triggerRecovery("Script load failed");
-            }
-          },
-          true,
-        );
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
 
-        function triggerRecovery(reason) {
-          console.error("[Recovery]", reason);
-
-          // Show recovery UI using CSS class (colors from CSS variables)
-          var root = document.getElementById("root");
-          if (root) {
-            root.innerHTML =
-              '<div class="recovery-ui">' +
-              '<div class="recovery-spinner">' +
-              '<img src="/spinner.png" width="48" height="48" />' +
-              "</div>" +
-              '<p class="recovery-title">Updating app...</p>' +
-              '<p class="recovery-subtitle">Please wait</p>' +
-              "</div>";
-          }
-
-          // Clear all caches and reload
-          clearCachesAndReload();
-        }
-
-        async function clearCachesAndReload() {
-          try {
-            // Unregister all service workers
-            if ("serviceWorker" in navigator) {
-              var registrations =
-                await navigator.serviceWorker.getRegistrations();
-              await Promise.all(
-                registrations.map(function (r) {
-                  return r.unregister();
-                }),
-              );
-            }
-
-            // Clear all caches
-            if ("caches" in window) {
-              var cacheNames = await caches.keys();
-              await Promise.all(
-                cacheNames.map(function (name) {
-                  return caches.delete(name);
-                }),
-              );
-            }
-          } catch (e) {
-            console.error("[Recovery] Cache clear failed:", e);
-          }
-
-          // Reload with cache-busting
-          setTimeout(function () {
-            window.location.href =
-              window.location.pathname + "?_update=" + Date.now();
-          }, 500);
-        }
-      })();
-    </script>
-    <style>
-      @keyframes spin {
-        from {
-          transform: rotate(0deg);
-        }
-        to {
-          transform: rotate(360deg);
-        }
-      }
-      .recovery-ui {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 100vh;
-        font-family: system-ui, sans-serif;
-        padding: 20px;
-        text-align: center;
-        background: var(--background, oklch(1 0 0));
-      }
-      .recovery-spinner {
-        width: 48px;
-        height: 48px;
-        margin-bottom: 16px;
-      }
-      .recovery-spinner img {
-        animation: spin 1s linear infinite;
-      }
-      .recovery-title {
-        margin: 0 0 8px;
-        font-size: 16px;
-        color: var(--foreground, #09090b);
-      }
-      .recovery-subtitle {
-        margin: 0;
-        font-size: 14px;
-        color: var(--muted-foreground, oklch(0.552 0.016 285.938));
-      }
-      /* Dark mode when JS hasn't loaded .dark class */
-      @media (prefers-color-scheme: dark) {
-        .recovery-ui {
-          background: var(--background, #09090b);
-        }
-        .recovery-title {
-          color: var(--foreground, oklch(0.985 0 0));
-        }
-        .recovery-subtitle {
-          color: var(--muted-foreground, oklch(0.705 0.015 286.067));
-        }
-      }
-    </style>
-    <link rel="stylesheet" href="/styles.css" />
-    <link
-      rel="preload"
-      href="/node_modules/@fontsource/poppins/files/poppins-latin-400-normal.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <link
-      rel="preload"
-      href="/node_modules/@fontsource/poppins/files/poppins-latin-500-normal.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <link
-      rel="preload"
-      href="/node_modules/@fontsource/poppins/files/poppins-latin-600-normal.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <link
-      rel="preload"
-      href="/node_modules/@fontsource/poppins/files/poppins-latin-700-normal.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <link
-      rel="preload"
-      href="/node_modules/@fontsource/merriweather/files/merriweather-latin-400-normal.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <link
-      rel="preload"
-      href="/node_modules/@fontsource/merriweather/files/merriweather-latin-700-normal.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
 </html>

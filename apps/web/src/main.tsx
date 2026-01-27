@@ -5,9 +5,9 @@ import { Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 import { registerSW } from "virtual:pwa-register";
-import { router } from "./app/routes/Router";
 import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
+import { router } from "./app/routes/Router";
 import LoadingScreen from "./components/ui/loading-screen";
 import { loadFonts } from "./editor/fonts";
 import "./i18n";
@@ -42,8 +42,6 @@ createRoot(document.getElementById("root")!).render(
   </QueryClientProvider>,
 );
 
-// Cancel the recovery timeout - app loaded successfully
-window.__cancelRecoveryTimeout?.();
 
 // Register service worker for offline support
 const updateSW = registerSW({
