@@ -42,7 +42,6 @@ createRoot(document.getElementById("root")!).render(
   </QueryClientProvider>,
 );
 
-
 // Register service worker for offline support
 const updateSW = registerSW({
   onNeedRefresh() {
