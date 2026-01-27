@@ -13,3 +13,4 @@ export const IMAGE_DEFAULT_HEIGHT = 220;
 export const SCROLLBAR_HOLD_DURATION = 150; // Shorter than long press, iOS feels snappy
 export const SCROLLBAR_TOUCH_BUFFER = 16; // Pixels of buffer area around the thumb for touch detection
 export const SELECTION_HANDLE_TOUCH_TARGET = 44; // Touch target size for selection handles (iOS HIG minimum)
+

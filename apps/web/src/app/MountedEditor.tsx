@@ -10,43 +10,86 @@ import {
   Strikethrough,
   Type,
 } from "lucide-react";
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { serializeToMarkdown } from "../deserializer/serializer";
+import type { Block } from "../deserializer/loadPage";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
 import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
 import { SlashCommandMenu } from "../editor/SlashCommandMenu";
-import { hasNativeBridge } from "../editor/clipboard";
-import { getSelectionRange, getFormatsAtPosition } from "../editor/commands";
-import { getBlockTextContent, isTouchDevice } from "../editor/state";
+import {
+  getFormatsAtPosition,
+  getSelectionRange,
+} from "../editor/actions/commands";
+import { allCharsHaveFormat } from "../editor/sync/crdt-helpers";
+import { isTextualBlock } from "../deserializer/loadPage";
 import {
   mountEditor,
   type MountedEditor as MountedEditorInstance,
 } from "../editor/mount";
 import { clearFailedImageCache } from "../editor/renderer";
 import { getLinkAtPosition } from "../editor/selection";
+import { getBlockTextContent, isTouchDevice } from "../editor/state";
 import type { EditorState, SlashCommand } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
+import { useRoom, type SyncState } from "@/websocket/hooks/useRoom";
+import { SyncEngine, type HLC, serializeVV, deserializeVV } from "@/editor/sync/sync";
+import type { AwarenessState, AwarenessUser } from "@/editor/sync/awareness";
+import type { Operation } from "@/websocket/types";
+import { hasNativeBridge } from "@/editor/actions/clipboard";
+import { OfflineStore } from "@/offline/store";
 
 interface MountedEditorProps {
-  content: string;
+  snapshot: Block[];
   className?: string;
-  onContentChange?: (content: string) => void;
+  /** Called when content changes. clock is the HLC of the latest operation. */
+  onContentChange?: (snapshot: Block[], clock: HLC | null) => void;
+  /** Callback for all content updates (local and remote) - used for word count, etc. */
+  onContentUpdate?: (blocks: (Block & { originalIndex: number })[]) => void;
   autoFocus?: boolean;
+  /** Unique page ID for CRDT sync - if provided, enables live collaboration */
+  pageId: string;
+  /** @deprecated WebSocket URL is now managed by WebSocketProvider */
+  signalingUrl?: string;
+  /** Callback when sync state changes */
+  onSyncStateChange?: (state: SyncState) => void;
+  /** Clock of the snapshot - used for delta sync */
+  snapshotClock?: HLC | null;
+  /** Callback to update snapshotClock after operations are sent */
+  onSnapshotClockUpdate?: (clock: HLC | null) => void;
+  /** Callback when active users change */
+  onAwarenessChange?: (users: AwarenessUser[]) => void;
+  /** Callback when restore function is ready */
+  onRestoreReady?: (restoreFn: (blocks: Block[]) => void) => void;
+  /** Callback when confirmSave function is ready - call this after backend save succeeds */
+  onConfirmSaveReady?: (confirmFn: (clock: HLC) => void) => void;
+  /** When true, editor is read-only - no editing, no CRDT sync, no native bridge updates */
+  readonly?: boolean;
 }
 
-export const MountedEditor: React.FC<MountedEditorProps> = ({
-  content,
+export function MountedEditor({
+  snapshot,
   className = "",
   onContentChange,
+  onContentUpdate,
   autoFocus = false,
-}) => {
+  pageId,
+  signalingUrl: _signalingUrl,
+  onSyncStateChange,
+  snapshotClock,
+  onSnapshotClockUpdate,
+  onAwarenessChange,
+  onRestoreReady,
+  onConfirmSaveReady,
+  readonly = false,
+}: MountedEditorProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
+  const syncEngineRef = useRef<SyncEngine | null>(null);
+  const offlineStoreRef = useRef<OfflineStore | null>(null);
   const [slashMenuState, setSlashMenuState] = useState<{
     visible: boolean;
     x: number;
@@ -75,7 +118,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     url: string;
     text: string;
     blockIndex: number;
-    segmentIndex: number;
+    startIndex: number;
+    endIndex: number;
     savedCursor: EditorState["document"]["cursor"];
     savedSelection: EditorState["document"]["selection"];
   } | null>(null);
@@ -107,11 +151,96 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     EditorState["document"]["page"]["blocks"] | null
   >(null);
   const editorInitializedRef = useRef(false);
+  // Track when applying remote operations to prevent triggering saves for non-local changes
+  const isApplyingRemoteOpsRef = useRef(false);
+  // Track snapshot clock for delta operations (operations after this clock need to be sent)
+  const snapshotClockRef = useRef<HLC | null>(snapshotClock ?? null);
+
+  // Update ref when snapshotClock prop changes
+  useEffect(() => {
+    snapshotClockRef.current = snapshotClock ?? null;
+  }, [snapshotClock]);
 
   // Track current toolbar icon type
   const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">(
     "format"
   );
+
+  // Callbacks for useRoom - use refs to avoid recreating callbacks
+  const onRoomOperationsRef = useRef<((ops: Operation[]) => void) | null>(null);
+  const onRoomSyncRequestRef = useRef<
+    | ((
+        vv: Record<string, number>,
+        clock: { counter: number; peerId: string } | null | undefined,
+        requesterId?: string
+      ) => void)
+    | null
+  >(null);
+  const onRoomSyncResponseRef = useRef<
+    ((ops: Operation[], vv: Record<string, number>) => void) | null
+  >(null);
+  const onRoomAwarenessRef = useRef<
+    ((awarenesspeerId: string, state: AwarenessState | null) => void) | null
+  >(null);
+  const onRoomFirstPeerRef = useRef<(() => void) | null>(null);
+  const onRoomAwarenessStatesRef = useRef<
+    ((states: Record<string, AwarenessState>) => void) | null
+  >(null);
+  const onRoomJoinedRef = useRef<((hasOtherPeers: boolean) => void) | null>(
+    null
+  );
+  // Track sync state for confirmSave callback
+  const syncStateRef = useRef<SyncState>({ status: "disconnected" });
+
+  // Use the global WebSocket room subscription
+  const {
+    broadcast: roomBroadcast,
+    broadcastAwareness: roomBroadcastAwareness,
+    sendSyncRequest: roomSendSyncRequest,
+    sendSyncResponse: roomSendSyncResponse,
+    syncState,
+    localUser,
+    peerId,
+  } = useRoom(pageId, {
+    onOperations: useCallback((ops: Operation[]) => {
+      onRoomOperationsRef.current?.(ops);
+    }, []),
+    onSyncRequest: useCallback(
+      (
+        vv: Record<string, number>,
+        clock: { counter: number; peerId: string } | null | undefined,
+        requesterId?: string
+      ) => {
+        onRoomSyncRequestRef.current?.(vv, clock, requesterId);
+      },
+      []
+    ),
+    onSyncResponse: useCallback((ops: Operation[], vv: Record<string, number>) => {
+      onRoomSyncResponseRef.current?.(ops, vv);
+    }, []),
+    onAwarenessUpdate: useCallback((pId: string, state: AwarenessState | null) => {
+      onRoomAwarenessRef.current?.(pId, state);
+    }, []),
+    onFirstPeer: useCallback(() => {
+      onRoomFirstPeerRef.current?.();
+    }, []),
+    onAwarenessStates: useCallback((states: Record<string, AwarenessState>) => {
+      onRoomAwarenessStatesRef.current?.(states);
+    }, []),
+    onJoined: useCallback((hasOtherPeers: boolean) => {
+      onRoomJoinedRef.current?.(hasOtherPeers);
+    }, []),
+  });
+
+  // Keep syncStateRef up to date for use in callbacks
+  useEffect(() => {
+    syncStateRef.current = syncState;
+  }, [syncState]);
+
+  // Notify parent of sync state changes
+  useEffect(() => {
+    onSyncStateChange?.(syncState);
+  }, [syncState, onSyncStateChange]);
 
   // Native drawer states (triggered by format button on mobile)
   const [nativeLinkDrawerState, setNativeLinkDrawerState] = useState<{
@@ -121,9 +250,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     linkText?: string;
     selectedText?: string;
     blockIndex?: number;
-    segmentIndex?: number;
-    startTextIndex?: number;
-    endTextIndex?: number;
+    startIndex?: number;
+    endIndex?: number;
   } | null>(null);
 
   const [nativeImageDrawerState, setNativeImageDrawerState] = useState<{
@@ -143,12 +271,200 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       mountedRef.current = null;
     }
 
-    // Reset serialization tracking and initialization flag when content changes
+    // Clean up previous sync engine
+    if (syncEngineRef.current) {
+      syncEngineRef.current = null;
+    }
+
+    // Reset serialization tracking and initialization flag when snapshot changes
     lastSerializedBlocksRef.current = null;
     editorInitializedRef.current = false;
 
-    const mounted = mountEditor(el, content);
+    const mounted = mountEditor(el, snapshot, { readonly });
     mountedRef.current = mounted;
+
+    // Skip offline store and sync setup in readonly mode
+    if (readonly) {
+      // In readonly mode, we only render the content - no sync, no offline store
+      // Subscribe to state changes for context menu only
+      const unsubscribe = mounted.editor.subscribe((state: EditorState) => {
+        // Calculate context menu state for readonly mode
+        let newContextMenuState: typeof contextMenuState = null;
+        if (state.ui.activeMenu.type === "contextMenu") {
+          const containerRect = wrapperRef.current?.getBoundingClientRect();
+          if (containerRect) {
+            const hasSelection = !!getSelectionRange(state);
+            newContextMenuState = {
+              x: containerRect.left + state.ui.activeMenu.x,
+              y: containerRect.top + state.ui.activeMenu.y,
+              hasSelection,
+              hoveredItemId: state.ui.activeMenu.hoveredItemId,
+            };
+
+            // Handle drag-and-release selection
+            if (state.ui.activeMenu.selectedItemId) {
+              const selectedItemId = state.ui.activeMenu.selectedItemId;
+              // Execute the action asynchronously
+              setTimeout(async () => {
+                if (!mountedRef.current) return;
+                const editor = mountedRef.current.editor;
+                switch (selectedItemId) {
+                  case "copy":
+                    await editor.copy();
+                    break;
+                  case "selectAll":
+                    editor.selectAll();
+                    break;
+                }
+              }, 0);
+              newContextMenuState = null;
+            }
+          }
+        }
+
+        if (!shallowEqual(newContextMenuState, lastContextMenuStateRef.current)) {
+          lastContextMenuStateRef.current = newContextMenuState;
+          setContextMenuState(newContextMenuState);
+        }
+      });
+
+      return () => {
+        unsubscribe();
+        mounted.destroy();
+        if (mountedRef.current === mounted) {
+          mountedRef.current = null;
+        }
+      };
+    }
+
+    // Initialize offline store for this page
+    const offlineStore = new OfflineStore(pageId);
+    offlineStoreRef.current = offlineStore;
+
+    // Load persisted operations from IndexedDB (if any)
+    // This restores local changes that weren't synced before page reload
+    offlineStore.loadOperations().then((persistedOps) => {
+      if (persistedOps.length > 0 && syncEngineRef.current) {
+        console.log(
+          `[Offline] Loading ${persistedOps.length} persisted operations`
+        );
+        syncEngineRef.current.loadOperations(persistedOps);
+      }
+    });
+
+    // Expose restore function to parent
+    // Uses restoreFromSnapshot which generates and broadcasts operations
+    if (onRestoreReady) {
+      onRestoreReady((blocks: Block[]) => {
+        mounted.editor.restoreFromSnapshot(blocks);
+      });
+    }
+
+    // Expose confirmSave function to parent
+    // Called after backend confirms save succeeded - updates snapshotClock and marks ops as synced
+    if (onConfirmSaveReady) {
+      onConfirmSaveReady((clock: HLC) => {
+        // Update local snapshotClock ref
+        snapshotClockRef.current = clock;
+        // Notify parent of clock update
+        onSnapshotClockUpdate?.(clock);
+        // Only mark operations as synced and compact if WebSocket is connected
+        // This ensures operations aren't deleted before they've been broadcast to peers
+        if (syncStateRef.current.status === "connected") {
+          offlineStoreRef.current?.markSynced(clock).then(() => {
+            offlineStoreRef.current?.compactSynced();
+          });
+        }
+      });
+    }
+
+    // Initialize sync engine for CRDT (use same peerId as WebSocket)
+    const syncEngine = new SyncEngine(pageId, peerId);
+    syncEngineRef.current = syncEngine;
+
+    // Wire up room callbacks to sync engine and editor
+    // These refs are called by useRoom when messages arrive
+    onRoomOperationsRef.current = (ops) => {
+      isApplyingRemoteOpsRef.current = true;
+      mounted.editor.applyRemoteOperations(ops);
+      isApplyingRemoteOpsRef.current = false;
+    };
+
+    onRoomSyncRequestRef.current = (versionVector, _snapshotClock, requesterId) => {
+      const remoteVV = deserializeVV(versionVector);
+      const missingOps = syncEngine.getOpsSince(remoteVV);
+      const localVV = serializeVV(syncEngine.getVersionVector());
+
+      if (missingOps.length > 0 || requesterId) {
+        roomSendSyncResponse(missingOps, localVV, requesterId);
+      }
+    };
+
+    onRoomSyncResponseRef.current = (ops, _versionVector) => {
+      if (ops.length > 0) {
+        isApplyingRemoteOpsRef.current = true;
+        syncEngine.apply(ops);
+        mounted.editor.applyRemoteOperations(ops);
+        isApplyingRemoteOpsRef.current = false;
+      }
+    };
+
+    onRoomFirstPeerRef.current = () => {
+      // The editor already has the initial content loaded
+    };
+
+    onRoomAwarenessRef.current = (awarenesspeerId, state) => {
+      mounted.editor.setRemoteAwareness(awarenesspeerId, state);
+
+      if (onAwarenessChange) {
+        const remoteAwareness = mounted.editor.getRemoteAwareness();
+        const users = Array.from(remoteAwareness.values()).map((s) => s.user);
+        onAwarenessChange(users);
+      }
+    };
+
+    onRoomAwarenessStatesRef.current = (states) => {
+      for (const [awarenesspeerId, state] of Object.entries(states)) {
+        mounted.editor.setRemoteAwareness(awarenesspeerId, state);
+      }
+
+      if (onAwarenessChange) {
+        const users = Object.values(states).map((s) => s.user);
+        onAwarenessChange(users);
+      }
+    };
+
+    // Handle room join/rejoin - broadcast unsynced ops and request sync
+    onRoomJoinedRef.current = (hasOtherPeers) => {
+      // Broadcast any unsynced operations from IndexedDB
+      // This handles both: initial load with pending ops, and reconnect after offline typing
+      offlineStore.getUnsyncedOperations().then((unsyncedOps) => {
+        if (unsyncedOps.length > 0) {
+          roomBroadcast(unsyncedOps);
+        }
+      });
+
+      // If there are other peers, request sync to get any operations we missed
+      if (hasOtherPeers) {
+        const localVV = serializeVV(syncEngine.getVersionVector());
+        roomSendSyncRequest(localVV, snapshotClockRef.current);
+      }
+    };
+
+    // Connect editor's broadcast to room
+    mounted.editor.setBroadcast((ops) => {
+      // Add to sync engine's log
+      syncEngine.emit(ops);
+      // Broadcast to peers via global WebSocket
+      roomBroadcast(ops);
+      // Persist to IndexedDB for offline support
+      offlineStoreRef.current?.persistOperations(ops);
+    });
+
+    // Connect editor's awareness broadcast to room
+    mounted.editor.setAwarenessBroadcast((state: AwarenessState) => {
+      roomBroadcastAwareness(state);
+    }, localUser);
 
     // Handle format button clicks from native
     // Returns true if handled, false if native should open block menu
@@ -192,7 +508,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
               url: linkData.url,
               linkText: linkData.text,
               blockIndex: state.document.cursor.position.blockIndex,
-              segmentIndex: linkData.segmentIndex,
+              startIndex: linkData.startIndex,
+              endIndex: linkData.endIndex,
             });
             return true;
           } else if (
@@ -216,8 +533,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
                   y: containerRect.top + 100,
                   selectedText,
                   blockIndex: start.blockIndex,
-                  startTextIndex: start.textIndex,
-                  endTextIndex: end.textIndex,
+                  startIndex: start.textIndex,
+                  endIndex: end.textIndex,
                 });
                 return true;
               }
@@ -259,23 +576,40 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     const handleStateChange = (state: EditorState) => {
       // Notify parent of content changes if callback is provided
       // Only serialize when blocks actually change (not on cursor blink, UI changes, etc.)
-      if (onContentChange && state.document.page?.blocks) {
+      if ((onContentChange || onContentUpdate) && state.document.page?.blocks) {
         const currentBlocks = state.document.page.blocks;
 
-        // On first state change, just store the initial blocks without triggering onContentChange
-        // This prevents the editor from overwriting backend content with empty state on mount
+        // On first state change, store the initial blocks and notify for read-only callbacks
+        // Skip onContentChange to prevent overwriting backend content with empty state on mount
         if (!editorInitializedRef.current) {
           lastSerializedBlocksRef.current = currentBlocks;
           editorInitializedRef.current = true;
+          // Still call onContentUpdate for read-only purposes (word count, export)
+          onContentUpdate?.(state.view.visibleBlocks);
           return;
         }
 
         // Check if blocks reference has changed (indicates actual content modification)
         if (currentBlocks !== lastSerializedBlocksRef.current) {
           lastSerializedBlocksRef.current = currentBlocks;
-          // console.log("currentBlocks", currentBlocks);
-          const markdown = serializeToMarkdown(currentBlocks);
-          onContentChange(markdown);
+
+          // Notify of all content updates (local and remote) - used for word count, etc.
+          onContentUpdate?.(state.view.visibleBlocks);
+
+          // Only trigger saves for local user-initiated changes, not remote peer updates
+          // Remote peers handle saving their own changes
+          if (!isApplyingRemoteOpsRef.current && onContentChange) {
+            // Get the latest clock for the save request
+            const latestClock = syncEngineRef.current?.getLatestClock() ?? null;
+
+            // NOTE: snapshotClock is NOT updated here - it will be updated
+            // by confirmSave() after the backend confirms the save succeeded.
+            // This prevents offline operations from being marked as synced
+            // before they're actually persisted to the server.
+
+            // Save snapshot with tombstones preserved for offline sync
+            onContentChange(currentBlocks as Block[], latestClock);
+          }
         }
       }
 
@@ -486,26 +820,45 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
       }
 
       // Send formatting state to native bridge
-      const getActiveFormats = () => {
-        if (state.ui.activeFormatsMode.type === "explicit") {
-          return state.ui.activeFormatsMode.formats;
-        }
-        // Inherit mode: get formats from cursor position
-        if (state.document.cursor) {
-          const { blockIndex, textIndex } = state.document.cursor.position;
-          const block = state.document.page.blocks[blockIndex];
-          return getFormatsAtPosition(block, textIndex) || [];
-        }
-        return [];
-      };
+      // When there's a selection, check if ALL chars have the format
+      const range = getSelectionRange(state);
+      let isBold: boolean;
+      let isItalic: boolean;
+      let isCode: boolean;
+      let isStrikethrough: boolean;
 
-      const activeFormats = getActiveFormats();
-      const isBold = activeFormats.some((f) => f.type === "bold");
-      const isItalic = activeFormats.some((f) => f.type === "italic");
-      const isCode = activeFormats.some((f) => f.type === "code");
-      const isStrikethrough = activeFormats.some(
-        (f) => f.type === "strikethrough"
-      );
+      if (range && range.start.blockIndex === range.end.blockIndex) {
+        // Single block selection: check if all chars have each format
+        const block = state.document.page.blocks[range.start.blockIndex];
+        if (isTextualBlock(block)) {
+          isBold = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "bold");
+          isItalic = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "italic");
+          isCode = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "code");
+          isStrikethrough = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "strikethrough");
+        } else {
+          isBold = isItalic = isCode = isStrikethrough = false;
+        }
+      } else {
+        // No selection or multi-block: use cursor position
+        const getActiveFormats = () => {
+          if (state.ui.activeFormatsMode.type === "explicit") {
+            return state.ui.activeFormatsMode.formats;
+          }
+          if (state.document.cursor) {
+            const { blockIndex, textIndex } = state.document.cursor.position;
+            const block = state.document.page.blocks[blockIndex];
+            return getFormatsAtPosition(block, textIndex) || [];
+          }
+          return [];
+        };
+        const activeFormats = getActiveFormats();
+        isBold = activeFormats.some((f) => f.type === "bold");
+        isItalic = activeFormats.some((f) => f.type === "italic");
+        isCode = activeFormats.some((f) => f.type === "code");
+        isStrikethrough = activeFormats.some(
+          (f) => f.type === "strikethrough"
+        );
+      }
 
       if (window.IOSBridge) {
         window.IOSBridge.postMessage({
@@ -541,6 +894,26 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
 
     return () => {
       unsubscribe();
+
+      // Clear room callback refs
+      onRoomOperationsRef.current = null;
+      onRoomSyncRequestRef.current = null;
+      onRoomSyncResponseRef.current = null;
+      onRoomAwarenessRef.current = null;
+      onRoomFirstPeerRef.current = null;
+      onRoomAwarenessStatesRef.current = null;
+      onRoomJoinedRef.current = null;
+
+      // Clean up sync engine
+      if (syncEngineRef.current) {
+        syncEngineRef.current = null;
+      }
+
+      // Clean up offline store
+      if (offlineStoreRef.current) {
+        offlineStoreRef.current = null;
+      }
+
       mounted.destroy();
 
       if (window.AndroidBridge) {
@@ -557,7 +930,23 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         mountedRef.current = null;
       }
     };
-  }, [content, onContentChange, autoFocus]);
+  }, [
+    snapshot,
+    onContentChange,
+    onContentUpdate,
+    autoFocus,
+    pageId,
+    roomBroadcast,
+    roomBroadcastAwareness,
+    roomSendSyncRequest,
+    roomSendSyncResponse,
+    localUser,
+    peerId,
+    onSnapshotClockUpdate,
+    readonly,
+  ]);
+
+  // Note: WebSocket reconnection is handled by the global WebSocketProvider
 
   const handleSlashCommandSelect = (command: SlashCommand) => {
     if (mountedRef.current) {
@@ -611,50 +1000,71 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         action: () => handleContextMenuAction("copy"),
         disabled: !hasSelection,
       },
-      {
+    ];
+
+    // Hide edit-related items in readonly mode
+    if (!readonly) {
+      items.push({
         id: "cut",
         label: "Cut",
         icon: <Scissors size={16} />,
         action: () => handleContextMenuAction("cut"),
         disabled: !hasSelection,
-      },
-    ];
-
-    if (canPaste) {
-      items.push({
-        id: "paste",
-        label: "Paste",
-        icon: <Clipboard size={16} />,
-        action: () => handleContextMenuAction("paste"),
       });
+
+      if (canPaste) {
+        items.push({
+          id: "paste",
+          label: "Paste",
+          icon: <Clipboard size={16} />,
+          action: () => handleContextMenuAction("paste"),
+        });
+      }
     }
 
-    // Add Format submenu for desktop when text is selected
-    if (hasSelection && !isTouchDevice()) {
+    // Add Format submenu for desktop when text is selected (not in readonly mode)
+    if (hasSelection && !isTouchDevice() && !readonly) {
       // Get active formats from current selection
-      const getActiveFormats = () => {
-        const state = mountedRef.current?.editor.getState();
-        if (!state) return [];
+      // When there's a selection, check if ALL chars have the format
+      const state = mountedRef.current?.editor.getState();
+      let isBold = false;
+      let isItalic = false;
+      let isCode = false;
+      let isStrikethrough = false;
 
-        if (state.ui.activeFormatsMode.type === "explicit") {
-          return state.ui.activeFormatsMode.formats;
+      if (state) {
+        const range = getSelectionRange(state);
+        if (range && range.start.blockIndex === range.end.blockIndex) {
+          // Single block selection: check if all chars have each format
+          const block = state.document.page.blocks[range.start.blockIndex];
+          if (isTextualBlock(block)) {
+            isBold = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "bold");
+            isItalic = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "italic");
+            isCode = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "code");
+            isStrikethrough = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "strikethrough");
+          }
+        } else {
+          // No selection or multi-block: use cursor position
+          const getActiveFormats = () => {
+            if (state.ui.activeFormatsMode.type === "explicit") {
+              return state.ui.activeFormatsMode.formats;
+            }
+            if (state.document.cursor) {
+              const { blockIndex, textIndex } = state.document.cursor.position;
+              const block = state.document.page.blocks[blockIndex];
+              return getFormatsAtPosition(block, textIndex) || [];
+            }
+            return [];
+          };
+          const activeFormats = getActiveFormats();
+          isBold = activeFormats.some((f) => f.type === "bold");
+          isItalic = activeFormats.some((f) => f.type === "italic");
+          isCode = activeFormats.some((f) => f.type === "code");
+          isStrikethrough = activeFormats.some(
+            (f) => f.type === "strikethrough"
+          );
         }
-        // Inherit mode: get formats from cursor position
-        if (state.document.cursor) {
-          const { blockIndex, textIndex } = state.document.cursor.position;
-          const block = state.document.page.blocks[blockIndex];
-          return getFormatsAtPosition(block, textIndex) || [];
-        }
-        return [];
-      };
-
-      const activeFormats = getActiveFormats();
-      const isBold = activeFormats.some((f) => f.type === "bold");
-      const isItalic = activeFormats.some((f) => f.type === "italic");
-      const isCode = activeFormats.some((f) => f.type === "code");
-      const isStrikethrough = activeFormats.some(
-        (f) => f.type === "strikethrough"
-      );
+      }
 
       items.push({
         id: "format",
@@ -744,7 +1154,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
           url: linkData.url,
           text: linkData.text,
           blockIndex: linkData.position.blockIndex,
-          segmentIndex: linkData.segmentIndex,
+          startIndex: linkData.startIndex,
+          endIndex: linkData.endIndex,
           savedCursor,
           savedSelection,
         });
@@ -759,7 +1170,8 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     const editor = mountedRef.current.editor;
     editor.updateLink(
       linkEditState.blockIndex,
-      linkEditState.segmentIndex,
+      linkEditState.startIndex,
+      linkEditState.endIndex,
       newUrl,
       newText
     );
@@ -771,7 +1183,11 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
     if (!linkEditState || !mountedRef.current) return;
 
     const editor = mountedRef.current.editor;
-    editor.clearLink(linkEditState.blockIndex, linkEditState.segmentIndex);
+    editor.clearLink(
+      linkEditState.blockIndex,
+      linkEditState.startIndex,
+      linkEditState.endIndex
+    );
     // Mark that an action was performed (don't restore selection on close)
     linkEditActionPerformedRef.current = true;
   };
@@ -1094,24 +1510,26 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
 
               if (
                 nativeLinkDrawerState.blockIndex !== undefined &&
-                nativeLinkDrawerState.segmentIndex !== undefined
+                nativeLinkDrawerState.startIndex !== undefined &&
+                nativeLinkDrawerState.endIndex !== undefined
               ) {
                 // Update existing link
                 editor.updateLink(
                   nativeLinkDrawerState.blockIndex,
-                  nativeLinkDrawerState.segmentIndex,
+                  nativeLinkDrawerState.startIndex,
+                  nativeLinkDrawerState.endIndex,
                   newUrl,
                   newText
                 );
               } else if (
                 nativeLinkDrawerState.blockIndex !== undefined &&
-                nativeLinkDrawerState.startTextIndex !== undefined &&
-                nativeLinkDrawerState.endTextIndex !== undefined
+                nativeLinkDrawerState.startIndex !== undefined &&
+                nativeLinkDrawerState.endIndex !== undefined
               ) {
                 // Create new link from selection - restore selection first
                 const blockIndex = nativeLinkDrawerState.blockIndex;
-                const startTextIndex = nativeLinkDrawerState.startTextIndex;
-                const endTextIndex = nativeLinkDrawerState.endTextIndex;
+                const startTextIndex = nativeLinkDrawerState.startIndex;
+                const endTextIndex = nativeLinkDrawerState.endIndex;
 
                 // Restore the selection by creating it programmatically
                 const anchor = { blockIndex, textIndex: startTextIndex };
@@ -1140,11 +1558,13 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
                     const editor = mountedRef.current.editor;
                     if (
                       nativeLinkDrawerState.blockIndex !== undefined &&
-                      nativeLinkDrawerState.segmentIndex !== undefined
+                      nativeLinkDrawerState.startIndex !== undefined &&
+                      nativeLinkDrawerState.endIndex !== undefined
                     ) {
                       editor.clearLink(
                         nativeLinkDrawerState.blockIndex,
-                        nativeLinkDrawerState.segmentIndex
+                        nativeLinkDrawerState.startIndex,
+                        nativeLinkDrawerState.endIndex
                       );
                     }
                     setNativeLinkDrawerState(null);
@@ -1232,4 +1652,4 @@ export const MountedEditor: React.FC<MountedEditorProps> = ({
         )}
     </div>
   );
-};
+}

@@ -2,9 +2,9 @@ import { Router, Request } from "express";
 import { createId } from "@paralleldrive/cuid2";
 import multer from "multer";
 import path from "path";
-import { writeFile, readFile, deleteFile } from "../handlers/files";
-import db from "../db/index";
-import { images } from "../db/schema";
+import { writeFile, readFile, deleteFile } from "../handlers/files.js";
+import db from "../db/index.js";
+import { images } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 
 const router = Router();

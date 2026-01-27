@@ -1,41 +1,45 @@
+import type { HLC } from "../editor/sync/sync";
+import { IMAGE_DEFAULT_HEIGHT } from "../editor/constants";
 import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
-import { IMAGE_DEFAULT_HEIGHT } from "../editor/constants";
 
 export interface BlockRuntimeState {
+  id: string;
   cachedHeight?: number; // Cached rendered height
   cachedWidth?: number; // Width at which height was cached
+  deleted?: boolean;
+  afterId?: string | null;
 }
 export interface Heading extends BlockRuntimeState {
-  id: string; // Unique identifier for caching
   type: "heading1" | "heading2" | "heading3";
-  content: Text[];
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
+  formats: FormatSpan[]; // Format spans reference char IDs
 }
 export interface Paragraph extends BlockRuntimeState {
-  id: string; // Unique identifier for caching
   type: "paragraph";
-  content: Text[];
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
+  formats: FormatSpan[]; // Format spans reference char IDs
 }
 
 // List item blocks - support bullet, numbered, and todo lists with nesting
 export interface BulletListItem extends BlockRuntimeState {
-  id: string; // Unique identifier for caching
   type: "bullet_list";
-  content: Text[];
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
+  formats: FormatSpan[]; // Format spans reference char IDs
   indent: number; // 0-based indent level (0 = no indent)
 }
 
 export interface NumberedListItem extends BlockRuntimeState {
-  id: string; // Unique identifier for caching
   type: "numbered_list";
-  content: Text[];
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
+  formats: FormatSpan[]; // Format spans reference char IDs
   indent: number; // 0-based indent level (0 = no indent)
 }
 
 export interface TodoListItem extends BlockRuntimeState {
-  id: string; // Unique identifier for caching
   type: "todo_list";
-  content: Text[];
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
+  formats: FormatSpan[]; // Format spans reference char IDs
   checked: boolean;
   indent: number; // 0-based indent level (0 = no indent)
 }
@@ -43,7 +47,6 @@ export interface TodoListItem extends BlockRuntimeState {
 // Image block - full-width image that spans the entire canvas
 // Note: cachedHeight/cachedWidth are transient runtime state, not persisted
 export interface Image extends BlockRuntimeState {
-  id: string; // Unique identifier for caching
   type: "image";
   url: string;
   alt?: string;
@@ -55,7 +58,6 @@ export interface Image extends BlockRuntimeState {
 
 // Line block - horizontal divider/separator
 export interface Line extends BlockRuntimeState {
-  id: string; // Unique identifier for caching
   type: "line";
 }
 
@@ -74,9 +76,31 @@ export interface TextFormat {
   url?: string; // Only for link type
 }
 
-export interface Text {
-  content: string;
-  formats?: TextFormat[];
+// CRDT character with unique ID (legacy - kept for operation payloads)
+export interface Char {
+  id: string; // Unique ID: "peerId:counter"
+  char: string; // Single character
+  deleted?: boolean; // Tombstone flag for CRDT deletions
+}
+
+/**
+ * CharRun represents consecutive characters from the same peer.
+ * Each character's ID is computed as: `${peerId}:${startCounter + offset}`
+ * where offset is the character's position within the run (0-indexed).
+ */
+export interface CharRun {
+  peerId: string; // Peer that created these chars
+  startCounter: number; // Counter of first char in run
+  text: string; // Multiple chars as string (e.g., "Hello")
+  deletedMask?: number[]; // Bitmask: bit i set = char at offset i is deleted
+}
+
+// Format span that references characters by ID
+export interface FormatSpan {
+  startCharId: string;
+  endCharId: string;
+  format: TextFormat;
+  clock: HLC; // For LWW conflict resolution
 }
 
 // Helper function to compare two TextFormat objects
@@ -116,6 +140,8 @@ export type TextBlock = Heading | Paragraph;
 // List blocks contain list items with text content
 export type ListBlock = BulletListItem | NumberedListItem | TodoListItem;
 
+export type TextualBlock = TextBlock | ListBlock;
+
 // Visual blocks contain visual content (images, lines, etc.)
 export type VisualBlock = Image | Line;
 
@@ -123,7 +149,7 @@ export type VisualBlock = Image | Line;
 export type Block = TextBlock | VisualBlock | ListBlock;
 
 // Type guards
-export function isVisualBlock(block: Block): block is TextBlock | ListBlock {
+export function isTextualBlock(block: Block): block is TextualBlock {
   return block.type !== "image" && block.type !== "line";
 }
 
@@ -145,6 +171,7 @@ export function isImageDefault(block: Image): boolean {
 }
 
 export interface Page {
+  id: string;
   title: String;
   // color: string;
   // icon: string;

@@ -1,4 +1,10 @@
-import type { ViewportState } from "./types";
+import { getBlockHeight } from "./renderer";
+import { getEditorStyles } from "./styles";
+import {
+  awarenessCursorToPosition,
+  type AwarenessState,
+} from "./sync/awareness";
+import type { EditorState, ViewportState } from "./types";
 
 export interface ScrollbarState {
   readonly isDragging: boolean;
@@ -33,6 +39,84 @@ const isTouchDevice = (): boolean => {
   );
 };
 
+// Get safe area inset bottom value
+const getSafeAreaInsetBottom = (): number => {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return 0;
+  }
+
+  // Try to get from CSS custom property first (Android injects this)
+  const cssVar = getComputedStyle(document.documentElement)
+    .getPropertyValue("--safe-area-inset-bottom")
+    .trim();
+
+  if (cssVar) {
+    const parsed = parseFloat(cssVar);
+    if (!isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
+  // For iOS, we need to get the env() value via a computed style trick
+  // Create a temporary element to measure the safe area
+  const testEl = document.createElement("div");
+  testEl.style.position = "fixed";
+  testEl.style.bottom = "0";
+  testEl.style.paddingBottom = "env(safe-area-inset-bottom, 0px)";
+  testEl.style.visibility = "hidden";
+  testEl.style.pointerEvents = "none";
+  document.body.appendChild(testEl);
+
+  const computedPadding = getComputedStyle(testEl).paddingBottom;
+  const inset = parseFloat(computedPadding) || 0;
+
+  document.body.removeChild(testEl);
+
+  return inset;
+};
+
+// Cache the safe area inset value with window dimensions for invalidation
+let cachedSafeAreaInsetBottom: number | null = null;
+let cachedWindowWidth: number | null = null;
+let cachedWindowHeight: number | null = null;
+
+// Track keyboard state - when keyboard is open, don't apply safe area inset
+let isKeyboardOpen = false;
+
+export function setKeyboardOpen(open: boolean): void {
+  isKeyboardOpen = open;
+}
+
+export function getSafeAreaBottom(): number {
+  // Don't apply safe area when keyboard is open (keyboard covers the home indicator area)
+  if (isKeyboardOpen) {
+    return 0;
+  }
+
+  if (typeof window === "undefined") {
+    return 0;
+  }
+
+  // Invalidate cache if window dimensions changed (orientation change)
+  if (
+    cachedSafeAreaInsetBottom === null ||
+    cachedWindowWidth !== window.innerWidth ||
+    cachedWindowHeight !== window.innerHeight
+  ) {
+    cachedSafeAreaInsetBottom = getSafeAreaInsetBottom();
+    cachedWindowWidth = window.innerWidth;
+    cachedWindowHeight = window.innerHeight;
+  }
+  return cachedSafeAreaInsetBottom;
+}
+
+// Allow updating the cached value (call on orientation change)
+export function updateSafeAreaCache(): void {
+  cachedSafeAreaInsetBottom = null;
+  cachedWindowWidth = null;
+  cachedWindowHeight = null;
+}
+
 /**
  * Get CSS custom property value from the document root
  */
@@ -40,11 +124,11 @@ function getCSSVariable(name: string, fallback: string): string {
   if (typeof window === "undefined" || typeof document === "undefined") {
     return fallback;
   }
-  
+
   const value = getComputedStyle(document.documentElement)
     .getPropertyValue(name)
     .trim();
-  
+
   return value || fallback;
 }
 
@@ -56,10 +140,22 @@ export function getScrollbarStyles(): ScrollbarStyles {
     width: isTouchDevice() ? 8 : 12,
     minThumbHeight: 40,
     padding: 4,
-    thumbColor: getCSSVariable("--editor-scrollbar-thumb", "rgba(128, 128, 128, 0.5)"),
-    thumbHoverColor: getCSSVariable("--editor-scrollbar-thumb-hover", "rgba(128, 128, 128, 0.7)"),
-    thumbActiveColor: getCSSVariable("--editor-scrollbar-thumb-active", "rgba(128, 128, 128, 0.9)"),
-    trackColor: getCSSVariable("--editor-scrollbar-track", "rgba(0, 0, 0, 0.05)"),
+    thumbColor: getCSSVariable(
+      "--editor-scrollbar-thumb",
+      "rgba(128, 128, 128, 0.5)"
+    ),
+    thumbHoverColor: getCSSVariable(
+      "--editor-scrollbar-thumb-hover",
+      "rgba(128, 128, 128, 0.7)"
+    ),
+    thumbActiveColor: getCSSVariable(
+      "--editor-scrollbar-thumb-active",
+      "rgba(128, 128, 128, 0.9)"
+    ),
+    trackColor: getCSSVariable(
+      "--editor-scrollbar-track",
+      "rgba(0, 0, 0, 0.05)"
+    ),
     borderRadius: 6,
     fadeDelay: 1000,
     fadeDuration: 300,
@@ -97,11 +193,12 @@ export interface ScrollbarBounds {
 export function calculateScrollbarBounds(
   viewport: ViewportState,
   documentHeight: number,
-  _scrollbarState: ScrollbarState,
+  _state: ScrollbarState,
   styles: ScrollbarStyles = getScrollbarStyles()
 ): ScrollbarBounds {
   const trackWidth = styles.width;
-  const trackHeight = viewport.height - styles.padding * 2;
+  const safeAreaBottom = getSafeAreaBottom();
+  const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
   const trackX = viewport.width - trackWidth - styles.padding;
   const trackY = styles.padding;
 
@@ -137,14 +234,16 @@ export function renderScrollbar(
   ctx: CanvasRenderingContext2D,
   viewport: ViewportState,
   documentHeight: number,
-  scrollbarState: ScrollbarState,
-  styles: ScrollbarStyles = getScrollbarStyles()
+  state: EditorState,
+  remoteAwareness: Map<string, AwarenessState>,
+  styles = getScrollbarStyles()
 ): void {
   // Don't render if document fits in viewport
   if (documentHeight <= viewport.height) {
     return;
   }
 
+  const scrollbarState = state.view.scrollbar;
   // Update fade opacity
   const timeSinceInteraction = Date.now() - scrollbarState.lastInteraction;
   let opacity = scrollbarState.fadeOpacity;
@@ -217,6 +316,25 @@ export function renderScrollbar(
   ctx.fill();
 
   ctx.restore();
+
+  // Render peer markers on scrollbar
+  if (remoteAwareness && remoteAwareness.size > 0) {
+    const peerMarkers = calculatePeerMarkers(
+      remoteAwareness,
+      state,
+      viewport,
+      documentHeight
+    );
+    renderScrollbarPeerMarkers(
+      ctx,
+      viewport,
+      documentHeight,
+      peerMarkers,
+      styles,
+      opacity,
+      scale
+    );
+  }
 }
 
 export function isPointInScrollbar(
@@ -241,7 +359,8 @@ export function isPointInScrollbar(
   // But extend hit area to the left (invisible)
   const hitTrackX = viewport.width - hitWidth - styles.padding;
   const trackY = styles.padding;
-  const trackHeight = viewport.height - styles.padding * 2;
+  const safeAreaBottom = getSafeAreaBottom();
+  const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
 
   return (
     x >= hitTrackX &&
@@ -309,10 +428,10 @@ export function startScrollbarDrag(
     scrollbarState,
     styles
   );
-  
+
   // Save the offset from the thumb's top to where the mouse clicked
   const dragStartOffset = mouseY - bounds.thumbY;
-  
+
   return {
     ...scrollbarState,
     isDragging: true,
@@ -340,7 +459,8 @@ export function updateScrollFromThumbDrag(
   styles: ScrollbarStyles = getScrollbarStyles()
 ): number {
   const trackY = styles.padding;
-  const trackHeight = viewport.height - styles.padding * 2;
+  const safeAreaBottom = getSafeAreaBottom();
+  const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
 
   // Calculate thumb size
   const viewportRatio = viewport.height / documentHeight;
@@ -443,6 +563,50 @@ export function updateScrollbarFadeOpacity(
   };
 }
 
+// Peer position marker on scrollbar
+export interface PeerMarker {
+  color: string;
+  ratio: number; // 0-1 position in document
+}
+
+export function renderScrollbarPeerMarkers(
+  ctx: CanvasRenderingContext2D,
+  viewport: ViewportState,
+  documentHeight: number,
+  markers: PeerMarker[],
+  styles: ScrollbarStyles = getScrollbarStyles(),
+  opacity: number = 1,
+  scale: number = 1
+): void {
+  if (documentHeight <= viewport.height || markers.length === 0) {
+    return;
+  }
+
+  const trackWidth = styles.width * scale;
+  const safeAreaBottom = getSafeAreaBottom();
+  const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
+  const trackWidthDiff = trackWidth - styles.width;
+  const trackX = viewport.width - styles.width - styles.padding - trackWidthDiff;
+  const trackY = styles.padding;
+
+  const markerHeight = 3;
+  const markerWidth = trackWidth;
+
+  ctx.save();
+  ctx.globalAlpha = opacity;
+
+  for (const marker of markers) {
+    const y = trackY + marker.ratio * trackHeight - markerHeight / 2;
+
+    ctx.fillStyle = marker.color;
+    ctx.beginPath();
+    ctx.roundRect(trackX, y, markerWidth, markerHeight, markerHeight / 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
 // Momentum scrolling state
 export interface MomentumState {
   velocity: number; // pixels per millisecond
@@ -506,4 +670,49 @@ export function applyMomentum(
     },
     isActive: Math.abs(newVelocity) >= 0.01,
   };
+}
+
+/**
+ * Calculate peer marker positions for the scrollbar.
+ * Returns ratios (0-1) representing each peer's position in the document.
+ */
+function calculatePeerMarkers(
+  remoteAwareness: Map<string, AwarenessState>,
+  state: EditorState,
+  viewport: ViewportState,
+  documentHeight: number,
+  styles = getEditorStyles()
+): PeerMarker[] {
+  const markers: PeerMarker[] = [];
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+
+  for (const [_peerId, awareness] of remoteAwareness) {
+    if (!awareness.cursor) continue;
+
+    const position = awarenessCursorToPosition(
+      awareness.cursor,
+      state.document.page
+    );
+    if (!position) continue;
+
+    const block = state.document.page.blocks[position.blockIndex];
+    if (!block || block.deleted) continue;
+
+    // Calculate document Y position (cumulative height up to this block)
+    let documentY = styles.canvas.paddingTop;
+    const visibleBlocks = state.view.visibleBlocks;
+
+    for (let i = 0; i < visibleBlocks.length; i++) {
+      const visibleBlock = visibleBlocks[i];
+      if (visibleBlock.originalIndex >= position.blockIndex) break;
+      documentY += getBlockHeight(visibleBlock, maxWidth, styles, i === 0);
+    }
+
+    // Calculate ratio
+    const ratio = Math.max(0, Math.min(1, documentY / documentHeight));
+    markers.push({ color: awareness.user.color, ratio });
+  }
+
+  return markers;
 }
