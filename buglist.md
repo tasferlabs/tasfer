@@ -83,7 +83,7 @@
 - [ ] do design overhaul.
 - [x] Add support for windows ctrl + Y and make sure the shortcuts are intuitiave for all opearting systems.
 - [x] rendering is triggered to many times.
-- [ ] override webiew defaul 404 page
+- [ ] override webiew defautl 404 page
 - [x] rtl inline format rendering edge cases
 - [x] render should be more efficent if we schedule it
 - [x] cursor should not be visable if we haeve selection
@@ -102,10 +102,10 @@
 - [x] updating title of parent should update breadcrum
 - [x] dragging pages on mobile
 - [x] scrolling on sidebar misread the scrolling with dragging.
-- [ ] offline support maybe api backend in service workers so we can for example update titles
+- [x] offline support maybe api backend in service workers so we can for example update titles
 - [ ] add tranlsation keys
 - [x] when compostion is on and delete we delete it delete behind the composition.
-- [ ] Read title from document
+- [x] Read title from document
 - [x] mandrians characters are not working with with selection.
 - [x] compoition characters are still left in viewport but composition is cancelled.
 - [x] composition toolbar is in wrong place.
@@ -133,8 +133,7 @@
 - [x] word count does not work with CJK letters
 - [x] pasting is not invalidating blocked cached height.
 - [x] pasting into another text field such as title text field it is not working.
-- [ ] pasting tables from webpages should preserve table structure or convert to readable format
-- [ ] pasting images from webpages should handle images (either embed or show placeholder)
+- [x] pasting images from webpages should handle images.
 - [ ] pasting lists (ul/ol) should preserve list structure and convert to list blocks
 - [ ] when there is a selection we should count the selection word count not the whole document.
 - [x] backspace deletion on empty line that has heading after clear the styling.
@@ -182,7 +181,7 @@
 - [x] focus issue on context menu
 - [x] select all on mobile not working really, i we already have selection on some block. It would select from start of that exisitng selectio until the end.
 - [x] Android keyboard rendering stops after tap in selection - fixed by updating cursor position while preserving selection
-- [ ] ~~I want drag context menu activation like native menu hav~~e.
+- [ ] ~~I want drag context menu activation like native menu have.~~
 - [x] drag thumb drag detection on mobile should have buffer area.
 - [x] selection drag rtl is broken
 - [x] draging image handle and scrolling should work too.
@@ -195,7 +194,7 @@
 - [x] canvas glitch on resizing.
 - [x] editing issue on android. Can not edit text after selection.
 - [x] tapping under image that has no other blocks under should create new text block.
-- [ ] ~~could we disable edge navigation on andori~~d?
+- [ ] ~~could we disable edge navigation on andorid?~~
 - [x] on landscape oritentation the safe area taking to much and it is uncessary.
 - [x] Safe area on sidebar
 - [ ] typing letters that conlicde with markdown serlization should be escaped
@@ -210,11 +209,13 @@
 - [ ] increase font size for people who wants it. Use rem
 - [ ] Autorcorrect/autocomplete
 - [ ] dragging text
-- [ ] hover on checkbox should be pointer
+- [ ] dragging blocks
+- [x] hover on checkbox should be pointer
 - [ ] should placeholder be visible on out of focus?
+- [ ] should cursor be visible when out of screen
 - [ ] page up and down should work with visual blocks.
 - [ ] empty line and selection drag
-- [x] deleting blocks not working on live update.I think we could consolidate @apps/web/src/sync/index.ts operations more, like why do we need dosen of operation lww properties.
+- [ ] ~~Consolidate @apps/web/src/sync/index.ts operations more~~
 - [x] tapping enter to split blocks does not not work well with crdt opreations.
 - [x] when typing in the middle the other tab insert to the end.
 - [x] arabic script stopped working after impelemting crdt
@@ -229,10 +230,10 @@
 - [x] snapshotting
 - [x] snapshot restore
 - [x] why snapshot have hlc clock
-- [ ] do we have uncessary long ids in snapshot
-- [x] crdt pasting ad docoumet paste only first block
-- [ ] loading page is slow
-- [ ] loading apge should show spinner.
+- [ ] do we have unccessary long ids in snapshot
+- [x] crdt pasting docoumet paste only first block
+- [ ] ~~loading page is slow~~
+- [ ] ~~loading apge should show spinner.~~
 - [x] change content should reculate hights/documentb height in
 - [x] on load document there is not scrollbar
 - [ ] peforamnce issues after crdt
@@ -243,9 +244,10 @@
 - [ ] 4. Delta compression
 - [x] We should brodacast page delete
 - [ ] test users and test functions
-- [ ] everything should suited for mobile, including flaoting sidebar. 
+- [ ] everything should suited for mobile, including flaoting menu.
+- [ ] Flaoting sidebar should be suited flr mobile
 - [ ] add snapshot previewing
-- [ ] dawers should have scroll
+- [x] dawers should have scroll
 - [ ] ~~undo or any edting opeartion should ensureCursor visib~~le
 - [x] render where other user is on scroll bar
 - [ ] wehn deleting a block and undoing it merges them
@@ -271,23 +273,36 @@
 - [x] close connections gracefully on app close
 - [x] **on deploy ios blacking o**ut
 - [ ] Combination of bold and italic did not work one time.
-- [x] ending wiht "`" not wokring
+- [x] ending with "backtick" not wokring
 - [ ] Typing double space should clear fomrating or may do it by context menu
-- [ ] Clering one letter, clears everything in format span
-- [ ] Add way to add link
+- [x] Clearing one letter, clears everything in format span
+- [ ] Add way to add link on desktop
 - [ ] Pasting link should make link after we typing space
-- [ ] If close the page sometimes we do not gett confimration dialog, maybe on bad network. **We lose data sometimes**!
-- [ ] Sequential numbered list not always working with indents
+- [x] If close the page sometimes we do not getconfimration dialog, maybe on bad network. 
+- [ ] **We lose data sometimes!** Is it because lf bad network connetion.
+- [ ] Sequential numbered list not working with indents.
 - [ ] Checkbox square should be bit brighter on dark mode for contrast.
-- [ ] Hover on buttons for  pagelink  that active should have better style
+- [x] Hover on buttons for pagelink  that active should have better style
 - [ ] Search functioanllity
 - [ ] Onboarding
 - [ ] Quote block
 - [ ] code block
 - [ ] maths code block
-- [ ] confirmation dialog when leaving page is reversed.
+- [x] confirmation dialog when leaving page is reversed.
 - [ ] context menu options on image are meaningless
-- [ ] start dag outside and continue is not working really well.
+- [ ] start dag in editor padding and continue is not working really well.
 - [ ] copying to do list block copys as markdown.
 - [ ] action bar options should only visible on editor page 
 - [ ] if there are mutliple formats should we close context menu directly on click on format sub menu?
+- [ ] theme not refelecting dirreclty after we choose system theme on mobile.
+- [ ] Continue improving sidebar and pagelink
+- [ ] debug why toolbar disappear sometimes. constraints?
+- [ ] tapping at the end if pages does not select the end of a to do list.
+- [ ] checkbox click area should be bigger on mobile.
+- [ ] drag handles should be bigger on mobile.
+- [ ] should we embed images?
+- [ ] habtic on selecting scroll handle maybe.
+- [ ] word counter should be visible above the keyboard.
+- [ ] sidebar safe area
+- [ ] canvas safe area
+- [ ] can not undo clear list item operation
