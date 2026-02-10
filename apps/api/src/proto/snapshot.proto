@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package snapshot;
+
+// Root message for page snapshot
+message PageSnapshot {
+  repeated Block blocks = 1;
+}
+
+// Block union type using oneof
+message Block {
+  string id = 1;
+  bool deleted = 2;
+  optional string after_id = 3;
+
+  oneof block_data {
+    TextBlockData text_block = 10;
+    ListBlockData list_block = 11;
+    ImageBlockData image_block = 12;
+    LineBlockData line_block = 13;
+  }
+}
+
+// Shared text content for text and list blocks
+message TextBlockData {
+  BlockType type = 1;
+  repeated CharRun char_runs = 2;
+  repeated FormatSpan formats = 3;
+}
+
+// List blocks have additional indent (and checked for todo)
+message ListBlockData {
+  BlockType type = 1;
+  repeated CharRun char_runs = 2;
+  repeated FormatSpan formats = 3;
+  int32 indent = 4;
+  bool checked = 5;
+}
+
+// Image block data
+message ImageBlockData {
+  string url = 1;
+  optional string alt = 2;
+  optional int32 width = 3;
+  bool width_full = 4;
+  optional int32 height = 5;
+  ObjectFit object_fit = 6;
+}
+
+// Line block (no additional data)
+message LineBlockData {}
+
+// Character run - consecutive characters from the same peer
+message CharRun {
+  string peer_id = 1;
+  int64 start_counter = 2;
+  string text = 3;
+  optional bytes deleted_mask = 4;
+}
+
+// Format span for rich text
+message FormatSpan {
+  string start_char_id = 1;
+  string end_char_id = 2;
+  TextFormat format = 3;
+  HLC clock = 4;
+}
+
+// Text format type
+message TextFormat {
+  FormatType type = 1;
+  optional string url = 2;
+}
+
+// HLC for conflict resolution (Lamport clock)
+message HLC {
+  int64 counter = 1;
+  string peer_id = 2;
+}
+
+// Block type enum
+enum BlockType {
+  BLOCK_TYPE_UNSPECIFIED = 0;
+  PARAGRAPH = 1;
+  HEADING1 = 2;
+  HEADING2 = 3;
+  HEADING3 = 4;
+  BULLET_LIST = 5;
+  NUMBERED_LIST = 6;
+  TODO_LIST = 7;
+  IMAGE = 8;
+  LINE = 9;
+}
+
+// Format type enum
+enum FormatType {
+  FORMAT_TYPE_UNSPECIFIED = 0;
+  BOLD = 1;
+  ITALIC = 2;
+  STRIKETHROUGH = 3;
+  CODE = 4;
+  LINK = 5;
+}
+
+// Object fit enum for images
+enum ObjectFit {
+  OBJECT_FIT_UNSPECIFIED = 0;
+  COVER = 1;
+  CONTAIN = 2;
+}

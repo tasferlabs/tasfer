@@ -1,19 +1,31 @@
 import { useMutation, type UseMutationOptions, useQuery, type UseQueryOptions } from "@tanstack/react-query";
+import type { Block } from "@/deserializer/loadPage";
 
 const API_BASE = "/api";
 
 export interface IListPage {
   id: string;
   title: string;
+  autoTitle: boolean;
   parentId: string | null;
   order: number;
   hasChildren: boolean;
 }
 
+// HLC (Hybrid Logical Clock) for operation ordering
+export interface HLC {
+  counter: number;
+  peerId: string;
+}
+
 export interface IPage {
   id: string;
   title: string;
-  content: string | null;
+  autoTitle: boolean;
+  // Block snapshot
+  snapshot: Block[] | null;
+  // Clock of the snapshot - used for delta sync
+  snapshotClock: HLC | null;
   parentId: string | null;
   order: number;
   createdAt: string;
@@ -69,7 +81,6 @@ export function useGetPage(id?: string, options?: UseQueryOptions<IPage, Error, 
 // Create page
 interface ICreatePage {
   title: string;
-  content?: string;
   parentId: string | null;
 }
 
@@ -104,25 +115,44 @@ export function useCreatePage<TContext = unknown>(
 interface IUpdatePage {
   id: string;
   title?: string;
-  content?: string;
+  autoTitle?: boolean;
+  // Block snapshot (includes tombstones for offline sync)
+  snapshot?: Block[];
+  // Clock of the snapshot - used for delta sync
+  snapshotClock?: HLC | null;
 }
 
 export async function updatePage(data: IUpdatePage): Promise<IPage> {
-  const response = await fetch(`${API_BASE}/pages/${data.id}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
-  
-  const result = await response.json();
-  
-  if (!result.success) {
-    throw new Error(result.error || "Failed to update page");
+  // Use AbortController for timeout - ensures save indicator doesn't spin forever
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+  try {
+    const response = await fetch(`${API_BASE}/pages/${data.id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    const result = await response.json();
+
+    if (!result.success) {
+      throw new Error(result.error || "Failed to update page");
+    }
+
+    return result.data;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    // Re-throw with more context for network errors
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Save timed out - changes will sync when online");
+    }
+    throw error;
   }
-  
-  return result.data;
 }
 
 export function useUpdatePage<TContext = unknown>(
@@ -239,5 +269,39 @@ export function getKeyForPageQuery(_id: string) {
 export function updateTitleFromCache(_id: string, _title: string, _editingPageId: string | null) {
   // This is a placeholder - in the real implementation, we'd update the cache
   // For now, we'll let the mutation handle it
+}
+
+// =============================================================================
+// Snapshot API
+// =============================================================================
+
+export interface ISnapshot {
+  id: string;
+  pageId: string;
+  blocks: Block[];
+  size: number;
+  clock: HLC | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Get all snapshots for a page (version history)
+export async function getPageSnapshots(pageId: string): Promise<ISnapshot[]> {
+  const response = await fetch(`${API_BASE}/pages/${pageId}/snapshots`);
+  const data = await response.json();
+
+  if (!data.success) {
+    throw new Error(data.error || "Failed to fetch snapshots");
+  }
+
+  return data.data;
+}
+
+export function useGetPageSnapshots(pageId?: string) {
+  return useQuery({
+    queryKey: ["page-snapshots", pageId],
+    queryFn: () => getPageSnapshots(pageId!),
+    enabled: !!pageId,
+  });
 }
 

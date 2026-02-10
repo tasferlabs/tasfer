@@ -1,57 +1,88 @@
-import type { Block } from "../deserializer/loadPage";
-import { isVisualBlock } from "../deserializer/loadPage";
-import {
-  applySlashCommand,
-  convertBlockType,
-  updateLinkInBlock,
-  clearLinkInBlock,
-  selectAll,
-  getSelectionRange,
-  mergeAdjacentSegments,
-  extractSegmentsInRange,
-  toggleBold,
-  toggleItalic,
-  toggleCode,
-  toggleStrikethrough,
-} from "./commands";
+import type { Block, Page } from "../deserializer/loadPage";
+import { isTextualBlock } from "../deserializer/loadPage";
 import {
   copySelectionToClipboard,
   cutSelectionToClipboard,
   pasteFromNativeClipboardAPI,
-} from "./clipboard";
-import { handleEvents, isInLongPressMode } from "./events";
+} from "./actions/clipboard";
 import {
-  renderPage,
-  renderCursorLayer,
+  applySlashCommand,
+  clearLinkInBlock,
+  convertBlockType,
+  getSelectionRange,
+  selectAll,
+  toggleBold,
+  toggleCode,
+  toggleItalic,
+  toggleStrikethrough,
+  updateLinkInBlock,
+} from "./actions/commands";
+import { handleEvents } from "./events/events";
+import { isInLongPressMode } from "./events/touchEvents";
+import { onFontFamilyChange } from "./fonts";
+import type { CanvasLayers } from "./layers";
+import {
   clearAllBlockCaches,
-  invalidateBlockCache,
   getBlockHeight,
+  invalidateBlockCache,
+  renderCursorLayer,
+  renderPage,
 } from "./renderer";
 import {
-  getCursorCoordinates,
+  getCursorDocumentCoords,
   getCursorCoordinatesWithComposition,
 } from "./selection";
 import {
-  updateFocus,
-  isCursorBlinking,
-  closeContextMenu,
   clearSelection,
-  updateMode,
-  updateCursor,
-  updateSelection,
-  createInitialCursorState,
-  setActiveMenu,
   closeActiveMenu,
-  isTouchDevice,
+  closeContextMenu,
+  createInitialCursorState,
   getBlockTextContent,
+  isCursorBlinking,
+  isTouchDevice,
   moveCursorToPosition,
+  setActiveMenu,
+  updateCursor,
+  updateFocus,
+  updateMode,
   updatePhysicalKeyboardState,
+  updateSelection,
 } from "./state";
 import { getEditorStyles } from "./styles";
-import type { EditorState, SlashCommand, ViewportState } from "./types";
-import { recordUndo, undoState, redoState } from "./undo";
-import type { CanvasLayers } from "./layers";
-import { onFontFamilyChange } from "./fonts";
+import {
+  getVisibleBlocks,
+  getPeerId,
+  getPageId,
+  nextId,
+  getClock,
+} from "./sync/sync";
+import type { AwarenessCursor, AwarenessSelection, AwarenessState, AwarenessUser } from "./sync/awareness";
+import {
+  positionToAwarenessCursor,
+  selectionToAwarenessSelection,
+  awarenessCursorsEqual,
+  awarenessSelectionsEqual,
+} from "./sync/awareness";
+import {
+  applyRemoteOps,
+  deleteCharsInRange,
+  formatCharsInRange,
+  insertCharsAtPosition,
+} from "./sync/crdt-helpers";
+import { generateRestoreOperations } from "./sync/snapshot-diff";
+import type {
+  BlockDelete,
+  BlockInsert,
+  BlockSet,
+  Operation,
+} from "./sync/types";
+import type {
+  CommandResult,
+  EditorState,
+  SlashCommand,
+  ViewportState,
+} from "./types";
+import { recordUndoOps, redoState, undoState } from "./undo";
 
 export interface Editor {
   getState: () => EditorState | null;
@@ -81,11 +112,12 @@ export interface Editor {
   setBlockType: (type: Block["type"]) => void;
   updateLink: (
     blockIndex: number,
-    segmentIndex: number,
+    startIndex: number,
+    endIndex: number,
     newUrl: string,
     newText: string
   ) => void;
-  clearLink: (blockIndex: number, segmentIndex: number) => void;
+  clearLink: (blockIndex: number, startIndex: number, endIndex: number) => void;
   createLink: (url: string, text: string) => void;
   clearSelection: () => void;
   setMode: (mode: "edit" | "select" | "locked") => void;
@@ -111,6 +143,23 @@ export interface Editor {
     existingAlt?: string
   ) => void;
   closeActiveMenu: () => void;
+  /** Update page content from CRDT sync (remote operations) */
+  updatePageFromSync: (page: Page) => void;
+  /** Restore from snapshot - generates and broadcasts operations */
+  restoreFromSnapshot: (blocks: Block[]) => void;
+  /** Apply remote operations to the current page state */
+  applyRemoteOperations: (ops: Operation[]) => void;
+  /** Set broadcast function for sending operations to peers */
+  setBroadcast: (fn: ((ops: Operation[]) => void) | null) => void;
+  /** Set callback for broadcasting awareness state changes */
+  setAwarenessBroadcast: (
+    fn: ((state: AwarenessState) => void) | null,
+    user?: AwarenessUser
+  ) => void;
+  /** Update a remote peer's awareness state */
+  setRemoteAwareness: (peerId: string, state: AwarenessState | null) => void;
+  /** Get all remote awareness states */
+  getRemoteAwareness: () => Map<string, AwarenessState>;
 }
 
 export default function createEditor(
@@ -134,6 +183,138 @@ export default function createEditor(
   };
 
   let isRendering = false;
+
+  // Broadcast function for sending operations to peers
+  let broadcastFn: ((ops: Operation[]) => void) | null = null;
+
+  // Awareness state for remote peers
+  const remoteAwareness: Map<string, AwarenessState> = new Map();
+  type AwarenessBroadcastFn = (state: AwarenessState) => void;
+  let awarenessBroadcastFn: AwarenessBroadcastFn | null = null;
+
+  // Idle timeout for filtering inactive peers from UI (10 seconds)
+  const AWARENESS_IDLE_TIMEOUT = 10000;
+  // Stale timeout for removing peers from memory (30 seconds)
+  const AWARENESS_STALE_TIMEOUT = 30000;
+
+  /**
+   * Get remote awareness states, filtering out idle peers.
+   * Peers who haven't sent updates within AWARENESS_IDLE_TIMEOUT are excluded.
+   */
+  const getActiveRemoteAwareness = (): Map<string, AwarenessState> => {
+    const now = Date.now();
+    const active = new Map<string, AwarenessState>();
+
+    for (const [peerId, state] of remoteAwareness) {
+      if (now - state.lastUpdate <= AWARENESS_IDLE_TIMEOUT) {
+        active.set(peerId, state);
+      }
+    }
+
+    return active;
+  };
+
+  /**
+   * Cleanup stale awareness states from memory.
+   * Removes peers who haven't sent updates within AWARENESS_STALE_TIMEOUT.
+   */
+  const cleanupStaleAwareness = (): void => {
+    const now = Date.now();
+    let hasChanges = false;
+
+    for (const [peerId, state] of remoteAwareness) {
+      if (now - state.lastUpdate > AWARENESS_STALE_TIMEOUT) {
+        remoteAwareness.delete(peerId);
+        hasChanges = true;
+      }
+    }
+
+    if (hasChanges) {
+      scheduleRender();
+    }
+  };
+
+  // Cleanup interval for stale awareness states (runs every 10 seconds)
+  const awarenessCleanupInterval = setInterval(cleanupStaleAwareness, 10000);
+
+  // Local user info for awareness
+  let localUser: AwarenessUser | null = null;
+
+  // Track last broadcast awareness state to avoid redundant broadcasts
+  let lastBroadcastCursor: AwarenessCursor | null = null;
+  let lastBroadcastSelection: AwarenessSelection | null = null;
+
+  /**
+   * Broadcast local awareness state (cursor/selection) to peers.
+   * Called when cursor or selection changes.
+   * Only broadcasts if the position has actually changed.
+   */
+  const broadcastAwareness = (): void => {
+    if (!awarenessBroadcastFn || !localUser) return;
+
+    const page = state.document.page;
+    const cursor = state.document.cursor;
+    const selection = state.document.selection;
+
+    // Convert cursor to awareness cursor (uses block IDs for stability)
+    const awarenessCursor = cursor
+      ? positionToAwarenessCursor(cursor.position, page)
+      : null;
+
+    // Convert selection to awareness selection
+    const awarenessSelection =
+      selection && !selection.isCollapsed
+        ? selectionToAwarenessSelection(selection, page)
+        : null;
+
+    // Skip broadcast if cursor and selection haven't changed
+    if (
+      awarenessCursorsEqual(awarenessCursor, lastBroadcastCursor) &&
+      awarenessSelectionsEqual(awarenessSelection, lastBroadcastSelection)
+    ) {
+      return;
+    }
+
+    // Update last broadcast state
+    lastBroadcastCursor = awarenessCursor;
+    lastBroadcastSelection = awarenessSelection;
+
+    const awarenessState: AwarenessState = {
+      user: localUser,
+      cursor: awarenessCursor,
+      selection: awarenessSelection,
+      lastUpdate: Date.now(),
+    };
+
+    awarenessBroadcastFn(awarenessState);
+  };
+
+  /**
+   * Execute a command that returns { state, ops } and broadcast operations to peers.
+   * This is the central point for all state-modifying operations.
+   */
+  const executeCommand = (result: CommandResult): void => {
+    const { state: newState, ops } = result;
+    const prevState = state;
+
+    // Update local state and record to undo stack (pass both before/after states for cursor restoration)
+    state =
+      ops.length > 0
+        ? recordUndoOps(prevState, newState, ops, getPeerId())
+        : newState;
+
+    // Broadcast ops to peers (if any)
+    if (ops.length > 0 && broadcastFn) {
+      broadcastFn(ops);
+    }
+
+    // Trigger re-render
+    scheduleRender();
+
+    // Notify listeners
+    const currentState = state;
+    listeners.forEach((listener) => listener(currentState));
+  };
 
   // Cache for canvas bounding rect to avoid getBoundingClientRect in render loop
   let cachedRect = { left: 0, top: 0 };
@@ -183,7 +364,8 @@ export default function createEditor(
     isHoveringScrollbar: boolean,
     isDragging: boolean,
     isHoveringLinkWithModifier: boolean,
-    dragHandleHover: "left" | "right" | "bottom" | null = null
+    dragHandleHover: "left" | "right" | "bottom" | null = null,
+    isHoveringCheckbox: boolean = false
   ) => {
     // Only update cursor on desktop (not touch devices)
     if (isTouchDevice()) {
@@ -206,11 +388,17 @@ export default function createEditor(
     } else if (isHoveringLinkWithModifier) {
       // When hovering over link with Ctrl/Cmd held, use pointer cursor
       contentCanvas.style.cursor = "pointer";
+    } else if (isHoveringCheckbox) {
+      // When hovering over todo checkbox, use pointer cursor
+      contentCanvas.style.cursor = "pointer";
     } else {
       // When hovering over text, use text cursor
       contentCanvas.style.cursor = "text";
     }
   };
+
+  // Track last rendered page to detect remote operation changes
+  let lastRenderedPageRef: Page | null = null;
 
   // Render a single frame synchronously
   const renderFrame = async () => {
@@ -218,13 +406,24 @@ export default function createEditor(
     isRendering = true;
 
     try {
+      // Check if page changed since last render (handles remote ops that bypass handleEvents)
+      if (lastRenderedPageRef !== state.document.page) {
+        state.view.visibleBlocks = getVisibleBlocks(state.document.page);
+        dirtyLayers.content = true;
+        dirtyLayers.cursor = true;
+        documentHeightDirty = true;
+        lastRenderedPageRef = state.document.page;
+      }
+
       // Update cached rect only when needed (avoids expensive getBoundingClientRect every frame)
       if (rectNeedsUpdate) {
         updateCachedRect();
       }
 
       const prevState = state;
-      state = handleEvents(
+
+      // Handle events to get state and operations
+      const handleEventsResult = handleEvents(
         state,
         viewport,
         visibility,
@@ -234,6 +433,28 @@ export default function createEditor(
         updateViewport,
         pendingClipboardData
       );
+
+      // Update state with the result from events
+      state = handleEventsResult.state;
+
+      // Record operations to undo stack (only if not from undo/redo)
+      // Undo/redo already updates undoManager internally, so check if it changed
+      if (handleEventsResult.ops.length > 0) {
+        const undoManagerChanged = prevState.undoManager !== state.undoManager;
+        if (!undoManagerChanged) {
+          // Regular operation - record to undo stack (pass both before/after states for cursor restoration)
+          state = recordUndoOps(
+            prevState,
+            state,
+            handleEventsResult.ops,
+            getPeerId()
+          );
+        }
+        // Broadcast ops to peers
+        if (broadcastFn) {
+          broadcastFn(handleEventsResult.ops);
+        }
+      }
 
       // Clear clipboard data after it's been used
       pendingClipboardData = null;
@@ -245,6 +466,7 @@ export default function createEditor(
       if (stateChanged) {
         // Check if page content changed (requires content layer update)
         if (prevState.document.page !== state.document.page) {
+          state.view.visibleBlocks = getVisibleBlocks(state.document.page); // ADD HERE
           dirtyLayers.content = true;
           dirtyLayers.cursor = true; // Cursor position may have changed
           documentHeightDirty = true; // Blocks changed, need to recalculate height
@@ -271,6 +493,15 @@ export default function createEditor(
         // Check if scrollbar state changed (for fade animation)
         if (prevState.view.scrollbar !== state.view.scrollbar) {
           dirtyLayers.content = true;
+        }
+
+        // Broadcast awareness when cursor or selection changes
+        if (
+          prevState.document.cursor?.position !==
+            state.document.cursor?.position ||
+          prevState.document.selection !== state.document.selection
+        ) {
+          broadcastAwareness();
         }
       }
 
@@ -307,14 +538,22 @@ export default function createEditor(
 
           // Render the page content (text, blocks, selection, scrollbar)
           // Drag handles are now rendered within renderImageBlock for consistency
-          documentHeight = renderPage(contentCtx, state, viewport, visibility);
+          documentHeight = renderPage(
+            contentCtx,
+            state,
+            viewport,
+            visibility,
+            undefined,
+            getActiveRemoteAwareness()
+          );
 
           // Update cursor style based on scrollbar hover and drag state
           updateCursorStyle(
             state.view.scrollbar.isHovered,
             state.view.scrollbar.isDragging,
             state.ui.isHoveringLinkWithModifier,
-            state.ui.imageHover?.hoveredHandle || null
+            state.ui.imageHover?.hoveredHandle || null,
+            state.ui.isHoveringCheckbox
           );
 
           dirtyLayers.content = false;
@@ -322,7 +561,13 @@ export default function createEditor(
 
         // Render cursor layer if dirty (very cheap!)
         if (dirtyLayers.cursor) {
-          renderCursorLayer(cursorCtx, state, viewport);
+          renderCursorLayer(
+            cursorCtx,
+            state,
+            viewport,
+            getEditorStyles(),
+            getActiveRemoteAwareness()
+          );
           dirtyLayers.cursor = false;
         }
 
@@ -469,12 +714,13 @@ export default function createEditor(
     // Don't focus input if a context menu just opened (it would close the menu)
     const hasContextMenu = state.ui.activeMenu.type === "contextMenu";
 
-    // Focus input if ending long press or on tap (but not when context menu is open)
+    // Focus input if ending long press or on tap (but not when context menu is open or in readonly mode)
     if (
       hiddenInput &&
       isTouchDevice() &&
       (wasLongPress || wasTap) &&
-      !hasContextMenu
+      !hasContextMenu &&
+      !state.ui.isReadonlyBase
     ) {
       try {
         hiddenInput.focus({ preventScroll: true });
@@ -509,6 +755,12 @@ export default function createEditor(
   // Handle input from hidden input element (mobile keyboard)
   function hiddenInputHandler(e: Event) {
     if (!hiddenInput) return;
+
+    // Block input in readonly or locked mode
+    if (state.ui.mode === "readonly" || state.ui.mode === "locked") {
+      hiddenInput.value = " ";
+      return;
+    }
 
     const inputEvent = e as InputEvent;
 
@@ -579,6 +831,34 @@ export default function createEditor(
 
     // Check if this is a keyboard shortcut (Ctrl/Cmd + key)
     const isShortcut = e.ctrlKey || e.metaKey;
+
+    // In readonly mode, only allow navigation and copy
+    if (state.ui.mode === "readonly") {
+      const isNavigationKey = [
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "PageUp",
+        "PageDown",
+        "Home",
+        "End",
+      ].includes(e.key);
+      const isCopy = isShortcut && e.code === "KeyC";
+      const isSelectAll = isShortcut && e.code === "KeyA";
+      const isEscape = e.key === "Escape";
+
+      if (!isNavigationKey && !isCopy && !isSelectAll && !isEscape) {
+        e.preventDefault();
+        return;
+      }
+    }
+
+    // In locked mode, block everything
+    if (state.ui.mode === "locked") {
+      e.preventDefault();
+      return;
+    }
 
     // During composition (IME input), block most keys
     // Let the IME handle these keys for mobile composition
@@ -673,7 +953,8 @@ export default function createEditor(
 
     // Add click/mousedown handler to canvas as fallback for focusing input
     canvasClickHandler = () => {
-      if (hiddenInput) {
+      // Don't focus input in readonly mode (prevents keyboard from opening)
+      if (hiddenInput && !state.ui.isReadonlyBase) {
         try {
           hiddenInput.focus({ preventScroll: true });
         } catch (err) {
@@ -802,12 +1083,18 @@ export default function createEditor(
       );
       hiddenInput.removeEventListener("compositionend", compositionEndHandler);
     }
+
+    // Clean up awareness cleanup interval
+    clearInterval(awarenessCleanupInterval);
   }
 
   function updateViewport(newViewport: Partial<ViewportState>) {
     const oldWidth = viewport.width;
 
     viewport = { ...viewport, ...newViewport };
+
+    // Invalidate cached bounding rect since viewport dimensions changed
+    invalidateRectCache();
 
     // Clear block height cache if width changed (affects text wrapping)
     if (viewport.width !== oldWidth) {
@@ -826,10 +1113,17 @@ export default function createEditor(
     const maxWidth = viewport.width - 2 * styles.canvas.paddingLeft;
     let totalHeight = styles.canvas.paddingTop;
 
-    for (let i = 0; i < state.document.page.blocks.length; i++) {
-      const block = state.document.page.blocks[i];
+    const visibleBlocks = state.view.visibleBlocks;
+    for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+      const block = visibleBlocks[visibleIdx];
+
       // Use getBlockHeight to leverage caching for performance
-      const blockHeight = getBlockHeight(block, maxWidth, styles, i);
+      const blockHeight = getBlockHeight(
+        block,
+        maxWidth,
+        styles,
+        visibleIdx === 0
+      );
       totalHeight += blockHeight;
     }
 
@@ -865,7 +1159,7 @@ export default function createEditor(
 
   function setInitialCursor() {
     // Only set cursor if there isn't one already
-    if (!state.document.cursor && state.document.page.blocks.length > 0) {
+    if (!state.document.cursor && state.view.visibleBlocks.length > 0) {
       state = createInitialCursorState(state);
       scheduleRender();
     }
@@ -874,7 +1168,7 @@ export default function createEditor(
   function getCursorScreenPosition() {
     if (!state.document.cursor) return null;
 
-    const coords = getCursorCoordinates(
+    const coords = getCursorDocumentCoords(
       state.document.cursor.position,
       state,
       viewport,
@@ -901,9 +1195,9 @@ export default function createEditor(
 
   function executeSlashCommand(command: SlashCommand) {
     if (state.ui.activeMenu.type === "slashCommand" && state.document.cursor) {
-      state = recordUndo(state);
-      state = applySlashCommand(state, command);
-      scheduleRender();
+      state = state;
+      const result = applySlashCommand(state, command);
+      executeCommand(result);
     }
   }
 
@@ -916,8 +1210,8 @@ export default function createEditor(
 
   async function cut(): Promise<boolean> {
     const result = await cutSelectionToClipboard(state);
-    if (result.success && result.newState) {
-      state = result.newState;
+    if (result.success && result.result) {
+      executeCommand(result.result);
       state = closeContextMenu(state);
       scheduleRender();
       return true;
@@ -928,9 +1222,9 @@ export default function createEditor(
   }
 
   async function paste(): Promise<boolean> {
-    const newState = await pasteFromNativeClipboardAPI(state);
-    if (newState) {
-      state = newState;
+    const result = await pasteFromNativeClipboardAPI(state);
+    if (result) {
+      executeCommand(result);
       state = closeContextMenu(state);
       scheduleRender();
       return true;
@@ -941,20 +1235,28 @@ export default function createEditor(
   }
 
   function undo() {
-    const newState = undoState(state);
-    if (newState !== state) {
-      state = newState;
+    const result = undoState(state);
+    if (result.state !== state) {
+      state = result.state;
       scheduleRender();
-      listeners.forEach((listener) => listener(newState));
+      listeners.forEach((listener) => listener(result.state));
+      // Broadcast inverse operations to sync engine
+      if (result.ops.length > 0 && broadcastFn) {
+        broadcastFn(result.ops);
+      }
     }
   }
 
   function redo() {
-    const newState = redoState(state);
-    if (newState !== state) {
-      state = newState;
+    const result = redoState(state);
+    if (result.state !== state) {
+      state = result.state;
       scheduleRender();
-      listeners.forEach((listener) => listener(newState));
+      listeners.forEach((listener) => listener(result.state));
+      // Broadcast redo operations to sync engine
+      if (result.ops.length > 0 && broadcastFn) {
+        broadcastFn(result.ops);
+      }
     }
   }
 
@@ -969,67 +1271,61 @@ export default function createEditor(
   function toggleBoldMethod() {
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    state = toggleBold(hasSelection ? recordUndo(state) : state);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    const result = toggleBold(hasSelection ? state : state);
+    executeCommand(result);
   }
 
   function toggleItalicMethod() {
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    state = toggleItalic(hasSelection ? recordUndo(state) : state);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    const result = toggleItalic(hasSelection ? state : state);
+    executeCommand(result);
   }
 
   function toggleCodeMethod() {
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    state = toggleCode(hasSelection ? recordUndo(state) : state);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    const result = toggleCode(hasSelection ? state : state);
+    executeCommand(result);
   }
 
   function toggleStrikethroughMethod() {
     const hasSelection =
       state.document.selection && !state.document.selection.isCollapsed;
-    state = toggleStrikethrough(hasSelection ? recordUndo(state) : state);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    const result = toggleStrikethrough(hasSelection ? state : state);
+    executeCommand(result);
   }
 
   function setBlockType(type: Block["type"]) {
     if (!state.document.cursor) return;
-    state = recordUndo(state);
-    state = convertBlockType(state, type);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    state = state;
+    const result = convertBlockType(state, type);
+    executeCommand(result);
   }
 
   function updateLink(
     blockIndex: number,
-    segmentIndex: number,
+    startIndex: number,
+    endIndex: number,
     newUrl: string,
     newText: string
   ) {
-    state = recordUndo(state);
-    state = updateLinkInBlock(state, blockIndex, segmentIndex, newUrl, newText);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    state = state;
+    const result = updateLinkInBlock(
+      state,
+      blockIndex,
+      startIndex,
+      endIndex,
+      newUrl,
+      newText
+    );
+    executeCommand(result);
   }
 
-  function clearLink(blockIndex: number, segmentIndex: number) {
-    state = recordUndo(state);
-    state = clearLinkInBlock(state, blockIndex, segmentIndex);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+  function clearLink(blockIndex: number, startIndex: number, endIndex: number) {
+    state = state;
+    const result = clearLinkInBlock(state, blockIndex, startIndex, endIndex);
+    executeCommand(result);
   }
 
   function createLink(url: string, text: string) {
@@ -1037,7 +1333,7 @@ export default function createEditor(
       return; // Need a selection to create a link
     }
 
-    state = recordUndo(state);
+    state = state;
 
     const range = getSelectionRange(state);
     if (!range) return;
@@ -1050,33 +1346,48 @@ export default function createEditor(
     }
 
     const block = state.document.page.blocks[start.blockIndex];
-    if (!block || !isVisualBlock(block)) {
+    if (!block || block.deleted || !isTextualBlock(block)) {
       return;
     }
 
-    // Extract content before selection, after selection, and create link in between
-    const blockText = getBlockTextContent(block);
-    const beforeContent = extractSegmentsInRange(
-      block.content,
-      0,
-      start.textIndex
-    );
-    const afterContent = extractSegmentsInRange(
-      block.content,
-      end.textIndex,
-      blockText.length
-    );
+    const ops: Operation[] = [];
 
-    // Create the new content with the link in the middle
-    const newContent = [
-      ...beforeContent,
-      { content: text, formats: [{ type: "link" as const, url }] },
-      ...afterContent,
-    ];
+    // Delete the selected text first
+    const { newCharRuns: charRunsAfterDelete, op: deleteOp } =
+      deleteCharsInRange(
+        block.charRuns,
+        start.textIndex,
+        end.textIndex,
+        block.id
+      );
+    ops.push(deleteOp);
+
+    // Insert the new link text
+    const { newCharRuns: charRunsAfterInsert, op: insertOp } =
+      insertCharsAtPosition(
+        charRunsAfterDelete,
+        start.textIndex,
+        text,
+        block.id
+      );
+    ops.push(insertOp);
+
+    // Apply link formatting to the inserted text
+    const { newFormats, op: formatOp } = formatCharsInRange(
+      charRunsAfterInsert,
+      block.formats,
+      start.textIndex,
+      start.textIndex + text.length,
+      block.id,
+      { type: "link", url },
+      url
+    );
+    ops.push(formatOp);
 
     const newBlock = {
       ...block,
-      content: mergeAdjacentSegments(newContent),
+      charRuns: charRunsAfterInsert,
+      formats: newFormats,
     };
 
     invalidateBlockCache(newBlock);
@@ -1084,7 +1395,7 @@ export default function createEditor(
     const newBlocks = [...state.document.page.blocks];
     newBlocks[start.blockIndex] = newBlock;
 
-    state = {
+    const newState = {
       ...state,
       document: {
         ...state.document,
@@ -1093,16 +1404,14 @@ export default function createEditor(
     };
 
     // Clear selection and move cursor to end of inserted link
-    state = clearSelection(state);
-    state = moveCursorToPosition(
-      state,
+    const stateWithClearedSelection = clearSelection(newState);
+    const finalState = moveCursorToPosition(
+      stateWithClearedSelection,
       start.blockIndex,
       start.textIndex + text.length
     );
 
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    executeCommand({ state: finalState, ops });
   }
 
   function clearSelectionMethod() {
@@ -1169,7 +1478,7 @@ export default function createEditor(
   ) {
     const block = state.document.page.blocks[blockIndex];
 
-    if (!block || block.type !== "image") {
+    if (!block || block.deleted || block.type !== "image") {
       console.error("Attempted to update non-image-cover block as image cover");
       return;
     }
@@ -1200,6 +1509,35 @@ export default function createEditor(
       };
     }
 
+    // Create CRDT operations for image property updates
+    const ops: Operation[] = [];
+    const blockId = block.id;
+
+    if (updates.url !== undefined) {
+      const op: BlockSet = {
+        op: "block_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        blockId,
+        field: "url",
+        value: updates.url,
+      };
+      ops.push(op);
+    }
+    if (updates.alt !== undefined) {
+      const op: BlockSet = {
+        op: "block_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        blockId,
+        field: "alt",
+        value: updates.alt,
+      };
+      ops.push(op);
+    }
+
     state = {
       ...state,
       ui: newUIState,
@@ -1209,6 +1547,11 @@ export default function createEditor(
       },
     };
 
+    // Broadcast operations
+    if (ops.length > 0 && broadcastFn) {
+      broadcastFn(ops);
+    }
+
     const currentState = state;
     scheduleRender();
     listeners.forEach((listener) => listener(currentState));
@@ -1217,23 +1560,54 @@ export default function createEditor(
   function deleteImageBlockMethod(blockIndex: number) {
     const block = state.document.page.blocks[blockIndex];
 
-    if (!block || block.type !== "image") {
+    if (!block || block.deleted || block.type !== "image") {
       console.error("Attempted to delete non-image block");
       return;
     }
 
-    state = recordUndo(state);
+    // Get block ID before deletion
+    const blockId = block.id;
+
+    state = state;
 
     const newBlocks = [...state.document.page.blocks];
     newBlocks.splice(blockIndex, 1);
 
+    // Create CRDT operations
+    const ops: Operation[] = [];
+
+    // Delete the image block
+    const deleteOp: BlockDelete = {
+      op: "block_delete",
+      id: nextId(),
+      clock: getClock(),
+      pageId: getPageId(),
+      blockId,
+    };
+    ops.push(deleteOp);
+
     // If we deleted the last block, add an empty paragraph
+    let newParagraphBlockId: string | null = null;
     if (newBlocks.length === 0) {
+      newParagraphBlockId = `b-${nextId()}`;
       newBlocks.push({
-        id: `block-${Date.now()}`,
+        id: newParagraphBlockId,
         type: "paragraph",
-        content: [{ content: "", formats: undefined }],
+        charRuns: [],
+        formats: [],
       });
+
+      // Insert new paragraph block
+      const insertOp: BlockInsert = {
+        op: "block_insert",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        afterBlockId: null,
+        blockId: newParagraphBlockId,
+        blockType: "paragraph",
+      };
+      ops.push(insertOp);
     }
 
     state = {
@@ -1243,6 +1617,11 @@ export default function createEditor(
         page: { ...state.document.page, blocks: newBlocks },
       },
     };
+
+    // Broadcast operations
+    if (ops.length > 0 && broadcastFn) {
+      broadcastFn(ops);
+    }
 
     const currentState = state;
     scheduleRender();
@@ -1280,6 +1659,337 @@ export default function createEditor(
     scheduleRender();
   }
 
+  function updatePageFromSync(page: Page) {
+    const visibleBlocks = state.view.visibleBlocks;
+    // Update the page from CRDT sync while preserving cursor/selection
+    // This is called when remote operations are applied
+
+    // Clear all block caches since page structure may have changed
+    clearAllBlockCaches(page.blocks);
+
+    // Validate and adjust cursor position if needed
+    let cursor = state.document.cursor;
+    if (cursor && visibleBlocks.length > 0) {
+      const { blockIndex: blockIndex, textIndex } = cursor.position;
+      // Find the last visible block's index in the full array
+      const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
+      const maxBlockIndex = page.blocks.findIndex(
+        (b) => b.id === lastVisibleBlock.id
+      );
+
+      if (blockIndex > maxBlockIndex) {
+        // Cursor points to a block that no longer exists, move to end of last visible block
+        const lastBlock = lastVisibleBlock;
+        const lastBlockText = getBlockTextContent(lastBlock);
+        cursor = {
+          ...cursor,
+          position: {
+            blockIndex: maxBlockIndex,
+            textIndex: lastBlockText.length,
+          },
+        };
+      } else {
+        // Validate textIndex for the block
+        const block = page.blocks[blockIndex];
+        if (block && !block.deleted) {
+          const blockText = getBlockTextContent(block);
+          if (textIndex > blockText.length) {
+            cursor = {
+              ...cursor,
+              position: {
+                blockIndex: blockIndex,
+                textIndex: blockText.length,
+              },
+            };
+          }
+        }
+      }
+    } else if (cursor && visibleBlocks.length === 0) {
+      // No visible blocks, clear cursor
+      cursor = null;
+    }
+
+    // Validate selection as well
+    let selection = state.document.selection;
+    if (selection && visibleBlocks.length > 0) {
+      // Find the last visible block's index in the full array
+      const lastVisibleBlockForSelection =
+        visibleBlocks[visibleBlocks.length - 1];
+      const maxBlockIndex = page.blocks.findIndex(
+        (b) => b.id === lastVisibleBlockForSelection.id
+      );
+      const { anchor, focus } = selection;
+
+      let newAnchor = anchor;
+      let newFocus = focus;
+
+      if (anchor.blockIndex > maxBlockIndex) {
+        const lastBlock = page.blocks[maxBlockIndex];
+        const lastBlockText = getBlockTextContent(lastBlock);
+        newAnchor = {
+          blockIndex: maxBlockIndex,
+          textIndex: lastBlockText.length,
+        };
+      }
+
+      if (focus.blockIndex > maxBlockIndex) {
+        const lastBlock = page.blocks[maxBlockIndex];
+        const lastBlockText = getBlockTextContent(lastBlock);
+        newFocus = {
+          blockIndex: maxBlockIndex,
+          textIndex: lastBlockText.length,
+        };
+      }
+
+      if (newAnchor !== anchor || newFocus !== focus) {
+        selection = {
+          ...selection,
+          anchor: newAnchor,
+          focus: newFocus,
+          isCollapsed:
+            newAnchor.blockIndex === newFocus.blockIndex &&
+            newAnchor.textIndex === newFocus.textIndex,
+        };
+      }
+    } else if (selection && visibleBlocks.length === 0) {
+      selection = null;
+    }
+
+    // Update the page in state
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        page,
+        cursor,
+        selection,
+      },
+    };
+
+    // Mark document height as dirty since page content changed
+    documentHeightDirty = true;
+
+    // Re-render
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  /**
+   * Restore from snapshot by generating operations.
+   * This is for user-initiated restores - generates and broadcasts ops to peers.
+   */
+  function restoreFromSnapshotMethod(newBlocks: Block[]) {
+    const currentPage = state.document.page;
+    const prevState = state;
+
+    // Generate operations using the snapshot-diff utility
+    const ops = generateRestoreOperations({
+      currentBlocks: state.view.visibleBlocks,
+      newBlocks,
+      pageId: getPageId(),
+      peerId: getPeerId(),
+      nextId,
+      getClock,
+    });
+
+    if (ops.length === 0) return;
+
+    // Apply operations to local state
+    const newPage = applyRemoteOps(currentPage, ops);
+
+    // Clear all block caches
+    clearAllBlockCaches(newPage.blocks);
+
+    // Update state with new page and reset cursor to beginning
+    const visibleBlocks = state.view.visibleBlocks;
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        page: newPage,
+        cursor:
+          visibleBlocks.length > 0
+            ? {
+                position: { blockIndex: 0, textIndex: 0 },
+                lastUpdate: Date.now(),
+              }
+            : null,
+        selection: null,
+      },
+    };
+
+    // Record to undo stack
+    state = recordUndoOps(prevState, state, ops, getPeerId());
+
+    // Broadcast operations to peers
+    if (broadcastFn) {
+      broadcastFn(ops);
+    }
+
+    // Mark document height as dirty
+    documentHeightDirty = true;
+
+    // Re-render and notify listeners
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  function setBroadcastMethod(fn: ((ops: Operation[]) => void) | null) {
+    broadcastFn = fn;
+  }
+
+  function setAwarenessBroadcastMethod(
+    fn: AwarenessBroadcastFn | null,
+    user?: AwarenessUser
+  ) {
+    awarenessBroadcastFn = fn;
+    if (user) {
+      localUser = user;
+    }
+    // Broadcast initial awareness state when connected
+    if (fn && localUser) {
+      broadcastAwareness();
+    }
+  }
+
+  function setRemoteAwarenessMethod(
+    peerId: string,
+    awarenessState: AwarenessState | null
+  ) {
+    if (awarenessState === null) {
+      remoteAwareness.delete(peerId);
+    } else {
+      remoteAwareness.set(peerId, awarenessState);
+    }
+    // Trigger re-render to show updated remote cursors
+    scheduleRender();
+  }
+
+  function getRemoteAwarenessMethod(): Map<string, AwarenessState> {
+    return getActiveRemoteAwareness();
+  }
+
+  function applyRemoteOperationsMethod(ops: Operation[]) {
+    if (ops.length === 0) return;
+
+    // Apply remote operations to current page state
+    const newPage = applyRemoteOps(state.document.page, ops);
+
+    // Clear all block caches since page structure may have changed
+    clearAllBlockCaches(newPage.blocks);
+
+    // Validate and adjust cursor position if needed
+    let cursor = state.document.cursor;
+    const visibleBlocksForOps = state.view.visibleBlocks;
+    if (cursor && visibleBlocksForOps.length > 0) {
+      const { blockIndex: blockIndex, textIndex } = cursor.position;
+      // Find the last visible block's index in the full array
+      const lastVisibleBlockForOps =
+        visibleBlocksForOps[visibleBlocksForOps.length - 1];
+      const maxBlockIndex = newPage.blocks.findIndex(
+        (b) => b.id === lastVisibleBlockForOps.id
+      );
+
+      if (blockIndex > maxBlockIndex) {
+        // Cursor points to a block that no longer exists, move to end of last visible block
+        const lastBlock = lastVisibleBlockForOps;
+        const lastBlockText = getBlockTextContent(lastBlock);
+        cursor = {
+          ...cursor,
+          position: {
+            blockIndex: maxBlockIndex,
+            textIndex: lastBlockText.length,
+          },
+        };
+      } else {
+        // Validate textIndex for the block
+        const block = newPage.blocks[blockIndex];
+        if (block && !block.deleted) {
+          const blockText = getBlockTextContent(block);
+          if (textIndex > blockText.length) {
+            cursor = {
+              ...cursor,
+              position: {
+                blockIndex: blockIndex,
+                textIndex: blockText.length,
+              },
+            };
+          }
+        }
+      }
+    } else if (cursor && visibleBlocksForOps.length === 0) {
+      // No visible blocks, clear cursor
+      cursor = null;
+    }
+
+    // Validate selection as well
+    let selection = state.document.selection;
+    if (selection && visibleBlocksForOps.length > 0) {
+      // Find the last visible block's index in the full array
+      const lastVisibleBlockForSelectionOps =
+        visibleBlocksForOps[visibleBlocksForOps.length - 1];
+      const maxBlockIndex = newPage.blocks.findIndex(
+        (b) => b.id === lastVisibleBlockForSelectionOps.id
+      );
+      const { anchor, focus } = selection;
+
+      let newAnchor = anchor;
+      let newFocus = focus;
+
+      if (anchor.blockIndex > maxBlockIndex) {
+        const lastBlock = newPage.blocks[maxBlockIndex];
+        const lastBlockText = getBlockTextContent(lastBlock);
+        newAnchor = {
+          blockIndex: maxBlockIndex,
+          textIndex: lastBlockText.length,
+        };
+      }
+
+      if (focus.blockIndex > maxBlockIndex) {
+        const lastBlock = newPage.blocks[maxBlockIndex];
+        const lastBlockText = getBlockTextContent(lastBlock);
+        newFocus = {
+          blockIndex: maxBlockIndex,
+          textIndex: lastBlockText.length,
+        };
+      }
+
+      if (newAnchor !== anchor || newFocus !== focus) {
+        selection = {
+          ...selection,
+          anchor: newAnchor,
+          focus: newFocus,
+          isCollapsed:
+            newAnchor.blockIndex === newFocus.blockIndex &&
+            newAnchor.textIndex === newFocus.textIndex,
+        };
+      }
+    } else if (selection && visibleBlocksForOps.length === 0) {
+      selection = null;
+    }
+
+    // Update the page in state
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        page: newPage,
+        cursor,
+        selection,
+      },
+    };
+
+    // Mark document height as dirty since remote ops may have added/removed content
+    documentHeightDirty = true;
+
+    // Re-render
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
   return {
     getState,
     destroy,
@@ -1313,5 +2023,12 @@ export default function createEditor(
     openImageUploadMenu,
     closeActiveMenu: closeActiveMenuMethod,
     setPhysicalKeyboard,
+    updatePageFromSync,
+    restoreFromSnapshot: restoreFromSnapshotMethod,
+    applyRemoteOperations: applyRemoteOperationsMethod,
+    setBroadcast: setBroadcastMethod,
+    setAwarenessBroadcast: setAwarenessBroadcastMethod,
+    setRemoteAwareness: setRemoteAwarenessMethod,
+    getRemoteAwareness: getRemoteAwarenessMethod,
   };
 }

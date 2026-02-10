@@ -1,16 +1,29 @@
-import type { Block, Page } from "../deserializer/loadPage";
-import { isVisualBlock, isListBlock } from "../deserializer/loadPage";
+import type {
+  Block,
+  CharRun,
+  FormatSpan,
+  Page,
+} from "../deserializer/loadPage";
+import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
-  wrapFormattedTextDetailed,
-  measureFormattedTextUpToIndex,
+  measureText,
+  measureCRDTTextUpToIndex,
+  type FontFamily,
 } from "./fonts";
+import { createIdGenerator, generatePeerId } from "./sync/id";
+import { setCRDTContext } from "./sync/sync";
+import { isRTLChar } from "./rtl";
+import {
+  getVisibleTextFromRuns,
+  getVisibleLengthFromRuns,
+  charRunsToChars,
+} from "./sync/char-runs";
 import {
   createInitialMomentumState,
   createInitialScrollbarState,
 } from "./scrollbar";
 import { getEditorStyles, getTextStyle } from "./styles";
-import { getFormattedTextDirection } from "./rtl";
 import type {
   CursorState,
   EditorMode,
@@ -21,45 +34,274 @@ import type {
   ViewportState,
 } from "./types";
 import { initialUndoManagerState } from "./undo";
+import { getVisibleBlocks } from "./sync/sync";
+import {
+  findNextVisibleBlockIndex,
+  findPreviousVisibleBlockIndex,
+} from "./sync/reducer";
 
-// Block ID Generation - Centralized Counter
+// =============================================================================
+// CRDT-Native Helper Functions
+// =============================================================================
+
+/**
+ * Get text direction from CRDT charRuns
+ */
+function getCharsDirection(charRuns: CharRun[] | undefined): "rtl" | "ltr" {
+  const visibleText = getVisibleTextFromRuns(charRuns);
+  if (visibleText.length === 0) return "ltr";
+
+  let totalRtl = 0;
+  let totalLtr = 0;
+
+  for (const char of visibleText) {
+    if (isRTLChar(char)) {
+      totalRtl++;
+    } else if (/[a-zA-Z]/.test(char)) {
+      totalLtr++;
+    }
+  }
+
+  const totalDirectional = totalRtl + totalLtr;
+  if (totalDirectional === 0) return "ltr";
+
+  return totalRtl / totalDirectional > 0.3 ? "rtl" : "ltr";
+}
+
+/**
+ * Wrap text by measuring character widths directly from chars array
+ */
+interface WrappedLine {
+  text: string;
+  consumedSpace: boolean;
+}
+
+function wrapCharsDetailed(
+  charRuns: CharRun[],
+  formats: FormatSpan[],
+  maxWidth: number,
+  fontSize: number,
+  baseFontWeight: string,
+  fontFamily: FontFamily,
+  codePadding: number = 0
+): WrappedLine[] {
+  // Convert charRuns to Char[] for compatibility with existing measurement code
+  const chars = charRunsToChars(charRuns);
+  const visibleChars = chars.filter((c) => !c.deleted);
+  if (visibleChars.length === 0) {
+    return [{ text: "", consumedSpace: false }];
+  }
+
+  // Build a map of char ID to formats
+  const charIdToFormats = new Map<string, Set<string>>();
+  for (const span of formats) {
+    const startIdx = visibleChars.findIndex((c) => c.id === span.startCharId);
+    const endIdx = visibleChars.findIndex((c) => c.id === span.endCharId);
+
+    if (startIdx === -1 || endIdx === -1) continue;
+
+    for (let i = startIdx; i <= endIdx; i++) {
+      const charId = visibleChars[i].id;
+      if (!charIdToFormats.has(charId)) {
+        charIdToFormats.set(charId, new Set());
+      }
+      charIdToFormats.get(charId)!.add(span.format.type);
+    }
+  }
+
+  const fullText = visibleChars.map((c) => c.char).join("");
+  const lines: WrappedLine[] = [];
+  const words = fullText.split(" ");
+  let currentLine = "";
+  let currentLineWidth = 0;
+  let currentCharIndex = 0;
+
+  const spaceWidth = measureText(" ", fontSize, baseFontWeight, fontFamily);
+
+  // Measure a substring of visible chars
+  const measureSubstring = (start: number, end: number): number => {
+    let width = 0;
+    for (let i = start; i < end; i++) {
+      const char = visibleChars[i];
+      const formats = charIdToFormats.get(char.id);
+      const isBold = formats?.has("bold") || false;
+      const isCode = formats?.has("code") || false;
+      const fontWeight = isBold ? "bold" : baseFontWeight;
+      width += measureText(char.char, fontSize, fontWeight, fontFamily);
+      if (isCode) width += codePadding * 2;
+    }
+    return width;
+  };
+
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const wordStart = currentCharIndex;
+    const wordEnd = currentCharIndex + word.length;
+    const wordWidth = measureSubstring(wordStart, wordEnd);
+
+    const spaceIfNeeded = currentLine ? spaceWidth : 0;
+
+    if (currentLineWidth + spaceIfNeeded + wordWidth <= maxWidth) {
+      currentLine = currentLine ? currentLine + " " + word : word;
+      currentLineWidth += spaceIfNeeded + wordWidth;
+      currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
+    } else {
+      if (currentLine) {
+        lines.push({ text: currentLine, consumedSpace: true });
+        currentLine = "";
+        currentLineWidth = 0;
+      }
+
+      if (wordWidth <= maxWidth) {
+        currentLine = word;
+        currentLineWidth = wordWidth;
+        currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
+      } else {
+        // Word too long, split by character
+        let remainingWordStart = wordStart;
+        while (remainingWordStart < wordEnd) {
+          let splitIndex = remainingWordStart;
+          let currentWidth = 0;
+
+          for (let j = remainingWordStart; j < wordEnd; j++) {
+            const char = visibleChars[j];
+            const formats = charIdToFormats.get(char.id);
+            const isBold = formats?.has("bold") || false;
+            const fontWeight = isBold ? "bold" : baseFontWeight;
+            const charWidth = measureText(
+              char.char,
+              fontSize,
+              fontWeight,
+              fontFamily
+            );
+
+            if (currentWidth + charWidth > maxWidth && j > remainingWordStart) {
+              splitIndex = j;
+              break;
+            }
+            currentWidth += charWidth;
+            splitIndex = j + 1;
+          }
+
+          if (splitIndex === remainingWordStart) splitIndex++;
+
+          const chunk = fullText.substring(remainingWordStart, splitIndex);
+          lines.push({ text: chunk, consumedSpace: false });
+          remainingWordStart = splitIndex;
+        }
+
+        currentLine = "";
+        currentLineWidth = 0;
+        currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
+      }
+    }
+  }
+
+  if (currentLine) {
+    lines.push({ text: currentLine, consumedSpace: false });
+  }
+
+  return lines.length > 0 ? lines : [{ text: "", consumedSpace: false }];
+}
+
+/**
+ * Measure text width up to a specific index in the chars array
+ * Uses batched measurement to preserve Arabic ligatures
+ */
+function measureCharsUpToIndex(
+  charRuns: CharRun[],
+  formats: FormatSpan[],
+  startIndex: number,
+  endIndex: number,
+  fontSize: number,
+  baseFontWeight: string,
+  fontFamily: FontFamily,
+  codePadding: number = 0
+): number {
+  // Convert charRuns to Char[] for compatibility with existing measurement code
+  const chars = charRunsToChars(charRuns);
+  // Use the batched measurement function from fonts.ts
+  // This preserves Arabic ligatures by measuring text in batches with the same formatting
+  return measureCRDTTextUpToIndex(
+    chars,
+    formats,
+    startIndex,
+    endIndex,
+    fontSize,
+    baseFontWeight,
+    fontFamily,
+    codePadding
+  );
+}
+
+// =============================================================================
+// Block ID Generation
+// =============================================================================
+
+// Centralized Counter
 let blockIdCounter = 10000; // Start high to avoid conflicts with parsed blocks
 
+/**
+ * Generate a unique block ID.
+ * Block IDs are generated in the CRDTContext passed to commands.
+ * This is a fallback for non-CRDT contexts (e.g., initial page load).
+ */
 export function generateBlockId(): string {
   return `block-${blockIdCounter++}`;
 }
 
 // State Creation Functions
-export const createInitialState = (page: Page): EditorState => ({
-  document: {
-    page,
-    cursor: null,
-    selection: null,
-  },
-  ui: {
-    mode: "edit" as EditorMode,
-    activeMenu: { type: "none" },
-    isHoveringLinkWithModifier: false,
-    composition: null,
-    activeFormatsMode: { type: "inherit" },
-    imageHover: null,
-    imageDrag: null,
-    selectionHandleDrag: null,
-    autoCreatedParagraph: null,
-  },
-  view: {
-    isFocused: false,
-    clickTracker: {
-      count: 0,
-      lastClickTime: 0,
-      lastClickPosition: null,
+export const createInitialState = (
+  page: Page,
+  options?: { mode?: EditorMode }
+): EditorState => {
+  const peerId = generatePeerId();
+
+  // Initialize global CRDT context
+  setCRDTContext(page.id, peerId);
+
+  return {
+    document: {
+      page,
+      cursor: null,
+      selection: null,
     },
-    scrollbar: createInitialScrollbarState(),
-    momentum: createInitialMomentumState(),
-    hasPhysicalKeyboard: false, // Default to false, will be updated by native
-  },
-  undoManager: initialUndoManagerState,
-});
+    ui: {
+      mode: (options?.mode ?? "edit") as EditorMode,
+      isReadonlyBase: options?.mode === "readonly",
+      activeMenu: { type: "none" },
+      isHoveringLinkWithModifier: false,
+      isHoveringCheckbox: false,
+      composition: null,
+      activeFormatsMode: { type: "inherit" },
+      imageHover: null,
+      imageDrag: null,
+      selectionHandleDrag: null,
+      autoCreatedParagraph: null,
+    },
+    view: {
+      isFocused: false,
+      clickTracker: {
+        count: 0,
+        lastClickTime: 0,
+        lastClickPosition: null,
+      },
+      scrollbar: createInitialScrollbarState(),
+      momentum: createInitialMomentumState(),
+      hasPhysicalKeyboard: false, // Default to false, will be updated by native
+      visibleBlocks: getVisibleBlocks(page),
+    },
+    undoManager: initialUndoManagerState,
+    crdt: {
+      pageId: page.id,
+      idGen: createIdGenerator(peerId),
+      clock: () => ({
+        counter: 0,
+        peerId,
+      }),
+    },
+  };
+};
 
 // State Update Functions (Pure Functions)
 export const updateCursor = (
@@ -94,7 +336,7 @@ export const updateSelection = (
           lastUpdate: Date.now(),
           // Only preserve initialBoundary if explicitly provided in updates
           // This prevents unintentional preservation of gesture boundaries in programmatic selections
-          ...('initialBoundary' in updates && updates.initialBoundary !== null
+          ...("initialBoundary" in updates && updates.initialBoundary !== null
             ? { initialBoundary: updates.initialBoundary }
             : {}),
         }
@@ -105,10 +347,30 @@ export const updateSelection = (
 export const updateMode = (
   state: EditorState,
   mode: EditorMode
-): EditorState => ({
-  ...state,
-  ui: { ...state.ui, mode },
-});
+): EditorState => {
+  // If editor was initialized as readonly, enforce readonly behavior
+  if (state.ui.isReadonlyBase) {
+    // Allow switching to "select" for drag selection, or "locked"
+    if (mode === "select" || mode === "locked") {
+      return {
+        ...state,
+        ui: { ...state.ui, mode },
+      };
+    }
+    // When trying to go to "edit", return to "readonly" instead
+    if (mode === "edit") {
+      return {
+        ...state,
+        ui: { ...state.ui, mode: "readonly" },
+      };
+    }
+    return state;
+  }
+  return {
+    ...state,
+    ui: { ...state.ui, mode },
+  };
+};
 
 export const updateFocus = (
   state: EditorState,
@@ -162,27 +424,29 @@ export const createInitialCursorState = (state: EditorState): EditorState => {
 export const getBlockTextLength = (block: Block): number => {
   if (!block) return 0;
 
-  // Image cover blocks don't have text content
-  if (block.type === "image") return 0;
+  // Image and Line blocks don't have text content
+  if (block.type === "image" || block.type === "line") return 0;
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return 0;
   }
 
-  return block.content.reduce((total, text) => total + text.content.length, 0);
+  // Count visible (non-deleted) chars from charRuns
+  return getVisibleLengthFromRuns(block.charRuns);
 };
 
 export const getBlockTextContent = (block: Block): string => {
   if (!block) return "";
 
-  // Image cover blocks don't have text content
-  if (block.type === "image") return "";
+  // Image and Line blocks don't have text content
+  if (block.type === "image" || block.type === "line") return "";
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return "";
   }
 
-  return block.content.map((text) => text.content).join("");
+  // Get visible text from charRuns
+  return getVisibleTextFromRuns(block.charRuns);
 };
 
 export const isForwardSelection = (
@@ -206,21 +470,14 @@ export const isCollapsedSelection = (
 
 export function isCursorBlinking(cursor: CursorState, styles: EditorStyles) {
   const now = Date.now();
-  const untilNextBlink = now % styles.cursor.blinkInterval;
-  const endTime = cursor.lastUpdate + untilNextBlink;
-  // if the cursor has been recently updated, it should be visible
-  if (endTime > now) {
+
+  // If the cursor was recently updated (within one blink interval), always show it
+  if (now - cursor.lastUpdate < styles.cursor.blinkInterval) {
     return false;
   }
 
-  // otherwise, it should blink
-  return (
-    Math.floor(
-      (Date.now() - styles.cursor.blinkInterval) / styles.cursor.blinkInterval
-    ) %
-      2 !==
-    0
-  );
+  // Otherwise, blink based on time (alternating every blinkInterval)
+  return Math.floor(now / styles.cursor.blinkInterval) % 2 !== 0;
 }
 
 // Cursor Movement Functions
@@ -230,13 +487,16 @@ export const moveCursorToPosition = (
   textIndex: number,
   preserveActiveFormats: boolean = false
 ): EditorState => {
+  const allBlocks = state.document.page.blocks;
+  if (allBlocks.length === 0) return state;
+
   const clampedBlockIndex = Math.max(
     0,
-    Math.min(blockIndex, state.document.page.blocks.length - 1)
+    Math.min(blockIndex, allBlocks.length - 1)
   );
-  const block = state.document.page.blocks[clampedBlockIndex];
+  const block = allBlocks[clampedBlockIndex];
 
-  if (!block) return state;
+  if (!block || block.deleted) return state;
 
   const maxTextIndex = getBlockTextLength(block);
   const clampedTextIndex = Math.max(0, Math.min(textIndex, maxTextIndex));
@@ -266,31 +526,35 @@ export const moveCursorToPosition = (
 export const moveCursorLeft = (state: EditorState): EditorState => {
   if (!state.document.cursor) return createInitialCursorState(state);
 
-  const { blockIndex, textIndex } = state.document.cursor.position;
+  const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
   const currentBlock = state.document.page.blocks[blockIndex];
 
-  if (!currentBlock) return state;
+  if (!currentBlock || currentBlock.deleted) return state;
 
   // Handle visual blocks (image/line) - move to previous block
   if (currentBlock.type === "image" || currentBlock.type === "line") {
-    if (blockIndex > 0) {
-      const prevBlock = state.document.page.blocks[blockIndex - 1];
+    const prevBlockIndex = findPreviousVisibleBlockIndex(
+      state.document.page.blocks,
+      blockIndex
+    );
+    if (prevBlockIndex !== null) {
+      const prevBlock = state.document.page.blocks[prevBlockIndex];
       if (prevBlock.type === "image" || prevBlock.type === "line") {
-        return moveCursorToPosition(state, blockIndex - 1, 0);
-      } else if (isVisualBlock(prevBlock)) {
+        return moveCursorToPosition(state, prevBlockIndex, 0);
+      } else if (isTextualBlock(prevBlock)) {
         const prevBlockLength = getBlockTextLength(prevBlock);
-        return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
+        return moveCursorToPosition(state, prevBlockIndex, prevBlockLength);
       }
     }
     return state;
   }
 
-  if (!isVisualBlock(currentBlock)) {
+  if (!isTextualBlock(currentBlock)) {
     return state;
   }
 
   // Check if current block is RTL
-  const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
+  const isRTL = getCharsDirection(currentBlock.charRuns) === "rtl";
 
   if (isRTL) {
     // In RTL text, visual left is logical forward (increment)
@@ -298,53 +562,65 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
 
     if (textIndex < currentBlockLength) {
       return moveCursorToPosition(state, blockIndex, textIndex + 1);
-    } else if (blockIndex < state.document.page.blocks.length - 1) {
-      // Moving to next block
-      const nextBlock = state.document.page.blocks[blockIndex + 1];
+    } else {
+      // Moving to next visible block
+      const nextBlockIndex = findNextVisibleBlockIndex(
+        state.document.page.blocks,
+        blockIndex
+      );
+      if (nextBlockIndex !== null) {
+        const nextBlock = state.document.page.blocks[nextBlockIndex];
 
-      // Handle visual blocks (image/line) - move to the block
-      if (nextBlock.type === "image" || nextBlock.type === "line") {
-        return moveCursorToPosition(state, blockIndex + 1, 0);
-      }
+        // Handle visual blocks (image/line) - move to the block
+        if (nextBlock.type === "image" || nextBlock.type === "line") {
+          return moveCursorToPosition(state, nextBlockIndex, 0);
+        }
 
-      if (!isVisualBlock(nextBlock)) {
-        return state;
-      }
-      const nextIsRTL = getFormattedTextDirection(nextBlock.content) === "rtl";
+        if (!isTextualBlock(nextBlock)) {
+          return state;
+        }
+        const nextIsRTL = getCharsDirection(nextBlock.charRuns) === "rtl";
 
-      if (nextIsRTL) {
-        // Next block is RTL, position at start (visual right edge)
-        return moveCursorToPosition(state, blockIndex + 1, 0);
-      } else {
-        // Next block is LTR, position at start (visual left edge)
-        return moveCursorToPosition(state, blockIndex + 1, 0);
+        if (nextIsRTL) {
+          // Next block is RTL, position at start (visual right edge)
+          return moveCursorToPosition(state, nextBlockIndex, 0);
+        } else {
+          // Next block is LTR, position at start (visual left edge)
+          return moveCursorToPosition(state, nextBlockIndex, 0);
+        }
       }
     }
   } else {
     // LTR text: visual left is logical backward (decrement)
     if (textIndex > 0) {
       return moveCursorToPosition(state, blockIndex, textIndex - 1);
-    } else if (blockIndex > 0) {
-      // Moving to previous block
-      const prevBlock = state.document.page.blocks[blockIndex - 1];
+    } else {
+      // Moving to previous visible block
+      const prevBlockIndex = findPreviousVisibleBlockIndex(
+        state.document.page.blocks,
+        blockIndex
+      );
+      if (prevBlockIndex !== null) {
+        const prevBlock = state.document.page.blocks[prevBlockIndex];
 
-      // Handle visual blocks (image/line) - move to the block
-      if (prevBlock.type === "image" || prevBlock.type === "line") {
-        return moveCursorToPosition(state, blockIndex - 1, 0);
-      }
+        // Handle visual blocks (image/line) - move to the block
+        if (prevBlock.type === "image" || prevBlock.type === "line") {
+          return moveCursorToPosition(state, prevBlockIndex, 0);
+        }
 
-      if (!isVisualBlock(prevBlock)) {
-        return state;
-      }
-      const prevBlockLength = getBlockTextLength(prevBlock);
-      const prevIsRTL = getFormattedTextDirection(prevBlock.content) === "rtl";
+        if (!isTextualBlock(prevBlock)) {
+          return state;
+        }
+        const prevBlockLength = getBlockTextLength(prevBlock);
+        const prevIsRTL = getCharsDirection(prevBlock.charRuns) === "rtl";
 
-      if (prevIsRTL) {
-        // Previous block is RTL, position at end (visual left edge)
-        return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
-      } else {
-        // Previous block is LTR, position at end (visual right edge)
-        return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
+        if (prevIsRTL) {
+          // Previous block is RTL, position at end (visual left edge)
+          return moveCursorToPosition(state, prevBlockIndex, prevBlockLength);
+        } else {
+          // Previous block is LTR, position at end (visual right edge)
+          return moveCursorToPosition(state, prevBlockIndex, prevBlockLength);
+        }
       }
     }
   }
@@ -355,84 +631,100 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
 export const moveCursorRight = (state: EditorState): EditorState => {
   if (!state.document.cursor) return createInitialCursorState(state);
 
-  const { blockIndex, textIndex } = state.document.cursor.position;
+  const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
   const currentBlock = state.document.page.blocks[blockIndex];
 
-  if (!currentBlock) return state;
+  if (!currentBlock || currentBlock.deleted) return state;
 
   // Handle visual blocks (image/line) - move to next block
   if (currentBlock.type === "image" || currentBlock.type === "line") {
-    if (blockIndex < state.document.page.blocks.length - 1) {
-      const nextBlock = state.document.page.blocks[blockIndex + 1];
+    const nextBlockIndex = findNextVisibleBlockIndex(
+      state.document.page.blocks,
+      blockIndex
+    );
+    if (nextBlockIndex !== null) {
+      const nextBlock = state.document.page.blocks[nextBlockIndex];
       if (nextBlock.type === "image" || nextBlock.type === "line") {
-        return moveCursorToPosition(state, blockIndex + 1, 0);
-      } else if (isVisualBlock(nextBlock)) {
-        return moveCursorToPosition(state, blockIndex + 1, 0);
+        return moveCursorToPosition(state, nextBlockIndex, 0);
+      } else if (isTextualBlock(nextBlock)) {
+        return moveCursorToPosition(state, nextBlockIndex, 0);
       }
     }
     return state;
   }
 
-  if (!isVisualBlock(currentBlock)) {
+  if (!isTextualBlock(currentBlock)) {
     return state;
   }
 
   const currentBlockLength = getBlockTextLength(currentBlock);
 
   // Check if current block is RTL
-  const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
+  const isRTL = getCharsDirection(currentBlock.charRuns) === "rtl";
 
   if (isRTL) {
     // In RTL text, visual right is logical backward (decrement)
     if (textIndex > 0) {
       return moveCursorToPosition(state, blockIndex, textIndex - 1);
-    } else if (blockIndex > 0) {
-      // Moving to previous block
-      const prevBlock = state.document.page.blocks[blockIndex - 1];
+    } else {
+      // Moving to previous visible block
+      const prevBlockIndex = findPreviousVisibleBlockIndex(
+        state.document.page.blocks,
+        blockIndex
+      );
+      if (prevBlockIndex !== null) {
+        const prevBlock = state.document.page.blocks[prevBlockIndex];
 
-      // Handle visual blocks (image/line) - move to the block
-      if (prevBlock.type === "image" || prevBlock.type === "line") {
-        return moveCursorToPosition(state, blockIndex - 1, 0);
-      }
+        // Handle visual blocks (image/line) - move to the block
+        if (prevBlock.type === "image" || prevBlock.type === "line") {
+          return moveCursorToPosition(state, prevBlockIndex, 0);
+        }
 
-      if (!isVisualBlock(prevBlock)) {
-        return state;
-      }
-      const prevBlockLength = getBlockTextLength(prevBlock);
-      const prevIsRTL = getFormattedTextDirection(prevBlock.content) === "rtl";
+        if (!isTextualBlock(prevBlock)) {
+          return state;
+        }
+        const prevBlockLength = getBlockTextLength(prevBlock);
+        const prevIsRTL = getCharsDirection(prevBlock.charRuns) === "rtl";
 
-      if (prevIsRTL) {
-        // Previous block is RTL, position at end (visual left edge)
-        return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
-      } else {
-        // Previous block is LTR, position at end (visual right edge)
-        return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
+        if (prevIsRTL) {
+          // Previous block is RTL, position at end (visual left edge)
+          return moveCursorToPosition(state, prevBlockIndex, prevBlockLength);
+        } else {
+          // Previous block is LTR, position at end (visual right edge)
+          return moveCursorToPosition(state, prevBlockIndex, prevBlockLength);
+        }
       }
     }
   } else {
     // LTR text: visual right is logical forward (increment)
     if (textIndex < currentBlockLength) {
       return moveCursorToPosition(state, blockIndex, textIndex + 1);
-    } else if (blockIndex < state.document.page.blocks.length - 1) {
-      // Moving to next block
-      const nextBlock = state.document.page.blocks[blockIndex + 1];
+    } else {
+      // Moving to next visible block
+      const nextBlockIndex = findNextVisibleBlockIndex(
+        state.document.page.blocks,
+        blockIndex
+      );
+      if (nextBlockIndex !== null) {
+        const nextBlock = state.document.page.blocks[nextBlockIndex];
 
-      // Handle visual blocks (image/line) - move to the block
-      if (nextBlock.type === "image" || nextBlock.type === "line") {
-        return moveCursorToPosition(state, blockIndex + 1, 0);
-      }
+        // Handle visual blocks (image/line) - move to the block
+        if (nextBlock.type === "image" || nextBlock.type === "line") {
+          return moveCursorToPosition(state, nextBlockIndex, 0);
+        }
 
-      if (!isVisualBlock(nextBlock)) {
-        return state;
-      }
-      const nextIsRTL = getFormattedTextDirection(nextBlock.content) === "rtl";
+        if (!isTextualBlock(nextBlock)) {
+          return state;
+        }
+        const nextIsRTL = getCharsDirection(nextBlock.charRuns) === "rtl";
 
-      if (nextIsRTL) {
-        // Next block is RTL, position at start (visual right edge)
-        return moveCursorToPosition(state, blockIndex + 1, 0);
-      } else {
-        // Next block is LTR, position at start (visual left edge)
-        return moveCursorToPosition(state, blockIndex + 1, 0);
+        if (nextIsRTL) {
+          // Next block is RTL, position at start (visual right edge)
+          return moveCursorToPosition(state, nextBlockIndex, 0);
+        } else {
+          // Next block is LTR, position at start (visual left edge)
+          return moveCursorToPosition(state, nextBlockIndex, 0);
+        }
       }
     }
   }
@@ -456,7 +748,7 @@ function getLineInfoAtPosition(
   totalLines: number;
   lines: string[];
 } | null {
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     return null;
   }
 
@@ -469,12 +761,14 @@ function getLineInfoAtPosition(
   if (isListBlock(block)) {
     const indent = block.indent || 0;
     const indentOffset = indent * styles.list.indent.size;
-    const markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
+    const markerWidth =
+      styles.list.numbered.minWidth + styles.list.marker.textGap;
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
   }
 
-  const wrappedLines = wrapFormattedTextDetailed(
-    block.content,
+  const wrappedLines = wrapCharsDetailed(
+    block.charRuns,
+    block.formats,
     adjustedMaxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
@@ -528,13 +822,13 @@ function getTextIndexAtRelativePosition(
     return targetIndex;
   }
 
-  if (!isVisualBlock(block)) {
+  if (!isTextualBlock(block)) {
     const lineLength = lineEndIndex - lineStartIndex;
     return lineStartIndex + Math.min(relativePosition, lineLength);
   }
 
   // Check if this is RTL text
-  const isRTL = getFormattedTextDirection(block.content) === "rtl";
+  const isRTL = getCharsDirection(block.charRuns) === "rtl";
 
   if (!isRTL) {
     // LTR: simple logical positioning
@@ -559,8 +853,9 @@ function getTextIndexAtRelativePosition(
     const charIndex = lineStartIndex + i;
 
     // Measure from line start to this character position
-    const widthFromStart = measureFormattedTextUpToIndex(
-      block.content,
+    const widthFromStart = measureCharsUpToIndex(
+      block.charRuns,
+      block.formats,
       lineStartIndex,
       charIndex,
       textStyle.fontSize,
@@ -591,22 +886,26 @@ export const moveCursorUp = (
 ): EditorState => {
   if (!state.document.cursor) return createInitialCursorState(state);
 
-  const { blockIndex, textIndex } = state.document.cursor.position;
+  const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
   const currentBlock = state.document.page.blocks[blockIndex];
 
-  if (!currentBlock) return state;
+  if (!currentBlock || currentBlock.deleted) return state;
 
   // Handle visual blocks (image/line) - move to previous block
   if (currentBlock.type === "image" || currentBlock.type === "line") {
-    if (blockIndex > 0) {
-      const prevBlock = state.document.page.blocks[blockIndex - 1];
+    const prevBlockIndex = findPreviousVisibleBlockIndex(
+      state.document.page.blocks,
+      blockIndex
+    );
+    if (prevBlockIndex !== null) {
+      const prevBlock = state.document.page.blocks[prevBlockIndex];
       if (prevBlock.type === "image" || prevBlock.type === "line") {
         // Move to previous visual block
-        return moveCursorToPosition(state, blockIndex - 1, 0);
-      } else if (isVisualBlock(prevBlock)) {
+        return moveCursorToPosition(state, prevBlockIndex, 0);
+      } else if (isTextualBlock(prevBlock)) {
         // Move to end of previous text block
         const prevBlockLength = getBlockTextLength(prevBlock);
-        return moveCursorToPosition(state, blockIndex - 1, prevBlockLength);
+        return moveCursorToPosition(state, prevBlockIndex, prevBlockLength);
       }
     }
     return state;
@@ -626,12 +925,12 @@ export const moveCursorUp = (
 
   if (!lineInfo) return state;
 
-  if (!isVisualBlock(currentBlock)) {
+  if (!isTextualBlock(currentBlock)) {
     return state;
   }
 
   // For RTL text, calculate visual position instead of logical position
-  const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
+  const isRTL = getCharsDirection(currentBlock.charRuns) === "rtl";
   let relativePosition: number;
 
   if (isRTL) {
@@ -642,8 +941,9 @@ export const moveCursorUp = (
     const codePadding = styles.textFormats.code.padding;
 
     // Measure from line start to cursor position
-    const widthFromStart = measureFormattedTextUpToIndex(
-      currentBlock.content,
+    const widthFromStart = measureCharsUpToIndex(
+      currentBlock.charRuns,
+      currentBlock.formats,
       lineInfo.lineStartIndex,
       textIndex,
       textStyle.fontSize,
@@ -686,23 +986,28 @@ export const moveCursorUp = (
   }
 
   // On the first line of the block, move to the previous block's last line
-  if (blockIndex > 0) {
-    const prevBlock = state.document.page.blocks[blockIndex - 1];
+  const prevBlockIndex = findPreviousVisibleBlockIndex(
+    state.document.page.blocks,
+    blockIndex
+  );
+  if (prevBlockIndex !== null) {
+    const prevBlock = state.document.page.blocks[prevBlockIndex];
 
     // Handle visual blocks (image/line) - position cursor at start of the block
     if (prevBlock.type === "image" || prevBlock.type === "line") {
-      return moveCursorToPosition(state, blockIndex - 1, 0);
+      return moveCursorToPosition(state, prevBlockIndex, 0);
     }
 
-    if (!isVisualBlock(prevBlock)) {
+    if (!isTextualBlock(prevBlock)) {
       return state;
     }
     const prevTextStyle = getTextStyle(styles, prevBlock.type);
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
 
-    const prevLines = wrapFormattedTextDetailed(
-      prevBlock.content,
+    const prevLines = wrapCharsDetailed(
+      prevBlock.charRuns,
+      prevBlock.formats,
       maxWidth,
       prevTextStyle.fontSize,
       prevTextStyle.fontWeight,
@@ -732,11 +1037,11 @@ export const moveCursorUp = (
         styles
       );
 
-      return moveCursorToPosition(state, blockIndex - 1, targetTextIndex);
+      return moveCursorToPosition(state, prevBlockIndex, targetTextIndex);
     }
 
     // If previous block is empty, just go to its start
-    return moveCursorToPosition(state, blockIndex - 1, 0);
+    return moveCursorToPosition(state, prevBlockIndex, 0);
   }
 
   // Already at the first line of the first block, move to start
@@ -754,21 +1059,25 @@ export const moveCursorDown = (
 ): EditorState => {
   if (!state.document.cursor) return createInitialCursorState(state);
 
-  const { blockIndex, textIndex } = state.document.cursor.position;
+  const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
   const currentBlock = state.document.page.blocks[blockIndex];
 
-  if (!currentBlock) return state;
+  if (!currentBlock || currentBlock.deleted) return state;
 
   // Handle visual blocks (image/line) - move to next block
   if (currentBlock.type === "image" || currentBlock.type === "line") {
-    if (blockIndex < state.document.page.blocks.length - 1) {
-      const nextBlock = state.document.page.blocks[blockIndex + 1];
+    const nextBlockIndex = findNextVisibleBlockIndex(
+      state.document.page.blocks,
+      blockIndex
+    );
+    if (nextBlockIndex !== null) {
+      const nextBlock = state.document.page.blocks[nextBlockIndex];
       if (nextBlock.type === "image" || nextBlock.type === "line") {
         // Move to next visual block
-        return moveCursorToPosition(state, blockIndex + 1, 0);
-      } else if (isVisualBlock(nextBlock)) {
+        return moveCursorToPosition(state, nextBlockIndex, 0);
+      } else if (isTextualBlock(nextBlock)) {
         // Move to start of next text block
-        return moveCursorToPosition(state, blockIndex + 1, 0);
+        return moveCursorToPosition(state, nextBlockIndex, 0);
       }
     }
     return state;
@@ -788,12 +1097,12 @@ export const moveCursorDown = (
 
   if (!lineInfo) return state;
 
-  if (!isVisualBlock(currentBlock)) {
+  if (!isTextualBlock(currentBlock)) {
     return state;
   }
 
   // For RTL text, calculate visual position instead of logical position
-  const isRTL = getFormattedTextDirection(currentBlock.content) === "rtl";
+  const isRTL = getCharsDirection(currentBlock.charRuns) === "rtl";
   let relativePosition: number;
 
   if (isRTL) {
@@ -804,8 +1113,9 @@ export const moveCursorDown = (
     const codePadding = styles.textFormats.code.padding;
 
     // Measure from line start to cursor position
-    const widthFromStart = measureFormattedTextUpToIndex(
-      currentBlock.content,
+    const widthFromStart = measureCharsUpToIndex(
+      currentBlock.charRuns,
+      currentBlock.formats,
       lineInfo.lineStartIndex,
       textIndex,
       textStyle.fontSize,
@@ -859,23 +1169,28 @@ export const moveCursorDown = (
   }
 
   // On the last line of the block, move to the next block's first line
-  if (blockIndex < state.document.page.blocks.length - 1) {
-    const nextBlock = state.document.page.blocks[blockIndex + 1];
+  const nextBlockIndex = findNextVisibleBlockIndex(
+    state.document.page.blocks,
+    blockIndex
+  );
+  if (nextBlockIndex !== null) {
+    const nextBlock = state.document.page.blocks[nextBlockIndex];
 
     // Handle visual blocks (image/line) - position cursor at start of the block
     if (nextBlock.type === "image" || nextBlock.type === "line") {
-      return moveCursorToPosition(state, blockIndex + 1, 0);
+      return moveCursorToPosition(state, nextBlockIndex, 0);
     }
 
-    if (!isVisualBlock(nextBlock)) {
+    if (!isTextualBlock(nextBlock)) {
       return state;
     }
     const nextTextStyle = getTextStyle(styles, nextBlock.type);
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
 
-    const nextLines = wrapFormattedTextDetailed(
-      nextBlock.content,
+    const nextLines = wrapCharsDetailed(
+      nextBlock.charRuns,
+      nextBlock.formats,
       maxWidth,
       nextTextStyle.fontSize,
       nextTextStyle.fontWeight,
@@ -895,11 +1210,11 @@ export const moveCursorDown = (
         styles
       );
 
-      return moveCursorToPosition(state, blockIndex + 1, targetTextIndex);
+      return moveCursorToPosition(state, nextBlockIndex, targetTextIndex);
     }
 
     // If next block is empty, just go to its start
-    return moveCursorToPosition(state, blockIndex + 1, 0);
+    return moveCursorToPosition(state, nextBlockIndex, 0);
   }
 
   // Already at the last line of the last block, move to end
@@ -1290,7 +1605,8 @@ export const openContextMenu = (
   x: number,
   y: number,
   hoveredItemId?: string | null
-): EditorState => setActiveMenu(state, { type: "contextMenu", x, y, hoveredItemId });
+): EditorState =>
+  setActiveMenu(state, { type: "contextMenu", x, y, hoveredItemId });
 
 export const closeContextMenu = (state: EditorState): EditorState =>
   closeActiveMenu(state);
@@ -1338,7 +1654,8 @@ export const setLinkHover = (
     text: string;
     x: number;
     y: number;
-    segmentIndex: number;
+    startIndex: number;
+    endIndex: number;
   } | null
 ): EditorState =>
   linkHover
@@ -1349,7 +1666,8 @@ export const setLinkHover = (
         text: linkHover.text,
         x: linkHover.x,
         y: linkHover.y,
-        segmentIndex: linkHover.segmentIndex,
+        startIndex: linkHover.startIndex,
+        endIndex: linkHover.endIndex,
       })
     : closeActiveMenu(state);
 
@@ -1437,25 +1755,25 @@ export const isTouchDevice = (): boolean => {
  */
 export const detectPhysicalKeyboardHeuristic = (): boolean => {
   if (typeof window === "undefined") return false;
-  
+
   // Check if this is a touch device first
   const isTouch = isTouchDevice();
   if (!isTouch) {
     // Non-touch devices always have a keyboard
     return true;
   }
-  
+
   // For touch devices, use heuristics to detect physical keyboard
   // Method 1: Check for fine pointer (mouse/trackpad) which often indicates keyboard setup
   const hasFinePointer = window.matchMedia("(pointer: fine)").matches;
-  
+
   // Method 2: Check if the device is a tablet in landscape mode with large screen
   // iPads with keyboards are often in landscape and have larger width
   const isLandscape = window.innerWidth > window.innerHeight;
   const isLargeScreen = window.innerWidth > 768;
-  
+
   // Combine heuristics
   const hasKeyboardHeuristic = hasFinePointer || (isLandscape && isLargeScreen);
-  
+
   return hasKeyboardHeuristic;
 };

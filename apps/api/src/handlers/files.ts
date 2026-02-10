@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 
-const isDev = process.env.NODE_ENV !== "production";
+const isDev = true;
 const devPath = path.resolve("../../cdn");
 
 export async function writeFile(
@@ -69,4 +69,3 @@ export async function deleteFile(
   // TODO: Add cloud storage support for production
   throw new Error("Cloud storage not implemented yet");
 }
-

@@ -1,6 +1,7 @@
 import type { Block, Page, TextFormat } from "../deserializer/loadPage";
 import type { FontFamily } from "./fonts";
-import type { ScrollbarState, MomentumState } from "./scrollbar";
+import type { MomentumState, ScrollbarState } from "./scrollbar";
+import type { HLC, Operation } from "./sync/types";
 
 export interface SlashCommand {
   id: string;
@@ -56,7 +57,8 @@ export type ActiveMenu =
       text: string;
       x: number;
       y: number;
-      segmentIndex: number;
+      startIndex: number;
+      endIndex: number;
     }
   | {
       type: "linkEdit";
@@ -65,7 +67,8 @@ export type ActiveMenu =
       text: string;
       x: number;
       y: number;
-      segmentIndex: number;
+      startIndex: number;
+      endIndex: number;
     }
   | {
       type: "imageUpload";
@@ -128,8 +131,10 @@ export interface ImageHoverState {
 // UI State - Transient interaction state (menus, popovers, mode)
 export interface UIState {
   readonly mode: EditorMode;
+  readonly isReadonlyBase: boolean; // True if editor was initialized in readonly mode (persists through select mode)
   readonly activeMenu: ActiveMenu; // Unified menu system - replaces slashCommand, contextMenu, linkHover, imageUpload
   readonly isHoveringLinkWithModifier: boolean;
+  readonly isHoveringCheckbox: boolean;
   readonly composition: CompositionState | null;
   readonly activeFormatsMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
   readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)
@@ -145,12 +150,23 @@ export interface ViewState {
   readonly scrollbar: ScrollbarState;
   readonly momentum: MomentumState;
   readonly hasPhysicalKeyboard: boolean; // Set by native side when hardware keyboard is connected
+  visibleBlocks: (Block & { originalIndex: number })[];
 }
 
-// Undo only tracks document state now
+// Undo tracks operations per user for independent undo/redo
+// Inverses are computed on-the-fly during undo using tombstones
+export interface UndoGroup {
+  readonly operations: readonly Operation[]; // Original operations performed
+  readonly peerId: string; // User who performed these operations
+  readonly cursorBefore: CRDTCursorState | null; // Cursor state before operations (restored on undo)
+  readonly selectionBefore: CRDTSelectionState | null; // Selection state before operations (restored on undo)
+  readonly cursorAfter: CRDTCursorState | null; // Cursor state after operations (restored on redo)
+  readonly selectionAfter: CRDTSelectionState | null; // Selection state after operations (restored on redo)
+}
+
 export interface UndoManagerState {
-  readonly undoStack: readonly DocumentState[];
-  readonly redoStack: readonly DocumentState[];
+  readonly undoStack: readonly UndoGroup[];
+  readonly redoStack: readonly UndoGroup[];
 }
 
 // New unified EditorState
@@ -159,6 +175,20 @@ export interface EditorState {
   readonly ui: UIState;
   readonly view: ViewState;
   readonly undoManager: UndoManagerState;
+  readonly crdt: CRDTContext;
+}
+
+// Command result - all commands return state + operations
+export interface CommandResult {
+  readonly state: EditorState;
+  readonly ops: Operation[];
+}
+
+// CRDT context - external dependencies for generating operations
+export interface CRDTContext {
+  readonly pageId: string;
+  readonly idGen: () => string;
+  readonly clock: () => HLC;
 }
 
 export interface CursorState {
@@ -171,7 +201,7 @@ export interface SelectionState {
   readonly focus: Position;
   readonly isForward: boolean;
   readonly isCollapsed: boolean;
-  readonly lastUpdate: number;
+  readonly lastUpdate?: number;
   /**
    * Tracks initial selection boundaries from double/triple-click gestures.
    *
@@ -214,6 +244,30 @@ export interface Position {
   readonly textIndex: number;
 }
 
+/**
+ * CRDT-compatible position that uses IDs instead of indexes.
+ * This survives concurrent operations since IDs are stable.
+ */
+export interface CRDTPosition {
+  readonly blockId: string; // Block ID (stable across operations)
+  readonly afterCharId: string | null; // Character ID the cursor is after, null = start of block
+}
+
+/**
+ * CRDT-compatible cursor state for undo/redo.
+ */
+export interface CRDTCursorState {
+  readonly position: CRDTPosition;
+}
+
+/**
+ * CRDT-compatible selection state for undo/redo.
+ */
+export interface CRDTSelectionState {
+  readonly anchor: CRDTPosition;
+  readonly focus: CRDTPosition;
+}
+
 export interface ViewportState {
   readonly scrollY: number;
   readonly width: number;
@@ -230,7 +284,7 @@ export interface TouchState {
   readonly isScrolling: boolean;
 }
 
-export type EditorMode = "edit" | "select" | "locked";
+export type EditorMode = "edit" | "select" | "locked" | "readonly";
 
 // Rendering Types
 export interface RenderedBlock {

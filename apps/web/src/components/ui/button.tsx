@@ -1,6 +1,7 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"
+import { Loader2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -39,21 +40,51 @@ function Button({
   variant = "default",
   size = "default",
   asChild = false,
+  loading = false,
+  disabled,
+  children,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean
+    loading?: boolean
   }) {
   const Comp = asChild ? Slot.Root : "button"
+
+  // When asChild is true, Slot expects a single child element - don't wrap in extra elements
+  if (asChild) {
+    return (
+      <Comp
+        data-slot="button"
+        data-variant={variant}
+        data-size={size}
+        disabled={disabled || loading}
+        aria-busy={loading}
+        className={cn("relative", buttonVariants({ variant, size, className }))}
+        {...props}
+      >
+        {children}
+      </Comp>
+    )
+  }
 
   return (
     <Comp
       data-slot="button"
       data-variant={variant}
       data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      disabled={disabled || loading}
+      aria-busy={loading}
+      className={cn("relative", buttonVariants({ variant, size, className }))}
       {...props}
-    />
+    >
+      {loading && (
+        <span className="absolute inset-0 flex items-center justify-center" aria-hidden="true">
+          <Loader2 className="animate-spin" />
+        </span>
+      )}
+      <span className={cn("inline-flex items-center gap-[inherit]", loading && "invisible")}>{children}</span>
+    </Comp>
   )
 }
 

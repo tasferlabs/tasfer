@@ -1,4 +1,6 @@
 import {
+  bigint,
+  boolean,
   integer,
   pgTable,
   text,
@@ -9,9 +11,25 @@ import {
 export const pages = pgTable("pages", {
   id: varchar("id", { length: 30 }).primaryKey(),
   title: text("title"),
-  content: text("content"),
+  // When true, title is auto-generated from content; when false, user has set it manually
+  autoTitle: boolean("autoTitle").notNull().default(true),
+
   parentId: varchar("parentId", { length: 30 }),
   order: integer("order").notNull().default(0),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+});
+
+export const snapshots = pgTable("snapshots", {
+  id: varchar("id", { length: 30 }).primaryKey(),
+  pageId: varchar("pageId", { length: 30 }).notNull(),
+  filePath: text("filePath").notNull(),
+  size: integer("size").notNull(),
+  // HLC of the latest operation included in this snapshot
+  // Used to determine which operations to return and which to garbage collect
+  clockWall: bigint("clockWall", { mode: "number" }),
+  clockLogical: integer("clockLogical"),
+  clockPeerId: varchar("clockPeerId", { length: 16 }),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
 });

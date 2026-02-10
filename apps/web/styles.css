@@ -66,11 +66,11 @@
 
 :root {
   --background: oklch(1 0 0);
-  --foreground: oklch(0.141 0.005 285.823);
+  --foreground: #09090b;
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.141 0.005 285.823);
+  --card-foreground: #09090b;
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.141 0.005 285.823);
+  --popover-foreground: #09090b;
   --primary: oklch(0.6 0.13 163);
   --primary-foreground: oklch(0.98 0.02 166);
   --secondary: oklch(0.967 0.001 286.375);
@@ -90,7 +90,7 @@
   --chart-5: oklch(0.51 0.1 166);
   --radius: 0.45rem;
   --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-foreground: #09090b;
   --sidebar-primary: oklch(0.6 0.13 163);
   --sidebar-primary-foreground: oklch(0.98 0.02 166);
   --sidebar-accent: oklch(0.967 0.001 286.375);
@@ -118,7 +118,7 @@
 }
 
 .dark {
-  --background: oklch(0.141 0.005 285.823);
+  --background: #09090b;
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.21 0.006 285.885);
   --card-foreground: oklch(0.985 0 0);
@@ -151,7 +151,7 @@
   --sidebar-ring: oklch(0.552 0.016 285.938);
 
   /* Editor colors - dark theme */
-  --editor-background: oklch(0.141 0.005 285.823);
+  --editor-background: #09090b;
   --editor-text: oklch(0.85 0.015 286.067);
   --editor-heading: oklch(0.985 0 0);
   --editor-cursor: oklch(0.7 0.15 162);

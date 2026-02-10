@@ -1,3 +1,4 @@
+import { usePageEventsWithQueryClient } from "@/websocket/hooks/usePageEvents";
 import {
   closestCenter,
   DndContext,
@@ -17,7 +18,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { ScrollArea } from "../../components/ui/scroll-area";
 import {
   useCreatePage,
@@ -28,6 +29,7 @@ import {
 import Icons from "../components/uiKit/Icons/Icons";
 import VisuallyHidden from "../components/uiKit/VisuallyHidden/VisuallyHidden";
 import { PagesArea } from "./components/PagesArea";
+import { setRecentDragEnd } from "./components/PageLink";
 import style from "./Layout.module.css";
 
 // Mock t function
@@ -42,6 +44,9 @@ export function SidebarContent({
   const navigate = useNavigate();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeDragData, setActiveDragData] = useState<IListPage | null>(null);
+
+  // Subscribe to real-time page events from other users
+  usePageEventsWithQueryClient();
 
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: (newPage, variables) => {
@@ -77,13 +82,12 @@ export function SidebarContent({
         delay: 800, // 800ms delay for touch devices
         tolerance: 8, // 8px of movement allowed during delay
       },
-    })
+    }),
   );
 
   function handleAdd(parentId: string | null) {
     createPage({
       title: "",
-      content: "# ", // Empty heading 1
       parentId,
     });
   }
@@ -96,6 +100,7 @@ export function SidebarContent({
   function handleDragEnd(event: DragEndEvent) {
     setActiveId(null);
     setActiveDragData(null);
+    setRecentDragEnd();
 
     const { active, over } = event;
 
@@ -115,12 +120,14 @@ export function SidebarContent({
     const isDescendant = (pageId: string, targetId: string | null): boolean => {
       if (!targetId) return false;
       if (pageId === targetId) return true;
-      
+
       // Check using parentsStack if available
       if (overData?.parentsStack) {
-        return overData.parentsStack.some((parent: any) => parent.id === pageId);
+        return overData.parentsStack.some(
+          (parent: any) => parent.id === pageId,
+        );
       }
-      
+
       return false;
     };
 
@@ -131,9 +138,12 @@ export function SidebarContent({
         return;
       }
     }
-    
+
     // For other drop zones, check if the parent is a descendant
-    if (overData?.type === "drop-zone" && (overData.position === "before" || overData.position === "after")) {
+    if (
+      overData?.type === "drop-zone" &&
+      (overData.position === "before" || overData.position === "after")
+    ) {
       if (isDescendant(activeData.id, overData.targetPageId)) {
         console.warn("Cannot move a page to become a sibling of itself");
         return;
@@ -223,8 +233,6 @@ export function SidebarContent({
     }
   }
 
-  // Mock data
-  const inboxCount = 0;
   const filteredGroups: { id: string; name: string }[] = [];
 
   return (
@@ -242,13 +250,13 @@ export function SidebarContent({
         </button>
       </div>
       <div className={style.appNavigationLinks}>
-        <button className={style.appNavigationLink}>
+        <RouterLink className={style.appNavigationLink} to={"/settings"}>
           <div className={style.appNavigationLinkIcon}>
             <Icons.Gear width={24} height={24} />
           </div>
           {t`Settings`}
-        </button>
-        <button className={style.appNavigationLink}>
+        </RouterLink>
+        {/* <button className={style.appNavigationLink}>
           <div className={style.appNavigationLinkIcon}>
             <Icons.Tray width={24} height={24} />
           </div>
@@ -262,7 +270,7 @@ export function SidebarContent({
             <Icons.AddGroup />
           </div>
           {t`Add group`}
-        </button>
+        </button> */}
       </div>
 
       <div className={style.appSidebarMain}>

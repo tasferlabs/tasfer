@@ -109,6 +109,7 @@
   display: flex;
   align-items: center;
   max-width: 70vw;
+  min-width: 0;
   user-select: none;
 }
 
@@ -123,10 +124,18 @@
   padding: 0.125rem 0.5rem;
   border-radius: 4px;
   font-size: 0.875rem;
+  flex-shrink: 10;
+}
+
+/* Last breadcrumb item (current page) should be more visible */
+.appHeaderTitle:last-child {
+  flex-shrink: 1;
+  min-width: 80px;
 }
 
 .appHeaderTitleSeparator {
   color: var(--foreground);
+  flex-shrink: 0;
 }
 
 .appHeaderTitle:hover {
@@ -202,6 +211,7 @@
 .appSidebarMain {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -210,6 +220,7 @@
 
 .appSidebarMain > div {
   height: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
@@ -219,21 +230,31 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0 1rem;
+  padding: 4px 1rem;
 }
 
 .appSidebarScrollArea {
   height: 100%;
   flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Override Radix ScrollArea's internal table display */
+.appSidebarScrollArea :global([data-radix-scroll-area-viewport]) > div {
+  display: block !important;
+  min-width: 0 !important;
 }
 
 .appSidebarScrollArea > div {
   display: block !important;
   height: 100%;
+  min-width: 0;
 }
 
 .appSidebarScrollArea > div > div {
   height: 100%;
+  min-width: 0;
 }
 
 .appSidebarSectionTitle {
@@ -304,8 +325,10 @@
   z-index: 50;
   border-right: 1px solid var(--border);
   padding-right: 0.25rem;
-  /* Support both Android (--safe-area-inset-top) and iOS (env()) */
+  /* Support both Android (--safe-area-inset-*) and iOS (env()) */
   padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  padding-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -313,6 +336,11 @@
 
 *[dir="rtl"] .floatingSidebar {
   right: 0;
+  left: auto;
+  padding-left: 0;
+  padding-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  border-right: none;
+  border-left: 1px solid var(--border);
 }
 
 .visible {
@@ -371,6 +399,8 @@
   /* min-height: 50px; */
   /* padding-bottom: 0.5rem; */
   border-radius: 4px;
+  overflow: hidden;
+  min-width: 0;
 
   /* for touch dragging to work */
   -webkit-touch-callout: none;
@@ -393,13 +423,13 @@
   position: relative;
 }
 
-.usersList > .userAvatar:nth-child(1) {
+.usersList > :nth-child(1) .userAvatar {
   z-index: 2; /* Higher z-index for the first element */
 }
 
 .userAvatar {
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   overflow: hidden;
   display: flex;
@@ -408,16 +438,18 @@
   /* flex-direction: row-reverse; */
   background-color: var(--avatar-color);
   color: var(--avatar-color-text);
-  border: 3px solid var(--background);
-  margin-inline-start: -5px;
+  border: 2px solid var(--background);
+  margin-inline-start: -8px;
   box-sizing: content-box;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--background), transparent 80%);
-  transition: margin-inline-start 0.2s ease, opacity 0.1s ease;
-  opacity: 0.6;
+  transition: margin-inline-start 0.2s ease, transform 0.2s ease;
+  cursor: pointer;
+  font-size: 0.65rem;
+  font-weight: 600;
 }
 
-.usersList .userAvatar:hover {
-  opacity: 1;
+.userAvatar:hover {
+  transform: scale(1.1);
+  z-index: 10;
 }
 
 .usersList:hover .userAvatar {

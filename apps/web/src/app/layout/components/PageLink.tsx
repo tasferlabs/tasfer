@@ -3,12 +3,13 @@ import { CircleNotch, X } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   type IListPage,
   useCreatePage,
   useDeletePage,
   useUpdatePage,
+  useGetPages,
 } from "../../api/pages.api";
 import { useConfirmation } from "../../components/ConfirmationDialog";
 import Icons from "../../components/uiKit/Icons/Icons";
@@ -17,9 +18,19 @@ import { DropZone } from "./DropZone";
 import { PagesArea } from "./PagesArea";
 import { type IParentsStack } from "./PagesLinks";
 import style from "./PagesLinks.module.css";
+import useResponsive from "@/app/hooks/useResponsive";
 
 // Mock t function
 const t = (s: string | TemplateStringsArray) => s.toString();
+
+// Global flag to track recent drag - module level to avoid React timing issues
+let recentDragEnd = false;
+export function setRecentDragEnd() {
+  recentDragEnd = true;
+  setTimeout(() => {
+    recentDragEnd = false;
+  }, 100);
+}
 
 // Mock hooks
 const useOutsideClick = ({ element, action, condition }: any) => {
@@ -44,14 +55,19 @@ export function PageLink({
   data: IListPage;
   parentsStack?: IParentsStack;
 }) {
+  const isCoarse = useResponsive("(pointer: coarse)");
   const queryClient = useQueryClient();
   const { getConfirmation } = useConfirmation();
   const navigate = useNavigate();
   const { id: currentPageId } = useParams<{ id: string }>();
   const inputRef = useRef<HTMLInputElement>(null);
+  const wasDraggingRef = useRef(false);
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [localTitle, setLocalTitle] = useState(data.title);
+
+  // Get root pages to determine navigation after deletion
+  const { data: rootPages } = useGetPages(null);
 
   const { mutate: updatePage } = useUpdatePage<{
     previousPages: IListPage[] | undefined;
@@ -78,7 +94,7 @@ export function PageLink({
             }
             return page;
           });
-        }
+        },
       );
 
       // Return a context object with the snapshotted value
@@ -89,7 +105,7 @@ export function PageLink({
       if (context?.previousPages) {
         queryClient.setQueryData<IListPage[]>(
           ["pages", { parentId: data.parentId }],
-          context.previousPages
+          context.previousPages,
         );
       }
     },
@@ -126,7 +142,7 @@ export function PageLink({
         ["pages", { parentId: data.parentId }],
         (old) => {
           return old?.filter((page) => page.id !== variables.id);
-        }
+        },
       );
 
       return { previousPages };
@@ -136,7 +152,7 @@ export function PageLink({
       if (context?.previousPages) {
         queryClient.setQueryData<IListPage[]>(
           ["pages", { parentId: data.parentId }],
-          context.previousPages
+          context.previousPages,
         );
       }
     },
@@ -162,7 +178,7 @@ export function PageLink({
             }
             return page;
           });
-        }
+        },
       );
       setIsExpanded(true);
       // Navigate to the newly created page
@@ -171,12 +187,7 @@ export function PageLink({
   });
 
   // Use draggable for maximum flexibility
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    isDragging,
-  } = useDraggable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: data.id,
     data: {
       type: "pageLink",
@@ -184,6 +195,13 @@ export function PageLink({
       parentsStack,
     },
   });
+
+  // Track isDragging in a ref so we can check it at pointerup time
+  useEffect(() => {
+    if (isDragging) {
+      wasDraggingRef.current = true;
+    }
+  }, [isDragging]);
 
   useOutsideClick({
     element: inputRef,
@@ -206,13 +224,14 @@ export function PageLink({
         (old) => {
           return old?.map((page) => {
             if (page.id === data.id) {
-              return { ...page, title: localTitle };
+              return { ...page, title: localTitle, autoTitle: false };
             }
             return page;
           });
-        }
+        },
       );
-      updatePage({ id: data.id, title: localTitle });
+      // Set autoTitle=false since user is manually setting the title
+      updatePage({ id: data.id, title: localTitle, autoTitle: false });
     }
     setEditingPageId(null);
   }
@@ -232,7 +251,15 @@ export function PageLink({
     if (confirmed) {
       // If we're deleting the currently open page, navigate away first
       if (currentPageId === data.id) {
-        navigate("/page");
+        // Find the first root page that is NOT the one being deleted
+        const remainingPages = rootPages?.filter((page) => page.id !== data.id);
+        if (remainingPages && remainingPages.length > 0) {
+          // Navigate to the first available page
+          navigate(`/page/${remainingPages[0].id}`);
+        } else {
+          // No pages left, navigate to /page which will show empty state
+          navigate("/page");
+        }
       }
       deletePage({ id: data.id });
     }
@@ -241,7 +268,6 @@ export function PageLink({
   function handleAdd() {
     createPage({
       title: "",
-      content: "# ", // Empty heading 1
       parentId: data.id,
     });
   }
@@ -287,28 +313,37 @@ export function PageLink({
 
       <div
         ref={setNodeRef}
-        className={clsx(style.link, { [style.isDragging]: isDragging })}
+        className={clsx(style.link, {
+          [style.isDragging]: isDragging,
+          [style.active]: currentPageId === data.id,
+        })}
         style={{ opacity: isDragging ? 0.4 : 1 }}
         {...attributes}
         {...listeners}
+        onPointerDown={(e) => {
+          // Stop propagation to prevent Vaul drawer from capturing the drag
+          e.stopPropagation();
+          // Call the original listener from dnd-kit
+          listeners?.onPointerDown?.(e);
+        }}
       >
-        {data.hasChildren && (
-          <button
-            onClick={() => setIsExpanded((old) => !old)}
-            className={style.action}
-          >
-            {!isExpanded ? (
-              <Icons.ChevronRight width={20} height={20} />
-            ) : (
-              <Icons.ChevronRight
-                width={20}
-                height={20}
-                style={{ transform: "rotate(90deg)" }}
-              />
-            )}
-            <VisuallyHidden>{t`Open sub pages`}</VisuallyHidden>
-          </button>
-        )}
+        <button
+          onClick={() => setIsExpanded((old) => !old)}
+          className={clsx(style.action, style.collapseAction, {
+            [style.hasChildren]: data.hasChildren,
+          })}
+        >
+          {!isExpanded ? (
+            <Icons.ChevronRight width={20} height={20} />
+          ) : (
+            <Icons.ChevronRight
+              width={20}
+              height={20}
+              style={{ transform: "rotate(90deg)" }}
+            />
+          )}
+          <VisuallyHidden>{t`Open sub pages`}</VisuallyHidden>
+        </button>
         <div className={style.linkTitle}>
           {isEditing ? (
             <input
@@ -324,9 +359,26 @@ export function PageLink({
               ref={inputRef}
             />
           ) : (
-            <Link to={`/page/${data.id}`} onClick={() => setIsExpanded(true)}>
+            <span
+              role="link"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setIsExpanded(true);
+                  navigate(`/page/${data.id}`);
+                }
+              }}
+              onClick={() => {
+                if (wasDraggingRef.current || recentDragEnd) {
+                  wasDraggingRef.current = false;
+                  return;
+                }
+                setIsExpanded(true);
+                navigate(`/page/${data.id}`);
+              }}
+            >
               {data.title || t`Untitled`}
-            </Link>
+            </span>
           )}
         </div>
         <div className={style.actions}>
@@ -381,9 +433,14 @@ export function PageLink({
         parentsStack={parentsStack}
       />
 
-      {isExpanded && data.hasChildren ? (
+      {isExpanded && (data.hasChildren || isCoarse) ? (
         <div className={style.accordion}>
-          <PagesArea parentId={data.id} parentsStack={parentsStack} />
+          <PagesArea
+            parentId={data.id}
+            parentsStack={parentsStack}
+            handleAdd={handleAdd}
+            isCreating={isCreating}
+          />
         </div>
       ) : null}
     </div>

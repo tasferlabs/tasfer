@@ -1,3 +1,5 @@
+@reference "../../../../styles.css";
+
 .link {
   position: relative;
   display: flex;
@@ -19,7 +21,11 @@
 }
 
 .link.active {
-  background-color: var(--accent);
+  background-color: color-mix(in srgb, var(--primary), transparent 85%);
+}
+
+.link.active:hover {
+  background-color: color-mix(in srgb, var(--primary), transparent 75%);
 }
 
 .link.isOver {
@@ -27,14 +33,16 @@
 }
 
 .linkTitle {
-  flex: 1 0 auto;
-  width: calc(100% - 135px);
+  flex: 1 1 0;
+  min-width: 0;
   margin-inline-start: 5px;
   position: relative;
   z-index: 1;
+  overflow: hidden;
 }
 
-.linkTitle a {
+.linkTitle a,
+.linkTitle span {
   color: var(--foreground);
   text-decoration: none;
   display: block;
@@ -42,6 +50,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   padding: 4px;
+  cursor: pointer;
 }
 
 .linkTitle input {
@@ -64,6 +73,7 @@
   padding: 2px;
   position: relative;
   z-index: 1;
+  flex-shrink: 0;
 }
 
 .link:hover .actions {
@@ -92,7 +102,11 @@
 }
 
 .action:hover {
-  background-color: var(--muted);
+  @apply bg-primary/10 dark:bg-primary/40;
+}
+
+.action.active:hover {
+  @apply bg-muted dark:bg-muted/80;
 }
 
 .accordion {
@@ -103,7 +117,7 @@
 
 .empty {
   color: var(--muted-foreground);
-  padding: 4px;
+  /* padding: 1px; */
   font-size: 0.875rem;
 }
 
@@ -144,10 +158,13 @@
 
   .linkTitle {
     height: 100%;
-    flex: 0 1 calc(100% - 38px * 4);
+    flex: 1 1 0;
+    min-width: 40px;
+    overflow: hidden;
   }
 
   .linkTitle a,
+  .linkTitle span,
   .linkTitle input {
     height: 100%;
     line-height: 38px;
@@ -157,7 +174,7 @@
   .actions {
     display: flex;
     justify-content: flex-end;
-    flex: 99999 0 calc(32px * 3);
+    flex: 0 0 auto;
     gap: 0;
     padding: 0;
   }
@@ -190,7 +207,7 @@
 
 .dropZoneBefore,
 .dropZoneAfter {
-  height: 8px;
+  height: 4px;
   margin: 0;
   pointer-events: auto;
 }
@@ -212,14 +229,9 @@
   pointer-events: none;
 }
 
-.dropZoneActive.dropZoneBefore::after,
-.dropZoneActive.dropZoneAfter::after {
-  content: "";
-  display: block;
-  height: 2px;
+.dropZoneActive.dropZoneBefore,
+.dropZoneActive.dropZoneAfter {
   background-color: var(--primary);
-  border-radius: 1px;
-  box-shadow: 0 0 4px var(--primary);
 }
 
 .dropZoneActive.dropZoneInside {
@@ -231,6 +243,8 @@
 
 .pageWrapper {
   position: relative;
+  min-width: 0;
+  /* overflow: hidden; */
 }
 
 .isDragging {
@@ -249,4 +263,62 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+@media (pointer: coarse) {
+  .dropZoneBefore,
+  .dropZoneAfter {
+    height: 8px;
+    margin: 0;
+    pointer-events: auto;
+  }
+
+  /* Always show collapse button on coarse pointer */
+  .collapseAction {
+    display: flex;
+  }
+
+  /* Hide page action buttons (edit, delete, add) on coarse pointer */
+  .actions {
+    display: none !important;
+  }
+}
+
+/* Hide collapse button if no children on fine pointer */
+.collapseAction:not(.hasChildren) {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  /* Always show collapse button on coarse pointer */
+  .collapseAction:not(.hasChildren) {
+    display: flex;
+  }
+}
+
+.accordionAddButton {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: none;
+  background: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  padding-inline-start: 2px;
+  margin-inline-start: -4px;
+  margin-top: 8px;
+}
+
+.accordionAddButton:hover {
+  background-color: var(--accent);
+  color: var(--foreground);
+}
+
+.accordionAddButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
