@@ -1512,6 +1512,17 @@ struct WebView: UIViewRepresentable {
             completionHandler:
                 @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
         ) {
+            // Handle HTTP Basic Authentication
+            if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodHTTPBasic {
+                let credential = URLCredential(
+                    user: "Soasei",
+                    password: "fatush",
+                    persistence: .forSession
+                )
+                completionHandler(.useCredential, credential)
+                return
+            }
+
             // Trust localhost SSL certificates for development
             if challenge.protectionSpace.host.starts(with: "192.168.")
                 || challenge.protectionSpace.host == "localhost"

@@ -268,6 +268,11 @@ class MainActivity : ComponentActivity() {
                     handler?.cancel()
                 }
             }
+
+            override fun onReceivedHttpAuthRequest(view: WebView?, handler: HttpAuthHandler?, host: String?, realm: String?) {
+                // Handle HTTP Basic Authentication
+                handler?.proceed("Soasei", "fatush")
+            }
         }
         
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
