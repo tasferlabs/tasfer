@@ -1,6 +1,5 @@
 import { useMutation, type UseMutationOptions, useQuery, type UseQueryOptions } from "@tanstack/react-query";
-
-const API_BASE = "/api";
+import { authFetch, API_BASE } from "./client";
 
 export interface IImage {
   id: string;
@@ -16,7 +15,7 @@ export async function uploadImage(file: File): Promise<IImage> {
   const formData = new FormData();
   formData.append("image", file);
 
-  const response = await fetch(`${API_BASE}/images/upload`, {
+  const response = await authFetch(`${API_BASE}/images/upload`, {
     method: "POST",
     body: formData,
   });
@@ -41,7 +40,7 @@ export function useUploadImage<TContext = unknown>(
 
 // Get image info
 export async function getImageInfo(id: string): Promise<IImage> {
-  const response = await fetch(`${API_BASE}/images/${id}/info`);
+  const response = await authFetch(`${API_BASE}/images/${id}/info`);
   const data = await response.json();
 
   if (!data.success) {
@@ -66,7 +65,7 @@ interface IDeleteImage {
 }
 
 export async function deleteImage(data: IDeleteImage): Promise<void> {
-  const response = await fetch(`${API_BASE}/images/${data.id}`, {
+  const response = await authFetch(`${API_BASE}/images/${data.id}`, {
     method: "DELETE",
   });
 
@@ -90,4 +89,3 @@ export function useDeleteImage<TContext = unknown>(
 export function getImageUrl(imageId: string): string {
   return `${API_BASE}/images/${imageId}`;
 }
-

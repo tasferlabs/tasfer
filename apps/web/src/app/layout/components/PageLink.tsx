@@ -50,9 +50,11 @@ const useOutsideClick = ({ element, action, condition }: any) => {
 
 export function PageLink({
   data,
+  spaceId,
   parentsStack = [],
 }: {
   data: IListPage;
+  spaceId?: string;
   parentsStack?: IParentsStack;
 }) {
   const isCoarse = useResponsive("(pointer: coarse)");
@@ -67,7 +69,7 @@ export function PageLink({
   const [localTitle, setLocalTitle] = useState(data.title);
 
   // Get root pages to determine navigation after deletion
-  const { data: rootPages } = useGetPages(null);
+  const { data: rootPages } = useGetPages(spaceId ?? null, null);
 
   const { mutate: updatePage } = useUpdatePage<{
     previousPages: IListPage[] | undefined;
@@ -75,7 +77,7 @@ export function PageLink({
     onMutate: async (variables) => {
       // Cancel any outgoing refetches to avoid overwriting our optimistic update
       await queryClient.cancelQueries({
-        queryKey: ["pages", { parentId: data.parentId }],
+        queryKey: ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
       });
 
       // Snapshot the previous value
@@ -86,7 +88,7 @@ export function PageLink({
 
       // Optimistically update to the new value
       queryClient.setQueryData<IListPage[]>(
-        ["pages", { parentId: data.parentId }],
+        ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
         (old) => {
           return old?.map((page) => {
             if (page.id === variables.id) {
@@ -104,7 +106,7 @@ export function PageLink({
       // If the mutation fails, use the context returned from onMutate to roll back
       if (context?.previousPages) {
         queryClient.setQueryData<IListPage[]>(
-          ["pages", { parentId: data.parentId }],
+          ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
           context.previousPages,
         );
       }
@@ -112,7 +114,7 @@ export function PageLink({
     onSettled: () => {
       // Always refetch after error or success to ensure we're in sync with the server
       queryClient.invalidateQueries({
-        queryKey: ["pages", { parentId: data.parentId }],
+        queryKey: ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
       });
       // Also invalidate all individual page queries to update breadcrumbs
       // This ensures that if any child page is currently open, its breadcrumb will update
@@ -128,7 +130,7 @@ export function PageLink({
     onMutate: async (variables) => {
       // Cancel any outgoing refetches
       await queryClient.cancelQueries({
-        queryKey: ["pages", { parentId: data.parentId }],
+        queryKey: ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
       });
 
       // Snapshot the previous value
@@ -139,7 +141,7 @@ export function PageLink({
 
       // Optimistically remove the page
       queryClient.setQueryData<IListPage[]>(
-        ["pages", { parentId: data.parentId }],
+        ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
         (old) => {
           return old?.filter((page) => page.id !== variables.id);
         },
@@ -151,7 +153,7 @@ export function PageLink({
       // Rollback on error
       if (context?.previousPages) {
         queryClient.setQueryData<IListPage[]>(
-          ["pages", { parentId: data.parentId }],
+          ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
           context.previousPages,
         );
       }
@@ -159,7 +161,7 @@ export function PageLink({
     onSettled: () => {
       // Refetch to ensure sync with server
       queryClient.invalidateQueries({
-        queryKey: ["pages", { parentId: data.parentId }],
+        queryKey: ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
       });
     },
   });
@@ -167,10 +169,10 @@ export function PageLink({
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: (newPage) => {
       queryClient.invalidateQueries({
-        queryKey: ["pages", { parentId: data.id }],
+        queryKey: ["pages", { spaceId: spaceId ?? null, parentId: data.id }],
       });
       queryClient.setQueryData<IListPage[]>(
-        ["pages", { parentId: data.parentId }],
+        ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
         (old) => {
           return old?.map((page) => {
             if (page.id === data.id) {
@@ -220,7 +222,7 @@ export function PageLink({
     if (localTitle !== data.title) {
       // Optimistically update the cache BEFORE exiting edit mode
       queryClient.setQueryData<IListPage[]>(
-        ["pages", { parentId: data.parentId }],
+        ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
         (old) => {
           return old?.map((page) => {
             if (page.id === data.id) {
@@ -266,9 +268,11 @@ export function PageLink({
   }
 
   function handleAdd() {
+    if (!spaceId) return;
     createPage({
       title: "",
       parentId: data.id,
+      spaceId,
     });
   }
 
@@ -437,6 +441,7 @@ export function PageLink({
         <div className={style.accordion}>
           <PagesArea
             parentId={data.id}
+            spaceId={spaceId}
             parentsStack={parentsStack}
             handleAdd={handleAdd}
             isCreating={isCreating}

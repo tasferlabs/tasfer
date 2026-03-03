@@ -160,6 +160,10 @@ export interface Editor {
   setRemoteAwareness: (peerId: string, state: AwarenessState | null) => void;
   /** Get all remote awareness states */
   getRemoteAwareness: () => Map<string, AwarenessState>;
+  /** Set callback for when an image file is pasted from clipboard */
+  onImagePaste: (
+    callback: ((file: File, blockIndex: number) => void) | null
+  ) => void;
 }
 
 export default function createEditor(
@@ -348,7 +352,13 @@ export default function createEditor(
   let pendingClipboardData: {
     html: string;
     text: string;
+    imageFile: File | null;
   } | null = null;
+
+  // Callback for when an image file is pasted (set by external code to handle async upload)
+  let onImagePasteCallback:
+    | ((file: File, blockIndex: number) => void)
+    | null = null;
 
   /**
    * Mark that content layer needs re-rendering (expensive operation).
@@ -454,6 +464,18 @@ export default function createEditor(
         if (broadcastFn) {
           broadcastFn(handleEventsResult.ops);
         }
+      }
+
+      // Trigger image paste callback if an image file was pasted
+      if (
+        pendingClipboardData?.imageFile &&
+        onImagePasteCallback &&
+        handleEventsResult.pastedImageBlockIndex !== undefined
+      ) {
+        const file = pendingClipboardData.imageFile;
+        const blockIndex = handleEventsResult.pastedImageBlockIndex;
+        // Call async — don't block the render loop
+        onImagePasteCallback(file, blockIndex);
       }
 
       // Clear clipboard data after it's been used
@@ -650,12 +672,23 @@ export default function createEditor(
       e.preventDefault();
       const clipboardData = e.clipboardData;
       if (clipboardData) {
+        // Check for image files in clipboard items (e.g. pasted screenshots)
+        let imageFile: File | null = null;
+        for (let i = 0; i < clipboardData.items.length; i++) {
+          const item = clipboardData.items[i];
+          if (item.type.startsWith("image/")) {
+            imageFile = item.getAsFile();
+            if (imageFile) break;
+          }
+        }
+
         pendingClipboardData = {
           html: clipboardData.getData("text/html") || "",
           text:
             clipboardData.getData("text/plain") ||
             clipboardData.getData("text") ||
             "",
+          imageFile,
         };
       }
     }
@@ -2030,5 +2063,10 @@ export default function createEditor(
     setAwarenessBroadcast: setAwarenessBroadcastMethod,
     setRemoteAwareness: setRemoteAwarenessMethod,
     getRemoteAwareness: getRemoteAwarenessMethod,
+    onImagePaste: (
+      callback: ((file: File, blockIndex: number) => void) | null
+    ) => {
+      onImagePasteCallback = callback;
+    },
   };
 }

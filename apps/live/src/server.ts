@@ -16,6 +16,7 @@
 
 import crypto from "crypto";
 import { readFileSync } from "fs";
+import jwt from "jsonwebtoken";
 import Redis from "ioredis";
 import { join } from "path";
 import { WebSocket, WebSocketServer } from "ws";
@@ -24,8 +25,12 @@ import { getAppDir } from "./lib/paths";
 // Unique instance ID for multi-instance coordination
 const INSTANCE_ID = crypto.randomUUID();
 
-// Auth key for basic protection (clients must pass this in query string)
-const AUTH_KEY = process.env.LIVE_AUTH_KEY || "zADL7WxuMcUM8uVbPwBJOqxH9haeU3K4X2vWdohIo5E";
+// JWT secret shared with API server
+const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-production";
+
+// API server URL for internal access checks
+const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:3000";
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "dev-internal-key";
 
 
 // =============================================================================
@@ -90,15 +95,16 @@ interface PageInfo {
   title: string | null;
   parentId: string | null;
   order: number;
+  spaceId: string;
 }
 
 /** Page lifecycle events (from Redis) */
 type PageEvent =
   | { type: "page-created"; page: PageInfo }
-  | { type: "page-deleted"; pageId: string }
-  | { type: "page-moved"; pageId: string; oldParentId: string | null; newParentId: string | null }
-  | { type: "page-reordered"; pageId: string; parentId: string | null; order: number }
-  | { type: "page-title-updated"; pageId: string; title: string };
+  | { type: "page-deleted"; pageId: string; spaceId: string }
+  | { type: "page-moved"; pageId: string; spaceId: string; oldParentId: string | null; newParentId: string | null }
+  | { type: "page-reordered"; pageId: string; spaceId: string; parentId: string | null; order: number }
+  | { type: "page-title-updated"; pageId: string; spaceId: string; title: string };
 
 /** Server message types (room messages + page events) */
 type ServerMessage =
@@ -120,6 +126,7 @@ type ServerMessage =
 /** Connected client info */
 interface Client {
   ws: WebSocket;
+  userId: string;
   peerId: string | null;
   roomId: string | null;
   awarenessState: AwarenessState | null;
@@ -145,28 +152,41 @@ const wsToClient = new WeakMap<WebSocket, Client>();
 
 const PORT = parseInt(process.env.PORT || "8080", 10);
 
+/** Map of WebSocket -> userId parsed from JWT during verifyClient */
+const wsUserIds = new WeakMap<WebSocket, string>();
+
 const wss = new WebSocketServer({
   port: PORT,
   perMessageDeflate: false, // Disable compression for lower latency
   verifyClient: (info, callback) => {
     const url = new URL(info.req.url || "", `http://${info.req.headers.host}`);
-    const key = url.searchParams.get("key");
+    const token = url.searchParams.get("token");
 
-    if (key !== AUTH_KEY) {
-      console.log(`[Sync Server] Rejected connection: invalid auth key`);
+    if (!token) {
+      console.log(`[Sync Server] Rejected connection: no token`);
       callback(false, 401, "Unauthorized");
       return;
     }
 
-    callback(true);
+    try {
+      const payload = jwt.verify(token, JWT_SECRET) as { sub: string; email: string };
+      // Store userId so we can retrieve it in the connection handler
+      (info.req as any).__userId = payload.sub;
+      callback(true);
+    } catch {
+      console.log(`[Sync Server] Rejected connection: invalid JWT`);
+      callback(false, 401, "Unauthorized");
+    }
   },
 });
 
 console.log(`[Sync Server] Starting on port ${PORT}`);
 
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req) => {
+  const userId = (req as any).__userId as string;
   const client: Client = {
     ws,
+    userId,
     peerId: null,
     roomId: null,
     awarenessState: null,
@@ -405,9 +425,33 @@ function handleRedisRoomMessage(message: RedisRoomMessage): void {
   }
 }
 
+/** Track which spaceIds each user has access to (populated on connection) */
+const userSpaceAccess = new Map<string, Set<string>>();
+
+/** Register a user's space access by checking the API */
+async function registerUserSpaceAccess(userId: string): Promise<void> {
+  try {
+    // We don't have a dedicated endpoint for this yet,
+    // so we track spaces as users join rooms (pages carry spaceId context)
+    if (!userSpaceAccess.has(userId)) {
+      userSpaceAccess.set(userId, new Set());
+    }
+  } catch (error) {
+    console.error(`[Sync Server] Failed to register space access for user ${userId}:`, error);
+  }
+}
+
+/** Get the spaceId from a page event */
+function getEventSpaceId(event: PageEvent): string | null {
+  if ("page" in event && event.page) return event.page.spaceId;
+  if ("spaceId" in event) return event.spaceId;
+  return null;
+}
+
 /**
  * Broadcast a page event to all connected clients.
- * Page events are sent to everyone, not just room members.
+ * Events are sent to all connected clients — the spaceId is included
+ * so clients can filter on their end.
  */
 function broadcastPageEventToAll(event: PageEvent): void {
   const message = JSON.stringify(event);
@@ -539,7 +583,31 @@ function handleHello(client: Client, clientVersion: number): void {
   }
 }
 
-function handleJoin(client: Client, roomId: string, peerId: string, user?: AwarenessUser, clientVersion?: number): void {
+/** Check if a user has access to a page via the API internal endpoint */
+async function checkPageAccess(userId: string, pageId: string): Promise<boolean> {
+  try {
+    const url = `${API_BASE_URL}/api/internal/check-access?userId=${encodeURIComponent(userId)}&pageId=${encodeURIComponent(pageId)}`;
+    const response = await fetch(url, {
+      headers: { "x-internal-key": INTERNAL_API_KEY },
+    });
+    if (!response.ok) return false;
+    const data = await response.json() as { success: boolean; data?: { hasAccess: boolean } };
+    return data.success && data.data?.hasAccess === true;
+  } catch (error) {
+    console.error(`[Sync Server] Access check failed for user=${userId} page=${pageId}:`, error);
+    return false;
+  }
+}
+
+async function handleJoin(client: Client, roomId: string, peerId: string, user?: AwarenessUser, clientVersion?: number): Promise<void> {
+  // Verify page access before allowing join
+  const hasAccess = await checkPageAccess(client.userId, roomId);
+  if (!hasAccess) {
+    console.log(`[Sync Server] Rejected join: user ${client.userId} has no access to page ${roomId}`);
+    send(client.ws, { type: "error", message: "Access denied" });
+    return;
+  }
+
   // Leave current room if in one
   if (client.roomId) {
     handleLeave(client);

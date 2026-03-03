@@ -466,6 +466,27 @@ export function MountedEditor({
       roomBroadcastAwareness(state);
     }, localUser);
 
+    // Handle pasted image files (e.g. screenshots) — upload and update block URL
+    mounted.editor.onImagePaste(async (file, blockIndex) => {
+      try {
+        const imageData = await uploadImage(file);
+        // Revoke the temporary blob URL
+        const state = mounted.editor.getState();
+        if (state) {
+          const block = state.document.page.blocks[blockIndex];
+          if (block && block.type === "image" && block.url?.startsWith("blob:")) {
+            URL.revokeObjectURL(block.url);
+          }
+        }
+        mounted.editor.updateImageBlock(blockIndex, {
+          url: imageData.url,
+          alt: imageData.fileName,
+        });
+      } catch (error) {
+        console.error("Image paste upload failed:", error);
+      }
+    });
+
     // Handle format button clicks from native
     // Returns true if handled, false if native should open block menu
     const handleFormatButtonClick = (): boolean => {

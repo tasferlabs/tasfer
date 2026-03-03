@@ -2489,16 +2489,18 @@ function insertBlocksAtCursor(
 export function pasteFromClipboardEvent(
   state: EditorState,
   event: ClipboardEvent,
-  extractedData?: { html: string; text: string } | null
-): CommandResult | null {
+  extractedData?: { html: string; text: string; imageFile: File | null } | null
+): (CommandResult & { pastedImageBlockIndex?: number }) | null {
   // Use extracted data if provided (from immediate event handler)
   // Otherwise try to get from event (may be empty if not called synchronously)
   let html = "";
   let text = "";
+  let imageFile: File | null = null;
 
   if (extractedData) {
     html = extractedData.html;
     text = extractedData.text;
+    imageFile = extractedData.imageFile;
   } else {
     const clipboardData = event.clipboardData;
     if (!clipboardData) {
@@ -2515,6 +2517,28 @@ export function pasteFromClipboardEvent(
     if (blocks.length > 0) {
       return insertBlocksAtCursor(state, blocks);
     }
+  }
+
+  // Handle pasted image file (e.g. screenshot from clipboard)
+  if (imageFile) {
+    const blobUrl = URL.createObjectURL(imageFile);
+    const result = insertBlocksAtCursor(state, [
+      {
+        id: generateBlockId(),
+        type: "image",
+        url: blobUrl,
+        alt: imageFile.name || "Pasted image",
+      },
+    ]);
+    if (result) {
+      // Find the index of the newly inserted image block (cursor is after it)
+      const cursor = result.state.document.cursor;
+      const pastedImageBlockIndex = cursor
+        ? cursor.position.blockIndex - 1
+        : undefined;
+      return { ...result, pastedImageBlockIndex };
+    }
+    return null;
   }
 
   // Fallback to plain text

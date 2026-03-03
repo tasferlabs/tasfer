@@ -6,12 +6,14 @@ import PagesLinks, { type IParentsStack } from "./PagesLinks";
 export function PagesArea({
   className,
   parentId = null,
+  spaceId,
   parentsStack = [],
   handleAdd = () => {},
   isCreating = false,
 }: {
   className?: string;
   parentId?: string | null;
+  spaceId?: string;
   parentsStack?: IParentsStack;
   handleAdd?: () => void;
   isCreating?: boolean;
@@ -36,7 +38,7 @@ export function PagesArea({
   const disabled = isInvalidTarget();
 
   const { isOver, setNodeRef } = useDroppable({
-    id: `pages-area-${parentId || "root"}`,
+    id: `pages-area-${spaceId || "default"}-${parentId || "root"}`,
     disabled,
     data: {
       type: "pages-area",
@@ -57,6 +59,7 @@ export function PagesArea({
     >
       <PagesLinks
         parentId={parentId}
+        spaceId={spaceId}
         parentsStack={parentsStack}
         handleAdd={handleAdd}
         isCreating={isCreating}

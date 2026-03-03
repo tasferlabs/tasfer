@@ -11,16 +11,18 @@ export type IParentsStack = { id: string | null; order: number }[];
 
 export default function PagesLinks({
   parentId = null,
+  spaceId,
   parentsStack = [],
   handleAdd = () => {},
   isCreating = false,
 }: {
   parentId?: string | null;
+  spaceId?: string;
   parentsStack?: IParentsStack;
   handleAdd?: () => void;
   isCreating?: boolean;
 }) {
-  const { data: pages, isLoading } = useGetPages(parentId);
+  const { data: pages, isLoading } = useGetPages(spaceId ?? null, parentId);
 
   if (isLoading) return null;
 
@@ -30,6 +32,7 @@ export default function PagesLinks({
         <PageLink
           key={link.id}
           data={link}
+          spaceId={spaceId}
           parentsStack={[...parentsStack, { id: parentId, order: link.order }]}
         />
       ))}

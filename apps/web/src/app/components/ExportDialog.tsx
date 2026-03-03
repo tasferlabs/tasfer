@@ -6,14 +6,12 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-} from "@/components/ui/alert-dialog";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { FileText, FileCode } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
@@ -126,14 +124,14 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{t`Export document`}</AlertDialogTitle>
-          <AlertDialogDescription>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t`Export document`}</DialogTitle>
+          <DialogDescription>
             {t`Choose a format to export your document`}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
+          </DialogDescription>
+        </DialogHeader>
         <div className="grid grid-cols-2 gap-3">
           <button
             onClick={handleExportTxt}
@@ -152,10 +150,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             <span className="text-xs text-muted-foreground">.md</span>
           </button>
         </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel>{t`Cancel`}</AlertDialogCancel>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      </DialogContent>
+    </Dialog>
   );
 }

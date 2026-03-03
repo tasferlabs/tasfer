@@ -50,6 +50,7 @@ router.post("/upload", upload.single("image"), async (req: Request, res) => {
       .insert(images)
       .values({
         id: imageId,
+        userId: req.user!.id,
         fileName: file.originalname,
         filePath: filePath,
         mimeType: file.mimetype,

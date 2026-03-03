@@ -6,6 +6,7 @@ import { pages, snapshots } from "../db/schema.js";
 import { eq, and, isNull, sql, inArray, desc } from "drizzle-orm";
 import { encodeSnapshot, decodeSnapshot, type Block } from "../lib/snapshot.js";
 import { writeFile, readFile, deleteFile } from "../handlers/files.js";
+import { canAccessPage, canAccessSpace } from "../lib/permissions.js";
 
 // Maximum number of snapshots to keep per page
 const MAX_SNAPSHOTS_PER_PAGE = 50;
@@ -40,11 +41,11 @@ getRedisPublisher();
 
 /** Page event types */
 type PageEvent =
-  | { type: "page-created"; page: { id: string; title: string | null; parentId: string | null; order: number } }
-  | { type: "page-deleted"; pageId: string }
-  | { type: "page-moved"; pageId: string; oldParentId: string | null; newParentId: string | null }
-  | { type: "page-reordered"; pageId: string; parentId: string | null; order: number }
-  | { type: "page-title-updated"; pageId: string; title: string };
+  | { type: "page-created"; page: { id: string; title: string | null; parentId: string | null; order: number; spaceId: string } }
+  | { type: "page-deleted"; pageId: string; spaceId: string }
+  | { type: "page-moved"; pageId: string; spaceId: string; oldParentId: string | null; newParentId: string | null }
+  | { type: "page-reordered"; pageId: string; spaceId: string; parentId: string | null; order: number }
+  | { type: "page-title-updated"; pageId: string; spaceId: string; title: string };
 
 /**
  * Publish a page event to Redis.
@@ -67,9 +68,26 @@ const router = Router();
 // List pages
 router.get("/list", async (req, res) => {
   try {
-    const { parentId } = req.query;
+    const { parentId, spaceId } = req.query;
 
-    // Get pages with optional parent filter
+    if (!spaceId) {
+      return res.status(400).json({ success: false, error: "spaceId is required" });
+    }
+
+    // Verify user has access to the space
+    const hasAccess = await canAccessSpace(req.user!.id, spaceId as string);
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, error: "Access denied" });
+    }
+
+    // Get pages with optional parent filter, scoped to space
+    const conditions = [eq(pages.spaceId, spaceId as string)];
+    if (parentId) {
+      conditions.push(eq(pages.parentId, parentId as string));
+    } else {
+      conditions.push(isNull(pages.parentId));
+    }
+
     const pagesList = await db
       .select({
         id: pages.id,
@@ -84,11 +102,7 @@ router.get("/list", async (req, res) => {
         ) THEN true ELSE false END`,
       })
       .from(pages)
-      .where(
-        parentId
-          ? eq(pages.parentId, parentId as string)
-          : isNull(pages.parentId)
-      )
+      .where(and(...conditions))
       .orderBy(pages.order, pages.title);
 
     res.json({ success: true, data: pagesList });
@@ -109,6 +123,11 @@ router.get("/:id", async (req, res) => {
 
     if (!page) {
       return res.status(404).json({ success: false, error: "Page not found" });
+    }
+
+    const hasAccess = await canAccessPage(req.user!.id, id, "view");
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, error: "Access denied" });
     }
 
     // Get parent hierarchy
@@ -255,7 +274,16 @@ router.get("/:id/snapshots", async (req, res) => {
 // Create page
 router.post("/create", async (req, res) => {
   try {
-    const { title, parentId } = req.body;
+    const { title, parentId, spaceId } = req.body;
+
+    if (!spaceId) {
+      return res.status(400).json({ success: false, error: "spaceId is required" });
+    }
+
+    const hasAccess = await canAccessSpace(req.user!.id, spaceId, "edit");
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, error: "Access denied" });
+    }
 
     // Validate title is a string if provided
     if (title !== undefined && typeof title !== "string") {
@@ -279,6 +307,7 @@ router.post("/create", async (req, res) => {
       .values({
         id: pageId,
         title: title,
+        spaceId,
         parentId: parentId || null,
         order: maxOrder + 1,
       })
@@ -316,6 +345,7 @@ router.post("/create", async (req, res) => {
         title: newPage[0].title,
         parentId: newPage[0].parentId,
         order: newPage[0].order,
+        spaceId: newPage[0].spaceId,
       },
     });
 
@@ -351,6 +381,11 @@ router.put("/:id", async (req, res) => {
       return res.status(404).json({ success: false, error: "Page not found" });
     }
 
+    const hasAccess = await canAccessPage(req.user!.id, id, "edit");
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, error: "Access denied" });
+    }
+
     // Build update object
     const updateData: { title?: string; autoTitle?: boolean; updatedAt: Date } =
       {
@@ -383,6 +418,7 @@ router.put("/:id", async (req, res) => {
       await publishPageEvent({
         type: "page-title-updated",
         pageId: id,
+        spaceId: page.spaceId,
         title: updated[0].title,
       });
     }
@@ -458,6 +494,12 @@ router.delete("/:id", async (req, res) => {
       return res.status(404).json({ success: false, error: "Page not found" });
     }
 
+    // Space owners can delete any page; editors can delete via edit access
+    const hasAccess = await canAccessPage(req.user!.id, id, "edit");
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, error: "Access denied" });
+    }
+
     // Get all page IDs to delete (including children)
     const childPagesResult = await db.execute(sql`
       WITH RECURSIVE child_pages AS (
@@ -511,6 +553,7 @@ router.delete("/:id", async (req, res) => {
     await publishPageEvent({
       type: "page-deleted",
       pageId: id,
+      spaceId: page.spaceId,
     });
 
     res.json({ success: true, message: "Page deleted" });
@@ -532,6 +575,11 @@ router.post("/:id/move", async (req, res) => {
 
     if (!page) {
       return res.status(404).json({ success: false, error: "Page not found" });
+    }
+
+    const hasAccess = await canAccessPage(req.user!.id, id, "edit");
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, error: "Access denied" });
     }
 
     // Prevent moving a page to itself
@@ -621,6 +669,7 @@ router.post("/:id/move", async (req, res) => {
     await publishPageEvent({
       type: "page-moved",
       pageId: id,
+      spaceId: page.spaceId,
       oldParentId: oldParentId,
       newParentId: parentId || null,
     });
@@ -650,6 +699,11 @@ router.post("/:id/reorder", async (req, res) => {
 
     if (!page) {
       return res.status(404).json({ success: false, error: "Page not found" });
+    }
+
+    const hasAccess = await canAccessPage(req.user!.id, id, "edit");
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, error: "Access denied" });
     }
 
     const original = page.order;
@@ -697,6 +751,7 @@ router.post("/:id/reorder", async (req, res) => {
     await publishPageEvent({
       type: "page-reordered",
       pageId: id,
+      spaceId: page.spaceId,
       parentId: page.parentId,
       order: target,
     });

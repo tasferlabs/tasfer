@@ -31,6 +31,7 @@ import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
 import { useDebouncedSave } from "../hooks/useDebouncedSave";
 import { usePageSettings } from "../contexts/PageSettingsContext";
+import { useSpaces } from "../contexts/SpaceContext";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useLocalStorage from "../hooks/useLocalStorage";
 import { WordCountOverlay } from "../components/WordCountOverlay";
@@ -112,7 +113,8 @@ export default function EditorPage() {
   // Confirm save function ref from MountedEditor - called after backend confirms save
   const confirmSaveFnRef = useRef<((clock: HLC) => void) | null>(null);
 
-  const { data: pages, isLoading: isLoadingPages } = useGetPages(null);
+  const { activeSpaceId } = useSpaces();
+  const { data: pages, isLoading: isLoadingPages } = useGetPages(activeSpaceId, null);
   const [lastPageId, setLastPageId] = useLocalStorage<string | null>(
     "lastPageId",
     null,
@@ -468,6 +470,7 @@ function EditorEmptyState() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { activeSpaceId } = useSpaces();
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: (newPage, variables) => {
       queryClient.invalidateQueries({
@@ -479,9 +482,11 @@ function EditorEmptyState() {
   });
 
   function handleAdd() {
+    if (!activeSpaceId) return;
     createPage({
       title: "",
       parentId: null,
+      spaceId: activeSpaceId,
     });
   }
   return (

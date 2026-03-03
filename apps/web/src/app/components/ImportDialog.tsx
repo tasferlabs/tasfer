@@ -6,14 +6,12 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-} from "@/components/ui/alert-dialog";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Upload, FileUp, FilePlus, Replace } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
@@ -24,6 +22,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCreatePage, updatePage } from "../api/pages.api";
+import { useSpaces } from "../contexts/SpaceContext";
 import { extractTitleFromBlocks, getVisibleTextFromRuns } from "@/editor/sync/char-runs";
 import type { Block } from "@/deserializer/loadPage";
 
@@ -64,6 +63,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { activeSpaceId } = useSpaces();
 
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: async (newPage) => {
@@ -153,11 +153,11 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   }, [pendingBlocks, onRestoreSnapshot, onOpenChange, resetState]);
 
   const handleCreateNew = useCallback(() => {
-    if (pendingBlocks) {
+    if (pendingBlocks && activeSpaceId) {
       const title = extractTitleFromBlocks(pendingBlocks) || "";
-      createPage({ title, parentId: null });
+      createPage({ title, parentId: null, spaceId: activeSpaceId });
     }
-  }, [pendingBlocks, createPage]);
+  }, [pendingBlocks, createPage, activeSpaceId]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -289,18 +289,18 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={handleClose}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
             {showConfirmation ? t`Import options` : t`Import document`}
-          </AlertDialogTitle>
-          <AlertDialogDescription>
+          </DialogTitle>
+          <DialogDescription>
             {showConfirmation
               ? t`This page already has content. Choose how to proceed.`
               : t`Import a markdown or text file.`}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
+          </DialogDescription>
+        </DialogHeader>
 
         {showConfirmation ? (
           <div className="space-y-3">
@@ -368,10 +368,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         )}
 
         {fileInput}
-        <AlertDialogFooter>
-          <AlertDialogCancel>{t`Cancel`}</AlertDialogCancel>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,10 +1,10 @@
 import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
@@ -28,6 +28,7 @@ import {
   History,
   MoreVertical,
   Pencil,
+  Share2,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -40,6 +41,7 @@ import {
   useGetPages,
   useUpdatePage,
 } from "../api/pages.api";
+import { useSpaces } from "../contexts/SpaceContext";
 import {
   usePageSettings,
   type FontStyle,
@@ -48,6 +50,7 @@ import useResponsive from "../hooks/useResponsive";
 import { useConfirmation } from "./ConfirmationDialog";
 import { ExportDialog } from "./ExportDialog";
 import { ImportDialog } from "./ImportDialog";
+import { ShareDialog } from "./ShareDialog";
 import { SnapshotRestore } from "./SnapshotRestore";
 
 export function PageSettings() {
@@ -55,6 +58,8 @@ export function PageSettings() {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const { id: pageId } = useParams<{ id: string }>();
 
   return (
     <>
@@ -63,6 +68,7 @@ export function PageSettings() {
         setShowExportDialog={setShowExportDialog}
         setShowImportDialog={setShowImportDialog}
         setShowRenameDialog={setShowRenameDialog}
+        setShowShareDialog={setShowShareDialog}
       />
       <SnapshotRestore
         open={showVersionHistory}
@@ -80,6 +86,13 @@ export function PageSettings() {
         open={showRenameDialog}
         onOpenChange={setShowRenameDialog}
       />
+      {pageId && (
+        <ShareDialog
+          pageId={pageId}
+          open={showShareDialog}
+          onOpenChange={setShowShareDialog}
+        />
+      )}
     </>
   );
 }
@@ -89,11 +102,13 @@ function PageSettingsImpl({
   setShowExportDialog,
   setShowImportDialog,
   setShowRenameDialog,
+  setShowShareDialog,
 }: {
   setShowVersionHistory: (open: boolean) => void;
   setShowExportDialog: (open: boolean) => void;
   setShowImportDialog: (open: boolean) => void;
   setShowRenameDialog: (open: boolean) => void;
+  setShowShareDialog: (open: boolean) => void;
 }) {
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -111,7 +126,8 @@ function PageSettingsImpl({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { getConfirmation } = useConfirmation();
-  const { data: rootPages } = useGetPages(null);
+  const { activeSpaceId } = useSpaces();
+  const { data: rootPages } = useGetPages(activeSpaceId, null);
 
   const { mutate: deletePage, isPending: isDeleting } = useDeletePage({
     onSuccess: () => {
@@ -219,6 +235,18 @@ function PageSettingsImpl({
       </div>
 
       <div className="py-4 border-t border-border px-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2 py-5"
+          onClick={() => {
+            setShowShareDialog(true);
+            setOpen(false);
+          }}
+        >
+          <Share2 className="h-4 w-4" />
+          {t`Share`}
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -381,21 +409,18 @@ function RenameDialog({ open, onOpenChange }: RenameDialogProps) {
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{t`Rename page`}</AlertDialogTitle>
-        </AlertDialogHeader>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t`Rename page`}</DialogTitle>
+        </DialogHeader>
         {content}
-        <AlertDialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t`Cancel`}
-          </Button>
+        <DialogFooter>
           <Button onClick={handleRename} disabled={isPending}>
             {t`Save`}
           </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

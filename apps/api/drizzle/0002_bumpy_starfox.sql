@@ -1,0 +1,1 @@
+ALTER TABLE "spaces" ADD COLUMN "description" varchar(500) DEFAULT '' NOT NULL;

@@ -40,35 +40,6 @@ export interface PageEventHandlers {
 // Hook
 // =============================================================================
 
-/**
- * Subscribe to page lifecycle events.
- *
- * @param handlers - Event handlers for page lifecycle events
- *
- * @example
- * usePageEvents({
- *   onPageCreated: (page) => {
- *     queryClient.invalidateQueries(["pages", { parentId: page.parentId }]);
- *   },
- *   onPageDeleted: (pageId) => {
- *     queryClient.invalidateQueries(["pages"]);
- *     queryClient.invalidateQueries(["page", pageId]);
- *   },
- *   onPageMoved: (pageId, oldParentId, newParentId) => {
- *     queryClient.invalidateQueries(["pages", { parentId: oldParentId }]);
- *     queryClient.invalidateQueries(["pages", { parentId: newParentId }]);
- *   },
- *   onPageReordered: (pageId, parentId) => {
- *     queryClient.invalidateQueries(["pages", { parentId }]);
- *   },
- *   onPageTitleUpdated: (pageId, title) => {
- *     queryClient.setQueryData(["page", pageId], (old) => ({
- *       ...old,
- *       title,
- *     }));
- *   },
- * });
- */
 export function usePageEvents(handlers: PageEventHandlers): void {
   const { onPageEvents, connectionState } = useWebSocket();
 
@@ -114,70 +85,28 @@ export function usePageEvents(handlers: PageEventHandlers): void {
 
 /**
  * Convenience hook that automatically invalidates React Query cache on page events.
- * Use this in components that use React Query for page data.
- *
- * @example
- * function Sidebar() {
- *   usePageEventsWithQueryClient();
- *   // ...
- * }
+ * Uses broad invalidation since query keys now include spaceId.
  */
 export function usePageEventsWithQueryClient(): void {
   const queryClient = useQueryClient();
 
   usePageEvents({
-    onPageCreated: (page) => {
-      // Invalidate the parent's page list
-      queryClient.invalidateQueries({
-        queryKey: ["pages", { parentId: page.parentId }],
-      });
-      // Also invalidate root if parentId is null
-      if (page.parentId === null) {
-        queryClient.invalidateQueries({
-          queryKey: ["pages", { parentId: null }],
-        });
-      }
+    onPageCreated: () => {
+      // Invalidate all page lists (broad match covers all spaceId/parentId combos)
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
     },
 
     onPageDeleted: (pageId) => {
-      // Invalidate all page lists (page could have been anywhere)
       queryClient.invalidateQueries({ queryKey: ["pages"] });
-      // Invalidate the specific page query
       queryClient.invalidateQueries({ queryKey: ["page", pageId] });
     },
 
-    onPageMoved: (_pageId, oldParentId, newParentId) => {
-      // Invalidate both old and new parent's page lists
-      queryClient.invalidateQueries({
-        queryKey: ["pages", { parentId: oldParentId }],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["pages", { parentId: newParentId }],
-      });
-      // Handle root cases
-      if (oldParentId === null) {
-        queryClient.invalidateQueries({
-          queryKey: ["pages", { parentId: null }],
-        });
-      }
-      if (newParentId === null) {
-        queryClient.invalidateQueries({
-          queryKey: ["pages", { parentId: null }],
-        });
-      }
+    onPageMoved: () => {
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
     },
 
-    onPageReordered: (_pageId, parentId) => {
-      // Invalidate the parent's page list
-      queryClient.invalidateQueries({
-        queryKey: ["pages", { parentId }],
-      });
-      // Handle root case
-      if (parentId === null) {
-        queryClient.invalidateQueries({
-          queryKey: ["pages", { parentId: null }],
-        });
-      }
+    onPageReordered: () => {
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
     },
 
     onPageTitleUpdated: (pageId, title) => {
