@@ -36,7 +36,7 @@ export default function Layout() {
   // Silent background sync for offline mutations
   useOfflineStatus();
 
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
   const { isLoading, meetsMinimum } = useVersion();
 
   // Build WebSocket URL with JWT token
@@ -59,7 +59,7 @@ export default function Layout() {
   }
 
   return (
-    <WebSocketProvider serverUrl={websocketUrl}>
+    <WebSocketProvider serverUrl={websocketUrl} userName={user?.name}>
       <SpaceProvider>
       <PageSettingsProvider>
         <ConfirmationDialogProvider>

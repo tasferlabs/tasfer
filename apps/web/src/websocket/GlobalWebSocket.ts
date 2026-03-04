@@ -17,7 +17,7 @@ import type {
 } from "./types";
 import { isPageEvent } from "./types";
 import type { AwarenessState } from "@/editor/sync/awareness";
-import { getColorForPeer, getTestNameForPeer } from "@/editor/sync/awareness";
+import { getColorForPeer } from "@/editor/sync/awareness";
 import { generatePeerId } from "@/editor/sync/id";
 import { CLIENT_VERSION } from "@/version";
 
@@ -74,8 +74,8 @@ export class GlobalWebSocket {
     this._peerId = generatePeerId();
     this.localUser = {
       peerId: this._peerId,
-      name: userName || getTestNameForPeer(this._peerId),
-      color: getColorForPeer(this._peerId),
+      name: userName,
+      color: getColorForPeer(userName || this._peerId),
     };
   }
 
@@ -101,7 +101,11 @@ export class GlobalWebSocket {
    * Update the local user name.
    */
   setUserName(name: string): void {
-    this.localUser = { ...this.localUser, name };
+    this.localUser = {
+      ...this.localUser,
+      name,
+      color: getColorForPeer(name || this.localUser.peerId),
+    };
   }
 
   /**

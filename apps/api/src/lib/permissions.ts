@@ -105,7 +105,10 @@ export async function getAccessibleSpaces(userId: string) {
     .from(spaceMembers)
     .where(eq(spaceMembers.userId, userId));
 
-  const memberSpaceIds = memberEntries.map((m) => m.spaceId);
+  const ownedSpaceIds = new Set(ownedSpaces.map((s) => s.id));
+  const memberSpaceIds = memberEntries
+    .map((m) => m.spaceId)
+    .filter((id) => !ownedSpaceIds.has(id));
 
   let memberSpaces: (typeof ownedSpaces) = [];
   if (memberSpaceIds.length > 0) {

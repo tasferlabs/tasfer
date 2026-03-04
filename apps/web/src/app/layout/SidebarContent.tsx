@@ -53,6 +53,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu";
@@ -78,7 +79,7 @@ import useResponsive from "../hooks/useResponsive";
 import { PagesArea } from "./components/PagesArea";
 import { setRecentDragEnd } from "./components/PageLink";
 import style from "./Layout.module.css";
-import { Ellipsis, Settings } from "lucide-react";
+import { ChevronsUpDown, Ellipsis, Settings } from "lucide-react";
 
 // Mock t function
 const t = (s: string | TemplateStringsArray) => s.toString();
@@ -318,33 +319,36 @@ export function SidebarContent({
   return (
     <>
       <div className={style.appSidebarHeader}>
-        {/* User avatar with logout */}
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0">
-            {initials}
-          </div>
-          <span className="text-sm font-medium text-foreground truncate">
-            {user?.name}
-          </span>
-        </div>
+        {/* User avatar with popover menu */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex items-center gap-2 min-w-0 rounded-md px-1.5 py-1 hover:bg-accent transition-colors cursor-pointer w-full">
+              <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0">
+                {initials}
+              </div>
+              <span className="text-sm font-medium text-foreground truncate">
+                {user?.name}
+              </span>
+              <ChevronsUpDown size={14} className="shrink-0 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-48">
+            <DropdownMenuLabel>{user?.email ?? user?.name}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={logout}>
+              <SignOutIcon size={16} />
+              {t`Sign out`}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-        <div className="flex items-center gap-1">
-          <button
-            onClick={logout}
-            className={style.iconButton}
-            title="Sign out"
-          >
-            <SignOutIcon size={20} />
-            <VisuallyHidden>{t`Sign out`}</VisuallyHidden>
-          </button>
-          <button
-            onClick={() => setOpen(false)}
-            className={clsx(style.iconButton, style.appSidebarClose)}
-          >
-            <CaretDoubleLeftIcon size={24} />
-            <VisuallyHidden>{t`Close sidebar`}</VisuallyHidden>
-          </button>
-        </div>
+        <button
+          onClick={() => setOpen(false)}
+          className={clsx(style.iconButton, style.appSidebarClose)}
+        >
+          <CaretDoubleLeftIcon size={24} />
+          <VisuallyHidden>{t`Close sidebar`}</VisuallyHidden>
+        </button>
       </div>
       <div className={style.appNavigationLinks}>
         <RouterLink className={style.appNavigationLink} to={"/settings"}>

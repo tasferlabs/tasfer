@@ -8,7 +8,7 @@
 import { SyncEngine, serializeVV, deserializeVV, compareHLC } from "./sync";
 import type { HLC, Operation } from "./types";
 import type { AwarenessState, AwarenessUser } from "./awareness";
-import { getColorForPeer, getTestNameForPeer } from "./awareness";
+import { getColorForPeer } from "./awareness";
 import { CLIENT_VERSION } from "@/version";
 
 // =============================================================================
@@ -17,17 +17,42 @@ import { CLIENT_VERSION } from "@/version";
 
 /** Message types for server communication */
 export type ServerMessage =
-  | { type: "join"; roomId: string; peerId: string; user?: AwarenessUser; clientVersion?: number }
+  | {
+      type: "join";
+      roomId: string;
+      peerId: string;
+      user?: AwarenessUser;
+      clientVersion?: number;
+    }
   | { type: "leave"; roomId: string; peerId: string }
-  | { type: "sync-request"; versionVector: Record<string, number>; snapshotClock?: HLC | null; requesterId?: string }
-  | { type: "sync-response"; operations: Operation[]; versionVector: Record<string, number>; targetPeerId?: string }
+  | {
+      type: "sync-request";
+      versionVector: Record<string, number>;
+      snapshotClock?: HLC | null;
+      requesterId?: string;
+    }
+  | {
+      type: "sync-response";
+      operations: Operation[];
+      versionVector: Record<string, number>;
+      targetPeerId?: string;
+    }
   | { type: "operations"; operations: Operation[] }
   | { type: "peer-joined"; peerId: string; user?: AwarenessUser }
   | { type: "peer-left"; peerId: string }
-  | { type: "room-peers"; peers: string[]; awarenessStates?: Record<string, AwarenessState> }
+  | {
+      type: "room-peers";
+      peers: string[];
+      awarenessStates?: Record<string, AwarenessState>;
+    }
   | { type: "awareness"; peerId: string; state: AwarenessState }
   | { type: "error"; message: string }
-  | { type: "update-available"; serverVersion: number; clientVersion: number; forceUpdate: boolean }
+  | {
+      type: "update-available";
+      serverVersion: number;
+      clientVersion: number;
+      forceUpdate: boolean;
+    }
   | { type: "server-shutdown"; reason: string };
 
 /** WebSocket sync configuration */
@@ -47,7 +72,11 @@ export interface WebSocketSyncConfig {
   /** Called when initial awareness states are received on room join */
   onAwarenessStates?: (states: Record<string, AwarenessState>) => void;
   /** Called when server indicates an update is available */
-  onUpdateAvailable?: (info: { serverVersion: number; clientVersion: number; forceUpdate: boolean }) => void;
+  onUpdateAvailable?: (info: {
+    serverVersion: number;
+    clientVersion: number;
+    forceUpdate: boolean;
+  }) => void;
 }
 
 /** Overall sync state */
@@ -102,8 +131,8 @@ export class WebSocketSync {
     const peerId = engine.getPeerId();
     this.localUser = {
       peerId,
-      name: config.userName || getTestNameForPeer(peerId),
-      color: getColorForPeer(peerId),
+      name: config.userName,
+      color: getColorForPeer(config.userName || peerId),
     };
   }
 
@@ -283,7 +312,9 @@ export class WebSocketSync {
     const localOps = this.engine.getOperationsAfterClock(this.snapshotClock);
 
     if (localOps.length > 0) {
-      console.log(`[WebSocket] Broadcasting ${localOps.length} local operations to peers`);
+      console.log(
+        `[WebSocket] Broadcasting ${localOps.length} local operations to peers`,
+      );
       this.broadcast(localOps);
     }
   }
@@ -295,7 +326,7 @@ export class WebSocketSync {
   private handleIncomingSyncRequest(
     requesterVV: Record<string, number>,
     requesterSnapshotClock: HLC | null | undefined,
-    requesterId?: string
+    requesterId?: string,
   ): void {
     // Convert serialized version vector back to Map
     const vv = deserializeVV(requesterVV);
@@ -308,14 +339,16 @@ export class WebSocketSync {
     if (requesterSnapshotClock) {
       const beforeFilter = missingOps.length;
       missingOps = missingOps.filter(
-        (op) => compareHLC(op.clock, requesterSnapshotClock) > 0
+        (op) => compareHLC(op.clock, requesterSnapshotClock) > 0,
       );
       console.log(
-        `[WebSocket] Filtered ${beforeFilter - missingOps.length} ops already in requester's snapshot`
+        `[WebSocket] Filtered ${beforeFilter - missingOps.length} ops already in requester's snapshot`,
       );
     }
 
-    console.log(`[WebSocket] Responding to sync request with ${missingOps.length} operations`);
+    console.log(
+      `[WebSocket] Responding to sync request with ${missingOps.length} operations`,
+    );
 
     // Send sync response with our operations
     this.send({
@@ -379,10 +412,15 @@ export class WebSocketSync {
       this.setState({ status: "connecting" });
 
       // Use shorter delay for server shutdown reconnects
-      const delay = this.reconnectAttempts === 1 ? 500 : this.reconnectDelay * this.reconnectAttempts;
+      const delay =
+        this.reconnectAttempts === 1
+          ? 500
+          : this.reconnectDelay * this.reconnectAttempts;
 
       setTimeout(() => {
-        console.log(`[WebSocket] Reconnecting... (attempt ${this.reconnectAttempts})`);
+        console.log(
+          `[WebSocket] Reconnecting... (attempt ${this.reconnectAttempts})`,
+        );
         this.connectWebSocket()
           .then(() => {
             if (this.roomId) {
@@ -425,24 +463,35 @@ export class WebSocketSync {
     switch (message.type) {
       case "room-peers":
         // Received list of existing peers in the room
-        const otherPeers = message.peers.filter(p => p !== this.engine.getPeerId());
+        const otherPeers = message.peers.filter(
+          (p) => p !== this.engine.getPeerId(),
+        );
         this.peerCount = otherPeers.length;
 
         if (otherPeers.length === 0) {
           // We're the first peer in the room - load initial content
-          console.log("[WebSocket] First peer in room, loading initial content");
+          console.log(
+            "[WebSocket] First peer in room, loading initial content",
+          );
           this.config.onFirstPeer?.();
         } else {
           // There are other peers, request sync to get their operations
-          console.log(`[WebSocket] Joining room with ${otherPeers.length} existing peers`);
+          console.log(
+            `[WebSocket] Joining room with ${otherPeers.length} existing peers`,
+          );
           this.requestSync();
           // Also broadcast our local operations to ensure peers get any offline edits
           this.broadcastLocalOps();
         }
 
         // Notify about existing awareness states
-        if (message.awarenessStates && Object.keys(message.awarenessStates).length > 0) {
-          console.log(`[WebSocket] Received ${Object.keys(message.awarenessStates).length} awareness states`);
+        if (
+          message.awarenessStates &&
+          Object.keys(message.awarenessStates).length > 0
+        ) {
+          console.log(
+            `[WebSocket] Received ${Object.keys(message.awarenessStates).length} awareness states`,
+          );
           this.config.onAwarenessStates?.(message.awarenessStates);
         }
 
@@ -485,16 +534,20 @@ export class WebSocketSync {
       case "sync-request":
         // Another peer is requesting our operations
         // Respond with operations they don't have based on their version vector and snapshot clock
-        console.log(`[WebSocket] Received sync request from ${message.requesterId}`);
+        console.log(
+          `[WebSocket] Received sync request from ${message.requesterId}`,
+        );
         this.handleIncomingSyncRequest(
           message.versionVector,
           message.snapshotClock,
-          message.requesterId
+          message.requesterId,
         );
         break;
 
       case "sync-response":
-        console.log(`[WebSocket] Received sync response with ${message.operations.length} operations`);
+        console.log(
+          `[WebSocket] Received sync response with ${message.operations.length} operations`,
+        );
         if (message.operations.length > 0) {
           this.engine.apply(message.operations);
           this.config.onRemoteOperation?.(message.operations);
@@ -502,7 +555,9 @@ export class WebSocketSync {
         break;
 
       case "operations":
-        console.log(`[WebSocket] Received ${message.operations.length} operations from peer`);
+        console.log(
+          `[WebSocket] Received ${message.operations.length} operations from peer`,
+        );
         if (message.operations.length > 0) {
           this.engine.apply(message.operations);
           this.config.onRemoteOperation?.(message.operations);
@@ -515,7 +570,9 @@ export class WebSocketSync {
         break;
 
       case "update-available":
-        console.log(`[WebSocket] Update available: server v${message.serverVersion}, client v${message.clientVersion}${message.forceUpdate ? " (FORCE)" : ""}`);
+        console.log(
+          `[WebSocket] Update available: server v${message.serverVersion}, client v${message.clientVersion}${message.forceUpdate ? " (FORCE)" : ""}`,
+        );
         this.config.onUpdateAvailable?.(message);
         break;
 
@@ -553,7 +610,7 @@ export class WebSocketSync {
  */
 export function createWebSocketSync(
   engine: SyncEngine,
-  config: WebSocketSyncConfig
+  config: WebSocketSyncConfig,
 ): WebSocketSync {
   return new WebSocketSync(engine, config);
 }
