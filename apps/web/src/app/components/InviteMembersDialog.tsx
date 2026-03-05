@@ -83,7 +83,7 @@ export function InviteMembersDialog({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          {t`Add members to this group by entering their email address.`}
+          {t`Add members to this space by entering their email address.`}
         </p>
 
         <FormField
@@ -134,7 +134,7 @@ export function InviteMembersDialog({
         <DialogHeader>
           <DialogTitle>{t`Invite members`}</DialogTitle>
           <DialogDescription>
-            {t`Invite people to collaborate in this group`}
+            {t`Invite people to collaborate in this space`}
           </DialogDescription>
         </DialogHeader>
         {content}

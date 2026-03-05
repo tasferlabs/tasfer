@@ -92,7 +92,7 @@ export function EditGroupDialog({
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
-              <DrawerTitle>{t`Group settings`}</DrawerTitle>
+              <DrawerTitle>{t`Space settings`}</DrawerTitle>
             </DrawerHeader>
             <div className="px-4">{content}</div>
             <DrawerFooter className="pt-4">
@@ -129,9 +129,9 @@ function GeneralTab({
       z.object({
         name: z
           .string()
-          .min(1, t`Group name is required`)
-          .min(3, t`Group name is too short`)
-          .max(50, t`Group name is too long`),
+          .min(1, t`Space name is required`)
+          .min(3, t`Space name is too short`)
+          .max(50, t`Space name is too long`),
         description: z.string().max(500, t`Description is too long`),
       }),
     [t],
@@ -179,7 +179,7 @@ function GeneralTab({
           render={({ field }) => (
             <FormItem>
               <FormLabel>{t`Name`}</FormLabel>
-              <Input {...field} placeholder={t`Group name`} />
+              <Input {...field} placeholder={t`Space name`} />
               <FormMessage />
             </FormItem>
           )}
@@ -251,8 +251,8 @@ function MembersTab({
       if (isMe) {
         // Leave group
         const confirmed = await getConfirmation({
-          title: t`Leave group`,
-          description: t`Are you sure you want to leave this group?`,
+          title: t`Leave space`,
+          description: t`Are you sure you want to leave this space?`,
           cancelText: t`Cancel`,
           confirmText: t`Leave`,
         });
@@ -263,7 +263,7 @@ function MembersTab({
         // Kick member
         const confirmed = await getConfirmation({
           title: t`Remove member`,
-          description: t`Are you sure you want to remove this member from the group?`,
+          description: t`Are you sure you want to remove this member from this space?`,
           cancelText: t`Cancel`,
           confirmText: t`Remove`,
         });

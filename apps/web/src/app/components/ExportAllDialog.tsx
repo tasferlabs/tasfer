@@ -276,7 +276,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
                   />
                   <span className="text-sm font-medium">{space.name}</span>
                   <span className="text-xs text-muted-foreground ml-auto">
-                    {space.type === "personal" ? t`Personal` : t`Group`}
+                    {space.type === "personal" ? t`Personal` : t`Space`}
                   </span>
                 </label>
               ))}

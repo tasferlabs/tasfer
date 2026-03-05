@@ -170,8 +170,8 @@ export function SidebarContent({
 
   async function leaveGroup(groupId: string) {
     const confirmed = await getConfirmation({
-      title: t`Leave group`,
-      description: t`Are you sure you want to leave this group?`,
+      title: t`Leave space`,
+      description: t`Are you sure you want to leave this space?`,
       confirmText: t`Leave`,
       cancelText: t`Cancel`,
     });
@@ -407,7 +407,7 @@ export function SidebarContent({
           <div className={style.appNavigationLinkIcon}>
             <Icons.AddGroup />
           </div>
-          {t`Add group`}
+          {t`Add space`}
         </button>
       </div>
 
@@ -432,7 +432,7 @@ export function SidebarContent({
                   <DropdownMenu>
                     <DropdownMenuTrigger className={style.appSidebarSectionButton}>
                       <Ellipsis size={20} />
-                      <span className="sr-only">{t`Group settings`}</span>
+                      <span className="sr-only">{t`Space settings`}</span>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent>
                       <DropdownMenuItem
@@ -442,7 +442,7 @@ export function SidebarContent({
                           setGroupSettingsId(group.id);
                         }}
                       >
-                        {t`Group settings`}
+                        {t`Space settings`}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onSelect={(ev) => {
@@ -455,7 +455,7 @@ export function SidebarContent({
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={() => leaveGroup(group.id)}>
-                        {t`Leave group`}
+                        {t`Leave space`}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -606,9 +606,9 @@ function AddGroupDialog({
       z.object({
         name: z
           .string()
-          .min(1, t`Group name is required`)
-          .min(3, t`Group name is too short`)
-          .max(50, t`Group name is too long`),
+          .min(1, t`Space name is required`)
+          .min(3, t`Space name is too short`)
+          .max(50, t`Space name is too long`),
         description: z.string().max(500, t`Description is too long`),
       }),
     [t],
@@ -637,7 +637,7 @@ function AddGroupDialog({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          {t`Create a new group to share pages with others`}
+          {t`Create a new space to share pages with others`}
         </p>
 
         <FormField
@@ -646,7 +646,7 @@ function AddGroupDialog({
           render={({ field }) => (
             <FormItem>
               <FormLabel>{t`Name`}</FormLabel>
-              <Input {...field} placeholder={t`Group name`} />
+              <Input {...field} placeholder={t`Space name`} />
               <FormMessage />
             </FormItem>
           )}
@@ -679,7 +679,7 @@ function AddGroupDialog({
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
-              <DrawerTitle>{t`Create new group`}</DrawerTitle>
+              <DrawerTitle>{t`Create new space`}</DrawerTitle>
             </DrawerHeader>
             <div className="px-4">{content}</div>
             <DrawerFooter className="pt-4">
@@ -700,7 +700,7 @@ function AddGroupDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t`Create new group`}</DialogTitle>
+          <DialogTitle>{t`Create new space`}</DialogTitle>
         </DialogHeader>
         {content}
       </DialogContent>
