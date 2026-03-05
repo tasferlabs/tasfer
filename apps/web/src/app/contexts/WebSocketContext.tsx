@@ -23,6 +23,8 @@ import type {
   ConnectionInfo,
   RoomCallbacks,
   PageEventCallbacks,
+  SpaceEventCallbacks,
+  // ShareEventCallbacks,
   RoomUser,
   Operation,
 } from "@/websocket/types";
@@ -76,6 +78,10 @@ interface WebSocketContextValue {
   ) => void;
   /** Subscribe to page lifecycle events */
   onPageEvents: (callbacks: PageEventCallbacks) => () => void;
+  /** Subscribe to space/group lifecycle events */
+  onSpaceEvents: (callbacks: SpaceEventCallbacks) => () => void;
+  // /** Subscribe to share lifecycle events */
+  // onShareEvents: (callbacks: ShareEventCallbacks) => () => void;
   /** Subscribe to update available notifications */
   onUpdateAvailable: (callback: UpdateAvailableCallback) => () => void;
   /** Update local user name */
@@ -250,6 +256,20 @@ export function WebSocketProvider({
     return wsRef.current.onPageEvents(callbacks);
   }, []);
 
+  const onSpaceEvents = useCallback((callbacks: SpaceEventCallbacks) => {
+    if (!wsRef.current) {
+      return () => {};
+    }
+    return wsRef.current.onSpaceEvents(callbacks);
+  }, []);
+
+  // const onShareEvents = useCallback((callbacks: ShareEventCallbacks) => {
+  //   if (!wsRef.current) {
+  //     return () => {};
+  //   }
+  //   return wsRef.current.onShareEvents(callbacks);
+  // }, []);
+
   const onUpdateAvailable = useCallback((callback: UpdateAvailableCallback) => {
     if (!wsRef.current) {
       return () => {};
@@ -283,6 +303,8 @@ export function WebSocketProvider({
     sendSyncRequest,
     sendSyncResponse,
     onPageEvents,
+    onSpaceEvents,
+    // onShareEvents,
     onUpdateAvailable,
     setUserName,
   };

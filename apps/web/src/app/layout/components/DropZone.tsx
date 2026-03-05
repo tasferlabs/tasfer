@@ -11,9 +11,10 @@ interface DropZoneProps {
   position: DropPosition;
   order?: number;
   parentsStack?: { id: string | null; order: number }[];
+  spaceId?: string;
 }
 
-export function DropZone({ id, parentId, targetPageId, position, order, parentsStack = [] }: DropZoneProps) {
+export function DropZone({ id, parentId, targetPageId, position, order, parentsStack = [], spaceId }: DropZoneProps) {
   const { active } = useDndContext();
   
   // Check if this drop zone should be disabled
@@ -62,6 +63,7 @@ export function DropZone({ id, parentId, targetPageId, position, order, parentsS
       targetPageId,
       order,
       parentsStack,
+      spaceId,
     },
   });
 

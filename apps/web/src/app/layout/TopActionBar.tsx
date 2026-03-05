@@ -21,7 +21,7 @@ export function TopActionBar({
   const { id } = useParams<{ id: string }>();
   const { data: page, isLoading, isError } = useGetPage(id);
   const isMobile = useResponsive("(max-width: 768px)");
-  const { isSaving, activeUsers } = usePageSettings();
+  const { isSaving, activeUsers, permission } = usePageSettings();
 
   return (
     <div className={style.appHeader}>
@@ -60,7 +60,7 @@ export function TopActionBar({
 
       <div className="ml-auto flex items-center gap-2">
         <ActiveUsersAvatars users={activeUsers} />
-        <SavingIndicator isSaving={isSaving} />
+        {permission !== "view" && <SavingIndicator isSaving={isSaving} />}
         {id && !isLoading && !isError && <PageSettings />}
       </div>
     </div>

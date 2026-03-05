@@ -777,7 +777,7 @@ export const renderBlock = (
     fullContent.length === 0 &&
     !state.ui.composition &&
     !hasActiveSelection &&
-    state.ui.mode !== "readonly"
+    state.ui.mode === "edit"
   ) {
     renderPlaceholder(
       ctx,

@@ -6,7 +6,7 @@ import { pages, snapshots } from "../db/schema.js";
 import { eq, and, isNull, sql, inArray, desc } from "drizzle-orm";
 import { encodeSnapshot, decodeSnapshot, type Block } from "../lib/snapshot.js";
 import { writeFile, readFile, deleteFile } from "../handlers/files.js";
-import { canAccessPage, canAccessSpace } from "../lib/permissions.js";
+import { canAccessPage, canAccessSpace, getPageAccessLevel } from "../lib/permissions.js";
 
 // Maximum number of snapshots to keep per page
 const MAX_SNAPSHOTS_PER_PAGE = 50;
@@ -43,7 +43,7 @@ getRedisPublisher();
 type PageEvent =
   | { type: "page-created"; page: { id: string; title: string | null; parentId: string | null; order: number; spaceId: string } }
   | { type: "page-deleted"; pageId: string; spaceId: string }
-  | { type: "page-moved"; pageId: string; spaceId: string; oldParentId: string | null; newParentId: string | null }
+  | { type: "page-moved"; pageId: string; spaceId: string; oldParentId: string | null; newParentId: string | null; oldSpaceId?: string; newSpaceId?: string }
   | { type: "page-reordered"; pageId: string; spaceId: string; parentId: string | null; order: number }
   | { type: "page-title-updated"; pageId: string; spaceId: string; title: string };
 
@@ -125,8 +125,8 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ success: false, error: "Page not found" });
     }
 
-    const hasAccess = await canAccessPage(req.user!.id, id, "view");
-    if (!hasAccess) {
+    const permission = await getPageAccessLevel(req.user!.id, id);
+    if (!permission) {
       return res.status(403).json({ success: false, error: "Access denied" });
     }
 
@@ -189,6 +189,7 @@ router.get("/:id", async (req, res) => {
         snapshot: snapshotBlocks,
         snapshotClock,
         parents: parentsResult.rows,
+        permission,
       },
     });
   } catch (error) {
@@ -563,11 +564,11 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// Move page to new parent
+// Move page to new parent (and optionally to a different space)
 router.post("/:id/move", async (req, res) => {
   try {
     const { id } = req.params;
-    const { parentId, order } = req.body;
+    const { parentId, order, spaceId: targetSpaceId } = req.body;
 
     const page = await db.query.pages.findFirst({
       where: eq(pages.id, id),
@@ -580,6 +581,15 @@ router.post("/:id/move", async (req, res) => {
     const hasAccess = await canAccessPage(req.user!.id, id, "edit");
     if (!hasAccess) {
       return res.status(403).json({ success: false, error: "Access denied" });
+    }
+
+    // If moving to a different space, validate access to the target space
+    const isSpaceChange = targetSpaceId && targetSpaceId !== page.spaceId;
+    if (isSpaceChange) {
+      const hasTargetAccess = await canAccessSpace(req.user!.id, targetSpaceId, "edit");
+      if (!hasTargetAccess) {
+        return res.status(403).json({ success: false, error: "Access denied to target space" });
+      }
     }
 
     // Prevent moving a page to itself
@@ -612,29 +622,57 @@ router.post("/:id/move", async (req, res) => {
       }
     }
 
-    // Get max order in new parent
-    const maxOrderResult = await db
-      .select({ maxOrder: sql<number>`MAX(${pages.order})` })
-      .from(pages)
-      .where(parentId ? eq(pages.parentId, parentId) : isNull(pages.parentId));
+    // When moving to a different space, use the target space for order calculation
+    const effectiveSpaceId = isSpaceChange ? targetSpaceId : page.spaceId;
 
-    const maxOrder = maxOrderResult[0]?.maxOrder ?? -1;
-    const newOrder = typeof order === "number" ? order : maxOrder + 1;
+    // Get max order in new parent (scoped to the target space)
+    const maxOrderConditions = parentId
+      ? sql`"parentId" = ${parentId} AND "spaceId" = ${effectiveSpaceId}`
+      : sql`"parentId" IS NULL AND "spaceId" = ${effectiveSpaceId}`;
 
-    // Track old parent for event
+    const maxOrderResult = await db.execute(
+      sql`SELECT MAX("order") AS "maxOrder" FROM ${pages} WHERE ${maxOrderConditions}`
+    );
+
+    const maxOrder = maxOrderResult.rows[0]?.maxOrder ?? -1;
+    const newOrder = typeof order === "number" ? order : Number(maxOrder) + 1;
+
+    // Track old values for event
     const oldParentId = page.parentId;
+    const oldSpaceId = page.spaceId;
 
     // Update page
+    const updateSet: Record<string, any> = {
+      parentId: parentId || null,
+      order: newOrder,
+      updatedAt: new Date(),
+    };
+    if (isSpaceChange) {
+      updateSet.spaceId = targetSpaceId;
+    }
+
     await db
       .update(pages)
-      .set({
-        parentId: parentId || null,
-        order: newOrder,
-        updatedAt: new Date(),
-      })
+      .set(updateSet)
       .where(eq(pages.id, id));
 
-    // Reorder siblings
+    // If moving to a different space, also move all descendant pages
+    if (isSpaceChange) {
+      await db.execute(sql`
+        WITH RECURSIVE child_pages AS (
+          SELECT id FROM ${pages} WHERE "parentId" = ${id}
+          UNION ALL
+          SELECT p.id FROM ${pages} p
+          INNER JOIN child_pages cp ON cp.id = p."parentId"
+        )
+        UPDATE ${pages}
+        SET "spaceId" = ${targetSpaceId}, "updatedAt" = NOW()
+        FROM child_pages
+        WHERE ${pages.id} = child_pages.id
+      `);
+    }
+
+    // Reorder siblings in the new parent
     await db.execute(
       parentId
         ? sql`
@@ -643,7 +681,7 @@ router.post("/:id/move", async (req, res) => {
               id,
               row_number() OVER (ORDER BY "order", title) - 1 AS new_order
             FROM ${pages}
-            WHERE "parentId" = ${parentId}
+            WHERE "parentId" = ${parentId} AND "spaceId" = ${effectiveSpaceId}
           )
           UPDATE ${pages}
           SET "order" = new_order
@@ -656,7 +694,7 @@ router.post("/:id/move", async (req, res) => {
               id,
               row_number() OVER (ORDER BY "order", title) - 1 AS new_order
             FROM ${pages}
-            WHERE "parentId" IS NULL
+            WHERE "parentId" IS NULL AND "spaceId" = ${effectiveSpaceId}
           )
           UPDATE ${pages}
           SET "order" = new_order
@@ -665,13 +703,47 @@ router.post("/:id/move", async (req, res) => {
         `
     );
 
+    // Also reorder siblings in the old parent (if different from new parent)
+    if (oldParentId !== (parentId || null) || isSpaceChange) {
+      await db.execute(
+        oldParentId
+          ? sql`
+            WITH "OrderedUpdates" AS (
+              SELECT
+                id,
+                row_number() OVER (ORDER BY "order", title) - 1 AS new_order
+              FROM ${pages}
+              WHERE "parentId" = ${oldParentId} AND "spaceId" = ${oldSpaceId}
+            )
+            UPDATE ${pages}
+            SET "order" = new_order
+            FROM "OrderedUpdates"
+            WHERE ${pages.id} = "OrderedUpdates".id
+          `
+          : sql`
+            WITH "OrderedUpdates" AS (
+              SELECT
+                id,
+                row_number() OVER (ORDER BY "order", title) - 1 AS new_order
+              FROM ${pages}
+              WHERE "parentId" IS NULL AND "spaceId" = ${oldSpaceId}
+            )
+            UPDATE ${pages}
+            SET "order" = new_order
+            FROM "OrderedUpdates"
+            WHERE ${pages.id} = "OrderedUpdates".id
+          `
+      );
+    }
+
     // Publish page-moved event
     await publishPageEvent({
       type: "page-moved",
       pageId: id,
-      spaceId: page.spaceId,
+      spaceId: effectiveSpaceId,
       oldParentId: oldParentId,
       newParentId: parentId || null,
+      ...(isSpaceChange ? { oldSpaceId, newSpaceId: targetSpaceId } : {}),
     });
 
     res.json({ success: true, message: "Page moved" });

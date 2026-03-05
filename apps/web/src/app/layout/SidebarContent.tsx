@@ -1,4 +1,5 @@
 import { usePageEventsWithQueryClient } from "@/websocket/hooks/usePageEvents";
+import { useSpaceEventsWithQueryClient } from "@/websocket/hooks/useSpaceEvents";
 import {
   closestCenter,
   DndContext,
@@ -10,31 +11,21 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import { zodResolver } from "@hookform/resolvers/zod";
 import {
   CaretDoubleLeftIcon,
   FileTextIcon,
   PlusIcon,
-  SignOutIcon,
-  ShareNetworkIcon,
-  SlidersHorizontalIcon,
-  DotsThreeCircleIcon,
-  DotsThreeIcon,
+  SignOutIcon
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
+import { ChevronsUpDown, Ellipsis } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
-import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { Button } from "../../components/ui/button";
-import {
-  Form,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "../../components/ui/form";
 import {
   Dialog,
   DialogContent,
@@ -57,29 +48,36 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu";
+import {
+  Form,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "../../components/ui/form";
 import { Input } from "../../components/ui/input";
-import { Textarea } from "../../components/ui/textarea";
 import { ScrollArea } from "../../components/ui/scroll-area";
+import { Textarea } from "../../components/ui/textarea";
 import {
   useCreatePage,
   useMovePage,
   useReorderPage,
   type IListPage,
 } from "../api/pages.api";
+// import { useGetSharedByMe, useGetSharedWithMe } from "../api/shares.api";
 import { useCreateSpace, useLeaveSpace } from "../api/spaces.api";
+import { useConfirmation } from "../components/ConfirmationDialog";
 import { EditGroupDialog } from "../components/EditGroupDialog";
 import { InviteMembersDialog } from "../components/InviteMembersDialog";
-import { useConfirmation } from "../components/ConfirmationDialog";
-import { useGetSharedWithMe } from "../api/shares.api";
 import Icons from "../components/uiKit/Icons/Icons";
 import VisuallyHidden from "../components/uiKit/VisuallyHidden/VisuallyHidden";
 import { useAuth } from "../contexts/AuthContext";
 import { useSpaces } from "../contexts/SpaceContext";
 import useResponsive from "../hooks/useResponsive";
-import { PagesArea } from "./components/PagesArea";
 import { setRecentDragEnd } from "./components/PageLink";
+import { PagesArea } from "./components/PagesArea";
+// import pageLinkStyle from "./components/PagesLinks.module.css";
 import style from "./Layout.module.css";
-import { ChevronsUpDown, Ellipsis, Settings } from "lucide-react";
 
 // Mock t function
 const t = (s: string | TemplateStringsArray) => s.toString();
@@ -100,13 +98,17 @@ export function SidebarContent({
   const [showAddGroupDialog, setShowAddGroupDialog] = useState(false);
   const [groupSettingsId, setGroupSettingsId] = useState<string | null>(null);
   const [inviteMembersId, setInviteMembersId] = useState<string | null>(null);
+  // const [sharedCollapsed, setSharedCollapsed] = useState(false);
 
+  // const { id: currentPageId } = useParams<{ id: string }>();
   const { user, logout } = useAuth();
   const { personalSpace, groupSpaces } = useSpaces();
-  const { data: sharedWithMe } = useGetSharedWithMe();
+  // const { data: sharedWithMe } = useGetSharedWithMe();
+  // const { data: sharedByMe } = useGetSharedByMe();
 
-  // Subscribe to real-time page events from other users
+  // Subscribe to real-time page and space events from other users
   usePageEventsWithQueryClient();
+  useSpaceEventsWithQueryClient();
 
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: (newPage, variables) => {
@@ -184,7 +186,14 @@ export function SidebarContent({
     setActiveDragData(event.active.data.current as IListPage);
   }
 
-  function handleDragEnd(event: DragEndEvent) {
+  // Helper to get a space's display name from its ID
+  function getSpaceName(spaceId: string): string {
+    if (personalSpace?.id === spaceId) return "Private";
+    const group = groupSpaces.find((g) => g.id === spaceId);
+    return group?.name || "space";
+  }
+
+  async function handleDragEnd(event: DragEndEvent) {
     setActiveId(null);
     setActiveDragData(null);
     setRecentDragEnd();
@@ -194,6 +203,7 @@ export function SidebarContent({
     if (!over) return;
 
     const activeData = active.data.current as IListPage & {
+      spaceId?: string;
       parentsStack?: any;
     };
     const overData = over.data.current as any;
@@ -238,16 +248,37 @@ export function SidebarContent({
       }
     }
 
+    // Detect cross-space move
+    const sourceSpaceId = activeData.spaceId;
+    const targetSpaceId = overData?.spaceId;
+    const isCrossSpace = !!(sourceSpaceId && targetSpaceId && sourceSpaceId !== targetSpaceId);
+
+    // If moving between spaces, ask for confirmation
+    if (isCrossSpace) {
+      const targetName = getSpaceName(targetSpaceId);
+      const confirmed = await getConfirmation({
+        title: "Move page",
+        description: `Move this page to "${targetName}"? All sub-pages will also be moved.`,
+        confirmText: "Move",
+        cancelText: "Cancel",
+      });
+      if (!confirmed) return;
+    }
+
+    // Build the spaceId param only when cross-space
+    const spaceIdParam = isCrossSpace ? targetSpaceId : undefined;
+
     // Scenario 1: Drop on "before" zone
     if (overData?.type === "drop-zone" && overData.position === "before") {
       const targetParentId = overData.parentId;
       const targetOrder = overData.order;
 
-      if (activeData.parentId !== targetParentId) {
+      if (isCrossSpace || activeData.parentId !== targetParentId) {
         movePage({
           id: activeData.id,
           parentId: targetParentId,
           order: targetOrder,
+          spaceId: spaceIdParam,
         });
       } else {
         if (targetOrder !== activeData.order) {
@@ -263,11 +294,12 @@ export function SidebarContent({
       const targetParentId = overData.parentId;
       const targetOrder = overData.order;
 
-      if (activeData.parentId !== targetParentId) {
+      if (isCrossSpace || activeData.parentId !== targetParentId) {
         movePage({
           id: activeData.id,
           parentId: targetParentId,
           order: targetOrder,
+          spaceId: spaceIdParam,
         });
       } else {
         if (targetOrder !== activeData.order) {
@@ -286,6 +318,7 @@ export function SidebarContent({
         movePage({
           id: activeData.id,
           parentId: newParentId,
+          spaceId: spaceIdParam,
         });
       }
     }
@@ -297,10 +330,11 @@ export function SidebarContent({
         return;
       }
 
-      if (activeData.parentId !== targetParentId) {
+      if (isCrossSpace || activeData.parentId !== targetParentId) {
         movePage({
           id: activeData.id,
           parentId: targetParentId,
+          spaceId: spaceIdParam,
         });
       }
     }
@@ -460,36 +494,61 @@ export function SidebarContent({
               </>
             )}
 
-            {/* Shared with me */}
-            {sharedWithMe && sharedWithMe.length > 0 && (
+            {/* Shared - commented out */}
+            {/* {((sharedWithMe && sharedWithMe.length > 0) || (sharedByMe && sharedByMe.length > 0)) && (
               <>
                 <div className={style.appSidebarSection}>
-                  <div className={style.appSidebarSectionTitle}>
+                  <button
+                    className={style.appSidebarSectionTitle}
+                    onClick={() => setSharedCollapsed((c) => !c)}
+                    style={{ cursor: "pointer", background: "none", border: "none", padding: 0 }}
+                  >
                     <div className={style.appSidebarSectionIcon}>
-                      <ShareNetworkIcon size={20} />
+                      <Icons.ChevronRight
+                        width={16}
+                        height={16}
+                        className={clsx(style.appSidebarCollapseIcon, {
+                          [style.appSidebarCollapseIconOpen]: !sharedCollapsed,
+                        })}
+                      />
                     </div>
-                    {t`Shared with me`}
+                    {t`Shared`}
+                  </button>
+                </div>
+                {!sharedCollapsed && (
+                  <div className={style.appSidebarPages}>
+                    {sharedByMe?.map((share) => (
+                      <RouterLink
+                        key={`by-${share.shareId}`}
+                        to={`/page/${share.pageId}`}
+                        className={clsx(pageLinkStyle.link, {
+                          [pageLinkStyle.active]: currentPageId === share.pageId,
+                        })}
+                      >
+                        <div className={pageLinkStyle.linkTitle}>
+                          <span>{share.pageTitle || "Untitled"}</span>
+                        </div>
+                      </RouterLink>
+                    ))}
+                    {sharedWithMe?.filter(
+                      (s) => !sharedByMe?.some((b) => b.pageId === s.pageId)
+                    ).map((share) => (
+                      <RouterLink
+                        key={`with-${share.shareId}`}
+                        to={`/page/${share.pageId}`}
+                        className={clsx(pageLinkStyle.link, {
+                          [pageLinkStyle.active]: currentPageId === share.pageId,
+                        })}
+                      >
+                        <div className={pageLinkStyle.linkTitle}>
+                          <span>{share.pageTitle || "Untitled"}</span>
+                        </div>
+                      </RouterLink>
+                    ))}
                   </div>
-                </div>
-                <div className="px-2 space-y-0.5">
-                  {sharedWithMe.map((share) => (
-                    <RouterLink
-                      key={share.shareId}
-                      to={`/page/${share.pageId}`}
-                      className={clsx(
-                        style.appNavigationLink,
-                        "text-sm py-1.5 px-2"
-                      )}
-                    >
-                      <FileTextIcon size={16} className="shrink-0" />
-                      <span className="truncate">
-                        {share.pageTitle || "Untitled"}
-                      </span>
-                    </RouterLink>
-                  ))}
-                </div>
+                )}
               </>
-            )}
+            )} */}
           </ScrollArea>
           <DragOverlay>
             {activeId && activeDragData ? (

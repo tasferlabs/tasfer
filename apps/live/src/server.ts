@@ -30,7 +30,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-production";
 
 // API server URL for internal access checks
 const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:3000";
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "dev-internal-key";
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "ucW-2xcolFODh-pch4MCGILJPQ6mHZVhzIgPy2W93ftNQPBtTBstdUJNFLW5ixVj";
 
 
 // =============================================================================
@@ -106,6 +106,21 @@ type PageEvent =
   | { type: "page-reordered"; pageId: string; spaceId: string; parentId: string | null; order: number }
   | { type: "page-title-updated"; pageId: string; spaceId: string; title: string };
 
+/** Space/group lifecycle events (from Redis) */
+type SpaceEvent =
+  | { type: "space-created"; space: { id: string; name: string; type: string; ownerId: string } }
+  | { type: "space-updated"; spaceId: string; name: string; description?: string }
+  | { type: "space-deleted"; spaceId: string }
+  | { type: "member-added"; spaceId: string; member: { id: string; userId: string; role: string; userName: string | null; userEmail: string } }
+  | { type: "member-removed"; spaceId: string; memberId: string; userId: string }
+  | { type: "member-left"; spaceId: string; userId: string };
+
+// /** Share lifecycle events (from Redis) */
+// type ShareEvent =
+//   | { type: "share-created"; shareId: string; pageId: string; userId: string; permission: string; includeChildren: boolean; pageTitle: string | null; sharedByName: string | null }
+//   | { type: "share-updated"; shareId: string; pageId: string; userId: string; permission: string; includeChildren: boolean }
+//   | { type: "share-removed"; shareId: string; pageId: string; userId: string };
+
 /** Server message types (room messages + page events) */
 type ServerMessage =
   | { type: "hello"; clientVersion: number }
@@ -121,7 +136,9 @@ type ServerMessage =
   | { type: "error"; message: string }
   | { type: "update-available"; serverVersion: number; clientVersion: number; forceUpdate: boolean }
   | { type: "server-shutdown"; reason: string }
-  | PageEvent;
+  | PageEvent
+  | SpaceEvent;
+  // | ShareEvent;
 
 /** Connected client info */
 interface Client {
@@ -225,6 +242,8 @@ wss.on("listening", () => {
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const REDIS_CHANNEL = "cypher:page-events";
+const REDIS_SPACE_CHANNEL = "cypher:space-events";
+// const REDIS_SHARE_CHANNEL = "cypher:share-events";
 const REDIS_SYSTEM_CHANNEL = "cypher:system";
 
 /** System-wide messages between instances */
@@ -278,9 +297,9 @@ async function setupRedisSubscriber(): Promise<void> {
       console.log(`[Sync Server] Connected to Redis (instance: ${INSTANCE_ID.slice(0, 8)})`);
     });
 
-    // Subscribe to page events and system channels
-    await redisSubscriber.subscribe(REDIS_CHANNEL, REDIS_SYSTEM_CHANNEL);
-    console.log(`[Sync Server] Subscribed to Redis channels: ${REDIS_CHANNEL}, ${REDIS_SYSTEM_CHANNEL}`);
+    // Subscribe to page events, space events, and system channels
+    await redisSubscriber.subscribe(REDIS_CHANNEL, REDIS_SPACE_CHANNEL, REDIS_SYSTEM_CHANNEL);
+    console.log(`[Sync Server] Subscribed to Redis channels: ${REDIS_CHANNEL}, ${REDIS_SPACE_CHANNEL}, ${REDIS_SYSTEM_CHANNEL}`);
 
     // Handle incoming messages
     redisSubscriber.on("message", (channel, message) => {
@@ -295,6 +314,30 @@ async function setupRedisSubscriber(): Promise<void> {
         }
         return;
       }
+
+      // Handle space events
+      if (channel === REDIS_SPACE_CHANNEL) {
+        try {
+          const event = JSON.parse(message) as SpaceEvent;
+          console.log(`[Sync Server] Received space event: ${event.type}`);
+          broadcastSpaceEventToAll(event);
+        } catch (error) {
+          console.error("[Sync Server] Invalid Redis space event:", error);
+        }
+        return;
+      }
+
+      // // Handle share events
+      // if (channel === REDIS_SHARE_CHANNEL) {
+      //   try {
+      //     const event = JSON.parse(message) as ShareEvent;
+      //     console.log(`[Sync Server] Received share event: ${event.type}`);
+      //     broadcastShareEventToAll(event);
+      //   } catch (error) {
+      //     console.error("[Sync Server] Invalid Redis share event:", error);
+      //   }
+      //   return;
+      // }
 
       // Handle system messages
       if (channel === REDIS_SYSTEM_CHANNEL) {
@@ -466,6 +509,43 @@ function broadcastPageEventToAll(event: PageEvent): void {
 
   console.log(`[Sync Server] Broadcast ${event.type} to ${sentCount} clients`);
 }
+
+/**
+ * Broadcast a space event to all connected clients.
+ * Events are sent to all connected clients — the spaceId is included
+ * so clients can filter on their end.
+ */
+function broadcastSpaceEventToAll(event: SpaceEvent): void {
+  const message = JSON.stringify(event);
+  let sentCount = 0;
+
+  wss.clients.forEach((ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(message);
+      sentCount++;
+    }
+  });
+
+  console.log(`[Sync Server] Broadcast ${event.type} to ${sentCount} clients`);
+}
+
+// /**
+//  * Broadcast a share event to all connected clients.
+//  * Events are sent to all connected clients — clients filter by userId on their end.
+//  */
+// function broadcastShareEventToAll(event: ShareEvent): void {
+//   const message = JSON.stringify(event);
+//   let sentCount = 0;
+//
+//   wss.clients.forEach((ws) => {
+//     if (ws.readyState === WebSocket.OPEN) {
+//       ws.send(message);
+//       sentCount++;
+//     }
+//   });
+//
+//   console.log(`[Sync Server] Broadcast ${event.type} to ${sentCount} clients`);
+// }
 
 /**
  * Handle a system message received from Redis (from another instance).
@@ -974,8 +1054,10 @@ async function gracefulShutdown(signal: string): Promise<void> {
   // Close Redis connections
   try {
     if (redisSubscriber) {
-      // Unsubscribe from page events channel
+      // Unsubscribe from page events and space events channels
       await redisSubscriber.unsubscribe(REDIS_CHANNEL);
+      await redisSubscriber.unsubscribe(REDIS_SPACE_CHANNEL);
+      // await redisSubscriber.unsubscribe(REDIS_SHARE_CHANNEL);
 
       // Unsubscribe from all room channels
       for (const roomId of subscribedRooms) {

@@ -1,3 +1,4 @@
+import JSZip from "jszip";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
@@ -22,6 +23,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCreatePage, updatePage } from "../api/pages.api";
+import { uploadImage } from "../api/images.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import { extractTitleFromBlocks, getVisibleTextFromRuns } from "@/editor/sync/char-runs";
 import type { Block } from "@/deserializer/loadPage";
@@ -50,6 +52,21 @@ function isPageEmpty(blocks: Block[]): boolean {
   }
 
   return true;
+}
+
+/** Guess MIME type from file extension */
+function guessMimeType(fileName: string): string {
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  const map: Record<string, string> = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    gif: "image/gif",
+    webp: "image/webp",
+    svg: "image/svg+xml",
+    bmp: "image/bmp",
+  };
+  return map[ext || ""] || "application/octet-stream";
 }
 
 export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
@@ -115,14 +132,80 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
     async (file: File) => {
       setError(null);
 
-      if (!file.name.endsWith(".md") && !file.name.endsWith(".txt")) {
-        setError(t`Please select a markdown (.md) or text (.txt) file`);
+      const isZip = file.name.endsWith(".zip");
+      const isMd = file.name.endsWith(".md") || file.name.endsWith(".txt");
+
+      if (!isZip && !isMd) {
+        setError(t`Please select a .md, .txt, or .zip file`);
         return;
       }
 
       try {
-        const content = await file.text();
-        const tokens = tokenizePage(content);
+        let markdown: string;
+
+        if (isZip) {
+          // Process ZIP: extract images, upload them, rewrite URLs in markdown
+          const zipData = await file.arrayBuffer();
+          const zip = await JSZip.loadAsync(zipData);
+
+          // Find image files in images/ folder
+          const imageEntries: Array<{ fileName: string; entry: JSZip.JSZipObject }> = [];
+          zip.forEach((relativePath, entry) => {
+            if (!entry.dir && relativePath.startsWith("images/")) {
+              const fileName = relativePath.split("/").pop()!;
+              imageEntries.push({ fileName, entry });
+            }
+          });
+
+          // Upload each image and build fileName → /api/images/{newId} map
+          const imageUrlMap = new Map<string, string>();
+          for (const { fileName, entry } of imageEntries) {
+            try {
+              const blob = await entry.async("blob");
+              const mimeType = guessMimeType(fileName);
+              const imageFile = new File([blob], fileName, { type: mimeType });
+              const uploaded = await uploadImage(imageFile);
+              imageUrlMap.set(fileName, `/api/images/${uploaded.id}`);
+            } catch {
+              // Skip images that fail to upload
+            }
+          }
+
+          // Find the .md file in the ZIP (prefer shallowest level)
+          const mdFiles: string[] = [];
+          zip.forEach((relativePath, entry) => {
+            if (!entry.dir && relativePath.endsWith(".md")) {
+              mdFiles.push(relativePath);
+            }
+          });
+
+          if (mdFiles.length === 0) {
+            setError(t`No markdown file found in the ZIP`);
+            return;
+          }
+
+          // Prefer the shallowest .md file (root-level)
+          mdFiles.sort((a, b) => a.split("/").length - b.split("/").length);
+          const mdEntry = zip.file(mdFiles[0]);
+          if (!mdEntry) {
+            setError(t`No markdown file found in the ZIP`);
+            return;
+          }
+
+          const mdContent = await mdEntry.async("string");
+
+          // Rewrite ./images/{fileName} → /api/images/{newId}
+          markdown = mdContent.replace(
+            /\.\/images\/([^)"/?#\s]+)/g,
+            (_match: string, fileName: string) => {
+              return imageUrlMap.get(fileName) || `./images/${fileName}`;
+            },
+          );
+        } else {
+          markdown = await file.text();
+        }
+
+        const tokens = tokenizePage(markdown);
         const page = parsePage(tokens);
 
         // Check if current page has content
@@ -202,7 +285,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
     <input
       ref={fileInputRef}
       type="file"
-      accept=".md,.txt"
+      accept=".md,.txt,.zip"
       onChange={handleFileSelect}
       className="hidden"
     />
@@ -251,7 +334,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const fileSelectionContent = (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        {t`Import a markdown or text file.`}
+        {t`Import a markdown, text, or zip file.`}
       </p>
       {error && <p className="text-sm text-destructive">{error}</p>}
       <Button
@@ -262,7 +345,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         <FileUp className="h-5 w-5 text-muted-foreground" />
         <div className="flex flex-col items-start">
           <span className="font-medium">{t`Select file`}</span>
-          <span className="text-xs text-muted-foreground">.md, .txt</span>
+          <span className="text-xs text-muted-foreground">.md, .txt, .zip</span>
         </div>
       </Button>
     </div>
@@ -298,7 +381,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
           <DialogDescription>
             {showConfirmation
               ? t`This page already has content. Choose how to proceed.`
-              : t`Import a markdown or text file.`}
+              : t`Import a markdown, text, or zip file.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -358,7 +441,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
                 {t`or click to select`}
               </span>
               <span className="text-xs text-muted-foreground mt-2">
-                .md, .txt
+                .md, .txt, .zip
               </span>
             </div>
             {error && (

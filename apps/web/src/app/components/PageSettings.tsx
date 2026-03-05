@@ -28,7 +28,7 @@ import {
   History,
   MoreVertical,
   Pencil,
-  Share2,
+  // Share2,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -50,7 +50,7 @@ import useResponsive from "../hooks/useResponsive";
 import { useConfirmation } from "./ConfirmationDialog";
 import { ExportDialog } from "./ExportDialog";
 import { ImportDialog } from "./ImportDialog";
-import { ShareDialog } from "./ShareDialog";
+// import { ShareDialog } from "./ShareDialog";
 import { SnapshotRestore } from "./SnapshotRestore";
 
 export function PageSettings() {
@@ -58,8 +58,8 @@ export function PageSettings() {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
-  const [showShareDialog, setShowShareDialog] = useState(false);
-  const { id: pageId } = useParams<{ id: string }>();
+  // const [showShareDialog, setShowShareDialog] = useState(false);
+  // const { id: pageId } = useParams<{ id: string }>();
 
   return (
     <>
@@ -68,7 +68,7 @@ export function PageSettings() {
         setShowExportDialog={setShowExportDialog}
         setShowImportDialog={setShowImportDialog}
         setShowRenameDialog={setShowRenameDialog}
-        setShowShareDialog={setShowShareDialog}
+        setShowShareDialog={() => {}}
       />
       <SnapshotRestore
         open={showVersionHistory}
@@ -86,13 +86,13 @@ export function PageSettings() {
         open={showRenameDialog}
         onOpenChange={setShowRenameDialog}
       />
-      {pageId && (
+      {/* {pageId && (
         <ShareDialog
           pageId={pageId}
           open={showShareDialog}
           onOpenChange={setShowShareDialog}
         />
-      )}
+      )} */}
     </>
   );
 }
@@ -102,7 +102,7 @@ function PageSettingsImpl({
   setShowExportDialog,
   setShowImportDialog,
   setShowRenameDialog,
-  setShowShareDialog,
+  // setShowShareDialog,
 }: {
   setShowVersionHistory: (open: boolean) => void;
   setShowExportDialog: (open: boolean) => void;
@@ -118,7 +118,9 @@ function PageSettingsImpl({
     showWordCount,
     setShowWordCount,
     wordCount,
+    permission,
   } = usePageSettings();
+  const isViewOnly = permission === "view";
   const isMobile = useResponsive("(max-width: 768px)");
 
   // Page operations
@@ -234,51 +236,55 @@ function PageSettingsImpl({
         </div>
       </div>
 
-      <div className="py-4 border-t border-border px-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2 py-5"
-          onClick={() => {
-            setShowShareDialog(true);
-            setOpen(false);
-          }}
-        >
-          <Share2 className="h-4 w-4" />
-          {t`Share`}
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2 py-5"
-          onClick={() => setShowRenameDialog(true)}
-        >
-          <Pencil className="h-4 w-4" />
-          {t`Rename`}
-        </Button>
+      {!isViewOnly && (
+        <div className="py-4 border-t border-border px-2">
+          {/* <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2 py-5"
+            onClick={() => {
+              setShowShareDialog(true);
+              setOpen(false);
+            }}
+          >
+            <Share2 className="h-4 w-4" />
+            {t`Share`}
+          </Button> */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2 py-5"
+            onClick={() => setShowRenameDialog(true)}
+          >
+            <Pencil className="h-4 w-4" />
+            {t`Rename`}
+          </Button>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start gap-2 text-destructive hover:text-destructive px-2 py-5"
-          onClick={handleDelete}
-          disabled={isDeleting}
-        >
-          <Trash2 className="h-4 w-4" />
-          {t`Delete`}
-        </Button>
-      </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start gap-2 text-destructive hover:text-destructive px-2 py-5"
+            onClick={handleDelete}
+            disabled={isDeleting}
+          >
+            <Trash2 className="h-4 w-4" />
+            {t`Delete`}
+          </Button>
+        </div>
+      )}
 
       <div className="py-4 border-t border-border px-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2 py-5"
-          onClick={() => setShowImportDialog(true)}
-        >
-          <Upload className="h-4 w-4" />
-          {t`Import`}
-        </Button>
+        {!isViewOnly && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2 py-5"
+            onClick={() => setShowImportDialog(true)}
+          >
+            <Upload className="h-4 w-4" />
+            {t`Import`}
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"

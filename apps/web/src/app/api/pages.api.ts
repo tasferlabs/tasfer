@@ -30,6 +30,7 @@ export interface IPage {
   createdAt: string;
   updatedAt: string;
   parents?: { id: string; title: string }[];
+  permission?: "view" | "edit" | "owner";
 }
 
 // Fetch pages list
@@ -197,6 +198,7 @@ interface IMovePage {
   id: string;
   parentId: string | null;
   order?: number;
+  spaceId?: string;
 }
 
 export async function movePage(data: IMovePage): Promise<void> {
@@ -208,6 +210,7 @@ export async function movePage(data: IMovePage): Promise<void> {
     body: JSON.stringify({
       parentId: data.parentId,
       order: data.order,
+      spaceId: data.spaceId,
     }),
   });
 

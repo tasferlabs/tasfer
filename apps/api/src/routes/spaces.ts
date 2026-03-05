@@ -1,11 +1,65 @@
 import { Router } from "express";
 import { createId } from "@paralleldrive/cuid2";
+import { Redis } from "ioredis";
 import db from "../db/index.js";
 import { spaces, spaceMembers, users, pages, snapshots } from "../db/schema.js";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { getAccessibleSpaces, canAccessSpace } from "../lib/permissions.js";
 import { deleteFile } from "../handlers/files.js";
+
+// =============================================================================
+// Redis Publisher (Space Events)
+// =============================================================================
+
+const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+const REDIS_CHANNEL = "cypher:space-events";
+
+let redisPublisher: Redis | null = null;
+
+async function getRedisPublisher(): Promise<Redis | null> {
+  if (redisPublisher) return redisPublisher;
+
+  try {
+    redisPublisher = new Redis(REDIS_URL);
+    redisPublisher.on("error", (error: Error) => {
+      console.error("[Spaces API] Redis error:", error);
+    });
+    console.log("[Spaces API] Connected to Redis for space events");
+    return redisPublisher;
+  } catch (error) {
+    console.error("[Spaces API] Failed to connect to Redis:", error);
+    return null;
+  }
+}
+
+// Initialize Redis connection
+getRedisPublisher();
+
+/** Space event types */
+type SpaceEvent =
+  | { type: "space-created"; space: { id: string; name: string; type: string; ownerId: string } }
+  | { type: "space-updated"; spaceId: string; name: string; description?: string }
+  | { type: "space-deleted"; spaceId: string }
+  | { type: "member-added"; spaceId: string; member: { id: string; userId: string; role: string; userName: string | null; userEmail: string } }
+  | { type: "member-removed"; spaceId: string; memberId: string; userId: string }
+  | { type: "member-left"; spaceId: string; userId: string };
+
+/**
+ * Publish a space event to Redis.
+ * Fails silently if Redis is not available.
+ */
+async function publishSpaceEvent(event: SpaceEvent): Promise<void> {
+  try {
+    const redis = await getRedisPublisher();
+    if (redis) {
+      await redis.publish(REDIS_CHANNEL, JSON.stringify(event));
+      console.log(`[Spaces API] Published event: ${event.type}`);
+    }
+  } catch (error) {
+    console.error("[Spaces API] Failed to publish space event:", error);
+  }
+}
 
 const router = Router();
 
@@ -56,6 +110,17 @@ router.post("/", async (req, res) => {
       role: "owner",
     });
 
+    // Publish space-created event
+    await publishSpaceEvent({
+      type: "space-created",
+      space: {
+        id: newSpace.id,
+        name: newSpace.name,
+        type: newSpace.type,
+        ownerId: newSpace.ownerId,
+      },
+    });
+
     res.json({ success: true, data: newSpace });
   } catch (error) {
     console.error("Create space error:", error);
@@ -98,6 +163,14 @@ router.put("/:id", async (req, res) => {
       .set(updateData)
       .where(eq(spaces.id, id))
       .returning();
+
+    // Publish space-updated event
+    await publishSpaceEvent({
+      type: "space-updated",
+      spaceId: id,
+      name: updated.name,
+      description: updated.description ?? undefined,
+    });
 
     res.json({ success: true, data: updated });
   } catch (error) {
@@ -158,6 +231,12 @@ router.delete("/:id", async (req, res) => {
 
     // Delete space
     await db.delete(spaces).where(eq(spaces.id, id));
+
+    // Publish space-deleted event
+    await publishSpaceEvent({
+      type: "space-deleted",
+      spaceId: id,
+    });
 
     res.json({ success: true, message: "Space deleted" });
   } catch (error) {
@@ -249,6 +328,19 @@ router.post("/:id/members", async (req, res) => {
       })
       .returning();
 
+    // Publish member-added event
+    await publishSpaceEvent({
+      type: "member-added",
+      spaceId: id,
+      member: {
+        id: newMember.id,
+        userId: user.id,
+        role: newMember.role,
+        userName: user.name,
+        userEmail: user.email,
+      },
+    });
+
     res.json({
       success: true,
       data: {
@@ -298,6 +390,14 @@ router.delete("/:id/members/:memberId", async (req, res) => {
 
     await db.delete(spaceMembers).where(eq(spaceMembers.id, memberId));
 
+    // Publish member-removed event
+    await publishSpaceEvent({
+      type: "member-removed",
+      spaceId: id,
+      memberId,
+      userId: member.userId,
+    });
+
     res.json({ success: true, message: "Member removed" });
   } catch (error) {
     console.error("Remove member error:", error);
@@ -339,6 +439,13 @@ router.post("/:id/leave", async (req, res) => {
     }
 
     await db.delete(spaceMembers).where(eq(spaceMembers.id, membership.id));
+
+    // Publish member-left event
+    await publishSpaceEvent({
+      type: "member-left",
+      spaceId: id,
+      userId: req.user!.id,
+    });
 
     res.json({ success: true, message: "Left space" });
   } catch (error) {

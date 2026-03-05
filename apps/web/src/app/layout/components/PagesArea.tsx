@@ -45,6 +45,7 @@ export function PagesArea({
       parentId,
       accepts: ["pageLink"],
       parentsStack,
+      spaceId,
     },
   });
 

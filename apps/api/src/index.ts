@@ -5,14 +5,15 @@ import authRouter from "./routes/auth.js";
 import pagesRouter from "./routes/pages.js";
 import imagesRouter from "./routes/images.js";
 import spacesRouter from "./routes/spaces.js";
-import sharesRouter from "./routes/shares.js";
+// import sharesRouter from "./routes/shares.js";
 import versionRouter from "./routes/version.js";
 import { requireAuth } from "./middleware/auth.js";
+import { timingSafeEqual } from "crypto";
 import { canAccessPage } from "./lib/permissions.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "dev-internal-key";
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "ucW-2xcolFODh-pch4MCGILJPQ6mHZVhzIgPy2W93ftNQPBtTBstdUJNFLW5ixVj";
 
 // Middleware
 app.use(cors({
@@ -31,16 +32,14 @@ app.get("/health", (req, res) => {
 // Public auth routes
 app.use("/api/auth", authRouter);
 
-// Protected routes
-app.use("/api/pages", requireAuth, pagesRouter);
-app.use("/api/images", requireAuth, imagesRouter);
-app.use("/api/spaces", requireAuth, spacesRouter);
-app.use("/api/version", versionRouter);
-
-// Internal endpoint for live server to check page access
+// Internal endpoint for live server to check page access (before requireAuth routes)
 app.get("/api/internal/check-access", (req, res) => {
   const apiKey = req.headers["x-internal-key"];
-  if (apiKey !== INTERNAL_API_KEY) {
+  if (
+    typeof apiKey !== "string" ||
+    apiKey.length !== INTERNAL_API_KEY.length ||
+    !timingSafeEqual(Buffer.from(apiKey), Buffer.from(INTERNAL_API_KEY))
+  ) {
     res.status(401).json({ success: false, error: "Unauthorized" });
     return;
   }
@@ -60,6 +59,13 @@ app.get("/api/internal/check-access", (req, res) => {
       res.status(500).json({ success: false, error: "Internal server error" });
     });
 });
+
+// Protected routes
+app.use("/api/pages", requireAuth, pagesRouter);
+app.use("/api/images", requireAuth, imagesRouter);
+app.use("/api/spaces", requireAuth, spacesRouter);
+// app.use("/api", requireAuth, sharesRouter);
+app.use("/api/version", versionRouter);
 
 // 404 handler
 app.use((req, res) => {

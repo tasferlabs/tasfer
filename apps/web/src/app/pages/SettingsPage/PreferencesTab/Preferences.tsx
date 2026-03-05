@@ -1,8 +1,12 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./Preferences.module.css";
 import { useTheme, type Theme } from "@/app/hooks/useTheme";
 import { useConfirmation } from "@/app/components/ConfirmationDialog";
+import { ExportAllDialog } from "@/app/components/ExportAllDialog";
+import { ImportAllDialog } from "@/app/components/ImportAllDialog";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -15,6 +19,8 @@ export function Preferences() {
   const { getConfirmation } = useConfirmation();
   const { t, i18n } = useTranslation("SettingsPage");
   const theme = useTheme();
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   function onChangeTheme(themeValue: Theme) {
     theme.setTheme(themeValue);
@@ -67,6 +73,36 @@ export function Preferences() {
           </SelectContent>
         </Select>
       </div>
+
+      <div className={styles.row}>
+        <div className={styles.column}>
+          <p className={cn("text-smst", styles.title)}>{t`Export`}</p>
+          <p className="text-sm">{t`Export all pages as a ZIP file`}</p>
+        </div>
+        <Button variant="outline" onClick={() => setShowExportDialog(true)}>
+          {t`Export all`}
+        </Button>
+      </div>
+
+      <div className={styles.row}>
+        <div className={styles.column}>
+          <p className={cn("text-smst", styles.title)}>{t`Import`}</p>
+          <p className="text-sm">{t`Import pages from a ZIP file or markdown files`}</p>
+        </div>
+        <Button variant="outline" onClick={() => setShowImportDialog(true)}>
+          {t`Import`}
+        </Button>
+      </div>
+
+      <ExportAllDialog
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+      />
+
+      <ImportAllDialog
+        open={showImportDialog}
+        onOpenChange={setShowImportDialog}
+      />
 
       <p className="text-xs text-muted-foreground mt-auto pt-8">
         {t`Version`}: {__BUILD_TIMESTAMP__}

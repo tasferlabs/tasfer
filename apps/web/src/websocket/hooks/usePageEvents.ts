@@ -99,10 +99,13 @@ export function usePageEventsWithQueryClient(): void {
     onPageDeleted: (pageId) => {
       queryClient.invalidateQueries({ queryKey: ["pages"] });
       queryClient.invalidateQueries({ queryKey: ["page", pageId] });
+      queryClient.invalidateQueries({ queryKey: ["shared-with-me"] });
+      queryClient.invalidateQueries({ queryKey: ["shared-by-me"] });
     },
 
     onPageMoved: () => {
       queryClient.invalidateQueries({ queryKey: ["pages"] });
+      queryClient.invalidateQueries({ queryKey: ["shared-with-me"] });
     },
 
     onPageReordered: () => {
@@ -136,6 +139,7 @@ export function usePageEventsWithQueryClient(): void {
 
       // Also invalidate page lists in case title affects sorting
       queryClient.invalidateQueries({ queryKey: ["pages"] });
+      queryClient.invalidateQueries({ queryKey: ["shared-with-me"] });
     },
   });
 }

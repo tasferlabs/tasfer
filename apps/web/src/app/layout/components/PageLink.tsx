@@ -194,6 +194,7 @@ export function PageLink({
     data: {
       type: "pageLink",
       ...data,
+      spaceId,
       parentsStack,
     },
   });
@@ -304,6 +305,7 @@ export function PageLink({
         position="before"
         order={data.order}
         parentsStack={parentsStack}
+        spaceId={spaceId}
       />
 
       {/* Drop zone INSIDE this item - for nesting */}
@@ -313,6 +315,7 @@ export function PageLink({
         targetPageId={data.id}
         position="inside"
         parentsStack={[...parentsStack, { id: data.id, order: data.order }]}
+        spaceId={spaceId}
       />
 
       <div
@@ -435,6 +438,7 @@ export function PageLink({
         position="after"
         order={data.order + 1}
         parentsStack={parentsStack}
+        spaceId={spaceId}
       />
 
       {isExpanded && (data.hasChildren || isCoarse) ? (

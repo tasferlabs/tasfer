@@ -3,6 +3,7 @@ import { useGetPages } from "../../api/pages.api";
 import { PageLink } from "./PageLink";
 import style from "./PagesLinks.module.css";
 import Icons from "@/app/components/uiKit/Icons/Icons";
+import { clsx } from "clsx";
 
 // Mock t function
 const t = (s: string | TemplateStringsArray) => s.toString();
@@ -61,7 +62,7 @@ export default function PagesLinks({
       )}
 
       {pages?.length === 0 && !parentId && (
-        <div className={style.allEmpty}>
+        <div className={clsx(style.allEmpty, "ps-2")} >
           <p>{t`No pages here yet!`}</p>
         </div>
       )}

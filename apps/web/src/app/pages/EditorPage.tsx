@@ -87,8 +87,11 @@ export default function EditorPage() {
     setPageId,
     setCurrentBlocks,
     setOnRestoreSnapshot,
+    setPermission,
   } = usePageSettings();
   const { mutateAsync: updatePage } = useUpdatePage();
+  // Permission level from the API - determines if editor is readonly
+  const [permission, setLocalPermission] = useState<"view" | "edit" | "owner">("owner");
   // State for loading page snapshot once on mount
   const [pageSnapshot, setPageSnapshot] = useState<Block[] | null>(null);
   // Snapshot clock - used for delta sync
@@ -147,10 +150,13 @@ export default function EditorPage() {
     }
     // Reset persisted state when ID changes (user navigated)
     setPersistedState(null);
+    // Reset permission to owner (will be updated after page load)
+    setLocalPermission("owner");
+    setPermission("owner");
     return () => {
       setPageId(null);
     };
-  }, [id, setLastPageId, setPageId]);
+  }, [id, setLastPageId, setPageId, setPermission]);
 
   // Listen for page deletion events from other users
   usePageEvents({
@@ -225,6 +231,10 @@ export default function EditorPage() {
           // Track auto-title state
           setAutoTitle(page.autoTitle);
           setCurrentTitle(page.title || "");
+          // Track permission
+          const perm = page.permission || "owner";
+          setLocalPermission(perm);
+          setPermission(perm);
           setIsLoading(false);
           // Update initial word count from blocks
           setWordCount(countWordsFromBlocks(snapshot));
@@ -348,13 +358,14 @@ export default function EditorPage() {
     [id, debouncedSave],
   );
 
-  // Expose restore callback to context
+  // Expose restore callback to context (not in readonly mode)
   useEffect(() => {
+    if (permission === "view") return;
     setOnRestoreSnapshot(handleRestoreSnapshot);
     return () => {
       setOnRestoreSnapshot(null);
     };
-  }, [handleRestoreSnapshot, setOnRestoreSnapshot]);
+  }, [handleRestoreSnapshot, setOnRestoreSnapshot, permission]);
 
   // Warn user before leaving page if there are unsaved changes
   useEffect(() => {
@@ -425,6 +436,8 @@ export default function EditorPage() {
     return <EditorNotFoundState />;
   }
 
+  const readonly = permission === "view";
+
   // Pass snapshot blocks to the editor
   // Snapshot is loaded once on mount, editor manages state from there
   return (
@@ -432,20 +445,21 @@ export default function EditorPage() {
       <MountedEditor
         snapshot={pageSnapshot}
         className="w-full h-full"
-        onContentChange={handleContentChange}
+        onContentChange={readonly ? undefined : handleContentChange}
         onContentUpdate={handleContentUpdate}
-        autoFocus={true}
+        autoFocus={!readonly}
         pageId={id}
         onSyncStateChange={setSyncState}
         snapshotClock={snapshotClock}
-        onSnapshotClockUpdate={setSnapshotClock}
+        onSnapshotClockUpdate={readonly ? undefined : setSnapshotClock}
         onAwarenessChange={handleAwarenessChange}
-        onRestoreReady={(restoreFn) => {
+        onRestoreReady={readonly ? undefined : (restoreFn) => {
           restoreFnRef.current = restoreFn;
         }}
-        onConfirmSaveReady={(confirmFn) => {
+        onConfirmSaveReady={readonly ? undefined : (confirmFn) => {
           confirmSaveFnRef.current = confirmFn;
         }}
+        readonly={readonly}
       />
       <WordCountOverlay />
     </>

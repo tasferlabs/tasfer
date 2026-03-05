@@ -1,6 +1,6 @@
 import db from "../db/index.js";
-import { pages, spaces, spaceMembers, pageShares } from "../db/schema.js";
-import { eq, and, or } from "drizzle-orm";
+import { pages, spaces, spaceMembers /*, pageShares */ } from "../db/schema.js";
+import { eq, and } from "drizzle-orm";
 
 export type AccessLevel = "view" | "edit" | "owner";
 
@@ -53,42 +53,106 @@ export async function canAccessPage(
     }
   }
 
-  // 3. Check direct page share
-  const directShare = await db.query.pageShares.findFirst({
-    where: and(
-      eq(pageShares.pageId, pageId),
-      eq(pageShares.userId, userId)
-    ),
-  });
-  if (directShare) {
-    return meetsLevel(directShare.permission as AccessLevel, requiredLevel);
-  }
+  // // 3. Check direct page share
+  // const directShare = await db.query.pageShares.findFirst({
+  //   where: and(
+  //     eq(pageShares.pageId, pageId),
+  //     eq(pageShares.userId, userId)
+  //   ),
+  // });
+  // if (directShare) {
+  //   return meetsLevel(directShare.permission as AccessLevel, requiredLevel);
+  // }
 
-  // 4. Walk up parent chain checking for includeChildren shares
-  let currentParentId = page.parentId;
-  const visited = new Set<string>();
+  // // 4. Walk up parent chain checking for includeChildren shares
+  // let currentParentId = page.parentId;
+  // const visited = new Set<string>();
 
-  while (currentParentId && !visited.has(currentParentId)) {
-    visited.add(currentParentId);
+  // while (currentParentId && !visited.has(currentParentId)) {
+  //   visited.add(currentParentId);
 
-    const ancestorShare = await db.query.pageShares.findFirst({
-      where: and(
-        eq(pageShares.pageId, currentParentId),
-        eq(pageShares.userId, userId),
-        eq(pageShares.includeChildren, true)
-      ),
-    });
-    if (ancestorShare) {
-      return meetsLevel(ancestorShare.permission as AccessLevel, requiredLevel);
-    }
+  //   const ancestorShare = await db.query.pageShares.findFirst({
+  //     where: and(
+  //       eq(pageShares.pageId, currentParentId),
+  //       eq(pageShares.userId, userId),
+  //       eq(pageShares.includeChildren, true)
+  //     ),
+  //   });
+  //   if (ancestorShare) {
+  //     return meetsLevel(ancestorShare.permission as AccessLevel, requiredLevel);
+  //   }
 
-    const parentPage = await db.query.pages.findFirst({
-      where: eq(pages.id, currentParentId),
-    });
-    currentParentId = parentPage?.parentId ?? null;
-  }
+  //   const parentPage = await db.query.pages.findFirst({
+  //     where: eq(pages.id, currentParentId),
+  //   });
+  //   currentParentId = parentPage?.parentId ?? null;
+  // }
 
   return false;
+}
+
+/**
+ * Get the highest access level a user has for a page.
+ * Returns null if no access. Resolution order same as canAccessPage().
+ */
+export async function getPageAccessLevel(
+  userId: string,
+  pageId: string
+): Promise<AccessLevel | null> {
+  const page = await db.query.pages.findFirst({
+    where: eq(pages.id, pageId),
+  });
+  if (!page) return null;
+
+  // 1. Space owner → full access
+  const space = await db.query.spaces.findFirst({
+    where: eq(spaces.id, page.spaceId),
+  });
+  if (space && space.ownerId === userId) return "owner";
+
+  // 2. Space member → editor access
+  if (space) {
+    const member = await db.query.spaceMembers.findFirst({
+      where: and(
+        eq(spaceMembers.spaceId, space.id),
+        eq(spaceMembers.userId, userId)
+      ),
+    });
+    if (member) return "edit";
+  }
+
+  // // 3. Direct page share
+  // const directShare = await db.query.pageShares.findFirst({
+  //   where: and(
+  //     eq(pageShares.pageId, pageId),
+  //     eq(pageShares.userId, userId)
+  //   ),
+  // });
+  // if (directShare) return directShare.permission as AccessLevel;
+
+  // // 4. Walk up parent chain checking for includeChildren shares
+  // let currentParentId = page.parentId;
+  // const visited = new Set<string>();
+
+  // while (currentParentId && !visited.has(currentParentId)) {
+  //   visited.add(currentParentId);
+
+  //   const ancestorShare = await db.query.pageShares.findFirst({
+  //     where: and(
+  //       eq(pageShares.pageId, currentParentId),
+  //       eq(pageShares.userId, userId),
+  //       eq(pageShares.includeChildren, true)
+  //     ),
+  //   });
+  //   if (ancestorShare) return ancestorShare.permission as AccessLevel;
+
+  //   const parentPage = await db.query.pages.findFirst({
+  //     where: eq(pages.id, currentParentId),
+  //   });
+  //   currentParentId = parentPage?.parentId ?? null;
+  // }
+
+  return null;
 }
 
 /**
@@ -128,27 +192,56 @@ export async function getAccessibleSpaces(userId: string) {
   };
 }
 
-/**
- * Get pages shared directly with a user.
- */
-export async function getSharedPages(userId: string) {
-  const shares = await db
-    .select({
-      shareId: pageShares.id,
-      pageId: pageShares.pageId,
-      permission: pageShares.permission,
-      includeChildren: pageShares.includeChildren,
-      createdAt: pageShares.createdAt,
-      pageTitle: pages.title,
-      pageParentId: pages.parentId,
-      pageSpaceId: pages.spaceId,
-    })
-    .from(pageShares)
-    .innerJoin(pages, eq(pageShares.pageId, pages.id))
-    .where(eq(pageShares.userId, userId));
-
-  return shares;
-}
+// /**
+//  * Get pages shared directly with a user.
+//  */
+// export async function getSharedPages(userId: string) {
+//   const shares = await db
+//     .select({
+//       shareId: pageShares.id,
+//       pageId: pageShares.pageId,
+//       permission: pageShares.permission,
+//       includeChildren: pageShares.includeChildren,
+//       createdAt: pageShares.createdAt,
+//       pageTitle: pages.title,
+//       pageParentId: pages.parentId,
+//       pageSpaceId: pages.spaceId,
+//     })
+//     .from(pageShares)
+//     .innerJoin(pages, eq(pageShares.pageId, pages.id))
+//     .where(eq(pageShares.userId, userId));
+//
+//   return shares;
+// }
+//
+// /**
+//  * Get unique pages that a user has shared with others.
+//  * Deduplicates by pageId since a page can be shared with multiple users.
+//  */
+// export async function getSharedByMe(userId: string) {
+//   const shares = await db
+//     .select({
+//       shareId: pageShares.id,
+//       pageId: pageShares.pageId,
+//       permission: pageShares.permission,
+//       includeChildren: pageShares.includeChildren,
+//       createdAt: pageShares.createdAt,
+//       pageTitle: pages.title,
+//       pageParentId: pages.parentId,
+//       pageSpaceId: pages.spaceId,
+//     })
+//     .from(pageShares)
+//     .innerJoin(pages, eq(pageShares.pageId, pages.id))
+//     .where(eq(pageShares.sharedBy, userId));
+//
+//   // Deduplicate by pageId (a page may be shared with multiple users)
+//   const seen = new Set<string>();
+//   return shares.filter((s) => {
+//     if (seen.has(s.pageId)) return false;
+//     seen.add(s.pageId);
+//     return true;
+//   });
+// }
 
 /**
  * Check if user has access to a space (owner or member).

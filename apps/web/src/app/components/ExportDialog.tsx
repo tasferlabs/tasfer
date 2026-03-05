@@ -1,3 +1,5 @@
+import { useState } from "react";
+import JSZip from "jszip";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
@@ -12,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FileText, FileCode } from "lucide-react";
+import { FileText, FileCode, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
@@ -21,10 +23,13 @@ import {
   getVisibleTextFromRuns,
   extractTitleFromBlocks,
 } from "@/editor/sync/char-runs";
-import { isTextualBlock, isListBlock, type Block } from "@/deserializer/loadPage";
+import { isTextualBlock, isListBlock, type Block, type Image } from "@/deserializer/loadPage";
+import { authFetch } from "../api/client";
+import { imageCache } from "@/editor/renderer";
 
 function serializeToText(blocks: Block[]): string {
   return blocks
+    .filter((block) => !block.deleted)
     .map((block) => {
       if (block.type === "line") return "---";
       if (block.type === "image") return block.alt || "";
@@ -41,6 +46,53 @@ function serializeToText(blocks: Block[]): string {
     .join("\n");
 }
 
+/** Guess file extension from mime type */
+function extFromMime(mime: string): string {
+  const map: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/svg+xml": "svg",
+    "image/bmp": "bmp",
+  };
+  return map[mime] || "bin";
+}
+
+/** Convert a cached HTMLImageElement to a Blob by drawing to an offscreen canvas */
+function imageElementToBlob(img: HTMLImageElement): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) { resolve(null); return; }
+    ctx.drawImage(img, 0, 0);
+    canvas.toBlob((blob) => resolve(blob), "image/png");
+  });
+}
+
+/** Fetch an image blob, falling back to the renderer's imageCache for revoked blob URLs */
+async function fetchImageBlob(url: string): Promise<Blob | null> {
+  // Try fetch first (works for /api/ URLs and live blob URLs)
+  try {
+    const response = url.startsWith("/api/")
+      ? await authFetch(url)
+      : await fetch(url);
+    if (response.ok) return response.blob();
+  } catch {
+    // fetch failed — fall through to imageCache
+  }
+
+  // Fallback: extract from the renderer's in-memory image cache (handles revoked blob URLs)
+  const cached = imageCache.get(url);
+  if (cached && cached.complete && cached.naturalWidth > 0) {
+    return imageElementToBlob(cached);
+  }
+
+  return null;
+}
+
 interface ExportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -50,16 +102,16 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   const { t } = useTranslation();
   const { currentBlocks } = usePageSettings();
   const isMobile = useResponsive("(max-width: 768px)");
+  const [isExporting, setIsExporting] = useState(false);
 
-  const getFileName = (extension: string) => {
+  const getBaseName = () => {
     const title = extractTitleFromBlocks(currentBlocks) || "document";
-    // Sanitize filename: remove invalid characters and trim
     const sanitized = title
       .replace(/[<>:"/\\|?*]/g, "")
       .replace(/\s+/g, " ")
       .trim()
       .slice(0, 100);
-    return `${sanitized || "document"}.${extension}`;
+    return sanitized || "document";
   };
 
   const downloadFile = (content: string, extension: string, mimeType: string) => {
@@ -67,7 +119,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = getFileName(extension);
+    a.download = `${getBaseName()}.${extension}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -80,9 +132,66 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     downloadFile(content, "txt", "text/plain");
   };
 
-  const handleExportMarkdown = () => {
-    const content = serializeToMarkdown(currentBlocks);
-    downloadFile(content, "md", "text/markdown");
+  const handleExportMarkdown = async () => {
+    const markdown = serializeToMarkdown(currentBlocks);
+
+    // Collect all image URLs from image blocks (handles blob:, /api/images/, etc.)
+    const imageUrls = new Set<string>();
+    for (const block of currentBlocks) {
+      if (block.type === "image" && (block as Image).url) {
+        imageUrls.add((block as Image).url);
+      }
+    }
+
+    // No images → plain .md download (unchanged behavior)
+    if (imageUrls.size === 0) {
+      downloadFile(markdown, "md", "text/markdown");
+      return;
+    }
+
+    // Has images → create ZIP
+    setIsExporting(true);
+    try {
+      const zip = new JSZip();
+      const baseName = getBaseName();
+      // Map: original URL → ZIP filename (e.g. "image_0.png")
+      const urlToFileName = new Map<string, string>();
+      let imgIndex = 0;
+
+      for (const url of imageUrls) {
+        const blob = await fetchImageBlob(url);
+        if (blob) {
+          const ext = extFromMime(blob.type);
+          const fileName = `image_${imgIndex}.${ext}`;
+          urlToFileName.set(url, fileName);
+          zip.file(`images/${fileName}`, blob);
+          imgIndex++;
+        }
+      }
+
+      // Rewrite image URLs in markdown — replace each original URL with relative path
+      let rewritten = markdown;
+      for (const [originalUrl, fileName] of urlToFileName) {
+        // Escape special regex chars in the URL
+        const escaped = originalUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        rewritten = rewritten.replace(new RegExp(escaped, "g"), `./images/${fileName}`);
+      }
+
+      zip.file(`${baseName}.md`, rewritten);
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${baseName}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      onOpenChange(false);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   if (isMobile) {
@@ -109,10 +218,15 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
                 variant="outline"
                 className="w-full justify-start gap-3 h-auto py-3"
                 onClick={handleExportMarkdown}
+                disabled={isExporting}
               >
-                <FileCode className="h-5 w-5 text-muted-foreground" />
+                {isExporting ? (
+                  <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
+                ) : (
+                  <FileCode className="h-5 w-5 text-muted-foreground" />
+                )}
                 <div className="flex flex-col items-start">
-                  <span className="font-medium">{t`Markdown`}</span>
+                  <span className="font-medium">{isExporting ? t`Exporting...` : t`Markdown`}</span>
                   <span className="text-xs text-muted-foreground">.md</span>
                 </div>
               </Button>
@@ -143,10 +257,15 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
           </button>
           <button
             onClick={handleExportMarkdown}
-            className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer"
+            disabled={isExporting}
+            className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <FileCode className="h-8 w-8 mb-2 text-muted-foreground" />
-            <span className="font-medium">{t`Markdown`}</span>
+            {isExporting ? (
+              <Loader2 className="h-8 w-8 mb-2 text-muted-foreground animate-spin" />
+            ) : (
+              <FileCode className="h-8 w-8 mb-2 text-muted-foreground" />
+            )}
+            <span className="font-medium">{isExporting ? t`Exporting...` : t`Markdown`}</span>
             <span className="text-xs text-muted-foreground">.md</span>
           </button>
         </div>
