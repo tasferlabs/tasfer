@@ -6,6 +6,7 @@ import { writeFile, readFile, deleteFile } from "../handlers/files.js";
 import db from "../db/index.js";
 import { images } from "../db/schema.js";
 import { eq } from "drizzle-orm";
+import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -26,8 +27,8 @@ const upload = multer({
   },
 });
 
-// Upload image
-router.post("/upload", upload.single("image"), async (req: Request, res) => {
+// Upload image (requires auth)
+router.post("/upload", requireAuth, upload.single("image"), async (req: Request, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: "No file uploaded" });
@@ -134,8 +135,8 @@ router.get("/:id/info", async (req, res) => {
   }
 });
 
-// Delete image
-router.delete("/:id", async (req, res) => {
+// Delete image (requires auth)
+router.delete("/:id", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
 

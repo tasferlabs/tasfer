@@ -145,7 +145,7 @@ export function getImageBlockAtPoint(
           }
 
           return {
-            blockIndex: visibleIdx,
+            blockIndex: visibleBlock.originalIndex,
             x: finalX,
             y: finalY,
             width: finalWidth,

@@ -62,7 +62,7 @@ app.get("/api/internal/check-access", (req, res) => {
 
 // Protected routes
 app.use("/api/pages", requireAuth, pagesRouter);
-app.use("/api/images", requireAuth, imagesRouter);
+app.use("/api/images", imagesRouter); // Auth applied per-route inside router
 app.use("/api/spaces", requireAuth, spacesRouter);
 // app.use("/api", requireAuth, sharesRouter);
 app.use("/api/version", versionRouter);

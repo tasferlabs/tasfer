@@ -2531,12 +2531,16 @@ export function pasteFromClipboardEvent(
       },
     ]);
     if (result) {
-      // Find the index of the newly inserted image block (cursor is after it)
-      const cursor = result.state.document.cursor;
-      const pastedImageBlockIndex = cursor
-        ? cursor.position.blockIndex - 1
-        : undefined;
-      return { ...result, pastedImageBlockIndex };
+      // Find the image block by its blob URL (more reliable than cursor math,
+      // since the cursor gets clamped when the image is inserted at the end)
+      const pastedImageBlockIndex = result.state.document.page.blocks.findIndex(
+        (b) => b.type === "image" && b.url === blobUrl
+      );
+      return {
+        ...result,
+        pastedImageBlockIndex:
+          pastedImageBlockIndex >= 0 ? pastedImageBlockIndex : undefined,
+      };
     }
     return null;
   }
