@@ -19,9 +19,7 @@ export function TopActionBar({
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   const { id } = useParams<{ id: string }>();
-  const { data: page, isLoading, isError } = useGetPage(id);
   const isMobile = useResponsive("(max-width: 768px)");
-  const { isSaving, activeUsers, permission } = usePageSettings();
 
   return (
     <div className={style.appHeader}>
@@ -37,6 +35,17 @@ export function TopActionBar({
         </button>
       )}
 
+      {id && <PageActionBar id={id} />}
+    </div>
+  );
+}
+
+function PageActionBar({ id }: { id: string }) {
+  const { data: page, isLoading, isError } = useGetPage(id);
+  const { isSaving, activeUsers, permission } = usePageSettings();
+
+  return (
+    <>
       <div className={style.appHeaderTitles}>
         {page?.parents && page.parents.length > 0 ? (
           page.parents.map((parent, index) => (
@@ -61,8 +70,8 @@ export function TopActionBar({
       <div className="ml-auto flex items-center gap-2">
         <ActiveUsersAvatars users={activeUsers} />
         {permission !== "view" && <SavingIndicator isSaving={isSaving} />}
-        {id && !isLoading && !isError && <PageSettings />}
+        {!isLoading && !isError && <PageSettings />}
       </div>
-    </div>
+    </>
   );
 }

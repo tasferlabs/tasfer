@@ -17,7 +17,12 @@ export const users = pgTable("users", {
   id: varchar("id", { length: 30 }).primaryKey(),
   email: varchar("email", { length: 255 }).notNull().unique(),
   name: varchar("name", { length: 255 }).notNull(),
+  avatar: varchar("avatar", { length: 30 }),
   passwordHash: text("passwordHash").notNull(),
+  emailVerified: boolean("emailVerified").notNull().default(false),
+  pendingEmail: varchar("pendingEmail", { length: 255 }),
+  verificationCode: varchar("verificationCode", { length: 64 }),
+  verificationCodeExpiresAt: timestamp("verificationCodeExpiresAt"),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
 });

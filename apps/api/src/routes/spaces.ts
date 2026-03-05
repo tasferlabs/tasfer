@@ -41,7 +41,7 @@ type SpaceEvent =
   | { type: "space-created"; space: { id: string; name: string; type: string; ownerId: string } }
   | { type: "space-updated"; spaceId: string; name: string; description?: string }
   | { type: "space-deleted"; spaceId: string }
-  | { type: "member-added"; spaceId: string; member: { id: string; userId: string; role: string; userName: string | null; userEmail: string } }
+  | { type: "member-added"; spaceId: string; member: { id: string; userId: string; role: string; userName: string | null; userEmail: string; userAvatar?: string | null } }
   | { type: "member-removed"; spaceId: string; memberId: string; userId: string }
   | { type: "member-left"; spaceId: string; userId: string };
 
@@ -263,6 +263,7 @@ router.get("/:id/members", async (req, res) => {
         createdAt: spaceMembers.createdAt,
         userName: users.name,
         userEmail: users.email,
+        userAvatar: users.avatar,
       })
       .from(spaceMembers)
       .innerJoin(users, eq(spaceMembers.userId, users.id))
@@ -338,6 +339,7 @@ router.post("/:id/members", async (req, res) => {
         role: newMember.role,
         userName: user.name,
         userEmail: user.email,
+        userAvatar: user.avatar,
       },
     });
 
@@ -347,6 +349,7 @@ router.post("/:id/members", async (req, res) => {
         ...newMember,
         userName: user.name,
         userEmail: user.email,
+        userAvatar: user.avatar,
       },
     });
   } catch (error) {

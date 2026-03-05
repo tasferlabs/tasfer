@@ -9,6 +9,10 @@ const SettingsPage = React.lazy(
 );
 const LoginPage = React.lazy(() => import("../pages/LoginPage"));
 const RegisterPage = React.lazy(() => import("../pages/RegisterPage"));
+const VerifyEmailPage = React.lazy(() => import("../pages/VerifyEmailPage"));
+const ForgotPasswordPage = React.lazy(() => import("../pages/ForgotPasswordPage"));
+const ResetPasswordPage = React.lazy(() => import("../pages/ResetPasswordPage"));
+const VerifyEmailChangePage = React.lazy(() => import("../pages/VerifyEmailChangePage"));
 
 export const router = createBrowserRouter([
   {
@@ -26,6 +30,34 @@ export const router = createBrowserRouter([
         <RegisterPage />
       </RedirectIfAuthed>
     ),
+  },
+  {
+    path: "/verify-email",
+    element: (
+      <RedirectIfAuthed>
+        <VerifyEmailPage />
+      </RedirectIfAuthed>
+    ),
+  },
+  {
+    path: "/forgot-password",
+    element: (
+      <RedirectIfAuthed>
+        <ForgotPasswordPage />
+      </RedirectIfAuthed>
+    ),
+  },
+  {
+    path: "/reset-password",
+    element: (
+      <RedirectIfAuthed>
+        <ResetPasswordPage />
+      </RedirectIfAuthed>
+    ),
+  },
+  {
+    path: "/verify-email-change",
+    element: <VerifyEmailChangePage />,
   },
   {
     path: "/",

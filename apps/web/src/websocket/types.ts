@@ -194,7 +194,7 @@ export interface SpaceDeletedEvent {
 export interface MemberAddedEvent {
   type: "member-added";
   spaceId: string;
-  member: { id: string; userId: string; role: string; userName: string | null; userEmail: string };
+  member: { id: string; userId: string; role: string; userName: string | null; userEmail: string; userAvatar?: string | null };
 }
 
 /** A member was removed from a space */

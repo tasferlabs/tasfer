@@ -59,7 +59,7 @@ export default function Layout() {
   }
 
   return (
-    <WebSocketProvider serverUrl={websocketUrl} userName={user?.name}>
+    <WebSocketProvider serverUrl={websocketUrl} userName={user?.name} userAvatar={user?.avatar}>
       <SpaceProvider>
       <PageSettingsProvider>
         <ConfirmationDialogProvider>

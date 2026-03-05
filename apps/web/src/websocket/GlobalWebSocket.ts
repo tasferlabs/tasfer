@@ -113,6 +113,18 @@ export class GlobalWebSocket {
   }
 
   /**
+   * Update the local user name and avatar.
+   */
+  setUserInfo(name: string, avatar: string | null): void {
+    this.localUser = {
+      ...this.localUser,
+      name,
+      avatar,
+      color: getColorForPeer(name || this.localUser.peerId),
+    };
+  }
+
+  /**
    * Get current connection state.
    */
   getConnectionState(): ConnectionState {

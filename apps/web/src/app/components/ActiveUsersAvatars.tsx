@@ -28,7 +28,11 @@ export function ActiveUsersAvatars({ users }: ActiveUsersAvatarsProps) {
                     borderColor: user.color,
                   }}
                 >
-                  {initials}
+                  {user.avatar ? (
+                    <img src={`/api/images/${user.avatar}`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    initials
+                  )}
                 </div>
               </TooltipTrigger>
               <TooltipContent>

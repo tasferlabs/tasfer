@@ -20,6 +20,8 @@ export interface AwarenessUser {
   readonly peerId: string;
   /** Display name (optional) */
   readonly name?: string;
+  /** Avatar image ID (optional) */
+  readonly avatar?: string | null;
   /** User color for cursor/selection highlighting */
   readonly color: string;
 }

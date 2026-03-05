@@ -19,6 +19,7 @@ export interface ISpaceMember {
   createdAt: string;
   userName: string;
   userEmail: string;
+  userAvatar: string | null;
 }
 
 interface SpacesResponse {

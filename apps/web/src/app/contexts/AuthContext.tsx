@@ -5,6 +5,7 @@ import {
   register as apiRegister,
   logout as apiLogout,
   refreshToken as apiRefreshToken,
+  verifyEmail as apiVerifyEmail,
   getMe,
 } from "../api/auth.api";
 import { setAuthHandlers } from "../api/client";
@@ -15,10 +16,17 @@ interface AuthState {
   isLoading: boolean;
 }
 
+interface NeedsVerification {
+  needsVerification: true;
+  email: string;
+}
+
 interface AuthContextValue extends AuthState {
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, name: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<NeedsVerification | void>;
+  register: (email: string, name: string, password: string) => Promise<NeedsVerification | void>;
+  verifyEmail: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
+  updateUser: (user: AuthUser) => void;
 }
 
 const AuthContext = React.createContext<AuthContextValue | null>(null);
@@ -103,8 +111,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [scheduleRefresh]);
 
   const login = React.useCallback(
-    async (email: string, password: string) => {
-      const { user, accessToken } = await apiLogin({ email, password });
+    async (email: string, password: string): Promise<NeedsVerification | void> => {
+      const data = await apiLogin({ email, password });
+      if (data.needsVerification) {
+        return { needsVerification: true, email: data.email! };
+      }
+      setState({ user: data.user!, accessToken: data.accessToken!, isLoading: false });
+      accessTokenRef.current = data.accessToken!;
+      scheduleRefresh(data.accessToken!);
+    },
+    [scheduleRefresh]
+  );
+
+  const register = React.useCallback(
+    async (email: string, name: string, password: string): Promise<NeedsVerification | void> => {
+      const data = await apiRegister({ email, name, password });
+      if (data.needsVerification) {
+        return { needsVerification: true, email: data.email! };
+      }
+      setState({ user: data.user!, accessToken: data.accessToken!, isLoading: false });
+      accessTokenRef.current = data.accessToken!;
+      scheduleRefresh(data.accessToken!);
+    },
+    [scheduleRefresh]
+  );
+
+  const verifyEmail = React.useCallback(
+    async (email: string, code: string) => {
+      const { user, accessToken } = await apiVerifyEmail({ email, code });
       setState({ user, accessToken, isLoading: false });
       accessTokenRef.current = accessToken;
       scheduleRefresh(accessToken);
@@ -112,15 +146,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [scheduleRefresh]
   );
 
-  const register = React.useCallback(
-    async (email: string, name: string, password: string) => {
-      const { user, accessToken } = await apiRegister({ email, name, password });
-      setState({ user, accessToken, isLoading: false });
-      accessTokenRef.current = accessToken;
-      scheduleRefresh(accessToken);
-    },
-    [scheduleRefresh]
-  );
+  const updateUser = React.useCallback((user: AuthUser) => {
+    setState((prev) => ({ ...prev, user }));
+  }, []);
 
   const logoutFn = React.useCallback(async () => {
     await apiLogout();
@@ -134,9 +162,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ...state,
       login,
       register,
+      verifyEmail,
       logout: logoutFn,
+      updateUser,
     }),
-    [state, login, register, logoutFn]
+    [state, login, register, verifyEmail, logoutFn, updateUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

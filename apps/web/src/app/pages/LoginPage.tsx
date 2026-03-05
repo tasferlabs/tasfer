@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "../contexts/AuthContext";
 
 export default function LoginPage() {
+  const [t] = useTranslation("LoginPage");
   const { login } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -18,7 +20,11 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await login(email, password);
+      const result = await login(email, password);
+      if (result?.needsVerification) {
+        navigate(`/verify-email?email=${encodeURIComponent(result.email)}`, { replace: true });
+        return;
+      }
       navigate("/", { replace: true });
     } catch (err: any) {
       setError(err.message || "Login failed");
@@ -31,8 +37,8 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-2xl font-semibold text-foreground">Welcome back</h1>
-          <p className="text-sm text-muted-foreground">Sign in to your account</p>
+          <h1 className="text-2xl font-semibold text-foreground">{t`Welcome back`}</h1>
+          <p className="text-sm text-muted-foreground">{t`Sign in to your account`}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -44,7 +50,7 @@ export default function LoginPage() {
 
           <div className="space-y-2">
             <label htmlFor="email" className="text-sm font-medium text-foreground">
-              Email
+              {t`Email`}
             </label>
             <Input
               id="email"
@@ -59,29 +65,34 @@ export default function LoginPage() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="password" className="text-sm font-medium text-foreground">
-              Password
-            </label>
+            <div className="flex items-center justify-between">
+              <label htmlFor="password" className="text-sm font-medium text-foreground">
+                {t`Password`}
+              </label>
+              <Link to="/forgot-password" className="text-sm text-primary hover:underline">
+                {t`Forgot password?`}
+              </Link>
+            </div>
             <Input
               id="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
+              placeholder={t`Your password`}
               required
               autoComplete="current-password"
             />
           </div>
 
           <Button type="submit" loading={loading} className="w-full">
-            Sign in
+            {t`Sign in`}
           </Button>
         </form>
 
         <p className="text-center text-sm text-muted-foreground">
-          Don't have an account?{" "}
+          {t`Don't have an account?`}{" "}
           <Link to="/register" className="text-primary hover:underline">
-            Sign up
+            {t`Sign up`}
           </Link>
         </p>
       </div>

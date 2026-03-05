@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "../contexts/AuthContext";
 
 export default function RegisterPage() {
+  const [t] = useTranslation("RegisterPage");
   const { register } = useAuth();
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -18,14 +20,18 @@ export default function RegisterPage() {
     setError("");
 
     if (password.length < 8) {
-      setError("Password must be at least 8 characters");
+      setError(t`Password must be at least 8 characters`);
       return;
     }
 
     setLoading(true);
 
     try {
-      await register(email, name, password);
+      const result = await register(email, name, password);
+      if (result?.needsVerification) {
+        navigate(`/verify-email?email=${encodeURIComponent(result.email)}`, { replace: true });
+        return;
+      }
       navigate("/", { replace: true });
     } catch (err: any) {
       setError(err.message || "Registration failed");
@@ -38,8 +44,8 @@ export default function RegisterPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-2xl font-semibold text-foreground">Create account</h1>
-          <p className="text-sm text-muted-foreground">Get started with Cypher</p>
+          <h1 className="text-2xl font-semibold text-foreground">{t`Create account`}</h1>
+          <p className="text-sm text-muted-foreground">{t`Get started with Cypher`}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -51,14 +57,14 @@ export default function RegisterPage() {
 
           <div className="space-y-2">
             <label htmlFor="name" className="text-sm font-medium text-foreground">
-              Name
+              {t`Name`}
             </label>
             <Input
               id="name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Your name"
+              placeholder={t`Your name`}
               required
               autoComplete="name"
               autoFocus
@@ -67,7 +73,7 @@ export default function RegisterPage() {
 
           <div className="space-y-2">
             <label htmlFor="email" className="text-sm font-medium text-foreground">
-              Email
+              {t`Email`}
             </label>
             <Input
               id="email"
@@ -82,14 +88,14 @@ export default function RegisterPage() {
 
           <div className="space-y-2">
             <label htmlFor="password" className="text-sm font-medium text-foreground">
-              Password
+              {t`Password`}
             </label>
             <Input
               id="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 8 characters"
+              placeholder={t`Your password`}
               required
               autoComplete="new-password"
               minLength={8}
@@ -97,14 +103,14 @@ export default function RegisterPage() {
           </div>
 
           <Button type="submit" loading={loading} className="w-full">
-            Create account
+            {t`Create account`}
           </Button>
         </form>
 
         <p className="text-center text-sm text-muted-foreground">
-          Already have an account?{" "}
+          {t`Already have an account?`}{" "}
           <Link to="/login" className="text-primary hover:underline">
-            Sign in
+            {t`Sign in`}
           </Link>
         </p>
       </div>

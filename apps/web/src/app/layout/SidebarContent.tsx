@@ -350,6 +350,8 @@ export function SidebarContent({
         .slice(0, 2)
     : "?";
 
+  const avatarUrl = user?.avatar ? `/api/images/${user.avatar}` : null;
+
   return (
     <>
       <div className={style.appSidebarHeader}>
@@ -357,8 +359,12 @@ export function SidebarContent({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-2 min-w-0 rounded-md px-1.5 py-1 hover:bg-accent transition-colors cursor-pointer w-full">
-              <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0">
-                {initials}
+              <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  initials
+                )}
               </div>
               <span className="text-sm font-medium text-foreground truncate">
                 {user?.name}

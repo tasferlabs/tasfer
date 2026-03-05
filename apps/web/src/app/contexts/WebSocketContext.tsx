@@ -86,6 +86,8 @@ interface WebSocketContextValue {
   onUpdateAvailable: (callback: UpdateAvailableCallback) => () => void;
   /** Update local user name */
   setUserName: (name: string) => void;
+  /** Update local user info (name + avatar) */
+  setUserInfo: (name: string, avatar: string | null) => void;
 }
 
 export const WebSocketContext = createContext<WebSocketContextValue | null>(null);
@@ -99,6 +101,8 @@ interface WebSocketProviderProps {
   serverUrl: string;
   /** Optional initial user name */
   userName?: string;
+  /** Optional user avatar image ID */
+  userAvatar?: string | null;
   /** Auto-connect on mount (default: true) */
   autoConnect?: boolean;
   /** Children */
@@ -112,6 +116,7 @@ interface WebSocketProviderProps {
 export function WebSocketProvider({
   serverUrl,
   userName,
+  userAvatar,
   autoConnect = true,
   children,
 }: WebSocketProviderProps) {
@@ -130,9 +135,9 @@ export function WebSocketProvider({
     const ws = getGlobalWebSocket(serverUrl);
     wsRef.current = ws;
 
-    // Set user name if provided
+    // Set user info if provided
     if (userName) {
-      ws.setUserName(userName);
+      ws.setUserInfo(userName, userAvatar ?? null);
     }
 
     // Update local user state
@@ -162,7 +167,7 @@ export function WebSocketProvider({
       window.removeEventListener("online", handleOnline);
       // Don't disconnect on unmount - keep connection alive across route changes
     };
-  }, [serverUrl, userName, autoConnect]);
+  }, [serverUrl, userName, userAvatar, autoConnect]);
 
   // ==========================================================================
   // Context Methods
@@ -283,6 +288,12 @@ export function WebSocketProvider({
     setLocalUser(wsRef.current.getLocalUser());
   }, []);
 
+  const setUserInfoCb = useCallback((name: string, avatar: string | null) => {
+    if (!wsRef.current) return;
+    wsRef.current.setUserInfo(name, avatar);
+    setLocalUser(wsRef.current.getLocalUser());
+  }, []);
+
   // ==========================================================================
   // Context Value
   // ==========================================================================
@@ -307,6 +318,7 @@ export function WebSocketProvider({
     // onShareEvents,
     onUpdateAvailable,
     setUserName,
+    setUserInfo: setUserInfoCb,
   };
 
   return (
