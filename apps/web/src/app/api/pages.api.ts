@@ -1,7 +1,6 @@
 import { useMutation, type UseMutationOptions, useQuery, type UseQueryOptions } from "@tanstack/react-query";
 import type { Block } from "@/deserializer/loadPage";
-
-const API_BASE = "/api";
+import { authFetch, API_BASE } from "./client";
 
 export interface IListPage {
   id: string;
@@ -31,41 +30,44 @@ export interface IPage {
   createdAt: string;
   updatedAt: string;
   parents?: { id: string; title: string }[];
+  permission?: "view" | "edit" | "owner";
 }
 
 // Fetch pages list
-export async function getPages(parentId: string | null): Promise<IListPage[]> {
+export async function getPages(spaceId: string, parentId: string | null): Promise<IListPage[]> {
   const params = new URLSearchParams();
+  params.append("spaceId", spaceId);
   if (parentId) {
     params.append("parentId", parentId);
   }
-  
-  const response = await fetch(`${API_BASE}/pages/list?${params.toString()}`);
+
+  const response = await authFetch(`${API_BASE}/pages/list?${params.toString()}`);
   const data = await response.json();
-  
+
   if (!data.success) {
     throw new Error(data.error || "Failed to fetch pages");
   }
-  
+
   return data.data;
 }
 
-export function useGetPages(parentId: string | null) {
+export function useGetPages(spaceId: string | null, parentId: string | null) {
   return useQuery({
-    queryKey: ["pages", { parentId }],
-    queryFn: () => getPages(parentId),
+    queryKey: ["pages", { spaceId, parentId }],
+    queryFn: () => getPages(spaceId!, parentId),
+    enabled: !!spaceId,
   });
 }
 
 // Fetch single page
 export async function getPage(id: string): Promise<IPage> {
-  const response = await fetch(`${API_BASE}/pages/${id}`);
+  const response = await authFetch(`${API_BASE}/pages/${id}`);
   const data = await response.json();
-  
+
   if (!data.success) {
     throw new Error(data.error || "Failed to fetch page");
   }
-  
+
   return data.data;
 }
 
@@ -82,23 +84,24 @@ export function useGetPage(id?: string, options?: UseQueryOptions<IPage, Error, 
 interface ICreatePage {
   title: string;
   parentId: string | null;
+  spaceId: string;
 }
 
 export async function createPage(data: ICreatePage): Promise<IPage> {
-  const response = await fetch(`${API_BASE}/pages/create`, {
+  const response = await authFetch(`${API_BASE}/pages/create`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(data),
   });
-  
+
   const result = await response.json();
-  
+
   if (!result.success) {
     throw new Error(result.error || "Failed to create page");
   }
-  
+
   return result.data;
 }
 
@@ -128,7 +131,7 @@ export async function updatePage(data: IUpdatePage): Promise<IPage> {
   const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
   try {
-    const response = await fetch(`${API_BASE}/pages/${data.id}`, {
+    const response = await authFetch(`${API_BASE}/pages/${data.id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -170,12 +173,12 @@ interface IDeletePage {
 }
 
 export async function deletePage(data: IDeletePage): Promise<void> {
-  const response = await fetch(`${API_BASE}/pages/${data.id}`, {
+  const response = await authFetch(`${API_BASE}/pages/${data.id}`, {
     method: "DELETE",
   });
-  
+
   const result = await response.json();
-  
+
   if (!result.success) {
     throw new Error(result.error || "Failed to delete page");
   }
@@ -195,10 +198,11 @@ interface IMovePage {
   id: string;
   parentId: string | null;
   order?: number;
+  spaceId?: string;
 }
 
 export async function movePage(data: IMovePage): Promise<void> {
-  const response = await fetch(`${API_BASE}/pages/${data.id}/move`, {
+  const response = await authFetch(`${API_BASE}/pages/${data.id}/move`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -206,11 +210,12 @@ export async function movePage(data: IMovePage): Promise<void> {
     body: JSON.stringify({
       parentId: data.parentId,
       order: data.order,
+      spaceId: data.spaceId,
     }),
   });
-  
+
   const result = await response.json();
-  
+
   if (!result.success) {
     throw new Error(result.error || "Failed to move page");
   }
@@ -232,16 +237,16 @@ interface IReorderPage {
 }
 
 export async function reorderPage(data: IReorderPage): Promise<void> {
-  const response = await fetch(`${API_BASE}/pages/${data.id}/reorder`, {
+  const response = await authFetch(`${API_BASE}/pages/${data.id}/reorder`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ order: data.order }),
   });
-  
+
   const result = await response.json();
-  
+
   if (!result.success) {
     throw new Error(result.error || "Failed to reorder page");
   }
@@ -287,7 +292,7 @@ export interface ISnapshot {
 
 // Get all snapshots for a page (version history)
 export async function getPageSnapshots(pageId: string): Promise<ISnapshot[]> {
-  const response = await fetch(`${API_BASE}/pages/${pageId}/snapshots`);
+  const response = await authFetch(`${API_BASE}/pages/${pageId}/snapshots`);
   const data = await response.json();
 
   if (!data.success) {
@@ -304,4 +309,3 @@ export function useGetPageSnapshots(pageId?: string) {
     enabled: !!pageId,
   });
 }
-

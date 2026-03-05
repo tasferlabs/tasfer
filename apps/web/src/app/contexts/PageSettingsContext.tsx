@@ -6,6 +6,8 @@ import type { Block } from "@/deserializer/loadPage";
 
 export type FontStyle = "default" | "serif";
 
+export type PagePermission = "view" | "edit" | "owner";
+
 interface PageSettingsContextType {
   fontStyle: FontStyle;
   setFontStyle: (style: FontStyle) => void;
@@ -24,6 +26,9 @@ interface PageSettingsContextType {
   setCurrentBlocks: (blocks: Block[]) => void;
   onRestoreSnapshot: ((blocks: Block[]) => void) | null;
   setOnRestoreSnapshot: (callback: ((blocks: Block[]) => void) | null) => void;
+  // Permission
+  permission: PagePermission;
+  setPermission: (permission: PagePermission) => void;
 }
 
 const PageSettingsContext = createContext<PageSettingsContextType | undefined>(
@@ -46,6 +51,7 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [pageId, setPageId] = useState<string | null>(null);
   const [currentBlocks, setCurrentBlocks] = useState<Block[]>([]);
   const [onRestoreSnapshot, setOnRestoreSnapshotState] = useState<((blocks: Block[]) => void) | null>(null);
+  const [permission, setPermission] = useState<PagePermission>("owner");
 
   // Apply font family on mount and when fontStyle changes
   useEffect(() => {
@@ -87,6 +93,8 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         setCurrentBlocks,
         onRestoreSnapshot,
         setOnRestoreSnapshot,
+        permission,
+        setPermission,
       }}
     >
       {children}

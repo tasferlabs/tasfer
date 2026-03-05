@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 import { registerSW } from "virtual:pwa-register";
+import { AuthProvider } from "./app/contexts/AuthContext";
 import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
 import { router } from "./app/routes/Router";
@@ -32,13 +33,15 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById("root")!).render(
   <QueryClientProvider client={queryClient}>
-    <ThemeProvider>
-      <VersionProvider>
-        <Suspense fallback={<LoadingScreen />}>
-          <RouterProvider router={router} />
-        </Suspense>
-      </VersionProvider>
-    </ThemeProvider>
+    <AuthProvider>
+      <ThemeProvider>
+        <VersionProvider>
+          <Suspense fallback={<LoadingScreen />}>
+            <RouterProvider router={router} />
+          </Suspense>
+        </VersionProvider>
+      </ThemeProvider>
+    </AuthProvider>
   </QueryClientProvider>,
 );
 

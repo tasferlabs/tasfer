@@ -16,6 +16,7 @@
 
 import crypto from "crypto";
 import { readFileSync } from "fs";
+import jwt from "jsonwebtoken";
 import Redis from "ioredis";
 import { join } from "path";
 import { WebSocket, WebSocketServer } from "ws";
@@ -24,8 +25,12 @@ import { getAppDir } from "./lib/paths";
 // Unique instance ID for multi-instance coordination
 const INSTANCE_ID = crypto.randomUUID();
 
-// Auth key for basic protection (clients must pass this in query string)
-const AUTH_KEY = process.env.LIVE_AUTH_KEY || "zADL7WxuMcUM8uVbPwBJOqxH9haeU3K4X2vWdohIo5E";
+// JWT secret shared with API server
+const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-production";
+
+// API server URL for internal access checks
+const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:3000";
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "ucW-2xcolFODh-pch4MCGILJPQ6mHZVhzIgPy2W93ftNQPBtTBstdUJNFLW5ixVj";
 
 
 // =============================================================================
@@ -90,15 +95,31 @@ interface PageInfo {
   title: string | null;
   parentId: string | null;
   order: number;
+  spaceId: string;
 }
 
 /** Page lifecycle events (from Redis) */
 type PageEvent =
   | { type: "page-created"; page: PageInfo }
-  | { type: "page-deleted"; pageId: string }
-  | { type: "page-moved"; pageId: string; oldParentId: string | null; newParentId: string | null }
-  | { type: "page-reordered"; pageId: string; parentId: string | null; order: number }
-  | { type: "page-title-updated"; pageId: string; title: string };
+  | { type: "page-deleted"; pageId: string; spaceId: string }
+  | { type: "page-moved"; pageId: string; spaceId: string; oldParentId: string | null; newParentId: string | null }
+  | { type: "page-reordered"; pageId: string; spaceId: string; parentId: string | null; order: number }
+  | { type: "page-title-updated"; pageId: string; spaceId: string; title: string };
+
+/** Space/group lifecycle events (from Redis) */
+type SpaceEvent =
+  | { type: "space-created"; space: { id: string; name: string; type: string; ownerId: string } }
+  | { type: "space-updated"; spaceId: string; name: string; description?: string }
+  | { type: "space-deleted"; spaceId: string }
+  | { type: "member-added"; spaceId: string; member: { id: string; userId: string; role: string; userName: string | null; userEmail: string; userAvatar?: string | null } }
+  | { type: "member-removed"; spaceId: string; memberId: string; userId: string }
+  | { type: "member-left"; spaceId: string; userId: string };
+
+// /** Share lifecycle events (from Redis) */
+// type ShareEvent =
+//   | { type: "share-created"; shareId: string; pageId: string; userId: string; permission: string; includeChildren: boolean; pageTitle: string | null; sharedByName: string | null }
+//   | { type: "share-updated"; shareId: string; pageId: string; userId: string; permission: string; includeChildren: boolean }
+//   | { type: "share-removed"; shareId: string; pageId: string; userId: string };
 
 /** Server message types (room messages + page events) */
 type ServerMessage =
@@ -115,11 +136,14 @@ type ServerMessage =
   | { type: "error"; message: string }
   | { type: "update-available"; serverVersion: number; clientVersion: number; forceUpdate: boolean }
   | { type: "server-shutdown"; reason: string }
-  | PageEvent;
+  | PageEvent
+  | SpaceEvent;
+  // | ShareEvent;
 
 /** Connected client info */
 interface Client {
   ws: WebSocket;
+  userId: string;
   peerId: string | null;
   roomId: string | null;
   awarenessState: AwarenessState | null;
@@ -145,28 +169,41 @@ const wsToClient = new WeakMap<WebSocket, Client>();
 
 const PORT = parseInt(process.env.PORT || "8080", 10);
 
+/** Map of WebSocket -> userId parsed from JWT during verifyClient */
+const wsUserIds = new WeakMap<WebSocket, string>();
+
 const wss = new WebSocketServer({
   port: PORT,
   perMessageDeflate: false, // Disable compression for lower latency
   verifyClient: (info, callback) => {
     const url = new URL(info.req.url || "", `http://${info.req.headers.host}`);
-    const key = url.searchParams.get("key");
+    const token = url.searchParams.get("token");
 
-    if (key !== AUTH_KEY) {
-      console.log(`[Sync Server] Rejected connection: invalid auth key`);
+    if (!token) {
+      console.log(`[Sync Server] Rejected connection: no token`);
       callback(false, 401, "Unauthorized");
       return;
     }
 
-    callback(true);
+    try {
+      const payload = jwt.verify(token, JWT_SECRET) as { sub: string; email: string };
+      // Store userId so we can retrieve it in the connection handler
+      (info.req as any).__userId = payload.sub;
+      callback(true);
+    } catch {
+      console.log(`[Sync Server] Rejected connection: invalid JWT`);
+      callback(false, 401, "Unauthorized");
+    }
   },
 });
 
 console.log(`[Sync Server] Starting on port ${PORT}`);
 
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req) => {
+  const userId = (req as any).__userId as string;
   const client: Client = {
     ws,
+    userId,
     peerId: null,
     roomId: null,
     awarenessState: null,
@@ -205,6 +242,8 @@ wss.on("listening", () => {
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const REDIS_CHANNEL = "cypher:page-events";
+const REDIS_SPACE_CHANNEL = "cypher:space-events";
+// const REDIS_SHARE_CHANNEL = "cypher:share-events";
 const REDIS_SYSTEM_CHANNEL = "cypher:system";
 
 /** System-wide messages between instances */
@@ -258,9 +297,9 @@ async function setupRedisSubscriber(): Promise<void> {
       console.log(`[Sync Server] Connected to Redis (instance: ${INSTANCE_ID.slice(0, 8)})`);
     });
 
-    // Subscribe to page events and system channels
-    await redisSubscriber.subscribe(REDIS_CHANNEL, REDIS_SYSTEM_CHANNEL);
-    console.log(`[Sync Server] Subscribed to Redis channels: ${REDIS_CHANNEL}, ${REDIS_SYSTEM_CHANNEL}`);
+    // Subscribe to page events, space events, and system channels
+    await redisSubscriber.subscribe(REDIS_CHANNEL, REDIS_SPACE_CHANNEL, REDIS_SYSTEM_CHANNEL);
+    console.log(`[Sync Server] Subscribed to Redis channels: ${REDIS_CHANNEL}, ${REDIS_SPACE_CHANNEL}, ${REDIS_SYSTEM_CHANNEL}`);
 
     // Handle incoming messages
     redisSubscriber.on("message", (channel, message) => {
@@ -275,6 +314,30 @@ async function setupRedisSubscriber(): Promise<void> {
         }
         return;
       }
+
+      // Handle space events
+      if (channel === REDIS_SPACE_CHANNEL) {
+        try {
+          const event = JSON.parse(message) as SpaceEvent;
+          console.log(`[Sync Server] Received space event: ${event.type}`);
+          broadcastSpaceEventToAll(event);
+        } catch (error) {
+          console.error("[Sync Server] Invalid Redis space event:", error);
+        }
+        return;
+      }
+
+      // // Handle share events
+      // if (channel === REDIS_SHARE_CHANNEL) {
+      //   try {
+      //     const event = JSON.parse(message) as ShareEvent;
+      //     console.log(`[Sync Server] Received share event: ${event.type}`);
+      //     broadcastShareEventToAll(event);
+      //   } catch (error) {
+      //     console.error("[Sync Server] Invalid Redis share event:", error);
+      //   }
+      //   return;
+      // }
 
       // Handle system messages
       if (channel === REDIS_SYSTEM_CHANNEL) {
@@ -405,9 +468,33 @@ function handleRedisRoomMessage(message: RedisRoomMessage): void {
   }
 }
 
+/** Track which spaceIds each user has access to (populated on connection) */
+const userSpaceAccess = new Map<string, Set<string>>();
+
+/** Register a user's space access by checking the API */
+async function registerUserSpaceAccess(userId: string): Promise<void> {
+  try {
+    // We don't have a dedicated endpoint for this yet,
+    // so we track spaces as users join rooms (pages carry spaceId context)
+    if (!userSpaceAccess.has(userId)) {
+      userSpaceAccess.set(userId, new Set());
+    }
+  } catch (error) {
+    console.error(`[Sync Server] Failed to register space access for user ${userId}:`, error);
+  }
+}
+
+/** Get the spaceId from a page event */
+function getEventSpaceId(event: PageEvent): string | null {
+  if ("page" in event && event.page) return event.page.spaceId;
+  if ("spaceId" in event) return event.spaceId;
+  return null;
+}
+
 /**
  * Broadcast a page event to all connected clients.
- * Page events are sent to everyone, not just room members.
+ * Events are sent to all connected clients — the spaceId is included
+ * so clients can filter on their end.
  */
 function broadcastPageEventToAll(event: PageEvent): void {
   const message = JSON.stringify(event);
@@ -422,6 +509,43 @@ function broadcastPageEventToAll(event: PageEvent): void {
 
   console.log(`[Sync Server] Broadcast ${event.type} to ${sentCount} clients`);
 }
+
+/**
+ * Broadcast a space event to all connected clients.
+ * Events are sent to all connected clients — the spaceId is included
+ * so clients can filter on their end.
+ */
+function broadcastSpaceEventToAll(event: SpaceEvent): void {
+  const message = JSON.stringify(event);
+  let sentCount = 0;
+
+  wss.clients.forEach((ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(message);
+      sentCount++;
+    }
+  });
+
+  console.log(`[Sync Server] Broadcast ${event.type} to ${sentCount} clients`);
+}
+
+// /**
+//  * Broadcast a share event to all connected clients.
+//  * Events are sent to all connected clients — clients filter by userId on their end.
+//  */
+// function broadcastShareEventToAll(event: ShareEvent): void {
+//   const message = JSON.stringify(event);
+//   let sentCount = 0;
+//
+//   wss.clients.forEach((ws) => {
+//     if (ws.readyState === WebSocket.OPEN) {
+//       ws.send(message);
+//       sentCount++;
+//     }
+//   });
+//
+//   console.log(`[Sync Server] Broadcast ${event.type} to ${sentCount} clients`);
+// }
 
 /**
  * Handle a system message received from Redis (from another instance).
@@ -539,7 +663,31 @@ function handleHello(client: Client, clientVersion: number): void {
   }
 }
 
-function handleJoin(client: Client, roomId: string, peerId: string, user?: AwarenessUser, clientVersion?: number): void {
+/** Check if a user has access to a page via the API internal endpoint */
+async function checkPageAccess(userId: string, pageId: string): Promise<boolean> {
+  try {
+    const url = `${API_BASE_URL}/api/internal/check-access?userId=${encodeURIComponent(userId)}&pageId=${encodeURIComponent(pageId)}`;
+    const response = await fetch(url, {
+      headers: { "x-internal-key": INTERNAL_API_KEY },
+    });
+    if (!response.ok) return false;
+    const data = await response.json() as { success: boolean; data?: { hasAccess: boolean } };
+    return data.success && data.data?.hasAccess === true;
+  } catch (error) {
+    console.error(`[Sync Server] Access check failed for user=${userId} page=${pageId}:`, error);
+    return false;
+  }
+}
+
+async function handleJoin(client: Client, roomId: string, peerId: string, user?: AwarenessUser, clientVersion?: number): Promise<void> {
+  // Verify page access before allowing join
+  const hasAccess = await checkPageAccess(client.userId, roomId);
+  if (!hasAccess) {
+    console.log(`[Sync Server] Rejected join: user ${client.userId} has no access to page ${roomId}`);
+    send(client.ws, { type: "error", message: "Access denied" });
+    return;
+  }
+
   // Leave current room if in one
   if (client.roomId) {
     handleLeave(client);
@@ -906,8 +1054,10 @@ async function gracefulShutdown(signal: string): Promise<void> {
   // Close Redis connections
   try {
     if (redisSubscriber) {
-      // Unsubscribe from page events channel
+      // Unsubscribe from page events and space events channels
       await redisSubscriber.unsubscribe(REDIS_CHANNEL);
+      await redisSubscriber.unsubscribe(REDIS_SPACE_CHANNEL);
+      // await redisSubscriber.unsubscribe(REDIS_SHARE_CHANNEL);
 
       // Unsubscribe from all room channels
       for (const roomId of subscribedRooms) {

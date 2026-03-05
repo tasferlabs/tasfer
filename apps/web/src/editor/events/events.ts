@@ -57,10 +57,11 @@ export function handleEvents(
   documentHeight: number,
   containerRect: { left: number; top: number },
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
-  clipboardData?: { html: string; text: string } | null
-): { state: EditorState; ops: Operation[] } {
+  clipboardData?: { html: string; text: string; imageFile: File | null } | null
+): { state: EditorState; ops: Operation[]; pastedImageBlockIndex?: number } {
   // Collect operations from commands
   let collectedOps: Operation[] = [];
+  let pastedImageBlockIndex: number | undefined;
   // Check for scrollbar long-press (iOS-style: hold to activate)
   if (scrollbarPressState && !state.view.scrollbar.isDragging) {
     const timeSinceStart = Date.now() - scrollbarPressState.startTime;
@@ -597,6 +598,9 @@ export function handleEvents(
         );
         state = pasteResult.state;
         collectedOps.push(...pasteResult.ops);
+        if (pasteResult.pastedImageBlockIndex !== undefined) {
+          pastedImageBlockIndex = pasteResult.pastedImageBlockIndex;
+        }
         break;
       case "wheel":
         if (isTouchDevice()) {
@@ -683,5 +687,5 @@ export function handleEvents(
     },
   };
 
-  return { state, ops: collectedOps };
+  return { state, ops: collectedOps, pastedImageBlockIndex };
 }

@@ -167,6 +167,86 @@ export interface PageTitleUpdatedEvent {
 }
 
 // =============================================================================
+// Space Events (Space/Group Lifecycle)
+// =============================================================================
+
+/** A new space was created */
+export interface SpaceCreatedEvent {
+  type: "space-created";
+  space: { id: string; name: string; type: string; ownerId: string };
+}
+
+/** A space was updated */
+export interface SpaceUpdatedEvent {
+  type: "space-updated";
+  spaceId: string;
+  name: string;
+  description?: string;
+}
+
+/** A space was deleted */
+export interface SpaceDeletedEvent {
+  type: "space-deleted";
+  spaceId: string;
+}
+
+/** A member was added to a space */
+export interface MemberAddedEvent {
+  type: "member-added";
+  spaceId: string;
+  member: { id: string; userId: string; role: string; userName: string | null; userEmail: string; userAvatar?: string | null };
+}
+
+/** A member was removed from a space */
+export interface MemberRemovedEvent {
+  type: "member-removed";
+  spaceId: string;
+  memberId: string;
+  userId: string;
+}
+
+/** A member left a space */
+export interface MemberLeftEvent {
+  type: "member-left";
+  spaceId: string;
+  userId: string;
+}
+
+// // =============================================================================
+// // Share Events (Share Lifecycle)
+// // =============================================================================
+//
+// /** A page was shared with a user */
+// export interface ShareCreatedEvent {
+//   type: "share-created";
+//   shareId: string;
+//   pageId: string;
+//   userId: string;
+//   permission: "view" | "edit";
+//   includeChildren: boolean;
+//   pageTitle: string | null;
+//   sharedByName: string | null;
+// }
+//
+// /** A share's permission was updated */
+// export interface ShareUpdatedEvent {
+//   type: "share-updated";
+//   shareId: string;
+//   pageId: string;
+//   userId: string;
+//   permission: "view" | "edit";
+//   includeChildren: boolean;
+// }
+//
+// /** A share was removed */
+// export interface ShareRemovedEvent {
+//   type: "share-removed";
+//   shareId: string;
+//   pageId: string;
+//   userId: string;
+// }
+
+// =============================================================================
 // Union Types
 // =============================================================================
 
@@ -192,8 +272,23 @@ export type PageEvent =
   | PageReorderedEvent
   | PageTitleUpdatedEvent;
 
+/** Space/group lifecycle events */
+export type SpaceEvent =
+  | SpaceCreatedEvent
+  | SpaceUpdatedEvent
+  | SpaceDeletedEvent
+  | MemberAddedEvent
+  | MemberRemovedEvent
+  | MemberLeftEvent;
+
+// /** Share lifecycle events */
+// export type ShareEvent =
+//   | ShareCreatedEvent
+//   | ShareUpdatedEvent
+//   | ShareRemovedEvent;
+
 /** All server message types */
-export type ServerMessage = RoomMessage | PageEvent;
+export type ServerMessage = RoomMessage | PageEvent | SpaceEvent;
 
 /** Client-to-server messages */
 export type ClientMessage =
@@ -234,6 +329,25 @@ export function isPageEvent(msg: ServerMessage): msg is PageEvent {
     "page-title-updated",
   ].includes(msg.type);
 }
+
+export function isSpaceEvent(msg: ServerMessage): msg is SpaceEvent {
+  return [
+    "space-created",
+    "space-updated",
+    "space-deleted",
+    "member-added",
+    "member-removed",
+    "member-left",
+  ].includes(msg.type);
+}
+
+// export function isShareEvent(msg: ServerMessage): msg is ShareEvent {
+//   return [
+//     "share-created",
+//     "share-updated",
+//     "share-removed",
+//   ].includes(msg.type);
+// }
 
 // =============================================================================
 // Room Callbacks
@@ -285,3 +399,20 @@ export interface PageEventCallbacks {
   ) => void;
   onPageTitleUpdated?: (pageId: string, title: string) => void;
 }
+
+/** Callbacks for space/group lifecycle events */
+export interface SpaceEventCallbacks {
+  onSpaceCreated?: (space: SpaceCreatedEvent["space"]) => void;
+  onSpaceUpdated?: (spaceId: string, name: string, description?: string) => void;
+  onSpaceDeleted?: (spaceId: string) => void;
+  onMemberAdded?: (spaceId: string, member: MemberAddedEvent["member"]) => void;
+  onMemberRemoved?: (spaceId: string, memberId: string, userId: string) => void;
+  onMemberLeft?: (spaceId: string, userId: string) => void;
+}
+
+// /** Callbacks for share lifecycle events */
+// export interface ShareEventCallbacks {
+//   onShareCreated?: (event: ShareCreatedEvent) => void;
+//   onShareUpdated?: (event: ShareUpdatedEvent) => void;
+//   onShareRemoved?: (event: ShareRemovedEvent) => void;
+// }

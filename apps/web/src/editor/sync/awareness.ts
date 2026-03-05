@@ -20,6 +20,8 @@ export interface AwarenessUser {
   readonly peerId: string;
   /** Display name (optional) */
   readonly name?: string;
+  /** Avatar image ID (optional) */
+  readonly avatar?: string | null;
   /** User color for cursor/selection highlighting */
   readonly color: string;
 }
@@ -67,18 +69,6 @@ const AWARENESS_COLORS = [
   "#06b6d4", // cyan
 ];
 
-/** Test names for remote users */
-const TEST_NAMES = [
-  "Alice",
-  "Bob",
-  "Charlie",
-  // "Diana",
-  "Eve",
-  "Frank",
-  "Grace",
-  "Henry",
-];
-
 /**
  * Simple hash function for strings.
  * Produces a consistent numeric hash for deterministic color/name assignment.
@@ -94,23 +84,12 @@ function hashString(str: string): number {
 }
 
 /**
- * Get a color for a peer ID.
- * Uses deterministic hashing so the same peer ID always gets the same color
- * across all tabs and sessions.
+ * Get a color for a given key (user name or peer ID).
+ * Uses deterministic hashing so the same key always gets the same color.
  */
-export function getColorForPeer(peerId: string): string {
-  const index = hashString(peerId) % AWARENESS_COLORS.length;
+export function getColorForPeer(key: string): string {
+  const index = hashString(key) % AWARENESS_COLORS.length;
   return AWARENESS_COLORS[index];
-}
-
-/**
- * Get a test name for a peer ID.
- * Uses deterministic hashing so the same peer ID always gets the same name
- * across all tabs and sessions.
- */
-export function getTestNameForPeer(peerId: string): string {
-  const index = hashString(peerId) % TEST_NAMES.length;
-  return TEST_NAMES[index];
 }
 
 /**
@@ -184,7 +163,7 @@ export class AwarenessManager {
     this.localUser = {
       peerId: config.peerId,
       name: config.userName,
-      color: getColorForPeer(config.peerId),
+      color: getColorForPeer(config.userName || config.peerId),
     };
 
     // Start cleanup interval for stale states

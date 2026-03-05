@@ -11,6 +11,8 @@ import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog
 import { PageSettingsProvider } from "../contexts/PageSettingsContext";
 import { WebSocketProvider } from "../contexts/WebSocketContext";
 import { useVersion } from "../contexts/VersionContext";
+import { useAuth } from "../contexts/AuthContext";
+import { SpaceProvider } from "../contexts/SpaceContext";
 import ForceUpdatePage from "../pages/ForceUpdatePage";
 import UpdatePopup from "../components/UpdatePopup";
 import { DevToolbar } from "../components/DevToolbar";
@@ -23,12 +25,6 @@ const WEBSOCKET_BASE_URL =
     window.location.host
   }/ws`;
 
-// Auth key for WebSocket connection
-const LIVE_AUTH_KEY = import.meta.env.VITE_LIVE_AUTH_KEY || "";
-const WEBSOCKET_URL = LIVE_AUTH_KEY
-  ? `${WEBSOCKET_BASE_URL}?key=${LIVE_AUTH_KEY}`
-  : WEBSOCKET_BASE_URL;
-
 export default function Layout() {
   const [resizableOpen, setResizableOpen] = useLocalStorage(
     "resizable-sidebar-open",
@@ -40,7 +36,14 @@ export default function Layout() {
   // Silent background sync for offline mutations
   useOfflineStatus();
 
+  const { accessToken, user } = useAuth();
   const { isLoading, meetsMinimum } = useVersion();
+
+  // Build WebSocket URL with JWT token
+  const websocketUrl = React.useMemo(() => {
+    if (!accessToken) return WEBSOCKET_BASE_URL;
+    return `${WEBSOCKET_BASE_URL}?token=${accessToken}`;
+  }, [accessToken]);
 
   // Track if app ever mounted with valid version (user was working)
   const hadValidVersion = React.useRef(false);
@@ -56,7 +59,8 @@ export default function Layout() {
   }
 
   return (
-    <WebSocketProvider serverUrl={WEBSOCKET_URL}>
+    <WebSocketProvider serverUrl={websocketUrl} userName={user?.name} userAvatar={user?.avatar}>
+      <SpaceProvider>
       <PageSettingsProvider>
         <ConfirmationDialogProvider>
           <UnsavedChangesDialogProvider>
@@ -83,6 +87,7 @@ export default function Layout() {
           </UnsavedChangesDialogProvider>
         </ConfirmationDialogProvider>
       </PageSettingsProvider>
+      </SpaceProvider>
     </WebSocketProvider>
   );
 }

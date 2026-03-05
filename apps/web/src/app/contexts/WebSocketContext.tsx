@@ -23,6 +23,8 @@ import type {
   ConnectionInfo,
   RoomCallbacks,
   PageEventCallbacks,
+  SpaceEventCallbacks,
+  // ShareEventCallbacks,
   RoomUser,
   Operation,
 } from "@/websocket/types";
@@ -76,10 +78,16 @@ interface WebSocketContextValue {
   ) => void;
   /** Subscribe to page lifecycle events */
   onPageEvents: (callbacks: PageEventCallbacks) => () => void;
+  /** Subscribe to space/group lifecycle events */
+  onSpaceEvents: (callbacks: SpaceEventCallbacks) => () => void;
+  // /** Subscribe to share lifecycle events */
+  // onShareEvents: (callbacks: ShareEventCallbacks) => () => void;
   /** Subscribe to update available notifications */
   onUpdateAvailable: (callback: UpdateAvailableCallback) => () => void;
   /** Update local user name */
   setUserName: (name: string) => void;
+  /** Update local user info (name + avatar) */
+  setUserInfo: (name: string, avatar: string | null) => void;
 }
 
 export const WebSocketContext = createContext<WebSocketContextValue | null>(null);
@@ -93,6 +101,8 @@ interface WebSocketProviderProps {
   serverUrl: string;
   /** Optional initial user name */
   userName?: string;
+  /** Optional user avatar image ID */
+  userAvatar?: string | null;
   /** Auto-connect on mount (default: true) */
   autoConnect?: boolean;
   /** Children */
@@ -106,6 +116,7 @@ interface WebSocketProviderProps {
 export function WebSocketProvider({
   serverUrl,
   userName,
+  userAvatar,
   autoConnect = true,
   children,
 }: WebSocketProviderProps) {
@@ -124,9 +135,9 @@ export function WebSocketProvider({
     const ws = getGlobalWebSocket(serverUrl);
     wsRef.current = ws;
 
-    // Set user name if provided
+    // Set user info if provided
     if (userName) {
-      ws.setUserName(userName);
+      ws.setUserInfo(userName, userAvatar ?? null);
     }
 
     // Update local user state
@@ -156,7 +167,7 @@ export function WebSocketProvider({
       window.removeEventListener("online", handleOnline);
       // Don't disconnect on unmount - keep connection alive across route changes
     };
-  }, [serverUrl, userName, autoConnect]);
+  }, [serverUrl, userName, userAvatar, autoConnect]);
 
   // ==========================================================================
   // Context Methods
@@ -250,6 +261,20 @@ export function WebSocketProvider({
     return wsRef.current.onPageEvents(callbacks);
   }, []);
 
+  const onSpaceEvents = useCallback((callbacks: SpaceEventCallbacks) => {
+    if (!wsRef.current) {
+      return () => {};
+    }
+    return wsRef.current.onSpaceEvents(callbacks);
+  }, []);
+
+  // const onShareEvents = useCallback((callbacks: ShareEventCallbacks) => {
+  //   if (!wsRef.current) {
+  //     return () => {};
+  //   }
+  //   return wsRef.current.onShareEvents(callbacks);
+  // }, []);
+
   const onUpdateAvailable = useCallback((callback: UpdateAvailableCallback) => {
     if (!wsRef.current) {
       return () => {};
@@ -260,6 +285,12 @@ export function WebSocketProvider({
   const setUserName = useCallback((name: string) => {
     if (!wsRef.current) return;
     wsRef.current.setUserName(name);
+    setLocalUser(wsRef.current.getLocalUser());
+  }, []);
+
+  const setUserInfoCb = useCallback((name: string, avatar: string | null) => {
+    if (!wsRef.current) return;
+    wsRef.current.setUserInfo(name, avatar);
     setLocalUser(wsRef.current.getLocalUser());
   }, []);
 
@@ -283,8 +314,11 @@ export function WebSocketProvider({
     sendSyncRequest,
     sendSyncResponse,
     onPageEvents,
+    onSpaceEvents,
+    // onShareEvents,
     onUpdateAvailable,
     setUserName,
+    setUserInfo: setUserInfoCb,
   };
 
   return (

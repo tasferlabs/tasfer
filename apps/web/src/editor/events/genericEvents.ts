@@ -9,7 +9,7 @@ export function handlePaste(
   event: ClipboardEvent,
   viewport: ViewportState,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
-  clipboardData?: { html: string; text: string; } | null): { state: EditorState; ops: Operation[]; } {
+  clipboardData?: { html: string; text: string; imageFile: File | null } | null): { state: EditorState; ops: Operation[]; pastedImageBlockIndex?: number } {
   // Prevent default paste behavior
   event.preventDefault();
 
@@ -60,5 +60,5 @@ export function handlePaste(
     }
   }
 
-  return { state: newState, ops: result.ops };
+  return { state: newState, ops: result.ops, pastedImageBlockIndex: result.pastedImageBlockIndex };
 }

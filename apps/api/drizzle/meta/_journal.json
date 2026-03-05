@@ -8,6 +8,41 @@
       "when": 1768578190628,
       "tag": "0000_normal_boom_boom",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1772567384515,
+      "tag": "0001_curvy_tomorrow_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772570747490,
+      "tag": "0002_bumpy_starfox",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1772738036863,
+      "tag": "0003_big_victor_mancha",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772738092095,
+      "tag": "0004_clever_venom",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1772741027088,
+      "tag": "0005_needy_titania",
+      "breakpoints": true
     }
   ]
 }

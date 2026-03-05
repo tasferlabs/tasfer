@@ -89,13 +89,16 @@ function formatKeysToFormats(keys: Set<string>): TextFormat[] | undefined {
 }
 
 export function serializeToMarkdown(blocks: Block[]): string {
+  // Filter out deleted blocks (CRDT tombstones)
+  blocks = blocks.filter(block => !block.deleted);
+
   if (blocks.length === 0) {
     return "";
   }
-  
+
   // Track numbering for numbered lists at each indent level
   const numbering: Map<number, number> = new Map();
-  
+
   const serializedBlocks = blocks.map((block, index) => {
     // Handle line/divider blocks
     if (block.type === "line") {

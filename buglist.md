@@ -1,4 +1,4 @@
-# Bugs list
+# Cypher Bugs list
 - [x] when double clicking on word it does focus is at the start not the end.
 - [x] when double clicking on word on desktop and instead of going fowarding and going backward than we shoud the reverse the anchor. Now focus depends where move the selection direction this is correct, but the anchor position on first word selection on desktop this should not be locked.
 - [x] Could not expand selection beyond non alphanumeric characters for example dots or commas.
@@ -9,8 +9,7 @@
 - [x] split function does not preserve block type.
 - [x] Could not expand selection beyond non alpha characters for example dots or commas. This happens with ctrl + arrow left and right.
 - [x] when selecting one word and typing, the word is not replaced
-- [x] when selecting one word and deleting, the word is not deleted.
-- [x] when selecting entire block and typing, the block is not replaced
+- [x] when selecting one word and deleting, the word is not deleted.when selecting entire block and typing, the block is not replaced
 - [x] when selecting entire block and deleting, the block is not deleted
 - [x] Can not expand the selection using ctrl + shift + arrow left and right
 - [x] when triple clicking on block for selection the cursor is not at the end of the block.
@@ -22,8 +21,8 @@
 - [x] when selection going outside the screen the viewport should follow the selection.
 - [x] hold press and selecting down on mobile does not work correctly because cursor is not moving down.
 - [x] when end edge scrolling we should open keyboard on mobile.
-- [ ] ~~max selection dragging scroll speed should not be limited. Or limted but very large number. Because we don not how large the document could b~~e.
-- [ ] ~~Maybe specify how large of document we should suppr~~t.
+- [ ] max selection dragging scroll speed should not be limited. Or limted but very large number. Because we don not how large the document could be.
+- [ ] Maybe specify how large of document we should supprt.
 - [x] add three dots right of saving the opens drawer for page settings.
 - [x] change the font family in page settings
 - [x] add word count if enabled in setings.
@@ -71,8 +70,8 @@
 - [x] On desktop we should add formating inline options on cotnext menu.
 - [x] delete at start of text after an image, delete the text.
 - [ ] Add more animations to make the app more visually apealing.
-- [ ] ~~Remove the markdown style when copying plain tex~~t.
-- [ ] ~~Typing two spaces should exit inline styling, consult someone if this actaully good pratic~~e.
+- [ ] Remove the markdown style when copying plain text.
+- [ ] Typing two spaces should exit inline styling, consult someone if this actaully good pratice.
 - [x] consider adding selection dragging on mobiles on both anchor and foucus. Like it is on ios. This for epxanding the selection and shrinking.
 - [ ] I want to drag cursor. Solved by padding click.
 - [x] if click outside the box selection should be lost.
@@ -165,15 +164,15 @@
 - [x] If we create new block before image and or after image and it not used we move down, the we should delete it.
 - [x] should not image drag more than its container.
 - [x] drag the images.
-- [ ] ~~we should not store the image in absolute values we should istead use relative values such as perecentag~~e.
+- [ ] we should not store the image in absolute values we should istead use relative values such as perecentage.
 - [x] when click outside the image we should lose focus
 - [x] conflict between scroll bar and drag handle.
 - [x] placeholder image should drag handles.
 - [ ] change position of cover image.
-- [ ] ~~Remove an image. Improve EditImagePopove~~r.
+- [ ] Remove an image. Improve EditImagePopover.
 - [x] word count should not count images.
 - [x] copy and paste should work with images.
-- [ ] ~~upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not mov~~e.
+- [ ] upload menu should be fixed in one place. If being clicked repeadly on upload image menu should not move.
 - [x] scrollbar should not hit bottom porition on mobile (or at least on ios)
 - [x] hide editimagepopover on mobile
 - [x] hide scrollbar when not scrolling
@@ -181,7 +180,7 @@
 - [x] focus issue on context menu
 - [x] select all on mobile not working really, i we already have selection on some block. It would select from start of that exisitng selectio until the end.
 - [x] Android keyboard rendering stops after tap in selection - fixed by updating cursor position while preserving selection
-- [ ] ~~I want drag context menu activation like native menu have.~~
+- [ ] I want drag context menu activation like native menu have.
 - [x] drag thumb drag detection on mobile should have buffer area.
 - [x] selection drag rtl is broken
 - [x] draging image handle and scrolling should work too.
@@ -194,7 +193,7 @@
 - [x] canvas glitch on resizing.
 - [x] editing issue on android. Can not edit text after selection.
 - [x] tapping under image that has no other blocks under should create new text block.
-- [ ] ~~could we disable edge navigation on andorid?~~
+- [ ] could we disable edge navigation on andorid?
 - [x] on landscape oritentation the safe area taking to much and it is uncessary.
 - [x] Safe area on sidebar
 - [ ] typing letters that conlicde with markdown serlization should be escaped
@@ -215,7 +214,7 @@
 - [ ] should cursor be visible when out of screen
 - [ ] page up and down should work with visual blocks.
 - [ ] empty line and selection drag
-- [ ] ~~Consolidate @apps/web/src/sync/index.ts operations more~~
+- [ ] Consolidate @apps/web/src/sync/index.ts operations more
 - [x] tapping enter to split blocks does not not work well with crdt opreations.
 - [x] when typing in the middle the other tab insert to the end.
 - [x] arabic script stopped working after impelemting crdt
@@ -232,8 +231,8 @@
 - [x] why snapshot have hlc clock
 - [ ] do we have unccessary long ids in snapshot
 - [x] crdt pasting docoumet paste only first block
-- [ ] ~~loading page is slow~~
-- [ ] ~~loading apge should show spinner.~~
+- [ ] loading page is slow
+- [ ] loading apge should show spinner.
 - [x] change content should reculate hights/documentb height in
 - [x] on load document there is not scrollbar
 - [ ] peforamnce issues after crdt
@@ -248,7 +247,7 @@
 - [ ] Flaoting sidebar should be suited flr mobile
 - [ ] add snapshot previewing
 - [x] dawers should have scroll
-- [ ] ~~undo or any edting opeartion should ensureCursor visib~~le
+- [ ] undo or any edting opeartion should ensureCursor visible
 - [x] render where other user is on scroll bar
 - [ ] wehn deleting a block and undoing it merges them
 - [ ] Interleaving on Concurrent Inserts
@@ -271,7 +270,7 @@
 - [ ] broadcast new update
 - [ ] import and export not working on mobile
 - [x] close connections gracefully on app close
-- [x] **on deploy ios blacking o**ut
+- [x] on deploy ios blacking out
 - [ ] Combination of bold and italic did not work one time.
 - [x] ending with "backtick" not wokring
 - [ ] Typing double space should clear fomrating or may do it by context menu
@@ -279,7 +278,7 @@
 - [ ] Add way to add link on desktop
 - [ ] Pasting link should make link after we typing space
 - [x] If close the page sometimes we do not getconfimration dialog, maybe on bad network. 
-- [ ] **We lose data sometimes!** Is it because lf bad network connetion.
+- [ ] We lose data sometimes! Is it because lf bad network connetion.
 - [ ] Sequential numbered list not working with indents.
 - [ ] Checkbox square should be bit brighter on dark mode for contrast.
 - [x] Hover on buttons for pagelink  that active should have better style
@@ -306,3 +305,7 @@
 - [ ] sidebar safe area
 - [ ] canvas safe area
 - [ ] can not undo clear list item operation
+- [ ] Update dialog show up without a reason sometimes.
+- [ ] CTRL + F 
+- [ ] CTRL + S to save the conntent as markdown.
+- [ ] Pasting from screenshot does not work.

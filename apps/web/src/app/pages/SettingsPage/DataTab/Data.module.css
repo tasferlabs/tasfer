@@ -1,0 +1,13 @@
+.container {
+  max-width: 800px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.title {
+  font-weight: 600;
+}

@@ -92,9 +92,12 @@ export default {
         d="M10 13v1h8v-1c0-1.33-2.67-2-4-2s-4 .67-4 2Zm5.414-6.414a2 2 0 1 0-2.828 2.828 2 2 0 0 0 2.828-2.828Z"
       />
       <path
+        // fill="currentColor"
         stroke="currentColor"
+        fillOpacity={0.6}
         strokeLinejoin="round"
-        strokeWidth={1.5}
+        strokeWidth={1}
+        strokeLinecap='round'
         d="M3 1h6l2 2h8.5C20.7 3 21 4.333 21 5v11c0 .8-1.333 1-2 1H3c-1.6 0-2-.667-2-1V3c0-1.6 1.333-2 2-2Z"
       />
     </svg>

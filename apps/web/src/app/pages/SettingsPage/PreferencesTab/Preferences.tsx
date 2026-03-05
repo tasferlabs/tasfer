@@ -37,8 +37,8 @@ export function Preferences() {
     <div className={styles.container}>
       <div className={styles.row}>
         <div className={styles.column}>
-          <p className={cn("text-smst", styles.title)}>{t`Theme`}</p>
-          <p className="text-sm">{t`Select theme for the application`}</p>
+          <p className={cn("text-sm", styles.title)}>{t`Theme`}</p>
+          <p className="text-sm opacity-75">{t`Select theme for the application`}</p>
         </div>
 
         <Select onValueChange={onChangeTheme} value={theme.theme}>
@@ -55,8 +55,8 @@ export function Preferences() {
 
       <div className={styles.row}>
         <div className={styles.column}>
-          <p className={cn("text-smst", styles.title)}>{t`Language`}</p>
-          <p className="text-sm">{t`Select language for the application`}</p>
+          <p className={cn("text-sm", styles.title)}>{t`Language`}</p>
+          <p className="text-sm opacity-75">{t`Select language for the application`}</p>
         </div>
         <Select onValueChange={onChangeLangaue} value={i18n.language}>
           <SelectTrigger className={styles.selectTrigger}>

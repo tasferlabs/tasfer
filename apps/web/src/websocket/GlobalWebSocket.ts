@@ -12,12 +12,14 @@ import type {
   ClientMessage,
   RoomCallbacks,
   PageEventCallbacks,
+  SpaceEventCallbacks,
+  // ShareEventCallbacks,
   RoomUser,
   Operation,
 } from "./types";
-import { isPageEvent } from "./types";
+import { isPageEvent, isSpaceEvent /*, isShareEvent */ } from "./types";
 import type { AwarenessState } from "@/editor/sync/awareness";
-import { getColorForPeer, getTestNameForPeer } from "@/editor/sync/awareness";
+import { getColorForPeer } from "@/editor/sync/awareness";
 import { generatePeerId } from "@/editor/sync/id";
 import { CLIENT_VERSION } from "@/version";
 
@@ -63,6 +65,8 @@ export class GlobalWebSocket {
   private roomSubscriptions: Map<string, RoomSubscription> = new Map();
   private connectionListeners: Set<ConnectionListener> = new Set();
   private pageEventListeners: Set<PageEventCallbacks> = new Set();
+  private spaceEventListeners: Set<SpaceEventCallbacks> = new Set();
+  // private shareEventListeners: Set<ShareEventCallbacks> = new Set();
   private updateAvailableListeners: Set<UpdateAvailableCallback> = new Set();
 
   // Peer identity
@@ -74,8 +78,8 @@ export class GlobalWebSocket {
     this._peerId = generatePeerId();
     this.localUser = {
       peerId: this._peerId,
-      name: userName || getTestNameForPeer(this._peerId),
-      color: getColorForPeer(this._peerId),
+      name: userName,
+      color: getColorForPeer(userName || this._peerId),
     };
   }
 
@@ -101,7 +105,23 @@ export class GlobalWebSocket {
    * Update the local user name.
    */
   setUserName(name: string): void {
-    this.localUser = { ...this.localUser, name };
+    this.localUser = {
+      ...this.localUser,
+      name,
+      color: getColorForPeer(name || this.localUser.peerId),
+    };
+  }
+
+  /**
+   * Update the local user name and avatar.
+   */
+  setUserInfo(name: string, avatar: string | null): void {
+    this.localUser = {
+      ...this.localUser,
+      name,
+      avatar,
+      color: getColorForPeer(name || this.localUser.peerId),
+    };
   }
 
   /**
@@ -188,6 +208,26 @@ export class GlobalWebSocket {
       this.pageEventListeners.delete(callbacks);
     };
   }
+
+  /**
+   * Subscribe to space/group lifecycle events.
+   */
+  onSpaceEvents(callbacks: SpaceEventCallbacks): () => void {
+    this.spaceEventListeners.add(callbacks);
+    return () => {
+      this.spaceEventListeners.delete(callbacks);
+    };
+  }
+
+  // /**
+  //  * Subscribe to share lifecycle events.
+  //  */
+  // onShareEvents(callbacks: ShareEventCallbacks): () => void {
+  //   this.shareEventListeners.add(callbacks);
+  //   return () => {
+  //     this.shareEventListeners.delete(callbacks);
+  //   };
+  // }
 
   /**
    * Subscribe to update available notifications.
@@ -402,7 +442,7 @@ export class GlobalWebSocket {
     this.ws = null;
 
     // Attempt reconnect if we have subscriptions
-    if (this.roomSubscriptions.size > 0 || this.pageEventListeners.size > 0) {
+    if (this.roomSubscriptions.size > 0 || this.pageEventListeners.size > 0 || this.spaceEventListeners.size > 0) {
       this.attemptReconnect();
     } else {
       this.setConnectionState("disconnected");
@@ -490,6 +530,18 @@ export class GlobalWebSocket {
       this.handlePageEvent(message);
       return;
     }
+
+    // Handle space events (broadcast to all listeners)
+    if (isSpaceEvent(message)) {
+      this.handleSpaceEvent(message);
+      return;
+    }
+
+    // // Handle share events (broadcast to all listeners)
+    // if (isShareEvent(message)) {
+    //   this.handleShareEvent(message);
+    //   return;
+    // }
 
     // Handle room messages (route to specific room subscription)
     switch (message.type) {
@@ -606,6 +658,55 @@ export class GlobalWebSocket {
       }
     }
   }
+
+  private handleSpaceEvent(event: ServerMessage): void {
+    for (const callbacks of this.spaceEventListeners) {
+      try {
+        switch (event.type) {
+          case "space-created":
+            callbacks.onSpaceCreated?.(event.space);
+            break;
+          case "space-updated":
+            callbacks.onSpaceUpdated?.(event.spaceId, event.name, event.description);
+            break;
+          case "space-deleted":
+            callbacks.onSpaceDeleted?.(event.spaceId);
+            break;
+          case "member-added":
+            callbacks.onMemberAdded?.(event.spaceId, event.member);
+            break;
+          case "member-removed":
+            callbacks.onMemberRemoved?.(event.spaceId, event.memberId, event.userId);
+            break;
+          case "member-left":
+            callbacks.onMemberLeft?.(event.spaceId, event.userId);
+            break;
+        }
+      } catch (e) {
+        console.error("[GlobalWebSocket] Space event listener error:", e);
+      }
+    }
+  }
+
+  // private handleShareEvent(event: ServerMessage): void {
+  //   for (const callbacks of this.shareEventListeners) {
+  //     try {
+  //       switch (event.type) {
+  //         case "share-created":
+  //           callbacks.onShareCreated?.(event);
+  //           break;
+  //         case "share-updated":
+  //           callbacks.onShareUpdated?.(event);
+  //           break;
+  //         case "share-removed":
+  //           callbacks.onShareRemoved?.(event);
+  //           break;
+  //       }
+  //     } catch (e) {
+  //       console.error("[GlobalWebSocket] Share event listener error:", e);
+  //     }
+  //   }
+  // }
 }
 
 // =============================================================================

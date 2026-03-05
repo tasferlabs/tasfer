@@ -267,6 +267,15 @@
   align-items: center;
   gap: 0.25rem;
 }
+
+.appSidebarCollapseIcon {
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.appSidebarCollapseIconOpen {
+  transform: rotate(90deg);
+}
 .appSidebarSectionIcon {
   width: 30px;
   height: 30px;
@@ -275,7 +284,7 @@
   justify-content: center;
 }
 
-.appSidebarSection button:first-of-type {
+.appSidebarSection .appSidebarSectionButton:first-of-type {
   margin-inline-start: auto;
 }
 .appSidebarSectionIcon svg {
@@ -395,9 +404,8 @@
 
 .appSidebarPages {
   padding: 0 1rem;
+  padding-bottom: 0.75rem;
   flex: 1 1 auto;
-  /* min-height: 50px; */
-  /* padding-bottom: 0.5rem; */
   border-radius: 4px;
   overflow: hidden;
   min-width: 0;
