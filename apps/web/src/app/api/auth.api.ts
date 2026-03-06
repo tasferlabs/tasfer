@@ -23,7 +23,6 @@ interface RegisterResponse {
 
 export async function register(data: {
   email: string;
-  name: string;
   password: string;
 }): Promise<RegisterResponse> {
   const response = await fetch(`${API_BASE}/auth/register`, {

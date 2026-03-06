@@ -23,7 +23,7 @@ interface NeedsVerification {
 
 interface AuthContextValue extends AuthState {
   login: (email: string, password: string) => Promise<NeedsVerification | void>;
-  register: (email: string, name: string, password: string) => Promise<NeedsVerification | void>;
+  register: (email: string, password: string) => Promise<NeedsVerification | void>;
   verifyEmail: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   updateUser: (user: AuthUser) => void;
@@ -124,8 +124,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const register = React.useCallback(
-    async (email: string, name: string, password: string): Promise<NeedsVerification | void> => {
-      const data = await apiRegister({ email, name, password });
+    async (email: string, password: string): Promise<NeedsVerification | void> => {
+      const data = await apiRegister({ email, password });
       if (data.needsVerification) {
         return { needsVerification: true, email: data.email! };
       }

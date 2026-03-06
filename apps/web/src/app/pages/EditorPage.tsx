@@ -1,10 +1,28 @@
+import { DateTime, Duration } from "luxon";
+import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxInput,
+  ComboboxContent,
+  ComboboxList,
+  ComboboxItem,
+} from "@/components/ui/combobox";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useParams, useNavigate } from "react-router-dom";
 import { debounce } from "lodash-es";
+import { Calendar, Trash, X } from "lucide-react";
+import * as Popover from "@radix-ui/react-popover";
 import { MountedEditor } from "../MountedEditor";
 import type { SyncState } from "@/websocket/hooks/useRoom";
 import type { AwarenessUser } from "@/editor/sync/awareness";
@@ -22,6 +40,7 @@ import {
   useCreatePage,
   getPage,
   useUpdatePage,
+  useGetPage,
   useGetPages,
   type HLC,
 } from "../api/pages.api";
@@ -33,6 +52,7 @@ import { useDebouncedSave } from "../hooks/useDebouncedSave";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
+import useResponsive from "../hooks/useResponsive";
 import useLocalStorage from "../hooks/useLocalStorage";
 import { WordCountOverlay } from "../components/WordCountOverlay";
 import style from "./EditorPage.module.css";
@@ -441,10 +461,11 @@ export default function EditorPage() {
   // Pass snapshot blocks to the editor
   // Snapshot is loaded once on mount, editor manages state from there
   return (
-    <>
+    <div className="flex flex-col w-full h-full">
+      <PageTagsBar pageId={id} readonly={readonly} />
       <MountedEditor
         snapshot={pageSnapshot}
-        className="w-full h-full"
+        className="w-full flex-1 min-h-0"
         onContentChange={readonly ? undefined : handleContentChange}
         onContentUpdate={handleContentUpdate}
         autoFocus={!readonly}
@@ -462,7 +483,207 @@ export default function EditorPage() {
         readonly={readonly}
       />
       <WordCountOverlay />
-    </>
+    </div>
+  );
+}
+
+// ── Page Tags Bar ──
+
+function formatDuration(minutes: number): string {
+  return Duration.fromObject({ minutes }).rescale().toHuman();
+}
+
+function formatScheduleLabel(ts: number, duration: number | null): string {
+  const d = new Date(ts);
+  const date = d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  const time = d.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const dur = duration ? ` (${formatDuration(duration)})` : "";
+  return `${date}, ${time}${dur}`;
+}
+
+const DURATION_OPTIONS = [
+  15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180, 195, 210, 225, 240,
+  255, 270, 285, 300, 315, 330, 345, 360, 375, 390, 405, 420, 435, 450, 465,
+  480,
+];
+
+function ScheduleContent({
+  pageId,
+  scheduledAt,
+  duration,
+  readonly,
+}: {
+  pageId: string;
+  scheduledAt: number;
+  duration: number | null;
+  readonly: boolean;
+}) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const { mutate: update } = useUpdatePage({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["page", pageId] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
+    },
+  });
+
+  const tz = DateTime.local().zoneName;
+  const dateValue = DateTime.fromMillis(scheduledAt, { zone: tz }).toISO();
+  const currentDuration = duration ?? 60;
+
+  const handleDateChange = (value: string | null) => {
+    if (!value) return;
+    const ms = DateTime.fromISO(value, { zone: tz }).toMillis();
+    if (!isNaN(ms)) update({ id: pageId, scheduledAt: ms });
+  };
+
+  const handleDurationChange = (newDuration: string) => {
+    const mins = parseInt(newDuration, 10);
+    if (!isNaN(mins) && mins > 0) update({ id: pageId, duration: mins });
+  };
+
+  const handleRemoveSchedule = () => {
+    update({ id: pageId, scheduledAt: null, duration: null, allDay: null });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <label className="text-sm font-medium">{t`Date & Time`}</label>
+        <DateTimePicker
+          type="datetime"
+          value={dateValue}
+          onChange={handleDateChange}
+          disabled={readonly}
+          timezone={tz}
+          fullWidth
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-sm font-medium">{t`Duration`}</label>
+        <Combobox
+          key={currentDuration}
+          defaultValue={formatDuration(currentDuration)}
+          onValueChange={(val) => {
+            if (val == null) return;
+            const found = DURATION_OPTIONS.find((d) => formatDuration(d) === val);
+            if (found) handleDurationChange(String(found));
+          }}
+          disabled={readonly}
+          inline
+        >
+          <ComboboxInput placeholder={formatDuration(currentDuration)} />
+          <ComboboxList className="max-h-48 overflow-y-auto border rounded-md mt-1">
+            {DURATION_OPTIONS.map((d) => (
+              <ComboboxItem key={d} value={formatDuration(d)}>
+                {formatDuration(d)}
+              </ComboboxItem>
+            ))}
+          </ComboboxList>
+        </Combobox>
+      </div>
+
+      {!readonly && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleRemoveSchedule}
+          className="w-full justify-start gap-2 text-destructive hover:text-destructive"
+        >
+          <Trash className="h-4 w-4" />
+          {t`Remove from Schedule`}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function ScheduleTag({ pageId, readonly }: { pageId: string; readonly: boolean }) {
+  const { t } = useTranslation();
+  const { data: page } = useGetPage(pageId);
+  const [open, setOpen] = useState(false);
+  const isMobile = useResponsive("(max-width: 768px)");
+
+  if (!page?.scheduledAt) return null;
+
+  const label = formatScheduleLabel(page.scheduledAt, page.duration);
+
+  const content = (
+    <ScheduleContent
+      pageId={pageId}
+      scheduledAt={page.scheduledAt}
+      duration={page.duration}
+      readonly={readonly}
+    />
+  );
+
+  if (isMobile) {
+    return (
+      <>
+        <Badge
+          variant="secondary"
+          className="cursor-pointer gap-1.5 select-none"
+          onClick={() => setOpen(true)}
+        >
+          <Calendar className="h-3 w-3" />
+          {label}
+        </Badge>
+        <Drawer open={open} onOpenChange={setOpen}>
+          <DrawerContent>
+            <div className="mx-auto w-full max-w-sm pb-6">
+              <DrawerHeader>
+                <DrawerTitle>{t`Schedule`}</DrawerTitle>
+              </DrawerHeader>
+              <div className="px-4">{content}</div>
+            </div>
+          </DrawerContent>
+        </Drawer>
+      </>
+    );
+  }
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <Badge
+          variant="secondary"
+          className="cursor-pointer gap-1.5 select-none"
+        >
+          <Calendar className="h-3 w-3" />
+          {label}
+        </Badge>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          align="start"
+          sideOffset={8}
+          className="z-50 w-[320px] rounded-lg border border-border bg-popover p-4 shadow-lg animate-in fade-in-0 zoom-in-95"
+        >
+          <h3 className="text-sm font-semibold mb-3">{t`Schedule`}</h3>
+          {content}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+function PageTagsBar({ pageId, readonly }: { pageId: string; readonly: boolean }) {
+  const { data: page } = useGetPage(pageId);
+  const hasAnyTag = !!page?.scheduledAt;
+
+  if (!hasAnyTag) return null;
+
+  return (
+    <div className="flex items-center gap-2 px-4 py-2">
+      <ScheduleTag pageId={pageId} readonly={readonly} />
+    </div>
   );
 }
 

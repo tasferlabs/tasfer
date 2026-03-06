@@ -58,10 +58,10 @@ async function setVerificationCode(userId: string): Promise<string> {
 // Register
 router.post("/register", async (req, res) => {
   try {
-    const { email, name, password } = req.body;
+    const { email, password } = req.body;
 
-    if (!email || !name || !password) {
-      return res.status(400).json({ success: false, error: "Email, name, and password are required" });
+    if (!email || !password) {
+      return res.status(400).json({ success: false, error: "Email and password are required" });
     }
 
     if (typeof password !== "string" || password.length < 8) {
@@ -81,7 +81,7 @@ router.post("/register", async (req, res) => {
         const passwordHash = await bcrypt.hash(password, 12);
         await db
           .update(users)
-          .set({ name: name.trim(), passwordHash })
+          .set({ passwordHash })
           .where(eq(users.id, existing.id));
 
         const code = await setVerificationCode(existing.id);
@@ -101,13 +101,13 @@ router.post("/register", async (req, res) => {
     await db.insert(users).values({
       id: userId,
       email: normalizedEmail,
-      name: name.trim(),
+      name: "",
       passwordHash,
     });
 
     await db.insert(spaces).values({
       id: createId(),
-      name: `${name.trim()}'s Space`,
+      name: "Personal Space",
       type: "personal",
       ownerId: userId,
     });

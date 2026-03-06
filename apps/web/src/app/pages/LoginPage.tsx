@@ -1,35 +1,43 @@
 import { useState } from "react";
+import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "../contexts/AuthContext";
 
+interface LoginForm {
+  email: string;
+  password: string;
+}
+
 export default function LoginPage() {
   const [t] = useTranslation("LoginPage");
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const {
+    register,
+    handleSubmit,
+    formState: { isSubmitting },
+  } = useForm<LoginForm>();
+
+  const onSubmit = async (data: LoginForm) => {
     setError("");
-    setLoading(true);
 
     try {
-      const result = await login(email, password);
+      const result = await login(data.email, data.password);
       if (result?.needsVerification) {
-        navigate(`/verify-email?email=${encodeURIComponent(result.email)}`, { replace: true });
+        navigate(
+          `/verify-email?email=${encodeURIComponent(result.email)}`,
+          { replace: true },
+        );
         return;
       }
       navigate("/", { replace: true });
     } catch (err: any) {
       setError(err.message || "Login failed");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -41,7 +49,7 @@ export default function LoginPage() {
           <p className="text-sm text-muted-foreground">{t`Sign in to your account`}</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {error && (
             <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               {error}
@@ -55,12 +63,10 @@ export default function LoginPage() {
             <Input
               id="email"
               type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              required
               autoComplete="email"
               autoFocus
+              {...register("email", { required: true })}
             />
           </div>
 
@@ -76,15 +82,13 @@ export default function LoginPage() {
             <Input
               id="password"
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               placeholder={t`Your password`}
-              required
               autoComplete="current-password"
+              {...register("password", { required: true })}
             />
           </div>
 
-          <Button type="submit" loading={loading} className="w-full">
+          <Button type="submit" loading={isSubmitting} className="w-full">
             {t`Sign in`}
           </Button>
         </form>

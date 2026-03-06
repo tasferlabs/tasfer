@@ -1,13 +1,12 @@
-import React from "react";
-import { useTranslation } from "react-i18next";
-import { Camera, DeleteIcon, Trash } from "lucide-react";
-import { useAuth } from "@/app/contexts/AuthContext";
 import { updateProfile } from "@/app/api/auth.api";
-import { uploadImage } from "@/app/api/images.api";
-import { getImageUrl } from "@/app/api/images.api";
+import { getImageUrl, uploadImage } from "@/app/api/images.api";
+import { useAuth } from "@/app/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { Camera, Trash } from "lucide-react";
+import React from "react";
+import { useTranslation } from "react-i18next";
 import styles from "./Profile.module.css";
 
 export function Profile() {
@@ -84,7 +83,7 @@ export function Profile() {
                   variant="destructive"
                   size="icon-sm"
                   onClick={handleRemoveAvatar}
-                  className="w-fit px-1 gap-1"
+                  className="w-fit px-1 pe-2 gap-1"
                 >
                   <Trash size={12} />
                   {t`Remove`}

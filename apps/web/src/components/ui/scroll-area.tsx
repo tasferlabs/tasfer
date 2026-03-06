@@ -6,11 +6,13 @@ import { cn } from "../../lib/utils";
 function ScrollArea({
   className,
   children,
+  type = "hover",
   ...props
 }: React.ComponentProps<typeof ScrollAreaPrimitive.Root>) {
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
+      type={type}
       className={cn("relative", className)}
     >
       <ScrollAreaPrimitive.Viewport
