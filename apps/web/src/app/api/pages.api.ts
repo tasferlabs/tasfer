@@ -9,6 +9,10 @@ export interface IListPage {
   parentId: string | null;
   order: number;
   hasChildren: boolean;
+  scheduledAt?: number | null;
+  duration?: number | null;
+  allDay?: boolean | null;
+  recurrenceId?: string | null;
 }
 
 // HLC (Hybrid Logical Clock) for operation ordering
@@ -27,6 +31,11 @@ export interface IPage {
   snapshotClock: HLC | null;
   parentId: string | null;
   order: number;
+  // Calendar fields
+  scheduledAt: number | null;
+  duration: number | null;
+  allDay: boolean | null;
+  recurrenceId: string | null;
   createdAt: string;
   updatedAt: string;
   parents?: { id: string; title: string }[];
@@ -85,6 +94,9 @@ interface ICreatePage {
   title: string;
   parentId: string | null;
   spaceId: string;
+  scheduledAt?: number;
+  duration?: number;
+  allDay?: boolean;
 }
 
 export async function createPage(data: ICreatePage): Promise<IPage> {
@@ -123,6 +135,10 @@ interface IUpdatePage {
   snapshot?: Block[];
   // Clock of the snapshot - used for delta sync
   snapshotClock?: HLC | null;
+  // Calendar fields
+  scheduledAt?: number | null;
+  duration?: number | null;
+  allDay?: boolean | null;
 }
 
 export async function updatePage(data: IUpdatePage): Promise<IPage> {
@@ -258,6 +274,45 @@ export function useReorderPage<TContext = unknown>(
   return useMutation({
     mutationFn: reorderPage,
     ...options,
+  });
+}
+
+// Calendar range query
+export interface ICalendarPage {
+  id: string;
+  title: string;
+  autoTitle: boolean;
+  parentId: string | null;
+  order: number;
+  scheduledAt: number;
+  duration: number | null;
+  allDay: boolean | null;
+  recurrenceId: string | null;
+  createdAt: string;
+}
+
+export async function getCalendarPages(spaceId: string, start: number, end: number): Promise<ICalendarPage[]> {
+  const params = new URLSearchParams({
+    spaceId,
+    start: String(start),
+    end: String(end),
+  });
+
+  const response = await authFetch(`${API_BASE}/pages/calendar/range?${params.toString()}`);
+  const data = await response.json();
+
+  if (!data.success) {
+    throw new Error(data.error || "Failed to fetch calendar pages");
+  }
+
+  return data.data;
+}
+
+export function useGetCalendarPages(spaceId: string | null, start: number, end: number) {
+  return useQuery({
+    queryKey: ["calendar-pages", { spaceId, start, end }],
+    queryFn: () => getCalendarPages(spaceId!, start, end),
+    enabled: !!spaceId,
   });
 }
 

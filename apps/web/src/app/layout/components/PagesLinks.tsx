@@ -4,9 +4,7 @@ import { PageLink } from "./PageLink";
 import style from "./PagesLinks.module.css";
 import Icons from "@/app/components/uiKit/Icons/Icons";
 import { clsx } from "clsx";
-
-// Mock t function
-const t = (s: string | TemplateStringsArray) => s.toString();
+import { useTranslation } from "react-i18next";
 
 export type IParentsStack = { id: string | null; order: number }[];
 
@@ -23,6 +21,7 @@ export default function PagesLinks({
   handleAdd?: () => void;
   isCreating?: boolean;
 }) {
+  const { t } = useTranslation();
   const { data: pages, isLoading } = useGetPages(spaceId ?? null, parentId);
 
   if (isLoading) return null;
@@ -44,7 +43,7 @@ export default function PagesLinks({
       {pages?.length === 0 && !!parentId && (
         <>
           <div className={style.empty}>
-            <p>{t`No pages here`}</p>
+            <p>{t("No pages here")}</p>
           </div>
           <button
             onClick={() => handleAdd()}
@@ -56,14 +55,14 @@ export default function PagesLinks({
             ) : (
               <Icons.Plus width={16} height={16} />
             )}
-            <span>{t`Add page`}</span>
+            <span>{t("Add page")}</span>
           </button>
         </>
       )}
 
       {pages?.length === 0 && !parentId && (
         <div className={clsx(style.allEmpty, "ps-2")} >
-          <p>{t`No pages here yet!`}</p>
+          <p>{t("No pages here yet!")}</p>
         </div>
       )}
     </>

@@ -77,16 +77,15 @@ import useResponsive from "../hooks/useResponsive";
 import { setRecentDragEnd } from "./components/PageLink";
 import { PagesArea } from "./components/PagesArea";
 // import pageLinkStyle from "./components/PagesLinks.module.css";
+import { useTranslation } from "react-i18next";
 import style from "./Layout.module.css";
-
-// Mock t function
-const t = (s: string | TemplateStringsArray) => s.toString();
 
 export function SidebarContent({
   setOpen,
 }: {
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const isMobile = useResponsive("(max-width: 768px)");
@@ -170,10 +169,10 @@ export function SidebarContent({
 
   async function leaveGroup(groupId: string) {
     const confirmed = await getConfirmation({
-      title: t`Leave space`,
-      description: t`Are you sure you want to leave this space?`,
-      confirmText: t`Leave`,
-      cancelText: t`Cancel`,
+      title: t("Leave space"),
+      description: t("Are you sure you want to leave this space?"),
+      confirmText: t("Leave"),
+      cancelText: t("Cancel"),
     });
 
     if (confirmed) {
@@ -377,7 +376,7 @@ export function SidebarContent({
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={logout}>
               <SignOutIcon size={16} />
-              {t`Sign out`}
+              {t("Sign out")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -387,15 +386,21 @@ export function SidebarContent({
           className={clsx(style.iconButton, style.appSidebarClose)}
         >
           <CaretDoubleLeftIcon size={24} />
-          <VisuallyHidden>{t`Close sidebar`}</VisuallyHidden>
+          <VisuallyHidden>{t("Close sidebar")}</VisuallyHidden>
         </button>
       </div>
       <div className={style.appNavigationLinks}>
+        <RouterLink className={style.appNavigationLink} to={"/calendar"}>
+          <div className={style.appNavigationLinkIcon}>
+            <Icons.Calendar width={24} height={24} />
+          </div>
+          {t("Calendar")}
+        </RouterLink>
         <RouterLink className={style.appNavigationLink} to={"/settings"}>
           <div className={style.appNavigationLinkIcon}>
             <Icons.Gear width={24} height={24} />
           </div>
-          {t`Settings`}
+          {t("Settings")}
         </RouterLink>
         <button
           className={style.appNavigationLink}
@@ -407,7 +412,7 @@ export function SidebarContent({
           <div className={style.appNavigationLinkIcon}>
             <Icons.AddGroup />
           </div>
-          {t`Add space`}
+          {t("Add space")}
         </button>
       </div>
 
@@ -432,7 +437,7 @@ export function SidebarContent({
                   <DropdownMenu>
                     <DropdownMenuTrigger className={style.appSidebarSectionButton}>
                       <Ellipsis size={20} />
-                      <span className="sr-only">{t`Space settings`}</span>
+                      <span className="sr-only">{t("Space settings")}</span>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent>
                       <DropdownMenuItem
@@ -442,7 +447,7 @@ export function SidebarContent({
                           setGroupSettingsId(group.id);
                         }}
                       >
-                        {t`Space settings`}
+                        {t("Space settings")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onSelect={(ev) => {
@@ -451,11 +456,11 @@ export function SidebarContent({
                           setInviteMembersId(group.id);
                         }}
                       >
-                        {t`Invite members`}
+                        {t("Invite members")}
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={() => leaveGroup(group.id)}>
-                        {t`Leave space`}
+                        {t("Leave space")}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -465,7 +470,7 @@ export function SidebarContent({
                     disabled={isCreating}
                   >
                     <PlusIcon size={20} />
-                    <span className="sr-only">{t`Add page`}</span>
+                    <span className="sr-only">{t("Add page")}</span>
                   </button>
                 </div>
                 <PagesArea parentId={null} spaceId={group.id} />
@@ -480,7 +485,7 @@ export function SidebarContent({
                     <div className={style.appSidebarSectionIcon}>
                       <Icons.Lock width={20} height={20} />
                     </div>
-                    {t`Private`}
+                    {t("Private")}
                   </div>
                   <button
                     className={style.appSidebarSectionButton}
@@ -488,7 +493,7 @@ export function SidebarContent({
                     disabled={isCreating}
                   >
                     <PlusIcon size={20} />
-                    <span className="sr-only">{t`Add page`}</span>
+                    <span className="sr-only">{t("Add page")}</span>
                   </button>
                 </div>
 
@@ -518,7 +523,7 @@ export function SidebarContent({
                         })}
                       />
                     </div>
-                    {t`Shared`}
+                    {t("Shared")}
                   </button>
                 </div>
                 {!sharedCollapsed && (
@@ -599,6 +604,7 @@ function AddGroupDialog({
   onOpenChange: (open: boolean) => void;
   onSubmit: (data: { name: string; description: string }) => void;
 }) {
+  const { t } = useTranslation();
   const isMobile = useResponsive("(max-width: 768px)");
 
   const FormSchema = useMemo(
@@ -606,10 +612,10 @@ function AddGroupDialog({
       z.object({
         name: z
           .string()
-          .min(1, t`Space name is required`)
-          .min(3, t`Space name is too short`)
-          .max(50, t`Space name is too long`),
-        description: z.string().max(500, t`Description is too long`),
+          .min(1, t("Space name is required"))
+          .min(3, t("Space name is too short"))
+          .max(50, t("Space name is too long")),
+        description: z.string().max(500, t("Description is too long")),
       }),
     [t],
   );
@@ -637,7 +643,7 @@ function AddGroupDialog({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          {t`Create a new space to share pages with others`}
+          {t("Create a new space to share pages with others")}
         </p>
 
         <FormField
@@ -645,8 +651,8 @@ function AddGroupDialog({
           name="name"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{t`Name`}</FormLabel>
-              <Input {...field} placeholder={t`Space name`} />
+              <FormLabel>{t("Name")}</FormLabel>
+              <Input {...field} placeholder={t("Space name")} />
               <FormMessage />
             </FormItem>
           )}
@@ -657,8 +663,8 @@ function AddGroupDialog({
           name="description"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{t`Description`}</FormLabel>
-              <Textarea {...field} placeholder={t`Description`} rows={3} />
+              <FormLabel>{t("Description")}</FormLabel>
+              <Textarea {...field} placeholder={t("Description")} rows={3} />
               <FormMessage />
             </FormItem>
           )}
@@ -666,7 +672,7 @@ function AddGroupDialog({
 
         {isMobile ? null : (
           <DialogFooter>
-            <Button type="submit">{t`Create`}</Button>
+            <Button type="submit">{t("Create")}</Button>
           </DialogFooter>
         )}
       </form>
@@ -679,15 +685,15 @@ function AddGroupDialog({
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
-              <DrawerTitle>{t`Create new space`}</DrawerTitle>
+              <DrawerTitle>{t("Create new space")}</DrawerTitle>
             </DrawerHeader>
             <div className="px-4">{content}</div>
             <DrawerFooter className="pt-4">
               <Button onClick={form.handleSubmit(handleSubmit)}>
-                {t`Create`}
+                {t("Create")}
               </Button>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                {t`Cancel`}
+                {t("Cancel")}
               </Button>
             </DrawerFooter>
           </div>
@@ -700,7 +706,7 @@ function AddGroupDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t`Create new space`}</DialogTitle>
+          <DialogTitle>{t("Create new space")}</DialogTitle>
         </DialogHeader>
         {content}
       </DialogContent>

@@ -19,9 +19,7 @@ import { PagesArea } from "./PagesArea";
 import { type IParentsStack } from "./PagesLinks";
 import style from "./PagesLinks.module.css";
 import useResponsive from "@/app/hooks/useResponsive";
-
-// Mock t function
-const t = (s: string | TemplateStringsArray) => s.toString();
+import { useTranslation } from "react-i18next";
 
 // Global flag to track recent drag - module level to avoid React timing issues
 let recentDragEnd = false;
@@ -57,6 +55,7 @@ export function PageLink({
   spaceId?: string;
   parentsStack?: IParentsStack;
 }) {
+  const { t } = useTranslation();
   const isCoarse = useResponsive("(pointer: coarse)");
   const queryClient = useQueryClient();
   const { getConfirmation } = useConfirmation();
@@ -246,7 +245,7 @@ export function PageLink({
   async function handleDelete() {
     const confirmed = await getConfirmation({
       title: "Delete Page",
-      description: t`Are you sure you want to delete this page?`,
+      description: t("Are you sure you want to delete this page?"),
       cancelText: "Cancel",
       confirmText: "Delete",
     });
@@ -349,7 +348,7 @@ export function PageLink({
               style={{ transform: "rotate(90deg)" }}
             />
           )}
-          <VisuallyHidden>{t`Open sub pages`}</VisuallyHidden>
+          <VisuallyHidden>{t("Open sub pages")}</VisuallyHidden>
         </button>
         <div className={style.linkTitle}>
           {isEditing ? (
@@ -362,7 +361,7 @@ export function PageLink({
               }}
               onChange={(e) => handleOnChange(e.target.value)}
               onBlur={() => handleStopEditing()}
-              placeholder={t`Untitled`}
+              placeholder={t("Untitled")}
               ref={inputRef}
             />
           ) : (
@@ -384,7 +383,7 @@ export function PageLink({
                 navigate(`/page/${data.id}`);
               }}
             >
-              {data.title || t`Untitled`}
+              {data.title || t("Untitled")}
             </span>
           )}
         </div>
@@ -401,7 +400,7 @@ export function PageLink({
             ) : (
               <Icons.Edit width={20} height={20} />
             )}
-            <VisuallyHidden>{t`Edit page`}</VisuallyHidden>
+            <VisuallyHidden>{t("Edit page")}</VisuallyHidden>
           </button>
           <button
             onClick={() => handleDelete()}
@@ -413,7 +412,7 @@ export function PageLink({
             ) : (
               <Icons.Trash width={20} height={20} />
             )}
-            <VisuallyHidden>{t`Delete page`}</VisuallyHidden>
+            <VisuallyHidden>{t("Delete page")}</VisuallyHidden>
           </button>
           <button
             onClick={() => handleAdd()}
@@ -425,7 +424,7 @@ export function PageLink({
             ) : (
               <Icons.Plus width={20} height={20} />
             )}
-            <VisuallyHidden>{t`Add page`}</VisuallyHidden>
+            <VisuallyHidden>{t("Add page")}</VisuallyHidden>
           </button>
         </div>
       </div>

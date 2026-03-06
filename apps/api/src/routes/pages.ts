@@ -3,7 +3,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { Redis } from "ioredis";
 import db from "../db/index.js";
 import { pages, snapshots } from "../db/schema.js";
-import { eq, and, isNull, sql, inArray, desc } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, sql, inArray, desc, gte, lte } from "drizzle-orm";
 import { encodeSnapshot, decodeSnapshot, type Block } from "../lib/snapshot.js";
 import { writeFile, readFile, deleteFile } from "../handlers/files.js";
 import { canAccessPage, canAccessSpace, getPageAccessLevel } from "../lib/permissions.js";
@@ -112,6 +112,58 @@ router.get("/list", async (req, res) => {
   }
 });
 
+// List pages by date range (calendar view)
+router.get("/calendar/range", async (req, res) => {
+  try {
+    const { spaceId, start, end } = req.query;
+
+    if (!spaceId || !start || !end) {
+      return res.status(400).json({ success: false, error: "spaceId, start, and end are required" });
+    }
+
+    const hasAccess = await canAccessSpace(req.user!.id, spaceId as string);
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, error: "Access denied" });
+    }
+
+    const startMs = Number(start);
+    const endMs = Number(end);
+
+    if (isNaN(startMs) || isNaN(endMs)) {
+      return res.status(400).json({ success: false, error: "start and end must be unix timestamps (ms)" });
+    }
+
+    const pagesList = await db
+      .select({
+        id: pages.id,
+        title: pages.title,
+        autoTitle: pages.autoTitle,
+        parentId: pages.parentId,
+        order: pages.order,
+        scheduledAt: pages.scheduledAt,
+        duration: pages.duration,
+        allDay: pages.allDay,
+        recurrenceId: pages.recurrenceId,
+        createdAt: pages.createdAt,
+      })
+      .from(pages)
+      .where(
+        and(
+          eq(pages.spaceId, spaceId as string),
+          isNotNull(pages.scheduledAt),
+          gte(pages.scheduledAt, startMs),
+          lte(pages.scheduledAt, endMs)
+        )
+      )
+      .orderBy(pages.scheduledAt);
+
+    res.json({ success: true, data: pagesList });
+  } catch (error) {
+    console.error("Calendar range error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
 // Get single page
 router.get("/:id", async (req, res) => {
   try {
@@ -184,6 +236,10 @@ router.get("/:id", async (req, res) => {
         autoTitle: page.autoTitle,
         parentId: page.parentId,
         order: page.order,
+        scheduledAt: page.scheduledAt,
+        duration: page.duration,
+        allDay: page.allDay,
+        recurrenceId: page.recurrenceId,
         createdAt: page.createdAt,
         updatedAt: page.updatedAt,
         snapshot: snapshotBlocks,
@@ -275,7 +331,7 @@ router.get("/:id/snapshots", async (req, res) => {
 // Create page
 router.post("/create", async (req, res) => {
   try {
-    const { title, parentId, spaceId } = req.body;
+    const { title, parentId, spaceId, scheduledAt, duration, allDay } = req.body;
 
     if (!spaceId) {
       return res.status(400).json({ success: false, error: "spaceId is required" });
@@ -311,6 +367,9 @@ router.post("/create", async (req, res) => {
         spaceId,
         parentId: parentId || null,
         order: maxOrder + 1,
+        ...(scheduledAt !== undefined && { scheduledAt }),
+        ...(duration !== undefined && { duration }),
+        ...(allDay !== undefined && { allDay }),
       })
       .returning();
 
@@ -372,6 +431,9 @@ router.put("/:id", async (req, res) => {
       autoTitle,
       snapshot: snapshotBlocks,
       snapshotClock,
+      scheduledAt,
+      duration,
+      allDay,
     } = req.body;
 
     const page = await db.query.pages.findFirst({
@@ -388,10 +450,9 @@ router.put("/:id", async (req, res) => {
     }
 
     // Build update object
-    const updateData: { title?: string; autoTitle?: boolean; updatedAt: Date } =
-      {
-        updatedAt: new Date(),
-      };
+    const updateData: Record<string, any> = {
+      updatedAt: new Date(),
+    };
 
     // Update title if provided
     if (title !== undefined) {
@@ -401,6 +462,17 @@ router.put("/:id", async (req, res) => {
     // Update autoTitle flag if provided
     if (autoTitle !== undefined) {
       updateData.autoTitle = autoTitle;
+    }
+
+    // Update calendar fields if provided
+    if (scheduledAt !== undefined) {
+      updateData.scheduledAt = scheduledAt;
+    }
+    if (duration !== undefined) {
+      updateData.duration = duration;
+    }
+    if (allDay !== undefined) {
+      updateData.allDay = allDay;
     }
 
     // Track if title was changed

@@ -4,6 +4,9 @@ import Layout from "../layout/Layout";
 import { RequireAuth, RedirectIfAuthed } from "./AuthGuard";
 
 const EditorPage = React.lazy(() => import("../pages/EditorPage"));
+const CalendarPage = React.lazy(
+  () => import("../pages/CalendarPage/CalendarPage")
+);
 const SettingsPage = React.lazy(
   () => import("../pages/SettingsPage/SettingsPage")
 );
@@ -78,6 +81,10 @@ export const router = createBrowserRouter([
       {
         path: "page",
         element: <EditorPage />,
+      },
+      {
+        path: "calendar",
+        element: <CalendarPage />,
       },
       {
         path: "settings",
