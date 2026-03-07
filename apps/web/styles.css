@@ -7,7 +7,8 @@
 
 @theme inline {
   --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

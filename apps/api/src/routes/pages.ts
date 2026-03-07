@@ -3,7 +3,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { Redis } from "ioredis";
 import db from "../db/index.js";
 import { pages, snapshots } from "../db/schema.js";
-import { eq, and, isNull, sql, inArray, desc } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, sql, inArray, desc, gte, lte } from "drizzle-orm";
 import { encodeSnapshot, decodeSnapshot, type Block } from "../lib/snapshot.js";
 import { writeFile, readFile, deleteFile } from "../handlers/files.js";
 import { canAccessPage, canAccessSpace, getPageAccessLevel } from "../lib/permissions.js";
@@ -112,6 +112,141 @@ router.get("/list", async (req, res) => {
   }
 });
 
+// Search pages by title
+router.get("/search", async (req, res) => {
+  try {
+    const { spaceId, q, limit } = req.query;
+
+    if (!spaceId) {
+      return res.status(400).json({ success: false, error: "spaceId is required" });
+    }
+
+    const hasAccess = await canAccessSpace(req.user!.id, spaceId as string);
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, error: "Access denied" });
+    }
+
+    const searchQuery = (q as string || "").trim();
+    const maxResults = Math.min(Number(limit) || 20, 50);
+
+    const conditions = [eq(pages.spaceId, spaceId as string)];
+
+    if (searchQuery) {
+      conditions.push(sql`LOWER(${pages.title}) LIKE LOWER(${"%" + searchQuery + "%"})`);
+    }
+
+    const pagesList = await db
+      .select({
+        id: pages.id,
+        title: pages.title,
+        parentId: pages.parentId,
+      })
+      .from(pages)
+      .where(and(...conditions))
+      .orderBy(pages.title)
+      .limit(maxResults);
+
+    // Build ancestor paths for each page
+    const parentIds = [...new Set(pagesList.filter(p => p.parentId).map(p => p.parentId!))];
+
+    let pathMap: Record<string, string> = {};
+    if (parentIds.length > 0) {
+      const idList = sql.join(parentIds.map(id => sql`${id}`), sql`, `);
+      const ancestors = await db.execute<{ id: string; path: string }>(sql`
+        WITH RECURSIVE ancestor_path AS (
+          SELECT id, title, "parentId", COALESCE(title, 'Untitled')::text AS path
+          FROM pages
+          WHERE id IN (${idList})
+          UNION ALL
+          SELECT ap.id, p.title, p."parentId",
+            COALESCE(p.title, 'Untitled') || ' > ' || ap.path
+          FROM ancestor_path ap
+          JOIN pages p ON p.id = ap."parentId"
+        )
+        SELECT id, path FROM ancestor_path WHERE "parentId" IS NULL
+      `);
+      for (const row of ancestors.rows) {
+        pathMap[row.id] = row.path;
+      }
+      // For parentIds that didn't resolve (already root-level), use their title directly
+      for (const pid of parentIds) {
+        if (!pathMap[pid]) {
+          const found = pagesList.find(p => p.id === pid);
+          if (found) pathMap[pid] = found.title || "Untitled";
+        }
+      }
+    }
+
+    const pagesWithPath = pagesList.map(p => ({
+      ...p,
+      path: p.parentId ? (pathMap[p.parentId] || null) : null,
+    }));
+
+    res.json({ success: true, data: pagesWithPath });
+  } catch (error) {
+    console.error("Search pages error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+// List pages by date range (calendar view)
+router.get("/calendar/range", async (req, res) => {
+  try {
+    const { spaceId, start, end } = req.query;
+
+    if (!spaceId || !start || !end) {
+      return res.status(400).json({ success: false, error: "spaceId, start, and end are required" });
+    }
+
+    const hasAccess = await canAccessSpace(req.user!.id, spaceId as string);
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, error: "Access denied" });
+    }
+
+    const startMs = Number(start);
+    const endMs = Number(end);
+
+    if (isNaN(startMs) || isNaN(endMs)) {
+      return res.status(400).json({ success: false, error: "start and end must be unix timestamps (ms)" });
+    }
+
+    const pagesList = await db
+      .select({
+        id: pages.id,
+        title: pages.title,
+        autoTitle: pages.autoTitle,
+        parentId: pages.parentId,
+        order: pages.order,
+        scheduledAt: pages.scheduledAt,
+        duration: pages.duration,
+        allDay: pages.allDay,
+        recurrenceId: pages.recurrenceId,
+        createdAt: pages.createdAt,
+      })
+      .from(pages)
+      .where(
+        and(
+          eq(pages.spaceId, spaceId as string),
+          isNotNull(pages.scheduledAt),
+          gte(pages.scheduledAt, startMs),
+          lte(pages.scheduledAt, endMs)
+        )
+      )
+      .orderBy(pages.scheduledAt);
+
+    // Convert scheduledAt from unix ms to ISO string
+    const pagesWithISO = pagesList.map((p) => ({
+      ...p,
+      scheduledAt: p.scheduledAt ? new Date(p.scheduledAt).toISOString() : null,
+    }));
+
+    res.json({ success: true, data: pagesWithISO });
+  } catch (error) {
+    console.error("Calendar range error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
 // Get single page
 router.get("/:id", async (req, res) => {
   try {
@@ -184,6 +319,10 @@ router.get("/:id", async (req, res) => {
         autoTitle: page.autoTitle,
         parentId: page.parentId,
         order: page.order,
+        scheduledAt: page.scheduledAt ? new Date(page.scheduledAt).toISOString() : null,
+        duration: page.duration,
+        allDay: page.allDay,
+        recurrenceId: page.recurrenceId,
         createdAt: page.createdAt,
         updatedAt: page.updatedAt,
         snapshot: snapshotBlocks,
@@ -275,7 +414,7 @@ router.get("/:id/snapshots", async (req, res) => {
 // Create page
 router.post("/create", async (req, res) => {
   try {
-    const { title, parentId, spaceId } = req.body;
+    const { title, parentId, spaceId, scheduledAt, duration, allDay } = req.body;
 
     if (!spaceId) {
       return res.status(400).json({ success: false, error: "spaceId is required" });
@@ -311,6 +450,9 @@ router.post("/create", async (req, res) => {
         spaceId,
         parentId: parentId || null,
         order: maxOrder + 1,
+        ...(scheduledAt !== undefined && { scheduledAt: scheduledAt ? new Date(scheduledAt).getTime() : null }),
+        ...(duration !== undefined && { duration }),
+        ...(allDay !== undefined && { allDay }),
       })
       .returning();
 
@@ -354,6 +496,7 @@ router.post("/create", async (req, res) => {
       success: true,
       data: {
         ...newPage[0],
+        scheduledAt: newPage[0].scheduledAt ? new Date(newPage[0].scheduledAt).toISOString() : null,
         snapshot: initialSnapshot,
       },
     });
@@ -372,6 +515,9 @@ router.put("/:id", async (req, res) => {
       autoTitle,
       snapshot: snapshotBlocks,
       snapshotClock,
+      scheduledAt,
+      duration,
+      allDay,
     } = req.body;
 
     const page = await db.query.pages.findFirst({
@@ -388,10 +534,9 @@ router.put("/:id", async (req, res) => {
     }
 
     // Build update object
-    const updateData: { title?: string; autoTitle?: boolean; updatedAt: Date } =
-      {
-        updatedAt: new Date(),
-      };
+    const updateData: Record<string, any> = {
+      updatedAt: new Date(),
+    };
 
     // Update title if provided
     if (title !== undefined) {
@@ -401,6 +546,17 @@ router.put("/:id", async (req, res) => {
     // Update autoTitle flag if provided
     if (autoTitle !== undefined) {
       updateData.autoTitle = autoTitle;
+    }
+
+    // Update calendar fields if provided
+    if (scheduledAt !== undefined) {
+      updateData.scheduledAt = scheduledAt ? new Date(scheduledAt).getTime() : null;
+    }
+    if (duration !== undefined) {
+      updateData.duration = duration;
+    }
+    if (allDay !== undefined) {
+      updateData.allDay = allDay;
     }
 
     // Track if title was changed
@@ -475,7 +631,13 @@ router.put("/:id", async (req, res) => {
       }
     }
 
-    res.json({ success: true, data: updated[0] });
+    res.json({
+      success: true,
+      data: {
+        ...updated[0],
+        scheduledAt: updated[0].scheduledAt ? new Date(updated[0].scheduledAt).toISOString() : null,
+      },
+    });
   } catch (error) {
     console.error("Update page error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });

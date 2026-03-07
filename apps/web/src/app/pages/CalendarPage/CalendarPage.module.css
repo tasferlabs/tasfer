@@ -1,0 +1,762 @@
+.container {
+  /* max-width: 1400px; */
+  margin: 0 auto;
+  padding: 0 1rem 1rem;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  flex-shrink: 0;
+}
+
+.headerTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.headerNav {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.headerNavButton {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.headerNavButton:hover {
+  background-color: var(--accent);
+}
+
+.todayButton {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.75rem;
+}
+
+.todayButton:hover {
+  background-color: var(--accent);
+}
+
+/* ── Timeline ── */
+
+.timeline {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 2rem;
+}
+
+.timelineGrid {
+  position: relative;
+  cursor: crosshair;
+  user-select: none;
+}
+
+/* ── Hour lines ── */
+
+.hourLine {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px solid var(--border);
+  pointer-events: none;
+}
+
+.timeLabel {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  width: 56px;
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  text-align: right;
+  padding-right: 8px;
+  user-select: none;
+}
+
+/* ── Event cards ── */
+
+.eventCard {
+  position: absolute;
+  left: 68px;
+  right: 8px;
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: 6px;
+  padding: 0px 10px 4px;
+  cursor: grab;
+  overflow: hidden;
+  z-index: 2;
+  transition: background-color 0.1s;
+  box-sizing: border-box;
+}
+
+.eventCard:hover {
+  background-color: var(--accent);
+}
+
+.eventCardDraft {
+  background-color: color-mix(in srgb, var(--muted-foreground), transparent 92%);
+  border: 1px dashed var(--border);
+  border-left: 3px dashed var(--muted-foreground);
+  opacity: 0.7;
+}
+
+.eventCard:active {
+  cursor: grabbing;
+}
+
+.eventTitle {
+  font-weight: 500;
+  font-size: 0.8125rem;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  cursor: pointer;
+  display: inline-block;
+  width: min-content;
+}
+
+.eventTitle:hover {
+  text-decoration: underline;
+}
+
+.eventTime {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  margin-top: 1px;
+}
+
+.eventInline {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+
+.eventInline .eventTitle {
+  flex: 1;
+  min-width: 0;
+}
+
+.eventTimeInline {
+  font-size: 0.6rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Event preview popover ── */
+
+.previewPopover {
+  position: fixed;
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.previewPopoverHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+}
+
+.previewPopoverHeader:active {
+  cursor: grabbing;
+}
+
+.previewGripIcon {
+  color: var(--muted-foreground);
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.previewPopoverHeader:hover .previewGripIcon {
+  opacity: 0.8;
+}
+
+.previewCloseBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.previewCloseBtn:hover {
+  background-color: var(--accent);
+  color: var(--foreground);
+}
+
+.previewRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.previewRowIcon {
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+}
+
+.previewOpenLink {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8125rem;
+  color: var(--primary);
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.previewOpenLink:hover {
+  text-decoration: underline;
+}
+
+.previewEditorArea {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.previewDraftFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.previewResizeBarTop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+  z-index: 3;
+}
+
+.previewResizeBarTop::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: var(--primary);
+  opacity: 0;
+  transition: opacity 0.15s;
+  border-radius: 8px 8px 0 0;
+}
+
+.previewResizeBarTop:hover::after {
+  opacity: 1;
+}
+
+.previewResizeBarLeft {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 3;
+}
+
+.previewResizeBarLeft::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: var(--primary);
+  opacity: 0;
+  transition: opacity 0.15s;
+  border-radius: 8px 0 0 8px;
+}
+
+.previewResizeBarLeft:hover::after {
+  opacity: 1;
+}
+
+.previewResizeBarRight {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 3;
+}
+
+.previewResizeBarRight::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: var(--primary);
+  opacity: 0;
+  transition: opacity 0.15s;
+  border-radius: 0 8px 8px 0;
+}
+
+.previewResizeBarRight:hover::after {
+  opacity: 1;
+}
+
+.previewResizeBarBottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  cursor: ns-resize;
+  z-index: 3;
+}
+
+.previewResizeBarBottom::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background-color: var(--primary);
+  opacity: 0;
+  transition: opacity 0.15s;
+  border-radius: 0 0 8px 8px;
+}
+
+.previewResizeBarBottom:hover::after {
+  opacity: 1;
+}
+
+.previewCornerTL,
+.previewCornerTR,
+.previewCornerBL,
+.previewCornerBR {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  z-index: 4;
+}
+
+.previewCornerTL {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.previewCornerTR {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.previewCornerBL {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.previewCornerBR {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+
+/* Show both adjacent edges when hovering a corner */
+.previewCornerTL:hover ~ .previewResizeBarTop::after,
+.previewCornerTL:hover ~ .previewResizeBarLeft::after {
+  opacity: 1;
+}
+
+.previewCornerTR:hover ~ .previewResizeBarTop::after,
+.previewCornerTR:hover ~ .previewResizeBarRight::after {
+  opacity: 1;
+}
+
+.previewCornerBL:hover ~ .previewResizeBarBottom::after,
+.previewCornerBL:hover ~ .previewResizeBarLeft::after {
+  opacity: 1;
+}
+
+.previewCornerBR:hover ~ .previewResizeBarBottom::after,
+.previewCornerBR:hover ~ .previewResizeBarRight::after {
+  opacity: 1;
+}
+
+/* ── Preview sidebar (portaled into left sidebar) ── */
+
+.previewSidebarContent {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Snap zone indicator ── */
+
+.snapZoneIndicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  /* width is set dynamically via inline style to match sidebar bounds */
+  background: color-mix(in srgb, var(--primary), transparent 85%);
+  border-right: 2px dashed var(--primary);
+  z-index: 100;
+  pointer-events: none;
+}
+
+.previewLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+/* ── Resize handle ── */
+
+.resizeHandle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 8px;
+  cursor: ns-resize;
+  border-radius: 0 0 6px 6px;
+}
+
+.resizeHandle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 3px;
+  border-radius: 2px;
+  background-color: var(--muted-foreground);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.eventCard:hover .resizeHandle::after {
+  opacity: 0.5;
+}
+
+.resizeHandle:hover::after {
+  opacity: 1 !important;
+}
+
+/* ── Drag overlay (follows cursor during move) ── */
+
+.eventOverlay {
+  background-color: var(--card);
+  border: 2px solid var(--primary);
+  border-radius: 6px;
+  padding: 4px 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  min-width: 160px;
+  pointer-events: none;
+}
+
+/* ── Drop ghost (snapped preview on grid during move) ── */
+
+.dropGhost {
+  position: absolute;
+  left: 68px;
+  right: 8px;
+  background-color: color-mix(in srgb, var(--primary), transparent 85%);
+  border: 2px dashed var(--primary);
+  border-radius: 6px;
+  z-index: 1;
+  pointer-events: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  padding: 4px 10px;
+}
+
+.dropGhostTime {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--primary);
+}
+
+/* ── Resize time label ── */
+
+.resizeTimeLabel {
+  position: absolute;
+  left: 0;
+  width: 56px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--primary);
+  text-align: right;
+  padding-right: 8px;
+  transform: translateY(-8px);
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* ── Create-drag preview ── */
+
+.dragPreview {
+  position: absolute;
+  left: 68px;
+  right: 8px;
+  background-color: color-mix(in srgb, var(--primary), transparent 80%);
+  border: 2px solid var(--primary);
+  border-radius: 6px;
+  z-index: 3;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-start;
+  padding: 2px 10px;
+  box-sizing: border-box;
+  min-height: 24px;
+}
+
+.dragPreviewTime {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--primary);
+}
+
+/* ── All-day section ── */
+
+.allDaySection {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 0;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding-left: 68px;
+}
+
+.allDayBadge {
+  background-color: color-mix(in srgb, var(--primary), transparent 85%);
+  color: var(--primary);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.allDayBadge:hover {
+  background-color: color-mix(in srgb, var(--primary), transparent 70%);
+}
+
+/* ── View toggle ── */
+
+.viewToggle {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  background-color: var(--accent);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.viewToggleButton {
+  background: none;
+  border: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.viewToggleButton:hover {
+  color: var(--foreground);
+}
+
+.viewToggleActive {
+  background-color: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* ── Week view ── */
+
+.weekHeader {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  background-color: var(--background);
+  z-index: 5;
+}
+
+.weekTimeLabelSpacer {
+  width: 56px;
+  flex-shrink: 0;
+}
+
+.weekDayHeader {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0;
+  cursor: pointer;
+  gap: 2px;
+}
+
+.weekDayHeader:hover {
+  background-color: var(--accent);
+}
+
+.weekDayHeaderToday .weekDayNumber {
+  background-color: var(--primary);
+  color: var(--primary-foreground, #fff);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.weekDayName {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.weekDayNumber {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--foreground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.weekGrid {
+  position: relative;
+  display: flex;
+  cursor: crosshair;
+  user-select: none;
+}
+
+.weekTimeLabels {
+  width: 56px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.weekTimeLabel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  text-align: right;
+  padding-right: 8px;
+  transform: translateY(2px);
+  user-select: none;
+}
+
+.weekColumnWrapper {
+  flex: 1;
+  position: relative;
+  border-left: 1px solid var(--border);
+  min-width: 0;
+}
+
+.weekColumn {
+  position: absolute;
+  inset: 0;
+}
+
+.weekHourLine {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px solid var(--border);
+  pointer-events: none;
+}
+
+/* ── Now indicator ── */
+
+.nowIndicator {
+  position: absolute;
+  left: 64px;
+  right: 0;
+  height: 2px;
+  background-color: var(--destructive, #ef4444);
+  z-index: 4;
+  pointer-events: none;
+}
+
+.nowIndicatorDot {
+  position: absolute;
+  left: 58px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: var(--destructive, #ef4444);
+  transform: translateY(-4px);
+  z-index: 4;
+  pointer-events: none;
+}

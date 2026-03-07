@@ -33,3 +33,38 @@
   margin-top: 1rem;
 }
 
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.breadcrumbLink {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  color: var(--foreground);
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  flex-shrink: 10;
+}
+
+.breadcrumbLink:last-child {
+  flex-shrink: 1;
+  min-width: 70px;
+}
+
+.breadcrumbLink:hover {
+  color: var(--foreground);
+  background-color: var(--muted);
+}
+
+.breadcrumbSeparator {
+  color: var(--foreground);
+  flex-shrink: 0;
+}
+

@@ -1,6 +1,7 @@
 import {
   bigint,
   boolean,
+  index,
   integer,
   pgTable,
   text,
@@ -57,16 +58,25 @@ export const spaceMembers = pgTable(
 // Pages (modified: added spaceId)
 // =============================================================================
 
-export const pages = pgTable("pages", {
-  id: varchar("id", { length: 30 }).primaryKey(),
-  title: text("title"),
-  autoTitle: boolean("autoTitle").notNull().default(true),
-  spaceId: varchar("spaceId", { length: 30 }).notNull(),
-  parentId: varchar("parentId", { length: 30 }),
-  order: integer("order").notNull().default(0),
-  createdAt: timestamp("createdAt").notNull().defaultNow(),
-  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
-});
+export const pages = pgTable(
+  "pages",
+  {
+    id: varchar("id", { length: 30 }).primaryKey(),
+    title: text("title"),
+    autoTitle: boolean("autoTitle").notNull().default(true),
+    spaceId: varchar("spaceId", { length: 30 }).notNull(),
+    parentId: varchar("parentId", { length: 30 }),
+    order: integer("order").notNull().default(0),
+    // Calendar fields
+    scheduledAt: bigint("scheduledAt", { mode: "number" }), // unix timestamp ms
+    duration: integer("duration"), // minutes
+    allDay: boolean("allDay"),
+    recurrenceId: varchar("recurrenceId", { length: 30 }),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+    updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+  },
+  (t) => [index("pages_scheduledAt_idx").on(t.scheduledAt)]
+);
 
 // =============================================================================
 // Snapshots

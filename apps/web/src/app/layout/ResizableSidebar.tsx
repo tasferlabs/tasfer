@@ -4,6 +4,8 @@ import style from "./Layout.module.css";
 import { SidebarContent } from "./SidebarContent";
 import useLocalStorage from "../hooks/useLocalStorage";
 import useResponsive from "../hooks/useResponsive";
+import { useSidebarPanel } from "../contexts/SidebarPanelContext";
+import clsx from "clsx";
 
 export function ResizableSidebar({
   setOpen,
@@ -12,6 +14,8 @@ export function ResizableSidebar({
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
   open: boolean;
 }) {
+  const { hasPanel } = useSidebarPanel();
+
   const isFine = useResponsive("(pointer: fine)");
   const sidebarRef = useRef<HTMLDivElement>(null);
   const [isResizing, setIsResizing] = useState(false);
@@ -21,7 +25,7 @@ export function ResizableSidebar({
   React.useEffect(() => {
     shouldAnimate.current = true;
   }, []);
-  
+
   const startResizing = React.useCallback(() => {
     setIsResizing(true);
   }, []);
@@ -33,10 +37,13 @@ export function ResizableSidebar({
   const resize = React.useCallback(
     (mouseMoveEvent: MouseEvent) => {
       if (isResizing && sidebarRef.current) {
-         setSidebarWidth(mouseMoveEvent.clientX - sidebarRef.current?.getBoundingClientRect().left);
+        setSidebarWidth(
+          mouseMoveEvent.clientX -
+            sidebarRef.current?.getBoundingClientRect().left,
+        );
       }
     },
-    [isResizing, setSidebarWidth]
+    [isResizing, setSidebarWidth],
   );
 
   React.useEffect(() => {
@@ -57,17 +64,24 @@ export function ResizableSidebar({
           ref={sidebarRef}
           className={style.appSidebar}
           style={{ width: sidebarWidthDefaulted }}
-          initial={shouldAnimate.current ? { x: -sidebarWidthDefaulted, opacity: 0 } : false}
+          initial={
+            shouldAnimate.current
+              ? { x: -sidebarWidthDefaulted, opacity: 0 }
+              : false
+          }
           animate={{ x: 0, opacity: 1 }}
           exit={{ x: -sidebarWidthDefaulted, opacity: 0 }}
           transition={{ type: "spring", bounce: 0, duration: 0.2 }}
         >
           <div className={style.appSidebarContent}>
-            <SidebarContent
-              setOpen={setOpen}
-            />
+            <SidebarContent setOpen={setOpen} />
           </div>
-          {isFine && <div className={style.appSidebarResizer} onMouseDown={startResizing} />}
+          {isFine && (
+            <div
+              className={clsx(style.appSidebarResizer, hasPanel && "border-l-popover! border-r-popover!")}
+              onMouseDown={startResizing}
+            />
+          )}
         </motion.div>
       )}
     </AnimatePresence>

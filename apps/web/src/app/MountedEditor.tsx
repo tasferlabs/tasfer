@@ -32,7 +32,7 @@ import {
 import { clearFailedImageCache } from "../editor/renderer";
 import { getLinkAtPosition } from "../editor/selection";
 import { getBlockTextContent, isTouchDevice } from "../editor/state";
-import type { EditorState, SlashCommand } from "../editor/types";
+import type { EditorState, SlashCommand, TextStyle } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { useRoom, type SyncState } from "@/websocket/hooks/useRoom";
@@ -68,6 +68,15 @@ interface MountedEditorProps {
   onConfirmSaveReady?: (confirmFn: (clock: HLC) => void) => void;
   /** When true, editor is read-only - no editing, no CRDT sync, no native bridge updates */
   readonly?: boolean;
+  /** Override default canvas padding */
+  padding?: Partial<{
+    paddingTop: number;
+    paddingBottom: number;
+    paddingLeft: number;
+    paddingRight: number;
+  }>;
+  /** Override block text styles (e.g. heading font sizes) */
+  blockStyleOverrides?: Partial<Record<string, Partial<TextStyle>>> | null;
 }
 
 export function MountedEditor({
@@ -85,6 +94,8 @@ export function MountedEditor({
   onRestoreReady,
   onConfirmSaveReady,
   readonly = false,
+  padding,
+  blockStyleOverrides,
 }: MountedEditorProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
@@ -280,7 +291,7 @@ export function MountedEditor({
     lastSerializedBlocksRef.current = null;
     editorInitializedRef.current = false;
 
-    const mounted = mountEditor(el, snapshot, { readonly });
+    const mounted = mountEditor(el, snapshot, { readonly, padding, blockStyleOverrides });
     mountedRef.current = mounted;
 
     // Skip offline store and sync setup in readonly mode
@@ -965,6 +976,8 @@ export function MountedEditor({
     peerId,
     onSnapshotClockUpdate,
     readonly,
+    padding,
+    blockStyleOverrides,
   ]);
 
   // Note: WebSocket reconnection is handled by the global WebSocketProvider

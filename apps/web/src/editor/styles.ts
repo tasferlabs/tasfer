@@ -9,6 +9,46 @@ import { isTouchDevice } from "./state";
 let isWindowFocused = true;
 
 /**
+ * Optional padding overrides set via setEditorPadding()
+ */
+let paddingOverride: Partial<{
+  paddingTop: number;
+  paddingBottom: number;
+  paddingLeft: number;
+  paddingRight: number;
+}> | null = null;
+
+/**
+ * Optional per-block text style overrides set via setBlockStyleOverrides()
+ */
+let blockStyleOverrides: Partial<Record<string, Partial<TextStyle>>> | null = null;
+
+/**
+ * Override the default canvas padding for the editor.
+ * Pass null to reset to defaults.
+ */
+export function setEditorPadding(
+  padding: Partial<{
+    paddingTop: number;
+    paddingBottom: number;
+    paddingLeft: number;
+    paddingRight: number;
+  }> | null,
+): void {
+  paddingOverride = padding;
+}
+
+/**
+ * Override block text styles (e.g. heading font sizes).
+ * Pass null to reset to defaults.
+ */
+export function setBlockStyleOverrides(
+  overrides: Partial<Record<string, Partial<TextStyle>>> | null,
+): void {
+  blockStyleOverrides = overrides;
+}
+
+/**
  * Set the window focus state
  * @internal This is called from mount.ts when window focus changes
  */
@@ -37,10 +77,10 @@ export function getEditorStyles(): EditorStyles {
 
   return {
     canvas: {
-      paddingTop: 40,
-      paddingBottom: 80,
-      paddingLeft: horizontalPadding,
-      paddingRight: horizontalPadding,
+      paddingTop: paddingOverride?.paddingTop ?? 4,
+      paddingBottom: paddingOverride?.paddingBottom ?? 80,
+      paddingLeft: paddingOverride?.paddingLeft ?? horizontalPadding,
+      paddingRight: paddingOverride?.paddingRight ?? horizontalPadding,
       lineHeight: 1.6,
     },
     blocks: {
@@ -50,6 +90,7 @@ export function getEditorStyles(): EditorStyles {
         color: getCSSVariable("--editor-heading"),
         lineHeight: 1.4,
         paddingBottom: 10,
+        ...blockStyleOverrides?.heading1,
       },
       heading2: {
         fontSize: 24,
@@ -57,6 +98,7 @@ export function getEditorStyles(): EditorStyles {
         color: getCSSVariable("--editor-heading"),
         lineHeight: 1.4,
         paddingBottom: 10,
+        ...blockStyleOverrides?.heading2,
       },
       heading3: {
         fontSize: 20,
@@ -64,6 +106,7 @@ export function getEditorStyles(): EditorStyles {
         color: getCSSVariable("--editor-heading"),
         lineHeight: 1.4,
         paddingBottom: 10,
+        ...blockStyleOverrides?.heading3,
       },
       paragraph: {
         fontSize: 16,

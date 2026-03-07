@@ -24,8 +24,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import tokenizePage from "@/deserializer/tokenizer";
 import parsePage from "@/deserializer/parser";
 import { extractTitleFromBlocks } from "@/editor/sync/char-runs";
-
-const t = (s: string | TemplateStringsArray) => s.toString();
+import { useTranslation } from "react-i18next";
 
 interface ImportAllDialogProps {
   open: boolean;
@@ -235,6 +234,7 @@ function buildPageTree(zip: JSZip): {
 }
 
 export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
+  const { t } = useTranslation();
   const { personalSpace, groupSpaces } = useSpaces();
   const queryClient = useQueryClient();
 
@@ -500,12 +500,12 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t`Import`}</DialogTitle>
+          <DialogTitle>{t("Import")}</DialogTitle>
           <DialogDescription>
             {phase === "select" &&
-              t`Import pages from a ZIP file or markdown files.`}
-            {phase === "importing" && t`Importing your pages...`}
-            {phase === "done" && t`Import complete.`}
+              t("Import pages from a ZIP file or markdown files.")}
+            {phase === "importing" && t("Importing your pages...")}
+            {phase === "done" && t("Import complete.")}
           </DialogDescription>
         </DialogHeader>
 
@@ -542,11 +542,11 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
                 <>
                   <span className="font-medium text-center">
                     {isDragging
-                      ? t`Drop files here`
-                      : t`Drag and drop files here`}
+                      ? t("Drop files here")
+                      : t("Drag and drop files here")}
                   </span>
                   <span className="text-sm text-muted-foreground mt-1">
-                    {t`or click to select`}
+                    {t("or click to select")}
                   </span>
                 </>
               )}
@@ -567,14 +567,14 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
             {/* Space selector */}
             <div className="flex items-center gap-3">
               <span className="text-sm text-muted-foreground whitespace-nowrap">
-                {t`Import to`}
+                {t("Import to")}
               </span>
               <Select
                 value={selectedSpaceId}
                 onValueChange={setSelectedSpaceId}
               >
                 <SelectTrigger className="flex-1">
-                  <SelectValue placeholder={t`Select space`} />
+                  <SelectValue placeholder={t("Select space")} />
                 </SelectTrigger>
                 <SelectContent>
                   {allSpaces.map((space) => (
@@ -590,13 +590,13 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
 
             <DialogFooter>
               <Button variant="outline" onClick={handleCancel}>
-                {t`Cancel`}
+                {t("Cancel")}
               </Button>
               <Button
                 onClick={handleImport}
                 disabled={files.length === 0 || !selectedSpaceId}
               >
-                {t`Import`}
+                {t("Import")}
               </Button>
             </DialogFooter>
           </>
@@ -608,7 +608,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
               <div className="flex items-center gap-3">
                 <div className="size-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 <span className="text-sm text-muted-foreground">
-                  {t`Importing...`} {progress.done}/{progress.total}
+                  {t("Importing...")} {progress.done}/{progress.total}
                 </span>
               </div>
               <div className="h-1.5 bg-muted rounded-full overflow-hidden">
@@ -626,7 +626,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
 
             <DialogFooter>
               <Button variant="outline" onClick={handleCancel}>
-                {t`Cancel`}
+                {t("Cancel")}
               </Button>
             </DialogFooter>
           </>
@@ -636,12 +636,12 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
           <>
             <div className="space-y-3">
               <p className="text-sm">
-                {t`Created`} {result.pagesCreated}{" "}
-                {result.pagesCreated === 1 ? t`page` : t`pages`}
+                {t("Created")} {result.pagesCreated}{" "}
+                {result.pagesCreated === 1 ? t("page") : t("pages")}
                 {result.imagesUploaded > 0 && (
                   <>
-                    , {t`uploaded`} {result.imagesUploaded}{" "}
-                    {result.imagesUploaded === 1 ? t`image` : t`images`}
+                    , {t("uploaded")} {result.imagesUploaded}{" "}
+                    {result.imagesUploaded === 1 ? t("image") : t("images")}
                   </>
                 )}
               </p>
@@ -649,7 +649,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-destructive">
                     {result.errors.length}{" "}
-                    {result.errors.length === 1 ? t`error` : t`errors`}:
+                    {result.errors.length === 1 ? t("error") : t("errors")}:
                   </p>
                   <ul className="text-xs text-muted-foreground space-y-1 max-h-32 overflow-y-auto">
                     {result.errors.map((err, i) => (
@@ -661,7 +661,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
             </div>
 
             <DialogFooter>
-              <Button onClick={() => onOpenChange(false)}>{t`Close`}</Button>
+              <Button onClick={() => onOpenChange(false)}>{t("Close")}</Button>
             </DialogFooter>
           </>
         )}
