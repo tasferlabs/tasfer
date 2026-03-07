@@ -402,7 +402,7 @@ export function EventPreview({
   const currentParent: ISearchPage | null = isDraft
     ? draftParent
     : previewPage?.parentId
-      ? { id: previewPage.parentId, title: previewPage.parents?.find((p) => p.id === previewPage.parentId)?.title ?? null, parentId: null }
+      ? { id: previewPage.parentId, title: previewPage.parents?.find((p) => p.id === previewPage.parentId)?.title ?? null, parentId: null, path: null }
       : null;
 
   // Close on click outside (disabled in sidebar mode)

@@ -10,7 +10,7 @@ import { useAuth } from "../contexts/AuthContext";
 
 export default function OnboardingPage() {
   const { t } = useTranslation("OnboardingPage");
-  const { user, updateUser } = useAuth();
+  const { updateUser } = useAuth();
   const navigate = useNavigate();
 
   const [name, setName] = React.useState("");
