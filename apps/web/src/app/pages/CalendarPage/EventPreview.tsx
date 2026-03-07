@@ -2,7 +2,7 @@ import { useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { X, Maximize2, GripHorizontal, Clock, Calendar } from "lucide-react";
+import { X, Maximize2, GripHorizontal, Clock, Calendar, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DateTime } from "luxon";
 import { useTranslation } from "react-i18next";
@@ -21,9 +21,13 @@ import { extractTitleFromBlocks } from "@/editor/sync/char-runs";
 import {
   useGetPage,
   useUpdatePage,
+  useMovePage,
   updatePage as updatePageApi,
   type HLC,
+  type ISearchPage,
 } from "../../api/pages.api";
+import { useSpaces } from "../../contexts/SpaceContext";
+import { PagePicker } from "@/components/PagePicker";
 import { useDebouncedSave } from "../../hooks/useDebouncedSave";
 import useResponsive from "../../hooks/useResponsive";
 import { MountedEditor } from "../../MountedEditor";
@@ -103,13 +107,17 @@ export function EventPreview({
   sidebarMode: boolean;
   onSidebarModeChange: (mode: boolean) => void;
   draft?: DraftEvent | null;
-  onDraftSave?: (snapshot?: Block[], clock?: HLC | null) => void;
+  onDraftSave?: (snapshot?: Block[], clock?: HLC | null, parentId?: string | null) => void;
 }) {
   const { t } = useTranslation();
   const isMobile = useResponsive("(max-width: 768px)");
   const queryClient = useQueryClient();
   const popoverRef = useRef<HTMLDivElement>(null);
   const { panelRef, setHasPanel, slotMounted } = useSidebarPanel();
+  const { activeSpaceId } = useSpaces();
+
+  // Parent page selection
+  const [draftParent, setDraftParent] = useState<ISearchPage | null>(null);
 
   // Remember the last user-resized dimensions across event switches
   const lastSizeRef = useRef({ width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT });
@@ -169,6 +177,7 @@ export function EventPreview({
     if (pageId || draft) {
       setSize({ ...lastSizeRef.current });
       setPos(null); // will be computed from anchor
+      setDraftParent(null);
     }
   }, [pageId, draft]);
 
@@ -351,7 +360,34 @@ export function EventPreview({
     },
   });
 
+  const { mutate: movePage } = useMovePage({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
+      queryClient.invalidateQueries({ queryKey: ["page", pageId] });
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
+    },
+  });
+
   const isDraft = !!draft && !pageId;
+
+  const handleParentChange = useCallback(
+    (page: ISearchPage | null) => {
+      if (isDraft) {
+        setDraftParent(page);
+        return;
+      }
+      if (!pageId) return;
+      movePage({ id: pageId, parentId: page?.id ?? null });
+    },
+    [isDraft, pageId, movePage],
+  );
+
+  // Derive current parent for existing pages
+  const currentParent: ISearchPage | null = isDraft
+    ? draftParent
+    : previewPage?.parentId
+      ? { id: previewPage.parentId, title: previewPage.parents?.find((p) => p.id === previewPage.parentId)?.title ?? null, parentId: null }
+      : null;
 
   // Close on click outside (disabled in sidebar mode)
   useEffect(() => {
@@ -477,8 +513,8 @@ export function EventPreview({
 
   const handleDraftSaveClick = useCallback(() => {
     const content = draftContentRef.current;
-    onDraftSave?.(content?.snapshot, content?.clock);
-  }, [onDraftSave]);
+    onDraftSave?.(content?.snapshot, content?.clock, draftParent?.id ?? null);
+  }, [onDraftSave, draftParent]);
 
   const draftFooter = isDraft ? (
     <div className={style.previewDraftFooter}>
@@ -573,6 +609,15 @@ export function EventPreview({
               </ComboboxContent>
             </Combobox>
           </div>
+          <div className={style.previewRow}>
+            <FolderOpen size={14} className={style.previewRowIcon} />
+            <PagePicker
+              spaceId={activeSpaceId}
+              value={currentParent}
+              onChange={handleParentChange}
+              excludeId={pageId || undefined}
+            />
+          </div>
           <div className="flex-1 overflow-hidden border-t border-border">
             {editor}
           </div>
@@ -618,6 +663,15 @@ export function EventPreview({
             </ComboboxList>
           </ComboboxContent>
         </Combobox>
+      </div>
+      <div className={style.previewRow}>
+        <FolderOpen size={14} className={style.previewRowIcon} />
+        <PagePicker
+          spaceId={activeSpaceId}
+          value={currentParent}
+          onChange={handleParentChange}
+          excludeId={pageId || undefined}
+        />
       </div>
       {pageId && (
         <div className={style.previewRow}>

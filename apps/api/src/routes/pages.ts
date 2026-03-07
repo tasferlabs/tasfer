@@ -112,6 +112,47 @@ router.get("/list", async (req, res) => {
   }
 });
 
+// Search pages by title
+router.get("/search", async (req, res) => {
+  try {
+    const { spaceId, q, limit } = req.query;
+
+    if (!spaceId) {
+      return res.status(400).json({ success: false, error: "spaceId is required" });
+    }
+
+    const hasAccess = await canAccessSpace(req.user!.id, spaceId as string);
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, error: "Access denied" });
+    }
+
+    const searchQuery = (q as string || "").trim();
+    const maxResults = Math.min(Number(limit) || 20, 50);
+
+    const conditions = [eq(pages.spaceId, spaceId as string)];
+
+    if (searchQuery) {
+      conditions.push(sql`LOWER(${pages.title}) LIKE LOWER(${"%" + searchQuery + "%"})`);
+    }
+
+    const pagesList = await db
+      .select({
+        id: pages.id,
+        title: pages.title,
+        parentId: pages.parentId,
+      })
+      .from(pages)
+      .where(and(...conditions))
+      .orderBy(pages.title)
+      .limit(maxResults);
+
+    res.json({ success: true, data: pagesList });
+  } catch (error) {
+    console.error("Search pages error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
 // List pages by date range (calendar view)
 router.get("/calendar/range", async (req, res) => {
   try {

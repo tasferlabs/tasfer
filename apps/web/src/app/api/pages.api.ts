@@ -277,6 +277,34 @@ export function useReorderPage<TContext = unknown>(
   });
 }
 
+// Search pages by title
+export interface ISearchPage {
+  id: string;
+  title: string | null;
+  parentId: string | null;
+}
+
+export async function searchPages(spaceId: string, query: string): Promise<ISearchPage[]> {
+  const params = new URLSearchParams({ spaceId, q: query, limit: "20" });
+  const response = await authFetch(`${API_BASE}/pages/search?${params.toString()}`);
+  const data = await response.json();
+
+  if (!data.success) {
+    throw new Error(data.error || "Failed to search pages");
+  }
+
+  return data.data;
+}
+
+export function useSearchPages(spaceId: string | null, query: string) {
+  return useQuery({
+    queryKey: ["pages-search", { spaceId, query }],
+    queryFn: () => searchPages(spaceId!, query),
+    enabled: !!spaceId,
+    placeholderData: (prev) => prev,
+  });
+}
+
 // Calendar range query
 export interface ICalendarPage {
   id: string;

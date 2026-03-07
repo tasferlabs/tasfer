@@ -180,13 +180,13 @@ export default function CalendarPage() {
 
   const draftSnapshotRef = useRef<{ snapshot?: Block[]; clock?: HLC | null }>({});
 
-  const handleDraftSave = useCallback((snapshot?: Block[], clock?: HLC | null) => {
+  const handleDraftSave = useCallback((snapshot?: Block[], clock?: HLC | null, parentId?: string | null) => {
     if (!draftEvent || !activeSpaceId) return;
     // Store snapshot to save after page creation
     draftSnapshotRef.current = { snapshot, clock };
     createPage({
       title: snapshot ? extractTitleFromBlocks(snapshot) : "",
-      parentId: null,
+      parentId: parentId ?? null,
       spaceId: activeSpaceId,
       scheduledAt: draftEvent.scheduledAt,
       duration: draftEvent.duration,
