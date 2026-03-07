@@ -23,7 +23,7 @@ export async function authFetch(
   const token = getAccessToken();
   const headers = new Headers(init?.headers);
   if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+    headers.set("X-Auth-Token", token);
   }
 
   let response = await fetch(input, { ...init, headers });
@@ -32,7 +32,7 @@ export async function authFetch(
   if (response.status === 401 && token) {
     const newToken = await refreshAccessToken();
     if (newToken) {
-      headers.set("Authorization", `Bearer ${newToken}`);
+      headers.set("X-Auth-Token", newToken);
       response = await fetch(input, { ...init, headers });
     }
   }

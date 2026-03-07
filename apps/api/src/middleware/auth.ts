@@ -17,13 +17,12 @@ declare global {
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
+  const token = req.headers["x-auth-token"] as string | undefined;
+  if (!token) {
     res.status(401).json({ success: false, error: "Authentication required" });
     return;
   }
 
-  const token = authHeader.slice(7);
   try {
     const payload = jwt.verify(token, JWT_SECRET) as { sub: string; email: string };
     req.user = { id: payload.sub, email: payload.email };

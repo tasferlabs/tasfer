@@ -200,8 +200,6 @@ job "cypher" {
           "traefik.http.routers.api.entrypoints"               = "web"
           "traefik.http.routers.api.priority"                  = "10"
           "traefik.http.routers.api.middlewares"               = "auth"
-          "traefik.http.middlewares.auth.basicauth.users"      = var.traefik_auth
-          "traefik.http.middlewares.auth.basicauth.realm"      = "Cypher"
           "traefik.http.services.api.loadbalancer.server.port" = "3000"
         }
       }
