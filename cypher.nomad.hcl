@@ -193,6 +193,7 @@ job "cypher" {
         image        = "cypher-api:${var.image_tag}"
         force_pull   = false
         network_mode = "hamza"
+        hostname     = "cypher-api"
 
         labels = {
           "traefik.enable"                                     = "true"
@@ -268,7 +269,7 @@ job "cypher" {
         PORT             = "8080"
         REDIS_URL        = var.redis_url
         JWT_SECRET       = var.jwt_secret
-        API_BASE_URL     = "http://api.service.consul:3000"
+        API_BASE_URL     = "http://cypher-api:3000"
         INTERNAL_API_KEY = var.internal_api_key
       }
 
