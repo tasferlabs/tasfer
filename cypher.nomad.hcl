@@ -266,9 +266,12 @@ job "cypher" {
       }
 
       env {
-        NODE_ENV  = "production"
-        PORT      = "8080"
-        REDIS_URL = var.redis_url
+        NODE_ENV         = "production"
+        PORT             = "8080"
+        REDIS_URL        = var.redis_url
+        JWT_SECRET       = var.jwt_secret
+        API_BASE_URL     = "http://api.service.consul:3000"
+        INTERNAL_API_KEY = var.internal_api_key
       }
 
       resources {
