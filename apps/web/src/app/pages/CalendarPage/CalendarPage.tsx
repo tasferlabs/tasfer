@@ -1,5 +1,5 @@
 import { useMemo, useRef, useEffect, useState, useCallback } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -7,350 +7,48 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  useDraggable,
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { DateTime } from "luxon";
-import { formatDurationLabel, DURATION_OPTIONS } from "@/lib/utils";
-import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxInput,
-  ComboboxList,
-  ComboboxItem,
-} from "@/components/ui/combobox";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Drawer, DrawerContent } from "@/components/ui/drawer";
+import { useTranslation } from "react-i18next";
 import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
-import useResponsive from "../../hooks/useResponsive";
 import {
   useGetCalendarPages,
   useCreatePage,
   useUpdatePage,
-  useGetPage,
-  updatePage as updatePageApi,
   type ICalendarPage,
-  type HLC,
 } from "../../api/pages.api";
-import type { Block } from "@/deserializer/loadPage";
-import { useDebouncedSave } from "../../hooks/useDebouncedSave";
-import { MountedEditor } from "../../MountedEditor";
-import { Maximize2 } from "lucide-react";
-import { useTranslation } from "react-i18next";
+import {
+  HOUR_HEIGHT,
+  TOTAL_HOURS,
+  SNAP_MINUTES,
+  MIN_DRAG_MINUTES,
+  formatHour,
+  formatDate,
+  formatWeekRange,
+  formatTime,
+  isSameDay,
+  getDayRange,
+  getWeekRange,
+  getWeekDays,
+  pxToMinutes,
+  snapPx,
+  pageToStartMin,
+  shortDayName,
+  type ViewMode,
+} from "./utils";
+import { EventCard } from "./EventCard";
+import { EventOverlay } from "./EventOverlay";
+import { EventPreview } from "./EventPreview";
 import style from "./CalendarPage.module.css";
-
-
-// ── Constants ──
-
-const HOUR_HEIGHT = 60;
-const TOTAL_HOURS = 24;
-const SNAP_MINUTES = 15;
-const MIN_DRAG_MINUTES = 15;
-const SNAP_PX = (SNAP_MINUTES / 60) * HOUR_HEIGHT;
-
-type ViewMode = "day" | "week";
-
-// ── Helpers ──
-
-function formatHour(hour: number): string {
-  if (hour === 0) return "12 AM";
-  if (hour < 12) return `${hour} AM`;
-  if (hour === 12) return "12 PM";
-  return `${hour - 12} PM`;
-}
-
-function formatDate(date: Date): string {
-  return date.toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function formatWeekRange(date: Date): string {
-  const { start, end } = getWeekRange(date);
-  const startDate = new Date(start);
-  const endDate = new Date(end);
-  const sameMonth = startDate.getMonth() === endDate.getMonth();
-  if (sameMonth) {
-    return `${startDate.toLocaleDateString(undefined, { month: "long", day: "numeric" })} - ${endDate.getDate()}, ${endDate.getFullYear()}`;
-  }
-  return `${startDate.toLocaleDateString(undefined, { month: "short", day: "numeric" })} - ${endDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
-}
-
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-function getDayRange(date: Date): { start: number; end: number } {
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(date);
-  end.setHours(23, 59, 59, 999);
-  return { start: start.getTime(), end: end.getTime() };
-}
-
-function getWeekRange(date: Date): { start: number; end: number } {
-  const d = new Date(date);
-  const day = d.getDay(); // 0=Sun
-  const monday = new Date(d);
-  monday.setDate(d.getDate() - ((day + 6) % 7)); // go to Monday
-  monday.setHours(0, 0, 0, 0);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  sunday.setHours(23, 59, 59, 999);
-  return { start: monday.getTime(), end: sunday.getTime() };
-}
-
-function getWeekDays(date: Date): Date[] {
-  const { start } = getWeekRange(date);
-  const monday = new Date(start);
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return d;
-  });
-}
-
-function formatTime(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  const period = h < 12 ? "AM" : "PM";
-  const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  return m === 0
-    ? `${hour12} ${period}`
-    : `${hour12}:${String(m).padStart(2, "0")} ${period}`;
-}
-
-function formatEventTime(timestamp: number, duration?: number | null): string {
-  const date = new Date(timestamp);
-  const startMin = date.getHours() * 60 + date.getMinutes();
-  if (duration) {
-    return `${formatTime(startMin)} - ${formatTime(startMin + duration)}`;
-  }
-  return formatTime(startMin);
-}
-
-function pxToMinutes(px: number): number {
-  const raw = (px / HOUR_HEIGHT) * 60;
-  return Math.round(raw / SNAP_MINUTES) * SNAP_MINUTES;
-}
-
-function snapPx(px: number): number {
-  return Math.round(px / SNAP_PX) * SNAP_PX;
-}
-
-function pageToStartMin(page: ICalendarPage): number {
-  const d = new Date(page.scheduledAt);
-  return d.getHours() * 60 + d.getMinutes();
-}
-
-function shortDayName(date: Date): string {
-  return date.toLocaleDateString(undefined, { weekday: "short" });
-}
-
-// ── Draggable event card ──
-
-function EventCard({
-  page,
-  onResizeStart,
-  onEventClick,
-  compact,
-}: {
-  page: ICalendarPage;
-  onResizeStart: (pageId: string, e: React.PointerEvent) => void;
-  onEventClick: (pageId: string) => void;
-  compact?: boolean;
-}) {
-  const { t } = useTranslation();
-  const startMin = pageToStartMin(page);
-  const duration = page.duration || 60;
-  const top = (startMin / 60) * HOUR_HEIGHT;
-  const height = (duration / 60) * HOUR_HEIGHT;
-
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `event-${page.id}`,
-    data: { page },
-  });
-
-  // Determine how much content fits based on height
-  const actualHeight = Math.max(height, 20);
-  const timeStr = formatEventTime(page.scheduledAt, page.duration);
-  // < 30px: single line with title only
-  // 30-50px: title + short time on same line or below
-  // > 50px: title + full time on separate line
-  const showTimeSeparate = actualHeight > 40;
-  const showTimeInline = !showTimeSeparate && actualHeight > 25;
-
-  // Track if pointer moved (to distinguish click from drag)
-  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={style.eventCard}
-      style={{
-        top,
-        height: actualHeight,
-        opacity: isDragging ? 0.3 : 1,
-        ...(compact ? { left: 0, right: 0, padding: "2px 6px" } : {}),
-      }}
-      {...listeners}
-      {...attributes}
-      onPointerDown={(e) => {
-        pointerStartRef.current = { x: e.clientX, y: e.clientY };
-        // Call dnd-kit's listener
-        listeners?.onPointerDown?.(e as any);
-      }}
-      onClick={(e) => {
-        if (!pointerStartRef.current) return;
-        const dx = e.clientX - pointerStartRef.current.x;
-        const dy = e.clientY - pointerStartRef.current.y;
-        // Only open if it was a click, not a drag
-        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) {
-          onEventClick(page.id);
-        }
-        pointerStartRef.current = null;
-      }}
-    >
-      {showTimeInline && compact ? (
-        <div className={style.eventInline}>
-          <span className={style.eventTitle} style={{ fontSize: "0.7rem" }}>
-            {page.title || t("Untitled")}
-          </span>
-          <span className={style.eventTimeInline}>{formatTime(startMin)}</span>
-        </div>
-      ) : (
-        <>
-          <span
-            className={style.eventTitle}
-            style={compact ? { fontSize: "0.7rem" } : undefined}
-          >
-            {page.title || t("Untitled")}
-          </span>
-          {showTimeSeparate && (
-            <div
-              className={style.eventTime}
-              style={compact ? { fontSize: "0.6rem" } : undefined}
-            >
-              {timeStr}
-            </div>
-          )}
-        </>
-      )}
-      {/* Resize handle at bottom */}
-      <div
-        className={style.resizeHandle}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          onResizeStart(page.id, e);
-        }}
-      />
-    </div>
-  );
-}
-
-// ── Drag overlay (follows cursor) ──
-
-function EventOverlay({
-  page,
-  deltaMinutes,
-}: {
-  page: ICalendarPage;
-  deltaMinutes: number;
-}) {
-  const { t } = useTranslation();
-  const startMin = pageToStartMin(page) + deltaMinutes;
-  const duration = page.duration || 60;
-  return (
-    <div className={style.eventOverlay}>
-      <div className={style.eventTitle}>{page.title || t("Untitled")}</div>
-      <div className={style.eventTime}>
-        {formatTime(startMin)} - {formatTime(startMin + duration)}
-      </div>
-    </div>
-  );
-}
-
-// ── Preview schedule controls ──
-
-function PreviewScheduleControls({
-  scheduledAt,
-  duration,
-  onChange,
-}: {
-  scheduledAt: number | null;
-  duration: number | null;
-  onChange: (scheduledAt: number, duration: number | null) => void;
-}) {
-  const { t } = useTranslation();
-  const tz = DateTime.local().zoneName;
-  const dateValue = scheduledAt
-    ? DateTime.fromMillis(scheduledAt, { zone: tz }).toISO()
-    : null;
-  const currentDuration = duration ?? 60;
-
-  const durationLabels = useMemo(
-    () => DURATION_OPTIONS.map((d) => formatDurationLabel(d, t)),
-    [t],
-  );
-
-  const handleDateChange = (value: string | null) => {
-    if (!value) return;
-    const ms = DateTime.fromISO(value, { zone: tz }).toMillis();
-    if (!isNaN(ms)) onChange(ms, duration);
-  };
-
-  const handleDurationChange = (val: string) => {
-    const idx = durationLabels.indexOf(val);
-    if (idx !== -1 && scheduledAt) onChange(scheduledAt, DURATION_OPTIONS[idx]);
-  };
-
-  return (
-    <div className={style.previewSchedule}>
-      <DateTimePicker
-        type="datetime"
-        value={dateValue}
-        onChange={handleDateChange}
-        timezone={tz}
-        size="small"
-      />
-      <Combobox
-        items={durationLabels}
-        defaultValue={formatDurationLabel(currentDuration, t)}
-        onValueChange={(val) => {
-          if (val != null) handleDurationChange(val);
-        }}
-      >
-        <ComboboxInput placeholder={formatDurationLabel(currentDuration, t)} />
-        <ComboboxContent>
-          <ComboboxList>
-            {(item) => (
-              <ComboboxItem key={item} value={item}>
-                {item}
-              </ComboboxItem>
-            )}
-          </ComboboxList>
-        </ComboboxContent>
-      </Combobox>
-    </div>
-  );
-}
 
 // ── Create-drag state ──
 
 interface CreateDragState {
   startMinutes: number;
   endMinutes: number;
-  date: Date; // which day column (for week view)
+  date: Date;
 }
 
 // ── Resize state ──
@@ -378,65 +76,28 @@ export default function CalendarPage() {
 
   const today = useMemo(() => new Date(), []);
   const isToday = isSameDay(selectedDate, today);
-  const isMobile = useResponsive("(max-width: 768px)");
 
-  // ── Event preview dialog ──
+  // ── Event preview ──
   const previewJustClosedRef = useRef(false);
   const [previewPageId, setPreviewPageId] = useState<string | null>(null);
-  const [editorReady, setEditorReady] = useState(false);
-  const { data: previewPage, isLoading: isPreviewLoading } = useGetPage(
-    previewPageId || undefined,
-  );
+  const [previewAnchor, setPreviewAnchor] = useState<DOMRect | null>(null);
   const queryClient = useQueryClient();
 
-  // Delay mounting editor until dialog/drawer animation completes
-  useEffect(() => {
-    if (previewPageId) {
-      setEditorReady(false);
-      const timer = setTimeout(() => setEditorReady(true), 200);
-      return () => clearTimeout(timer);
-    }
-    setEditorReady(false);
-  }, [previewPageId]);
+  const handlePreviewClose = useCallback(() => {
+    setPreviewPageId(null);
+    setPreviewAnchor(null);
+    previewJustClosedRef.current = true;
+    requestAnimationFrame(() => {
+      previewJustClosedRef.current = false;
+    });
+  }, []);
 
-  // Save edits from preview editor
-  const handlePreviewSave = useCallback(
-    async (data: { pageId: string; snapshot: Block[]; clock: HLC | null }) => {
-      await updatePageApi({
-        id: data.pageId,
-        snapshot: data.snapshot,
-        snapshotClock: data.clock,
-      });
-      queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
-      queryClient.invalidateQueries({ queryKey: ["pages"] });
+  const handleEventClick = useCallback(
+    (pageId: string, rect: DOMRect) => {
+      setPreviewPageId(pageId);
+      setPreviewAnchor(rect);
     },
-    [queryClient],
-  );
-
-  const { save: debouncedPreviewSave, flush: flushPreviewSave } =
-    useDebouncedSave(handlePreviewSave, 1000);
-
-  const handlePreviewContentChange = useCallback(
-    (snapshot: Block[], clock: HLC | null) => {
-      if (!previewPageId) return;
-      debouncedPreviewSave({ pageId: previewPageId, snapshot, clock });
-    },
-    [previewPageId, debouncedPreviewSave],
-  );
-
-  // Flush pending save when dialog closes
-  const handlePreviewClose = useCallback(
-    (open: boolean) => {
-      if (!open) {
-        flushPreviewSave();
-        setPreviewPageId(null);
-        previewJustClosedRef.current = true;
-        requestAnimationFrame(() => {
-          previewJustClosedRef.current = false;
-        });
-      }
-    },
-    [flushPreviewSave],
+    [],
   );
 
   // Compute query range based on view
@@ -454,6 +115,7 @@ export default function CalendarPage() {
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
       queryClient.invalidateQueries({ queryKey: ["pages"] });
       setPreviewPageId(newPage.id);
+      setPreviewAnchor(null);
     },
   });
 
@@ -463,14 +125,6 @@ export default function CalendarPage() {
       queryClient.invalidateQueries({ queryKey: ["page", previewPageId] });
     },
   });
-
-  const handlePreviewScheduleChange = useCallback(
-    (scheduledAt: number, duration: number | null) => {
-      if (!previewPageId) return;
-      updatePage({ id: previewPageId, scheduledAt, duration });
-    },
-    [previewPageId, updatePage],
-  );
 
   const createPageAtTime = useCallback(
     (startMinutes: number, durationMinutes: number, date?: Date) => {
@@ -565,7 +219,6 @@ export default function CalendarPage() {
 
     function handlePointerMove(e: PointerEvent) {
       if (!gridRef.current) return;
-      // Find all column wrappers and determine which one the pointer is over by X
       const columns =
         gridRef.current.querySelectorAll<HTMLElement>("[data-day-index]");
       for (const col of columns) {
@@ -605,7 +258,6 @@ export default function CalendarPage() {
         Math.min(newStartMin, TOTAL_HOURS * 60 - SNAP_MINUTES),
       );
 
-      // Use target day if dragged to a different column, otherwise keep original day
       const targetDate = dragTargetDay || new Date(activeDragPage.scheduledAt);
       const scheduledDate = new Date(targetDate);
       scheduledDate.setHours(0, 0, 0, 0);
@@ -659,7 +311,6 @@ export default function CalendarPage() {
         MIN_DRAG_MINUTES,
         resize.originalDuration + deltaMin,
       );
-      // Don't exceed day end
       const maxDuration = TOTAL_HOURS * 60 - resize.originalStartMin;
       setResizeDuration(Math.min(newDuration, maxDuration));
     }
@@ -691,20 +342,6 @@ export default function CalendarPage() {
   const [createDrag, setCreateDrag] = useState<CreateDragState | null>(null);
   const isCreateDragging = useRef(false);
 
-  function getMinutesFromMouseEvent(
-    e: React.MouseEvent | MouseEvent,
-    columnEl?: HTMLElement,
-  ): number {
-    const el = columnEl || gridRef.current;
-    if (!el) return 0;
-    const rect = el.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-    return Math.max(
-      0,
-      Math.min(pxToMinutes(y), TOTAL_HOURS * 60 - SNAP_MINUTES),
-    );
-  }
-
   function getColumnDateFromEvent(e: React.MouseEvent): Date {
     if (viewMode === "week") {
       const target = (e.target as HTMLElement).closest(
@@ -731,7 +368,14 @@ export default function CalendarPage() {
             `[data-day-index]`,
           ) as HTMLElement | null)
         : null;
-    const minutes = getMinutesFromMouseEvent(e, columnEl || undefined);
+    const el = columnEl || gridRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const minutes = Math.max(
+      0,
+      Math.min(pxToMinutes(y), TOTAL_HOURS * 60 - SNAP_MINUTES),
+    );
 
     isCreateDragging.current = true;
     setCreateDrag({
@@ -746,7 +390,6 @@ export default function CalendarPage() {
 
     function handleMouseMove(e: MouseEvent) {
       if (!isCreateDragging.current) return;
-      // Use grid ref for y calculation in both views
       const el = gridRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
@@ -808,7 +451,8 @@ export default function CalendarPage() {
     function handleKeyDown(e: KeyboardEvent) {
       if (
         e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
+        e.target instanceof HTMLTextAreaElement ||
+        previewPageId
       )
         return;
 
@@ -838,7 +482,7 @@ export default function CalendarPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [createPageAtTime, viewMode]);
+  }, [createPageAtTime, viewMode, previewPageId]);
 
   // ── Render helpers ──
 
@@ -870,7 +514,6 @@ export default function CalendarPage() {
         data-day-index={columnIndex}
         style={{ position: "relative", height: TOTAL_HOURS * HOUR_HEIGHT }}
       >
-        {/* Event cards */}
         {dayPages.map((page) => (
           <EventCard
             key={page.id}
@@ -882,7 +525,7 @@ export default function CalendarPage() {
                   : page.duration,
             }}
             onResizeStart={handleResizeStart}
-            onEventClick={setPreviewPageId}
+            onEventClick={handleEventClick}
             compact={viewMode === "week"}
           />
         ))}
@@ -890,7 +533,6 @@ export default function CalendarPage() {
         {/* Move-drag ghost */}
         {activeDragPage &&
           (() => {
-            // Show ghost on the target column (or original column if no target yet)
             const ghostDay =
               dragTargetDay || new Date(activeDragPage.scheduledAt);
             if (!isSameDay(ghostDay, dayDate)) return null;
@@ -1039,7 +681,7 @@ export default function CalendarPage() {
                         : page.duration,
                   }}
                   onResizeStart={handleResizeStart}
-                  onEventClick={setPreviewPageId}
+                  onEventClick={handleEventClick}
                 />
               ))}
 
@@ -1161,7 +803,6 @@ export default function CalendarPage() {
                   className={style.weekColumnWrapper}
                   data-day-index={i}
                 >
-                  {/* Hour gridlines */}
                   {Array.from({ length: TOTAL_HOURS }, (_, hour) => (
                     <div
                       key={hour}
@@ -1186,89 +827,11 @@ export default function CalendarPage() {
         </DragOverlay>
       </DndContext>
 
-      {/* Event preview — Drawer on mobile, Dialog on desktop */}
-      {isMobile ? (
-        <Drawer open={previewPageId !== null} onOpenChange={handlePreviewClose} modal={false}>
-          <DrawerContent className="h-[90vh] flex flex-col p-0">
-            <div className={style.previewHeader}>
-              <PreviewScheduleControls
-                scheduledAt={previewPage?.scheduledAt ?? null}
-                duration={previewPage?.duration ?? null}
-                onChange={handlePreviewScheduleChange}
-              />
-              <Link
-                to={`/page/${previewPageId}`}
-                className={style.previewOpenLink}
-              >
-                <Maximize2 size={14} />
-                {t("Open page")}
-              </Link>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              {isPreviewLoading || !editorReady ? (
-                <div className={style.previewLoading}>{t("Loading...")}</div>
-              ) : previewPage?.snapshot && previewPageId ? (
-                <MountedEditor
-                  snapshot={previewPage.snapshot}
-                  pageId={previewPageId}
-                  snapshotClock={previewPage.snapshotClock}
-                  onContentChange={handlePreviewContentChange}
-                  className="h-full"
-                  autoFocus
-                  padding={{
-                    paddingTop: 8,
-                    paddingBottom: 16,
-                    paddingLeft: 12,
-                    paddingRight: 12,
-                  }}
-                />
-              ) : null}
-            </div>
-          </DrawerContent>
-        </Drawer>
-      ) : (
-        <Dialog open={previewPageId !== null} onOpenChange={handlePreviewClose} modal={false}>
-          <DialogContent className="sm:max-w-3xl h-[70vh] flex flex-col p-0 gap-0">
-            <DialogTitle className="sr-only">
-              {previewPage?.title || t("Untitled")}
-            </DialogTitle>
-            <div className={style.previewHeader}>
-              <PreviewScheduleControls
-                scheduledAt={previewPage?.scheduledAt ?? null}
-                duration={previewPage?.duration ?? null}
-                onChange={handlePreviewScheduleChange}
-              />
-              <Link
-                to={`/page/${previewPageId}`}
-                className={style.previewOpenLink}
-              >
-                <Maximize2 size={14} />
-                {t("Open page")}
-              </Link>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              {isPreviewLoading || !editorReady ? (
-                <div className={style.previewLoading}>{t("Loading...")}</div>
-              ) : previewPage?.snapshot && previewPageId ? (
-                <MountedEditor
-                  snapshot={previewPage.snapshot}
-                  pageId={previewPageId}
-                  snapshotClock={previewPage.snapshotClock}
-                  onContentChange={handlePreviewContentChange}
-                  className="h-full"
-                  autoFocus
-                  padding={{
-                    paddingTop: 8,
-                    paddingBottom: 16,
-                    paddingLeft: 12,
-                    paddingRight: 12,
-                  }}
-                />
-              ) : null}
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+      <EventPreview
+        pageId={previewPageId}
+        anchor={previewAnchor}
+        onClose={handlePreviewClose}
+      />
     </div>
   );
 }
