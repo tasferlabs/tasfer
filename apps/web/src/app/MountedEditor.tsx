@@ -68,6 +68,13 @@ interface MountedEditorProps {
   onConfirmSaveReady?: (confirmFn: (clock: HLC) => void) => void;
   /** When true, editor is read-only - no editing, no CRDT sync, no native bridge updates */
   readonly?: boolean;
+  /** Override default canvas padding */
+  padding?: Partial<{
+    paddingTop: number;
+    paddingBottom: number;
+    paddingLeft: number;
+    paddingRight: number;
+  }>;
 }
 
 export function MountedEditor({
@@ -85,6 +92,7 @@ export function MountedEditor({
   onRestoreReady,
   onConfirmSaveReady,
   readonly = false,
+  padding,
 }: MountedEditorProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
@@ -280,7 +288,7 @@ export function MountedEditor({
     lastSerializedBlocksRef.current = null;
     editorInitializedRef.current = false;
 
-    const mounted = mountEditor(el, snapshot, { readonly });
+    const mounted = mountEditor(el, snapshot, { readonly, padding });
     mountedRef.current = mounted;
 
     // Skip offline store and sync setup in readonly mode
@@ -965,6 +973,7 @@ export function MountedEditor({
     peerId,
     onSnapshotClockUpdate,
     readonly,
+    padding,
   ]);
 
   // Note: WebSocket reconnection is handled by the global WebSocketProvider

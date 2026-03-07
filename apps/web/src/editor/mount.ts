@@ -11,7 +11,7 @@ import {
   detectPhysicalKeyboardHeuristic,
   isTouchDevice,
 } from "./state";
-import { setWindowFocused } from "./styles";
+import { setEditorPadding, setWindowFocused } from "./styles";
 import type { ViewportState } from "./types";
 
 export interface MountedEditor {
@@ -46,6 +46,12 @@ function createCanvasContainer(parentContainer: HTMLElement): HTMLDivElement {
 
 export interface MountEditorOptions {
   readonly?: boolean;
+  padding?: Partial<{
+    paddingTop: number;
+    paddingBottom: number;
+    paddingLeft: number;
+    paddingRight: number;
+  }>;
 }
 
 /**
@@ -57,6 +63,9 @@ export function mountEditor(
   blocks: Block[],
   options?: MountEditorOptions
 ): MountedEditor {
+  // Apply padding overrides before creating editor
+  setEditorPadding(options?.padding ?? null);
+
   // Create a Page object from the blocks
   const page: Page = {
     id: "",

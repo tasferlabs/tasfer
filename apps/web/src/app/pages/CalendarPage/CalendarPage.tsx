@@ -11,15 +11,18 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
+import { DateTime } from "luxon";
+import { formatDurationLabel, DURATION_OPTIONS } from "@/lib/utils";
+import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
 import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Drawer,
-  DrawerContent,
-} from "@/components/ui/drawer";
+  Combobox,
+  ComboboxContent,
+  ComboboxInput,
+  ComboboxList,
+  ComboboxItem,
+} from "@/components/ui/combobox";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
 import useResponsive from "../../hooks/useResponsive";
@@ -38,6 +41,7 @@ import { MountedEditor } from "../../MountedEditor";
 import { Maximize2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import style from "./CalendarPage.module.css";
+
 
 // ── Constants ──
 
@@ -233,7 +237,10 @@ function EventCard({
             {page.title || t("Untitled")}
           </span>
           {showTimeSeparate && (
-            <div className={style.eventTime} style={compact ? { fontSize: "0.6rem" } : undefined}>
+            <div
+              className={style.eventTime}
+              style={compact ? { fontSize: "0.6rem" } : undefined}
+            >
               {timeStr}
             </div>
           )}
@@ -273,6 +280,71 @@ function EventOverlay({
   );
 }
 
+// ── Preview schedule controls ──
+
+function PreviewScheduleControls({
+  scheduledAt,
+  duration,
+  onChange,
+}: {
+  scheduledAt: number | null;
+  duration: number | null;
+  onChange: (scheduledAt: number, duration: number | null) => void;
+}) {
+  const { t } = useTranslation();
+  const tz = DateTime.local().zoneName;
+  const dateValue = scheduledAt
+    ? DateTime.fromMillis(scheduledAt, { zone: tz }).toISO()
+    : null;
+  const currentDuration = duration ?? 60;
+
+  const durationLabels = useMemo(
+    () => DURATION_OPTIONS.map((d) => formatDurationLabel(d, t)),
+    [t],
+  );
+
+  const handleDateChange = (value: string | null) => {
+    if (!value) return;
+    const ms = DateTime.fromISO(value, { zone: tz }).toMillis();
+    if (!isNaN(ms)) onChange(ms, duration);
+  };
+
+  const handleDurationChange = (val: string) => {
+    const idx = durationLabels.indexOf(val);
+    if (idx !== -1 && scheduledAt) onChange(scheduledAt, DURATION_OPTIONS[idx]);
+  };
+
+  return (
+    <div className={style.previewSchedule}>
+      <DateTimePicker
+        type="datetime"
+        value={dateValue}
+        onChange={handleDateChange}
+        timezone={tz}
+        size="small"
+      />
+      <Combobox
+        items={durationLabels}
+        defaultValue={formatDurationLabel(currentDuration, t)}
+        onValueChange={(val) => {
+          if (val != null) handleDurationChange(val);
+        }}
+      >
+        <ComboboxInput placeholder={formatDurationLabel(currentDuration, t)} />
+        <ComboboxContent>
+          <ComboboxList>
+            {(item) => (
+              <ComboboxItem key={item} value={item}>
+                {item}
+              </ComboboxItem>
+            )}
+          </ComboboxList>
+        </ComboboxContent>
+      </Combobox>
+    </div>
+  );
+}
+
 // ── Create-drag state ──
 
 interface CreateDragState {
@@ -299,13 +371,17 @@ export default function CalendarPage() {
   const timelineRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
-  const [viewMode, setViewMode] = useLocalStorage<ViewMode>("calendar-view", "day");
+  const [viewMode, setViewMode] = useLocalStorage<ViewMode>(
+    "calendar-view",
+    "day",
+  );
 
   const today = useMemo(() => new Date(), []);
   const isToday = isSameDay(selectedDate, today);
   const isMobile = useResponsive("(max-width: 768px)");
 
   // ── Event preview dialog ──
+  const previewJustClosedRef = useRef(false);
   const [previewPageId, setPreviewPageId] = useState<string | null>(null);
   const [editorReady, setEditorReady] = useState(false);
   const { data: previewPage, isLoading: isPreviewLoading } = useGetPage(
@@ -337,7 +413,8 @@ export default function CalendarPage() {
     [queryClient],
   );
 
-  const { save: debouncedPreviewSave, flush: flushPreviewSave } = useDebouncedSave(handlePreviewSave, 1000);
+  const { save: debouncedPreviewSave, flush: flushPreviewSave } =
+    useDebouncedSave(handlePreviewSave, 1000);
 
   const handlePreviewContentChange = useCallback(
     (snapshot: Block[], clock: HLC | null) => {
@@ -353,6 +430,10 @@ export default function CalendarPage() {
       if (!open) {
         flushPreviewSave();
         setPreviewPageId(null);
+        previewJustClosedRef.current = true;
+        requestAnimationFrame(() => {
+          previewJustClosedRef.current = false;
+        });
       }
     },
     [flushPreviewSave],
@@ -372,15 +453,24 @@ export default function CalendarPage() {
     onSuccess: (newPage) => {
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
       queryClient.invalidateQueries({ queryKey: ["pages"] });
-      navigate(`/page/${newPage.id}`);
+      setPreviewPageId(newPage.id);
     },
   });
 
   const { mutate: updatePage } = useUpdatePage({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
+      queryClient.invalidateQueries({ queryKey: ["page", previewPageId] });
     },
   });
+
+  const handlePreviewScheduleChange = useCallback(
+    (scheduledAt: number, duration: number | null) => {
+      if (!previewPageId) return;
+      updatePage({ id: previewPageId, scheduledAt, duration });
+    },
+    [previewPageId, updatePage],
+  );
 
   const createPageAtTime = useCallback(
     (startMinutes: number, durationMinutes: number, date?: Date) => {
@@ -629,6 +719,7 @@ export default function CalendarPage() {
   }
 
   function handleGridMouseDown(e: React.MouseEvent) {
+    if (previewPageId || previewJustClosedRef.current) return;
     if ((e.target as HTMLElement).closest(`.${style.eventCard}`)) return;
     if ((e.target as HTMLElement).closest(`.${style.resizeHandle}`)) return;
     e.preventDefault();
@@ -1097,16 +1188,18 @@ export default function CalendarPage() {
 
       {/* Event preview — Drawer on mobile, Dialog on desktop */}
       {isMobile ? (
-        <Drawer
-          open={previewPageId !== null}
-          onOpenChange={handlePreviewClose}
-        >
+        <Drawer open={previewPageId !== null} onOpenChange={handlePreviewClose} modal={false}>
           <DrawerContent className="h-[90vh] flex flex-col p-0">
             <div className={style.previewHeader}>
-              <span className="text-sm font-medium truncate flex-1">
-                {previewPage?.title || t("Untitled")}
-              </span>
-              <Link to={`/page/${previewPageId}`} className={style.previewOpenLink}>
+              <PreviewScheduleControls
+                scheduledAt={previewPage?.scheduledAt ?? null}
+                duration={previewPage?.duration ?? null}
+                onChange={handlePreviewScheduleChange}
+              />
+              <Link
+                to={`/page/${previewPageId}`}
+                className={style.previewOpenLink}
+              >
                 <Maximize2 size={14} />
                 {t("Open page")}
               </Link>
@@ -1122,22 +1215,33 @@ export default function CalendarPage() {
                   onContentChange={handlePreviewContentChange}
                   className="h-full"
                   autoFocus
+                  padding={{
+                    paddingTop: 8,
+                    paddingBottom: 16,
+                    paddingLeft: 12,
+                    paddingRight: 12,
+                  }}
                 />
               ) : null}
             </div>
           </DrawerContent>
         </Drawer>
       ) : (
-        <Dialog
-          open={previewPageId !== null}
-          onOpenChange={handlePreviewClose}
-        >
+        <Dialog open={previewPageId !== null} onOpenChange={handlePreviewClose} modal={false}>
           <DialogContent className="sm:max-w-3xl h-[70vh] flex flex-col p-0 gap-0">
+            <DialogTitle className="sr-only">
+              {previewPage?.title || t("Untitled")}
+            </DialogTitle>
             <div className={style.previewHeader}>
-              <DialogTitle className="text-sm font-medium truncate flex-1">
-                {previewPage?.title || t("Untitled")}
-              </DialogTitle>
-              <Link to={`/page/${previewPageId}`} className={style.previewOpenLink}>
+              <PreviewScheduleControls
+                scheduledAt={previewPage?.scheduledAt ?? null}
+                duration={previewPage?.duration ?? null}
+                onChange={handlePreviewScheduleChange}
+              />
+              <Link
+                to={`/page/${previewPageId}`}
+                className={style.previewOpenLink}
+              >
                 <Maximize2 size={14} />
                 {t("Open page")}
               </Link>
@@ -1153,6 +1257,12 @@ export default function CalendarPage() {
                   onContentChange={handlePreviewContentChange}
                   className="h-full"
                   autoFocus
+                  padding={{
+                    paddingTop: 8,
+                    paddingBottom: 16,
+                    paddingLeft: 12,
+                    paddingRight: 12,
+                  }}
                 />
               ) : null}
             </div>

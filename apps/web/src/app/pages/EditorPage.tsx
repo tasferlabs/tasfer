@@ -1,11 +1,12 @@
-import { DateTime, Duration } from "luxon";
+import { DateTime } from "luxon";
+import { formatDurationLabel, DURATION_OPTIONS } from "@/lib/utils";
 import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Combobox,
-  ComboboxInput,
   ComboboxContent,
+  ComboboxInput,
   ComboboxList,
   ComboboxItem,
 } from "@/components/ui/combobox";
@@ -17,7 +18,7 @@ import {
 } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useParams, useNavigate } from "react-router-dom";
 import { debounce } from "lodash-es";
@@ -489,11 +490,7 @@ export default function EditorPage() {
 
 // ── Page Tags Bar ──
 
-function formatDuration(minutes: number): string {
-  return Duration.fromObject({ minutes }).rescale().toHuman();
-}
-
-function formatScheduleLabel(ts: number, duration: number | null): string {
+function formatScheduleLabel(ts: number, duration: number | null, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const d = new Date(ts);
   const date = d.toLocaleDateString(undefined, {
     month: "short",
@@ -503,15 +500,12 @@ function formatScheduleLabel(ts: number, duration: number | null): string {
     hour: "numeric",
     minute: "2-digit",
   });
-  const dur = duration ? ` (${formatDuration(duration)})` : "";
-  return `${date}, ${time}${dur}`;
+  if (duration) {
+    return t("{{date}}, {{time}} ({{duration}})", { date, time, duration: formatDurationLabel(duration, t) });
+  }
+  return t("{{date}}, {{time}}", { date, time });
 }
 
-const DURATION_OPTIONS = [
-  15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180, 195, 210, 225, 240,
-  255, 270, 285, 300, 315, 330, 345, 360, 375, 390, 405, 420, 435, 450, 465,
-  480,
-];
 
 function ScheduleContent({
   pageId,
@@ -520,7 +514,7 @@ function ScheduleContent({
   readonly,
 }: {
   pageId: string;
-  scheduledAt: number;
+  scheduledAt: number | null;
   duration: number | null;
   readonly: boolean;
 }) {
@@ -534,8 +528,15 @@ function ScheduleContent({
   });
 
   const tz = DateTime.local().zoneName;
-  const dateValue = DateTime.fromMillis(scheduledAt, { zone: tz }).toISO();
+  const dateValue = scheduledAt
+    ? DateTime.fromMillis(scheduledAt, { zone: tz }).toISO()
+    : null;
   const currentDuration = duration ?? 60;
+
+  const durationLabels = useMemo(
+    () => DURATION_OPTIONS.map((d) => formatDurationLabel(d, t)),
+    [t],
+  );
 
   const handleDateChange = (value: string | null) => {
     if (!value) return;
@@ -543,9 +544,9 @@ function ScheduleContent({
     if (!isNaN(ms)) update({ id: pageId, scheduledAt: ms });
   };
 
-  const handleDurationChange = (newDuration: string) => {
-    const mins = parseInt(newDuration, 10);
-    if (!isNaN(mins) && mins > 0) update({ id: pageId, duration: mins });
+  const handleDurationChange = (val: string) => {
+    const idx = durationLabels.indexOf(val);
+    if (idx !== -1) update({ id: pageId, duration: DURATION_OPTIONS[idx] });
   };
 
   const handleRemoveSchedule = () => {
@@ -569,28 +570,27 @@ function ScheduleContent({
       <div className="space-y-2">
         <label className="text-sm font-medium">{t`Duration`}</label>
         <Combobox
-          key={currentDuration}
-          defaultValue={formatDuration(currentDuration)}
+          items={durationLabels}
+          defaultValue={formatDurationLabel(currentDuration, t)}
           onValueChange={(val) => {
-            if (val == null) return;
-            const found = DURATION_OPTIONS.find((d) => formatDuration(d) === val);
-            if (found) handleDurationChange(String(found));
+            if (val != null) handleDurationChange(val);
           }}
           disabled={readonly}
-          inline
         >
-          <ComboboxInput placeholder={formatDuration(currentDuration)} />
-          <ComboboxList className="max-h-48 overflow-y-auto border rounded-md mt-1">
-            {DURATION_OPTIONS.map((d) => (
-              <ComboboxItem key={d} value={formatDuration(d)}>
-                {formatDuration(d)}
-              </ComboboxItem>
-            ))}
-          </ComboboxList>
+          <ComboboxInput placeholder={formatDurationLabel(currentDuration, t)} />
+          <ComboboxContent>
+            <ComboboxList>
+              {(item) => (
+                <ComboboxItem key={item} value={item}>
+                  {item}
+                </ComboboxItem>
+              )}
+            </ComboboxList>
+          </ComboboxContent>
         </Combobox>
       </div>
 
-      {!readonly && (
+      {!readonly && scheduledAt && (
         <Button
           variant="ghost"
           size="sm"
@@ -611,15 +611,16 @@ function ScheduleTag({ pageId, readonly }: { pageId: string; readonly: boolean }
   const [open, setOpen] = useState(false);
   const isMobile = useResponsive("(max-width: 768px)");
 
-  if (!page?.scheduledAt) return null;
-
-  const label = formatScheduleLabel(page.scheduledAt, page.duration);
+  const isScheduled = !!page?.scheduledAt;
+  const label = isScheduled
+    ? formatScheduleLabel(page!.scheduledAt!, page!.duration, t)
+    : t`Schedule`;
 
   const content = (
     <ScheduleContent
       pageId={pageId}
-      scheduledAt={page.scheduledAt}
-      duration={page.duration}
+      scheduledAt={page?.scheduledAt ?? null}
+      duration={page?.duration ?? null}
       readonly={readonly}
     />
   );
@@ -628,7 +629,7 @@ function ScheduleTag({ pageId, readonly }: { pageId: string; readonly: boolean }
     return (
       <>
         <Badge
-          variant="secondary"
+          variant={isScheduled ? "secondary" : "outline"}
           className="cursor-pointer gap-1.5 select-none"
           onClick={() => setOpen(true)}
         >
@@ -653,7 +654,7 @@ function ScheduleTag({ pageId, readonly }: { pageId: string; readonly: boolean }
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <Badge
-          variant="secondary"
+          variant={isScheduled ? "secondary" : "outline"}
           className="cursor-pointer gap-1.5 select-none"
         >
           <Calendar className="h-3 w-3" />
@@ -665,6 +666,11 @@ function ScheduleTag({ pageId, readonly }: { pageId: string; readonly: boolean }
           align="start"
           sideOffset={8}
           className="z-50 w-[320px] rounded-lg border border-border bg-popover p-4 shadow-lg animate-in fade-in-0 zoom-in-95"
+          onEscapeKeyDown={(e) => {
+            if (document.querySelector('[data-slot="combobox-content"][data-open]')) {
+              e.preventDefault();
+            }
+          }}
         >
           <h3 className="text-sm font-semibold mb-3">{t`Schedule`}</h3>
           {content}
@@ -675,13 +681,8 @@ function ScheduleTag({ pageId, readonly }: { pageId: string; readonly: boolean }
 }
 
 function PageTagsBar({ pageId, readonly }: { pageId: string; readonly: boolean }) {
-  const { data: page } = useGetPage(pageId);
-  const hasAnyTag = !!page?.scheduledAt;
-
-  if (!hasAnyTag) return null;
-
   return (
-    <div className="flex items-center gap-2 px-4 py-2">
+    <div className="flex items-center gap-2 px-4 py-2 md:px-[40px]">
       <ScheduleTag pageId={pageId} readonly={readonly} />
     </div>
   );
