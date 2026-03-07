@@ -57,6 +57,16 @@ nomad job run \
   -var="database_url=${DATABASE_URL}" \
   -var="redis_url=${REDIS_URL}" \
   -var="image_tag=${TAG}" \
+  -var="jwt_secret=${JWT_SECRET}" \
+  -var="internal_api_key=${INTERNAL_API_KEY}" \
+  -var="app_url=${APP_URL}" \
+  -var="cors_origin=${CORS_ORIGIN}" \
+  -var="mail_server_name=${MAIL_SERVER_NAME}" \
+  -var="mail_port=${MAIL_PORT}" \
+  -var="mail_username=${MAIL_USERNAME}" \
+  -var="mail_password=${MAIL_PASSWORD}" \
+  -var="mail_from=${MAIL_FROM}" \
+  -var="mail_from_name=${MAIL_FROM_NAME}" \
   cypher.nomad.hcl
 
 echo ""
