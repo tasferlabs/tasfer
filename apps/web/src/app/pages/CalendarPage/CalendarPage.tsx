@@ -44,9 +44,9 @@ import {
   type ViewMode,
 } from "./utils";
 import { EventCard } from "./EventCard";
-import { EventOverlay } from "./EventOverlay";
 import { EventPreview } from "./EventPreview";
 import style from "./CalendarPage.module.css";
+import clsx from "clsx";
 
 // ── Draft event (temporary, not yet saved) ──
 
@@ -330,10 +330,16 @@ export default function CalendarPage() {
 
       const newISO = scheduledDate.toISOString();
       if (newISO !== activeDragPage.scheduledAt) {
-        updatePage({
-          id: activeDragPage.id,
-          scheduledAt: newISO,
-        });
+        if (activeDragPage.id === "__draft__") {
+          setDraftEvent((prev) =>
+            prev ? { ...prev, scheduledAt: newISO } : prev,
+          );
+        } else {
+          updatePage({
+            id: activeDragPage.id,
+            scheduledAt: newISO,
+          });
+        }
       }
     }
     setActiveDragPage(null);
@@ -386,10 +392,16 @@ export default function CalendarPage() {
         resizeDuration !== null &&
         resizeDuration !== resize.originalDuration
       ) {
-        updatePage({
-          id: resize.pageId,
-          duration: resizeDuration,
-        });
+        if (resize.pageId === "__draft__") {
+          setDraftEvent((prev) =>
+            prev ? { ...prev, duration: resizeDuration! } : prev,
+          );
+        } else {
+          updatePage({
+            id: resize.pageId,
+            duration: resizeDuration,
+          });
+        }
       }
       setResize(null);
       setResizeDuration(null);
@@ -593,6 +605,7 @@ export default function CalendarPage() {
             onResizeStart={handleResizeStart}
             onEventClick={handleEventClick}
             compact={viewMode === "week"}
+            isDraft={page.id === "__draft__"}
           />
         ))}
 
@@ -692,7 +705,7 @@ export default function CalendarPage() {
                 ? formatDate(selectedDate)
                 : formatWeekRange(selectedDate)}
             </span>
-            <div className={style.viewToggle}>
+            <div className={clsx(style.viewToggle, "me-4")}>
               <button
                 className={`${style.viewToggleButton} ${viewMode === "day" ? style.viewToggleActive : ""}`}
                 onClick={() => setViewMode("day")}
@@ -754,6 +767,7 @@ export default function CalendarPage() {
                   }}
                   onResizeStart={handleResizeStart}
                   onEventClick={handleEventClick}
+                  isDraft={page.id === "__draft__"}
                 />
               ))}
 
@@ -889,14 +903,7 @@ export default function CalendarPage() {
           </div>
         )}
 
-        <DragOverlay dropAnimation={null}>
-          {activeDragPage && (
-            <EventOverlay
-              page={activeDragPage}
-              deltaMinutes={dragDeltaMinutes}
-            />
-          )}
-        </DragOverlay>
+        <DragOverlay dropAnimation={null} />
       </DndContext>
 
       <EventPreview

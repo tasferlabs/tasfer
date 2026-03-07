@@ -282,6 +282,7 @@ export interface ISearchPage {
   id: string;
   title: string | null;
   parentId: string | null;
+  path: string | null;
 }
 
 export async function searchPages(spaceId: string, query: string): Promise<ISearchPage[]> {

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Command } from "cmdk";
-import { ChevronDown, FileText, X } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSearchPages, type ISearchPage } from "@/app/api/pages.api";
 import {
@@ -9,6 +9,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 interface PagePickerProps {
@@ -114,14 +120,55 @@ export function PagePicker({
                 className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-default select-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
               >
                 <FileText size={14} className="shrink-0 text-muted-foreground" />
-                <span className="truncate">
-                  {page.title || t("Untitled")}
-                </span>
+                <div className="min-w-0 flex-1">
+                  <span className="truncate block">
+                    {page.title || t("Untitled")}
+                  </span>
+                  {page.path && <PathBreadcrumb path={page.path} />}
+                </div>
               </Command.Item>
             ))}
           </Command.List>
         </Command>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function PathBreadcrumb({ path }: { path: string }) {
+  const segments = path.split(" > ");
+  const fullPath = segments.join(" › ");
+
+  // Show first, ellipsis for middle, and last when more than 2 segments
+  const collapsed = segments.length > 2;
+
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="flex items-center gap-0.5 text-xs text-muted-foreground min-w-0 overflow-hidden">
+            {collapsed ? (
+              <>
+                <span className="truncate max-w-[5rem]">{segments[0]}</span>
+                <ChevronRight size={10} className="shrink-0 opacity-50" />
+                <span className="shrink-0">…</span>
+                <ChevronRight size={10} className="shrink-0 opacity-50" />
+                <span className="truncate max-w-[5rem]">{segments[segments.length - 1]}</span>
+              </>
+            ) : (
+              segments.map((segment, i) => (
+                <span key={i} className="flex items-center gap-0.5 min-w-0">
+                  {i > 0 && <ChevronRight size={10} className="shrink-0 opacity-50" />}
+                  <span className="truncate max-w-[7rem]">{segment}</span>
+                </span>
+              ))
+            )}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="start">
+          {fullPath}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

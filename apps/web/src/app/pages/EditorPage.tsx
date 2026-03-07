@@ -30,32 +30,35 @@ import type { SyncState } from "@/websocket/hooks/useRoom";
 import { CaretRightIcon } from "@phosphor-icons/react";
 import * as Popover from "@radix-ui/react-popover";
 import { useQueryClient } from "@tanstack/react-query";
+import { Command } from "cmdk";
 import { debounce } from "lodash-es";
-import { Calendar, Trash } from "lucide-react";
+import { Calendar, FileText, FolderInput, Trash } from "lucide-react";
 import { DateTime } from "luxon";
 import {
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
   useRef,
-  useState,
+  useState
 } from "react";
 import { createPortal } from "react-dom";
 import { Controller, useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
-import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { ActiveUsersAvatars } from "../components/ActiveUsersAvatars";
 import { PageSettings } from "../components/PageSettings";
 import { SavingIndicator } from "../components/SavingIndicator";
 import { MountedEditor } from "../MountedEditor";
 
 import { usePageEvents } from "@/websocket/hooks/usePageEvents";
+import clsx from "clsx";
 import {
   getPage,
   useCreatePage,
   useGetPage,
   useGetPages,
+  useMovePage,
+  useSearchPages,
   useUpdatePage,
   type HLC,
 } from "../api/pages.api";
@@ -747,6 +750,108 @@ function ScheduleTag({
   );
 }
 
+function MovePageButton({
+  pageId,
+  currentParentId,
+  children,
+}: {
+  pageId: string;
+  currentParentId: string | null;
+  children: React.ReactNode;
+}) {
+  const { t } = useTranslation();
+  const { activeSpaceId } = useSpaces();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const { data: pages } = useSearchPages(activeSpaceId, search);
+  const { mutate: move } = useMovePage({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
+      queryClient.invalidateQueries({ queryKey: ["page", pageId] });
+      setOpen(false);
+    },
+  });
+
+  const filtered = pages?.filter((p) => p.id !== pageId);
+
+  return (
+    <Popover.Root
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) setSearch("");
+      }}
+    >
+      <Popover.Trigger asChild>{children}</Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          align="start"
+          sideOffset={8}
+          className="z-50 w-[260px] rounded-lg border border-border bg-popover shadow-lg animate-in fade-in-0 zoom-in-95"
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            inputRef.current?.focus();
+          }}
+        >
+          <Command shouldFilter={false}>
+            <Command.Input
+              ref={inputRef}
+              value={search}
+              onValueChange={setSearch}
+              placeholder={t`Move to…`}
+              className="h-9 w-full border-b border-border bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
+            />
+            <Command.List className="max-h-52 overflow-y-auto p-1">
+              <Command.Empty className="py-4 text-center text-sm text-muted-foreground">
+                {t`No pages found`}
+              </Command.Empty>
+              {currentParentId && (
+                <Command.Item
+                  value="__root__"
+                  onSelect={() => move({ id: pageId, parentId: null })}
+                  className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-default select-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
+                >
+                  <FileText
+                    size={14}
+                    className="shrink-0 text-muted-foreground"
+                  />
+                  <span className="text-muted-foreground italic">{t`No parent (root)`}</span>
+                </Command.Item>
+              )}
+              {filtered?.map((page) => (
+                <Command.Item
+                  key={page.id}
+                  value={page.id}
+                  onSelect={() => move({ id: pageId, parentId: page.id })}
+                  className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-default select-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
+                >
+                  <FileText
+                    size={14}
+                    className="shrink-0 text-muted-foreground"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <span className="truncate block">
+                      {page.title || t`Untitled`}
+                    </span>
+                    {page.path && (
+                      <span className="truncate block text-xs text-muted-foreground">
+                        {page.path}
+                      </span>
+                    )}
+                  </div>
+                </Command.Item>
+              ))}
+            </Command.List>
+          </Command>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
 function PageActionBar({ pageId }: { pageId: string }) {
   const {
     data: page,
@@ -758,26 +863,44 @@ function PageActionBar({ pageId }: { pageId: string }) {
 
   return (
     <>
-      {page?.parents && page.parents.length > 0 ? (
-        <div className={style.breadcrumbs}>
-          {page.parents.map((parent, index) => (
-            <Fragment key={parent.id}>
-              {index !== 0 && (
+      <div className={style.breadcrumbs}>
+        {page?.parents &&
+          page.parents.length > 1 &&
+          (() => {
+            const parent = page.parents[page.parents.length - 2];
+            return (
+              <>
+                {permission !== "view" ? (
+                  <MovePageButton
+                    pageId={pageId}
+                    currentParentId={page.parentId}
+                  >
+                    <button
+                      className={clsx(style.breadcrumbLink, "inline-flex! items-center gap-2")}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <span className="truncate ">{parent.title || t`Untitled`}</span>
+                      <FolderInput size={14} className="shrink-0" />
+                    </button>
+                  </MovePageButton>
+                ) : (
+                  <span className={style.breadcrumbLink}>
+                    {parent.title || t`Untitled`}
+                  </span>
+                )}
                 <span className={style.breadcrumbSeparator}>
                   <CaretRightIcon size={16} />
                 </span>
-              )}
-              <Link to={`/page/${parent.id}`} className={style.breadcrumbLink}>
-                {parent.title || t`Untitled`}
-              </Link>
-            </Fragment>
-          ))}
-        </div>
-      ) : (
+              </>
+            );
+          })()}
         <span className={style.breadcrumbLink}>
           {page?.title || t`Untitled`}
         </span>
-      )}
+        {/* {permission !== "view" && page && (!page.parents || page.parents.length <= 1) && (
+          <MovePageButton pageId={pageId} currentParentId={page.parentId} />
+        )} */}
+      </div>
 
       <div className="ml-auto flex items-center gap-2">
         <ActiveUsersAvatars users={activeUsers} />

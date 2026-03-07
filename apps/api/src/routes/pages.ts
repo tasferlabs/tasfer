@@ -146,7 +146,43 @@ router.get("/search", async (req, res) => {
       .orderBy(pages.title)
       .limit(maxResults);
 
-    res.json({ success: true, data: pagesList });
+    // Build ancestor paths for each page
+    const parentIds = [...new Set(pagesList.filter(p => p.parentId).map(p => p.parentId!))];
+
+    let pathMap: Record<string, string> = {};
+    if (parentIds.length > 0) {
+      const idList = sql.join(parentIds.map(id => sql`${id}`), sql`, `);
+      const ancestors = await db.execute<{ id: string; path: string }>(sql`
+        WITH RECURSIVE ancestor_path AS (
+          SELECT id, title, "parentId", COALESCE(title, 'Untitled')::text AS path
+          FROM pages
+          WHERE id IN (${idList})
+          UNION ALL
+          SELECT ap.id, p.title, p."parentId",
+            COALESCE(p.title, 'Untitled') || ' > ' || ap.path
+          FROM ancestor_path ap
+          JOIN pages p ON p.id = ap."parentId"
+        )
+        SELECT id, path FROM ancestor_path WHERE "parentId" IS NULL
+      `);
+      for (const row of ancestors.rows) {
+        pathMap[row.id] = row.path;
+      }
+      // For parentIds that didn't resolve (already root-level), use their title directly
+      for (const pid of parentIds) {
+        if (!pathMap[pid]) {
+          const found = pagesList.find(p => p.id === pid);
+          if (found) pathMap[pid] = found.title || "Untitled";
+        }
+      }
+    }
+
+    const pagesWithPath = pagesList.map(p => ({
+      ...p,
+      path: p.parentId ? (pathMap[p.parentId] || null) : null,
+    }));
+
+    res.json({ success: true, data: pagesWithPath });
   } catch (error) {
     console.error("Search pages error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });

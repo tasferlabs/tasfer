@@ -121,6 +121,13 @@
   background-color: var(--accent);
 }
 
+.eventCardDraft {
+  background-color: color-mix(in srgb, var(--muted-foreground), transparent 92%);
+  border: 1px dashed var(--border);
+  border-left: 3px dashed var(--muted-foreground);
+  opacity: 0.7;
+}
+
 .eventCard:active {
   cursor: grabbing;
 }

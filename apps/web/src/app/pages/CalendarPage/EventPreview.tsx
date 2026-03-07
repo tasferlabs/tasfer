@@ -2,6 +2,7 @@ import { useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "framer-motion";
 import { X, Maximize2, GripHorizontal, Clock, Calendar, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DateTime } from "luxon";
@@ -162,14 +163,29 @@ export function EventPreview({
   // Sync hasPanel with sidebar mode, pageId, and whether the slot is mounted.
   // When sidebar closes (slotMounted=false), hasPanel clears so the sidebar
   // shows normal content. When it reopens, hasPanel is restored automatically.
+  // When closing (isActive becomes false), delay clearing hasPanel so the exit
+  // animation has time to play before the portal target unmounts.
+  const hasPanelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
+    if (hasPanelTimerRef.current) {
+      clearTimeout(hasPanelTimerRef.current);
+      hasPanelTimerRef.current = null;
+    }
     if (sidebarMode && isActive && slotMounted) {
       setHasPanel(true);
+    } else if (!isActive && sidebarMode) {
+      hasPanelTimerRef.current = setTimeout(() => setHasPanel(false), 250);
     } else {
       setHasPanel(false);
     }
-    return () => setHasPanel(false);
   }, [sidebarMode, isActive, slotMounted, setHasPanel]);
+  // Clean up timer and panel on unmount only
+  useEffect(() => {
+    return () => {
+      if (hasPanelTimerRef.current) clearTimeout(hasPanelTimerRef.current);
+      setHasPanel(false);
+    };
+  }, [setHasPanel]);
 
   // When opening a new preview, restore the last user-resized dimensions
   // but recompute position from anchor so the active event stays visible
@@ -399,7 +415,7 @@ export function EventPreview({
         !popoverRef.current.contains(target) &&
         !(
           target instanceof Element &&
-          target.closest('[data-radix-popper-content-wrapper], [role="dialog"]')
+          target.closest('[data-radix-popper-content-wrapper], [role="dialog"], [data-slot="combobox-content"]')
         )
       ) {
         onClose();
@@ -506,6 +522,15 @@ export function EventPreview({
     [],
   );
 
+  const editorBlockStyleOverrides = useMemo(
+    () => ({
+      heading1: { fontSize: 20, paddingBottom: 6 },
+      heading2: { fontSize: 20, paddingBottom: 6 },
+      heading3: { fontSize: 20, paddingBottom: 6 },
+    }),
+    [],
+  );
+
   const draftSnapshot = useMemo<Block[]>(
     () => [{ id: "draft-1", type: "heading1", charRuns: [], formats: [] }],
     [],
@@ -536,6 +561,7 @@ export function EventPreview({
       className="h-full"
       autoFocus
       padding={editorPadding}
+      blockStyleOverrides={editorBlockStyleOverrides}
     />
   ) : isLoading ? (
     <div className={style.previewLoading}>{t("Loading...")}</div>
@@ -548,10 +574,9 @@ export function EventPreview({
       className="h-full"
       autoFocus
       padding={editorPadding}
+      blockStyleOverrides={editorBlockStyleOverrides}
     />
   ) : null;
-
-  if (!isActive) return null;
 
   if (isMobile) {
     return (
@@ -687,20 +712,31 @@ export function EventPreview({
   // Sidebar mode - portal into the left sidebar
   if (sidebarMode && panelRef.current) {
     return createPortal(
-      <div ref={popoverRef} className={style.previewSidebarContent}>
-        <div
-          className={style.previewPopoverHeader}
-          onPointerDown={handleDragPointerDown}
-        >
-          <GripHorizontal size={16} className={style.previewGripIcon} />
-          <button className={style.previewCloseBtn} onClick={handleClose}>
-            <X size={16} />
-          </button>
-        </div>
-        {scheduleRows}
-        <div className={style.previewEditorArea}>{editor}</div>
-        {draftFooter}
-      </div>,
+      <AnimatePresence>
+        {isActive && (
+          <motion.div
+            ref={popoverRef}
+            className={style.previewSidebarContent}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+          >
+            <div
+              className={style.previewPopoverHeader}
+              onPointerDown={handleDragPointerDown}
+            >
+              <GripHorizontal size={16} className={style.previewGripIcon} />
+              <button className={style.previewCloseBtn} onClick={handleClose}>
+                <X size={16} />
+              </button>
+            </div>
+            {scheduleRows}
+            <div className={style.previewEditorArea}>{editor}</div>
+            {draftFooter}
+          </motion.div>
+        )}
+      </AnimatePresence>,
       panelRef.current,
     );
   }
@@ -714,61 +750,69 @@ export function EventPreview({
           style={{ width: snapZoneWidth }}
         />
       )}
-      <div
-        ref={popoverRef}
-        className={style.previewPopover}
-        style={{
-          top: currentPos.top,
-          left: currentPos.left,
-          width: currentSize.width,
-          height: currentSize.height,
-        }}
-      >
-        <div
-          className={style.previewPopoverHeader}
-          onPointerDown={handleDragPointerDown}
-        >
-          <GripHorizontal size={16} className={style.previewGripIcon} />
-          <button className={style.previewCloseBtn} onClick={handleClose}>
-            <X size={16} />
-          </button>
-        </div>
-        {scheduleRows}
-        <div className={style.previewEditorArea}>{editor}</div>
-        {draftFooter}
-        <div
-          className={style.previewCornerTL}
-          onPointerDown={(e) => handleResizePointerDown(e, "both", true, true)}
-        />
-        <div
-          className={style.previewCornerTR}
-          onPointerDown={(e) => handleResizePointerDown(e, "both", false, true)}
-        />
-        <div
-          className={style.previewCornerBL}
-          onPointerDown={(e) => handleResizePointerDown(e, "both", true)}
-        />
-        <div
-          className={style.previewCornerBR}
-          onPointerDown={(e) => handleResizePointerDown(e, "both")}
-        />
-        <div
-          className={style.previewResizeBarTop}
-          onPointerDown={(e) => handleResizePointerDown(e, "y", false, true)}
-        />
-        <div
-          className={style.previewResizeBarBottom}
-          onPointerDown={(e) => handleResizePointerDown(e, "y")}
-        />
-        <div
-          className={style.previewResizeBarLeft}
-          onPointerDown={(e) => handleResizePointerDown(e, "x", true)}
-        />
-        <div
-          className={style.previewResizeBarRight}
-          onPointerDown={(e) => handleResizePointerDown(e, "x")}
-        />
-      </div>
+      <AnimatePresence>
+        {isActive && (
+          <motion.div
+            ref={popoverRef}
+            className={style.previewPopover}
+            style={{
+              top: currentPos.top,
+              left: currentPos.left,
+              width: currentSize.width,
+              height: currentSize.height,
+            }}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+          >
+            <div
+              className={style.previewPopoverHeader}
+              onPointerDown={handleDragPointerDown}
+            >
+              <GripHorizontal size={16} className={style.previewGripIcon} />
+              <button className={style.previewCloseBtn} onClick={handleClose}>
+                <X size={16} />
+              </button>
+            </div>
+            {scheduleRows}
+            <div className={style.previewEditorArea}>{editor}</div>
+            {draftFooter}
+            <div
+              className={style.previewCornerTL}
+              onPointerDown={(e) => handleResizePointerDown(e, "both", true, true)}
+            />
+            <div
+              className={style.previewCornerTR}
+              onPointerDown={(e) => handleResizePointerDown(e, "both", false, true)}
+            />
+            <div
+              className={style.previewCornerBL}
+              onPointerDown={(e) => handleResizePointerDown(e, "both", true)}
+            />
+            <div
+              className={style.previewCornerBR}
+              onPointerDown={(e) => handleResizePointerDown(e, "both")}
+            />
+            <div
+              className={style.previewResizeBarTop}
+              onPointerDown={(e) => handleResizePointerDown(e, "y", false, true)}
+            />
+            <div
+              className={style.previewResizeBarBottom}
+              onPointerDown={(e) => handleResizePointerDown(e, "y")}
+            />
+            <div
+              className={style.previewResizeBarLeft}
+              onPointerDown={(e) => handleResizePointerDown(e, "x", true)}
+            />
+            <div
+              className={style.previewResizeBarRight}
+              onPointerDown={(e) => handleResizePointerDown(e, "x")}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

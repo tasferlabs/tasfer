@@ -19,6 +19,11 @@ let paddingOverride: Partial<{
 }> | null = null;
 
 /**
+ * Optional per-block text style overrides set via setBlockStyleOverrides()
+ */
+let blockStyleOverrides: Partial<Record<string, Partial<TextStyle>>> | null = null;
+
+/**
  * Override the default canvas padding for the editor.
  * Pass null to reset to defaults.
  */
@@ -31,6 +36,16 @@ export function setEditorPadding(
   }> | null,
 ): void {
   paddingOverride = padding;
+}
+
+/**
+ * Override block text styles (e.g. heading font sizes).
+ * Pass null to reset to defaults.
+ */
+export function setBlockStyleOverrides(
+  overrides: Partial<Record<string, Partial<TextStyle>>> | null,
+): void {
+  blockStyleOverrides = overrides;
 }
 
 /**
@@ -75,6 +90,7 @@ export function getEditorStyles(): EditorStyles {
         color: getCSSVariable("--editor-heading"),
         lineHeight: 1.4,
         paddingBottom: 10,
+        ...blockStyleOverrides?.heading1,
       },
       heading2: {
         fontSize: 24,
@@ -82,6 +98,7 @@ export function getEditorStyles(): EditorStyles {
         color: getCSSVariable("--editor-heading"),
         lineHeight: 1.4,
         paddingBottom: 10,
+        ...blockStyleOverrides?.heading2,
       },
       heading3: {
         fontSize: 20,
@@ -89,6 +106,7 @@ export function getEditorStyles(): EditorStyles {
         color: getCSSVariable("--editor-heading"),
         lineHeight: 1.4,
         paddingBottom: 10,
+        ...blockStyleOverrides?.heading3,
       },
       paragraph: {
         fontSize: 16,

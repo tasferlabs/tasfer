@@ -15,11 +15,13 @@ export function EventCard({
   onResizeStart,
   onEventClick,
   compact,
+  isDraft,
 }: {
   page: ICalendarPage;
   onResizeStart: (pageId: string, e: React.PointerEvent) => void;
   onEventClick: (pageId: string, rect: DOMRect) => void;
   compact?: boolean;
+  isDraft?: boolean;
 }) {
   const { t } = useTranslation();
   const startMin = pageToStartMin(page);
@@ -42,7 +44,7 @@ export function EventCard({
   return (
     <div
       ref={setNodeRef}
-      className={style.eventCard}
+      className={`${style.eventCard}${isDraft ? ` ${style.eventCardDraft}` : ""}`}
       style={{
         top,
         height: actualHeight,
