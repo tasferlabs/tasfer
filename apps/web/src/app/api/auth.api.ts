@@ -11,14 +11,12 @@ export interface AuthUser {
 
 interface AuthResponse {
   user: AuthUser;
-  accessToken: string;
 }
 
 interface RegisterResponse {
   needsVerification?: true;
   email?: string;
   user?: AuthUser;
-  accessToken?: string;
 }
 
 export async function register(data: {
@@ -43,7 +41,6 @@ interface LoginResponse {
   needsVerification?: true;
   email?: string;
   user?: AuthUser;
-  accessToken?: string;
 }
 
 export async function login(data: {
@@ -96,19 +93,16 @@ export async function resendVerification(email: string): Promise<void> {
   }
 }
 
-export async function refreshToken(): Promise<string | null> {
-  try {
-    const response = await fetch(`${API_BASE}/auth/refresh`, {
-      method: "POST",
-      credentials: "include",
-    });
+export async function getMe(): Promise<AuthUser> {
+  const response = await fetch(`${API_BASE}/auth/me`, {
+    credentials: "include",
+  });
 
-    const result = await response.json();
-    if (!result.success) return null;
-    return result.data.accessToken;
-  } catch {
-    return null;
+  const result = await response.json();
+  if (!result.success) {
+    throw new Error(result.error || "Not authenticated");
   }
+  return result.data.user;
 }
 
 export async function logout(): Promise<void> {
@@ -116,18 +110,6 @@ export async function logout(): Promise<void> {
     method: "POST",
     credentials: "include",
   });
-}
-
-export async function getMe(accessToken: string): Promise<AuthUser> {
-  const response = await fetch(`${API_BASE}/auth/me`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  const result = await response.json();
-  if (!result.success) {
-    throw new Error(result.error || "Failed to get user");
-  }
-  return result.data.user;
 }
 
 export async function updateProfile(data: {

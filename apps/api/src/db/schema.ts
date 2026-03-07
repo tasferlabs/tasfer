@@ -127,13 +127,14 @@ export const pageShares = pgTable(
 );
 
 // =============================================================================
-// Refresh Tokens
+// Sessions
 // =============================================================================
 
-export const refreshTokens = pgTable("refresh_tokens", {
-  id: varchar("id", { length: 30 }).primaryKey(),
+export const sessions = pgTable("sessions", {
+  id: varchar("id", { length: 64 }).primaryKey(),
   userId: varchar("userId", { length: 30 }).notNull(),
-  tokenHash: varchar("tokenHash", { length: 64 }).notNull(),
+  ipAddress: varchar("ipAddress", { length: 45 }),
+  userAgent: text("userAgent"),
   expiresAt: timestamp("expiresAt").notNull(),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
 });

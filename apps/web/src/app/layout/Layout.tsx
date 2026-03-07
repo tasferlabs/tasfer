@@ -37,14 +37,10 @@ export default function Layout() {
   // Silent background sync for offline mutations
   useOfflineStatus();
 
-  const { accessToken, user } = useAuth();
+  const { user } = useAuth();
   const { isLoading, meetsMinimum } = useVersion();
 
-  // Build WebSocket URL with JWT token
-  const websocketUrl = React.useMemo(() => {
-    if (!accessToken) return WEBSOCKET_BASE_URL;
-    return `${WEBSOCKET_BASE_URL}?token=${accessToken}`;
-  }, [accessToken]);
+  const websocketUrl = WEBSOCKET_BASE_URL;
 
   // Track if app ever mounted with valid version (user was working)
   const hadValidVersion = React.useRef(false);

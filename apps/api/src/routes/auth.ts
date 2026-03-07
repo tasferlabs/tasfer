@@ -3,12 +3,11 @@ import { createId } from "@paralleldrive/cuid2";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import db from "../db/index.js";
-import { users, spaces, refreshTokens } from "../db/schema.js";
+import { users, spaces } from "../db/schema.js";
 import { eq } from "drizzle-orm";
-import { requireAuth, signAccessToken } from "../middleware/auth.js";
+import { requireAuth, createSession, destroySession } from "../middleware/auth.js";
 import { sendVerificationEmail, sendPasswordResetEmail, sendEmailChangeVerification } from "../services/email.js";
 
-const REFRESH_TOKEN_EXPIRY_DAYS = 30;
 const VERIFICATION_CODE_EXPIRY_MINUTES = 10;
 
 const router = Router();
@@ -19,27 +18,6 @@ function hashToken(token: string): string {
 
 function generateVerificationCode(): string {
   return crypto.randomInt(100000, 999999).toString();
-}
-
-async function createRefreshToken(userId: string, res: any): Promise<void> {
-  const rawToken = crypto.randomBytes(32).toString("hex");
-  const tokenHash = hashToken(rawToken);
-  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
-
-  await db.insert(refreshTokens).values({
-    id: createId(),
-    userId,
-    tokenHash,
-    expiresAt,
-  });
-
-  res.cookie("refreshToken", rawToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
-    path: "/api/auth",
-  });
 }
 
 async function setVerificationCode(userId: string): Promise<string> {
@@ -53,6 +31,10 @@ async function setVerificationCode(userId: string): Promise<string> {
     .where(eq(users.id, userId));
 
   return code;
+}
+
+function userResponse(user: { id: string; email: string; name: string; avatar: string | null }) {
+  return { id: user.id, email: user.email, name: user.name, avatar: user.avatar };
 }
 
 // Register
@@ -70,13 +52,11 @@ router.post("/register", async (req, res) => {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Check if email already exists
     const existing = await db.query.users.findFirst({
       where: eq(users.email, normalizedEmail),
     });
 
     if (existing) {
-      // If existing user is unverified, allow re-registration with new credentials
       if (!existing.emailVerified) {
         const passwordHash = await bcrypt.hash(password, 12);
         await db
@@ -112,7 +92,6 @@ router.post("/register", async (req, res) => {
       ownerId: userId,
     });
 
-    // Send verification email
     const code = await setVerificationCode(userId);
     await sendVerificationEmail(normalizedEmail, code);
 
@@ -160,7 +139,6 @@ router.post("/verify-email", async (req, res) => {
       return res.status(400).json({ success: false, error: "Invalid verification code" });
     }
 
-    // Mark as verified and clear the code
     await db
       .update(users)
       .set({
@@ -170,16 +148,11 @@ router.post("/verify-email", async (req, res) => {
       })
       .where(eq(users.id, user.id));
 
-    // Issue tokens
-    const accessToken = signAccessToken({ id: user.id, email: user.email });
-    await createRefreshToken(user.id, res);
+    await createSession(user.id, req, res);
 
     res.json({
       success: true,
-      data: {
-        user: { id: user.id, email: user.email, name: user.name, avatar: user.avatar },
-        accessToken,
-      },
+      data: { user: userResponse(user) },
     });
   } catch (error) {
     console.error("Verify email error:", error);
@@ -201,7 +174,6 @@ router.post("/resend-verification", async (req, res) => {
     });
 
     if (!user || user.emailVerified) {
-      // Don't reveal whether the email exists
       return res.json({ success: true, message: "If the email exists, a new code has been sent." });
     }
 
@@ -237,7 +209,6 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ success: false, error: "Invalid email or password" });
     }
 
-    // Block unverified users and resend code
     if (!user.emailVerified) {
       const code = await setVerificationCode(user.id);
       await sendVerificationEmail(user.email, code);
@@ -248,15 +219,11 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const accessToken = signAccessToken({ id: user.id, email: user.email });
-    await createRefreshToken(user.id, res);
+    await createSession(user.id, req, res);
 
     res.json({
       success: true,
-      data: {
-        user: { id: user.id, email: user.email, name: user.name, avatar: user.avatar },
-        accessToken,
-      },
+      data: { user: userResponse(user) },
     });
   } catch (error) {
     console.error("Login error:", error);
@@ -264,65 +231,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// Refresh token
-router.post("/refresh", async (req, res) => {
-  try {
-    const rawToken = req.cookies?.refreshToken;
-    if (!rawToken) {
-      return res.status(401).json({ success: false, error: "No refresh token" });
-    }
-
-    const tokenHash = hashToken(rawToken);
-    const storedToken = await db.query.refreshTokens.findFirst({
-      where: eq(refreshTokens.tokenHash, tokenHash),
-    });
-
-    if (!storedToken || storedToken.expiresAt < new Date()) {
-      return res.status(401).json({ success: false, error: "Invalid or expired refresh token" });
-    }
-
-    // Delete the used token (rotation)
-    await db.delete(refreshTokens).where(eq(refreshTokens.id, storedToken.id));
-
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, storedToken.userId),
-    });
-
-    if (!user) {
-      return res.status(401).json({ success: false, error: "User not found" });
-    }
-
-    const accessToken = signAccessToken({ id: user.id, email: user.email });
-    await createRefreshToken(user.id, res);
-
-    res.json({
-      success: true,
-      data: { accessToken },
-    });
-  } catch (error) {
-    console.error("Refresh error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-// Logout
-router.post("/logout", async (req, res) => {
-  try {
-    const rawToken = req.cookies?.refreshToken;
-    if (rawToken) {
-      const tokenHash = hashToken(rawToken);
-      await db.delete(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash));
-    }
-
-    res.clearCookie("refreshToken", { path: "/api/auth" });
-    res.json({ success: true, message: "Logged out" });
-  } catch (error) {
-    console.error("Logout error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-// Get current user
+// Get current user (also serves as session check)
 router.get("/me", requireAuth, async (req, res) => {
   try {
     const user = await db.query.users.findFirst({
@@ -335,12 +244,21 @@ router.get("/me", requireAuth, async (req, res) => {
 
     res.json({
       success: true,
-      data: {
-        user: { id: user.id, email: user.email, name: user.name, avatar: user.avatar },
-      },
+      data: { user: userResponse(user) },
     });
   } catch (error) {
     console.error("Get me error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+// Logout
+router.post("/logout", async (req, res) => {
+  try {
+    await destroySession(req, res);
+    res.json({ success: true, message: "Logged out" });
+  } catch (error) {
+    console.error("Logout error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
@@ -360,7 +278,7 @@ router.put("/profile", requireAuth, async (req, res) => {
     }
 
     if (avatar !== undefined) {
-      updates.avatar = avatar; // string (image ID) or null to remove
+      updates.avatar = avatar;
     }
 
     await db.update(users).set(updates).where(eq(users.id, req.user!.id));
@@ -371,9 +289,7 @@ router.put("/profile", requireAuth, async (req, res) => {
 
     res.json({
       success: true,
-      data: {
-        user: { id: user!.id, email: user!.email, name: user!.name, avatar: user!.avatar },
-      },
+      data: { user: userResponse(user!) },
     });
   } catch (error) {
     console.error("Update profile error:", error);
@@ -394,7 +310,6 @@ router.post("/forgot-password", async (req, res) => {
       where: eq(users.email, email.toLowerCase().trim()),
     });
 
-    // Privacy-safe: always return success
     if (!user || !user.emailVerified) {
       return res.json({ success: true });
     }
@@ -417,7 +332,7 @@ router.post("/forgot-password", async (req, res) => {
   }
 });
 
-// Reset password (public - token from email link proves identity)
+// Reset password
 router.post("/reset-password", async (req, res) => {
   try {
     const { token, newPassword } = req.body;
@@ -473,7 +388,6 @@ router.post("/change-email", requireAuth, async (req, res) => {
 
     const normalizedEmail = newEmail.toLowerCase().trim();
 
-    // Get current user
     const user = await db.query.users.findFirst({
       where: eq(users.id, req.user!.id),
     });
@@ -486,7 +400,6 @@ router.post("/change-email", requireAuth, async (req, res) => {
       return res.status(400).json({ success: false, error: "New email must be different from current email" });
     }
 
-    // Check if new email is already taken
     const existing = await db.query.users.findFirst({
       where: eq(users.email, normalizedEmail),
     });
@@ -495,7 +408,6 @@ router.post("/change-email", requireAuth, async (req, res) => {
       return res.status(409).json({ success: false, error: "Email already in use" });
     }
 
-    // Generate a secure token for the verification link
     const token = crypto.randomBytes(32).toString("hex");
     const tokenHash = hashToken(token);
     const expiresAt = new Date(Date.now() + VERIFICATION_CODE_EXPIRY_MINUTES * 60 * 1000);
@@ -519,7 +431,7 @@ router.post("/change-email", requireAuth, async (req, res) => {
   }
 });
 
-// Verify email change (public - token from email link proves identity)
+// Verify email change
 router.post("/verify-email-change", async (req, res) => {
   try {
     const { token } = req.body;
@@ -530,7 +442,6 @@ router.post("/verify-email-change", async (req, res) => {
 
     const tokenHash = hashToken(token);
 
-    // Find user by verification token hash with a pending email
     const user = await db.query.users.findFirst({
       where: eq(users.verificationCode, tokenHash),
     });
@@ -543,7 +454,6 @@ router.post("/verify-email-change", async (req, res) => {
       return res.status(400).json({ success: false, error: "This link has expired. Please request a new email change." });
     }
 
-    // Update email and clear pending state
     await db
       .update(users)
       .set({
@@ -557,9 +467,7 @@ router.post("/verify-email-change", async (req, res) => {
 
     res.json({
       success: true,
-      data: {
-        user: { id: user.id, email: user.pendingEmail, name: user.name, avatar: user.avatar },
-      },
+      data: { user: userResponse({ ...user, email: user.pendingEmail }) },
     });
   } catch (error) {
     console.error("Verify email change error:", error);
@@ -604,6 +512,23 @@ router.post("/change-password", requireAuth, async (req, res) => {
     console.error("Change password error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
+});
+
+// Validate session (internal, used by live server)
+router.get("/validate-session", async (req, res) => {
+  const sessionId = req.query.sessionId as string;
+  if (!sessionId) {
+    return res.status(400).json({ success: false, error: "sessionId required" });
+  }
+
+  const { validateSession } = await import("../middleware/auth.js");
+  const userId = await validateSession(sessionId);
+
+  if (!userId) {
+    return res.status(401).json({ success: false });
+  }
+
+  res.json({ success: true, data: { userId } });
 });
 
 export default router;

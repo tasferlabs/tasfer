@@ -16,7 +16,7 @@
 
 import crypto from "crypto";
 import { readFileSync } from "fs";
-import jwt from "jsonwebtoken";
+import * as cookie from "cookie";
 import Redis from "ioredis";
 import { join } from "path";
 import { WebSocket, WebSocketServer } from "ws";
@@ -24,9 +24,6 @@ import { getAppDir } from "./lib/paths";
 
 // Unique instance ID for multi-instance coordination
 const INSTANCE_ID = crypto.randomUUID();
-
-// JWT secret shared with API server
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-production";
 
 // API server URL for internal access checks
 const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:3000";
@@ -169,29 +166,39 @@ const wsToClient = new WeakMap<WebSocket, Client>();
 
 const PORT = parseInt(process.env.PORT || "8080", 10);
 
-/** Map of WebSocket -> userId parsed from JWT during verifyClient */
+/** Map of WebSocket -> userId parsed from session during verifyClient */
 const wsUserIds = new WeakMap<WebSocket, string>();
 
 const wss = new WebSocketServer({
   port: PORT,
   perMessageDeflate: false, // Disable compression for lower latency
-  verifyClient: (info, callback) => {
-    const url = new URL(info.req.url || "", `http://${info.req.headers.host}`);
-    const token = url.searchParams.get("token");
+  verifyClient: async (info, callback) => {
+    const cookies = cookie.parse(info.req.headers.cookie || "");
+    const sessionId = cookies.session;
 
-    if (!token) {
-      console.log(`[Sync Server] Rejected connection: no token`);
+    if (!sessionId) {
+      console.log(`[Sync Server] Rejected connection: no session cookie`);
       callback(false, 401, "Unauthorized");
       return;
     }
 
     try {
-      const payload = jwt.verify(token, JWT_SECRET) as { sub: string; email: string };
-      // Store userId so we can retrieve it in the connection handler
-      (info.req as any).__userId = payload.sub;
+      const res = await fetch(
+        `${API_BASE_URL}/api/auth/validate-session?sessionId=${encodeURIComponent(sessionId)}`,
+        { headers: { "x-internal-key": INTERNAL_API_KEY } }
+      );
+      const data = await res.json() as { success: boolean; data: { userId: string } };
+
+      if (!data.success) {
+        console.log(`[Sync Server] Rejected connection: invalid session`);
+        callback(false, 401, "Unauthorized");
+        return;
+      }
+
+      (info.req as any).__userId = data.data.userId;
       callback(true);
-    } catch {
-      console.log(`[Sync Server] Rejected connection: invalid JWT`);
+    } catch (err) {
+      console.log(`[Sync Server] Rejected connection: session validation error`, err);
       callback(false, 401, "Unauthorized");
     }
   },
