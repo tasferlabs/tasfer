@@ -88,7 +88,7 @@ export function formatTime(minutes: number): string {
 }
 
 export function formatEventTime(
-  timestamp: number,
+  timestamp: string,
   duration?: number | null,
 ): string {
   const date = new Date(timestamp);

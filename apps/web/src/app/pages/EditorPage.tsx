@@ -1,5 +1,3 @@
-import { DateTime } from "luxon";
-import { formatDurationLabel, DURATION_OPTIONS } from "@/lib/utils";
 import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,8 +5,8 @@ import {
   Combobox,
   ComboboxContent,
   ComboboxInput,
-  ComboboxList,
   ComboboxItem,
+  ComboboxList,
 } from "@/components/ui/combobox";
 import {
   Drawer,
@@ -17,45 +15,60 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { Navigate, useParams, useNavigate } from "react-router-dom";
-import { debounce } from "lodash-es";
-import { Calendar, Trash, X } from "lucide-react";
-import * as Popover from "@radix-ui/react-popover";
-import { MountedEditor } from "../MountedEditor";
-import type { SyncState } from "@/websocket/hooks/useRoom";
-import type { AwarenessUser } from "@/editor/sync/awareness";
 import {
   isTextualBlock,
   type Block,
   type TextualBlock,
 } from "@/deserializer/loadPage";
+import type { AwarenessUser } from "@/editor/sync/awareness";
 import {
-  getVisibleTextFromRuns,
   extractTitleFromBlocks,
+  getVisibleTextFromRuns,
 } from "@/editor/sync/char-runs";
-
+import { DURATION_OPTIONS, formatDurationLabel } from "@/lib/utils";
+import type { SyncState } from "@/websocket/hooks/useRoom";
+import { CaretRightIcon } from "@phosphor-icons/react";
+import * as Popover from "@radix-ui/react-popover";
+import { useQueryClient } from "@tanstack/react-query";
+import { debounce } from "lodash-es";
+import { Calendar, Trash } from "lucide-react";
+import { DateTime } from "luxon";
 import {
-  useCreatePage,
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
+import { Controller, useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { ActiveUsersAvatars } from "../components/ActiveUsersAvatars";
+import { PageSettings } from "../components/PageSettings";
+import { SavingIndicator } from "../components/SavingIndicator";
+import { MountedEditor } from "../MountedEditor";
+
+import { usePageEvents } from "@/websocket/hooks/usePageEvents";
+import {
   getPage,
-  useUpdatePage,
+  useCreatePage,
   useGetPage,
   useGetPages,
+  useUpdatePage,
   type HLC,
 } from "../api/pages.api";
-import { usePageEvents } from "@/websocket/hooks/usePageEvents";
 import EmptyStateIllustration from "../components/illustrations/empty-state";
 import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
-import { useDebouncedSave } from "../hooks/useDebouncedSave";
+import { WordCountOverlay } from "../components/WordCountOverlay";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useSpaces } from "../contexts/SpaceContext";
+import { useDebouncedSave } from "../hooks/useDebouncedSave";
+import useLocalStorage from "../hooks/useLocalStorage";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useResponsive from "../hooks/useResponsive";
-import useLocalStorage from "../hooks/useLocalStorage";
-import { WordCountOverlay } from "../components/WordCountOverlay";
 import style from "./EditorPage.module.css";
 
 // Helper function to count words from blocks
@@ -112,7 +125,9 @@ export default function EditorPage() {
   } = usePageSettings();
   const { mutateAsync: updatePage } = useUpdatePage();
   // Permission level from the API - determines if editor is readonly
-  const [permission, setLocalPermission] = useState<"view" | "edit" | "owner">("owner");
+  const [permission, setLocalPermission] = useState<"view" | "edit" | "owner">(
+    "owner",
+  );
   // State for loading page snapshot once on mount
   const [pageSnapshot, setPageSnapshot] = useState<Block[] | null>(null);
   // Snapshot clock - used for delta sync
@@ -138,7 +153,10 @@ export default function EditorPage() {
   const confirmSaveFnRef = useRef<((clock: HLC) => void) | null>(null);
 
   const { activeSpaceId } = useSpaces();
-  const { data: pages, isLoading: isLoadingPages } = useGetPages(activeSpaceId, null);
+  const { data: pages, isLoading: isLoadingPages } = useGetPages(
+    activeSpaceId,
+    null,
+  );
   const [lastPageId, setLastPageId] = useLocalStorage<string | null>(
     "lastPageId",
     null,
@@ -461,9 +479,14 @@ export default function EditorPage() {
 
   // Pass snapshot blocks to the editor
   // Snapshot is loaded once on mount, editor manages state from there
+  const headerSlot = document.getElementById("top-action-bar-slot");
+
   return (
     <div className="flex flex-col w-full h-full">
-      <PageTagsBar pageId={id} readonly={readonly} />
+      {headerSlot && createPortal(<PageActionBar pageId={id} />, headerSlot)}
+      <div className="flex items-center gap-2 px-4 py-2 md:px-[40px]">
+        <ScheduleTag pageId={id} readonly={readonly} />
+      </div>
       <MountedEditor
         snapshot={pageSnapshot}
         className="w-full flex-1 min-h-0"
@@ -475,12 +498,20 @@ export default function EditorPage() {
         snapshotClock={snapshotClock}
         onSnapshotClockUpdate={readonly ? undefined : setSnapshotClock}
         onAwarenessChange={handleAwarenessChange}
-        onRestoreReady={readonly ? undefined : (restoreFn) => {
-          restoreFnRef.current = restoreFn;
-        }}
-        onConfirmSaveReady={readonly ? undefined : (confirmFn) => {
-          confirmSaveFnRef.current = confirmFn;
-        }}
+        onRestoreReady={
+          readonly
+            ? undefined
+            : (restoreFn) => {
+                restoreFnRef.current = restoreFn;
+              }
+        }
+        onConfirmSaveReady={
+          readonly
+            ? undefined
+            : (confirmFn) => {
+                confirmSaveFnRef.current = confirmFn;
+              }
+        }
         readonly={readonly}
       />
       <WordCountOverlay />
@@ -490,8 +521,12 @@ export default function EditorPage() {
 
 // ── Page Tags Bar ──
 
-function formatScheduleLabel(ts: number, duration: number | null, t: (key: string, opts?: Record<string, unknown>) => string): string {
-  const d = new Date(ts);
+function formatScheduleLabel(
+  iso: string,
+  duration: number | null,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+): string {
+  const d = new Date(iso);
   const date = d.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -501,11 +536,19 @@ function formatScheduleLabel(ts: number, duration: number | null, t: (key: strin
     minute: "2-digit",
   });
   if (duration) {
-    return t("{{date}}, {{time}} ({{duration}})", { date, time, duration: formatDurationLabel(duration, t) });
+    return t("{{date}}, {{time}} ({{duration}})", {
+      date,
+      time,
+      duration: formatDurationLabel(duration, t),
+    });
   }
   return t("{{date}}, {{time}}", { date, time });
 }
 
+interface ScheduleFormValues {
+  scheduledAt: string | null;
+  duration: number;
+}
 
 function ScheduleContent({
   pageId,
@@ -514,7 +557,7 @@ function ScheduleContent({
   readonly,
 }: {
   pageId: string;
-  scheduledAt: number | null;
+  scheduledAt: string | null;
   duration: number | null;
   readonly: boolean;
 }) {
@@ -528,26 +571,18 @@ function ScheduleContent({
   });
 
   const tz = DateTime.local().zoneName;
-  const dateValue = scheduledAt
-    ? DateTime.fromMillis(scheduledAt, { zone: tz }).toISO()
-    : null;
-  const currentDuration = duration ?? 60;
+
+  const { control } = useForm<ScheduleFormValues>({
+    defaultValues: {
+      scheduledAt: scheduledAt ?? null,
+      duration: duration ?? 60,
+    },
+  });
 
   const durationLabels = useMemo(
     () => DURATION_OPTIONS.map((d) => formatDurationLabel(d, t)),
     [t],
   );
-
-  const handleDateChange = (value: string | null) => {
-    if (!value) return;
-    const ms = DateTime.fromISO(value, { zone: tz }).toMillis();
-    if (!isNaN(ms)) update({ id: pageId, scheduledAt: ms });
-  };
-
-  const handleDurationChange = (val: string) => {
-    const idx = durationLabels.indexOf(val);
-    if (idx !== -1) update({ id: pageId, duration: DURATION_OPTIONS[idx] });
-  };
 
   const handleRemoveSchedule = () => {
     update({ id: pageId, scheduledAt: null, duration: null, allDay: null });
@@ -557,37 +592,59 @@ function ScheduleContent({
     <div className="space-y-4">
       <div className="space-y-2">
         <label className="text-sm font-medium">{t`Date & Time`}</label>
-        <DateTimePicker
-          type="datetime"
-          value={dateValue}
-          onChange={handleDateChange}
-          disabled={readonly}
-          timezone={tz}
-          fullWidth
+        <Controller
+          control={control}
+          name="scheduledAt"
+          render={({ field }) => (
+            <DateTimePicker
+              type="datetime"
+              value={field.value}
+              onChange={(value) => {
+                field.onChange(value);
+                update({ id: pageId, scheduledAt: value });
+              }}
+              disabled={readonly}
+              timezone={tz}
+              fullWidth
+            />
+          )}
         />
       </div>
 
       <div className="space-y-2">
         <label className="text-sm font-medium">{t`Duration`}</label>
-        <Combobox
-          items={durationLabels}
-          defaultValue={formatDurationLabel(currentDuration, t)}
-          onValueChange={(val) => {
-            if (val != null) handleDurationChange(val);
-          }}
-          disabled={readonly}
-        >
-          <ComboboxInput placeholder={formatDurationLabel(currentDuration, t)} />
-          <ComboboxContent>
-            <ComboboxList>
-              {(item) => (
-                <ComboboxItem key={item} value={item}>
-                  {item}
-                </ComboboxItem>
-              )}
-            </ComboboxList>
-          </ComboboxContent>
-        </Combobox>
+        <Controller
+          control={control}
+          name="duration"
+          render={({ field }) => (
+            <Combobox
+              items={durationLabels}
+              value={formatDurationLabel(field.value, t)}
+              onValueChange={(val) => {
+                if (val == null) return;
+                const idx = durationLabels.indexOf(val);
+                if (idx !== -1) {
+                  field.onChange(DURATION_OPTIONS[idx]);
+                  update({ id: pageId, duration: DURATION_OPTIONS[idx] });
+                }
+              }}
+              disabled={readonly}
+            >
+              <ComboboxInput
+                placeholder={formatDurationLabel(field.value, t)}
+              />
+              <ComboboxContent>
+                <ComboboxList>
+                  {(item) => (
+                    <ComboboxItem key={item} value={item}>
+                      {item}
+                    </ComboboxItem>
+                  )}
+                </ComboboxList>
+              </ComboboxContent>
+            </Combobox>
+          )}
+        />
       </div>
 
       {!readonly && scheduledAt && (
@@ -605,7 +662,13 @@ function ScheduleContent({
   );
 }
 
-function ScheduleTag({ pageId, readonly }: { pageId: string; readonly: boolean }) {
+function ScheduleTag({
+  pageId,
+  readonly,
+}: {
+  pageId: string;
+  readonly: boolean;
+}) {
   const { t } = useTranslation();
   const { data: page } = useGetPage(pageId);
   const [open, setOpen] = useState(false);
@@ -613,7 +676,7 @@ function ScheduleTag({ pageId, readonly }: { pageId: string; readonly: boolean }
 
   const isScheduled = !!page?.scheduledAt;
   const label = isScheduled
-    ? formatScheduleLabel(page!.scheduledAt!, page!.duration, t)
+    ? formatScheduleLabel(page.scheduledAt!, page.duration, t)
     : t`Schedule`;
 
   const content = (
@@ -667,7 +730,11 @@ function ScheduleTag({ pageId, readonly }: { pageId: string; readonly: boolean }
           sideOffset={8}
           className="z-50 w-[320px] rounded-lg border border-border bg-popover p-4 shadow-lg animate-in fade-in-0 zoom-in-95"
           onEscapeKeyDown={(e) => {
-            if (document.querySelector('[data-slot="combobox-content"][data-open]')) {
+            if (
+              document.querySelector(
+                '[data-slot="combobox-content"][data-open]',
+              )
+            ) {
               e.preventDefault();
             }
           }}
@@ -680,11 +747,44 @@ function ScheduleTag({ pageId, readonly }: { pageId: string; readonly: boolean }
   );
 }
 
-function PageTagsBar({ pageId, readonly }: { pageId: string; readonly: boolean }) {
+function PageActionBar({ pageId }: { pageId: string }) {
+  const {
+    data: page,
+    isLoading: isPageLoading,
+    isError: isPageError,
+  } = useGetPage(pageId);
+  const { isSaving, activeUsers, permission } = usePageSettings();
+  const { t } = useTranslation();
+
   return (
-    <div className="flex items-center gap-2 px-4 py-2 md:px-[40px]">
-      <ScheduleTag pageId={pageId} readonly={readonly} />
-    </div>
+    <>
+      {page?.parents && page.parents.length > 0 ? (
+        <div className={style.breadcrumbs}>
+          {page.parents.map((parent, index) => (
+            <Fragment key={parent.id}>
+              {index !== 0 && (
+                <span className={style.breadcrumbSeparator}>
+                  <CaretRightIcon size={16} />
+                </span>
+              )}
+              <Link to={`/page/${parent.id}`} className={style.breadcrumbLink}>
+                {parent.title || t`Untitled`}
+              </Link>
+            </Fragment>
+          ))}
+        </div>
+      ) : (
+        <span className={style.breadcrumbLink}>
+          {page?.title || t`Untitled`}
+        </span>
+      )}
+
+      <div className="ml-auto flex items-center gap-2">
+        <ActiveUsersAvatars users={activeUsers} />
+        {permission !== "view" && <SavingIndicator isSaving={isSaving} />}
+        {!isPageLoading && !isPageError && <PageSettings />}
+      </div>
+    </>
   );
 }
 

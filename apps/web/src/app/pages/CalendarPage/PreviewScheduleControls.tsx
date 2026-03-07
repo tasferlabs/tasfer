@@ -17,15 +17,12 @@ export function PreviewScheduleControls({
   duration,
   onChange,
 }: {
-  scheduledAt: number | null;
+  scheduledAt: string | null;
   duration: number | null;
-  onChange: (scheduledAt: number, duration: number | null) => void;
+  onChange: (scheduledAt: string, duration: number | null) => void;
 }) {
   const { t } = useTranslation();
   const tz = DateTime.local().zoneName;
-  const dateValue = scheduledAt
-    ? DateTime.fromMillis(scheduledAt, { zone: tz }).toISO()
-    : null;
   const currentDuration = duration ?? 60;
 
   const durationLabels = useMemo(
@@ -35,8 +32,7 @@ export function PreviewScheduleControls({
 
   const handleDateChange = (value: string | null) => {
     if (!value) return;
-    const ms = DateTime.fromISO(value, { zone: tz }).toMillis();
-    if (!isNaN(ms)) onChange(ms, duration);
+    onChange(value, duration);
   };
 
   const handleDurationChange = (val: string) => {
@@ -48,7 +44,7 @@ export function PreviewScheduleControls({
     <div className={style.previewSchedule}>
       <DateTimePicker
         type="datetime"
-        value={dateValue}
+        value={scheduledAt}
         onChange={handleDateChange}
         timezone={tz}
         size="small"

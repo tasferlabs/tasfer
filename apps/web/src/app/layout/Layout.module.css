@@ -46,6 +46,13 @@
   user-select: none;
 }
 
+.sidebarPanelSlot {
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .appSidebar .appSidebarResizer {
   flex: 0 0 6px;
   justify-self: flex-end;

@@ -16,7 +16,7 @@ import {
   CaretDoubleLeftIcon,
   FileTextIcon,
   PlusIcon,
-  SignOutIcon
+  SignOutIcon,
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
@@ -78,6 +78,7 @@ import { setRecentDragEnd } from "./components/PageLink";
 import { PagesArea } from "./components/PagesArea";
 // import pageLinkStyle from "./components/PagesLinks.module.css";
 import { useTranslation } from "react-i18next";
+import { useSidebarPanel } from "../contexts/SidebarPanelContext";
 import style from "./Layout.module.css";
 
 export function SidebarContent({
@@ -90,6 +91,7 @@ export function SidebarContent({
   const navigate = useNavigate();
   const isMobile = useResponsive("(max-width: 768px)");
   const { getConfirmation } = useConfirmation();
+  const { panelRef, hasPanel, setSlotMounted } = useSidebarPanel();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeDragData, setActiveDragData] = useState<IListPage | null>(null);
 
@@ -112,7 +114,10 @@ export function SidebarContent({
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: (newPage, variables) => {
       queryClient.invalidateQueries({
-        queryKey: ["pages", { spaceId: variables.spaceId, parentId: variables.parentId }],
+        queryKey: [
+          "pages",
+          { spaceId: variables.spaceId, parentId: variables.parentId },
+        ],
       });
       // Navigate to the newly created page
       navigate(`/page/${newPage.id}`);
@@ -250,7 +255,11 @@ export function SidebarContent({
     // Detect cross-space move
     const sourceSpaceId = activeData.spaceId;
     const targetSpaceId = overData?.spaceId;
-    const isCrossSpace = !!(sourceSpaceId && targetSpaceId && sourceSpaceId !== targetSpaceId);
+    const isCrossSpace = !!(
+      sourceSpaceId &&
+      targetSpaceId &&
+      sourceSpaceId !== targetSpaceId
+    );
 
     // If moving between spaces, ask for confirmation
     if (isCrossSpace) {
@@ -353,160 +362,185 @@ export function SidebarContent({
 
   return (
     <>
-      <div className={style.appSidebarHeader}>
-        {/* User avatar with popover menu */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2 min-w-0 rounded-md px-1.5 py-1 hover:bg-accent transition-colors cursor-pointer w-full">
-              <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  initials
-                )}
-              </div>
-              <span className="text-sm font-medium text-foreground truncate">
-                {user?.name}
-              </span>
-              <ChevronsUpDown size={14} className="shrink-0 text-muted-foreground" />
+      {/* Portal target for page panels (e.g. calendar event preview) — replaces entire sidebar */}
+      <div
+        ref={(el) => {
+          panelRef.current = el;
+          setSlotMounted(!!el);
+        }}
+        className={clsx(style.sidebarPanelSlot, "bg-popover")}
+        style={{ display: hasPanel ? "flex" : "none" }}
+      />
+
+      {!hasPanel && (
+        <>
+          <div className={style.appSidebarHeader}>
+            {/* User avatar with popover menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-2 min-w-0 rounded-md px-1.5 py-1 hover:bg-accent transition-colors cursor-pointer w-full">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
+                    {avatarUrl ? (
+                      <img
+                        src={avatarUrl}
+                        alt=""
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      initials
+                    )}
+                  </div>
+                  <span className="text-sm font-medium text-foreground truncate">
+                    {user?.name}
+                  </span>
+                  <ChevronsUpDown
+                    size={14}
+                    className="shrink-0 text-muted-foreground"
+                  />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-48">
+                <DropdownMenuLabel>
+                  {user?.email ?? user?.name}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={logout}>
+                  <SignOutIcon size={16} />
+                  {t("Sign out")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <button
+              onClick={() => setOpen(false)}
+              className={clsx(style.iconButton, style.appSidebarClose)}
+            >
+              <CaretDoubleLeftIcon size={24} />
+              <VisuallyHidden>{t("Close sidebar")}</VisuallyHidden>
             </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-48">
-            <DropdownMenuLabel>{user?.email ?? user?.name}</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={logout}>
-              <SignOutIcon size={16} />
-              {t("Sign out")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </div>
+          <div className={style.appNavigationLinks}>
+            <RouterLink className={style.appNavigationLink} to={"/calendar"}>
+              <div className={style.appNavigationLinkIcon}>
+                <Icons.Calendar width={24} height={24} />
+              </div>
+              {t("Calendar")}
+            </RouterLink>
+            <RouterLink className={style.appNavigationLink} to={"/settings"}>
+              <div className={style.appNavigationLinkIcon}>
+                <Icons.Gear width={24} height={24} />
+              </div>
+              {t("Settings")}
+            </RouterLink>
+            <button
+              className={style.appNavigationLink}
+              onClick={() => {
+                if (isMobile) setOpen(false);
+                setShowAddGroupDialog(true);
+              }}
+            >
+              <div className={style.appNavigationLinkIcon}>
+                <Icons.AddGroup />
+              </div>
+              {t("Add space")}
+            </button>
+          </div>
 
-        <button
-          onClick={() => setOpen(false)}
-          className={clsx(style.iconButton, style.appSidebarClose)}
-        >
-          <CaretDoubleLeftIcon size={24} />
-          <VisuallyHidden>{t("Close sidebar")}</VisuallyHidden>
-        </button>
-      </div>
-      <div className={style.appNavigationLinks}>
-        <RouterLink className={style.appNavigationLink} to={"/calendar"}>
-          <div className={style.appNavigationLinkIcon}>
-            <Icons.Calendar width={24} height={24} />
-          </div>
-          {t("Calendar")}
-        </RouterLink>
-        <RouterLink className={style.appNavigationLink} to={"/settings"}>
-          <div className={style.appNavigationLinkIcon}>
-            <Icons.Gear width={24} height={24} />
-          </div>
-          {t("Settings")}
-        </RouterLink>
-        <button
-          className={style.appNavigationLink}
-          onClick={() => {
-            if (isMobile) setOpen(false);
-            setShowAddGroupDialog(true);
-          }}
-        >
-          <div className={style.appNavigationLinkIcon}>
-            <Icons.AddGroup />
-          </div>
-          {t("Add space")}
-        </button>
-      </div>
-
-      <div className={style.appSidebarMain}>
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <ScrollArea className={style.appSidebarScrollArea}>
-            {/* Group spaces */}
-            {groupSpaces.map((group) => (
-              <React.Fragment key={group.id}>
-                <div className={style.appSidebarSection}>
-                  <div className={style.appSidebarSectionTitle}>
-                    <div className={style.appSidebarSectionIcon}>
-                      <Icons.Shared />
-                    </div>
-                    {group.name}
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger className={style.appSidebarSectionButton}>
-                      <Ellipsis size={20} />
-                      <span className="sr-only">{t("Space settings")}</span>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                      <DropdownMenuItem
-                        onSelect={(ev) => {
-                          ev.preventDefault();
-                          if (isMobile) setOpen(false);
-                          setGroupSettingsId(group.id);
-                        }}
+          <div className={style.appSidebarMain}>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+            >
+              <ScrollArea className={style.appSidebarScrollArea}>
+                {/* Group spaces */}
+                {groupSpaces.map((group) => (
+                  <React.Fragment key={group.id}>
+                    <div className={style.appSidebarSection}>
+                      <div className={style.appSidebarSectionTitle}>
+                        <div className={style.appSidebarSectionIcon}>
+                          <Icons.Shared />
+                        </div>
+                        {group.name}
+                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          className={style.appSidebarSectionButton}
+                        >
+                          <Ellipsis size={20} />
+                          <span className="sr-only">{t("Space settings")}</span>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                          <DropdownMenuItem
+                            onSelect={(ev) => {
+                              ev.preventDefault();
+                              if (isMobile) setOpen(false);
+                              setGroupSettingsId(group.id);
+                            }}
+                          >
+                            {t("Space settings")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={(ev) => {
+                              ev.preventDefault();
+                              if (isMobile) setOpen(false);
+                              setInviteMembersId(group.id);
+                            }}
+                          >
+                            {t("Invite members")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => leaveGroup(group.id)}
+                          >
+                            {t("Leave space")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <button
+                        className={style.appSidebarSectionButton}
+                        onClick={() => handleAdd(null, group.id)}
+                        disabled={isCreating}
                       >
-                        {t("Space settings")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={(ev) => {
-                          ev.preventDefault();
-                          if (isMobile) setOpen(false);
-                          setInviteMembersId(group.id);
-                        }}
-                      >
-                        {t("Invite members")}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => leaveGroup(group.id)}>
-                        {t("Leave space")}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <button
-                    className={style.appSidebarSectionButton}
-                    onClick={() => handleAdd(null, group.id)}
-                    disabled={isCreating}
-                  >
-                    <PlusIcon size={20} />
-                    <span className="sr-only">{t("Add page")}</span>
-                  </button>
-                </div>
-                <PagesArea parentId={null} spaceId={group.id} />
-              </React.Fragment>
-            ))}
-
-            {/* Personal space */}
-            {personalSpace && (
-              <>
-                <div className={style.appSidebarSection}>
-                  <div className={style.appSidebarSectionTitle}>
-                    <div className={style.appSidebarSectionIcon}>
-                      <Icons.Lock width={20} height={20} />
+                        <PlusIcon size={20} />
+                        <span className="sr-only">{t("Add page")}</span>
+                      </button>
                     </div>
-                    {t("Private")}
-                  </div>
-                  <button
-                    className={style.appSidebarSectionButton}
-                    onClick={() => handleAdd(null, personalSpace.id)}
-                    disabled={isCreating}
-                  >
-                    <PlusIcon size={20} />
-                    <span className="sr-only">{t("Add page")}</span>
-                  </button>
-                </div>
+                    <PagesArea parentId={null} spaceId={group.id} />
+                  </React.Fragment>
+                ))}
 
-                <PagesArea
-                  className={style.appSidebarSectionPagesArea}
-                  parentId={null}
-                  spaceId={personalSpace.id}
-                />
-              </>
-            )}
+                {/* Personal space */}
+                {personalSpace && (
+                  <>
+                    <div className={style.appSidebarSection}>
+                      <div className={style.appSidebarSectionTitle}>
+                        <div className={style.appSidebarSectionIcon}>
+                          <Icons.Lock width={20} height={20} />
+                        </div>
+                        {t("Private")}
+                      </div>
+                      <button
+                        className={style.appSidebarSectionButton}
+                        onClick={() => handleAdd(null, personalSpace.id)}
+                        disabled={isCreating}
+                      >
+                        <PlusIcon size={20} />
+                        <span className="sr-only">{t("Add page")}</span>
+                      </button>
+                    </div>
 
-            {/* Shared - commented out */}
-            {/* {((sharedWithMe && sharedWithMe.length > 0) || (sharedByMe && sharedByMe.length > 0)) && (
+                    <PagesArea
+                      className={style.appSidebarSectionPagesArea}
+                      parentId={null}
+                      spaceId={personalSpace.id}
+                    />
+                  </>
+                )}
+
+                {/* Shared - commented out */}
+                {/* {((sharedWithMe && sharedWithMe.length > 0) || (sharedByMe && sharedByMe.length > 0)) && (
               <>
                 <div className={style.appSidebarSection}>
                   <button
@@ -560,17 +594,19 @@ export function SidebarContent({
                 )}
               </>
             )} */}
-          </ScrollArea>
-          <DragOverlay>
-            {activeId && activeDragData ? (
-              <div className={style.dragOverlay}>
-                <FileTextIcon size={20} />
-                <span>{activeDragData.title || "Untitled"}</span>
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
-      </div>
+              </ScrollArea>
+              <DragOverlay>
+                {activeId && activeDragData ? (
+                  <div className={style.dragOverlay}>
+                    <FileTextIcon size={20} />
+                    <span>{activeDragData.title || "Untitled"}</span>
+                  </div>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
+          </div>
+        </>
+      )}
 
       {/* Dialogs — rendered outside sidebar, matching l4r PagesLayout pattern */}
       <AddGroupDialog
@@ -581,13 +617,17 @@ export function SidebarContent({
       <EditGroupDialog
         spaceId={groupSettingsId || ""}
         open={!!groupSettingsId}
-        onOpenChange={(open) => setGroupSettingsId(open ? groupSettingsId : null)}
+        onOpenChange={(open) =>
+          setGroupSettingsId(open ? groupSettingsId : null)
+        }
         openInviteMembers={setInviteMembersId}
       />
       <InviteMembersDialog
         spaceId={inviteMembersId || ""}
         open={!!inviteMembersId}
-        onOpenChange={(open) => setInviteMembersId(open ? inviteMembersId : null)}
+        onOpenChange={(open) =>
+          setInviteMembersId(open ? inviteMembersId : null)
+        }
       />
     </>
   );

@@ -16,7 +16,7 @@
 }
 
 .headerTitle {
-  font-size: 1.5rem;
+  font-size: 1rem;
   font-weight: 600;
   min-width: 0;
   white-space: nowrap;
@@ -256,50 +256,199 @@
   min-height: 0;
 }
 
-.previewResizeHandle {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 24px;
-  height: 24px;
-  cursor: nwse-resize;
-  z-index: 2;
+.previewDraftFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--color-border);
 }
 
-.previewResizeHandle::before,
-.previewResizeHandle::after {
+.previewResizeBarTop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+  z-index: 3;
+}
+
+.previewResizeBarTop::after {
   content: "";
   position: absolute;
-  background-color: var(--muted-foreground);
-  border-radius: 1px;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: var(--primary);
   opacity: 0;
   transition: opacity 0.15s;
+  border-radius: 8px 8px 0 0;
 }
 
-.previewResizeHandle::before {
-  right: 5px;
-  bottom: 5px;
-  width: 12px;
-  height: 2px;
-  transform: rotate(-45deg);
+.previewResizeBarTop:hover::after {
+  opacity: 1;
 }
 
-.previewResizeHandle::after {
-  right: 9px;
-  bottom: 5px;
+.previewResizeBarLeft {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
   width: 6px;
+  cursor: ew-resize;
+  z-index: 3;
+}
+
+.previewResizeBarLeft::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: var(--primary);
+  opacity: 0;
+  transition: opacity 0.15s;
+  border-radius: 8px 0 0 8px;
+}
+
+.previewResizeBarLeft:hover::after {
+  opacity: 1;
+}
+
+.previewResizeBarRight {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 3;
+}
+
+.previewResizeBarRight::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: var(--primary);
+  opacity: 0;
+  transition: opacity 0.15s;
+  border-radius: 0 8px 8px 0;
+}
+
+.previewResizeBarRight:hover::after {
+  opacity: 1;
+}
+
+.previewResizeBarBottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  cursor: ns-resize;
+  z-index: 3;
+}
+
+.previewResizeBarBottom::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   height: 2px;
-  transform: rotate(-45deg);
+  background-color: var(--primary);
+  opacity: 0;
+  transition: opacity 0.15s;
+  border-radius: 0 0 8px 8px;
 }
 
-.previewPopover:hover .previewResizeHandle::before,
-.previewPopover:hover .previewResizeHandle::after {
-  opacity: 0.4;
+.previewResizeBarBottom:hover::after {
+  opacity: 1;
 }
 
-.previewResizeHandle:hover::before,
-.previewResizeHandle:hover::after {
-  opacity: 0.8;
+.previewCornerTL,
+.previewCornerTR,
+.previewCornerBL,
+.previewCornerBR {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  z-index: 4;
+}
+
+.previewCornerTL {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.previewCornerTR {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.previewCornerBL {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.previewCornerBR {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+
+/* Show both adjacent edges when hovering a corner */
+.previewCornerTL:hover ~ .previewResizeBarTop::after,
+.previewCornerTL:hover ~ .previewResizeBarLeft::after {
+  opacity: 1;
+}
+
+.previewCornerTR:hover ~ .previewResizeBarTop::after,
+.previewCornerTR:hover ~ .previewResizeBarRight::after {
+  opacity: 1;
+}
+
+.previewCornerBL:hover ~ .previewResizeBarBottom::after,
+.previewCornerBL:hover ~ .previewResizeBarLeft::after {
+  opacity: 1;
+}
+
+.previewCornerBR:hover ~ .previewResizeBarBottom::after,
+.previewCornerBR:hover ~ .previewResizeBarRight::after {
+  opacity: 1;
+}
+
+/* ── Preview sidebar (portaled into left sidebar) ── */
+
+.previewSidebarContent {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Snap zone indicator ── */
+
+.snapZoneIndicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  /* width is set dynamically via inline style to match sidebar bounds */
+  background: color-mix(in srgb, var(--primary), transparent 85%);
+  border-right: 2px dashed var(--primary);
+  z-index: 100;
+  pointer-events: none;
 }
 
 .previewLoading {

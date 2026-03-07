@@ -9,7 +9,7 @@ export interface IListPage {
   parentId: string | null;
   order: number;
   hasChildren: boolean;
-  scheduledAt?: number | null;
+  scheduledAt?: string | null;
   duration?: number | null;
   allDay?: boolean | null;
   recurrenceId?: string | null;
@@ -32,7 +32,7 @@ export interface IPage {
   parentId: string | null;
   order: number;
   // Calendar fields
-  scheduledAt: number | null;
+  scheduledAt: string | null;
   duration: number | null;
   allDay: boolean | null;
   recurrenceId: string | null;
@@ -94,7 +94,7 @@ interface ICreatePage {
   title: string;
   parentId: string | null;
   spaceId: string;
-  scheduledAt?: number;
+  scheduledAt?: string;
   duration?: number;
   allDay?: boolean;
 }
@@ -136,7 +136,7 @@ interface IUpdatePage {
   // Clock of the snapshot - used for delta sync
   snapshotClock?: HLC | null;
   // Calendar fields
-  scheduledAt?: number | null;
+  scheduledAt?: string | null;
   duration?: number | null;
   allDay?: boolean | null;
 }
@@ -284,7 +284,7 @@ export interface ICalendarPage {
   autoTitle: boolean;
   parentId: string | null;
   order: number;
-  scheduledAt: number;
+  scheduledAt: string;
   duration: number | null;
   allDay: boolean | null;
   recurrenceId: string | null;

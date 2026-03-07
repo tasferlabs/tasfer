@@ -1,22 +1,23 @@
+import { useOfflineStatus } from "@/offline/hooks/useOfflineStatus";
 import React from "react";
 import { Outlet } from "react-router-dom";
+import { ConfirmationDialogProvider } from "../components/ConfirmationDialog";
+import { DevToolbar } from "../components/DevToolbar";
+import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
+import UpdatePopup from "../components/UpdatePopup";
+import { useAuth } from "../contexts/AuthContext";
+import { PageSettingsProvider } from "../contexts/PageSettingsContext";
+import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
+import { SpaceProvider } from "../contexts/SpaceContext";
+import { useVersion } from "../contexts/VersionContext";
+import { WebSocketProvider } from "../contexts/WebSocketContext";
 import useLocalStorage from "../hooks/useLocalStorage";
 import useResponsive from "../hooks/useResponsive";
+import ForceUpdatePage from "../pages/ForceUpdatePage";
+import { FloatingSidebar } from "./FloatingSidebar";
 import style from "./Layout.module.css";
 import { ResizableSidebar } from "./ResizableSidebar";
-import { FloatingSidebar } from "./FloatingSidebar";
 import { TopActionBar } from "./TopActionBar";
-import { ConfirmationDialogProvider } from "../components/ConfirmationDialog";
-import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
-import { PageSettingsProvider } from "../contexts/PageSettingsContext";
-import { WebSocketProvider } from "../contexts/WebSocketContext";
-import { useVersion } from "../contexts/VersionContext";
-import { useAuth } from "../contexts/AuthContext";
-import { SpaceProvider } from "../contexts/SpaceContext";
-import ForceUpdatePage from "../pages/ForceUpdatePage";
-import UpdatePopup from "../components/UpdatePopup";
-import { DevToolbar } from "../components/DevToolbar";
-import { useOfflineStatus } from "@/offline/hooks/useOfflineStatus";
 
 // WebSocket server URL - defaults to using Vite proxy
 const WEBSOCKET_BASE_URL =
@@ -61,6 +62,7 @@ export default function Layout() {
   return (
     <WebSocketProvider serverUrl={websocketUrl} userName={user?.name} userAvatar={user?.avatar}>
       <SpaceProvider>
+      <SidebarPanelProvider>
       <PageSettingsProvider>
         <ConfirmationDialogProvider>
           <UnsavedChangesDialogProvider>
@@ -87,6 +89,7 @@ export default function Layout() {
           </UnsavedChangesDialogProvider>
         </ConfirmationDialogProvider>
       </PageSettingsProvider>
+      </SidebarPanelProvider>
       </SpaceProvider>
     </WebSocketProvider>
   );

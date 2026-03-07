@@ -155,7 +155,7 @@ export const DateTimeInput = React.forwardRef(
     useImperativeHandle(ref, () => ({ handleChange, focus: () => inputRef.current?.focus() }));
     const placeholder = getGranularityPlaceholder(granularity);
     return (
-      <div style={{ minWidth: `${placeholder.length}ch` }}>
+      <div style={{ minWidth: `${placeholder.length}ch` }} className='font-mono'>
         <input
           ref={(el) => {
             (inputRef as React.MutableRefObject<HTMLInputElement | null>).current = el;

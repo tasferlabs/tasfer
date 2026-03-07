@@ -45,7 +45,7 @@ const EgDateTimePicker = React.forwardRef(
       onChange,
       type,
       label,
-      fullWidth,
+      fullWidth = false,
       required,
       disabled,
       onBlur,
@@ -138,6 +138,10 @@ const EgDateTimePicker = React.forwardRef(
     const isSyncingFromProps = useRef(false);
     const handleChangeRef = useRef(handleChange) as MutableRefObject<typeof handleChange>;
     handleChangeRef.current = handleChange;
+    const latestValueRef = useRef(computeValue);
+    useEffect(() => {
+      latestValueRef.current = computeValue;
+    }, [computeValue]);
 
     useEffect(() => {
       isSyncingFromProps.current = true;
@@ -190,19 +194,25 @@ const EgDateTimePicker = React.forwardRef(
 
     const incrementValue = useCallback(
       (granularity: keyof DateTime<boolean>, value: number) => {
-        const luxonValue = computeValue
-          ? getLuxon(computeValue, timezone).plus({ [granularity]: value })
+        const currentValue = latestValueRef.current;
+        const luxonValue = currentValue
+          ? getLuxon(currentValue, timezone).plus({ [granularity]: value })
           : DateTime.now().setZone(timezone).startOf('day');
 
+        let newValue: string | null;
         if (type === 'date') {
-          handleChange(luxonValue.toISODate(), true);
+          newValue = luxonValue.toISODate();
         } else if (type === 'datetime') {
-          handleChange(luxonValue.toISO(), true);
-        } else if (type === 'time') {
-          handleChange(luxonValue.toISOTime({ includeOffset: true }), true);
+          newValue = luxonValue.toISO();
+        } else {
+          newValue = luxonValue.toISOTime({ includeOffset: true });
         }
+
+        // Update ref synchronously so rapid key presses see the latest value
+        latestValueRef.current = newValue;
+        handleChangeRef.current(newValue, true);
       },
-      [computeValue, timezone, type, handleChange]
+      [timezone, type]
     );
 
     return (

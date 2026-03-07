@@ -1,4 +1,5 @@
 import { useMemo, useRef, useEffect, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -13,11 +14,15 @@ import {
 import { useTranslation } from "react-i18next";
 import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
+import type { Block } from "@/deserializer/loadPage";
+import { extractTitleFromBlocks } from "@/editor/sync/char-runs";
 import {
   useGetCalendarPages,
   useCreatePage,
   useUpdatePage,
+  updatePage as updatePageApi,
   type ICalendarPage,
+  type HLC,
 } from "../../api/pages.api";
 import {
   HOUR_HEIGHT,
@@ -42,6 +47,13 @@ import { EventCard } from "./EventCard";
 import { EventOverlay } from "./EventOverlay";
 import { EventPreview } from "./EventPreview";
 import style from "./CalendarPage.module.css";
+
+// ── Draft event (temporary, not yet saved) ──
+
+export interface DraftEvent {
+  scheduledAt: string;
+  duration: number;
+}
 
 // ── Create-drag state ──
 
@@ -73,6 +85,10 @@ export default function CalendarPage() {
     "calendar-view",
     "day",
   );
+  const [sidebarMode, setSidebarMode] = useLocalStorage<boolean>(
+    "calendar-preview-sidebar",
+    false,
+  );
 
   const today = useMemo(() => new Date(), []);
   const isToday = isSameDay(selectedDate, today);
@@ -81,11 +97,13 @@ export default function CalendarPage() {
   const previewJustClosedRef = useRef(false);
   const [previewPageId, setPreviewPageId] = useState<string | null>(null);
   const [previewAnchor, setPreviewAnchor] = useState<DOMRect | null>(null);
+  const [draftEvent, setDraftEvent] = useState<DraftEvent | null>(null);
   const queryClient = useQueryClient();
 
   const handlePreviewClose = useCallback(() => {
     setPreviewPageId(null);
     setPreviewAnchor(null);
+    setDraftEvent(null);
     previewJustClosedRef.current = true;
     requestAnimationFrame(() => {
       previewJustClosedRef.current = false;
@@ -94,6 +112,12 @@ export default function CalendarPage() {
 
   const handleEventClick = useCallback(
     (pageId: string, rect: DOMRect) => {
+      if (pageId === "__draft__") {
+        // Draft event clicked - just set anchor for positioning
+        setPreviewAnchor(rect);
+        return;
+      }
+      setDraftEvent(null);
       setPreviewPageId(pageId);
       setPreviewAnchor(rect);
     },
@@ -111,9 +135,21 @@ export default function CalendarPage() {
   const { data: pages } = useGetCalendarPages(activeSpaceId, start, end);
 
   const { mutate: createPage } = useCreatePage({
-    onSuccess: (newPage) => {
+    onSuccess: async (newPage) => {
+      // Save draft snapshot content to the new page
+      const { snapshot, clock } = draftSnapshotRef.current;
+      if (snapshot) {
+        await updatePageApi({
+          id: newPage.id,
+          snapshot,
+          snapshotClock: clock,
+          title: extractTitleFromBlocks(snapshot),
+        });
+      }
+      draftSnapshotRef.current = {};
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
       queryClient.invalidateQueries({ queryKey: ["pages"] });
+      setDraftEvent(null);
       setPreviewPageId(newPage.id);
       setPreviewAnchor(null);
     },
@@ -132,16 +168,30 @@ export default function CalendarPage() {
       const scheduledDate = new Date(date || selectedDate);
       scheduledDate.setHours(0, 0, 0, 0);
       scheduledDate.setMinutes(startMinutes);
-      createPage({
-        title: "",
-        parentId: null,
-        spaceId: activeSpaceId,
-        scheduledAt: scheduledDate.getTime(),
+      setDraftEvent({
+        scheduledAt: scheduledDate.toISOString(),
         duration: durationMinutes,
       });
+      setPreviewPageId(null);
+      setPreviewAnchor(null);
     },
-    [activeSpaceId, selectedDate, createPage],
+    [activeSpaceId, selectedDate],
   );
+
+  const draftSnapshotRef = useRef<{ snapshot?: Block[]; clock?: HLC | null }>({});
+
+  const handleDraftSave = useCallback((snapshot?: Block[], clock?: HLC | null) => {
+    if (!draftEvent || !activeSpaceId) return;
+    // Store snapshot to save after page creation
+    draftSnapshotRef.current = { snapshot, clock };
+    createPage({
+      title: snapshot ? extractTitleFromBlocks(snapshot) : "",
+      parentId: null,
+      spaceId: activeSpaceId,
+      scheduledAt: draftEvent.scheduledAt,
+      duration: draftEvent.duration,
+    });
+  }, [draftEvent, activeSpaceId, createPage]);
 
   // Separate all-day and timed events
   const { timedPages, allDayPages } = useMemo(() => {
@@ -155,8 +205,23 @@ export default function CalendarPage() {
         timedPages.push(page);
       }
     }
+    // Include draft event as a temporary calendar page
+    if (draftEvent) {
+      timedPages.push({
+        id: "__draft__",
+        title: "",
+        autoTitle: false,
+        parentId: null,
+        order: 0,
+        scheduledAt: draftEvent.scheduledAt,
+        duration: draftEvent.duration,
+        allDay: false,
+        recurrenceId: null,
+        createdAt: new Date().toISOString(),
+      });
+    }
     return { timedPages, allDayPages };
-  }, [pages]);
+  }, [pages, draftEvent]);
 
   // Group timed pages by day (for week view)
   const pagesByDay = useMemo(() => {
@@ -263,11 +328,11 @@ export default function CalendarPage() {
       scheduledDate.setHours(0, 0, 0, 0);
       scheduledDate.setMinutes(newStartMin);
 
-      const changed = scheduledDate.getTime() !== activeDragPage.scheduledAt;
-      if (changed) {
+      const newISO = scheduledDate.toISOString();
+      if (newISO !== activeDragPage.scheduledAt) {
         updatePage({
           id: activeDragPage.id,
-          scheduledAt: scheduledDate.getTime(),
+          scheduledAt: newISO,
         });
       }
     }
@@ -356,7 +421,7 @@ export default function CalendarPage() {
   }
 
   function handleGridMouseDown(e: React.MouseEvent) {
-    if (previewPageId || previewJustClosedRef.current) return;
+    if ((!sidebarMode && (previewPageId || draftEvent)) || previewJustClosedRef.current) return;
     if ((e.target as HTMLElement).closest(`.${style.eventCard}`)) return;
     if ((e.target as HTMLElement).closest(`.${style.resizeHandle}`)) return;
     e.preventDefault();
@@ -452,7 +517,8 @@ export default function CalendarPage() {
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement ||
-        previewPageId
+        previewPageId ||
+        draftEvent
       )
         return;
 
@@ -603,40 +669,46 @@ export default function CalendarPage() {
     );
   }
 
+  const headerSlot = document.getElementById("top-action-bar-slot");
+
   return (
     <div className={style.container}>
-      <div className={style.header}>
-        <div className={style.headerNav}>
-          <button className={style.headerNavButton} onClick={() => goToDay(-1)}>
-            &#8249;
-          </button>
-          <button className={style.todayButton} onClick={goToToday}>
-            {t("Today")}
-          </button>
-          <button className={style.headerNavButton} onClick={() => goToDay(1)}>
-            &#8250;
-          </button>
-        </div>
-        <span className={style.headerTitle}>
-          {viewMode === "day"
-            ? formatDate(selectedDate)
-            : formatWeekRange(selectedDate)}
-        </span>
-        <div className={style.viewToggle}>
-          <button
-            className={`${style.viewToggleButton} ${viewMode === "day" ? style.viewToggleActive : ""}`}
-            onClick={() => setViewMode("day")}
-          >
-            {t("Day")}
-          </button>
-          <button
-            className={`${style.viewToggleButton} ${viewMode === "week" ? style.viewToggleActive : ""}`}
-            onClick={() => setViewMode("week")}
-          >
-            {t("Week")}
-          </button>
-        </div>
-      </div>
+      {headerSlot &&
+        createPortal(
+          <>
+            <div className={style.headerNav}>
+              <button className={style.headerNavButton} onClick={() => goToDay(-1)}>
+                &#8249;
+              </button>
+              <button className={style.todayButton} onClick={goToToday}>
+                {t("Today")}
+              </button>
+              <button className={style.headerNavButton} onClick={() => goToDay(1)}>
+                &#8250;
+              </button>
+            </div>
+            <span className={style.headerTitle}>
+              {viewMode === "day"
+                ? formatDate(selectedDate)
+                : formatWeekRange(selectedDate)}
+            </span>
+            <div className={style.viewToggle}>
+              <button
+                className={`${style.viewToggleButton} ${viewMode === "day" ? style.viewToggleActive : ""}`}
+                onClick={() => setViewMode("day")}
+              >
+                {t("Day")}
+              </button>
+              <button
+                className={`${style.viewToggleButton} ${viewMode === "week" ? style.viewToggleActive : ""}`}
+                onClick={() => setViewMode("week")}
+              >
+                {t("Week")}
+              </button>
+            </div>
+          </>,
+          headerSlot,
+        )}
 
       {allDayPages.length > 0 && (
         <div className={style.allDaySection}>
@@ -831,6 +903,10 @@ export default function CalendarPage() {
         pageId={previewPageId}
         anchor={previewAnchor}
         onClose={handlePreviewClose}
+        sidebarMode={sidebarMode ?? false}
+        onSidebarModeChange={setSidebarMode}
+        draft={draftEvent}
+        onDraftSave={handleDraftSave}
       />
     </div>
   );

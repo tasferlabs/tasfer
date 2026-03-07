@@ -157,7 +157,13 @@ router.get("/calendar/range", async (req, res) => {
       )
       .orderBy(pages.scheduledAt);
 
-    res.json({ success: true, data: pagesList });
+    // Convert scheduledAt from unix ms to ISO string
+    const pagesWithISO = pagesList.map((p) => ({
+      ...p,
+      scheduledAt: p.scheduledAt ? new Date(p.scheduledAt).toISOString() : null,
+    }));
+
+    res.json({ success: true, data: pagesWithISO });
   } catch (error) {
     console.error("Calendar range error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
@@ -236,7 +242,7 @@ router.get("/:id", async (req, res) => {
         autoTitle: page.autoTitle,
         parentId: page.parentId,
         order: page.order,
-        scheduledAt: page.scheduledAt,
+        scheduledAt: page.scheduledAt ? new Date(page.scheduledAt).toISOString() : null,
         duration: page.duration,
         allDay: page.allDay,
         recurrenceId: page.recurrenceId,
@@ -367,7 +373,7 @@ router.post("/create", async (req, res) => {
         spaceId,
         parentId: parentId || null,
         order: maxOrder + 1,
-        ...(scheduledAt !== undefined && { scheduledAt }),
+        ...(scheduledAt !== undefined && { scheduledAt: scheduledAt ? new Date(scheduledAt).getTime() : null }),
         ...(duration !== undefined && { duration }),
         ...(allDay !== undefined && { allDay }),
       })
@@ -413,6 +419,7 @@ router.post("/create", async (req, res) => {
       success: true,
       data: {
         ...newPage[0],
+        scheduledAt: newPage[0].scheduledAt ? new Date(newPage[0].scheduledAt).toISOString() : null,
         snapshot: initialSnapshot,
       },
     });
@@ -466,7 +473,7 @@ router.put("/:id", async (req, res) => {
 
     // Update calendar fields if provided
     if (scheduledAt !== undefined) {
-      updateData.scheduledAt = scheduledAt;
+      updateData.scheduledAt = scheduledAt ? new Date(scheduledAt).getTime() : null;
     }
     if (duration !== undefined) {
       updateData.duration = duration;
@@ -547,7 +554,13 @@ router.put("/:id", async (req, res) => {
       }
     }
 
-    res.json({ success: true, data: updated[0] });
+    res.json({
+      success: true,
+      data: {
+        ...updated[0],
+        scheduledAt: updated[0].scheduledAt ? new Date(updated[0].scheduledAt).toISOString() : null,
+      },
+    });
   } catch (error) {
     console.error("Update page error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
