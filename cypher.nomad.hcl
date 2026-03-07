@@ -18,6 +18,61 @@ variable "image_tag" {
   description = "Docker image tag for this deployment"
 }
 
+variable "jwt_secret" {
+  type        = string
+  description = "JWT signing secret"
+}
+
+variable "internal_api_key" {
+  type        = string
+  description = "Internal API key for service-to-service auth"
+}
+
+variable "app_url" {
+  type        = string
+  description = "Public application URL"
+  default     = "https://cypher.md"
+}
+
+variable "cors_origin" {
+  type        = string
+  description = "CORS allowed origin"
+  default     = "https://cypher.md"
+}
+
+variable "mail_server_name" {
+  type        = string
+  description = "SMTP server hostname"
+}
+
+variable "mail_port" {
+  type        = string
+  description = "SMTP server port"
+  default     = "587"
+}
+
+variable "mail_username" {
+  type        = string
+  description = "SMTP username"
+}
+
+variable "mail_password" {
+  type        = string
+  description = "SMTP password"
+}
+
+variable "mail_from" {
+  type        = string
+  description = "Email sender address"
+  default     = "noreply@cypher.md"
+}
+
+variable "mail_from_name" {
+  type        = string
+  description = "Email sender display name"
+  default     = "Cypher"
+}
+
 job "cypher" {
   datacenters = ["dc1"]
   type        = "service"
@@ -157,10 +212,20 @@ job "cypher" {
       }
 
       env {
-        NODE_ENV     = "production"
-        PORT         = "3000"
-        DATABASE_URL = var.database_url
-        REDIS_URL    = var.redis_url
+        NODE_ENV         = "production"
+        PORT             = "3000"
+        DATABASE_URL     = var.database_url
+        REDIS_URL        = var.redis_url
+        JWT_SECRET       = var.jwt_secret
+        INTERNAL_API_KEY = var.internal_api_key
+        APP_URL          = var.app_url
+        CORS_ORIGIN      = var.cors_origin
+        MAIL_SERVER_NAME = var.mail_server_name
+        MAIL_PORT        = var.mail_port
+        MAIL_USERNAME    = var.mail_username
+        MAIL_PASSWORD    = var.mail_password
+        MAIL_FROM        = var.mail_from
+        MAIL_FROM_NAME   = var.mail_from_name
       }
 
       resources {

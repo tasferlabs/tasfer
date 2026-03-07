@@ -11,7 +11,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-const FROM_ADDRESS = process.env.MAIL_FROM || process.env.MAIL_USERNAME || "hi@cypher.md";
+const FROM_ADDRESS = process.env.MAIL_FROM || "hi@cypher.md";
 const FROM_NAME = process.env.MAIL_FROM_NAME || "Cypher";
 
 export async function sendVerificationEmail(email: string, code: string) {
