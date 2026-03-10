@@ -10,6 +10,7 @@ export function PagesArea({
   parentsStack = [],
   handleAdd = () => {},
   isCreating = false,
+  color,
 }: {
   className?: string;
   parentId?: string | null;
@@ -17,6 +18,7 @@ export function PagesArea({
   parentsStack?: IParentsStack;
   handleAdd?: () => void;
   isCreating?: boolean;
+  color?: string | null;
 }) {
   const { active } = useDndContext();
 
@@ -64,6 +66,7 @@ export function PagesArea({
         parentsStack={parentsStack}
         handleAdd={handleAdd}
         isCreating={isCreating}
+        color={color}
       />
     </div>
   );

@@ -403,12 +403,13 @@ export class GlobalWebSocket {
           // Send hello message with client version immediately
           this.send({ type: "hello", clientVersion: CLIENT_VERSION });
 
-          this.flushMessageQueue();
-
-          // Rejoin all subscribed rooms
+          // Rejoin all subscribed rooms BEFORE flushing queued messages,
+          // so the server knows which room the client is in when it receives operations
           for (const [roomId, subscription] of this.roomSubscriptions) {
             this.sendJoinRoom(roomId, subscription.user);
           }
+
+          this.flushMessageQueue();
 
           resolve();
         };

@@ -64,6 +64,20 @@
       "when": 1772922957550,
       "tag": "0008_spicy_sunfire",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1773080809995,
+      "tag": "0009_lively_human_fly",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1773082353953,
+      "tag": "0010_demonic_wolfpack",
+      "breakpoints": true
     }
   ]
 }

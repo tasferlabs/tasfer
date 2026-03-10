@@ -1,4 +1,9 @@
-import { useMutation, type UseMutationOptions, useQuery, type UseQueryOptions } from "@tanstack/react-query";
+import {
+  useMutation,
+  type UseMutationOptions,
+  useQuery,
+  type UseQueryOptions,
+} from "@tanstack/react-query";
 import type { Block } from "@/deserializer/loadPage";
 import { authFetch, API_BASE } from "./client";
 
@@ -9,6 +14,7 @@ export interface IListPage {
   parentId: string | null;
   order: number;
   hasChildren: boolean;
+  color?: string | null;
   scheduledAt?: string | null;
   duration?: number | null;
   allDay?: boolean | null;
@@ -31,26 +37,34 @@ export interface IPage {
   snapshotClock: HLC | null;
   parentId: string | null;
   order: number;
+  color?: string | null;
   // Calendar fields
   scheduledAt: string | null;
   duration: number | null;
   allDay: boolean | null;
   recurrenceId: string | null;
+  task: boolean;
+  hasChildren: boolean;
   createdAt: string;
   updatedAt: string;
-  parents?: { id: string; title: string }[];
+  parents?: { id: string; title: string; color?: string | null }[];
   permission?: "view" | "edit" | "owner";
 }
 
 // Fetch pages list
-export async function getPages(spaceId: string, parentId: string | null): Promise<IListPage[]> {
+export async function getPages(
+  spaceId: string,
+  parentId: string | null,
+): Promise<IListPage[]> {
   const params = new URLSearchParams();
   params.append("spaceId", spaceId);
   if (parentId) {
     params.append("parentId", parentId);
   }
 
-  const response = await authFetch(`${API_BASE}/pages/list?${params.toString()}`);
+  const response = await authFetch(
+    `${API_BASE}/pages/list?${params.toString()}`,
+  );
   const data = await response.json();
 
   if (!data.success) {
@@ -80,7 +94,10 @@ export async function getPage(id: string): Promise<IPage> {
   return data.data;
 }
 
-export function useGetPage(id?: string, options?: UseQueryOptions<IPage, Error, IPage, any>) {
+export function useGetPage(
+  id?: string,
+  options?: UseQueryOptions<IPage, Error, IPage, any>,
+) {
   return useQuery({
     queryKey: ["page", id],
     queryFn: () => getPage(id!),
@@ -97,6 +114,7 @@ interface ICreatePage {
   scheduledAt?: string;
   duration?: number;
   allDay?: boolean;
+  task?: boolean;
 }
 
 export async function createPage(data: ICreatePage): Promise<IPage> {
@@ -118,7 +136,7 @@ export async function createPage(data: ICreatePage): Promise<IPage> {
 }
 
 export function useCreatePage<TContext = unknown>(
-  options?: UseMutationOptions<IPage, Error, ICreatePage, TContext>
+  options?: UseMutationOptions<IPage, Error, ICreatePage, TContext>,
 ) {
   return useMutation({
     mutationFn: createPage,
@@ -131,6 +149,7 @@ interface IUpdatePage {
   id: string;
   title?: string;
   autoTitle?: boolean;
+  color?: string | null;
   // Block snapshot (includes tombstones for offline sync)
   snapshot?: Block[];
   // Clock of the snapshot - used for delta sync
@@ -139,6 +158,7 @@ interface IUpdatePage {
   scheduledAt?: string | null;
   duration?: number | null;
   allDay?: boolean | null;
+  task?: boolean;
 }
 
 export async function updatePage(data: IUpdatePage): Promise<IPage> {
@@ -175,7 +195,7 @@ export async function updatePage(data: IUpdatePage): Promise<IPage> {
 }
 
 export function useUpdatePage<TContext = unknown>(
-  options?: UseMutationOptions<IPage, Error, IUpdatePage, TContext>
+  options?: UseMutationOptions<IPage, Error, IUpdatePage, TContext>,
 ) {
   return useMutation({
     mutationFn: updatePage,
@@ -201,7 +221,7 @@ export async function deletePage(data: IDeletePage): Promise<void> {
 }
 
 export function useDeletePage<TContext = unknown>(
-  options?: UseMutationOptions<void, Error, IDeletePage, TContext>
+  options?: UseMutationOptions<void, Error, IDeletePage, TContext>,
 ) {
   return useMutation({
     mutationFn: deletePage,
@@ -238,7 +258,7 @@ export async function movePage(data: IMovePage): Promise<void> {
 }
 
 export function useMovePage<TContext = unknown>(
-  options?: UseMutationOptions<void, Error, IMovePage, TContext>
+  options?: UseMutationOptions<void, Error, IMovePage, TContext>,
 ) {
   return useMutation({
     mutationFn: movePage,
@@ -269,7 +289,7 @@ export async function reorderPage(data: IReorderPage): Promise<void> {
 }
 
 export function useReorderPage<TContext = unknown>(
-  options?: UseMutationOptions<void, Error, IReorderPage, TContext>
+  options?: UseMutationOptions<void, Error, IReorderPage, TContext>,
 ) {
   return useMutation({
     mutationFn: reorderPage,
@@ -282,12 +302,18 @@ export interface ISearchPage {
   id: string;
   title: string | null;
   parentId: string | null;
-  path: string | null;
+  path: { id: string; title: string }[] | null;
+  color?: string | null;
 }
 
-export async function searchPages(spaceId: string, query: string): Promise<ISearchPage[]> {
+export async function searchPages(
+  spaceId: string,
+  query: string,
+): Promise<ISearchPage[]> {
   const params = new URLSearchParams({ spaceId, q: query, limit: "20" });
-  const response = await authFetch(`${API_BASE}/pages/search?${params.toString()}`);
+  const response = await authFetch(
+    `${API_BASE}/pages/search?${params.toString()}`,
+  );
   const data = await response.json();
 
   if (!data.success) {
@@ -313,21 +339,30 @@ export interface ICalendarPage {
   autoTitle: boolean;
   parentId: string | null;
   order: number;
+  color: string | null;
   scheduledAt: string;
   duration: number | null;
   allDay: boolean | null;
   recurrenceId: string | null;
+  task: boolean;
+  path: { id: string; title: string }[] | null;
   createdAt: string;
 }
 
-export async function getCalendarPages(spaceId: string, start: number, end: number): Promise<ICalendarPage[]> {
+export async function getCalendarPages(
+  spaceId: string,
+  start: number,
+  end: number,
+): Promise<ICalendarPage[]> {
   const params = new URLSearchParams({
     spaceId,
     start: String(start),
     end: String(end),
   });
 
-  const response = await authFetch(`${API_BASE}/pages/calendar/range?${params.toString()}`);
+  const response = await authFetch(
+    `${API_BASE}/pages/calendar/range?${params.toString()}`,
+  );
   const data = await response.json();
 
   if (!data.success) {
@@ -337,7 +372,11 @@ export async function getCalendarPages(spaceId: string, start: number, end: numb
   return data.data;
 }
 
-export function useGetCalendarPages(spaceId: string | null, start: number, end: number) {
+export function useGetCalendarPages(
+  spaceId: string | null,
+  start: number,
+  end: number,
+) {
   return useQuery({
     queryKey: ["calendar-pages", { spaceId, start, end }],
     queryFn: () => getCalendarPages(spaceId!, start, end),
@@ -355,7 +394,11 @@ export function getKeyForPageQuery(_id: string) {
 }
 
 // Helper to update title in cache
-export function updateTitleFromCache(_id: string, _title: string, _editingPageId: string | null) {
+export function updateTitleFromCache(
+  _id: string,
+  _title: string,
+  _editingPageId: string | null,
+) {
   // This is a placeholder - in the real implementation, we'd update the cache
   // For now, we'll let the mutation handle it
 }

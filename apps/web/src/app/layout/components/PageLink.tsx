@@ -14,6 +14,7 @@ import {
 import { useConfirmation } from "../../components/ConfirmationDialog";
 import Icons from "../../components/uiKit/Icons/Icons";
 import VisuallyHidden from "../../components/uiKit/VisuallyHidden/VisuallyHidden";
+import { ColorPicker } from "../../components/ColorPicker";
 import { DropZone } from "./DropZone";
 import { PagesArea } from "./PagesArea";
 import { type IParentsStack } from "./PagesLinks";
@@ -50,10 +51,12 @@ export function PageLink({
   data,
   spaceId,
   parentsStack = [],
+  color,
 }: {
   data: IListPage;
   spaceId?: string;
   parentsStack?: IParentsStack;
+  color?: string | null;
 }) {
   const { t } = useTranslation();
   const isCoarse = useResponsive("(pointer: coarse)");
@@ -76,7 +79,10 @@ export function PageLink({
     onMutate: async (variables) => {
       // Cancel any outgoing refetches to avoid overwriting our optimistic update
       await queryClient.cancelQueries({
-        queryKey: ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
+        queryKey: [
+          "pages",
+          { spaceId: spaceId ?? null, parentId: data.parentId },
+        ],
       });
 
       // Snapshot the previous value
@@ -113,7 +119,10 @@ export function PageLink({
     onSettled: () => {
       // Always refetch after error or success to ensure we're in sync with the server
       queryClient.invalidateQueries({
-        queryKey: ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
+        queryKey: [
+          "pages",
+          { spaceId: spaceId ?? null, parentId: data.parentId },
+        ],
       });
       // Also invalidate all individual page queries to update breadcrumbs
       // This ensures that if any child page is currently open, its breadcrumb will update
@@ -129,7 +138,10 @@ export function PageLink({
     onMutate: async (variables) => {
       // Cancel any outgoing refetches
       await queryClient.cancelQueries({
-        queryKey: ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
+        queryKey: [
+          "pages",
+          { spaceId: spaceId ?? null, parentId: data.parentId },
+        ],
       });
 
       // Snapshot the previous value
@@ -160,7 +172,10 @@ export function PageLink({
     onSettled: () => {
       // Refetch to ensure sync with server
       queryClient.invalidateQueries({
-        queryKey: ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
+        queryKey: [
+          "pages",
+          { spaceId: spaceId ?? null, parentId: data.parentId },
+        ],
       });
     },
   });
@@ -276,6 +291,21 @@ export function PageLink({
     });
   }
 
+  function handleColorChange(newColor: string | null) {
+    updatePage({ id: data.id, color: newColor });
+    // Optimistically update cache
+    queryClient.setQueryData<IListPage[]>(
+      ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
+      (old) =>
+        old?.map((page) =>
+          page.id === data.id ? { ...page, color: newColor } : page,
+        ),
+    );
+    // Invalidate calendar queries
+    queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
+  }
+
+  const resolvedColor = data.color ?? color ?? null;
   const isEditing = editingPageId === data.id;
 
   useEffect(() => {
@@ -350,6 +380,7 @@ export function PageLink({
           )}
           <VisuallyHidden>{t("Open sub pages")}</VisuallyHidden>
         </button>
+        <ColorPicker color={data.color} onChange={handleColorChange} />
         <div className={style.linkTitle}>
           {isEditing ? (
             <input
@@ -448,6 +479,7 @@ export function PageLink({
             parentsStack={parentsStack}
             handleAdd={handleAdd}
             isCreating={isCreating}
+            color={resolvedColor}
           />
         </div>
       ) : null}

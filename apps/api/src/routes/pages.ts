@@ -81,7 +81,8 @@ router.get("/list", async (req, res) => {
     }
 
     // Get pages with optional parent filter, scoped to space
-    const conditions = [eq(pages.spaceId, spaceId as string)];
+    // Exclude task pages from sidebar listing
+    const conditions = [eq(pages.spaceId, spaceId as string), eq(pages.task, false)];
     if (parentId) {
       conditions.push(eq(pages.parentId, parentId as string));
     } else {
@@ -95,6 +96,7 @@ router.get("/list", async (req, res) => {
         autoTitle: pages.autoTitle,
         parentId: pages.parentId,
         order: pages.order,
+        color: pages.color,
         createdAt: pages.createdAt,
         hasChildren: sql<boolean>`CASE WHEN EXISTS (
           SELECT 1 FROM pages p2
@@ -105,7 +107,29 @@ router.get("/list", async (req, res) => {
       .where(and(...conditions))
       .orderBy(pages.order, pages.title);
 
-    res.json({ success: true, data: pagesList });
+    // Resolve ancestor color for pages without their own color
+    let ancestorColor: string | null = null;
+    if (parentId) {
+      const ancestorResult = await db.execute<{ color: string }>(sql`
+        WITH RECURSIVE ancestor_chain AS (
+          SELECT id, color, "parentId"
+          FROM pages WHERE id = ${parentId}
+          UNION ALL
+          SELECT p.id, p.color, p."parentId"
+          FROM pages p
+          JOIN ancestor_chain ac ON p.id = ac."parentId"
+        )
+        SELECT color FROM ancestor_chain WHERE color IS NOT NULL LIMIT 1
+      `);
+      ancestorColor = ancestorResult.rows[0]?.color || null;
+    }
+
+    const pagesWithColor = pagesList.map(p => ({
+      ...p,
+      color: p.color || ancestorColor,
+    }));
+
+    res.json({ success: true, data: pagesWithColor });
   } catch (error) {
     console.error("List pages error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
@@ -129,7 +153,7 @@ router.get("/search", async (req, res) => {
     const searchQuery = (q as string || "").trim();
     const maxResults = Math.min(Number(limit) || 20, 50);
 
-    const conditions = [eq(pages.spaceId, spaceId as string)];
+    const conditions = [eq(pages.spaceId, spaceId as string), eq(pages.task, false)];
 
     if (searchQuery) {
       conditions.push(sql`LOWER(${pages.title}) LIKE LOWER(${"%" + searchQuery + "%"})`);
@@ -140,6 +164,7 @@ router.get("/search", async (req, res) => {
         id: pages.id,
         title: pages.title,
         parentId: pages.parentId,
+        color: pages.color,
       })
       .from(pages)
       .where(and(...conditions))
@@ -149,37 +174,40 @@ router.get("/search", async (req, res) => {
     // Build ancestor paths for each page
     const parentIds = [...new Set(pagesList.filter(p => p.parentId).map(p => p.parentId!))];
 
-    let pathMap: Record<string, string> = {};
+    let pathMap: Record<string, { id: string; title: string }[]> = {};
+    let colorMap: Record<string, string> = {};
     if (parentIds.length > 0) {
       const idList = sql.join(parentIds.map(id => sql`${id}`), sql`, `);
-      const ancestors = await db.execute<{ id: string; path: string }>(sql`
+      const ancestors = await db.execute<{ id: string; ancestor_id: string; ancestor_title: string; depth: number; effective_color: string | null }>(sql`
         WITH RECURSIVE ancestor_path AS (
-          SELECT id, title, "parentId", COALESCE(title, 'Untitled')::text AS path
+          SELECT id, id AS ancestor_id, title AS ancestor_title, "parentId", color,
+            0 AS depth,
+            color AS effective_color
           FROM pages
           WHERE id IN (${idList})
           UNION ALL
-          SELECT ap.id, p.title, p."parentId",
-            COALESCE(p.title, 'Untitled') || ' > ' || ap.path
+          SELECT ap.id, p.id AS ancestor_id, p.title AS ancestor_title, p."parentId", p.color,
+            ap.depth + 1,
+            COALESCE(ap.effective_color, p.color)
           FROM ancestor_path ap
           JOIN pages p ON p.id = ap."parentId"
         )
-        SELECT id, path FROM ancestor_path WHERE "parentId" IS NULL
+        SELECT id, ancestor_id, COALESCE(ancestor_title, 'Untitled') AS ancestor_title, depth, effective_color
+        FROM ancestor_path
+        ORDER BY id, depth DESC
       `);
+
       for (const row of ancestors.rows) {
-        pathMap[row.id] = row.path;
-      }
-      // For parentIds that didn't resolve (already root-level), use their title directly
-      for (const pid of parentIds) {
-        if (!pathMap[pid]) {
-          const found = pagesList.find(p => p.id === pid);
-          if (found) pathMap[pid] = found.title || "Untitled";
-        }
+        if (!pathMap[row.id]) pathMap[row.id] = [];
+        pathMap[row.id].push({ id: row.ancestor_id, title: row.ancestor_title });
+        if (row.effective_color && !colorMap[row.id]) colorMap[row.id] = row.effective_color;
       }
     }
 
     const pagesWithPath = pagesList.map(p => ({
       ...p,
       path: p.parentId ? (pathMap[p.parentId] || null) : null,
+      color: p.color || (p.parentId ? (colorMap[p.parentId] || null) : null),
     }));
 
     res.json({ success: true, data: pagesWithPath });
@@ -217,10 +245,12 @@ router.get("/calendar/range", async (req, res) => {
         autoTitle: pages.autoTitle,
         parentId: pages.parentId,
         order: pages.order,
+        color: pages.color,
         scheduledAt: pages.scheduledAt,
         duration: pages.duration,
         allDay: pages.allDay,
         recurrenceId: pages.recurrenceId,
+        task: pages.task,
         createdAt: pages.createdAt,
       })
       .from(pages)
@@ -234,10 +264,45 @@ router.get("/calendar/range", async (req, res) => {
       )
       .orderBy(pages.scheduledAt);
 
-    // Convert scheduledAt from unix ms to ISO string
+    // Build ancestor paths and resolve effective colors for each page
+    const parentIds = [...new Set(pagesList.filter(p => p.parentId).map(p => p.parentId!))];
+
+    let pathMap: Record<string, { id: string; title: string }[]> = {};
+    let colorMap: Record<string, string> = {};
+    if (parentIds.length > 0) {
+      const idList = sql.join(parentIds.map(id => sql`${id}`), sql`, `);
+      const ancestors = await db.execute<{ id: string; ancestor_id: string; ancestor_title: string; depth: number; effective_color: string | null }>(sql`
+        WITH RECURSIVE ancestor_path AS (
+          SELECT id, id AS ancestor_id, title AS ancestor_title, "parentId", color,
+            0 AS depth,
+            color AS effective_color
+          FROM pages
+          WHERE id IN (${idList})
+          UNION ALL
+          SELECT ap.id, p.id AS ancestor_id, p.title AS ancestor_title, p."parentId", p.color,
+            ap.depth + 1,
+            COALESCE(ap.effective_color, p.color)
+          FROM ancestor_path ap
+          JOIN pages p ON p.id = ap."parentId"
+        )
+        SELECT id, ancestor_id, COALESCE(ancestor_title, 'Untitled') AS ancestor_title, depth, effective_color
+        FROM ancestor_path
+        ORDER BY id, depth DESC
+      `);
+
+      for (const row of ancestors.rows) {
+        if (!pathMap[row.id]) pathMap[row.id] = [];
+        pathMap[row.id].push({ id: row.ancestor_id, title: row.ancestor_title });
+        if (row.effective_color && !colorMap[row.id]) colorMap[row.id] = row.effective_color;
+      }
+    }
+
+    // Convert scheduledAt from unix ms to ISO string and add path + effective color
     const pagesWithISO = pagesList.map((p) => ({
       ...p,
       scheduledAt: p.scheduledAt ? new Date(p.scheduledAt).toISOString() : null,
+      path: p.parentId ? (pathMap[p.parentId] || null) : null,
+      color: p.color || (p.parentId ? (colorMap[p.parentId] || null) : null),
     }));
 
     res.json({ success: true, data: pagesWithISO });
@@ -265,22 +330,35 @@ router.get("/:id", async (req, res) => {
       return res.status(403).json({ success: false, error: "Access denied" });
     }
 
-    // Get parent hierarchy
-    const parentsResult = await db.execute(sql`
+    // Get parent hierarchy (including color for effective color resolution)
+    const parentsResult = await db.execute<{ id: string; title: string | null; color: string | null }>(sql`
       WITH RECURSIVE parent_pages AS (
-        SELECT id, title, "parentId", 1 AS depth
+        SELECT id, title, color, "parentId", 1 AS depth
         FROM ${pages}
         WHERE id = ${id}
 
         UNION ALL
 
-        SELECT p.id, p.title, p."parentId", pp.depth + 1
+        SELECT p.id, p.title, p.color, p."parentId", pp.depth + 1
         FROM ${pages} p
         INNER JOIN parent_pages pp ON p.id = pp."parentId"
         WHERE pp.depth < 10
       )
-      SELECT id, title FROM parent_pages ORDER BY depth DESC
+      SELECT id, title, color FROM parent_pages ORDER BY depth DESC
     `);
+
+    // Resolve effective color: page's own color, or nearest ancestor's color
+    let color = page.color;
+    if (!color) {
+      // Parents are ordered root-first, page itself is last; walk from page upward
+      const parentRows = parentsResult.rows;
+      for (let i = parentRows.length - 2; i >= 0; i--) {
+        if (parentRows[i].color) {
+          color = parentRows[i].color;
+          break;
+        }
+      }
+    }
 
     // Load latest snapshot from file
     let snapshotBlocks: Block[] = [];
@@ -299,6 +377,13 @@ router.get("/:id", async (req, res) => {
         snapshotBlocks = decodeSnapshot(compressedBuffer);
       }
     }
+
+    // Check if page has children
+    const childPage = await db.query.pages.findFirst({
+      where: eq(pages.parentId, id),
+      columns: { id: true },
+    });
+    const hasChildren = !!childPage;
 
     // Include snapshot clock in response for client-side delta tracking
     const snapshotClock =
@@ -319,15 +404,26 @@ router.get("/:id", async (req, res) => {
         autoTitle: page.autoTitle,
         parentId: page.parentId,
         order: page.order,
+        color: page.color,
+        task: page.task,
         scheduledAt: page.scheduledAt ? new Date(page.scheduledAt).toISOString() : null,
         duration: page.duration,
         allDay: page.allDay,
         recurrenceId: page.recurrenceId,
+        hasChildren,
         createdAt: page.createdAt,
         updatedAt: page.updatedAt,
         snapshot: snapshotBlocks,
         snapshotClock,
-        parents: parentsResult.rows,
+        parents: (() => {
+          // Add color to each parent: inherit from nearest ancestor with a color
+          let inherited: string | null = null;
+          return parentsResult.rows.map(({ color, ...rest }) => {
+            const effective = color || inherited;
+            if (color) inherited = color;
+            return { ...rest, color: effective };
+          });
+        })(),
         permission,
       },
     });
@@ -414,7 +510,7 @@ router.get("/:id/snapshots", async (req, res) => {
 // Create page
 router.post("/create", async (req, res) => {
   try {
-    const { title, parentId, spaceId, scheduledAt, duration, allDay } = req.body;
+    const { title, parentId, spaceId, scheduledAt, duration, allDay, color, task } = req.body;
 
     if (!spaceId) {
       return res.status(400).json({ success: false, error: "spaceId is required" });
@@ -453,6 +549,8 @@ router.post("/create", async (req, res) => {
         ...(scheduledAt !== undefined && { scheduledAt: scheduledAt ? new Date(scheduledAt).getTime() : null }),
         ...(duration !== undefined && { duration }),
         ...(allDay !== undefined && { allDay }),
+        ...(color !== undefined && { color: color || null }),
+        ...(task !== undefined && { task: !!task }),
       })
       .returning();
 
@@ -518,6 +616,8 @@ router.put("/:id", async (req, res) => {
       scheduledAt,
       duration,
       allDay,
+      color,
+      task,
     } = req.body;
 
     const page = await db.query.pages.findFirst({
@@ -557,6 +657,25 @@ router.put("/:id", async (req, res) => {
     }
     if (allDay !== undefined) {
       updateData.allDay = allDay;
+    }
+    if (color !== undefined) {
+      updateData.color = color || null;
+    }
+    if (task !== undefined) {
+      // Prevent converting a page to a task if it has children
+      if (task && !page.task) {
+        const children = await db.query.pages.findFirst({
+          where: eq(pages.parentId, id),
+          columns: { id: true },
+        });
+        if (children) {
+          return res.status(400).json({
+            success: false,
+            error: "Cannot convert a page with children to a task",
+          });
+        }
+      }
+      updateData.task = !!task;
     }
 
     // Track if title was changed

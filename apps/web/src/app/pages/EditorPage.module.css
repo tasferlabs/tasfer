@@ -37,6 +37,13 @@
   display: flex;
   align-items: center;
   min-width: 0;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+}
+
+button.breadcrumbs:hover {
+  background-color: var(--muted);
 }
 
 .breadcrumbLink {
@@ -47,8 +54,6 @@
   text-decoration: none;
   color: var(--foreground);
   display: inline-block;
-  padding: 0.125rem 0.5rem;
-  border-radius: 4px;
   font-size: 0.875rem;
   flex-shrink: 10;
 }
@@ -58,13 +63,8 @@
   min-width: 70px;
 }
 
-.breadcrumbLink:hover {
-  color: var(--foreground);
-  background-color: var(--muted);
-}
-
 .breadcrumbSeparator {
-  color: var(--foreground);
+  color: var(--foreground / 0.5);
   flex-shrink: 0;
 }
 

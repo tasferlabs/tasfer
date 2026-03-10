@@ -77,6 +77,8 @@ interface MountedEditorProps {
   }>;
   /** Override block text styles (e.g. heading font sizes) */
   blockStyleOverrides?: Partial<Record<string, Partial<TextStyle>>> | null;
+  /** Callback when canvas scroll position changes */
+  onScroll?: (scrollY: number) => void;
 }
 
 export function MountedEditor({
@@ -96,11 +98,14 @@ export function MountedEditor({
   readonly = false,
   padding,
   blockStyleOverrides,
+  onScroll,
 }: MountedEditorProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
   const syncEngineRef = useRef<SyncEngine | null>(null);
   const offlineStoreRef = useRef<OfflineStore | null>(null);
+  const onScrollRef = useRef(onScroll);
+  onScrollRef.current = onScroll;
   const [slashMenuState, setSlashMenuState] = useState<{
     visible: boolean;
     x: number;
@@ -293,6 +298,11 @@ export function MountedEditor({
 
     const mounted = mountEditor(el, snapshot, { readonly, padding, blockStyleOverrides });
     mountedRef.current = mounted;
+
+    // Wire up scroll callback
+    mounted.editor.onScroll((scrollY) => {
+      onScrollRef.current?.(scrollY);
+    });
 
     // Skip offline store and sync setup in readonly mode
     if (readonly) {

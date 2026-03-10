@@ -27,20 +27,13 @@ import {
 } from "@/editor/sync/char-runs";
 import { DURATION_OPTIONS, formatDurationLabel } from "@/lib/utils";
 import type { SyncState } from "@/websocket/hooks/useRoom";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import * as Popover from "@radix-ui/react-popover";
 import { useQueryClient } from "@tanstack/react-query";
-import { Command } from "cmdk";
 import { debounce } from "lodash-es";
-import { Calendar, FileText, FolderInput, Trash } from "lucide-react";
+import { Calendar, Trash } from "lucide-react";
 import { DateTime } from "luxon";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Controller, useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -50,6 +43,7 @@ import { PageSettings } from "../components/PageSettings";
 import { SavingIndicator } from "../components/SavingIndicator";
 import { MountedEditor } from "../MountedEditor";
 
+import { PagePicker } from "@/components/PagePicker";
 import { usePageEvents } from "@/websocket/hooks/usePageEvents";
 import clsx from "clsx";
 import {
@@ -58,7 +52,6 @@ import {
   useGetPage,
   useGetPages,
   useMovePage,
-  useSearchPages,
   useUpdatePage,
   type HLC,
 } from "../api/pages.api";
@@ -114,6 +107,9 @@ function countWordsFromBlocks(blocks: Block[]): number {
   return count;
 }
 
+const SCHEDULE_TAG_HEIGHT = 40;
+const SCHEDULE_TAG_PADDING = { paddingTop: SCHEDULE_TAG_HEIGHT } as const;
+
 export default function EditorPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
@@ -150,6 +146,8 @@ export default function EditorPage() {
   const [_syncState, setSyncState] = useState<SyncState>({
     status: "disconnected",
   });
+  // Track editor canvas scroll position for scrolling overlay elements (ref to avoid re-renders)
+  const scheduleTagRef = useRef<HTMLDivElement>(null);
   // Restore function ref from MountedEditor
   const restoreFnRef = useRef<((blocks: Block[]) => void) | null>(null);
   // Confirm save function ref from MountedEditor - called after backend confirms save
@@ -190,8 +188,11 @@ export default function EditorPage() {
       // Reset deleted state when navigating to a new page
       setIsDeletedByOther(false);
     }
-    // Reset persisted state when ID changes (user navigated)
+    // Reset persisted state and scroll position when ID changes (user navigated)
     setPersistedState(null);
+    if (scheduleTagRef.current) {
+      scheduleTagRef.current.style.transform = "translateY(0px)";
+    }
     // Reset permission to owner (will be updated after page load)
     setLocalPermission("owner");
     setPermission("owner");
@@ -487,36 +488,50 @@ export default function EditorPage() {
   return (
     <div className="flex flex-col w-full h-full">
       {headerSlot && createPortal(<PageActionBar pageId={id} />, headerSlot)}
-      <div className="flex items-center gap-2 px-4 py-2 md:px-[40px]">
-        <ScheduleTag pageId={id} readonly={readonly} />
+      <div className="relative flex-1 min-h-0 overflow-hidden">
+        {/* Schedule tag overlaid on editor, scrolls with canvas content */}
+        <div
+          ref={scheduleTagRef}
+          className="pointer-events-none absolute top-0 left-0 right-0 z-10 flex items-center gap-2 px-4 py-2 md:px-[40px]"
+        >
+          <div className="pointer-events-auto">
+            <ScheduleTag pageId={id} readonly={readonly} />
+          </div>
+        </div>
+        <MountedEditor
+          snapshot={pageSnapshot}
+          className="w-full h-full"
+          onContentChange={readonly ? undefined : handleContentChange}
+          onContentUpdate={handleContentUpdate}
+          autoFocus={!readonly}
+          pageId={id}
+          onSyncStateChange={setSyncState}
+          snapshotClock={snapshotClock}
+          onSnapshotClockUpdate={readonly ? undefined : setSnapshotClock}
+          onAwarenessChange={handleAwarenessChange}
+          onRestoreReady={
+            readonly
+              ? undefined
+              : (restoreFn) => {
+                  restoreFnRef.current = restoreFn;
+                }
+          }
+          onConfirmSaveReady={
+            readonly
+              ? undefined
+              : (confirmFn) => {
+                  confirmSaveFnRef.current = confirmFn;
+                }
+          }
+          readonly={readonly}
+          padding={SCHEDULE_TAG_PADDING}
+          onScroll={(scrollY) => {
+            if (scheduleTagRef.current) {
+              scheduleTagRef.current.style.transform = `translateY(${-scrollY}px)`;
+            }
+          }}
+        />
       </div>
-      <MountedEditor
-        snapshot={pageSnapshot}
-        className="w-full flex-1 min-h-0"
-        onContentChange={readonly ? undefined : handleContentChange}
-        onContentUpdate={handleContentUpdate}
-        autoFocus={!readonly}
-        pageId={id}
-        onSyncStateChange={setSyncState}
-        snapshotClock={snapshotClock}
-        onSnapshotClockUpdate={readonly ? undefined : setSnapshotClock}
-        onAwarenessChange={handleAwarenessChange}
-        onRestoreReady={
-          readonly
-            ? undefined
-            : (restoreFn) => {
-                restoreFnRef.current = restoreFn;
-              }
-        }
-        onConfirmSaveReady={
-          readonly
-            ? undefined
-            : (confirmFn) => {
-                confirmSaveFnRef.current = confirmFn;
-              }
-        }
-        readonly={readonly}
-      />
       <WordCountOverlay />
     </div>
   );
@@ -759,96 +774,25 @@ function MovePageButton({
   currentParentId: string | null;
   children: React.ReactNode;
 }) {
-  const { t } = useTranslation();
   const { activeSpaceId } = useSpaces();
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
 
-  const { data: pages } = useSearchPages(activeSpaceId, search);
   const { mutate: move } = useMovePage({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pages"] });
       queryClient.invalidateQueries({ queryKey: ["page", pageId] });
-      setOpen(false);
     },
   });
 
-  const filtered = pages?.filter((p) => p.id !== pageId);
-
   return (
-    <Popover.Root
-      open={open}
-      onOpenChange={(o) => {
-        setOpen(o);
-        if (o) setSearch("");
-      }}
+    <PagePicker
+      spaceId={activeSpaceId}
+      excludeId={pageId}
+      showNoneOption={!!currentParentId}
+      onChange={(page) => move({ id: pageId, parentId: page?.id ?? null })}
     >
-      <Popover.Trigger asChild>{children}</Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          align="start"
-          sideOffset={8}
-          className="z-50 w-[260px] rounded-lg border border-border bg-popover shadow-lg animate-in fade-in-0 zoom-in-95"
-          onOpenAutoFocus={(e) => {
-            e.preventDefault();
-            inputRef.current?.focus();
-          }}
-        >
-          <Command shouldFilter={false}>
-            <Command.Input
-              ref={inputRef}
-              value={search}
-              onValueChange={setSearch}
-              placeholder={t`Move to…`}
-              className="h-9 w-full border-b border-border bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
-            />
-            <Command.List className="max-h-52 overflow-y-auto p-1">
-              <Command.Empty className="py-4 text-center text-sm text-muted-foreground">
-                {t`No pages found`}
-              </Command.Empty>
-              {currentParentId && (
-                <Command.Item
-                  value="__root__"
-                  onSelect={() => move({ id: pageId, parentId: null })}
-                  className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-default select-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
-                >
-                  <FileText
-                    size={14}
-                    className="shrink-0 text-muted-foreground"
-                  />
-                  <span className="text-muted-foreground italic">{t`No parent (root)`}</span>
-                </Command.Item>
-              )}
-              {filtered?.map((page) => (
-                <Command.Item
-                  key={page.id}
-                  value={page.id}
-                  onSelect={() => move({ id: pageId, parentId: page.id })}
-                  className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-default select-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
-                >
-                  <FileText
-                    size={14}
-                    className="shrink-0 text-muted-foreground"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <span className="truncate block">
-                      {page.title || t`Untitled`}
-                    </span>
-                    {page.path && (
-                      <span className="truncate block text-xs text-muted-foreground">
-                        {page.path}
-                      </span>
-                    )}
-                  </div>
-                </Command.Item>
-              ))}
-            </Command.List>
-          </Command>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+      {children}
+    </PagePicker>
   );
 }
 
@@ -863,44 +807,83 @@ function PageActionBar({ pageId }: { pageId: string }) {
 
   return (
     <>
-      <div className={style.breadcrumbs}>
-        {page?.parents &&
-          page.parents.length > 1 &&
-          (() => {
-            const parent = page.parents[page.parents.length - 2];
-            return (
-              <>
-                {permission !== "view" ? (
-                  <MovePageButton
-                    pageId={pageId}
-                    currentParentId={page.parentId}
-                  >
-                    <button
-                      className={clsx(style.breadcrumbLink, "inline-flex! items-center gap-2")}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <span className="truncate ">{parent.title || t`Untitled`}</span>
-                      <FolderInput size={14} className="shrink-0" />
-                    </button>
-                  </MovePageButton>
-                ) : (
-                  <span className={style.breadcrumbLink}>
+      {permission !== "view" && page ? (
+        <MovePageButton
+          pageId={pageId}
+          currentParentId={page.parentId}
+        >
+          <button className={style.breadcrumbs} style={{ cursor: "pointer" }}>
+            {page.parents &&
+              page.parents.length > 1 &&
+              (() => {
+                const parent = page.parents[page.parents.length - 2];
+                return (
+                  <>
+                    <span className={clsx(style.breadcrumbLink, "inline-flex! items-center gap-1.5")}>
+                      <span
+                        className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
+                        style={{
+                          backgroundColor: parent.color || "var(--primary)",
+                          opacity: parent.color ? 1 : 0.3,
+                        }}
+                      />
+                      <span className="truncate">{parent.title || t`Untitled`}</span>
+                    </span>
+                    <span className={style.breadcrumbSeparator}>
+                      <CaretRightIcon size={12} />
+                    </span>
+                  </>
+                );
+              })()}
+            <span className={clsx(style.breadcrumbLink, "inline-flex! items-center gap-1.5")}>
+              <span
+                className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
+                style={{
+                  backgroundColor: page.color || "var(--primary)",
+                  opacity: page.color ? 1 : 0.3,
+                }}
+              />
+              <span className="truncate">{page.title || t`Untitled`}</span>
+            </span>
+            <CaretDownIcon size={10} className="shrink-0 opacity-40" />
+          </button>
+        </MovePageButton>
+      ) : (
+        <div className={style.breadcrumbs}>
+          {page?.parents &&
+            page.parents.length > 1 &&
+            (() => {
+              const parent = page.parents[page.parents.length - 2];
+              return (
+                <>
+                  <span className={clsx(style.breadcrumbLink, "inline-flex! items-center gap-2")}>
+                    <span
+                      className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
+                      style={{
+                        backgroundColor: parent.color || "var(--primary)",
+                        opacity: parent.color ? 1 : 0.3,
+                      }}
+                    />
                     {parent.title || t`Untitled`}
                   </span>
-                )}
-                <span className={style.breadcrumbSeparator}>
-                  <CaretRightIcon size={16} />
-                </span>
-              </>
-            );
-          })()}
-        <span className={style.breadcrumbLink}>
-          {page?.title || t`Untitled`}
-        </span>
-        {/* {permission !== "view" && page && (!page.parents || page.parents.length <= 1) && (
-          <MovePageButton pageId={pageId} currentParentId={page.parentId} />
-        )} */}
-      </div>
+                  <span className={style.breadcrumbSeparator}>
+                    <CaretRightIcon size={16} />
+                  </span>
+                </>
+              );
+            })()}
+          <span className={clsx(style.breadcrumbLink, "inline-flex! items-center gap-2")}>
+            <span
+              className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
+              style={{
+                backgroundColor: page?.color || "var(--primary)",
+                opacity: page?.color ? 1 : 0.3,
+              }}
+            />
+            {page?.title || t`Untitled`}
+          </span>
+        </div>
+      )}
 
       <div className="ml-auto flex items-center gap-2">
         <ActiveUsersAvatars users={activeUsers} />

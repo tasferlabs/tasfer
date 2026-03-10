@@ -180,7 +180,7 @@ export default function CalendarPage() {
 
   const draftSnapshotRef = useRef<{ snapshot?: Block[]; clock?: HLC | null }>({});
 
-  const handleDraftSave = useCallback((snapshot?: Block[], clock?: HLC | null, parentId?: string | null) => {
+  const handleDraftSave = useCallback((snapshot?: Block[], clock?: HLC | null, parentId?: string | null, task?: boolean) => {
     if (!draftEvent || !activeSpaceId) return;
     // Store snapshot to save after page creation
     draftSnapshotRef.current = { snapshot, clock };
@@ -190,6 +190,7 @@ export default function CalendarPage() {
       spaceId: activeSpaceId,
       scheduledAt: draftEvent.scheduledAt,
       duration: draftEvent.duration,
+      task: task ?? true,
     });
   }, [draftEvent, activeSpaceId, createPage]);
 
@@ -213,10 +214,13 @@ export default function CalendarPage() {
         autoTitle: false,
         parentId: null,
         order: 0,
+        color: null,
         scheduledAt: draftEvent.scheduledAt,
         duration: draftEvent.duration,
         allDay: false,
         recurrenceId: null,
+        task: true,
+        path: null,
         createdAt: new Date().toISOString(),
       });
     }
@@ -730,6 +734,10 @@ export default function CalendarPage() {
               key={page.id}
               className={style.allDayBadge}
               onClick={() => navigate(`/page/${page.id}`)}
+              style={page.color ? {
+                backgroundColor: `color-mix(in srgb, ${page.color}, transparent 85%)`,
+                color: page.color,
+              } : undefined}
             >
               {page.title || t("Untitled")}
             </div>

@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { useDraggable } from "@dnd-kit/core";
+import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ICalendarPage } from "../../api/pages.api";
 import {
@@ -38,6 +39,7 @@ export function EventCard({
   const timeStr = formatEventTime(page.scheduledAt, page.duration);
   const showTimeSeparate = actualHeight > 40;
   const showTimeInline = !showTimeSeparate && actualHeight > 25;
+  const showPath = page.path && actualHeight > 55;
 
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -50,6 +52,11 @@ export function EventCard({
         height: actualHeight,
         opacity: isDragging ? 0.3 : 1,
         ...(compact ? { left: 0, right: 0, padding: "2px 6px" } : {}),
+        ...(page.color && !isDraft
+          ? { borderLeftColor: page.color }
+          : {
+              borderLeftColor: "var(--primary)",
+            }),
       }}
       {...listeners}
       {...attributes}
@@ -91,6 +98,7 @@ export function EventCard({
               {timeStr}
             </div>
           )}
+          {showPath && <PathBreadcrumb path={page.path!} compact={compact} />}
         </>
       )}
       <div
@@ -100,6 +108,74 @@ export function EventCard({
           onResizeStart(page.id, e);
         }}
       />
+    </div>
+  );
+}
+
+function PathBreadcrumb({
+  path,
+  compact,
+}: {
+  path: { id: string; title: string }[];
+  compact?: boolean;
+}) {
+  const collapsed = path.length > 2;
+
+  return (
+    <div
+      className={style.eventPath}
+      style={compact ? { fontSize: "0.55rem" } : undefined}
+    >
+      {collapsed ? (
+        <>
+          <span
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              maxWidth: "5rem",
+            }}
+          >
+            {path[0].title}
+          </span>
+          <ChevronRight size={8} style={{ flexShrink: 0, opacity: 0.5 }} />
+          <span style={{ flexShrink: 0 }}>…</span>
+          <ChevronRight size={8} style={{ flexShrink: 0, opacity: 0.5 }} />
+          <span
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              maxWidth: "5rem",
+            }}
+          >
+            {path[path.length - 1].title}
+          </span>
+        </>
+      ) : (
+        path.map((segment, i) => (
+          <span
+            key={segment.id}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 2,
+              minWidth: 0,
+            }}
+          >
+            {i > 0 && (
+              <ChevronRight size={8} style={{ flexShrink: 0, opacity: 0.5 }} />
+            )}
+            <span
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                maxWidth: "7rem",
+              }}
+            >
+              {segment.title}
+            </span>
+          </span>
+        ))
+      )}
     </div>
   );
 }

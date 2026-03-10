@@ -1,0 +1,1 @@
+ALTER TABLE "pages" ADD COLUMN "task" boolean DEFAULT false NOT NULL;

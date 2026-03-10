@@ -164,6 +164,10 @@ export interface Editor {
   onImagePaste: (
     callback: ((file: File, blockIndex: number) => void) | null
   ) => void;
+  /** Set callback for scroll position changes */
+  onScroll: (callback: ((scrollY: number) => void) | null) => void;
+  /** Get current scroll position */
+  getScrollY: () => number;
 }
 
 export default function createEditor(
@@ -359,6 +363,10 @@ export default function createEditor(
   let onImagePasteCallback:
     | ((file: File, blockIndex: number) => void)
     | null = null;
+
+  // Callback for scroll position changes
+  let onScrollCallback: ((scrollY: number) => void) | null = null;
+  let lastReportedScrollY = 0;
 
   /**
    * Mark that content layer needs re-rendering (expensive operation).
@@ -611,6 +619,12 @@ export default function createEditor(
         if (stateChanged) {
           const currentState = state;
           listeners.forEach((listener) => listener(currentState));
+        }
+
+        // Notify scroll callback if scrollY changed
+        if (onScrollCallback && viewport.scrollY !== lastReportedScrollY) {
+          lastReportedScrollY = viewport.scrollY;
+          onScrollCallback(viewport.scrollY);
         }
       }
     } finally {
@@ -2068,5 +2082,9 @@ export default function createEditor(
     ) => {
       onImagePasteCallback = callback;
     },
+    onScroll: (callback: ((scrollY: number) => void) | null) => {
+      onScrollCallback = callback;
+    },
+    getScrollY: () => viewport.scrollY,
   };
 }

@@ -19,10 +19,14 @@ import { cn } from "@/lib/utils";
 
 interface PagePickerProps {
   spaceId: string | null;
-  value: ISearchPage | null;
+  value?: ISearchPage | null;
   onChange: (page: ISearchPage | null) => void;
   excludeId?: string;
+  showNoneOption?: boolean;
   className?: string;
+  children?: React.ReactNode;
+  popoverWidth?: number | string;
+  align?: "start" | "center" | "end";
 }
 
 export function PagePicker({
@@ -30,7 +34,11 @@ export function PagePicker({
   value,
   onChange,
   excludeId,
+  showNoneOption,
   className,
+  children,
+  popoverWidth,
+  align = "start",
 }: PagePickerProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -42,7 +50,11 @@ export function PagePicker({
   const { data: pages } = useSearchPages(spaceId, search);
 
   const filtered = excludeId
-    ? pages?.filter((p) => p.id !== excludeId)
+    ? pages?.filter(
+        (p) =>
+          p.id !== excludeId &&
+          !p.path?.some((ancestor) => ancestor.id === excludeId),
+      )
     : pages;
 
   useEffect(() => {
@@ -54,44 +66,53 @@ export function PagePicker({
     }
   }, [open]);
 
+  const customTrigger = !!children;
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverAnchor asChild>
-        <div
-          ref={anchorRef}
-          className={cn(
-            "relative flex h-9 w-full min-w-0 items-center rounded-md border border-input shadow-xs transition-[color,box-shadow] outline-none dark:bg-input/30",
-            className,
-          )}
-        >
-          <PopoverTrigger asChild>
-            <button
-              className="flex flex-1 items-center min-w-0 h-full px-2.5 text-sm cursor-pointer"
-            >
-              <span className={cn("flex-1 truncate text-left", !value && "text-muted-foreground")}>
-                {value ? (value.title || t("Untitled")) : t("None")}
-              </span>
-            </button>
-          </PopoverTrigger>
-          {value && (
-            <button
-              className="shrink-0 px-1 h-full text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-              onClick={() => onChange(null)}
-            >
-              <X size={14} />
-            </button>
-          )}
-          <PopoverTrigger asChild>
-            <button className="shrink-0 pr-2 pl-1 h-full text-muted-foreground cursor-pointer">
-              <ChevronDown size={14} />
-            </button>
-          </PopoverTrigger>
-        </div>
-      </PopoverAnchor>
+      {customTrigger ? (
+        <PopoverTrigger asChild>{children}</PopoverTrigger>
+      ) : (
+        <PopoverAnchor asChild>
+          <div
+            ref={anchorRef}
+            className={cn(
+              "relative flex h-9 w-full min-w-0 items-center rounded-md border border-input shadow-xs transition-[color,box-shadow] outline-none dark:bg-input/30",
+              className,
+            )}
+          >
+            <PopoverTrigger asChild>
+              <button className="flex flex-1 items-center min-w-0 h-full px-2.5 text-sm cursor-pointer">
+                <span
+                  className={cn(
+                    "flex-1 truncate text-left",
+                    !value && "text-muted-foreground",
+                  )}
+                >
+                  {value ? value.title || t("Untitled") : t("None")}
+                </span>
+              </button>
+            </PopoverTrigger>
+            {value && (
+              <button
+                className="shrink-0 px-1 h-full text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                onClick={() => onChange(null)}
+              >
+                <X size={14} />
+              </button>
+            )}
+            <PopoverTrigger asChild>
+              <button className="shrink-0 pr-2 pl-1 h-full text-muted-foreground cursor-pointer">
+                <ChevronDown size={14} />
+              </button>
+            </PopoverTrigger>
+          </div>
+        </PopoverAnchor>
+      )}
       <PopoverContent
         className="p-0"
-        style={{ width: anchorWidth || undefined }}
-        align="start"
+        style={{ width: popoverWidth ?? (customTrigger ? 260 : anchorWidth || undefined) }}
+        align={align}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
           inputRef.current?.focus();
@@ -109,6 +130,19 @@ export function PagePicker({
             <Command.Empty className="py-4 text-center text-sm text-muted-foreground">
               {t("No pages found")}
             </Command.Empty>
+            {showNoneOption && (
+              <Command.Item
+                value="__none__"
+                onSelect={() => {
+                  onChange(null);
+                  setOpen(false);
+                }}
+                className="cursor-pointer flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm select-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
+              >
+                <FileText size={14} className="shrink-0 text-muted-foreground" />
+                <span className="text-muted-foreground italic">{t("No parent (root)")}</span>
+              </Command.Item>
+            )}
             {filtered?.map((page) => (
               <Command.Item
                 key={page.id}
@@ -117,10 +151,16 @@ export function PagePicker({
                   onChange(page);
                   setOpen(false);
                 }}
-                className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-default select-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
+                className="cursor-pointer flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm  select-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
               >
-                <FileText size={14} className="shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
+                <span
+                  className="shrink-0 inline-block w-3 h-3 rounded-full"
+                  style={{
+                    backgroundColor: page.color || "var(--muted-foreground)",
+                    opacity: page.color ? 1 : 0.3,
+                  }}
+                />
+                <div className="min-w-0 flex-1 flex gap-2">
                   <span className="truncate block">
                     {page.title || t("Untitled")}
                   </span>
@@ -134,13 +174,9 @@ export function PagePicker({
     </Popover>
   );
 }
-
-function PathBreadcrumb({ path }: { path: string }) {
-  const segments = path.split(" > ");
-  const fullPath = segments.join(" › ");
-
-  // Show first, ellipsis for middle, and last when more than 2 segments
-  const collapsed = segments.length > 2;
+function PathBreadcrumb({ path }: { path: { id: string; title: string }[] }) {
+  const collapsed = path.length > 2;
+  const { t } = useTranslation();
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -149,24 +185,40 @@ function PathBreadcrumb({ path }: { path: string }) {
           <span className="flex items-center gap-0.5 text-xs text-muted-foreground min-w-0 overflow-hidden">
             {collapsed ? (
               <>
-                <span className="truncate max-w-[5rem]">{segments[0]}</span>
+                <span className="truncate max-w-[5rem]">{path[0].title || t("Untitled")}</span>
                 <ChevronRight size={10} className="shrink-0 opacity-50" />
                 <span className="shrink-0">…</span>
                 <ChevronRight size={10} className="shrink-0 opacity-50" />
-                <span className="truncate max-w-[5rem]">{segments[segments.length - 1]}</span>
+                <span className="truncate max-w-[5rem]">
+                  {path[path.length - 1].title || t("Untitled")}
+                </span>
               </>
             ) : (
-              segments.map((segment, i) => (
-                <span key={i} className="flex items-center gap-0.5 min-w-0">
-                  {i > 0 && <ChevronRight size={10} className="shrink-0 opacity-50" />}
-                  <span className="truncate max-w-[7rem]">{segment}</span>
+              path.map((segment, i) => (
+                <span
+                  key={segment.id}
+                  className="flex items-center gap-0.5 min-w-0"
+                >
+                  {i > 0 && (
+                    <ChevronRight size={10} className="shrink-0 opacity-50" />
+                  )}
+                  <span className="truncate max-w-[7rem]">{segment.title || t("Untitled")}</span>
                 </span>
               ))
             )}
           </span>
         </TooltipTrigger>
         <TooltipContent side="bottom" align="start">
-          {fullPath}
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            {path.map((segment, i) => (
+              <span key={segment.id} className="flex items-center gap-0.5">
+                {i > 0 && (
+                  <ChevronRight size={10} className="shrink-0 opacity-50" />
+                )}
+                <span>{segment.title || t("Untitled")}</span>
+              </span>
+            ))}
+          </div>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

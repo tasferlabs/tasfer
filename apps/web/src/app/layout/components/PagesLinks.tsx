@@ -14,12 +14,14 @@ export default function PagesLinks({
   parentsStack = [],
   handleAdd = () => {},
   isCreating = false,
+  color,
 }: {
   parentId?: string | null;
   spaceId?: string;
   parentsStack?: IParentsStack;
   handleAdd?: () => void;
   isCreating?: boolean;
+  color?: string | null;
 }) {
   const { t } = useTranslation();
   const { data: pages, isLoading } = useGetPages(spaceId ?? null, parentId);
@@ -34,6 +36,7 @@ export default function PagesLinks({
           data={link}
           spaceId={spaceId}
           parentsStack={[...parentsStack, { id: parentId, order: link.order }]}
+          color={color}
         />
       ))}
 

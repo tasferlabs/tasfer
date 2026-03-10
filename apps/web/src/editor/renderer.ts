@@ -2110,6 +2110,7 @@ function renderOutOfViewIndicators(
   ctx: CanvasRenderingContext2D,
   peers: OutOfViewPeer[],
   viewport: ViewportState,
+  topOffset: number = 0,
 ) {
   const abovePeers = peers.filter((p) => p.direction === "above");
   const belowPeers = peers.filter((p) => p.direction === "below");
@@ -2129,7 +2130,7 @@ function renderOutOfViewIndicators(
     const pillWidth = textWidth + pillPadding * 2;
 
     const x = pillPadding + i * (pillWidth + gap);
-    const y = pillPadding + chevronSize;
+    const y = topOffset + pillPadding + chevronSize;
 
     // Draw chevron pointing up
     ctx.fillStyle = peer.awareness.user.color;
@@ -2216,8 +2217,8 @@ function renderRemoteCursors(
     );
     if (!cursorPos) continue;
 
-    // Check if cursor is out of viewport
-    if (cursorPos.y + cursorPos.height < 0) {
+    // Check if cursor is out of viewport (account for top padding where tags may overlay)
+    if (cursorPos.y + cursorPos.height < styles.canvas.paddingTop) {
       outOfViewPeers.push({ awareness, direction: "above", x: cursorPos.x });
       continue;
     }
@@ -2244,12 +2245,29 @@ function renderRemoteCursors(
         ctx.measureText(awareness.user.name).width + labelPadding * 2;
       const labelHeight = labelFontSize + labelPadding * 2;
 
+      // Clamp label position to stay within canvas bounds
+      let labelX = cursorPos.x;
+      let labelY = cursorPos.y - labelHeight - 2;
+
+      // Prevent going off the right edge
+      if (labelX + labelWidth > viewport.width) {
+        labelX = viewport.width - labelWidth;
+      }
+      // Prevent going off the left edge
+      if (labelX < 0) {
+        labelX = 0;
+      }
+      // Prevent going into the top padding area (where tags overlay)
+      if (labelY < styles.canvas.paddingTop) {
+        labelY = styles.canvas.paddingTop;
+      }
+
       // Draw label background
       ctx.fillStyle = awareness.user.color;
       ctx.beginPath();
       ctx.roundRect(
-        cursorPos.x,
-        cursorPos.y - labelHeight - 2,
+        labelX,
+        labelY,
         labelWidth,
         labelHeight,
         2,
@@ -2260,15 +2278,15 @@ function renderRemoteCursors(
       ctx.fillStyle = "#FFFFFF";
       ctx.fillText(
         awareness.user.name,
-        cursorPos.x + labelPadding,
-        cursorPos.y - labelPadding - 4,
+        labelX + labelPadding,
+        labelY + labelFontSize + labelPadding - 2,
       );
     }
   }
 
-  // Render out-of-view indicators
+  // Render out-of-view indicators (offset above indicators below the tags area)
   if (outOfViewPeers.length > 0) {
-    renderOutOfViewIndicators(ctx, outOfViewPeers, viewport);
+    renderOutOfViewIndicators(ctx, outOfViewPeers, viewport, styles.canvas.paddingTop);
   }
 }
 

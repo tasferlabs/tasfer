@@ -3,8 +3,19 @@ import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { X, Maximize2, GripHorizontal, Clock, Calendar, FolderOpen } from "lucide-react";
+import {
+  X,
+  Maximize2,
+  GripHorizontal,
+  Clock,
+  Calendar,
+  FolderOpen,
+  CheckSquare,
+  CalendarDays,
+  Info,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DateTime } from "luxon";
 import { useTranslation } from "react-i18next";
 import { Drawer, DrawerContent } from "@/components/ui/drawer";
@@ -108,7 +119,12 @@ export function EventPreview({
   sidebarMode: boolean;
   onSidebarModeChange: (mode: boolean) => void;
   draft?: DraftEvent | null;
-  onDraftSave?: (snapshot?: Block[], clock?: HLC | null, parentId?: string | null) => void;
+  onDraftSave?: (
+    snapshot?: Block[],
+    clock?: HLC | null,
+    parentId?: string | null,
+    task?: boolean,
+  ) => void;
 }) {
   const { t } = useTranslation();
   const isMobile = useResponsive("(max-width: 768px)");
@@ -119,6 +135,7 @@ export function EventPreview({
 
   // Parent page selection
   const [draftParent, setDraftParent] = useState<ISearchPage | null>(null);
+  const [draftIsTask, setDraftIsTask] = useState(true);
 
   // Remember the last user-resized dimensions across event switches
   const lastSizeRef = useRef({ width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT });
@@ -194,6 +211,7 @@ export function EventPreview({
       setSize({ ...lastSizeRef.current });
       setPos(null); // will be computed from anchor
       setDraftParent(null);
+      setDraftIsTask(true);
     }
   }, [pageId, draft]);
 
@@ -204,7 +222,9 @@ export function EventPreview({
   );
   const currentPos = pos ?? computed;
   // Use clamped size when position is anchor-computed (no manual pos yet)
-  const currentSize = pos ? size : { width: computed.width, height: computed.height };
+  const currentSize = pos
+    ? size
+    : { width: computed.width, height: computed.height };
 
   // Drag + resize pointer handling (single effect)
   useEffect(() => {
@@ -275,11 +295,27 @@ export function EventPreview({
         }
       }
       if (resizeRef.current) {
-        const { startX, startY, startW, startH, startTop, startLeft, mode, invertX, invertY } = resizeRef.current;
+        const {
+          startX,
+          startY,
+          startW,
+          startH,
+          startTop,
+          startLeft,
+          mode,
+          invertX,
+          invertY,
+        } = resizeRef.current;
         const dx = e.clientX - startX;
         const dy = e.clientY - startY;
-        let newW = mode === "y" ? startW : Math.max(MIN_WIDTH, startW + (invertX ? -1 : 1) * dx);
-        let newH = mode === "x" ? startH : Math.max(MIN_HEIGHT, startH + (invertY ? -1 : 1) * dy);
+        let newW =
+          mode === "y"
+            ? startW
+            : Math.max(MIN_WIDTH, startW + (invertX ? -1 : 1) * dx);
+        let newH =
+          mode === "x"
+            ? startH
+            : Math.max(MIN_HEIGHT, startH + (invertY ? -1 : 1) * dy);
         let newTop = invertY ? startTop + (startH - newH) : startTop;
         let newLeft = invertX ? startLeft + (startW - newW) : startLeft;
         // Clamp so the popover stays within the viewport
@@ -347,7 +383,12 @@ export function EventPreview({
   );
 
   const handleResizePointerDown = useCallback(
-    (e: React.PointerEvent, mode: "both" | "x" | "y" = "both", invertX = false, invertY = false) => {
+    (
+      e: React.PointerEvent,
+      mode: "both" | "x" | "y" = "both",
+      invertX = false,
+      invertY = false,
+    ) => {
       e.preventDefault();
       e.stopPropagation();
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -386,6 +427,20 @@ export function EventPreview({
 
   const isDraft = !!draft && !pageId;
 
+  const handleTaskToggle = useCallback(() => {
+    if (isDraft) {
+      setDraftIsTask((v) => !v);
+      return;
+    }
+    if (!pageId || !previewPage) return;
+    updatePage({ id: pageId, task: !previewPage.task });
+    // Optimistically update the cached page
+    queryClient.setQueryData(["page", pageId], (old: any) =>
+      old ? { ...old, task: !old.task } : old,
+    );
+    queryClient.invalidateQueries({ queryKey: ["pages"] });
+  }, [isDraft, pageId, previewPage, updatePage, queryClient]);
+
   const handleParentChange = useCallback(
     (page: ISearchPage | null) => {
       if (isDraft) {
@@ -402,7 +457,14 @@ export function EventPreview({
   const currentParent: ISearchPage | null = isDraft
     ? draftParent
     : previewPage?.parentId
-      ? { id: previewPage.parentId, title: previewPage.parents?.find((p) => p.id === previewPage.parentId)?.title ?? null, parentId: null, path: null }
+      ? {
+          id: previewPage.parentId,
+          title:
+            previewPage.parents?.find((p) => p.id === previewPage.parentId)
+              ?.title ?? null,
+          parentId: null,
+          path: null,
+        }
       : null;
 
   // Close on click outside (disabled in sidebar mode)
@@ -415,7 +477,9 @@ export function EventPreview({
         !popoverRef.current.contains(target) &&
         !(
           target instanceof Element &&
-          target.closest('[data-radix-popper-content-wrapper], [role="dialog"], [data-slot="combobox-content"]')
+          target.closest(
+            '[data-radix-popper-content-wrapper], [role="dialog"], [data-slot="combobox-content"]',
+          )
         )
       ) {
         onClose();
@@ -460,7 +524,10 @@ export function EventPreview({
   const { save: debouncedSave, flush } = useDebouncedSave(handleSave, 1000);
 
   // Store latest draft content so we can pass it when saving
-  const draftContentRef = useRef<{ snapshot: Block[]; clock: HLC | null } | null>(null);
+  const draftContentRef = useRef<{
+    snapshot: Block[];
+    clock: HLC | null;
+  } | null>(null);
 
   const handleContentChange = useCallback(
     (snapshot: Block[], clock: HLC | null) => {
@@ -487,9 +554,62 @@ export function EventPreview({
     [pageId, updatePage],
   );
 
+  const isTask = isDraft ? draftIsTask : previewPage?.task;
+
+  const taskEventRow = isDraft ? (
+    <div className={style.previewRow}>
+      <CalendarDays size={14} className={style.previewRowIcon} />
+
+      <div className={style.previewTypeToggleGroup}>
+        <button
+          className={`${style.previewTypeToggleButton} ${draftIsTask ? style.previewTypeToggleActive : ""}`}
+          onClick={() => setDraftIsTask(true)}
+        >
+          {t("Task")}
+        </button>
+        <button
+          className={`${style.previewTypeToggleButton} ${!draftIsTask ? style.previewTypeToggleActive : ""}`}
+          onClick={() => setDraftIsTask(false)}
+        >
+          {t("Event")}
+        </button>
+      </div>
+    </div>
+  ) : (
+    <div className={style.previewRow}>
+      <CalendarDays size={14} className={style.previewRowIcon} />
+
+      <button
+        className={style.previewTaskToggle}
+        onClick={!isTask && previewPage?.hasChildren ? undefined : handleTaskToggle}
+        disabled={!isTask && previewPage?.hasChildren}
+      >
+        {isTask ? t("Convert to Event") : t("Convert to Task")}
+      </button>
+      {!isTask && previewPage?.hasChildren && (
+        <TooltipProvider delayDuration={0}>
+          <Tooltip>
+            <TooltipTrigger onClick={(e) => e.preventDefault()} asChild>
+              <button type="button" className={style.previewTaskInfoIcon}>
+                <Info size={14} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {t("Move sub-pages to convert to task")}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
+    </div>
+  );
+
   const tz = DateTime.local().zoneName;
-  const dateValue = isDraft ? (draft?.scheduledAt ?? null) : (previewPage?.scheduledAt ?? null);
-  const currentDuration = isDraft ? (draft?.duration ?? 60) : (previewPage?.duration ?? 60);
+  const dateValue = isDraft
+    ? (draft?.scheduledAt ?? null)
+    : (previewPage?.scheduledAt ?? null);
+  const currentDuration = isDraft
+    ? (draft?.duration ?? 60)
+    : (previewPage?.duration ?? 60);
 
   const durationLabels = useMemo(
     () => DURATION_OPTIONS.map((d) => formatDurationLabel(d, t)),
@@ -538,8 +658,13 @@ export function EventPreview({
 
   const handleDraftSaveClick = useCallback(() => {
     const content = draftContentRef.current;
-    onDraftSave?.(content?.snapshot, content?.clock, draftParent?.id ?? null);
-  }, [onDraftSave, draftParent]);
+    onDraftSave?.(
+      content?.snapshot,
+      content?.clock,
+      draftParent?.id ?? null,
+      draftIsTask,
+    );
+  }, [onDraftSave, draftParent, draftIsTask]);
 
   const draftFooter = isDraft ? (
     <div className={style.previewDraftFooter}>
@@ -643,6 +768,7 @@ export function EventPreview({
               excludeId={pageId || undefined}
             />
           </div>
+          {taskEventRow}
           <div className="flex-1 overflow-hidden border-t border-border">
             {editor}
           </div>
@@ -698,6 +824,7 @@ export function EventPreview({
           excludeId={pageId || undefined}
         />
       </div>
+      {taskEventRow}
       {pageId && (
         <div className={style.previewRow}>
           <Maximize2 size={14} className={style.previewRowIcon} />
@@ -780,11 +907,15 @@ export function EventPreview({
             {draftFooter}
             <div
               className={style.previewCornerTL}
-              onPointerDown={(e) => handleResizePointerDown(e, "both", true, true)}
+              onPointerDown={(e) =>
+                handleResizePointerDown(e, "both", true, true)
+              }
             />
             <div
               className={style.previewCornerTR}
-              onPointerDown={(e) => handleResizePointerDown(e, "both", false, true)}
+              onPointerDown={(e) =>
+                handleResizePointerDown(e, "both", false, true)
+              }
             />
             <div
               className={style.previewCornerBL}
@@ -796,7 +927,9 @@ export function EventPreview({
             />
             <div
               className={style.previewResizeBarTop}
-              onPointerDown={(e) => handleResizePointerDown(e, "y", false, true)}
+              onPointerDown={(e) =>
+                handleResizePointerDown(e, "y", false, true)
+              }
             />
             <div
               className={style.previewResizeBarBottom}

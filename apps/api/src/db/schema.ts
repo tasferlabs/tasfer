@@ -72,6 +72,8 @@ export const pages = pgTable(
     duration: integer("duration"), // minutes
     allDay: boolean("allDay"),
     recurrenceId: varchar("recurrenceId", { length: 30 }),
+    task: boolean("task").notNull().default(false), // true = lightweight task, hidden from sidebar
+    color: varchar("color", { length: 7 }), // hex color e.g. #FF0000
     createdAt: timestamp("createdAt").notNull().defaultNow(),
     updatedAt: timestamp("updatedAt").notNull().defaultNow(),
   },
