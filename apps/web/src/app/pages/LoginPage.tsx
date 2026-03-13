@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "../contexts/AuthContext";
 
 interface LoginForm {
@@ -79,9 +80,8 @@ export default function LoginPage() {
                 {t`Forgot password?`}
               </Link>
             </div>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               placeholder={t`Your password`}
               autoComplete="current-password"
               {...register("password", { required: true })}

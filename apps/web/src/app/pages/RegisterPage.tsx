@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "../contexts/AuthContext";
 
 interface RegisterForm {
@@ -76,9 +77,8 @@ export default function RegisterPage() {
             <label htmlFor="password" className="text-sm font-medium text-foreground">
               {t`Password`}
             </label>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               placeholder={t`Your password`}
               autoComplete="new-password"
               {...register("password", {
@@ -98,9 +98,8 @@ export default function RegisterPage() {
             <label htmlFor="confirmPassword" className="text-sm font-medium text-foreground">
               {t`Confirm password`}
             </label>
-            <Input
+            <PasswordInput
               id="confirmPassword"
-              type="password"
               placeholder={t`Repeat your password`}
               autoComplete="new-password"
               {...register("confirmPassword", {

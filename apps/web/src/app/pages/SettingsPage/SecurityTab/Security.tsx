@@ -4,6 +4,7 @@ import { useAuth } from "@/app/contexts/AuthContext";
 import { changeEmail, changePassword } from "@/app/api/auth.api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { cn } from "@/lib/utils";
 import styles from "./Security.module.css";
 
@@ -165,9 +166,8 @@ export function Security() {
             <div className={styles.column}>
               <p className="text-sm opacity-75">{t`Current password`}</p>
             </div>
-            <Input
+            <PasswordInput
               className={styles.input}
-              type="password"
               value={currentPassword}
               onChange={(e) => { setCurrentPassword(e.target.value); setPasswordSuccess(""); }}
               placeholder={t`Current password`}
@@ -177,9 +177,8 @@ export function Security() {
             <div className={styles.column}>
               <p className="text-sm opacity-75">{t`New password`}</p>
             </div>
-            <Input
+            <PasswordInput
               className={styles.input}
-              type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder={t`New password`}
@@ -189,9 +188,8 @@ export function Security() {
             <div className={styles.column}>
               <p className="text-sm opacity-75">{t`Confirm new password`}</p>
             </div>
-            <Input
+            <PasswordInput
               className={styles.input}
-              type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder={t`Confirm new password`}

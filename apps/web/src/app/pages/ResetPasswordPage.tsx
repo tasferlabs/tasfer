@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { resetPassword } from "../api/auth.api";
 
 export default function ResetPasswordPage() {
@@ -78,9 +78,8 @@ export default function ResetPasswordPage() {
             <label htmlFor="new-password" className="text-sm font-medium text-foreground">
               {t`New password`}
             </label>
-            <Input
+            <PasswordInput
               id="new-password"
-              type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder={t`At least 8 characters`}
@@ -94,9 +93,8 @@ export default function ResetPasswordPage() {
             <label htmlFor="confirm-password" className="text-sm font-medium text-foreground">
               {t`Confirm new password`}
             </label>
-            <Input
+            <PasswordInput
               id="confirm-password"
-              type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder={t`Repeat your new password`}
