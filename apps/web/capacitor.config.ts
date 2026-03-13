@@ -6,8 +6,8 @@ const config: CapacitorConfig = {
   webDir: "dist",
   server: {
     // For development, uncomment and set your dev server URL:
-    url: "http://192.168.68.55:5173",
-    cleartext: true,
+    // url: "http://192.168.68.55:5173",
+    // cleartext: true,
     allowNavigation: ["cypher.md"],
   },
   ios: {

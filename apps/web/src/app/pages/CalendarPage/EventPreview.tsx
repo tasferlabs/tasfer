@@ -132,7 +132,7 @@ export function EventPreview({
 }) {
   const { t } = useTranslation();
   const isMobile = useResponsive("(max-width: 768px)");
-  const isFinePointer = useResponsive("(pointer: fine)");
+  // const isFinePointer = useResponsive("(pointer: fine)");
   const queryClient = useQueryClient();
   const popoverRef = useRef<HTMLDivElement>(null);
   const { panelRef, setHasPanel, slotMounted } = useSidebarPanel();
