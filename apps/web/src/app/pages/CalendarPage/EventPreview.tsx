@@ -1,49 +1,48 @@
-import { useEffect, useCallback, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { Link } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
-import { AnimatePresence, motion } from "framer-motion";
-import {
-  X,
-  Maximize2,
-  GripHorizontal,
-  Clock,
-  Calendar,
-  FolderOpen,
-  CheckSquare,
-  CalendarDays,
-  Info,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { DateTime } from "luxon";
-import { useTranslation } from "react-i18next";
-import { Drawer, DrawerContent } from "@/components/ui/drawer";
-import { formatDurationLabel, DURATION_OPTIONS } from "@/lib/utils";
 import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
+import { PagePicker } from "@/components/PagePicker";
+import { Button } from "@/components/ui/button";
 import {
   Combobox,
   ComboboxContent,
   ComboboxInput,
-  ComboboxList,
   ComboboxItem,
+  ComboboxList,
 } from "@/components/ui/combobox";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Block } from "@/deserializer/loadPage";
 import { extractTitleFromBlocks } from "@/editor/sync/char-runs";
+import { DURATION_OPTIONS, formatDurationLabel } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "framer-motion";
 import {
-  useGetPage,
-  useUpdatePage,
-  useMovePage,
+  Calendar,
+  CalendarDays,
+  Clock,
+  FolderOpen,
+  GripHorizontal,
+  Info,
+  Maximize2,
+  X
+} from "lucide-react";
+import { DateTime } from "luxon";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
+import {
   updatePage as updatePageApi,
+  useGetPage,
+  useMovePage,
+  useUpdatePage,
   type HLC,
   type ISearchPage,
 } from "../../api/pages.api";
+import { useSidebarPanel } from "../../contexts/SidebarPanelContext";
 import { useSpaces } from "../../contexts/SpaceContext";
-import { PagePicker } from "@/components/PagePicker";
 import { useDebouncedSave } from "../../hooks/useDebouncedSave";
 import useResponsive from "../../hooks/useResponsive";
 import { MountedEditor } from "../../MountedEditor";
-import { useSidebarPanel } from "../../contexts/SidebarPanelContext";
 import type { DraftEvent } from "./CalendarPage";
 import style from "./CalendarPage.module.css";
 
