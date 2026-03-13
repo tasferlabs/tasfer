@@ -11,9 +11,9 @@ import "@fontsource/poppins/700.css";
 // Formatted text measurement - handles Char[] with FormatSpan[]
 import type { Char, FormatSpan, TextFormat } from "../deserializer/loadPage";
 
-// Import Merriweather font (multiple weights)
-import "@fontsource/merriweather/400.css";
-import "@fontsource/merriweather/700.css";
+// Import Libre Baskerville font (multiple weights)
+import "@fontsource/libre-baskerville/400.css";
+import "@fontsource/libre-baskerville/700.css";
 import type { FontMetrics, CharacterMetrics } from "./types";
 import type FontConfig from "./types";
 
@@ -23,12 +23,12 @@ interface TextSegment {
   formats?: TextFormat[];
 }
 
-export type FontFamily = "poppins" | "merriweather";
+export type FontFamily = "poppins" | "libre-baskerville";
 
 export const FONT_STACKS: Record<FontFamily, string> = {
   poppins:
     'Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-  merriweather: 'Merriweather, Georgia, "Times New Roman", Times, serif',
+  "libre-baskerville": 'Libre Baskerville, Georgia, "Times New Roman", Times, serif',
 };
 
 // Latin character set (ASCII 32-126 + common extended Latin)
@@ -45,8 +45,8 @@ const FONT_CONFIGS = [
   { family: "Poppins", weight: "500" },
   { family: "Poppins", weight: "600" },
   { family: "Poppins", weight: "700" },
-  { family: "Merriweather", weight: "400" },
-  { family: "Merriweather", weight: "700" },
+  { family: "Libre Baskerville", weight: "400" },
+  { family: "Libre Baskerville", weight: "700" },
 ];
 
 // Font loading state
@@ -206,7 +206,7 @@ const calculateFontMetrics = (
 const initializeMetricsCache = (): ReadonlyMap<string, FontMetrics> => {
   const metrics = new Map<string, FontMetrics>();
 
-  const fontFamilies: FontFamily[] = ["poppins", "merriweather"];
+  const fontFamilies: FontFamily[] = ["poppins", "libre-baskerville"];
 
   for (const fontFamily of fontFamilies) {
     for (const fontSize of FONT_SIZES) {
@@ -234,7 +234,7 @@ function initializeCache(): void {
 
   // Check if fonts are loaded using document.fonts API
   if (typeof document !== "undefined" && document.fonts) {
-    const fontsToCheck = ["Poppins", "Merriweather"];
+    const fontsToCheck = ["Poppins", "Libre Baskerville"];
 
     for (const fontFamily of fontsToCheck) {
       if (!document.fonts.check(`16px ${fontFamily}`)) {

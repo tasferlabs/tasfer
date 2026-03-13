@@ -805,6 +805,11 @@ function PageActionBar({ pageId }: { pageId: string }) {
   const { isSaving, activeUsers, permission } = usePageSettings();
   const { t } = useTranslation();
 
+  // Effective color: use resolved color from parents array (last entry is the page itself with inherited color)
+  const effectiveColor = page?.parents?.length
+    ? page.parents[page.parents.length - 1].color
+    : page?.color;
+
   return (
     <>
       {permission !== "view" && page ? (
@@ -839,8 +844,8 @@ function PageActionBar({ pageId }: { pageId: string }) {
               <span
                 className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
                 style={{
-                  backgroundColor: page.color || "var(--primary)",
-                  opacity: page.color ? 1 : 0.3,
+                  backgroundColor: effectiveColor || "var(--primary)",
+                  opacity: effectiveColor ? 1 : 0.3,
                 }}
               />
               <span className="truncate">{page.title || t`Untitled`}</span>
@@ -876,8 +881,8 @@ function PageActionBar({ pageId }: { pageId: string }) {
             <span
               className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
               style={{
-                backgroundColor: page?.color || "var(--primary)",
-                opacity: page?.color ? 1 : 0.3,
+                backgroundColor: effectiveColor || "var(--primary)",
+                opacity: effectiveColor ? 1 : 0.3,
               }}
             />
             {page?.title || t`Untitled`}

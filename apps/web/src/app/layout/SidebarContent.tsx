@@ -13,14 +13,13 @@ import {
 } from "@dnd-kit/core";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  CaretDoubleLeftIcon,
   FileTextIcon,
   PlusIcon,
   SignOutIcon,
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { ChevronsUpDown, Ellipsis } from "lucide-react";
+import { ChevronsUpDown, Ellipsis, PanelLeftClose } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
@@ -70,7 +69,6 @@ import { useConfirmation } from "../components/ConfirmationDialog";
 import { EditGroupDialog } from "../components/EditGroupDialog";
 import { InviteMembersDialog } from "../components/InviteMembersDialog";
 import Icons from "../components/uiKit/Icons/Icons";
-import VisuallyHidden from "../components/uiKit/VisuallyHidden/VisuallyHidden";
 import { useAuth } from "../contexts/AuthContext";
 import { useSpaces } from "../contexts/SpaceContext";
 import useResponsive from "../hooks/useResponsive";
@@ -374,7 +372,7 @@ export function SidebarContent({
 
       {!hasPanel && (
         <>
-          <div className={style.appSidebarHeader}>
+          <div className={clsx(style.appSidebarHeader, "gap-3")}>
             {/* User avatar with popover menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -411,13 +409,15 @@ export function SidebarContent({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <button
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className={clsx("text-muted-foreground hover:text-foreground", style.appSidebarClose)}
               onClick={() => setOpen(false)}
-              className={clsx(style.iconButton, style.appSidebarClose)}
             >
-              <CaretDoubleLeftIcon size={24} />
-              <VisuallyHidden>{t("Close sidebar")}</VisuallyHidden>
-            </button>
+              <PanelLeftClose className="h-4 w-4" />
+              <span className="sr-only">{t("Close sidebar")}</span>
+            </Button>
           </div>
           <div className={style.appNavigationLinks}>
             <RouterLink className={style.appNavigationLink} to={"/calendar"}>

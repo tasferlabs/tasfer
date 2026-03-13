@@ -12,8 +12,9 @@ import { Button } from "../../components/ui/button";
 import { getPages, getPage, type IListPage } from "../api/pages.api";
 import { authFetch } from "../api/client";
 import { useSpaces } from "../contexts/SpaceContext";
-import { serializeToMarkdown } from "../../deserializer/serializer";
+import { serializeToMarkdown, type PageMetadata } from "../../deserializer/serializer";
 import type { Image } from "../../deserializer/loadPage";
+import type { IPage } from "../api/pages.api";
 import { useTranslation } from "react-i18next";
 
 interface ExportAllDialogProps {
@@ -49,6 +50,16 @@ function extFromMime(mime: string): string {
     "image/bmp": "bmp",
   };
   return map[mime] || "bin";
+}
+
+function extractPageMetadata(page: IPage): PageMetadata | undefined {
+  const meta: PageMetadata = {};
+  if (page.task) meta.task = true;
+  if (page.scheduledAt) meta.scheduledAt = page.scheduledAt;
+  if (page.duration != null) meta.duration = page.duration;
+  if (page.allDay != null) meta.allDay = page.allDay;
+  if (page.color) meta.color = page.color;
+  return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
 export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
@@ -122,21 +133,42 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
       setProgress({ done: 0, total: totalPages });
       let done = 0;
 
-      /** Recursively export pages under a given path */
+      /** Deduplicate a name within a set of used names in the same directory */
+      function deduplicateName(name: string, usedNames: Set<string>): string {
+        if (!usedNames.has(name)) {
+          usedNames.add(name);
+          return name;
+        }
+        let i = 2;
+        while (usedNames.has(`${name} ${i}`)) i++;
+        const unique = `${name} ${i}`;
+        usedNames.add(unique);
+        return unique;
+      }
+
+      /** Recursively export pages under a given path.
+       *  reservedName is the parent's self-named file (e.g. "Foo" when inside Foo/) */
       async function exportPages(
         spaceId: string,
         pages: IListPage[],
         parentPath: string,
+        reservedName?: string,
       ) {
+        const usedNames = new Set<string>();
+        // Reserve the parent's own name so children can't collide with it
+        if (reservedName) usedNames.add(reservedName);
+
         for (const listPage of pages) {
           if (abortRef.current) return;
 
-          const pageName = sanitizeName(listPage.title);
+          const baseName = sanitizeName(listPage.title);
+          const pageName = deduplicateName(baseName, usedNames);
 
           // Fetch full page content
           const fullPage = await getPage(listPage.id);
           const blocks = fullPage.snapshot || [];
-          const markdown = serializeToMarkdown(blocks);
+          const metadata = extractPageMetadata(fullPage);
+          const markdown = serializeToMarkdown(blocks, metadata);
 
           // Collect image IDs from blocks
           for (const block of blocks) {
@@ -163,7 +195,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
           if (listPage.hasChildren) {
             const children = await getPages(spaceId, listPage.id);
             setProgress((prev) => ({ ...prev, total: prev.total + children.length }));
-            await exportPages(spaceId, children, `${parentPath}${pageName}/`);
+            await exportPages(spaceId, children, `${parentPath}${pageName}/`, pageName);
           }
 
           done++;

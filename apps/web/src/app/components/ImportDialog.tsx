@@ -19,6 +19,7 @@ import { usePageSettings } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
 import tokenizePage from "@/deserializer/tokenizer";
 import parsePage from "@/deserializer/parser";
+import { parseFrontmatter, type PageMetadata } from "@/deserializer/loadPage";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -76,6 +77,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingBlocks, setPendingBlocks] = useState<Block[] | null>(null);
+  const [pendingMetadata, setPendingMetadata] = useState<PageMetadata | undefined>(undefined);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -85,10 +87,15 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: async (newPage) => {
       if (pendingBlocks) {
-        // Update the new page with the imported blocks
+        // Update the new page with the imported blocks and metadata
         await updatePage({
           id: newPage.id,
           snapshot: pendingBlocks,
+          ...(pendingMetadata?.task && { task: true }),
+          ...(pendingMetadata?.color && { color: pendingMetadata.color }),
+          ...(pendingMetadata?.scheduledAt && { scheduledAt: pendingMetadata.scheduledAt }),
+          ...(pendingMetadata?.duration != null && { duration: pendingMetadata.duration }),
+          ...(pendingMetadata?.allDay != null && { allDay: pendingMetadata.allDay }),
         });
         queryClient.invalidateQueries({
           queryKey: ["pages", { parentId: null }],
@@ -107,6 +114,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const resetState = useCallback(() => {
     setError(null);
     setPendingBlocks(null);
+    setPendingMetadata(undefined);
     setShowConfirmation(false);
     setIsDragging(false);
   }, []);
@@ -205,13 +213,15 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
           markdown = await file.text();
         }
 
-        const tokens = tokenizePage(markdown);
+        const { content: body, metadata } = parseFrontmatter(markdown);
+        const tokens = tokenizePage(body);
         const page = parsePage(tokens);
 
         // Check if current page has content
         if (!isPageEmpty(currentBlocks)) {
           // Show confirmation dialog
           setPendingBlocks(page.blocks);
+          setPendingMetadata(metadata);
           setShowConfirmation(true);
         } else {
           // Page is empty, directly replace

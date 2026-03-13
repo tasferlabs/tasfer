@@ -170,16 +170,56 @@ export function isImageDefault(block: Image): boolean {
   return width === "full" && height === 300 && objectFit === "cover";
 }
 
+export interface PageMetadata {
+  color?: string | null;
+  scheduledAt?: string | null;
+  duration?: number | null;
+  allDay?: boolean | null;
+  task?: boolean;
+}
+
 export interface Page {
   id: string;
   title: String;
-  // color: string;
-  // icon: string;
   blocks: Block[];
+  metadata?: PageMetadata;
+}
+
+/**
+ * Strip YAML frontmatter from markdown and parse metadata.
+ * Returns the content without frontmatter and any parsed metadata.
+ */
+export function parseFrontmatter(content: string): { content: string; metadata?: PageMetadata } {
+  if (!content.startsWith("---\n")) return { content };
+
+  const endIndex = content.indexOf("\n---\n", 4);
+  if (endIndex === -1) return { content };
+
+  const frontmatterBody = content.slice(4, endIndex);
+  const remaining = content.slice(endIndex + 5);
+
+  const metadata: PageMetadata = {};
+  for (const line of frontmatterBody.split("\n")) {
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) continue;
+    const key = line.slice(0, colonIdx).trim();
+    const value = line.slice(colonIdx + 1).trim();
+
+    if (key === "task") metadata.task = value === "true";
+    else if (key === "scheduledAt" && value) metadata.scheduledAt = value;
+    else if (key === "duration" && value) metadata.duration = Number(value);
+    else if (key === "allDay") metadata.allDay = value === "true";
+    else if (key === "color" && value) metadata.color = value;
+  }
+
+  const hasValues = metadata.task || metadata.scheduledAt || metadata.duration != null || metadata.allDay != null || metadata.color;
+  return { content: remaining, metadata: hasValues ? metadata : undefined };
 }
 
 export function loadPage(content: string): Page {
-  const tokens = tokenizePage(content);
+  const { content: body, metadata } = parseFrontmatter(content);
+  const tokens = tokenizePage(body);
   const page = parsePage(tokens);
+  if (metadata) page.metadata = metadata;
   return page;
 }

@@ -14,6 +14,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { Block } from "../deserializer/loadPage";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
+import { FindBar } from "../editor/FindBar";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
 import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
@@ -41,6 +42,7 @@ import type { AwarenessState, AwarenessUser } from "@/editor/sync/awareness";
 import type { Operation } from "@/websocket/types";
 import { hasNativeBridge } from "@/editor/actions/clipboard";
 import { OfflineStore } from "@/offline/store";
+import { usePageSettings } from "./contexts/PageSettingsContext";
 
 interface MountedEditorProps {
   snapshot: Block[];
@@ -100,6 +102,7 @@ export function MountedEditor({
   blockStyleOverrides,
   onScroll,
 }: MountedEditorProps) {
+  const { setOnOpenFind } = usePageSettings();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
   const syncEngineRef = useRef<SyncEngine | null>(null);
@@ -158,6 +161,20 @@ export function MountedEditor({
 
   const lastImageHoverStateRef = useRef<typeof imageHoverState>(null);
   const persistedImageHoverRef = useRef<typeof imageHoverState>(null);
+
+  // Find bar state
+  const [findBarOpen, setFindBarOpen] = useState(false);
+  const [findSearchText, setFindSearchText] = useState("");
+  const [findMatches, setFindMatches] = useState<
+    { blockIndex: number; startIndex: number; endIndex: number }[]
+  >([]);
+  const [findActiveIndex, setFindActiveIndex] = useState(0);
+
+  // Register find callback for PageSettings drawer
+  useEffect(() => {
+    setOnOpenFind(() => setFindBarOpen(true));
+    return () => setOnOpenFind(null);
+  }, [setOnOpenFind]);
 
   const lastSlashMenuStateRef = useRef<typeof slashMenuState>(null);
   const lastContextMenuStateRef = useRef<typeof contextMenuState>(null);
@@ -990,6 +1007,128 @@ export function MountedEditor({
     blockStyleOverrides,
   ]);
 
+  // Ctrl+F handler for find
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        setFindBarOpen(true);
+      }
+    };
+    const el = wrapperRef.current;
+    if (el) {
+      el.addEventListener("keydown", handleKeyDown);
+      return () => el.removeEventListener("keydown", handleKeyDown);
+    }
+  }, []);
+
+  // Search logic — compute matches when search text or page content changes
+  const performSearch = useCallback(
+    (text: string) => {
+      if (!text || !mountedRef.current) {
+        setFindMatches([]);
+        setFindActiveIndex(0);
+        mountedRef.current?.editor.clearSearchHighlights();
+        return;
+      }
+
+      const state = mountedRef.current.editor.getState();
+      if (!state) return;
+
+      const matches: { blockIndex: number; startIndex: number; endIndex: number }[] = [];
+      const lowerSearch = text.toLowerCase();
+
+      for (let i = 0; i < state.document.page.blocks.length; i++) {
+        const block = state.document.page.blocks[i];
+        if (block.deleted) continue;
+        const content = getBlockTextContent(block).toLowerCase();
+        if (!content) continue;
+
+        let pos = 0;
+        while (true) {
+          const idx = content.indexOf(lowerSearch, pos);
+          if (idx === -1) break;
+          matches.push({
+            blockIndex: i,
+            startIndex: idx,
+            endIndex: idx + text.length,
+          });
+          pos = idx + 1;
+        }
+      }
+
+      setFindMatches(matches);
+      const newActiveIndex = matches.length > 0 ? 0 : -1;
+      setFindActiveIndex(newActiveIndex >= 0 ? newActiveIndex : 0);
+      mountedRef.current.editor.setSearchHighlights(
+        matches,
+        newActiveIndex >= 0 ? newActiveIndex : -1
+      );
+      // Scroll to first match
+      if (matches.length > 0) {
+        mountedRef.current.editor.scrollToPosition({
+          blockIndex: matches[0].blockIndex,
+          textIndex: matches[0].startIndex,
+        });
+      }
+    },
+    []
+  );
+
+  const handleFindSearchChange = useCallback(
+    (text: string) => {
+      setFindSearchText(text);
+      performSearch(text);
+    },
+    [performSearch]
+  );
+
+  const navigateToMatch = useCallback(
+    (index: number) => {
+      if (findMatches.length === 0 || !mountedRef.current) return;
+      setFindActiveIndex(index);
+      mountedRef.current.editor.setSearchHighlights(findMatches, index);
+      const match = findMatches[index];
+      if (match) {
+        mountedRef.current.editor.restoreCursorAndSelection(
+          { position: { blockIndex: match.blockIndex, textIndex: match.endIndex }, lastUpdate: Date.now() },
+          {
+            anchor: { blockIndex: match.blockIndex, textIndex: match.startIndex },
+            focus: { blockIndex: match.blockIndex, textIndex: match.endIndex },
+            isForward: true,
+            isCollapsed: false,
+            lastUpdate: Date.now(),
+          }
+        );
+        mountedRef.current.editor.scrollToPosition({
+          blockIndex: match.blockIndex,
+          textIndex: match.startIndex,
+        });
+      }
+    },
+    [findMatches]
+  );
+
+  const handleFindNext = useCallback(() => {
+    if (findMatches.length === 0) return;
+    navigateToMatch((findActiveIndex + 1) % findMatches.length);
+  }, [findMatches, findActiveIndex, navigateToMatch]);
+
+  const handleFindPrevious = useCallback(() => {
+    if (findMatches.length === 0) return;
+    navigateToMatch((findActiveIndex - 1 + findMatches.length) % findMatches.length);
+  }, [findMatches, findActiveIndex, navigateToMatch]);
+
+  const handleFindClose = useCallback(() => {
+    setFindBarOpen(false);
+    setFindSearchText("");
+    setFindMatches([]);
+    setFindActiveIndex(0);
+    mountedRef.current?.editor.clearSearchHighlights();
+    // Refocus editor
+    mountedRef.current?.editor.setFocus(true);
+  }, []);
+
   // Note: WebSocket reconnection is handled by the global WebSocketProvider
 
   const handleSlashCommandSelect = (command: SlashCommand) => {
@@ -1258,6 +1397,22 @@ export function MountedEditor({
       aria-label="Text editor"
       aria-multiline="true"
     >
+      {/* Find bar portal */}
+      {findBarOpen &&
+        mountedRef.current?.portalContainer &&
+        createPortal(
+          <FindBar
+            searchText={findSearchText}
+            onSearchChange={handleFindSearchChange}
+            onNext={handleFindNext}
+            onPrevious={handleFindPrevious}
+            onClose={handleFindClose}
+            currentMatch={findActiveIndex}
+            totalMatches={findMatches.length}
+          />,
+          mountedRef.current.portalContainer
+        )}
+
       {/* Slash command menu portal */}
       {slashMenuState &&
         mountedRef.current?.portalContainer &&

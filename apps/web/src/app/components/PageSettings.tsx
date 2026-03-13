@@ -28,6 +28,7 @@ import {
   History,
   MoreVertical,
   Pencil,
+  Search,
   // Share2,
   Trash2,
   Upload,
@@ -119,6 +120,7 @@ function PageSettingsImpl({
     setShowWordCount,
     wordCount,
     permission,
+    onOpenFind,
   } = usePageSettings();
   const isViewOnly = permission === "view";
   const isMobile = useResponsive("(max-width: 768px)");
@@ -274,6 +276,18 @@ function PageSettingsImpl({
       )}
 
       <div className="py-4 border-t border-border px-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2 py-5"
+          onClick={() => {
+            onOpenFind?.();
+            setOpen(false);
+          }}
+        >
+          <Search className="h-4 w-4" />
+          {t`Find in document`}
+        </Button>
         {!isViewOnly && (
           <Button
             variant="ghost"

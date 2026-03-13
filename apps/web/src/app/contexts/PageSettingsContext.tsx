@@ -29,6 +29,9 @@ interface PageSettingsContextType {
   // Permission
   permission: PagePermission;
   setPermission: (permission: PagePermission) => void;
+  // Find in document
+  onOpenFind: (() => void) | null;
+  setOnOpenFind: (callback: (() => void) | null) => void;
 }
 
 const PageSettingsContext = createContext<PageSettingsContextType | undefined>(
@@ -36,7 +39,7 @@ const PageSettingsContext = createContext<PageSettingsContextType | undefined>(
 );
 
 const fontStyleToFamily = (style: FontStyle): FontFamily => {
-  return style === "serif" ? "merriweather" : "poppins";
+  return style === "serif" ? "libre-baskerville" : "poppins";
 };
 
 export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
@@ -52,6 +55,7 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [currentBlocks, setCurrentBlocks] = useState<Block[]>([]);
   const [onRestoreSnapshot, setOnRestoreSnapshotState] = useState<((blocks: Block[]) => void) | null>(null);
   const [permission, setPermission] = useState<PagePermission>("owner");
+  const [onOpenFind, setOnOpenFindState] = useState<(() => void) | null>(null);
 
   // Apply font family on mount and when fontStyle changes
   useEffect(() => {
@@ -72,6 +76,10 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   // Wrap setOnRestoreSnapshot to handle function state properly
   const setOnRestoreSnapshot = useCallback((callback: ((blocks: Block[]) => void) | null) => {
     setOnRestoreSnapshotState(() => callback);
+  }, []);
+
+  const setOnOpenFind = useCallback((callback: (() => void) | null) => {
+    setOnOpenFindState(() => callback);
   }, []);
 
   return (
@@ -95,6 +103,8 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         setOnRestoreSnapshot,
         permission,
         setPermission,
+        onOpenFind,
+        setOnOpenFind,
       }}
     >
       {children}

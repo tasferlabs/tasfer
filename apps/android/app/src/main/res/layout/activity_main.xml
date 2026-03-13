@@ -1,49 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    tools:context=".MainActivity">
 
-    <!-- WebView -->
     <WebView
-        android:id="@+id/webView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
-
-    <!-- Block Type Menu (positioned at bottom, below toolbar) -->
-    <include
-        android:id="@+id/blockTypeMenu"
-        layout="@layout/block_type_menu"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_alignParentBottom="true"
-        android:visibility="gone" />
-
-    <!-- Keyboard Toolbar (positioned above block menu or keyboard) -->
-    <include
-        android:id="@+id/keyboardToolbar"
-        layout="@layout/keyboard_toolbar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_alignParentBottom="true"
-        android:visibility="gone" />
-
-    <!-- Loading Screen -->
-    <LinearLayout
-        android:id="@+id/loadingScreen"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:gravity="center"
-        android:orientation="vertical"
-        android:background="@color/background">
-
-        <ImageView
-            android:id="@+id/spinnerImage"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@drawable/spinner"
-            android:contentDescription="@string/loading" />
-
-    </LinearLayout>
-
-</RelativeLayout>
-
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

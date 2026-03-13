@@ -1,5 +1,6 @@
 import type { Block, Page } from "../deserializer/loadPage";
 import { isTextualBlock } from "../deserializer/loadPage";
+import { serializeToMarkdown } from "../deserializer/serializer";
 import {
   copySelectionToClipboard,
   cutSelectionToClipboard,
@@ -27,10 +28,13 @@ import {
   invalidateBlockCache,
   renderCursorLayer,
   renderPage,
+  setSearchHighlights as setRendererSearchHighlights,
+  clearSearchHighlights as clearRendererSearchHighlights,
 } from "./renderer";
 import {
   getCursorDocumentCoords,
   getCursorCoordinatesWithComposition,
+  scrollToMakeCursorVisible,
 } from "./selection";
 import {
   clearSelection,
@@ -168,6 +172,15 @@ export interface Editor {
   onScroll: (callback: ((scrollY: number) => void) | null) => void;
   /** Get current scroll position */
   getScrollY: () => number;
+  /** Set search highlights for find-in-document */
+  setSearchHighlights: (
+    highlights: { blockIndex: number; startIndex: number; endIndex: number }[],
+    activeIndex: number
+  ) => void;
+  /** Clear all search highlights */
+  clearSearchHighlights: () => void;
+  /** Scroll viewport to make a position visible */
+  scrollToPosition: (position: { blockIndex: number; textIndex: number }) => void;
 }
 
 export default function createEditor(
@@ -945,6 +958,28 @@ export default function createEditor(
       scheduleRender();
       hiddenInput.value = " ";
     } else if (isShortcut) {
+      // Save as Markdown - handle here (not in events queue) to preserve user gesture for download
+      if (e.code === "KeyS") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.repeat) return;
+        const markdown = serializeToMarkdown(state.document.page.blocks);
+        const blob = new Blob([markdown], { type: "text/markdown" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const firstBlock = state.document.page.blocks.find(b => !b.deleted && isTextualBlock(b));
+        const firstBlockText = firstBlock && "charRuns" in firstBlock
+          ? firstBlock.charRuns.map(r => r.text).join("").trim()
+          : "";
+        a.download = `${firstBlockText || "untitled"}.md`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        return;
+      }
+
       const handledShortcuts = ["KeyZ", "KeyY", "KeyA", "KeyC", "KeyX", "KeyB"];
       if (handledShortcuts.includes(e.code)) {
         // For editor shortcuts, forward to events queue and stop propagation
@@ -2086,5 +2121,23 @@ export default function createEditor(
       onScrollCallback = callback;
     },
     getScrollY: () => viewport.scrollY,
+    setSearchHighlights: (
+      highlights: { blockIndex: number; startIndex: number; endIndex: number }[],
+      activeIndex: number
+    ) => {
+      setRendererSearchHighlights(highlights, activeIndex);
+      scheduleRender();
+    },
+    clearSearchHighlights: () => {
+      clearRendererSearchHighlights();
+      scheduleRender();
+    },
+    scrollToPosition: (position: { blockIndex: number; textIndex: number }) => {
+      const newScrollY = scrollToMakeCursorVisible(position, state, viewport);
+      if (newScrollY !== null) {
+        viewport = { ...viewport, scrollY: newScrollY };
+        scheduleRender();
+      }
+    },
   };
 }

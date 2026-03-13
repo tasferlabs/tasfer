@@ -729,6 +729,39 @@ export const renderBlock = (
     currentY += lineHeight;
   }
 
+  // Render search highlights (behind selections)
+  if (searchHighlights.length > 0) {
+    const blockHighlights = searchHighlights.filter(
+      (h) => h.blockIndex === blockIndex
+    );
+    for (let hi = 0; hi < blockHighlights.length; hi++) {
+      const h = blockHighlights[hi];
+      const isActive =
+        searchHighlights.indexOf(h) === activeSearchIndex;
+      const fakeSelection = {
+        anchor: { blockIndex, textIndex: h.startIndex },
+        focus: { blockIndex, textIndex: h.endIndex },
+        isForward: true,
+      };
+      renderSelectionCore(
+        blockIndex,
+        ctx,
+        styles,
+        renderedLines,
+        adjustedX,
+        y,
+        fullContent,
+        textStyle,
+        fontFamily,
+        block,
+        adjustedMaxWidth,
+        fakeSelection,
+        isActive ? "#f97316" : "#facc15",
+        isActive ? 0.5 : 0.35,
+      );
+    }
+  }
+
   // Render remote selections first (so they appear behind local selection)
   if (remoteAwareness && remoteAwareness.size > 0) {
     renderRemoteSelections(
@@ -2820,4 +2853,37 @@ function renderSelectionHandle(
   }
 
   ctx.restore();
+}
+
+// =============================================================================
+// Search Highlights
+// =============================================================================
+
+export interface SearchHighlight {
+  readonly blockIndex: number;
+  readonly startIndex: number;
+  readonly endIndex: number;
+}
+
+let searchHighlights: SearchHighlight[] = [];
+let activeSearchIndex = -1;
+
+export function setSearchHighlights(
+  highlights: SearchHighlight[],
+  activeIndex: number
+) {
+  searchHighlights = highlights;
+  activeSearchIndex = activeIndex;
+}
+
+export function clearSearchHighlights() {
+  searchHighlights = [];
+  activeSearchIndex = -1;
+}
+
+export function getSearchHighlights(): {
+  highlights: SearchHighlight[];
+  activeIndex: number;
+} {
+  return { highlights: searchHighlights, activeIndex: activeSearchIndex };
 }

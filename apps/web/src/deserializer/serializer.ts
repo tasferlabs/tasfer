@@ -88,7 +88,26 @@ function formatKeysToFormats(keys: Set<string>): TextFormat[] | undefined {
   return formats.length > 0 ? formats : undefined;
 }
 
-export function serializeToMarkdown(blocks: Block[]): string {
+export interface PageMetadata {
+  color?: string | null;
+  scheduledAt?: string | null;
+  duration?: number | null;
+  allDay?: boolean | null;
+  task?: boolean;
+}
+
+function serializeFrontmatter(metadata: PageMetadata): string {
+  const lines: string[] = [];
+  if (metadata.task) lines.push(`task: true`);
+  if (metadata.scheduledAt) lines.push(`scheduledAt: ${metadata.scheduledAt}`);
+  if (metadata.duration != null) lines.push(`duration: ${metadata.duration}`);
+  if (metadata.allDay != null) lines.push(`allDay: ${metadata.allDay}`);
+  if (metadata.color) lines.push(`color: ${metadata.color}`);
+  if (lines.length === 0) return "";
+  return `---\n${lines.join("\n")}\n---\n`;
+}
+
+export function serializeToMarkdown(blocks: Block[], metadata?: PageMetadata): string {
   // Filter out deleted blocks (CRDT tombstones)
   blocks = blocks.filter(block => !block.deleted);
 
@@ -98,6 +117,8 @@ export function serializeToMarkdown(blocks: Block[]): string {
 
   // Track numbering for numbered lists at each indent level
   const numbering: Map<number, number> = new Map();
+
+  const frontmatter = metadata ? serializeFrontmatter(metadata) : "";
 
   const serializedBlocks = blocks.map((block, index) => {
     // Handle line/divider blocks
@@ -223,11 +244,11 @@ export function serializeToMarkdown(blocks: Block[]): string {
   });
   
   const result = serializedBlocks.join("\n");
-  
+
   // If the last block is empty, we need to add a trailing newline
   // to preserve the empty block when deserializing
   const lastBlock = blocks[blocks.length - 1];
-  
+
   // Only check for empty content if it's a text block or list block
   if (lastBlock.type !== "image" && lastBlock.type !== "line") {
     const hasContent = isListBlock(lastBlock) || lastBlock.type === "heading1" || lastBlock.type === "heading2" || lastBlock.type === "heading3" || lastBlock.type === "paragraph";
@@ -235,10 +256,10 @@ export function serializeToMarkdown(blocks: Block[]): string {
       const lastBlockIsEmpty = getVisibleTextFromRuns(lastBlock.charRuns).length === 0;
 
       if (lastBlockIsEmpty && blocks.length > 1) {
-        return result + "\n";
+        return frontmatter + result + "\n";
       }
     }
   }
-  
-  return result;
+
+  return frontmatter + result;
 }

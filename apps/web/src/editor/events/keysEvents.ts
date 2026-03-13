@@ -104,9 +104,10 @@ export function handleKeyDown(
     const isCopy = isCtrl && code === "KeyC";
     const isSelectAll = isCtrl && code === "KeyA";
     const isEscape = key === "Escape";
+    const isFind = isCtrl && code === "KeyF";
 
-    // Allow navigation, copy, select all, and escape in readonly mode
-    if (!isNavigationKey && !isCopy && !isSelectAll && !isEscape) {
+    // Allow navigation, copy, select all, find, and escape in readonly mode
+    if (!isNavigationKey && !isCopy && !isSelectAll && !isEscape && !isFind) {
       return { state, ops };
     }
   }

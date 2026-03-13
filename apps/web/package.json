@@ -8,7 +8,12 @@
     "dev:host": "vite --host",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "serve": "node server.js"
+    "serve": "node server.js",
+    "cap:sync": "npx cap sync",
+    "cap:open:ios": "npx cap open ios",
+    "cap:build:ios": "npm run build && npx cap sync ios",
+    "cap:open:android": "npx cap open android",
+    "cap:build:android": "npm run build && npx cap sync android"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
@@ -24,11 +29,15 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.2.0",
+    "@capacitor/android": "^8.2.0",
+    "@capacitor/cli": "^8.2.0",
+    "@capacitor/core": "^8.2.0",
+    "@capacitor/ios": "^8.2.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@fontsource-variable/inter": "^5.2.8",
-    "@fontsource/merriweather": "^5.2.9",
+    "@fontsource/libre-baskerville": "^5.2.10",
     "@fontsource/poppins": "^5.2.6",
     "@hookform/resolvers": "^5.2.2",
     "@phosphor-icons/react": "^2.1.10",

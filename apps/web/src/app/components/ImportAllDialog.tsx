@@ -23,6 +23,7 @@ import { useSpaces } from "../contexts/SpaceContext";
 import { useQueryClient } from "@tanstack/react-query";
 import tokenizePage from "@/deserializer/tokenizer";
 import parsePage from "@/deserializer/parser";
+import { parseFrontmatter } from "@/deserializer/loadPage";
 import { extractTitleFromBlocks } from "@/editor/sync/char-runs";
 import { useTranslation } from "react-i18next";
 
@@ -411,7 +412,8 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
 
           const mdContent = await zipEntry.async("string");
           const rewritten = rewriteImageUrls(mdContent, imageUrlMap);
-          const tokens = tokenizePage(rewritten);
+          const { content: body, metadata } = parseFrontmatter(rewritten);
+          const tokens = tokenizePage(body);
           const page = parsePage(tokens);
           const title = extractTitleFromBlocks(page.blocks) || node.name;
 
@@ -419,10 +421,15 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
             title,
             parentId,
             spaceId,
+            ...(metadata?.task && { task: true }),
+            ...(metadata?.scheduledAt && { scheduledAt: metadata.scheduledAt }),
+            ...(metadata?.duration != null && { duration: metadata.duration }),
+            ...(metadata?.allDay != null && { allDay: metadata.allDay }),
           });
           await updatePage({
             id: createdPage.id,
             snapshot: page.blocks,
+            ...(metadata?.color && { color: metadata.color }),
           });
 
           importResult.pagesCreated++;
@@ -460,8 +467,9 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
       if (abortRef.current) return;
 
       try {
-        const content = await file.text();
-        const tokens = tokenizePage(content);
+        const rawContent = await file.text();
+        const { content: body, metadata } = parseFrontmatter(rawContent);
+        const tokens = tokenizePage(body);
         const page = parsePage(tokens);
         const nameWithoutExt = file.name.replace(/\.(md|txt)$/, "");
         const title = extractTitleFromBlocks(page.blocks) || nameWithoutExt;
@@ -470,10 +478,15 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
           title,
           parentId: null,
           spaceId,
+          ...(metadata?.task && { task: true }),
+          ...(metadata?.scheduledAt && { scheduledAt: metadata.scheduledAt }),
+          ...(metadata?.duration != null && { duration: metadata.duration }),
+          ...(metadata?.allDay != null && { allDay: metadata.allDay }),
         });
         await updatePage({
           id: createdPage.id,
           snapshot: page.blocks,
+          ...(metadata?.color && { color: metadata.color }),
         });
 
         importResult.pagesCreated++;

@@ -26,6 +26,8 @@ import {
 import { isTextualBlock, isListBlock, type Block, type Image } from "@/deserializer/loadPage";
 import { authFetch } from "../api/client";
 import { imageCache } from "@/editor/renderer";
+import { getPage } from "../api/pages.api";
+import type { PageMetadata } from "@/deserializer/serializer";
 
 function serializeToText(blocks: Block[]): string {
   return blocks
@@ -100,7 +102,7 @@ interface ExportDialogProps {
 
 export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   const { t } = useTranslation();
-  const { currentBlocks } = usePageSettings();
+  const { currentBlocks, pageId } = usePageSettings();
   const isMobile = useResponsive("(max-width: 768px)");
   const [isExporting, setIsExporting] = useState(false);
 
@@ -132,8 +134,25 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     downloadFile(content, "txt", "text/plain");
   };
 
+  const fetchMetadata = async (): Promise<PageMetadata | undefined> => {
+    if (!pageId) return undefined;
+    try {
+      const pageData = await getPage(pageId);
+      const meta: PageMetadata = {};
+      if (pageData.task) meta.task = true;
+      if (pageData.scheduledAt) meta.scheduledAt = pageData.scheduledAt;
+      if (pageData.duration != null) meta.duration = pageData.duration;
+      if (pageData.allDay != null) meta.allDay = pageData.allDay;
+      if (pageData.color) meta.color = pageData.color;
+      return Object.keys(meta).length > 0 ? meta : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
   const handleExportMarkdown = async () => {
-    const markdown = serializeToMarkdown(currentBlocks);
+    const metadata = await fetchMetadata();
+    const markdown = serializeToMarkdown(currentBlocks, metadata);
 
     // Collect all image URLs from image blocks (handles blob:, /api/images/, etc.)
     const imageUrls = new Set<string>();

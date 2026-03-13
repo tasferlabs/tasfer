@@ -4,6 +4,7 @@ import { Outlet } from "react-router-dom";
 import { ConfirmationDialogProvider } from "../components/ConfirmationDialog";
 import { DevToolbar } from "../components/DevToolbar";
 import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
+import { CommandCenter } from "../components/CommandCenter";
 import UpdatePopup from "../components/UpdatePopup";
 import { useAuth } from "../contexts/AuthContext";
 import { PageSettingsProvider } from "../contexts/PageSettingsContext";
@@ -79,6 +80,7 @@ export default function Layout() {
                 </div>
               </div>
             </div>
+            <CommandCenter />
             <UpdatePopup />
             <DevToolbar />
             {needsForceUpdate && <ForceUpdatePage />}

@@ -270,7 +270,8 @@ export function mountEditor(
         setTimeout(() => {
           if (
             document.activeElement !== hiddenInput &&
-            editor.getState()?.view.isFocused
+            editor.getState()?.view.isFocused &&
+            !document.querySelector("[cmdk-dialog]")
           ) {
             hiddenInput.focus({ preventScroll: true });
           }
