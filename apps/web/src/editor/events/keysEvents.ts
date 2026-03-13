@@ -586,12 +586,29 @@ export function handleKeyDown(
           range.start.blockIndex === range.end.blockIndex;
 
         if (range && !isVisualBlockSelection) {
-          // Regular text selection - move to the start of it
-          newState = moveCursorToPosition(
-            clearSelection(newState),
-            range.start.blockIndex,
-            range.start.textIndex
-          );
+          // Regular text selection - determine direction for correct collapse behavior
+          const selStartBlock =
+            state.document.page.blocks[range.start.blockIndex];
+          const selectionIsRTL =
+            selStartBlock &&
+            isTextualBlock(selStartBlock) &&
+            getTextDirection(getBlockTextContent(selStartBlock)) === "rtl";
+
+          if (selectionIsRTL) {
+            // RTL: ArrowLeft = visual left = move to end (forward in logical order)
+            newState = moveCursorToPosition(
+              clearSelection(newState),
+              range.end.blockIndex,
+              range.end.textIndex
+            );
+          } else {
+            // LTR: ArrowLeft = move to start
+            newState = moveCursorToPosition(
+              clearSelection(newState),
+              range.start.blockIndex,
+              range.start.textIndex
+            );
+          }
         } else if (isCtrl) {
           newState = moveToPreviousWord(clearSelection(newState));
         } else {
@@ -786,12 +803,29 @@ export function handleKeyDown(
           range.start.blockIndex === range.end.blockIndex;
 
         if (range && !isVisualBlockSelection) {
-          // Regular text selection - move to the end of it
-          newState = moveCursorToPosition(
-            clearSelection(newState),
-            range.end.blockIndex,
-            range.end.textIndex
-          );
+          // Regular text selection - determine direction for correct collapse behavior
+          const selEndBlock =
+            state.document.page.blocks[range.end.blockIndex];
+          const selectionIsRTL =
+            selEndBlock &&
+            isTextualBlock(selEndBlock) &&
+            getTextDirection(getBlockTextContent(selEndBlock)) === "rtl";
+
+          if (selectionIsRTL) {
+            // RTL: ArrowRight = visual right = move to start (backward in logical order)
+            newState = moveCursorToPosition(
+              clearSelection(newState),
+              range.start.blockIndex,
+              range.start.textIndex
+            );
+          } else {
+            // LTR: ArrowRight = move to end
+            newState = moveCursorToPosition(
+              clearSelection(newState),
+              range.end.blockIndex,
+              range.end.textIndex
+            );
+          }
         } else if (isCtrl) {
           newState = moveToNextWord(clearSelection(newState));
         } else {
@@ -1129,6 +1163,60 @@ export function handleKeyDown(
       if (keyEvent.shiftKey) {
         newState = extendSelectionPageUp(newState, viewport);
       } else {
+        // Check if we're on a visual block (image/line) at the start of the page
+        if (state.document.cursor) {
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+          const isFirstBlock = state.document.cursor.position.blockIndex === 0;
+
+          if (
+            isFirstBlock &&
+            (currentBlock?.type === "image" || currentBlock?.type === "line")
+          ) {
+            // Create a new paragraph above the visual block
+            const newParagraphId = nextId();
+            const newParagraph: Block = {
+              id: newParagraphId,
+              type: "paragraph",
+              charRuns: [],
+              formats: [],
+            };
+
+            const blockInsertOp: Operation = {
+              op: "block_insert",
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
+              afterBlockId: null,
+              blockId: newParagraphId,
+              blockType: "paragraph",
+            };
+
+            const newBlocks = [newParagraph, ...state.document.page.blocks];
+            const newPage = { ...state.document.page, blocks: newBlocks };
+
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+              ui: {
+                ...state.ui,
+                autoCreatedParagraph: {
+                  blockIndex: 0,
+                  blockId: newParagraph.id,
+                },
+              },
+            };
+
+            ops.push(blockInsertOp);
+
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, 0, 0);
+            break;
+          }
+        }
+
         newState = moveCursorPageUp(clearSelection(state), viewport);
 
         // If we moved to a visual block (image/line), select it; otherwise leave just cursor
@@ -1179,6 +1267,129 @@ export function handleKeyDown(
       if (keyEvent.shiftKey) {
         newState = extendSelectionPageDown(newState, viewport);
       } else {
+        // Check if we should remove an auto-created paragraph
+        if (state.ui.autoCreatedParagraph && state.document.cursor) {
+          const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+
+          // If cursor is on the auto-created paragraph and it's still empty
+          if (
+            state.document.cursor.position.blockIndex === blockIndex &&
+            currentBlock?.id === blockId &&
+            currentBlock.type === "paragraph" &&
+            isTextualBlock(currentBlock) &&
+            getBlockTextContent(currentBlock) === ""
+          ) {
+            // Remove the auto-created paragraph and move to the visual block below
+            const blockToDelete = state.document.page.blocks[blockIndex];
+
+            const blockDeleteOp: Operation = {
+              op: "block_delete",
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
+              blockId: blockToDelete.id,
+            };
+            ops.push(blockDeleteOp);
+
+            const newBlocks = state.document.page.blocks.filter(
+              (_, i) => i !== blockIndex
+            );
+            const newPage = { ...state.document.page, blocks: newBlocks };
+
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+              ui: {
+                ...state.ui,
+                autoCreatedParagraph: null,
+              },
+            };
+
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, 0, 0);
+
+            // Select the visual block (image/line)
+            const visibleBlocks = newState.view.visibleBlocks;
+            const firstBlock =
+              visibleBlocks.length > 0 ? visibleBlocks[0] : null;
+            if (firstBlock?.type === "image" || firstBlock?.type === "line") {
+              newState = {
+                ...newState,
+                document: {
+                  ...newState.document,
+                  selection: {
+                    anchor: { blockIndex: 0, textIndex: 0 },
+                    focus: { blockIndex: 0, textIndex: 0 },
+                    isForward: true,
+                    isCollapsed: false,
+                    lastUpdate: Date.now(),
+                  },
+                },
+              };
+            }
+            break;
+          }
+        }
+
+        // Check if we're on a visual block (image/line) at the end of the page
+        if (state.document.cursor) {
+          const currentBlock =
+            state.document.page.blocks[
+              state.document.cursor.position.blockIndex
+            ];
+          const visibleBlocks = state.view.visibleBlocks;
+          const lastVisibleBlockIndex =
+            visibleBlocks.length > 0
+              ? state.document.page.blocks.findIndex(
+                  (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id
+                )
+              : -1;
+          const isLastBlock =
+            state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
+
+          if (
+            isLastBlock &&
+            (currentBlock?.type === "image" || currentBlock?.type === "line")
+          ) {
+            // Create a new paragraph below the visual block
+            const newParagraphId = nextId();
+            const newParagraph: Block = {
+              id: newParagraphId,
+              type: "paragraph",
+              charRuns: [],
+              formats: [],
+            };
+
+            const blockInsertOp: Operation = {
+              op: "block_insert",
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
+              afterBlockId: currentBlock.id,
+              blockId: newParagraphId,
+              blockType: "paragraph",
+            };
+
+            const newBlocks = [...state.document.page.blocks, newParagraph];
+            const newPage = { ...state.document.page, blocks: newBlocks };
+
+            newState = {
+              ...state,
+              document: { ...state.document, page: newPage },
+            };
+            newState = clearSelection(newState);
+            newState = moveCursorToPosition(newState, newBlocks.length - 1, 0);
+
+            ops.push(blockInsertOp);
+
+            break;
+          }
+        }
+
         newState = moveCursorPageDown(clearSelection(state), viewport);
 
         // If we moved to a visual block (image/line), select it; otherwise leave just cursor

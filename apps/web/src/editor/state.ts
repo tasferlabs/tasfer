@@ -1712,6 +1712,7 @@ export const startComposition = (
       isComposing: true,
       text,
       startPosition,
+      cursorOffset: text.length,
     },
   },
 });
@@ -1728,6 +1729,7 @@ export const updateComposition = (
       composition: {
         ...state.ui.composition,
         text,
+        cursorOffset: Math.min(state.ui.composition.cursorOffset, text.length),
       },
     },
   };

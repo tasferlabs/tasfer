@@ -920,15 +920,90 @@ export default function createEditor(
       return;
     }
 
-    // During composition (IME input), block most keys
-    // Let the IME handle these keys for mobile composition
+    // During composition (IME input), let the IME handle keys natively
     if (state.ui.composition?.isComposing) {
+      // Escape cancels composition without inserting text
+      if (e.key === "Escape") {
+        state = {
+          ...state,
+          ui: {
+            ...state.ui,
+            composition: null,
+          },
+        };
+        if (hiddenInput) {
+          hiddenInput.value = " ";
+        }
+        scheduleRender();
+        e.preventDefault();
+        return;
+      }
       // Block delete/enter keys
       if (["Backspace", "Delete", "Enter"].includes(e.key)) {
         return;
       }
       // Block shortcuts like Ctrl+Z (undo), Ctrl+X (cut), etc.
       if (isShortcut) {
+        return;
+      }
+      // Handle arrow/navigation keys within composition text
+      // Don't preventDefault - let the IME also handle it for candidate navigation
+      // But manually track cursorOffset for visual cursor rendering on canvas
+      if (
+        [
+          "ArrowLeft",
+          "ArrowRight",
+          "ArrowUp",
+          "ArrowDown",
+          "PageUp",
+          "PageDown",
+          "Home",
+          "End",
+        ].includes(e.key)
+      ) {
+        const comp = state.ui.composition;
+        const textLen = comp.text.length;
+        let newOffset = comp.cursorOffset;
+
+        switch (e.key) {
+          case "ArrowLeft":
+            newOffset = Math.max(0, newOffset - 1);
+            break;
+          case "ArrowRight":
+            newOffset = Math.min(textLen, newOffset + 1);
+            break;
+          case "Home":
+          case "ArrowUp":
+          case "PageUp":
+            newOffset = 0;
+            break;
+          case "End":
+          case "ArrowDown":
+          case "PageDown":
+            newOffset = textLen;
+            break;
+        }
+
+        if (newOffset !== comp.cursorOffset) {
+          state = {
+            ...state,
+            document: {
+              ...state.document,
+              cursor: state.document.cursor ? {
+                ...state.document.cursor,
+                lastUpdate: Date.now(),
+              } : null,
+            },
+            ui: {
+              ...state.ui,
+              composition: {
+                ...comp,
+                cursorOffset: newOffset,
+              },
+            },
+          };
+          scheduleRender();
+        }
         return;
       }
     }

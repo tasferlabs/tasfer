@@ -45,6 +45,7 @@ export function handleCompositionStart(
           isComposing: true,
           text: event.data || "",
           startPosition,
+          cursorOffset: (event.data || "").length,
         },
       },
     },
@@ -73,14 +74,31 @@ export function handleCompositionUpdate(
 
   // Don't insert text during composition - just track it
   // The actual text will be inserted on compositionend
+  const newText = event.data || "";
+  const oldText = state.ui.composition.text;
+  const oldOffset = state.ui.composition.cursorOffset;
+  // If cursor was at the end of the old text, keep it at the end of the new text
+  // Otherwise preserve the user's explicit cursor position (from arrow keys), clamped to new length
+  const cursorOffset = oldOffset >= oldText.length
+    ? newText.length
+    : Math.min(oldOffset, newText.length);
   return {
     state: {
       ...state,
+      document: {
+        ...state.document,
+        // Keep cursor active (not blinking) during composition updates
+        cursor: state.document.cursor ? {
+          ...state.document.cursor,
+          lastUpdate: Date.now(),
+        } : null,
+      },
       ui: {
         ...state.ui,
         composition: {
           ...state.ui.composition,
-          text: event.data || "",
+          text: newText,
+          cursorOffset,
         },
       },
     },

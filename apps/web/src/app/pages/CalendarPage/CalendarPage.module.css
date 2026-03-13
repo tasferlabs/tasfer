@@ -7,6 +7,12 @@
   flex-direction: column;
 }
 
+@media (max-width: 640px) {
+  .container {
+    padding: 0;
+  }
+}
+
 .header {
   display: flex;
   align-items: center;
@@ -62,12 +68,72 @@
   background-color: var(--accent);
 }
 
+@media (max-width: 640px) {
+  .headerNav {
+    display: none;
+  }
+}
+
+.headerTitleMobile {
+  display: none;
+  font-size: 1rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.miniCalTrigger {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  color: var(--foreground);
+}
+
+.miniCalTrigger:hover {
+  background-color: var(--accent);
+}
+
+@media (max-width: 640px) {
+  .miniCalTrigger {
+    display: flex;
+  }
+}
+
+@media (max-width: 640px) {
+  .headerTitleMobile {
+    display: flex;
+  }
+
+  .headerTitleDesktop {
+    display: none;
+  }
+}
+
 /* ── Timeline ── */
 
 .timeline {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-bottom: 2rem;
+}
+
+/* ── Swipe strip (3-panel horizontal layout) ── */
+
+.swipeStrip {
+  display: flex;
+  width: 300%;
+  margin-left: -100%;
+}
+
+.swipePanel {
+  width: 33.333%;
+  flex-shrink: 0;
+  min-width: 0;
 }
 
 .timelineGrid {
@@ -834,4 +900,57 @@
   transform: translateY(-4px);
   z-index: 4;
   pointer-events: none;
+}
+
+/* ── Mobile: smaller time column ── */
+
+@media (max-width: 640px) {
+  .timeLabel {
+    width: 40px;
+    padding-right: 4px;
+  }
+
+  .eventCard {
+    left: 44px;
+    right: 4px;
+  }
+
+  .dropGhost {
+    left: 44px;
+    right: 4px;
+  }
+
+  .dragPreview {
+    left: 44px;
+    right: 4px;
+  }
+
+  .resizeTimeLabel {
+    width: 40px;
+    padding-right: 4px;
+  }
+
+  .allDaySection {
+    padding-left: 44px;
+  }
+
+  .nowIndicator {
+    left: 40px;
+  }
+
+  .nowIndicatorDot {
+    left: 34px;
+  }
+
+  .weekTimeLabelSpacer {
+    width: 40px;
+  }
+
+  .weekTimeLabels {
+    width: 40px;
+  }
+
+  .weekTimeLabel {
+    padding-right: 4px;
+  }
 }

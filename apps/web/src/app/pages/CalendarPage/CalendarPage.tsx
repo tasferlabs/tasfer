@@ -45,6 +45,9 @@ import {
 } from "./utils";
 import { EventCard } from "./EventCard";
 import { EventPreview } from "./EventPreview";
+import { DateTimePickerOverlay } from "@/components/datetimepickers/DateTimePickerOverlay";
+import { ChevronDown } from "lucide-react";
+import { DateTime } from "luxon";
 import style from "./CalendarPage.module.css";
 import clsx from "clsx";
 
@@ -92,6 +95,39 @@ export default function CalendarPage() {
 
   const today = useMemo(() => new Date(), []);
   const isToday = isSameDay(selectedDate, today);
+  const [miniCalOpen, setMiniCalOpen] = useState(false);
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  // Overlay state derived from selectedDate
+  const [overlayYear, setOverlayYear] = useState(() => String(selectedDate.getFullYear()).padStart(4, "0"));
+  const [overlayMonth, setOverlayMonth] = useState(() => String(selectedDate.getMonth() + 1).padStart(2, "0"));
+  const [overlayDay, setOverlayDay] = useState(() => String(selectedDate.getDate()).padStart(2, "0"));
+
+  // Sync overlay state when selectedDate changes
+  useEffect(() => {
+    setOverlayYear(String(selectedDate.getFullYear()).padStart(4, "0"));
+    setOverlayMonth(String(selectedDate.getMonth() + 1).padStart(2, "0"));
+    setOverlayDay(String(selectedDate.getDate()).padStart(2, "0"));
+  }, [selectedDate]);
+
+  // When overlay day is picked, update selectedDate
+  const overlayValue = useMemo(() => {
+    const y = parseInt(overlayYear);
+    const m = parseInt(overlayMonth);
+    const d = parseInt(overlayDay);
+    if (!y || !m || !d) return null;
+    return DateTime.fromObject({ year: y, month: m, day: d }, { zone: tz }).toISODate();
+  }, [overlayYear, overlayMonth, overlayDay, tz]);
+
+  const prevOverlayValue = useRef(overlayValue);
+  useEffect(() => {
+    if (overlayValue && overlayValue !== prevOverlayValue.current) {
+      const dt = DateTime.fromISO(overlayValue, { zone: tz });
+      setSelectedDate(dt.toJSDate());
+      setMiniCalOpen(false);
+    }
+    prevOverlayValue.current = overlayValue;
+  }, [overlayValue, tz]);
 
   // ── Event preview ──
   const previewJustClosedRef = useRef(false);
@@ -124,13 +160,34 @@ export default function CalendarPage() {
     [],
   );
 
-  // Compute query range based on view
-  const { start, end } = useMemo(() => {
-    if (viewMode === "week") return getWeekRange(selectedDate);
-    return getDayRange(selectedDate);
+  // Compute adjacent dates for swipe panels
+  const prevDate = useMemo(() => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + (viewMode === "week" ? -7 : -1));
+    return d;
   }, [selectedDate, viewMode]);
 
+  const nextDate = useMemo(() => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + (viewMode === "week" ? 7 : 1));
+    return d;
+  }, [selectedDate, viewMode]);
+
+  // Compute query range covering prev + current + next for swipe panels
+  const { start, end } = useMemo(() => {
+    if (viewMode === "week") {
+      const prevRange = getWeekRange(prevDate);
+      const nextRange = getWeekRange(nextDate);
+      return { start: prevRange.start, end: nextRange.end };
+    }
+    const prevRange = getDayRange(prevDate);
+    const nextRange = getDayRange(nextDate);
+    return { start: prevRange.start, end: nextRange.end };
+  }, [prevDate, nextDate, viewMode]);
+
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
+  const prevWeekDays = useMemo(() => getWeekDays(prevDate), [prevDate]);
+  const nextWeekDays = useMemo(() => getWeekDays(nextDate), [nextDate]);
 
   const { data: pages } = useGetCalendarPages(activeSpaceId, start, end);
 
@@ -513,6 +570,109 @@ export default function CalendarPage() {
     };
   }, [createDrag !== null, createPageAtTime]);
 
+  // ── Swipe to navigate (Google Calendar style) ──
+  const swipeState = useRef<{
+    startX: number;
+    startY: number;
+    locked: "horizontal" | "vertical" | null;
+    lastTime: number;
+    lastX: number;
+    velocity: number;
+  } | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [swipeTransition, setSwipeTransition] = useState(false);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    setSwipeTransition(false);
+    swipeState.current = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      locked: null,
+      lastTime: Date.now(),
+      lastX: touch.clientX,
+      velocity: 0,
+    };
+  }, []);
+
+  // Attach native touchmove with { passive: false } so we can preventDefault
+  // to block scrolling while swiping horizontally
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (!el) return;
+
+    function onTouchMove(e: TouchEvent) {
+      const s = swipeState.current;
+      if (!s) return;
+      const touch = e.touches[0];
+      const dx = touch.clientX - s.startX;
+      const dy = touch.clientY - s.startY;
+
+      // Lock direction after a small threshold
+      if (!s.locked) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        s.locked = Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical";
+      }
+
+      if (s.locked === "vertical") return;
+
+      // Prevent vertical scroll while swiping horizontally
+      e.preventDefault();
+
+      // Track velocity
+      const now = Date.now();
+      const dt = now - s.lastTime;
+      if (dt > 0) {
+        s.velocity = (touch.clientX - s.lastX) / dt;
+        s.lastTime = now;
+        s.lastX = touch.clientX;
+      }
+
+      setSwipeOffset(dx);
+    }
+
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onTouchMove);
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    const s = swipeState.current;
+    if (!s || s.locked !== "horizontal") {
+      swipeState.current = null;
+      setSwipeOffset(0);
+      return;
+    }
+
+    const velocity = s.velocity;
+    const offset = swipeOffset;
+    const panelWidth = timelineRef.current?.clientWidth || window.innerWidth;
+    const threshold = panelWidth * 0.25;
+    const shouldNavigate =
+      Math.abs(offset) > threshold || Math.abs(velocity) > 0.4;
+
+    if (shouldNavigate) {
+      const dir = Math.abs(velocity) > 0.4
+        ? (velocity > 0 ? -1 : 1)
+        : (offset > 0 ? -1 : 1);
+      // Animate strip to fully reveal adjacent panel
+      setSwipeTransition(true);
+      setSwipeOffset(dir === -1 ? panelWidth : -panelWidth);
+      // After animation: navigate and snap back to center (no transition)
+      setTimeout(() => {
+        goToDay(dir);
+        setSwipeTransition(false);
+        setSwipeOffset(0);
+      }, 250);
+    } else {
+      // Snap back
+      setSwipeTransition(true);
+      setSwipeOffset(0);
+      setTimeout(() => setSwipeTransition(false), 250);
+    }
+
+    swipeState.current = null;
+  }, [swipeOffset, viewMode]);
+
   // ── Now indicator ──
   const [nowMinutes, setNowMinutes] = useState(() => {
     const now = new Date();
@@ -565,6 +725,19 @@ export default function CalendarPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [createPageAtTime, viewMode, previewPageId]);
+
+  // ── Swipe strip style ──
+  // Uses margin-left: -100% for default positioning (no transform = sticky headers work)
+  // Only applies transform during active swipe/animation
+  const swipeStyle: React.CSSProperties | undefined =
+    swipeOffset !== 0 || swipeTransition
+      ? {
+          transform: `translateX(${swipeOffset}px)`,
+          transition: swipeTransition ? "transform 0.25s ease-out" : undefined,
+        }
+      : undefined;
+
+  const noopHandler = useCallback(() => {}, []);
 
   // ── Render helpers ──
 
@@ -686,6 +859,48 @@ export default function CalendarPage() {
     );
   }
 
+  function renderWeekPanel(days: Date[], isCenter: boolean) {
+    return (
+      <>
+        <div className={style.weekHeader}>
+          <div className={style.weekTimeLabelSpacer} />
+          {days.map((day, i) => (
+            <div
+              key={i}
+              className={`${style.weekDayHeader} ${isSameDay(day, today) ? style.weekDayHeaderToday : ""}`}
+              onClick={isCenter ? () => { setSelectedDate(day); setViewMode("day"); } : undefined}
+            >
+              <span className={style.weekDayName}>{shortDayName(day)}</span>
+              <span className={style.weekDayNumber}>{day.getDate()}</span>
+            </div>
+          ))}
+        </div>
+        <div
+          ref={isCenter ? gridRef : undefined}
+          className={style.weekGrid}
+          style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
+          onMouseDown={isCenter ? handleGridMouseDown : undefined}
+        >
+          <div className={style.weekTimeLabels}>
+            {Array.from({ length: TOTAL_HOURS }, (_, hour) => (
+              <div key={hour} className={style.weekTimeLabel} style={{ top: hour * HOUR_HEIGHT }}>
+                {formatHour(hour)}
+              </div>
+            ))}
+          </div>
+          {days.map((day, i) => (
+            <div key={i} className={style.weekColumnWrapper} data-day-index={isCenter ? i : undefined}>
+              {Array.from({ length: TOTAL_HOURS }, (_, hour) => (
+                <div key={hour} className={style.weekHourLine} style={{ top: hour * HOUR_HEIGHT }} />
+              ))}
+              {renderDayColumn(day, getPagesForDay(day), isCenter ? i : undefined)}
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  }
+
   const headerSlot = document.getElementById("top-action-bar-slot");
 
   return (
@@ -704,11 +919,38 @@ export default function CalendarPage() {
                 &#8250;
               </button>
             </div>
-            <span className={style.headerTitle}>
+            <span className={clsx(style.headerTitle, style.headerTitleDesktop)}>
               {viewMode === "day"
                 ? formatDate(selectedDate)
                 : formatWeekRange(selectedDate)}
             </span>
+            <button
+              className={clsx(style.headerTitle, style.headerTitleMobile, style.miniCalTrigger)}
+              onClick={() => setMiniCalOpen(true)}
+            >
+              {selectedDate.toLocaleDateString(undefined, { month: "long" })}
+              <ChevronDown size={14} />
+            </button>
+            <DateTimePickerOverlay
+              open={miniCalOpen}
+              onClose={() => setMiniCalOpen(false)}
+              selectedYear={overlayYear}
+              selectedMonth={overlayMonth}
+              selectedDay={overlayDay}
+              setSelectedYear={setOverlayYear}
+              setSelectedMonth={setOverlayMonth}
+              setSelectedDay={setOverlayDay}
+              selectedHour="00"
+              selectedMinute="00"
+              setSelectedHour={() => {}}
+              setSelectedMinute={() => {}}
+              value={overlayValue}
+              id="mini-cal"
+              timezone={tz}
+              type="date"
+              maxDate="9999-12-31"
+              minDate="0001-01-01"
+            />
             <div className={clsx(style.viewToggle, "me-4")}>
               <button
                 className={`${style.viewToggleButton} ${viewMode === "day" ? style.viewToggleActive : ""}`}
@@ -754,159 +996,147 @@ export default function CalendarPage() {
       >
         {viewMode === "day" ? (
           /* ── Day View ── */
-          <div className={style.timeline} ref={timelineRef}>
-            <div
-              ref={gridRef}
-              className={style.timelineGrid}
-              style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
-              onMouseDown={handleGridMouseDown}
-            >
-              {renderHourLines()}
+          <div className={style.timeline} ref={timelineRef} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+            <div className={style.swipeStrip} style={swipeStyle}>
+              {/* Previous day */}
+              <div className={style.swipePanel}>
+                <div className={style.timelineGrid} style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}>
+                  {renderHourLines()}
+                  {getPagesForDay(prevDate).map((page) => (
+                    <EventCard key={page.id} page={page} onResizeStart={noopHandler} onEventClick={noopHandler} isDraft={false} />
+                  ))}
+                  {isSameDay(prevDate, today) && (
+                    <>
+                      <div className={style.nowIndicatorDot} style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }} />
+                      <div className={style.nowIndicator} style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }} />
+                    </>
+                  )}
+                </div>
+              </div>
 
-              {timedPages.map((page) => (
-                <EventCard
-                  key={page.id}
-                  page={{
-                    ...page,
-                    duration:
-                      resize?.pageId === page.id && resizeDuration !== null
-                        ? resizeDuration
-                        : page.duration,
-                  }}
-                  onResizeStart={handleResizeStart}
-                  onEventClick={handleEventClick}
-                  isDraft={page.id === "__draft__"}
-                />
-              ))}
+              {/* Current day */}
+              <div className={style.swipePanel}>
+                <div
+                  ref={gridRef}
+                  className={style.timelineGrid}
+                  style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
+                  onMouseDown={handleGridMouseDown}
+                >
+                  {renderHourLines()}
 
-              {/* Move-drag ghost preview on grid */}
-              {activeDragPage &&
-                (() => {
-                  const oldStartMin = pageToStartMin(activeDragPage);
-                  const duration = activeDragPage.duration || 60;
-                  let newStartMin = oldStartMin + dragDeltaMinutes;
-                  newStartMin = Math.max(
-                    0,
-                    Math.min(newStartMin, TOTAL_HOURS * 60 - SNAP_MINUTES),
-                  );
-                  const top = (newStartMin / 60) * HOUR_HEIGHT;
-                  const height = (duration / 60) * HOUR_HEIGHT;
+                  {getPagesForDay(selectedDate).map((page) => (
+                    <EventCard
+                      key={page.id}
+                      page={{
+                        ...page,
+                        duration:
+                          resize?.pageId === page.id && resizeDuration !== null
+                            ? resizeDuration
+                            : page.duration,
+                      }}
+                      onResizeStart={handleResizeStart}
+                      onEventClick={handleEventClick}
+                      isDraft={page.id === "__draft__"}
+                    />
+                  ))}
 
-                  return (
+                  {/* Move-drag ghost preview on grid */}
+                  {activeDragPage &&
+                    (() => {
+                      const oldStartMin = pageToStartMin(activeDragPage);
+                      const duration = activeDragPage.duration || 60;
+                      let newStartMin = oldStartMin + dragDeltaMinutes;
+                      newStartMin = Math.max(
+                        0,
+                        Math.min(newStartMin, TOTAL_HOURS * 60 - SNAP_MINUTES),
+                      );
+                      const top = (newStartMin / 60) * HOUR_HEIGHT;
+                      const height = (duration / 60) * HOUR_HEIGHT;
+
+                      return (
+                        <div
+                          className={style.dropGhost}
+                          style={{ top, height: Math.max(height, 20) }}
+                        >
+                          <span className={style.dropGhostTime}>
+                            {formatTime(newStartMin)} -{" "}
+                            {formatTime(newStartMin + duration)}
+                          </span>
+                        </div>
+                      );
+                    })()}
+
+                  {/* Resize ghost time label */}
+                  {resize &&
+                    resizeDuration !== null &&
+                    (() => {
+                      const endMin = resize.originalStartMin + resizeDuration;
+                      const top = (endMin / 60) * HOUR_HEIGHT;
+                      return (
+                        <div className={style.resizeTimeLabel} style={{ top }}>
+                          {formatTime(endMin)}
+                        </div>
+                      );
+                    })()}
+
+                  {/* Create-drag preview */}
+                  {createDrag && (
                     <div
-                      className={style.dropGhost}
-                      style={{ top, height: Math.max(height, 20) }}
+                      className={style.dragPreview}
+                      style={{
+                        top: (createDrag.startMinutes / 60) * HOUR_HEIGHT,
+                        height:
+                          ((createDrag.endMinutes - createDrag.startMinutes) / 60) *
+                          HOUR_HEIGHT,
+                      }}
                     >
-                      <span className={style.dropGhostTime}>
-                        {formatTime(newStartMin)} -{" "}
-                        {formatTime(newStartMin + duration)}
+                      <span className={style.dragPreviewTime}>
+                        {formatTime(createDrag.startMinutes)} -{" "}
+                        {formatTime(createDrag.endMinutes)}
                       </span>
                     </div>
-                  );
-                })()}
+                  )}
 
-              {/* Resize ghost time label */}
-              {resize &&
-                resizeDuration !== null &&
-                (() => {
-                  const endMin = resize.originalStartMin + resizeDuration;
-                  const top = (endMin / 60) * HOUR_HEIGHT;
-                  return (
-                    <div className={style.resizeTimeLabel} style={{ top }}>
-                      {formatTime(endMin)}
-                    </div>
-                  );
-                })()}
-
-              {/* Create-drag preview */}
-              {createDrag && (
-                <div
-                  className={style.dragPreview}
-                  style={{
-                    top: (createDrag.startMinutes / 60) * HOUR_HEIGHT,
-                    height:
-                      ((createDrag.endMinutes - createDrag.startMinutes) / 60) *
-                      HOUR_HEIGHT,
-                  }}
-                >
-                  <span className={style.dragPreviewTime}>
-                    {formatTime(createDrag.startMinutes)} -{" "}
-                    {formatTime(createDrag.endMinutes)}
-                  </span>
+                  {/* Now indicator */}
+                  {isToday && (
+                    <>
+                      <div
+                        className={style.nowIndicatorDot}
+                        style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
+                      />
+                      <div
+                        className={style.nowIndicator}
+                        style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
+                      />
+                    </>
+                  )}
                 </div>
-              )}
+              </div>
 
-              {/* Now indicator */}
-              {isToday && (
-                <>
-                  <div
-                    className={style.nowIndicatorDot}
-                    style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
-                  />
-                  <div
-                    className={style.nowIndicator}
-                    style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
-                  />
-                </>
-              )}
+              {/* Next day */}
+              <div className={style.swipePanel}>
+                <div className={style.timelineGrid} style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}>
+                  {renderHourLines()}
+                  {getPagesForDay(nextDate).map((page) => (
+                    <EventCard key={page.id} page={page} onResizeStart={noopHandler} onEventClick={noopHandler} isDraft={false} />
+                  ))}
+                  {isSameDay(nextDate, today) && (
+                    <>
+                      <div className={style.nowIndicatorDot} style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }} />
+                      <div className={style.nowIndicator} style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }} />
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         ) : (
           /* ── Week View ── */
-          <div className={style.timeline} ref={timelineRef}>
-            {/* Week header row */}
-            <div className={style.weekHeader}>
-              <div className={style.weekTimeLabelSpacer} />
-              {weekDays.map((day, i) => (
-                <div
-                  key={i}
-                  className={`${style.weekDayHeader} ${isSameDay(day, today) ? style.weekDayHeaderToday : ""}`}
-                  onClick={() => {
-                    setSelectedDate(day);
-                    setViewMode("day");
-                  }}
-                >
-                  <span className={style.weekDayName}>{shortDayName(day)}</span>
-                  <span className={style.weekDayNumber}>{day.getDate()}</span>
-                </div>
-              ))}
-            </div>
-            {/* Week grid */}
-            <div
-              ref={gridRef}
-              className={style.weekGrid}
-              style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
-              onMouseDown={handleGridMouseDown}
-            >
-              {/* Time labels column */}
-              <div className={style.weekTimeLabels}>
-                {Array.from({ length: TOTAL_HOURS }, (_, hour) => (
-                  <div
-                    key={hour}
-                    className={style.weekTimeLabel}
-                    style={{ top: hour * HOUR_HEIGHT }}
-                  >
-                    {formatHour(hour)}
-                  </div>
-                ))}
-              </div>
-              {/* Day columns */}
-              {weekDays.map((day, i) => (
-                <div
-                  key={i}
-                  className={style.weekColumnWrapper}
-                  data-day-index={i}
-                >
-                  {Array.from({ length: TOTAL_HOURS }, (_, hour) => (
-                    <div
-                      key={hour}
-                      className={style.weekHourLine}
-                      style={{ top: hour * HOUR_HEIGHT }}
-                    />
-                  ))}
-                  {renderDayColumn(day, getPagesForDay(day), i)}
-                </div>
-              ))}
+          <div className={style.timeline} ref={timelineRef} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+            <div className={style.swipeStrip} style={swipeStyle}>
+              <div className={style.swipePanel}>{renderWeekPanel(prevWeekDays, false)}</div>
+              <div className={style.swipePanel}>{renderWeekPanel(weekDays, true)}</div>
+              <div className={style.swipePanel}>{renderWeekPanel(nextWeekDays, false)}</div>
             </div>
           </div>
         )}

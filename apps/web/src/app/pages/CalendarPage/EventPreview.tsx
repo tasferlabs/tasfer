@@ -9,7 +9,12 @@ import {
   ComboboxList,
 } from "@/components/ui/combobox";
 import { Drawer, DrawerContent } from "@/components/ui/drawer";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { Block } from "@/deserializer/loadPage";
 import { extractTitleFromBlocks } from "@/editor/sync/char-runs";
 import { DURATION_OPTIONS, formatDurationLabel } from "@/lib/utils";
@@ -23,7 +28,7 @@ import {
   GripHorizontal,
   Info,
   Maximize2,
-  X
+  X,
 } from "lucide-react";
 import { DateTime } from "luxon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -127,6 +132,7 @@ export function EventPreview({
 }) {
   const { t } = useTranslation();
   const isMobile = useResponsive("(max-width: 768px)");
+  const isFinePointer = useResponsive("(pointer: fine)");
   const queryClient = useQueryClient();
   const popoverRef = useRef<HTMLDivElement>(null);
   const { panelRef, setHasPanel, slotMounted } = useSidebarPanel();
@@ -580,7 +586,9 @@ export function EventPreview({
 
       <button
         className={style.previewTaskToggle}
-        onClick={!isTask && previewPage?.hasChildren ? undefined : handleTaskToggle}
+        onClick={
+          !isTask && previewPage?.hasChildren ? undefined : handleTaskToggle
+        }
         disabled={!isTask && previewPage?.hasChildren}
       >
         {isTask ? t("Convert to Event") : t("Convert to Task")}
@@ -711,7 +719,7 @@ export function EventPreview({
         }}
         modal={false}
       >
-        <DrawerContent className="h-[90vh] flex flex-col p-0">
+        <DrawerContent className="h-[90vh] p-0">
           <div className={style.previewPopoverHeader}>
             {pageId && (
               <Link to={`/page/${pageId}`} className={style.previewOpenLink}>
@@ -719,9 +727,6 @@ export function EventPreview({
                 {t("Open page")}
               </Link>
             )}
-            <button className={style.previewCloseBtn} onClick={handleClose}>
-              <X size={16} />
-            </button>
           </div>
           <div className={style.previewRow}>
             <Calendar size={14} className={style.previewRowIcon} />
@@ -768,7 +773,7 @@ export function EventPreview({
             />
           </div>
           {taskEventRow}
-          <div className="flex-1 overflow-hidden border-t border-border">
+          <div className="flex-1 min-h-0 overflow-hidden border-t border-border">
             {editor}
           </div>
           {draftFooter}

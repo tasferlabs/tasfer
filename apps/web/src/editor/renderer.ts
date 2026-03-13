@@ -2413,11 +2413,11 @@ export function renderCursorLayer(
     compositionRange,
   } = getContentWithComposition(block, state, cursorBlockIndex);
 
-  // Calculate the target cursor position (original position + composition length if composing)
+  // Calculate the target cursor position (original position + composition offset if composing)
   let targetCursorIndex = state.document.cursor.position.textIndex;
   if (compositionRange && state.ui.composition?.isComposing) {
-    // During composition, cursor appears at the END of composition text
-    targetCursorIndex = compositionRange.end;
+    const offset = Math.max(0, Math.min(state.ui.composition.cursorOffset, compositionRange.end - compositionRange.start));
+    targetCursorIndex = compositionRange.start + offset;
   }
 
   // Use shared cursor position calculation

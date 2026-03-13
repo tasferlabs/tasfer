@@ -90,6 +90,7 @@ export interface CompositionState {
   readonly isComposing: boolean;
   readonly text: string;
   readonly startPosition: Position;
+  readonly cursorOffset: number; // Cursor position within composition text
 }
 
 // Active formats mode for typing

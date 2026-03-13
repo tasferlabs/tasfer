@@ -1892,8 +1892,8 @@ function findWordStart(text: string, index: number): number {
   let i = index;
 
   // If we're at a CJK character, just select that one character
-  if (i > 0 && isCJKCharacter(text[i - 1])) {
-    return i - 1;
+  if (i < text.length && isCJKCharacter(text[i])) {
+    return i;
   }
 
   // Move left while we're in word characters (Unicode letters, numbers, or underscore)
