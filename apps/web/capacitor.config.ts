@@ -8,20 +8,26 @@ const config: CapacitorConfig = {
     // For development, uncomment and set your dev server URL:
     // url: "http://192.168.68.55:5173",
     // cleartext: true,
+    hostname: "cypher.md",
+    androidScheme: "https",
     allowNavigation: ["cypher.md"],
   },
   ios: {
     backgroundColor: "#0a0a0a",
     contentInset: "never",
     preferredContentMode: "mobile",
-    scheme: "capacitor",
+    scheme: "https",
     path: "../ios",
   },
   android: {
     backgroundColor: "#0a0a0a",
     path: "../android",
   },
-  plugins: {},
+  plugins: {
+    CapacitorHttp: {
+      enabled: true,
+    },
+  },
 };
 
 export default config;

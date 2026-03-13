@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "../contexts/AuthContext";
+import { useErrorMessage } from "../hooks/useErrorMessage";
 
 interface RegisterForm {
   email: string;
@@ -15,6 +16,7 @@ interface RegisterForm {
 
 export default function RegisterPage() {
   const [t] = useTranslation("RegisterPage");
+  const errorMessage = useErrorMessage();
   const { register: registerUser } = useAuth();
   const navigate = useNavigate();
   const [error, setError] = useState("");
@@ -40,7 +42,7 @@ export default function RegisterPage() {
       }
       navigate("/", { replace: true });
     } catch (err: any) {
-      setError(err.message || t`Registration failed`);
+      setError(errorMessage(err.message));
     }
   };
 

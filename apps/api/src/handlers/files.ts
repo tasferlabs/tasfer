@@ -1,8 +1,9 @@
 import fs from "fs/promises";
 import path from "path";
+import { getAppDir } from "../lib/paths.js";
 
 const isDev = true;
-const devPath = path.resolve("../../cdn");
+const devPath = path.join(getAppDir(), "cdn");
 
 export async function writeFile(
   buffer: Buffer,

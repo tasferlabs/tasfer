@@ -7,6 +7,7 @@ import { users, spaces } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { requireAuth, createSession, destroySession } from "../middleware/auth.js";
 import { sendVerificationEmail, sendPasswordResetEmail, sendEmailChangeVerification } from "../services/email.js";
+import { Errors } from "@shared/errors.js";
 
 const VERIFICATION_CODE_EXPIRY_MINUTES = 10;
 
@@ -43,11 +44,11 @@ router.post("/register", async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({ success: false, error: "Email and password are required" });
+      return res.status(400).json({ success: false, error: Errors.EMAIL_PASSWORD_REQUIRED });
     }
 
     if (typeof password !== "string" || password.length < 8) {
-      return res.status(400).json({ success: false, error: "Password must be at least 8 characters" });
+      return res.status(400).json({ success: false, error: Errors.PASSWORD_MIN_LENGTH });
     }
 
     const normalizedEmail = email.toLowerCase().trim();
@@ -72,7 +73,7 @@ router.post("/register", async (req, res) => {
           data: { needsVerification: true, email: normalizedEmail },
         });
       }
-      return res.status(409).json({ success: false, error: "Email already in use" });
+      return res.status(409).json({ success: false, error: Errors.EMAIL_ALREADY_IN_USE });
     }
 
     const userId = createId();
@@ -101,7 +102,7 @@ router.post("/register", async (req, res) => {
     });
   } catch (error) {
     console.error("Register error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
+    res.status(500).json({ success: false, error: Errors.INTERNAL_ERROR });
   }
 });
 
@@ -111,7 +112,7 @@ router.post("/verify-email", async (req, res) => {
     const { email, code } = req.body;
 
     if (!email || !code) {
-      return res.status(400).json({ success: false, error: "Email and code are required" });
+      return res.status(400).json({ success: false, error: Errors.EMAIL_CODE_REQUIRED });
     }
 
     const user = await db.query.users.findFirst({
@@ -119,24 +120,24 @@ router.post("/verify-email", async (req, res) => {
     });
 
     if (!user) {
-      return res.status(400).json({ success: false, error: "Invalid verification code" });
+      return res.status(400).json({ success: false, error: Errors.INVALID_VERIFICATION_CODE });
     }
 
     if (user.emailVerified) {
-      return res.status(400).json({ success: false, error: "Email already verified" });
+      return res.status(400).json({ success: false, error: Errors.EMAIL_ALREADY_VERIFIED });
     }
 
     if (!user.verificationCode || !user.verificationCodeExpiresAt) {
-      return res.status(400).json({ success: false, error: "No verification code pending. Please request a new one." });
+      return res.status(400).json({ success: false, error: Errors.NO_VERIFICATION_PENDING });
     }
 
     if (user.verificationCodeExpiresAt < new Date()) {
-      return res.status(400).json({ success: false, error: "Verification code expired. Please request a new one." });
+      return res.status(400).json({ success: false, error: Errors.VERIFICATION_CODE_EXPIRED });
     }
 
     const codeHash = hashToken(code);
     if (codeHash !== user.verificationCode) {
-      return res.status(400).json({ success: false, error: "Invalid verification code" });
+      return res.status(400).json({ success: false, error: Errors.INVALID_VERIFICATION_CODE });
     }
 
     await db
@@ -148,15 +149,15 @@ router.post("/verify-email", async (req, res) => {
       })
       .where(eq(users.id, user.id));
 
-    await createSession(user.id, req, res);
+    const sessionId = await createSession(user.id, req, res);
 
     res.json({
       success: true,
-      data: { user: userResponse(user) },
+      data: { user: userResponse(user), sessionId },
     });
   } catch (error) {
     console.error("Verify email error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
+    res.status(500).json({ success: false, error: Errors.INTERNAL_ERROR });
   }
 });
 
@@ -166,7 +167,7 @@ router.post("/resend-verification", async (req, res) => {
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ success: false, error: "Email is required" });
+      return res.status(400).json({ success: false, error: Errors.EMAIL_REQUIRED });
     }
 
     const user = await db.query.users.findFirst({
@@ -174,16 +175,16 @@ router.post("/resend-verification", async (req, res) => {
     });
 
     if (!user || user.emailVerified) {
-      return res.json({ success: true, message: "If the email exists, a new code has been sent." });
+      return res.json({ success: true });
     }
 
     const code = await setVerificationCode(user.id);
     await sendVerificationEmail(user.email, code);
 
-    res.json({ success: true, message: "Verification code sent." });
+    res.json({ success: true });
   } catch (error) {
     console.error("Resend verification error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
+    res.status(500).json({ success: false, error: Errors.INTERNAL_ERROR });
   }
 });
 
@@ -193,7 +194,7 @@ router.post("/login", async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({ success: false, error: "Email and password are required" });
+      return res.status(400).json({ success: false, error: Errors.EMAIL_PASSWORD_REQUIRED });
     }
 
     const user = await db.query.users.findFirst({
@@ -201,12 +202,12 @@ router.post("/login", async (req, res) => {
     });
 
     if (!user) {
-      return res.status(401).json({ success: false, error: "Invalid email or password" });
+      return res.status(401).json({ success: false, error: Errors.INVALID_CREDENTIALS });
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
-      return res.status(401).json({ success: false, error: "Invalid email or password" });
+      return res.status(401).json({ success: false, error: Errors.INVALID_CREDENTIALS });
     }
 
     if (!user.emailVerified) {
@@ -219,15 +220,15 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    await createSession(user.id, req, res);
+    const sessionId = await createSession(user.id, req, res);
 
     res.json({
       success: true,
-      data: { user: userResponse(user) },
+      data: { user: userResponse(user), sessionId },
     });
   } catch (error) {
     console.error("Login error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
+    res.status(500).json({ success: false, error: Errors.INTERNAL_ERROR });
   }
 });
 
@@ -239,7 +240,7 @@ router.get("/me", requireAuth, async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ success: false, error: "User not found" });
+      return res.status(404).json({ success: false, error: Errors.USER_NOT_FOUND });
     }
 
     res.json({
@@ -248,7 +249,7 @@ router.get("/me", requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error("Get me error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
+    res.status(500).json({ success: false, error: Errors.INTERNAL_ERROR });
   }
 });
 
@@ -256,10 +257,10 @@ router.get("/me", requireAuth, async (req, res) => {
 router.post("/logout", async (req, res) => {
   try {
     await destroySession(req, res);
-    res.json({ success: true, message: "Logged out" });
+    res.json({ success: true });
   } catch (error) {
     console.error("Logout error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
+    res.status(500).json({ success: false, error: Errors.INTERNAL_ERROR });
   }
 });
 
@@ -272,7 +273,7 @@ router.put("/profile", requireAuth, async (req, res) => {
     if (name !== undefined) {
       const trimmed = typeof name === "string" ? name.trim() : "";
       if (!trimmed || trimmed.length > 255) {
-        return res.status(400).json({ success: false, error: "Name must be between 1 and 255 characters" });
+        return res.status(400).json({ success: false, error: Errors.NAME_INVALID_LENGTH });
       }
       updates.name = trimmed;
     }
@@ -293,7 +294,7 @@ router.put("/profile", requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error("Update profile error:", error);
-    res.status(500).json({ success: false, error: "Failed to update profile" });
+    res.status(500).json({ success: false, error: Errors.PROFILE_UPDATE_FAILED });
   }
 });
 
@@ -303,7 +304,7 @@ router.post("/forgot-password", async (req, res) => {
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ success: false, error: "Email is required" });
+      return res.status(400).json({ success: false, error: Errors.EMAIL_REQUIRED });
     }
 
     const user = await db.query.users.findFirst({
@@ -328,7 +329,7 @@ router.post("/forgot-password", async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error("Forgot password error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
+    res.status(500).json({ success: false, error: Errors.INTERNAL_ERROR });
   }
 });
 
@@ -338,11 +339,11 @@ router.post("/reset-password", async (req, res) => {
     const { token, newPassword } = req.body;
 
     if (!token || !newPassword) {
-      return res.status(400).json({ success: false, error: "Token and new password are required" });
+      return res.status(400).json({ success: false, error: Errors.TOKEN_PASSWORD_REQUIRED });
     }
 
     if (typeof newPassword !== "string" || newPassword.length < 8) {
-      return res.status(400).json({ success: false, error: "Password must be at least 8 characters" });
+      return res.status(400).json({ success: false, error: Errors.PASSWORD_MIN_LENGTH });
     }
 
     const tokenHash = hashToken(token);
@@ -352,11 +353,11 @@ router.post("/reset-password", async (req, res) => {
     });
 
     if (!user) {
-      return res.status(400).json({ success: false, error: "Invalid or expired link" });
+      return res.status(400).json({ success: false, error: Errors.INVALID_OR_EXPIRED_LINK });
     }
 
     if (!user.verificationCodeExpiresAt || user.verificationCodeExpiresAt < new Date()) {
-      return res.status(400).json({ success: false, error: "This link has expired. Please request a new one." });
+      return res.status(400).json({ success: false, error: Errors.LINK_EXPIRED });
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
@@ -373,7 +374,7 @@ router.post("/reset-password", async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error("Reset password error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
+    res.status(500).json({ success: false, error: Errors.INTERNAL_ERROR });
   }
 });
 
@@ -383,7 +384,7 @@ router.post("/change-email", requireAuth, async (req, res) => {
     const { newEmail } = req.body;
 
     if (!newEmail || typeof newEmail !== "string") {
-      return res.status(400).json({ success: false, error: "New email is required" });
+      return res.status(400).json({ success: false, error: Errors.NEW_EMAIL_REQUIRED });
     }
 
     const normalizedEmail = newEmail.toLowerCase().trim();
@@ -393,11 +394,11 @@ router.post("/change-email", requireAuth, async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ success: false, error: "User not found" });
+      return res.status(404).json({ success: false, error: Errors.USER_NOT_FOUND });
     }
 
     if (normalizedEmail === user.email) {
-      return res.status(400).json({ success: false, error: "New email must be different from current email" });
+      return res.status(400).json({ success: false, error: Errors.EMAIL_SAME_AS_CURRENT });
     }
 
     const existing = await db.query.users.findFirst({
@@ -405,7 +406,7 @@ router.post("/change-email", requireAuth, async (req, res) => {
     });
 
     if (existing) {
-      return res.status(409).json({ success: false, error: "Email already in use" });
+      return res.status(409).json({ success: false, error: Errors.EMAIL_ALREADY_IN_USE });
     }
 
     const token = crypto.randomBytes(32).toString("hex");
@@ -427,7 +428,7 @@ router.post("/change-email", requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error("Change email error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
+    res.status(500).json({ success: false, error: Errors.INTERNAL_ERROR });
   }
 });
 
@@ -437,7 +438,7 @@ router.post("/verify-email-change", async (req, res) => {
     const { token } = req.body;
 
     if (!token) {
-      return res.status(400).json({ success: false, error: "Token is required" });
+      return res.status(400).json({ success: false, error: Errors.TOKEN_REQUIRED });
     }
 
     const tokenHash = hashToken(token);
@@ -447,11 +448,11 @@ router.post("/verify-email-change", async (req, res) => {
     });
 
     if (!user || !user.pendingEmail) {
-      return res.status(400).json({ success: false, error: "Invalid or expired link" });
+      return res.status(400).json({ success: false, error: Errors.INVALID_OR_EXPIRED_LINK });
     }
 
     if (!user.verificationCodeExpiresAt || user.verificationCodeExpiresAt < new Date()) {
-      return res.status(400).json({ success: false, error: "This link has expired. Please request a new email change." });
+      return res.status(400).json({ success: false, error: Errors.EMAIL_CHANGE_LINK_EXPIRED });
     }
 
     await db
@@ -471,7 +472,7 @@ router.post("/verify-email-change", async (req, res) => {
     });
   } catch (error) {
     console.error("Verify email change error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
+    res.status(500).json({ success: false, error: Errors.INTERNAL_ERROR });
   }
 });
 
@@ -481,11 +482,11 @@ router.post("/change-password", requireAuth, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
 
     if (!currentPassword || !newPassword) {
-      return res.status(400).json({ success: false, error: "Current password and new password are required" });
+      return res.status(400).json({ success: false, error: Errors.PASSWORDS_REQUIRED });
     }
 
     if (typeof newPassword !== "string" || newPassword.length < 6) {
-      return res.status(400).json({ success: false, error: "New password must be at least 6 characters" });
+      return res.status(400).json({ success: false, error: Errors.NEW_PASSWORD_MIN_LENGTH });
     }
 
     const user = await db.query.users.findFirst({
@@ -493,12 +494,12 @@ router.post("/change-password", requireAuth, async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ success: false, error: "User not found" });
+      return res.status(404).json({ success: false, error: Errors.USER_NOT_FOUND });
     }
 
     const valid = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!valid) {
-      return res.status(401).json({ success: false, error: "Current password is incorrect" });
+      return res.status(401).json({ success: false, error: Errors.CURRENT_PASSWORD_INCORRECT });
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
@@ -510,7 +511,7 @@ router.post("/change-password", requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error("Change password error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
+    res.status(500).json({ success: false, error: Errors.INTERNAL_ERROR });
   }
 });
 
@@ -518,7 +519,7 @@ router.post("/change-password", requireAuth, async (req, res) => {
 router.get("/validate-session", async (req, res) => {
   const sessionId = req.query.sessionId as string;
   if (!sessionId) {
-    return res.status(400).json({ success: false, error: "sessionId required" });
+    return res.status(400).json({ success: false, error: Errors.SESSION_ID_REQUIRED });
   }
 
   const { validateSession } = await import("../middleware/auth.js");

@@ -2,11 +2,11 @@
   "name": "@cypher/signaling",
   "version": "1.0.0",
   "description": "WebRTC signaling server for live collaboration",
-  "main": "dist/server.js",
+  "main": "src/server.ts",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js"
+    "dev": "bun --watch src/server.ts",
+    "build": "tsc --noEmit",
+    "start": "bun run src/server.ts"
   },
   "dependencies": {
     "cookie": "^1.1.1",
@@ -17,7 +17,6 @@
     "@types/cookie": "^0.6.0",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.13",
-    "tsx": "^4.19.2",
     "typescript": "^5.9.3"
   }
 }

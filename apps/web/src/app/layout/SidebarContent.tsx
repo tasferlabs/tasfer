@@ -12,11 +12,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  FileTextIcon,
-  PlusIcon,
-  SignOutIcon,
-} from "@phosphor-icons/react";
+import { FileTextIcon, PlusIcon, SignOutIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import { ChevronsUpDown, Ellipsis, PanelLeftClose } from "lucide-react";
@@ -265,7 +261,10 @@ export function SidebarContent({
       const targetName = getSpaceName(targetSpaceId);
       const confirmed = await getConfirmation({
         title: t("Move page"),
-        description: t("Move this page to \"{{targetName}}\"? All sub-pages will also be moved.", { targetName }),
+        description: t(
+          'Move this page to "{{targetName}}"? All sub-pages will also be moved.',
+          { targetName },
+        ),
         confirmText: t("Move"),
         cancelText: t("Cancel"),
       });
@@ -413,7 +412,10 @@ export function SidebarContent({
             <Button
               variant="ghost"
               size="icon-sm"
-              className={clsx("text-muted-foreground hover:text-foreground", style.appSidebarClose)}
+              className={clsx(
+                "text-muted-foreground hover:text-foreground",
+                style.appSidebarClose,
+              )}
               onClick={() => setOpen(false)}
             >
               <PanelLeftClose className="h-4 w-4" />
@@ -539,62 +541,6 @@ export function SidebarContent({
                     />
                   </>
                 )}
-
-                {/* Shared - commented out */}
-                {/* {((sharedWithMe && sharedWithMe.length > 0) || (sharedByMe && sharedByMe.length > 0)) && (
-              <>
-                <div className={style.appSidebarSection}>
-                  <button
-                    className={style.appSidebarSectionTitle}
-                    onClick={() => setSharedCollapsed((c) => !c)}
-                    style={{ cursor: "pointer", background: "none", border: "none", padding: 0 }}
-                  >
-                    <div className={style.appSidebarSectionIcon}>
-                      <Icons.ChevronRight
-                        width={16}
-                        height={16}
-                        className={clsx(style.appSidebarCollapseIcon, {
-                          [style.appSidebarCollapseIconOpen]: !sharedCollapsed,
-                        })}
-                      />
-                    </div>
-                    {t("Shared")}
-                  </button>
-                </div>
-                {!sharedCollapsed && (
-                  <div className={style.appSidebarPages}>
-                    {sharedByMe?.map((share) => (
-                      <RouterLink
-                        key={`by-${share.shareId}`}
-                        to={`/page/${share.pageId}`}
-                        className={clsx(pageLinkStyle.link, {
-                          [pageLinkStyle.active]: currentPageId === share.pageId,
-                        })}
-                      >
-                        <div className={pageLinkStyle.linkTitle}>
-                          <span>{share.pageTitle || "Untitled"}</span>
-                        </div>
-                      </RouterLink>
-                    ))}
-                    {sharedWithMe?.filter(
-                      (s) => !sharedByMe?.some((b) => b.pageId === s.pageId)
-                    ).map((share) => (
-                      <RouterLink
-                        key={`with-${share.shareId}`}
-                        to={`/page/${share.pageId}`}
-                        className={clsx(pageLinkStyle.link, {
-                          [pageLinkStyle.active]: currentPageId === share.pageId,
-                        })}
-                      >
-                        <div className={pageLinkStyle.linkTitle}>
-                          <span>{share.pageTitle || "Untitled"}</span>
-                        </div>
-                      </RouterLink>
-                    ))}
-                  </div>
-                )}
-              </>
-            )} */}
               </ScrollArea>
               <DragOverlay>
                 {activeId && activeDragData ? (

@@ -6,10 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { cn } from "@/lib/utils";
+import { useErrorMessage } from "@/app/hooks/useErrorMessage";
 import styles from "./Security.module.css";
 
 export function Security() {
   const { t } = useTranslation("SettingsPage");
+  const errorMessage = useErrorMessage();
   const { user } = useAuth();
 
   // Email change state
@@ -40,7 +42,7 @@ export function Security() {
       await changeEmail(newEmail.trim());
       setEmailSent(true);
     } catch (err: any) {
-      setEmailError(err.message || t`Failed to change email`);
+      setEmailError(errorMessage(err.message));
     } finally {
       setEmailLoading(false);
     }
@@ -74,7 +76,7 @@ export function Security() {
       setNewPassword("");
       setConfirmPassword("");
     } catch (err: any) {
-      setPasswordError(err.message || t`Failed to change password`);
+      setPasswordError(errorMessage(err.message));
     } finally {
       setPasswordLoading(false);
     }

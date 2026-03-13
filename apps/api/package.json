@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "env-cmd -f .env.development tsx watch --clear-screen=false ./src/index.ts",
-    "build": "tsc && cp -r src/proto dist/ && cp -r drizzle dist/",
-    "start": "node dist/index.js",
+    "dev": "env-cmd -f .env.development bun --watch ./src/index.ts",
+    "build": "tsc --noEmit",
+    "start": "bun run src/index.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts",
+    "db:migrate": "bun run src/db/migrate.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },
@@ -37,7 +37,6 @@
     "@types/nodemailer": "^7.0.11",
     "@types/pg": "^8.16.0",
     "drizzle-kit": "^0.31.8",
-    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
 }

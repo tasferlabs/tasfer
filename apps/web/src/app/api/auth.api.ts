@@ -1,4 +1,4 @@
-import { authFetch, authFetchJson, API_BASE } from "./client";
+import { authFetch, authFetchJson, API_BASE, isNative, setSessionId } from "./client";
 
 export interface AuthUser {
   id: string;
@@ -21,16 +21,15 @@ export async function register(data: {
   email: string;
   password: string;
 }): Promise<RegisterResponse> {
-  const response = await fetch(`${API_BASE}/auth/register`, {
+  const response = await authFetch(`${API_BASE}/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
-    credentials: "include",
   });
 
   const result = await response.json();
   if (!result.success) {
-    throw new Error(result.error || "Registration failed");
+    throw new Error(result.error);
   }
   return result.data;
 }
@@ -39,22 +38,25 @@ interface LoginResponse {
   needsVerification?: true;
   email?: string;
   user?: AuthUser;
+  sessionId?: string;
 }
 
 export async function login(data: {
   email: string;
   password: string;
 }): Promise<LoginResponse> {
-  const response = await fetch(`${API_BASE}/auth/login`, {
+  const response = await authFetch(`${API_BASE}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
-    credentials: "include",
   });
 
   const result = await response.json();
   if (!result.success) {
-    throw new Error(result.error || "Login failed");
+    throw new Error(result.error);
+  }
+  if (isNative && result.data.sessionId) {
+    setSessionId(result.data.sessionId);
   }
   return result.data;
 }
@@ -63,51 +65,52 @@ export async function verifyEmail(data: {
   email: string;
   code: string;
 }): Promise<AuthResponse> {
-  const response = await fetch(`${API_BASE}/auth/verify-email`, {
+  const response = await authFetch(`${API_BASE}/auth/verify-email`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
-    credentials: "include",
   });
 
   const result = await response.json();
   if (!result.success) {
-    throw new Error(result.error || "Verification failed");
+    throw new Error(result.error);
+  }
+  if (isNative && result.data.sessionId) {
+    setSessionId(result.data.sessionId);
   }
   return result.data;
 }
 
 export async function resendVerification(email: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/auth/resend-verification`, {
+  const response = await authFetch(`${API_BASE}/auth/resend-verification`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email }),
-    credentials: "include",
   });
 
   const result = await response.json();
   if (!result.success) {
-    throw new Error(result.error || "Failed to resend code");
+    throw new Error(result.error);
   }
 }
 
 export async function getMe(): Promise<AuthUser> {
-  const response = await fetch(`${API_BASE}/auth/me`, {
-    credentials: "include",
-  });
+  const response = await authFetch(`${API_BASE}/auth/me`);
 
   const result = await response.json();
   if (!result.success) {
-    throw new Error(result.error || "Not authenticated");
+    throw new Error(result.error);
   }
   return result.data.user;
 }
 
 export async function logout(): Promise<void> {
-  await fetch(`${API_BASE}/auth/logout`, {
+  await authFetch(`${API_BASE}/auth/logout`, {
     method: "POST",
-    credentials: "include",
   });
+  if (isNative) {
+    setSessionId(null);
+  }
 }
 
 export async function updateProfile(data: {
@@ -122,13 +125,13 @@ export async function updateProfile(data: {
 
   const result = await response.json();
   if (!result.success) {
-    throw new Error(result.error || "Failed to update profile");
+    throw new Error(result.error);
   }
   return result.data.user;
 }
 
 export async function forgotPassword(email: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/auth/forgot-password`, {
+  const response = await authFetch(`${API_BASE}/auth/forgot-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email }),
@@ -136,12 +139,12 @@ export async function forgotPassword(email: string): Promise<void> {
 
   const result = await response.json();
   if (!result.success) {
-    throw new Error(result.error || "Failed to send reset code");
+    throw new Error(result.error);
   }
 }
 
 export async function resetPassword(token: string, newPassword: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/auth/reset-password`, {
+  const response = await authFetch(`${API_BASE}/auth/reset-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token, newPassword }),
@@ -149,7 +152,7 @@ export async function resetPassword(token: string, newPassword: string): Promise
 
   const result = await response.json();
   if (!result.success) {
-    throw new Error(result.error || "Failed to reset password");
+    throw new Error(result.error);
   }
 }
 
@@ -162,7 +165,7 @@ export async function changeEmail(newEmail: string): Promise<void> {
 }
 
 export async function verifyEmailChange(token: string): Promise<AuthUser> {
-  const response = await fetch(`${API_BASE}/auth/verify-email-change`, {
+  const response = await authFetch(`${API_BASE}/auth/verify-email-change`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token }),
@@ -170,7 +173,7 @@ export async function verifyEmailChange(token: string): Promise<AuthUser> {
 
   const result = await response.json();
   if (!result.success) {
-    throw new Error(result.error || "Verification failed");
+    throw new Error(result.error);
   }
   return result.data.user;
 }

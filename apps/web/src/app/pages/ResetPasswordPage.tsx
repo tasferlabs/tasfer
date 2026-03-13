@@ -4,9 +4,11 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/ui/password-input";
 import { resetPassword } from "../api/auth.api";
+import { useErrorMessage } from "../hooks/useErrorMessage";
 
 export default function ResetPasswordPage() {
   const [t] = useTranslation("ForgotPasswordPage");
+  const errorMessage = useErrorMessage();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") || "";
@@ -35,7 +37,7 @@ export default function ResetPasswordPage() {
       await resetPassword(token, newPassword);
       navigate("/login", { replace: true });
     } catch (err: any) {
-      setError(err.message || t`Failed to reset password`);
+      setError(errorMessage(err.message));
     } finally {
       setLoading(false);
     }

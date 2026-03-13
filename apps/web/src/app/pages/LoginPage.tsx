@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { useAuth } from "../contexts/AuthContext";
+import { useErrorMessage } from "../hooks/useErrorMessage";
 
 interface LoginForm {
   email: string;
@@ -14,6 +15,7 @@ interface LoginForm {
 
 export default function LoginPage() {
   const [t] = useTranslation("LoginPage");
+  const errorMessage = useErrorMessage();
   const { login } = useAuth();
   const navigate = useNavigate();
   const [error, setError] = useState("");
@@ -38,7 +40,7 @@ export default function LoginPage() {
       }
       navigate("/", { replace: true });
     } catch (err: any) {
-      setError(err.message || t`Login failed`);
+      setError(errorMessage(err.message));
     }
   };
 

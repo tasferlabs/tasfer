@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "../contexts/AuthContext";
 import { resendVerification } from "../api/auth.api";
+import { useErrorMessage } from "../hooks/useErrorMessage";
 
 export default function VerifyEmailPage() {
   const [t] = useTranslation("VerifyEmailPage");
+  const errorMessage = useErrorMessage();
   const { verifyEmail } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -81,7 +83,7 @@ export default function VerifyEmailPage() {
       await verifyEmail(email, code);
       navigate("/", { replace: true });
     } catch (err: any) {
-      setError(err.message || t`Verification failed`);
+      setError(errorMessage(err.message));
     } finally {
       setLoading(false);
     }
@@ -95,7 +97,7 @@ export default function VerifyEmailPage() {
       await resendVerification(email);
       setResent(true);
     } catch (err: any) {
-      setError(err.message || t`Failed to resend code`);
+      setError(errorMessage(err.message));
     } finally {
       setResending(false);
     }

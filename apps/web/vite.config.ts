@@ -5,7 +5,7 @@ import basicSsl from "@vitejs/plugin-basic-ssl";
 import { VitePWA } from "vite-plugin-pwa";
 import { DateTime } from "luxon";
 import { readFileSync } from "fs";
-import { join } from "path";
+import { join, resolve } from "path";
 
 const buildTimestamp = DateTime.utc().toFormat("yyyyMMddHHmm");
 
@@ -38,6 +38,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": "/src",
+      "@shared": resolve(__dirname, "../../shared"),
     },
   },
   server: {

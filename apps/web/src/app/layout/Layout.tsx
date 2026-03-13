@@ -20,12 +20,32 @@ import style from "./Layout.module.css";
 import { ResizableSidebar } from "./ResizableSidebar";
 import { TopActionBar } from "./TopActionBar";
 
+import { isNative } from "../api/client";
+
 // WebSocket server URL - defaults to using Vite proxy
-const WEBSOCKET_BASE_URL =
-  import.meta.env.VITE_WEBSOCKET_URL ||
-  `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${
-    window.location.host
-  }/ws`;
+function getWebSocketUrl(): string {
+  let base =
+    import.meta.env.VITE_WEBSOCKET_URL ||
+    `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${
+      window.location.host
+    }/ws`;
+
+  if (isNative) {
+    // Inject basic auth credentials into the URL for Traefik
+    const basicAuth = import.meta.env.VITE_BASIC_AUTH;
+    if (basicAuth) {
+      base = base.replace("://", `://${basicAuth}@`);
+    }
+
+    const sessionId = localStorage.getItem("cypher_session_id");
+    if (sessionId) {
+      const separator = base.includes("?") ? "&" : "?";
+      base += `${separator}sessionId=${encodeURIComponent(sessionId)}`;
+    }
+  }
+
+  return base;
+}
 
 export default function Layout() {
   const [resizableOpen, setResizableOpen] = useLocalStorage(
@@ -41,7 +61,7 @@ export default function Layout() {
   const { user } = useAuth();
   const { isLoading, meetsMinimum } = useVersion();
 
-  const websocketUrl = WEBSOCKET_BASE_URL;
+  const websocketUrl = getWebSocketUrl();
 
   // Track if app ever mounted with valid version (user was working)
   const hadValidVersion = React.useRef(false);

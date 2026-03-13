@@ -20,7 +20,7 @@ import {
 } from "./actions/commands";
 import { handleEvents } from "./events/events";
 import { isInLongPressMode } from "./events/touchEvents";
-import { onFontFamilyChange } from "./fonts";
+import { onFontFamilyChange, onFontsReady } from "./fonts";
 import type { CanvasLayers } from "./layers";
 import {
   clearAllBlockCaches,
@@ -1254,6 +1254,13 @@ export default function createEditor(
       scheduleRender();
     };
     onFontFamilyChange(handleFontChange);
+
+    // If fonts haven't loaded yet, re-render once they're ready
+    // so text measurements use the correct font metrics
+    onFontsReady(() => {
+      clearAllBlockCaches(state.document.page.blocks);
+      scheduleRender();
+    });
   })(); // Execute IIFE to initialize editor
 
   function getState() {

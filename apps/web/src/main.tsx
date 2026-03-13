@@ -14,9 +14,9 @@ import { loadFonts } from "./editor/fonts";
 import "./i18n";
 import { serviceWorkerBridge } from "./serviceWorkerBridge";
 
-// Load fonts and initialize metrics cache before rendering the app
-// This ensures the canvas has proper font metrics when it first renders
-await loadFonts();
+// Start font loading in background — don't block initial render.
+// Font metrics are computed lazily on first use per size/weight combo.
+loadFonts();
 
 const queryClient = new QueryClient({
   defaultOptions: {

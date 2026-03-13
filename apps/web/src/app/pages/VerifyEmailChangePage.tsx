@@ -3,9 +3,11 @@ import { useTranslation } from "react-i18next";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { verifyEmailChange } from "../api/auth.api";
 import { useAuth } from "../contexts/AuthContext";
+import { useErrorMessage } from "../hooks/useErrorMessage";
 
 export default function VerifyEmailChangePage() {
   const { t } = useTranslation();
+  const errorMessage = useErrorMessage();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user, updateUser } = useAuth();
@@ -31,7 +33,7 @@ export default function VerifyEmailChangePage() {
         navigate("/settings?tab=security", { replace: true });
       } catch (err: any) {
         if (cancelled) return;
-        setError(err.message || t`Verification failed`);
+        setError(errorMessage(err.message));
       }
     }
 

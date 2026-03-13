@@ -1,41 +1,33 @@
 # =============================================================================
-# API - Express backend server
+# API - Express backend server (Bun)
 # =============================================================================
 
-# Build stage
-FROM node:22-alpine AS builder
-WORKDIR /app
-
-COPY apps/api/package*.json ./
-RUN npm ci
-
-COPY apps/api ./
-RUN npm run build
-
-# Production stage
-FROM node:22-alpine AS runner
+FROM oven/bun:1-alpine
 RUN apk add --no-cache tini wget
 
-WORKDIR /app
+WORKDIR /app/apps/api
 
 # Install production dependencies
-COPY apps/api/package*.json ./
-RUN npm ci --omit=dev
+COPY apps/api/package.json ./
+RUN bun install --production
 
-# Copy built files
-COPY --from=builder /app/dist ./dist
+# Copy source code
+COPY apps/api/src ./src
+COPY apps/api/drizzle ./drizzle
+COPY apps/api/tsconfig.json ./
+COPY shared /app/shared
 
 # Copy version.json for version checks
-COPY version.json ./version.json
+COPY version.json /app/version.json
 
 # Create startup script that runs migrations then starts server
 RUN cat > /app/start.sh << 'EOF'
 #!/bin/sh
 echo "[api] Running database migrations..."
-node dist/db/migrate.js
+bun run src/db/migrate.ts
 
 echo "[api] Starting API server..."
-exec node dist/index.js
+exec bun run src/index.ts
 EOF
 RUN chmod +x /app/start.sh
 

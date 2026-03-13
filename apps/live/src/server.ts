@@ -174,7 +174,8 @@ const wss = new WebSocketServer({
   perMessageDeflate: false, // Disable compression for lower latency
   verifyClient: async (info, callback) => {
     const cookies = cookie.parse(info.req.headers.cookie || "");
-    const sessionId = cookies.session;
+    const url = new URL(info.req.url || "", `http://${info.req.headers.host}`);
+    const sessionId = cookies.session || url.searchParams.get("sessionId");
 
     if (!sessionId) {
       console.log(`[Sync Server] Rejected connection: no session cookie`);

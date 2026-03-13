@@ -3,6 +3,7 @@ import crypto from "crypto";
 import db from "../db/index.js";
 import { sessions } from "../db/schema.js";
 import { eq } from "drizzle-orm";
+import { Errors } from "@shared/errors.js";
 
 const SESSION_EXPIRY_DAYS = 90;
 const SESSION_COOKIE = "session";
@@ -22,9 +23,9 @@ declare global {
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const sessionId = req.cookies?.[SESSION_COOKIE];
+  const sessionId = req.cookies?.[SESSION_COOKIE] || (req.headers["x-session-id"] as string);
   if (!sessionId) {
-    res.status(401).json({ success: false, error: "Authentication required" });
+    res.status(401).json({ success: false, error: Errors.AUTH_REQUIRED });
     return;
   }
 
@@ -33,7 +34,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   });
 
   if (!session || session.expiresAt < new Date()) {
-    res.status(401).json({ success: false, error: "Session expired" });
+    res.status(401).json({ success: false, error: Errors.SESSION_EXPIRED });
     return;
   }
 
@@ -45,7 +46,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   });
 
   if (!user) {
-    res.status(401).json({ success: false, error: "User not found" });
+    res.status(401).json({ success: false, error: Errors.USER_NOT_FOUND });
     return;
   }
 
@@ -60,7 +61,7 @@ function isNativeOrigin(req: Request): boolean {
   return origin.startsWith("capacitor://") || origin.startsWith("ionic://");
 }
 
-export async function createSession(userId: string, req: Request, res: Response): Promise<void> {
+export async function createSession(userId: string, req: Request, res: Response): Promise<string> {
   const sessionId = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
 
@@ -84,6 +85,8 @@ export async function createSession(userId: string, req: Request, res: Response)
     maxAge: SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
     path: "/",
   });
+
+  return sessionId;
 }
 
 export async function destroySession(req: Request, res: Response): Promise<void> {

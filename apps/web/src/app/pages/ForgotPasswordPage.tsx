@@ -4,9 +4,11 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { forgotPassword } from "../api/auth.api";
+import { useErrorMessage } from "../hooks/useErrorMessage";
 
 export default function ForgotPasswordPage() {
   const [t] = useTranslation("ForgotPasswordPage");
+  const errorMessage = useErrorMessage();
 
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
@@ -27,7 +29,7 @@ export default function ForgotPasswordPage() {
       await forgotPassword(email.trim());
       setSent(true);
     } catch (err: any) {
-      setError(err.message || t`Failed to send reset link`);
+      setError(errorMessage(err.message));
     } finally {
       setLoading(false);
     }

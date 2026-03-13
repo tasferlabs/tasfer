@@ -36,8 +36,8 @@ const LATIN_CHARS =
   " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~" +
   "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ";
 // Common font sizes for pre-calculation
-const FONT_SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 48];
-const FONT_WEIGHTS = ["400", "500", "600", "700"];
+// const FONT_SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 48];
+// const FONT_WEIGHTS = ["400", "500", "600", "700"];
 
 // Font loading configuration
 const FONT_CONFIGS = [
@@ -52,6 +52,22 @@ const FONT_CONFIGS = [
 // Font loading state
 let fontsLoaded = false;
 let fontLoadingPromise: Promise<void> | null = null;
+
+// Callbacks fired once when fonts finish loading
+const fontReadyCallbacks: Array<() => void> = [];
+
+/** Register a one-shot callback for when fonts are ready. Fires immediately if already loaded. Returns unsubscribe fn. */
+export function onFontsReady(cb: () => void): () => void {
+  if (fontsLoaded) {
+    cb();
+    return () => {};
+  }
+  fontReadyCallbacks.push(cb);
+  return () => {
+    const idx = fontReadyCallbacks.indexOf(cb);
+    if (idx >= 0) fontReadyCallbacks.splice(idx, 1);
+  };
+}
 
 /**
  * Check if a specific font is loaded
@@ -120,10 +136,10 @@ function loadSingleFont(family: string, weight: string): Promise<void> {
 }
 
 /**
- * Load all fonts with progress tracking and initialize metrics cache
+ * Load all fonts. Metrics are computed lazily on first use per combo.
  */
 export async function loadFonts(): Promise<void> {
-  if (fontsLoaded && cacheInitialized) {
+  if (fontsLoaded) {
     return;
   }
 
@@ -133,10 +149,13 @@ export async function loadFonts(): Promise<void> {
 
   fontLoadingPromise = Promise.all(
     FONT_CONFIGS.map(({ family, weight }) => loadSingleFont(family, weight))
-  ).then(async () => {
+  ).then(() => {
     fontsLoaded = true;
-    // Initialize metrics cache after fonts are loaded
-    await initializeFontMetrics();
+    // Flush cached metrics so they're re-measured with the real fonts
+    metricsCache = new Map();
+    // Notify listeners (editor re-render)
+    const cbs = fontReadyCallbacks.splice(0);
+    for (const cb of cbs) cb();
   });
 
   return fontLoadingPromise;
@@ -202,89 +221,14 @@ const calculateFontMetrics = (
     characters: characters,
   };
 };
-// Pure function to initialize metrics cache
-const initializeMetricsCache = (): ReadonlyMap<string, FontMetrics> => {
-  const metrics = new Map<string, FontMetrics>();
-
-  const fontFamilies: FontFamily[] = ["poppins", "libre-baskerville"];
-
-  for (const fontFamily of fontFamilies) {
-    for (const fontSize of FONT_SIZES) {
-      for (const fontWeight of FONT_WEIGHTS) {
-        const key = createCacheKey(fontFamily, fontSize, fontWeight);
-        metrics.set(
-          key,
-          calculateFontMetrics(fontFamily, fontSize, fontWeight)
-        );
-      }
-    }
-  }
-
-  return metrics;
-};
-// Cache initialization state
-let cacheInitialized = false;
-let cacheInitializationPromise: Promise<void> | null = null;
-
-// Initialize metrics cache immediately - fail if fonts not loaded
-function initializeCache(): void {
-  if (cacheInitialized) {
-    return;
-  }
-
-  // Check if fonts are loaded using document.fonts API
-  if (typeof document !== "undefined" && document.fonts) {
-    const fontsToCheck = ["Poppins", "Libre Baskerville"];
-
-    for (const fontFamily of fontsToCheck) {
-      if (!document.fonts.check(`16px ${fontFamily}`)) {
-        throw new Error(
-          `Font ${fontFamily} is not loaded. Ensure fonts are loaded before using text measurement.`
-        );
-      }
-    }
-  }
-
-  try {
-    metricsCache = initializeMetricsCache();
-    cacheInitialized = true;
-  } catch (error) {
-    console.error("Failed to initialize text measurement cache:", error);
-    throw error;
-  }
-}
-
-/**
- * Initialize the font metrics cache asynchronously
- * This should be called after fonts are loaded
- */
-export async function initializeFontMetrics(): Promise<void> {
-  if (cacheInitialized) {
-    return;
-  }
-
-  if (cacheInitializationPromise) {
-    return cacheInitializationPromise;
-  }
-
-  cacheInitializationPromise = Promise.resolve().then(() => {
-    initializeCache();
-  });
-
-  return cacheInitializationPromise;
-}
-
-// Get font metrics with caching
-
+// Get font metrics with lazy per-key caching.
+// Metrics are computed on first access for each font/size/weight combo,
+// avoiding the upfront cost of pre-computing all 80 combinations.
 export const getFontMetrics = (
   fontSize: number,
   fontWeight: string,
   fontFamily: FontFamily
 ): FontMetrics => {
-  if (!cacheInitialized) {
-    initializeCache(); // This will throw if fonts not loaded
-  }
-
   const cacheKey = createCacheKey(fontFamily, fontSize, fontWeight);
   const cached = metricsCache.get(cacheKey);
 
@@ -292,10 +236,10 @@ export const getFontMetrics = (
     return cached;
   }
 
-  // Calculate new metrics
+  // Calculate on demand
   const metrics = calculateFontMetrics(fontFamily, fontSize, fontWeight);
 
-  // Update cache immutably
+  // Update cache
   metricsCache = new Map(metricsCache).set(cacheKey, metrics);
 
   return metrics;

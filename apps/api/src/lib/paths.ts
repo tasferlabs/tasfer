@@ -4,15 +4,12 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Returns the code root directory where compiled/source code lives.
- * - Production (Docker): /app/dist
+ * Returns the code root directory where source code lives.
+ * - Production (Docker): /app/apps/api
  * - Development: apps/api/
  */
 export function getRootDir(): string {
-  if (process.env.NODE_ENV === "production") {
-    return "/app/dist";
-  }
-  // In dev: src/lib/ -> apps/api/
+  // src/lib/ -> apps/api/
   return path.join(__dirname, "..", "..");
 }
 
@@ -25,6 +22,6 @@ export function getAppDir(): string {
   if (process.env.NODE_ENV === "production") {
     return "/app";
   }
-  // In dev: src/lib/ -> apps/api/ -> apps/ -> monorepo root
+  // src/lib/ -> apps/api/ -> apps/ -> monorepo root
   return path.join(__dirname, "..", "..", "..", "..");
 }

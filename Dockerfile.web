@@ -11,6 +11,7 @@ RUN npm ci
 
 COPY apps/web ./
 COPY version.json /app/version.json
+COPY shared /app/shared
 RUN npm run build
 
 # Production stage - nginx for static files

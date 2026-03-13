@@ -207,7 +207,7 @@ job "cypher" {
 
       volume_mount {
         volume      = "cdn"
-        destination = "/cdn"
+        destination = "/app/cdn"
       }
 
       env {
