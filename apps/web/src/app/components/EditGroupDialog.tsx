@@ -41,6 +41,7 @@ import {
   useLeaveSpace,
   type ISpace,
 } from "../api/spaces.api";
+import { getImageUrl } from "../api/images.api";
 import { useAuth } from "../contexts/AuthContext";
 import { useConfirmation } from "./ConfirmationDialog";
 import useResponsive from "../hooks/useResponsive";
@@ -297,7 +298,7 @@ function MembersTab({
             >
               <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
                 {member.userAvatar ? (
-                  <img src={`/api/images/${member.userAvatar}`} alt="" className="w-full h-full object-cover" />
+                  <img src={getImageUrl(member.userAvatar)} alt="" className="w-full h-full object-cover" />
                 ) : (
                   member.userName?.charAt(0).toUpperCase() || "?"
                 )}

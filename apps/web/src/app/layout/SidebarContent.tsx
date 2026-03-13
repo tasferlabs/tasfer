@@ -64,6 +64,7 @@ import {
   type IListPage,
 } from "../api/pages.api";
 // import { useGetSharedByMe, useGetSharedWithMe } from "../api/shares.api";
+import { getImageUrl } from "../api/images.api";
 import { useCreateSpace, useLeaveSpace } from "../api/spaces.api";
 import { useConfirmation } from "../components/ConfirmationDialog";
 import { EditGroupDialog } from "../components/EditGroupDialog";
@@ -190,9 +191,9 @@ export function SidebarContent({
 
   // Helper to get a space's display name from its ID
   function getSpaceName(spaceId: string): string {
-    if (personalSpace?.id === spaceId) return "Private";
+    if (personalSpace?.id === spaceId) return t("Private");
     const group = groupSpaces.find((g) => g.id === spaceId);
-    return group?.name || "space";
+    return group?.name || t("space");
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -263,10 +264,10 @@ export function SidebarContent({
     if (isCrossSpace) {
       const targetName = getSpaceName(targetSpaceId);
       const confirmed = await getConfirmation({
-        title: "Move page",
-        description: `Move this page to "${targetName}"? All sub-pages will also be moved.`,
-        confirmText: "Move",
-        cancelText: "Cancel",
+        title: t("Move page"),
+        description: t("Move this page to \"{{targetName}}\"? All sub-pages will also be moved.", { targetName }),
+        confirmText: t("Move"),
+        cancelText: t("Cancel"),
       });
       if (!confirmed) return;
     }
@@ -356,7 +357,7 @@ export function SidebarContent({
         .slice(0, 2)
     : "?";
 
-  const avatarUrl = user?.avatar ? `/api/images/${user.avatar}` : null;
+  const avatarUrl = user?.avatar ? getImageUrl(user.avatar) : null;
 
   return (
     <>
@@ -599,7 +600,7 @@ export function SidebarContent({
                 {activeId && activeDragData ? (
                   <div className={style.dragOverlay}>
                     <FileTextIcon size={20} />
-                    <span>{activeDragData.title || "Untitled"}</span>
+                    <span>{activeDragData.title || t("Untitled")}</span>
                   </div>
                 ) : null}
               </DragOverlay>

@@ -24,7 +24,7 @@ import {
   extractTitleFromBlocks,
 } from "@/editor/sync/char-runs";
 import { isTextualBlock, isListBlock, type Block, type Image } from "@/deserializer/loadPage";
-import { authFetch } from "../api/client";
+import { authFetch, API_BASE } from "../api/client";
 import { imageCache } from "@/editor/renderer";
 import { getPage } from "../api/pages.api";
 import type { PageMetadata } from "@/deserializer/serializer";
@@ -78,7 +78,7 @@ function imageElementToBlob(img: HTMLImageElement): Promise<Blob | null> {
 async function fetchImageBlob(url: string): Promise<Blob | null> {
   // Try fetch first (works for /api/ URLs and live blob URLs)
   try {
-    const response = url.startsWith("/api/")
+    const response = url.startsWith(API_BASE)
       ? await authFetch(url)
       : await fetch(url);
     if (response.ok) return response.blob();

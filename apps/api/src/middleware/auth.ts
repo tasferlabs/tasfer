@@ -54,6 +54,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   next();
 }
 
+/** Check if request originates from a native app (capacitor:// or custom scheme) */
+function isNativeOrigin(req: Request): boolean {
+  const origin = req.headers.origin || "";
+  return origin.startsWith("capacitor://") || origin.startsWith("ionic://");
+}
+
 export async function createSession(userId: string, req: Request, res: Response): Promise<void> {
   const sessionId = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
@@ -69,10 +75,12 @@ export async function createSession(userId: string, req: Request, res: Response)
     expiresAt,
   });
 
+  const native = isNativeOrigin(req);
+
   res.cookie(SESSION_COOKIE, sessionId, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: native ? "none" : "lax",
     maxAge: SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
     path: "/",
   });
@@ -83,7 +91,13 @@ export async function destroySession(req: Request, res: Response): Promise<void>
   if (sessionId) {
     await db.delete(sessions).where(eq(sessions.id, sessionId));
   }
-  res.clearCookie(SESSION_COOKIE, { path: "/" });
+
+  const native = isNativeOrigin(req);
+  res.clearCookie(SESSION_COOKIE, {
+    path: "/",
+    sameSite: native ? "none" : "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
 }
 
 /** Validate a session ID and return the userId, or null if invalid */

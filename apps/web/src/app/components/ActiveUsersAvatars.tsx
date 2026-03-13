@@ -1,6 +1,7 @@
 import type { AwarenessUser } from '@/editor/sync/awareness';
 import style from '../layout/Layout.module.css';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
+import { getImageUrl } from '../api/images.api';
 
 interface ActiveUsersAvatarsProps {
   users: AwarenessUser[];
@@ -29,7 +30,7 @@ export function ActiveUsersAvatars({ users }: ActiveUsersAvatarsProps) {
                   }}
                 >
                   {user.avatar ? (
-                    <img src={`/api/images/${user.avatar}`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <img src={getImageUrl(user.avatar)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (
                     initials
                   )}

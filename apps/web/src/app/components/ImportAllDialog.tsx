@@ -18,7 +18,7 @@ import {
 } from "../../components/ui/select";
 import { Upload } from "lucide-react";
 import { createPage, updatePage } from "../api/pages.api";
-import { uploadImage } from "../api/images.api";
+import { getImageUrl, uploadImage } from "../api/images.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useQueryClient } from "@tanstack/react-query";
 import tokenizePage from "@/deserializer/tokenizer";
@@ -242,7 +242,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
   const allSpaces: SpaceOption[] = React.useMemo(() => {
     const spaces: SpaceOption[] = [];
     if (personalSpace) {
-      spaces.push({ id: personalSpace.id, name: "Private", type: "personal" });
+      spaces.push({ id: personalSpace.id, name: t("Private"), type: "personal" });
     }
     for (const g of groupSpaces) {
       spaces.push({ id: g.id, name: g.name, type: "group" });
@@ -289,7 +289,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
       setFiles(dropped);
       setError(null);
     } else {
-      setError("Please select .zip, .md, or .txt files");
+      setError(t("Please select .zip, .md, or .txt files"));
     }
   }, []);
 
@@ -345,7 +345,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
       }
     } catch (err) {
       if (!abortRef.current) {
-        setError(err instanceof Error ? err.message : "Import failed");
+        setError(err instanceof Error ? err.message : t("Import failed"));
         setPhase("select");
       }
     }
@@ -362,7 +362,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
     const { imageEntries, roots } = buildPageTree(zip);
 
     if (roots.length === 0) {
-      throw new Error("No importable pages found in the ZIP file");
+      throw new Error(t("No importable pages found in the ZIP file"));
     }
 
     const totalItems = countNodes(roots) + imageEntries.length;
@@ -381,7 +381,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
         const mimeType = guessMimeType(fileName);
         const imageFile = new File([blob], fileName, { type: mimeType });
         const uploaded = await uploadImage(imageFile);
-        imageUrlMap.set(fileName, `/api/images/${uploaded.id}`);
+        imageUrlMap.set(fileName, getImageUrl(uploaded.id));
         importResult.imagesUploaded++;
       } catch {
         importResult.errors.push(`Failed to upload image: ${fileName}`);
@@ -549,7 +549,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
                 <span className="font-medium text-center">
                   {files.length === 1
                     ? files[0].name
-                    : `${files.length} files selected`}
+                    : t("{{count}} files selected", { count: files.length })}
                 </span>
               ) : (
                 <>

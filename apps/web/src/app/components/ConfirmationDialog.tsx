@@ -9,6 +9,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { createContext, useCallback, useContext, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface DialogContextProps {
   getConfirmation: ({
@@ -27,6 +28,7 @@ interface DialogContextProps {
 export const DialogContext = createContext<DialogContextProps | undefined>(undefined);
 
 export function ConfirmationDialogProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation();
   const [isDialogOpen, setDialogOpen] = useState(false);
   const [dialogTitle, setDialogTitle] = useState("");
   const [dialogDescription, setDialogDescription] = useState("");
@@ -75,7 +77,7 @@ export function ConfirmationDialogProvider({ children }: { children: React.React
                 confirm(false);
               }}
             >
-              {dialogCancelText || "Cancel"}
+              {dialogCancelText || t`Cancel`}
             </AlertDialogCancel>
 
             <AlertDialogAction
@@ -84,7 +86,7 @@ export function ConfirmationDialogProvider({ children }: { children: React.React
                 confirm(true);
               }}
             >
-              {dialogConfirmText || "Confirm"}
+              {dialogConfirmText || t`Confirm`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -24,7 +24,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCreatePage, updatePage } from "../api/pages.api";
-import { uploadImage } from "../api/images.api";
+import { getImageUrl, uploadImage } from "../api/images.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import { extractTitleFromBlocks, getVisibleTextFromRuns } from "@/editor/sync/char-runs";
 import type { Block } from "@/deserializer/loadPage";
@@ -173,7 +173,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
               const mimeType = guessMimeType(fileName);
               const imageFile = new File([blob], fileName, { type: mimeType });
               const uploaded = await uploadImage(imageFile);
-              imageUrlMap.set(fileName, `/api/images/${uploaded.id}`);
+              imageUrlMap.set(fileName, getImageUrl(uploaded.id));
             } catch {
               // Skip images that fail to upload
             }

@@ -939,9 +939,9 @@ function EditorEmptyState() {
   return (
     <div className={style.appErrorState}>
       <EmptyStateIllustration />
-      <div className={style.appError}>No pages found</div>
+      <div className={style.appError}>{t`No pages found`}</div>
       <p className={style.appErrorDescription}>
-        No worries. You can create your first page right away
+        {t`No worries. You can create your first page right away`}
       </p>
       <Button
         onClick={() => handleAdd()}
@@ -958,7 +958,7 @@ function EditorNotFoundState() {
       <NotFoundStateIllustration />
       <div className={style.appError}>{t`The page has not been found`}</div>
       <p className={style.appErrorDescription}>
-        The page has been deleted or does not exist
+        {t`The page has been deleted or does not exist`}
       </p>
     </div>
   );

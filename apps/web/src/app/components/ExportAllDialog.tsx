@@ -10,7 +10,7 @@ import {
 } from "../../components/ui/dialog";
 import { Button } from "../../components/ui/button";
 import { getPages, getPage, type IListPage } from "../api/pages.api";
-import { authFetch } from "../api/client";
+import { authFetch, API_BASE } from "../api/client";
 import { useSpaces } from "../contexts/SpaceContext";
 import { serializeToMarkdown, type PageMetadata } from "../../deserializer/serializer";
 import type { Image } from "../../deserializer/loadPage";
@@ -69,7 +69,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
   const allSpaces: SpaceOption[] = React.useMemo(() => {
     const spaces: SpaceOption[] = [];
     if (personalSpace) {
-      spaces.push({ id: personalSpace.id, name: "Private", type: "personal" });
+      spaces.push({ id: personalSpace.id, name: t("Private"), type: "personal" });
     }
     for (const g of groupSpaces) {
       spaces.push({ id: g.id, name: g.name, type: "group" });
@@ -223,7 +223,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
       for (const imgId of imageIds) {
         if (abortRef.current) return;
         try {
-          const response = await authFetch(`/api/images/${imgId}`);
+          const response = await authFetch(`${API_BASE}/images/${imgId}`);
           if (response.ok) {
             const blob = await response.blob();
             const contentType = response.headers.get("content-type") || "image/png";
@@ -267,7 +267,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
       onOpenChange(false);
     } catch (err) {
       if (!abortRef.current) {
-        setError(err instanceof Error ? err.message : "Export failed");
+        setError(err instanceof Error ? err.message : t("Export failed"));
         setPhase("select");
       }
     }

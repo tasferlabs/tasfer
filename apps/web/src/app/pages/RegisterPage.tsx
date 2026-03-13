@@ -40,7 +40,7 @@ export default function RegisterPage() {
       }
       navigate("/", { replace: true });
     } catch (err: any) {
-      setError(err.message || "Registration failed");
+      setError(err.message || t`Registration failed`);
     }
   };
 

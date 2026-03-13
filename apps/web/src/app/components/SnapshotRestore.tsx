@@ -199,7 +199,7 @@ function SnapshotRestoreContent({
             <AccordionItem key={group.label} value={group.label}>
               <AccordionTrigger className="text-sm">
                 <span className="flex items-center gap-2">
-                  {group.label}
+                  {t(group.label)}
                   <span className="text-xs text-muted-foreground font-normal">
                     ({group.snapshots.length})
                   </span>

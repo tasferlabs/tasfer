@@ -38,7 +38,7 @@ export default function LoginPage() {
       }
       navigate("/", { replace: true });
     } catch (err: any) {
-      setError(err.message || "Login failed");
+      setError(err.message || t`Login failed`);
     }
   };
 

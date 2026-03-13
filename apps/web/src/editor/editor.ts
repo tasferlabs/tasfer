@@ -938,8 +938,83 @@ export default function createEditor(
         e.preventDefault();
         return;
       }
-      // Block delete/enter keys
-      if (["Backspace", "Delete", "Enter"].includes(e.key)) {
+      // Enter commits composition text
+      if (e.key === "Enter") {
+        return;
+      }
+      // Backspace deletes character before cursor within composition
+      if (e.key === "Backspace") {
+        const comp = state.ui.composition;
+        if (comp.cursorOffset > 0) {
+          const newText = comp.text.slice(0, comp.cursorOffset - 1) + comp.text.slice(comp.cursorOffset);
+          state = {
+            ...state,
+            document: {
+              ...state.document,
+              cursor: state.document.cursor ? {
+                ...state.document.cursor,
+                lastUpdate: Date.now(),
+              } : null,
+            },
+            ui: {
+              ...state.ui,
+              composition: {
+                ...comp,
+                text: newText,
+                cursorOffset: comp.cursorOffset - 1,
+              },
+            },
+          };
+          // If all text deleted, cancel composition
+          if (newText.length === 0) {
+            state = {
+              ...state,
+              ui: { ...state.ui, composition: null },
+            };
+            if (hiddenInput) {
+              hiddenInput.value = " ";
+            }
+          }
+          scheduleRender();
+        }
+        e.preventDefault();
+        return;
+      }
+      // Delete removes character after cursor within composition
+      if (e.key === "Delete") {
+        const comp = state.ui.composition;
+        if (comp.cursorOffset < comp.text.length) {
+          const newText = comp.text.slice(0, comp.cursorOffset) + comp.text.slice(comp.cursorOffset + 1);
+          state = {
+            ...state,
+            document: {
+              ...state.document,
+              cursor: state.document.cursor ? {
+                ...state.document.cursor,
+                lastUpdate: Date.now(),
+              } : null,
+            },
+            ui: {
+              ...state.ui,
+              composition: {
+                ...comp,
+                text: newText,
+              },
+            },
+          };
+          // If all text deleted, cancel composition
+          if (newText.length === 0) {
+            state = {
+              ...state,
+              ui: { ...state.ui, composition: null },
+            };
+            if (hiddenInput) {
+              hiddenInput.value = " ";
+            }
+          }
+          scheduleRender();
+        }
+        e.preventDefault();
         return;
       }
       // Block shortcuts like Ctrl+Z (undo), Ctrl+X (cut), etc.

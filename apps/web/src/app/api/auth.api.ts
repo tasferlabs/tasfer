@@ -1,6 +1,4 @@
-import { authFetch, authFetchJson } from "./client";
-
-const API_BASE = "/api";
+import { authFetch, authFetchJson, API_BASE } from "./client";
 
 export interface AuthUser {
   id: string;

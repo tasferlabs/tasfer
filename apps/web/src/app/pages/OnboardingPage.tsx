@@ -29,7 +29,7 @@ export default function OnboardingPage() {
       const image = await uploadImage(file);
       setAvatarId(image.id);
     } catch {
-      setError("Failed to upload image");
+      setError(t`Failed to upload image`);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -55,7 +55,7 @@ export default function OnboardingPage() {
       updateUser(updated);
       navigate("/", { replace: true });
     } catch {
-      setError("Failed to save profile");
+      setError(t`Failed to save profile`);
     } finally {
       setSaving(false);
     }

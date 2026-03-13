@@ -259,10 +259,10 @@ export function PageLink({
 
   async function handleDelete() {
     const confirmed = await getConfirmation({
-      title: "Delete Page",
+      title: t("Delete Page"),
       description: t("Are you sure you want to delete this page?"),
-      cancelText: "Cancel",
-      confirmText: "Delete",
+      cancelText: t("Cancel"),
+      confirmText: t("Delete"),
     });
 
     if (confirmed) {
