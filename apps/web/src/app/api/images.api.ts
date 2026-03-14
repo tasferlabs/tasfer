@@ -1,5 +1,5 @@
 import { useMutation, type UseMutationOptions, useQuery, type UseQueryOptions } from "@tanstack/react-query";
-import { authFetch, API_BASE } from "./client";
+import { authFetch, API_BASE, getAuthenticatedImageUrl } from "./client";
 
 export interface IImage {
   id: string;
@@ -87,5 +87,5 @@ export function useDeleteImage<TContext = unknown>(
 
 // Get image URL helper
 export function getImageUrl(imageId: string): string {
-  return `${API_BASE}/images/${imageId}`;
+  return getAuthenticatedImageUrl(`${API_BASE}/images/${imageId}`);
 }

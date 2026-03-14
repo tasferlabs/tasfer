@@ -29,6 +29,7 @@ import {
   isCharDeleted,
   iterateVisibleChars,
 } from "./sync/char-runs";
+import { getAuthenticatedImageUrl } from "../app/api/client";
 import type {
   BlockBounds,
   EditorState,
@@ -1434,7 +1435,10 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = "anonymous"; // Enable CORS if needed
+    const resolvedUrl = getAuthenticatedImageUrl(url);
+    if (resolvedUrl === url) {
+      img.crossOrigin = "anonymous";
+    }
 
     img.onload = () => {
       imageCache.set(url, img);
@@ -1447,7 +1451,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
       reject(new Error(`Failed to load image: ${url}`));
     };
 
-    img.src = url;
+    img.src = resolvedUrl;
 
     // If already complete (from cache), resolve immediately
     if (img.complete) {

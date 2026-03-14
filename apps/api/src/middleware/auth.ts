@@ -23,7 +23,12 @@ declare global {
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const sessionId = req.cookies?.[SESSION_COOKIE] || (req.headers["x-session-id"] as string);
+  const querySessionId =
+    typeof req.query.sessionId === "string" ? req.query.sessionId : undefined;
+  const sessionId =
+    req.cookies?.[SESSION_COOKIE] ||
+    (req.headers["x-session-id"] as string) ||
+    querySessionId;
   if (!sessionId) {
     res.status(401).json({ success: false, error: Errors.AUTH_REQUIRED });
     return;

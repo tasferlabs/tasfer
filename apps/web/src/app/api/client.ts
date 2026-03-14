@@ -47,6 +47,50 @@ export async function authFetch(
   return fetch(input, { ...init, credentials: "include" });
 }
 
+function isRelativeUrl(input: string): boolean {
+  return input.startsWith("/");
+}
+
+function isProtectedImagePath(pathname: string): boolean {
+  try {
+    const apiBaseUrl = new URL(API_BASE, window.location.origin);
+    return pathname.startsWith(`${apiBaseUrl.pathname}/images/`);
+  } catch {
+    return pathname.startsWith("/api/images/");
+  }
+}
+
+export function getAuthenticatedImageUrl(input: string): string {
+  if (!isNative || typeof window === "undefined") {
+    return input;
+  }
+
+  if (input.startsWith("blob:") || input.startsWith("data:")) {
+    return input;
+  }
+
+  const sessionId = getSessionId();
+  if (!sessionId) {
+    return input;
+  }
+
+  const url = isRelativeUrl(input)
+    ? new URL(input, window.location.origin)
+    : new URL(input);
+
+  if (!isProtectedImagePath(url.pathname) || url.searchParams.has("sessionId")) {
+    return input;
+  }
+
+  url.searchParams.set("sessionId", sessionId);
+
+  if (isRelativeUrl(input) && url.origin === window.location.origin) {
+    return `${url.pathname}${url.search}${url.hash}`;
+  }
+
+  return url.toString();
+}
+
 /**
  * JSON fetch helper with auth. Parses response and throws on error.
  */

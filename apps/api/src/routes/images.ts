@@ -76,7 +76,7 @@ router.post("/upload", requireAuth, upload.single("image"), async (req: Request,
 });
 
 // Get image
-router.get("/:id", async (req, res) => {
+router.get("/:id", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -106,7 +106,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // Get image metadata
-router.get("/:id/info", async (req, res) => {
+router.get("/:id/info", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -164,4 +164,3 @@ router.delete("/:id", requireAuth, async (req, res) => {
 });
 
 export default router;
-

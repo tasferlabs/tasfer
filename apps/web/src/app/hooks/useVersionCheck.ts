@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { CLIENT_VERSION, meetsMinimumVersion } from "@/version";
 import { getPlatform, type Platform } from "@/platform";
-import { API_BASE } from "../api/client";
+import { API_BASE, authFetch } from "../api/client";
 
 export interface UpdateUrls {
   ios: string | null;
@@ -45,7 +45,7 @@ export function useVersionCheck(): VersionCheckResult {
 
   const checkVersion = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/version`, {
+      const response = await authFetch(`${API_BASE}/version`, {
         headers: {
           "X-Client-Version": String(CLIENT_VERSION),
           "X-Client-Platform": platform,
