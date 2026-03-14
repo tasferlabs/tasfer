@@ -9,13 +9,14 @@ import spacesRouter from "./routes/spaces.js";
 import versionRouter from "./routes/version.js";
 import { requireAuth } from "./middleware/auth.js";
 import { timingSafeEqual } from "crypto";
+import bcrypt from "bcryptjs";
 import { canAccessPage } from "./lib/permissions.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "ucW-2xcolFODh-pch4MCGILJPQ6mHZVhzIgPy2W93ftNQPBtTBstdUJNFLW5ixVj";
 
-// TRAEFIK_AUTH format: "user:password"
+// TRAEFIK_AUTH format: "user:$2y$..." (htpasswd / bcrypt hash)
 const TRAEFIK_AUTH = process.env.TRAEFIK_AUTH;
 
 // Middleware
@@ -29,9 +30,9 @@ app.use(cookieParser());
 
 // Basic auth gate — skip for routes that handle their own auth
 if (TRAEFIK_AUTH) {
-  const [authUser, authPass] = TRAEFIK_AUTH.split(":");
-  const expectedUser = Buffer.from(authUser);
-  const expectedPass = Buffer.from(authPass);
+  const sep = TRAEFIK_AUTH.indexOf(":");
+  const expectedUser = TRAEFIK_AUTH.slice(0, sep);
+  const hashedPass = TRAEFIK_AUTH.slice(sep + 1);
 
   const SKIP_PATTERNS = [
     /^\/health$/,
@@ -41,7 +42,7 @@ if (TRAEFIK_AUTH) {
     /^\/api\/internal\//,
   ];
 
-  app.use((req, res, next) => {
+  app.use(async (req, res, next) => {
     if (SKIP_PATTERNS.some((p) => p.test(req.path))) return next();
 
     const authHeader = req.headers.authorization;
@@ -51,20 +52,15 @@ if (TRAEFIK_AUTH) {
     }
 
     const decoded = Buffer.from(authHeader.slice(6), "base64").toString();
-    const sep = decoded.indexOf(":");
-    if (sep === -1) {
+    const colonIdx = decoded.indexOf(":");
+    if (colonIdx === -1) {
       return res.status(401).send("Unauthorized");
     }
 
-    const user = Buffer.from(decoded.slice(0, sep));
-    const pass = Buffer.from(decoded.slice(sep + 1));
+    const user = decoded.slice(0, colonIdx);
+    const pass = decoded.slice(colonIdx + 1);
 
-    if (
-      user.length === expectedUser.length &&
-      pass.length === expectedPass.length &&
-      timingSafeEqual(user, expectedUser) &&
-      timingSafeEqual(pass, expectedPass)
-    ) {
+    if (user === expectedUser && await bcrypt.compare(pass, hashedPass)) {
       return next();
     }
 
