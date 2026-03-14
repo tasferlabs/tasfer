@@ -11,8 +11,13 @@ import {
   detectPhysicalKeyboardHeuristic,
   isTouchDevice,
 } from "./state";
-import { setBlockStyleOverrides, setEditorPadding, setWindowFocused } from "./styles";
-import type { TextStyle } from "./types";
+import {
+  setBlockStyleOverrides,
+  setEditorPadding,
+  setPlaceholderOverrides,
+  setWindowFocused,
+} from "./styles";
+import type { PlaceholderStyles, TextStyle } from "./types";
 import type { ViewportState } from "./types";
 
 export interface MountedEditor {
@@ -54,6 +59,7 @@ export interface MountEditorOptions {
     paddingRight: number;
   }>;
   blockStyleOverrides?: Partial<Record<string, Partial<TextStyle>>> | null;
+  placeholderOverrides?: Partial<PlaceholderStyles> | null;
 }
 
 /**
@@ -68,6 +74,7 @@ export function mountEditor(
   // Apply padding and block style overrides before creating editor
   setEditorPadding(options?.padding ?? null);
   setBlockStyleOverrides(options?.blockStyleOverrides ?? null);
+  setPlaceholderOverrides(options?.placeholderOverrides ?? null);
 
   // Create a Page object from the blocks
   const page: Page = {

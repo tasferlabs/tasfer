@@ -68,7 +68,7 @@ const router = Router();
 // List pages
 router.get("/list", async (req, res) => {
   try {
-    const { parentId, spaceId } = req.query;
+    const { parentId, spaceId, includeTasks } = req.query;
 
     if (!spaceId) {
       return res.status(400).json({ success: false, error: "spaceId is required" });
@@ -80,9 +80,14 @@ router.get("/list", async (req, res) => {
       return res.status(403).json({ success: false, error: "Access denied" });
     }
 
-    // Get pages with optional parent filter, scoped to space
-    // Exclude task pages from sidebar listing
-    const conditions = [eq(pages.spaceId, spaceId as string), eq(pages.task, false)];
+    const shouldIncludeTasks = includeTasks === "true";
+
+    // Get pages with optional parent filter, scoped to space.
+    // Tasks stay hidden by default and are only included for explicit callers like export.
+    const conditions = [eq(pages.spaceId, spaceId as string)];
+    if (!shouldIncludeTasks) {
+      conditions.push(eq(pages.task, false));
+    }
     if (parentId) {
       conditions.push(eq(pages.parentId, parentId as string));
     } else {
@@ -97,10 +102,12 @@ router.get("/list", async (req, res) => {
         parentId: pages.parentId,
         order: pages.order,
         color: pages.color,
+        task: pages.task,
         createdAt: pages.createdAt,
         hasChildren: sql<boolean>`CASE WHEN EXISTS (
           SELECT 1 FROM pages p2
           WHERE p2."parentId" = pages.id
+          ${shouldIncludeTasks ? sql`` : sql`AND p2.task = false`}
         ) THEN true ELSE false END`,
       })
       .from(pages)
@@ -380,7 +387,7 @@ router.get("/:id", async (req, res) => {
 
     // Check if page has children
     const childPage = await db.query.pages.findFirst({
-      where: eq(pages.parentId, id),
+      where: and(eq(pages.parentId, id), eq(pages.task, false)),
       columns: { id: true },
     });
     const hasChildren = !!childPage;

@@ -291,6 +291,12 @@
   opacity: 0.8;
 }
 
+.previewHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .previewCloseBtn {
   display: flex;
   align-items: center;
@@ -306,6 +312,27 @@
 .previewCloseBtn:hover {
   background-color: var(--accent);
   color: var(--foreground);
+}
+
+.previewDeleteIconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--destructive);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.previewDeleteIconBtn:hover:not(:disabled) {
+  background-color: var(--accent);
+}
+
+.previewDeleteIconBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .previewRow {

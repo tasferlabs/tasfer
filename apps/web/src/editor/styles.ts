@@ -1,5 +1,5 @@
 import { getCurrentFontFamily, FONT_STACKS } from "./fonts";
-import type { EditorStyles, TextStyle } from "./types";
+import type { EditorStyles, PlaceholderStyles, TextStyle } from "./types";
 import { IMAGE_DEFAULT_HEIGHT } from "./constants";
 import { isTouchDevice } from "./state";
 
@@ -22,6 +22,7 @@ let paddingOverride: Partial<{
  * Optional per-block text style overrides set via setBlockStyleOverrides()
  */
 let blockStyleOverrides: Partial<Record<string, Partial<TextStyle>>> | null = null;
+let placeholderOverrides: Partial<PlaceholderStyles> | null = null;
 
 /**
  * Override the default canvas padding for the editor.
@@ -46,6 +47,16 @@ export function setBlockStyleOverrides(
   overrides: Partial<Record<string, Partial<TextStyle>>> | null,
 ): void {
   blockStyleOverrides = overrides;
+}
+
+/**
+ * Override placeholder copy for a mounted editor.
+ * Pass null to reset to defaults.
+ */
+export function setPlaceholderOverrides(
+  overrides: Partial<PlaceholderStyles> | null,
+): void {
+  placeholderOverrides = overrides;
 }
 
 /**
@@ -203,17 +214,21 @@ export function getEditorStyles(): EditorStyles {
     },
     placeholder: {
       heading1: {
-        text: "Heading 1",
+        text: placeholderOverrides?.heading1?.text ?? "Heading 1",
       },
       heading2: {
-        text: "Heading 2",
+        text: placeholderOverrides?.heading2?.text ?? "Heading 2",
       },
       heading3: {
-        text: "Heading 3",
+        text: placeholderOverrides?.heading3?.text ?? "Heading 3",
       },
       paragraph: {
-        keyboardCompatibleText: "Type '/' for commands.",
-        touchCompatiableText: "Type something awesome...",
+        keyboardCompatibleText:
+          placeholderOverrides?.paragraph?.keyboardCompatibleText ??
+          "Type '/' for commands.",
+        touchCompatiableText:
+          placeholderOverrides?.paragraph?.touchCompatiableText ??
+          "Type something awesome...",
       },
       color: getCSSVariable("--editor-placeholder"),
       opacity: 0.6,

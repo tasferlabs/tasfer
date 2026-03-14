@@ -33,7 +33,12 @@ import {
 import { clearFailedImageCache } from "../editor/renderer";
 import { getLinkAtPosition } from "../editor/selection";
 import { getBlockTextContent, isTouchDevice } from "../editor/state";
-import type { EditorState, SlashCommand, TextStyle } from "../editor/types";
+import type {
+  EditorState,
+  PlaceholderStyles,
+  SlashCommand,
+  TextStyle,
+} from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { useRoom, type SyncState } from "@/websocket/hooks/useRoom";
@@ -79,6 +84,8 @@ interface MountedEditorProps {
   }>;
   /** Override block text styles (e.g. heading font sizes) */
   blockStyleOverrides?: Partial<Record<string, Partial<TextStyle>>> | null;
+  /** Override placeholder copy for a specific mounted editor instance */
+  placeholderOverrides?: Partial<PlaceholderStyles> | null;
   /** Callback when canvas scroll position changes */
   onScroll?: (scrollY: number) => void;
 }
@@ -100,6 +107,7 @@ export function MountedEditor({
   readonly = false,
   padding,
   blockStyleOverrides,
+  placeholderOverrides,
   onScroll,
 }: MountedEditorProps) {
   const { setOnOpenFind } = usePageSettings();
@@ -313,7 +321,12 @@ export function MountedEditor({
     lastSerializedBlocksRef.current = null;
     editorInitializedRef.current = false;
 
-    const mounted = mountEditor(el, snapshot, { readonly, padding, blockStyleOverrides });
+    const mounted = mountEditor(el, snapshot, {
+      readonly,
+      padding,
+      blockStyleOverrides,
+      placeholderOverrides,
+    });
     mountedRef.current = mounted;
 
     // Wire up scroll callback
@@ -1005,6 +1018,7 @@ export function MountedEditor({
     readonly,
     padding,
     blockStyleOverrides,
+    placeholderOverrides,
   ]);
 
   // Ctrl+F handler for find

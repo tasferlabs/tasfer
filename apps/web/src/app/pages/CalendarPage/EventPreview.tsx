@@ -1,5 +1,6 @@
 import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
 import { PagePicker } from "@/components/PagePicker";
+import { useConfirmation } from "@/app/components/ConfirmationDialog";
 import { Button } from "@/components/ui/button";
 import {
   Combobox,
@@ -28,6 +29,7 @@ import {
   GripHorizontal,
   Info,
   Maximize2,
+  Trash2,
   X,
 } from "lucide-react";
 import { DateTime } from "luxon";
@@ -36,6 +38,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import {
+  useDeletePage,
   updatePage as updatePageApi,
   useGetPage,
   useMovePage,
@@ -137,6 +140,7 @@ export function EventPreview({
   const popoverRef = useRef<HTMLDivElement>(null);
   const { panelRef, setHasPanel, slotMounted } = useSidebarPanel();
   const { activeSpaceId } = useSpaces();
+  const { getConfirmation } = useConfirmation();
 
   // Parent page selection
   const [draftParent, setDraftParent] = useState<ISearchPage | null>(null);
@@ -472,7 +476,7 @@ export function EventPreview({
         }
       : null;
 
-  // Close on click outside (disabled in sidebar mode)
+  // Close on click outside
   useEffect(() => {
     if (!isActive || sidebarMode) return;
     function handlePointerDown(e: PointerEvent) {
@@ -498,7 +502,7 @@ export function EventPreview({
       clearTimeout(timer);
       window.removeEventListener("pointerdown", handlePointerDown);
     };
-  }, [isActive, onClose, sidebarMode]);
+  }, [isActive, onClose]);
 
   // Close on Escape
   useEffect(() => {
@@ -550,6 +554,31 @@ export function EventPreview({
     flush();
     onClose();
   }, [flush, onClose]);
+
+  const { mutate: deletePage, isPending: isDeleting } = useDeletePage({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
+      queryClient.removeQueries({ queryKey: ["page", pageId] });
+      handleClose();
+    },
+  });
+
+  const handleDelete = useCallback(async () => {
+    if (!pageId || !previewPage || isDeleting) return;
+
+    const confirmed = await getConfirmation({
+      title: t("Delete event"),
+      description: previewPage.hasChildren
+        ? t("This event has sub-pages. Deleting it will also delete its sub-pages.")
+        : t("Are you sure you want to delete this event?"),
+      cancelText: t("Cancel"),
+      confirmText: t("Delete"),
+    });
+    if (!confirmed) return;
+
+    deletePage({ id: pageId });
+  }, [deletePage, getConfirmation, isDeleting, pageId, previewPage, t]);
 
   const handleScheduleChange = useCallback(
     (scheduledAt: string, duration: number | null) => {
@@ -658,6 +687,13 @@ export function EventPreview({
     [],
   );
 
+  const previewPlaceholderOverrides = useMemo(
+    () => ({
+      heading1: { text: t("Title") },
+    }),
+    [t],
+  );
+
   const draftSnapshot = useMemo<Block[]>(
     () => [{ id: "draft-1", type: "heading1", charRuns: [], formats: [] }],
     [],
@@ -694,6 +730,7 @@ export function EventPreview({
       autoFocus
       padding={editorPadding}
       blockStyleOverrides={editorBlockStyleOverrides}
+      placeholderOverrides={previewPlaceholderOverrides}
     />
   ) : isLoading ? (
     <div className={style.previewLoading}>{t("Loading...")}</div>
@@ -707,6 +744,7 @@ export function EventPreview({
       autoFocus
       padding={editorPadding}
       blockStyleOverrides={editorBlockStyleOverrides}
+      placeholderOverrides={previewPlaceholderOverrides}
     />
   ) : null;
 
@@ -727,6 +765,29 @@ export function EventPreview({
                 {t("Open page")}
               </Link>
             )}
+            <div className={style.previewHeaderActions}>
+              {pageId && (
+                <button
+                  type="button"
+                  className={style.previewDeleteIconBtn}
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  aria-label={t("Delete event")}
+                  title={t("Delete event")}
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+              <button
+                type="button"
+                className={style.previewCloseBtn}
+                onClick={handleClose}
+                aria-label={t("Close preview")}
+                title={t("Close preview")}
+              >
+                <X size={16} />
+              </button>
+            </div>
           </div>
           <div className={style.previewRow}>
             <Calendar size={14} className={style.previewRowIcon} />
@@ -858,9 +919,29 @@ export function EventPreview({
               onPointerDown={handleDragPointerDown}
             >
               <GripHorizontal size={16} className={style.previewGripIcon} />
-              <button className={style.previewCloseBtn} onClick={handleClose}>
-                <X size={16} />
-              </button>
+              <div className={style.previewHeaderActions}>
+                {pageId && (
+                  <button
+                    type="button"
+                    className={style.previewDeleteIconBtn}
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                    aria-label={t("Delete event")}
+                    title={t("Delete event")}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={style.previewCloseBtn}
+                  onClick={handleClose}
+                  aria-label={t("Close preview")}
+                  title={t("Close preview")}
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
             {scheduleRows}
             <div className={style.previewEditorArea}>{editor}</div>
@@ -902,9 +983,29 @@ export function EventPreview({
               onPointerDown={handleDragPointerDown}
             >
               <GripHorizontal size={16} className={style.previewGripIcon} />
-              <button className={style.previewCloseBtn} onClick={handleClose}>
-                <X size={16} />
-              </button>
+              <div className={style.previewHeaderActions}>
+                {pageId && (
+                  <button
+                    type="button"
+                    className={style.previewDeleteIconBtn}
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                    aria-label={t("Delete event")}
+                    title={t("Delete event")}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={style.previewCloseBtn}
+                  onClick={handleClose}
+                  aria-label={t("Close preview")}
+                  title={t("Close preview")}
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
             {scheduleRows}
             <div className={style.previewEditorArea}>{editor}</div>

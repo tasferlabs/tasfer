@@ -124,7 +124,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
 
       for (const space of spacesToExport) {
         if (abortRef.current) return;
-        const rootPages = await getPages(space.id, null);
+        const rootPages = await getPages(space.id, null, { includeTasks: true });
         spacePageTrees.push({ space, pages: rootPages });
         totalPages += rootPages.length;
       }
@@ -193,7 +193,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
           pendingFiles.push({ zipPath, markdown });
 
           if (listPage.hasChildren) {
-            const children = await getPages(spaceId, listPage.id);
+            const children = await getPages(spaceId, listPage.id, { includeTasks: true });
             setProgress((prev) => ({ ...prev, total: prev.total + children.length }));
             await exportPages(spaceId, children, `${parentPath}${pageName}/`, pageName);
           }

@@ -14,6 +14,7 @@ export interface IListPage {
   parentId: string | null;
   order: number;
   hasChildren: boolean;
+  task?: boolean;
   color?: string | null;
   scheduledAt?: string | null;
   duration?: number | null;
@@ -55,11 +56,15 @@ export interface IPage {
 export async function getPages(
   spaceId: string,
   parentId: string | null,
+  options?: { includeTasks?: boolean },
 ): Promise<IListPage[]> {
   const params = new URLSearchParams();
   params.append("spaceId", spaceId);
   if (parentId) {
     params.append("parentId", parentId);
+  }
+  if (options?.includeTasks) {
+    params.append("includeTasks", "true");
   }
 
   const response = await authFetch(
@@ -76,7 +81,7 @@ export async function getPages(
 
 export function useGetPages(spaceId: string | null, parentId: string | null) {
   return useQuery({
-    queryKey: ["pages", { spaceId, parentId }],
+    queryKey: ["pages", { spaceId, parentId, includeTasks: false }],
     queryFn: () => getPages(spaceId!, parentId),
     enabled: !!spaceId,
   });
