@@ -224,7 +224,7 @@ export default function EditorPage() {
 
     if (!id) {
       // No page ID - check if we should show empty state
-      if (!isLoadingPages && (!pages || pages.length === 0)) {
+      if (activeSpaceId && !isLoadingPages && (!pages || pages.length === 0)) {
         setPersistedState("empty");
       }
     } else {
@@ -238,6 +238,7 @@ export default function EditorPage() {
     }
   }, [
     id,
+    activeSpaceId,
     isLoadingPages,
     pages,
     isLoading,
@@ -458,7 +459,7 @@ export default function EditorPage() {
 
   // If no ID in URL
   if (!id) {
-    if (isLoadingPages) {
+    if (isLoadingPages || !activeSpaceId) {
       return <EditorLoadingState />;
     }
 

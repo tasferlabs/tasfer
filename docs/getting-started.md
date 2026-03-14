@@ -50,7 +50,7 @@ npm run dev
 
 ## Verifying Setup
 
-- Web app: http://localhost:5173
+- Web app: http://localhost:4000
 - API server: http://localhost:3000
 - WebSocket server: ws://localhost:8080
 

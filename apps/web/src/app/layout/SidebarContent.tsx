@@ -423,18 +423,19 @@ export function SidebarContent({
             </Button>
           </div>
           <div className={style.appNavigationLinks}>
-            <RouterLink className={style.appNavigationLink} to={"/calendar"}>
-              <div className={style.appNavigationLinkIcon}>
-                <Icons.Calendar width={24} height={24} />
-              </div>
-              {t("Calendar")}
-            </RouterLink>
             <RouterLink className={style.appNavigationLink} to={"/settings"}>
               <div className={style.appNavigationLinkIcon}>
                 <Icons.Gear width={24} height={24} />
               </div>
               {t("Settings")}
             </RouterLink>
+            <RouterLink className={style.appNavigationLink} to={"/calendar"}>
+              <div className={style.appNavigationLinkIcon}>
+                <Icons.Calendar width={24} height={24} />
+              </div>
+              {t("Calendar")}
+            </RouterLink>
+
             <button
               className={style.appNavigationLink}
               onClick={() => {

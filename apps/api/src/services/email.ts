@@ -33,7 +33,7 @@ export async function sendVerificationEmail(email: string, code: string) {
 }
 
 export async function sendPasswordResetEmail(email: string, token: string) {
-  const appUrl = process.env.APP_URL || "http://localhost:5173";
+  const appUrl = process.env.APP_URL || "http://localhost:4000";
   const resetUrl = `${appUrl}/reset-password?token=${token}`;
 
   await transporter.sendMail({
@@ -56,7 +56,7 @@ export async function sendPasswordResetEmail(email: string, token: string) {
 }
 
 export async function sendEmailChangeVerification(email: string, token: string) {
-  const appUrl = process.env.APP_URL || "http://localhost:5173";
+  const appUrl = process.env.APP_URL || "http://localhost:4000";
   const verifyUrl = `${appUrl}/verify-email-change?token=${token}`;
 
   await transporter.sendMail({
