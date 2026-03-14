@@ -10,7 +10,7 @@ import { useTranslation } from "react-i18next";
 import styles from "./Profile.module.css";
 
 export function Profile() {
-  const { t } = useTranslation("SettingsPage");
+  const { t } = useTranslation();
   const { user, updateUser } = useAuth();
 
   const [name, setName] = React.useState(user?.name ?? "");

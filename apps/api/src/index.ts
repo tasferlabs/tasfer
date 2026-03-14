@@ -15,6 +15,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "ucW-2xcolFODh-pch4MCGILJPQ6mHZVhzIgPy2W93ftNQPBtTBstdUJNFLW5ixVj";
 
+// TRAEFIK_AUTH format: "user:password"
+const TRAEFIK_AUTH = process.env.TRAEFIK_AUTH;
+
 // Middleware
 app.use(cors({
   origin: process.env.CORS_ORIGIN || true,
@@ -23,6 +26,52 @@ app.use(cors({
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser());
+
+// Basic auth gate — skip for routes that handle their own auth
+if (TRAEFIK_AUTH) {
+  const [authUser, authPass] = TRAEFIK_AUTH.split(":");
+  const expectedUser = Buffer.from(authUser);
+  const expectedPass = Buffer.from(authPass);
+
+  const SKIP_PATTERNS = [
+    /^\/health$/,
+    /^\/api\/auth(\/|$)/,
+    /^\/api\/images\/[^/]+$/, // GET /api/images/:id
+    /^\/api\/version(\/|$)/,
+    /^\/api\/internal\//,
+  ];
+
+  app.use((req, res, next) => {
+    if (SKIP_PATTERNS.some((p) => p.test(req.path))) return next();
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Basic ")) {
+      res.setHeader("WWW-Authenticate", "Basic realm=\"cypher\"");
+      return res.status(401).send("Unauthorized");
+    }
+
+    const decoded = Buffer.from(authHeader.slice(6), "base64").toString();
+    const sep = decoded.indexOf(":");
+    if (sep === -1) {
+      return res.status(401).send("Unauthorized");
+    }
+
+    const user = Buffer.from(decoded.slice(0, sep));
+    const pass = Buffer.from(decoded.slice(sep + 1));
+
+    if (
+      user.length === expectedUser.length &&
+      pass.length === expectedPass.length &&
+      timingSafeEqual(user, expectedUser) &&
+      timingSafeEqual(pass, expectedPass)
+    ) {
+      return next();
+    }
+
+    res.setHeader("WWW-Authenticate", "Basic realm=\"cypher\"");
+    res.status(401).send("Unauthorized");
+  });
+}
 
 // Routes
 app.get("/health", (req, res) => {

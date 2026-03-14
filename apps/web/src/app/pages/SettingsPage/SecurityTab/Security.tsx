@@ -10,7 +10,7 @@ import { useErrorMessage } from "@/app/hooks/useErrorMessage";
 import styles from "./Security.module.css";
 
 export function Security() {
-  const { t } = useTranslation("SettingsPage");
+  const { t } = useTranslation();
   const errorMessage = useErrorMessage();
   const { user } = useAuth();
 
@@ -132,7 +132,10 @@ export function Security() {
             </div>
             <Button
               variant="ghost"
-              onClick={() => { setEmailSent(false); setNewEmail(""); }}
+              onClick={() => {
+                setEmailSent(false);
+                setNewEmail("");
+              }}
             >
               {t`Cancel`}
             </Button>
@@ -171,7 +174,10 @@ export function Security() {
             <PasswordInput
               className={styles.input}
               value={currentPassword}
-              onChange={(e) => { setCurrentPassword(e.target.value); setPasswordSuccess(""); }}
+              onChange={(e) => {
+                setCurrentPassword(e.target.value);
+                setPasswordSuccess("");
+              }}
               placeholder={t`Current password`}
             />
           </div>
@@ -200,7 +206,12 @@ export function Security() {
           <div className={styles.actions}>
             <Button
               type="submit"
-              disabled={!currentPassword || !newPassword || !confirmPassword || passwordLoading}
+              disabled={
+                !currentPassword ||
+                !newPassword ||
+                !confirmPassword ||
+                passwordLoading
+              }
               loading={passwordLoading}
             >
               {t`Change Password`}

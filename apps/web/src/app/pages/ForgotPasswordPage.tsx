@@ -7,7 +7,7 @@ import { forgotPassword } from "../api/auth.api";
 import { useErrorMessage } from "../hooks/useErrorMessage";
 
 export default function ForgotPasswordPage() {
-  const [t] = useTranslation("ForgotPasswordPage");
+  const [t] = useTranslation();
   const errorMessage = useErrorMessage();
 
   const [email, setEmail] = useState("");

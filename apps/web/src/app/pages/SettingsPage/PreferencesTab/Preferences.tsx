@@ -13,7 +13,7 @@ import {
 
 export function Preferences() {
   const { getConfirmation } = useConfirmation();
-  const { t, i18n } = useTranslation("SettingsPage");
+  const { t, i18n } = useTranslation();
   const theme = useTheme();
 
   function onChangeTheme(themeValue: Theme) {

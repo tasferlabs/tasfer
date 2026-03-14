@@ -14,7 +14,7 @@ interface LoginForm {
 }
 
 export default function LoginPage() {
-  const [t] = useTranslation("LoginPage");
+  const [t] = useTranslation();
   const errorMessage = useErrorMessage();
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -32,10 +32,9 @@ export default function LoginPage() {
     try {
       const result = await login(data.email, data.password);
       if (result?.needsVerification) {
-        navigate(
-          `/verify-email?email=${encodeURIComponent(result.email)}`,
-          { replace: true },
-        );
+        navigate(`/verify-email?email=${encodeURIComponent(result.email)}`, {
+          replace: true,
+        });
         return;
       }
       navigate("/", { replace: true });
@@ -60,7 +59,10 @@ export default function LoginPage() {
           )}
 
           <div className="space-y-2">
-            <label htmlFor="email" className="text-sm font-medium text-foreground">
+            <label
+              htmlFor="email"
+              className="text-sm font-medium text-foreground"
+            >
               {t`Email`}
             </label>
             <Input
@@ -75,10 +77,16 @@ export default function LoginPage() {
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label htmlFor="password" className="text-sm font-medium text-foreground">
+              <label
+                htmlFor="password"
+                className="text-sm font-medium text-foreground"
+              >
                 {t`Password`}
               </label>
-              <Link to="/forgot-password" className="text-sm text-primary hover:underline">
+              <Link
+                to="/forgot-password"
+                className="text-sm text-primary hover:underline"
+              >
                 {t`Forgot password?`}
               </Link>
             </div>

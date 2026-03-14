@@ -3,7 +3,7 @@ import { Errors } from "@shared/errors";
 import type { ErrorCode } from "@shared/errors";
 
 export function useErrorMessage() {
-  const { t } = useTranslation("errors");
+  const { t } = useTranslation();
 
   const messages: Record<ErrorCode, string> = {
     [Errors.INTERNAL_ERROR]: t`Something went wrong. Please try again.`,

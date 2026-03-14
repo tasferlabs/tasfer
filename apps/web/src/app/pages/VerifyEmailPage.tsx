@@ -8,7 +8,7 @@ import { resendVerification } from "../api/auth.api";
 import { useErrorMessage } from "../hooks/useErrorMessage";
 
 export default function VerifyEmailPage() {
-  const [t] = useTranslation("VerifyEmailPage");
+  const [t] = useTranslation();
   const errorMessage = useErrorMessage();
   const { verifyEmail } = useAuth();
   const navigate = useNavigate();

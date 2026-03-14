@@ -11,14 +11,18 @@ const TABS = ["profile", "security", "preferences", "data"] as const;
 const DEFAULT_TAB = "profile";
 
 export default function SettingsPage() {
-  const [t] = useTranslation("SettingsPage");
+  const [t] = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const tabParam = searchParams.get("tab") || "";
-  const activeTab = (TABS as readonly string[]).includes(tabParam) ? tabParam : DEFAULT_TAB;
+  const activeTab = (TABS as readonly string[]).includes(tabParam)
+    ? tabParam
+    : DEFAULT_TAB;
 
   function handleTabChange(value: string) {
-    setSearchParams(value === DEFAULT_TAB ? {} : { tab: value }, { replace: true });
+    setSearchParams(value === DEFAULT_TAB ? {} : { tab: value }, {
+      replace: true,
+    });
   }
 
   return (

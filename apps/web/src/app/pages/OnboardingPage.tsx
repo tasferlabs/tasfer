@@ -9,7 +9,7 @@ import { getImageUrl, uploadImage } from "../api/images.api";
 import { useAuth } from "../contexts/AuthContext";
 
 export default function OnboardingPage() {
-  const { t } = useTranslation("OnboardingPage");
+  const { t } = useTranslation();
   const { updateUser } = useAuth();
   const navigate = useNavigate();
 

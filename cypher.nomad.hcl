@@ -200,7 +200,6 @@ job "cypher" {
           "traefik.http.routers.api.rule"                      = "PathPrefix(`/api`)"
           "traefik.http.routers.api.entrypoints"               = "web"
           "traefik.http.routers.api.priority"                  = "10"
-          "traefik.http.routers.api.middlewares"               = "auth"
           "traefik.http.services.api.loadbalancer.server.port" = "3000"
         }
       }
@@ -225,6 +224,7 @@ job "cypher" {
         MAIL_PASSWORD    = var.mail_password
         MAIL_FROM        = var.mail_from
         MAIL_FROM_NAME   = var.mail_from_name
+        TRAEFIK_AUTH     = var.traefik_auth
       }
 
       resources {

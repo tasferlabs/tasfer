@@ -7,7 +7,7 @@ import { resetPassword } from "../api/auth.api";
 import { useErrorMessage } from "../hooks/useErrorMessage";
 
 export default function ResetPasswordPage() {
-  const [t] = useTranslation("ForgotPasswordPage");
+  const [t] = useTranslation();
   const errorMessage = useErrorMessage();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();

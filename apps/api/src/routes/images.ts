@@ -4,11 +4,14 @@ import multer from "multer";
 import path from "path";
 import { writeFile, readFile, deleteFile } from "../handlers/files.js";
 import db from "../db/index.js";
-import { images } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { images, pages, snapshots, spaceMembers, spaces, users } from "../db/schema.js";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth.js";
+import { decodeSnapshot } from "../lib/snapshot.js";
+import { getAccessibleSpaces } from "../lib/permissions.js";
 
 const router = Router();
+const IMAGE_URL_PATTERN = /\/api\/images\/([^/?#]+)/;
 
 // Configure multer for memory storage
 const upload = multer({
@@ -26,6 +29,129 @@ const upload = multer({
     }
   },
 });
+
+function extractImageId(url: string | undefined | null): string | null {
+  if (!url) return null;
+  const match = url.match(IMAGE_URL_PATTERN);
+  return match ? match[1] : null;
+}
+
+function blockReferencesImage(block: any, imageId: string): boolean {
+  if (block?.type === "image" && extractImageId(block.url) === imageId) {
+    return true;
+  }
+
+  if (Array.isArray(block?.charRuns)) {
+    return block.charRuns.some(
+      (run: { text?: string }) =>
+        typeof run.text === "string" &&
+        run.text.includes(`/api/images/${imageId}`)
+    );
+  }
+
+  return false;
+}
+
+async function getAccessibleSpaceIds(userId: string): Promise<string[]> {
+  const { owned, member } = await getAccessibleSpaces(userId);
+  return [...new Set([...owned, ...member].map((space) => space.id))];
+}
+
+async function canAccessAvatarImage(
+  requesterId: string,
+  imageId: string,
+  accessibleSpaceIds: string[]
+): Promise<boolean> {
+  const avatarOwner = await db.query.users.findFirst({
+    where: eq(users.avatar, imageId),
+    columns: { id: true },
+  });
+
+  if (!avatarOwner) return false;
+  if (avatarOwner.id === requesterId) return true;
+  if (accessibleSpaceIds.length === 0) return false;
+
+  const ownedSharedSpace = await db.query.spaces.findFirst({
+    where: and(
+      inArray(spaces.id, accessibleSpaceIds),
+      eq(spaces.ownerId, avatarOwner.id)
+    ),
+    columns: { id: true, ownerId: true },
+  });
+  if (ownedSharedSpace) {
+    return true;
+  }
+
+  const membership = await db.query.spaceMembers.findFirst({
+    where: and(
+      inArray(spaceMembers.spaceId, accessibleSpaceIds),
+      eq(spaceMembers.userId, avatarOwner.id)
+    ),
+    columns: { userId: true, spaceId: true },
+  });
+
+  return !!membership;
+}
+
+async function canAccessPageImage(
+  imageId: string,
+  accessibleSpaceIds: string[]
+): Promise<boolean> {
+  if (accessibleSpaceIds.length === 0) return false;
+
+  const accessiblePages = await db
+    .select({ id: pages.id })
+    .from(pages)
+    .where(inArray(pages.spaceId, accessibleSpaceIds));
+
+  const pageIds = accessiblePages.map((page) => page.id);
+  if (pageIds.length === 0) return false;
+
+  const snapshotRecords = await db
+    .select({ pageId: snapshots.pageId, filePath: snapshots.filePath })
+    .from(snapshots)
+    .where(inArray(snapshots.pageId, pageIds))
+    .orderBy(desc(snapshots.createdAt));
+
+  const seenPages = new Set<string>();
+  for (const record of snapshotRecords) {
+    if (seenPages.has(record.pageId)) continue;
+    seenPages.add(record.pageId);
+
+    const compressedBuffer = await readFile(record.filePath, {
+      bucketName: "snapshots",
+    });
+    if (!compressedBuffer) continue;
+
+    try {
+      const blocks = decodeSnapshot(compressedBuffer);
+      if (blocks.some((block) => blockReferencesImage(block, imageId))) {
+        return true;
+      }
+    } catch (error) {
+      console.error("Failed to inspect snapshot for image authorization:", error);
+    }
+  }
+
+  return false;
+}
+
+async function canReadImage(
+  requesterId: string,
+  image: typeof images.$inferSelect
+): Promise<boolean> {
+  if (image.userId === requesterId) {
+    return true;
+  }
+
+  const accessibleSpaceIds = await getAccessibleSpaceIds(requesterId);
+
+  if (await canAccessAvatarImage(requesterId, image.id, accessibleSpaceIds)) {
+    return true;
+  }
+
+  return canAccessPageImage(image.id, accessibleSpaceIds);
+}
 
 // Upload image (requires auth)
 router.post("/upload", requireAuth, upload.single("image"), async (req: Request, res) => {
@@ -88,6 +214,11 @@ router.get("/:id", requireAuth, async (req, res) => {
       return res.status(404).json({ success: false, error: "Image not found" });
     }
 
+    const hasAccess = await canReadImage(req.user!.id, image);
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, error: "Access denied" });
+    }
+
     const fileBuffer = await readFile(image.filePath, {
       bucketName: "images",
     });
@@ -118,6 +249,11 @@ router.get("/:id/info", requireAuth, async (req, res) => {
       return res.status(404).json({ success: false, error: "Image not found" });
     }
 
+    const hasAccess = await canReadImage(req.user!.id, image);
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, error: "Access denied" });
+    }
+
     res.json({
       success: true,
       data: {
@@ -146,6 +282,10 @@ router.delete("/:id", requireAuth, async (req, res) => {
 
     if (!image) {
       return res.status(404).json({ success: false, error: "Image not found" });
+    }
+
+    if (image.userId !== req.user!.id) {
+      return res.status(403).json({ success: false, error: "Access denied" });
     }
 
     // Delete file from storage

@@ -15,7 +15,7 @@ interface RegisterForm {
 }
 
 export default function RegisterPage() {
-  const [t] = useTranslation("RegisterPage");
+  const [t] = useTranslation();
   const errorMessage = useErrorMessage();
   const { register: registerUser } = useAuth();
   const navigate = useNavigate();
