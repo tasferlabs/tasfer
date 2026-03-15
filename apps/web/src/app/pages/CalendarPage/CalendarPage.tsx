@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect, useState, useCallback } from "react";
+import { useMemo, useRef, useEffect, useLayoutEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -400,8 +400,8 @@ export default function CalendarPage() {
   const edgeDragDirRef = useRef<-1 | 1 | null>(null);
   // Track the target day for day-view edge navigation (accumulated offset from original date)
   const edgeDragTargetDayRef = useRef<Date | null>(null);
-  const EDGE_THRESHOLD = 40; // px from edge to trigger
-  const EDGE_NAV_DELAY = 600; // ms before navigating
+  const EDGE_THRESHOLD = 30; // px from edge to trigger
+  const EDGE_NAV_DELAY = 1200; // ms before navigating
 
   const clearEdgeDragTimer = useCallback(() => {
     if (edgeDragTimerRef.current) {
@@ -461,7 +461,6 @@ export default function CalendarPage() {
         if (edgeDir !== null) {
           edgeDragTimerRef.current = setTimeout(() => {
             triggerHapticFeedback("medium");
-            goToDay(edgeDir!);
 
             // In day view, track the accumulated target day so handleDragEnd
             // knows which day to save the event to
@@ -473,6 +472,27 @@ export default function CalendarPage() {
               newTarget.setDate(newTarget.getDate() + edgeDir!);
               edgeDragTargetDayRef.current = newTarget;
               setDragTargetDay(newTarget);
+            }
+
+            // Animate to adjacent panel via transform
+            const track = swipeTrackRef.current;
+            if (track) {
+              const pw = track.parentElement!.clientWidth;
+              const targetX = edgeDir === -1 ? 0 : -2 * pw;
+              track.style.transition = "transform 300ms cubic-bezier(0.2, 0, 0, 1)";
+              track.style.transform = `translateX(${targetX}px)`;
+              isNavigatingRef.current = true;
+              const onEnd = () => {
+                track.removeEventListener("transitionend", onEnd);
+                setSelectedDate((prev) => {
+                  const next = new Date(prev);
+                  next.setDate(next.getDate() + (viewMode === "week" ? edgeDir! * 7 : edgeDir!));
+                  return next;
+                });
+              };
+              track.addEventListener("transitionend", onEnd);
+            } else {
+              goToDay(edgeDir!);
             }
 
             // Reset so it can fire again if still at edge
@@ -899,130 +919,122 @@ export default function CalendarPage() {
     touchCreateRef.current = null;
   }, [createPageAtTime]);
 
-  // ── Swipe to navigate (Google Calendar style) ──
-  const swipeState = useRef<{
-    startX: number;
-    startY: number;
-    locked: "horizontal" | "vertical" | null;
-    lastTime: number;
-    lastX: number;
-    velocity: number;
-  } | null>(null);
-  const [swipeOffset, setSwipeOffset] = useState(0);
-  const [swipeTransition, setSwipeTransition] = useState(false);
+  // ── Swipe navigation (manual touch + transform) ──
+  const swipeTrackRef = useRef<HTMLDivElement>(null);
+  const isNavigatingRef = useRef(false);
+  const swipeTouchRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const swipeDirRef = useRef<"x" | "y" | null>(null);
+  const swipeOffsetRef = useRef(0);
 
-  const handleTouchStart = useCallback(
-    (e: React.TouchEvent) => {
-      // Don't start swipe if touch-create or dnd-kit drag is active
-      if (touchCreateRef.current?.active || activeDragPage) return;
-      const touch = e.touches[0];
-      setSwipeTransition(false);
-      swipeState.current = {
-        startX: touch.clientX,
-        startY: touch.clientY,
-        locked: null,
-        lastTime: Date.now(),
-        lastX: touch.clientX,
-        velocity: 0,
-      };
-    },
-    [activeDragPage],
-  );
+  // Reset to center panel before paint
+  useLayoutEffect(() => {
+    const track = swipeTrackRef.current;
+    if (!track) return;
+    track.style.transition = "none";
+    track.style.transform = `translateX(-100%)`;
+    swipeOffsetRef.current = 0;
+    requestAnimationFrame(() => {
+      isNavigatingRef.current = false;
+    });
+  }, [selectedDate, viewMode]);
 
-  // Attach native touchmove with { passive: false } so we can preventDefault
-  // to block scrolling while swiping horizontally
+  const handleSwipeTouchStart = useCallback((e: React.TouchEvent) => {
+    if (isNavigatingRef.current) return;
+    const touch = e.touches[0];
+    swipeTouchRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+    swipeDirRef.current = null;
+    const track = swipeTrackRef.current;
+    if (track) track.style.transition = "none";
+  }, []);
+
+  // Register touchmove natively with { passive: false } so preventDefault() works
   useEffect(() => {
-    const el = timelineRef.current;
-    if (!el) return;
+    const track = swipeTrackRef.current;
+    if (!track) return;
+    const strip = track.parentElement!;
 
     function onTouchMove(e: TouchEvent) {
-      // Suppress swipe if touch-create or dnd-kit drag is active
-      if (touchCreateRef.current?.active || activeDragPage) {
-        swipeState.current = null;
+      const start = swipeTouchRef.current;
+      if (!start) return;
+      const touch = e.touches[0];
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+
+      if (!swipeDirRef.current) {
+        if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+          swipeDirRef.current = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+        }
         return;
       }
-      const s = swipeState.current;
-      if (!s) return;
-      const touch = e.touches[0];
-      const dx = touch.clientX - s.startX;
-      const dy = touch.clientY - s.startY;
 
-      // Lock direction after a small threshold
-      if (!s.locked) {
-        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-        s.locked = Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical";
-        // Cancel long-press if swipe direction is detected
-        if (touchCreateRef.current && !touchCreateRef.current.active) {
-          clearTimeout(touchCreateRef.current.timer);
-          touchCreateRef.current = null;
-        }
-      }
+      if (swipeDirRef.current === "y") return;
 
-      if (s.locked === "vertical") return;
-
-      // Prevent vertical scroll while swiping horizontally
       e.preventDefault();
-
-      // Track velocity
-      const now = Date.now();
-      const dt = now - s.lastTime;
-      if (dt > 0) {
-        s.velocity = (touch.clientX - s.lastX) / dt;
-        s.lastTime = now;
-        s.lastX = touch.clientX;
-      }
-
-      setSwipeOffset(dx);
+      swipeOffsetRef.current = dx;
+      const pw = strip.clientWidth;
+      track!.style.transform = `translateX(${-pw + dx}px)`;
     }
 
-    el.addEventListener("touchmove", onTouchMove, { passive: false });
-    return () => el.removeEventListener("touchmove", onTouchMove);
-  }, [activeDragPage, viewMode]);
+    strip.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => strip.removeEventListener("touchmove", onTouchMove);
+  }, [viewMode]);
 
-  const handleTouchEnd = useCallback(() => {
-    // Skip swipe handling if create-drag or dnd-kit drag is active
-    if (touchCreateRef.current?.active || activeDragPage) return;
-    const s = swipeState.current;
-    if (!s || s.locked !== "horizontal") {
-      swipeState.current = null;
-      setSwipeOffset(0);
+  const handleSwipeTouchEnd = useCallback(() => {
+    const start = swipeTouchRef.current;
+    swipeTouchRef.current = null;
+    if (!start || swipeDirRef.current !== "x") {
+      swipeDirRef.current = null;
       return;
     }
 
-    const velocity = s.velocity;
-    const offset = swipeOffset;
-    const panelWidth = timelineRef.current?.clientWidth || window.innerWidth;
-    const threshold = panelWidth * 0.25;
-    const shouldNavigate =
-      Math.abs(offset) > threshold || Math.abs(velocity) > 0.4;
+    const track = swipeTrackRef.current;
+    if (!track) return;
 
-    if (shouldNavigate) {
-      const dir =
-        Math.abs(velocity) > 0.4
-          ? velocity > 0
-            ? -1
-            : 1
-          : offset > 0
-            ? -1
-            : 1;
-      // Animate strip to fully reveal adjacent panel
-      setSwipeTransition(true);
-      setSwipeOffset(dir === -1 ? panelWidth : -panelWidth);
-      // After animation: navigate and snap back to center (no transition)
-      setTimeout(() => {
-        goToDay(dir);
-        setSwipeTransition(false);
-        setSwipeOffset(0);
-      }, 250);
-    } else {
-      // Snap back
-      setSwipeTransition(true);
-      setSwipeOffset(0);
-      setTimeout(() => setSwipeTransition(false), 250);
+    const pw = track.parentElement!.clientWidth;
+    const dx = swipeOffsetRef.current;
+    const dt = Date.now() - start.time;
+    const velocity = Math.abs(dx) / dt; // px/ms
+
+    const VELOCITY_THRESHOLD = 0.3;
+    const DISTANCE_THRESHOLD = pw * 0.25;
+
+    let target: -1 | 0 | 1 = 0;
+    if (dx > 0 && (velocity > VELOCITY_THRESHOLD || dx > DISTANCE_THRESHOLD)) {
+      target = -1; // swiped right → prev
+    } else if (dx < 0 && (velocity > VELOCITY_THRESHOLD || -dx > DISTANCE_THRESHOLD)) {
+      target = 1; // swiped left → next
     }
 
-    swipeState.current = null;
-  }, [swipeOffset, viewMode, activeDragPage]);
+    // prev → translateX(0), center → translateX(-pw), next → translateX(-2pw)
+    const targetX = -pw - target * pw;
+
+    const remainingDist = Math.abs(targetX - (-pw + dx));
+    const duration = target === 0
+      ? Math.min(250, Math.max(120, remainingDist * 0.8))
+      : Math.min(300, Math.max(150, remainingDist / Math.max(velocity, 0.5)));
+
+    track.style.transition = `transform ${duration}ms cubic-bezier(0.2, 0, 0, 1)`;
+    track.style.transform = `translateX(${targetX}px)`;
+
+    swipeOffsetRef.current = 0;
+    swipeDirRef.current = null;
+
+    if (target !== 0) {
+      const onEnd = () => {
+        track.removeEventListener("transitionend", onEnd);
+        isNavigatingRef.current = true;
+        setSelectedDate((prev) => {
+          const next = new Date(prev);
+          const delta = target === -1
+            ? (viewMode === "week" ? -7 : -1)
+            : (viewMode === "week" ? 7 : 1);
+          next.setDate(next.getDate() + delta);
+          return next;
+        });
+      };
+      track.addEventListener("transitionend", onEnd);
+    }
+  }, [viewMode]);
 
   // ── Now indicator ──
   const [nowMinutes, setNowMinutes] = useState(() => {
@@ -1076,17 +1088,6 @@ export default function CalendarPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [createPageAtTime, viewMode, previewPageId]);
-
-  // ── Swipe strip style ──
-  // Uses margin-left: -100% for default positioning (no transform = sticky headers work)
-  // Only applies transform during active swipe/animation
-  const swipeStyle: React.CSSProperties | undefined =
-    swipeOffset !== 0 || swipeTransition
-      ? {
-          transform: `translateX(${swipeOffset}px)`,
-          transition: swipeTransition ? "transform 0.25s ease-out" : undefined,
-        }
-      : undefined;
 
   const noopHandler = useCallback(() => {}, []);
 
@@ -1255,7 +1256,7 @@ export default function CalendarPage() {
           );
         })}
         {/* Keep dragged EventCard mounted during edge-drag navigation */}
-        {isCenter &&
+        {/* {isCenter &&
           activeDragPage &&
           !days.some((day) =>
             getPagesForDay(day).some((p) => p.id === activeDragPage!.id),
@@ -1268,7 +1269,7 @@ export default function CalendarPage() {
               compact
               isDraft={activeDragPage.id === "__draft__"}
             />
-          )}
+          )} */}
       </div>
     );
   }
@@ -1411,6 +1412,9 @@ export default function CalendarPage() {
         onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
+        autoScroll={{
+          threshold: { x: 0, y: 0.2 },
+        }}
       >
         {viewMode === "day" ? (
           /* ── Day View ── */
@@ -1434,10 +1438,9 @@ export default function CalendarPage() {
             <div
               className={style.timeline}
               ref={timelineRef}
-              onTouchStart={handleTouchStart}
-              onTouchEnd={handleTouchEnd}
             >
-              <div className={style.swipeStrip} style={swipeStyle}>
+              <div className={style.swipeStrip} onTouchStart={handleSwipeTouchStart} onTouchEnd={handleSwipeTouchEnd} onTouchCancel={handleSwipeTouchEnd}>
+              <div className={style.swipeTrack} ref={swipeTrackRef}>
                 {/* Previous day */}
                 <div className={style.swipePanel}>
                   <div
@@ -1504,7 +1507,7 @@ export default function CalendarPage() {
                     ))}
 
                     {/* Keep dragged EventCard mounted during edge-drag navigation */}
-                    {activeDragPage &&
+                    {/* {activeDragPage &&
                       !getPagesForDay(selectedDate).some(
                         (p) => p.id === activeDragPage.id,
                       ) && (
@@ -1515,7 +1518,7 @@ export default function CalendarPage() {
                           onEventClick={noopHandler}
                           isDraft={activeDragPage.id === "__draft__"}
                         />
-                      )}
+                      )} */}
 
                     {/* Move-drag ghost preview on grid */}
                     {activeDragPage &&
@@ -1632,6 +1635,7 @@ export default function CalendarPage() {
                   </div>
                 </div>
               </div>
+              </div>
             </div>
           </>
         ) : (
@@ -1656,10 +1660,9 @@ export default function CalendarPage() {
             <div
               className={style.timeline}
               ref={timelineRef}
-              onTouchStart={handleTouchStart}
-              onTouchEnd={handleTouchEnd}
             >
-              <div className={style.swipeStrip} style={swipeStyle}>
+              <div className={style.swipeStrip} onTouchStart={handleSwipeTouchStart} onTouchEnd={handleSwipeTouchEnd} onTouchCancel={handleSwipeTouchEnd}>
+              <div className={style.swipeTrack} ref={swipeTrackRef}>
                 <div className={style.swipePanel}>
                   {renderWeekPanel(prevWeekDays, false)}
                 </div>
@@ -1669,6 +1672,7 @@ export default function CalendarPage() {
                 <div className={style.swipePanel}>
                   {renderWeekPanel(nextWeekDays, false)}
                 </div>
+              </div>
               </div>
             </div>
           </>

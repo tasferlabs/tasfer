@@ -28,6 +28,14 @@ self.addEventListener("fetch", (event) => {
     return; // Don't call respondWith - let Workbox handle it
   }
 
+  // Don't intercept mutation requests (PUT/POST/DELETE) - let them go directly
+  // to the network. The SW's error-swallowing pattern can silently lose mutations
+  // when the fetch fails but the user is online (queued mutations only replay on
+  // the "online" event, which never fires if already online).
+  if (event.request.method !== "GET" && event.request.mode !== "navigate") {
+    return;
+  }
+
   event.respondWith(
     (async () => {
       const response = await app.handleRequest(event.request);
@@ -95,24 +103,6 @@ async function cleanupPageCaches(pageId: string): Promise<void> {
     client.postMessage({
       type: "PAGE_DELETED",
       pageId,
-    });
-  });
-}
-
-// Helper to queue mutation and return synthetic response
-async function queueMutation(request: Request) {
-  const body = await request.clone().json();
-
-  // Send message to client to queue mutation
-  const clients = await self.clients.matchAll({ type: "window" });
-  clients.forEach((client) => {
-    client.postMessage({
-      type: "QUEUE_MUTATION",
-      payload: {
-        url: request.url,
-        method: request.method,
-        body,
-      },
     });
   });
 }
@@ -252,142 +242,6 @@ app.get("/api/images/{id}", async (req, res) => {
     return res.send(response);
   } catch {
     return res.json({ success: false }, { status: 503 });
-  }
-});
-
-// Handle page mutations (PUT)
-app.put("/api/pages/{id}", async (req, res) => {
-  const request = req._request;
-
-  // If definitely offline, queue immediately
-  if (!navigator.onLine) {
-    await queueMutation(request);
-    return res.json({ success: true });
-  }
-
-  // If online, try the network but fall back to queueing on failure
-  try {
-    const response = await authFetch(request.clone());
-    return res.send(response);
-  } catch {
-    // Network error - queue mutation for later
-    await queueMutation(request);
-    return res.json({ success: true });
-  }
-});
-
-// Handle page deletion
-app.delete("/api/pages/{id}", async (req, res) => {
-  const request = req._request;
-  const pageId = req.params.id;
-
-  // If definitely offline, queue immediately
-  if (!navigator.onLine) {
-    await queueMutation(request);
-    await cleanupPageCaches(pageId);
-    return res.json({ success: true });
-  }
-
-  // If online, try the network but fall back to queueing on failure
-  try {
-    const response = await authFetch(request.clone());
-    // Clean up caches on successful delete OR 404 (already deleted)
-    if (response.ok || response.status === 404) {
-      await cleanupPageCaches(pageId);
-    }
-    return res.send(response);
-  } catch {
-    // Network error - queue mutation for later
-    await queueMutation(request);
-    await cleanupPageCaches(pageId);
-    return res.json({ success: true });
-  }
-});
-
-// Handle page creation
-app.post("/api/pages/create", async (req, res) => {
-  const request = req._request;
-
-  // If online, try the network but fall back to queueing on failure
-  try {
-    const response = await authFetch(request.clone());
-    return res.send(response);
-  } catch {
-    await queueMutation(request);
-    const body = await request.clone().json();
-    return res.json({
-      success: true,
-      data: {
-        id: body.id || crypto.randomUUID(),
-        title: body.title || "",
-        autoTitle: body.autoTitle ?? true,
-        parentId: body.parentId ?? null,
-        order: body.order ?? 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    });
-  }
-});
-
-// Handle move/reorder operations
-app.post("/api/pages/{id}/move", async (req, res) => {
-  const request = req._request;
-
-  // If online, try the network but fall back to queueing on failure
-  try {
-    const response = await authFetch(request.clone());
-    return res.send(response);
-  } catch {
-    await queueMutation(request);
-    return res.json({ success: true });
-  }
-});
-
-app.post("/api/pages/{id}/reorder", async (req, res) => {
-  const request = req._request;
-
-  // If online, try the network but fall back to queueing on failure
-  try {
-    const response = await authFetch(request.clone());
-    return res.send(response);
-  } catch {
-    await queueMutation(request);
-    return res.json({ success: true });
-  }
-});
-
-// Catch-all for other API mutations (POST/PUT/DELETE)
-app.post("/api/{path+}", async (req, res) => {
-  const request = req._request;
-
-  try {
-    return res.send(await authFetch(request.clone()));
-  } catch {
-    await queueMutation(request);
-    return res.json({ success: true });
-  }
-});
-
-app.put("/api/{path+}", async (req, res) => {
-  const request = req._request;
-
-  try {
-    return res.send(await authFetch(request.clone()));
-  } catch {
-    await queueMutation(request);
-    return res.json({ success: true });
-  }
-});
-
-app.delete("/api/{path+}", async (req, res) => {
-  const request = req._request;
-
-  try {
-    return res.send(await authFetch(request.clone()));
-  } catch {
-    await queueMutation(request);
-    return res.json({ success: true });
   }
 });
 

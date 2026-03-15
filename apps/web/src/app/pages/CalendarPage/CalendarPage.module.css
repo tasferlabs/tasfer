@@ -143,18 +143,20 @@
   padding-bottom: 2rem;
 }
 
-/* ── Swipe strip (3-panel horizontal layout) ── */
+/* ── Swipe strip (3-panel horizontal scroll-snap) ── */
 
 .swipeStrip {
+  overflow: hidden;
+}
+
+.swipeTrack {
   display: flex;
-  width: 300%;
-  margin-left: -100%;
+  will-change: transform;
 }
 
 .swipePanel {
-  width: 33.333%;
+  min-width: 100%;
   flex-shrink: 0;
-  min-width: 0;
 }
 
 .timelineGrid {
