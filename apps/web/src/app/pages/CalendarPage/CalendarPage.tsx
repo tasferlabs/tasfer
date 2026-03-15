@@ -1244,6 +1244,19 @@ export default function CalendarPage() {
               {selectedDate.toLocaleDateString(undefined, { month: "long" })}
               <ChevronDown size={14} />
             </button>
+            <button
+              className={clsx(style.todayButtonMobile, "ms-auto")}
+              onClick={goToToday}
+              aria-label={t("Today")}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <text x="12" y="19" textAnchor="middle" stroke="none" fill="currentColor" fontSize="8" fontWeight="700">{new Date().getDate()}</text>
+              </svg>
+            </button>
             <DateTimePickerOverlay
               open={miniCalOpen}
               onClose={() => setMiniCalOpen(false)}
@@ -1263,7 +1276,6 @@ export default function CalendarPage() {
               type="date"
               maxDate="9999-12-31"
               minDate="0001-01-01"
-              activateTodayButton
             />
             <div className={clsx(style.viewToggle, "me-4")}>
               <button

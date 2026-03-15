@@ -68,7 +68,28 @@
   background-color: var(--accent);
 }
 
+.todayButtonMobile {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--foreground);
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px;
+  /* margin-inline-start: auto; */
+}
+
+.todayButtonMobile:hover {
+  background-color: var(--accent);
+}
+
 @media (max-width: 640px) {
+  .todayButtonMobile {
+    display: flex;
+  }
+
   .headerNav {
     display: none;
   }
@@ -776,7 +797,7 @@
 .viewToggle {
   display: flex;
   gap: 2px;
-  margin-left: auto;
+  /* margin-left: auto; */
   background-color: var(--accent);
   border-radius: 6px;
   padding: 2px;
@@ -801,6 +822,12 @@
   background-color: var(--card);
   color: var(--foreground);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+@media (min-width: 640px) {
+  .viewToggle {
+    margin-inline-start: auto;
+  }
 }
 
 /* ── Day view sticky header ── */
