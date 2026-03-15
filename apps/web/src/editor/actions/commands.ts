@@ -19,7 +19,7 @@ import {
   updateMode,
   updateSelectionFocus,
 } from "../state";
-import { deleteFromRuns, iterateVisibleChars } from "../sync/char-runs";
+import { deleteFromRuns, isCharIdInRange, iterateVisibleChars } from "../sync/char-runs";
 import {
   allCharsHaveFormat,
   applyRemoteOps,
@@ -35,7 +35,7 @@ import {
   findPreviousVisibleBlockIndex,
 } from "../sync/reducer";
 import { getClock, getPageId, nextId } from "../sync/sync";
-import type { BlockInsert, BlockSet, Operation } from "../sync/types";
+import type { BlockInsert, BlockSet, FormatSet, Operation } from "../sync/types";
 import type {
   CommandResult,
   EditorState,
@@ -48,6 +48,104 @@ import {
   positionToCRDT,
   selectionRangeToCRDT,
 } from "../undo";
+
+/**
+ * URL regex pattern for auto-detection.
+ * Matches http://, https://, and www. prefixed URLs.
+ */
+const URL_REGEX =
+  /https?:\/\/[^\s<>\"']+|www\.[^\s<>\"']+\.[^\s<>\"']+/i;
+
+/**
+ * Detect if the word ending just before `cursorIndex` in the text is a URL.
+ * Returns the start and end indices of the URL, or null if no URL found.
+ */
+function detectUrlBeforeCursor(
+  text: string,
+  cursorIndex: number
+): { start: number; end: number; url: string } | null {
+  // Walk backward from cursorIndex to find the word boundary
+  let end = cursorIndex;
+  // Skip trailing whitespace/newline (the character that triggered this)
+  while (end > 0 && (text[end - 1] === " " || text[end - 1] === "\n")) {
+    end--;
+  }
+  if (end === 0) return null;
+
+  // Find the start of the word (walk backward until whitespace or start)
+  let start = end;
+  while (start > 0 && text[start - 1] !== " " && text[start - 1] !== "\n") {
+    start--;
+  }
+
+  const word = text.slice(start, end);
+  if (!URL_REGEX.test(word)) return null;
+
+  // Strip trailing punctuation that's likely not part of the URL
+  let cleanWord = word.replace(/[.,;:!?)]+$/, "");
+  if (!URL_REGEX.test(cleanWord)) return null;
+
+  const cleanEnd = start + cleanWord.length;
+
+  // Normalize the URL
+  let url = cleanWord;
+  if (url.startsWith("www.")) {
+    url = "https://" + url;
+  }
+
+  return { start, end: cleanEnd, url };
+}
+
+/**
+ * Apply link format to a detected URL in a block's char runs.
+ * Returns updated formats and any CRDT ops, or null if no URL was detected.
+ */
+function autoLinkAtCursor(
+  charRuns: CharRun[],
+  formats: FormatSpan[],
+  text: string,
+  cursorIndex: number,
+  blockId: string
+): { newFormats: FormatSpan[]; ops: Operation[] } | null {
+  const detected = detectUrlBeforeCursor(text, cursorIndex);
+  if (!detected) return null;
+
+  // Check if this range is already a link
+  for (const span of formats) {
+    if (span.format.type === "link") {
+      // Get the char indices of this span to check overlap
+      let inSpan = false;
+      let spanStart = -1;
+      let spanEnd = -1;
+      let idx = 0;
+      for (const { id } of iterateVisibleChars(charRuns)) {
+        if (id === span.startCharId) {
+          inSpan = true;
+          spanStart = idx;
+        }
+        if (inSpan) spanEnd = idx + 1;
+        if (id === span.endCharId) break;
+        idx++;
+      }
+      // If there's overlap, skip
+      if (spanStart !== -1 && spanStart < detected.end && spanEnd > detected.start) {
+        return null;
+      }
+    }
+  }
+
+  const { newFormats, op } = formatCharsInRange(
+    charRuns,
+    formats,
+    detected.start,
+    detected.end,
+    blockId,
+    { type: "link", url: detected.url },
+    detected.url
+  );
+
+  return { newFormats, ops: [op] };
+}
 
 /**
  * Helper to determine if text is RTL based on charRuns
@@ -842,6 +940,22 @@ export function insertText(state: EditorState, input: string): CommandResult {
       finalFormats = markdownResult.formats;
       finalTextIndex = markdownResult.newTextIndex;
       ops.push(...markdownResult.ops);
+    }
+  }
+
+  // Auto-detect URLs when a word boundary is typed (space)
+  if (input === " ") {
+    const text = getVisibleText(finalCharRuns);
+    const linkResult = autoLinkAtCursor(
+      finalCharRuns,
+      finalFormats,
+      text,
+      finalTextIndex,
+      oldBlock.id
+    );
+    if (linkResult) {
+      finalFormats = linkResult.newFormats;
+      ops.push(...linkResult.ops);
     }
   }
 
@@ -2239,10 +2353,45 @@ export function splitBlock(state: EditorState): CommandResult {
     return { state, ops: [] };
   }
 
-  const oldText = getVisibleText(oldBlock.charRuns);
+  // Auto-detect URLs before splitting (Enter acts as a word boundary)
+  let currentBlock = oldBlock;
+  {
+    const text = getVisibleText(currentBlock.charRuns);
+    const linkResult = autoLinkAtCursor(
+      currentBlock.charRuns,
+      currentBlock.formats,
+      text,
+      textIndex,
+      currentBlock.id
+    );
+    if (linkResult) {
+      currentBlock = {
+        ...currentBlock,
+        formats: linkResult.newFormats,
+      };
+      invalidateBlockCache(currentBlock);
+      ops.push(...linkResult.ops);
+
+      // Update the block in state so the split operates on the updated block
+      const updatedBlocks = [
+        ...state.document.page.blocks.slice(0, blockIndex),
+        currentBlock,
+        ...state.document.page.blocks.slice(blockIndex + 1),
+      ];
+      state = {
+        ...state,
+        document: {
+          ...state.document,
+          page: { ...state.document.page, blocks: updatedBlocks },
+        },
+      };
+    }
+  }
+
+  const oldText = getVisibleText(currentBlock.charRuns);
 
   // Preserve the original block type for both blocks
-  const originalType = oldBlock.type;
+  const originalType = currentBlock.type;
 
   // Determine types for both blocks based on cursor position
   const isAtStart = textIndex === 0;
@@ -2477,7 +2626,7 @@ export function splitBlock(state: EditorState): CommandResult {
     id: oldBlock.id,
     type: blockCopy1Type,
     charRuns: blockCopy1CharRuns,
-    formats: oldBlock.formats,
+    formats: currentBlock.formats,
   };
 
   // Only apply markdown prefix if the block type is a paragraph
@@ -2527,11 +2676,69 @@ export function splitBlock(state: EditorState): CommandResult {
     ops.push(insertOp);
   }
 
+  // Transfer formats that cover text after cursor to the new block
+  let blockCopy2Formats: FormatSpan[] = [];
+  if (afterCharsText.length > 0 && currentBlock.formats.length > 0) {
+    // Collect old char IDs for the "after cursor" range and new char IDs from blockCopy2
+    const afterCharIds: string[] = [];
+    let visibleCount = 0;
+    for (const { id } of iterateVisibleChars(oldBlock.charRuns)) {
+      if (visibleCount >= textIndex) {
+        afterCharIds.push(id);
+      }
+      visibleCount++;
+      if (afterCharIds.length >= afterCharsText.length) break;
+    }
+
+    const newCharIds: string[] = [];
+    for (const { id } of iterateVisibleChars(blockCopy2CharRuns)) {
+      newCharIds.push(id);
+    }
+
+    if (afterCharIds.length === newCharIds.length && afterCharIds.length > 0) {
+      const oldIdToNewId = new Map<string, string>();
+      for (let i = 0; i < afterCharIds.length; i++) {
+        oldIdToNewId.set(afterCharIds[i], newCharIds[i]);
+      }
+
+      for (const span of currentBlock.formats) {
+        // Find which old char IDs in the after range are covered by this span
+        const coveredNewIds: string[] = [];
+        for (const oldId of afterCharIds) {
+          if (isCharIdInRange(oldBlock.charRuns, oldId, span.startCharId, span.endCharId)) {
+            coveredNewIds.push(oldIdToNewId.get(oldId)!);
+          }
+        }
+
+        if (coveredNewIds.length > 0) {
+          blockCopy2Formats.push({
+            startCharId: coveredNewIds[0],
+            endCharId: coveredNewIds[coveredNewIds.length - 1],
+            format: span.format,
+            clock: getClock(),
+          });
+
+          const formatOp: FormatSet = {
+            op: "format_set",
+            id: nextId(),
+            clock: getClock(),
+            pageId: getPageId(),
+            blockId: newBlockId,
+            charIds: coveredNewIds,
+            format: span.format,
+            value: span.format.type === "link" ? (span.format.url || true) : true,
+          };
+          ops.push(formatOp);
+        }
+      }
+    }
+  }
+
   const blockCopy2: Block = {
     id: newBlockId,
     type: blockCopy2Type,
     charRuns: blockCopy2CharRuns,
-    formats: [],
+    formats: blockCopy2Formats,
   } as Block;
 
   // Invalidate cache for both new blocks

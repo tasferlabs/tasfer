@@ -101,9 +101,15 @@ export default function CalendarPage() {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   // Overlay state derived from selectedDate
-  const [overlayYear, setOverlayYear] = useState(() => String(selectedDate.getFullYear()).padStart(4, "0"));
-  const [overlayMonth, setOverlayMonth] = useState(() => String(selectedDate.getMonth() + 1).padStart(2, "0"));
-  const [overlayDay, setOverlayDay] = useState(() => String(selectedDate.getDate()).padStart(2, "0"));
+  const [overlayYear, setOverlayYear] = useState(() =>
+    String(selectedDate.getFullYear()).padStart(4, "0"),
+  );
+  const [overlayMonth, setOverlayMonth] = useState(() =>
+    String(selectedDate.getMonth() + 1).padStart(2, "0"),
+  );
+  const [overlayDay, setOverlayDay] = useState(() =>
+    String(selectedDate.getDate()).padStart(2, "0"),
+  );
 
   // Sync overlay state when selectedDate changes
   useEffect(() => {
@@ -118,7 +124,10 @@ export default function CalendarPage() {
     const m = parseInt(overlayMonth);
     const d = parseInt(overlayDay);
     if (!y || !m || !d) return null;
-    return DateTime.fromObject({ year: y, month: m, day: d }, { zone: tz }).toISODate();
+    return DateTime.fromObject(
+      { year: y, month: m, day: d },
+      { zone: tz },
+    ).toISODate();
   }, [overlayYear, overlayMonth, overlayDay, tz]);
 
   const prevOverlayValue = useRef(overlayValue);
@@ -148,19 +157,16 @@ export default function CalendarPage() {
     });
   }, []);
 
-  const handleEventClick = useCallback(
-    (pageId: string, rect: DOMRect) => {
-      if (pageId === "__draft__") {
-        // Draft event clicked - just set anchor for positioning
-        setPreviewAnchor(rect);
-        return;
-      }
-      setDraftEvent(null);
-      setPreviewPageId(pageId);
+  const handleEventClick = useCallback((pageId: string, rect: DOMRect) => {
+    if (pageId === "__draft__") {
+      // Draft event clicked - just set anchor for positioning
       setPreviewAnchor(rect);
-    },
-    [],
-  );
+      return;
+    }
+    setDraftEvent(null);
+    setPreviewPageId(pageId);
+    setPreviewAnchor(rect);
+  }, []);
 
   // Compute adjacent dates for swipe panels
   const prevDate = useMemo(() => {
@@ -272,21 +278,31 @@ export default function CalendarPage() {
     [activeSpaceId, selectedDate],
   );
 
-  const draftSnapshotRef = useRef<{ snapshot?: Block[]; clock?: HLC | null }>({});
+  const draftSnapshotRef = useRef<{ snapshot?: Block[]; clock?: HLC | null }>(
+    {},
+  );
 
-  const handleDraftSave = useCallback((snapshot?: Block[], clock?: HLC | null, parentId?: string | null, task?: boolean) => {
-    if (!draftEvent || !activeSpaceId) return;
-    // Store snapshot to save after page creation
-    draftSnapshotRef.current = { snapshot, clock };
-    createPage({
-      title: snapshot ? extractTitleFromBlocks(snapshot) : "",
-      parentId: parentId ?? null,
-      spaceId: activeSpaceId,
-      scheduledAt: draftEvent.scheduledAt,
-      duration: draftEvent.duration,
-      task: task ?? true,
-    });
-  }, [draftEvent, activeSpaceId, createPage]);
+  const handleDraftSave = useCallback(
+    (
+      snapshot?: Block[],
+      clock?: HLC | null,
+      parentId?: string | null,
+      task?: boolean,
+    ) => {
+      if (!draftEvent || !activeSpaceId) return;
+      // Store snapshot to save after page creation
+      draftSnapshotRef.current = { snapshot, clock };
+      createPage({
+        title: snapshot ? extractTitleFromBlocks(snapshot) : "",
+        parentId: parentId ?? null,
+        spaceId: activeSpaceId,
+        scheduledAt: draftEvent.scheduledAt,
+        duration: draftEvent.duration,
+        task: task ?? true,
+      });
+    },
+    [draftEvent, activeSpaceId, createPage],
+  );
 
   // Separate all-day and timed events
   const { timedPages, allDayPages } = useMemo(() => {
@@ -368,7 +384,9 @@ export default function CalendarPage() {
   // ── dnd-kit: drag to move events ──
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 8 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 150, tolerance: 8 },
+    }),
   );
 
   const [activeDragPage, setActiveDragPage] = useState<ICalendarPage | null>(
@@ -448,7 +466,9 @@ export default function CalendarPage() {
             // In day view, track the accumulated target day so handleDragEnd
             // knows which day to save the event to
             if (viewMode === "day") {
-              const base = edgeDragTargetDayRef.current || new Date(activeDragPage!.scheduledAt);
+              const base =
+                edgeDragTargetDayRef.current ||
+                new Date(activeDragPage!.scheduledAt);
               const newTarget = new Date(base);
               newTarget.setDate(newTarget.getDate() + edgeDir!);
               edgeDragTargetDayRef.current = newTarget;
@@ -585,9 +605,7 @@ export default function CalendarPage() {
       const d = resizeDurationRef.current;
       if (r && d !== null && d !== r.originalDuration) {
         if (r.pageId === "__draft__") {
-          setDraftEvent((prev) =>
-            prev ? { ...prev, duration: d } : prev,
-          );
+          setDraftEvent((prev) => (prev ? { ...prev, duration: d } : prev));
         } else {
           updatePage({ id: r.pageId, duration: d });
         }
@@ -644,7 +662,11 @@ export default function CalendarPage() {
   }
 
   function handleGridMouseDown(e: React.MouseEvent) {
-    if ((!sidebarMode && (previewPageId || draftEvent)) || previewJustClosedRef.current) return;
+    if (
+      (!sidebarMode && (previewPageId || draftEvent)) ||
+      previewJustClosedRef.current
+    )
+      return;
     if ((e.target as HTMLElement).closest(`.${style.eventCard}`)) return;
     if ((e.target as HTMLElement).closest(`.${style.resizeHandle}`)) return;
     e.preventDefault();
@@ -735,53 +757,72 @@ export default function CalendarPage() {
 
   // Compute minutes from a clientY position relative to the grid
   const getMinutesFromClientY = useCallback((clientY: number): number => {
-    const columnEl = touchCreateRef.current?.targetEl.closest(`[data-day-index]`) as HTMLElement | null;
+    const columnEl = touchCreateRef.current?.targetEl.closest(
+      `[data-day-index]`,
+    ) as HTMLElement | null;
     const el = columnEl || gridRef.current;
     if (!el) return 0;
     const rect = el.getBoundingClientRect();
     const y = clientY - rect.top;
-    return Math.max(0, Math.min(pxToMinutes(y), TOTAL_HOURS * 60 - SNAP_MINUTES));
+    return Math.max(
+      0,
+      Math.min(pxToMinutes(y), TOTAL_HOURS * 60 - SNAP_MINUTES),
+    );
   }, []);
 
-  const handleGridTouchStart = useCallback((e: React.TouchEvent) => {
-    // Don't start create-drag if preview/draft is open, or if touching an event card
-    if ((!sidebarMode && (previewPageId || draftEvent)) || previewJustClosedRef.current) return;
-    const target = e.target as HTMLElement;
-    if (target.closest(`.${style.eventCard}`)) return;
-    if (target.closest(`.${style.resizeHandle}`)) return;
+  const handleGridTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      // Don't start create-drag if preview/draft is open, or if touching an event card
+      if (
+        (!sidebarMode && (previewPageId || draftEvent)) ||
+        previewJustClosedRef.current
+      )
+        return;
+      const target = e.target as HTMLElement;
+      if (target.closest(`.${style.eventCard}`)) return;
+      if (target.closest(`.${style.resizeHandle}`)) return;
 
-    const touch = e.touches[0];
-    const scrollTop = timelineRef.current?.scrollTop ?? 0;
+      const touch = e.touches[0];
+      const scrollTop = timelineRef.current?.scrollTop ?? 0;
 
-    const timer = setTimeout(() => {
-      const state = touchCreateRef.current;
-      if (!state) return;
+      const timer = setTimeout(() => {
+        const state = touchCreateRef.current;
+        if (!state) return;
 
-      // Activate create mode
-      state.active = true;
+        // Activate create mode
+        state.active = true;
 
-      // Haptic feedback (native bridge on iOS/Android, Vibration API fallback)
-      triggerHapticFeedback("medium");
+        // Haptic feedback (native bridge on iOS/Android, Vibration API fallback)
+        triggerHapticFeedback("medium");
 
-      const date = getColumnDateFromElement(state.targetEl);
-      const minutes = getMinutesFromClientY(state.startY);
+        const date = getColumnDateFromElement(state.targetEl);
+        const minutes = getMinutesFromClientY(state.startY);
 
-      setCreateDrag({
-        startMinutes: minutes,
-        endMinutes: minutes + SNAP_MINUTES,
-        date,
-      });
-    }, LONG_PRESS_MS);
+        setCreateDrag({
+          startMinutes: minutes,
+          endMinutes: minutes + SNAP_MINUTES,
+          date,
+        });
+      }, LONG_PRESS_MS);
 
-    touchCreateRef.current = {
-      timer,
-      startX: touch.clientX,
-      startY: touch.clientY,
-      targetEl: target,
-      scrollTop,
-      active: false,
-    };
-  }, [sidebarMode, previewPageId, draftEvent, getMinutesFromClientY, viewMode, weekDays]);
+      touchCreateRef.current = {
+        timer,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        targetEl: target,
+        scrollTop,
+        active: false,
+      };
+    },
+    [
+      sidebarMode,
+      previewPageId,
+      draftEvent,
+      getMinutesFromClientY,
+      viewMode,
+      weekDays,
+    ],
+  );
 
   // Native touchmove handler for create-drag (needs passive: false to preventDefault)
   useEffect(() => {
@@ -798,8 +839,14 @@ export default function CalendarPage() {
         // Before long-press fires: cancel if finger moves too much or if scroll changed
         const dx = Math.abs(touch.clientX - state.startX);
         const dy = Math.abs(touch.clientY - state.startY);
-        const scrollDelta = Math.abs((timelineRef.current?.scrollTop ?? 0) - state.scrollTop);
-        if (dx > LONG_PRESS_MOVE_TOLERANCE || dy > LONG_PRESS_MOVE_TOLERANCE || scrollDelta > 5) {
+        const scrollDelta = Math.abs(
+          (timelineRef.current?.scrollTop ?? 0) - state.scrollTop,
+        );
+        if (
+          dx > LONG_PRESS_MOVE_TOLERANCE ||
+          dy > LONG_PRESS_MOVE_TOLERANCE ||
+          scrollDelta > 5
+        ) {
           clearTimeout(state.timer);
           touchCreateRef.current = null;
         }
@@ -820,7 +867,10 @@ export default function CalendarPage() {
         return {
           ...prev,
           startMinutes: minMin,
-          endMinutes: Math.min(Math.max(maxMin, minMin + MIN_DRAG_MINUTES), TOTAL_HOURS * 60),
+          endMinutes: Math.min(
+            Math.max(maxMin, minMin + MIN_DRAG_MINUTES),
+            TOTAL_HOURS * 60,
+          ),
         };
       });
     }
@@ -861,20 +911,23 @@ export default function CalendarPage() {
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [swipeTransition, setSwipeTransition] = useState(false);
 
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    // Don't start swipe if touch-create or dnd-kit drag is active
-    if (touchCreateRef.current?.active || activeDragPage) return;
-    const touch = e.touches[0];
-    setSwipeTransition(false);
-    swipeState.current = {
-      startX: touch.clientX,
-      startY: touch.clientY,
-      locked: null,
-      lastTime: Date.now(),
-      lastX: touch.clientX,
-      velocity: 0,
-    };
-  }, [activeDragPage]);
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      // Don't start swipe if touch-create or dnd-kit drag is active
+      if (touchCreateRef.current?.active || activeDragPage) return;
+      const touch = e.touches[0];
+      setSwipeTransition(false);
+      swipeState.current = {
+        startX: touch.clientX,
+        startY: touch.clientY,
+        locked: null,
+        lastTime: Date.now(),
+        lastX: touch.clientX,
+        velocity: 0,
+      };
+    },
+    [activeDragPage],
+  );
 
   // Attach native touchmove with { passive: false } so we can preventDefault
   // to block scrolling while swiping horizontally
@@ -944,9 +997,14 @@ export default function CalendarPage() {
       Math.abs(offset) > threshold || Math.abs(velocity) > 0.4;
 
     if (shouldNavigate) {
-      const dir = Math.abs(velocity) > 0.4
-        ? (velocity > 0 ? -1 : 1)
-        : (offset > 0 ? -1 : 1);
+      const dir =
+        Math.abs(velocity) > 0.4
+          ? velocity > 0
+            ? -1
+            : 1
+          : offset > 0
+            ? -1
+            : 1;
       // Animate strip to fully reveal adjacent panel
       setSwipeTransition(true);
       setSwipeOffset(dir === -1 ? panelWidth : -panelWidth);
@@ -1154,52 +1212,54 @@ export default function CalendarPage() {
 
   function renderWeekPanel(days: Date[], isCenter: boolean) {
     return (
-      <>
-        <div className={style.weekHeader}>
-          <div className={style.weekTimeLabelSpacer} />
-          {days.map((day, i) => (
+      <div
+        ref={isCenter ? gridRef : undefined}
+        className={style.weekGrid}
+        style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
+        onMouseDown={isCenter ? handleGridMouseDown : undefined}
+        onTouchStart={isCenter ? handleGridTouchStart : undefined}
+        onTouchEnd={isCenter ? handleGridTouchEnd : undefined}
+        onTouchCancel={isCenter ? handleGridTouchEnd : undefined}
+      >
+        <div className={style.weekTimeLabels}>
+          {Array.from({ length: TOTAL_HOURS }, (_, hour) => (
             <div
-              key={i}
-              className={`${style.weekDayHeader} ${isSameDay(day, today) ? style.weekDayHeaderToday : ""}`}
-              onClick={isCenter ? () => { setSelectedDate(day); setViewMode("day"); } : undefined}
+              key={hour}
+              className={style.weekTimeLabel}
+              style={{ top: hour * HOUR_HEIGHT }}
             >
-              <span className={style.weekDayName}>{shortDayName(day)}</span>
-              <span className={style.weekDayNumber}>{day.getDate()}</span>
+              {formatHour(hour)}
             </div>
           ))}
         </div>
-        <div
-          ref={isCenter ? gridRef : undefined}
-          className={style.weekGrid}
-          style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
-          onMouseDown={isCenter ? handleGridMouseDown : undefined}
-          onTouchStart={isCenter ? handleGridTouchStart : undefined}
-          onTouchEnd={isCenter ? handleGridTouchEnd : undefined}
-          onTouchCancel={isCenter ? handleGridTouchEnd : undefined}
-        >
-          <div className={style.weekTimeLabels}>
-            {Array.from({ length: TOTAL_HOURS }, (_, hour) => (
-              <div key={hour} className={style.weekTimeLabel} style={{ top: hour * HOUR_HEIGHT }}>
-                {formatHour(hour)}
-              </div>
-            ))}
-          </div>
-          {days.map((day, i) => {
-            let dayPages = getPagesForDay(day);
-            if (!isCenter && activeDragPage) {
-              dayPages = dayPages.filter(p => p.id !== activeDragPage.id);
-            }
-            return (
-              <div key={i} className={style.weekColumnWrapper} data-day-index={isCenter ? i : undefined}>
-                {Array.from({ length: TOTAL_HOURS }, (_, hour) => (
-                  <div key={hour} className={style.weekHourLine} style={{ top: hour * HOUR_HEIGHT }} />
-                ))}
-                {renderDayColumn(day, dayPages, isCenter ? i : undefined)}
-              </div>
-            );
-          })}
-          {/* Keep dragged EventCard mounted during edge-drag navigation */}
-          {isCenter && activeDragPage && !days.some(day => getPagesForDay(day).some(p => p.id === activeDragPage!.id)) && (
+        {days.map((day, i) => {
+          let dayPages = getPagesForDay(day);
+          if (!isCenter && activeDragPage) {
+            dayPages = dayPages.filter((p) => p.id !== activeDragPage.id);
+          }
+          return (
+            <div
+              key={i}
+              className={style.weekColumnWrapper}
+              data-day-index={isCenter ? i : undefined}
+            >
+              {Array.from({ length: TOTAL_HOURS }, (_, hour) => (
+                <div
+                  key={hour}
+                  className={style.weekHourLine}
+                  style={{ top: hour * HOUR_HEIGHT }}
+                />
+              ))}
+              {renderDayColumn(day, dayPages, isCenter ? i : undefined)}
+            </div>
+          );
+        })}
+        {/* Keep dragged EventCard mounted during edge-drag navigation */}
+        {isCenter &&
+          activeDragPage &&
+          !days.some((day) =>
+            getPagesForDay(day).some((p) => p.id === activeDragPage!.id),
+          ) && (
             <EventCard
               key={activeDragPage.id}
               page={activeDragPage}
@@ -1209,8 +1269,7 @@ export default function CalendarPage() {
               isDraft={activeDragPage.id === "__draft__"}
             />
           )}
-        </div>
-      </>
+      </div>
     );
   }
 
@@ -1222,13 +1281,19 @@ export default function CalendarPage() {
         createPortal(
           <>
             <div className={style.headerNav}>
-              <button className={style.headerNavButton} onClick={() => goToDay(-1)}>
+              <button
+                className={style.headerNavButton}
+                onClick={() => goToDay(-1)}
+              >
                 &#8249;
               </button>
               <button className={style.todayButton} onClick={goToToday}>
                 {t("Today")}
               </button>
-              <button className={style.headerNavButton} onClick={() => goToDay(1)}>
+              <button
+                className={style.headerNavButton}
+                onClick={() => goToDay(1)}
+              >
                 &#8250;
               </button>
             </div>
@@ -1238,7 +1303,11 @@ export default function CalendarPage() {
                 : formatWeekRange(selectedDate)}
             </span>
             <button
-              className={clsx(style.headerTitle, style.headerTitleMobile, style.miniCalTrigger)}
+              className={clsx(
+                style.headerTitle,
+                style.headerTitleMobile,
+                style.miniCalTrigger,
+              )}
               onClick={() => setMiniCalOpen(true)}
             >
               {selectedDate.toLocaleDateString(undefined, { month: "long" })}
@@ -1249,12 +1318,31 @@ export default function CalendarPage() {
               onClick={goToToday}
               aria-label={t("Today")}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <rect x="3" y="4" width="18" height="18" rx="2" />
                 <line x1="3" y1="10" x2="21" y2="10" />
                 <line x1="8" y1="2" x2="8" y2="6" />
                 <line x1="16" y1="2" x2="16" y2="6" />
-                <text x="12" y="19" textAnchor="middle" stroke="none" fill="currentColor" fontSize="8" fontWeight="700">{new Date().getDate()}</text>
+                <text
+                  x="12"
+                  y="19"
+                  textAnchor="middle"
+                  stroke="none"
+                  fill="currentColor"
+                  fontSize="8"
+                  fontWeight="700"
+                >
+                  {new Date().getDate()}
+                </text>
               </svg>
             </button>
             <DateTimePickerOverlay
@@ -1302,10 +1390,14 @@ export default function CalendarPage() {
               key={page.id}
               className={style.allDayBadge}
               onClick={() => navigate(`/page/${page.id}`)}
-              style={page.color ? {
-                backgroundColor: `color-mix(in srgb, ${page.color}, transparent 85%)`,
-                color: page.color,
-              } : undefined}
+              style={
+                page.color
+                  ? {
+                      backgroundColor: `color-mix(in srgb, ${page.color}, transparent 85%)`,
+                      color: page.color,
+                    }
+                  : undefined
+              }
             >
               {page.title || t("Untitled")}
             </div>
@@ -1325,169 +1417,261 @@ export default function CalendarPage() {
           <>
             <div className={style.dayHeader}>
               <div className={style.weekTimeLabelSpacer} />
-              <div className={clsx(style.dayHeaderDay, isToday && style.weekDayHeaderToday)}>
-                <span className={style.weekDayName}>{shortDayName(selectedDate)}</span>
-                <span className={style.weekDayNumber}>{selectedDate.getDate()}</span>
+              <div
+                className={clsx(
+                  style.dayHeaderDay,
+                  isToday && style.weekDayHeaderToday,
+                )}
+              >
+                <span className={style.weekDayName}>
+                  {shortDayName(selectedDate)}
+                </span>
+                <span className={style.weekDayNumber}>
+                  {selectedDate.getDate()}
+                </span>
               </div>
             </div>
-            <div className={style.timeline} ref={timelineRef} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+            <div
+              className={style.timeline}
+              ref={timelineRef}
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+            >
               <div className={style.swipeStrip} style={swipeStyle}>
-              {/* Previous day */}
-              <div className={style.swipePanel}>
-                <div className={style.timelineGrid} style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}>
-                  {renderHourLines()}
-                  {getPagesForDay(prevDate).filter(p => !activeDragPage || p.id !== activeDragPage.id).map((page) => (
-                    <EventCard key={page.id} page={page} onResizeStart={noopHandler} onEventClick={noopHandler} isDraft={false} />
-                  ))}
-                  {isSameDay(prevDate, today) && (
-                    <>
-                      <div className={style.nowIndicatorDot} style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }} />
-                      <div className={style.nowIndicator} style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }} />
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Current day */}
-              <div className={style.swipePanel}>
-                <div
-                  ref={gridRef}
-                  className={style.timelineGrid}
-                  style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
-                  onMouseDown={handleGridMouseDown}
-                  onTouchStart={handleGridTouchStart}
-                  onTouchEnd={handleGridTouchEnd}
-                  onTouchCancel={handleGridTouchEnd}
-                >
-                  {renderHourLines()}
-
-                  {getPagesForDay(selectedDate).map((page) => (
-                    <EventCard
-                      key={page.id}
-                      page={{
-                        ...page,
-                        duration:
-                          resize?.pageId === page.id && resizeDuration !== null
-                            ? resizeDuration
-                            : page.duration,
-                      }}
-                      onResizeStart={handleResizeStart}
-                      onEventClick={handleEventClick}
-                      isDraft={page.id === "__draft__"}
-                    />
-                  ))}
-
-                  {/* Keep dragged EventCard mounted during edge-drag navigation */}
-                  {activeDragPage && !getPagesForDay(selectedDate).some(p => p.id === activeDragPage.id) && (
-                    <EventCard
-                      key={activeDragPage.id}
-                      page={activeDragPage}
-                      onResizeStart={noopHandler}
-                      onEventClick={noopHandler}
-                      isDraft={activeDragPage.id === "__draft__"}
-                    />
-                  )}
-
-                  {/* Move-drag ghost preview on grid */}
-                  {activeDragPage &&
-                    (() => {
-                      const oldStartMin = pageToStartMin(activeDragPage);
-                      const duration = activeDragPage.duration || 60;
-                      let newStartMin = oldStartMin + dragDeltaMinutes;
-                      newStartMin = Math.max(
-                        0,
-                        Math.min(newStartMin, TOTAL_HOURS * 60 - SNAP_MINUTES),
-                      );
-                      const top = (newStartMin / 60) * HOUR_HEIGHT;
-                      const height = (duration / 60) * HOUR_HEIGHT;
-
-                      return (
+                {/* Previous day */}
+                <div className={style.swipePanel}>
+                  <div
+                    className={style.timelineGrid}
+                    style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
+                  >
+                    {renderHourLines()}
+                    {getPagesForDay(prevDate)
+                      .filter(
+                        (p) => !activeDragPage || p.id !== activeDragPage.id,
+                      )
+                      .map((page) => (
+                        <EventCard
+                          key={page.id}
+                          page={page}
+                          onResizeStart={noopHandler}
+                          onEventClick={noopHandler}
+                          isDraft={false}
+                        />
+                      ))}
+                    {isSameDay(prevDate, today) && (
+                      <>
                         <div
-                          className={style.dropGhost}
-                          style={{ top, height: Math.max(height, 20) }}
-                        >
-                          <span className={style.dropGhostTime}>
-                            {formatTime(newStartMin)} -{" "}
-                            {formatTime(newStartMin + duration)}
-                          </span>
-                        </div>
-                      );
-                    })()}
-
-                  {/* Resize ghost time label */}
-                  {resize &&
-                    resizeDuration !== null &&
-                    (() => {
-                      const endMin = resize.originalStartMin + resizeDuration;
-                      const top = (endMin / 60) * HOUR_HEIGHT;
-                      return (
-                        <div className={style.resizeTimeLabel} style={{ top }}>
-                          {formatTime(endMin)}
-                        </div>
-                      );
-                    })()}
-
-                  {/* Create-drag preview */}
-                  {createDrag && (
-                    <div
-                      className={style.dragPreview}
-                      style={{
-                        top: (createDrag.startMinutes / 60) * HOUR_HEIGHT,
-                        height:
-                          ((createDrag.endMinutes - createDrag.startMinutes) / 60) *
-                          HOUR_HEIGHT,
-                      }}
-                    >
-                      <span className={style.dragPreviewTime}>
-                        {formatTime(createDrag.startMinutes)} -{" "}
-                        {formatTime(createDrag.endMinutes)}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Now indicator */}
-                  {isToday && (
-                    <>
-                      <div
-                        className={style.nowIndicatorDot}
-                        style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
-                      />
-                      <div
-                        className={style.nowIndicator}
-                        style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
-                      />
-                    </>
-                  )}
+                          className={style.nowIndicatorDot}
+                          style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
+                        />
+                        <div
+                          className={style.nowIndicator}
+                          style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
+                        />
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              {/* Next day */}
-              <div className={style.swipePanel}>
-                <div className={style.timelineGrid} style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}>
-                  {renderHourLines()}
-                  {getPagesForDay(nextDate).filter(p => !activeDragPage || p.id !== activeDragPage.id).map((page) => (
-                    <EventCard key={page.id} page={page} onResizeStart={noopHandler} onEventClick={noopHandler} isDraft={false} />
-                  ))}
-                  {isSameDay(nextDate, today) && (
-                    <>
-                      <div className={style.nowIndicatorDot} style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }} />
-                      <div className={style.nowIndicator} style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }} />
-                    </>
-                  )}
+                {/* Current day */}
+                <div className={style.swipePanel}>
+                  <div
+                    ref={gridRef}
+                    className={style.timelineGrid}
+                    style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
+                    onMouseDown={handleGridMouseDown}
+                    onTouchStart={handleGridTouchStart}
+                    onTouchEnd={handleGridTouchEnd}
+                    onTouchCancel={handleGridTouchEnd}
+                  >
+                    {renderHourLines()}
+
+                    {getPagesForDay(selectedDate).map((page) => (
+                      <EventCard
+                        key={page.id}
+                        page={{
+                          ...page,
+                          duration:
+                            resize?.pageId === page.id &&
+                            resizeDuration !== null
+                              ? resizeDuration
+                              : page.duration,
+                        }}
+                        onResizeStart={handleResizeStart}
+                        onEventClick={handleEventClick}
+                        isDraft={page.id === "__draft__"}
+                      />
+                    ))}
+
+                    {/* Keep dragged EventCard mounted during edge-drag navigation */}
+                    {activeDragPage &&
+                      !getPagesForDay(selectedDate).some(
+                        (p) => p.id === activeDragPage.id,
+                      ) && (
+                        <EventCard
+                          key={activeDragPage.id}
+                          page={activeDragPage}
+                          onResizeStart={noopHandler}
+                          onEventClick={noopHandler}
+                          isDraft={activeDragPage.id === "__draft__"}
+                        />
+                      )}
+
+                    {/* Move-drag ghost preview on grid */}
+                    {activeDragPage &&
+                      (() => {
+                        const oldStartMin = pageToStartMin(activeDragPage);
+                        const duration = activeDragPage.duration || 60;
+                        let newStartMin = oldStartMin + dragDeltaMinutes;
+                        newStartMin = Math.max(
+                          0,
+                          Math.min(
+                            newStartMin,
+                            TOTAL_HOURS * 60 - SNAP_MINUTES,
+                          ),
+                        );
+                        const top = (newStartMin / 60) * HOUR_HEIGHT;
+                        const height = (duration / 60) * HOUR_HEIGHT;
+
+                        return (
+                          <div
+                            className={style.dropGhost}
+                            style={{ top, height: Math.max(height, 20) }}
+                          >
+                            <span className={style.dropGhostTime}>
+                              {formatTime(newStartMin)} -{" "}
+                              {formatTime(newStartMin + duration)}
+                            </span>
+                          </div>
+                        );
+                      })()}
+
+                    {/* Resize ghost time label */}
+                    {resize &&
+                      resizeDuration !== null &&
+                      (() => {
+                        const endMin = resize.originalStartMin + resizeDuration;
+                        const top = (endMin / 60) * HOUR_HEIGHT;
+                        return (
+                          <div
+                            className={style.resizeTimeLabel}
+                            style={{ top }}
+                          >
+                            {formatTime(endMin)}
+                          </div>
+                        );
+                      })()}
+
+                    {/* Create-drag preview */}
+                    {createDrag && (
+                      <div
+                        className={style.dragPreview}
+                        style={{
+                          top: (createDrag.startMinutes / 60) * HOUR_HEIGHT,
+                          height:
+                            ((createDrag.endMinutes - createDrag.startMinutes) /
+                              60) *
+                            HOUR_HEIGHT,
+                        }}
+                      >
+                        <span className={style.dragPreviewTime}>
+                          {formatTime(createDrag.startMinutes)} -{" "}
+                          {formatTime(createDrag.endMinutes)}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Now indicator */}
+                    {isToday && (
+                      <>
+                        <div
+                          className={style.nowIndicatorDot}
+                          style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
+                        />
+                        <div
+                          className={style.nowIndicator}
+                          style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Next day */}
+                <div className={style.swipePanel}>
+                  <div
+                    className={style.timelineGrid}
+                    style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
+                  >
+                    {renderHourLines()}
+                    {getPagesForDay(nextDate)
+                      .filter(
+                        (p) => !activeDragPage || p.id !== activeDragPage.id,
+                      )
+                      .map((page) => (
+                        <EventCard
+                          key={page.id}
+                          page={page}
+                          onResizeStart={noopHandler}
+                          onEventClick={noopHandler}
+                          isDraft={false}
+                        />
+                      ))}
+                    {isSameDay(nextDate, today) && (
+                      <>
+                        <div
+                          className={style.nowIndicatorDot}
+                          style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
+                        />
+                        <div
+                          className={style.nowIndicator}
+                          style={{ top: (nowMinutes / 60) * HOUR_HEIGHT }}
+                        />
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
           </>
         ) : (
           /* ── Week View ── */
-          <div className={style.timeline} ref={timelineRef} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-            <div className={style.swipeStrip} style={swipeStyle}>
-              <div className={style.swipePanel}>{renderWeekPanel(prevWeekDays, false)}</div>
-              <div className={style.swipePanel}>{renderWeekPanel(weekDays, true)}</div>
-              <div className={style.swipePanel}>{renderWeekPanel(nextWeekDays, false)}</div>
+          <>
+            <div className={style.weekHeader}>
+              <div className={style.weekTimeLabelSpacer} />
+              {weekDays.map((day, i) => (
+                <div
+                  key={i}
+                  className={`${style.weekDayHeader} ${isSameDay(day, today) ? style.weekDayHeaderToday : ""}`}
+                  onClick={() => {
+                    setSelectedDate(day);
+                    setViewMode("day");
+                  }}
+                >
+                  <span className={style.weekDayName}>{shortDayName(day)}</span>
+                  <span className={style.weekDayNumber}>{day.getDate()}</span>
+                </div>
+              ))}
             </div>
-          </div>
+            <div
+              className={style.timeline}
+              ref={timelineRef}
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+            >
+              <div className={style.swipeStrip} style={swipeStyle}>
+                <div className={style.swipePanel}>
+                  {renderWeekPanel(prevWeekDays, false)}
+                </div>
+                <div className={style.swipePanel}>
+                  {renderWeekPanel(weekDays, true)}
+                </div>
+                <div className={style.swipePanel}>
+                  {renderWeekPanel(nextWeekDays, false)}
+                </div>
+              </div>
+            </div>
+          </>
         )}
 
         <DragOverlay dropAnimation={null} />

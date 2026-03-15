@@ -6,6 +6,7 @@ import {
   Copy,
   Image as ImageIcon,
   Italic,
+  Link,
   Scissors,
   Strikethrough,
   Type,
@@ -32,7 +33,7 @@ import {
 } from "../editor/mount";
 import { clearFailedImageCache } from "../editor/renderer";
 import { getLinkAtPosition } from "../editor/selection";
-import { getBlockTextContent, isTouchDevice } from "../editor/state";
+import { getBlockTextContent, getBlockTextLength, isTouchDevice } from "../editor/state";
 import type {
   EditorState,
   PlaceholderStyles,
@@ -48,6 +49,47 @@ import type { Operation } from "@/websocket/types";
 import { hasNativeBridge } from "@/editor/actions/clipboard";
 import { OfflineStore } from "@/offline/store";
 import { usePageSettings } from "./contexts/PageSettingsContext";
+
+// --- Cursor position persistence ---
+const CURSOR_STORAGE_KEY = "cypher:cursor-positions";
+const MAX_STORED_PAGES = 50;
+
+interface StoredCursorPosition {
+  blockIndex: number;
+  textIndex: number;
+  scrollY: number;
+}
+
+function saveCursorPosition(pageId: string, position: StoredCursorPosition) {
+  try {
+    const raw = localStorage.getItem(CURSOR_STORAGE_KEY);
+    const map: Record<string, StoredCursorPosition> = raw ? JSON.parse(raw) : {};
+    map[pageId] = position;
+
+    // Evict oldest entries if over limit
+    const keys = Object.keys(map);
+    if (keys.length > MAX_STORED_PAGES) {
+      for (const key of keys.slice(0, keys.length - MAX_STORED_PAGES)) {
+        delete map[key];
+      }
+    }
+
+    localStorage.setItem(CURSOR_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function loadCursorPosition(pageId: string): StoredCursorPosition | null {
+  try {
+    const raw = localStorage.getItem(CURSOR_STORAGE_KEY);
+    if (!raw) return null;
+    const map: Record<string, StoredCursorPosition> = JSON.parse(raw);
+    return map[pageId] ?? null;
+  } catch {
+    return null;
+  }
+}
 
 interface MountedEditorProps {
   snapshot: Block[];
@@ -117,6 +159,12 @@ export function MountedEditor({
   const offlineStoreRef = useRef<OfflineStore | null>(null);
   const onScrollRef = useRef(onScroll);
   onScrollRef.current = onScroll;
+  const onContentChangeRef = useRef(onContentChange);
+  onContentChangeRef.current = onContentChange;
+  const onContentUpdateRef = useRef(onContentUpdate);
+  onContentUpdateRef.current = onContentUpdate;
+  const onSnapshotClockUpdateRef = useRef(onSnapshotClockUpdate);
+  onSnapshotClockUpdateRef.current = onSnapshotClockUpdate;
   const [slashMenuState, setSlashMenuState] = useState<{
     visible: boolean;
     x: number;
@@ -192,6 +240,8 @@ export function MountedEditor({
     EditorState["document"]["page"]["blocks"] | null
   >(null);
   const editorInitializedRef = useRef(false);
+  // Preserve live editor content across HMR re-mounts (refs survive Fast Refresh)
+  const liveBlocksRef = useRef<{ blocks: Block[]; pageId: string } | null>(null);
   // Track when applying remote operations to prevent triggering saves for non-local changes
   const isApplyingRemoteOpsRef = useRef(false);
   // Track snapshot clock for delta operations (operations after this clock need to be sent)
@@ -321,7 +371,14 @@ export function MountedEditor({
     lastSerializedBlocksRef.current = null;
     editorInitializedRef.current = false;
 
-    const mounted = mountEditor(el, snapshot, {
+    // Use live editor content if available (HMR re-mount for same page), otherwise use snapshot prop
+    const initialBlocks =
+      liveBlocksRef.current?.pageId === pageId
+        ? liveBlocksRef.current.blocks
+        : snapshot;
+    liveBlocksRef.current = null;
+
+    const mounted = mountEditor(el, initialBlocks, {
       readonly,
       padding,
       blockStyleOverrides,
@@ -418,7 +475,7 @@ export function MountedEditor({
         // Update local snapshotClock ref
         snapshotClockRef.current = clock;
         // Notify parent of clock update
-        onSnapshotClockUpdate?.(clock);
+        onSnapshotClockUpdateRef.current?.(clock);
         // Only mark operations as synced and compact if WebSocket is connected
         // This ensures operations aren't deleted before they've been broadcast to peers
         if (syncStateRef.current.status === "connected") {
@@ -648,7 +705,7 @@ export function MountedEditor({
     const handleStateChange = (state: EditorState) => {
       // Notify parent of content changes if callback is provided
       // Only serialize when blocks actually change (not on cursor blink, UI changes, etc.)
-      if ((onContentChange || onContentUpdate) && state.document.page?.blocks) {
+      if ((onContentChangeRef.current || onContentUpdateRef.current) && state.document.page?.blocks) {
         const currentBlocks = state.document.page.blocks;
 
         // On first state change, store the initial blocks and notify for read-only callbacks
@@ -657,7 +714,7 @@ export function MountedEditor({
           lastSerializedBlocksRef.current = currentBlocks;
           editorInitializedRef.current = true;
           // Still call onContentUpdate for read-only purposes (word count, export)
-          onContentUpdate?.(state.view.visibleBlocks);
+          onContentUpdateRef.current?.(state.view.visibleBlocks);
           return;
         }
 
@@ -666,11 +723,11 @@ export function MountedEditor({
           lastSerializedBlocksRef.current = currentBlocks;
 
           // Notify of all content updates (local and remote) - used for word count, etc.
-          onContentUpdate?.(state.view.visibleBlocks);
+          onContentUpdateRef.current?.(state.view.visibleBlocks);
 
           // Only trigger saves for local user-initiated changes, not remote peer updates
           // Remote peers handle saving their own changes
-          if (!isApplyingRemoteOpsRef.current && onContentChange) {
+          if (!isApplyingRemoteOpsRef.current && onContentChangeRef.current) {
             // Get the latest clock for the save request
             const latestClock = syncEngineRef.current?.getLatestClock() ?? null;
 
@@ -680,7 +737,7 @@ export function MountedEditor({
             // before they're actually persisted to the server.
 
             // Save snapshot with tombstones preserved for offline sync
-            onContentChange(currentBlocks as Block[], latestClock);
+            onContentChangeRef.current(currentBlocks as Block[], latestClock);
           }
         }
       }
@@ -959,13 +1016,59 @@ export function MountedEditor({
       // Use a small timeout to ensure the editor is fully initialized
       setTimeout(() => {
         mounted.editor.setFocus(true);
-        // Also set initial cursor position to make editor immediately usable
-        mounted.editor.setInitialCursor();
+
+        // Try to restore saved cursor position, fall back to initial
+        const saved = loadCursorPosition(pageId);
+        const editorState = mounted.editor.getState();
+
+        if (saved && editorState) {
+          const blocks = editorState.document.page.blocks;
+          // Clamp blockIndex to valid range
+          let blockIndex = Math.min(saved.blockIndex, blocks.length - 1);
+          if (blockIndex < 0) blockIndex = 0;
+
+          // Clamp textIndex to valid range for the target block
+          const block = blocks[blockIndex];
+          const maxTextIndex = block ? getBlockTextLength(block) : 0;
+          const textIndex = Math.min(saved.textIndex, maxTextIndex);
+
+          mounted.editor.restoreCursorAndSelection(
+            { position: { blockIndex, textIndex }, lastUpdate: Date.now() },
+            null
+          );
+
+          // Restore scroll position
+          if (saved.scrollY > 0) {
+            mounted.editor.updateViewport({ scrollY: saved.scrollY });
+          }
+        } else {
+          mounted.editor.setInitialCursor();
+        }
       }, 0);
     }
 
     return () => {
       unsubscribe();
+
+      // Capture live editor state before destroying
+      const editorState = mounted.editor.getState();
+
+      // Preserve content for HMR re-mount (refs survive Fast Refresh)
+      if (editorState?.document.page?.blocks) {
+        liveBlocksRef.current = {
+          blocks: editorState.document.page.blocks as Block[],
+          pageId,
+        };
+      }
+
+      // Save cursor position before destroying
+      if (editorState?.document.cursor) {
+        saveCursorPosition(pageId, {
+          blockIndex: editorState.document.cursor.position.blockIndex,
+          textIndex: editorState.document.cursor.position.textIndex,
+          scrollY: mounted.editor.getScrollY(),
+        });
+      }
 
       // Clear room callback refs
       onRoomOperationsRef.current = null;
@@ -1004,8 +1107,6 @@ export function MountedEditor({
     };
   }, [
     snapshot,
-    onContentChange,
-    onContentUpdate,
     autoFocus,
     pageId,
     roomBroadcast,
@@ -1014,7 +1115,6 @@ export function MountedEditor({
     roomSendSyncResponse,
     localUser,
     peerId,
-    onSnapshotClockUpdate,
     readonly,
     padding,
     blockStyleOverrides,
@@ -1295,6 +1395,32 @@ export function MountedEditor({
             icon: <Strikethrough size={16} />,
             action: () => mountedRef.current?.editor.toggleStrikethrough(),
             active: isStrikethrough,
+          },
+          {
+            id: "format-link",
+            label: "Link",
+            icon: <Link size={16} />,
+            action: () => {
+              const currentState = mountedRef.current?.editor.getState();
+              if (!currentState) return;
+              const range = getSelectionRange(currentState);
+              if (!range) return;
+              const { start, end } = range;
+              const block = currentState.document.page.blocks[start.blockIndex];
+              if (!block || block.type === "image") return;
+              const text = getBlockTextContent(block);
+              const selectedText = text.substring(start.textIndex, end.textIndex);
+              const containerRect = wrapperRef.current?.getBoundingClientRect();
+              if (!containerRect) return;
+              setNativeLinkDrawerState({
+                x: containerRect.left + containerRect.width / 2,
+                y: containerRect.top + 100,
+                selectedText,
+                blockIndex: start.blockIndex,
+                startIndex: start.textIndex,
+                endIndex: end.textIndex,
+              });
+            },
           },
         ],
       });

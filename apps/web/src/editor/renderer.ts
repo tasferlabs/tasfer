@@ -398,7 +398,7 @@ function renderCRDTLine(
     // Handle strikethrough
     if (batch.isStrikethrough) {
       ctx.save();
-      ctx.strokeStyle = textStyle.color;
+      ctx.strokeStyle = ctx.fillStyle;
       ctx.lineWidth = Math.max(1, textStyle.fontSize / 16);
       ctx.beginPath();
 
@@ -878,8 +878,13 @@ function calculateListItemNumber(
       break;
     }
 
-    // Stop if indent level changed (higher or lower)
-    if (prevBlock.indent !== currentIndent) {
+    // Skip nested items (higher indent = children of current level)
+    if ((prevBlock.indent ?? 0) > (currentIndent ?? 0)) {
+      continue;
+    }
+
+    // Stop if we hit a lower indent level (left the current list scope)
+    if ((prevBlock.indent ?? 0) < (currentIndent ?? 0)) {
       break;
     }
 
@@ -887,8 +892,7 @@ function calculateListItemNumber(
     number++;
   }
 
-  // Reverse the count to get the actual number
-  return blockIndex - (blockIndex - number + 1) + 1;
+  return number;
 }
 
 // Render list marker (bullet, number, or checkbox)

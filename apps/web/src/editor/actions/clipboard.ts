@@ -24,6 +24,7 @@ import {
 import { iterateVisibleChars, charRunsToChars } from "../sync/char-runs";
 import {
   deleteCharsInRange,
+  formatCharsInRange,
   getVisibleText,
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
@@ -38,6 +39,84 @@ import type {
 } from "../sync/types";
 import type { CommandResult, EditorState, Position } from "../types";
 import {} from "../undo";
+
+/**
+ * URL regex for detecting links in pasted text.
+ */
+const URL_REGEX_GLOBAL =
+  /https?:\/\/[^\s<>"']+|www\.[^\s<>"']+\.[^\s<>"']+/gi;
+
+/**
+ * Detect all URLs in a text range and apply link formatting.
+ * Used after pasting to auto-link any URLs in the pasted content.
+ */
+function autoLinkInRange(
+  charRuns: CharRun[],
+  formats: FormatSpan[],
+  text: string,
+  rangeStart: number,
+  rangeEnd: number,
+  blockId: string
+): { newFormats: FormatSpan[]; ops: Operation[] } {
+  const rangeText = text.slice(rangeStart, rangeEnd);
+  const ops: Operation[] = [];
+  let currentFormats = formats;
+
+  URL_REGEX_GLOBAL.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = URL_REGEX_GLOBAL.exec(rangeText)) !== null) {
+    // Strip trailing punctuation
+    let urlText = match[0].replace(/[.,;:!?)]+$/, "");
+    const start = rangeStart + match.index;
+    const end = start + urlText.length;
+
+    // Normalize URL
+    let url = urlText;
+    if (url.startsWith("www.")) {
+      url = "https://" + url;
+    }
+
+    // Check if already formatted as link
+    let alreadyLinked = false;
+    for (const span of currentFormats) {
+      if (span.format.type === "link") {
+        let inSpan = false;
+        let spanStart = -1;
+        let spanEnd = -1;
+        let idx = 0;
+        for (const { id } of iterateVisibleChars(charRuns)) {
+          if (id === span.startCharId) {
+            inSpan = true;
+            spanStart = idx;
+          }
+          if (inSpan) spanEnd = idx + 1;
+          if (id === span.endCharId) break;
+          idx++;
+        }
+        if (spanStart !== -1 && spanStart < end && spanEnd > start) {
+          alreadyLinked = true;
+          break;
+        }
+      }
+    }
+
+    if (!alreadyLinked) {
+      const { newFormats: updatedFormats, op } = formatCharsInRange(
+        charRuns,
+        currentFormats,
+        start,
+        end,
+        blockId,
+        { type: "link", url },
+        url
+      );
+      currentFormats = updatedFormats;
+      ops.push(op);
+    }
+  }
+
+  return { newFormats: currentFormats, ops };
+}
 
 /**
  * Convert Char[] to CharRun[] for storage
@@ -1461,6 +1540,19 @@ function insertBlocksAtCursor(
         }
       }
     }
+
+    // Auto-detect URLs in pasted text (only for portions not already link-formatted)
+    const fullText = getVisibleText(newCharRuns);
+    const autoLinkResult = autoLinkInRange(
+      newCharRuns,
+      newFormats,
+      fullText,
+      textIndex,
+      textIndex + pasteText.length,
+      currentBlock.id
+    );
+    newFormats = autoLinkResult.newFormats;
+    ops.push(...autoLinkResult.ops);
 
     const newBlock: Block = {
       ...currentBlock,

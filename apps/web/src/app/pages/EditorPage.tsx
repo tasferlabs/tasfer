@@ -61,6 +61,7 @@ import NotFoundStateIllustration from "../components/illustrations/not-found-sta
 import { WordCountOverlay } from "../components/WordCountOverlay";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useSpaces } from "../contexts/SpaceContext";
+import { useTreeExpand } from "../contexts/TreeExpandContext";
 import { useDebouncedSave } from "../hooks/useDebouncedSave";
 import useLocalStorage from "../hooks/useLocalStorage";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
@@ -154,6 +155,7 @@ export default function EditorPage() {
   const confirmSaveFnRef = useRef<((clock: HLC) => void) | null>(null);
 
   const { activeSpaceId } = useSpaces();
+  const treeExpand = useTreeExpand();
   const { data: pages, isLoading: isLoadingPages } = useGetPages(
     activeSpaceId,
     null,
@@ -282,6 +284,10 @@ export default function EditorPage() {
           setIsLoading(false);
           // Update initial word count from blocks
           setWordCount(countWordsFromBlocks(snapshot));
+          // Expand all ancestor pages in the sidebar tree
+          if (page.parents && page.parents.length > 0) {
+            treeExpand.expandMany(page.parents.map((p) => p.id));
+          }
         }
       } catch (error) {
         console.error("Failed to load page:", error);

@@ -2,7 +2,7 @@ import { useDraggable } from "@dnd-kit/core";
 import { CircleNotch, X } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   type IListPage,
@@ -21,6 +21,7 @@ import { type IParentsStack } from "./PagesLinks";
 import style from "./PagesLinks.module.css";
 import useResponsive from "@/app/hooks/useResponsive";
 import { useTranslation } from "react-i18next";
+import { useIsExpanded, useTreeExpand } from "../../contexts/TreeExpandContext";
 
 // Global flag to track recent drag - module level to avoid React timing issues
 let recentDragEnd = false;
@@ -67,7 +68,16 @@ export function PageLink({
   const inputRef = useRef<HTMLInputElement>(null);
   const wasDraggingRef = useRef(false);
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const treeExpand = useTreeExpand();
+  const isExpanded = useIsExpanded(data.id);
+  const setIsExpanded = useCallback(
+    (value: boolean | ((old: boolean) => boolean)) => {
+      const newValue = typeof value === "function" ? value(isExpanded) : value;
+      if (newValue) treeExpand.expand(data.id);
+      else treeExpand.collapse(data.id);
+    },
+    [treeExpand, data.id, isExpanded],
+  );
   const [localTitle, setLocalTitle] = useState(data.title);
 
   // Get root pages to determine navigation after deletion

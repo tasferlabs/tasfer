@@ -9,6 +9,7 @@ import UpdatePopup from "../components/UpdatePopup";
 import { useAuth } from "../contexts/AuthContext";
 import { PageSettingsProvider } from "../contexts/PageSettingsContext";
 import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
+import { TreeExpandProvider } from "../contexts/TreeExpandContext";
 import { SpaceProvider } from "../contexts/SpaceContext";
 import { useVersion } from "../contexts/VersionContext";
 import { WebSocketProvider } from "../contexts/WebSocketContext";
@@ -87,6 +88,7 @@ export default function Layout() {
   return (
     <WebSocketProvider serverUrl={websocketUrl} userName={user?.name} userAvatar={user?.avatar}>
       <SpaceProvider>
+      <TreeExpandProvider>
       <SidebarPanelProvider>
       <PageSettingsProvider>
         <ConfirmationDialogProvider>
@@ -116,6 +118,7 @@ export default function Layout() {
         </ConfirmationDialogProvider>
       </PageSettingsProvider>
       </SidebarPanelProvider>
+      </TreeExpandProvider>
       </SpaceProvider>
     </WebSocketProvider>
   );

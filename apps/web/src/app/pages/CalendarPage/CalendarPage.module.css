@@ -855,10 +855,7 @@
   display: flex;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-  position: sticky;
-  top: 0;
   background-color: var(--background);
-  z-index: 5;
 }
 
 .weekTimeLabelSpacer {
