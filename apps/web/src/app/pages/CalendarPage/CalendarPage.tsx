@@ -6,6 +6,7 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragStartEvent,
@@ -43,6 +44,7 @@ import {
   shortDayName,
   type ViewMode,
 } from "./utils";
+import { triggerHapticFeedback } from "@/editor/events/touchEvents";
 import { EventCard } from "./EventCard";
 import { EventPreview } from "./EventPreview";
 import { DateTimePickerOverlay } from "@/components/datetimepickers/DateTimePickerOverlay";
@@ -213,7 +215,42 @@ export default function CalendarPage() {
   });
 
   const { mutate: updatePage } = useUpdatePage({
-    onSuccess: () => {
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: ["calendar-pages"] });
+      const previousData = queryClient.getQueriesData<ICalendarPage[]>({
+        queryKey: ["calendar-pages"],
+      });
+
+      // Optimistically update the event in the cache
+      queryClient.setQueriesData<ICalendarPage[]>(
+        { queryKey: ["calendar-pages"] },
+        (old) => {
+          if (!old) return old;
+          return old.map((p) => {
+            if (p.id !== variables.id) return p;
+            return {
+              ...p,
+              ...(variables.scheduledAt !== undefined && {
+                scheduledAt: variables.scheduledAt as string,
+              }),
+              ...(variables.duration !== undefined && {
+                duration: variables.duration,
+              }),
+            };
+          });
+        },
+      );
+
+      return { previousData };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousData) {
+        for (const [key, data] of context.previousData) {
+          queryClient.setQueryData(key, data);
+        }
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
       queryClient.invalidateQueries({ queryKey: ["page", previewPageId] });
     },
@@ -331,6 +368,7 @@ export default function CalendarPage() {
   // ── dnd-kit: drag to move events ──
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 8 } }),
   );
 
   const [activeDragPage, setActiveDragPage] = useState<ICalendarPage | null>(
@@ -339,31 +377,103 @@ export default function CalendarPage() {
   const [dragDeltaMinutes, setDragDeltaMinutes] = useState(0);
   const [dragTargetDay, setDragTargetDay] = useState<Date | null>(null);
 
+  // Edge-drag navigation: when dragging near left/right edge, auto-navigate after delay
+  const edgeDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const edgeDragDirRef = useRef<-1 | 1 | null>(null);
+  // Track the target day for day-view edge navigation (accumulated offset from original date)
+  const edgeDragTargetDayRef = useRef<Date | null>(null);
+  const EDGE_THRESHOLD = 40; // px from edge to trigger
+  const EDGE_NAV_DELAY = 600; // ms before navigating
+
+  const clearEdgeDragTimer = useCallback(() => {
+    if (edgeDragTimerRef.current) {
+      clearTimeout(edgeDragTimerRef.current);
+      edgeDragTimerRef.current = null;
+    }
+    edgeDragDirRef.current = null;
+  }, []);
+
   // Track which column the pointer is over during drag (for week view cross-day drag)
+  // + edge detection for auto-navigation in both views
   useEffect(() => {
-    if (!activeDragPage || viewMode !== "week") return;
+    if (!activeDragPage) {
+      edgeDragTargetDayRef.current = null;
+      return;
+    }
 
     function handlePointerMove(e: PointerEvent) {
-      if (!gridRef.current) return;
-      const columns =
-        gridRef.current.querySelectorAll<HTMLElement>("[data-day-index]");
-      for (const col of columns) {
-        const rect = col.getBoundingClientRect();
-        if (e.clientX >= rect.left && e.clientX < rect.right) {
-          const idx = parseInt(col.dataset.dayIndex!, 10);
-          setDragTargetDay(weekDays[idx]);
-          return;
+      const timeline = timelineRef.current;
+      if (!timeline) return;
+
+      // Week view: track which column pointer is over
+      if (viewMode === "week" && gridRef.current) {
+        const columns =
+          gridRef.current.querySelectorAll<HTMLElement>("[data-day-index]");
+        for (const col of columns) {
+          const rect = col.getBoundingClientRect();
+          if (e.clientX >= rect.left && e.clientX < rect.right) {
+            const idx = parseInt(col.dataset.dayIndex!, 10);
+            setDragTargetDay(weekDays[idx]);
+            break;
+          }
+        }
+      }
+
+      // Edge detection for auto-navigation
+      const timelineRect = timeline.getBoundingClientRect();
+      const distFromLeft = e.clientX - timelineRect.left;
+      const distFromRight = timelineRect.right - e.clientX;
+
+      let edgeDir: -1 | 1 | null = null;
+      if (distFromLeft < EDGE_THRESHOLD) {
+        edgeDir = -1; // navigate to previous
+      } else if (distFromRight < EDGE_THRESHOLD) {
+        edgeDir = 1; // navigate to next
+      }
+
+      if (edgeDir !== edgeDragDirRef.current) {
+        // Direction changed — clear existing timer
+        if (edgeDragTimerRef.current) {
+          clearTimeout(edgeDragTimerRef.current);
+          edgeDragTimerRef.current = null;
+        }
+
+        edgeDragDirRef.current = edgeDir;
+
+        if (edgeDir !== null) {
+          edgeDragTimerRef.current = setTimeout(() => {
+            triggerHapticFeedback("medium");
+            goToDay(edgeDir!);
+
+            // In day view, track the accumulated target day so handleDragEnd
+            // knows which day to save the event to
+            if (viewMode === "day") {
+              const base = edgeDragTargetDayRef.current || new Date(activeDragPage!.scheduledAt);
+              const newTarget = new Date(base);
+              newTarget.setDate(newTarget.getDate() + edgeDir!);
+              edgeDragTargetDayRef.current = newTarget;
+              setDragTargetDay(newTarget);
+            }
+
+            // Reset so it can fire again if still at edge
+            edgeDragTimerRef.current = null;
+            edgeDragDirRef.current = null;
+          }, EDGE_NAV_DELAY);
         }
       }
     }
 
     window.addEventListener("pointermove", handlePointerMove);
-    return () => window.removeEventListener("pointermove", handlePointerMove);
-  }, [activeDragPage, viewMode, weekDays]);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      clearEdgeDragTimer();
+    };
+  }, [activeDragPage, viewMode, weekDays, clearEdgeDragTimer]);
 
   function handleDragStart(event: DragStartEvent) {
     const page = event.active.data.current?.page as ICalendarPage | undefined;
     if (page) {
+      triggerHapticFeedback("medium");
       setActiveDragPage(page);
       setDragDeltaMinutes(0);
       setDragTargetDay(null);
@@ -376,6 +486,8 @@ export default function CalendarPage() {
   }
 
   function handleDragEnd(_event: DragEndEvent) {
+    clearEdgeDragTimer();
+    edgeDragTargetDayRef.current = null;
     if (activeDragPage) {
       const oldStartMin = pageToStartMin(activeDragPage);
       let newStartMin = oldStartMin + dragDeltaMinutes;
@@ -409,6 +521,8 @@ export default function CalendarPage() {
   }
 
   function handleDragCancel() {
+    clearEdgeDragTimer();
+    edgeDragTargetDayRef.current = null;
     setActiveDragPage(null);
     setDragDeltaMinutes(0);
     setDragTargetDay(null);
@@ -417,74 +531,110 @@ export default function CalendarPage() {
   // ── Resize (bottom handle drag) ──
   const [resize, setResize] = useState<ResizeState | null>(null);
   const [resizeDuration, setResizeDuration] = useState<number | null>(null);
+  const resizeRef = useRef<ResizeState | null>(null);
+  const resizeDurationRef = useRef<number | null>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
 
   function handleResizeStart(pageId: string, e: React.PointerEvent) {
     const page = timedPages.find((p) => p.id === pageId);
     if (!page) return;
     e.preventDefault();
+    e.stopPropagation();
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    setResize({
+    triggerHapticFeedback("light");
+
+    const state: ResizeState = {
       pageId,
       originalDuration: page.duration || 60,
       originalStartMin: pageToStartMin(page),
       startY: e.clientY,
-    });
-    setResizeDuration(page.duration || 60);
-  }
+    };
+    const dur = page.duration || 60;
 
-  useEffect(() => {
-    if (!resize) return;
+    resizeRef.current = state;
+    resizeDurationRef.current = dur;
+    setResize(state);
+    setResizeDuration(dur);
 
-    function handlePointerMove(e: PointerEvent) {
-      if (!resize) return;
-      const deltaPx = snapPx(e.clientY - resize.startY);
+    // Clean up any previous listeners
+    resizeCleanupRef.current?.();
+
+    const timeline = timelineRef.current;
+    const preventScroll = (ev: TouchEvent) => ev.preventDefault();
+    if (timeline) {
+      timeline.addEventListener("touchmove", preventScroll, { passive: false });
+    }
+
+    function handlePointerMove(ev: PointerEvent) {
+      const r = resizeRef.current;
+      if (!r) return;
+      const deltaPx = snapPx(ev.clientY - r.startY);
       const deltaMin = pxToMinutes(deltaPx);
       const newDuration = Math.max(
         MIN_DRAG_MINUTES,
-        resize.originalDuration + deltaMin,
+        r.originalDuration + deltaMin,
       );
-      const maxDuration = TOTAL_HOURS * 60 - resize.originalStartMin;
-      setResizeDuration(Math.min(newDuration, maxDuration));
+      const maxDuration = TOTAL_HOURS * 60 - r.originalStartMin;
+      const clamped = Math.min(newDuration, maxDuration);
+      resizeDurationRef.current = clamped;
+      setResizeDuration(clamped);
     }
 
     function handlePointerUp() {
-      if (
-        resize &&
-        resizeDuration !== null &&
-        resizeDuration !== resize.originalDuration
-      ) {
-        if (resize.pageId === "__draft__") {
+      const r = resizeRef.current;
+      const d = resizeDurationRef.current;
+      if (r && d !== null && d !== r.originalDuration) {
+        if (r.pageId === "__draft__") {
           setDraftEvent((prev) =>
-            prev ? { ...prev, duration: resizeDuration! } : prev,
+            prev ? { ...prev, duration: d } : prev,
           );
         } else {
-          updatePage({
-            id: resize.pageId,
-            duration: resizeDuration,
-          });
+          updatePage({ id: r.pageId, duration: d });
         }
       }
+      resizeRef.current = null;
+      resizeDurationRef.current = null;
       setResize(null);
       setResizeDuration(null);
+      cleanup();
+    }
+
+    function cleanup() {
+      if (timeline) {
+        timeline.removeEventListener("touchmove", preventScroll);
+      }
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+      resizeCleanupRef.current = null;
     }
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [resize, resizeDuration, updatePage]);
+    window.addEventListener("pointercancel", handlePointerUp);
+    resizeCleanupRef.current = cleanup;
+  }
 
   // ── Click-and-drag to create ──
   const [createDrag, setCreateDrag] = useState<CreateDragState | null>(null);
   const isCreateDragging = useRef(false);
 
-  function getColumnDateFromEvent(e: React.MouseEvent): Date {
+  function getColumnDateFromMouseEvent(e: React.MouseEvent): Date {
     if (viewMode === "week") {
       const target = (e.target as HTMLElement).closest(
         `[data-day-index]`,
       ) as HTMLElement | null;
+      if (target) {
+        const idx = parseInt(target.dataset.dayIndex!, 10);
+        return weekDays[idx];
+      }
+    }
+    return selectedDate;
+  }
+
+  function getColumnDateFromElement(el: HTMLElement): Date {
+    if (viewMode === "week") {
+      const target = el.closest(`[data-day-index]`) as HTMLElement | null;
       if (target) {
         const idx = parseInt(target.dataset.dayIndex!, 10);
         return weekDays[idx];
@@ -499,7 +649,7 @@ export default function CalendarPage() {
     if ((e.target as HTMLElement).closest(`.${style.resizeHandle}`)) return;
     e.preventDefault();
 
-    const date = getColumnDateFromEvent(e);
+    const date = getColumnDateFromMouseEvent(e);
     const columnEl =
       viewMode === "week"
         ? ((e.target as HTMLElement).closest(
@@ -570,6 +720,135 @@ export default function CalendarPage() {
     };
   }, [createDrag !== null, createPageAtTime]);
 
+  // ── Touch long-press to create (Google Calendar style) ──
+  const touchCreateRef = useRef<{
+    timer: ReturnType<typeof setTimeout>;
+    startX: number;
+    startY: number;
+    targetEl: HTMLElement;
+    scrollTop: number;
+    active: boolean;
+  } | null>(null);
+
+  const LONG_PRESS_MS = 400;
+  const LONG_PRESS_MOVE_TOLERANCE = 10;
+
+  // Compute minutes from a clientY position relative to the grid
+  const getMinutesFromClientY = useCallback((clientY: number): number => {
+    const columnEl = touchCreateRef.current?.targetEl.closest(`[data-day-index]`) as HTMLElement | null;
+    const el = columnEl || gridRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    const y = clientY - rect.top;
+    return Math.max(0, Math.min(pxToMinutes(y), TOTAL_HOURS * 60 - SNAP_MINUTES));
+  }, []);
+
+  const handleGridTouchStart = useCallback((e: React.TouchEvent) => {
+    // Don't start create-drag if preview/draft is open, or if touching an event card
+    if ((!sidebarMode && (previewPageId || draftEvent)) || previewJustClosedRef.current) return;
+    const target = e.target as HTMLElement;
+    if (target.closest(`.${style.eventCard}`)) return;
+    if (target.closest(`.${style.resizeHandle}`)) return;
+
+    const touch = e.touches[0];
+    const scrollTop = timelineRef.current?.scrollTop ?? 0;
+
+    const timer = setTimeout(() => {
+      const state = touchCreateRef.current;
+      if (!state) return;
+
+      // Activate create mode
+      state.active = true;
+
+      // Haptic feedback (native bridge on iOS/Android, Vibration API fallback)
+      triggerHapticFeedback("medium");
+
+      const date = getColumnDateFromElement(state.targetEl);
+      const minutes = getMinutesFromClientY(state.startY);
+
+      setCreateDrag({
+        startMinutes: minutes,
+        endMinutes: minutes + SNAP_MINUTES,
+        date,
+      });
+    }, LONG_PRESS_MS);
+
+    touchCreateRef.current = {
+      timer,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      targetEl: target,
+      scrollTop,
+      active: false,
+    };
+  }, [sidebarMode, previewPageId, draftEvent, getMinutesFromClientY, viewMode, weekDays]);
+
+  // Native touchmove handler for create-drag (needs passive: false to preventDefault)
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (!el) return;
+
+    function onTouchMoveCreate(e: TouchEvent) {
+      const state = touchCreateRef.current;
+      if (!state) return;
+
+      const touch = e.touches[0];
+
+      if (!state.active) {
+        // Before long-press fires: cancel if finger moves too much or if scroll changed
+        const dx = Math.abs(touch.clientX - state.startX);
+        const dy = Math.abs(touch.clientY - state.startY);
+        const scrollDelta = Math.abs((timelineRef.current?.scrollTop ?? 0) - state.scrollTop);
+        if (dx > LONG_PRESS_MOVE_TOLERANCE || dy > LONG_PRESS_MOVE_TOLERANCE || scrollDelta > 5) {
+          clearTimeout(state.timer);
+          touchCreateRef.current = null;
+        }
+        return;
+      }
+
+      // Active create-drag: prevent scroll and update preview
+      e.preventDefault();
+
+      const startMinutes = getMinutesFromClientY(state.startY);
+      const currentMinutes = getMinutesFromClientY(touch.clientY);
+
+      setCreateDrag((prev) => {
+        if (!prev) return prev;
+        // Allow dragging both up and down from start point
+        const minMin = Math.min(startMinutes, currentMinutes);
+        const maxMin = Math.max(startMinutes, currentMinutes) + SNAP_MINUTES;
+        return {
+          ...prev,
+          startMinutes: minMin,
+          endMinutes: Math.min(Math.max(maxMin, minMin + MIN_DRAG_MINUTES), TOTAL_HOURS * 60),
+        };
+      });
+    }
+
+    el.addEventListener("touchmove", onTouchMoveCreate, { passive: false });
+    return () => el.removeEventListener("touchmove", onTouchMoveCreate);
+  }, [getMinutesFromClientY, viewMode]);
+
+  const handleGridTouchEnd = useCallback(() => {
+    const state = touchCreateRef.current;
+    if (!state) return;
+
+    clearTimeout(state.timer);
+
+    if (state.active) {
+      // Finalize the create-drag
+      setCreateDrag((prev) => {
+        if (prev) {
+          const duration = prev.endMinutes - prev.startMinutes;
+          createPageAtTime(prev.startMinutes, duration, prev.date);
+        }
+        return null;
+      });
+    }
+
+    touchCreateRef.current = null;
+  }, [createPageAtTime]);
+
   // ── Swipe to navigate (Google Calendar style) ──
   const swipeState = useRef<{
     startX: number;
@@ -583,6 +862,8 @@ export default function CalendarPage() {
   const [swipeTransition, setSwipeTransition] = useState(false);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    // Don't start swipe if touch-create or dnd-kit drag is active
+    if (touchCreateRef.current?.active || activeDragPage) return;
     const touch = e.touches[0];
     setSwipeTransition(false);
     swipeState.current = {
@@ -593,7 +874,7 @@ export default function CalendarPage() {
       lastX: touch.clientX,
       velocity: 0,
     };
-  }, []);
+  }, [activeDragPage]);
 
   // Attach native touchmove with { passive: false } so we can preventDefault
   // to block scrolling while swiping horizontally
@@ -602,6 +883,11 @@ export default function CalendarPage() {
     if (!el) return;
 
     function onTouchMove(e: TouchEvent) {
+      // Suppress swipe if touch-create or dnd-kit drag is active
+      if (touchCreateRef.current?.active || activeDragPage) {
+        swipeState.current = null;
+        return;
+      }
       const s = swipeState.current;
       if (!s) return;
       const touch = e.touches[0];
@@ -612,6 +898,11 @@ export default function CalendarPage() {
       if (!s.locked) {
         if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
         s.locked = Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical";
+        // Cancel long-press if swipe direction is detected
+        if (touchCreateRef.current && !touchCreateRef.current.active) {
+          clearTimeout(touchCreateRef.current.timer);
+          touchCreateRef.current = null;
+        }
       }
 
       if (s.locked === "vertical") return;
@@ -633,9 +924,11 @@ export default function CalendarPage() {
 
     el.addEventListener("touchmove", onTouchMove, { passive: false });
     return () => el.removeEventListener("touchmove", onTouchMove);
-  }, []);
+  }, [activeDragPage, viewMode]);
 
   const handleTouchEnd = useCallback(() => {
+    // Skip swipe handling if create-drag or dnd-kit drag is active
+    if (touchCreateRef.current?.active || activeDragPage) return;
     const s = swipeState.current;
     if (!s || s.locked !== "horizontal") {
       swipeState.current = null;
@@ -671,7 +964,7 @@ export default function CalendarPage() {
     }
 
     swipeState.current = null;
-  }, [swipeOffset, viewMode]);
+  }, [swipeOffset, viewMode, activeDragPage]);
 
   // ── Now indicator ──
   const [nowMinutes, setNowMinutes] = useState(() => {
@@ -880,6 +1173,9 @@ export default function CalendarPage() {
           className={style.weekGrid}
           style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
           onMouseDown={isCenter ? handleGridMouseDown : undefined}
+          onTouchStart={isCenter ? handleGridTouchStart : undefined}
+          onTouchEnd={isCenter ? handleGridTouchEnd : undefined}
+          onTouchCancel={isCenter ? handleGridTouchEnd : undefined}
         >
           <div className={style.weekTimeLabels}>
             {Array.from({ length: TOTAL_HOURS }, (_, hour) => (
@@ -888,14 +1184,31 @@ export default function CalendarPage() {
               </div>
             ))}
           </div>
-          {days.map((day, i) => (
-            <div key={i} className={style.weekColumnWrapper} data-day-index={isCenter ? i : undefined}>
-              {Array.from({ length: TOTAL_HOURS }, (_, hour) => (
-                <div key={hour} className={style.weekHourLine} style={{ top: hour * HOUR_HEIGHT }} />
-              ))}
-              {renderDayColumn(day, getPagesForDay(day), isCenter ? i : undefined)}
-            </div>
-          ))}
+          {days.map((day, i) => {
+            let dayPages = getPagesForDay(day);
+            if (!isCenter && activeDragPage) {
+              dayPages = dayPages.filter(p => p.id !== activeDragPage.id);
+            }
+            return (
+              <div key={i} className={style.weekColumnWrapper} data-day-index={isCenter ? i : undefined}>
+                {Array.from({ length: TOTAL_HOURS }, (_, hour) => (
+                  <div key={hour} className={style.weekHourLine} style={{ top: hour * HOUR_HEIGHT }} />
+                ))}
+                {renderDayColumn(day, dayPages, isCenter ? i : undefined)}
+              </div>
+            );
+          })}
+          {/* Keep dragged EventCard mounted during edge-drag navigation */}
+          {isCenter && activeDragPage && !days.some(day => getPagesForDay(day).some(p => p.id === activeDragPage!.id)) && (
+            <EventCard
+              key={activeDragPage.id}
+              page={activeDragPage}
+              onResizeStart={noopHandler}
+              onEventClick={noopHandler}
+              compact
+              isDraft={activeDragPage.id === "__draft__"}
+            />
+          )}
         </div>
       </>
     );
@@ -950,6 +1263,7 @@ export default function CalendarPage() {
               type="date"
               maxDate="9999-12-31"
               minDate="0001-01-01"
+              activateTodayButton
             />
             <div className={clsx(style.viewToggle, "me-4")}>
               <button
@@ -996,13 +1310,21 @@ export default function CalendarPage() {
       >
         {viewMode === "day" ? (
           /* ── Day View ── */
-          <div className={style.timeline} ref={timelineRef} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-            <div className={style.swipeStrip} style={swipeStyle}>
+          <>
+            <div className={style.dayHeader}>
+              <div className={style.weekTimeLabelSpacer} />
+              <div className={clsx(style.dayHeaderDay, isToday && style.weekDayHeaderToday)}>
+                <span className={style.weekDayName}>{shortDayName(selectedDate)}</span>
+                <span className={style.weekDayNumber}>{selectedDate.getDate()}</span>
+              </div>
+            </div>
+            <div className={style.timeline} ref={timelineRef} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+              <div className={style.swipeStrip} style={swipeStyle}>
               {/* Previous day */}
               <div className={style.swipePanel}>
                 <div className={style.timelineGrid} style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}>
                   {renderHourLines()}
-                  {getPagesForDay(prevDate).map((page) => (
+                  {getPagesForDay(prevDate).filter(p => !activeDragPage || p.id !== activeDragPage.id).map((page) => (
                     <EventCard key={page.id} page={page} onResizeStart={noopHandler} onEventClick={noopHandler} isDraft={false} />
                   ))}
                   {isSameDay(prevDate, today) && (
@@ -1021,6 +1343,9 @@ export default function CalendarPage() {
                   className={style.timelineGrid}
                   style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}
                   onMouseDown={handleGridMouseDown}
+                  onTouchStart={handleGridTouchStart}
+                  onTouchEnd={handleGridTouchEnd}
+                  onTouchCancel={handleGridTouchEnd}
                 >
                   {renderHourLines()}
 
@@ -1039,6 +1364,17 @@ export default function CalendarPage() {
                       isDraft={page.id === "__draft__"}
                     />
                   ))}
+
+                  {/* Keep dragged EventCard mounted during edge-drag navigation */}
+                  {activeDragPage && !getPagesForDay(selectedDate).some(p => p.id === activeDragPage.id) && (
+                    <EventCard
+                      key={activeDragPage.id}
+                      page={activeDragPage}
+                      onResizeStart={noopHandler}
+                      onEventClick={noopHandler}
+                      isDraft={activeDragPage.id === "__draft__"}
+                    />
+                  )}
 
                   {/* Move-drag ghost preview on grid */}
                   {activeDragPage &&
@@ -1117,7 +1453,7 @@ export default function CalendarPage() {
               <div className={style.swipePanel}>
                 <div className={style.timelineGrid} style={{ height: TOTAL_HOURS * HOUR_HEIGHT }}>
                   {renderHourLines()}
-                  {getPagesForDay(nextDate).map((page) => (
+                  {getPagesForDay(nextDate).filter(p => !activeDragPage || p.id !== activeDragPage.id).map((page) => (
                     <EventCard key={page.id} page={page} onResizeStart={noopHandler} onEventClick={noopHandler} isDraft={false} />
                   ))}
                   {isSameDay(nextDate, today) && (
@@ -1130,6 +1466,7 @@ export default function CalendarPage() {
               </div>
             </div>
           </div>
+          </>
         ) : (
           /* ── Week View ── */
           <div className={style.timeline} ref={timelineRef} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>

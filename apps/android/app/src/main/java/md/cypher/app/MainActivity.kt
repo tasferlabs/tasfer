@@ -326,6 +326,29 @@ class MainActivity : BridgeActivity() {
         }
     }
 
+    // ---- File sharing ----
+
+    fun shareFileData(bytes: ByteArray, fileName: String, mimeType: String): Boolean {
+        return try {
+            val file = File(cacheDir, fileName)
+            file.writeBytes(bytes)
+            val uri = FileProvider.getUriForFile(this, "${applicationContext.packageName}.fileprovider", file)
+
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+
+            runOnUiThread {
+                startActivity(Intent.createChooser(intent, null))
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     // ---- Toolbar listeners ----
 
     private fun setupToolbarListeners() {

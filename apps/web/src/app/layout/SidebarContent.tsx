@@ -120,13 +120,63 @@ export function SidebarContent({
   });
 
   const { mutate: movePage } = useMovePage({
-    onSuccess: () => {
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: ["pages"] });
+      const previousData = queryClient.getQueriesData<IListPage[]>({
+        queryKey: ["pages"],
+      });
+
+      // Remove the page from whichever list it currently lives in
+      queryClient.setQueriesData<IListPage[]>(
+        { queryKey: ["pages"] },
+        (old) => (old ? old.filter((p) => p.id !== variables.id) : old),
+      );
+
+      return { previousData };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousData) {
+        for (const [key, data] of context.previousData) {
+          queryClient.setQueryData(key, data);
+        }
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["pages"] });
     },
   });
 
   const { mutate: reorderPage } = useReorderPage({
-    onSuccess: () => {
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: ["pages"] });
+      const previousData = queryClient.getQueriesData<IListPage[]>({
+        queryKey: ["pages"],
+      });
+
+      // Update the order in-place and re-sort the list
+      queryClient.setQueriesData<IListPage[]>(
+        { queryKey: ["pages"] },
+        (old) => {
+          if (!old) return old;
+          const idx = old.findIndex((p) => p.id === variables.id);
+          if (idx === -1) return old;
+          const updated = [...old];
+          updated[idx] = { ...updated[idx], order: variables.order };
+          updated.sort((a, b) => a.order - b.order);
+          return updated;
+        },
+      );
+
+      return { previousData };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousData) {
+        for (const [key, data] of context.previousData) {
+          queryClient.setQueryData(key, data);
+        }
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["pages"] });
     },
   });

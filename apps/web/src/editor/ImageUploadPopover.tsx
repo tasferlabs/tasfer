@@ -76,12 +76,8 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             const file = new File([blob], "image.jpg", { type: blob.type });
 
             // Upload file directly without preview
+            // Don't close — the upload completion handler will dismiss
             onUpload(file);
-
-            // Close the drawer after a short delay
-            setTimeout(() => {
-              onClose();
-            }, 300);
           })
           .catch((error) => {
             console.error("Failed to process native image:", error);
@@ -102,11 +98,8 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       // Upload file directly without preview
+      // Don't close — the popover will be dismissed by the upload completion handler
       onUpload(file);
-      // Close the popover after a short delay
-      setTimeout(() => {
-        onClose();
-      }, 300);
     }
   };
 

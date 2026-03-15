@@ -28,6 +28,7 @@ import { authFetch, API_BASE } from "../api/client";
 import { imageCache } from "@/editor/renderer";
 import { getPage } from "../api/pages.api";
 import type { PageMetadata } from "@/deserializer/serializer";
+import { downloadFile } from "@/downloadFile";
 
 function serializeToText(blocks: Block[]): string {
   return blocks
@@ -116,22 +117,15 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     return sanitized || "document";
   };
 
-  const downloadFile = (content: string, extension: string, mimeType: string) => {
+  const downloadTextFile = async (content: string, extension: string, mimeType: string) => {
     const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${getBaseName()}.${extension}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    await downloadFile(blob, `${getBaseName()}.${extension}`, mimeType);
     onOpenChange(false);
   };
 
   const handleExportTxt = () => {
     const content = serializeToText(currentBlocks);
-    downloadFile(content, "txt", "text/plain");
+    downloadTextFile(content, "txt", "text/plain");
   };
 
   const fetchMetadata = async (): Promise<PageMetadata | undefined> => {
@@ -162,9 +156,9 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       }
     }
 
-    // No images → plain .md download (unchanged behavior)
+    // No images → plain .md download
     if (imageUrls.size === 0) {
-      downloadFile(markdown, "md", "text/markdown");
+      downloadTextFile(markdown, "md", "text/markdown");
       return;
     }
 
@@ -199,14 +193,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       zip.file(`${baseName}.md`, rewritten);
 
       const blob = await zip.generateAsync({ type: "blob" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${baseName}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      await downloadFile(blob, `${baseName}.zip`, "application/zip");
       onOpenChange(false);
     } finally {
       setIsExporting(false);

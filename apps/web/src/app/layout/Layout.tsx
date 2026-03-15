@@ -1,6 +1,6 @@
 import { useOfflineStatus } from "@/offline/hooks/useOfflineStatus";
 import React from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import { ConfirmationDialogProvider } from "../components/ConfirmationDialog";
 import { DevToolbar } from "../components/DevToolbar";
 import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
@@ -57,6 +57,14 @@ export default function Layout() {
 
   // Silent background sync for offline mutations
   useOfflineStatus();
+
+  // Remember the last visited route so we can restore it on next visit
+  const location = useLocation();
+  React.useEffect(() => {
+    const path = location.pathname;
+    if (path === "/") return;
+    localStorage.setItem("lastRoute", path);
+  }, [location.pathname]);
 
   const { user } = useAuth();
   const { isLoading, meetsMinimum } = useVersion();

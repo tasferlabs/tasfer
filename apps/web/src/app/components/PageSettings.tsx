@@ -31,7 +31,7 @@ import {
   Search,
   // Share2,
   Trash2,
-  Upload,
+  Replace,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -295,8 +295,8 @@ function PageSettingsImpl({
             className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground px-2 py-5"
             onClick={() => setShowImportDialog(true)}
           >
-            <Upload className="h-4 w-4" />
-            {t`Import`}
+            <Replace className="h-4 w-4" />
+            {t`Replace`}
           </Button>
         )}
         <Button

@@ -476,23 +476,22 @@ export function EventPreview({
         }
       : null;
 
-  // Close on click outside
+  // Close on click outside (popover mode only).
+  // We stop pointerdown propagation from inside the popover (see onPointerDown
+  // on the popover div) so the window handler only fires for true outside clicks.
   useEffect(() => {
-    if (!isActive || sidebarMode) return;
+    if (!isActive || sidebarMode || isMobile) return;
     function handlePointerDown(e: PointerEvent) {
       const target = e.target as Node;
       if (
-        popoverRef.current &&
-        !popoverRef.current.contains(target) &&
-        !(
-          target instanceof Element &&
-          target.closest(
-            '[data-radix-popper-content-wrapper], [role="dialog"], [data-slot="combobox-content"]',
-          )
+        target instanceof Element &&
+        target.closest(
+          '[data-radix-popper-content-wrapper], [role="dialog"], [role="alertdialog"], [data-slot="combobox-content"]',
         )
       ) {
-        onClose();
+        return;
       }
+      onClose();
     }
     // Delay listener to avoid closing on the same click that opened it
     const timer = setTimeout(() => {
@@ -502,7 +501,7 @@ export function EventPreview({
       clearTimeout(timer);
       window.removeEventListener("pointerdown", handlePointerDown);
     };
-  }, [isActive, onClose]);
+  }, [isActive, onClose, sidebarMode, isMobile]);
 
   // Close on Escape
   useEffect(() => {
@@ -973,6 +972,7 @@ export function EventPreview({
               width: currentSize.width,
               height: currentSize.height,
             }}
+            onPointerDown={(e) => e.stopPropagation()}
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}

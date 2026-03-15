@@ -659,6 +659,23 @@ export default function createEditor(
       return;
     }
 
+    // Don't process keyboard/paste events targeting other interactive elements
+    // (e.g., dialog inputs, search bars) — those belong to the other element
+    if (
+      (e instanceof KeyboardEvent || e.type === "paste") &&
+      e.target instanceof HTMLElement &&
+      e.target !== hiddenInput
+    ) {
+      const tag = e.target.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        e.target.isContentEditable
+      ) {
+        return;
+      }
+    }
+
     // On desktop, if hidden input is focused, ignore window keyboard events
     // (they should come through the hidden input instead for IME support)
     if (

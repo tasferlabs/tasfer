@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Important: Root Cause Analysis
+
+Do NOT jump to the first solution that comes to mind. Before implementing a fix or change, take a step back and consider:
+- What is the **actual root cause**, not just the surface symptom?
+- Are there **other scenarios** or edge cases affected by this issue?
+- Could the fix introduce problems elsewhere?
+- Is there a more fundamental solution that addresses multiple related issues at once?
+
+Think through the problem more broadly before writing code. The first idea is often a band-aid — dig deeper.
+
 ## Project Overview
 
 Cypher is a canvas-based markdown text editor combining Google Docs-like editing with Notion-style block architecture. Text is rendered directly on HTML5 canvas (not DOM-based). Features real-time collaborative editing with offline-first CRDT synchronization.

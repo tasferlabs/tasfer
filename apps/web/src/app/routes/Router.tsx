@@ -3,6 +3,11 @@ import { Navigate, createBrowserRouter } from "react-router-dom";
 import Layout from "../layout/Layout";
 import { RequireAuth, RequireOnboarding, RedirectIfAuthed } from "./AuthGuard";
 
+function RestoreLastRoute() {
+  const lastRoute = localStorage.getItem("lastRoute") || "/page";
+  return <Navigate to={lastRoute} replace />;
+}
+
 const EditorPage = React.lazy(() => import("../pages/EditorPage"));
 const CalendarPage = React.lazy(
   () => import("../pages/CalendarPage/CalendarPage")
@@ -81,7 +86,7 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: <Navigate to="/page" replace />,
+        element: <RestoreLastRoute />,
       },
       {
         path: "page/:id",

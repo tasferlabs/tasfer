@@ -89,6 +89,16 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     }
 
     @JavascriptInterface
+    fun shareFile(base64Data: String, fileName: String, mimeType: String): Boolean {
+        return try {
+            val bytes = Base64.decode(base64Data, Base64.NO_WRAP)
+            (context as? MainActivity)?.shareFileData(bytes, fileName, mimeType) ?: false
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    @JavascriptInterface
     fun openUrl(url: String) {
         (context as? MainActivity)?.runOnUiThread {
             try {

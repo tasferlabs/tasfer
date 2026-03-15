@@ -34,6 +34,7 @@ export function DateTimePickerOverlay({
   type,
   maxDate,
   minDate,
+  activateTodayButton,
 }: {
   open: boolean;
   onClose: () => void;
@@ -53,6 +54,7 @@ export function DateTimePickerOverlay({
   type: "date" | "datetime" | "time";
   maxDate: string;
   minDate: string;
+  activateTodayButton?: boolean;
 }) {
   const { t } = useTranslation();
   const datePickerGridRef = useRef(null);
@@ -193,6 +195,20 @@ export function DateTimePickerOverlay({
           </div>
           {!yearView && (
             <div className="flex items-center gap-1">
+              {activateTodayButton && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs h-7 px-2"
+                  onClick={() => {
+                    const today = DateTime.now().setZone(timezone);
+                    handleDaySelect(today);
+                    setDisplayedDate(today.toISO() || "");
+                  }}
+                >
+                  {t`Today`}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon-sm"

@@ -1,18 +1,45 @@
+import { useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
+import { ChevronRight, User, Lock, SlidersHorizontal, Download } from "lucide-react";
 import { Preferences } from "./PreferencesTab/Preferences";
 import { Data } from "./DataTab/Data";
 import { Profile } from "./ProfileTab/Profile";
 import { Security } from "./SecurityTab/Security";
 import style from "./SettingsPage.module.css";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
+import useResponsive from "@/app/hooks/useResponsive";
 
 const TABS = ["profile", "security", "preferences", "data"] as const;
+type Tab = (typeof TABS)[number];
 const DEFAULT_TAB = "profile";
+
+const TAB_ICONS: Record<Tab, React.ElementType> = {
+  profile: User,
+  security: Lock,
+  preferences: SlidersHorizontal,
+  data: Download,
+};
+
+const CONTENT: Record<Tab, React.FC> = {
+  profile: Profile,
+  security: Security,
+  preferences: Preferences,
+  data: Data,
+};
 
 export default function SettingsPage() {
   const [t] = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isMobile = useResponsive("(max-width: 640px)");
+  const [openDrawer, setOpenDrawer] = useState<Tab | null>(null);
 
   const tabParam = searchParams.get("tab") || "";
   const activeTab = (TABS as readonly string[]).includes(tabParam)
@@ -25,9 +52,70 @@ export default function SettingsPage() {
     });
   }
 
+  const tabLabels: Record<Tab, string> = {
+    profile: t`Profile`,
+    security: t`Security`,
+    preferences: t`Preferences`,
+    data: t`Export`,
+  };
+
+  const headerSlot = document.getElementById("top-action-bar-slot");
+
+  if (isMobile) {
+    const DrawerContentComponent = openDrawer ? CONTENT[openDrawer] : null;
+
+    return (
+      <div className={style.container}>
+        {headerSlot &&
+          createPortal(
+            <span className={style.heading}>{t`Settings`}</span>,
+            headerSlot
+          )}
+
+        <div className={style.list}>
+          {TABS.map((tab) => {
+            const Icon = TAB_ICONS[tab];
+            return (
+              <button
+                key={tab}
+                className={style.listItem}
+                onClick={() => setOpenDrawer(tab)}
+              >
+                <Icon size={20} />
+                <span className={style.listItemLabel}>{tabLabels[tab]}</span>
+                <ChevronRight size={18} className={style.listItemChevron} />
+              </button>
+            );
+          })}
+        </div>
+
+        <Drawer
+          open={openDrawer !== null}
+          onOpenChange={(open) => {
+            if (!open) setOpenDrawer(null);
+          }}
+          direction="bottom"
+        >
+          <DrawerContent>
+            <DrawerHeader>
+              <DrawerTitle>{openDrawer ? tabLabels[openDrawer] : ""}</DrawerTitle>
+            </DrawerHeader>
+            <div className={style.drawerBody}>
+              {DrawerContentComponent && <DrawerContentComponent />}
+            </div>
+          </DrawerContent>
+        </Drawer>
+      </div>
+    );
+  }
+
   return (
     <div className={style.container}>
-      <p className="text-4xl">{t`Settings`}</p>
+      {headerSlot &&
+        createPortal(
+          <span className={style.heading}>{t`Settings`}</span>,
+          headerSlot
+        )}
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className={style.tabsList}>
@@ -35,9 +123,6 @@ export default function SettingsPage() {
           <TabsTrigger value="security">{t`Security`}</TabsTrigger>
           <TabsTrigger value="preferences">{t`Preferences`}</TabsTrigger>
           <TabsTrigger value="data">{t`Export`}</TabsTrigger>
-          {/* <TabsTrigger value="workspace">{t`Workspace`}</TabsTrigger> */}
-          {/* <TabsTrigger value="billing">{t`Billing`}</TabsTrigger> */}
-          {/* <TabsTrigger value="notifications">{t`Notifications`}</TabsTrigger> */}
         </TabsList>
         <TabsContent value={"profile"}>
           <Profile />
@@ -51,9 +136,6 @@ export default function SettingsPage() {
         <TabsContent value={"data"}>
           <Data />
         </TabsContent>
-        {/* <TabsContent value={"workspace"}></TabsContent> */}
-        {/* <TabsContent value={"billing"}></TabsContent> */}
-        {/* <TabsContent value={"notifications"}></TabsContent> */}
       </Tabs>
     </div>
   );

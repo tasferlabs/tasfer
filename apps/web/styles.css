@@ -293,3 +293,10 @@
   background-color: var(--accent);
   color: var(--foreground);
 }
+
+/* Disable text selection on native apps (Capacitor) */
+body.native {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}

@@ -1408,6 +1408,8 @@ function renderRemoteSelections(
 export const imageCache = new Map<string, HTMLImageElement>();
 // Cache for failed image loads to prevent repeated requests
 const failedImageCache = new Set<string>();
+// Track in-flight loads to prevent duplicate requests
+const pendingLoads = new Map<string, Promise<HTMLImageElement>>();
 
 // Clear failed image from cache (useful for retry scenarios)
 export function clearFailedImageCache(url?: string) {
@@ -1433,7 +1435,12 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     }
   }
 
-  return new Promise((resolve, reject) => {
+  // Deduplicate concurrent loads for the same URL
+  if (pendingLoads.has(url)) {
+    return pendingLoads.get(url)!;
+  }
+
+  const promise = new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image();
     const resolvedUrl = getAuthenticatedImageUrl(url);
     if (resolvedUrl === url) {
@@ -1442,23 +1449,29 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 
     img.onload = () => {
       imageCache.set(url, img);
+      pendingLoads.delete(url);
       resolve(img);
     };
 
     img.onerror = () => {
       // Cache the failed URL to prevent repeated requests
       failedImageCache.add(url);
+      pendingLoads.delete(url);
       reject(new Error(`Failed to load image: ${url}`));
     };
 
     img.src = resolvedUrl;
 
-    // If already complete (from cache), resolve immediately
+    // If already complete (from browser cache), resolve immediately
     if (img.complete) {
       imageCache.set(url, img);
+      pendingLoads.delete(url);
       resolve(img);
     }
   });
+
+  pendingLoads.set(url, promise);
+  return promise;
 }
 
 // Render image cover block

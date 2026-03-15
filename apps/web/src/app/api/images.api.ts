@@ -1,4 +1,5 @@
 import { useMutation, type UseMutationOptions, useQuery, type UseQueryOptions } from "@tanstack/react-query";
+import imageCompression from "browser-image-compression";
 import { authFetch, API_BASE, getAuthenticatedImageUrl } from "./client";
 
 export interface IImage {
@@ -10,10 +11,33 @@ export interface IImage {
   createdAt?: string;
 }
 
+const COMPRESSION_OPTIONS = {
+  maxSizeMB: 2,
+  maxWidthOrHeight: 2000,
+  useWebWorker: true,
+  fileType: "image/webp" as const,
+};
+
+async function compressFile(file: File): Promise<File> {
+  // Skip SVGs and small files (< 500KB)
+  if (file.type === "image/svg+xml" || file.size < 500 * 1024) {
+    return file;
+  }
+
+  try {
+    return await imageCompression(file, COMPRESSION_OPTIONS);
+  } catch {
+    // Fall back to original file if compression fails
+    return file;
+  }
+}
+
 // Upload image
 export async function uploadImage(file: File): Promise<IImage> {
+  const compressed = await compressFile(file);
+
   const formData = new FormData();
-  formData.append("image", file);
+  formData.append("image", compressed);
 
   const response = await authFetch(`${API_BASE}/images/upload`, {
     method: "POST",

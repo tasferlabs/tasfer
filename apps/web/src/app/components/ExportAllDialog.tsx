@@ -13,6 +13,7 @@ import { getPages, getPage, type IListPage } from "../api/pages.api";
 import { authFetch, API_BASE } from "../api/client";
 import { useSpaces } from "../contexts/SpaceContext";
 import { serializeToMarkdown, type PageMetadata } from "../../deserializer/serializer";
+import { downloadFile } from "@/downloadFile";
 import type { Image } from "../../deserializer/loadPage";
 import type { IPage } from "../api/pages.api";
 import { useTranslation } from "react-i18next";
@@ -255,14 +256,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
 
       // Generate and download
       const blob = await zip.generateAsync({ type: "blob" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "cypher-export.zip";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      await downloadFile(blob, "cypher-export.zip", "application/zip");
 
       onOpenChange(false);
     } catch (err) {

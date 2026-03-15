@@ -304,8 +304,21 @@ export function mountEditor(
     }, 10);
   };
 
+  // When focus moves to an element outside the editor (e.g., a dialog input),
+  // unfocus the editor so keystrokes don't get processed by it
+  const handleDocumentFocusIn = (e: FocusEvent) => {
+    const target = e.target as Node;
+    if (!target) return;
+    if (target === hiddenInput) return;
+    if (canvasContainer.contains(target)) return;
+    if (editor.getState()?.view.isFocused) {
+      editor.setFocus(false);
+    }
+  };
+
   document.addEventListener("mousedown", handleDocumentClick);
   document.addEventListener("touchstart", handleDocumentClick);
+  document.addEventListener("focusin", handleDocumentFocusIn);
   container.addEventListener("touchstart", handleTouchStart);
   container.addEventListener("touchend", handleTouchEnd);
   container.addEventListener("touchcancel", handleTouchEnd);
@@ -357,6 +370,7 @@ export function mountEditor(
     themeObserver.disconnect();
     document.removeEventListener("mousedown", handleDocumentClick);
     document.removeEventListener("touchstart", handleDocumentClick);
+    document.removeEventListener("focusin", handleDocumentFocusIn);
     container.removeEventListener("touchstart", handleTouchStart);
     container.removeEventListener("touchend", handleTouchEnd);
     container.removeEventListener("touchcancel", handleTouchEnd);

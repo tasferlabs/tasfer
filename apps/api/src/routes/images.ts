@@ -2,6 +2,7 @@ import { Router, Request } from "express";
 import { createId } from "@paralleldrive/cuid2";
 import multer from "multer";
 import path from "path";
+import sharp from "sharp";
 import { writeFile, readFile, deleteFile } from "../handlers/files.js";
 import db from "../db/index.js";
 import { images, pages, snapshots, spaceMembers, spaces, users } from "../db/schema.js";
@@ -9,6 +10,45 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth.js";
 import { decodeSnapshot } from "../lib/snapshot.js";
 import { getAccessibleSpaces } from "../lib/permissions.js";
+
+const MAX_IMAGE_DIMENSION = 2000;
+
+async function compressImage(
+  buffer: Buffer,
+  mimetype: string
+): Promise<{ buffer: Buffer; mimetype: string; ext: string }> {
+  // Skip SVGs — they're already lightweight
+  if (mimetype === "image/svg+xml") {
+    return { buffer, mimetype, ext: ".svg" };
+  }
+
+  // Skip GIFs to preserve animation
+  if (mimetype === "image/gif") {
+    return { buffer, mimetype, ext: ".gif" };
+  }
+
+  const image = sharp(buffer);
+  const metadata = await image.metadata();
+
+  // Resize if larger than max dimension (preserving aspect ratio)
+  if (
+    (metadata.width && metadata.width > MAX_IMAGE_DIMENSION) ||
+    (metadata.height && metadata.height > MAX_IMAGE_DIMENSION)
+  ) {
+    image.resize(MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION, {
+      fit: "inside",
+      withoutEnlargement: true,
+    });
+  }
+
+  // Strip EXIF/metadata and convert to WebP
+  const compressed = await image
+    .rotate() // Auto-rotate based on EXIF before stripping
+    .webp({ quality: 80 })
+    .toBuffer();
+
+  return { buffer: compressed, mimetype: "image/webp", ext: ".webp" };
+}
 
 const router = Router();
 const IMAGE_URL_PATTERN = /\/api\/images\/([^/?#]+)/;
@@ -162,13 +202,15 @@ router.post("/upload", requireAuth, upload.single("image"), async (req: Request,
 
     const file = req.file;
     const imageId = createId();
-    const ext = path.extname(file.originalname);
-    const fileName = `${imageId}${ext}`;
+
+    // Compress and optimize the image
+    const compressed = await compressImage(file.buffer, file.mimetype);
+    const fileName = `${imageId}${compressed.ext}`;
     const filePath = `${fileName}`;
 
-    // Write file to storage
-    await writeFile(file.buffer, filePath, {
-      mimetype: file.mimetype,
+    // Write compressed file to storage
+    await writeFile(compressed.buffer, filePath, {
+      mimetype: compressed.mimetype,
       bucketName: "images",
     });
 
@@ -180,8 +222,8 @@ router.post("/upload", requireAuth, upload.single("image"), async (req: Request,
         userId: req.user!.id,
         fileName: file.originalname,
         filePath: filePath,
-        mimeType: file.mimetype,
-        size: file.size,
+        mimeType: compressed.mimetype,
+        size: compressed.buffer.length,
       })
       .returning();
 

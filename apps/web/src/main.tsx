@@ -14,6 +14,11 @@ import { loadFonts } from "./editor/fonts";
 import "./i18n";
 import { serviceWorkerBridge } from "./serviceWorkerBridge";
 
+// Mark native apps so CSS can disable text selection
+if ((window as any).Capacitor?.isNativePlatform?.()) {
+  document.body.classList.add("native");
+}
+
 // Start font loading in background — don't block initial render.
 // Font metrics are computed lazily on first use per size/weight combo.
 loadFonts();

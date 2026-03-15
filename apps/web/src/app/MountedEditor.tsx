@@ -1562,6 +1562,9 @@ export function MountedEditor({
                   },
                   "complete"
                 );
+
+                // Close the popover after successful upload
+                editor.closeActiveMenu();
               } catch (error) {
                 console.error("Image upload failed:", error);
                 editor.updateImageBlock(

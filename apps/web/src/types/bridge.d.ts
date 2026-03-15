@@ -30,6 +30,8 @@ declare global {
       toggleItalic?: () => void;
       toggleCode?: () => void;
       toggleStrikethrough?: () => void;
+      // File sharing (presents native share/save sheet)
+      shareFile?: (base64Data: string, fileName: string, mimeType: string) => Promise<boolean>;
       // Native storage methods (same interface as AndroidBridge)
       storageWrite?: (path: string, base64Data: string) => Promise<boolean>;
       storageRead?: (path: string) => Promise<string | null>;
@@ -49,6 +51,8 @@ declare global {
       setEditorFocused?: (focused: boolean) => void;
       openPhotoLibrary?: () => void;
       openCamera?: () => void;
+      // File sharing (presents native share/save sheet)
+      shareFile?: (base64Data: string, fileName: string, mimeType: string) => boolean;
       updateToolbarIcon?: (
         iconType: "link" | "image" | "format" | "none"
       ) => void;

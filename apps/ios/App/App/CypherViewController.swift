@@ -81,6 +81,9 @@ class CypherViewController: CAPBridgeViewController {
                     },
                     getStorageInfo: function() {
                         return callStorage('getStorageInfo', {});
+                    },
+                    shareFile: function(base64Data, fileName, mimeType) {
+                        return callStorage('shareFile', { data: base64Data, fileName: fileName, mimeType: mimeType });
                     }
                 };
             })();
@@ -196,6 +199,7 @@ class CypherViewController: CAPBridgeViewController {
         clipboardBridge.webView = webView
         imagePickerCoordinator.webView = webView
         storageBridge.webView = webView
+        storageBridge.presentingViewController = self
 
         // Set presenting view controller for image picker
         imagePickerCoordinator.presentingViewController = self

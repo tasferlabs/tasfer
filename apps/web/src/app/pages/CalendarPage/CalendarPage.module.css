@@ -181,6 +181,7 @@
   z-index: 2;
   transition: background-color 0.1s;
   box-sizing: border-box;
+  touch-action: none;
 }
 
 .eventCard:hover {
@@ -645,6 +646,7 @@
   height: 8px;
   cursor: ns-resize;
   border-radius: 0 0 6px 6px;
+  touch-action: none;
 }
 
 .resizeHandle::after {
@@ -799,6 +801,25 @@
   background-color: var(--card);
   color: var(--foreground);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* ── Day view sticky header ── */
+
+.dayHeader {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background-color: var(--background);
+}
+
+.dayHeaderDay {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0;
+  gap: 2px;
 }
 
 /* ── Week view ── */
@@ -967,6 +988,10 @@
 
   .nowIndicatorDot {
     left: 34px;
+  }
+
+  .resizeHandle {
+    display: none;
   }
 
   .weekTimeLabelSpacer {

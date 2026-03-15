@@ -1,8 +1,9 @@
-import Foundation
+import UIKit
 import WebKit
 
 class StorageBridge: NSObject, WKScriptMessageHandler {
     weak var webView: WKWebView?
+    weak var presentingViewController: UIViewController?
     private let fileManager = FileManager.default
 
     private lazy var baseURL: URL = {
@@ -27,6 +28,46 @@ class StorageBridge: NSObject, WKScriptMessageHandler {
         var errorMsg: String? = nil
 
         switch action {
+        case "shareFile":
+            if let dataStr = body["data"] as? String,
+               let fileName = body["fileName"] as? String,
+               let bytes = Data(base64Encoded: dataStr)
+            {
+                // Write to temp file
+                let tempDir = FileManager.default.temporaryDirectory
+                let tempFile = tempDir.appendingPathComponent(fileName)
+                do {
+                    try bytes.write(to: tempFile)
+                } catch {
+                    sendCallback(callbackId: callbackId, result: nil, error: error.localizedDescription)
+                    return
+                }
+
+                // Present share sheet on main thread (async — sends callback when done)
+                DispatchQueue.main.async { [weak self] in
+                    guard let vc = self?.presentingViewController else {
+                        self?.sendCallback(callbackId: callbackId, result: nil, error: "No presenting view controller")
+                        return
+                    }
+                    let activityVC = UIActivityViewController(activityItems: [tempFile], applicationActivities: nil)
+                    activityVC.completionWithItemsHandler = { _, completed, _, _ in
+                        // Clean up temp file
+                        try? FileManager.default.removeItem(at: tempFile)
+                        self?.sendCallback(callbackId: callbackId, result: completed, error: nil)
+                    }
+                    // iPad requires popover source
+                    if let popover = activityVC.popoverPresentationController {
+                        popover.sourceView = vc.view
+                        popover.sourceRect = CGRect(x: vc.view.bounds.midX, y: vc.view.bounds.midY, width: 0, height: 0)
+                        popover.permittedArrowDirections = []
+                    }
+                    vc.present(activityVC, animated: true)
+                }
+                return // callback sent asynchronously
+            } else {
+                errorMsg = "Invalid data or fileName"
+            }
+
         case "write":
             if let path = body["path"] as? String,
                 let dataStr = body["data"] as? String,
@@ -115,11 +156,15 @@ class StorageBridge: NSObject, WKScriptMessageHandler {
         }
 
         // Send response back to JavaScript
+        sendCallback(callbackId: callbackId, result: result, error: errorMsg)
+    }
+
+    private func sendCallback(callbackId: String, result: Any?, error: String?) {
         var response: [String: Any]
-        if let error = errorMsg {
+        if let error = error {
             response = ["error": error]
         } else {
-            response = ["result": result]
+            response = ["result": result ?? NSNull()]
         }
 
         if let jsonData = try? JSONSerialization.data(withJSONObject: response),
