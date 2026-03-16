@@ -21,7 +21,9 @@ const TRAEFIK_AUTH = process.env.TRAEFIK_AUTH;
 
 // Middleware
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || true,
+  origin: process.env.CORS_ORIGIN
+    ? [process.env.CORS_ORIGIN, "capacitor://cypher.md"]
+    : true,
   credentials: true,
 }));
 app.use(express.json({ limit: "10mb" }));
