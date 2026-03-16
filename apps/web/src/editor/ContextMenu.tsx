@@ -61,7 +61,7 @@ const Submenu: React.FC<SubmenuProps> = ({
           <span className="w-4 h-4 flex items-center justify-center shrink-0 text-muted-foreground">
             {item.icon}
           </span>
-          <span className="flex-1 text-left">{item.label}</span>
+          <span className="flex-1 text-start">{item.label}</span>
           <ChevronRight size={14} className="text-muted-foreground" />
         </button>
       </Popover.Trigger>
@@ -85,7 +85,7 @@ const Submenu: React.FC<SubmenuProps> = ({
               <button
                 key={child.id}
                 data-context-menu-item-id={child.id}
-                className={`text-left w-full px-2 py-2 flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground active:bg-accent/80 ${
+                className={`text-start w-full px-2 py-2 flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground active:bg-accent/80 ${
                   child.active
                     ? "text-primary"
                     : "text-popover-foreground"

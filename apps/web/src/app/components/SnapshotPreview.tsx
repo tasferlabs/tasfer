@@ -39,7 +39,7 @@ export function SnapshotPreview({
 
       <div className="flex items-center  gap-4 justify-between p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t">
         <Button onClick={onRestore} size={"lg"}>
-          <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+          <RotateCcw className="h-3.5 w-3.5 me-1.5" />
           {t`Restore`}
         </Button>
 
@@ -53,7 +53,7 @@ export function SnapshotPreview({
                   className="text-xs text-muted-foreground"
                 />
 
-                <div className="flex items-center gap-1 text-xs text-muted-foreground mr-2">
+                <div className="flex items-center gap-1 text-xs text-muted-foreground me-2">
                   <FileText className="h-3 w-3" />
                   <span>
                     {snapshot.blockCount}{" "}
@@ -65,7 +65,7 @@ export function SnapshotPreview({
           </div>
 
           <Button variant="ghost" size="icon" onClick={onBack}>
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-4 w-4 rtl:-scale-x-100" />
           </Button>
         </div>
       </div>

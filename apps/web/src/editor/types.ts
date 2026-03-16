@@ -313,11 +313,16 @@ export interface RenderedLine {
 }
 
 // Style Configuration
+export interface RemoteCursorStyles {
+  readonly labelTextColor: string;
+}
+
 export interface EditorStyles {
   readonly canvas: CanvasStyles;
   readonly blocks: BlockStyles;
   readonly selection: SelectionStyles;
   readonly cursor: CursorStyles;
+  readonly remoteCursor: RemoteCursorStyles;
   readonly placeholder: PlaceholderStyles;
   readonly textFormats: TextFormatStyles;
   readonly imageResize: ImageResizeStyles;
@@ -395,7 +400,6 @@ export interface PlaceholderStyles {
     readonly touchCompatiableText: string;
   };
   readonly color: string;
-  readonly opacity: number;
 }
 
 export interface TextFormatStyles {

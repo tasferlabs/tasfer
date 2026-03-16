@@ -12,7 +12,7 @@ i18next
       lookupCookie: "locale",
     },
     fallbackLng: "en",
-    supportedLngs: ["en"],
+    supportedLngs: ["en", "ar"],
     backend: {
       loadPath: "/app/locales/{{lng}}/{{ns}}.json",
     },

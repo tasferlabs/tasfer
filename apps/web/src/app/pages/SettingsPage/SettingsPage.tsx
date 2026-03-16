@@ -2,11 +2,12 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
-import { ChevronRight, User, Lock, SlidersHorizontal, Download } from "lucide-react";
+import { ChevronRight, User, Lock, SlidersHorizontal, Download, Info } from "lucide-react";
 import { Preferences } from "./PreferencesTab/Preferences";
 import { Data } from "./DataTab/Data";
 import { Profile } from "./ProfileTab/Profile";
 import { Security } from "./SecurityTab/Security";
+import { Information } from "./InformationTab/Information";
 import style from "./SettingsPage.module.css";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -17,7 +18,7 @@ import {
 } from "@/components/ui/drawer";
 import useResponsive from "@/app/hooks/useResponsive";
 
-const TABS = ["profile", "security", "preferences", "data"] as const;
+const TABS = ["profile", "security", "preferences", "data", "information"] as const;
 type Tab = (typeof TABS)[number];
 const DEFAULT_TAB = "profile";
 
@@ -26,6 +27,7 @@ const TAB_ICONS: Record<Tab, React.ElementType> = {
   security: Lock,
   preferences: SlidersHorizontal,
   data: Download,
+  information: Info,
 };
 
 const CONTENT: Record<Tab, React.FC> = {
@@ -33,6 +35,7 @@ const CONTENT: Record<Tab, React.FC> = {
   security: Security,
   preferences: Preferences,
   data: Data,
+  information: Information,
 };
 
 export default function SettingsPage() {
@@ -57,6 +60,7 @@ export default function SettingsPage() {
     security: t`Security`,
     preferences: t`Preferences`,
     data: t`Export`,
+    information: t`Information`,
   };
 
   const headerSlot = document.getElementById("top-action-bar-slot");
@@ -123,6 +127,7 @@ export default function SettingsPage() {
           <TabsTrigger value="security">{t`Security`}</TabsTrigger>
           <TabsTrigger value="preferences">{t`Preferences`}</TabsTrigger>
           <TabsTrigger value="data">{t`Export`}</TabsTrigger>
+          <TabsTrigger value="information">{t`Information`}</TabsTrigger>
         </TabsList>
         <TabsContent value={"profile"}>
           <Profile />
@@ -135,6 +140,9 @@ export default function SettingsPage() {
         </TabsContent>
         <TabsContent value={"data"}>
           <Data />
+        </TabsContent>
+        <TabsContent value={"information"}>
+          <Information />
         </TabsContent>
       </Tabs>
     </div>

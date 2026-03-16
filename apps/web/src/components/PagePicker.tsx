@@ -85,7 +85,7 @@ export function PagePicker({
               <button className="flex flex-1 items-center min-w-0 h-full px-2.5 text-sm cursor-pointer">
                 <span
                   className={cn(
-                    "flex-1 truncate text-left",
+                    "flex-1 truncate text-start",
                     !value && "text-muted-foreground",
                   )}
                 >
@@ -102,7 +102,7 @@ export function PagePicker({
               </button>
             )}
             <PopoverTrigger asChild>
-              <button className="shrink-0 pr-2 pl-1 h-full text-muted-foreground cursor-pointer">
+              <button className="shrink-0 pe-2 ps-1 h-full text-muted-foreground cursor-pointer">
                 <ChevronDown size={14} />
               </button>
             </PopoverTrigger>

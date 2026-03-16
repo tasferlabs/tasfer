@@ -128,6 +128,16 @@ Tables: `users`, `spaces`, `space_members`, `pages`, `snapshots`, `images`, `pag
 - Max 50 snapshots per page (garbage collected)
 - Pages support scheduling fields (scheduledAt, duration, allDay, recurrenceId) and task/color properties
 
+## Internationalization (i18n)
+
+The app is fully internationalized using i18next + react-i18next. **All user-facing strings MUST use the `t()` function** — never hardcode raw text strings in UI components.
+
+- Setup: `apps/web/src/i18n.ts` (i18next with HTTP backend + browser language detection)
+- Translation files: `apps/web/public/locales/{lang}/translation.json`
+- In React components: use the `useTranslation()` hook → `const { t } = useTranslation()`
+- Outside React (plain TS): import `i18next` directly and call `i18next.t("key")`
+- When adding new UI text, always add the key to the translation JSON files and reference it via `t("key")`
+
 ## Key Patterns
 
 - Block types: `paragraph`, `heading1-3`, `bullet_list`, `numbered_list`, `todo_list`, `image`, `line`

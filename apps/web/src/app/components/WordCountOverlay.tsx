@@ -13,7 +13,7 @@ export function WordCountOverlay() {
 
   return (
     <div
-      className="fixed bottom-4 right-6 z-10 px-3 py-1.5 rounded-md bg-background/80 backdrop-blur-sm border border-border shadow-lg"
+      className="fixed bottom-4 end-6 z-10 px-3 py-1.5 rounded-md bg-background/80 backdrop-blur-sm border border-border shadow-lg"
       role="status"
       aria-live="polite"
       aria-label={`Word count: ${formattedCount}`}

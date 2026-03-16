@@ -2,12 +2,16 @@ import type { AwarenessUser } from '@/editor/sync/awareness';
 import style from '../layout/Layout.module.css';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { getImageUrl } from '../api/images.api';
+import { AvatarPreviewDialog } from './AvatarPreviewDialog';
+import { useState } from 'react';
 
 interface ActiveUsersAvatarsProps {
   users: AwarenessUser[];
 }
 
 export function ActiveUsersAvatars({ users }: ActiveUsersAvatarsProps) {
+  const [previewUser, setPreviewUser] = useState<AwarenessUser | null>(null);
+
   if (users.length === 0) return null;
 
   return (
@@ -28,6 +32,7 @@ export function ActiveUsersAvatars({ users }: ActiveUsersAvatarsProps) {
                     ['--avatar-color-text' as string]: '#ffffff',
                     borderColor: user.color,
                   }}
+                  onClick={() => user.avatar && setPreviewUser(user)}
                 >
                   {user.avatar ? (
                     <img src={getImageUrl(user.avatar)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -43,6 +48,13 @@ export function ActiveUsersAvatars({ users }: ActiveUsersAvatarsProps) {
           );
         })}
       </div>
+
+      <AvatarPreviewDialog
+        open={!!previewUser}
+        onOpenChange={(open) => { if (!open) setPreviewUser(null); }}
+        imageUrl={previewUser?.avatar ? getImageUrl(previewUser.avatar) : null}
+        name={previewUser?.name}
+      />
     </TooltipProvider>
   );
 }

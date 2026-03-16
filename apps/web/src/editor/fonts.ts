@@ -17,6 +17,10 @@ import "@fontsource/libre-baskerville/700.css";
 import type { FontMetrics, CharacterMetrics } from "./types";
 import type FontConfig from "./types";
 
+// Arabic font loading state
+let arabicFontsLoaded = false;
+let arabicFontLoadingPromise: Promise<void> | null = null;
+
 // Legacy text segment type (for backward compatibility)
 interface TextSegment {
   content: string;
@@ -30,6 +34,23 @@ export const FONT_STACKS: Record<FontFamily, string> = {
     'Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
   "libre-baskerville": 'Libre Baskerville, Georgia, "Times New Roman", Times, serif',
 };
+
+// Font stacks with Arabic fonts prepended (used when Arabic fonts are loaded)
+const FONT_STACKS_ARABIC: Record<FontFamily, string> = {
+  poppins:
+    '"Noto Sans Arabic", Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  "libre-baskerville": 'Amiri, Libre Baskerville, Georgia, "Times New Roman", Times, serif',
+};
+
+/**
+ * Get the appropriate font stack, considering whether Arabic fonts are loaded
+ */
+export function getFontStack(fontFamily: FontFamily): string {
+  if (arabicFontsLoaded) {
+    return FONT_STACKS_ARABIC[fontFamily];
+  }
+  return FONT_STACKS[fontFamily];
+}
 
 // Latin character set (ASCII 32-126 + common extended Latin)
 const LATIN_CHARS =
@@ -47,6 +68,15 @@ const FONT_CONFIGS = [
   { family: "Poppins", weight: "700" },
   { family: "Libre Baskerville", weight: "400" },
   { family: "Libre Baskerville", weight: "700" },
+];
+
+const ARABIC_FONT_CONFIGS = [
+  { family: "Noto Sans Arabic", weight: "400" },
+  { family: "Noto Sans Arabic", weight: "500" },
+  { family: "Noto Sans Arabic", weight: "600" },
+  { family: "Noto Sans Arabic", weight: "700" },
+  { family: "Amiri", weight: "400" },
+  { family: "Amiri", weight: "700" },
 ];
 
 // Font loading state
@@ -161,6 +191,46 @@ export async function loadFonts(): Promise<void> {
   return fontLoadingPromise;
 }
 
+/**
+ * Dynamically load Arabic fonts (Noto Sans Arabic + Amiri).
+ * Called when the language is set to Arabic. CSS is loaded via dynamic import
+ * so the font files are only fetched when needed.
+ */
+export async function loadArabicFonts(): Promise<void> {
+  if (arabicFontsLoaded) return;
+  if (arabicFontLoadingPromise) return arabicFontLoadingPromise;
+
+  arabicFontLoadingPromise = (async () => {
+    // Dynamically import the CSS files so they're only fetched for Arabic
+    await Promise.all([
+      import("@fontsource/noto-sans-arabic/400.css"),
+      import("@fontsource/noto-sans-arabic/500.css"),
+      import("@fontsource/noto-sans-arabic/600.css"),
+      import("@fontsource/noto-sans-arabic/700.css"),
+      import("@fontsource/amiri/400.css"),
+      import("@fontsource/amiri/700.css"),
+    ]);
+
+    // Wait for the browser to actually load the font faces
+    await Promise.all(
+      ARABIC_FONT_CONFIGS.map(({ family, weight }) =>
+        loadSingleFont(family, weight)
+      )
+    );
+
+    arabicFontsLoaded = true;
+
+    // Flush metrics cache so measurements use the new font stacks
+    metricsCache = new Map();
+
+    // Notify listeners so editor re-renders with Arabic fonts
+    const cbs = fontReadyCallbacks.splice(0);
+    for (const cb of cbs) cb();
+  })();
+
+  return arabicFontLoadingPromise;
+}
+
 // Global metrics cache (immutable) - keyed by "fontFamily-fontSize-fontWeight"
 let metricsCache: ReadonlyMap<string, FontMetrics> = new Map();
 
@@ -187,7 +257,7 @@ const applyFont = (
   fontWeight: string,
   fontFamily: FontFamily
 ): void => {
-  const fontStack = FONT_STACKS[fontFamily];
+  const fontStack = getFontStack(fontFamily);
   ctx.font = `${fontWeight} ${fontSize}px ${fontStack}`;
 };
 // Pure function to calculate font metrics

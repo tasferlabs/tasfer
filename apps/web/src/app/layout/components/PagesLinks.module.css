@@ -8,6 +8,7 @@
   width: 100%;
   border-radius: 4px;
   height: 34px;
+  padding-inline: 4px;
   cursor: grab;
   user-select: none;
 }
@@ -142,8 +143,7 @@
 
 .sortBar {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   height: 6px;
   width: 100%;
   background-color: transparent;
@@ -195,8 +195,7 @@
 /* Drop zones for drag and drop */
 .dropZone {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   z-index: 10;
   transition: all 0.15s ease;
 }
@@ -219,8 +218,7 @@
 .dropZoneInside {
   top: 0;
   bottom: 0;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   background-color: transparent;
   pointer-events: none;
 }
@@ -278,6 +276,22 @@
   .menuTrigger {
     display: flex;
   }
+}
+
+.collapseIcon {
+  transition: transform 0.15s ease;
+}
+
+:global([dir="rtl"]) .collapseIcon {
+  transform: scaleX(-1);
+}
+
+.collapseIconExpanded {
+  transform: rotate(90deg);
+}
+
+:global([dir="rtl"]) .collapseIconExpanded {
+  transform: scaleX(-1) rotate(90deg);
 }
 
 /* Hide collapse button if no children on fine pointer */

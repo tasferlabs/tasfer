@@ -39,7 +39,7 @@ export function DevToolbar() {
   return (
     <div
       className={cn(
-        "fixed bottom-4 right-4 z-[9999]",
+        "fixed bottom-4 end-4 z-[9999]",
         "bg-popover backdrop-blur-xl",
         "border border-border rounded-lg",
         "shadow-lg",
@@ -75,7 +75,7 @@ export function DevToolbar() {
         </div>
         <svg
           className={cn(
-            "w-3.5 h-3.5 ml-auto transition-transform",
+            "w-3.5 h-3.5 ms-auto transition-transform",
             isExpanded && "rotate-180",
           )}
           fill="none"

@@ -230,7 +230,7 @@ const EgDateTimePicker = React.forwardRef(
             <label
               htmlFor={id}
               className={cn(
-                'absolute top-0 left-2 z-10 -translate-y-1/2 bg-background px-1 rounded',
+                'absolute top-0 start-2 z-10 -translate-y-1/2 bg-background px-1 rounded',
                 'text-muted-foreground font-medium',
                 size === 'small' ? 'text-xs' : 'text-sm'
               )}
@@ -259,7 +259,7 @@ const EgDateTimePicker = React.forwardRef(
               size={size}
             />
           </div>
-          <div className="flex items-center ml-auto">
+          <div className="flex items-center ms-auto">
             <Button
               type="button"
               variant="ghost"
@@ -311,7 +311,7 @@ const EgDateTimePicker = React.forwardRef(
         {React.isValidElement(helperText) ? (
           helperText
         ) : typeof helperText === 'string' && !!helperText ? (
-          <p className={cn('mt-1 text-sm text-left', error ? 'text-destructive' : 'text-muted-foreground')}>
+          <p className={cn('mt-1 text-sm text-start', error ? 'text-destructive' : 'text-muted-foreground')}>
             {helperText}
           </p>
         ) : null}

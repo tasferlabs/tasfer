@@ -25,6 +25,7 @@ import {
   extractTitleFromBlocks,
   getVisibleTextFromRuns,
 } from "@/editor/sync/char-runs";
+import { formatDatePreferred, formatTimePreferred } from "@/lib/dateTimePreferences";
 import { DURATION_OPTIONS, formatDurationLabel } from "@/lib/utils";
 import type { SyncState } from "@/websocket/hooks/useRoom";
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
@@ -552,11 +553,11 @@ function formatScheduleLabel(
   t: (key: string, opts?: Record<string, unknown>) => string,
 ): string {
   const d = new Date(iso);
-  const date = d.toLocaleDateString(undefined, {
+  const date = formatDatePreferred(d, {
     month: "short",
     day: "numeric",
   });
-  const time = d.toLocaleTimeString(undefined, {
+  const time = formatTimePreferred(d, {
     hour: "numeric",
     minute: "2-digit",
   });
@@ -897,7 +898,7 @@ function PageActionBar({ pageId }: { pageId: string }) {
         </div>
       )}
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ms-auto flex items-center gap-2">
         <ActiveUsersAvatars users={activeUsers} />
         {permission !== "view" && <SavingIndicator isSaving={isSaving} />}
         {!isPageLoading && !isPageError && <PageSettings />}

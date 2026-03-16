@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { getLuxon, padValue, plusDatetime } from "./utils";
 import { TimePicker } from "./TimePicker";
 import { YearPicker } from "./YearPicker";
+import { getWeekStart, formatDatePreferred } from "@/lib/dateTimePreferences";
 
 export function DateTimePickerOverlay({
   open,
@@ -73,6 +74,8 @@ export function DateTimePickerOverlay({
     }
     return DateTime.now().setZone(timezone).toISO() || "";
   });
+  const weekStart = getWeekStart();
+
   const weeks: {
     date: DateTime;
     active: boolean;
@@ -80,14 +83,16 @@ export function DateTimePickerOverlay({
     disabledByChoice: boolean;
   }[][] = useMemo(() => {
     const luxonDate = getLuxon(displayedDate, timezone);
+    const firstOfMonth = luxonDate.startOf("month");
+    // luxon weekday: 1=Mon..7=Sun → convert to JS-style 0=Sun..6=Sat
+    const jsWeekday = firstOfMonth.weekday % 7;
+    const offset = (jsWeekday - weekStart + 7) % 7;
+    const gridStart = firstOfMonth.minus({ days: offset });
     return Array(6)
       .fill(Array(7).fill(0))
       .map((week, i) =>
         week.map((_: number, j: number) => {
-          const date = luxonDate
-            .startOf("month")
-            .startOf("week")
-            .plus({ days: 7 * i + j });
+          const date = gridStart.plus({ days: 7 * i + j });
           return {
             date,
             active: luxonDate.toISODate() === date.toISODate(),
@@ -98,7 +103,7 @@ export function DateTimePickerOverlay({
           };
         }),
       );
-  }, [displayedDate, minDate, maxDate]);
+  }, [displayedDate, minDate, maxDate, weekStart]);
 
   const handleDaySelect = (date: DateTime) => {
     setSelectedDay(padValue(date.day.toString(), "day"));
@@ -123,7 +128,9 @@ export function DateTimePickerOverlay({
     }
   }, [value]);
 
-  const weekDays = [t`Mo`, t`Tu`, t`We`, t`Th`, t`Fr`, t`Sa`, t`Su`];
+  // All 7 day labels indexed by JS weekday (0=Sun..6=Sat)
+  const allDays = [t`Su`, t`Mo`, t`Tu`, t`We`, t`Th`, t`Fr`, t`Sa`];
+  const weekDays = Array.from({ length: 7 }, (_, i) => allDays[(weekStart + i) % 7]);
 
   const component = (
     <div className="flex flex-col gap-1">
@@ -177,13 +184,13 @@ export function DateTimePickerOverlay({
               className="text-base font-medium cursor-pointer hover:text-foreground/80 ps-[0.5rem]"
               onClick={() => setYearView(!yearView)}
             >
-              {getLuxon(displayedDate, timezone).toFormat("LLLL, yyyy")}
+              {formatDatePreferred(getLuxon(displayedDate, timezone).toJSDate(), { month: "long", year: "numeric" })}
             </button>
             <Button
               variant="ghost"
               size="icon-xs"
               onClick={() => setYearView(!yearView)}
-              className="ml-1"
+              className="ms-1"
             >
               <ChevronDown
                 className={cn(
@@ -219,7 +226,7 @@ export function DateTimePickerOverlay({
                   )
                 }
               >
-                <ChevronLeft className="size-4" />
+                <ChevronLeft className="size-4 rtl:rotate-180" />
               </Button>
               <Button
                 variant="ghost"
@@ -231,7 +238,7 @@ export function DateTimePickerOverlay({
                   )
                 }
               >
-                <ChevronRight className="size-4" />
+                <ChevronRight className="size-4 rtl:rotate-180" />
               </Button>
             </div>
           )}

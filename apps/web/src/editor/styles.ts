@@ -1,4 +1,5 @@
-import { getCurrentFontFamily, FONT_STACKS } from "./fonts";
+import i18next from "i18next";
+import { getCurrentFontFamily, getFontStack } from "./fonts";
 import type { EditorStyles, PlaceholderStyles, TextStyle } from "./types";
 import { IMAGE_DEFAULT_HEIGHT } from "./constants";
 import { isTouchDevice } from "./state";
@@ -70,12 +71,12 @@ export function setWindowFocused(focused: boolean): void {
 /**
  * Get CSS custom property value from the document root
  */
-function getCSSVariable(name: string): string {
+function getCSSVariable(name: string, fallback?: string): string {
   const value = getComputedStyle(document.documentElement)
     .getPropertyValue(name)
     .trim();
 
-  return value;
+  return value || fallback || "";
 }
 
 /**
@@ -159,29 +160,29 @@ export function getEditorStyles(): EditorStyles {
           backgroundColor: getCSSVariable("--muted"),
           textColor: getCSSVariable("--muted-foreground"),
           borderColor: getCSSVariable("--border"),
-          text: "Click to upload image",
+          text: i18next.t("Click to upload image"),
         },
         loading: {
           backgroundColor: getCSSVariable("--muted"),
           textColor: getCSSVariable("--muted-foreground"),
-          text: "Loading image...",
+          text: i18next.t("Loading image..."),
         },
         uploading: {
           backgroundColor: getCSSVariable("--muted"),
           textColor: getCSSVariable("--muted-foreground"),
-          text: "Uploading image...",
+          text: i18next.t("Uploading image..."),
         },
         error: {
           backgroundColor: getCSSVariable("--destructive"),
           textColor: getCSSVariable("--destructive-foreground"),
-          text: "Failed to upload image",
-          retryText: "Click to retry",
+          text: i18next.t("Failed to upload image"),
+          retryText: i18next.t("Click to retry"),
         },
         hover: {
           overlayColor: getCSSVariable("--editor-cover-image-overlay"),
           buttonBackgroundColor: getCSSVariable("--background"),
           buttonTextColor: getCSSVariable("--foreground"),
-          buttonText: "Change Image",
+          buttonText: i18next.t("Change Image"),
         },
         dimensions: {
           height: IMAGE_DEFAULT_HEIGHT,
@@ -197,6 +198,9 @@ export function getEditorStyles(): EditorStyles {
       width: 2,
       color: getCSSVariable("--editor-cursor"),
       blinkInterval: 530,
+    },
+    remoteCursor: {
+      labelTextColor: getCSSVariable("--editor-remote-cursor-label-text", "#FFFFFF"),
     },
     selection: {
       backgroundColor:
@@ -214,24 +218,23 @@ export function getEditorStyles(): EditorStyles {
     },
     placeholder: {
       heading1: {
-        text: placeholderOverrides?.heading1?.text ?? "Heading 1",
+        text: placeholderOverrides?.heading1?.text ?? i18next.t("Heading 1"),
       },
       heading2: {
-        text: placeholderOverrides?.heading2?.text ?? "Heading 2",
+        text: placeholderOverrides?.heading2?.text ?? i18next.t("Heading 2"),
       },
       heading3: {
-        text: placeholderOverrides?.heading3?.text ?? "Heading 3",
+        text: placeholderOverrides?.heading3?.text ?? i18next.t("Heading 3"),
       },
       paragraph: {
         keyboardCompatibleText:
           placeholderOverrides?.paragraph?.keyboardCompatibleText ??
-          "Type '/' for commands.",
+          i18next.t("Type '/' for commands."),
         touchCompatiableText:
           placeholderOverrides?.paragraph?.touchCompatiableText ??
-          "Type something awesome...",
+          i18next.t("Type something awesome..."),
       },
       color: getCSSVariable("--editor-placeholder"),
-      opacity: 0.6,
     },
     textFormats: {
       code: {
@@ -340,7 +343,7 @@ export const applyTextStyle = (
   ctx: CanvasRenderingContext2D,
   style: TextStyle
 ) => {
-  const fontStack = FONT_STACKS[getCurrentFontFamily()];
+  const fontStack = getFontStack(getCurrentFontFamily());
   ctx.font = `${style.fontWeight} ${style.fontSize}px ${fontStack}`;
   ctx.fillStyle = style.color;
   ctx.textBaseline = "alphabetic";

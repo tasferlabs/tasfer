@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
@@ -42,6 +42,7 @@ import {
   type ISpace,
 } from "../api/spaces.api";
 import { getImageUrl } from "../api/images.api";
+import { AvatarPreviewDialog } from "./AvatarPreviewDialog";
 import { useAuth } from "../contexts/AuthContext";
 import { useConfirmation } from "./ConfirmationDialog";
 import useResponsive from "../hooks/useResponsive";
@@ -226,6 +227,11 @@ function MembersTab({
   const { getConfirmation } = useConfirmation();
   const { user } = useAuth();
 
+  const [previewMember, setPreviewMember] = useState<{
+    avatar: string;
+    name: string | null;
+  } | null>(null);
+
   const { data: members, isLoading: isLoadingMembers } = useGetSpaceMembers(
     open ? spaceId : undefined,
   );
@@ -296,7 +302,17 @@ function MembersTab({
               key={member.id}
               className="flex items-center justify-between rounded-md border p-2 gap-2"
             >
-              <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
+              <div
+                className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden"
+                style={{ cursor: member.userAvatar ? "pointer" : undefined }}
+                onClick={() =>
+                  member.userAvatar &&
+                  setPreviewMember({
+                    avatar: member.userAvatar,
+                    name: member.userName,
+                  })
+                }
+              >
                 {member.userAvatar ? (
                   <img src={getImageUrl(member.userAvatar)} alt="" className="w-full h-full object-cover" />
                 ) : (
@@ -338,6 +354,13 @@ function MembersTab({
       <Button variant="secondary" onClick={openInviteMembers} className="w-full">
         {t`Invite members`}
       </Button>
+
+      <AvatarPreviewDialog
+        open={!!previewMember}
+        onOpenChange={(open) => { if (!open) setPreviewMember(null); }}
+        imageUrl={previewMember ? getImageUrl(previewMember.avatar) : null}
+        name={previewMember?.name}
+      />
     </div>
   );
 }

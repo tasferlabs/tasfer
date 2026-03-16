@@ -61,6 +61,7 @@ import {
 } from "../api/pages.api";
 // import { useGetSharedByMe, useGetSharedWithMe } from "../api/shares.api";
 import { getImageUrl } from "../api/images.api";
+import { AvatarPreviewDialog } from "../components/AvatarPreviewDialog";
 import { useCreateSpace, useLeaveSpace } from "../api/spaces.api";
 import { useConfirmation } from "../components/ConfirmationDialog";
 import { EditGroupDialog } from "../components/EditGroupDialog";
@@ -407,6 +408,7 @@ export function SidebarContent({
     : "?";
 
   const avatarUrl = user?.avatar ? getImageUrl(user.avatar) : null;
+  const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false);
 
   return (
     <>
@@ -452,12 +454,24 @@ export function SidebarContent({
                   {user?.email ?? user?.name}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                {avatarUrl && (
+                  <DropdownMenuItem onSelect={() => setAvatarPreviewOpen(true)}>
+                    {t("View avatar")}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onSelect={logout}>
                   <SignOutIcon size={16} />
                   {t("Sign out")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            <AvatarPreviewDialog
+              open={avatarPreviewOpen}
+              onOpenChange={setAvatarPreviewOpen}
+              imageUrl={avatarUrl}
+              name={user?.name}
+            />
 
             <Button
               variant="ghost"
@@ -468,7 +482,7 @@ export function SidebarContent({
               )}
               onClick={() => setOpen(false)}
             >
-              <PanelLeftClose className="h-4 w-4" />
+              <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
               <span className="sr-only">{t("Close sidebar")}</span>
             </Button>
           </div>

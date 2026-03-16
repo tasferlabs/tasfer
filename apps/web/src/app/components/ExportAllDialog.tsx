@@ -301,7 +301,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
                     className="size-4 rounded border-border accent-primary"
                   />
                   <span className="text-sm font-medium">{space.name}</span>
-                  <span className="text-xs text-muted-foreground ml-auto">
+                  <span className="text-xs text-muted-foreground ms-auto">
                     {space.type === "personal" ? t("Personal") : t("Space")}
                   </span>
                 </label>

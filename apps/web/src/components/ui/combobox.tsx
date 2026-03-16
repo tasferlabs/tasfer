@@ -6,6 +6,7 @@ import { Command } from "cmdk"
 
 import { cn } from "@/lib/utils"
 import { CheckIcon, ChevronDownIcon } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 // ── Context ──
 
@@ -107,7 +108,7 @@ function ComboboxInput({
           {ctx.value || <span className="text-muted-foreground">{placeholder}</span>}
         </span>
         {showTrigger && (
-          <ChevronDownIcon className="ml-1 size-4 shrink-0 text-muted-foreground" />
+          <ChevronDownIcon className="ms-1 size-4 shrink-0 text-muted-foreground" />
         )}
       </div>
     </Popover.Trigger>
@@ -125,6 +126,7 @@ function ComboboxContent({
   children: React.ReactNode
 }) {
   const ctx = useComboboxContext()
+  const { t } = useTranslation()
 
   return (
     <Popover.Portal>
@@ -146,7 +148,7 @@ function ComboboxContent({
             value={ctx.search}
             onValueChange={ctx.setSearch}
             className="h-8 w-full border-b border-input/30 bg-input/30 px-3 text-sm outline-none placeholder:text-muted-foreground"
-            placeholder="Search..."
+            placeholder={t("Search...")}
           />
           {children}
         </Command>
@@ -165,6 +167,7 @@ function ComboboxList({
   children: ((item: string) => React.ReactNode) | React.ReactNode
 }) {
   const ctx = useComboboxContext()
+  const { t } = useTranslation()
 
   return (
     <Command.List
@@ -175,7 +178,7 @@ function ComboboxList({
       )}
     >
       <Command.Empty className="flex w-full justify-center py-2 text-center text-sm text-muted-foreground">
-        No results
+        {t("No results")}
       </Command.Empty>
       {typeof children === "function"
         ? ctx.items.map((item) => (children as (item: string) => React.ReactNode)(item))
@@ -208,7 +211,7 @@ function ComboboxItem({
         ctx.setOpen(false)
       }}
       className={cn(
-        "relative flex w-full cursor-default items-center gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm outline-hidden select-none",
+        "relative flex w-full cursor-default items-center gap-2 rounded-sm py-1.5 pe-8 ps-2 text-sm outline-hidden select-none",
         "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
         "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
         className,
@@ -217,7 +220,7 @@ function ComboboxItem({
     >
       {children}
       {isSelected && (
-        <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center">
+        <span className="pointer-events-none absolute end-2 flex size-4 items-center justify-center">
           <CheckIcon className="pointer-events-none size-4" />
         </span>
       )}

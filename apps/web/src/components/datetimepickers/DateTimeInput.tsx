@@ -110,13 +110,19 @@ export const DateTimeInput = React.forwardRef(
       },
       key: 'ArrowDown',
     });
+    // In RTL, ArrowLeft visually moves to the next field (logical forward),
+    // ArrowRight visually moves to the previous field (logical backward)
+    const isRtl = typeof document !== 'undefined' && document.documentElement.dir === 'rtl';
+    const onArrowLeft = isRtl ? jumpToNext : jumpToPrevious;
+    const onArrowRight = isRtl ? jumpToPrevious : jumpToNext;
+
     useKeyboardAction({
       target: inputRef,
       action: (e) => {
         const element = e.currentTarget as HTMLInputElement;
 
         if (element?.selectionStart === element?.selectionEnd && element?.selectionStart === 0) {
-          jumpToPrevious?.();
+          onArrowLeft?.();
           e.preventDefault();
         }
       },
@@ -133,7 +139,7 @@ export const DateTimeInput = React.forwardRef(
             (element?.value.length === placeholder.length && element?.selectionStart === placeholder.length) ||
             (element.value.length < placeholder.length && element.selectionStart === element.value.length))
         ) {
-          jumpToNext?.();
+          onArrowRight?.();
           e.preventDefault();
         }
       },

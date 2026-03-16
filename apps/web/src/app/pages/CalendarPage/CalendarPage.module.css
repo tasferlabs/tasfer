@@ -152,11 +152,16 @@
 .swipeTrack {
   display: flex;
   will-change: transform;
+  direction: ltr; /* keep physical panel order [prev][center][next] regardless of page direction */
 }
 
 .swipePanel {
   min-width: 100%;
   flex-shrink: 0;
+}
+
+:global([dir="rtl"]) .swipePanel {
+  direction: rtl;
 }
 
 .timelineGrid {
@@ -169,8 +174,7 @@
 
 .hourLine {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   height: 0;
   border-top: 1px solid var(--border);
   pointer-events: none;
@@ -179,12 +183,12 @@
 .timeLabel {
   position: absolute;
   top: 2px;
-  left: 0;
+  inset-inline-start: 0;
   width: 56px;
   font-size: 0.7rem;
   color: var(--muted-foreground);
-  text-align: right;
-  padding-right: 8px;
+  text-align: end;
+  padding-inline-end: 8px;
   user-select: none;
 }
 
@@ -192,11 +196,11 @@
 
 .eventCard {
   position: absolute;
-  left: 68px;
-  right: 8px;
+  inset-inline-start: 68px;
+  inset-inline-end: 8px;
   background-color: var(--card);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--primary);
+  border-inline-start: 3px solid var(--primary);
   border-radius: 6px;
   padding: 0px 10px 4px;
   cursor: grab;
@@ -214,7 +218,7 @@
 .eventCardDraft {
   background-color: color-mix(in srgb, var(--muted-foreground), transparent 92%);
   border: 1px dashed var(--border);
-  border-left: 3px dashed var(--muted-foreground);
+  border-inline-start: 3px dashed var(--muted-foreground);
   opacity: 0.7;
 }
 
@@ -466,8 +470,7 @@
 .previewResizeBarTop {
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   height: 6px;
   cursor: ns-resize;
   z-index: 3;
@@ -477,13 +480,15 @@
   content: "";
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   height: 2px;
   background-color: var(--primary);
   opacity: 0;
   transition: opacity 0.15s;
-  border-radius: 8px 8px 0 0;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 8px;
+  border-end-end-radius: 0;
+  border-end-start-radius: 0;
 }
 
 .previewResizeBarTop:hover::after {
@@ -493,7 +498,7 @@
 .previewResizeBarLeft {
   position: absolute;
   top: 0;
-  left: 0;
+  inset-inline-start: 0;
   bottom: 0;
   width: 6px;
   cursor: ew-resize;
@@ -504,13 +509,16 @@
   content: "";
   position: absolute;
   top: 0;
-  left: 0;
+  inset-inline-start: 0;
   bottom: 0;
   width: 2px;
   background-color: var(--primary);
   opacity: 0;
   transition: opacity 0.15s;
-  border-radius: 8px 0 0 8px;
+  border-start-start-radius: 8px;
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+  border-end-start-radius: 8px;
 }
 
 .previewResizeBarLeft:hover::after {
@@ -520,7 +528,7 @@
 .previewResizeBarRight {
   position: absolute;
   top: 0;
-  right: 0;
+  inset-inline-end: 0;
   bottom: 0;
   width: 6px;
   cursor: ew-resize;
@@ -531,13 +539,16 @@
   content: "";
   position: absolute;
   top: 0;
-  right: 0;
+  inset-inline-end: 0;
   bottom: 0;
   width: 2px;
   background-color: var(--primary);
   opacity: 0;
   transition: opacity 0.15s;
-  border-radius: 0 8px 8px 0;
+  border-start-start-radius: 0;
+  border-start-end-radius: 8px;
+  border-end-end-radius: 8px;
+  border-end-start-radius: 0;
 }
 
 .previewResizeBarRight:hover::after {
@@ -546,8 +557,7 @@
 
 .previewResizeBarBottom {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   bottom: 0;
   height: 6px;
   cursor: ns-resize;
@@ -557,14 +567,16 @@
 .previewResizeBarBottom::after {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   bottom: 0;
   height: 2px;
   background-color: var(--primary);
   opacity: 0;
   transition: opacity 0.15s;
-  border-radius: 0 0 8px 8px;
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+  border-end-end-radius: 8px;
+  border-end-start-radius: 8px;
 }
 
 .previewResizeBarBottom:hover::after {
@@ -583,26 +595,43 @@
 
 .previewCornerTL {
   top: 0;
-  left: 0;
+  inset-inline-start: 0;
   cursor: nwse-resize;
 }
 
 .previewCornerTR {
   top: 0;
-  right: 0;
+  inset-inline-end: 0;
   cursor: nesw-resize;
 }
 
 .previewCornerBL {
   bottom: 0;
-  left: 0;
+  inset-inline-start: 0;
   cursor: nesw-resize;
 }
 
 .previewCornerBR {
   bottom: 0;
-  right: 0;
+  inset-inline-end: 0;
   cursor: nwse-resize;
+}
+
+/* In RTL, inline-start/end positions flip physically, so cursors must swap */
+:global([dir="rtl"]) .previewCornerTL {
+  cursor: nesw-resize;
+}
+
+:global([dir="rtl"]) .previewCornerTR {
+  cursor: nwse-resize;
+}
+
+:global([dir="rtl"]) .previewCornerBL {
+  cursor: nwse-resize;
+}
+
+:global([dir="rtl"]) .previewCornerBR {
+  cursor: nesw-resize;
 }
 
 /* Show both adjacent edges when hovering a corner */
@@ -641,11 +670,11 @@
 .snapZoneIndicator {
   position: fixed;
   top: 0;
-  left: 0;
+  inset-inline-start: 0;
   bottom: 0;
   /* width is set dynamically via inline style to match sidebar bounds */
   background: color-mix(in srgb, var(--primary), transparent 85%);
-  border-right: 2px dashed var(--primary);
+  border-inline-end: 2px dashed var(--primary);
   z-index: 100;
   pointer-events: none;
 }
@@ -663,12 +692,14 @@
 
 .resizeHandle {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   bottom: 0;
   height: 8px;
   cursor: ns-resize;
-  border-radius: 0 0 6px 6px;
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+  border-end-end-radius: 6px;
+  border-end-start-radius: 6px;
   touch-action: none;
 }
 
@@ -710,8 +741,8 @@
 
 .dropGhost {
   position: absolute;
-  left: 68px;
-  right: 8px;
+  inset-inline-start: 68px;
+  inset-inline-end: 8px;
   background-color: color-mix(in srgb, var(--primary), transparent 85%);
   border: 2px dashed var(--primary);
   border-radius: 6px;
@@ -733,13 +764,13 @@
 
 .resizeTimeLabel {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   width: 56px;
   font-size: 0.7rem;
   font-weight: 600;
   color: var(--primary);
-  text-align: right;
-  padding-right: 8px;
+  text-align: end;
+  padding-inline-end: 8px;
   transform: translateY(-8px);
   z-index: 5;
   pointer-events: none;
@@ -749,8 +780,8 @@
 
 .dragPreview {
   position: absolute;
-  left: 68px;
-  right: 8px;
+  inset-inline-start: 68px;
+  inset-inline-end: 8px;
   background-color: color-mix(in srgb, var(--primary), transparent 80%);
   border: 2px solid var(--primary);
   border-radius: 6px;
@@ -777,7 +808,7 @@
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
-  padding-left: 68px;
+  padding-inline-start: 68px;
 }
 
 .allDayBadge {
@@ -921,12 +952,11 @@
 
 .weekTimeLabel {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   font-size: 0.7rem;
   color: var(--muted-foreground);
-  text-align: right;
-  padding-right: 8px;
+  text-align: end;
+  padding-inline-end: 8px;
   transform: translateY(2px);
   user-select: none;
 }
@@ -934,7 +964,7 @@
 .weekColumnWrapper {
   flex: 1;
   position: relative;
-  border-left: 1px solid var(--border);
+  border-inline-start: 1px solid var(--border);
   min-width: 0;
 }
 
@@ -945,8 +975,7 @@
 
 .weekHourLine {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   height: 0;
   border-top: 1px solid var(--border);
   pointer-events: none;
@@ -956,8 +985,8 @@
 
 .nowIndicator {
   position: absolute;
-  left: 64px;
-  right: 0;
+  inset-inline-start: 64px;
+  inset-inline-end: 0;
   height: 2px;
   background-color: var(--destructive, #ef4444);
   z-index: 4;
@@ -966,7 +995,7 @@
 
 .nowIndicatorDot {
   position: absolute;
-  left: 58px;
+  inset-inline-start: 58px;
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -981,39 +1010,39 @@
 @media (max-width: 640px) {
   .timeLabel {
     width: 40px;
-    padding-right: 4px;
+    padding-inline-end: 4px;
   }
 
   .eventCard {
-    left: 44px;
-    right: 4px;
+    inset-inline-start: 44px;
+    inset-inline-end: 4px;
   }
 
   .dropGhost {
-    left: 44px;
-    right: 4px;
+    inset-inline-start: 44px;
+    inset-inline-end: 4px;
   }
 
   .dragPreview {
-    left: 44px;
-    right: 4px;
+    inset-inline-start: 44px;
+    inset-inline-end: 4px;
   }
 
   .resizeTimeLabel {
     width: 40px;
-    padding-right: 4px;
+    padding-inline-end: 4px;
   }
 
   .allDaySection {
-    padding-left: 44px;
+    padding-inline-start: 44px;
   }
 
   .nowIndicator {
-    left: 40px;
+    inset-inline-start: 40px;
   }
 
   .nowIndicatorDot {
-    left: 34px;
+    inset-inline-start: 34px;
   }
 
   .resizeHandle {
@@ -1029,6 +1058,6 @@
   }
 
   .weekTimeLabel {
-    padding-right: 4px;
+    padding-inline-end: 4px;
   }
 }

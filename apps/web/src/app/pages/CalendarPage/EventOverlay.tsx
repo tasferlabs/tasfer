@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { ICalendarPage } from "../../api/pages.api";
-import { pageToStartMin, formatTime } from "./utils";
+import { pageToStartMin, formatTimeRange } from "./utils";
 import style from "./CalendarPage.module.css";
 
 export function EventOverlay({
@@ -17,7 +17,7 @@ export function EventOverlay({
     <div className={style.eventOverlay}>
       <div className={style.eventTitle}>{page.title || t("Untitled")}</div>
       <div className={style.eventTime}>
-        {formatTime(startMin)} - {formatTime(startMin + duration)}
+        {formatTimeRange(startMin, startMin + duration)}
       </div>
     </div>
   );

@@ -107,7 +107,7 @@
   --editor-cursor: oklch(0.6 0.13 163);
   --editor-selection: oklch(0.6 0.3 163);
   --editor-selection-unfocused: oklch(0.6 0.13 163);
-  --editor-placeholder: oklch(0.552 0.016 285.938);
+  --editor-placeholder: oklch(0.68 0.01 285.938);
   --editor-code-bg: oklch(0.967 0.001 286.375);
   --editor-code-text: oklch(0.577 0.245 27.325);
   --editor-link: oklch(0.6 0.13 163);
@@ -159,7 +159,7 @@
   --editor-cursor: oklch(0.7 0.15 162);
   --editor-selection: oklch(0.9 0.3 162);
   --editor-selection-unfocused: oklch(0.57 0.15 163);
-  --editor-placeholder: oklch(0.552 0.016 285.938);
+  --editor-placeholder: oklch(0.42 0.01 285.938);
   --editor-code-bg: oklch(0.2 0 286.033);
   --editor-code-text: oklch(0.704 0.191 22.216);
   --editor-link: oklch(0.7 0.15 162);

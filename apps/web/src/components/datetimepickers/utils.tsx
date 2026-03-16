@@ -1,4 +1,55 @@
 import { DateTime } from 'luxon';
+import i18next from 'i18next';
+import { getDateFormat, getHour12 } from '@/lib/dateTimePreferences';
+
+export type DateFieldOrder = {
+  fields: ('year' | 'month' | 'day')[];
+  separator: string;
+};
+
+function detectSystemDateOrder(): DateFieldOrder {
+  const formatter = new Intl.DateTimeFormat(i18next.language, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = formatter.formatToParts(new Date(2023, 11, 25));
+  const fields: ('year' | 'month' | 'day')[] = [];
+  let separator = '/';
+  for (const part of parts) {
+    if (part.type === 'year') fields.push('year');
+    else if (part.type === 'month') fields.push('month');
+    else if (part.type === 'day') fields.push('day');
+    else if (part.type === 'literal' && fields.length === 1) separator = part.value;
+  }
+  if (fields.length !== 3) return { fields: ['year', 'month', 'day'], separator: '-' };
+  return { fields, separator };
+}
+
+export function getDateFieldOrder(): DateFieldOrder {
+  const format = getDateFormat();
+  switch (format) {
+    case 'MM/DD/YYYY':
+      return { fields: ['month', 'day', 'year'], separator: '/' };
+    case 'DD/MM/YYYY':
+      return { fields: ['day', 'month', 'year'], separator: '/' };
+    case 'YYYY-MM-DD':
+      return { fields: ['year', 'month', 'day'], separator: '-' };
+    default:
+      return detectSystemDateOrder();
+  }
+}
+
+/** Returns whether to use 12-hour format. Resolves 'system' to a concrete boolean. */
+export function getResolved12h(): boolean {
+  const hour12 = getHour12();
+  if (hour12 !== undefined) return hour12;
+  // Detect from system locale
+  const formatted = new Intl.DateTimeFormat(i18next.language, {
+    hour: 'numeric',
+  }).resolvedOptions();
+  return formatted.hour12 ?? false;
+}
 
 export function toNumberOrNull(value: string) {
   const num = parseInt(value);

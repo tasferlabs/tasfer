@@ -46,7 +46,7 @@ export function FindBar({
 
   return (
     <div
-      className="absolute top-3 right-3 z-[1001] flex items-center gap-1.5 rounded-lg border border-border bg-background/95 px-3 py-1.5 shadow-lg backdrop-blur-sm"
+      className="absolute top-3 end-3 z-[1001] flex items-center gap-1.5 rounded-lg border border-border bg-background/95 px-3 py-1.5 shadow-lg backdrop-blur-sm"
       style={{ pointerEvents: "auto" }}
     >
       <Search size={14} className="shrink-0 text-muted-foreground" />

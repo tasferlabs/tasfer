@@ -36,6 +36,7 @@ import { DateTime } from "luxon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import i18next from "i18next";
 import { Link } from "react-router-dom";
 import {
   useDeletePage,
@@ -68,6 +69,7 @@ function computePosition(
 ) {
   const maxH = window.innerHeight - 2 * GAP;
   const clampedH = Math.min(height, maxH);
+  const isRtl = i18next.dir() === "rtl";
 
   if (!anchor) {
     const clampedW = Math.min(width, window.innerWidth - 2 * GAP);
@@ -87,21 +89,25 @@ function computePosition(
   const spaceRight = window.innerWidth - anchor.right - 2 * GAP;
   const spaceLeft = anchor.left - 2 * GAP;
 
-  // Try right of event
-  if (clampedW <= spaceRight) {
-    left = anchor.right + GAP;
+  // In RTL, prefer placing the popover to the left (inline-start) of the anchor
+  const spaceInlineEnd = isRtl ? spaceLeft : spaceRight;
+  const spaceInlineStart = isRtl ? spaceRight : spaceLeft;
+
+  // Try inline-end of event first
+  if (clampedW <= spaceInlineEnd) {
+    left = isRtl ? anchor.left - GAP - clampedW : anchor.right + GAP;
   }
-  // Try left of event
-  else if (clampedW <= spaceLeft) {
-    left = anchor.left - GAP - clampedW;
+  // Try inline-start of event
+  else if (clampedW <= spaceInlineStart) {
+    left = isRtl ? anchor.right + GAP : anchor.left - GAP - clampedW;
   }
   // Pick the larger side and shrink to fit
-  else if (spaceRight >= spaceLeft) {
-    clampedW = Math.max(MIN_WIDTH, spaceRight);
-    left = anchor.right + GAP;
+  else if (spaceInlineEnd >= spaceInlineStart) {
+    clampedW = Math.max(MIN_WIDTH, spaceInlineEnd);
+    left = isRtl ? anchor.left - GAP - clampedW : anchor.right + GAP;
   } else {
-    clampedW = Math.max(MIN_WIDTH, spaceLeft);
-    left = anchor.left - GAP - clampedW;
+    clampedW = Math.max(MIN_WIDTH, spaceInlineStart);
+    left = isRtl ? anchor.right + GAP : anchor.left - GAP - clampedW;
   }
 
   // Vertically center relative to anchor, clamped to viewport
@@ -134,6 +140,7 @@ export function EventPreview({
   ) => void;
 }) {
   const { t } = useTranslation();
+  const isRtl = i18next.dir() === "rtl";
   const isMobile = useResponsive("(max-width: 768px)");
   // const isFinePointer = useResponsive("(pointer: fine)");
   const queryClient = useQueryClient();
@@ -240,10 +247,14 @@ export function EventPreview({
     function handlePointerMove(e: PointerEvent) {
       if (dragRef.current) {
         const panelEl = panelRef.current;
+        const isRtl = i18next.dir() === "rtl";
         if (sidebarModeRef.current && panelEl) {
-          // Sidebar mode: detect drag-out (drag RIGHT to detach from sidebar)
+          // Sidebar mode: detect drag-out (drag away from sidebar edge to detach)
           const rect = panelEl.getBoundingClientRect();
-          if (e.clientX > rect.right + DRAG_OUT_BUFFER) {
+          const draggedOut = isRtl
+            ? e.clientX < rect.left - DRAG_OUT_BUFFER
+            : e.clientX > rect.right + DRAG_OUT_BUFFER;
+          if (draggedOut) {
             // Switch to popover mode
             sidebarModeRef.current = false;
             onSidebarModeChangeRef.current(false);
@@ -263,7 +274,7 @@ export function EventPreview({
             };
           }
         } else {
-          // Popover mode: update position + snap zone detection (LEFT edge)
+          // Popover mode: update position + snap zone detection (sidebar edge)
           const dx = e.clientX - dragRef.current.startX;
           const dy = e.clientY - dragRef.current.startY;
           const el = popoverRef.current;
@@ -293,10 +304,16 @@ export function EventPreview({
           ) as HTMLElement | null;
           if (sidebarEl) {
             const sidebarRect = sidebarEl.getBoundingClientRect();
-            const nearLeft = e.clientX < sidebarRect.right;
-            snapZoneActiveRef.current = nearLeft;
-            setShowSnapZone(nearLeft);
-            if (nearLeft) setSnapZoneWidth(sidebarRect.right);
+            const nearSidebar = isRtl
+              ? e.clientX > sidebarRect.left
+              : e.clientX < sidebarRect.right;
+            snapZoneActiveRef.current = nearSidebar;
+            setShowSnapZone(nearSidebar);
+            if (nearSidebar) {
+              setSnapZoneWidth(isRtl
+                ? window.innerWidth - sidebarRect.left
+                : sidebarRect.right);
+            }
           } else {
             snapZoneActiveRef.current = false;
             setShowSnapZone(false);
@@ -1013,22 +1030,22 @@ export function EventPreview({
             <div
               className={style.previewCornerTL}
               onPointerDown={(e) =>
-                handleResizePointerDown(e, "both", true, true)
+                handleResizePointerDown(e, "both", !isRtl, true)
               }
             />
             <div
               className={style.previewCornerTR}
               onPointerDown={(e) =>
-                handleResizePointerDown(e, "both", false, true)
+                handleResizePointerDown(e, "both", isRtl, true)
               }
             />
             <div
               className={style.previewCornerBL}
-              onPointerDown={(e) => handleResizePointerDown(e, "both", true)}
+              onPointerDown={(e) => handleResizePointerDown(e, "both", !isRtl)}
             />
             <div
               className={style.previewCornerBR}
-              onPointerDown={(e) => handleResizePointerDown(e, "both")}
+              onPointerDown={(e) => handleResizePointerDown(e, "both", isRtl)}
             />
             <div
               className={style.previewResizeBarTop}
@@ -1042,11 +1059,11 @@ export function EventPreview({
             />
             <div
               className={style.previewResizeBarLeft}
-              onPointerDown={(e) => handleResizePointerDown(e, "x", true)}
+              onPointerDown={(e) => handleResizePointerDown(e, "x", !isRtl)}
             />
             <div
               className={style.previewResizeBarRight}
-              onPointerDown={(e) => handleResizePointerDown(e, "x")}
+              onPointerDown={(e) => handleResizePointerDown(e, "x", isRtl)}
             />
           </motion.div>
         )}

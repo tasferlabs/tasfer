@@ -37,7 +37,7 @@ import {
   scrollToMakeCursorVisible,
   getTextPositionFromViewport,
 } from "../selection";
-import { SLASH_COMMANDS } from "../SlashCommandMenu";
+import { getSlashCommands } from "../SlashCommandMenu";
 import {
   closeSlashCommand,
   updateSlashCommandSelection,
@@ -248,7 +248,7 @@ export function handleKeyDown(
   if (state.ui.activeMenu.type === "slashCommand") {
     const slashMenu = state.ui.activeMenu;
     const filteredCommands = slashMenu.filter
-      ? SLASH_COMMANDS.filter(
+      ? getSlashCommands().filter(
           (cmd) =>
             cmd.label.toLowerCase().includes(slashMenu.filter.toLowerCase()) ||
             cmd.description
@@ -258,7 +258,7 @@ export function handleKeyDown(
               keyword.toLowerCase().startsWith(slashMenu.filter.toLowerCase())
             )
         )
-      : SLASH_COMMANDS;
+      : getSlashCommands();
 
     switch (key) {
       case "ArrowLeft":

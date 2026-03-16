@@ -1,5 +1,7 @@
 import { updateProfile } from "@/app/api/auth.api";
 import { getImageUrl, uploadImage } from "@/app/api/images.api";
+import { AvatarCropDialog } from "@/app/components/AvatarCropDialog";
+import { AvatarPreviewDialog } from "@/app/components/AvatarPreviewDialog";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,29 +21,43 @@ export function Profile() {
   );
   const [uploading, setUploading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [pendingFile, setPendingFile] = React.useState<File | null>(null);
+  const [previewOpen, setPreviewOpen] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const hasChanges =
     name !== (user?.name ?? "") || avatarId !== (user?.avatar ?? null);
 
   function handleAvatarClick() {
-    fileInputRef.current?.click();
+    if (avatarId) {
+      setPreviewOpen(true);
+    } else {
+      fileInputRef.current?.click();
+    }
   }
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setPendingFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
 
+  async function handleCropped(croppedFile: File) {
+    setPendingFile(null);
     try {
       setUploading(true);
-      const image = await uploadImage(file);
+      const image = await uploadImage(croppedFile);
       setAvatarId(image.id);
     } catch (err) {
       console.error("Failed to upload avatar:", err);
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  }
+
+  function handleCropCancel() {
+    setPendingFile(null);
   }
 
   function handleRemoveAvatar() {
@@ -105,7 +121,13 @@ export function Profile() {
                 ) : (
                   <div className={styles.avatarPlaceholder}>{initials}</div>
                 )}
-                <div className={styles.avatarOverlay}>
+                <div
+                  className={styles.avatarOverlay}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fileInputRef.current?.click();
+                  }}
+                >
                   <Camera size={20} />
                 </div>
               </div>
@@ -147,6 +169,19 @@ export function Profile() {
           {t`Save`}
         </Button>
       </div>
+
+      <AvatarCropDialog
+        file={pendingFile}
+        onCropped={handleCropped}
+        onCancel={handleCropCancel}
+      />
+
+      <AvatarPreviewDialog
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        imageUrl={avatarId ? getImageUrl(avatarId) : null}
+        name={user?.name}
+      />
     </div>
   );
 }

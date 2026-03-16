@@ -1,0 +1,26 @@
+.container {
+  max-width: 800px;
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.875rem 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.link:first-child {
+  border-top: 1px solid var(--border);
+}
+
+.link:hover {
+  opacity: 0.75;
+}
+
+.linkIcon {
+  color: var(--muted-foreground);
+}

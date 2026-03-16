@@ -1,3 +1,4 @@
+import i18next from "i18next";
 import { getBlockHeight, getSearchHighlights } from "./renderer";
 import { getEditorStyles } from "./styles";
 import {
@@ -5,6 +6,11 @@ import {
   type AwarenessState,
 } from "./sync/awareness";
 import type { EditorState, ViewportState } from "./types";
+
+/** Whether the app UI is currently RTL */
+function isAppRTL(): boolean {
+  return i18next.dir() === "rtl";
+}
 
 export interface ScrollbarState {
   readonly isDragging: boolean;
@@ -199,7 +205,9 @@ export function calculateScrollbarBounds(
   const trackWidth = styles.width;
   const safeAreaBottom = getSafeAreaBottom();
   const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
-  const trackX = viewport.width - trackWidth - styles.padding;
+  const trackX = isAppRTL()
+    ? styles.padding
+    : viewport.width - trackWidth - styles.padding;
   const trackY = styles.padding;
 
   // Calculate thumb size based on viewport/document ratio
@@ -278,8 +286,10 @@ export function renderScrollbar(
   const scaledTrackWidth = bounds.trackWidth * scale;
   const widthDiff = scaledWidth - bounds.thumbWidth;
   const trackWidthDiff = scaledTrackWidth - bounds.trackWidth;
-  const thumbX = bounds.thumbX - widthDiff; // Expand to the left (towards content)
-  const trackX = bounds.trackX - trackWidthDiff; // Expand track to the left too
+  // Expand towards content: left in LTR, right in RTL (RTL scrollbar is on the left)
+  const rtl = isAppRTL();
+  const thumbX = rtl ? bounds.thumbX : bounds.thumbX - widthDiff;
+  const trackX = rtl ? bounds.trackX : bounds.trackX - trackWidthDiff;
 
   ctx.save();
   ctx.globalAlpha = opacity;
@@ -370,17 +380,27 @@ export function isPointInScrollbar(
     ? Math.max(visualWidth, styles.touchTargetWidth)
     : visualWidth;
 
-  // Position scrollbar visually at the edge
-  const visualTrackX = viewport.width - visualWidth - styles.padding;
-  // But extend hit area to the left (invisible)
-  const hitTrackX = viewport.width - hitWidth - styles.padding;
+  const rtl = isAppRTL();
   const trackY = styles.padding;
   const safeAreaBottom = getSafeAreaBottom();
   const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
 
+  let hitLeft: number;
+  let hitRight: number;
+
+  if (rtl) {
+    // Scrollbar on the left — extend hit area to the right (towards content)
+    hitLeft = styles.padding;
+    hitRight = styles.padding + hitWidth;
+  } else {
+    // Scrollbar on the right — extend hit area to the left (towards content)
+    hitLeft = viewport.width - hitWidth - styles.padding;
+    hitRight = viewport.width - styles.padding;
+  }
+
   return (
-    x >= hitTrackX &&
-    x <= visualTrackX + visualWidth &&
+    x >= hitLeft &&
+    x <= hitRight &&
     y >= trackY &&
     y <= trackY + trackHeight
   );
@@ -602,7 +622,10 @@ export function renderScrollbarPeerMarkers(
   const safeAreaBottom = getSafeAreaBottom();
   const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
   const trackWidthDiff = trackWidth - styles.width;
-  const trackX = viewport.width - styles.width - styles.padding - trackWidthDiff;
+  const rtl = isAppRTL();
+  const trackX = rtl
+    ? styles.padding
+    : viewport.width - styles.width - styles.padding - trackWidthDiff;
   const trackY = styles.padding;
 
   const markerHeight = 3;
@@ -660,8 +683,10 @@ function renderScrollbarSearchMarkers(
   const safeAreaBottom = getSafeAreaBottom();
   const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
   const trackWidthDiff = trackWidth - styles.width;
-  const trackX =
-    viewport.width - styles.width - styles.padding - trackWidthDiff;
+  const rtl = isAppRTL();
+  const trackX = rtl
+    ? styles.padding
+    : viewport.width - styles.width - styles.padding - trackWidthDiff;
   const trackY = styles.padding;
 
   const markerHeight = 2;

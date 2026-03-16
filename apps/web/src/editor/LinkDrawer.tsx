@@ -171,7 +171,7 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
               onMouseDown={(e) => e.preventDefault()}
               className="text-destructive hover:text-destructive hover:bg-destructive/10"
             >
-              <Trash2 className="w-4 h-4 mr-2" />
+              <Trash2 className="w-4 h-4 me-2" />
               {t("Clear Link")}
             </Button>
           )}

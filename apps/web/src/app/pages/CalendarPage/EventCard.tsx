@@ -1,7 +1,8 @@
 import { useRef } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import i18next from "i18next";
 import type { ICalendarPage } from "../../api/pages.api";
 import {
   HOUR_HEIGHT,
@@ -51,11 +52,11 @@ export function EventCard({
         top,
         height: actualHeight,
         opacity: isDragging ? 0.3 : 1,
-        ...(compact ? { left: 0, right: 0, padding: "2px 6px" } : {}),
+        ...(compact ? { insetInlineStart: 0, insetInlineEnd: 0, padding: "2px 6px" } : {}),
         ...(page.color && !isDraft
-          ? { borderLeftColor: page.color }
+          ? { borderInlineStartColor: page.color }
           : {
-              borderLeftColor: "var(--primary)",
+              borderInlineStartColor: "var(--primary)",
             }),
       }}
       {...listeners}
@@ -120,6 +121,7 @@ function PathBreadcrumb({
   compact?: boolean;
 }) {
   const collapsed = path.length > 2;
+  const Chevron = i18next.dir() === "rtl" ? ChevronLeft : ChevronRight;
 
   return (
     <div
@@ -137,9 +139,9 @@ function PathBreadcrumb({
           >
             {path[0].title}
           </span>
-          <ChevronRight size={8} style={{ flexShrink: 0, opacity: 0.5 }} />
+          <Chevron size={8} style={{ flexShrink: 0, opacity: 0.5 }} />
           <span style={{ flexShrink: 0 }}>…</span>
-          <ChevronRight size={8} style={{ flexShrink: 0, opacity: 0.5 }} />
+          <Chevron size={8} style={{ flexShrink: 0, opacity: 0.5 }} />
           <span
             style={{
               overflow: "hidden",
@@ -162,7 +164,7 @@ function PathBreadcrumb({
             }}
           >
             {i > 0 && (
-              <ChevronRight size={8} style={{ flexShrink: 0, opacity: 0.5 }} />
+              <Chevron size={8} style={{ flexShrink: 0, opacity: 0.5 }} />
             )}
             <span
               style={{

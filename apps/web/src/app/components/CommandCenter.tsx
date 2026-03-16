@@ -128,7 +128,7 @@ export function CommandCenter() {
         <Command.Group heading={t("Actions")} className={groupHeadingClass}>
           <Command.Item
             value="new-page"
-            keywords={["create", "new", "page", "add"]}
+            keywords={["create", t("create"), "new", t("new"), "page", t("page"), "add", t("add")]}
             onSelect={() =>
               runAction(() => {
                 if (activeSpaceId) {
@@ -150,7 +150,7 @@ export function CommandCenter() {
 
           <Command.Item
             value="calendar"
-            keywords={["calendar", "schedule", "events"]}
+            keywords={["calendar", t("calendar"), "schedule", t("schedule"), "events", t("events")]}
             onSelect={() => runAction(() => navigate("/calendar"))}
             className={itemClass}
           >
@@ -162,7 +162,7 @@ export function CommandCenter() {
 
           <Command.Item
             value="settings"
-            keywords={["settings", "preferences", "account"]}
+            keywords={["settings", t("settings"), "preferences", t("preferences"), "account", t("account")]}
             onSelect={() => runAction(() => navigate("/settings"))}
             className={itemClass}
           >
@@ -174,7 +174,7 @@ export function CommandCenter() {
 
           <Command.Item
             value="toggle-theme"
-            keywords={["theme", "dark", "light", "mode", "appearance"]}
+            keywords={["theme", t("theme"), "dark", t("dark"), "light", t("light"), "mode", t("mode"), "appearance", t("appearance")]}
             onSelect={() =>
               runAction(() =>
                 setTheme(effectiveTheme === "dark" ? "light" : "dark")

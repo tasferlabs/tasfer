@@ -68,3 +68,7 @@ button.breadcrumbs:hover {
   flex-shrink: 0;
 }
 
+:global([dir="rtl"]) .breadcrumbSeparator {
+  transform: scaleX(-1);
+}
+

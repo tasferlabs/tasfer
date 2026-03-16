@@ -1,4 +1,5 @@
 import * as Popover from "@radix-ui/react-popover";
+import i18next from "i18next";
 import {
   Heading1,
   Heading2,
@@ -11,112 +12,206 @@ import {
   Type,
 } from "lucide-react";
 import React, { useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { ScrollArea } from "../components/ui/scroll-area";
 import type { SlashCommand } from "./types";
 
 interface SlashCommandWithMeta extends SlashCommand {
   category: "basic" | "media" | "lists";
-  shortcut?: string;
 }
 
-export const SLASH_COMMANDS: SlashCommandWithMeta[] = [
-  {
-    id: "heading1",
-    type: "heading1",
-    label: "Heading 1",
-    description: "Big section heading.",
-    icon: <Heading1 size={18} />,
-    keywords: ["h1", "heading1", "heading 1", "1"],
-    category: "basic",
-    shortcut: "⌘1",
-  },
-  {
-    id: "heading2",
-    type: "heading2",
-    label: "Heading 2",
-    description: "Medium section heading.",
-    icon: <Heading2 size={18} />,
-    keywords: ["h2", "heading2", "heading 2", "2"],
-    category: "basic",
-    shortcut: "⌘2",
-  },
-  {
-    id: "heading3",
-    type: "heading3",
-    label: "Heading 3",
-    description: "Small section heading.",
-    icon: <Heading3 size={18} />,
-    keywords: ["h3", "heading3", "heading 3", "3"],
-    category: "basic",
-    shortcut: "⌘3",
-  },
-  {
-    id: "paragraph",
-    type: "paragraph",
-    label: "Text",
-    description: "Regular text.",
-    icon: <Type size={18} />,
-    keywords: ["text", "paragraph", "para", "p", "t"],
-    category: "basic",
-    shortcut: "⌘T",
-  },
-  {
-    id: "line",
-    type: "line",
-    label: "Divider",
-    description: "Horizontal line divider.",
-    icon: <Minus size={18} />,
-    keywords: ["line", "divider", "hr", "horizontal", "separator", "---"],
-    category: "basic",
-    shortcut: "⌘-",
-  },
-  {
-    id: "image",
-    type: "image",
-    label: "Image",
-    description: "Add a suitable image.",
-    icon: <Image size={18} />,
-    keywords: ["image", "img", "picture", "photo", "upload"],
-    category: "media",
-    shortcut: "⌘I",
-  },
-  {
-    id: "bullet_list",
-    type: "bullet_list",
-    label: "Bullet List",
-    description: "Create a simple bullet list.",
-    icon: <List size={18} />,
-    keywords: ["bullet", "list", "ul", "-", "unordered"],
-    category: "lists",
-    shortcut: "⌘U",
-  },
-  {
-    id: "numbered_list",
-    type: "numbered_list",
-    label: "Numbered List",
-    description: "Create a numbered list.",
-    icon: <ListOrdered size={18} />,
-    keywords: ["numbered", "list", "ol", "1.", "ordered"],
-    category: "lists",
-    shortcut: "⌘O",
-  },
-  {
-    id: "todo_list",
-    type: "todo_list",
-    label: "To-do List",
-    description: "Track tasks with a checklist.",
-    icon: <LayoutList size={18} />,
-    keywords: ["todo", "task", "check", "checkbox", "[]"],
-    category: "lists",
-    shortcut: "⌘L",
-  },
-];
+function useSlashCommands(): SlashCommandWithMeta[] {
+  const { t } = useTranslation();
+  return useMemo(
+    () => [
+      {
+        id: "heading1",
+        type: "heading1" as const,
+        label: t("Heading 1"),
+        description: t("Big section heading."),
+        icon: <Heading1 size={18} />,
+        keywords: ["h1", "heading", t("heading"), "1"],
+        category: "basic" as const,
+      },
+      {
+        id: "heading2",
+        type: "heading2" as const,
+        label: t("Heading 2"),
+        description: t("Medium section heading."),
+        icon: <Heading2 size={18} />,
+        keywords: ["h2", "heading", t("heading"), "2"],
+        category: "basic" as const,
+      },
+      {
+        id: "heading3",
+        type: "heading3" as const,
+        label: t("Heading 3"),
+        description: t("Small section heading."),
+        icon: <Heading3 size={18} />,
+        keywords: ["h3", "heading", t("heading"), "3"],
+        category: "basic" as const,
+      },
+      {
+        id: "paragraph",
+        type: "paragraph" as const,
+        label: t("Text"),
+        description: t("Regular text."),
+        icon: <Type size={18} />,
+        keywords: ["text", t("text"), "paragraph", t("paragraph"), "p"],
+        category: "basic" as const,
+      },
+      {
+        id: "line",
+        type: "line" as const,
+        label: t("Divider"),
+        description: t("Horizontal line divider."),
+        icon: <Minus size={18} />,
+        keywords: ["line", t("line"), "divider", t("divider"), "hr", "horizontal", t("horizontal"), "separator", t("separator"), "---"],
+        category: "basic" as const,
+      },
+      {
+        id: "image",
+        type: "image" as const,
+        label: t("Image"),
+        description: t("Add a suitable image."),
+        icon: <Image size={18} />,
+        keywords: ["image", t("image"), "img", "picture", t("picture"), "photo", t("photo"), "upload", t("upload")],
+        category: "media" as const,
+      },
+      {
+        id: "bullet_list",
+        type: "bullet_list" as const,
+        label: t("Bullet List"),
+        description: t("Create a simple bullet list."),
+        icon: <List size={18} />,
+        keywords: ["bullet", t("bullet"), "list", t("list"), "ul", "-", "unordered", t("unordered")],
+        category: "lists" as const,
+      },
+      {
+        id: "numbered_list",
+        type: "numbered_list" as const,
+        label: t("Numbered List"),
+        description: t("Create a numbered list."),
+        icon: <ListOrdered size={18} />,
+        keywords: ["numbered", t("numbered"), "list", t("list"), "ol", "1.", "ordered", t("ordered")],
+        category: "lists" as const,
+      },
+      {
+        id: "todo_list",
+        type: "todo_list" as const,
+        label: t("To-do List"),
+        description: t("Track tasks with a checklist."),
+        icon: <LayoutList size={18} />,
+        keywords: ["todo", t("todo"), "task", t("task"), "check", t("check"), "checkbox", t("checkbox"), "[]"],
+        category: "lists" as const,
+      },
+    ],
+    [t],
+  );
+}
 
-const CATEGORY_LABELS: Record<string, string> = {
-  basic: "Basic blocks",
-  media: "Media",
-  lists: "Lists",
-};
+function useCategoryLabels(): Record<string, string> {
+  const { t } = useTranslation();
+  return useMemo(
+    () => ({
+      basic: t("Basic blocks"),
+      media: t("Media"),
+      lists: t("Lists"),
+    }),
+    [t],
+  );
+}
+
+/**
+ * Non-React getter for slash commands with current translations.
+ * Used by keysEvents.ts and other non-component code.
+ */
+export function getSlashCommands(): SlashCommandWithMeta[] {
+  const t = i18next.t.bind(i18next);
+  return [
+    {
+      id: "heading1",
+      type: "heading1",
+      label: t("Heading 1"),
+      description: t("Big section heading."),
+      icon: "",
+      keywords: ["h1", "heading", t("heading"), "1"],
+      category: "basic",
+    },
+    {
+      id: "heading2",
+      type: "heading2",
+      label: t("Heading 2"),
+      description: t("Medium section heading."),
+      icon: "",
+      keywords: ["h2", "heading", t("heading"), "2"],
+      category: "basic",
+    },
+    {
+      id: "heading3",
+      type: "heading3",
+      label: t("Heading 3"),
+      description: t("Small section heading."),
+      icon: "",
+      keywords: ["h3", "heading", t("heading"), "3"],
+      category: "basic",
+    },
+    {
+      id: "paragraph",
+      type: "paragraph",
+      label: t("Text"),
+      description: t("Regular text."),
+      icon: "",
+      keywords: ["text", t("text"), "paragraph", t("paragraph"), "p"],
+      category: "basic",
+    },
+    {
+      id: "line",
+      type: "line",
+      label: t("Divider"),
+      description: t("Horizontal line divider."),
+      icon: "",
+      keywords: ["line", t("line"), "divider", t("divider"), "hr", "horizontal", t("horizontal"), "separator", t("separator"), "---"],
+      category: "basic",
+    },
+    {
+      id: "image",
+      type: "image",
+      label: t("Image"),
+      description: t("Add a suitable image."),
+      icon: "",
+      keywords: ["image", t("image"), "img", "picture", t("picture"), "photo", t("photo"), "upload", t("upload")],
+      category: "media",
+    },
+    {
+      id: "bullet_list",
+      type: "bullet_list",
+      label: t("Bullet List"),
+      description: t("Create a simple bullet list."),
+      icon: "",
+      keywords: ["bullet", t("bullet"), "list", t("list"), "ul", "-", "unordered", t("unordered")],
+      category: "lists",
+    },
+    {
+      id: "numbered_list",
+      type: "numbered_list",
+      label: t("Numbered List"),
+      description: t("Create a numbered list."),
+      icon: "",
+      keywords: ["numbered", t("numbered"), "list", t("list"), "ol", "1.", "ordered", t("ordered")],
+      category: "lists",
+    },
+    {
+      id: "todo_list",
+      type: "todo_list",
+      label: t("To-do List"),
+      description: t("Track tasks with a checklist."),
+      icon: "",
+      keywords: ["todo", t("todo"), "task", t("task"), "check", t("check"), "checkbox", t("checkbox"), "[]"],
+      category: "lists",
+    },
+  ];
+}
 
 interface SlashCommandMenuProps {
   x: number;
@@ -136,6 +231,8 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
   onClose,
 }) => {
   const selectedRef = useRef<HTMLButtonElement>(null);
+  const slashCommands = useSlashCommands();
+  const categoryLabels = useCategoryLabels();
 
   // Calculate max height based on available viewport space
   const maxHeight = useMemo(() => {
@@ -150,9 +247,9 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
 
   // Filter commands based on input
   const filteredCommands = React.useMemo(() => {
-    if (!filter) return SLASH_COMMANDS;
+    if (!filter) return slashCommands;
     const lowerFilter = filter.toLowerCase();
-    return SLASH_COMMANDS.filter(
+    return slashCommands.filter(
       (cmd) =>
         cmd.label.toLowerCase().includes(lowerFilter) ||
         cmd.description.toLowerCase().includes(lowerFilter) ||
@@ -160,7 +257,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
           keyword.toLowerCase().startsWith(lowerFilter)
         )
     );
-  }, [filter]);
+  }, [filter, slashCommands]);
 
   // Group commands by category
   const groupedCommands = React.useMemo(() => {
@@ -223,7 +320,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
               {Object.entries(groupedCommands).map(([category, commands]) => (
                 <div key={category}>
                   <div className="px-4 py-2 text-xs font-medium text-muted-foreground/70 uppercase tracking-wide">
-                    {CATEGORY_LABELS[category] || category}
+                    {categoryLabels[category] || category}
                   </div>
                   {commands.map((command) => {
                     const index = currentIndex++;
@@ -249,7 +346,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
                         >
                           {command.icon}
                         </div>
-                        <div className="flex-1 text-left min-w-0">
+                        <div className="flex-1 text-start min-w-0">
                           <div
                             className={`font-medium text-sm ${
                               isSelected
@@ -263,11 +360,6 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
                             {command.description}
                           </div>
                         </div>
-                        {command.shortcut && (
-                          <div className="flex-shrink-0 text-xs text-muted-foreground/60 font-mono">
-                            {command.shortcut}
-                          </div>
-                        )}
                       </button>
                     );
                   })}

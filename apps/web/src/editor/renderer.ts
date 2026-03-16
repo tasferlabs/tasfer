@@ -1,3 +1,4 @@
+import i18next from "i18next";
 import type {
   Block,
   Char,
@@ -7,7 +8,7 @@ import type {
 import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
 import {
   batchCRDTChars,
-  FONT_STACKS,
+  getFontStack,
   getCurrentFontFamily,
   getFontMetrics,
   measureText,
@@ -16,6 +17,7 @@ import {
   type TextBatch,
 } from "./fonts";
 import { renderScrollbar } from "./scrollbar";
+import { getTextDirection } from "./rtl";
 import { getBlockTextContent, isCursorBlinking, isTouchDevice } from "./state";
 import { getEditorStyles, getTextStyle } from "./styles";
 import type { AwarenessState } from "./sync/awareness";
@@ -329,7 +331,7 @@ function renderCRDTLine(
     const effectiveFontWeight = batch.isBold ? "bold" : textStyle.fontWeight;
     const fontStyle = batch.isItalic ? "italic" : "normal";
 
-    ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${FONT_STACKS[fontFamily]}`;
+    ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily)}`;
     ctx.textBaseline = "alphabetic";
 
     // Measure the entire batch text width
@@ -569,11 +571,7 @@ export const renderBlock = (
 
   // Detect text direction
   const visibleText = getVisibleTextFromRuns(block.charRuns);
-  const direction =
-    visibleText.length > 0 &&
-    /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(visibleText)
-      ? "rtl"
-      : "ltr";
+  const direction = getTextDirection(visibleText);
   const isRTL = direction === "rtl";
 
   if (isListBlock(block)) {
@@ -821,6 +819,8 @@ export const renderBlock = (
       textStyle,
       block.type,
       state,
+      isRTL,
+      adjustedMaxWidth,
     );
   }
 
@@ -916,7 +916,7 @@ function renderListMarker(
     // Render bullet character
     ctx.save();
     ctx.fillStyle = styles.list.bullet.color;
-    ctx.font = `${textStyle.fontWeight} ${styles.list.bullet.size}px ${FONT_STACKS[fontFamily]}`;
+    ctx.font = `${textStyle.fontWeight} ${styles.list.bullet.size}px ${getFontStack(fontFamily)}`;
     ctx.textBaseline = "alphabetic";
 
     // Position bullet - x is already the correct position (left for LTR, right for RTL)
@@ -931,7 +931,7 @@ function renderListMarker(
 
     ctx.save();
     ctx.fillStyle = styles.list.numbered.color;
-    ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${FONT_STACKS[fontFamily]}`;
+    ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily)}`;
     ctx.textBaseline = "alphabetic";
     ctx.textAlign = "right";
 
@@ -1006,24 +1006,26 @@ function renderPlaceholder(
     | "numbered_list"
     | "todo_list",
   state: EditorState,
+  isRTL: boolean,
+  maxWidth: number,
 ) {
   ctx.save();
   ctx.fillStyle = styles.placeholder.color;
-  ctx.globalAlpha = styles.placeholder.opacity;
   ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${
-    FONT_STACKS[getCurrentFontFamily()]
+    getFontStack(getCurrentFontFamily())
   }`;
   ctx.textBaseline = "alphabetic";
+  ctx.direction = isRTL ? "rtl" : "ltr";
 
   let placeholderText = "";
 
   // Handle list block placeholders
   if (blockType === "bullet_list") {
-    placeholderText = "List item";
+    placeholderText = i18next.t("List item");
   } else if (blockType === "numbered_list") {
-    placeholderText = "List item";
+    placeholderText = i18next.t("List item");
   } else if (blockType === "todo_list") {
-    placeholderText = "To-do item";
+    placeholderText = i18next.t("To-do item");
   } else {
     // Handle text block placeholders
     const placeholderConfig = styles.placeholder[blockType];
@@ -1045,7 +1047,8 @@ function renderPlaceholder(
     }
   }
 
-  ctx.fillText(placeholderText, x, y);
+  const textX = isRTL ? x + maxWidth : x;
+  ctx.fillText(placeholderText, textX, y);
   ctx.restore();
 }
 
@@ -1080,9 +1083,7 @@ function renderSelectionCore(
 
   // Detect if this is an RTL block
   const blockVisibleText = getVisibleTextFromRuns(block.charRuns);
-  const isRTL =
-    blockVisibleText.length > 0 &&
-    /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(blockVisibleText);
+  const isRTL = getTextDirection(blockVisibleText) === "rtl";
 
   if (
     (start.blockIndex === blockIndex && end.blockIndex === blockIndex) ||
@@ -2079,9 +2080,7 @@ function calculateCursorPosition(
 
   // Calculate cursor position
   const visibleText = getVisibleTextFromChars(chars);
-  const isRTL =
-    visibleText.length > 0 &&
-    /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(visibleText);
+  const isRTL = getTextDirection(visibleText) === "rtl";
 
   let baseX: number;
   if (isListBlock(block)) {
@@ -2195,6 +2194,7 @@ function renderOutOfViewIndicators(
   ctx: CanvasRenderingContext2D,
   peers: OutOfViewPeer[],
   viewport: ViewportState,
+  styles: EditorStyles,
   topOffset: number = 0,
 ) {
   const abovePeers = peers.filter((p) => p.direction === "above");
@@ -2209,7 +2209,7 @@ function renderOutOfViewIndicators(
   // Clear previous hit areas
   outOfViewIndicatorHitAreas = [];
 
-  ctx.font = `600 ${fontSize}px ${FONT_STACKS.poppins}`;
+  ctx.font = `600 ${fontSize}px ${getFontStack("poppins")}`;
 
   // Render indicators for peers above viewport
   abovePeers.forEach((peer, i) => {
@@ -2244,10 +2244,15 @@ function renderOutOfViewIndicators(
     ctx.roundRect(x, y, pillWidth, pillHeight, pillHeight / 2);
     ctx.fill();
 
-    // Draw initial
-    ctx.fillStyle = "#FFFFFF";
+    // Draw initial with correct direction for the character
+    const initialDirection = getTextDirection(initial);
+    ctx.fillStyle = styles.remoteCursor.labelTextColor;
     ctx.textBaseline = "middle";
-    ctx.fillText(initial, x + pillPadding, y + pillHeight / 2);
+    ctx.direction = initialDirection;
+    ctx.textAlign = "center";
+    ctx.fillText(initial, x + pillWidth / 2, y + pillHeight / 2);
+    ctx.textAlign = "start";
+    ctx.direction = "ltr";
   });
 
   // Render indicators for peers below viewport
@@ -2283,10 +2288,15 @@ function renderOutOfViewIndicators(
     ctx.closePath();
     ctx.fill();
 
-    // Draw initial
-    ctx.fillStyle = "#FFFFFF";
+    // Draw initial with correct direction for the character
+    const initialDirection = getTextDirection(initial);
+    ctx.fillStyle = styles.remoteCursor.labelTextColor;
     ctx.textBaseline = "middle";
-    ctx.fillText(initial, x + pillPadding, y + pillHeight / 2);
+    ctx.direction = initialDirection;
+    ctx.textAlign = "center";
+    ctx.fillText(initial, x + pillWidth / 2, y + pillHeight / 2);
+    ctx.textAlign = "start";
+    ctx.direction = "ltr";
   });
 }
 
@@ -2360,13 +2370,20 @@ function renderRemoteCursors(
     if (awareness.user.name) {
       const labelPadding = 2;
       const labelFontSize = 10;
-      ctx.font = `${labelFontSize}px ${FONT_STACKS.poppins}`;
+      ctx.font = `${labelFontSize}px ${getFontStack("poppins")}`;
       const labelWidth =
         ctx.measureText(awareness.user.name).width + labelPadding * 2;
       const labelHeight = labelFontSize + labelPadding * 2;
 
-      // Clamp label position to stay within canvas bounds
-      let labelX = cursorPos.x;
+      // Detect RTL to position label on the correct side of cursor
+      const blockChars = charRunsToChars(block.charRuns);
+      const blockText = getVisibleTextFromChars(blockChars);
+      const isCursorRTL = getTextDirection(blockText) === "rtl";
+
+      // In RTL, label extends to the left of cursor; in LTR, to the right
+      let labelX = isCursorRTL
+        ? cursorPos.x - labelWidth
+        : cursorPos.x;
       let labelY = cursorPos.y - labelHeight - 2;
 
       // Prevent going off the right edge
@@ -2394,19 +2411,24 @@ function renderRemoteCursors(
       );
       ctx.fill();
 
-      // Draw label text
-      ctx.fillStyle = "#FFFFFF";
+      // Draw label text with correct direction
+      const nameDirection = getTextDirection(awareness.user.name);
+      ctx.fillStyle = styles.remoteCursor.labelTextColor;
+      ctx.direction = nameDirection;
       ctx.fillText(
         awareness.user.name,
-        labelX + labelPadding,
+        nameDirection === "rtl"
+          ? labelX + labelWidth - labelPadding
+          : labelX + labelPadding,
         labelY + labelFontSize + labelPadding - 2,
       );
+      ctx.direction = "ltr";
     }
   }
 
   // Render out-of-view indicators (offset above indicators below the tags area)
   if (outOfViewPeers.length > 0) {
-    renderOutOfViewIndicators(ctx, outOfViewPeers, viewport, styles.canvas.paddingTop);
+    renderOutOfViewIndicators(ctx, outOfViewPeers, viewport, styles, styles.canvas.paddingTop);
   } else {
     outOfViewIndicatorHitAreas = [];
   }
@@ -2685,9 +2707,7 @@ function getPositionCoordinates(
   const blockVisibleText = getVisibleTextFromRuns(block.charRuns);
 
   // Detect RTL
-  const isRTL =
-    blockVisibleText.length > 0 &&
-    /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(blockVisibleText);
+  const isRTL = getTextDirection(blockVisibleText) === "rtl";
 
   // Calculate indent and marker space for list blocks
   let adjustedMaxWidth = maxWidth;

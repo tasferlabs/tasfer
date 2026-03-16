@@ -3,6 +3,7 @@
  * Provides functions to detect and handle RTL languages like Arabic, Hebrew, Persian, etc.
  */
 
+import i18next from "i18next";
 import type { Char } from "../deserializer/loadPage";
 
 /**
@@ -44,8 +45,15 @@ export function isRTLChar(char: string): boolean {
  * Detect the dominant text direction of a string
  * Returns 'rtl' if the text is predominantly RTL, 'ltr' otherwise
  */
+/**
+ * Get the default text direction based on the current app language.
+ */
+function getDefaultDirection(): "rtl" | "ltr" {
+  return (i18next.dir() as "rtl" | "ltr") || "ltr";
+}
+
 export function getTextDirection(text: string): "rtl" | "ltr" {
-  if (!text || text.length === 0) return "ltr";
+  if (!text || text.length === 0) return getDefaultDirection();
 
   let rtlCount = 0;
   let ltrCount = 0;
@@ -61,7 +69,7 @@ export function getTextDirection(text: string): "rtl" | "ltr" {
 
   // If more than 30% of directional characters are RTL, treat as RTL
   const totalDirectional = rtlCount + ltrCount;
-  if (totalDirectional === 0) return "ltr";
+  if (totalDirectional === 0) return getDefaultDirection();
 
   return rtlCount / totalDirectional > 0.3 ? "rtl" : "ltr";
 }
@@ -71,7 +79,7 @@ export function getTextDirection(text: string): "rtl" | "ltr" {
  * Returns the direction based on the visible characters
  */
 export function getCharsDirection(chars: Char[]): "rtl" | "ltr" {
-  if (!chars || chars.length === 0) return "ltr";
+  if (!chars || chars.length === 0) return getDefaultDirection();
 
   // Get visible text from chars
   const text = chars

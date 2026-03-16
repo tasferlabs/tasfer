@@ -13,6 +13,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { useTranslation } from "react-i18next";
+import i18next from "i18next";
 import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
 import type { Block } from "@/deserializer/loadPage";
@@ -34,6 +35,7 @@ import {
   formatDate,
   formatWeekRange,
   formatTime,
+  formatTimeRange,
   isSameDay,
   getDayRange,
   getWeekRange,
@@ -42,13 +44,14 @@ import {
   snapPx,
   pageToStartMin,
   shortDayName,
+  formatMonthLong,
   type ViewMode,
 } from "./utils";
 import { triggerHapticFeedback } from "@/editor/events/touchEvents";
 import { EventCard } from "./EventCard";
 import { EventPreview } from "./EventPreview";
 import { DateTimePickerOverlay } from "@/components/datetimepickers/DateTimePickerOverlay";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { DateTime } from "luxon";
 import style from "./CalendarPage.module.css";
 import clsx from "clsx";
@@ -81,6 +84,7 @@ interface ResizeState {
 
 export default function CalendarPage() {
   const { t } = useTranslation();
+  const isRtl = i18next.dir() === "rtl";
   const navigate = useNavigate();
   const { activeSpaceId } = useSpaces();
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -444,9 +448,9 @@ export default function CalendarPage() {
 
       let edgeDir: -1 | 1 | null = null;
       if (distFromLeft < EDGE_THRESHOLD) {
-        edgeDir = -1; // navigate to previous
+        edgeDir = isRtl ? 1 : -1;
       } else if (distFromRight < EDGE_THRESHOLD) {
-        edgeDir = 1; // navigate to next
+        edgeDir = isRtl ? -1 : 1;
       }
 
       if (edgeDir !== edgeDragDirRef.current) {
@@ -508,7 +512,7 @@ export default function CalendarPage() {
       window.removeEventListener("pointermove", handlePointerMove);
       clearEdgeDragTimer();
     };
-  }, [activeDragPage, viewMode, weekDays, clearEdgeDragTimer]);
+  }, [activeDragPage, viewMode, weekDays, clearEdgeDragTimer, isRtl]);
 
   function handleDragStart(event: DragStartEvent) {
     const page = event.active.data.current?.page as ICalendarPage | undefined;
@@ -1157,11 +1161,10 @@ export default function CalendarPage() {
             return (
               <div
                 className={style.dropGhost}
-                style={{ top, height: Math.max(height, 20), left: 0, right: 0 }}
+                style={{ top, height: Math.max(height, 20), insetInlineStart: 0, insetInlineEnd: 0 }}
               >
                 <span className={style.dropGhostTime}>
-                  {formatTime(newStartMin)} -{" "}
-                  {formatTime(newStartMin + duration)}
+                  {formatTimeRange(newStartMin, newStartMin + duration)}
                 </span>
               </div>
             );
@@ -1176,13 +1179,12 @@ export default function CalendarPage() {
               height:
                 ((createDrag.endMinutes - createDrag.startMinutes) / 60) *
                 HOUR_HEIGHT,
-              left: 0,
-              right: 0,
+              insetInlineStart: 0,
+              insetInlineEnd: 0,
             }}
           >
             <span className={style.dragPreviewTime}>
-              {formatTime(createDrag.startMinutes)} -{" "}
-              {formatTime(createDrag.endMinutes)}
+              {formatTimeRange(createDrag.startMinutes, createDrag.endMinutes)}
             </span>
           </div>
         )}
@@ -1195,7 +1197,7 @@ export default function CalendarPage() {
                 className={style.nowIndicatorDot}
                 style={{
                   top: (nowMinutes / 60) * HOUR_HEIGHT,
-                  left: -4,
+                  insetInlineStart: -4,
                   width: 8,
                   height: 8,
                 }}
@@ -1203,7 +1205,7 @@ export default function CalendarPage() {
             )}
             <div
               className={style.nowIndicator}
-              style={{ top: (nowMinutes / 60) * HOUR_HEIGHT, left: 0 }}
+              style={{ top: (nowMinutes / 60) * HOUR_HEIGHT, insetInlineStart: 0 }}
             />
           </>
         )}
@@ -1286,7 +1288,7 @@ export default function CalendarPage() {
                 className={style.headerNavButton}
                 onClick={() => goToDay(-1)}
               >
-                &#8249;
+                {isRtl ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
               </button>
               <button className={style.todayButton} onClick={goToToday}>
                 {t("Today")}
@@ -1295,7 +1297,7 @@ export default function CalendarPage() {
                 className={style.headerNavButton}
                 onClick={() => goToDay(1)}
               >
-                &#8250;
+                {isRtl ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
               </button>
             </div>
             <span className={clsx(style.headerTitle, style.headerTitleDesktop)}>
@@ -1311,7 +1313,7 @@ export default function CalendarPage() {
               )}
               onClick={() => setMiniCalOpen(true)}
             >
-              {selectedDate.toLocaleDateString(undefined, { month: "long" })}
+              {formatMonthLong(selectedDate)}
               <ChevronDown size={14} />
             </button>
             <button
@@ -1542,8 +1544,7 @@ export default function CalendarPage() {
                             style={{ top, height: Math.max(height, 20) }}
                           >
                             <span className={style.dropGhostTime}>
-                              {formatTime(newStartMin)} -{" "}
-                              {formatTime(newStartMin + duration)}
+                              {formatTimeRange(newStartMin, newStartMin + duration)}
                             </span>
                           </div>
                         );
@@ -1578,8 +1579,7 @@ export default function CalendarPage() {
                         }}
                       >
                         <span className={style.dragPreviewTime}>
-                          {formatTime(createDrag.startMinutes)} -{" "}
-                          {formatTime(createDrag.endMinutes)}
+                          {formatTimeRange(createDrag.startMinutes, createDrag.endMinutes)}
                         </span>
                       </div>
                     )}

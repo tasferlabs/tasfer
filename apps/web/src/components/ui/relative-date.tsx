@@ -1,5 +1,6 @@
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
+import "dayjs/locale/ar";
 import {
   Tooltip,
   TooltipContent,
@@ -7,6 +8,8 @@ import {
   TooltipProvider,
 } from "./tooltip";
 import { cn } from "@/lib/utils";
+import { formatAbsoluteDateTime } from "@/lib/dateTimePreferences";
+import { useTranslation } from "react-i18next";
 
 // Initialize dayjs plugin
 dayjs.extend(relativeTime);
@@ -17,9 +20,11 @@ interface RelativeDateProps {
 }
 
 export function RelativeDate({ date, className }: RelativeDateProps) {
+  const { i18n } = useTranslation();
+  const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
   const dateObj = typeof date === "string" ? new Date(date) : date;
-  const relativeText = dayjs(dateObj).fromNow();
-  const absoluteText = dayjs(dateObj).format("MMM D, YYYY h:mm A");
+  const relativeText = dayjs(dateObj).locale(locale).fromNow();
+  const absoluteText = formatAbsoluteDateTime(dateObj);
 
   return (
     <TooltipProvider>

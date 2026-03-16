@@ -1,3 +1,4 @@
+import { AvatarCropDialog } from "@/app/components/AvatarCropDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Camera } from "lucide-react";
@@ -18,22 +19,31 @@ export default function OnboardingPage() {
   const [uploading, setUploading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState("");
+  const [pendingFile, setPendingFile] = React.useState<File | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setPendingFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
 
+  async function handleCropped(croppedFile: File) {
+    setPendingFile(null);
     try {
       setUploading(true);
-      const image = await uploadImage(file);
+      const image = await uploadImage(croppedFile);
       setAvatarId(image.id);
     } catch {
       setError(t`Failed to upload image`);
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  }
+
+  function handleCropCancel() {
+    setPendingFile(null);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -112,6 +122,12 @@ export default function OnboardingPage() {
               accept="image/jpeg,image/png,image/gif,image/webp"
               onChange={handleFileChange}
               hidden
+            />
+
+            <AvatarCropDialog
+              file={pendingFile}
+              onCropped={handleCropped}
+              onCancel={handleCropCancel}
             />
           </div>
 

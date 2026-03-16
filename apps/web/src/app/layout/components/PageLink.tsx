@@ -435,15 +435,11 @@ export function PageLink({
             [style.hasChildren]: data.hasChildren,
           })}
         >
-          {!isExpanded ? (
-            <Icons.ChevronRight width={20} height={20} />
-          ) : (
-            <Icons.ChevronRight
-              width={20}
-              height={20}
-              style={{ transform: "rotate(90deg)" }}
-            />
-          )}
+          <Icons.ChevronRight
+            width={20}
+            height={20}
+            className={clsx(style.collapseIcon, isExpanded && style.collapseIconExpanded)}
+          />
           <VisuallyHidden>{t("Open sub pages")}</VisuallyHidden>
         </button>
         <span
@@ -524,7 +520,7 @@ export function PageLink({
           />
           <PopoverPrimitive.Portal>
             <PopoverPrimitive.Content
-              className="bg-popover rounded-xl shadow-lg border border-border min-w-[200px] z-50 select-none animate-in fade-in zoom-in-95 duration-100"
+              className="bg-popover rounded-xl shadow-lg border border-border min-w-64 z-50 select-none animate-in fade-in zoom-in-95 duration-100"
               side="bottom"
               align="start"
               sideOffset={2}

@@ -47,6 +47,16 @@ interface SnapshotGroup {
   snapshots: Snapshot[];
 }
 
+const SNAPSHOT_GROUP_KEYS = [
+  "Last 5 minutes",
+  "Last 15 minutes",
+  "Last hour",
+  "Earlier today",
+  "Yesterday",
+  "This week",
+  "Older",
+] as const;
+
 function groupSnapshots(snapshots: Snapshot[]): SnapshotGroup[] {
   const now = new Date();
   const groups: Map<string, Snapshot[]> = new Map();
@@ -86,18 +96,7 @@ function groupSnapshots(snapshots: Snapshot[]): SnapshotGroup[] {
     groups.set(groupKey, existing);
   });
 
-  // Convert to array with proper ordering
-  const orderedLabels = [
-    "Last 5 minutes",
-    "Last 15 minutes",
-    "Last hour",
-    "Earlier today",
-    "Yesterday",
-    "This week",
-    "Older",
-  ];
-
-  return orderedLabels
+  return SNAPSHOT_GROUP_KEYS
     .filter((label) => groups.has(label))
     .map((label) => ({
       label,
@@ -134,7 +133,7 @@ function SnapshotItem({ snapshot, onPreview }: SnapshotItemProps) {
         onClick={() => onPreview(snapshot)}
         className="text-muted-foreground hover:text-foreground shrink-0"
       >
-        <EyeIcon className="h-3.5 w-3.5 mr-1.5" />
+        <EyeIcon className="h-3.5 w-3.5 me-1.5" />
         {t`Preview`}
       </Button>
     </div>
@@ -236,12 +235,13 @@ export function SnapshotRestore({
   open: controlledOpen,
   onOpenChange,
 }: SnapshotRestoreProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [internalOpen, setInternalOpen] = useState(false);
   const [previewingSnapshot, setPreviewingSnapshot] = useState<Snapshot | null>(
     null
   );
   const isMobile = useResponsive("(max-width: 768px)");
+  const isRtl = i18n.dir() === "rtl";
 
   // Use controlled state if provided, otherwise use internal state
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
@@ -360,7 +360,7 @@ export function SnapshotRestore({
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent
-        side="right"
+        side={isRtl ? "left" : "right"}
         className="w-full sm:!max-w-xl md:!max-w-4xl lg:!max-w-5xl xl:!max-w-6xl flex flex-col"
       >
         <SheetHeader>
@@ -387,7 +387,7 @@ export function SnapshotRestore({
               </div>
             )}
           </div>
-          <div className="w-80 shrink-0 border-l pr-4">
+          <div className="w-80 shrink-0 border-s pe-4 flex flex-col h-full overflow-hidden">
             <SnapshotRestoreContent
               snapshots={snapshots}
               isLoading={isLoading}

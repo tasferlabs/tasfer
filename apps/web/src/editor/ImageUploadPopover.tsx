@@ -167,7 +167,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <Upload className="w-3 h-3 inline mr-1.5" />
+            <Upload className="w-3 h-3 inline me-1.5" />
             Upload
           </button>
           <button
@@ -179,7 +179,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <Link2 className="w-3 h-3 inline mr-1.5" />
+            <Link2 className="w-3 h-3 inline me-1.5" />
             URL
           </button>
         </div>
@@ -205,7 +205,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
                 onMouseDown={(e) => e.preventDefault()}
                 className="w-full h-16"
               >
-                <FolderOpen className="w-5 h-5 mr-3" />
+                <FolderOpen className="w-5 h-5 me-3" />
                 <span className="text-base">Open Library</span>
               </Button>
               <Button
@@ -215,7 +215,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
                 onMouseDown={(e) => e.preventDefault()}
                 className="w-full h-16"
               >
-                <Camera className="w-5 h-5 mr-3" />
+                <Camera className="w-5 h-5 me-3" />
                 <span className="text-base">Take Photo</span>
               </Button>
             </>
@@ -309,7 +309,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             onMouseDown={(e) => e.preventDefault()}
             className="text-destructive hover:text-destructive hover:bg-destructive/10"
           >
-            <Trash2 className="w-4 h-4 mr-2" />
+            <Trash2 className="w-4 h-4 me-2" />
             Remove Image
           </Button>
         </div>

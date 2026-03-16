@@ -269,7 +269,7 @@ const DateTimeRangePicker = React.forwardRef(
             <label
               htmlFor={id}
               className={cn(
-                'absolute top-0 left-2 z-10 -translate-y-1/2 bg-background px-1 rounded',
+                'absolute top-0 start-2 z-10 -translate-y-1/2 bg-background px-1 rounded',
                 'text-muted-foreground font-medium',
                 size === 'small' ? 'text-xs' : 'text-sm'
               )}
@@ -340,7 +340,7 @@ const DateTimeRangePicker = React.forwardRef(
             </div>
           </div>
 
-          <div className="flex items-center ml-auto">
+          <div className="flex items-center ms-auto">
             <Button type="button" variant="ghost" size={size === 'small' ? 'icon-xs' : 'icon-sm'} disabled={disabled} onClick={clearAll}>
               <X className={size === 'small' ? 'size-4' : 'size-5'} />
             </Button>
@@ -396,7 +396,7 @@ const DateTimeRangePicker = React.forwardRef(
         {React.isValidElement(helperText) ? (
           helperText
         ) : typeof helperText === 'string' && !!helperText ? (
-          <p className={cn('mt-1 text-sm text-left', error ? 'text-destructive' : 'text-muted-foreground')}>
+          <p className={cn('mt-1 text-sm text-start', error ? 'text-destructive' : 'text-muted-foreground')}>
             {helperText}
           </p>
         ) : null}

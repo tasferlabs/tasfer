@@ -1,5 +1,6 @@
 import { Edit2, ExternalLink } from "lucide-react";
 import React, { useRef, useLayoutEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
 
 interface LinkTooltipProps {
@@ -19,6 +20,7 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
   onEdit,
   onOpen,
 }) => {
+  const { t } = useTranslation();
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x, y, transform: "translateY(4px)" });
 
@@ -110,10 +112,10 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
               "transition-colors duration-150",
               "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
             )}
-            title="Open link"
+            title={t`Open link`}
           >
             <ExternalLink className="w-4 h-4" />
-            <span>Open</span>
+            <span>{t`Open`}</span>
           </button>
 
           {onEdit && (
@@ -126,10 +128,10 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
                 "transition-colors duration-150",
                 "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
               )}
-              title="Edit link"
+              title={t`Edit link`}
             >
               <Edit2 className="w-4 h-4" />
-              <span>Edit</span>
+              <span>{t`Edit`}</span>
             </button>
           )}
         </div>

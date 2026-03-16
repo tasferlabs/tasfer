@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon';
-import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
+import React, { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { DateTimeInput } from './DateTimeInput';
-import { toNumberOrNull, getGranularityMaxValue, padValue } from './utils';
+import { toNumberOrNull, getGranularityMaxValue, padValue, getDateFieldOrder } from './utils';
 
 export const DateTimeInputGroup = React.forwardRef(
   (
@@ -52,19 +52,43 @@ export const DateTimeInputGroup = React.forwardRef(
     const hourRef = useRef<HTMLInputElement>(null);
     const minuteRef = useRef<HTMLInputElement>(null);
 
+    const { fields, separator } = useMemo(() => getDateFieldOrder(), []);
+
+    const fieldMap = useMemo(
+      () => ({
+        year: {
+          ref: yearRef,
+          value: selectedYear,
+          onChange: setSelectedYear,
+          granularity: 'year' as const,
+        },
+        month: {
+          ref: monthRef,
+          value: selectedMonth,
+          onChange: setSelectedMonth,
+          granularity: 'month' as const,
+        },
+        day: {
+          ref: dayRef,
+          value: selectedDay,
+          onChange: setSelectedDay,
+          granularity: 'day' as const,
+        },
+      }),
+      [selectedYear, selectedMonth, selectedDay, setSelectedYear, setSelectedMonth, setSelectedDay]
+    );
+
+    // Build ordered refs for focus navigation
+    const orderedDateRefs = useMemo(() => fields.map((f) => fieldMap[f].ref), [fields, fieldMap]);
+
     useImperativeHandle(ref, () => ({
       focus: () => {
-        if (!selectedYear) {
-          yearRef.current?.focus();
-          return;
-        }
-        if (!selectedMonth) {
-          monthRef.current?.focus();
-          return;
-        }
-        if (!selectedDay) {
-          dayRef.current?.focus();
-          return;
+        // Focus the first empty date field in order, or first field
+        for (const field of fields) {
+          if (!fieldMap[field].value) {
+            fieldMap[field].ref.current?.focus();
+            return;
+          }
         }
         if (!selectedHour) {
           hourRef.current?.focus();
@@ -74,10 +98,11 @@ export const DateTimeInputGroup = React.forwardRef(
           minuteRef.current?.focus();
           return;
         }
-
-        yearRef.current?.focus();
+        // Default: focus first date field
+        orderedDateRefs[0]?.current?.focus();
       },
     }));
+
     const previousFocusOn = useRef<string | null>(null);
     const [focusOn, setFocusOn] = useState<'year' | 'month' | 'day' | 'hour' | 'minute' | null>(null);
     useEffect(() => {
@@ -103,75 +128,48 @@ export const DateTimeInputGroup = React.forwardRef(
         }
       }
     };
+
+    // Get ref for the field after the last date field (hour or undefined)
+    const afterLastDateRef = type === 'datetime' ? hourRef : undefined;
+    // Get ref for the field before the first date field (undefined for date fields)
+    const beforeFirstDateRef = undefined;
+
     return (
       <div className="flex flex-row items-center gap-1">
         {(type === 'datetime' || type === 'date') && (
           <>
-            <DateTimeInput
-              granularity="year"
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(e)}
-              year={toNumberOrNull(selectedYear) || 0}
-              month={toNumberOrNull(selectedMonth) || 0}
-              incrementValue={incrementValue}
-              jumpToNext={() => {
-                monthRef.current?.focus();
-              }}
-              ref={yearRef}
-              required={required}
-              disabled={disabled}
-              onFocus={() => setFocusOn('year')}
-              onBlur={handleDay}
-              size={size}
-              className={className}
-            />
-            <span className={`text-muted-foreground ${size === 'small' ? 'text-xs' : 'text-sm'}`}>-</span>
-            <DateTimeInput
-              granularity="month"
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e)}
-              year={toNumberOrNull(selectedYear) || 0}
-              month={toNumberOrNull(selectedMonth) || 0}
-              incrementValue={incrementValue}
-              jumpToNext={() => {
-                dayRef.current?.focus();
-              }}
-              jumpToPrevious={() => {
-                yearRef.current?.focus();
-              }}
-              ref={monthRef}
-              required={required}
-              disabled={disabled}
-              onFocus={() => setFocusOn('month')}
-              onBlur={handleDay}
-              size={size}
-              className={className}
-            />
-            <span className={`text-muted-foreground ${size === 'small' ? 'text-xs' : 'text-sm'}`}>-</span>
-            <DateTimeInput
-              granularity="day"
-              value={selectedDay}
-              onChange={(e) => setSelectedDay(e)}
-              year={toNumberOrNull(selectedYear) || 0}
-              month={toNumberOrNull(selectedMonth) || 0}
-              incrementValue={incrementValue}
-              jumpToNext={
-                type === 'datetime'
-                  ? () => {
-                      hourRef.current?.focus();
-                    }
-                  : undefined
-              }
-              jumpToPrevious={() => {
-                monthRef.current?.focus();
-              }}
-              ref={dayRef}
-              required={required}
-              disabled={disabled}
-              onFocus={() => setFocusOn('day')}
-              size={size}
-              className={className}
-            />
+            {fields.map((field, index) => {
+              const config = fieldMap[field];
+              const prevRef = index > 0 ? orderedDateRefs[index - 1] : beforeFirstDateRef;
+              const nextRef = index < fields.length - 1 ? orderedDateRefs[index + 1] : afterLastDateRef;
+
+              return (
+                <React.Fragment key={field}>
+                  {index > 0 && (
+                    <span className={`text-muted-foreground ${size === 'small' ? 'text-xs' : 'text-sm'}`}>
+                      {separator}
+                    </span>
+                  )}
+                  <DateTimeInput
+                    granularity={config.granularity}
+                    value={config.value}
+                    onChange={(e) => config.onChange(e)}
+                    year={toNumberOrNull(selectedYear) || 0}
+                    month={toNumberOrNull(selectedMonth) || 0}
+                    incrementValue={incrementValue}
+                    jumpToNext={nextRef ? () => nextRef.current?.focus() : undefined}
+                    jumpToPrevious={prevRef ? () => prevRef.current?.focus() : undefined}
+                    ref={config.ref}
+                    required={required}
+                    disabled={disabled}
+                    onFocus={() => setFocusOn(field)}
+                    onBlur={handleDay}
+                    size={size}
+                    className={className}
+                  />
+                </React.Fragment>
+              );
+            })}
             <span className={`text-muted-foreground ${size === 'small' ? 'text-xs' : 'text-sm'}`}>&nbsp;</span>
           </>
         )}
@@ -188,7 +186,8 @@ export const DateTimeInputGroup = React.forwardRef(
                 minuteRef.current?.focus();
               }}
               jumpToPrevious={() => {
-                dayRef.current?.focus();
+                // Jump to last date field
+                orderedDateRefs[orderedDateRefs.length - 1]?.current?.focus();
               }}
               ref={hourRef}
               required={required}

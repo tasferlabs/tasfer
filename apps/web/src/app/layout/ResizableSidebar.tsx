@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import style from "./Layout.module.css";
 import { SidebarContent } from "./SidebarContent";
 import useLocalStorage from "../hooks/useLocalStorage";
@@ -15,6 +16,8 @@ export function ResizableSidebar({
   open: boolean;
 }) {
   const { hasPanel } = useSidebarPanel();
+  const { i18n } = useTranslation();
+  const isRtl = i18n.dir() === "rtl";
 
   const isFine = useResponsive("(pointer: fine)");
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -37,13 +40,14 @@ export function ResizableSidebar({
   const resize = React.useCallback(
     (mouseMoveEvent: MouseEvent) => {
       if (isResizing && sidebarRef.current) {
-        setSidebarWidth(
-          mouseMoveEvent.clientX -
-            sidebarRef.current?.getBoundingClientRect().left,
-        );
+        const rect = sidebarRef.current.getBoundingClientRect();
+        const newWidth = isRtl
+          ? rect.right - mouseMoveEvent.clientX
+          : mouseMoveEvent.clientX - rect.left;
+        setSidebarWidth(newWidth);
       }
     },
-    [isResizing, setSidebarWidth],
+    [isResizing, isRtl, setSidebarWidth],
   );
 
   React.useEffect(() => {
@@ -66,11 +70,11 @@ export function ResizableSidebar({
           style={{ width: sidebarWidthDefaulted }}
           initial={
             shouldAnimate.current
-              ? { x: -sidebarWidthDefaulted, opacity: 0 }
+              ? { x: isRtl ? sidebarWidthDefaulted : -sidebarWidthDefaulted, opacity: 0 }
               : false
           }
           animate={{ x: 0, opacity: 1 }}
-          exit={{ x: -sidebarWidthDefaulted, opacity: 0 }}
+          exit={{ x: isRtl ? sidebarWidthDefaulted : -sidebarWidthDefaulted, opacity: 0 }}
           transition={{ type: "spring", bounce: 0, duration: 0.2 }}
         >
           <div className={style.appSidebarContent}>
@@ -78,7 +82,7 @@ export function ResizableSidebar({
           </div>
           {isFine && (
             <div
-              className={clsx(style.appSidebarResizer, hasPanel && "border-l-popover! border-r-popover!")}
+              className={clsx(style.appSidebarResizer, hasPanel && "border-s-popover! border-e-popover!")}
               onMouseDown={startResizing}
             />
           )}

@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getLuxon, padValue, plusDatetime } from './utils';
 import { TimePicker } from './TimePicker';
+import { getWeekStart, formatDatePreferred } from '@/lib/dateTimePreferences';
 
 type RangePickerOverlayProps = {
   open: boolean;
@@ -126,16 +127,19 @@ export function DateTimeRangePickerOverlay({
     disabledByChoice: boolean;
     disabled: boolean;
   };
+  const weekStart = getWeekStart();
+
   const generateWeeks = (displayedDate: string, tz: string, allWeeksInView: DateTime[]): WeekDay[][] => {
     const luxonDate = getLuxon(displayedDate, tz);
+    const firstOfMonth = luxonDate.startOf('month');
+    const jsWeekday = firstOfMonth.weekday % 7; // luxon 1=Mon..7=Sun → 0=Sun..6=Sat
+    const offset = (jsWeekday - weekStart + 7) % 7;
+    const gridStart = firstOfMonth.minus({ days: offset });
     return Array(6)
       .fill(Array(7).fill(0))
       .map((week, i) =>
         week.map((_: number, j: number) => {
-          const date = luxonDate
-            .startOf('month')
-            .startOf('week')
-            .plus({ days: 7 * i + j });
+          const date = gridStart.plus({ days: 7 * i + j });
 
           const isStart = startDateTime && date.toISODate() === startDateTime.toISODate();
           const isEnd = endDateTime && date.toISODate() === endDateTime.toISODate();
@@ -191,16 +195,26 @@ export function DateTimeRangePickerOverlay({
     const leftLuxon = getLuxon(leftDisplayedDate, timezone);
     const rightLuxon = getLuxon(rightDisplayedDate, timezone);
 
+    const leftFirst = leftLuxon.startOf('month');
+    const leftJsWd = leftFirst.weekday % 7;
+    const leftOffset = (leftJsWd - weekStart + 7) % 7;
+    const leftGridStart = leftFirst.minus({ days: leftOffset });
+
+    const rightFirst = rightLuxon.startOf('month');
+    const rightJsWd = rightFirst.weekday % 7;
+    const rightOffset = (rightJsWd - weekStart + 7) % 7;
+    const rightGridStart = rightFirst.minus({ days: rightOffset });
+
     for (let i = 0; i < 6; i++) {
       for (let j = 0; j < 7; j++) {
-        const leftDate = leftLuxon.startOf('month').startOf('week').plus({ days: 7 * i + j });
-        const rightDate = rightLuxon.startOf('month').startOf('week').plus({ days: 7 * i + j });
+        const leftDate = leftGridStart.plus({ days: 7 * i + j });
+        const rightDate = rightGridStart.plus({ days: 7 * i + j });
         if (leftLuxon.month === leftDate.month) dates.push(leftDate);
         if (rightLuxon.month === rightDate.month) dates.push(rightDate);
       }
     }
     return dates;
-  }, [leftDisplayedDate, rightDisplayedDate, timezone]);
+  }, [leftDisplayedDate, rightDisplayedDate, timezone, weekStart]);
 
   const leftWeeks = useMemo(
     () => generateWeeks(leftDisplayedDate, timezone, allDatesInView),
@@ -240,7 +254,8 @@ export function DateTimeRangePickerOverlay({
     }
   };
 
-  const weekDays = [t`Mo`, t`Tu`, t`We`, t`Th`, t`Fr`, t`Sa`, t`Su`];
+  const allDays = [t`Su`, t`Mo`, t`Tu`, t`We`, t`Th`, t`Fr`, t`Sa`];
+  const weekDays = Array.from({ length: 7 }, (_, i) => allDays[(weekStart + i) % 7]);
 
   const renderCalendarGrid = (weeks: ReturnType<typeof generateWeeks>) => (
     <div role="grid" className="w-full" onMouseLeave={() => setHoveredDate(null)}>
@@ -261,11 +276,11 @@ export function DateTimeRangePickerOverlay({
                   'aspect-square h-full flex-1 flex items-center justify-center relative',
                   !disabled && isInPreviewRange && !isInRange && 'bg-primary/5',
                   !disabled && isInRange && 'bg-primary/10',
-                  !disabled && isStart && 'rounded-l-full',
+                  !disabled && isStart && 'rounded-s-full',
                   !disabled && isStart && (endDateTime || isInPreviewRange || isPreviewEnd) && 'bg-primary/10',
-                  !disabled && isEnd && 'rounded-r-full',
+                  !disabled && isEnd && 'rounded-e-full',
                   !disabled && isEnd && startDateTime && 'bg-primary/10',
-                  !disabled && isPreviewEnd && !isEnd && !isStart && activeRange === 'end' && startDateTime && 'rounded-r-full bg-primary/5',
+                  !disabled && isPreviewEnd && !isEnd && !isStart && activeRange === 'end' && startDateTime && 'rounded-e-full bg-primary/5',
                 )}
               >
                 {!disabled && (
@@ -300,18 +315,18 @@ export function DateTimeRangePickerOverlay({
         size="icon-sm"
         onClick={() => setDisplayedDate((d) => plusDatetime(d, 'month', -1, timezone)!)}
       >
-        <ChevronLeft className="size-4" />
+        <ChevronLeft className="size-4 rtl:rotate-180" />
       </Button>
 
       <div className="flex items-center gap-1">
         <span className="text-base font-medium text-center min-w-[120px]">
-          {getLuxon(leftDisplayedDate, timezone).toFormat('LLL yyyy')}
+          {formatDatePreferred(getLuxon(leftDisplayedDate, timezone).toJSDate(), { month: 'short', year: 'numeric' })}
         </span>
         {isDesktop && (
           <>
             <span className="text-sm text-muted-foreground">–</span>
             <span className="text-base font-medium text-center min-w-[120px]">
-              {getLuxon(rightDisplayedDate, timezone).toFormat('LLL yyyy')}
+              {formatDatePreferred(getLuxon(rightDisplayedDate, timezone).toJSDate(), { month: 'short', year: 'numeric' })}
             </span>
           </>
         )}
@@ -322,7 +337,7 @@ export function DateTimeRangePickerOverlay({
         size="icon-sm"
         onClick={() => setDisplayedDate((d) => plusDatetime(d, 'month', 1, timezone)!)}
       >
-        <ChevronRight className="size-4" />
+        <ChevronRight className="size-4 rtl:rotate-180" />
       </Button>
     </div>
   );
