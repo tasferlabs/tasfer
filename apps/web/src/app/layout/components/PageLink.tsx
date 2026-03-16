@@ -1,5 +1,5 @@
 import { useDraggable } from "@dnd-kit/core";
-import { CircleNotch, X } from "@phosphor-icons/react";
+import { CircleNotch } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -14,7 +14,20 @@ import {
 import { useConfirmation } from "../../components/ConfirmationDialog";
 import Icons from "../../components/uiKit/Icons/Icons";
 import VisuallyHidden from "../../components/uiKit/VisuallyHidden/VisuallyHidden";
-import { ColorPicker } from "../../components/ColorPicker";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "../../../components/ui/dropdown-menu";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "../../../components/ui/drawer";
+import { Ellipsis } from "lucide-react";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { DropZone } from "./DropZone";
 import { PagesArea } from "./PagesArea";
 import { type IParentsStack } from "./PagesLinks";
@@ -22,6 +35,12 @@ import style from "./PagesLinks.module.css";
 import useResponsive from "@/app/hooks/useResponsive";
 import { useTranslation } from "react-i18next";
 import { useIsExpanded, useTreeExpand } from "../../contexts/TreeExpandContext";
+
+const PRESET_COLORS = [
+  "#EF4444", "#F97316", "#F59E0B", "#EAB308", "#84CC16",
+  "#22C55E", "#14B8A6", "#06B6D4", "#3B82F6", "#6366F1",
+  "#8B5CF6", "#A855F7", "#D946EF", "#EC4899", "#F43F5E",
+];
 
 // Global flag to track recent drag - module level to avoid React timing issues
 let recentDragEnd = false;
@@ -68,6 +87,9 @@ export function PageLink({
   const inputRef = useRef<HTMLInputElement>(null);
   const wasDraggingRef = useRef(false);
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const treeExpand = useTreeExpand();
   const isExpanded = useIsExpanded(data.id);
   const setIsExpanded = useCallback(
@@ -371,6 +393,40 @@ export function PageLink({
           e.stopPropagation();
           // Call the original listener from dnd-kit
           listeners?.onPointerDown?.(e);
+          // Long-press to open drawer menu on touch
+          if (isCoarse) {
+            longPressTimerRef.current = setTimeout(() => {
+              longPressTimerRef.current = null;
+              setMenuOpen(true);
+            }, 500);
+          }
+        }}
+        onPointerUp={() => {
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+        }}
+        onPointerCancel={() => {
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+        }}
+        onPointerMove={() => {
+          // Cancel long-press if finger moves (scrolling)
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (isCoarse) {
+            setMenuOpen(true);
+          } else {
+            setContextPos({ x: e.clientX, y: e.clientY });
+          }
         }}
       >
         <button
@@ -390,7 +446,13 @@ export function PageLink({
           )}
           <VisuallyHidden>{t("Open sub pages")}</VisuallyHidden>
         </button>
-        <ColorPicker color={data.color} onChange={handleColorChange} />
+        <span
+          className="color-picker-blob"
+          style={{
+            backgroundColor: resolvedColor || "var(--primary)",
+            opacity: resolvedColor ? 1 : 0.3,
+          }}
+        />
         <div className={style.linkTitle}>
           {isEditing ? (
             <input
@@ -428,47 +490,66 @@ export function PageLink({
             </span>
           )}
         </div>
-        <div className={style.actions}>
-          <button
-            onClick={() => {
-              if (isEditing) handleStopEditing();
-              else handleStartEditing();
-            }}
-            className={style.action}
-          >
-            {isEditing ? (
-              <X size={20} />
-            ) : (
-              <Icons.Edit width={20} height={20} />
-            )}
-            <VisuallyHidden>{t("Edit page")}</VisuallyHidden>
-          </button>
-          <button
-            onClick={() => handleDelete()}
-            className={style.action}
-            disabled={isDeleting}
-          >
-            {isDeleting ? (
-              <CircleNotch className="spin" size={12} />
-            ) : (
-              <Icons.Trash width={20} height={20} />
-            )}
-            <VisuallyHidden>{t("Delete page")}</VisuallyHidden>
-          </button>
-          <button
-            onClick={() => handleAdd()}
-            className={style.action}
-            disabled={isCreating}
-          >
-            {isCreating ? (
-              <CircleNotch className="spin" size={12} />
-            ) : (
-              <Icons.Plus width={20} height={20} />
-            )}
-            <VisuallyHidden>{t("Add page")}</VisuallyHidden>
-          </button>
-        </div>
+        <PageLinkMenu
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          isCoarse={isCoarse}
+          color={data.color}
+          onColorChange={handleColorChange}
+          onRename={handleStartEditing}
+          onDelete={handleDelete}
+          isDeleting={isDeleting}
+          onAdd={handleAdd}
+          isCreating={isCreating}
+          t={t}
+        />
       </div>
+
+      {/* Right-click / long-press context menu positioned at cursor */}
+      {contextPos && (
+        <PopoverPrimitive.Root
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) setContextPos(null);
+          }}
+        >
+          <PopoverPrimitive.Anchor
+            style={{
+              position: "fixed",
+              left: contextPos.x,
+              top: contextPos.y,
+              width: 1,
+              height: 1,
+            }}
+          />
+          <PopoverPrimitive.Portal>
+            <PopoverPrimitive.Content
+              className="bg-popover rounded-xl shadow-lg border border-border min-w-[200px] z-50 select-none animate-in fade-in zoom-in-95 duration-100"
+              side="bottom"
+              align="start"
+              sideOffset={2}
+              collisionPadding={10}
+              onOpenAutoFocus={(e) => e.preventDefault()}
+              onCloseAutoFocus={(e) => e.preventDefault()}
+              onPointerDownOutside={() => setContextPos(null)}
+              onEscapeKeyDown={() => setContextPos(null)}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <PageLinkMenuContent
+                onClose={() => setContextPos(null)}
+                onColorChange={handleColorChange}
+                onRename={handleStartEditing}
+                onDelete={handleDelete}
+                isDeleting={isDeleting}
+                onAdd={handleAdd}
+                isCreating={isCreating}
+                color={data.color}
+                t={t}
+              />
+            </PopoverPrimitive.Content>
+          </PopoverPrimitive.Portal>
+        </PopoverPrimitive.Root>
+      )}
 
       {/* Drop zone AFTER this item - for reordering */}
       <DropZone
@@ -494,5 +575,199 @@ export function PageLink({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function ColorGrid({
+  color,
+  onColorChange,
+}: {
+  color: string | null | undefined;
+  onColorChange: (color: string | null) => void;
+}) {
+  return (
+    <div
+      className="grid grid-cols-8 gap-2 p-1"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        className={clsx(
+          "w-full aspect-square rounded-lg border-2 cursor-pointer transition-transform hover:scale-110 bg-primary",
+          !color ? "border-foreground" : "border-transparent",
+        )}
+        onClick={() => onColorChange(null)}
+        aria-label="Default color"
+      />
+      {PRESET_COLORS.map((hex) => (
+        <button
+          key={hex}
+          className={clsx(
+            "w-full aspect-square rounded-lg border-2 cursor-pointer transition-transform hover:scale-110",
+            color?.toUpperCase() === hex.toUpperCase()
+              ? "border-foreground"
+              : "border-transparent",
+          )}
+          style={{ backgroundColor: hex }}
+          onClick={() => onColorChange(hex)}
+          aria-label={`Select color ${hex}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PageLinkMenuContent({
+  onClose,
+  onColorChange,
+  onRename,
+  onDelete,
+  isDeleting,
+  onAdd,
+  isCreating,
+  color,
+  t,
+}: {
+  onClose: () => void;
+  onColorChange: (color: string | null) => void;
+  onRename: () => void;
+  onDelete: () => void;
+  isDeleting: boolean;
+  onAdd: () => void;
+  isCreating: boolean;
+  color: string | null | undefined;
+  t: (key: string) => string;
+}) {
+  return (
+    <>
+      <div className="flex flex-col p-2 gap-1">
+        <button
+          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-start"
+          onClick={() => {
+            onClose();
+            onRename();
+          }}
+        >
+          <Icons.Edit width={18} height={18} />
+          {t("Rename")}
+        </button>
+        <button
+          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-start"
+          onClick={() => {
+            onClose();
+            onAdd();
+          }}
+          disabled={isCreating}
+        >
+          {isCreating ? (
+            <CircleNotch className="spin" size={18} />
+          ) : (
+            <Icons.Plus width={18} height={18} />
+          )}
+          {t("Add subpage")}
+        </button>
+        <button
+          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-destructive text-start"
+          onClick={() => {
+            onClose();
+            onDelete();
+          }}
+          disabled={isDeleting}
+        >
+          {isDeleting ? (
+            <CircleNotch className="spin" size={18} />
+          ) : (
+            <Icons.Trash width={18} height={18} />
+          )}
+          {t("Delete")}
+        </button>
+      </div>
+      <div className="px-4 pb-4 pt-1">
+        <div className="text-xs text-muted-foreground mb-2">{t("Color")}</div>
+        <ColorGrid
+          color={color}
+          onColorChange={(c) => {
+            onColorChange(c);
+            onClose();
+          }}
+        />
+      </div>
+    </>
+  );
+}
+
+function PageLinkMenu({
+  open,
+  onOpenChange,
+  isCoarse,
+  color,
+  onColorChange,
+  onRename,
+  onDelete,
+  isDeleting,
+  onAdd,
+  isCreating,
+  t,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  isCoarse: boolean;
+  color: string | null | undefined;
+  onColorChange: (color: string | null) => void;
+  onRename: () => void;
+  onDelete: () => void;
+  isDeleting: boolean;
+  onAdd: () => void;
+  isCreating: boolean;
+  t: (key: string) => string;
+}) {
+  const triggerButton = (
+    <button
+      className={clsx(style.menuTrigger, open && style.menuTriggerOpen)}
+      aria-label={t("Page options")}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <Ellipsis size={18} />
+    </button>
+  );
+
+  const contentProps = {
+    onClose: () => onOpenChange(false),
+    onColorChange,
+    onRename,
+    onDelete,
+    isDeleting,
+    onAdd,
+    isCreating,
+    color,
+    t,
+  };
+
+  if (isCoarse) {
+    return (
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerTrigger asChild>{triggerButton}</DrawerTrigger>
+        <DrawerContent>
+          <DrawerHeader className="sr-only">
+            <DrawerTitle>{t("Page options")}</DrawerTitle>
+          </DrawerHeader>
+          <PageLinkMenuContent {...contentProps} />
+        </DrawerContent>
+      </Drawer>
+    );
+  }
+
+  return (
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>{triggerButton}</DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-64 p-0"
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <PageLinkMenuContent {...contentProps} />
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

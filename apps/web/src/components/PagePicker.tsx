@@ -156,7 +156,7 @@ export function PagePicker({
                 <span
                   className="shrink-0 inline-block w-3 h-3 rounded-full"
                   style={{
-                    backgroundColor: page.color || "var(--muted-foreground)",
+                    backgroundColor: page.color || "var(--primary)",
                     opacity: page.color ? 1 : 0.3,
                   }}
                 />

@@ -6,8 +6,8 @@ const config: CapacitorConfig = {
   webDir: "dist",
   server: {
     // For development, uncomment and set your dev server URL:
-    // url: "http://192.168.68.55:4000",
-    // cleartext: true,
+    url: "http://192.168.68.55:4000",
+    cleartext: true,
     hostname: "cypher.md",
     androidScheme: "https",
     allowNavigation: ["cypher.md"],

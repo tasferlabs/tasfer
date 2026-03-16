@@ -6,7 +6,7 @@ import {
 } from "../actions/commands";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
 import { getCurrentFontFamily, getFontMetrics } from "../fonts";
-import { getBlockHeight, imageCache } from "../renderer";
+import { getBlockHeight, getOutOfViewIndicatorAtPoint, imageCache } from "../renderer";
 import { getTextDirection } from "../rtl";
 import {
   endScrollbarDrag,
@@ -22,6 +22,7 @@ import {
   getCursorDocumentCoords,
   getLinkAtPosition,
   getTextPositionFromViewport,
+  scrollToMakeCursorVisible,
 } from "../selection";
 import {
   clearAutoCreatedParagraph,
@@ -296,6 +297,32 @@ export function handleMouseDown(
   );
   if (checkboxClickResult) {
     return checkboxClickResult;
+  }
+
+  // Check for click on out-of-view peer indicator
+  const indicatorTarget = getOutOfViewIndicatorAtPoint(canvasX, canvasY);
+  if (indicatorTarget) {
+    const newScrollY = scrollToMakeCursorVisible(
+      indicatorTarget,
+      state,
+      viewport,
+    );
+    if (newScrollY !== null && updateViewportCallback) {
+      updateViewportCallback({ scrollY: newScrollY });
+    }
+    return {
+      state: {
+        ...state,
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
+        },
+      },
+      ops,
+    };
   }
 
   // Check for Ctrl/Command+Click on link to open it
@@ -731,6 +758,18 @@ export function handleMouseMove(
       ui: {
         ...state.ui,
         isHoveringCheckbox: isOverCheckbox,
+      },
+    };
+  }
+
+  // Check for out-of-view peer indicator hover (for pointer cursor)
+  const isOverPeerIndicator = getOutOfViewIndicatorAtPoint(canvasX, canvasY) !== null;
+  if (isOverPeerIndicator !== state.ui.isHoveringPeerIndicator) {
+    state = {
+      ...state,
+      ui: {
+        ...state.ui,
+        isHoveringPeerIndicator: isOverPeerIndicator,
       },
     };
   }

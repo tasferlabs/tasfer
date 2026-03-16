@@ -1,7 +1,6 @@
 import { Command } from "cmdk";
 import {
   Calendar,
-  FileText,
   Moon,
   Plus,
   Settings,
@@ -101,9 +100,13 @@ export function CommandCenter() {
                 onSelect={() => runAction(() => navigate(`/page/${page.id}`))}
                 className={itemClass}
               >
-                <div className={iconBoxClass}>
-                  <FileText size={16} />
-                </div>
+                <span
+                  className="shrink-0 inline-block w-3 h-3 rounded-full"
+                  style={{
+                    backgroundColor: page.color || "var(--primary)",
+                    opacity: page.color ? 1 : 0.3,
+                  }}
+                />
                 <div className="flex-1 min-w-0">
                   <div className="truncate">
                     {page.title || t("Untitled")}

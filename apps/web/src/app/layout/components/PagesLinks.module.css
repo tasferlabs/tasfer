@@ -66,17 +66,32 @@
   padding: 4px;
 }
 
-.actions {
-  margin-inline-start: auto;
-  gap: 2px;
+.menuTrigger {
   display: none;
-  padding: 2px;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  background: none;
+  border: none;
+  color: var(--foreground);
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 0;
   position: relative;
   z-index: 1;
   flex-shrink: 0;
+  margin-inline-start: auto;
 }
 
-.link:hover .actions {
+.menuTrigger:hover {
+  background-color: var(--accent);
+  opacity: 1;
+}
+
+.link:hover .menuTrigger,
+.menuTriggerOpen {
   display: flex;
 }
 
@@ -170,25 +185,6 @@
     line-height: 38px;
     padding: 0;
   }
-
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    flex: 0 0 auto;
-    gap: 0;
-    padding: 0;
-  }
-
-  .action {
-    width: 32px;
-    height: 32px;
-    padding: 1px 6px;
-  }
-
-  .action svg {
-    width: 100% !important;
-    height: 100% !important;
-  }
 }
 
 .allEmpty {
@@ -278,9 +274,9 @@
     display: flex;
   }
 
-  /* Hide page action buttons (edit, delete, add) on coarse pointer */
-  .actions {
-    display: none !important;
+  /* Always show menu trigger on touch devices */
+  .menuTrigger {
+    display: flex;
   }
 }
 

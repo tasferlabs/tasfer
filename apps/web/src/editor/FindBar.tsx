@@ -1,5 +1,6 @@
 import { Search, ChevronUp, ChevronDown, X } from "lucide-react";
 import { useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 
 interface FindBarProps {
   searchText: string;
@@ -20,6 +21,7 @@ export function FindBar({
   currentMatch,
   totalMatches,
 }: FindBarProps) {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -30,10 +32,7 @@ export function FindBar({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === "Enter") {
+      if (e.key === "Enter") {
         e.preventDefault();
         if (e.shiftKey) {
           onPrevious();
@@ -42,7 +41,7 @@ export function FindBar({
         }
       }
     },
-    [onClose, onNext, onPrevious]
+    [onNext, onPrevious]
   );
 
   return (
@@ -57,21 +56,21 @@ export function FindBar({
         value={searchText}
         onChange={(e) => onSearchChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Find..."
+        placeholder={t`Find...`}
         className="w-48 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
       />
       {searchText && (
         <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
           {totalMatches > 0
             ? `${currentMatch + 1}/${totalMatches}`
-            : "No results"}
+            : t`No results`}
         </span>
       )}
       <button
         onClick={onPrevious}
         disabled={totalMatches === 0}
         className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-        title="Previous (Shift+Enter)"
+        title={t`Previous (Shift+Enter)`}
       >
         <ChevronUp size={16} />
       </button>
@@ -79,14 +78,14 @@ export function FindBar({
         onClick={onNext}
         disabled={totalMatches === 0}
         className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-        title="Next (Enter)"
+        title={t`Next (Enter)`}
       >
         <ChevronDown size={16} />
       </button>
       <button
         onClick={onClose}
         className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-        title="Close (Escape)"
+        title={t`Close (Escape)`}
       >
         <X size={16} />
       </button>

@@ -272,6 +272,7 @@ export const createInitialState = (
       activeMenu: { type: "none" },
       isHoveringLinkWithModifier: false,
       isHoveringCheckbox: false,
+      isHoveringPeerIndicator: false,
       composition: null,
       activeFormatsMode: { type: "inherit" },
       imageHover: null,

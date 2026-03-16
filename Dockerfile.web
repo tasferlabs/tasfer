@@ -34,6 +34,11 @@ server {
         add_header Content-Type text/plain;
     }
 
+    # Serve apple-app-site-association with correct content type
+    location /.well-known/apple-app-site-association {
+        default_type application/json;
+    }
+
     # SPA fallback - serve index.html for all non-file routes
     location / {
         try_files $uri $uri/ /index.html;

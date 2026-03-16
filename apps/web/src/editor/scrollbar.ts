@@ -1,4 +1,4 @@
-import { getBlockHeight } from "./renderer";
+import { getBlockHeight, getSearchHighlights } from "./renderer";
 import { getEditorStyles } from "./styles";
 import {
   awarenessCursorToPosition,
@@ -335,6 +335,22 @@ export function renderScrollbar(
       scale
     );
   }
+
+  // Render search match markers on scrollbar
+  const { highlights: searchHighlights, activeIndex: activeSearchIndex } =
+    getSearchHighlights();
+  if (searchHighlights.length > 0) {
+    renderScrollbarSearchMarkers(
+      ctx,
+      state,
+      viewport,
+      documentHeight,
+      searchHighlights,
+      activeSearchIndex,
+      styles,
+      scale
+    );
+  }
 }
 
 export function isPointInScrollbar(
@@ -599,6 +615,72 @@ export function renderScrollbarPeerMarkers(
     const y = trackY + marker.ratio * trackHeight - markerHeight / 2;
 
     ctx.fillStyle = marker.color;
+    ctx.beginPath();
+    ctx.roundRect(trackX, y, markerWidth, markerHeight, markerHeight / 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Render search match markers on the scrollbar track.
+ */
+function renderScrollbarSearchMarkers(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  viewport: ViewportState,
+  documentHeight: number,
+  highlights: { blockIndex: number; startIndex: number; endIndex: number }[],
+  activeIndex: number,
+  styles: ScrollbarStyles = getScrollbarStyles(),
+  scale: number = 1
+): void {
+  if (documentHeight <= viewport.height || highlights.length === 0) {
+    return;
+  }
+
+  const editorStyles = getEditorStyles();
+  const maxWidth =
+    viewport.width -
+    (editorStyles.canvas.paddingLeft + editorStyles.canvas.paddingRight);
+
+  // Build a map of blockIndex -> documentY for each unique block in highlights
+  const blockYMap = new Map<number, number>();
+  const visibleBlocks = state.view.visibleBlocks;
+
+  let currentY = editorStyles.canvas.paddingTop;
+  for (let i = 0; i < visibleBlocks.length; i++) {
+    const block = visibleBlocks[i];
+    blockYMap.set(block.originalIndex, currentY);
+    currentY += getBlockHeight(block, maxWidth, editorStyles, i === 0);
+  }
+
+  const trackWidth = styles.width * scale;
+  const safeAreaBottom = getSafeAreaBottom();
+  const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
+  const trackWidthDiff = trackWidth - styles.width;
+  const trackX =
+    viewport.width - styles.width - styles.padding - trackWidthDiff;
+  const trackY = styles.padding;
+
+  const markerHeight = 2;
+  const markerWidth = trackWidth;
+
+  ctx.save();
+
+  for (let i = 0; i < highlights.length; i++) {
+    const h = highlights[i];
+    const blockDocY = blockYMap.get(h.blockIndex);
+    if (blockDocY === undefined) continue;
+
+    const ratio = Math.max(0, Math.min(1, blockDocY / documentHeight));
+    const y = trackY + ratio * trackHeight - markerHeight / 2;
+
+    const isActive = i === activeIndex;
+    ctx.fillStyle = isActive
+      ? "rgba(255, 150, 50, 0.95)"
+      : "rgba(255, 200, 50, 0.8)";
     ctx.beginPath();
     ctx.roundRect(trackX, y, markerWidth, markerHeight, markerHeight / 2);
     ctx.fill();

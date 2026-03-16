@@ -2158,6 +2158,37 @@ interface OutOfViewPeer {
   awareness: AwarenessState;
   direction: "above" | "below";
   x: number;
+  blockIndex: number;
+  textIndex: number;
+}
+
+// Stored hit areas for out-of-view peer indicators (populated each render)
+interface IndicatorHitArea {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  blockIndex: number;
+  textIndex: number;
+}
+
+let outOfViewIndicatorHitAreas: IndicatorHitArea[] = [];
+
+export function getOutOfViewIndicatorAtPoint(
+  canvasX: number,
+  canvasY: number,
+): { blockIndex: number; textIndex: number } | null {
+  for (const area of outOfViewIndicatorHitAreas) {
+    if (
+      canvasX >= area.x &&
+      canvasX <= area.x + area.width &&
+      canvasY >= area.y &&
+      canvasY <= area.y + area.height
+    ) {
+      return { blockIndex: area.blockIndex, textIndex: area.textIndex };
+    }
+  }
+  return null;
 }
 
 function renderOutOfViewIndicators(
@@ -2175,6 +2206,9 @@ function renderOutOfViewIndicators(
   const chevronSize = 6;
   const gap = 8;
 
+  // Clear previous hit areas
+  outOfViewIndicatorHitAreas = [];
+
   ctx.font = `600 ${fontSize}px ${FONT_STACKS.poppins}`;
 
   // Render indicators for peers above viewport
@@ -2185,6 +2219,16 @@ function renderOutOfViewIndicators(
 
     const x = pillPadding + i * (pillWidth + gap);
     const y = topOffset + pillPadding + chevronSize;
+
+    // Store hit area (includes chevron)
+    outOfViewIndicatorHitAreas.push({
+      x,
+      y: y - chevronSize,
+      width: pillWidth,
+      height: pillHeight + chevronSize,
+      blockIndex: peer.blockIndex,
+      textIndex: peer.textIndex,
+    });
 
     // Draw chevron pointing up
     ctx.fillStyle = peer.awareness.user.color;
@@ -2214,6 +2258,16 @@ function renderOutOfViewIndicators(
 
     const x = pillPadding + i * (pillWidth + gap);
     const y = viewport.height - pillPadding - pillHeight - chevronSize;
+
+    // Store hit area (includes chevron)
+    outOfViewIndicatorHitAreas.push({
+      x,
+      y,
+      width: pillWidth,
+      height: pillHeight + chevronSize,
+      blockIndex: peer.blockIndex,
+      textIndex: peer.textIndex,
+    });
 
     // Draw pill background
     ctx.fillStyle = peer.awareness.user.color;
@@ -2273,11 +2327,23 @@ function renderRemoteCursors(
 
     // Check if cursor is out of viewport (account for top padding where tags may overlay)
     if (cursorPos.y + cursorPos.height < styles.canvas.paddingTop) {
-      outOfViewPeers.push({ awareness, direction: "above", x: cursorPos.x });
+      outOfViewPeers.push({
+        awareness,
+        direction: "above",
+        x: cursorPos.x,
+        blockIndex: position.blockIndex,
+        textIndex: position.textIndex,
+      });
       continue;
     }
     if (cursorPos.y > viewport.height) {
-      outOfViewPeers.push({ awareness, direction: "below", x: cursorPos.x });
+      outOfViewPeers.push({
+        awareness,
+        direction: "below",
+        x: cursorPos.x,
+        blockIndex: position.blockIndex,
+        textIndex: position.textIndex,
+      });
       continue;
     }
 
@@ -2341,6 +2407,8 @@ function renderRemoteCursors(
   // Render out-of-view indicators (offset above indicators below the tags area)
   if (outOfViewPeers.length > 0) {
     renderOutOfViewIndicators(ctx, outOfViewPeers, viewport, styles.canvas.paddingTop);
+  } else {
+    outOfViewIndicatorHitAreas = [];
   }
 }
 

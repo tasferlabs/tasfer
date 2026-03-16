@@ -220,6 +220,8 @@ export function MountedEditor({
 
   // Find bar state
   const [findBarOpen, setFindBarOpen] = useState(false);
+  const findBarOpenRef = useRef(false);
+  findBarOpenRef.current = findBarOpen;
   const [findSearchText, setFindSearchText] = useState("");
   const [findMatches, setFindMatches] = useState<
     { blockIndex: number; startIndex: number; endIndex: number }[]
@@ -727,6 +729,10 @@ export function MountedEditor({
 
           // Only trigger saves for local user-initiated changes, not remote peer updates
           // Remote peers handle saving their own changes
+          if (!isApplyingRemoteOpsRef.current) {
+            // Close find bar when user starts editing
+            if (findBarOpenRef.current) handleFindCloseRef.current?.();
+          }
           if (!isApplyingRemoteOpsRef.current && onContentChangeRef.current) {
             // Get the latest clock for the save request
             const latestClock = syncEngineRef.current?.getLatestClock() ?? null;
@@ -1121,19 +1127,24 @@ export function MountedEditor({
     placeholderOverrides,
   ]);
 
-  // Ctrl+F handler for find
+  // Global keyboard shortcuts for find — listen on document so they work even
+  // when the editor canvas doesn't have focus, but skip when a dialog or drawer is open.
+  const handleFindCloseRef = useRef<() => void>(null);
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept when a dialog or drawer is open
+      if (document.querySelector('[role="dialog"]')) return;
+
       if ((e.ctrlKey || e.metaKey) && e.key === "f") {
         e.preventDefault();
         setFindBarOpen(true);
+      } else if (e.key === "Escape" && findBarOpenRef.current) {
+        e.preventDefault();
+        handleFindCloseRef.current?.();
       }
     };
-    const el = wrapperRef.current;
-    if (el) {
-      el.addEventListener("keydown", handleKeyDown);
-      return () => el.removeEventListener("keydown", handleKeyDown);
-    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   // Search logic — compute matches when search text or page content changes
@@ -1240,8 +1251,10 @@ export function MountedEditor({
     setFindActiveIndex(0);
     mountedRef.current?.editor.clearSearchHighlights();
     // Refocus editor
+
     mountedRef.current?.editor.setFocus(true);
   }, []);
+  handleFindCloseRef.current = handleFindClose;
 
   // Note: WebSocket reconnection is handled by the global WebSocketProvider
 
@@ -1537,22 +1550,6 @@ export function MountedEditor({
       aria-label="Text editor"
       aria-multiline="true"
     >
-      {/* Find bar portal */}
-      {findBarOpen &&
-        mountedRef.current?.portalContainer &&
-        createPortal(
-          <FindBar
-            searchText={findSearchText}
-            onSearchChange={handleFindSearchChange}
-            onNext={handleFindNext}
-            onPrevious={handleFindPrevious}
-            onClose={handleFindClose}
-            currentMatch={findActiveIndex}
-            totalMatches={findMatches.length}
-          />,
-          mountedRef.current.portalContainer
-        )}
-
       {/* Slash command menu portal */}
       {slashMenuState &&
         mountedRef.current?.portalContainer &&
@@ -1992,6 +1989,19 @@ export function MountedEditor({
           />,
           mountedRef.current.portalContainer
         )}
+
+      {/* Find bar — rendered last so it sits above the canvas container in DOM order */}
+      {findBarOpen && (
+        <FindBar
+          searchText={findSearchText}
+          onSearchChange={handleFindSearchChange}
+          onNext={handleFindNext}
+          onPrevious={handleFindPrevious}
+          onClose={handleFindClose}
+          currentMatch={findActiveIndex}
+          totalMatches={findMatches.length}
+        />
+      )}
     </div>
   );
 }

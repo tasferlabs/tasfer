@@ -136,6 +136,7 @@ export interface UIState {
   readonly activeMenu: ActiveMenu; // Unified menu system - replaces slashCommand, contextMenu, linkHover, imageUpload
   readonly isHoveringLinkWithModifier: boolean;
   readonly isHoveringCheckbox: boolean;
+  readonly isHoveringPeerIndicator: boolean;
   readonly composition: CompositionState | null;
   readonly activeFormatsMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
   readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)

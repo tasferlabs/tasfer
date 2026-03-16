@@ -396,7 +396,8 @@ export default function createEditor(
     isDragging: boolean,
     isHoveringLinkWithModifier: boolean,
     dragHandleHover: "left" | "right" | "bottom" | null = null,
-    isHoveringCheckbox: boolean = false
+    isHoveringCheckbox: boolean = false,
+    isHoveringPeerIndicator: boolean = false
   ) => {
     // Only update cursor on desktop (not touch devices)
     if (isTouchDevice()) {
@@ -421,6 +422,9 @@ export default function createEditor(
       contentCanvas.style.cursor = "pointer";
     } else if (isHoveringCheckbox) {
       // When hovering over todo checkbox, use pointer cursor
+      contentCanvas.style.cursor = "pointer";
+    } else if (isHoveringPeerIndicator) {
+      // When hovering over out-of-view peer indicator, use pointer cursor
       contentCanvas.style.cursor = "pointer";
     } else {
       // When hovering over text, use text cursor
@@ -596,7 +600,8 @@ export default function createEditor(
             state.view.scrollbar.isDragging,
             state.ui.isHoveringLinkWithModifier,
             state.ui.imageHover?.hoveredHandle || null,
-            state.ui.isHoveringCheckbox
+            state.ui.isHoveringCheckbox,
+            state.ui.isHoveringPeerIndicator
           );
 
           dirtyLayers.content = false;
