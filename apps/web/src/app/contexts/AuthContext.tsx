@@ -1,11 +1,8 @@
 import React from "react";
 import {
   type AuthUser,
-  login as apiLogin,
-  register as apiRegister,
-  logout as apiLogout,
-  verifyEmail as apiVerifyEmail,
   getMe,
+  logout as apiLogout,
 } from "../api/auth.api";
 
 interface AuthState {
@@ -13,14 +10,12 @@ interface AuthState {
   isLoading: boolean;
 }
 
-interface NeedsVerification {
-  needsVerification: true;
-  email: string;
-}
-
 interface AuthContextValue extends AuthState {
-  login: (email: string, password: string) => Promise<NeedsVerification | void>;
-  register: (email: string, password: string) => Promise<NeedsVerification | void>;
+  /** @deprecated No login in decentralized mode — identity is local */
+  login: (email: string, password: string) => Promise<void>;
+  /** @deprecated No registration in decentralized mode — identity is local */
+  register: (email: string, password: string) => Promise<void>;
+  /** @deprecated No email verification in decentralized mode */
   verifyEmail: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   updateUser: (user: AuthUser) => void;
@@ -34,7 +29,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isLoading: true,
   });
 
-  // Try to restore session on mount
+  // Load local identity on mount (replaces "restore session from server")
   React.useEffect(() => {
     let cancelled = false;
 
@@ -51,35 +46,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, []);
 
-  const login = React.useCallback(
-    async (email: string, password: string): Promise<NeedsVerification | void> => {
-      const data = await apiLogin({ email, password });
-      if (data.needsVerification) {
-        return { needsVerification: true, email: data.email! };
-      }
-      setState({ user: data.user!, isLoading: false });
-    },
-    []
-  );
+  const login = React.useCallback(async () => {
+    throw new Error("login is not available in decentralized mode");
+  }, []);
 
-  const register = React.useCallback(
-    async (email: string, password: string): Promise<NeedsVerification | void> => {
-      const data = await apiRegister({ email, password });
-      if (data.needsVerification) {
-        return { needsVerification: true, email: data.email! };
-      }
-      setState({ user: data.user!, isLoading: false });
-    },
-    []
-  );
+  const register = React.useCallback(async () => {
+    throw new Error("register is not available in decentralized mode");
+  }, []);
 
-  const verifyEmail = React.useCallback(
-    async (email: string, code: string) => {
-      const { user } = await apiVerifyEmail({ email, code });
-      setState({ user, isLoading: false });
-    },
-    []
-  );
+  const verifyEmail = React.useCallback(async () => {
+    throw new Error("verifyEmail is not available in decentralized mode");
+  }, []);
 
   const updateUser = React.useCallback((user: AuthUser) => {
     setState((prev) => ({ ...prev, user }));

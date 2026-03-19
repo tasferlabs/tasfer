@@ -1,5 +1,16 @@
+/**
+ * Spaces API — transitional stub.
+ *
+ * Spaces (multi-user groups with a central server) are being removed
+ * in the decentralized model. This file keeps the type exports and
+ * hook signatures so existing consumers compile, but all operations
+ * return a single local workspace.
+ *
+ * TODO: Remove this file once SpaceContext and all consumers are
+ * migrated to the workspace concept or removed entirely.
+ */
+
 import { useMutation, type UseMutationOptions, useQuery } from "@tanstack/react-query";
-import { authFetchJson } from "./client";
 
 export interface ISpace {
   id: string;
@@ -27,8 +38,20 @@ interface SpacesResponse {
   member: (ISpace & { role: string })[];
 }
 
+// Return a single local workspace
+const LOCAL_WORKSPACE: ISpace = {
+  id: "local",
+  name: "My Workspace",
+  description: "",
+  type: "personal",
+  ownerId: "local",
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+  role: "owner",
+};
+
 export async function getSpaces(): Promise<SpacesResponse> {
-  return authFetchJson<SpacesResponse>("/spaces");
+  return { owned: [LOCAL_WORKSPACE], member: [] };
 }
 
 export function useGetSpaces() {
@@ -38,12 +61,8 @@ export function useGetSpaces() {
   });
 }
 
-export async function createSpace(data: { name: string; description: string }): Promise<ISpace> {
-  return authFetchJson<ISpace>("/spaces", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
+export async function createSpace(_data: { name: string; description: string }): Promise<ISpace> {
+  throw new Error("Spaces are not available in decentralized mode");
 }
 
 export function useCreateSpace<TContext = unknown>(
@@ -55,16 +74,12 @@ export function useCreateSpace<TContext = unknown>(
   });
 }
 
-export async function updateSpace(data: {
+export async function updateSpace(_data: {
   id: string;
   name: string;
   description?: string;
 }): Promise<ISpace> {
-  return authFetchJson<ISpace>(`/spaces/${data.id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: data.name, description: data.description }),
-  });
+  throw new Error("Spaces are not available in decentralized mode");
 }
 
 export function useUpdateSpace<TContext = unknown>(
@@ -81,8 +96,8 @@ export function useUpdateSpace<TContext = unknown>(
   });
 }
 
-export async function deleteSpace(id: string): Promise<void> {
-  await authFetchJson(`/spaces/${id}`, { method: "DELETE" });
+export async function deleteSpace(_id: string): Promise<void> {
+  throw new Error("Spaces are not available in decentralized mode");
 }
 
 export function useDeleteSpace<TContext = unknown>(
@@ -94,8 +109,8 @@ export function useDeleteSpace<TContext = unknown>(
   });
 }
 
-export async function leaveSpace(spaceId: string): Promise<void> {
-  await authFetchJson(`/spaces/${spaceId}/leave`, { method: "POST" });
+export async function leaveSpace(_spaceId: string): Promise<void> {
+  throw new Error("Spaces are not available in decentralized mode");
 }
 
 export function useLeaveSpace<TContext = unknown>(
@@ -107,8 +122,8 @@ export function useLeaveSpace<TContext = unknown>(
   });
 }
 
-export async function getSpaceMembers(spaceId: string): Promise<ISpaceMember[]> {
-  return authFetchJson<ISpaceMember[]>(`/spaces/${spaceId}/members`);
+export async function getSpaceMembers(_spaceId: string): Promise<ISpaceMember[]> {
+  return [];
 }
 
 export function useGetSpaceMembers(spaceId?: string) {
@@ -119,15 +134,11 @@ export function useGetSpaceMembers(spaceId?: string) {
   });
 }
 
-export async function addSpaceMember(data: {
+export async function addSpaceMember(_data: {
   spaceId: string;
   email: string;
 }): Promise<ISpaceMember> {
-  return authFetchJson<ISpaceMember>(`/spaces/${data.spaceId}/members`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: data.email }),
-  });
+  throw new Error("Spaces are not available in decentralized mode");
 }
 
 export function useAddSpaceMember<TContext = unknown>(
@@ -144,13 +155,11 @@ export function useAddSpaceMember<TContext = unknown>(
   });
 }
 
-export async function removeSpaceMember(data: {
+export async function removeSpaceMember(_data: {
   spaceId: string;
   memberId: string;
 }): Promise<void> {
-  await authFetchJson(`/spaces/${data.spaceId}/members/${data.memberId}`, {
-    method: "DELETE",
-  });
+  throw new Error("Spaces are not available in decentralized mode");
 }
 
 export function useRemoveSpaceMember<TContext = unknown>(

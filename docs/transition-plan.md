@@ -4,129 +4,87 @@ Strip the server. Keep the editor. Own the data.
 
 ## What Changes
 
-| Now                                    | After                                        |
-| -------------------------------------- | -------------------------------------------- | --- |
-| PostgreSQL + Express API               | SQLite on device                             |
-| Session-based auth (email/password)    | No auth — your device is your identity       |
-| Server stores pages, snapshots, images | Everything lives as markdown files on disk   |
-| WebSocket server for sync              | P2P sync via thin relay, connect any backend | Ø   |
-| Internet depedent app                  | indepndence                                  |
+| Now                                 | After                                      |
+| ----------------------------------- | ------------------------------------------ |
+| PostgreSQL + Express API            | SQLite on device                           |
+| Session-based auth (email/password) | Cryptographic identity (keypair per device) |
+| Server stores pages, snapshots      | Markdown files on disk + SQLite for CRDT   |
+| WebSocket server for sync           | P2P sync, relay as fallback                |
+| Internet dependent                  | Fully offline, sync when you choose        |
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  your device                    │
-│                                                 │
-│   ┌─────────┐  ┌─────────┐  ┌──────────────┐   │
-│   │ mobile  │  │ desktop │  │ CLI (optional)│   │
-│   │  app    │  │ PWA/app │  │              │   │
-│   └────┬────┘  └────┬────┘  └──────┬───────┘   │
-│        └─────────┬──┘              │           │
-│                  ▼                 ▼           │
-│        ┌─────────────────────────────┐         │
-│        │      cypher engine          │         │
-│        │  ├── canvas renderer        │         │
-│        │  ├── CRDT sync              │         │
-│        │  ├── SQLite (ops + index)   │         │
-│        │  └── P2P connection manager │         │
-│        └──────────────┬──────────────┘         │
-│                       │                        │
-│   ~/cypher/           │                        │
-│   ├── pages/*.md      │                        │
-│   ├── images/         │                        │
-│   └── cypher.db       │                        │
-└───────────────────────┬────────────────────────┘
-                        │ optional
-                        ▼
-          ┌───────────────────────┐
-          │   backup backend(s)   │
-          │   - home server       │
-          │   - friend's server   │
-          │   - S3-compatible     │
-          │   - daisy-chain many  │
-          └───────────────────────┘
+┌──────────────────────────────────────────────┐
+│                 your device                  │
+│                                              │
+│   ┌──────────┐  ┌───────────┐                │
+│   │  mobile  │  │  desktop  │                │
+│   │   app    │  │ Electron  │                │
+│   └────┬─────┘  └─────┬─────┘                │
+│        └──────┬───────┘                      │
+│               ▼                              │
+│     ┌──────────────────────────┐             │
+│     │     cypher engine        │             │
+│     │  ├── canvas renderer     │             │
+│     │  ├── CRDT sync           │             │
+│     │  ├── SQLite (ops + meta) │             │
+│     │  └── P2P connection mgr  │             │
+│     └────────────┬─────────────┘             │
+│                  │                           │
+│   ~/cypher-workspace/                        │
+│   ├── pages/*.md                             │
+│   ├── assets/{hash}.png                      │
+│   └── .cypher/                               │
+│       ├── db.sqlite                          │
+│       ├── identity.key                       │
+│       └── peers.json                         │
+└──────────────────┬───────────────────────────┘
+                   │ optional
+                   ▼
+     ┌───────────────────────┐
+     │   backup backend(s)   │
+     │   - home server       │
+     │   - friend's server   │
+     │   - S3-compatible     │
+     └───────────────────────┘
 ```
 
-## Two Doors, Same Room
+## Clients
 
-Cypher has two interfaces. Both use the same engine, same data, same sync.
+### Desktop — Electron app
+Download and run. No account, no terminal, no setup. The app is both the editor and the local server. Linux users can also install via package manager or run the binary directly.
 
-### For everyone: the app
+### Mobile — iOS / Android
+Connects to your desktop instance on the same network, or syncs P2P. Can also work standalone with local storage.
 
-Download it. Open it. Start writing. No account, no setup, no terminal.
+### Web — browser
+Opens from the Electron app's local server. Data stays on device.
 
-- **Mobile** — iOS / Android (App Store / Play Store)
-- **Desktop** — PWA installs from browser, or native download
-- **Web** — open in any browser, data stays in browser storage
+Sync between devices? Scan a QR code or paste a connection string.
 
-Sync between devices? Tap "connect" and scan a QR code. Add a backup? Paste a link in settings. That is it.
+## Identity — Cryptographic Keys
 
-The app hides every technical detail. You see pages, you write, it works.
+- Each instance generates a **keypair** on first run
+- Your **public key is your identity** — no central authority
+- Trust peers by exchanging public keys (QR code, paste, etc.)
+- The CRDT `peerId` = public key hash — ties every operation to a verifiable identity
+- Sync traffic is **encrypted** between known peers
+- Human-friendly display names on top, but the key is what matters
+- Short fingerprint for verification ("is this really you?")
 
-### For power users: the CLI
+Stored in `.cypher/identity.key` (private) and `.cypher/peers.json` (trusted peers).
 
-Same engine exposed to the terminal.
+## Storage
 
-```bash
-cypher init ~/notes        # init a workspace
-cypher open                # opens editor in browser
-cypher sync                # sync to remotes
-cypher remote add home ssh://pi@192.168.1.50:~/backup
-cypher peer connect <id>   # direct P2P
-cypher status
-```
-
-Edit files in vim, pipe them, script them, automate backups with cron. The CLI is optional — nobody needs it to use Cypher.
-
-## Storage: SQLite
-
-One file: `cypher.db`
-
-```sql
--- CRDT operation log
-CREATE TABLE ops (
-  id        INTEGER PRIMARY KEY,
-  page_id   TEXT NOT NULL,
-  peer_id   TEXT NOT NULL,
-  counter   INTEGER NOT NULL,
-  type      TEXT NOT NULL,     -- text_insert, text_delete, format_set, block_*
-  data      BLOB NOT NULL,
-  timestamp INTEGER NOT NULL
-);
-
--- File index (maps markdown files to CRDT state)
-CREATE TABLE pages (
-  id         TEXT PRIMARY KEY,
-  path       TEXT NOT NULL,
-  title      TEXT,
-  updated_at INTEGER NOT NULL
-);
-
--- Peer identity
-CREATE TABLE config (
-  key   TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
-
--- Remote backends
-CREATE TABLE remotes (
-  name TEXT PRIMARY KEY,
-  url  TEXT NOT NULL,
-  type TEXT NOT NULL  -- ssh, https, s3
-);
-```
-
-## Files Are Markdown
-
-Every page is a `.md` file. Open it in vim, VS Code, whatever. Cypher watches for changes and syncs the CRDT state.
+### Files are markdown
+Every page is a `.md` file with YAML frontmatter. Open in any editor.
 
 ```markdown
 ---
 id: abc123
 created: 2026-03-17T10:00:00Z
 tags: [project, ideas]
-color: "#22C55E"
 ---
 
 # My Document
@@ -137,64 +95,89 @@ Regular markdown. **Bold**, _italic_, `code`.
 - [x] Task two
 ```
 
-The `.crdt/` directory holds the operation log per file — invisible to the user, used for sync.
+### Assets — content-addressed
+- Images/files stored as `assets/{content-hash}.{ext}`
+- Markdown references them: `![alt](assets/a1b2c3.png)`
+- **CRDT ops sync eagerly** (tiny) — **assets sync lazily** (pulled when document is opened)
+- Deduplication for free via content hashing
+- Your own assets always kept; remote assets cached with LRU eviction
 
-## Daisy-Chain Backends
+### SQLite — `.cypher/db.sqlite`
 
-Remotes are dumb storage. They hold encrypted snapshots. Any backend that can store and retrieve blobs works.
+```sql
+-- CRDT operation log
+CREATE TABLE ops (
+  id        INTEGER PRIMARY KEY,
+  page_id   TEXT NOT NULL,
+  peer_id   TEXT NOT NULL,
+  counter   INTEGER NOT NULL,
+  type      TEXT NOT NULL,
+  data      BLOB NOT NULL,
+  timestamp INTEGER NOT NULL
+);
 
-```bash
-# Add multiple backends — they all get the same data
-cypher remote add home ssh://pi@home:~/backup
-cypher remote add vps  https://vps.example.com/cypher
-cypher remote add s3   s3://my-bucket/cypher
+-- Page index
+CREATE TABLE pages (
+  id         TEXT PRIMARY KEY,
+  path       TEXT NOT NULL,
+  title      TEXT,
+  updated_at INTEGER NOT NULL
+);
 
-# Sync pushes to all, pulls from first available
-cypher sync
+-- Snapshots for fast loading
+CREATE TABLE snapshots (
+  id        INTEGER PRIMARY KEY,
+  page_id   TEXT NOT NULL,
+  data      BLOB NOT NULL,
+  clock     TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+-- Known peers
+CREATE TABLE peers (
+  public_key TEXT PRIMARY KEY,
+  name       TEXT,
+  trusted    INTEGER NOT NULL DEFAULT 0,
+  last_seen  INTEGER
+);
+
+-- Backup remotes
+CREATE TABLE remotes (
+  name TEXT PRIMARY KEY,
+  url  TEXT NOT NULL,
+  type TEXT NOT NULL  -- ssh, https, s3
+);
 ```
 
-A backend is just an endpoint that implements:
+## Sync — Git-like, CRDT-powered
 
+- **Clone** a project or specific files from a peer — you get full history
+- **Live editing** works over P2P when both peers are online (CRDT handles merging)
+- **Offline** — edit freely, sync merges automatically when you reconnect
+- **No conflicts** — CRDT guarantees convergence, unlike Git
+
+### Transport
+1. **P2P direct** (primary) — devices discover each other on LAN or connect via known address
+2. **Relay** (fallback) — when P2P fails (NAT, firewalls), a lightweight relay forwards encrypted traffic. The relay sees nothing.
+
+### Backend protocol (for backups)
+Remotes are dumb encrypted blob storage:
 - `PUT /blob/{id}` — store
 - `GET /blob/{id}` — retrieve
 - `LIST /blobs?since={timestamp}` — list changes
 
-That's it. No auth logic, no user management, no permissions. The data is encrypted client-side. The backend is a dumb pipe.
-
-## Fork & Contribute
-
-```bash
-git clone https://github.com/user/cypher
-cd cypher
-
-# The entire editor is one package
-# No monorepo, no workspace config, no 47 dependencies
-npm install
-npm run dev
-
-# Build the binary
-npm run build
-```
-
-### What makes it easy to fork:
-
-- **No accounts** — remove the #1 barrier to self-hosting
-- **Markdown files** — readable without cypher, no vendor lock-in
-- **SQLite** — single file database, copy it anywhere
-- **Thin protocol** — backend is 4 endpoints, implement in any language
-- **No build system maze** — one package.json, one build command
+No auth logic on the backend. Data is encrypted client-side.
 
 ## What Gets Removed
 
-- `apps/api/` — gone. No server.
-- `apps/live/` — replaced by P2P sync in the binary.
-- PostgreSQL, Redis — replaced by SQLite.
-- Session auth, email verification — replaced by nothing. Your device is your key.
-- `Dockerfile.*`, `nomad.hcl`, `deploy.sh` — no deployment. It runs on your machine.
+- `apps/api/` — gone
+- `apps/live/` — replaced by P2P in the app
+- PostgreSQL, Redis — replaced by SQLite
+- Session auth, email verification — replaced by cryptographic identity
+- `Dockerfile.*`, `nomad.hcl`, `deploy.sh` — no deployment, it runs on your machine
 
 ## What Stays
 
-- Canvas rendering engine — the core.
-- CRDT engine — the sync brain. Already built for this.
-- Offline-first architecture — becomes the only architecture.
-- The web UI — served locally by the CLI binary.
+- Canvas rendering engine — the core
+- CRDT engine — already built for this
+- Offline-first architecture — becomes the only architecture

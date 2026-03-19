@@ -8,7 +8,7 @@ import {
 } from "react";
 import { useVersionCheck, type VersionInfo } from "../hooks/useVersionCheck";
 import { serviceWorkerBridge } from "@/serviceWorkerBridge";
-import type { Platform } from "@/platform";
+import type { ClientPlatform } from "@/platform";
 
 interface VersionContextValue {
   /** Whether version check is loading */
@@ -24,7 +24,7 @@ interface VersionContextValue {
   /** Whether the service worker detected a new version */
   serviceWorkerUpdateReady: boolean;
   /** Current platform (ios, android, web) */
-  platform: Platform;
+  platform: ClientPlatform;
   /** Platform-specific update URL */
   updateUrl: string | null;
   /** Dismiss the update popup for this session */

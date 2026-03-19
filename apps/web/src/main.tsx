@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 import { Direction } from "radix-ui";
 import { registerSW } from "virtual:pwa-register";
+import { initPlatform } from "./platform";
 import { AuthProvider } from "./app/contexts/AuthContext";
 import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
@@ -49,6 +50,13 @@ if ((window as any).Capacitor?.isNativePlatform?.()) {
 // Start font loading in background — don't block initial render.
 // Font metrics are computed lazily on first use per size/weight combo.
 loadFonts();
+
+// Initialize platform adapter (web/electron/capacitor) before rendering.
+// This is synchronous-enough for first render — the adapter is lazy-loaded
+// but getPlatform() will be available by the time components make API calls.
+initPlatform().catch((err) => {
+  console.error("[Platform] Failed to initialize:", err);
+});
 
 const queryClient = new QueryClient({
   defaultOptions: {

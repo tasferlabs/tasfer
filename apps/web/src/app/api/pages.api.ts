@@ -5,78 +5,38 @@ import {
   type UseQueryOptions,
 } from "@tanstack/react-query";
 import type { Block } from "@/deserializer/loadPage";
-import { authFetch, API_BASE } from "./client";
+import { getPlatform } from "@/platform";
+import type {
+  PageListItem,
+  PageFull,
+  PageSearchResult,
+  PageCalendarItem,
+  PageSnapshot,
+} from "@/platform";
+import type { HLC } from "@/editor/sync/types";
 
-export interface IListPage {
-  id: string;
-  title: string;
-  autoTitle: boolean;
-  parentId: string | null;
-  order: number;
-  hasChildren: boolean;
-  task?: boolean;
-  color?: string | null;
-  scheduledAt?: string | null;
-  duration?: number | null;
-  allDay?: boolean | null;
-  recurrenceId?: string | null;
-}
+// =============================================================================
+// Type aliases — keep old names so consumers don't need updating
+// =============================================================================
 
-// HLC (Hybrid Logical Clock) for operation ordering
-export interface HLC {
-  counter: number;
-  peerId: string;
-}
+export type IListPage = PageListItem;
+export type IPage = PageFull;
+export type { HLC };
+export type ISearchPage = PageSearchResult;
+export type ICalendarPage = PageCalendarItem;
+export type ISnapshot = PageSnapshot;
 
-export interface IPage {
-  id: string;
-  title: string;
-  autoTitle: boolean;
-  // Block snapshot
-  snapshot: Block[] | null;
-  // Clock of the snapshot - used for delta sync
-  snapshotClock: HLC | null;
-  parentId: string | null;
-  order: number;
-  color?: string | null;
-  // Calendar fields
-  scheduledAt: string | null;
-  duration: number | null;
-  allDay: boolean | null;
-  recurrenceId: string | null;
-  task: boolean;
-  hasChildren: boolean;
-  createdAt: string;
-  updatedAt: string;
-  parents?: { id: string; title: string; color?: string | null }[];
-  permission?: "view" | "edit" | "owner";
-}
+// =============================================================================
+// Pages API — delegates to platform
+// =============================================================================
 
-// Fetch pages list
 export async function getPages(
-  spaceId: string,
+  _spaceId: string,
   parentId: string | null,
   options?: { includeTasks?: boolean },
 ): Promise<IListPage[]> {
-  const params = new URLSearchParams();
-  params.append("spaceId", spaceId);
-  if (parentId) {
-    params.append("parentId", parentId);
-  }
-  if (options?.includeTasks) {
-    params.append("includeTasks", "true");
-  }
-
-  const response = await authFetch(
-    `${API_BASE}/pages/list?${params.toString()}`,
-  );
-  const data = await response.json();
-
-  if (!data.success) {
-    throw new Error(data.error || "Failed to fetch pages");
-  }
-
-  return data.data;
+  const platform = getPlatform();
+  return platform.pages.list(parentId, options);
 }
 
 export function useGetPages(spaceId: string | null, parentId: string | null) {
@@ -87,16 +47,9 @@ export function useGetPages(spaceId: string | null, parentId: string | null) {
   });
 }
 
-// Fetch single page
 export async function getPage(id: string): Promise<IPage> {
-  const response = await authFetch(`${API_BASE}/pages/${id}`);
-  const data = await response.json();
-
-  if (!data.success) {
-    throw new Error(data.error || "Failed to fetch page");
-  }
-
-  return data.data;
+  const platform = getPlatform();
+  return platform.pages.get(id);
 }
 
 export function useGetPage(
@@ -123,21 +76,9 @@ interface ICreatePage {
 }
 
 export async function createPage(data: ICreatePage): Promise<IPage> {
-  const response = await authFetch(`${API_BASE}/pages/create`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
-
-  const result = await response.json();
-
-  if (!result.success) {
-    throw new Error(result.error || "Failed to create page");
-  }
-
-  return result.data;
+  const platform = getPlatform();
+  const { spaceId: _, ...input } = data;
+  return platform.pages.create(input);
 }
 
 export function useCreatePage<TContext = unknown>(
@@ -155,11 +96,8 @@ interface IUpdatePage {
   title?: string;
   autoTitle?: boolean;
   color?: string | null;
-  // Block snapshot (includes tombstones for offline sync)
   snapshot?: Block[];
-  // Clock of the snapshot - used for delta sync
   snapshotClock?: HLC | null;
-  // Calendar fields
   scheduledAt?: string | null;
   duration?: number | null;
   allDay?: boolean | null;
@@ -167,36 +105,8 @@ interface IUpdatePage {
 }
 
 export async function updatePage(data: IUpdatePage): Promise<IPage> {
-  // Use AbortController for timeout - ensures save indicator doesn't spin forever
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-  try {
-    const response = await authFetch(`${API_BASE}/pages/${data.id}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-    const result = await response.json();
-
-    if (!result.success) {
-      throw new Error(result.error || "Failed to update page");
-    }
-
-    return result.data;
-  } catch (error) {
-    clearTimeout(timeoutId);
-    // Re-throw with more context for network errors
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("Save timed out - changes will sync when online");
-    }
-    throw error;
-  }
+  const platform = getPlatform();
+  return platform.pages.update(data);
 }
 
 export function useUpdatePage<TContext = unknown>(
@@ -214,15 +124,8 @@ interface IDeletePage {
 }
 
 export async function deletePage(data: IDeletePage): Promise<void> {
-  const response = await authFetch(`${API_BASE}/pages/${data.id}`, {
-    method: "DELETE",
-  });
-
-  const result = await response.json();
-
-  if (!result.success) {
-    throw new Error(result.error || "Failed to delete page");
-  }
+  const platform = getPlatform();
+  return platform.pages.delete(data.id);
 }
 
 export function useDeletePage<TContext = unknown>(
@@ -243,23 +146,12 @@ interface IMovePage {
 }
 
 export async function movePage(data: IMovePage): Promise<void> {
-  const response = await authFetch(`${API_BASE}/pages/${data.id}/move`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      parentId: data.parentId,
-      order: data.order,
-      spaceId: data.spaceId,
-    }),
+  const platform = getPlatform();
+  return platform.pages.move({
+    id: data.id,
+    parentId: data.parentId,
+    order: data.order,
   });
-
-  const result = await response.json();
-
-  if (!result.success) {
-    throw new Error(result.error || "Failed to move page");
-  }
 }
 
 export function useMovePage<TContext = unknown>(
@@ -278,19 +170,8 @@ interface IReorderPage {
 }
 
 export async function reorderPage(data: IReorderPage): Promise<void> {
-  const response = await authFetch(`${API_BASE}/pages/${data.id}/reorder`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ order: data.order }),
-  });
-
-  const result = await response.json();
-
-  if (!result.success) {
-    throw new Error(result.error || "Failed to reorder page");
-  }
+  const platform = getPlatform();
+  return platform.pages.reorder(data.id, data.order);
 }
 
 export function useReorderPage<TContext = unknown>(
@@ -302,30 +183,13 @@ export function useReorderPage<TContext = unknown>(
   });
 }
 
-// Search pages by title
-export interface ISearchPage {
-  id: string;
-  title: string | null;
-  parentId: string | null;
-  path: { id: string; title: string }[] | null;
-  color?: string | null;
-}
-
+// Search pages
 export async function searchPages(
-  spaceId: string,
+  _spaceId: string,
   query: string,
 ): Promise<ISearchPage[]> {
-  const params = new URLSearchParams({ spaceId, q: query, limit: "20" });
-  const response = await authFetch(
-    `${API_BASE}/pages/search?${params.toString()}`,
-  );
-  const data = await response.json();
-
-  if (!data.success) {
-    throw new Error(data.error || "Failed to search pages");
-  }
-
-  return data.data;
+  const platform = getPlatform();
+  return platform.pages.search(query);
 }
 
 export function useSearchPages(spaceId: string | null, query: string) {
@@ -338,43 +202,13 @@ export function useSearchPages(spaceId: string | null, query: string) {
 }
 
 // Calendar range query
-export interface ICalendarPage {
-  id: string;
-  title: string;
-  autoTitle: boolean;
-  parentId: string | null;
-  order: number;
-  color: string | null;
-  scheduledAt: string;
-  duration: number | null;
-  allDay: boolean | null;
-  recurrenceId: string | null;
-  task: boolean;
-  path: { id: string; title: string }[] | null;
-  createdAt: string;
-}
-
 export async function getCalendarPages(
-  spaceId: string,
+  _spaceId: string,
   start: number,
   end: number,
 ): Promise<ICalendarPage[]> {
-  const params = new URLSearchParams({
-    spaceId,
-    start: String(start),
-    end: String(end),
-  });
-
-  const response = await authFetch(
-    `${API_BASE}/pages/calendar/range?${params.toString()}`,
-  );
-  const data = await response.json();
-
-  if (!data.success) {
-    throw new Error(data.error || "Failed to fetch calendar pages");
-  }
-
-  return data.data;
+  const platform = getPlatform();
+  return platform.pages.calendar(start, end);
 }
 
 export function useGetCalendarPages(
@@ -391,8 +225,6 @@ export function useGetCalendarPages(
 
 // Helper to get the query key for a page
 export function getKeyForPageQuery(_id: string) {
-  // This function helps to find which query contains this page
-  // For now, we'll return a simple structure
   return {
     queryKey: ["pages", { parentId: null }],
   };
@@ -404,34 +236,16 @@ export function updateTitleFromCache(
   _title: string,
   _editingPageId: string | null,
 ) {
-  // This is a placeholder - in the real implementation, we'd update the cache
-  // For now, we'll let the mutation handle it
+  // Placeholder — cache updates handled by mutation callbacks
 }
 
 // =============================================================================
 // Snapshot API
 // =============================================================================
 
-export interface ISnapshot {
-  id: string;
-  pageId: string;
-  blocks: Block[];
-  size: number;
-  clock: HLC | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// Get all snapshots for a page (version history)
 export async function getPageSnapshots(pageId: string): Promise<ISnapshot[]> {
-  const response = await authFetch(`${API_BASE}/pages/${pageId}/snapshots`);
-  const data = await response.json();
-
-  if (!data.success) {
-    throw new Error(data.error || "Failed to fetch snapshots");
-  }
-
-  return data.data;
+  const platform = getPlatform();
+  return platform.pages.snapshots(pageId);
 }
 
 export function useGetPageSnapshots(pageId?: string) {

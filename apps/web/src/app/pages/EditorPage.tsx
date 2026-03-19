@@ -25,8 +25,15 @@ import {
   extractTitleFromBlocks,
   getVisibleTextFromRuns,
 } from "@/editor/sync/char-runs";
-import { formatDatePreferred, formatTimePreferred } from "@/lib/dateTimePreferences";
-import { DURATION_OPTIONS, formatDurationLabel, type TFunction } from "@/lib/utils";
+import {
+  formatDatePreferred,
+  formatTimePreferred,
+} from "@/lib/dateTimePreferences";
+import {
+  DURATION_OPTIONS,
+  formatDurationLabel,
+  type TFunction,
+} from "@/lib/utils";
 import type { SyncState } from "@/websocket/hooks/useRoom";
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import * as Popover from "@radix-ui/react-popover";
@@ -48,14 +55,14 @@ import { PagePicker } from "@/components/PagePicker";
 import { usePageEvents } from "@/websocket/hooks/usePageEvents";
 import clsx from "clsx";
 import {
-  getPage,
   useCreatePage,
   useGetPage,
   useGetPages,
   useMovePage,
   useUpdatePage,
-  type HLC,
-} from "../api/pages.api";
+} from "@/platform/queries";
+import { getPlatform } from "@/platform";
+import type { HLC } from "@/editor/sync/types";
 import EmptyStateIllustration from "../components/illustrations/empty-state";
 import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
@@ -68,6 +75,7 @@ import useLocalStorage from "../hooks/useLocalStorage";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useResponsive from "../hooks/useResponsive";
 import style from "./EditorPage.module.css";
+import { getPage } from "../api/pages.api";
 
 // Helper function to count words from blocks
 function countWordsFromBlocks(blocks: Block[]): number {
@@ -279,7 +287,7 @@ export default function EditorPage() {
           setAutoTitle(page.autoTitle);
           setCurrentTitle(page.title || "");
           // Track permission
-          const perm = page.permission || "owner";
+          const perm = "owner";
           setLocalPermission(perm);
           setPermission(perm);
           setIsLoading(false);
@@ -569,7 +577,11 @@ function formatScheduleLabel(
       duration: formatDurationLabel(duration, t),
     });
   }
-  return t("format.dateTime", { defaultValue: "{{date}}, {{time}}", date, time });
+  return t("format.dateTime", {
+    defaultValue: "{{date}}, {{time}}",
+    date,
+    time,
+  });
 }
 
 interface ScheduleFormValues {
@@ -618,7 +630,9 @@ function ScheduleContent({
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <label className="text-sm font-medium">{t("settings.dateTime.title", "Date & Time")}</label>
+        <label className="text-sm font-medium">
+          {t("settings.dateTime.title", "Date & Time")}
+        </label>
         <Controller
           control={control}
           name="scheduledAt"
@@ -639,7 +653,9 @@ function ScheduleContent({
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">{t("calendar.duration", "Duration")}</label>
+        <label className="text-sm font-medium">
+          {t("calendar.duration", "Duration")}
+        </label>
         <Controller
           control={control}
           name="duration"
@@ -766,7 +782,9 @@ function ScheduleTag({
             }
           }}
         >
-          <h3 className="text-sm font-semibold mb-3">{t("calendar.schedule", "Schedule")}</h3>
+          <h3 className="text-sm font-semibold mb-3">
+            {t("calendar.schedule", "Schedule")}
+          </h3>
           {content}
         </Popover.Content>
       </Popover.Portal>
@@ -822,10 +840,7 @@ function PageActionBar({ pageId }: { pageId: string }) {
   return (
     <>
       {permission !== "view" && page ? (
-        <MovePageButton
-          pageId={pageId}
-          currentParentId={page.parentId}
-        >
+        <MovePageButton pageId={pageId} currentParentId={page.parentId}>
           <button className={style.breadcrumbs} style={{ cursor: "pointer" }}>
             {page.parents &&
               page.parents.length > 1 &&
@@ -833,7 +848,12 @@ function PageActionBar({ pageId }: { pageId: string }) {
                 const parent = page.parents[page.parents.length - 2];
                 return (
                   <>
-                    <span className={clsx(style.breadcrumbLink, "inline-flex! items-center gap-1.5")}>
+                    <span
+                      className={clsx(
+                        style.breadcrumbLink,
+                        "inline-flex! items-center gap-1.5",
+                      )}
+                    >
                       <span
                         className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
                         style={{
@@ -841,7 +861,9 @@ function PageActionBar({ pageId }: { pageId: string }) {
                           opacity: parent.color ? 1 : 0.3,
                         }}
                       />
-                      <span className="truncate">{parent.title || t("common.untitled", "Untitled")}</span>
+                      <span className="truncate">
+                        {parent.title || t("common.untitled", "Untitled")}
+                      </span>
                     </span>
                     <span className={style.breadcrumbSeparator}>
                       <CaretRightIcon size={12} />
@@ -849,7 +871,12 @@ function PageActionBar({ pageId }: { pageId: string }) {
                   </>
                 );
               })()}
-            <span className={clsx(style.breadcrumbLink, "inline-flex! items-center gap-1.5")}>
+            <span
+              className={clsx(
+                style.breadcrumbLink,
+                "inline-flex! items-center gap-1.5",
+              )}
+            >
               <span
                 className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
                 style={{
@@ -857,7 +884,9 @@ function PageActionBar({ pageId }: { pageId: string }) {
                   opacity: effectiveColor ? 1 : 0.3,
                 }}
               />
-              <span className="truncate">{page.title || t("common.untitled", "Untitled")}</span>
+              <span className="truncate">
+                {page.title || t("common.untitled", "Untitled")}
+              </span>
             </span>
             <CaretDownIcon size={10} className="shrink-0 opacity-40" />
           </button>
@@ -870,7 +899,12 @@ function PageActionBar({ pageId }: { pageId: string }) {
               const parent = page.parents[page.parents.length - 2];
               return (
                 <>
-                  <span className={clsx(style.breadcrumbLink, "inline-flex! items-center gap-2")}>
+                  <span
+                    className={clsx(
+                      style.breadcrumbLink,
+                      "inline-flex! items-center gap-2",
+                    )}
+                  >
                     <span
                       className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
                       style={{
@@ -886,7 +920,12 @@ function PageActionBar({ pageId }: { pageId: string }) {
                 </>
               );
             })()}
-          <span className={clsx(style.breadcrumbLink, "inline-flex! items-center gap-2")}>
+          <span
+            className={clsx(
+              style.breadcrumbLink,
+              "inline-flex! items-center gap-2",
+            )}
+          >
             <span
               className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
               style={{
@@ -948,14 +987,18 @@ function EditorEmptyState() {
   return (
     <div className={style.appErrorState}>
       <EmptyStateIllustration />
-      <div className={style.appError}>{t("page.noPagesFound", "No pages found")}</div>
+      <div className={style.appError}>
+        {t("page.noPagesFound", "No pages found")}
+      </div>
       <p className={style.appErrorDescription}>
-        {t("page.noWorriesCreate", "No worries. You can create your first page right away")}
+        {t(
+          "page.noWorriesCreate",
+          "No worries. You can create your first page right away",
+        )}
       </p>
-      <Button
-        onClick={() => handleAdd()}
-        disabled={isCreating}
-      >{t("page.createNewPage", "Create new page")}</Button>
+      <Button onClick={() => handleAdd()} disabled={isCreating}>
+        {t("page.createNewPage", "Create new page")}
+      </Button>
     </div>
   );
 }
@@ -965,9 +1008,14 @@ function EditorNotFoundState() {
   return (
     <div className={style.appErrorState}>
       <NotFoundStateIllustration />
-      <div className={style.appError}>{t("error.pageNotFound", "The page has not been found")}</div>
+      <div className={style.appError}>
+        {t("error.pageNotFound", "The page has not been found")}
+      </div>
       <p className={style.appErrorDescription}>
-        {t("error.pageDeletedOrNotExist", "The page has been deleted or does not exist")}
+        {t(
+          "error.pageDeletedOrNotExist",
+          "The page has been deleted or does not exist",
+        )}
       </p>
     </div>
   );
@@ -978,7 +1026,9 @@ export function EditorErrorState() {
   return (
     <div className={style.appErrorState}>
       <ErrorStateIllustration />
-      <div className={style.appError}>{t("error.pageLoadFailed", "Error occurred loading the page")}</div>
+      <div className={style.appError}>
+        {t("error.pageLoadFailed", "Error occurred loading the page")}
+      </div>
     </div>
   );
 }

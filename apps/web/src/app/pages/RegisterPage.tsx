@@ -32,14 +32,7 @@ export default function RegisterPage() {
     setError("");
 
     try {
-      const result = await registerUser(data.email, data.password);
-      if (result?.needsVerification) {
-        navigate(
-          `/verify-email?email=${encodeURIComponent(result.email)}`,
-          { replace: true },
-        );
-        return;
-      }
+      await registerUser(data.email, data.password);
       navigate("/", { replace: true });
     } catch (err: any) {
       setError(errorMessage(err.message));

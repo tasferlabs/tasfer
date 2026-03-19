@@ -1,4 +1,4 @@
-import { getPlatform } from "./platform";
+import { getClientPlatform } from "./platform";
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -22,7 +22,7 @@ export async function downloadFile(
   fileName: string,
   mimeType: string,
 ): Promise<void> {
-  const platform = getPlatform();
+  const platform = getClientPlatform();
 
   if (platform === "ios" && window.IOSBridge?.shareFile) {
     const base64 = await blobToBase64(blob);

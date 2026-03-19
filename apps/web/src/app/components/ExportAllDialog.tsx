@@ -10,7 +10,7 @@ import {
 } from "../../components/ui/dialog";
 import { Button } from "../../components/ui/button";
 import { getPages, getPage, type IListPage } from "../api/pages.api";
-import { authFetch, API_BASE } from "../api/client";
+import { getPlatform } from "@/platform";
 import { useSpaces } from "../contexts/SpaceContext";
 import { serializeToMarkdown, type PageMetadata } from "../../deserializer/serializer";
 import { downloadFile } from "@/downloadFile";
@@ -224,7 +224,8 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
       for (const imgId of imageIds) {
         if (abortRef.current) return;
         try {
-          const response = await authFetch(`${API_BASE}/images/${imgId}`);
+          const imgUrl = getPlatform().assets.getUrl(imgId);
+          const response = await fetch(imgUrl);
           if (response.ok) {
             const blob = await response.blob();
             const contentType = response.headers.get("content-type") || "image/png";

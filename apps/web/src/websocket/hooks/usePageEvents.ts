@@ -9,7 +9,7 @@ import { useEffect, useRef } from "react";
 import { useWebSocket } from "@/app/contexts/WebSocketContext";
 import { useQueryClient } from "@tanstack/react-query";
 import type { PageEventCallbacks, PageInfo } from "../types";
-import type { IPage } from "@/app/api/pages.api";
+import type { PageFull } from "@/platform";
 
 // =============================================================================
 // Types
@@ -123,9 +123,9 @@ export function usePageEventsWithQueryClient(): void {
       const cache = queryClient.getQueryCache();
       const pageQueries = cache.findAll({ queryKey: ["page"] });
       for (const query of pageQueries) {
-        const data = query.state.data as IPage | undefined;
+        const data = query.state.data as PageFull | undefined;
         if (data?.parents?.some((p) => p.id === pageId)) {
-          queryClient.setQueryData(query.queryKey, (old: IPage | undefined) => {
+          queryClient.setQueryData(query.queryKey, (old: PageFull | undefined) => {
             if (!old?.parents) return old;
             return {
               ...old,

@@ -1,5 +1,16 @@
-import { authFetch, authFetchJson, API_BASE, isNative, setSessionId } from "./client";
+/**
+ * Auth API — delegates to platform.identity.
+ *
+ * In the decentralized model there is no login/register/email flow.
+ * Identity is a local keypair. This file keeps the AuthUser shape
+ * and maps getMe / updateProfile to platform.identity so existing
+ * consumers (AuthContext, settings) keep working.
+ */
 
+import { getPlatform } from "@/platform";
+import type { Identity } from "@/platform";
+
+// Keep the old shape so AuthContext consumers don't break
 export interface AuthUser {
   id: string;
   email: string;
@@ -7,181 +18,95 @@ export interface AuthUser {
   avatar: string | null;
 }
 
-interface AuthResponse {
-  user: AuthUser;
+function identityToAuthUser(identity: Identity): AuthUser {
+  return {
+    id: identity.publicKey,
+    email: "", // no email in decentralized model
+    name: identity.name,
+    avatar: identity.avatar,
+  };
 }
 
-interface RegisterResponse {
-  needsVerification?: true;
-  email?: string;
-  user?: AuthUser;
-}
-
-export async function register(data: {
-  email: string;
-  password: string;
-}): Promise<RegisterResponse> {
-  const response = await authFetch(`${API_BASE}/auth/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-
-  const result = await response.json();
-  if (!result.success) {
-    throw new Error(result.error);
-  }
-  return result.data;
-}
-
-interface LoginResponse {
-  needsVerification?: true;
-  email?: string;
-  user?: AuthUser;
-  sessionId?: string;
-}
-
-export async function login(data: {
-  email: string;
-  password: string;
-}): Promise<LoginResponse> {
-  const response = await authFetch(`${API_BASE}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-
-  const result = await response.json();
-  if (!result.success) {
-    throw new Error(result.error);
-  }
-  if (isNative && result.data.sessionId) {
-    setSessionId(result.data.sessionId);
-  }
-  return result.data;
-}
-
-export async function verifyEmail(data: {
-  email: string;
-  code: string;
-}): Promise<AuthResponse> {
-  const response = await authFetch(`${API_BASE}/auth/verify-email`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-
-  const result = await response.json();
-  if (!result.success) {
-    throw new Error(result.error);
-  }
-  if (isNative && result.data.sessionId) {
-    setSessionId(result.data.sessionId);
-  }
-  return result.data;
-}
-
-export async function resendVerification(email: string): Promise<void> {
-  const response = await authFetch(`${API_BASE}/auth/resend-verification`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email }),
-  });
-
-  const result = await response.json();
-  if (!result.success) {
-    throw new Error(result.error);
-  }
-}
-
+/**
+ * Get local identity (replaces "get me from server").
+ */
 export async function getMe(): Promise<AuthUser> {
-  const response = await authFetch(`${API_BASE}/auth/me`);
-
-  const result = await response.json();
-  if (!result.success) {
-    throw new Error(result.error);
-  }
-  return result.data.user;
+  const platform = getPlatform();
+  const identity = await platform.identity.get();
+  return identityToAuthUser(identity);
 }
 
-export async function logout(): Promise<void> {
-  await authFetch(`${API_BASE}/auth/logout`, {
-    method: "POST",
-  });
-  if (isNative) {
-    setSessionId(null);
-  }
-}
-
+/**
+ * Update local identity profile.
+ */
 export async function updateProfile(data: {
   name?: string;
   avatar?: string | null;
 }): Promise<AuthUser> {
-  const response = await authFetch(`${API_BASE}/auth/profile`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-
-  const result = await response.json();
-  if (!result.success) {
-    throw new Error(result.error);
-  }
-  return result.data.user;
+  const platform = getPlatform();
+  const identity = await platform.identity.update(data);
+  return identityToAuthUser(identity);
 }
 
-export async function forgotPassword(email: string): Promise<void> {
-  const response = await authFetch(`${API_BASE}/auth/forgot-password`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email }),
-  });
-
-  const result = await response.json();
-  if (!result.success) {
-    throw new Error(result.error);
-  }
+/**
+ * Logout — no-op in decentralized model (there's no session to end).
+ */
+export async function logout(): Promise<void> {
+  // No-op: identity is local, nothing to log out of
 }
 
-export async function resetPassword(token: string, newPassword: string): Promise<void> {
-  const response = await authFetch(`${API_BASE}/auth/reset-password`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token, newPassword }),
-  });
+// ---------------------------------------------------------------------------
+// Stubs for flows that no longer exist (login, register, email, password)
+// These throw so any remaining call sites are surfaced during development.
+// ---------------------------------------------------------------------------
 
-  const result = await response.json();
-  if (!result.success) {
-    throw new Error(result.error);
-  }
+export async function login(_data: {
+  email: string;
+  password: string;
+}): Promise<never> {
+  throw new Error("login is not available in decentralized mode");
 }
 
-export async function changeEmail(newEmail: string): Promise<void> {
-  await authFetchJson("/auth/change-email", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ newEmail }),
-  });
+export async function register(_data: {
+  email: string;
+  password: string;
+}): Promise<never> {
+  throw new Error("register is not available in decentralized mode");
 }
 
-export async function verifyEmailChange(token: string): Promise<AuthUser> {
-  const response = await authFetch(`${API_BASE}/auth/verify-email-change`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token }),
-  });
-
-  const result = await response.json();
-  if (!result.success) {
-    throw new Error(result.error);
-  }
-  return result.data.user;
+export async function verifyEmail(_data: {
+  email: string;
+  code: string;
+}): Promise<never> {
+  throw new Error("verifyEmail is not available in decentralized mode");
 }
 
-export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
-  await authFetchJson("/auth/change-password", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ currentPassword, newPassword }),
-  });
+export async function resendVerification(_email: string): Promise<never> {
+  throw new Error("resendVerification is not available in decentralized mode");
+}
+
+export async function forgotPassword(_email: string): Promise<never> {
+  throw new Error("forgotPassword is not available in decentralized mode");
+}
+
+export async function resetPassword(
+  _token: string,
+  _newPassword: string,
+): Promise<never> {
+  throw new Error("resetPassword is not available in decentralized mode");
+}
+
+export async function changeEmail(_newEmail: string): Promise<never> {
+  throw new Error("changeEmail is not available in decentralized mode");
+}
+
+export async function verifyEmailChange(_token: string): Promise<never> {
+  throw new Error("verifyEmailChange is not available in decentralized mode");
+}
+
+export async function changePassword(
+  _currentPassword: string,
+  _newPassword: string,
+): Promise<never> {
+  throw new Error("changePassword is not available in decentralized mode");
 }

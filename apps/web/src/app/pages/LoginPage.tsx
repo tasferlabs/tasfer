@@ -30,13 +30,7 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const result = await login(data.email, data.password);
-      if (result?.needsVerification) {
-        navigate(`/verify-email?email=${encodeURIComponent(result.email)}`, {
-          replace: true,
-        });
-        return;
-      }
+      await login(data.email, data.password);
       navigate("/", { replace: true });
     } catch (err: any) {
       setError(errorMessage(err.message));
