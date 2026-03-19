@@ -75,7 +75,7 @@
 //             type="email"
 //             value={email}
 //             onChange={(e) => setEmail(e.target.value)}
-//             placeholder={t`Email address`}
+//             placeholder={t("common.emailAddress", "Email address")}
 //             className="flex-1"
 //           />
 //           <Select
@@ -86,15 +86,15 @@
 //               <SelectValue />
 //             </SelectTrigger>
 //             <SelectContent>
-//               <SelectItem value="view">{t`View`}</SelectItem>
-//               <SelectItem value="edit">{t`Edit`}</SelectItem>
+//               <SelectItem value="view">{t("common.view", "View")}</SelectItem>
+//               <SelectItem value="edit">{t("common.edit", "Edit")}</SelectItem>
 //             </SelectContent>
 //           </Select>
 //         </div>
 //
 //         <div className="flex items-center justify-between">
 //           <label htmlFor="include-children" className="text-sm">
-//             {t`Include nested pages`}
+//             {t("import.includeNested", "Include nested pages")}
 //           </label>
 //           <Switch
 //             id="include-children"
@@ -104,7 +104,7 @@
 //         </div>
 //
 //         <Button type="submit" loading={isSharing} className="w-full">
-//           {t`Share`}
+//           {t("common.share", "Share")}
 //         </Button>
 //       </form>
 //     </div>
@@ -116,12 +116,12 @@
 //         <DrawerContent>
 //           <div className="mx-auto w-full max-w-sm pb-6">
 //             <DrawerHeader>
-//               <DrawerTitle>{t`Share page`}</DrawerTitle>
+//               <DrawerTitle>{t("share.sharePage", "Share page")}</DrawerTitle>
 //             </DrawerHeader>
 //             <div className="px-4">{content}</div>
 //             <DrawerFooter className="pt-4">
 //               <Button variant="outline" onClick={() => onOpenChange(false)}>
-//                 {t`Close`}
+//                 {t("common.close", "Close")}
 //               </Button>
 //             </DrawerFooter>
 //           </div>
@@ -134,9 +134,9 @@
 //     <Dialog open={open} onOpenChange={onOpenChange}>
 //       <DialogContent>
 //         <DialogHeader>
-//           <DialogTitle>{t`Share page`}</DialogTitle>
+//           <DialogTitle>{t("share.sharePage", "Share page")}</DialogTitle>
 //           <DialogDescription>
-//             {t`Invite others to view or edit this page`}
+//             {t("share.inviteOthers", "Invite others to view or edit this page")}
 //           </DialogDescription>
 //         </DialogHeader>
 //         {content}

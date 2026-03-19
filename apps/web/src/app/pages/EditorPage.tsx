@@ -26,7 +26,7 @@ import {
   getVisibleTextFromRuns,
 } from "@/editor/sync/char-runs";
 import { formatDatePreferred, formatTimePreferred } from "@/lib/dateTimePreferences";
-import { DURATION_OPTIONS, formatDurationLabel } from "@/lib/utils";
+import { DURATION_OPTIONS, formatDurationLabel, type TFunction } from "@/lib/utils";
 import type { SyncState } from "@/websocket/hooks/useRoom";
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import * as Popover from "@radix-ui/react-popover";
@@ -550,7 +550,7 @@ export default function EditorPage() {
 function formatScheduleLabel(
   iso: string,
   duration: number | null,
-  t: (key: string, opts?: Record<string, unknown>) => string,
+  t: TFunction,
 ): string {
   const d = new Date(iso);
   const date = formatDatePreferred(d, {
@@ -562,13 +562,14 @@ function formatScheduleLabel(
     minute: "2-digit",
   });
   if (duration) {
-    return t("{{date}}, {{time}} ({{duration}})", {
+    return t("format.dateTimeDuration", {
+      defaultValue: "{{date}}, {{time}} ({{duration}})",
       date,
       time,
       duration: formatDurationLabel(duration, t),
     });
   }
-  return t("{{date}}, {{time}}", { date, time });
+  return t("format.dateTime", { defaultValue: "{{date}}, {{time}}", date, time });
 }
 
 interface ScheduleFormValues {
@@ -617,7 +618,7 @@ function ScheduleContent({
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <label className="text-sm font-medium">{t`Date & Time`}</label>
+        <label className="text-sm font-medium">{t("settings.dateTime.title", "Date & Time")}</label>
         <Controller
           control={control}
           name="scheduledAt"
@@ -638,7 +639,7 @@ function ScheduleContent({
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">{t`Duration`}</label>
+        <label className="text-sm font-medium">{t("calendar.duration", "Duration")}</label>
         <Controller
           control={control}
           name="duration"
@@ -681,7 +682,7 @@ function ScheduleContent({
           className="w-full justify-start gap-2 text-destructive hover:text-destructive"
         >
           <Trash className="h-4 w-4" />
-          {t`Remove from Schedule`}
+          {t("calendar.removeFromSchedule", "Remove from Schedule")}
         </Button>
       )}
     </div>
@@ -703,7 +704,7 @@ function ScheduleTag({
   const isScheduled = !!page?.scheduledAt;
   const label = isScheduled
     ? formatScheduleLabel(page.scheduledAt!, page.duration, t)
-    : t`Schedule`;
+    : t("calendar.schedule", "Schedule");
 
   const content = (
     <ScheduleContent
@@ -729,7 +730,7 @@ function ScheduleTag({
           <DrawerContent>
             <div className="mx-auto w-full max-w-sm pb-6">
               <DrawerHeader>
-                <DrawerTitle>{t`Schedule`}</DrawerTitle>
+                <DrawerTitle>{t("calendar.schedule", "Schedule")}</DrawerTitle>
               </DrawerHeader>
               <div className="px-4">{content}</div>
             </div>
@@ -765,7 +766,7 @@ function ScheduleTag({
             }
           }}
         >
-          <h3 className="text-sm font-semibold mb-3">{t`Schedule`}</h3>
+          <h3 className="text-sm font-semibold mb-3">{t("calendar.schedule", "Schedule")}</h3>
           {content}
         </Popover.Content>
       </Popover.Portal>
@@ -840,7 +841,7 @@ function PageActionBar({ pageId }: { pageId: string }) {
                           opacity: parent.color ? 1 : 0.3,
                         }}
                       />
-                      <span className="truncate">{parent.title || t`Untitled`}</span>
+                      <span className="truncate">{parent.title || t("common.untitled", "Untitled")}</span>
                     </span>
                     <span className={style.breadcrumbSeparator}>
                       <CaretRightIcon size={12} />
@@ -856,7 +857,7 @@ function PageActionBar({ pageId }: { pageId: string }) {
                   opacity: effectiveColor ? 1 : 0.3,
                 }}
               />
-              <span className="truncate">{page.title || t`Untitled`}</span>
+              <span className="truncate">{page.title || t("common.untitled", "Untitled")}</span>
             </span>
             <CaretDownIcon size={10} className="shrink-0 opacity-40" />
           </button>
@@ -877,7 +878,7 @@ function PageActionBar({ pageId }: { pageId: string }) {
                         opacity: parent.color ? 1 : 0.3,
                       }}
                     />
-                    {parent.title || t`Untitled`}
+                    {parent.title || t("common.untitled", "Untitled")}
                   </span>
                   <span className={style.breadcrumbSeparator}>
                     <CaretRightIcon size={16} />
@@ -893,7 +894,7 @@ function PageActionBar({ pageId }: { pageId: string }) {
                 opacity: effectiveColor ? 1 : 0.3,
               }}
             />
-            {page?.title || t`Untitled`}
+            {page?.title || t("common.untitled", "Untitled")}
           </span>
         </div>
       )}
@@ -947,14 +948,14 @@ function EditorEmptyState() {
   return (
     <div className={style.appErrorState}>
       <EmptyStateIllustration />
-      <div className={style.appError}>{t`No pages found`}</div>
+      <div className={style.appError}>{t("page.noPagesFound", "No pages found")}</div>
       <p className={style.appErrorDescription}>
-        {t`No worries. You can create your first page right away`}
+        {t("page.noWorriesCreate", "No worries. You can create your first page right away")}
       </p>
       <Button
         onClick={() => handleAdd()}
         disabled={isCreating}
-      >{t`Create new page`}</Button>
+      >{t("page.createNewPage", "Create new page")}</Button>
     </div>
   );
 }
@@ -964,9 +965,9 @@ function EditorNotFoundState() {
   return (
     <div className={style.appErrorState}>
       <NotFoundStateIllustration />
-      <div className={style.appError}>{t`The page has not been found`}</div>
+      <div className={style.appError}>{t("error.pageNotFound", "The page has not been found")}</div>
       <p className={style.appErrorDescription}>
-        {t`The page has been deleted or does not exist`}
+        {t("error.pageDeletedOrNotExist", "The page has been deleted or does not exist")}
       </p>
     </div>
   );
@@ -977,7 +978,7 @@ export function EditorErrorState() {
   return (
     <div className={style.appErrorState}>
       <ErrorStateIllustration />
-      <div className={style.appError}>{t`Error occurred loading the page`}</div>
+      <div className={style.appError}>{t("error.pageLoadFailed", "Error occurred loading the page")}</div>
     </div>
   );
 }

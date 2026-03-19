@@ -1,18 +1,19 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import type { TFunction } from "i18next"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export type TFunction = (key: string, opts?: Record<string, unknown>) => string;
+export type { TFunction };
 
 export function formatDurationLabel(minutes: number, t: TFunction): string {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
-  if (hours === 0) return t("{{count}} min", { count: mins });
-  if (mins === 0) return t("{{count}} hr", { count: hours });
-  return t("{{hours}} hr {{mins}} min", { hours, mins });
+  if (hours === 0) return t("format.minutes", { defaultValue: "{{count}} min", count: mins });
+  if (mins === 0) return t("format.hours", { defaultValue: "{{count}} hr", count: hours });
+  return t("format.hoursMinutes", { defaultValue: "{{hours}} hr {{mins}} min", hours, mins });
 }
 
 export const DURATION_OPTIONS = [

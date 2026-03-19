@@ -242,7 +242,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
   const allSpaces: SpaceOption[] = React.useMemo(() => {
     const spaces: SpaceOption[] = [];
     if (personalSpace) {
-      spaces.push({ id: personalSpace.id, name: t("Private"), type: "personal" });
+      spaces.push({ id: personalSpace.id, name: t("common.private", "Private"), type: "personal" });
     }
     for (const g of groupSpaces) {
       spaces.push({ id: g.id, name: g.name, type: "group" });
@@ -289,7 +289,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
       setFiles(dropped);
       setError(null);
     } else {
-      setError(t("Please select .zip, .md, or .txt files"));
+      setError(t("import.pleaseSelectFiles", "Please select .zip, .md, or .txt files"));
     }
   }, []);
 
@@ -345,7 +345,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
       }
     } catch (err) {
       if (!abortRef.current) {
-        setError(err instanceof Error ? err.message : t("Import failed"));
+        setError(err instanceof Error ? err.message : t("import.failed", "Import failed"));
         setPhase("select");
       }
     }
@@ -362,7 +362,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
     const { imageEntries, roots } = buildPageTree(zip);
 
     if (roots.length === 0) {
-      throw new Error(t("No importable pages found in the ZIP file"));
+      throw new Error(t("import.noImportablePages", "No importable pages found in the ZIP file"));
     }
 
     const totalItems = countNodes(roots) + imageEntries.length;
@@ -513,12 +513,12 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t("Import")}</DialogTitle>
+          <DialogTitle>{t("import.title", "Import")}</DialogTitle>
           <DialogDescription>
             {phase === "select" &&
-              t("Import pages from a ZIP file or markdown files.")}
-            {phase === "importing" && t("Importing your pages...")}
-            {phase === "done" && t("Import complete.")}
+              t("import.fromZipOrMarkdownDesc", "Import pages from a ZIP file or markdown files.")}
+            {phase === "importing" && t("import.importingPages", "Importing your pages...")}
+            {phase === "done" && t("import.complete", "Import complete.")}
           </DialogDescription>
         </DialogHeader>
 
@@ -549,17 +549,17 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
                 <span className="font-medium text-center">
                   {files.length === 1
                     ? files[0].name
-                    : t("{{count}} files selected", { count: files.length })}
+                    : t("format.filesSelected", { defaultValue: "{{count}} files selected", count: files.length })}
                 </span>
               ) : (
                 <>
                   <span className="font-medium text-center">
                     {isDragging
-                      ? t("Drop files here")
-                      : t("Drag and drop files here")}
+                      ? t("import.dropFiles", "Drop files here")
+                      : t("import.dragAndDropFiles", "Drag and drop files here")}
                   </span>
                   <span className="text-sm text-muted-foreground mt-1">
-                    {t("or click to select")}
+                    {t("import.orClickToSelect", "or click to select")}
                   </span>
                 </>
               )}
@@ -580,14 +580,14 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
             {/* Space selector */}
             <div className="flex items-center gap-3">
               <span className="text-sm text-muted-foreground whitespace-nowrap">
-                {t("Import to")}
+                {t("import.to", "Import to")}
               </span>
               <Select
                 value={selectedSpaceId}
                 onValueChange={setSelectedSpaceId}
               >
                 <SelectTrigger className="flex-1">
-                  <SelectValue placeholder={t("Select space")} />
+                  <SelectValue placeholder={t("space.selectSpace", "Select space")} />
                 </SelectTrigger>
                 <SelectContent>
                   {allSpaces.map((space) => (
@@ -603,13 +603,13 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
 
             <DialogFooter>
               <Button variant="outline" onClick={handleCancel}>
-                {t("Cancel")}
+                {t("common.cancel", "Cancel")}
               </Button>
               <Button
                 onClick={handleImport}
                 disabled={files.length === 0 || !selectedSpaceId}
               >
-                {t("Import")}
+                {t("import.title", "Import")}
               </Button>
             </DialogFooter>
           </>
@@ -621,7 +621,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
               <div className="flex items-center gap-3">
                 <div className="size-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 <span className="text-sm text-muted-foreground">
-                  {t("Importing...")} {progress.done}/{progress.total}
+                  {t("import.importing", "Importing...")} {progress.done}/{progress.total}
                 </span>
               </div>
               <div className="h-1.5 bg-muted rounded-full overflow-hidden">
@@ -639,7 +639,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
 
             <DialogFooter>
               <Button variant="outline" onClick={handleCancel}>
-                {t("Cancel")}
+                {t("common.cancel", "Cancel")}
               </Button>
             </DialogFooter>
           </>
@@ -649,12 +649,12 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
           <>
             <div className="space-y-3">
               <p className="text-sm">
-                {t("Created")} {result.pagesCreated}{" "}
-                {result.pagesCreated === 1 ? t("page") : t("pages")}
+                {t("common.created", "Created")} {result.pagesCreated}{" "}
+                {result.pagesCreated === 1 ? t("common.pageKw", "page") : t("common.pagesKw", "pages")}
                 {result.imagesUploaded > 0 && (
                   <>
-                    , {t("uploaded")} {result.imagesUploaded}{" "}
-                    {result.imagesUploaded === 1 ? t("image") : t("images")}
+                    , {t("blocks.uploadedKw", "uploaded")} {result.imagesUploaded}{" "}
+                    {result.imagesUploaded === 1 ? t("blocks.imageKw", "image") : t("blocks.imagesKw", "images")}
                   </>
                 )}
               </p>
@@ -662,7 +662,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-destructive">
                     {result.errors.length}{" "}
-                    {result.errors.length === 1 ? t("error") : t("errors")}:
+                    {result.errors.length === 1 ? t("common.errorKw", "error") : t("common.errorsKw", "errors")}:
                   </p>
                   <ul className="text-xs text-muted-foreground space-y-1 max-h-32 overflow-y-auto">
                     {result.errors.map((err, i) => (
@@ -674,7 +674,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
             </div>
 
             <DialogFooter>
-              <Button onClick={() => onOpenChange(false)}>{t("Close")}</Button>
+              <Button onClick={() => onOpenChange(false)}>{t("common.close", "Close")}</Button>
             </DialogFooter>
           </>
         )}

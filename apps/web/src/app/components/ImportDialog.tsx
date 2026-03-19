@@ -107,7 +107,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
       onOpenChange(false);
     },
     onError: () => {
-      setError(t`Failed to create new page`);
+      setError(t("error.failedToCreatePage", "Failed to create new page"));
     },
   });
 
@@ -144,7 +144,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
       const isMd = file.name.endsWith(".md") || file.name.endsWith(".txt");
 
       if (!isZip && !isMd) {
-        setError(t`Please select a .md, .txt, or .zip file`);
+        setError(t("import.pleaseSelectFile", "Please select a .md, .txt, or .zip file"));
         return;
       }
 
@@ -188,7 +188,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
           });
 
           if (mdFiles.length === 0) {
-            setError(t`No markdown file found in the ZIP`);
+            setError(t("import.noMarkdownInZip", "No markdown file found in the ZIP"));
             return;
           }
 
@@ -196,7 +196,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
           mdFiles.sort((a, b) => a.split("/").length - b.split("/").length);
           const mdEntry = zip.file(mdFiles[0]);
           if (!mdEntry) {
-            setError(t`No markdown file found in the ZIP`);
+            setError(t("import.noMarkdownInZip", "No markdown file found in the ZIP"));
             return;
           }
 
@@ -231,7 +231,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
           }
         }
       } catch {
-        setError(t`Failed to parse the file`);
+        setError(t("error.failedToParseFile", "Failed to parse the file"));
       }
     },
     [onRestoreSnapshot, onOpenChange, currentBlocks, t]
@@ -305,7 +305,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const confirmationContent = (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        {t`This page already has content. What would you like to do?`}
+        {t("import.contentExistsWhat", "This page already has content. What would you like to do?")}
       </p>
       {error && <p className="text-sm text-destructive">{error}</p>}
       <div className="grid gap-2">
@@ -317,9 +317,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         >
           <FilePlus className="h-5 w-5 text-muted-foreground" />
           <div className="flex flex-col items-start">
-            <span className="font-medium">{t`Create new page`}</span>
+            <span className="font-medium">{t("page.createNewPage", "Create new page")}</span>
             <span className="text-xs text-muted-foreground">
-              {t`Import into a new page`}
+              {t("import.intoNewPage", "Import into a new page")}
             </span>
           </div>
         </Button>
@@ -330,9 +330,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         >
           <Replace className="h-5 w-5 text-muted-foreground" />
           <div className="flex flex-col items-start">
-            <span className="font-medium">{t`Replace current`}</span>
+            <span className="font-medium">{t("import.replaceCurrent", "Replace current")}</span>
             <span className="text-xs text-muted-foreground">
-              {t`Replace this page's content`}
+              {t("import.replaceContent", "Replace this page's content")}
             </span>
           </div>
         </Button>
@@ -344,7 +344,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const fileSelectionContent = (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        {t`Import a markdown, text, or zip file.`}
+        {t("import.fileTypes", "Import a markdown, text, or zip file.")}
       </p>
       {error && <p className="text-sm text-destructive">{error}</p>}
       <Button
@@ -354,7 +354,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
       >
         <FileUp className="h-5 w-5 text-muted-foreground" />
         <div className="flex flex-col items-start">
-          <span className="font-medium">{t`Select file`}</span>
+          <span className="font-medium">{t("import.selectFile", "Select file")}</span>
           <span className="text-xs text-muted-foreground">.md, .txt, .zip</span>
         </div>
       </Button>
@@ -368,7 +368,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
               <DrawerTitle>
-                {showConfirmation ? t`Import options` : t`Import document`}
+                {showConfirmation ? t("import.options", "Import options") : t("import.document", "Import document")}
               </DrawerTitle>
             </DrawerHeader>
             <div className="px-4">
@@ -386,12 +386,12 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {showConfirmation ? t`Import options` : t`Import document`}
+            {showConfirmation ? t("import.options", "Import options") : t("import.document", "Import document")}
           </DialogTitle>
           <DialogDescription>
             {showConfirmation
-              ? t`This page already has content. Choose how to proceed.`
-              : t`Import a markdown, text, or zip file.`}
+              ? t("import.contentExistsChoose", "This page already has content. Choose how to proceed.")
+              : t("import.fileTypes", "Import a markdown, text, or zip file.")}
           </DialogDescription>
         </DialogHeader>
 
@@ -405,9 +405,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
                 className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <FilePlus className="h-8 w-8 mb-2 text-muted-foreground" />
-                <span className="font-medium">{t`New page`}</span>
+                <span className="font-medium">{t("page.newPage", "New page")}</span>
                 <span className="text-xs text-muted-foreground text-center">
-                  {t`Create new`}
+                  {t("common.createNew", "Create new")}
                 </span>
               </button>
               <button
@@ -415,9 +415,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
                 className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer"
               >
                 <Replace className="h-8 w-8 mb-2 text-muted-foreground" />
-                <span className="font-medium">{t`Replace`}</span>
+                <span className="font-medium">{t("common.replace", "Replace")}</span>
                 <span className="text-xs text-muted-foreground text-center">
-                  {t`Current page`}
+                  {t("page.currentPage", "Current page")}
                 </span>
               </button>
             </div>
@@ -445,10 +445,10 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
                 }`}
               />
               <span className="font-medium text-center">
-                {isDragging ? t`Drop file here` : t`Drag and drop a file here`}
+                {isDragging ? t("import.dropFile", "Drop file here") : t("import.dragAndDropFile", "Drag and drop a file here")}
               </span>
               <span className="text-sm text-muted-foreground mt-1">
-                {t`or click to select`}
+                {t("import.orClickToSelect", "or click to select")}
               </span>
               <span className="text-xs text-muted-foreground mt-2">
                 .md, .txt, .zip

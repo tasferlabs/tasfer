@@ -77,7 +77,7 @@ export function ConfirmationDialogProvider({ children }: { children: React.React
                 confirm(false);
               }}
             >
-              {dialogCancelText || t`Cancel`}
+              {dialogCancelText || t("common.cancel", "Cancel")}
             </AlertDialogCancel>
 
             <AlertDialogAction
@@ -86,7 +86,7 @@ export function ConfirmationDialogProvider({ children }: { children: React.React
                 confirm(true);
               }}
             >
-              {dialogConfirmText || t`Confirm`}
+              {dialogConfirmText || t("common.confirm", "Confirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

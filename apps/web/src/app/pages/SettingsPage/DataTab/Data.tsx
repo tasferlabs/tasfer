@@ -15,21 +15,21 @@ export function Data() {
     <div className={styles.container}>
       <div className={styles.row}>
         <div className={styles.column}>
-          <p className={cn("text-sm", styles.title)}>{t`Export`}</p>
-          <p className="text-sm opacity-75">{t`Export all pages as a ZIP file`}</p>
+          <p className={cn("text-sm", styles.title)}>{t("export.title", "Export")}</p>
+          <p className="text-sm opacity-75">{t("export.allAsZip", "Export all pages as a ZIP file")}</p>
         </div>
         <Button variant="outline" onClick={() => setShowExportDialog(true)}>
-          {t`Export all`}
+          {t("export.all", "Export all")}
         </Button>
       </div>
 
       <div className={styles.row}>
         <div className={styles.column}>
-          <p className={cn("text-sm", styles.title)}>{t`Import`}</p>
-          <p className="text-sm opacity-75">{t`Import pages from a ZIP file or markdown files`}</p>
+          <p className={cn("text-sm", styles.title)}>{t("import.title", "Import")}</p>
+          <p className="text-sm opacity-75">{t("import.fromZipOrMarkdown", "Import pages from a ZIP file or markdown files")}</p>
         </div>
         <Button variant="outline" onClick={() => setShowImportDialog(true)}>
-          {t`Import`}
+          {t("import.title", "Import")}
         </Button>
       </div>
 

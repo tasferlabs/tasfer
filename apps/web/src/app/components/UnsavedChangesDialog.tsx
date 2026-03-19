@@ -64,18 +64,18 @@ export function UnsavedChangesDialogProvider({
       <AlertDialog open={isOpen} onOpenChange={handleOpenChange}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t`Unsaved Changes`}</AlertDialogTitle>
+            <AlertDialogTitle>{t("editor.unsavedChanges", "Unsaved Changes")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t`Your changes are still being saved. Are you sure you want to leave?`}
+              {t("editor.changesBeingSaved", "Your changes are still being saved. Are you sure you want to leave?")}
             </AlertDialogDescription>
           </AlertDialogHeader>
 
           <AlertDialogFooter>
             <AlertDialogAction variant="outline" onClick={handleLeave}>
-              {t`Leave Anyway`}
+              {t("space.leaveAnyway", "Leave Anyway")}
             </AlertDialogAction>
             <AlertDialogCancel variant="default" onClick={handleWait}>
-              {t`Wait`}
+              {t("common.wait", "Wait")}
             </AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>

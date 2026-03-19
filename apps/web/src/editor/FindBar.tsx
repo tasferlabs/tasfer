@@ -56,21 +56,21 @@ export function FindBar({
         value={searchText}
         onChange={(e) => onSearchChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={t`Find...`}
+        placeholder={t("editor.find", "Find...")}
         className="w-48 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
       />
       {searchText && (
         <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
           {totalMatches > 0
             ? `${currentMatch + 1}/${totalMatches}`
-            : t`No results`}
+            : t("common.noResults", "No results")}
         </span>
       )}
       <button
         onClick={onPrevious}
         disabled={totalMatches === 0}
         className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-        title={t`Previous (Shift+Enter)`}
+        title={t("editor.previous", "Previous (Shift+Enter)")}
       >
         <ChevronUp size={16} />
       </button>
@@ -78,14 +78,14 @@ export function FindBar({
         onClick={onNext}
         disabled={totalMatches === 0}
         className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-        title={t`Next (Enter)`}
+        title={t("editor.next", "Next (Enter)")}
       >
         <ChevronDown size={16} />
       </button>
       <button
         onClick={onClose}
         className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-        title={t`Close (Escape)`}
+        title={t("editor.closeEscape", "Close (Escape)")}
       >
         <X size={16} />
       </button>

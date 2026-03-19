@@ -1021,11 +1021,11 @@ function renderPlaceholder(
 
   // Handle list block placeholders
   if (blockType === "bullet_list") {
-    placeholderText = i18next.t("List item");
+    placeholderText = i18next.t("blocks.listItem", "List item");
   } else if (blockType === "numbered_list") {
-    placeholderText = i18next.t("List item");
+    placeholderText = i18next.t("blocks.listItem", "List item");
   } else if (blockType === "todo_list") {
-    placeholderText = i18next.t("To-do item");
+    placeholderText = i18next.t("blocks.todoItem", "To-do item");
   } else {
     // Handle text block placeholders
     const placeholderConfig = styles.placeholder[blockType];

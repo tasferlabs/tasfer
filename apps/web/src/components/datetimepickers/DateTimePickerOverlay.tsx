@@ -129,7 +129,7 @@ export function DateTimePickerOverlay({
   }, [value]);
 
   // All 7 day labels indexed by JS weekday (0=Sun..6=Sat)
-  const allDays = [t`Su`, t`Mo`, t`Tu`, t`We`, t`Th`, t`Fr`, t`Sa`];
+  const allDays = [t("calendar.dayAbbr.su", "Su"), t("calendar.dayAbbr.mo", "Mo"), t("calendar.dayAbbr.tu", "Tu"), t("calendar.dayAbbr.we", "We"), t("calendar.dayAbbr.th", "Th"), t("calendar.dayAbbr.fr", "Fr"), t("calendar.dayAbbr.sa", "Sa")];
   const weekDays = Array.from({ length: 7 }, (_, i) => allDays[(weekStart + i) % 7]);
 
   const component = (
@@ -142,10 +142,10 @@ export function DateTimePickerOverlay({
           <div className="px-[0.5rem]">
             <TabsList className="w-full">
               <TabsTrigger value="date" className="flex-1">
-                {t`Date`}
+                {t("common.date", "Date")}
               </TabsTrigger>
               <TabsTrigger value="time" className="flex-1">
-                {t`Time`}
+                {t("common.time", "Time")}
               </TabsTrigger>
             </TabsList>
           </div>
@@ -213,7 +213,7 @@ export function DateTimePickerOverlay({
                     setDisplayedDate(today.toISO() || "");
                   }}
                 >
-                  {t`Today`}
+                  {t("common.today", "Today")}
                 </Button>
               )}
               <Button
@@ -320,7 +320,7 @@ export function DateTimePickerOverlay({
           {component}
           <div className="flex justify-end mt-2">
             <Button onClick={onClose} variant="secondary" size="sm">
-              {t`Close`}
+              {t("common.close", "Close")}
             </Button>
           </div>
         </DialogContent>

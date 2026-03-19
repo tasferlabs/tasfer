@@ -34,6 +34,7 @@ import { type IParentsStack } from "./PagesLinks";
 import style from "./PagesLinks.module.css";
 import useResponsive from "@/app/hooks/useResponsive";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { useIsExpanded, useTreeExpand } from "../../contexts/TreeExpandContext";
 
 const PRESET_COLORS = [
@@ -291,10 +292,10 @@ export function PageLink({
 
   async function handleDelete() {
     const confirmed = await getConfirmation({
-      title: t("Delete Page"),
-      description: t("Are you sure you want to delete this page?"),
-      cancelText: t("Cancel"),
-      confirmText: t("Delete"),
+      title: t("page.deletePage", "Delete Page"),
+      description: t("page.confirmDeletePage", "Are you sure you want to delete this page?"),
+      cancelText: t("common.cancel", "Cancel"),
+      confirmText: t("common.delete", "Delete"),
     });
 
     if (confirmed) {
@@ -440,7 +441,7 @@ export function PageLink({
             height={20}
             className={clsx(style.collapseIcon, isExpanded && style.collapseIconExpanded)}
           />
-          <VisuallyHidden>{t("Open sub pages")}</VisuallyHidden>
+          <VisuallyHidden>{t("page.openSubPages", "Open sub pages")}</VisuallyHidden>
         </button>
         <span
           className="color-picker-blob"
@@ -460,7 +461,7 @@ export function PageLink({
               }}
               onChange={(e) => handleOnChange(e.target.value)}
               onBlur={() => handleStopEditing()}
-              placeholder={t("Untitled")}
+              placeholder={t("common.untitled", "Untitled")}
               ref={inputRef}
             />
           ) : (
@@ -482,7 +483,7 @@ export function PageLink({
                 navigate(`/page/${data.id}`);
               }}
             >
-              {data.title || t("Untitled")}
+              {data.title || t("common.untitled", "Untitled")}
             </span>
           )}
         </div>
@@ -631,7 +632,7 @@ function PageLinkMenuContent({
   onAdd: () => void;
   isCreating: boolean;
   color: string | null | undefined;
-  t: (key: string) => string;
+  t: TFunction;
 }) {
   return (
     <>
@@ -644,7 +645,7 @@ function PageLinkMenuContent({
           }}
         >
           <Icons.Edit width={18} height={18} />
-          {t("Rename")}
+          {t("common.rename", "Rename")}
         </button>
         <button
           className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-start"
@@ -659,7 +660,7 @@ function PageLinkMenuContent({
           ) : (
             <Icons.Plus width={18} height={18} />
           )}
-          {t("Add subpage")}
+          {t("page.addSubpage", "Add subpage")}
         </button>
         <button
           className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-accent text-destructive text-start"
@@ -674,11 +675,11 @@ function PageLinkMenuContent({
           ) : (
             <Icons.Trash width={18} height={18} />
           )}
-          {t("Delete")}
+          {t("common.delete", "Delete")}
         </button>
       </div>
       <div className="px-4 pb-4 pt-1">
-        <div className="text-xs text-muted-foreground mb-2">{t("Color")}</div>
+        <div className="text-xs text-muted-foreground mb-2">{t("common.color", "Color")}</div>
         <ColorGrid
           color={color}
           onColorChange={(c) => {
@@ -714,12 +715,12 @@ function PageLinkMenu({
   isDeleting: boolean;
   onAdd: () => void;
   isCreating: boolean;
-  t: (key: string) => string;
+  t: TFunction;
 }) {
   const triggerButton = (
     <button
       className={clsx(style.menuTrigger, open && style.menuTriggerOpen)}
-      aria-label={t("Page options")}
+      aria-label={t("page.options", "Page options")}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
@@ -745,7 +746,7 @@ function PageLinkMenu({
         <DrawerTrigger asChild>{triggerButton}</DrawerTrigger>
         <DrawerContent>
           <DrawerHeader className="sr-only">
-            <DrawerTitle>{t("Page options")}</DrawerTitle>
+            <DrawerTitle>{t("page.options", "Page options")}</DrawerTitle>
           </DrawerHeader>
           <PageLinkMenuContent {...contentProps} />
         </DrawerContent>

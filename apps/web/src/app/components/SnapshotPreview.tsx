@@ -40,13 +40,13 @@ export function SnapshotPreview({
       <div className="flex items-center  gap-4 justify-between p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t">
         <Button onClick={onRestore} size={"lg"}>
           <RotateCcw className="h-3.5 w-3.5 me-1.5" />
-          {t`Restore`}
+          {t("common.restore", "Restore")}
         </Button>
 
         <div className="flex items-center justify-between gap-2 flex-1">
           <div className="flex items-center gap-4">
             <div>
-              <h3 className="text-sm font-medium">{t`Preview`}</h3>
+              <h3 className="text-sm font-medium">{t("common.preview", "Preview")}</h3>
               <div className="flex gap-2">
                 <RelativeDate
                   date={snapshot.createdAt}
@@ -57,7 +57,7 @@ export function SnapshotPreview({
                   <FileText className="h-3 w-3" />
                   <span>
                     {snapshot.blockCount}{" "}
-                    {snapshot.blockCount === 1 ? t`block` : t`blocks`}
+                    {snapshot.blockCount === 1 ? t("blocks.blockKw", "block") : t("blocks.blocksKw", "blocks")}
                   </span>
                 </div>
               </div>

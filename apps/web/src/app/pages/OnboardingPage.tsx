@@ -36,7 +36,7 @@ export default function OnboardingPage() {
       const image = await uploadImage(croppedFile);
       setAvatarId(image.id);
     } catch {
-      setError(t`Failed to upload image`);
+      setError(t("error.failedToUploadImage", "Failed to upload image"));
     } finally {
       setUploading(false);
     }
@@ -52,7 +52,7 @@ export default function OnboardingPage() {
 
     const trimmed = name.trim();
     if (!trimmed) {
-      setError(t`Please enter your name`);
+      setError(t("validation.pleaseEnterName", "Please enter your name"));
       return;
     }
 
@@ -65,7 +65,7 @@ export default function OnboardingPage() {
       updateUser(updated);
       navigate("/", { replace: true });
     } catch {
-      setError(t`Failed to save profile`);
+      setError(t("error.failedToSaveProfile", "Failed to save profile"));
     } finally {
       setSaving(false);
     }
@@ -76,10 +76,10 @@ export default function OnboardingPage() {
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-semibold text-foreground">
-            {t`Welcome to Cypher`}
+            {t("profile.welcomeToCypher", "Welcome to Cypher")}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {t`Set up your profile to get started`}
+            {t("profile.setUpProfile", "Set up your profile to get started")}
           </p>
         </div>
 
@@ -115,7 +115,7 @@ export default function OnboardingPage() {
                 <Camera size={20} />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">{t`Upload a photo (optional)`}</p>
+            <p className="text-xs text-muted-foreground">{t("profile.uploadPhoto", "Upload a photo (optional)")}</p>
             <input
               ref={fileInputRef}
               type="file"
@@ -136,14 +136,14 @@ export default function OnboardingPage() {
               htmlFor="name"
               className="text-sm font-medium text-foreground"
             >
-              {t`Name`}
+              {t("common.name", "Name")}
             </label>
             <Input
               id="name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={t`Your name`}
+              placeholder={t("profile.yourName", "Your name")}
               required
               autoComplete="name"
               autoFocus
@@ -156,7 +156,7 @@ export default function OnboardingPage() {
             disabled={!name.trim()}
             className="w-full"
           >
-            {t`Continue`}
+            {t("common.continue", "Continue")}
           </Button>
         </form>
       </div>

@@ -33,7 +33,7 @@ export function Security() {
     setEmailError("");
 
     if (!newEmail.trim()) {
-      setEmailError(t`Please enter a new email address`);
+      setEmailError(t("settings.security.pleaseEnterNewEmail", "Please enter a new email address"));
       return;
     }
 
@@ -54,24 +54,24 @@ export function Security() {
     setPasswordSuccess("");
 
     if (!currentPassword) {
-      setPasswordError(t`Please enter your current password`);
+      setPasswordError(t("settings.security.pleaseEnterCurrentPassword", "Please enter your current password"));
       return;
     }
 
     if (newPassword.length < 8) {
-      setPasswordError(t`New password must be at least 8 characters`);
+      setPasswordError(t("validation.newPasswordMinChars", "New password must be at least 8 characters"));
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setPasswordError(t`Passwords do not match`);
+      setPasswordError(t("validation.passwordsDoNotMatch", "Passwords do not match"));
       return;
     }
 
     setPasswordLoading(true);
     try {
       await changePassword(currentPassword, newPassword);
-      setPasswordSuccess(t`Password updated successfully`);
+      setPasswordSuccess(t("settings.security.passwordUpdated", "Password updated successfully"));
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
@@ -88,7 +88,7 @@ export function Security() {
       <div className={styles.section}>
         <div className={styles.row}>
           <div className={styles.column}>
-            <p className={cn("text-sm", styles.title)}>{t`Email`}</p>
+            <p className={cn("text-sm", styles.title)}>{t("common.email", "Email")}</p>
             <p className="text-sm opacity-75">{user?.email}</p>
           </div>
         </div>
@@ -103,14 +103,14 @@ export function Security() {
           <form onSubmit={handleChangeEmail}>
             <div className={styles.row}>
               <div className={styles.column}>
-                <p className="text-sm opacity-75">{t`Enter a new email address`}</p>
+                <p className="text-sm opacity-75">{t("settings.security.enterNewEmail", "Enter a new email address")}</p>
               </div>
               <Input
                 className={styles.input}
                 type="email"
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
-                placeholder={t`New email address`}
+                placeholder={t("settings.security.newEmailAddress", "New email address")}
               />
             </div>
             <div className={styles.actions}>
@@ -119,16 +119,16 @@ export function Security() {
                 disabled={!newEmail.trim() || emailLoading}
                 loading={emailLoading}
               >
-                {t`Change Email`}
+                {t("settings.security.changeEmail", "Change Email")}
               </Button>
             </div>
           </form>
         ) : (
           <div>
             <div className="rounded-md bg-green-500/10 p-3 text-sm mb-3">
-              {t`We sent a verification link to`}{" "}
+              {t("settings.security.sentVerificationLink", "We sent a verification link to")}{" "}
               <span className="font-medium">{newEmail}</span>.{" "}
-              {t`Please check your inbox and click the link to confirm the change.`}
+              {t("settings.security.checkInbox", "Please check your inbox and click the link to confirm the change.")}
             </div>
             <Button
               variant="ghost"
@@ -137,7 +137,7 @@ export function Security() {
                 setNewEmail("");
               }}
             >
-              {t`Cancel`}
+              {t("common.cancel", "Cancel")}
             </Button>
           </div>
         )}
@@ -149,8 +149,8 @@ export function Security() {
       <div className={styles.section}>
         <div className={styles.row}>
           <div className={styles.column}>
-            <p className={cn("text-sm", styles.title)}>{t`Password`}</p>
-            <p className="text-sm opacity-75">{t`Change your account password`}</p>
+            <p className={cn("text-sm", styles.title)}>{t("common.password", "Password")}</p>
+            <p className="text-sm opacity-75">{t("settings.security.changeAccountPassword", "Change your account password")}</p>
           </div>
         </div>
 
@@ -169,7 +169,7 @@ export function Security() {
         <form onSubmit={handleChangePassword}>
           <div className={styles.row}>
             <div className={styles.column}>
-              <p className="text-sm opacity-75">{t`Current password`}</p>
+              <p className="text-sm opacity-75">{t("settings.security.currentPassword", "Current password")}</p>
             </div>
             <PasswordInput
               className={styles.input}
@@ -178,29 +178,29 @@ export function Security() {
                 setCurrentPassword(e.target.value);
                 setPasswordSuccess("");
               }}
-              placeholder={t`Current password`}
+              placeholder={t("settings.security.currentPassword", "Current password")}
             />
           </div>
           <div className={styles.row}>
             <div className={styles.column}>
-              <p className="text-sm opacity-75">{t`New password`}</p>
+              <p className="text-sm opacity-75">{t("auth.reset.newPassword", "New password")}</p>
             </div>
             <PasswordInput
               className={styles.input}
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              placeholder={t`New password`}
+              placeholder={t("auth.reset.newPassword", "New password")}
             />
           </div>
           <div className={styles.row}>
             <div className={styles.column}>
-              <p className="text-sm opacity-75">{t`Confirm new password`}</p>
+              <p className="text-sm opacity-75">{t("auth.reset.confirmNewPassword", "Confirm new password")}</p>
             </div>
             <PasswordInput
               className={styles.input}
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder={t`Confirm new password`}
+              placeholder={t("auth.reset.confirmNewPassword", "Confirm new password")}
             />
           </div>
           <div className={styles.actions}>
@@ -214,7 +214,7 @@ export function Security() {
               }
               loading={passwordLoading}
             >
-              {t`Change Password`}
+              {t("settings.security.changePassword", "Change Password")}
             </Button>
           </div>
         </form>

@@ -66,8 +66,8 @@ export function EditGroupDialog({
   const content = (
     <Tabs defaultValue="general">
       <TabsList className="grid w-full grid-cols-2">
-        <TabsTrigger value="general">{t`General`}</TabsTrigger>
-        <TabsTrigger value="members">{t`Members`}</TabsTrigger>
+        <TabsTrigger value="general">{t("common.general", "General")}</TabsTrigger>
+        <TabsTrigger value="members">{t("space.members", "Members")}</TabsTrigger>
       </TabsList>
       <TabsContent value="general">
         <GeneralTab
@@ -94,12 +94,12 @@ export function EditGroupDialog({
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
-              <DrawerTitle>{t`Space settings`}</DrawerTitle>
+              <DrawerTitle>{t("space.settings", "Space settings")}</DrawerTitle>
             </DrawerHeader>
             <div className="px-4">{content}</div>
             <DrawerFooter className="pt-4">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                {t`Close`}
+                {t("common.close", "Close")}
               </Button>
             </DrawerFooter>
           </div>
@@ -131,10 +131,10 @@ function GeneralTab({
       z.object({
         name: z
           .string()
-          .min(1, t`Space name is required`)
-          .min(3, t`Space name is too short`)
-          .max(50, t`Space name is too long`),
-        description: z.string().max(500, t`Description is too long`),
+          .min(1, t("validation.spaceNameRequired", "Space name is required"))
+          .min(3, t("validation.spaceNameTooShort", "Space name is too short"))
+          .max(50, t("validation.spaceNameTooLong", "Space name is too long")),
+        description: z.string().max(500, t("validation.descriptionTooLong", "Description is too long")),
       }),
     [t],
   );
@@ -180,8 +180,8 @@ function GeneralTab({
           name="name"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{t`Name`}</FormLabel>
-              <Input {...field} placeholder={t`Space name`} />
+              <FormLabel>{t("common.name", "Name")}</FormLabel>
+              <Input {...field} placeholder={t("space.spaceName", "Space name")} />
               <FormMessage />
             </FormItem>
           )}
@@ -192,8 +192,8 @@ function GeneralTab({
           name="description"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{t`Description`}</FormLabel>
-              <Textarea {...field} placeholder={t`Description`} rows={3} />
+              <FormLabel>{t("common.description", "Description")}</FormLabel>
+              <Textarea {...field} placeholder={t("common.description", "Description")} rows={3} />
               <FormMessage />
             </FormItem>
           )}
@@ -204,7 +204,7 @@ function GeneralTab({
           loading={isUpdating}
           className="w-full"
         >
-          {t`Update`}
+          {t("common.update", "Update")}
         </Button>
       </form>
     </Form>
@@ -258,10 +258,10 @@ function MembersTab({
       if (isMe) {
         // Leave group
         const confirmed = await getConfirmation({
-          title: t`Leave space`,
-          description: t`Are you sure you want to leave this space?`,
-          cancelText: t`Cancel`,
-          confirmText: t`Leave`,
+          title: t("space.leaveSpace", "Leave space"),
+          description: t("space.confirmLeaveSpace", "Are you sure you want to leave this space?"),
+          cancelText: t("common.cancel", "Cancel"),
+          confirmText: t("common.leave", "Leave"),
         });
         if (confirmed) {
           leaveSpace(spaceId);
@@ -269,10 +269,10 @@ function MembersTab({
       } else {
         // Kick member
         const confirmed = await getConfirmation({
-          title: t`Remove member`,
-          description: t`Are you sure you want to remove this member from this space?`,
-          cancelText: t`Cancel`,
-          confirmText: t`Remove`,
+          title: t("space.removeMember", "Remove member"),
+          description: t("space.confirmRemoveMember", "Are you sure you want to remove this member from this space?"),
+          cancelText: t("common.cancel", "Cancel"),
+          confirmText: t("common.remove", "Remove"),
         });
         if (confirmed) {
           removeMember({ spaceId, memberId: member.id });
@@ -286,11 +286,11 @@ function MembersTab({
       {/* Members list */}
       <div className="space-y-2">
         {isLoadingMembers && (
-          <p className="text-sm text-muted-foreground">{t`Loading...`}</p>
+          <p className="text-sm text-muted-foreground">{t("common.loading", "Loading...")}</p>
         )}
         {members?.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            {t`No members yet`}
+            {t("space.noMembers", "No members yet")}
           </p>
         )}
         {members?.map((member) => {
@@ -334,13 +334,13 @@ function MembersTab({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="owner">{t`Owner`}</SelectItem>
-                  <SelectItem value="editor">{t`Editor`}</SelectItem>
+                  <SelectItem value="owner">{t("space.owner", "Owner")}</SelectItem>
+                  <SelectItem value="editor">{t("share.editor", "Editor")}</SelectItem>
                   {!isOwner && (
                     <>
                       <SelectSeparator />
                       <SelectItem value="remove" className="text-destructive">
-                        {isMe ? t`Leave` : t`Remove`}
+                        {isMe ? t("common.leave", "Leave") : t("common.remove", "Remove")}
                       </SelectItem>
                     </>
                   )}
@@ -352,7 +352,7 @@ function MembersTab({
       </div>
 
       <Button variant="secondary" onClick={openInviteMembers} className="w-full">
-        {t`Invite members`}
+        {t("share.inviteMembers", "Invite members")}
       </Button>
 
       <AvatarPreviewDialog

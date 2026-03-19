@@ -15,7 +15,7 @@ export function EventOverlay({
   const duration = page.duration || 60;
   return (
     <div className={style.eventOverlay}>
-      <div className={style.eventTitle}>{page.title || t("Untitled")}</div>
+      <div className={style.eventTitle}>{page.title || t("common.untitled", "Untitled")}</div>
       <div className={style.eventTime}>
         {formatTimeRange(startMin, startMin + duration)}
       </div>

@@ -57,7 +57,7 @@ export default function UpdatePopup() {
             {/* Header */}
             <div className="flex justify-between items-center px-4 pt-4">
               <h2 id="update-popup-title" className="text-lg font-semibold">
-                {t`Update Available`}
+                {t("update.available", "Update Available")}
               </h2>
             </div>
 
@@ -67,7 +67,7 @@ export default function UpdatePopup() {
                 id="update-popup-description"
                 className="text-sm text-muted-foreground"
               >
-                {t`A new version of the app is available. Update now to get the latest features and improvements.`}
+                {t("update.newVersionAvailable", "A new version of the app is available. Update now to get the latest features and improvements.")}
               </p>
             </div>
 
@@ -77,17 +77,17 @@ export default function UpdatePopup() {
                 <Button
                   variant="outline"
                   onClick={dismissUpdate}
-                  aria-label={t`Dismiss update notification`}
+                  aria-label={t("update.dismiss", "Dismiss update notification")}
                 >
-                  {t`Later`}
+                  {t("common.later", "Later")}
                 </Button>
                 <Button
                   variant="default"
                   onClick={handleUpdate}
                   loading={isUpdating}
-                  aria-label={t`Update the app now`}
+                  aria-label={t("update.updateTheApp", "Update the app now")}
                 >
-                  {t`Update now`}
+                  {t("update.updateNow", "Update now")}
                 </Button>
               </div>
             </div>

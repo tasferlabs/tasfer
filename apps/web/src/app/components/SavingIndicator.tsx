@@ -41,7 +41,7 @@ export function SavingIndicator({ isSaving, className }: SavingIndicatorProps) {
         )}
       >
         <Loader2 className="h-4 w-4 animate-spin" />
-        <span>{t`Saving...`}</span>
+        <span>{t("common.saving", "Saving...")}</span>
       </div>
     );
   }
@@ -59,7 +59,7 @@ export function SavingIndicator({ isSaving, className }: SavingIndicatorProps) {
           )}
         >
           <Check className="h-4 w-4" />
-          <span>{t`Saved`}</span>
+          <span>{t("common.saved", "Saved")}</span>
         </motion.div>
       )}
     </AnimatePresence>

@@ -19,7 +19,7 @@ export function WordCountOverlay() {
       aria-label={`Word count: ${formattedCount}`}
     >
       <span className="text-xs font-medium text-muted-foreground">
-        {formattedCount} {wordCount === 1 ? t`word` : t`words`}
+        {formattedCount} {wordCount === 1 ? t("common.word", "word") : t("common.words", "words")}
       </span>
     </div>
   );

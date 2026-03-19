@@ -86,7 +86,7 @@ export const LinkEditPopover: React.FC<LinkEditPopoverProps> = ({
             <div className="flex items-center gap-2 pb-2 border-b border-border">
               <Link2 className="w-4 h-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold text-foreground">
-                {t`Edit Link`}
+                {t("editor.link.editLinkTitle", "Edit Link")}
               </h3>
             </div>
 
@@ -97,7 +97,7 @@ export const LinkEditPopover: React.FC<LinkEditPopoverProps> = ({
                   htmlFor="link-text"
                   className="text-xs font-medium text-muted-foreground"
                 >
-                  {t`Link Text`}
+                  {t("editor.link.linkText", "Link Text")}
                 </label>
                 <Input
                   id="link-text"
@@ -105,7 +105,7 @@ export const LinkEditPopover: React.FC<LinkEditPopoverProps> = ({
                   value={editedText}
                   onChange={(e) => handleTextChange(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder={t`Enter link text`}
+                  placeholder={t("editor.link.enterText", "Enter link text")}
                   className="h-9"
                   autoFocus
                 />
@@ -140,7 +140,7 @@ export const LinkEditPopover: React.FC<LinkEditPopoverProps> = ({
                 className="text-destructive hover:text-destructive hover:bg-destructive/10"
               >
                 <Trash2 className="w-4 h-4 me-2" />
-                {t`Clear Link`}
+                {t("editor.link.clearLink", "Clear Link")}
               </Button>
             </div>
           </div>

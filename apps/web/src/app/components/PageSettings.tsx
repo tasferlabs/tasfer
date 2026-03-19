@@ -151,10 +151,10 @@ function PageSettingsImpl({
 
   const handleDelete = async () => {
     const confirmed = await getConfirmation({
-      title: t`Delete Page`,
-      description: t`Are you sure you want to delete this page?`,
-      cancelText: t`Cancel`,
-      confirmText: t`Delete`,
+      title: t("page.deletePage", "Delete Page"),
+      description: t("page.confirmDeletePage", "Are you sure you want to delete this page?"),
+      cancelText: t("common.cancel", "Cancel"),
+      confirmText: t("common.delete", "Delete"),
     });
 
     if (confirmed && currentPageId) {
@@ -169,7 +169,7 @@ function PageSettingsImpl({
       className="text-muted-foreground hover:text-foreground"
     >
       <MoreVertical className="h-4 w-4" />
-      <span className="sr-only">{t`Page settings`}</span>
+      <span className="sr-only">{t("page.settings", "Page settings")}</span>
     </Button>
   );
 
@@ -178,14 +178,14 @@ function PageSettingsImpl({
     label: string;
     className: string;
   }> = [
-    { value: "default", label: t`Default`, className: "font-sans" },
-    { value: "serif", label: t`Serif`, className: "font-serif" },
+    { value: "default", label: t("common.default", "Default"), className: "font-sans" },
+    { value: "serif", label: t("settings.fontSerif", "Serif"), className: "font-serif" },
   ];
 
   const content = (
     <div className="flex-1 py-4">
       <div className="space-y-3 px-4 pb-8">
-        <label className="text-sm font-medium sr-only">{t`Font style`}</label>
+        <label className="text-sm font-medium sr-only">{t("settings.fontStyle", "Font style")}</label>
         <div className="grid grid-cols-2 gap-2">
           {fontOptions.map((option) => (
             <button
@@ -221,13 +221,13 @@ function PageSettingsImpl({
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
             <label htmlFor="word-count-toggle" className="text-sm font-medium">
-              {t`Show word count`}
+              {t("settings.showWordCount", "Show word count")}
             </label>
             <p className="text-xs text-muted-foreground">
               <span className="font-medium">
                 {new Intl.NumberFormat(i18n.language).format(wordCount)}
               </span>{" "}
-              {wordCount === 1 ? t`word` : t`words`}
+              {wordCount === 1 ? t("common.word", "word") : t("common.words", "words")}
             </p>
           </div>
           <Switch
@@ -250,7 +250,7 @@ function PageSettingsImpl({
             }}
           >
             <Share2 className="h-4 w-4" />
-            {t`Share`}
+            {t("common.share", "Share")}
           </Button> */}
           <Button
             variant="ghost"
@@ -259,7 +259,7 @@ function PageSettingsImpl({
             onClick={() => setShowRenameDialog(true)}
           >
             <Pencil className="h-4 w-4" />
-            {t`Rename`}
+            {t("common.rename", "Rename")}
           </Button>
 
           <Button
@@ -270,7 +270,7 @@ function PageSettingsImpl({
             disabled={isDeleting}
           >
             <Trash2 className="h-4 w-4" />
-            {t`Delete`}
+            {t("common.delete", "Delete")}
           </Button>
         </div>
       )}
@@ -286,7 +286,7 @@ function PageSettingsImpl({
           }}
         >
           <Search className="h-4 w-4" />
-          {t`Find in document`}
+          {t("editor.findInDocument", "Find in document")}
         </Button>
         {!isViewOnly && (
           <Button
@@ -296,7 +296,7 @@ function PageSettingsImpl({
             onClick={() => setShowImportDialog(true)}
           >
             <Replace className="h-4 w-4" />
-            {t`Replace`}
+            {t("common.replace", "Replace")}
           </Button>
         )}
         <Button
@@ -306,7 +306,7 @@ function PageSettingsImpl({
           onClick={() => setShowExportDialog(true)}
         >
           <Download className="h-4 w-4" />
-          {t`Export`}
+          {t("export.title", "Export")}
         </Button>
         <Button
           variant="ghost"
@@ -315,7 +315,7 @@ function PageSettingsImpl({
           onClick={() => setShowVersionHistory(true)}
         >
           <History className="h-4 w-4" />
-          {t`Version history`}
+          {t("snapshot.versionHistory", "Version history")}
         </Button>
       </div>
     </div>
@@ -328,7 +328,7 @@ function PageSettingsImpl({
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm h-full  flex flex-col">
             <DrawerHeader className="relative">
-              <DrawerTitle>{t`Page Settings`}</DrawerTitle>
+              <DrawerTitle>{t("page.settingsTitle", "Page Settings")}</DrawerTitle>
             </DrawerHeader>
             {content}
           </div>
@@ -342,7 +342,7 @@ function PageSettingsImpl({
       <DropdownMenuTrigger asChild>{triggerButton}</DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[280px] p-0 shadow-2xl">
         <DropdownMenuLabel className="sr-only">
-          {t`Page Settings`}
+          {t("page.settingsTitle", "Page Settings")}
         </DropdownMenuLabel>
         {content}
       </DropdownMenuContent>
@@ -400,7 +400,7 @@ function RenameDialog({ open, onOpenChange }: RenameDialogProps) {
         onKeyDown={(e) => {
           if (e.key === "Enter") handleRename();
         }}
-        placeholder={t`Page title`}
+        placeholder={t("page.pageTitle", "Page title")}
       />
     </div>
   );
@@ -411,15 +411,15 @@ function RenameDialog({ open, onOpenChange }: RenameDialogProps) {
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
-              <DrawerTitle>{t`Rename page`}</DrawerTitle>
+              <DrawerTitle>{t("page.renamePage", "Rename page")}</DrawerTitle>
             </DrawerHeader>
             <div className="px-4">{content}</div>
             <DrawerFooter className="pt-4">
               <Button onClick={handleRename} disabled={isPending}>
-                {t`Save`}
+                {t("common.save", "Save")}
               </Button>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                {t`Cancel`}
+                {t("common.cancel", "Cancel")}
               </Button>
             </DrawerFooter>
           </div>
@@ -432,12 +432,12 @@ function RenameDialog({ open, onOpenChange }: RenameDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t`Rename page`}</DialogTitle>
+          <DialogTitle>{t("page.renamePage", "Rename page")}</DialogTitle>
         </DialogHeader>
         {content}
         <DialogFooter>
           <Button onClick={handleRename} disabled={isPending}>
-            {t`Save`}
+            {t("common.save", "Save")}
           </Button>
         </DialogFooter>
       </DialogContent>

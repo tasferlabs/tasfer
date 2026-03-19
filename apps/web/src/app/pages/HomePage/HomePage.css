@@ -1,0 +1,461 @@
+/* ── Base ── */
+
+.home {
+  --home-mono:
+    ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --home-text:
+    "Noto Sans Arabic", ui-monospace, "SFMono-Regular", "SF Mono", Menlo,
+    Consolas, "Liberation Mono", monospace;
+
+  position: relative;
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--home-text);
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Grid Background ── */
+
+.home-grid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100vh;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: radial-gradient(
+    ellipse 80% 60% at 50% 30%,
+    black 20%,
+    transparent 70%
+  );
+  -webkit-mask-image: radial-gradient(
+    ellipse 80% 60% at 50% 30%,
+    black 20%,
+    transparent 70%
+  );
+  z-index: 0;
+}
+
+/* ── Nav ── */
+
+.home-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 40px;
+  background: oklch(from var(--background) l c h / 85%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.home-logo {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--primary);
+  text-transform: lowercase;
+}
+
+.home-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+/* ── Links & Buttons ── */
+
+.home-link {
+  color: var(--muted-foreground);
+  text-decoration: none;
+  font-size: 13px;
+  transition: color 0.15s;
+}
+
+.home-link:hover {
+  color: var(--foreground);
+}
+
+.home-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 20px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-family: var(--home-text);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.home-btn:hover {
+  opacity: 0.85;
+}
+
+.home-btn-lg {
+  padding: 12px 32px;
+  font-size: 14px;
+}
+
+/* ── Hero ── */
+
+.home-hero {
+  position: relative;
+  z-index: 1;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 120px 40px 100px;
+}
+
+.home-hero-label {
+  font-family: var(--home-mono);
+  font-size: 12px;
+  color: oklch(from var(--primary) l c h / 60%);
+  margin-bottom: 24px;
+  letter-spacing: 0.05em;
+}
+
+.home-title {
+  font-family: var(--home-text);
+  font-size: clamp(32px, 6vw, 56px);
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--foreground);
+  margin: 0 0 28px;
+  letter-spacing: -0.02em;
+}
+
+.home-title-accent {
+  color: var(--primary);
+}
+
+.home-subtitle {
+  font-size: 15px;
+  color: var(--muted-foreground);
+  max-width: 520px;
+  margin: 0 0 40px;
+  line-height: 1.8;
+}
+
+.home-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
+/* ── Sections ── */
+
+.home-section {
+  position: relative;
+  z-index: 1;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 80px 40px;
+  border-top: 1px solid var(--border);
+}
+
+.home-section-label {
+  font-family: var(--home-mono);
+  font-size: 14px;
+  color: var(--primary);
+  margin-bottom: 32px;
+  letter-spacing: 0.05em;
+}
+
+/* ── Manifesto ── */
+
+.home-manifesto {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.home-manifesto p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.9;
+  color: var(--muted-foreground);
+}
+
+.home-manifesto p:first-child {
+  color: var(--foreground);
+}
+
+/* ── Architecture Grid ── */
+
+.home-arch-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+}
+
+.home-arch-card {
+  padding: 28px;
+  background: var(--background);
+}
+
+.home-arch-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+  margin-bottom: 12px;
+  letter-spacing: 0.03em;
+}
+
+.home-arch-indicator {
+  width: 6px;
+  height: 6px;
+  background: var(--primary);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.home-arch-card p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  line-height: 1.8;
+}
+
+/* ── Terminal ── */
+
+.home-terminal {
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  overflow: hidden;
+  direction: ltr;
+  text-align: left;
+}
+
+.home-terminal-header {
+  display: flex;
+  gap: 6px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.home-terminal-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.home-terminal-dot--red {
+  background: #ef4444;
+}
+
+.home-terminal-dot--yellow {
+  background: #eab308;
+}
+
+.home-terminal-dot--green {
+  background: var(--primary);
+}
+
+.home-terminal-body {
+  padding: 20px 24px;
+  font-family: var(--home-mono);
+}
+
+.home-terminal-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-terminal-line--last {
+  margin-top: 16px;
+}
+
+.home-terminal-prompt {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.home-terminal-cmd {
+  color: var(--foreground);
+}
+
+.home-terminal-output {
+  display: flex;
+  gap: 16px;
+  padding-inline-start: 20px;
+}
+
+.home-terminal-key {
+  color: var(--muted-foreground);
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+.home-terminal-val {
+  color: var(--primary);
+}
+
+.home-terminal-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 16px;
+  background: var(--primary);
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ── Principles ── */
+
+.home-principles {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.home-principle {
+  display: flex;
+  gap: 24px;
+  padding: 28px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.home-principle:first-child {
+  padding-top: 0;
+}
+
+.home-principle:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.home-principle-num {
+  font-size: 12px;
+  color: oklch(from var(--primary) l c h / 60%);
+  font-weight: 600;
+  padding-top: 2px;
+  flex-shrink: 0;
+}
+
+.home-principle h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.home-principle p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  line-height: 1.8;
+}
+
+/* ── CTA ── */
+
+.home-cta {
+  text-align: center;
+  padding: 100px 40px;
+}
+
+.home-cta-title {
+  font-family: var(--home-text);
+  font-size: clamp(24px, 4vw, 36px);
+  font-weight: 700;
+  color: var(--foreground);
+  margin: 0 0 16px;
+  letter-spacing: -0.01em;
+}
+
+.home-cta-sub {
+  font-size: 14px;
+  color: var(--muted-foreground);
+  margin: 0 0 36px;
+}
+
+/* ── Footer ── */
+
+.home-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 40px;
+  border-top: 1px solid var(--border);
+}
+
+.home-footer-text {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  letter-spacing: 0.03em;
+}
+
+/* ── Mobile ── */
+
+@media (max-width: 640px) {
+  .home-nav {
+    padding: 16px 20px;
+  }
+
+  .home-hero {
+    padding: 80px 20px 60px;
+  }
+
+  .home-section {
+    padding: 60px 20px;
+  }
+
+  .home-arch-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-terminal-key {
+    min-width: 100px;
+  }
+
+  .home-terminal-output {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .home-principle {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .home-footer {
+    flex-direction: column;
+    gap: 12px;
+    padding: 24px 20px;
+    text-align: center;
+  }
+
+  .home-hero-actions {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+}

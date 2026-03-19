@@ -74,7 +74,7 @@ export default function VerifyEmailPage() {
     setError("");
 
     if (code.length !== 6) {
-      setError(t`Please enter the 6-digit code`);
+      setError(t("auth.verify.enterCode", "Please enter the 6-digit code"));
       return;
     }
 
@@ -109,9 +109,9 @@ export default function VerifyEmailPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-2xl font-semibold text-foreground">{t`Check your email`}</h1>
+          <h1 className="text-2xl font-semibold text-foreground">{t("auth.verify.checkEmail", "Check your email")}</h1>
           <p className="text-sm text-muted-foreground">
-            {t`We sent a 6-digit code to`} <span className="font-medium text-foreground">{email}</span>
+            {t("auth.verify.sentCodeTo", "We sent a 6-digit code to")} <span className="font-medium text-foreground">{email}</span>
           </p>
         </div>
 
@@ -124,13 +124,13 @@ export default function VerifyEmailPage() {
 
           {resent && (
             <div className="rounded-md bg-green-500/10 p-3 text-sm ">
-              {t`A new code has been sent to your email.`}
+              {t("auth.verify.newCodeSent", "A new code has been sent to your email.")}
             </div>
           )}
 
           <div className="space-y-3">
             <label className="text-sm font-medium text-foreground text-center block">
-              {t`Verification code`}
+              {t("auth.verify.verificationCode", "Verification code")}
             </label>
             <div className="flex gap-3 justify-center">
               {digits.map((digit, i) => (
@@ -151,24 +151,24 @@ export default function VerifyEmailPage() {
           </div>
 
           <Button type="submit" loading={loading} className="w-full">
-            {t`Verify email`}
+            {t("auth.verify.verifyEmail", "Verify email")}
           </Button>
         </form>
 
         <div className="text-center space-y-2">
           <p className="text-sm text-muted-foreground">
-            {t`Didn't get the code?`}{" "}
+            {t("auth.verify.didntGetCode", "Didn't get the code?")}{" "}
             <button
               onClick={handleResend}
               disabled={resending}
               className="text-primary hover:underline disabled:opacity-50"
             >
-              {resending ? t`Sending...` : t`Resend code`}
+              {resending ? t("common.sending", "Sending...") : t("auth.verify.resendCode", "Resend code")}
             </button>
           </p>
           <p className="text-sm text-muted-foreground">
             <Link to="/register" className="text-primary hover:underline">
-              {t`Use a different email`}
+              {t("settings.security.useDifferentEmail", "Use a different email")}
             </Link>
           </p>
         </div>

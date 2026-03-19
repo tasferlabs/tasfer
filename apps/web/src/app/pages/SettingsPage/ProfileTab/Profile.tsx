@@ -88,8 +88,8 @@ export function Profile() {
       <div className={styles.section}>
         <div className={styles.row}>
           <div className={styles.column}>
-            <p className={cn("text-sm", styles.title)}>{t`Avatar`}</p>
-            <p className="text-sm opacity-75">{t`Click to upload a profile picture`}</p>
+            <p className={cn("text-sm", styles.title)}>{t("common.avatar", "Avatar")}</p>
+            <p className="text-sm opacity-75">{t("profile.clickToUpload", "Click to upload a profile picture")}</p>
           </div>
 
           <div className={styles.avatarSection}>
@@ -102,7 +102,7 @@ export function Profile() {
                   className="w-fit px-1 pe-2 gap-1"
                 >
                   <Trash size={12} />
-                  {t`Remove`}
+                  {t("common.remove", "Remove")}
                 </Button>
               )}
               <div
@@ -147,15 +147,15 @@ export function Profile() {
       <div className={styles.section}>
         <div className={styles.row}>
           <div className={styles.column}>
-            <p className={cn("text-sm", styles.title)}>{t`Name`}</p>
-            <p className="text-sm opacity-75">{t`Your display name`}</p>
+            <p className={cn("text-sm", styles.title)}>{t("common.name", "Name")}</p>
+            <p className="text-sm opacity-75">{t("profile.displayName", "Your display name")}</p>
           </div>
 
           <Input
             className={styles.nameInput}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder={t`Enter your name`}
+            placeholder={t("profile.enterName", "Enter your name")}
           />
         </div>
       </div>
@@ -166,7 +166,7 @@ export function Profile() {
           disabled={!hasChanges || saving}
           loading={saving || uploading}
         >
-          {t`Save`}
+          {t("common.save", "Save")}
         </Button>
       </div>
 

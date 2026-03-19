@@ -123,7 +123,7 @@ function SnapshotItem({ snapshot, onPreview }: SnapshotItemProps) {
           />
           <p className="text-xs text-muted-foreground">
             {snapshot.blockCount}{" "}
-            {snapshot.blockCount === 1 ? t`block` : t`blocks`}
+            {snapshot.blockCount === 1 ? t("blocks.blockKw", "block") : t("blocks.blocksKw", "blocks")}
           </p>
         </div>
       </div>
@@ -134,7 +134,7 @@ function SnapshotItem({ snapshot, onPreview }: SnapshotItemProps) {
         className="text-muted-foreground hover:text-foreground shrink-0"
       >
         <EyeIcon className="h-3.5 w-3.5 me-1.5" />
-        {t`Preview`}
+        {t("common.preview", "Preview")}
       </Button>
     </div>
   );
@@ -168,7 +168,7 @@ function SnapshotRestoreContent({
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground mb-4" />
-        <p className="text-muted-foreground">{t`Loading snapshots...`}</p>
+        <p className="text-muted-foreground">{t("snapshot.loading", "Loading snapshots...")}</p>
       </div>
     );
   }
@@ -177,9 +177,9 @@ function SnapshotRestoreContent({
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <History className="h-12 w-12 text-muted-foreground/50 mb-4" />
-        <p className="text-muted-foreground">{t`No snapshots available`}</p>
+        <p className="text-muted-foreground">{t("snapshot.noSnapshots", "No snapshots available")}</p>
         <p className="text-xs text-muted-foreground/70 mt-1">
-          {t`Snapshots are created automatically as you edit`}
+          {t("snapshot.createdAutomatically", "Snapshots are created automatically as you edit")}
         </p>
       </div>
     );
@@ -278,10 +278,10 @@ export function SnapshotRestore({
   const handleRestore = useCallback(
     async (snapshot: Snapshot) => {
       const confirmed = await getConfirmation({
-        title: t`Restore this version?`,
-        description: t`This will replace your current content with the selected snapshot. Any unsaved changes will be lost.`,
-        cancelText: t`Cancel`,
-        confirmText: t`Restore`,
+        title: t("snapshot.restoreVersion", "Restore this version?"),
+        description: t("snapshot.willReplace", "This will replace your current content with the selected snapshot. Any unsaved changes will be lost."),
+        cancelText: t("common.cancel", "Cancel"),
+        confirmText: t("common.restore", "Restore"),
       });
 
       if (!confirmed) return;
@@ -320,9 +320,9 @@ export function SnapshotRestore({
         <Drawer open={open} onOpenChange={handleOpenChange}>
           <DrawerContent className="max-h-[85vh]">
             <DrawerHeader>
-              <DrawerTitle>{t`Version history`}</DrawerTitle>
+              <DrawerTitle>{t("snapshot.versionHistory", "Version history")}</DrawerTitle>
               <DrawerDescription>
-                {t`Restore a previous version of this page`}
+                {t("snapshot.restorePrevious", "Restore a previous version of this page")}
               </DrawerDescription>
             </DrawerHeader>
             <SnapshotRestoreContent
@@ -332,7 +332,7 @@ export function SnapshotRestore({
             />
             <DrawerFooter>
               <DrawerClose asChild>
-                <Button variant="outline">{t`Cancel`}</Button>
+                <Button variant="outline">{t("common.cancel", "Cancel")}</Button>
               </DrawerClose>
             </DrawerFooter>
           </DrawerContent>
@@ -364,9 +364,9 @@ export function SnapshotRestore({
         className="w-full sm:!max-w-xl md:!max-w-4xl lg:!max-w-5xl xl:!max-w-6xl flex flex-col"
       >
         <SheetHeader>
-          <SheetTitle>{t`Version history`}</SheetTitle>
+          <SheetTitle>{t("snapshot.versionHistory", "Version history")}</SheetTitle>
           <SheetDescription>
-            {t`Restore a previous version of this page`}
+            {t("snapshot.restorePrevious", "Restore a previous version of this page")}
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-1 basis-full gap-4 overflow-hidden mt-4">
@@ -383,7 +383,7 @@ export function SnapshotRestore({
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
                 <Eye className="h-12 w-12 mb-4 opacity-50" />
-                <p>{t`Select a snapshot to preview`}</p>
+                <p>{t("snapshot.selectToPreview", "Select a snapshot to preview")}</p>
               </div>
             )}
           </div>

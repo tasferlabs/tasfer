@@ -254,7 +254,7 @@ export function DateTimeRangePickerOverlay({
     }
   };
 
-  const allDays = [t`Su`, t`Mo`, t`Tu`, t`We`, t`Th`, t`Fr`, t`Sa`];
+  const allDays = [t("calendar.dayAbbr.su", "Su"), t("calendar.dayAbbr.mo", "Mo"), t("calendar.dayAbbr.tu", "Tu"), t("calendar.dayAbbr.we", "We"), t("calendar.dayAbbr.th", "Th"), t("calendar.dayAbbr.fr", "Fr"), t("calendar.dayAbbr.sa", "Sa")];
   const weekDays = Array.from({ length: 7 }, (_, i) => allDays[(weekStart + i) % 7]);
 
   const renderCalendarGrid = (weeks: ReturnType<typeof generateWeeks>) => (
@@ -363,7 +363,7 @@ export function DateTimeRangePickerOverlay({
   const timeContent = (
     <div className={cn('flex gap-3', isDesktop ? 'flex-row' : 'flex-col')}>
       <div className="flex-1">
-        <span className="text-xs text-muted-foreground mb-1 block">{t`Start time`}</span>
+        <span className="text-xs text-muted-foreground mb-1 block">{t("calendar.startTime", "Start time")}</span>
         <TimePicker
           selectedHour={startSelectedHour}
           setSelectedHour={setStartSelectedHour}
@@ -373,7 +373,7 @@ export function DateTimeRangePickerOverlay({
         />
       </div>
       <div className="flex-1">
-        <span className="text-xs text-muted-foreground mb-1 block">{t`End time`}</span>
+        <span className="text-xs text-muted-foreground mb-1 block">{t("calendar.endTime", "End time")}</span>
         <TimePicker
           selectedHour={endSelectedHour}
           setSelectedHour={setEndSelectedHour}
@@ -390,8 +390,8 @@ export function DateTimeRangePickerOverlay({
       {type === 'datetime' && (
         <Tabs value={currentTab} onValueChange={(v) => setCurrentTab(v as 'date' | 'time')}>
           <TabsList className="w-full mb-2">
-            <TabsTrigger value="date" className="flex-1">{t`Date`}</TabsTrigger>
-            <TabsTrigger value="time" className="flex-1">{t`Time`}</TabsTrigger>
+            <TabsTrigger value="date" className="flex-1">{t("common.date", "Date")}</TabsTrigger>
+            <TabsTrigger value="time" className="flex-1">{t("common.time", "Time")}</TabsTrigger>
           </TabsList>
           <TabsContent value="date">{dateContent}</TabsContent>
           <TabsContent value="time">{timeContent}</TabsContent>
@@ -409,7 +409,7 @@ export function DateTimeRangePickerOverlay({
           {component}
           <div className="flex justify-end mt-2">
             <Button onClick={onClose} variant="secondary" size="sm">
-              {t`Done`}
+              {t("common.done", "Done")}
             </Button>
           </div>
         </DialogContent>

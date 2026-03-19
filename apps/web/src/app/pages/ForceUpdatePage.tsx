@@ -78,14 +78,14 @@ export default function ForceUpdatePage() {
           id="force-update-title"
           className="text-2xl font-semibold text-foreground"
         >
-          {isOnline ? t`Update Required` : t`You're Offline`}
+          {isOnline ? t("update.required", "Update Required") : t("error.youreOffline", "You're Offline")}
         </h1>
 
         {/* Description */}
         <p id="force-update-description" className="text-muted-foreground">
           {isOnline
-            ? t`A new version of the app is required to continue. Please update to access the latest features and security improvements.`
-            : t`Please connect to the internet to download the latest update and continue using the app.`}
+            ? t("update.newVersionRequired", "A new version of the app is required to continue. Please update to access the latest features and security improvements.")
+            : t("update.connectToInternet", "Please connect to the internet to download the latest update and continue using the app.")}
         </p>
 
         {/* Update button */}
@@ -96,7 +96,7 @@ export default function ForceUpdatePage() {
           size="lg"
           className="w-full"
         >
-          {isOnline ? t`Update Now` : t`Try Update`}
+          {isOnline ? t("update.updateNowTitle", "Update Now") : t("update.tryUpdate", "Try Update")}
         </Button>
 
         {/* Build info for debugging */}

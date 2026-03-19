@@ -56,11 +56,11 @@ export default function SettingsPage() {
   }
 
   const tabLabels: Record<Tab, string> = {
-    profile: t`Profile`,
-    security: t`Security`,
-    preferences: t`Preferences`,
-    data: t`Export`,
-    information: t`Information`,
+    profile: t("settings.profile", "Profile"),
+    security: t("settings.security.title", "Security"),
+    preferences: t("settings.preferences", "Preferences"),
+    data: t("export.title", "Export"),
+    information: t("common.information", "Information"),
   };
 
   const headerSlot = document.getElementById("top-action-bar-slot");
@@ -72,7 +72,7 @@ export default function SettingsPage() {
       <div className={style.container}>
         {headerSlot &&
           createPortal(
-            <span className={style.heading}>{t`Settings`}</span>,
+            <span className={style.heading}>{t("settings.title", "Settings")}</span>,
             headerSlot
           )}
 
@@ -117,17 +117,17 @@ export default function SettingsPage() {
     <div className={style.container}>
       {headerSlot &&
         createPortal(
-          <span className={style.heading}>{t`Settings`}</span>,
+          <span className={style.heading}>{t("settings.title", "Settings")}</span>,
           headerSlot
         )}
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className={style.tabsList}>
-          <TabsTrigger value="profile">{t`Profile`}</TabsTrigger>
-          <TabsTrigger value="security">{t`Security`}</TabsTrigger>
-          <TabsTrigger value="preferences">{t`Preferences`}</TabsTrigger>
-          <TabsTrigger value="data">{t`Export`}</TabsTrigger>
-          <TabsTrigger value="information">{t`Information`}</TabsTrigger>
+          <TabsTrigger value="profile">{t("settings.profile", "Profile")}</TabsTrigger>
+          <TabsTrigger value="security">{t("settings.security.title", "Security")}</TabsTrigger>
+          <TabsTrigger value="preferences">{t("settings.preferences", "Preferences")}</TabsTrigger>
+          <TabsTrigger value="data">{t("export.title", "Export")}</TabsTrigger>
+          <TabsTrigger value="information">{t("common.information", "Information")}</TabsTrigger>
         </TabsList>
         <TabsContent value={"profile"}>
           <Profile />

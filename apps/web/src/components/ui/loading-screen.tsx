@@ -12,7 +12,7 @@ export default function LoadingScreen() {
       <img
         className="animate-spin"
         src="/spinner.png"
-        alt={t`Loading...`}
+        alt={t("common.loading", "Loading...")}
         width={32}
         height={32}
       />

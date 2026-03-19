@@ -13,7 +13,7 @@ export function Information() {
         rel="noopener noreferrer"
         className={styles.link}
       >
-        <span className="text-sm">{t`Privacy Policy`}</span>
+        <span className="text-sm">{t("settings.privacyPolicy", "Privacy Policy")}</span>
         <ExternalLink size={16} className={styles.linkIcon} />
       </a>
 
@@ -23,12 +23,12 @@ export function Information() {
         rel="noopener noreferrer"
         className={styles.link}
       >
-        <span className="text-sm">{t`Terms of Service`}</span>
+        <span className="text-sm">{t("settings.termsOfService", "Terms of Service")}</span>
         <ExternalLink size={16} className={styles.linkIcon} />
       </a>
 
       <p className="text-xs text-muted-foreground mt-auto pt-8">
-        {t`Version`}: {__BUILD_TIMESTAMP__}
+        {t("common.version", "Version")}: {__BUILD_TIMESTAMP__}
       </p>
     </div>
   );

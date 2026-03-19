@@ -47,7 +47,7 @@ export function InviteMembersDialog({
   const FormSchema = useMemo(
     () =>
       z.object({
-        email: z.string().min(1, t`Email is required`).email(t`Invalid email address`),
+        email: z.string().min(1, t("validation.emailIsRequired", "Email is required")).email(t("validation.invalidEmail", "Invalid email address")),
       }),
     [t],
   );
@@ -83,7 +83,7 @@ export function InviteMembersDialog({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          {t`Add members to this space by entering their email address.`}
+          {t("space.addMembersDesc", "Add members to this space by entering their email address.")}
         </p>
 
         <FormField
@@ -94,7 +94,7 @@ export function InviteMembersDialog({
               <Input
                 {...field}
                 type="email"
-                placeholder={t`Email address`}
+                placeholder={t("common.emailAddress", "Email address")}
               />
               <FormMessage />
             </FormItem>
@@ -102,7 +102,7 @@ export function InviteMembersDialog({
         />
 
         <Button type="submit" loading={isAdding} className="w-full">
-          {t`Invite`}
+          {t("common.invite", "Invite")}
         </Button>
       </form>
     </Form>
@@ -114,12 +114,12 @@ export function InviteMembersDialog({
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
-              <DrawerTitle>{t`Invite members`}</DrawerTitle>
+              <DrawerTitle>{t("share.inviteMembers", "Invite members")}</DrawerTitle>
             </DrawerHeader>
             <div className="px-4">{content}</div>
             <DrawerFooter className="pt-4">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                {t`Close`}
+                {t("common.close", "Close")}
               </Button>
             </DrawerFooter>
           </div>
@@ -132,9 +132,9 @@ export function InviteMembersDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t`Invite members`}</DialogTitle>
+          <DialogTitle>{t("share.inviteMembers", "Invite members")}</DialogTitle>
           <DialogDescription>
-            {t`Invite people to collaborate in this space`}
+            {t("share.invitePeople", "Invite people to collaborate in this space")}
           </DialogDescription>
         </DialogHeader>
         {content}

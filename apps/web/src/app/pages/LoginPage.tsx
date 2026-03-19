@@ -47,8 +47,8 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-2xl font-semibold text-foreground">{t`Welcome back`}</h1>
-          <p className="text-sm text-muted-foreground">{t`Sign in to your account`}</p>
+          <h1 className="text-2xl font-semibold text-foreground">{t("auth.welcomeBack", "Welcome back")}</h1>
+          <p className="text-sm text-muted-foreground">{t("auth.signInToAccount", "Sign in to your account")}</p>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -63,7 +63,7 @@ export default function LoginPage() {
               htmlFor="email"
               className="text-sm font-medium text-foreground"
             >
-              {t`Email`}
+              {t("common.email", "Email")}
             </label>
             <Input
               id="email"
@@ -81,32 +81,32 @@ export default function LoginPage() {
                 htmlFor="password"
                 className="text-sm font-medium text-foreground"
               >
-                {t`Password`}
+                {t("common.password", "Password")}
               </label>
               <Link
                 to="/forgot-password"
                 className="text-sm text-primary hover:underline"
               >
-                {t`Forgot password?`}
+                {t("auth.forgotPassword", "Forgot password?")}
               </Link>
             </div>
             <PasswordInput
               id="password"
-              placeholder={t`Your password`}
+              placeholder={t("auth.yourPassword", "Your password")}
               autoComplete="current-password"
               {...register("password", { required: true })}
             />
           </div>
 
           <Button type="submit" loading={isSubmitting} className="w-full">
-            {t`Sign in`}
+            {t("auth.signIn", "Sign in")}
           </Button>
         </form>
 
         <p className="text-center text-sm text-muted-foreground">
-          {t`Don't have an account?`}{" "}
+          {t("auth.dontHaveAccount", "Don't have an account?")}{" "}
           <Link to="/register" className="text-primary hover:underline">
-            {t`Sign up`}
+            {t("auth.signUp", "Sign up")}
           </Link>
         </p>
       </div>

@@ -148,7 +148,7 @@ function ComboboxContent({
             value={ctx.search}
             onValueChange={ctx.setSearch}
             className="h-8 w-full border-b border-input/30 bg-input/30 px-3 text-sm outline-none placeholder:text-muted-foreground"
-            placeholder={t("Search...")}
+            placeholder={t("editor.search", "Search...")}
           />
           {children}
         </Command>
@@ -178,7 +178,7 @@ function ComboboxList({
       )}
     >
       <Command.Empty className="flex w-full justify-center py-2 text-center text-sm text-muted-foreground">
-        {t("No results")}
+        {t("common.noResults", "No results")}
       </Command.Empty>
       {typeof children === "function"
         ? ctx.items.map((item) => (children as (item: string) => React.ReactNode)(item))

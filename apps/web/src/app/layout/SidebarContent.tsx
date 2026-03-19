@@ -220,10 +220,10 @@ export function SidebarContent({
 
   async function leaveGroup(groupId: string) {
     const confirmed = await getConfirmation({
-      title: t("Leave space"),
-      description: t("Are you sure you want to leave this space?"),
-      confirmText: t("Leave"),
-      cancelText: t("Cancel"),
+      title: t("space.leaveSpace", "Leave space"),
+      description: t("space.confirmLeaveSpace", "Are you sure you want to leave this space?"),
+      confirmText: t("common.leave", "Leave"),
+      cancelText: t("common.cancel", "Cancel"),
     });
 
     if (confirmed) {
@@ -238,9 +238,9 @@ export function SidebarContent({
 
   // Helper to get a space's display name from its ID
   function getSpaceName(spaceId: string): string {
-    if (personalSpace?.id === spaceId) return t("Private");
+    if (personalSpace?.id === spaceId) return t("common.private", "Private");
     const group = groupSpaces.find((g) => g.id === spaceId);
-    return group?.name || t("space");
+    return group?.name || t("common.spaceKw", "space");
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -311,13 +311,13 @@ export function SidebarContent({
     if (isCrossSpace) {
       const targetName = getSpaceName(targetSpaceId);
       const confirmed = await getConfirmation({
-        title: t("Move page"),
+        title: t("page.movePage", "Move page"),
         description: t(
           'Move this page to "{{targetName}}"? All sub-pages will also be moved.',
           { targetName },
         ),
-        confirmText: t("Move"),
-        cancelText: t("Cancel"),
+        confirmText: t("common.move", "Move"),
+        cancelText: t("common.cancel", "Cancel"),
       });
       if (!confirmed) return;
     }
@@ -456,12 +456,12 @@ export function SidebarContent({
                 <DropdownMenuSeparator />
                 {avatarUrl && (
                   <DropdownMenuItem onSelect={() => setAvatarPreviewOpen(true)}>
-                    {t("View avatar")}
+                    {t("profile.viewAvatar", "View avatar")}
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem onSelect={logout}>
                   <SignOutIcon size={16} />
-                  {t("Sign out")}
+                  {t("auth.signOut", "Sign out")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -483,7 +483,7 @@ export function SidebarContent({
               onClick={() => setOpen(false)}
             >
               <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
-              <span className="sr-only">{t("Close sidebar")}</span>
+              <span className="sr-only">{t("sidebar.close", "Close sidebar")}</span>
             </Button>
           </div>
           <div className={style.appNavigationLinks}>
@@ -491,13 +491,13 @@ export function SidebarContent({
               <div className={style.appNavigationLinkIcon}>
                 <Icons.Gear width={24} height={24} />
               </div>
-              {t("Settings")}
+              {t("settings.title", "Settings")}
             </RouterLink>
             <RouterLink className={style.appNavigationLink} to={"/calendar"}>
               <div className={style.appNavigationLinkIcon}>
                 <Icons.Calendar width={24} height={24} />
               </div>
-              {t("Calendar")}
+              {t("calendar.title", "Calendar")}
             </RouterLink>
 
             <button
@@ -510,7 +510,7 @@ export function SidebarContent({
               <div className={style.appNavigationLinkIcon}>
                 <Icons.AddGroup />
               </div>
-              {t("Add space")}
+              {t("space.addSpace", "Add space")}
             </button>
           </div>
 
@@ -537,7 +537,7 @@ export function SidebarContent({
                           className={style.appSidebarSectionButton}
                         >
                           <Ellipsis size={20} />
-                          <span className="sr-only">{t("Space settings")}</span>
+                          <span className="sr-only">{t("space.settings", "Space settings")}</span>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
                           <DropdownMenuItem
@@ -547,7 +547,7 @@ export function SidebarContent({
                               setGroupSettingsId(group.id);
                             }}
                           >
-                            {t("Space settings")}
+                            {t("space.settings", "Space settings")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onSelect={(ev) => {
@@ -556,13 +556,13 @@ export function SidebarContent({
                               setInviteMembersId(group.id);
                             }}
                           >
-                            {t("Invite members")}
+                            {t("share.inviteMembers", "Invite members")}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             onClick={() => leaveGroup(group.id)}
                           >
-                            {t("Leave space")}
+                            {t("space.leaveSpace", "Leave space")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -572,7 +572,7 @@ export function SidebarContent({
                         disabled={isCreating}
                       >
                         <PlusIcon size={20} />
-                        <span className="sr-only">{t("Add page")}</span>
+                        <span className="sr-only">{t("page.addPage", "Add page")}</span>
                       </button>
                     </div>
                     <PagesArea parentId={null} spaceId={group.id} />
@@ -587,7 +587,7 @@ export function SidebarContent({
                         <div className={style.appSidebarSectionIcon}>
                           <Icons.Lock width={20} height={20} />
                         </div>
-                        {t("Private")}
+                        {t("common.private", "Private")}
                       </div>
                       <button
                         className={style.appSidebarSectionButton}
@@ -595,7 +595,7 @@ export function SidebarContent({
                         disabled={isCreating}
                       >
                         <PlusIcon size={20} />
-                        <span className="sr-only">{t("Add page")}</span>
+                        <span className="sr-only">{t("page.addPage", "Add page")}</span>
                       </button>
                     </div>
 
@@ -611,7 +611,7 @@ export function SidebarContent({
                 {activeId && activeDragData ? (
                   <div className={style.dragOverlay}>
                     <FileTextIcon size={20} />
-                    <span>{activeDragData.title || t("Untitled")}</span>
+                    <span>{activeDragData.title || t("common.untitled", "Untitled")}</span>
                   </div>
                 ) : null}
               </DragOverlay>
@@ -664,10 +664,10 @@ function AddGroupDialog({
       z.object({
         name: z
           .string()
-          .min(1, t("Space name is required"))
-          .min(3, t("Space name is too short"))
-          .max(50, t("Space name is too long")),
-        description: z.string().max(500, t("Description is too long")),
+          .min(1, t("validation.spaceNameRequired", "Space name is required"))
+          .min(3, t("validation.spaceNameTooShort", "Space name is too short"))
+          .max(50, t("validation.spaceNameTooLong", "Space name is too long")),
+        description: z.string().max(500, t("validation.descriptionTooLong", "Description is too long")),
       }),
     [t],
   );
@@ -695,7 +695,7 @@ function AddGroupDialog({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          {t("Create a new space to share pages with others")}
+          {t("space.createNewSpaceDesc", "Create a new space to share pages with others")}
         </p>
 
         <FormField
@@ -703,8 +703,8 @@ function AddGroupDialog({
           name="name"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{t("Name")}</FormLabel>
-              <Input {...field} placeholder={t("Space name")} />
+              <FormLabel>{t("common.name", "Name")}</FormLabel>
+              <Input {...field} placeholder={t("space.spaceName", "Space name")} />
               <FormMessage />
             </FormItem>
           )}
@@ -715,8 +715,8 @@ function AddGroupDialog({
           name="description"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{t("Description")}</FormLabel>
-              <Textarea {...field} placeholder={t("Description")} rows={3} />
+              <FormLabel>{t("common.description", "Description")}</FormLabel>
+              <Textarea {...field} placeholder={t("common.description", "Description")} rows={3} />
               <FormMessage />
             </FormItem>
           )}
@@ -724,7 +724,7 @@ function AddGroupDialog({
 
         {isMobile ? null : (
           <DialogFooter>
-            <Button type="submit">{t("Create")}</Button>
+            <Button type="submit">{t("common.create", "Create")}</Button>
           </DialogFooter>
         )}
       </form>
@@ -737,15 +737,15 @@ function AddGroupDialog({
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
-              <DrawerTitle>{t("Create new space")}</DrawerTitle>
+              <DrawerTitle>{t("space.createNewSpace", "Create new space")}</DrawerTitle>
             </DrawerHeader>
             <div className="px-4">{content}</div>
             <DrawerFooter className="pt-4">
               <Button onClick={form.handleSubmit(handleSubmit)}>
-                {t("Create")}
+                {t("common.create", "Create")}
               </Button>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                {t("Cancel")}
+                {t("common.cancel", "Cancel")}
               </Button>
             </DrawerFooter>
           </div>
@@ -758,7 +758,7 @@ function AddGroupDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t("Create new space")}</DialogTitle>
+          <DialogTitle>{t("space.createNewSpace", "Create new space")}</DialogTitle>
         </DialogHeader>
         {content}
       </DialogContent>

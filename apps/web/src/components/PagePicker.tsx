@@ -89,7 +89,7 @@ export function PagePicker({
                     !value && "text-muted-foreground",
                   )}
                 >
-                  {value ? value.title || t("Untitled") : t("None")}
+                  {value ? value.title || t("common.untitled", "Untitled") : t("common.none", "None")}
                 </span>
               </button>
             </PopoverTrigger>
@@ -123,12 +123,12 @@ export function PagePicker({
             ref={inputRef}
             value={search}
             onValueChange={setSearch}
-            placeholder={t("Search pages...")}
+            placeholder={t("editor.searchPages", "Search pages...")}
             className="h-9 w-full border-b border-border bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
           />
           <Command.List className="max-h-52 overflow-y-auto p-1">
             <Command.Empty className="py-4 text-center text-sm text-muted-foreground">
-              {t("No pages found")}
+              {t("page.noPagesFound", "No pages found")}
             </Command.Empty>
             {showNoneOption && (
               <Command.Item
@@ -140,7 +140,7 @@ export function PagePicker({
                 className="cursor-pointer flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm select-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
               >
                 <FileText size={14} className="shrink-0 text-muted-foreground" />
-                <span className="text-muted-foreground italic">{t("No parent (root)")}</span>
+                <span className="text-muted-foreground italic">{t("page.noParent", "No parent (root)")}</span>
               </Command.Item>
             )}
             {filtered?.map((page) => (
@@ -162,7 +162,7 @@ export function PagePicker({
                 />
                 <div className="min-w-0 flex-1 flex gap-2">
                   <span className="truncate block">
-                    {page.title || t("Untitled")}
+                    {page.title || t("common.untitled", "Untitled")}
                   </span>
                   {page.path && <PathBreadcrumb path={page.path} />}
                 </div>
@@ -185,12 +185,12 @@ function PathBreadcrumb({ path }: { path: { id: string; title: string }[] }) {
           <span className="flex items-center gap-0.5 text-xs text-muted-foreground min-w-0 overflow-hidden">
             {collapsed ? (
               <>
-                <span className="truncate max-w-[5rem]">{path[0].title || t("Untitled")}</span>
+                <span className="truncate max-w-[5rem]">{path[0].title || t("common.untitled", "Untitled")}</span>
                 <ChevronRight size={10} className="shrink-0 opacity-50" />
                 <span className="shrink-0">…</span>
                 <ChevronRight size={10} className="shrink-0 opacity-50" />
                 <span className="truncate max-w-[5rem]">
-                  {path[path.length - 1].title || t("Untitled")}
+                  {path[path.length - 1].title || t("common.untitled", "Untitled")}
                 </span>
               </>
             ) : (
@@ -202,7 +202,7 @@ function PathBreadcrumb({ path }: { path: { id: string; title: string }[] }) {
                   {i > 0 && (
                     <ChevronRight size={10} className="shrink-0 opacity-50" />
                   )}
-                  <span className="truncate max-w-[7rem]">{segment.title || t("Untitled")}</span>
+                  <span className="truncate max-w-[7rem]">{segment.title || t("common.untitled", "Untitled")}</span>
                 </span>
               ))
             )}
@@ -215,7 +215,7 @@ function PathBreadcrumb({ path }: { path: { id: string; title: string }[] }) {
                 {i > 0 && (
                   <ChevronRight size={10} className="shrink-0 opacity-50" />
                 )}
-                <span>{segment.title || t("Untitled")}</span>
+                <span>{segment.title || t("common.untitled", "Untitled")}</span>
               </span>
             ))}
           </div>

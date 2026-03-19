@@ -294,7 +294,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
             disabled={!imageUrl.trim()}
             className="w-full"
           >
-            {existingUrl ? t("Update Image") : t("Add Image")}
+            {existingUrl ? t("image.updateImage", "Update Image") : t("image.addImage", "Add Image")}
           </Button>
         </div>
       )}

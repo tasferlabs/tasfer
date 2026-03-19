@@ -137,7 +137,7 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
           disabled={isButtonDisabled}
           className="w-full"
         >
-          {url ? t("Update Link") : t("Add Link")}
+          {url ? t("editor.link.updateLink", "Update Link") : t("editor.link.addLink", "Add Link")}
         </Button>
       </div>
 
@@ -161,7 +161,7 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
             className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 px-3"
           >
             <ExternalLink className="w-4 h-4" />
-            {t("Open Link")}
+            {t("editor.link.openLinkTitle", "Open Link")}
           </button>
           {onClear && (
             <Button
@@ -172,7 +172,7 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
               className="text-destructive hover:text-destructive hover:bg-destructive/10"
             >
               <Trash2 className="w-4 h-4 me-2" />
-              {t("Clear Link")}
+              {t("editor.link.clearLink", "Clear Link")}
             </Button>
           )}
         </div>
@@ -195,7 +195,7 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
             <DrawerHeader>
               <DrawerTitle className="flex items-center gap-2">
                 <Link2 className="w-4 h-4 text-muted-foreground" />
-                {url ? t("Edit Link") : t("Add Link")}
+                {url ? t("editor.link.editLinkTitle", "Edit Link") : t("editor.link.addLink", "Add Link")}
               </DrawerTitle>
             </DrawerHeader>
             <div className="space-y-4 p-4">{content}</div>
@@ -235,7 +235,7 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
             <div className="flex items-center gap-2 pb-2 border-b border-border">
               <Link2 className="w-4 h-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold text-foreground">
-                {url ? t("Edit Link") : t("Add Link")}
+                {url ? t("editor.link.editLinkTitle", "Edit Link") : t("editor.link.addLink", "Add Link")}
               </h3>
             </div>
             {content}

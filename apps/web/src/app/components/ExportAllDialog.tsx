@@ -70,7 +70,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
   const allSpaces: SpaceOption[] = React.useMemo(() => {
     const spaces: SpaceOption[] = [];
     if (personalSpace) {
-      spaces.push({ id: personalSpace.id, name: t("Private"), type: "personal" });
+      spaces.push({ id: personalSpace.id, name: t("common.private", "Private"), type: "personal" });
     }
     for (const g of groupSpaces) {
       spaces.push({ id: g.id, name: g.name, type: "group" });
@@ -261,7 +261,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
       onOpenChange(false);
     } catch (err) {
       if (!abortRef.current) {
-        setError(err instanceof Error ? err.message : t("Export failed"));
+        setError(err instanceof Error ? err.message : t("export.failed", "Export failed"));
         setPhase("select");
       }
     }
@@ -278,11 +278,11 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t("Export all")}</DialogTitle>
+          <DialogTitle>{t("export.all", "Export all")}</DialogTitle>
           <DialogDescription>
             {phase === "select"
-              ? t("Select spaces to export as a ZIP file.")
-              : t("Exporting your pages...")}
+              ? t("export.selectSpaces", "Select spaces to export as a ZIP file.")
+              : t("export.exportingPages", "Exporting your pages...")}
           </DialogDescription>
         </DialogHeader>
 
@@ -302,13 +302,13 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
                   />
                   <span className="text-sm font-medium">{space.name}</span>
                   <span className="text-xs text-muted-foreground ms-auto">
-                    {space.type === "personal" ? t("Personal") : t("Space")}
+                    {space.type === "personal" ? t("common.personal", "Personal") : t("space.space", "Space")}
                   </span>
                 </label>
               ))}
               {allSpaces.length === 0 && (
                 <p className="text-sm text-muted-foreground py-2">
-                  {t("No spaces found.")}
+                  {t("space.noSpacesFound", "No spaces found.")}
                 </p>
               )}
             </div>
@@ -319,13 +319,13 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
 
             <DialogFooter>
               <Button variant="outline" onClick={handleCancel}>
-                {t("Cancel")}
+                {t("common.cancel", "Cancel")}
               </Button>
               <Button
                 onClick={handleExport}
                 disabled={selected.size === 0}
               >
-                {t("Export")}
+                {t("export.title", "Export")}
               </Button>
             </DialogFooter>
           </>
@@ -337,7 +337,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
               <div className="flex items-center gap-3">
                 <div className="size-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 <span className="text-sm text-muted-foreground">
-                  {t("Exporting...")} {progress.done}/{progress.total}
+                  {t("export.exporting", "Exporting...")} {progress.done}/{progress.total}
                 </span>
               </div>
               <div className="h-1.5 bg-muted rounded-full overflow-hidden">
@@ -354,7 +354,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
 
             <DialogFooter>
               <Button variant="outline" onClick={handleCancel}>
-                {t("Cancel")}
+                {t("common.cancel", "Cancel")}
               </Button>
             </DialogFooter>
           </>

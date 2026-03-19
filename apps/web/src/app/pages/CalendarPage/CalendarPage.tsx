@@ -1291,7 +1291,7 @@ export default function CalendarPage() {
                 {isRtl ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
               </button>
               <button className={style.todayButton} onClick={goToToday}>
-                {t("Today")}
+                {t("common.today", "Today")}
               </button>
               <button
                 className={style.headerNavButton}
@@ -1319,7 +1319,7 @@ export default function CalendarPage() {
             <button
               className={clsx(style.todayButtonMobile, "ms-auto")}
               onClick={goToToday}
-              aria-label={t("Today")}
+              aria-label={t("common.today", "Today")}
             >
               <svg
                 width="20"
@@ -1373,13 +1373,13 @@ export default function CalendarPage() {
                 className={`${style.viewToggleButton} ${viewMode === "day" ? style.viewToggleActive : ""}`}
                 onClick={() => setViewMode("day")}
               >
-                {t("Day")}
+                {t("calendar.day", "Day")}
               </button>
               <button
                 className={`${style.viewToggleButton} ${viewMode === "week" ? style.viewToggleActive : ""}`}
                 onClick={() => setViewMode("week")}
               >
-                {t("Week")}
+                {t("calendar.week", "Week")}
               </button>
             </div>
           </>,
@@ -1402,7 +1402,7 @@ export default function CalendarPage() {
                   : undefined
               }
             >
-              {page.title || t("Untitled")}
+              {page.title || t("common.untitled", "Untitled")}
             </div>
           ))}
         </div>

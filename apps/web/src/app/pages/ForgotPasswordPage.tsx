@@ -20,7 +20,7 @@ export default function ForgotPasswordPage() {
     setError("");
 
     if (!email.trim()) {
-      setError(t`Please enter your email address`);
+      setError(t("auth.pleaseEnterEmail", "Please enter your email address"));
       return;
     }
 
@@ -41,9 +41,9 @@ export default function ForgotPasswordPage() {
         {!sent ? (
           <>
             <div className="text-center space-y-2">
-              <h1 className="text-2xl font-semibold text-foreground">{t`Forgot password?`}</h1>
+              <h1 className="text-2xl font-semibold text-foreground">{t("auth.forgotPassword", "Forgot password?")}</h1>
               <p className="text-sm text-muted-foreground">
-                {t`Enter your email and we'll send you a link to reset your password.`}
+                {t("auth.reset.enterEmail", "Enter your email and we'll send you a link to reset your password.")}
               </p>
             </div>
 
@@ -56,7 +56,7 @@ export default function ForgotPasswordPage() {
 
               <div className="space-y-2">
                 <label htmlFor="email" className="text-sm font-medium text-foreground">
-                  {t`Email`}
+                  {t("common.email", "Email")}
                 </label>
                 <Input
                   id="email"
@@ -71,33 +71,33 @@ export default function ForgotPasswordPage() {
               </div>
 
               <Button type="submit" loading={loading} className="w-full">
-                {t`Send reset link`}
+                {t("auth.reset.sendResetLink", "Send reset link")}
               </Button>
             </form>
 
             <p className="text-center text-sm text-muted-foreground">
               <Link to="/login" className="text-primary hover:underline">
-                {t`Back to sign in`}
+                {t("auth.backToSignIn", "Back to sign in")}
               </Link>
             </p>
           </>
         ) : (
           <>
             <div className="text-center space-y-2">
-              <h1 className="text-2xl font-semibold text-foreground">{t`Check your email`}</h1>
+              <h1 className="text-2xl font-semibold text-foreground">{t("auth.verify.checkEmail", "Check your email")}</h1>
               <p className="text-sm text-muted-foreground">
-                {t`We sent a password reset link to`}{" "}
+                {t("auth.reset.sentLinkTo", "We sent a password reset link to")}{" "}
                 <span className="font-medium text-foreground">{email}</span>
               </p>
             </div>
 
             <div className="rounded-md bg-green-500/10 p-3 text-sm text-center">
-              {t`Click the link in the email to reset your password.`}
+              {t("auth.reset.clickLink", "Click the link in the email to reset your password.")}
             </div>
 
             <p className="text-center text-sm text-muted-foreground">
               <Link to="/login" className="text-primary hover:underline">
-                {t`Back to sign in`}
+                {t("auth.backToSignIn", "Back to sign in")}
               </Link>
             </p>
           </>

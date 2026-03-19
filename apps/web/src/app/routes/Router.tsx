@@ -10,18 +10,25 @@ function RestoreLastRoute() {
 
 const EditorPage = React.lazy(() => import("../pages/EditorPage"));
 const CalendarPage = React.lazy(
-  () => import("../pages/CalendarPage/CalendarPage")
+  () => import("../pages/CalendarPage/CalendarPage"),
 );
 const SettingsPage = React.lazy(
-  () => import("../pages/SettingsPage/SettingsPage")
+  () => import("../pages/SettingsPage/SettingsPage"),
 );
 const LoginPage = React.lazy(() => import("../pages/LoginPage"));
 const RegisterPage = React.lazy(() => import("../pages/RegisterPage"));
 const VerifyEmailPage = React.lazy(() => import("../pages/VerifyEmailPage"));
-const ForgotPasswordPage = React.lazy(() => import("../pages/ForgotPasswordPage"));
-const ResetPasswordPage = React.lazy(() => import("../pages/ResetPasswordPage"));
-const VerifyEmailChangePage = React.lazy(() => import("../pages/VerifyEmailChangePage"));
+const ForgotPasswordPage = React.lazy(
+  () => import("../pages/ForgotPasswordPage"),
+);
+const ResetPasswordPage = React.lazy(
+  () => import("../pages/ResetPasswordPage"),
+);
+const VerifyEmailChangePage = React.lazy(
+  () => import("../pages/VerifyEmailChangePage"),
+);
 const OnboardingPage = React.lazy(() => import("../pages/OnboardingPage"));
+const HomePage = React.lazy(() => import("../pages/HomePage/HomePage"));
 
 export const router = createBrowserRouter([
   {
@@ -105,6 +112,14 @@ export const router = createBrowserRouter([
         element: <SettingsPage />,
       },
     ],
+  },
+  {
+    path: "/home",
+    element: (
+      // <RedirectIfAuthed>
+      <HomePage />
+      // </RedirectIfAuthed>
+    ),
   },
   {
     path: "*",

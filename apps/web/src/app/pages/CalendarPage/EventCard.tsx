@@ -79,7 +79,7 @@ export function EventCard({
       {showTimeInline && compact ? (
         <div className={style.eventInline}>
           <span className={style.eventTitle} style={{ fontSize: "0.7rem" }}>
-            {page.title || t("Untitled")}
+            {page.title || t("common.untitled", "Untitled")}
           </span>
           <span className={style.eventTimeInline}>{formatTime(startMin)}</span>
         </div>
@@ -89,7 +89,7 @@ export function EventCard({
             className={style.eventTitle}
             style={compact ? { fontSize: "0.7rem" } : undefined}
           >
-            {page.title || t("Untitled")}
+            {page.title || t("common.untitled", "Untitled")}
           </span>
           {showTimeSeparate && (
             <div

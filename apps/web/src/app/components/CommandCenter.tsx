@@ -74,7 +74,7 @@ export function CommandCenter() {
     <Command.Dialog
       open={open}
       onOpenChange={setOpen}
-      label={t("Command Center")}
+      label={t("editor.commandCenter", "Command Center")}
       overlayClassName="fixed inset-0 z-50 bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
       contentClassName="fixed top-[20%] left-1/2 z-50 w-full max-w-[560px] -translate-x-1/2 bg-background ring-foreground/10 rounded-xl ring-1 shadow-lg overflow-hidden outline-none"
       shouldFilter={false}
@@ -82,17 +82,17 @@ export function CommandCenter() {
       <Command.Input
         value={search}
         onValueChange={setSearch}
-        placeholder={t("Search pages, actions...")}
+        placeholder={t("editor.searchPagesActions", "Search pages, actions...")}
         className="h-12 w-full border-b border-border bg-transparent px-4 text-sm outline-none placeholder:text-muted-foreground"
       />
       <Command.List className="max-h-[340px] overflow-y-auto p-2">
         <Command.Empty className="py-8 text-center text-sm text-muted-foreground">
-          {t("No results found")}
+          {t("common.noResultsFound", "No results found")}
         </Command.Empty>
 
         {/* Pages */}
         {pages && pages.length > 0 && (
-          <Command.Group heading={t("Pages")} className={groupHeadingClass}>
+          <Command.Group heading={t("page.pages", "Pages")} className={groupHeadingClass}>
             {pages.map((page) => (
               <Command.Item
                 key={page.id}
@@ -109,12 +109,12 @@ export function CommandCenter() {
                 />
                 <div className="flex-1 min-w-0">
                   <div className="truncate">
-                    {page.title || t("Untitled")}
+                    {page.title || t("common.untitled", "Untitled")}
                   </div>
                   {page.path && page.path.length > 0 && (
                     <div className="text-xs text-muted-foreground truncate">
                       {page.path
-                        .map((p) => p.title || t("Untitled"))
+                        .map((p) => p.title || t("common.untitled", "Untitled"))
                         .join(" / ")}
                     </div>
                   )}
@@ -125,10 +125,10 @@ export function CommandCenter() {
         )}
 
         {/* Actions */}
-        <Command.Group heading={t("Actions")} className={groupHeadingClass}>
+        <Command.Group heading={t("common.actions", "Actions")} className={groupHeadingClass}>
           <Command.Item
             value="new-page"
-            keywords={["create", t("create"), "new", t("new"), "page", t("page"), "add", t("add")]}
+            keywords={["create", t("common.createKw", "create"), "new", t("common.newKw", "new"), "page", t("common.pageKw", "page"), "add", t("common.add", "add")]}
             onSelect={() =>
               runAction(() => {
                 if (activeSpaceId) {
@@ -145,36 +145,36 @@ export function CommandCenter() {
             <div className={iconBoxClass}>
               <Plus size={16} />
             </div>
-            <span>{t("New Page")}</span>
+            <span>{t("page.newPageTitle", "New Page")}</span>
           </Command.Item>
 
           <Command.Item
             value="calendar"
-            keywords={["calendar", t("calendar"), "schedule", t("schedule"), "events", t("events")]}
+            keywords={["calendar", t("calendar.calendarKw", "calendar"), "schedule", t("calendar.scheduleKw", "schedule"), "events", t("calendar.eventsKw", "events")]}
             onSelect={() => runAction(() => navigate("/calendar"))}
             className={itemClass}
           >
             <div className={iconBoxClass}>
               <Calendar size={16} />
             </div>
-            <span>{t("Go to Calendar")}</span>
+            <span>{t("nav.goToCalendar", "Go to Calendar")}</span>
           </Command.Item>
 
           <Command.Item
             value="settings"
-            keywords={["settings", t("settings"), "preferences", t("preferences"), "account", t("account")]}
+            keywords={["settings", t("settings.settingsKw", "settings"), "preferences", t("settings.preferencesKw", "preferences"), "account", t("common.account", "account")]}
             onSelect={() => runAction(() => navigate("/settings"))}
             className={itemClass}
           >
             <div className={iconBoxClass}>
               <Settings size={16} />
             </div>
-            <span>{t("Go to Settings")}</span>
+            <span>{t("nav.goToSettings", "Go to Settings")}</span>
           </Command.Item>
 
           <Command.Item
             value="toggle-theme"
-            keywords={["theme", t("theme"), "dark", t("dark"), "light", t("light"), "mode", t("mode"), "appearance", t("appearance")]}
+            keywords={["theme", t("settings.theme.themeKw", "theme"), "dark", t("settings.theme.darkKw", "dark"), "light", t("settings.theme.lightKw", "light"), "mode", t("settings.theme.modeKw", "mode"), "appearance", t("settings.appearanceKw", "appearance")]}
             onSelect={() =>
               runAction(() =>
                 setTheme(effectiveTheme === "dark" ? "light" : "dark")
@@ -191,8 +191,8 @@ export function CommandCenter() {
             </div>
             <span>
               {effectiveTheme === "dark"
-                ? t("Switch to Light Mode")
-                : t("Switch to Dark Mode")}
+                ? t("settings.theme.switchToLight", "Switch to Light Mode")
+                : t("settings.theme.switchToDark", "Switch to Dark Mode")}
             </span>
           </Command.Item>
         </Command.Group>
@@ -204,19 +204,19 @@ export function CommandCenter() {
           <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">
             ↑↓
           </kbd>
-          {t("navigate")}
+          {t("page.navigateKw", "navigate")}
         </span>
         <span className="flex items-center gap-1">
           <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">
             ↵
           </kbd>
-          {t("select")}
+          {t("common.selectKw", "select")}
         </span>
         <span className="flex items-center gap-1">
           <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">
             esc
           </kbd>
-          {t("close")}
+          {t("common.closeKw", "close")}
         </span>
       </div>
     </Command.Dialog>

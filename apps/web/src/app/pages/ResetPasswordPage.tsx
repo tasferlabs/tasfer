@@ -23,12 +23,12 @@ export default function ResetPasswordPage() {
     setError("");
 
     if (newPassword.length < 8) {
-      setError(t`Password must be at least 8 characters`);
+      setError(t("validation.passwordMinChars", "Password must be at least 8 characters"));
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setError(t`Passwords do not match`);
+      setError(t("validation.passwordsDoNotMatch", "Passwords do not match"));
       return;
     }
 
@@ -47,12 +47,12 @@ export default function ResetPasswordPage() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
         <div className="w-full max-w-sm space-y-6 text-center">
-          <h1 className="text-2xl font-semibold text-foreground">{t`Invalid link`}</h1>
+          <h1 className="text-2xl font-semibold text-foreground">{t("editor.link.invalidLink", "Invalid link")}</h1>
           <p className="text-sm text-muted-foreground">
-            {t`This password reset link is invalid.`}
+            {t("error.passwordResetLinkInvalid", "This password reset link is invalid.")}
           </p>
           <Link to="/forgot-password" className="text-primary hover:underline text-sm">
-            {t`Request a new link`}
+            {t("auth.reset.requestNewLink", "Request a new link")}
           </Link>
         </div>
       </div>
@@ -63,9 +63,9 @@ export default function ResetPasswordPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-2xl font-semibold text-foreground">{t`Reset your password`}</h1>
+          <h1 className="text-2xl font-semibold text-foreground">{t("auth.reset.resetYourPassword", "Reset your password")}</h1>
           <p className="text-sm text-muted-foreground">
-            {t`Enter your new password below.`}
+            {t("auth.reset.enterNewPassword", "Enter your new password below.")}
           </p>
         </div>
 
@@ -78,13 +78,13 @@ export default function ResetPasswordPage() {
 
           <div className="space-y-2">
             <label htmlFor="new-password" className="text-sm font-medium text-foreground">
-              {t`New password`}
+              {t("auth.reset.newPassword", "New password")}
             </label>
             <PasswordInput
               id="new-password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              placeholder={t`At least 8 characters`}
+              placeholder={t("validation.atLeast8Chars", "At least 8 characters")}
               required
               autoComplete="new-password"
               autoFocus
@@ -93,13 +93,13 @@ export default function ResetPasswordPage() {
 
           <div className="space-y-2">
             <label htmlFor="confirm-password" className="text-sm font-medium text-foreground">
-              {t`Confirm new password`}
+              {t("auth.reset.confirmNewPassword", "Confirm new password")}
             </label>
             <PasswordInput
               id="confirm-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder={t`Repeat your new password`}
+              placeholder={t("auth.reset.repeatNewPassword", "Repeat your new password")}
               required
               autoComplete="new-password"
             />
@@ -111,13 +111,13 @@ export default function ResetPasswordPage() {
             disabled={!newPassword || !confirmPassword}
             className="w-full"
           >
-            {t`Reset password`}
+            {t("auth.reset.resetPassword", "Reset password")}
           </Button>
         </form>
 
         <p className="text-center text-sm text-muted-foreground">
           <Link to="/login" className="text-primary hover:underline">
-            {t`Back to sign in`}
+            {t("auth.backToSignIn", "Back to sign in")}
           </Link>
         </p>
       </div>

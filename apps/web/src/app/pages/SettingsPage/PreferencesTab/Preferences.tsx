@@ -37,8 +37,8 @@ export function Preferences() {
 
   async function onChangeLangaue(language: string) {
     const confirmed = await getConfirmation({
-      title: t`Are you sure?`,
-      description: t`Changing the language will reload the page.`,
+      title: t("common.areYouSure", "Are you sure?"),
+      description: t("settings.language.changingReload", "Changing the language will reload the page."),
     });
 
     if (!confirmed) return;
@@ -68,30 +68,30 @@ export function Preferences() {
     <div className={styles.container}>
       <div className={styles.row}>
         <div className={styles.column}>
-          <p className={cn("text-sm", styles.title)}>{t`Theme`}</p>
-          <p className="text-sm opacity-75">{t`Select theme for the application`}</p>
+          <p className={cn("text-sm", styles.title)}>{t("settings.theme.title", "Theme")}</p>
+          <p className="text-sm opacity-75">{t("settings.theme.selectForApp", "Select theme for the application")}</p>
         </div>
 
         <Select onValueChange={onChangeTheme} value={theme.theme}>
           <SelectTrigger className={styles.selectTrigger}>
-            <SelectValue placeholder={t`Select theme`} />
+            <SelectValue placeholder={t("settings.theme.select", "Select theme")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="light">{t`Light`}</SelectItem>
-            <SelectItem value="dark">{t`Dark`}</SelectItem>
-            <SelectItem value="system">{t`System`}</SelectItem>
+            <SelectItem value="light">{t("settings.theme.light", "Light")}</SelectItem>
+            <SelectItem value="dark">{t("settings.theme.dark", "Dark")}</SelectItem>
+            <SelectItem value="system">{t("settings.theme.system", "System")}</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
       <div className={styles.row}>
         <div className={styles.column}>
-          <p className={cn("text-sm", styles.title)}>{t`Language`}</p>
-          <p className="text-sm opacity-75">{t`Select language for the application`}</p>
+          <p className={cn("text-sm", styles.title)}>{t("settings.language.title", "Language")}</p>
+          <p className="text-sm opacity-75">{t("settings.language.selectForApp", "Select language for the application")}</p>
         </div>
         <Select onValueChange={onChangeLangaue} value={i18n.language}>
           <SelectTrigger className={styles.selectTrigger}>
-            <SelectValue placeholder={t`Select language`} />
+            <SelectValue placeholder={t("settings.language.select", "Select language")} />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="en">English</SelectItem>
@@ -102,32 +102,32 @@ export function Preferences() {
 
       <div className={styles.row}>
         <div className={styles.column}>
-          <p className={cn("text-sm", styles.title)}>{t`Time format`}</p>
-          <p className="text-sm opacity-75">{t`Choose how times are displayed`}</p>
+          <p className={cn("text-sm", styles.title)}>{t("settings.dateTime.timeFormat", "Time format")}</p>
+          <p className="text-sm opacity-75">{t("settings.dateTime.chooseTimeFormat", "Choose how times are displayed")}</p>
         </div>
         <Select onValueChange={onChangeTimeFormat} value={timeFormat}>
           <SelectTrigger className={styles.selectTrigger}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="system">{t`System default`}</SelectItem>
-            <SelectItem value="12h">{t`12-hour`} ({new Intl.DateTimeFormat(i18n.language, { hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(2000, 0, 1, 14, 30))})</SelectItem>
-            <SelectItem value="24h">{t`24-hour`} (14:30)</SelectItem>
+            <SelectItem value="system">{t("settings.theme.systemDefault", "System default")}</SelectItem>
+            <SelectItem value="12h">{t("settings.dateTime.12hour", "12-hour")} ({new Intl.DateTimeFormat(i18n.language, { hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(2000, 0, 1, 14, 30))})</SelectItem>
+            <SelectItem value="24h">{t("settings.dateTime.24hour", "24-hour")} (14:30)</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
       <div className={styles.row}>
         <div className={styles.column}>
-          <p className={cn("text-sm", styles.title)}>{t`Date format`}</p>
-          <p className="text-sm opacity-75">{t`Choose how dates are displayed`}</p>
+          <p className={cn("text-sm", styles.title)}>{t("settings.dateTime.dateFormat", "Date format")}</p>
+          <p className="text-sm opacity-75">{t("settings.dateTime.chooseDateFormat", "Choose how dates are displayed")}</p>
         </div>
         <Select onValueChange={onChangeDateFormat} value={dateFormat}>
           <SelectTrigger className={styles.selectTrigger}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="system">{t`System default`}</SelectItem>
+            <SelectItem value="system">{t("settings.theme.systemDefault", "System default")}</SelectItem>
             <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
             <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
             <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
@@ -137,17 +137,17 @@ export function Preferences() {
 
       <div className={styles.row}>
         <div className={styles.column}>
-          <p className={cn("text-sm", styles.title)}>{t`Week starts on`}</p>
-          <p className="text-sm opacity-75">{t`Choose which day the week begins`}</p>
+          <p className={cn("text-sm", styles.title)}>{t("settings.dateTime.weekStartsOn", "Week starts on")}</p>
+          <p className="text-sm opacity-75">{t("settings.dateTime.chooseWeekStart", "Choose which day the week begins")}</p>
         </div>
         <Select onValueChange={onChangeWeekStart} value={String(weekStartDay)}>
           <SelectTrigger className={styles.selectTrigger}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="1">{t`Monday`}</SelectItem>
-            <SelectItem value="0">{t`Sunday`}</SelectItem>
-            <SelectItem value="6">{t`Saturday`}</SelectItem>
+            <SelectItem value="1">{t("settings.dateTime.monday", "Monday")}</SelectItem>
+            <SelectItem value="0">{t("settings.dateTime.sunday", "Sunday")}</SelectItem>
+            <SelectItem value="6">{t("settings.dateTime.saturday", "Saturday")}</SelectItem>
           </SelectContent>
         </Select>
       </div>

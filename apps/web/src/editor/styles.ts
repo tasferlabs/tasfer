@@ -160,29 +160,29 @@ export function getEditorStyles(): EditorStyles {
           backgroundColor: getCSSVariable("--muted"),
           textColor: getCSSVariable("--muted-foreground"),
           borderColor: getCSSVariable("--border"),
-          text: i18next.t("Click to upload image"),
+          text: i18next.t("image.clickToUpload", "Click to upload image"),
         },
         loading: {
           backgroundColor: getCSSVariable("--muted"),
           textColor: getCSSVariable("--muted-foreground"),
-          text: i18next.t("Loading image..."),
+          text: i18next.t("image.loading", "Loading image..."),
         },
         uploading: {
           backgroundColor: getCSSVariable("--muted"),
           textColor: getCSSVariable("--muted-foreground"),
-          text: i18next.t("Uploading image..."),
+          text: i18next.t("image.uploading", "Uploading image..."),
         },
         error: {
           backgroundColor: getCSSVariable("--destructive"),
           textColor: getCSSVariable("--destructive-foreground"),
-          text: i18next.t("Failed to upload image"),
-          retryText: i18next.t("Click to retry"),
+          text: i18next.t("error.failedToUploadImage", "Failed to upload image"),
+          retryText: i18next.t("common.clickToRetry", "Click to retry"),
         },
         hover: {
           overlayColor: getCSSVariable("--editor-cover-image-overlay"),
           buttonBackgroundColor: getCSSVariable("--background"),
           buttonTextColor: getCSSVariable("--foreground"),
-          buttonText: i18next.t("Change Image"),
+          buttonText: i18next.t("image.changeImage", "Change Image"),
         },
         dimensions: {
           height: IMAGE_DEFAULT_HEIGHT,
@@ -218,21 +218,21 @@ export function getEditorStyles(): EditorStyles {
     },
     placeholder: {
       heading1: {
-        text: placeholderOverrides?.heading1?.text ?? i18next.t("Heading 1"),
+        text: placeholderOverrides?.heading1?.text ?? i18next.t("blocks.heading1", "Heading 1"),
       },
       heading2: {
-        text: placeholderOverrides?.heading2?.text ?? i18next.t("Heading 2"),
+        text: placeholderOverrides?.heading2?.text ?? i18next.t("blocks.heading2", "Heading 2"),
       },
       heading3: {
-        text: placeholderOverrides?.heading3?.text ?? i18next.t("Heading 3"),
+        text: placeholderOverrides?.heading3?.text ?? i18next.t("blocks.heading3", "Heading 3"),
       },
       paragraph: {
         keyboardCompatibleText:
           placeholderOverrides?.paragraph?.keyboardCompatibleText ??
-          i18next.t("Type '/' for commands."),
+          i18next.t("editor.typeForCommands", "Type '/' for commands."),
         touchCompatiableText:
           placeholderOverrides?.paragraph?.touchCompatiableText ??
-          i18next.t("Type something awesome..."),
+          i18next.t("editor.typeSomething", "Type something awesome..."),
       },
       color: getCSSVariable("--editor-placeholder"),
     },

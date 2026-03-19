@@ -584,12 +584,12 @@ export function EventPreview({
     if (!pageId || !previewPage || isDeleting) return;
 
     const confirmed = await getConfirmation({
-      title: t("Delete event"),
+      title: t("calendar.deleteEvent", "Delete event"),
       description: previewPage.hasChildren
-        ? t("This event has sub-pages. Deleting it will also delete its sub-pages.")
-        : t("Are you sure you want to delete this event?"),
-      cancelText: t("Cancel"),
-      confirmText: t("Delete"),
+        ? t("calendar.eventHasSubPages", "This event has sub-pages. Deleting it will also delete its sub-pages.")
+        : t("calendar.confirmDeleteEvent", "Are you sure you want to delete this event?"),
+      cancelText: t("common.cancel", "Cancel"),
+      confirmText: t("common.delete", "Delete"),
     });
     if (!confirmed) return;
 
@@ -615,13 +615,13 @@ export function EventPreview({
           className={`${style.previewTypeToggleButton} ${draftIsTask ? style.previewTypeToggleActive : ""}`}
           onClick={() => setDraftIsTask(true)}
         >
-          {t("Task")}
+          {t("calendar.task", "Task")}
         </button>
         <button
           className={`${style.previewTypeToggleButton} ${!draftIsTask ? style.previewTypeToggleActive : ""}`}
           onClick={() => setDraftIsTask(false)}
         >
-          {t("Event")}
+          {t("calendar.event", "Event")}
         </button>
       </div>
     </div>
@@ -636,7 +636,7 @@ export function EventPreview({
         }
         disabled={!isTask && previewPage?.hasChildren}
       >
-        {isTask ? t("Convert to Event") : t("Convert to Task")}
+        {isTask ? t("calendar.convertToEvent", "Convert to Event") : t("calendar.convertToTask", "Convert to Task")}
       </button>
       {!isTask && previewPage?.hasChildren && (
         <TooltipProvider delayDuration={0}>
@@ -647,7 +647,7 @@ export function EventPreview({
               </button>
             </TooltipTrigger>
             <TooltipContent>
-              {t("Move sub-pages to convert to task")}
+              {t("calendar.moveSubPagesToConvert", "Move sub-pages to convert to task")}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -705,7 +705,7 @@ export function EventPreview({
 
   const previewPlaceholderOverrides = useMemo(
     () => ({
-      heading1: { text: t("Title") },
+      heading1: { text: t("common.title", "Title") },
     }),
     [t],
   );
@@ -728,10 +728,10 @@ export function EventPreview({
   const draftFooter = isDraft ? (
     <div className={style.previewDraftFooter}>
       <Button variant="ghost" size="sm" onClick={handleClose}>
-        {t("Cancel")}
+        {t("common.cancel", "Cancel")}
       </Button>
       <Button size="sm" onClick={handleDraftSaveClick}>
-        {t("Save")}
+        {t("common.save", "Save")}
       </Button>
     </div>
   ) : null;
@@ -749,7 +749,7 @@ export function EventPreview({
       placeholderOverrides={previewPlaceholderOverrides}
     />
   ) : isLoading ? (
-    <div className={style.previewLoading}>{t("Loading...")}</div>
+    <div className={style.previewLoading}>{t("common.loading", "Loading...")}</div>
   ) : previewPage?.snapshot && pageId ? (
     <MountedEditor
       snapshot={previewPage.snapshot}
@@ -778,7 +778,7 @@ export function EventPreview({
             {pageId && (
               <Link to={`/page/${pageId}`} className={style.previewOpenLink}>
                 <Maximize2 size={14} />
-                {t("Open page")}
+                {t("page.openPage", "Open page")}
               </Link>
             )}
             <div className={style.previewHeaderActions}>
@@ -788,8 +788,8 @@ export function EventPreview({
                   className={style.previewDeleteIconBtn}
                   onClick={handleDelete}
                   disabled={isDeleting}
-                  aria-label={t("Delete event")}
-                  title={t("Delete event")}
+                  aria-label={t("calendar.deleteEvent", "Delete event")}
+                  title={t("calendar.deleteEvent", "Delete event")}
                 >
                   <Trash2 size={16} />
                 </button>
@@ -798,8 +798,8 @@ export function EventPreview({
                 type="button"
                 className={style.previewCloseBtn}
                 onClick={handleClose}
-                aria-label={t("Close preview")}
-                title={t("Close preview")}
+                aria-label={t("editor.closePreview", "Close preview")}
+                title={t("editor.closePreview", "Close preview")}
               >
                 <X size={16} />
               </button>
@@ -910,7 +910,7 @@ export function EventPreview({
         <div className={style.previewRow}>
           <Maximize2 size={14} className={style.previewRowIcon} />
           <Link to={`/page/${pageId}`} className={style.previewOpenLink}>
-            {t("Open page")}
+            {t("page.openPage", "Open page")}
           </Link>
         </div>
       )}
@@ -942,8 +942,8 @@ export function EventPreview({
                     className={style.previewDeleteIconBtn}
                     onClick={handleDelete}
                     disabled={isDeleting}
-                    aria-label={t("Delete event")}
-                    title={t("Delete event")}
+                    aria-label={t("calendar.deleteEvent", "Delete event")}
+                    title={t("calendar.deleteEvent", "Delete event")}
                   >
                     <Trash2 size={16} />
                   </button>
@@ -952,8 +952,8 @@ export function EventPreview({
                   type="button"
                   className={style.previewCloseBtn}
                   onClick={handleClose}
-                  aria-label={t("Close preview")}
-                  title={t("Close preview")}
+                  aria-label={t("editor.closePreview", "Close preview")}
+                  title={t("editor.closePreview", "Close preview")}
                 >
                   <X size={16} />
                 </button>
@@ -1007,8 +1007,8 @@ export function EventPreview({
                     className={style.previewDeleteIconBtn}
                     onClick={handleDelete}
                     disabled={isDeleting}
-                    aria-label={t("Delete event")}
-                    title={t("Delete event")}
+                    aria-label={t("calendar.deleteEvent", "Delete event")}
+                    title={t("calendar.deleteEvent", "Delete event")}
                   >
                     <Trash2 size={16} />
                   </button>
@@ -1017,8 +1017,8 @@ export function EventPreview({
                   type="button"
                   className={style.previewCloseBtn}
                   onClick={handleClose}
-                  aria-label={t("Close preview")}
-                  title={t("Close preview")}
+                  aria-label={t("editor.closePreview", "Close preview")}
+                  title={t("editor.closePreview", "Close preview")}
                 >
                   <X size={16} />
                 </button>

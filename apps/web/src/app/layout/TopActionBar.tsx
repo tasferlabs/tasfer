@@ -28,7 +28,7 @@ export function TopActionBar({
           onClick={() => setOpen(true)}
         >
           <PanelLeft className="h-4 w-4 rtl:-scale-x-100" />
-          <span className="sr-only">{t("Open sidebar")}</span>
+          <span className="sr-only">{t("sidebar.open", "Open sidebar")}</span>
         </Button>
       )}
 

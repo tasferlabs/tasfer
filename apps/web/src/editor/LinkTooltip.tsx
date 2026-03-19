@@ -112,10 +112,10 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
               "transition-colors duration-150",
               "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
             )}
-            title={t`Open link`}
+            title={t("editor.link.openLink", "Open link")}
           >
             <ExternalLink className="w-4 h-4" />
-            <span>{t`Open`}</span>
+            <span>{t("common.open", "Open")}</span>
           </button>
 
           {onEdit && (
@@ -128,10 +128,10 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
                 "transition-colors duration-150",
                 "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
               )}
-              title={t`Edit link`}
+              title={t("editor.link.editLink", "Edit link")}
             >
               <Edit2 className="w-4 h-4" />
-              <span>{t`Edit`}</span>
+              <span>{t("common.edit", "Edit")}</span>
             </button>
           )}
         </div>

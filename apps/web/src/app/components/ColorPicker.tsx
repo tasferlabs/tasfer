@@ -86,7 +86,7 @@ export function ColorPicker({ color, onChange }: ColorPickerProps) {
     <button
       type="button"
       className="color-picker-trigger"
-      aria-label={t("Pick color")}
+      aria-label={t("editor.pickColor", "Pick color")}
       onClick={(e) => e.stopPropagation()}
     >
       <span
@@ -105,7 +105,7 @@ export function ColorPicker({ color, onChange }: ColorPickerProps) {
         <DrawerTrigger asChild>{trigger}</DrawerTrigger>
         <DrawerContent>
           <DrawerHeader className="sr-only">
-            <DrawerTitle>{t("Choose color")}</DrawerTitle>
+            <DrawerTitle>{t("editor.chooseColor", "Choose color")}</DrawerTitle>
           </DrawerHeader>
           <div className="p-4">{grid}</div>
         </DrawerContent>

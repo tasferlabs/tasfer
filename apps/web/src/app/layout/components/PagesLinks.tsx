@@ -46,7 +46,7 @@ export default function PagesLinks({
       {pages?.length === 0 && !!parentId && (
         <>
           <div className={style.empty}>
-            <p>{t("No pages here")}</p>
+            <p>{t("page.noPagesHere", "No pages here")}</p>
           </div>
           <button
             onClick={() => handleAdd()}
@@ -58,14 +58,14 @@ export default function PagesLinks({
             ) : (
               <Icons.Plus width={16} height={16} />
             )}
-            <span>{t("Add page")}</span>
+            <span>{t("page.addPage", "Add page")}</span>
           </button>
         </>
       )}
 
       {pages?.length === 0 && !parentId && (
         <div className={clsx(style.allEmpty, "ps-2")} >
-          <p>{t("No pages here yet!")}</p>
+          <p>{t("page.noPagesYet", "No pages here yet!")}</p>
         </div>
       )}
     </>

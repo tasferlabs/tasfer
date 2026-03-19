@@ -73,7 +73,7 @@ export function AvatarCropDialog({
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t`Crop avatar`}</DialogTitle>
+          <DialogTitle>{t("profile.cropAvatar", "Crop avatar")}</DialogTitle>
         </DialogHeader>
 
         <div className="relative w-full" style={{ aspectRatio: "1" }}>
@@ -94,7 +94,7 @@ export function AvatarCropDialog({
 
         <div className="flex items-center gap-3 px-1">
           <span className="text-sm text-muted-foreground shrink-0">
-            {t`Zoom`}
+            {t("common.zoom", "Zoom")}
           </span>
           <input
             type="range"
@@ -109,10 +109,10 @@ export function AvatarCropDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onCancel} disabled={cropping}>
-            {t`Cancel`}
+            {t("common.cancel", "Cancel")}
           </Button>
           <Button onClick={handleConfirm} loading={cropping}>
-            {t`Crop`}
+            {t("common.crop", "Crop")}
           </Button>
         </DialogFooter>
       </DialogContent>

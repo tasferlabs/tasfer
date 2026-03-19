@@ -206,7 +206,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
-              <DrawerTitle>{t`Export document`}</DrawerTitle>
+              <DrawerTitle>{t("export.document", "Export document")}</DrawerTitle>
             </DrawerHeader>
             <div className="px-4 space-y-2">
               <Button
@@ -216,7 +216,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
               >
                 <FileText className="h-5 w-5 text-muted-foreground" />
                 <div className="flex flex-col items-start">
-                  <span className="font-medium">{t`Plain Text`}</span>
+                  <span className="font-medium">{t("export.plainText", "Plain Text")}</span>
                   <span className="text-xs text-muted-foreground">.txt</span>
                 </div>
               </Button>
@@ -232,7 +232,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
                   <FileCode className="h-5 w-5 text-muted-foreground" />
                 )}
                 <div className="flex flex-col items-start">
-                  <span className="font-medium">{isExporting ? t`Exporting...` : t`Markdown`}</span>
+                  <span className="font-medium">{isExporting ? t("export.exporting", "Exporting...") : t("common.markdown", "Markdown")}</span>
                   <span className="text-xs text-muted-foreground">.md</span>
                 </div>
               </Button>
@@ -247,9 +247,9 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t`Export document`}</DialogTitle>
+          <DialogTitle>{t("export.document", "Export document")}</DialogTitle>
           <DialogDescription>
-            {t`Choose a format to export your document`}
+            {t("export.chooseFormat", "Choose a format to export your document")}
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3">
@@ -258,7 +258,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer"
           >
             <FileText className="h-8 w-8 mb-2 text-muted-foreground" />
-            <span className="font-medium">{t`Plain Text`}</span>
+            <span className="font-medium">{t("export.plainText", "Plain Text")}</span>
             <span className="text-xs text-muted-foreground">.txt</span>
           </button>
           <button
@@ -271,7 +271,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             ) : (
               <FileCode className="h-8 w-8 mb-2 text-muted-foreground" />
             )}
-            <span className="font-medium">{isExporting ? t`Exporting...` : t`Markdown`}</span>
+            <span className="font-medium">{isExporting ? t("export.exporting", "Exporting...") : t("common.markdown", "Markdown")}</span>
             <span className="text-xs text-muted-foreground">.md</span>
           </button>
         </div>
