@@ -52,17 +52,17 @@ import { SavingIndicator } from "../components/SavingIndicator";
 import { MountedEditor } from "../MountedEditor";
 
 import { PagePicker } from "@/components/PagePicker";
+import type { HLC } from "@/editor/sync/types";
 import { usePageEvents } from "@/websocket/hooks/usePageEvents";
 import clsx from "clsx";
 import {
+  getPage,
   useCreatePage,
   useGetPage,
   useGetPages,
   useMovePage,
   useUpdatePage,
-} from "@/platform/queries";
-import { getPlatform } from "@/platform";
-import type { HLC } from "@/editor/sync/types";
+} from "../api/pages.api";
 import EmptyStateIllustration from "../components/illustrations/empty-state";
 import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
@@ -75,7 +75,6 @@ import useLocalStorage from "../hooks/useLocalStorage";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useResponsive from "../hooks/useResponsive";
 import style from "./EditorPage.module.css";
-import { getPage } from "../api/pages.api";
 
 // Helper function to count words from blocks
 function countWordsFromBlocks(blocks: Block[]): number {
@@ -719,7 +718,7 @@ function ScheduleTag({
 
   const isScheduled = !!page?.scheduledAt;
   const label = isScheduled
-    ? formatScheduleLabel(page.scheduledAt!, page.duration, t)
+    ? formatScheduleLabel(page.scheduledAt!, page.duration || null, t)
     : t("calendar.schedule", "Schedule");
 
   const content = (

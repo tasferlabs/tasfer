@@ -672,7 +672,7 @@ export function EventPreview({
     if (!value) return;
     if (isDraft) return; // Draft schedule is read-only until saved
     if (!previewPage?.scheduledAt) return;
-    handleScheduleChange(value, previewPage.duration);
+    handleScheduleChange(value, previewPage.duration || null);
   };
 
   const handleDurationChange = (val: string) => {
