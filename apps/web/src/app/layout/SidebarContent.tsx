@@ -12,10 +12,10 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { FileTextIcon, PlusIcon, SignOutIcon } from "@phosphor-icons/react";
+import { FileTextIcon, PlusIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { ChevronsUpDown, Ellipsis, PanelLeftClose } from "lucide-react";
+import { Ellipsis, PanelLeftClose } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
@@ -39,7 +39,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu";
@@ -61,7 +60,6 @@ import {
 } from "../api/pages.api";
 // import { useGetSharedByMe, useGetSharedWithMe } from "../api/shares.api";
 import { getImageUrl } from "../api/images.api";
-import { AvatarPreviewDialog } from "../components/AvatarPreviewDialog";
 import { useCreateSpace, useLeaveSpace } from "../api/spaces.api";
 import { useConfirmation } from "../components/ConfirmationDialog";
 import { EditGroupDialog } from "../components/EditGroupDialog";
@@ -98,7 +96,7 @@ export function SidebarContent({
   // const [sharedCollapsed, setSharedCollapsed] = useState(false);
 
   // const { id: currentPageId } = useParams<{ id: string }>();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { personalSpace, groupSpaces } = useSpaces();
   // const { data: sharedWithMe } = useGetSharedWithMe();
   // const { data: sharedByMe } = useGetSharedByMe();
@@ -408,7 +406,6 @@ export function SidebarContent({
     : "?";
 
   const avatarUrl = user?.avatar ? getImageUrl(user.avatar) : null;
-  const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false);
 
   return (
     <>
@@ -425,53 +422,22 @@ export function SidebarContent({
       {!hasPanel && (
         <>
           <div className={clsx(style.appSidebarHeader, "gap-3")}>
-            {/* User avatar with popover menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 min-w-0 rounded-md px-1.5 py-1 hover:bg-accent transition-colors cursor-pointer w-full">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
-                    {avatarUrl ? (
-                      <img
-                        src={avatarUrl}
-                        alt=""
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      initials
-                    )}
-                  </div>
-                  <span className="text-sm font-medium text-foreground truncate">
-                    {user?.name}
-                  </span>
-                  <ChevronsUpDown
-                    size={14}
-                    className="shrink-0 text-muted-foreground"
+            <div className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full">
+              <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt=""
+                    className="w-full h-full object-cover"
                   />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-48">
-                <DropdownMenuLabel>
-                  {user?.email ?? user?.name}
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {avatarUrl && (
-                  <DropdownMenuItem onSelect={() => setAvatarPreviewOpen(true)}>
-                    {t("profile.viewAvatar", "View avatar")}
-                  </DropdownMenuItem>
+                ) : (
+                  initials
                 )}
-                <DropdownMenuItem onSelect={logout}>
-                  <SignOutIcon size={16} />
-                  {t("auth.signOut", "Sign out")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <AvatarPreviewDialog
-              open={avatarPreviewOpen}
-              onOpenChange={setAvatarPreviewOpen}
-              imageUrl={avatarUrl}
-              name={user?.name}
-            />
+              </div>
+              <span className="text-sm font-medium text-foreground truncate">
+                {user?.name}
+              </span>
+            </div>
 
             <Button
               variant="ghost"

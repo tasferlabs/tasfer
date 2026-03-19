@@ -8,7 +8,7 @@ Strip the server. Keep the editor. Own the data.
 | ----------------------------------- | ------------------------------------------ |
 | PostgreSQL + Express API            | SQLite on device                           |
 | Session-based auth (email/password) | Cryptographic identity (keypair per device) |
-| Server stores pages, snapshots      | Markdown files on disk + SQLite for CRDT   |
+| Server stores pages, snapshots      | SQLite (metadata + ops) + file snapshots   |
 | WebSocket server for sync           | P2P sync, relay as fallback                |
 | Internet dependent                  | Fully offline, sync when you choose        |
 
@@ -33,10 +33,10 @@ Strip the server. Keep the editor. Own the data.
 │     └────────────┬─────────────┘             │
 │                  │                           │
 │   ~/cypher-workspace/                        │
-│   ├── pages/*.md                             │
-│   ├── assets/{hash}.png                      │
+│   ├── assets/{hash}.ext                      │
 │   └── .cypher/                               │
 │       ├── db.sqlite                          │
+│       ├── snapshots/{pageId}/{id}.bin        │
 │       ├── identity.key                       │
 │       └── peers.json                         │
 └──────────────────┬───────────────────────────┘
@@ -77,32 +77,26 @@ Stored in `.cypher/identity.key` (private) and `.cypher/peers.json` (trusted pee
 
 ## Storage
 
-### Files are markdown
-Every page is a `.md` file with YAML frontmatter. Open in any editor.
+### CRDT state is the source of truth
+Pages are not stored as markdown files. The CRDT state — operation log, snapshots with tombstones, character IDs, clock metadata — is the authoritative representation. This preserves full collaboration history and guarantees correct merge on sync.
 
-```markdown
----
-id: abc123
-created: 2026-03-17T10:00:00Z
-tags: [project, ideas]
----
+**Markdown export is optional.** Users can export any page as `.md` for portability, but it's a one-way derived view, not the storage format.
 
-# My Document
-
-Regular markdown. **Bold**, _italic_, `code`.
-
-- [ ] Task one
-- [x] Task two
-```
+### Snapshots — protobuf + brotli (same as current server)
+- Stored as binary files: `.cypher/snapshots/{pageId}/{id}.bin`
+- Protobuf-encoded, Brotli-compressed — same pipeline as the current `apps/api` snapshot system
+- Preserve full CRDT metadata: character runs (peerId, startCounter, text, deletedMask), format spans, HLC clock state
+- Max 50 snapshots per page, old versions garbage collected
+- Used for fast page loading — apply only ops newer than the latest snapshot
 
 ### Assets — content-addressed
 - Images/files stored as `assets/{content-hash}.{ext}`
-- Markdown references them: `![alt](assets/a1b2c3.png)`
 - **CRDT ops sync eagerly** (tiny) — **assets sync lazily** (pulled when document is opened)
 - Deduplication for free via content hashing
 - Your own assets always kept; remote assets cached with LRU eviction
 
 ### SQLite — `.cypher/db.sqlite`
+Metadata, op-log, and indexes. Not the page content itself — that lives in snapshot files.
 
 ```sql
 -- CRDT operation log
@@ -116,20 +110,24 @@ CREATE TABLE ops (
   timestamp INTEGER NOT NULL
 );
 
--- Page index
+-- Page index (no file path — pages live in snapshots, not on disk as files)
 CREATE TABLE pages (
   id         TEXT PRIMARY KEY,
-  path       TEXT NOT NULL,
   title      TEXT,
+  parent_id  TEXT,
+  space_id   TEXT,
+  "order"    REAL NOT NULL,
   updated_at INTEGER NOT NULL
 );
 
--- Snapshots for fast loading
+-- Snapshot index (points to .bin files on disk)
 CREATE TABLE snapshots (
-  id        INTEGER PRIMARY KEY,
-  page_id   TEXT NOT NULL,
-  data      BLOB NOT NULL,
-  clock     TEXT NOT NULL,
+  id         INTEGER PRIMARY KEY,
+  page_id    TEXT NOT NULL,
+  file_path  TEXT NOT NULL,
+  size       INTEGER NOT NULL,
+  clock_counter  INTEGER NOT NULL,
+  clock_peer_id  TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
 
@@ -181,3 +179,5 @@ No auth logic on the backend. Data is encrypted client-side.
 - Canvas rendering engine — the core
 - CRDT engine — already built for this
 - Offline-first architecture — becomes the only architecture
+- Snapshot encoding pipeline (protobuf + brotli) — same format, just local instead of server
+- Hybrid storage model — SQLite for metadata/ops, files for snapshots/assets

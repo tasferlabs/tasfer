@@ -20,11 +20,8 @@ export default function HomePage() {
       <nav className="home-nav">
         <span className="home-logo">cypher</span>
         <div className="home-nav-links">
-          <Link to="/login" className="home-link">
-            {t("home.signIn", "sign in")}
-          </Link>
-          <Link to="/register" className="home-btn">
-            {t("home.getStarted", "get started")}
+          <Link to="/" className="home-btn">
+            {t("home.openEditor", "open editor")}
           </Link>
         </div>
       </nav>
@@ -40,7 +37,7 @@ export default function HomePage() {
         </h1>
         <p className="home-subtitle">{t("home.heroSubtitle", "A canvas-based editor that runs on your device, syncs peer-to-peer, and answers to no server. Your data never leaves your hands.")}</p>
         <div className="home-hero-actions">
-          <Link to="/register" className="home-btn home-btn-lg">
+          <Link to="/" className="home-btn home-btn-lg">
             {t("home.startWriting", "start writing")}
           </Link>
           <a href="#manifesto" className="home-link">
@@ -174,7 +171,7 @@ export default function HomePage() {
         <div className="home-section-label">&gt; begin</div>
         <h2 className="home-cta-title">{t("home.ctaTitle", "download. write. own it.")}</h2>
         <p className="home-cta-sub">{t("home.ctaSubtitle", "No account required. No cloud. No strings.")}</p>
-        <Link to="/register" className="home-btn home-btn-lg">
+        <Link to="/" className="home-btn home-btn-lg">
           {t("home.startWriting", "start writing")}
         </Link>
       </section>

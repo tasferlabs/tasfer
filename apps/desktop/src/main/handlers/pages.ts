@@ -239,7 +239,7 @@ export function registerPagesHandlers() {
         data.title || null,
         data.parentId,
         order,
-        data.scheduledAt ? Number(data.scheduledAt) : null,
+        data.scheduledAt ? new Date(data.scheduledAt).getTime() : null,
         data.duration ?? null,
         data.allDay != null ? (data.allDay ? 1 : 0) : null,
         data.task ? 1 : 0,
@@ -334,7 +334,7 @@ export function registerPagesHandlers() {
       if (data.scheduledAt !== undefined) {
         sets.push("scheduledAt = ?");
         params.push(
-          data.scheduledAt != null ? Number(data.scheduledAt) : null,
+          data.scheduledAt != null ? new Date(data.scheduledAt).getTime() : null,
         );
       }
       if (data.duration !== undefined) {
@@ -550,7 +550,6 @@ export function registerPagesHandlers() {
         `SELECT * FROM pages
          WHERE scheduledAt IS NOT NULL
          AND scheduledAt >= ? AND scheduledAt <= ?
-         AND task = 0
          ORDER BY scheduledAt ASC`,
       )
       .all(start, end) as any[];
