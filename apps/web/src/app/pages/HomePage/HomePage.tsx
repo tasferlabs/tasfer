@@ -19,11 +19,6 @@ export default function HomePage() {
 
       <nav className="home-nav">
         <span className="home-logo">cypher</span>
-        <div className="home-nav-links">
-          <Link to="/" className="home-btn">
-            {t("home.openEditor", "open editor")}
-          </Link>
-        </div>
       </nav>
 
       <section className="home-hero">
