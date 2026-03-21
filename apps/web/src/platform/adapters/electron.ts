@@ -3,13 +3,13 @@
  *
  * Delegates database and filesystem operations to the Electron main process
  * via IPC. The main process uses better-sqlite3 and node:fs.
+ * Networking uses WebRTC (same as web/mobile — Electron is Chromium).
  *
  * This is just the thin driver — all business logic is in Engine.
  */
 
 import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver, CryptoDriver } from "../driver";
-import type { Platform } from "../types";
-import type { AwarenessState } from "@/editor/sync/awareness";
+import { createWebRtcNetworkDriver } from "./webrtc";
 
 // =============================================================================
 // Electron IPC Bridge
@@ -52,8 +52,6 @@ class IpcDbDriver implements DbDriver {
   }
 
   async transaction<T>(fn: (db: DbDriver) => Promise<T>): Promise<T> {
-    // For Electron, we send BEGIN/COMMIT/ROLLBACK over IPC.
-    // The main process holds the actual transaction.
     await this.exec("BEGIN");
     try {
       const result = await fn(this);
@@ -79,7 +77,6 @@ class IpcFsDriver implements FsDriver {
   async read(path: string): Promise<Uint8Array | null> {
     const result = await this.bridge.invoke("fs:read", path);
     if (result === null) return null;
-    // IPC transfers ArrayBuffer
     return new Uint8Array(result as ArrayBuffer);
   }
 
@@ -119,58 +116,16 @@ class IpcCryptoDriver implements CryptoDriver {
 }
 
 // =============================================================================
-// Electron Sync (P2P via main process)
-// =============================================================================
-
-export function createElectronSync(bridge: ElectronBridge): Platform["sync"] {
-  return {
-    joinRoom: (roomId: string, peerId: string, user?: any, callbacks?: any) => {
-      if (callbacks) {
-        for (const [event, cb] of Object.entries(callbacks)) {
-          if (cb) bridge.on(`sync:${roomId}:${event}`, cb as any);
-        }
-      }
-      return bridge.invoke("sync:joinRoom", roomId, peerId, user) as Promise<void>;
-    },
-    leaveRoom: (roomId: string) =>
-      bridge.invoke("sync:leaveRoom", roomId) as Promise<void>,
-    sendOperations: (roomId: string, ops: any[]) => {
-      bridge.invoke("sync:sendOperations", roomId, ops);
-    },
-    sendSyncRequest: (roomId: string, vv: any, clock?: any) => {
-      bridge.invoke("sync:sendSyncRequest", roomId, vv, clock);
-    },
-    sendSyncResponse: (roomId: string, ops: any[], vv: any, target?: string) => {
-      bridge.invoke("sync:sendSyncResponse", roomId, ops, vv, target);
-    },
-    sendAwareness: (roomId: string, state: AwarenessState) => {
-      bridge.invoke("sync:sendAwareness", roomId, state);
-    },
-    onPageEvents: (callbacks: any) => {
-      const unsubs: (() => void)[] = [];
-      for (const [event, cb] of Object.entries(callbacks)) {
-        if (cb) unsubs.push(bridge.on(`page:${event}`, cb as any));
-      }
-      return () => unsubs.forEach((u) => u());
-    },
-    getConnectionState: () => "connected" as const,
-    onConnectionChange: (cb: any) => bridge.on("sync:connectionChange", cb),
-  };
-}
-
-// =============================================================================
 // Create Electron Driver
 // =============================================================================
 
-export function createElectronDriver(): { driver: Driver; sync: Platform["sync"] } {
+export function createElectronDriver(signalUrl: string): Driver {
   const bridge = getBridge();
   return {
-    driver: {
-      db: new IpcDbDriver(bridge),
-      fs: new IpcFsDriver(bridge),
-      crypto: new IpcCryptoDriver(bridge),
-      basePath: "", // Main process resolves paths relative to workspace
-    },
-    sync: createElectronSync(bridge),
+    db: new IpcDbDriver(bridge),
+    fs: new IpcFsDriver(bridge),
+    crypto: new IpcCryptoDriver(bridge),
+    network: createWebRtcNetworkDriver(signalUrl),
+    basePath: "", // Main process resolves paths relative to workspace
   };
 }

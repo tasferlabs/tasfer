@@ -7,6 +7,7 @@
 
 import type { Platform } from "./types";
 import { Engine } from "./engine";
+import { P2PSync } from "./sync";
 
 // Re-export all types for convenience
 export type * from "./types";
@@ -82,33 +83,33 @@ export async function initPlatform(): Promise<Platform> {
 }
 
 async function _initPlatformInner(): Promise<Platform> {
-
   const env = detectAdapter();
+  const signalUrl = import.meta.env.VITE_SIGNAL_URL ?? "ws://localhost:8080";
   let engine: Engine;
 
   switch (env) {
     case "electron": {
       const { createElectronDriver } = await import("./adapters/electron");
-      const { driver, sync } = createElectronDriver();
+      const driver = createElectronDriver(signalUrl);
       engine = new Engine(driver);
       await engine.init();
-      engine.setSync(sync);
+      engine.setSync(new P2PSync(driver.network));
       break;
     }
     case "capacitor": {
       const { createCapacitorDriver } = await import("./adapters/capacitor");
-      const driver = createCapacitorDriver();
+      const driver = createCapacitorDriver(signalUrl);
       engine = new Engine(driver);
       await engine.init();
-      // TODO: wire up capacitor sync (WebRTC or relay)
+      engine.setSync(new P2PSync(driver.network));
       break;
     }
     default: {
       const { createWebDriver } = await import("./adapters/web");
-      const driver = createWebDriver();
+      const driver = createWebDriver(signalUrl);
       engine = new Engine(driver);
       await engine.init();
-      // TODO: wire up web sync (WebSocket to relay, or WebRTC)
+      engine.setSync(new P2PSync(driver.network));
       break;
     }
   }

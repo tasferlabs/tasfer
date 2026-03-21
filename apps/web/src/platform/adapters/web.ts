@@ -4,11 +4,13 @@
  * Runs in the browser. Uses:
  * - wa-sqlite in a Web Worker (SQLite + AccessHandlePoolVFS on OPFS)
  * - OPFS (Origin Private File System) for file storage
+ * - WebRTC for P2P networking (shared with all platforms)
  *
  * This is just the thin driver — all business logic is in Engine.
  */
 
 import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver, CryptoDriver } from "../driver";
+import { createWebRtcNetworkDriver } from "./webrtc";
 import SqliteWorker from "./sqlite.worker?worker";
 
 // =============================================================================
@@ -191,14 +193,15 @@ class WebCryptoDriver implements CryptoDriver {
 }
 
 // =============================================================================
-// Web Driver (combines worker SQLite + OPFS)
+// Web Driver (combines worker SQLite + OPFS + WebRTC)
 // =============================================================================
 
-export function createWebDriver(): Driver {
+export function createWebDriver(signalUrl: string): Driver {
   return {
     db: new WorkerDbDriver(),
     fs: new OpfsFsDriver(),
     crypto: new WebCryptoDriver(),
+    network: createWebRtcNetworkDriver(signalUrl),
     basePath: "cypher",
   };
 }

@@ -9,6 +9,7 @@
  */
 
 import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver, CryptoDriver } from "../driver";
+import { createWebRtcNetworkDriver } from "./webrtc";
 
 // These modules are only available when running as a Capacitor app.
 // Dynamic imports ensure they don't break the web build.
@@ -234,11 +235,12 @@ class WebCryptoDriver implements CryptoDriver {
 // Create Capacitor Driver
 // =============================================================================
 
-export function createCapacitorDriver(): Driver {
+export function createCapacitorDriver(signalUrl: string): Driver {
   return {
     db: new CapacitorDbDriver(),
     fs: new CapacitorFsDriver(),
     crypto: new WebCryptoDriver(),
+    network: createWebRtcNetworkDriver(signalUrl),
     basePath: "cypher",
   };
 }
