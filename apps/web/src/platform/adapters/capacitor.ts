@@ -9,6 +9,7 @@
  */
 
 import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver, CryptoDriver } from "../driver";
+import { createWebRtcNetworkDriver } from "./webrtc";
 
 // These modules are only available when running as a Capacitor app.
 // Dynamic imports ensure they don't break the web build.
@@ -23,53 +24,68 @@ type FilesystemPlugin = any;
 
 class CapacitorDbDriver implements DbDriver {
   private db: any = null;
-  private dbPromise: Promise<any> | null = null;
+  private initPromise: Promise<void> | null = null;
+  private inTransaction = false;
 
-  private ensureDb(): Promise<any> {
-    if (this.db) return Promise.resolve(this.db);
-    if (this.dbPromise) return this.dbPromise;
+  private ensureDb(): Promise<void> {
+    if (this.db) return Promise.resolve();
+    if (this.initPromise) return this.initPromise;
 
-    this.dbPromise = this._openDb().catch((e) => {
-      this.dbPromise = null;
+    this.initPromise = this._openDb().catch((e) => {
+      this.initPromise = null;
       throw e;
     });
-    return this.dbPromise;
+    return this.initPromise;
   }
 
-  private async _openDb(): Promise<any> {
+  private async _openDb(): Promise<void> {
     // Dynamic import — only loaded on native
     // @ts-ignore — optional native dependency, only available in Capacitor builds
     const { CapacitorSQLite } = await import("@capacitor-community/sqlite");
+    // Connection may already exist after a page reload
+    try {
     await CapacitorSQLite.createConnection({
       database: "cypher",
       version: 1,
       encrypted: false,
       mode: "no-encryption",
     });
+    } catch {
+      // Already exists — that's fine
+    }
     await CapacitorSQLite.open({ database: "cypher" });
+    // Store without returning — CapacitorSQLite is a thenable proxy
+    // and must never be the resolved value of a promise.
     this.db = CapacitorSQLite;
-    return this.db;
   }
 
   async execute<T extends DbRow = DbRow>(
     sql: string,
     params?: unknown[],
   ): Promise<T[]> {
-    const db = await this.ensureDb();
-    const result = await db.query({
+    await this.ensureDb();
+    const result = await this.db.query({
       database: "cypher",
       statement: sql,
       values: params ?? [],
     });
-    return (result.values ?? []) as T[];
+    const rows = result.values ?? [];
+    // iOS returns an ios_columns metadata row as the first element — skip it
+    if (rows.length > 0 && rows[0].ios_columns) {
+      return rows.slice(1) as T[];
+    }
+    return rows as T[];
   }
 
   async run(sql: string, params?: unknown[]): Promise<DbRunResult> {
-    const db = await this.ensureDb();
-    const result = await db.run({
+    await this.ensureDb();
+    const result = await this.db.run({
       database: "cypher",
       statement: sql,
       values: params ?? [],
+      // The plugin auto-wraps each run() in a transaction by default.
+      // Disable that when we're already inside an explicit transaction.
+      transaction: !this.inTransaction,
     });
     return {
       changes: result.changes?.changes ?? 0,
@@ -78,28 +94,39 @@ class CapacitorDbDriver implements DbDriver {
   }
 
   async exec(sql: string): Promise<void> {
-    const db = await this.ensureDb();
-    await db.execute({ database: "cypher", statements: sql });
+    await this.ensureDb();
+    await this.db.execute({
+      database: "cypher",
+      statements: sql,
+      transaction: !this.inTransaction,
+    });
   }
 
   private txQueue: Promise<any> = Promise.resolve();
 
   async transaction<T>(fn: (db: DbDriver) => Promise<T>): Promise<T> {
-    // Serialize transactions to prevent nested BEGIN statements
+    // Serialize transactions to prevent interleaving
     const prev = this.txQueue;
     let resolve!: () => void;
     this.txQueue = new Promise<void>((r) => { resolve = r; });
 
     await prev;
     try {
-      await this.exec("BEGIN");
+      await this.ensureDb();
+      await this.db.beginTransaction({ database: "cypher" });
+      this.inTransaction = true;
       const result = await fn(this);
-      await this.exec("COMMIT");
+      await this.db.commitTransaction({ database: "cypher" });
       return result;
     } catch (e) {
-      await this.exec("ROLLBACK");
+      try {
+        await this.db.rollbackTransaction({ database: "cypher" });
+      } catch {
+        // Rollback may fail if transaction was never started
+      }
       throw e;
     } finally {
+      this.inTransaction = false;
       resolve();
     }
   }
@@ -234,11 +261,12 @@ class WebCryptoDriver implements CryptoDriver {
 // Create Capacitor Driver
 // =============================================================================
 
-export function createCapacitorDriver(): Driver {
+export function createCapacitorDriver(signalUrl: string): Driver {
   return {
     db: new CapacitorDbDriver(),
     fs: new CapacitorFsDriver(),
     crypto: new WebCryptoDriver(),
+    network: createWebRtcNetworkDriver(signalUrl),
     basePath: "cypher",
   };
 }

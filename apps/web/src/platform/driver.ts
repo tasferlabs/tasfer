@@ -73,6 +73,71 @@ export interface CryptoDriver {
 }
 
 // =============================================================================
+// Network (P2P transport)
+// =============================================================================
+
+/**
+ * A connection to a single remote peer.
+ * The driver handles framing/encryption — callers send and receive raw bytes.
+ */
+export interface NetworkPeer {
+  /** Remote peer's public key (hex) */
+  remotePublicKey: string;
+
+  /** Send a message to this peer */
+  send(data: Uint8Array): void;
+
+  /** Subscribe to messages from this peer */
+  onMessage(cb: (data: Uint8Array) => void): () => void;
+
+  /** Subscribe to this peer disconnecting */
+  onClose(cb: () => void): () => void;
+
+  /** Close the connection */
+  close(): void;
+}
+
+/**
+ * A swarm topic — represents participation in a discovery topic.
+ * Peers that join the same topic will discover and connect to each other.
+ */
+export interface NetworkTopic {
+  /** Fires when a new peer connects on this topic */
+  onPeerJoin(cb: (peer: NetworkPeer) => void): () => void;
+
+  /** Fires when a peer disconnects from this topic */
+  onPeerLeave(cb: (publicKey: string) => void): () => void;
+
+  /** Currently connected peers */
+  getPeers(): NetworkPeer[];
+
+  /** Leave this topic and disconnect from its peers */
+  destroy(): Promise<void>;
+}
+
+/**
+ * Network driver — raw P2P transport via WebRTC.
+ *
+ * Every platform (Electron, Web, Capacitor) uses the same WebRTC implementation.
+ * A lightweight signaling relay brokers initial connections, then data flows
+ * peer-to-peer over DataChannels. This means desktop can talk to web can talk
+ * to mobile — no network fragmentation.
+ *
+ * The driver handles peer discovery and connections.
+ * It knows nothing about CRDT ops, pages, or spaces — that's the engine's job.
+ */
+export interface NetworkDriver {
+  /**
+   * Join a discovery topic. Peers joining the same topic will find each other.
+   * Typically the topic is derived from a space ID (e.g. hash of space public key).
+   */
+  join(topic: Uint8Array): Promise<NetworkTopic>;
+
+  /** Shut down all connections and stop discovery */
+  destroy(): Promise<void>;
+}
+
+// =============================================================================
 // Combined Driver
 // =============================================================================
 
@@ -80,6 +145,7 @@ export interface Driver {
   db: DbDriver;
   fs: FsDriver;
   crypto: CryptoDriver;
+  network: NetworkDriver;
 
   /**
    * Base path for the cypher workspace.

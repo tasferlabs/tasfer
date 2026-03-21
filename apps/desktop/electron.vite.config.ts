@@ -4,11 +4,6 @@ import path from "path";
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin({ exclude: ["@paralleldrive/cuid2"] })],
-    build: {
-      rollupOptions: {
-        external: ["better-sqlite3"],
-      },
-    },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],

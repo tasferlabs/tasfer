@@ -207,9 +207,9 @@ export type ConnectionState = "connecting" | "connected" | "disconnected" | "err
 /**
  * The platform interface — implemented once per target.
  *
- * - Web: IndexedDB + WebRTC
- * - Electron: IPC → SQLite + hyperswarm
- * - Capacitor: plugins → SQLite + WebRTC
+ * - Web: wa-sqlite (OPFS) + WebRTC
+ * - Electron: IPC → better-sqlite3 + WebRTC
+ * - Capacitor: native SQLite plugin + WebRTC
  */
 export interface Platform {
   // ---------------------------------------------------------------------------

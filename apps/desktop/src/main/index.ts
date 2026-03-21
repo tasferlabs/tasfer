@@ -11,7 +11,6 @@ import { getDb, closeDb } from "./db";
 import { registerDbHandlers } from "./handlers/db";
 import { registerFsHandlers } from "./handlers/fs";
 import { registerCryptoHandlers } from "./handlers/crypto";
-import { registerSyncHandlers } from "./handlers/sync";
 
 // Dev mode: load from Vite dev server. Prod: load built files.
 const isDev = !app.isPackaged;
@@ -57,7 +56,6 @@ app.whenReady().then(() => {
   registerDbHandlers();
   registerFsHandlers();
   registerCryptoHandlers();
-  registerSyncHandlers();
 
   createWindow();
 
