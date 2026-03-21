@@ -7,7 +7,7 @@
  * This is just the thin driver — all business logic is in Engine.
  */
 
-import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver } from "../driver";
+import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver, CryptoDriver } from "../driver";
 import type { Platform } from "../types";
 import type { AwarenessState } from "@/editor/sync/awareness";
 
@@ -101,6 +101,24 @@ class IpcFsDriver implements FsDriver {
 }
 
 // =============================================================================
+// IPC Crypto Driver
+// =============================================================================
+
+class IpcCryptoDriver implements CryptoDriver {
+  private bridge: ElectronBridge;
+  constructor(bridge: ElectronBridge) {
+    this.bridge = bridge;
+  }
+
+  async generateKeypair(): Promise<{ publicKey: string; privateKey: string }> {
+    return (await this.bridge.invoke("crypto:generateKeypair")) as {
+      publicKey: string;
+      privateKey: string;
+    };
+  }
+}
+
+// =============================================================================
 // Electron Sync (P2P via main process)
 // =============================================================================
 
@@ -150,6 +168,7 @@ export function createElectronDriver(): { driver: Driver; sync: Platform["sync"]
     driver: {
       db: new IpcDbDriver(bridge),
       fs: new IpcFsDriver(bridge),
+      crypto: new IpcCryptoDriver(bridge),
       basePath: "", // Main process resolves paths relative to workspace
     },
     sync: createElectronSync(bridge),

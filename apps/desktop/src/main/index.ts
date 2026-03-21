@@ -8,18 +8,10 @@
 import { app, BrowserWindow } from "electron";
 import path from "path";
 import { getDb, closeDb } from "./db";
-import { registerIdentityHandlers } from "./handlers/identity";
-import { registerPeersHandlers } from "./handlers/peers";
-import { registerPagesHandlers } from "./handlers/pages";
-import {
-  registerAssetsHandlers,
-  registerAssetProtocol,
-} from "./handlers/assets";
-import { registerStorageHandlers } from "./handlers/storage";
+import { registerDbHandlers } from "./handlers/db";
+import { registerFsHandlers } from "./handlers/fs";
+import { registerCryptoHandlers } from "./handlers/crypto";
 import { registerSyncHandlers } from "./handlers/sync";
-
-// Register custom protocol before app ready
-registerAssetProtocol();
 
 // Dev mode: load from Vite dev server. Prod: load built files.
 const isDev = !app.isPackaged;
@@ -60,12 +52,11 @@ app.whenReady().then(() => {
   // Initialize database
   getDb();
 
-  // Register IPC handlers
-  registerIdentityHandlers();
-  registerPeersHandlers();
-  registerPagesHandlers();
-  registerAssetsHandlers();
-  registerStorageHandlers();
+  // Register IPC handlers — thin proxies for db/fs/sync.
+  // All business logic lives in the shared Engine (renderer side).
+  registerDbHandlers();
+  registerFsHandlers();
+  registerCryptoHandlers();
   registerSyncHandlers();
 
   createWindow();

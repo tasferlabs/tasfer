@@ -8,7 +8,7 @@
  * This is just the thin driver — all business logic is in Engine.
  */
 
-import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver } from "../driver";
+import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver, CryptoDriver } from "../driver";
 import SqliteWorker from "./sqlite.worker?worker";
 
 // =============================================================================
@@ -165,6 +165,32 @@ class WorkerDbDriver implements DbDriver {
 }
 
 // =============================================================================
+// WebCrypto Driver
+// =============================================================================
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+class WebCryptoDriver implements CryptoDriver {
+  async generateKeypair(): Promise<{ publicKey: string; privateKey: string }> {
+    const keyPair = await crypto.subtle.generateKey(
+      { name: "Ed25519" } as any,
+      true,
+      ["sign", "verify"],
+    );
+    const publicKeyRaw = await crypto.subtle.exportKey("raw", keyPair.publicKey);
+    const privateKeyRaw = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+    return {
+      publicKey: bytesToHex(new Uint8Array(publicKeyRaw)),
+      privateKey: bytesToHex(new Uint8Array(privateKeyRaw)),
+    };
+  }
+}
+
+// =============================================================================
 // Web Driver (combines worker SQLite + OPFS)
 // =============================================================================
 
@@ -172,6 +198,7 @@ export function createWebDriver(): Driver {
   return {
     db: new WorkerDbDriver(),
     fs: new OpfsFsDriver(),
+    crypto: new WebCryptoDriver(),
     basePath: "cypher",
   };
 }

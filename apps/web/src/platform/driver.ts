@@ -64,12 +64,22 @@ export interface FsDriver {
 }
 
 // =============================================================================
+// Crypto
+// =============================================================================
+
+export interface CryptoDriver {
+  /** Generate an Ed25519 keypair, returned as hex strings. */
+  generateKeypair(): Promise<{ publicKey: string; privateKey: string }>;
+}
+
+// =============================================================================
 // Combined Driver
 // =============================================================================
 
 export interface Driver {
   db: DbDriver;
   fs: FsDriver;
+  crypto: CryptoDriver;
 
   /**
    * Base path for the cypher workspace.

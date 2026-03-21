@@ -6,8 +6,6 @@ import { createRequire } from "module";
 import type Database from "better-sqlite3";
 import path from "path";
 import { app } from "electron";
-import { initSchema } from "./schema";
-
 // Native modules must be loaded via createRequire to avoid bundling issues
 const require = createRequire(import.meta.url);
 const BetterSqlite3 = require("better-sqlite3");
@@ -23,8 +21,6 @@ export function getDb(): Database.Database {
   // Performance settings for local use
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
-
-  initSchema(db);
 
   return db;
 }

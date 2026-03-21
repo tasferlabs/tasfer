@@ -107,7 +107,7 @@ export class Engine implements Platform {
 
       if (rows.length === 0) {
         // First run — generate keypair
-        const { publicKey, privateKey } = await generateKeypair();
+        const { publicKey, privateKey } = await this.driver.crypto.generateKeypair();
         await this.driver.db.run(
           "INSERT INTO identity (id, public_key, private_key, name) VALUES (1, ?, ?, '')",
           [publicKey, privateKey],
@@ -851,29 +851,6 @@ export class Engine implements Platform {
 // =============================================================================
 // Utilities
 // =============================================================================
-
-async function generateKeypair(): Promise<{
-  publicKey: string;
-  privateKey: string;
-}> {
-  const keyPair = await crypto.subtle.generateKey(
-    { name: "Ed25519" } as any,
-    true,
-    ["sign", "verify"],
-  );
-  const publicKeyRaw = await crypto.subtle.exportKey(
-    "raw",
-    keyPair.publicKey,
-  );
-  const privateKeyRaw = await crypto.subtle.exportKey(
-    "pkcs8",
-    keyPair.privateKey,
-  );
-  return {
-    publicKey: bytesToHex(new Uint8Array(publicKeyRaw)),
-    privateKey: bytesToHex(new Uint8Array(privateKeyRaw)),
-  };
-}
 
 async function hashBytes(data: Uint8Array): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", data.buffer as ArrayBuffer);
