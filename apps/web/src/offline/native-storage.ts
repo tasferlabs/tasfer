@@ -6,15 +6,8 @@
  * quota limits (50MB) and can use GB+ of device storage.
  */
 
-type Platform = "ios" | "android" | "web";
+import { getBridge } from "@/platform/bridge";
 
-function getPlatform(): Platform {
-  if (typeof window === "undefined") return "web";
-  // Both iOS and Android expose storage methods on their bridge objects
-  if (window.IOSBridge?.storageWrite) return "ios";
-  if (window.AndroidBridge?.storageWrite) return "android";
-  return "web";
-}
 
 /**
  * Encode Uint8Array to base64 string
@@ -60,33 +53,23 @@ const webFallbackStorage = new Map<string, Uint8Array>();
 
 export const NativeStorage = {
   /**
-   * Get current platform
-   */
-  getPlatform,
-
-  /**
    * Check if native storage is available (iOS or Android)
    */
   isNativeAvailable(): boolean {
-    const platform = getPlatform();
-    return platform === "ios" || platform === "android";
+    return !!getBridge();
   },
 
   /**
    * Write binary data to a file path
    */
   async write(path: string, data: Uint8Array): Promise<void> {
-    const platform = getPlatform();
+    const bridge = getBridge();
     const base64 = uint8ArrayToBase64(data);
 
-    if (platform === "ios" && window.IOSBridge?.storageWrite) {
-      const success = await window.IOSBridge.storageWrite(path, base64);
-      if (!success) throw new Error("Failed to write file");
-    } else if (platform === "android" && window.AndroidBridge?.storageWrite) {
-      const success = window.AndroidBridge.storageWrite(path, base64);
+    if (bridge) {
+      const success = await bridge.storage.write(path, base64);
       if (!success) throw new Error("Failed to write file");
     } else {
-      // Web fallback - store in memory (will integrate with IndexedDB)
       webFallbackStorage.set(path, data);
     }
   },
@@ -103,16 +86,12 @@ export const NativeStorage = {
    * Read binary data from a file path
    */
   async read(path: string): Promise<Uint8Array | null> {
-    const platform = getPlatform();
+    const bridge = getBridge();
 
-    if (platform === "ios" && window.IOSBridge?.storageRead) {
-      const base64 = await window.IOSBridge.storageRead(path);
-      return base64 ? base64ToUint8Array(base64) : null;
-    } else if (platform === "android" && window.AndroidBridge?.storageRead) {
-      const base64 = window.AndroidBridge.storageRead(path);
+    if (bridge) {
+      const base64 = await bridge.storage.read(path);
       return base64 ? base64ToUint8Array(base64) : null;
     } else {
-      // Web fallback
       return webFallbackStorage.get(path) ?? null;
     }
   },
@@ -134,14 +113,11 @@ export const NativeStorage = {
    * Delete a file or directory
    */
   async delete(path: string): Promise<void> {
-    const platform = getPlatform();
+    const bridge = getBridge();
 
-    if (platform === "ios" && window.IOSBridge?.storageDelete) {
-      await window.IOSBridge.storageDelete(path);
-    } else if (platform === "android" && window.AndroidBridge?.storageDelete) {
-      window.AndroidBridge.storageDelete(path);
+    if (bridge) {
+      await bridge.storage.delete(path);
     } else {
-      // Web fallback - delete matching paths
       for (const key of webFallbackStorage.keys()) {
         if (key === path || key.startsWith(path + "/")) {
           webFallbackStorage.delete(key);
@@ -154,15 +130,11 @@ export const NativeStorage = {
    * List files in a directory
    */
   async list(path: string): Promise<string[]> {
-    const platform = getPlatform();
+    const bridge = getBridge();
 
-    if (platform === "ios" && window.IOSBridge?.storageList) {
-      return window.IOSBridge.storageList(path);
-    } else if (platform === "android" && window.AndroidBridge?.storageList) {
-      const json = window.AndroidBridge.storageList(path);
-      return JSON.parse(json) as string[];
+    if (bridge) {
+      return bridge.storage.list(path);
     } else {
-      // Web fallback
       const prefix = path ? path + "/" : "";
       const files = new Set<string>();
       for (const key of webFallbackStorage.keys()) {
@@ -180,12 +152,10 @@ export const NativeStorage = {
    * Check if a file exists
    */
   async exists(path: string): Promise<boolean> {
-    const platform = getPlatform();
+    const bridge = getBridge();
 
-    if (platform === "ios" && window.IOSBridge?.storageExists) {
-      return window.IOSBridge.storageExists(path);
-    } else if (platform === "android" && window.AndroidBridge?.storageExists) {
-      return window.AndroidBridge.storageExists(path);
+    if (bridge) {
+      return bridge.storage.exists(path);
     } else {
       return webFallbackStorage.has(path);
     }
@@ -195,17 +165,12 @@ export const NativeStorage = {
    * Get storage info (free space, total space)
    */
   async getStorageInfo(): Promise<{ free: number; total: number; used: number }> {
-    const platform = getPlatform();
+    const bridge = getBridge();
 
-    if (platform === "ios" && window.IOSBridge?.getStorageInfo) {
-      const info = await window.IOSBridge.getStorageInfo();
-      return { ...info, used: info.total - info.free };
-    } else if (platform === "android" && window.AndroidBridge?.getStorageInfo) {
-      const json = window.AndroidBridge.getStorageInfo();
-      const info = JSON.parse(json) as { free: number; total: number };
+    if (bridge) {
+      const info = await bridge.storage.getInfo();
       return { ...info, used: info.total - info.free };
     } else {
-      // Web: use Storage API estimate
       if (navigator.storage?.estimate) {
         const estimate = await navigator.storage.estimate();
         const quota = estimate.quota ?? 50 * 1024 * 1024;
@@ -216,7 +181,6 @@ export const NativeStorage = {
           used: usage,
         };
       }
-      // Fallback for browsers without Storage API
       return {
         free: 50 * 1024 * 1024,
         total: 50 * 1024 * 1024,

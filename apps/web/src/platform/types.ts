@@ -273,7 +273,7 @@ export interface Platform {
     /** Store a file, returns the content hash */
     store(file: File): Promise<Asset>;
     /** Get a URL for an asset (may be blob:, file://, or http://) */
-    getUrl(hash: string): string;
+    getUrl(hash: string): Promise<string>;
     /** Delete an asset */
     delete(hash: string): Promise<void>;
   };

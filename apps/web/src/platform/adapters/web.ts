@@ -1,122 +1,177 @@
 /**
- * Web Platform Adapter
+ * Web Driver
  *
- * Runs in the browser with no native capabilities.
- * Uses IndexedDB for storage, WebRTC for P2P sync.
- * This is the current behavior — wrapping existing API calls.
+ * Runs in the browser. Uses:
+ * - wa-sqlite in a Web Worker (SQLite + AccessHandlePoolVFS on OPFS)
+ * - OPFS (Origin Private File System) for file storage
+ *
+ * This is just the thin driver — all business logic is in Engine.
  */
 
-import type { Platform } from "../types";
+import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver } from "../driver";
+import SqliteWorker from "./sqlite.worker?worker";
 
-export class WebPlatform implements Platform {
-  identity = {
-    async get() {
-      throw new Error("TODO: web identity");
-    },
-    async update() {
-      throw new Error("TODO: web identity update");
-    },
-  } as Platform["identity"];
+// =============================================================================
+// OPFS Filesystem Driver
+// =============================================================================
 
-  peers = {
-    async list() {
-      throw new Error("TODO: web peers");
-    },
-    async trust() {
-      throw new Error("TODO: web peers trust");
-    },
-    async untrust() {
-      throw new Error("TODO: web peers untrust");
-    },
-    async remove() {
-      throw new Error("TODO: web peers remove");
-    },
-  } as Platform["peers"];
+class OpfsFsDriver implements FsDriver {
+  private root: FileSystemDirectoryHandle | null = null;
 
-  pages = {
-    async list() {
-      throw new Error("TODO: web pages list");
-    },
-    async get() {
-      throw new Error("TODO: web pages get");
-    },
-    async create() {
-      throw new Error("TODO: web pages create");
-    },
-    async update() {
-      throw new Error("TODO: web pages update");
-    },
-    async delete() {
-      throw new Error("TODO: web pages delete");
-    },
-    async move() {
-      throw new Error("TODO: web pages move");
-    },
-    async reorder() {
-      throw new Error("TODO: web pages reorder");
-    },
-    async search() {
-      throw new Error("TODO: web pages search");
-    },
-    async calendar() {
-      throw new Error("TODO: web pages calendar");
-    },
-    async snapshots() {
-      throw new Error("TODO: web pages snapshots");
-    },
-  } as Platform["pages"];
+  private async getRoot(): Promise<FileSystemDirectoryHandle> {
+    if (!this.root) {
+      this.root = await navigator.storage.getDirectory();
+    }
+    return this.root;
+  }
 
-  assets = {
-    async store() {
-      throw new Error("TODO: web assets store");
-    },
-    getUrl() {
-      throw new Error("TODO: web assets getUrl");
-    },
-    async delete() {
-      throw new Error("TODO: web assets delete");
-    },
-  } as Platform["assets"];
+  private async getDir(
+    path: string,
+    create = false,
+  ): Promise<{ dir: FileSystemDirectoryHandle; name: string }> {
+    const parts = path.split("/").filter(Boolean);
+    const name = parts.pop()!;
+    let dir = await this.getRoot();
+    for (const part of parts) {
+      dir = await dir.getDirectoryHandle(part, { create });
+    }
+    return { dir, name };
+  }
 
-  sync = {
-    async joinRoom() {
-      throw new Error("TODO: web sync joinRoom");
-    },
-    async leaveRoom() {
-      throw new Error("TODO: web sync leaveRoom");
-    },
-    sendOperations() {
-      throw new Error("TODO: web sync sendOperations");
-    },
-    sendSyncRequest() {
-      throw new Error("TODO: web sync sendSyncRequest");
-    },
-    sendSyncResponse() {
-      throw new Error("TODO: web sync sendSyncResponse");
-    },
-    sendAwareness() {
-      throw new Error("TODO: web sync sendAwareness");
-    },
-    onPageEvents() {
-      throw new Error("TODO: web sync onPageEvents");
-    },
-    getConnectionState() {
-      return "disconnected" as const;
-    },
-    onConnectionChange() {
-      return () => {};
-    },
-  } as Platform["sync"];
+  async read(path: string): Promise<Uint8Array | null> {
+    try {
+      const { dir, name } = await this.getDir(path);
+      const handle = await dir.getFileHandle(name);
+      const file = await handle.getFile();
+      return new Uint8Array(await file.arrayBuffer());
+    } catch {
+      return null;
+    }
+  }
 
-  storage = {
-    async get() {
-      throw new Error("TODO: web storage get");
-    },
-    async set() {
-      throw new Error("TODO: web storage set");
-    },
-    async remove() {
-      throw new Error("TODO: web storage remove");
-    },
-  } as Platform["storage"];
+  async write(path: string, data: Uint8Array): Promise<void> {
+    const { dir, name } = await this.getDir(path, true);
+    const handle = await dir.getFileHandle(name, { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(data as ArrayBufferView<ArrayBuffer>);
+    await writable.close();
+  }
+
+  async delete(path: string): Promise<void> {
+    try {
+      const { dir, name } = await this.getDir(path);
+      await dir.removeEntry(name);
+    } catch {
+      // File doesn't exist — no-op
+    }
+  }
+
+  async list(dirPath: string): Promise<string[]> {
+    try {
+      const parts = dirPath.split("/").filter(Boolean);
+      let dir = await this.getRoot();
+      for (const part of parts) {
+        dir = await dir.getDirectoryHandle(part);
+      }
+      const names: string[] = [];
+      for await (const key of (dir as any).keys()) {
+        names.push(key);
+      }
+      return names;
+    } catch {
+      return [];
+    }
+  }
+
+  async exists(path: string): Promise<boolean> {
+    try {
+      const { dir, name } = await this.getDir(path);
+      await dir.getFileHandle(name);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+// =============================================================================
+// Worker-backed Database Driver
+// =============================================================================
+
+class WorkerDbDriver implements DbDriver {
+  private worker: Worker;
+  private nextId = 1;
+  private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+  private txQueue: Promise<any> = Promise.resolve();
+
+  constructor() {
+    this.worker = new SqliteWorker();
+    this.worker.onmessage = (e: MessageEvent) => {
+      const { id, ok, result, error } = e.data;
+      const p = this.pending.get(id);
+      if (!p) return;
+      this.pending.delete(id);
+      if (ok) {
+        p.resolve(result);
+      } else {
+        p.reject(new Error(error));
+      }
+    };
+  }
+
+  private send(type: string, sql: string, params?: unknown[]): Promise<any> {
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.worker.postMessage({ id, type, sql, params });
+    });
+  }
+
+  async execute<T extends DbRow = DbRow>(
+    sql: string,
+    params?: unknown[],
+  ): Promise<T[]> {
+    return this.send("execute", sql, params);
+  }
+
+  async run(sql: string, params?: unknown[]): Promise<DbRunResult> {
+    return this.send("run", sql, params);
+  }
+
+  async exec(sql: string): Promise<void> {
+    await this.send("exec", sql);
+  }
+
+  async transaction<T>(fn: (db: DbDriver) => Promise<T>): Promise<T> {
+    // Serialize transactions so concurrent callers don't interleave
+    // their BEGIN/COMMIT messages on the single worker message queue.
+    const prev = this.txQueue;
+    let resolve!: () => void;
+    this.txQueue = new Promise<void>((r) => { resolve = r; });
+
+    await prev;
+    try {
+      await this.exec("BEGIN");
+      const result = await fn(this);
+      await this.exec("COMMIT");
+      return result;
+    } catch (e) {
+      await this.exec("ROLLBACK");
+      throw e;
+    } finally {
+      resolve();
+    }
+  }
+}
+
+// =============================================================================
+// Web Driver (combines worker SQLite + OPFS)
+// =============================================================================
+
+export function createWebDriver(): Driver {
+  return {
+    db: new WorkerDbDriver(),
+    fs: new OpfsFsDriver(),
+    basePath: "cypher",
+  };
 }

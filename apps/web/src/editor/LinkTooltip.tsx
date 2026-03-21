@@ -64,11 +64,8 @@ export const LinkTooltip: React.FC<LinkTooltipProps> = ({
     if (onOpen) {
       onOpen();
     } else {
-      // Use native bridge on mobile apps, fallback to window.open on web
-      if (window.IOSBridge?.postMessage) {
-        window.IOSBridge.postMessage({ action: "open-url", url });
-      } else if (window.AndroidBridge?.openUrl) {
-        window.AndroidBridge.openUrl(url);
+      if (window.CypherBridge) {
+        window.CypherBridge.navigation.openUrl(url);
       } else {
         window.open(url, "_blank", "noopener,noreferrer");
       }

@@ -18,7 +18,7 @@ import {
 } from "../../components/ui/select";
 import { Upload } from "lucide-react";
 import { createPage, updatePage } from "../api/pages.api";
-import { getImageUrl, uploadImage } from "../api/images.api";
+import { uploadImage } from "../api/images.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useQueryClient } from "@tanstack/react-query";
 import tokenizePage from "@/deserializer/tokenizer";
@@ -381,7 +381,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
         const mimeType = guessMimeType(fileName);
         const imageFile = new File([blob], fileName, { type: mimeType });
         const uploaded = await uploadImage(imageFile);
-        imageUrlMap.set(fileName, getImageUrl(uploaded.id));
+        imageUrlMap.set(fileName, uploaded.id);
         importResult.imagesUploaded++;
       } catch {
         importResult.errors.push(`Failed to upload image: ${fileName}`);

@@ -51,13 +51,6 @@ if ((window as any).Capacitor?.isNativePlatform?.()) {
 // Font metrics are computed lazily on first use per size/weight combo.
 loadFonts();
 
-// Initialize platform adapter (web/electron/capacitor) before rendering.
-// This is synchronous-enough for first render — the adapter is lazy-loaded
-// but getPlatform() will be available by the time components make API calls.
-initPlatform().catch((err) => {
-  console.error("[Platform] Failed to initialize:", err);
-});
-
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -93,21 +86,29 @@ function DirectionWrapper({ children }: { children: ReactNode }) {
   );
 }
 
-createRoot(document.getElementById("root")!).render(
-  <QueryClientProvider client={queryClient}>
-    <AuthProvider>
-      <ThemeProvider>
-        <DirectionWrapper>
-          <VersionProvider>
-            <Suspense fallback={<LoadingScreen />}>
-              <RouterProvider router={router} />
-            </Suspense>
-          </VersionProvider>
-        </DirectionWrapper>
-      </ThemeProvider>
-    </AuthProvider>
-  </QueryClientProvider>,
-);
+// Initialize platform adapter (web/electron/capacitor) before rendering.
+// Must await — the worker-backed SQLite needs time to spin up.
+initPlatform()
+  .then(() => {
+    createRoot(document.getElementById("root")!).render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <ThemeProvider>
+            <DirectionWrapper>
+              <VersionProvider>
+                <Suspense fallback={<LoadingScreen />}>
+                  <RouterProvider router={router} />
+                </Suspense>
+              </VersionProvider>
+            </DirectionWrapper>
+          </ThemeProvider>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+  })
+  .catch((err) => {
+    console.error("[Platform] Failed to initialize:", err);
+  });
 
 // Register service worker for offline support
 const updateSW = registerSW({

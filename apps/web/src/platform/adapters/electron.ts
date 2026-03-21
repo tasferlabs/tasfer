@@ -1,14 +1,20 @@
 /**
- * Electron Platform Adapter
+ * Electron Driver
  *
- * Delegates everything to the main process via IPC.
- * The preload script exposes `window.cypher` with invoke methods.
- * Main process handles: SQLite, filesystem, hyperswarm P2P.
+ * Delegates database and filesystem operations to the Electron main process
+ * via IPC. The main process uses better-sqlite3 and node:fs.
+ *
+ * This is just the thin driver — all business logic is in Engine.
  */
 
+import type { Driver, DbDriver, DbRow, DbRunResult, FsDriver } from "../driver";
 import type { Platform } from "../types";
+import type { AwarenessState } from "@/editor/sync/awareness";
 
-/** The API exposed by the Electron preload script */
+// =============================================================================
+// Electron IPC Bridge
+// =============================================================================
+
 interface ElectronBridge {
   invoke(channel: string, ...args: unknown[]): Promise<unknown>;
   on(channel: string, callback: (...args: unknown[]) => void): () => void;
@@ -20,82 +26,132 @@ function getBridge(): ElectronBridge {
   return bridge;
 }
 
-export class ElectronPlatform implements Platform {
-  private bridge = getBridge();
+// =============================================================================
+// IPC Database Driver
+// =============================================================================
 
-  identity = {
-    get: () => this.bridge.invoke("identity:get"),
-    update: (data: any) => this.bridge.invoke("identity:update", data),
-  } as Platform["identity"];
+class IpcDbDriver implements DbDriver {
+  private bridge: ElectronBridge;
+  constructor(bridge: ElectronBridge) {
+    this.bridge = bridge;
+  }
 
-  peers = {
-    list: () => this.bridge.invoke("peers:list"),
-    trust: (publicKey: string, name?: string) => this.bridge.invoke("peers:trust", publicKey, name),
-    untrust: (publicKey: string) => this.bridge.invoke("peers:untrust", publicKey),
-    remove: (publicKey: string) => this.bridge.invoke("peers:remove", publicKey),
-  } as Platform["peers"];
+  async execute<T extends DbRow = DbRow>(
+    sql: string,
+    params?: unknown[],
+  ): Promise<T[]> {
+    return (await this.bridge.invoke("db:execute", sql, params)) as T[];
+  }
 
-  pages = {
-    list: (parentId?: string | null, options?: any) => this.bridge.invoke("pages:list", parentId, options),
-    get: (id: string) => this.bridge.invoke("pages:get", id),
-    create: (data: any) => this.bridge.invoke("pages:create", data),
-    update: (data: any) => this.bridge.invoke("pages:update", data),
-    delete: (id: string) => this.bridge.invoke("pages:delete", id),
-    move: (data: any) => this.bridge.invoke("pages:move", data),
-    reorder: (id: string, order: number) => this.bridge.invoke("pages:reorder", id, order),
-    search: (query: string) => this.bridge.invoke("pages:search", query),
-    calendar: (start: number, end: number) => this.bridge.invoke("pages:calendar", start, end),
-    snapshots: (pageId: string) => this.bridge.invoke("pages:snapshots", pageId),
-  } as Platform["pages"];
+  async run(sql: string, params?: unknown[]): Promise<DbRunResult> {
+    return (await this.bridge.invoke("db:run", sql, params)) as DbRunResult;
+  }
 
-  assets = {
-    store: async (file: File) => {
-      const buffer = await file.arrayBuffer();
-      return this.bridge.invoke("assets:store", buffer, file.name, file.type);
-    },
-    getUrl: (hash: string) => `cypher-asset://${hash}`,
-    delete: (hash: string) => this.bridge.invoke("assets:delete", hash),
-  } as Platform["assets"];
+  async exec(sql: string): Promise<void> {
+    await this.bridge.invoke("db:exec", sql);
+  }
 
-  sync = {
+  async transaction<T>(fn: (db: DbDriver) => Promise<T>): Promise<T> {
+    // For Electron, we send BEGIN/COMMIT/ROLLBACK over IPC.
+    // The main process holds the actual transaction.
+    await this.exec("BEGIN");
+    try {
+      const result = await fn(this);
+      await this.exec("COMMIT");
+      return result;
+    } catch (e) {
+      await this.exec("ROLLBACK");
+      throw e;
+    }
+  }
+}
+
+// =============================================================================
+// IPC Filesystem Driver
+// =============================================================================
+
+class IpcFsDriver implements FsDriver {
+  private bridge: ElectronBridge;
+  constructor(bridge: ElectronBridge) {
+    this.bridge = bridge;
+  }
+
+  async read(path: string): Promise<Uint8Array | null> {
+    const result = await this.bridge.invoke("fs:read", path);
+    if (result === null) return null;
+    // IPC transfers ArrayBuffer
+    return new Uint8Array(result as ArrayBuffer);
+  }
+
+  async write(path: string, data: Uint8Array): Promise<void> {
+    await this.bridge.invoke("fs:write", path, data.buffer);
+  }
+
+  async delete(path: string): Promise<void> {
+    await this.bridge.invoke("fs:delete", path);
+  }
+
+  async list(dir: string): Promise<string[]> {
+    return (await this.bridge.invoke("fs:list", dir)) as string[];
+  }
+
+  async exists(path: string): Promise<boolean> {
+    return (await this.bridge.invoke("fs:exists", path)) as boolean;
+  }
+}
+
+// =============================================================================
+// Electron Sync (P2P via main process)
+// =============================================================================
+
+export function createElectronSync(bridge: ElectronBridge): Platform["sync"] {
+  return {
     joinRoom: (roomId: string, peerId: string, user?: any, callbacks?: any) => {
-      // Register callbacks via IPC event listeners
       if (callbacks) {
         for (const [event, cb] of Object.entries(callbacks)) {
-          if (cb) this.bridge.on(`sync:${roomId}:${event}`, cb as any);
+          if (cb) bridge.on(`sync:${roomId}:${event}`, cb as any);
         }
       }
-      return this.bridge.invoke("sync:joinRoom", roomId, peerId, user);
+      return bridge.invoke("sync:joinRoom", roomId, peerId, user) as Promise<void>;
     },
-    leaveRoom: (roomId: string) => this.bridge.invoke("sync:leaveRoom", roomId),
+    leaveRoom: (roomId: string) =>
+      bridge.invoke("sync:leaveRoom", roomId) as Promise<void>,
     sendOperations: (roomId: string, ops: any[]) => {
-      this.bridge.invoke("sync:sendOperations", roomId, ops);
+      bridge.invoke("sync:sendOperations", roomId, ops);
     },
     sendSyncRequest: (roomId: string, vv: any, clock?: any) => {
-      this.bridge.invoke("sync:sendSyncRequest", roomId, vv, clock);
+      bridge.invoke("sync:sendSyncRequest", roomId, vv, clock);
     },
     sendSyncResponse: (roomId: string, ops: any[], vv: any, target?: string) => {
-      this.bridge.invoke("sync:sendSyncResponse", roomId, ops, vv, target);
+      bridge.invoke("sync:sendSyncResponse", roomId, ops, vv, target);
     },
-    sendAwareness: (roomId: string, state: any) => {
-      this.bridge.invoke("sync:sendAwareness", roomId, state);
+    sendAwareness: (roomId: string, state: AwarenessState) => {
+      bridge.invoke("sync:sendAwareness", roomId, state);
     },
     onPageEvents: (callbacks: any) => {
       const unsubs: (() => void)[] = [];
       for (const [event, cb] of Object.entries(callbacks)) {
-        if (cb) unsubs.push(this.bridge.on(`page:${event}`, cb as any));
+        if (cb) unsubs.push(bridge.on(`page:${event}`, cb as any));
       }
       return () => unsubs.forEach((u) => u());
     },
     getConnectionState: () => "connected" as const,
-    onConnectionChange: (cb: any) => {
-      return this.bridge.on("sync:connectionChange", cb);
-    },
-  } as Platform["sync"];
+    onConnectionChange: (cb: any) => bridge.on("sync:connectionChange", cb),
+  };
+}
 
-  storage = {
-    get: (key: string) => this.bridge.invoke("storage:get", key),
-    set: (key: string, value: unknown) => this.bridge.invoke("storage:set", key, value),
-    remove: (key: string) => this.bridge.invoke("storage:remove", key),
-  } as Platform["storage"];
+// =============================================================================
+// Create Electron Driver
+// =============================================================================
+
+export function createElectronDriver(): { driver: Driver; sync: Platform["sync"] } {
+  const bridge = getBridge();
+  return {
+    driver: {
+      db: new IpcDbDriver(bridge),
+      fs: new IpcFsDriver(bridge),
+      basePath: "", // Main process resolves paths relative to workspace
+    },
+    sync: createElectronSync(bridge),
+  };
 }

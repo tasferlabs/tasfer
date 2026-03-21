@@ -3,6 +3,7 @@ import type { Operation, HLC } from "@/editor/sync/types";
 import type { Block } from "@/deserializer/loadPage";
 import { isHLCLessOrEqual } from "@/editor/sync/hlc";
 import { NativeStorage, PageStorage, ImageStorage } from "./native-storage";
+import { getClientPlatform } from "@/platform";
 
 export class OfflineStore {
   private pageId: string;
@@ -314,7 +315,7 @@ export async function getStorageStats(): Promise<{
 }> {
   const info = await NativeStorage.getStorageInfo();
   return {
-    platform: NativeStorage.getPlatform(),
+    platform: getClientPlatform(),
     ...info,
   };
 }

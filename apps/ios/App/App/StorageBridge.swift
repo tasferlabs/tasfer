@@ -28,6 +28,12 @@ class StorageBridge: NSObject, WKScriptMessageHandler {
         var errorMsg: String? = nil
 
         switch action {
+        case "paste":
+            let clipboardText = UIPasteboard.general.string ?? ""
+            result = clipboardText
+            sendCallback(callbackId: callbackId, result: result, error: nil)
+            return
+
         case "shareFile":
             if let dataStr = body["data"] as? String,
                let fileName = body["fileName"] as? String,

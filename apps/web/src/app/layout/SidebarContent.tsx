@@ -59,7 +59,7 @@ import {
   type IListPage,
 } from "../api/pages.api";
 // import { useGetSharedByMe, useGetSharedWithMe } from "../api/shares.api";
-import { getImageUrl } from "../api/images.api";
+import { useAssetUrl } from "../api/images.api";
 import { useCreateSpace, useLeaveSpace } from "../api/spaces.api";
 import { useConfirmation } from "../components/ConfirmationDialog";
 import { EditGroupDialog } from "../components/EditGroupDialog";
@@ -405,7 +405,7 @@ export function SidebarContent({
         .slice(0, 2)
     : "?";
 
-  const avatarUrl = user?.avatar ? getImageUrl(user.avatar) : null;
+  const avatarUrl = useAssetUrl(user?.avatar);
 
   return (
     <>

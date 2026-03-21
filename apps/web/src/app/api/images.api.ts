@@ -1,4 +1,5 @@
 import { useMutation, type UseMutationOptions } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
 import imageCompression from "browser-image-compression";
 import { getPlatform } from "@/platform";
 import type { Asset } from "@/platform";
@@ -34,10 +35,9 @@ async function compressFile(file: File): Promise<File> {
 }
 
 function assetToImage(asset: Asset): IImage {
-  const platform = getPlatform();
   return {
     id: asset.hash,
-    url: platform.assets.getUrl(asset.hash),
+    url: asset.hash,
     fileName: asset.fileName,
     mimeType: asset.mimeType,
     size: asset.size,
@@ -81,7 +81,28 @@ export function useDeleteImage<TContext = unknown>(
 }
 
 // Get image URL helper
-export function getImageUrl(imageId: string): string {
+export async function getImageUrl(imageId: string): Promise<string> {
   const platform = getPlatform();
   return platform.assets.getUrl(imageId);
+}
+
+// React hook for resolving an asset hash to a blob URL
+export function useAssetUrl(hash: string | null | undefined): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!hash) {
+      setUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    getImageUrl(hash).then(
+      (resolved) => { if (!cancelled) setUrl(resolved); },
+      () => { if (!cancelled) setUrl(null); },
+    );
+    return () => { cancelled = true; };
+  }, [hash]);
+
+  return url;
 }

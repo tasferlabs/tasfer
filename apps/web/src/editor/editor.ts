@@ -1409,13 +1409,8 @@ export default function createEditor(
     }
     scheduleRender(); // Schedule render when focus changes
 
-    // Notify native platforms of editor focus state
-    if (window.AndroidBridge?.setEditorFocused) {
-      window.AndroidBridge.setEditorFocused(focused);
-    }
-    if (window.IOSBridge?.setEditorFocused) {
-      window.IOSBridge.setEditorFocused(focused);
-    }
+    // Notify native platform of editor focus state
+    window.CypherBridge?.editor.setFocused(focused);
   }
 
   function setInitialCursor() {

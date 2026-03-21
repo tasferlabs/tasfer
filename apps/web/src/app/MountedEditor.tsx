@@ -695,13 +695,7 @@ export function MountedEditor({
       toggleStrikethrough: () => mounted.editor.toggleStrikethrough(),
     };
 
-    if (window.IOSBridge) {
-      Object.assign(window.IOSBridge, editorMethods);
-    }
-
-    if (window.AndroidBridge) {
-      Object.assign(window.AndroidBridge, editorMethods);
-    }
+    window.CypherEditorCallbacks = editorMethods;
 
     // Subscribe to editor state changes for slash command and context menu
     const handleStateChange = (state: EditorState) => {
@@ -877,20 +871,10 @@ export function MountedEditor({
       }
 
       // Send undo/redo state to native bridge
-      if (window.IOSBridge) {
-        window.IOSBridge.postMessage({
-          action: "undo-redo-state",
-          canUndo: state.undoManager.undoStack.length > 0,
-          canRedo: state.undoManager.redoStack.length > 0,
-        });
-      }
-
-      if (window.AndroidBridge) {
-        window.AndroidBridge.updateUndoRedoState?.(
-          state.undoManager.undoStack.length > 0,
-          state.undoManager.redoStack.length > 0
-        );
-      }
+      window.CypherBridge?.editor.updateUndoRedoState(
+        state.undoManager.undoStack.length > 0,
+        state.undoManager.redoStack.length > 0,
+      );
 
       // Update toolbar icon based on selection state
       const determineToolbarIcon = (): "link" | "image" | "format" | "none" => {
@@ -943,16 +927,7 @@ export function MountedEditor({
       // Update the ref so format button handler knows current icon
       currentIconTypeRef.current = iconType;
 
-      if (window.IOSBridge) {
-        window.IOSBridge.postMessage({
-          action: "toolbar-icon",
-          iconType,
-        });
-      }
-
-      if (window.AndroidBridge) {
-        window.AndroidBridge.updateToolbarIcon?.(iconType);
-      }
+      window.CypherBridge?.editor.updateToolbarIcon(iconType);
 
       // Send formatting state to native bridge
       // When there's a selection, check if ALL chars have the format
@@ -995,24 +970,12 @@ export function MountedEditor({
         );
       }
 
-      if (window.IOSBridge) {
-        window.IOSBridge.postMessage({
-          action: "formatting-state",
-          bold: isBold,
-          italic: isItalic,
-          code: isCode,
-          strikethrough: isStrikethrough,
-        });
-      }
-
-      if (window.AndroidBridge) {
-        window.AndroidBridge.updateFormattingState?.(
-          isBold,
-          isItalic,
-          isCode,
-          isStrikethrough
-        );
-      }
+      window.CypherBridge?.editor.updateFormattingState(
+        isBold,
+        isItalic,
+        isCode,
+        isStrikethrough,
+      );
     };
 
     const unsubscribe = mounted.editor.subscribe(handleStateChange);
@@ -1097,16 +1060,7 @@ export function MountedEditor({
 
       mounted.destroy();
 
-      if (window.AndroidBridge) {
-        delete window.AndroidBridge.undo;
-        delete window.AndroidBridge.redo;
-        delete window.AndroidBridge.setBlockType;
-        delete window.AndroidBridge.focus;
-        delete window.AndroidBridge.toggleBold;
-        delete window.AndroidBridge.toggleItalic;
-        delete window.AndroidBridge.toggleCode;
-        delete window.AndroidBridge.toggleStrikethrough;
-      }
+      delete window.CypherEditorCallbacks;
       if (mountedRef.current === mounted) {
         mountedRef.current = null;
       }
@@ -1533,8 +1487,8 @@ export function MountedEditor({
     mountedRef.current.editor.closeActiveMenu();
     setLinkEditState(null);
 
-    if (window.IOSBridge) {
-      // Refocus editor to restore island toolbar on iOS
+    if (window.CypherBridge) {
+      // Refocus editor to restore native toolbar on mobile
       mountedRef.current.refocus();
     }
   };
@@ -1604,14 +1558,8 @@ export function MountedEditor({
               x={linkTooltipState.x}
               y={linkTooltipState.y}
               onOpen={() => {
-                // Use native bridge on mobile apps, fallback to window.open on web
-                if (window.IOSBridge?.postMessage) {
-                  window.IOSBridge.postMessage({
-                    action: "open-url",
-                    url: linkTooltipState.url,
-                  });
-                } else if (window.AndroidBridge?.openUrl) {
-                  window.AndroidBridge.openUrl(linkTooltipState.url);
+                if (window.CypherBridge) {
+                  window.CypherBridge.navigation.openUrl(linkTooltipState.url);
                 } else {
                   window.open(
                     linkTooltipState.url,

@@ -1,5 +1,5 @@
 import { updateProfile } from "@/app/api/auth.api";
-import { getImageUrl, uploadImage } from "@/app/api/images.api";
+import { useAssetUrl, uploadImage } from "@/app/api/images.api";
 import { AvatarCropDialog } from "@/app/components/AvatarCropDialog";
 import { AvatarPreviewDialog } from "@/app/components/AvatarPreviewDialog";
 import { useAuth } from "@/app/contexts/AuthContext";
@@ -24,6 +24,7 @@ export function Profile() {
   const [pendingFile, setPendingFile] = React.useState<File | null>(null);
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const avatarUrl = useAssetUrl(avatarId);
 
   const hasChanges =
     name !== (user?.name ?? "") || avatarId !== (user?.avatar ?? null);
@@ -112,9 +113,9 @@ export function Profile() {
                 tabIndex={0}
                 onKeyDown={(e) => e.key === "Enter" && handleAvatarClick()}
               >
-                {avatarId ? (
+                {avatarUrl ? (
                   <img
-                    src={getImageUrl(avatarId)}
+                    src={avatarUrl}
                     alt="Avatar"
                     className={styles.avatar}
                   />
@@ -179,7 +180,7 @@ export function Profile() {
       <AvatarPreviewDialog
         open={previewOpen}
         onOpenChange={setPreviewOpen}
-        imageUrl={avatarId ? getImageUrl(avatarId) : null}
+        imageUrl={avatarUrl}
         name={user?.name}
       />
     </div>

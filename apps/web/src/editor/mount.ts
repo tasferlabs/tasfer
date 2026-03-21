@@ -257,7 +257,7 @@ export function mountEditor(
     }
     const relatedTarget = e.relatedTarget as Node | null;
     if (
-      window.IOSBridge &&
+      window.CypherBridge &&
       relatedTarget &&
       relatedTarget instanceof HTMLElement
     ) {
@@ -351,7 +351,7 @@ export function mountEditor(
   themeObserver.observe(document.documentElement, { attributes: true });
 
   const refocus = () => {
-    if (hiddenInput && !destroyed && window.IOSBridge) {
+    if (hiddenInput && !destroyed && window.CypherBridge) {
       hiddenInput.focus({ preventScroll: true });
     }
   };

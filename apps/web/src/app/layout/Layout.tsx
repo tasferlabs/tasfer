@@ -21,7 +21,7 @@ import style from "./Layout.module.css";
 import { ResizableSidebar } from "./ResizableSidebar";
 import { TopActionBar } from "./TopActionBar";
 
-import { isNative } from "../api/client";
+import { isNative } from "@/platform/bridge";
 
 // WebSocket server URL - defaults to using Vite proxy
 function getWebSocketUrl(): string {
@@ -31,7 +31,7 @@ function getWebSocketUrl(): string {
       window.location.host
     }/ws`;
 
-  if (isNative) {
+  if (isNative()) {
     // Inject basic auth credentials into the URL for Traefik
     const basicAuth = import.meta.env.VITE_BASIC_AUTH;
     if (basicAuth) {

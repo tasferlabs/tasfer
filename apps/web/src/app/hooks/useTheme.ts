@@ -45,15 +45,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         metaColorScheme.setAttribute("content", scheme);
       }
 
-      // Sync to iOS native
-      if (window.IOSBridge?.postMessage) {
-        window.IOSBridge.postMessage({ action: "setColorScheme", colorScheme: scheme });
-      }
-
-      // Sync to Android native
-      if (window.AndroidBridge?.setColorScheme) {
-        window.AndroidBridge.setColorScheme(scheme);
-      }
+      // Sync to native platform
+      window.CypherBridge?.editor.setColorScheme(scheme);
     };
 
     // Update effective theme based on theme setting

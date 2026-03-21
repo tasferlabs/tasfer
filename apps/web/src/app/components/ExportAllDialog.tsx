@@ -224,7 +224,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
       for (const imgId of imageIds) {
         if (abortRef.current) return;
         try {
-          const imgUrl = getPlatform().assets.getUrl(imgId);
+          const imgUrl = await getPlatform().assets.getUrl(imgId);
           const response = await fetch(imgUrl);
           if (response.ok) {
             const blob = await response.blob();

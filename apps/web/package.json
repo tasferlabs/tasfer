@@ -79,6 +79,7 @@
     "tailwind-merge": "^3.4.0",
     "tailwindcss": "^4.1.11",
     "vaul": "^1.1.2",
+    "wa-sqlite": "^1.0.0",
     "workbox-cacheable-response": "^7.4.0",
     "workbox-expiration": "^7.4.0",
     "workbox-precaching": "^7.4.0",

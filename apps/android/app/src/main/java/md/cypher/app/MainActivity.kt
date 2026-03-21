@@ -129,16 +129,17 @@ class MainActivity : BridgeActivity() {
     override fun load() {
         super.load()
 
-        // Bridge is now initialized - add AndroidBridge to WebView
-        bridge.webView.addJavascriptInterface(AndroidBridge(this, bridge.webView), "AndroidBridge")
+        // Bridge is now initialized - add native bridge to WebView (internal name)
+        bridge.webView.addJavascriptInterface(AndroidBridge(this, bridge.webView), "__NativeBridge")
 
         // Disable scrollbars - let web content handle scrolling
         bridge.webView.isVerticalScrollBarEnabled = false
         bridge.webView.isHorizontalScrollBarEnabled = false
 
-        // Listen for page load to hide loading screen
+        // Listen for page load to hide loading screen and inject bridge shim
         bridge.addWebViewListener(object : WebViewListener() {
             override fun onPageLoaded(webView: WebView) {
+                injectCypherBridgeShim()
                 hideLoadingScreen()
                 injectSafeAreaInsets()
                 notifyPhysicalKeyboardState()
@@ -349,15 +350,61 @@ class MainActivity : BridgeActivity() {
         }
     }
 
+    // ---- CypherBridge JS shim ----
+
+    private fun injectCypherBridgeShim() {
+        val shimScript = """
+            (function() {
+                if (window.CypherBridge) return;
+                var nb = window.__NativeBridge;
+                if (!nb) return;
+                window.CypherBridge = {
+                    clipboard: {
+                        copy: function(t) { nb.copy(t); return Promise.resolve(); },
+                        cut: function(t) { nb.cut(t); return Promise.resolve(); },
+                        paste: function() { return Promise.resolve(nb.paste() || ''); }
+                    },
+                    haptic: {
+                        trigger: function(s) { nb.haptic(s); return Promise.resolve(); }
+                    },
+                    editor: {
+                        setFocused: function(f) { nb.setEditorFocused(f); return Promise.resolve(); },
+                        updateUndoRedoState: function(u, r) { nb.updateUndoRedoState(u, r); return Promise.resolve(); },
+                        updateToolbarIcon: function(t) { nb.updateToolbarIcon(t); return Promise.resolve(); },
+                        updateFormattingState: function(b, i, c, s) { nb.updateFormattingState(b, i, c, s); return Promise.resolve(); },
+                        setColorScheme: function(s) { nb.setColorScheme(s); return Promise.resolve(); }
+                    },
+                    navigation: {
+                        openUrl: function(u) { nb.openUrl(u); return Promise.resolve(); },
+                        openPhotoLibrary: function() { nb.openPhotoLibrary(); return Promise.resolve(); },
+                        openCamera: function() { nb.openCamera(); return Promise.resolve(); }
+                    },
+                    files: {
+                        shareFile: function(d, n, m) { return Promise.resolve(nb.shareFile(d, n, m)); }
+                    },
+                    storage: {
+                        write: function(p, d) { return Promise.resolve(nb.storageWrite(p, d)); },
+                        read: function(p) { return Promise.resolve(nb.storageRead(p)); },
+                        delete: function(p) { return Promise.resolve(nb.storageDelete(p)); },
+                        list: function(p) { var j = nb.storageList(p); return Promise.resolve(JSON.parse(j)); },
+                        exists: function(p) { return Promise.resolve(nb.storageExists(p)); },
+                        getInfo: function() { var j = nb.getStorageInfo(); return Promise.resolve(JSON.parse(j)); }
+                    }
+                };
+            })();
+        """.trimIndent()
+        bridge.webView.evaluateJavascript(shimScript, null)
+    }
+
     // ---- Toolbar listeners ----
 
     private fun setupToolbarListeners() {
         undoButton.setOnClickListener {
-            bridge.webView.evaluateJavascript("window.AndroidBridge?.undo?.()", null)
+            bridge.webView.evaluateJavascript("window.CypherEditorCallbacks?.undo?.()", null)
         }
 
         redoButton.setOnClickListener {
-            bridge.webView.evaluateJavascript("window.AndroidBridge?.redo?.()", null)
+            bridge.webView.evaluateJavascript("window.CypherEditorCallbacks?.redo?.()", null)
         }
 
         inlineFormatButton.setOnClickListener {
@@ -369,7 +416,7 @@ class MainActivity : BridgeActivity() {
                 closeBlockMenu()
             } else {
                 bridge.webView.evaluateJavascript(
-                    "(function() { if(window.AndroidBridge && window.AndroidBridge.onFormatButtonClick) { return window.AndroidBridge.onFormatButtonClick(); } return false; })()",
+                    "(function() { if(window.CypherEditorCallbacks && window.CypherEditorCallbacks.onFormatButtonClick) { return window.CypherEditorCallbacks.onFormatButtonClick(); } return false; })()",
                 ) { result ->
                     if (result == "false") {
                         openBlockMenu()
@@ -379,19 +426,19 @@ class MainActivity : BridgeActivity() {
         }
 
         boldButton.setOnClickListener {
-            bridge.webView.evaluateJavascript("window.AndroidBridge?.toggleBold?.()", null)
+            bridge.webView.evaluateJavascript("window.CypherEditorCallbacks?.toggleBold?.()", null)
         }
 
         italicButton.setOnClickListener {
-            bridge.webView.evaluateJavascript("window.AndroidBridge?.toggleItalic?.()", null)
+            bridge.webView.evaluateJavascript("window.CypherEditorCallbacks?.toggleItalic?.()", null)
         }
 
         codeButton.setOnClickListener {
-            bridge.webView.evaluateJavascript("window.AndroidBridge?.toggleCode?.()", null)
+            bridge.webView.evaluateJavascript("window.CypherEditorCallbacks?.toggleCode?.()", null)
         }
 
         strikethroughButton.setOnClickListener {
-            bridge.webView.evaluateJavascript("window.AndroidBridge?.toggleStrikethrough?.()", null)
+            bridge.webView.evaluateJavascript("window.CypherEditorCallbacks?.toggleStrikethrough?.()", null)
         }
 
         closeFormattingButton.setOnClickListener {
@@ -423,7 +470,7 @@ class MainActivity : BridgeActivity() {
     }
 
     private fun setBlockType(type: String) {
-        bridge.webView.evaluateJavascript("window.AndroidBridge?.setBlockType?.('$type')", null)
+        bridge.webView.evaluateJavascript("window.CypherEditorCallbacks?.setBlockType?.('$type')", null)
     }
 
     // ---- Block menu open/close ----

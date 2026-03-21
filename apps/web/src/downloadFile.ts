@@ -1,4 +1,4 @@
-import { getClientPlatform } from "./platform";
+import { getBridge } from "./platform/bridge";
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -22,17 +22,11 @@ export async function downloadFile(
   fileName: string,
   mimeType: string,
 ): Promise<void> {
-  const platform = getClientPlatform();
+  const bridge = getBridge();
 
-  if (platform === "ios" && window.IOSBridge?.shareFile) {
+  if (bridge) {
     const base64 = await blobToBase64(blob);
-    await window.IOSBridge.shareFile(base64, fileName, mimeType);
-    return;
-  }
-
-  if (platform === "android" && window.AndroidBridge?.shareFile) {
-    const base64 = await blobToBase64(blob);
-    window.AndroidBridge.shareFile(base64, fileName, mimeType);
+    await bridge.files.shareFile(base64, fileName, mimeType);
     return;
   }
 

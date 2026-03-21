@@ -39,7 +39,7 @@ import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import * as Popover from "@radix-ui/react-popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { debounce } from "lodash-es";
-import { Calendar, Trash } from "lucide-react";
+import { Calendar, History, Trash } from "lucide-react";
 import { DateTime } from "luxon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -66,6 +66,7 @@ import {
 import EmptyStateIllustration from "../components/illustrations/empty-state";
 import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
+import { SnapshotRestore } from "../components/SnapshotRestore";
 import { WordCountOverlay } from "../components/WordCountOverlay";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useSpaces } from "../contexts/SpaceContext";
@@ -146,7 +147,7 @@ export default function EditorPage() {
   const [isDeletedByOther, setIsDeletedByOther] = useState(false);
   // Persisted editor state - once entered, stays until user takes action
   const [persistedState, setPersistedState] = useState<
-    "empty" | "not-found" | "error" | null
+    "empty" | "not-found" | "error" | "corrupted" | null
   >(null);
   // Auto-title state - when true, title is auto-generated from content
   const [autoTitle, setAutoTitle] = useState(true);
@@ -279,6 +280,20 @@ export default function EditorPage() {
         const page = await getPage(id!);
         if (!cancelled) {
           const snapshot = page.snapshot || [];
+          // Detect corrupted/empty page data — a valid page must have at least one visible block
+          const hasVisibleBlocks = snapshot.some((b) => !b.deleted);
+          if (!hasVisibleBlocks) {
+            // Page exists but has no content — mark as corrupted so user can recover from snapshots
+            setPageSnapshot(snapshot);
+            setSnapshotClock(page.snapshotClock || null);
+            setAutoTitle(page.autoTitle);
+            setCurrentTitle(page.title || "");
+            setLocalPermission("owner");
+            setPermission("owner");
+            setIsLoading(false);
+            setPersistedState("corrupted");
+            return;
+          }
           setPageSnapshot(snapshot);
           // Track snapshot clock for delta sync
           setSnapshotClock(page.snapshotClock || null);
@@ -408,8 +423,13 @@ export default function EditorPage() {
     (blocks: Block[]) => {
       if (!id) return;
       if (restoreFnRef.current) {
+        // Normal restore through mounted editor (generates CRDT operations)
         restoreFnRef.current(blocks);
-        // Trigger save after restore - include pageId for correct targeting
+        debouncedSave({ pageId: id, snapshot: blocks, clock: null });
+      } else {
+        // Corrupted state — no editor mounted, restore directly
+        setPageSnapshot(blocks);
+        setPersistedState(null);
         debouncedSave({ pageId: id, snapshot: blocks, clock: null });
       }
     },
@@ -469,6 +489,9 @@ export default function EditorPage() {
   }
   if (persistedState === "error") {
     return <EditorErrorState />;
+  }
+  if (persistedState === "corrupted") {
+    return <EditorCorruptedState />;
   }
 
   // If no ID in URL
@@ -1028,6 +1051,36 @@ export function EditorErrorState() {
       <div className={style.appError}>
         {t("error.pageLoadFailed", "Error occurred loading the page")}
       </div>
+    </div>
+  );
+}
+
+function EditorCorruptedState() {
+  const { t } = useTranslation();
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+
+  return (
+    <div className={style.appErrorState}>
+      <ErrorStateIllustration />
+      <div className={style.appError}>
+        {t("error.pageCorrupted", "This page appears to corrupted")}
+      </div>
+      <p className={style.appErrorDescription}>
+        {t(
+          "error.pageCorruptedDescription",
+          "The page content could not be loaded. You can restore a previous version or start with a blank page.",
+        )}
+      </p>
+      <div className="flex gap-3">
+        <Button onClick={() => setShowVersionHistory(true)}>
+          <History className="h-4 w-4 mr-2" />
+          {t("snapshot.versionHistory", "Version history")}
+        </Button>
+      </div>
+      <SnapshotRestore
+        open={showVersionHistory}
+        onOpenChange={setShowVersionHistory}
+      />
     </div>
   );
 }
