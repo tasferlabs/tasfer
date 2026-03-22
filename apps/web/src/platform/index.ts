@@ -7,7 +7,7 @@
 
 import type { Platform } from "./types";
 import { Engine } from "./engine";
-import { P2PSync } from "./sync";
+import { Replicator } from "./sync";
 
 // Re-export all types for convenience
 export type * from "./types";
@@ -28,10 +28,7 @@ function detectClientPlatform(): ClientPlatform {
     ) {
       return "ios";
     }
-    if (
-      (window as any).__CYPHER_ANDROID__ ||
-      (window as any).__NativeBridge
-    ) {
+    if ((window as any).__CYPHER_ANDROID__ || (window as any).__NativeBridge) {
       return "android";
     }
     const ua = navigator.userAgent.toLowerCase();
@@ -86,6 +83,7 @@ async function _initPlatformInner(): Promise<Platform> {
   const env = detectAdapter();
   const signalUrl = import.meta.env.VITE_SIGNAL_URL ?? "ws://localhost:8080";
   let engine: Engine;
+  let replicator: Replicator;
 
   switch (env) {
     case "electron": {
@@ -93,7 +91,9 @@ async function _initPlatformInner(): Promise<Platform> {
       const driver = createElectronDriver(signalUrl);
       engine = new Engine(driver);
       await engine.init();
-      engine.setSync(new P2PSync(driver.network));
+      replicator = new Replicator(driver.network, engine.asReplicatorHost());
+      engine.setReplicator(replicator);
+      engine.setSync(replicator);
       break;
     }
     case "capacitor": {
@@ -101,7 +101,9 @@ async function _initPlatformInner(): Promise<Platform> {
       const driver = createCapacitorDriver(signalUrl);
       engine = new Engine(driver);
       await engine.init();
-      engine.setSync(new P2PSync(driver.network));
+      replicator = new Replicator(driver.network, engine.asReplicatorHost());
+      engine.setReplicator(replicator);
+      engine.setSync(replicator);
       break;
     }
     default: {
@@ -109,10 +111,18 @@ async function _initPlatformInner(): Promise<Platform> {
       const driver = createWebDriver(signalUrl);
       engine = new Engine(driver);
       await engine.init();
-      engine.setSync(new P2PSync(driver.network));
+      replicator = new Replicator(driver.network, engine.asReplicatorHost());
+      engine.setReplicator(replicator);
+      engine.setSync(replicator);
       break;
     }
   }
+
+  // Store the signal URL for pairing invites
+  await engine.storage.set("signalUrl", signalUrl);
+
+  // Start the replicator — connects to all trusted peers for background sync
+  await replicator.start();
 
   _platform = engine;
   _g.__cypher_platform = engine;

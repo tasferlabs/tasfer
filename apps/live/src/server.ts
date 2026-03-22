@@ -87,6 +87,9 @@ function handleMessage(info: PeerInfo, msg: any) {
     case "signal":
       handleSignal(info, msg.topic, msg.target, msg.data);
       break;
+    case "relay":
+      handleRelay(info, msg.topic, msg.target, msg.data);
+      break;
   }
 }
 
@@ -150,6 +153,21 @@ function handleSignal(info: PeerInfo, topic: string, target: string, data: unkno
   if (!peerId) return;
 
   send(targetPeer.ws, { type: "signal", topic, from: peerId, data });
+}
+
+function handleRelay(info: PeerInfo, topic: string, target: string, data: unknown) {
+  if (!topic || !target || data == null) return;
+
+  const room = topics.get(topic);
+  if (!room) return;
+
+  const targetPeer = room.get(target);
+  if (!targetPeer) return;
+
+  const peerId = info.topics.get(topic);
+  if (!peerId) return;
+
+  send(targetPeer.ws, { type: "relay", topic, from: peerId, data });
 }
 
 // =============================================================================

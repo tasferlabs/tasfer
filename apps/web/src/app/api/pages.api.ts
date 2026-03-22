@@ -31,12 +31,12 @@ export type ISnapshot = PageSnapshot;
 // =============================================================================
 
 export async function getPages(
-  _spaceId: string,
+  spaceId: string,
   parentId: string | null,
   options?: { includeTasks?: boolean },
 ): Promise<IListPage[]> {
   const platform = getPlatform();
-  return platform.pages.list(parentId, options);
+  return platform.pages.list(spaceId, parentId, options);
 }
 
 export function useGetPages(spaceId: string | null, parentId: string | null) {
@@ -77,8 +77,7 @@ interface ICreatePage {
 
 export async function createPage(data: ICreatePage): Promise<IPage> {
   const platform = getPlatform();
-  const { spaceId: _, ...input } = data;
-  return platform.pages.create(input);
+  return platform.pages.create(data);
 }
 
 export function useCreatePage<TContext = unknown>(

@@ -33,7 +33,11 @@ import {
 } from "../editor/mount";
 import { clearFailedImageCache } from "../editor/renderer";
 import { getLinkAtPosition } from "../editor/selection";
-import { getBlockTextContent, getBlockTextLength, isTouchDevice } from "../editor/state";
+import {
+  getBlockTextContent,
+  getBlockTextLength,
+  isTouchDevice,
+} from "../editor/state";
 import type {
   EditorState,
   PlaceholderStyles,
@@ -42,12 +46,22 @@ import type {
 } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
-import { useRoom, type SyncState } from "@/websocket/hooks/useRoom";
-import { SyncEngine, type HLC, serializeVV, deserializeVV } from "@/editor/sync/sync";
-import type { AwarenessState, AwarenessUser } from "@/editor/sync/awareness";
-import type { Operation } from "@/websocket/types";
+import { useP2PRoom, type SyncState } from "@/app/hooks/useP2PRoom";
+import {
+  SyncEngine,
+  type HLC,
+  serializeVV,
+  deserializeVV,
+} from "@/editor/sync/sync";
+import {
+  positionToAwarenessCursor,
+  selectionToAwarenessSelection,
+  type AwarenessState,
+  type AwarenessUser,
+} from "@/editor/sync/awareness";
+import type { Operation } from "@/editor/sync/types";
 import { hasNativeBridge } from "@/editor/actions/clipboard";
-import { OfflineStore } from "@/offline/store";
+import { getPlatform } from "@/platform";
 import { usePageSettings } from "./contexts/PageSettingsContext";
 
 // --- Cursor position persistence ---
@@ -63,7 +77,9 @@ interface StoredCursorPosition {
 function saveCursorPosition(pageId: string, position: StoredCursorPosition) {
   try {
     const raw = localStorage.getItem(CURSOR_STORAGE_KEY);
-    const map: Record<string, StoredCursorPosition> = raw ? JSON.parse(raw) : {};
+    const map: Record<string, StoredCursorPosition> = raw
+      ? JSON.parse(raw)
+      : {};
     map[pageId] = position;
 
     // Evict oldest entries if over limit
@@ -101,8 +117,8 @@ interface MountedEditorProps {
   autoFocus?: boolean;
   /** Unique page ID for CRDT sync - if provided, enables live collaboration */
   pageId: string;
-  /** @deprecated WebSocket URL is now managed by WebSocketProvider */
-  signalingUrl?: string;
+  /** Space ID that owns this page - required for P2P sync to use the correct topic */
+  spaceId?: string;
   /** Callback when sync state changes */
   onSyncStateChange?: (state: SyncState) => void;
   /** Clock of the snapshot - used for delta sync */
@@ -139,7 +155,7 @@ export function MountedEditor({
   onContentUpdate,
   autoFocus = false,
   pageId,
-  signalingUrl: _signalingUrl,
+  spaceId,
   onSyncStateChange,
   snapshotClock,
   onSnapshotClockUpdate,
@@ -156,7 +172,6 @@ export function MountedEditor({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef<MountedEditorInstance | null>(null);
   const syncEngineRef = useRef<SyncEngine | null>(null);
-  const offlineStoreRef = useRef<OfflineStore | null>(null);
   const onScrollRef = useRef(onScroll);
   onScrollRef.current = onScroll;
   const onContentChangeRef = useRef(onContentChange);
@@ -243,7 +258,9 @@ export function MountedEditor({
   >(null);
   const editorInitializedRef = useRef(false);
   // Preserve live editor content across HMR re-mounts (refs survive Fast Refresh)
-  const liveBlocksRef = useRef<{ blocks: Block[]; pageId: string } | null>(null);
+  const liveBlocksRef = useRef<{ blocks: Block[]; pageId: string } | null>(
+    null,
+  );
   // Track when applying remote operations to prevent triggering saves for non-local changes
   const isApplyingRemoteOpsRef = useRef(false);
   // Track snapshot clock for delta operations (operations after this clock need to be sent)
@@ -256,7 +273,7 @@ export function MountedEditor({
 
   // Track current toolbar icon type
   const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">(
-    "format"
+    "format",
   );
 
   // Callbacks for useRoom - use refs to avoid recreating callbacks
@@ -265,7 +282,7 @@ export function MountedEditor({
     | ((
         vv: Record<string, number>,
         clock: { counter: number; peerId: string } | null | undefined,
-        requesterId?: string
+        requesterId?: string,
       ) => void)
     | null
   >(null);
@@ -276,16 +293,17 @@ export function MountedEditor({
     ((awarenesspeerId: string, state: AwarenessState | null) => void) | null
   >(null);
   const onRoomFirstPeerRef = useRef<(() => void) | null>(null);
+  const onRoomPeerJoinedRef = useRef<((peerId: string) => void) | null>(null);
   const onRoomAwarenessStatesRef = useRef<
     ((states: Record<string, AwarenessState>) => void) | null
   >(null);
   const onRoomJoinedRef = useRef<((hasOtherPeers: boolean) => void) | null>(
-    null
+    null,
   );
   // Track sync state for confirmSave callback
   const syncStateRef = useRef<SyncState>({ status: "disconnected" });
 
-  // Use the global WebSocket room subscription
+  // Use the P2P room subscription (WebRTC DataChannels)
   const {
     broadcast: roomBroadcast,
     broadcastAwareness: roomBroadcastAwareness,
@@ -294,36 +312,60 @@ export function MountedEditor({
     syncState,
     localUser,
     peerId,
-  } = useRoom(pageId, {
-    onOperations: useCallback((ops: Operation[]) => {
-      onRoomOperationsRef.current?.(ops);
-    }, []),
-    onSyncRequest: useCallback(
-      (
-        vv: Record<string, number>,
-        clock: { counter: number; peerId: string } | null | undefined,
-        requesterId?: string
-      ) => {
-        onRoomSyncRequestRef.current?.(vv, clock, requesterId);
-      },
-      []
-    ),
-    onSyncResponse: useCallback((ops: Operation[], vv: Record<string, number>) => {
-      onRoomSyncResponseRef.current?.(ops, vv);
-    }, []),
-    onAwarenessUpdate: useCallback((pId: string, state: AwarenessState | null) => {
-      onRoomAwarenessRef.current?.(pId, state);
-    }, []),
-    onFirstPeer: useCallback(() => {
-      onRoomFirstPeerRef.current?.();
-    }, []),
-    onAwarenessStates: useCallback((states: Record<string, AwarenessState>) => {
-      onRoomAwarenessStatesRef.current?.(states);
-    }, []),
-    onJoined: useCallback((hasOtherPeers: boolean) => {
-      onRoomJoinedRef.current?.(hasOtherPeers);
-    }, []),
-  });
+  } = useP2PRoom(
+    pageId,
+    {
+      onOperations: useCallback((ops: Operation[]) => {
+        onRoomOperationsRef.current?.(ops);
+      }, []),
+      onSyncRequest: useCallback(
+        (
+          vv: Record<string, number>,
+          clock: { counter: number; peerId: string } | null | undefined,
+          requesterId?: string,
+        ) => {
+          onRoomSyncRequestRef.current?.(vv, clock, requesterId);
+        },
+        [],
+      ),
+      onSyncResponse: useCallback(
+        (ops: Operation[], vv: Record<string, number>) => {
+          onRoomSyncResponseRef.current?.(ops, vv);
+        },
+        [],
+      ),
+      onAwarenessUpdate: useCallback(
+        (pId: string, state: AwarenessState | null) => {
+          onRoomAwarenessRef.current?.(pId, state);
+        },
+        [],
+      ),
+      onFirstPeer: useCallback(() => {
+        onRoomFirstPeerRef.current?.();
+      }, []),
+      onPeerJoined: useCallback((pId: string) => {
+        onRoomPeerJoinedRef.current?.(pId);
+      }, []),
+      onAwarenessStates: useCallback(
+        (states: Record<string, AwarenessState>) => {
+          onRoomAwarenessStatesRef.current?.(states);
+        },
+        [],
+      ),
+      onJoined: useCallback((hasOtherPeers: boolean) => {
+        onRoomJoinedRef.current?.(hasOtherPeers);
+      }, []),
+    },
+    spaceId,
+  );
+
+  // Refs for values from useP2PRoom that should NOT cause editor re-mount.
+  // Reading from refs inside the big useEffect avoids destroying/recreating
+  // the editor (and nulling all callback refs) when these change.
+  const peerIdRef = useRef(peerId);
+  peerIdRef.current = peerId;
+  const localUserRef = useRef(localUser);
+  localUserRef.current = localUser;
 
   // Keep syncStateRef up to date for use in callbacks
   useEffect(() => {
@@ -382,6 +424,7 @@ export function MountedEditor({
 
     const mounted = mountEditor(el, initialBlocks, {
       readonly,
+      pageId,
       padding,
       blockStyleOverrides,
       placeholderOverrides,
@@ -432,7 +475,9 @@ export function MountedEditor({
           }
         }
 
-        if (!shallowEqual(newContextMenuState, lastContextMenuStateRef.current)) {
+        if (
+          !shallowEqual(newContextMenuState, lastContextMenuStateRef.current)
+        ) {
           lastContextMenuStateRef.current = newContextMenuState;
           setContextMenuState(newContextMenuState);
         }
@@ -447,17 +492,11 @@ export function MountedEditor({
       };
     }
 
-    // Initialize offline store for this page
-    const offlineStore = new OfflineStore(pageId);
-    offlineStoreRef.current = offlineStore;
-
-    // Load persisted operations from IndexedDB (if any)
+    // Load persisted operations from SQLite (if any)
     // This restores local changes that weren't synced before page reload
-    offlineStore.loadOperations().then((persistedOps) => {
+    const platform = getPlatform();
+    const opsLoadedPromise = platform.ops.load(pageId).then((persistedOps) => {
       if (persistedOps.length > 0 && syncEngineRef.current) {
-        console.log(
-          `[Offline] Loading ${persistedOps.length} persisted operations`
-        );
         syncEngineRef.current.loadOperations(persistedOps);
       }
     });
@@ -471,36 +510,32 @@ export function MountedEditor({
     }
 
     // Expose confirmSave function to parent
-    // Called after backend confirms save succeeded - updates snapshotClock and marks ops as synced
+    // Called after snapshot save — updates snapshotClock
     if (onConfirmSaveReady) {
       onConfirmSaveReady((clock: HLC) => {
-        // Update local snapshotClock ref
         snapshotClockRef.current = clock;
-        // Notify parent of clock update
         onSnapshotClockUpdateRef.current?.(clock);
-        // Only mark operations as synced and compact if WebSocket is connected
-        // This ensures operations aren't deleted before they've been broadcast to peers
-        if (syncStateRef.current.status === "connected") {
-          offlineStoreRef.current?.markSynced(clock).then(() => {
-            offlineStoreRef.current?.compactSynced();
-          });
-        }
       });
     }
 
     // Initialize sync engine for CRDT (use same peerId as WebSocket)
-    const syncEngine = new SyncEngine(pageId, peerId);
+    const syncEngine = new SyncEngine(pageId, peerIdRef.current);
     syncEngineRef.current = syncEngine;
 
     // Wire up room callbacks to sync engine and editor
     // These refs are called by useRoom when messages arrive
     onRoomOperationsRef.current = (ops) => {
       isApplyingRemoteOpsRef.current = true;
+      syncEngine.apply(ops);
       mounted.editor.applyRemoteOperations(ops);
       isApplyingRemoteOpsRef.current = false;
     };
 
-    onRoomSyncRequestRef.current = (versionVector, _snapshotClock, requesterId) => {
+    onRoomSyncRequestRef.current = (
+      versionVector,
+      _snapshotClock,
+      requesterId,
+    ) => {
       const remoteVV = deserializeVV(versionVector);
       const missingOps = syncEngine.getOpsSince(remoteVV);
       const localVV = serializeVV(syncEngine.getVersionVector());
@@ -521,6 +556,25 @@ export function MountedEditor({
 
     onRoomFirstPeerRef.current = () => {
       // The editor already has the initial content loaded
+    };
+
+    // When a new peer joins our room, re-broadcast our awareness so they see our cursor
+    onRoomPeerJoinedRef.current = (_joinedPeerId) => {
+      const editorState = mounted.editor.getState();
+      if (editorState) {
+        const { page, cursor, selection } = editorState.document;
+        roomBroadcastAwareness({
+          user: localUserRef.current,
+          cursor: cursor
+            ? positionToAwarenessCursor(cursor.position, page)
+            : null,
+          selection:
+            selection && !selection.isCollapsed
+              ? selectionToAwarenessSelection(selection, page)
+              : null,
+          lastUpdate: Date.now(),
+        });
+      }
     };
 
     onRoomAwarenessRef.current = (awarenesspeerId, state) => {
@@ -544,20 +598,31 @@ export function MountedEditor({
       }
     };
 
-    // Handle room join/rejoin - broadcast unsynced ops and request sync
+    // Handle room join/rejoin - request VV-based sync from peers
     onRoomJoinedRef.current = (hasOtherPeers) => {
-      // Broadcast any unsynced operations from IndexedDB
-      // This handles both: initial load with pending ops, and reconnect after offline typing
-      offlineStore.getUnsyncedOperations().then((unsyncedOps) => {
-        if (unsyncedOps.length > 0) {
-          roomBroadcast(unsyncedOps);
-        }
-      });
-
-      // If there are other peers, request sync to get any operations we missed
       if (hasOtherPeers) {
-        const localVV = serializeVV(syncEngine.getVersionVector());
-        roomSendSyncRequest(localVV, snapshotClockRef.current);
+        // Wait for persisted ops to load so the VV is accurate
+        opsLoadedPromise.then(() => {
+          const localVV = serializeVV(syncEngine.getVersionVector());
+          roomSendSyncRequest(localVV, snapshotClockRef.current);
+        });
+
+        // Broadcast current awareness state so peers see our cursor
+        const editorState = mounted.editor.getState();
+        if (editorState) {
+          const { page, cursor, selection } = editorState.document;
+          roomBroadcastAwareness({
+            user: localUserRef.current,
+            cursor: cursor
+              ? positionToAwarenessCursor(cursor.position, page)
+              : null,
+            selection:
+              selection && !selection.isCollapsed
+                ? selectionToAwarenessSelection(selection, page)
+                : null,
+            lastUpdate: Date.now(),
+          });
+        }
       }
     };
 
@@ -565,16 +630,16 @@ export function MountedEditor({
     mounted.editor.setBroadcast((ops) => {
       // Add to sync engine's log
       syncEngine.emit(ops);
-      // Broadcast to peers via global WebSocket
+      // Broadcast to peers
       roomBroadcast(ops);
-      // Persist to IndexedDB for offline support
-      offlineStoreRef.current?.persistOperations(ops);
+      // Persist to SQLite
+      platform.ops.persist(pageId, ops);
     });
 
     // Connect editor's awareness broadcast to room
     mounted.editor.setAwarenessBroadcast((state: AwarenessState) => {
       roomBroadcastAwareness(state);
-    }, localUser);
+    }, localUserRef.current);
 
     // Handle pasted image files (e.g. screenshots) — upload and update block URL
     mounted.editor.onImagePaste(async (file, blockIndex) => {
@@ -584,7 +649,11 @@ export function MountedEditor({
         const state = mounted.editor.getState();
         if (state) {
           const block = state.document.page.blocks[blockIndex];
-          if (block && block.type === "image" && block.url?.startsWith("blob:")) {
+          if (
+            block &&
+            block.type === "image" &&
+            block.url?.startsWith("blob:")
+          ) {
             URL.revokeObjectURL(block.url);
           }
         }
@@ -628,7 +697,7 @@ export function MountedEditor({
         if (state.document.cursor) {
           const linkData = getLinkAtPosition(
             state.document.cursor.position,
-            state
+            state,
           );
 
           if (linkData) {
@@ -656,7 +725,7 @@ export function MountedEditor({
                 const text = getBlockTextContent(block);
                 const selectedText = text.substring(
                   start.textIndex,
-                  end.textIndex
+                  end.textIndex,
                 );
 
                 setNativeLinkDrawerState({
@@ -701,7 +770,10 @@ export function MountedEditor({
     const handleStateChange = (state: EditorState) => {
       // Notify parent of content changes if callback is provided
       // Only serialize when blocks actually change (not on cursor blink, UI changes, etc.)
-      if ((onContentChangeRef.current || onContentUpdateRef.current) && state.document.page?.blocks) {
+      if (
+        (onContentChangeRef.current || onContentUpdateRef.current) &&
+        state.document.page?.blocks
+      ) {
         const currentBlocks = state.document.page.blocks;
 
         // On first state change, store the initial blocks and notify for read-only callbacks
@@ -897,7 +969,7 @@ export function MountedEditor({
         if (state.document.cursor) {
           const linkData = getLinkAtPosition(
             state.document.cursor.position,
-            state
+            state,
           );
           if (linkData) {
             return "link";
@@ -941,10 +1013,34 @@ export function MountedEditor({
         // Single block selection: check if all chars have each format
         const block = state.document.page.blocks[range.start.blockIndex];
         if (isTextualBlock(block)) {
-          isBold = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "bold");
-          isItalic = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "italic");
-          isCode = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "code");
-          isStrikethrough = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "strikethrough");
+          isBold = allCharsHaveFormat(
+            block.charRuns,
+            block.formats,
+            range.start.textIndex,
+            range.end.textIndex,
+            "bold",
+          );
+          isItalic = allCharsHaveFormat(
+            block.charRuns,
+            block.formats,
+            range.start.textIndex,
+            range.end.textIndex,
+            "italic",
+          );
+          isCode = allCharsHaveFormat(
+            block.charRuns,
+            block.formats,
+            range.start.textIndex,
+            range.end.textIndex,
+            "code",
+          );
+          isStrikethrough = allCharsHaveFormat(
+            block.charRuns,
+            block.formats,
+            range.start.textIndex,
+            range.end.textIndex,
+            "strikethrough",
+          );
         } else {
           isBold = isItalic = isCode = isStrikethrough = false;
         }
@@ -965,9 +1061,7 @@ export function MountedEditor({
         isBold = activeFormats.some((f) => f.type === "bold");
         isItalic = activeFormats.some((f) => f.type === "italic");
         isCode = activeFormats.some((f) => f.type === "code");
-        isStrikethrough = activeFormats.some(
-          (f) => f.type === "strikethrough"
-        );
+        isStrikethrough = activeFormats.some((f) => f.type === "strikethrough");
       }
 
       window.CypherBridge?.editor.updateFormattingState(
@@ -1003,7 +1097,7 @@ export function MountedEditor({
 
           mounted.editor.restoreCursorAndSelection(
             { position: { blockIndex, textIndex }, lastUpdate: Date.now() },
-            null
+            null,
           );
 
           // Restore scroll position
@@ -1045,17 +1139,13 @@ export function MountedEditor({
       onRoomSyncResponseRef.current = null;
       onRoomAwarenessRef.current = null;
       onRoomFirstPeerRef.current = null;
+      onRoomPeerJoinedRef.current = null;
       onRoomAwarenessStatesRef.current = null;
       onRoomJoinedRef.current = null;
 
       // Clean up sync engine
       if (syncEngineRef.current) {
         syncEngineRef.current = null;
-      }
-
-      // Clean up offline store
-      if (offlineStoreRef.current) {
-        offlineStoreRef.current = null;
       }
 
       mounted.destroy();
@@ -1073,13 +1163,27 @@ export function MountedEditor({
     roomBroadcastAwareness,
     roomSendSyncRequest,
     roomSendSyncResponse,
-    localUser,
-    peerId,
+    // peerId and localUser are read from refs (peerIdRef, localUserRef) to avoid
+    // destroying/recreating the editor when the P2P identity loads asynchronously.
+    // This prevents a race where callback refs are briefly null during re-mount.
     readonly,
     padding,
     blockStyleOverrides,
     placeholderOverrides,
   ]);
+
+  // Update editor's awareness user when localUser becomes available
+  // (without re-mounting the entire editor)
+  useEffect(() => {
+    if (mountedRef.current && localUser.peerId) {
+      mountedRef.current.editor.setAwarenessBroadcast(
+        (state: AwarenessState) => {
+          roomBroadcastAwareness(state);
+        },
+        localUser,
+      );
+    }
+  }, [localUser, roomBroadcastAwareness]);
 
   // Global keyboard shortcuts for find — listen on document so they work even
   // when the editor canvas doesn't have focus, but skip when a dialog or drawer is open.
@@ -1102,64 +1206,65 @@ export function MountedEditor({
   }, []);
 
   // Search logic — compute matches when search text or page content changes
-  const performSearch = useCallback(
-    (text: string) => {
-      if (!text || !mountedRef.current) {
-        setFindMatches([]);
-        setFindActiveIndex(0);
-        mountedRef.current?.editor.clearSearchHighlights();
-        return;
-      }
+  const performSearch = useCallback((text: string) => {
+    if (!text || !mountedRef.current) {
+      setFindMatches([]);
+      setFindActiveIndex(0);
+      mountedRef.current?.editor.clearSearchHighlights();
+      return;
+    }
 
-      const state = mountedRef.current.editor.getState();
-      if (!state) return;
+    const state = mountedRef.current.editor.getState();
+    if (!state) return;
 
-      const matches: { blockIndex: number; startIndex: number; endIndex: number }[] = [];
-      const lowerSearch = text.toLowerCase();
+    const matches: {
+      blockIndex: number;
+      startIndex: number;
+      endIndex: number;
+    }[] = [];
+    const lowerSearch = text.toLowerCase();
 
-      for (let i = 0; i < state.document.page.blocks.length; i++) {
-        const block = state.document.page.blocks[i];
-        if (block.deleted) continue;
-        const content = getBlockTextContent(block).toLowerCase();
-        if (!content) continue;
+    for (let i = 0; i < state.document.page.blocks.length; i++) {
+      const block = state.document.page.blocks[i];
+      if (block.deleted) continue;
+      const content = getBlockTextContent(block).toLowerCase();
+      if (!content) continue;
 
-        let pos = 0;
-        while (true) {
-          const idx = content.indexOf(lowerSearch, pos);
-          if (idx === -1) break;
-          matches.push({
-            blockIndex: i,
-            startIndex: idx,
-            endIndex: idx + text.length,
-          });
-          pos = idx + 1;
-        }
-      }
-
-      setFindMatches(matches);
-      const newActiveIndex = matches.length > 0 ? 0 : -1;
-      setFindActiveIndex(newActiveIndex >= 0 ? newActiveIndex : 0);
-      mountedRef.current.editor.setSearchHighlights(
-        matches,
-        newActiveIndex >= 0 ? newActiveIndex : -1
-      );
-      // Scroll to first match
-      if (matches.length > 0) {
-        mountedRef.current.editor.scrollToPosition({
-          blockIndex: matches[0].blockIndex,
-          textIndex: matches[0].startIndex,
+      let pos = 0;
+      while (true) {
+        const idx = content.indexOf(lowerSearch, pos);
+        if (idx === -1) break;
+        matches.push({
+          blockIndex: i,
+          startIndex: idx,
+          endIndex: idx + text.length,
         });
+        pos = idx + 1;
       }
-    },
-    []
-  );
+    }
+
+    setFindMatches(matches);
+    const newActiveIndex = matches.length > 0 ? 0 : -1;
+    setFindActiveIndex(newActiveIndex >= 0 ? newActiveIndex : 0);
+    mountedRef.current.editor.setSearchHighlights(
+      matches,
+      newActiveIndex >= 0 ? newActiveIndex : -1,
+    );
+    // Scroll to first match
+    if (matches.length > 0) {
+      mountedRef.current.editor.scrollToPosition({
+        blockIndex: matches[0].blockIndex,
+        textIndex: matches[0].startIndex,
+      });
+    }
+  }, []);
 
   const handleFindSearchChange = useCallback(
     (text: string) => {
       setFindSearchText(text);
       performSearch(text);
     },
-    [performSearch]
+    [performSearch],
   );
 
   const navigateToMatch = useCallback(
@@ -1170,14 +1275,23 @@ export function MountedEditor({
       const match = findMatches[index];
       if (match) {
         mountedRef.current.editor.restoreCursorAndSelection(
-          { position: { blockIndex: match.blockIndex, textIndex: match.endIndex }, lastUpdate: Date.now() },
           {
-            anchor: { blockIndex: match.blockIndex, textIndex: match.startIndex },
+            position: {
+              blockIndex: match.blockIndex,
+              textIndex: match.endIndex,
+            },
+            lastUpdate: Date.now(),
+          },
+          {
+            anchor: {
+              blockIndex: match.blockIndex,
+              textIndex: match.startIndex,
+            },
             focus: { blockIndex: match.blockIndex, textIndex: match.endIndex },
             isForward: true,
             isCollapsed: false,
             lastUpdate: Date.now(),
-          }
+          },
         );
         mountedRef.current.editor.scrollToPosition({
           blockIndex: match.blockIndex,
@@ -1185,7 +1299,7 @@ export function MountedEditor({
         });
       }
     },
-    [findMatches]
+    [findMatches],
   );
 
   const handleFindNext = useCallback(() => {
@@ -1195,7 +1309,9 @@ export function MountedEditor({
 
   const handleFindPrevious = useCallback(() => {
     if (findMatches.length === 0) return;
-    navigateToMatch((findActiveIndex - 1 + findMatches.length) % findMatches.length);
+    navigateToMatch(
+      (findActiveIndex - 1 + findMatches.length) % findMatches.length,
+    );
   }, [findMatches, findActiveIndex, navigateToMatch]);
 
   const handleFindClose = useCallback(() => {
@@ -1209,8 +1325,6 @@ export function MountedEditor({
     mountedRef.current?.editor.setFocus(true);
   }, []);
   handleFindCloseRef.current = handleFindClose;
-
-  // Note: WebSocket reconnection is handled by the global WebSocketProvider
 
   const handleSlashCommandSelect = (command: SlashCommand) => {
     if (mountedRef.current) {
@@ -1302,10 +1416,34 @@ export function MountedEditor({
           // Single block selection: check if all chars have each format
           const block = state.document.page.blocks[range.start.blockIndex];
           if (isTextualBlock(block)) {
-            isBold = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "bold");
-            isItalic = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "italic");
-            isCode = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "code");
-            isStrikethrough = allCharsHaveFormat(block.charRuns, block.formats, range.start.textIndex, range.end.textIndex, "strikethrough");
+            isBold = allCharsHaveFormat(
+              block.charRuns,
+              block.formats,
+              range.start.textIndex,
+              range.end.textIndex,
+              "bold",
+            );
+            isItalic = allCharsHaveFormat(
+              block.charRuns,
+              block.formats,
+              range.start.textIndex,
+              range.end.textIndex,
+              "italic",
+            );
+            isCode = allCharsHaveFormat(
+              block.charRuns,
+              block.formats,
+              range.start.textIndex,
+              range.end.textIndex,
+              "code",
+            );
+            isStrikethrough = allCharsHaveFormat(
+              block.charRuns,
+              block.formats,
+              range.start.textIndex,
+              range.end.textIndex,
+              "strikethrough",
+            );
           }
         } else {
           // No selection or multi-block: use cursor position
@@ -1325,7 +1463,7 @@ export function MountedEditor({
           isItalic = activeFormats.some((f) => f.type === "italic");
           isCode = activeFormats.some((f) => f.type === "code");
           isStrikethrough = activeFormats.some(
-            (f) => f.type === "strikethrough"
+            (f) => f.type === "strikethrough",
           );
         }
       }
@@ -1376,7 +1514,10 @@ export function MountedEditor({
               const block = currentState.document.page.blocks[start.blockIndex];
               if (!block || block.type === "image") return;
               const text = getBlockTextContent(block);
-              const selectedText = text.substring(start.textIndex, end.textIndex);
+              const selectedText = text.substring(
+                start.textIndex,
+                end.textIndex,
+              );
               const containerRect = wrapperRef.current?.getBoundingClientRect();
               if (!containerRect) return;
               setNativeLinkDrawerState({
@@ -1463,7 +1604,7 @@ export function MountedEditor({
       linkEditState.startIndex,
       linkEditState.endIndex,
       newUrl,
-      newText
+      newText,
     );
     // Mark that an action was performed (don't restore selection on close)
     linkEditActionPerformedRef.current = true;
@@ -1476,7 +1617,7 @@ export function MountedEditor({
     editor.clearLink(
       linkEditState.blockIndex,
       linkEditState.startIndex,
-      linkEditState.endIndex
+      linkEditState.endIndex,
     );
     // Mark that an action was performed (don't restore selection on close)
     linkEditActionPerformedRef.current = true;
@@ -1498,7 +1639,7 @@ export function MountedEditor({
       ref={wrapperRef}
       className={cn(
         "relative w-full h-full overflow-hidden focus:outline-none",
-        className
+        className,
       )}
       role="textbox"
       aria-label="Text editor"
@@ -1518,7 +1659,7 @@ export function MountedEditor({
               onClose={handleSlashCommandClose}
             />
           </div>,
-          mountedRef.current.portalContainer
+          mountedRef.current.portalContainer,
         )}
 
       {/* Context menu portal */}
@@ -1564,14 +1705,14 @@ export function MountedEditor({
                   window.open(
                     linkTooltipState.url,
                     "_blank",
-                    "noopener,noreferrer"
+                    "noopener,noreferrer",
                   );
                 }
               }}
               onEdit={handleLinkEdit}
             />
           </div>,
-          mountedRef.current.portalContainer
+          mountedRef.current.portalContainer,
         )}
 
       {/* Link edit popover */}
@@ -1589,7 +1730,7 @@ export function MountedEditor({
             collisionBoundary={mountedRef.current?.portalContainer}
             container={mountedRef.current?.portalContainer}
           />,
-          mountedRef.current.portalContainer
+          mountedRef.current.portalContainer,
         )}
 
       {/* Image upload popover */}
@@ -1617,7 +1758,7 @@ export function MountedEditor({
               editor.updateImageBlock(
                 imageUploadState.blockIndex,
                 {},
-                "uploading"
+                "uploading",
               );
 
               try {
@@ -1631,7 +1772,7 @@ export function MountedEditor({
                     url: imageData.url,
                     alt: imageData.fileName,
                   },
-                  "complete"
+                  "complete",
                 );
 
                 // Close the popover after successful upload
@@ -1641,7 +1782,7 @@ export function MountedEditor({
                 editor.updateImageBlock(
                   imageUploadState.blockIndex,
                   {},
-                  "error"
+                  "error",
                 );
               }
             }}
@@ -1655,7 +1796,7 @@ export function MountedEditor({
               editor.updateImageBlock(
                 imageUploadState.blockIndex,
                 { url },
-                "complete"
+                "complete",
               );
             }}
             onDelete={() => {
@@ -1671,7 +1812,7 @@ export function MountedEditor({
             collisionBoundary={mountedRef.current?.portalContainer}
             container={mountedRef.current?.portalContainer}
           />,
-          mountedRef.current.portalContainer
+          mountedRef.current.portalContainer,
         )}
 
       {/* Image hover edit button overlay */}
@@ -1762,7 +1903,7 @@ export function MountedEditor({
                           canvasX,
                           canvasY,
                           block.url || undefined,
-                          block.alt || undefined
+                          block.alt || undefined,
                         );
                       }
                     }
@@ -1777,7 +1918,7 @@ export function MountedEditor({
                 </Button>
               </div>
             </div>,
-            mountedRef.current.portalContainer
+            mountedRef.current.portalContainer,
           );
         })()}
 
@@ -1806,7 +1947,7 @@ export function MountedEditor({
                   nativeLinkDrawerState.startIndex,
                   nativeLinkDrawerState.endIndex,
                   newUrl,
-                  newText
+                  newText,
                 );
               } else if (
                 nativeLinkDrawerState.blockIndex !== undefined &&
@@ -1830,7 +1971,7 @@ export function MountedEditor({
                     isForward: true,
                     isCollapsed: false,
                     lastUpdate: Date.now(),
-                  }
+                  },
                 );
 
                 // Now create the link with the restored selection
@@ -1851,7 +1992,7 @@ export function MountedEditor({
                       editor.clearLink(
                         nativeLinkDrawerState.blockIndex,
                         nativeLinkDrawerState.startIndex,
-                        nativeLinkDrawerState.endIndex
+                        nativeLinkDrawerState.endIndex,
                       );
                     }
                     setNativeLinkDrawerState(null);
@@ -1866,7 +2007,7 @@ export function MountedEditor({
             collisionBoundary={mountedRef.current?.portalContainer}
             container={mountedRef.current?.portalContainer}
           />,
-          mountedRef.current.portalContainer
+          mountedRef.current.portalContainer,
         )}
 
       {/* Native Image Drawer (triggered by format button on mobile) */}
@@ -1892,7 +2033,7 @@ export function MountedEditor({
               editor.updateImageBlock(
                 nativeImageDrawerState.blockIndex,
                 {},
-                "uploading"
+                "uploading",
               );
 
               try {
@@ -1903,14 +2044,14 @@ export function MountedEditor({
                     url: imageData.url,
                     alt: imageData.fileName,
                   },
-                  "complete"
+                  "complete",
                 );
               } catch (error) {
                 console.error("Image upload failed:", error);
                 editor.updateImageBlock(
                   nativeImageDrawerState.blockIndex,
                   {},
-                  "error"
+                  "error",
                 );
               }
             }}
@@ -1935,7 +2076,7 @@ export function MountedEditor({
             collisionBoundary={mountedRef.current?.portalContainer}
             container={mountedRef.current?.portalContainer}
           />,
-          mountedRef.current.portalContainer
+          mountedRef.current.portalContainer,
         )}
 
       {/* Find bar — rendered last so it sits above the canvas container in DOM order */}

@@ -44,12 +44,12 @@ class CapacitorDbDriver implements DbDriver {
     const { CapacitorSQLite } = await import("@capacitor-community/sqlite");
     // Connection may already exist after a page reload
     try {
-    await CapacitorSQLite.createConnection({
-      database: "cypher",
-      version: 1,
-      encrypted: false,
-      mode: "no-encryption",
-    });
+      await CapacitorSQLite.createConnection({
+        database: "cypher",
+        version: 1,
+        encrypted: false,
+        mode: "no-encryption",
+      });
     } catch {
       // Already exists — that's fine
     }
@@ -241,6 +241,14 @@ function bytesToHex(bytes: Uint8Array): string {
     .join("");
 }
 
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+  }
+  return bytes;
+}
+
 class WebCryptoDriver implements CryptoDriver {
   async generateKeypair(): Promise<{ publicKey: string; privateKey: string }> {
     const keyPair = await crypto.subtle.generateKey(
@@ -254,6 +262,32 @@ class WebCryptoDriver implements CryptoDriver {
       publicKey: bytesToHex(new Uint8Array(publicKeyRaw)),
       privateKey: bytesToHex(new Uint8Array(privateKeyRaw)),
     };
+  }
+
+  async sign(privateKey: string, message: Uint8Array): Promise<string> {
+    const keyData = hexToBytes(privateKey);
+    const key = await crypto.subtle.importKey(
+      "pkcs8",
+      keyData.buffer as ArrayBuffer,
+      { name: "Ed25519" } as any,
+      false,
+      ["sign"],
+    );
+    const signature = await crypto.subtle.sign("Ed25519" as any, key, message.buffer as ArrayBuffer);
+    return bytesToHex(new Uint8Array(signature));
+  }
+
+  async verify(publicKey: string, signature: string, message: Uint8Array): Promise<boolean> {
+    const keyData = hexToBytes(publicKey);
+    const key = await crypto.subtle.importKey(
+      "raw",
+      keyData.buffer as ArrayBuffer,
+      { name: "Ed25519" } as any,
+      false,
+      ["verify"],
+    );
+    const sig = hexToBytes(signature);
+    return crypto.subtle.verify("Ed25519" as any, key, sig.buffer as ArrayBuffer, message.buffer as ArrayBuffer);
   }
 }
 

@@ -70,6 +70,12 @@ export interface FsDriver {
 export interface CryptoDriver {
   /** Generate an Ed25519 keypair, returned as hex strings. */
   generateKeypair(): Promise<{ publicKey: string; privateKey: string }>;
+
+  /** Sign a message with the private key (hex). Returns signature as hex. */
+  sign(privateKey: string, message: Uint8Array): Promise<string>;
+
+  /** Verify a signature (hex) against a public key (hex). */
+  verify(publicKey: string, signature: string, message: Uint8Array): Promise<boolean>;
 }
 
 // =============================================================================
@@ -128,8 +134,15 @@ export interface NetworkTopic {
  */
 export interface NetworkDriver {
   /**
+   * Set the local peer ID used for signaling.
+   * Must be called before join(). Typically the device's public key.
+   */
+  setLocalId(id: string): void;
+
+  /**
    * Join a discovery topic. Peers joining the same topic will find each other.
-   * Typically the topic is derived from a space ID (e.g. hash of space public key).
+   * For replication: topic = SHA-256(sorted(pubKeyA, pubKeyB)) per peer pair.
+   * For pairing: topic = random one-time hex.
    */
   join(topic: Uint8Array): Promise<NetworkTopic>;
 

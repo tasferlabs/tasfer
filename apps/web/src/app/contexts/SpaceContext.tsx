@@ -2,8 +2,7 @@ import React from "react";
 import { useGetSpaces, type ISpace } from "../api/spaces.api";
 
 interface SpaceContextValue {
-  personalSpace: ISpace | null;
-  groupSpaces: ISpace[];
+  spaces: ISpace[];
   activeSpaceId: string | null;
   setActiveSpaceId: (id: string) => void;
   isLoading: boolean;
@@ -12,36 +11,24 @@ interface SpaceContextValue {
 const SpaceContext = React.createContext<SpaceContextValue | null>(null);
 
 export function SpaceProvider({ children }: { children: React.ReactNode }) {
-  const { data, isLoading } = useGetSpaces();
+  const { data: spaces = [], isLoading } = useGetSpaces();
   const [activeSpaceId, setActiveSpaceId] = React.useState<string | null>(null);
 
-  const personalSpace = React.useMemo(
-    () => data?.owned.find((s) => s.type === "personal") ?? null,
-    [data]
-  );
-
-  const groupSpaces = React.useMemo(() => {
-    const ownedGroups = data?.owned.filter((s) => s.type === "group") ?? [];
-    const memberGroups = data?.member ?? [];
-    return [...ownedGroups, ...memberGroups];
-  }, [data]);
-
-  // Default to personal space
+  // Default to first space
   React.useEffect(() => {
-    if (!activeSpaceId && personalSpace) {
-      setActiveSpaceId(personalSpace.id);
+    if (!activeSpaceId && spaces.length > 0) {
+      setActiveSpaceId(spaces[0].id);
     }
-  }, [personalSpace, activeSpaceId]);
+  }, [spaces, activeSpaceId]);
 
   const value = React.useMemo(
     () => ({
-      personalSpace,
-      groupSpaces,
-      activeSpaceId: activeSpaceId || personalSpace?.id || null,
+      spaces,
+      activeSpaceId: activeSpaceId || spaces[0]?.id || null,
       setActiveSpaceId,
       isLoading,
     }),
-    [personalSpace, groupSpaces, activeSpaceId, isLoading]
+    [spaces, activeSpaceId, isLoading]
   );
 
   return <SpaceContext.Provider value={value}>{children}</SpaceContext.Provider>;

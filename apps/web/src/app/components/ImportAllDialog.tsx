@@ -35,7 +35,6 @@ interface ImportAllDialogProps {
 interface SpaceOption {
   id: string;
   name: string;
-  type: "personal" | "group";
 }
 
 interface PageNode {
@@ -236,19 +235,12 @@ function buildPageTree(zip: JSZip): {
 
 export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
   const { t } = useTranslation();
-  const { personalSpace, groupSpaces } = useSpaces();
+  const { spaces } = useSpaces();
   const queryClient = useQueryClient();
 
   const allSpaces: SpaceOption[] = React.useMemo(() => {
-    const spaces: SpaceOption[] = [];
-    if (personalSpace) {
-      spaces.push({ id: personalSpace.id, name: t("common.private", "Private"), type: "personal" });
-    }
-    for (const g of groupSpaces) {
-      spaces.push({ id: g.id, name: g.name, type: "group" });
-    }
-    return spaces;
-  }, [personalSpace, groupSpaces]);
+    return spaces.map((s) => ({ id: s.id, name: s.name }));
+  }, [spaces]);
 
   const [selectedSpaceId, setSelectedSpaceId] = useState<string>("");
   const [files, setFiles] = useState<File[]>([]);

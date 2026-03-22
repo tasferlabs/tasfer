@@ -1,5 +1,4 @@
-import { usePageEventsWithQueryClient } from "@/websocket/hooks/usePageEvents";
-import { useSpaceEventsWithQueryClient } from "@/websocket/hooks/useSpaceEvents";
+import { useP2PPageEventsWithQueryClient } from "@/app/hooks/useP2PPageEvents";
 import {
   closestCenter,
   DndContext,
@@ -51,7 +50,6 @@ import {
 } from "../../components/ui/form";
 import { Input } from "../../components/ui/input";
 import { ScrollArea } from "../../components/ui/scroll-area";
-import { Textarea } from "../../components/ui/textarea";
 import {
   useCreatePage,
   useMovePage,
@@ -64,6 +62,7 @@ import { useCreateSpace, useLeaveSpace } from "../api/spaces.api";
 import { useConfirmation } from "../components/ConfirmationDialog";
 import { EditGroupDialog } from "../components/EditGroupDialog";
 import { InviteMembersDialog } from "../components/InviteMembersDialog";
+import { JoinSpaceDialog } from "../components/JoinSpaceDialog";
 import Icons from "../components/uiKit/Icons/Icons";
 import { useAuth } from "../contexts/AuthContext";
 import { useSpaces } from "../contexts/SpaceContext";
@@ -91,19 +90,19 @@ export function SidebarContent({
 
   // Dialog states — matching l4r PagesLayout pattern
   const [showAddGroupDialog, setShowAddGroupDialog] = useState(false);
+  const [showJoinSpaceDialog, setShowJoinSpaceDialog] = useState(false);
   const [groupSettingsId, setGroupSettingsId] = useState<string | null>(null);
   const [inviteMembersId, setInviteMembersId] = useState<string | null>(null);
   // const [sharedCollapsed, setSharedCollapsed] = useState(false);
 
   // const { id: currentPageId } = useParams<{ id: string }>();
   const { user } = useAuth();
-  const { personalSpace, groupSpaces } = useSpaces();
+  const { spaces } = useSpaces();
   // const { data: sharedWithMe } = useGetSharedWithMe();
   // const { data: sharedByMe } = useGetSharedByMe();
 
   // Subscribe to real-time page and space events from other users
-  usePageEventsWithQueryClient();
-  useSpaceEventsWithQueryClient();
+  useP2PPageEventsWithQueryClient();
 
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: (newPage, variables) => {
@@ -234,11 +233,9 @@ export function SidebarContent({
     setActiveDragData(event.active.data.current as IListPage);
   }
 
-  // Helper to get a space's display name from its ID
   function getSpaceName(spaceId: string): string {
-    if (personalSpace?.id === spaceId) return t("common.private", "Private");
-    const group = groupSpaces.find((g) => g.id === spaceId);
-    return group?.name || t("common.spaceKw", "space");
+    const space = spaces.find((s) => s.id === spaceId);
+    return space?.name || t("common.spaceKw", "space");
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -478,6 +475,19 @@ export function SidebarContent({
               </div>
               {t("space.addSpace", "Add space")}
             </button>
+
+            <button
+              className={style.appNavigationLink}
+              onClick={() => {
+                if (isMobile) setOpen(false);
+                setShowJoinSpaceDialog(true);
+              }}
+            >
+              <div className={style.appNavigationLinkIcon}>
+                <Icons.Shared />
+              </div>
+              {t("space.joinSpace", "Join space")}
+            </button>
           </div>
 
           <div className={style.appSidebarMain}>
@@ -488,15 +498,14 @@ export function SidebarContent({
               onDragEnd={handleDragEnd}
             >
               <ScrollArea className={style.appSidebarScrollArea}>
-                {/* Group spaces */}
-                {groupSpaces.map((group) => (
-                  <React.Fragment key={group.id}>
+                {spaces.map((space) => (
+                  <React.Fragment key={space.id}>
                     <div className={style.appSidebarSection}>
                       <div className={style.appSidebarSectionTitle}>
                         <div className={style.appSidebarSectionIcon}>
                           <Icons.Shared />
                         </div>
-                        {group.name}
+                        {space.name}
                       </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger
@@ -510,7 +519,7 @@ export function SidebarContent({
                             onSelect={(ev) => {
                               ev.preventDefault();
                               if (isMobile) setOpen(false);
-                              setGroupSettingsId(group.id);
+                              setGroupSettingsId(space.id);
                             }}
                           >
                             {t("space.settings", "Space settings")}
@@ -519,14 +528,14 @@ export function SidebarContent({
                             onSelect={(ev) => {
                               ev.preventDefault();
                               if (isMobile) setOpen(false);
-                              setInviteMembersId(group.id);
+                              setInviteMembersId(space.id);
                             }}
                           >
                             {t("share.inviteMembers", "Invite members")}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
-                            onClick={() => leaveGroup(group.id)}
+                            onClick={() => leaveGroup(space.id)}
                           >
                             {t("space.leaveSpace", "Leave space")}
                           </DropdownMenuItem>
@@ -534,44 +543,16 @@ export function SidebarContent({
                       </DropdownMenu>
                       <button
                         className={style.appSidebarSectionButton}
-                        onClick={() => handleAdd(null, group.id)}
+                        onClick={() => handleAdd(null, space.id)}
                         disabled={isCreating}
                       >
                         <PlusIcon size={20} />
                         <span className="sr-only">{t("page.addPage", "Add page")}</span>
                       </button>
                     </div>
-                    <PagesArea parentId={null} spaceId={group.id} />
+                    <PagesArea parentId={null} spaceId={space.id} />
                   </React.Fragment>
                 ))}
-
-                {/* Personal space */}
-                {personalSpace && (
-                  <>
-                    <div className={style.appSidebarSection}>
-                      <div className={style.appSidebarSectionTitle}>
-                        <div className={style.appSidebarSectionIcon}>
-                          <Icons.Lock width={20} height={20} />
-                        </div>
-                        {t("common.private", "Private")}
-                      </div>
-                      <button
-                        className={style.appSidebarSectionButton}
-                        onClick={() => handleAdd(null, personalSpace.id)}
-                        disabled={isCreating}
-                      >
-                        <PlusIcon size={20} />
-                        <span className="sr-only">{t("page.addPage", "Add page")}</span>
-                      </button>
-                    </div>
-
-                    <PagesArea
-                      className={style.appSidebarSectionPagesArea}
-                      parentId={null}
-                      spaceId={personalSpace.id}
-                    />
-                  </>
-                )}
               </ScrollArea>
               <DragOverlay>
                 {activeId && activeDragData ? (
@@ -590,7 +571,7 @@ export function SidebarContent({
       <AddGroupDialog
         open={showAddGroupDialog}
         onOpenChange={setShowAddGroupDialog}
-        onSubmit={(data) => createGroupSpace(data)}
+        onSubmit={(data) => createGroupSpace({ name: data.name })}
       />
       <EditGroupDialog
         spaceId={groupSettingsId || ""}
@@ -607,11 +588,13 @@ export function SidebarContent({
           setInviteMembersId(open ? inviteMembersId : null)
         }
       />
+      <JoinSpaceDialog
+        open={showJoinSpaceDialog}
+        onOpenChange={setShowJoinSpaceDialog}
+      />
     </>
   );
 }
-
-// --- Add Group Dialog (with name + description, like l4r AddGroupDialog) ---
 
 function AddGroupDialog({
   open,
@@ -620,7 +603,7 @@ function AddGroupDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: { name: string; description: string }) => void;
+  onSubmit: (data: { name: string }) => void;
 }) {
   const { t } = useTranslation();
   const isMobile = useResponsive("(max-width: 768px)");
@@ -633,7 +616,6 @@ function AddGroupDialog({
           .min(1, t("validation.spaceNameRequired", "Space name is required"))
           .min(3, t("validation.spaceNameTooShort", "Space name is too short"))
           .max(50, t("validation.spaceNameTooLong", "Space name is too long")),
-        description: z.string().max(500, t("validation.descriptionTooLong", "Description is too long")),
       }),
     [t],
   );
@@ -642,7 +624,6 @@ function AddGroupDialog({
     resolver: zodResolver(FormSchema),
     defaultValues: {
       name: "",
-      description: "",
     },
   });
 
@@ -661,7 +642,7 @@ function AddGroupDialog({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          {t("space.createNewSpaceDesc", "Create a new space to share pages with others")}
+          {t("space.createNewSpaceDesc", "Create a new space to organize your pages")}
         </p>
 
         <FormField
@@ -671,18 +652,6 @@ function AddGroupDialog({
             <FormItem>
               <FormLabel>{t("common.name", "Name")}</FormLabel>
               <Input {...field} placeholder={t("space.spaceName", "Space name")} />
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="description"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t("common.description", "Description")}</FormLabel>
-              <Textarea {...field} placeholder={t("common.description", "Description")} rows={3} />
               <FormMessage />
             </FormItem>
           )}

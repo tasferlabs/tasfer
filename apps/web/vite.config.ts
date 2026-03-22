@@ -26,7 +26,7 @@ export default defineConfig({
       registerType: "prompt",
       manifest: false,
       devOptions: {
-        enabled: true,
+        enabled: false,
         type: "module",
       },
     }),
@@ -47,11 +47,6 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: "http://localhost:3000",
-        changeOrigin: true,
-      },
-      "/ws": {
-        target: "ws://localhost:8080",
-        ws: true,
         changeOrigin: true,
       },
     },

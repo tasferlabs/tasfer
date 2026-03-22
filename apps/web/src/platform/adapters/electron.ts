@@ -113,6 +113,14 @@ class IpcCryptoDriver implements CryptoDriver {
       privateKey: string;
     };
   }
+
+  async sign(privateKey: string, message: Uint8Array): Promise<string> {
+    return (await this.bridge.invoke("crypto:sign", privateKey, message.buffer)) as string;
+  }
+
+  async verify(publicKey: string, signature: string, message: Uint8Array): Promise<boolean> {
+    return (await this.bridge.invoke("crypto:verify", publicKey, signature, message.buffer)) as boolean;
+  }
 }
 
 // =============================================================================

@@ -6,7 +6,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Form,
   FormField,
@@ -134,25 +133,18 @@ function GeneralTab({
           .min(1, t("validation.spaceNameRequired", "Space name is required"))
           .min(3, t("validation.spaceNameTooShort", "Space name is too short"))
           .max(50, t("validation.spaceNameTooLong", "Space name is too long")),
-        description: z.string().max(500, t("validation.descriptionTooLong", "Description is too long")),
       }),
     [t],
   );
 
   // Get the space data from the spaces query cache
-  const spaces = queryClient.getQueryData<{
-    owned: ISpace[];
-    member: (ISpace & { role: string })[];
-  }>(["spaces"]);
-  const space =
-    spaces?.owned.find((s) => s.id === spaceId) ??
-    spaces?.member.find((s) => s.id === spaceId);
+  const spaces = queryClient.getQueryData<ISpace[]>(["spaces"]);
+  const space = spaces?.find((s) => s.id === spaceId);
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
     values: {
       name: space?.name || "",
-      description: space?.description || "",
     },
   });
 
@@ -169,7 +161,7 @@ function GeneralTab({
   }, [open]);
 
   function onSubmit(data: z.infer<typeof FormSchema>) {
-    updateSpace({ id: spaceId, name: data.name, description: data.description });
+    updateSpace({ id: spaceId, name: data.name });
   }
 
   return (
@@ -182,18 +174,6 @@ function GeneralTab({
             <FormItem>
               <FormLabel>{t("common.name", "Name")}</FormLabel>
               <Input {...field} placeholder={t("space.spaceName", "Space name")} />
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="description"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t("common.description", "Description")}</FormLabel>
-              <Textarea {...field} placeholder={t("common.description", "Description")} rows={3} />
               <FormMessage />
             </FormItem>
           )}

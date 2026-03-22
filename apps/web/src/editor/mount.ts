@@ -46,12 +46,16 @@ function createCanvasContainer(parentContainer: HTMLElement): HTMLDivElement {
   canvasContainer.style.width = "100%";
   canvasContainer.style.height = "100%";
   canvasContainer.style.overflow = "hidden";
+  canvasContainer.style.userSelect = "none";
+  canvasContainer.style.webkitUserSelect = "none";
+  (canvasContainer.style as unknown as { webkitTouchCallout?: string }).webkitTouchCallout = "none";
   parentContainer.appendChild(canvasContainer);
   return canvasContainer;
 }
 
 export interface MountEditorOptions {
   readonly?: boolean;
+  pageId?: string;
   padding?: Partial<{
     paddingTop: number;
     paddingBottom: number;
@@ -78,7 +82,7 @@ export function mountEditor(
 
   // Create a Page object from the blocks
   const page: Page = {
-    id: "",
+    id: options?.pageId ?? "",
     title: "",
     blocks: blocks,
   };
@@ -99,14 +103,6 @@ export function mountEditor(
   // Apply common canvas styles to content layer (which handles events)
   const contentCanvas = layers.content.canvas;
   contentCanvas.style.display = "block";
-  contentCanvas.style.userSelect = "none";
-  (
-    contentCanvas.style as unknown as { WebkitUserSelect?: string }
-  ).WebkitUserSelect = "none";
-  (contentCanvas.style as unknown as { MozUserSelect?: string }).MozUserSelect =
-    "none";
-  (contentCanvas.style as unknown as { msUserSelect?: string }).msUserSelect =
-    "none";
   contentCanvas.setAttribute("draggable", "false");
   const preventSelectStart = (e: Event) => e.preventDefault();
   const preventDragStart = (e: Event) => e.preventDefault();

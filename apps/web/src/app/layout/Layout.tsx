@@ -1,4 +1,3 @@
-import { useOfflineStatus } from "@/offline/hooks/useOfflineStatus";
 import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { ConfirmationDialogProvider } from "../components/ConfirmationDialog";
@@ -6,13 +5,11 @@ import { DevToolbar } from "../components/DevToolbar";
 import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
 import { CommandCenter } from "../components/CommandCenter";
 import UpdatePopup from "../components/UpdatePopup";
-import { useAuth } from "../contexts/AuthContext";
 import { PageSettingsProvider } from "../contexts/PageSettingsContext";
 import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
 import { TreeExpandProvider } from "../contexts/TreeExpandContext";
 import { SpaceProvider } from "../contexts/SpaceContext";
 import { useVersion } from "../contexts/VersionContext";
-import { WebSocketProvider } from "../contexts/WebSocketContext";
 import useLocalStorage from "../hooks/useLocalStorage";
 import useResponsive from "../hooks/useResponsive";
 import ForceUpdatePage from "../pages/ForceUpdatePage";
@@ -21,32 +18,6 @@ import style from "./Layout.module.css";
 import { ResizableSidebar } from "./ResizableSidebar";
 import { TopActionBar } from "./TopActionBar";
 
-import { isNative } from "@/platform/bridge";
-
-// WebSocket server URL - defaults to using Vite proxy
-function getWebSocketUrl(): string {
-  let base =
-    import.meta.env.VITE_WEBSOCKET_URL ||
-    `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${
-      window.location.host
-    }/ws`;
-
-  if (isNative()) {
-    // Inject basic auth credentials into the URL for Traefik
-    const basicAuth = import.meta.env.VITE_BASIC_AUTH;
-    if (basicAuth) {
-      base = base.replace("://", `://${basicAuth}@`);
-    }
-
-    const sessionId = localStorage.getItem("cypher_session_id");
-    if (sessionId) {
-      const separator = base.includes("?") ? "&" : "?";
-      base += `${separator}sessionId=${encodeURIComponent(sessionId)}`;
-    }
-  }
-
-  return base;
-}
 
 export default function Layout() {
   const [resizableOpen, setResizableOpen] = useLocalStorage(
@@ -56,9 +27,6 @@ export default function Layout() {
   const [floatingOpen, setFloatingOpen] = React.useState(false);
   const isMobile = useResponsive("(max-width: 768px)");
 
-  // Silent background sync for offline mutations
-  useOfflineStatus();
-
   // Remember the last visited route so we can restore it on next visit
   const location = useLocation();
   React.useEffect(() => {
@@ -67,10 +35,7 @@ export default function Layout() {
     localStorage.setItem("lastRoute", path);
   }, [location.pathname]);
 
-  const { user } = useAuth();
   const { isLoading, meetsMinimum } = useVersion();
-
-  const websocketUrl = getWebSocketUrl();
 
   // Track if app ever mounted with valid version (user was working)
   const hadValidVersion = React.useRef(false);
@@ -86,7 +51,6 @@ export default function Layout() {
   }
 
   return (
-    <WebSocketProvider serverUrl={websocketUrl} userName={user?.name} userAvatar={user?.avatar}>
       <SpaceProvider>
       <TreeExpandProvider>
       <SidebarPanelProvider>
@@ -120,6 +84,5 @@ export default function Layout() {
       </SidebarPanelProvider>
       </TreeExpandProvider>
       </SpaceProvider>
-    </WebSocketProvider>
   );
 }

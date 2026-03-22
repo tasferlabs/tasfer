@@ -34,7 +34,7 @@ import {
   formatDurationLabel,
   type TFunction,
 } from "@/lib/utils";
-import type { SyncState } from "@/websocket/hooks/useRoom";
+import type { SyncState } from "@/app/hooks/useP2PRoom";
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import * as Popover from "@radix-ui/react-popover";
 import { useQueryClient } from "@tanstack/react-query";
@@ -53,7 +53,7 @@ import { MountedEditor } from "../MountedEditor";
 
 import { PagePicker } from "@/components/PagePicker";
 import type { HLC } from "@/editor/sync/types";
-import { usePageEvents } from "@/websocket/hooks/usePageEvents";
+import { useP2PPageEvents } from "@/app/hooks/useP2PPageEvents";
 import clsx from "clsx";
 import {
   getPage,
@@ -213,7 +213,7 @@ export default function EditorPage() {
   }, [id, setLastPageId, setPageId, setPermission]);
 
   // Listen for page deletion events from other users
-  usePageEvents({
+  useP2PPageEvents({
     onPageDeleted: (deletedPageId) => {
       if (deletedPageId === id) {
         // Page was deleted by another user, show not found state
@@ -543,6 +543,7 @@ export default function EditorPage() {
           onContentUpdate={handleContentUpdate}
           autoFocus={!readonly}
           pageId={id}
+          spaceId={activeSpaceId ?? undefined}
           onSyncStateChange={setSyncState}
           snapshotClock={snapshotClock}
           onSnapshotClockUpdate={readonly ? undefined : setSnapshotClock}

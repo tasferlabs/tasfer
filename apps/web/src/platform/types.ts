@@ -44,6 +44,7 @@ export interface PageListItem {
   parentId: string | null;
   order: number;
   hasChildren: boolean;
+  spaceId?: string | null;
   task?: boolean;
   color?: string | null;
   scheduledAt?: string | null;
@@ -65,6 +66,7 @@ export interface PageFull extends PageListItem {
 export interface PageCreateInput {
   title: string;
   parentId: string | null;
+  spaceId?: string;
   scheduledAt?: string;
   duration?: number;
   allDay?: boolean;
@@ -141,17 +143,127 @@ export interface Asset {
   size: number;
 }
 
-/** Workspace info for the sidebar */
-export interface Workspace {
-  id: string;
-  name: string;
-  description: string;
-}
-
 /** Peer user info for awareness */
 export interface RoomUser {
   name?: string;
   color?: string;
+}
+
+// =============================================================================
+// Spaces
+// =============================================================================
+
+/** A shared space — a CRDT-replicated collection of pages between peers */
+export interface Space {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+/** A member of a space */
+export interface SpaceMember {
+  spaceId: string;
+  publicKey: string;
+  name: string;
+  role: "owner" | "editor";
+  addedAt: string;
+}
+
+// =============================================================================
+// Space Operations (CRDT)
+// =============================================================================
+
+/** Base fields for all space operations */
+export interface SpaceBaseOp {
+  /** Unique operation ID: `${peerId}:${counter}` */
+  id: string;
+  /** Hybrid logical clock timestamp */
+  clock: HLC;
+  /** Space this operation belongs to */
+  spaceId: string;
+}
+
+/** Set a space property (LWW) */
+export interface SpaceSet extends SpaceBaseOp {
+  op: "space_set";
+  field: string;
+  value: unknown;
+}
+
+/** Add a member to the space */
+export interface MemberAdd extends SpaceBaseOp {
+  op: "member_add";
+  publicKey: string;
+  name: string;
+}
+
+/** Remove a member from the space (self-leave or owner kick) */
+export interface MemberRemove extends SpaceBaseOp {
+  op: "member_remove";
+  publicKey: string;
+}
+
+/** Add a page to the space (page created) */
+export interface PageAdd extends SpaceBaseOp {
+  op: "page_add";
+  pageId: string;
+  title: string;
+  parentId: string | null;
+  order: number;
+  task?: boolean;
+  color?: string | null;
+  scheduledAt?: string | null;
+  duration?: number | null;
+  allDay?: boolean | null;
+}
+
+/** Remove a page from the space (page deleted) */
+export interface PageRemove extends SpaceBaseOp {
+  op: "page_remove";
+  pageId: string;
+}
+
+/** Set a page property (title, parentId, order, color, etc.) */
+export interface PageSet extends SpaceBaseOp {
+  op: "page_set";
+  pageId: string;
+  field: string;
+  value: unknown;
+}
+
+/** Union of all space operation types */
+export type SpaceOperation =
+  | SpaceSet
+  | MemberAdd
+  | MemberRemove
+  | PageAdd
+  | PageRemove
+  | PageSet;
+
+// =============================================================================
+// Pairing
+// =============================================================================
+
+/** An invite for peer pairing + space joining */
+export interface SpaceInvite {
+  /** One-time topic for signaling discovery (random hex) */
+  topic: string;
+  /** Shared secret for mutual authentication (random hex) */
+  secret: string;
+  /** Signal relay server URL */
+  signalUrl: string;
+  /** Space to join after pairing */
+  spaceId: string;
+  /** Space name (for display before joining) */
+  spaceName: string;
+}
+
+/** Pairing lifecycle callbacks */
+export interface PairCallbacks {
+  onConnected?: () => void;
+  onPeerIdentity?: (peer: { publicKey: string; name: string }) => void;
+  onComplete?: (peer: Peer) => void;
+  onError?: (error: string) => void;
 }
 
 // =============================================================================
@@ -239,12 +351,48 @@ export interface Platform {
   };
 
   // ---------------------------------------------------------------------------
+  // Spaces
+  // ---------------------------------------------------------------------------
+
+  spaces: {
+    /** List all spaces this device is a member of */
+    list(): Promise<Space[]>;
+    /** Get a space with its members */
+    get(id: string): Promise<Space & { members: SpaceMember[] }>;
+    /** Create a new space (adds self as owner) */
+    create(name: string): Promise<Space>;
+    /** Rename a space */
+    rename(id: string, name: string): Promise<void>;
+    /** Leave a space (self-removal) */
+    leave(id: string): Promise<void>;
+    /** Remove a member (owner only) */
+    removeMember(spaceId: string, publicKey: string): Promise<void>;
+    /** Subscribe to space change events */
+    onChange(cb: (spaceId: string) => void): () => void;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Pairing
+  // ---------------------------------------------------------------------------
+
+  pairing: {
+    /** Create an invite for a space (generates one-time topic + secret) */
+    createInvite(spaceId: string): Promise<SpaceInvite>;
+    /** Wait for a peer to accept the invite (inviter side) */
+    waitForPeer(invite: SpaceInvite, callbacks?: PairCallbacks): Promise<void>;
+    /** Accept a pairing invite (acceptor side) */
+    acceptInvite(invite: SpaceInvite, callbacks?: PairCallbacks): Promise<void>;
+    /** Cancel an active pairing session */
+    cancel(): Promise<void>;
+  };
+
+  // ---------------------------------------------------------------------------
   // Pages
   // ---------------------------------------------------------------------------
 
   pages: {
-    /** List pages — optionally filter by parent */
-    list(parentId?: string | null, options?: { includeTasks?: boolean }): Promise<PageListItem[]>;
+    /** List pages — filter by space, optionally by parent */
+    list(spaceId: string, parentId?: string | null, options?: { includeTasks?: boolean }): Promise<PageListItem[]>;
     /** Get a single page with content */
     get(id: string): Promise<PageFull>;
     /** Create a new page */
@@ -283,12 +431,13 @@ export interface Platform {
   // ---------------------------------------------------------------------------
 
   sync: {
-    /** Join a document room for live editing */
+    /** Join a document room for live editing (within a space topic) */
     joinRoom(
       roomId: string,
       peerId: string,
       user?: RoomUser,
       callbacks?: Partial<SyncEvents>,
+      spaceId?: string,
     ): Promise<void>;
     /** Leave a document room */
     leaveRoom(roomId: string): Promise<void>;
@@ -315,6 +464,17 @@ export interface Platform {
     getConnectionState(): ConnectionState;
     /** Subscribe to connection state changes */
     onConnectionChange(cb: (state: ConnectionState) => void): () => void;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Ops (CRDT operation persistence)
+  // ---------------------------------------------------------------------------
+
+  ops: {
+    /** Persist locally-generated operations */
+    persist(pageId: string, ops: Operation[]): Promise<void>;
+    /** Load all persisted operations for a page (on mount) */
+    load(pageId: string): Promise<Operation[]>;
   };
 
   // ---------------------------------------------------------------------------

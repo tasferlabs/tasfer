@@ -26,7 +26,6 @@ interface ExportAllDialogProps {
 interface SpaceOption {
   id: string;
   name: string;
-  type: "personal" | "group";
 }
 
 /** Sanitize a string for use as a filesystem name */
@@ -65,18 +64,11 @@ function extractPageMetadata(page: IPage): PageMetadata | undefined {
 
 export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
   const { t } = useTranslation();
-  const { personalSpace, groupSpaces } = useSpaces();
+  const { spaces } = useSpaces();
 
   const allSpaces: SpaceOption[] = React.useMemo(() => {
-    const spaces: SpaceOption[] = [];
-    if (personalSpace) {
-      spaces.push({ id: personalSpace.id, name: t("common.private", "Private"), type: "personal" });
-    }
-    for (const g of groupSpaces) {
-      spaces.push({ id: g.id, name: g.name, type: "group" });
-    }
-    return spaces;
-  }, [personalSpace, groupSpaces]);
+    return spaces.map((s) => ({ id: s.id, name: s.name }));
+  }, [spaces]);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [phase, setPhase] = useState<"select" | "exporting">("select");
@@ -303,7 +295,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
                   />
                   <span className="text-sm font-medium">{space.name}</span>
                   <span className="text-xs text-muted-foreground ms-auto">
-                    {space.type === "personal" ? t("common.personal", "Personal") : t("space.space", "Space")}
+                    {t("space.space", "Space")}
                   </span>
                 </label>
               ))}
