@@ -496,13 +496,4 @@ export interface Platform {
     writeBlocks(pageId: string, blocks: Block[]): Promise<void>;
   };
 
-  // ---------------------------------------------------------------------------
-  // Storage (key-value for preferences, settings, etc.)
-  // ---------------------------------------------------------------------------
-
-  storage: {
-    get<T = unknown>(key: string): Promise<T | null>;
-    set(key: string, value: unknown): Promise<void>;
-    remove(key: string): Promise<void>;
-  };
 }

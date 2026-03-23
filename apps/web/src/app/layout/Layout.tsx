@@ -15,6 +15,8 @@ import useLocalStorage from "../hooks/useLocalStorage";
 import useResponsive from "../hooks/useResponsive";
 import ForceUpdatePage from "../pages/ForceUpdatePage";
 import { AddSpaceDialog } from "../components/AddSpaceDialog";
+import { EditGroupDialog } from "../components/EditGroupDialog";
+import { InviteMembersDialog } from "../components/InviteMembersDialog";
 import { FloatingSidebar } from "./FloatingSidebar";
 import style from "./Layout.module.css";
 import { ResizableSidebar } from "./ResizableSidebar";
@@ -64,6 +66,8 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
   );
   const [floatingOpen, setFloatingOpen] = React.useState(false);
   const [showAddSpace, setShowAddSpace] = React.useState(false);
+  const [groupSettingsId, setGroupSettingsId] = React.useState<string | null>(null);
+  const [inviteMembersId, setInviteMembersId] = React.useState<string | null>(null);
   const isMobile = useResponsive("(max-width: 768px)");
   const { spaces, isLoading: spacesLoading } = useSpaces();
 
@@ -86,9 +90,9 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
     <>
       <div className={style.appContainer} inert={needsForceUpdate ? (true as unknown as boolean) : undefined}>
         {isMobile ? (
-          <FloatingSidebar open={floatingOpen} setOpen={setFloatingOpen} onAddSpace={() => setShowAddSpace(true)} />
+          <FloatingSidebar open={floatingOpen} setOpen={setFloatingOpen} onAddSpace={() => setShowAddSpace(true)} onSpaceSettings={setGroupSettingsId} onInviteMembers={setInviteMembersId} />
         ) : (
-          <ResizableSidebar open={!!resizableOpen} setOpen={setResizableOpen} onAddSpace={() => setShowAddSpace(true)} />
+          <ResizableSidebar open={!!resizableOpen} setOpen={setResizableOpen} onAddSpace={() => setShowAddSpace(true)} onSpaceSettings={setGroupSettingsId} onInviteMembers={setInviteMembersId} />
         )}
 
         <div className={style.appFrame}>
@@ -102,6 +106,17 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
         </div>
       </div>
       <AddSpaceDialog open={showAddSpace} onOpenChange={setShowAddSpace} />
+      <EditGroupDialog
+        spaceId={groupSettingsId || ""}
+        open={!!groupSettingsId}
+        onOpenChange={(open) => setGroupSettingsId(open ? groupSettingsId : null)}
+        openInviteMembers={setInviteMembersId}
+      />
+      <InviteMembersDialog
+        spaceId={inviteMembersId || ""}
+        open={!!inviteMembersId}
+        onOpenChange={(open) => setInviteMembersId(open ? inviteMembersId : null)}
+      />
       <CommandCenter />
       <UpdatePopup />
       <DevToolbar />

@@ -50,7 +50,7 @@ interface EngineReplicator {
 // Schema & Migrations
 // =============================================================================
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS identity (
@@ -116,10 +116,6 @@ const SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_ops_scope ON ops(scope_id);
 
-  CREATE TABLE IF NOT EXISTS kv (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  );
 `;
 
 // =============================================================================
@@ -131,6 +127,7 @@ export class Engine implements Platform {
   private replicator: EngineReplicator | null = null;
   private spaceHlcCounters = new Map<string, number>();
   private spaceChangeListeners = new Set<(spaceId: string) => void>();
+  private signalUrl = "";
 
   constructor(driver: Driver) {
     this.driver = driver;
@@ -172,6 +169,10 @@ export class Engine implements Platform {
 
     if (user_version < 4) {
       await this.migrateOpsRenameColumns();
+    }
+
+    if (user_version < 5) {
+      await this.migrateDropKv();
     }
 
     if (user_version < SCHEMA_VERSION) {
@@ -266,6 +267,13 @@ export class Engine implements Platform {
       DROP INDEX IF EXISTS idx_ops_page;
       CREATE INDEX IF NOT EXISTS idx_ops_scope ON ops(scope_id);
     `);
+  }
+
+  /**
+   * Migration 5: drop kv table — signalUrl is now stored in memory.
+   */
+  private async migrateDropKv(): Promise<void> {
+    await this.driver.db.exec("DROP TABLE IF EXISTS kv");
   }
 
   /** Load max HLC counters from persisted ops so we never regress after restart */
@@ -642,7 +650,7 @@ export class Engine implements Platform {
       const secret = bytesToHex(secretBytes);
 
       const space = await this.spaces.get(spaceId);
-      const signalUrl = (await this.storage.get<string>("signalUrl")) ?? "";
+      const signalUrl = this.signalUrl;
 
       return { topic, secret, signalUrl, spaceId, spaceName: space.name };
     },
@@ -837,7 +845,9 @@ export class Engine implements Platform {
       if (!blocks || blocks.length === 0) {
         // Truly empty page — create default block and persist its
         // block_insert op so the block survives rebuild-from-ops.
-        const initialBlockId = crypto.randomUUID();
+        // Derive blockId deterministically from pageId so every peer
+        // independently creates the exact same initial block.
+        const initialBlockId = `__init_block__:${id}`;
         blocks = [
           {
             id: initialBlockId,
@@ -918,8 +928,9 @@ export class Engine implements Platform {
         ],
       );
 
-      // Create the initial block as a CRDT op so every peer gets the same block ID.
-      const initialBlockId = crypto.randomUUID();
+      // Derive blockId deterministically from pageId so every peer
+      // independently creates the exact same initial block.
+      const initialBlockId = `__init_block__:${id}`;
 
       // Persist a block_insert op for the initial block
       const blockInsertOp = {
@@ -1394,31 +1405,10 @@ export class Engine implements Platform {
     this.sync = sync;
   }
 
-  // ---------------------------------------------------------------------------
-  // Storage (key-value)
-  // ---------------------------------------------------------------------------
-
-  storage = {
-    get: async <T = unknown>(key: string): Promise<T | null> => {
-      const rows = await this.driver.db.execute<{ value: string }>(
-        "SELECT value FROM kv WHERE key = ?",
-        [key],
-      );
-      if (rows.length === 0) return null;
-      return JSON.parse(rows[0].value) as T;
-    },
-
-    set: async (key: string, value: unknown): Promise<void> => {
-      await this.driver.db.run(
-        "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
-        [key, JSON.stringify(value), JSON.stringify(value)],
-      );
-    },
-
-    remove: async (key: string): Promise<void> => {
-      await this.driver.db.run("DELETE FROM kv WHERE key = ?", [key]);
-    },
-  };
+  /** Set the signal URL (called once at init) */
+  setSignalUrl(url: string): void {
+    this.signalUrl = url;
+  }
 
   // ---------------------------------------------------------------------------
   // Ops (CRDT operation persistence)

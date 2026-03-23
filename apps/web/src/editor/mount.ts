@@ -12,6 +12,9 @@ import {
   isTouchDevice,
 } from "./state";
 import {
+  getBlockStyleOverrides,
+  getEditorPadding,
+  getPlaceholderOverrides,
   setBlockStyleOverrides,
   setEditorPadding,
   setPlaceholderOverrides,
@@ -75,6 +78,12 @@ export function mountEditor(
   blocks: Block[],
   options?: MountEditorOptions
 ): MountedEditor {
+  // Save previous overrides so they can be restored when this editor is destroyed
+  // (prevents a secondary editor like SnapshotPreview from clobbering the main editor's settings)
+  const prevPadding = getEditorPadding();
+  const prevBlockStyles = getBlockStyleOverrides();
+  const prevPlaceholders = getPlaceholderOverrides();
+
   // Apply padding and block style overrides before creating editor
   setEditorPadding(options?.padding ?? null);
   setBlockStyleOverrides(options?.blockStyleOverrides ?? null);
@@ -354,6 +363,10 @@ export function mountEditor(
 
   const destroy = () => {
     destroyed = true;
+    // Restore previous style overrides so the main editor isn't affected
+    setEditorPadding(prevPadding);
+    setBlockStyleOverrides(prevBlockStyles);
+    setPlaceholderOverrides(prevPlaceholders);
     resizeObserver.disconnect();
     editor.destroy();
     if (blurTimeoutId !== null) {

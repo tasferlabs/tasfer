@@ -1,26 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import {
-  ArrowLeft,
-  Check,
-  ChevronRight,
-  Globe,
-  Loader2,
-  Plus,
-  QrCode,
-  Link2,
-  Shield,
-  UserPlus,
-  Users,
-  WifiOff,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent
+} from "@/components/ui/dialog";
+import {
+  Drawer,
+  DrawerContent,
+} from "@/components/ui/drawer";
 import {
   Form,
   FormField,
@@ -28,19 +14,32 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Dialog,
-  DialogContent,
-} from "@/components/ui/dialog";
-import {
-  Drawer,
-  DrawerContent,
-} from "@/components/ui/drawer";
-import { useCreateSpace, useAcceptInvite, cancelPairing } from "../api/spaces.api";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import type { SpaceInvite } from "@/platform/types";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  Check,
+  ChevronRight,
+  Globe,
+  Link2,
+  Loader2,
+  Plus,
+  QrCode,
+  Shield,
+  UserPlus,
+  Users,
+  WifiOff,
+} from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
+import { z } from "zod";
+import { cancelPairing, useAcceptInvite, useCreateSpace } from "../api/spaces.api";
 import useResponsive from "../hooks/useResponsive";
 import { QRScannerView } from "./QRScannerView";
-import React from "react";
 
 interface AddSpaceDialogProps {
   open: boolean;

@@ -36,8 +36,6 @@ import { useAssetUrl } from "../api/images.api";
 import { useLeaveSpace } from "../api/spaces.api";
 import { AvatarPreviewDialog } from "../components/AvatarPreviewDialog";
 import { useConfirmation } from "../components/ConfirmationDialog";
-import { EditGroupDialog } from "../components/EditGroupDialog";
-import { InviteMembersDialog } from "../components/InviteMembersDialog";
 import Icons from "../components/uiKit/Icons/Icons";
 import { useAuth } from "../contexts/AuthContext";
 import { useSpaces } from "../contexts/SpaceContext";
@@ -52,9 +50,13 @@ import style from "./Layout.module.css";
 export function SidebarContent({
   setOpen,
   onAddSpace,
+  onSpaceSettings,
+  onInviteMembers,
 }: {
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
   onAddSpace: () => void;
+  onSpaceSettings: (spaceId: string) => void;
+  onInviteMembers: (spaceId: string) => void;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -66,8 +68,6 @@ export function SidebarContent({
   const [activeDragData, setActiveDragData] = useState<IListPage | null>(null);
 
   // Dialog states
-  const [groupSettingsId, setGroupSettingsId] = useState<string | null>(null);
-  const [inviteMembersId, setInviteMembersId] = useState<string | null>(null);
   const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false);
   // const [sharedCollapsed, setSharedCollapsed] = useState(false);
 
@@ -477,19 +477,17 @@ export function SidebarContent({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
                           <DropdownMenuItem
-                            onSelect={(ev) => {
-                              ev.preventDefault();
+                            onSelect={() => {
                               if (isMobile) setOpen(false);
-                              setGroupSettingsId(space.id);
+                              onSpaceSettings(space.id);
                             }}
                           >
                             {t("space.settings", "Space settings")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onSelect={(ev) => {
-                              ev.preventDefault();
+                            onSelect={() => {
                               if (isMobile) setOpen(false);
-                              setInviteMembersId(space.id);
+                              onInviteMembers(space.id);
                             }}
                           >
                             {t("share.inviteMembers", "Invite members")}
@@ -528,21 +526,6 @@ export function SidebarContent({
         </>
       )}
 
-      <EditGroupDialog
-        spaceId={groupSettingsId || ""}
-        open={!!groupSettingsId}
-        onOpenChange={(open) =>
-          setGroupSettingsId(open ? groupSettingsId : null)
-        }
-        openInviteMembers={setInviteMembersId}
-      />
-      <InviteMembersDialog
-        spaceId={inviteMembersId || ""}
-        open={!!inviteMembersId}
-        onOpenChange={(open) =>
-          setInviteMembersId(open ? inviteMembersId : null)
-        }
-      />
       <AvatarPreviewDialog
         open={avatarPreviewOpen}
         onOpenChange={setAvatarPreviewOpen}

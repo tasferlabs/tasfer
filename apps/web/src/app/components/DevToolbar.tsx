@@ -239,8 +239,6 @@ const TABLES = [
   "space_members",
   "pages",
   "ops",
-  "snapshots",
-  "kv",
 ] as const;
 type TableName = (typeof TABLES)[number];
 

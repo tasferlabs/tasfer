@@ -15,6 +15,7 @@ export function QRScannerView({ onScan, onClose }: QRScannerViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const hasScannedRef = useRef(false);
+  const isRunningRef = useRef(false);
 
   const startScanner = useCallback(async () => {
     if (!containerRef.current) return;
@@ -55,6 +56,7 @@ export function QRScannerView({ onScan, onClose }: QRScannerViewProps) {
         },
       );
 
+      isRunningRef.current = true;
       setReady(true);
     } catch (err) {
       if (err instanceof Error && err.message.includes("Permission")) {
@@ -80,7 +82,8 @@ export function QRScannerView({ onScan, onClose }: QRScannerViewProps) {
 
     return () => {
       const scanner = scannerRef.current;
-      if (scanner) {
+      if (scanner && isRunningRef.current) {
+        isRunningRef.current = false;
         scanner
           .stop()
           .then(() => scanner.clear())

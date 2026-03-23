@@ -9,10 +9,14 @@ export function FloatingSidebar({
   open,
   setOpen,
   onAddSpace,
+  onSpaceSettings,
+  onInviteMembers,
 }: {
   open: boolean;
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
   onAddSpace: () => void;
+  onSpaceSettings: (spaceId: string) => void;
+  onInviteMembers: (spaceId: string) => void;
 }) {
   const { i18n } = useTranslation();
   const location = useLocation();
@@ -31,7 +35,7 @@ export function FloatingSidebar({
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm" />
         <Drawer.Content className={style.floatingSidebar}>
-          <SidebarContent setOpen={setOpen} onAddSpace={onAddSpace} />
+          <SidebarContent setOpen={setOpen} onAddSpace={onAddSpace} onSpaceSettings={onSpaceSettings} onInviteMembers={onInviteMembers} />
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>

@@ -1058,7 +1058,11 @@ export function deleteText(state: EditorState): CommandResult {
     // Preserve active formats when deleting during typing (e.g., pressing backspace while in bold mode)
     newState = moveCursorToPosition(newState, blockIndex, textIndex - 1, true);
     return { state: newState, ops };
-  } else if (blockIndex > 0) {
+  } else {
+    // Find previous visible (non-deleted) block — skip tombstones left by snapshot restore
+    const prevBlockIndex = findPreviousVisibleBlockIndex(state.document.page.blocks, blockIndex);
+
+    if (prevBlockIndex !== null) {
     // Special handling for list blocks at textIndex 0: outdent instead of merging
     if (isListBlock(oldBlock)) {
       const currentIndent = oldBlock.indent || 0;
@@ -1066,7 +1070,7 @@ export function deleteText(state: EditorState): CommandResult {
 
       // If block is empty, delete it instead of outdenting or converting
       if (currentText.length === 0) {
-        const prevBlock = state.document.page.blocks[blockIndex - 1];
+        const prevBlock = state.document.page.blocks[prevBlockIndex];
 
         // Delete the empty list block
         const blockDeleteOp: Operation = {
@@ -1087,13 +1091,13 @@ export function deleteText(state: EditorState): CommandResult {
           ...state,
           document: { ...state.document, page: newPage },
         };
-        // Move cursor to end of previous block
+        // Move cursor to end of previous visible block
         const prevTextLength = isTextualBlock(prevBlock)
           ? getBlockTextContent(prevBlock).length
           : 0;
         newState = moveCursorToPosition(
           newState,
-          blockIndex - 1,
+          prevBlockIndex,
           prevTextLength
         );
         return { state: newState, ops };
@@ -1138,7 +1142,7 @@ export function deleteText(state: EditorState): CommandResult {
       }
     }
 
-    const prevBlock = state.document.page.blocks[blockIndex - 1];
+    const prevBlock = state.document.page.blocks[prevBlockIndex];
 
     // If previous block is not a text block (e.g., image)
     if (!isTextualBlock(prevBlock)) {
@@ -1147,8 +1151,7 @@ export function deleteText(state: EditorState): CommandResult {
       }
 
       const currentText = getBlockTextContent(oldBlock);
-      const imageBlockIndex = blockIndex - 1;
-      const imagePosition = { blockIndex: imageBlockIndex, textIndex: 0 };
+      const imagePosition = { blockIndex: prevBlockIndex, textIndex: 0 };
 
       // Only delete the current text block if it's empty
       if (currentText.length === 0) {
@@ -1198,7 +1201,7 @@ export function deleteText(state: EditorState): CommandResult {
         };
 
         // Select the previous (image) block
-        newState = moveCursorToPosition(newState, imageBlockIndex, 0);
+        newState = moveCursorToPosition(newState, prevBlockIndex, 0);
         newState = {
           ...newState,
           document: {
@@ -1217,7 +1220,7 @@ export function deleteText(state: EditorState): CommandResult {
       }
 
       // If current block has content, just select the image without deleting the text
-      let newState = moveCursorToPosition(state, imageBlockIndex, 0);
+      let newState = moveCursorToPosition(state, prevBlockIndex, 0);
       newState = {
         ...newState,
         document: {
@@ -1271,7 +1274,7 @@ export function deleteText(state: EditorState): CommandResult {
     // Invalidate the merged block
     invalidateBlockCache(blockCopy);
     const newBlocks = [
-      ...state.document.page.blocks.slice(0, blockIndex - 1),
+      ...state.document.page.blocks.slice(0, prevBlockIndex),
       blockCopy,
       ...state.document.page.blocks.slice(blockIndex + 1),
     ];
@@ -1281,31 +1284,32 @@ export function deleteText(state: EditorState): CommandResult {
       document: { ...state.document, page: newPage },
     };
 
-    newState = moveCursorToPosition(newState, blockIndex - 1, prevText.length);
+    newState = moveCursorToPosition(newState, prevBlockIndex, prevText.length);
     return { state: newState, ops };
-  } else {
-    // At textIndex 0 and blockIndex 0 (first block)
-    // If it's an empty list item, convert to paragraph
-    if (isListBlock(oldBlock)) {
-      const currentText = getBlockTextContent(oldBlock);
-      if (currentText.length === 0) {
-        const paragraphBlock: Block = {
-          id: oldBlock.id,
-          type: "paragraph",
-          charRuns: oldBlock.charRuns,
-          formats: oldBlock.formats,
-        };
-        invalidateBlockCache(paragraphBlock);
-        const newBlocks = [...state.document.page.blocks];
-        newBlocks[blockIndex] = paragraphBlock;
-        const newPage = { ...state.document.page, blocks: newBlocks };
-        return {
-          state: {
-            ...state,
-            document: { ...state.document, page: newPage },
-          },
-          ops,
-        };
+    } else {
+      // No previous visible block — this is the first visible block
+      // If it's an empty list item, convert to paragraph
+      if (isListBlock(oldBlock)) {
+        const currentText = getBlockTextContent(oldBlock);
+        if (currentText.length === 0) {
+          const paragraphBlock: Block = {
+            id: oldBlock.id,
+            type: "paragraph",
+            charRuns: oldBlock.charRuns,
+            formats: oldBlock.formats,
+          };
+          invalidateBlockCache(paragraphBlock);
+          const newBlocks = [...state.document.page.blocks];
+          newBlocks[blockIndex] = paragraphBlock;
+          const newPage = { ...state.document.page, blocks: newBlocks };
+          return {
+            state: {
+              ...state,
+              document: { ...state.document, page: newPage },
+            },
+            ops,
+          };
+        }
       }
     }
   }
