@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode, Suspense, useState, useEffect } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 import { Direction } from "radix-ui";
 import { registerSW } from "virtual:pwa-register";
@@ -15,6 +15,7 @@ import LoadingScreen from "./components/ui/loading-screen";
 import { loadFonts, loadArabicFonts } from "./editor/fonts";
 import "./i18n";
 import i18next from "i18next";
+import { serviceWorkerBridge } from "./serviceWorkerBridge";
 
 // Set document direction and lang based on current language
 function updateDocumentDirection() {
@@ -32,15 +33,18 @@ function loadArabicFontsIfNeeded() {
   }
 }
 
-i18next.on("languageChanged", () => {
+const onLanguageChanged = () => {
   updateDocumentDirection();
   loadArabicFontsIfNeeded();
-});
-i18next.on("initialized", () => {
+};
+
+const onInitialized = () => {
   updateDocumentDirection();
   loadArabicFontsIfNeeded();
-});
-import { serviceWorkerBridge } from "./serviceWorkerBridge";
+};
+
+i18next.on("languageChanged", onLanguageChanged);
+i18next.on("initialized", onInitialized);
 
 // Mark native apps so CSS can disable text selection
 if ((window as any).Capacitor?.isNativePlatform?.()) {
@@ -86,29 +90,50 @@ function DirectionWrapper({ children }: { children: ReactNode }) {
   );
 }
 
-// Initialize platform adapter (web/electron/capacitor) before rendering.
-// Must await — the worker-backed SQLite needs time to spin up.
-initPlatform()
-  .then(() => {
-    createRoot(document.getElementById("root")!).render(
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <ThemeProvider>
-            <DirectionWrapper>
-              <VersionProvider>
-                <Suspense fallback={<LoadingScreen />}>
-                  <RouterProvider router={router} />
-                </Suspense>
-              </VersionProvider>
-            </DirectionWrapper>
-          </ThemeProvider>
-        </AuthProvider>
-      </QueryClientProvider>,
-    );
-  })
-  .catch((err) => {
-    console.error("[Platform] Failed to initialize:", err);
-  });
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <AuthProvider>
+      <ThemeProvider>
+        <DirectionWrapper>
+          <VersionProvider>
+            <Suspense fallback={<LoadingScreen />}>
+              <RouterProvider router={router} />
+            </Suspense>
+          </VersionProvider>
+        </DirectionWrapper>
+      </ThemeProvider>
+    </AuthProvider>
+  </QueryClientProvider>
+);
+
+// Persist root across HMR updates
+let root: Root | null = (window as any).__CYPHER_ROOT__ ?? null;
+let platformReady: boolean = (window as any).__CYPHER_PLATFORM_READY__ ?? false;
+
+function renderApp() {
+  if (!root) {
+    root = createRoot(document.getElementById("root")!);
+    (window as any).__CYPHER_ROOT__ = root;
+  }
+  root.render(<App />);
+}
+
+if (platformReady) {
+  // Platform already initialized from a previous HMR cycle — just re-render
+  renderApp();
+} else {
+  // Initialize platform adapter (web/electron/capacitor) before rendering.
+  // Must await — the worker-backed SQLite needs time to spin up.
+  initPlatform()
+    .then(() => {
+      platformReady = true;
+      (window as any).__CYPHER_PLATFORM_READY__ = true;
+      renderApp();
+    })
+    .catch((err) => {
+      console.error("[Platform] Failed to initialize:", err);
+    });
+}
 
 // Register service worker for offline support
 const updateSW = registerSW({
@@ -143,3 +168,11 @@ const updateSW = registerSW({
 
 // Export updateSW for manual triggering if needed
 export { updateSW };
+
+// HMR cleanup — remove stacked listeners on module dispose
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    i18next.off("languageChanged", onLanguageChanged);
+    i18next.off("initialized", onInitialized);
+  });
+}

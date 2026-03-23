@@ -42,7 +42,7 @@ import { debounce } from "lodash-es";
 import { Calendar, History, Trash } from "lucide-react";
 import { DateTime } from "luxon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { TopActionBarPortal } from "../layout/TopActionBarSlot";
 import { Controller, useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
@@ -52,7 +52,6 @@ import { SavingIndicator } from "../components/SavingIndicator";
 import { MountedEditor } from "../MountedEditor";
 
 import { PagePicker } from "@/components/PagePicker";
-import type { HLC } from "@/editor/sync/types";
 import { useP2PPageEvents } from "@/app/hooks/useP2PPageEvents";
 import clsx from "clsx";
 import {
@@ -137,10 +136,8 @@ export default function EditorPage() {
   const [permission, setLocalPermission] = useState<"view" | "edit" | "owner">(
     "owner",
   );
-  // State for loading page snapshot once on mount
+  // State for loading page blocks once on mount
   const [pageSnapshot, setPageSnapshot] = useState<Block[] | null>(null);
-  // Snapshot clock - used for delta sync
-  const [snapshotClock, setSnapshotClock] = useState<HLC | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
   // Track if page was deleted by another user (via WebSocket)
@@ -160,8 +157,6 @@ export default function EditorPage() {
   const scheduleTagRef = useRef<HTMLDivElement>(null);
   // Restore function ref from MountedEditor
   const restoreFnRef = useRef<((blocks: Block[]) => void) | null>(null);
-  // Confirm save function ref from MountedEditor - called after backend confirms save
-  const confirmSaveFnRef = useRef<((clock: HLC) => void) | null>(null);
 
   const { activeSpaceId } = useSpaces();
   const treeExpand = useTreeExpand();
@@ -279,13 +274,12 @@ export default function EditorPage() {
       try {
         const page = await getPage(id!);
         if (!cancelled) {
-          const snapshot = page.snapshot || [];
+          const blocks = page.blocks || [];
           // Detect corrupted/empty page data — a valid page must have at least one visible block
-          const hasVisibleBlocks = snapshot.some((b) => !b.deleted);
+          const hasVisibleBlocks = blocks.some((b) => !b.deleted);
           if (!hasVisibleBlocks) {
             // Page exists but has no content — mark as corrupted so user can recover from snapshots
-            setPageSnapshot(snapshot);
-            setSnapshotClock(page.snapshotClock || null);
+            setPageSnapshot(blocks);
             setAutoTitle(page.autoTitle);
             setCurrentTitle(page.title || "");
             setLocalPermission("owner");
@@ -294,9 +288,7 @@ export default function EditorPage() {
             setPersistedState("corrupted");
             return;
           }
-          setPageSnapshot(snapshot);
-          // Track snapshot clock for delta sync
-          setSnapshotClock(page.snapshotClock || null);
+          setPageSnapshot(blocks);
           // Track auto-title state
           setAutoTitle(page.autoTitle);
           setCurrentTitle(page.title || "");
@@ -306,7 +298,7 @@ export default function EditorPage() {
           setPermission(perm);
           setIsLoading(false);
           // Update initial word count from blocks
-          setWordCount(countWordsFromBlocks(snapshot));
+          setWordCount(countWordsFromBlocks(blocks));
           // Expand all ancestor pages in the sidebar tree
           if (page.parents && page.parents.length > 0) {
             treeExpand.expandMany(page.parents.map((p) => p.id));
@@ -334,28 +326,20 @@ export default function EditorPage() {
   const handleSave = useCallback(
     async ({
       pageId,
-      snapshot,
-      clock,
+      blocks,
     }: {
       pageId: string;
-      snapshot: Block[];
-      clock: HLC | null;
+      blocks: Block[];
     }) => {
       if (!pageId) return;
 
       try {
-        // Check if we should auto-update the title
-        const updateData: {
-          id: string;
-          snapshot: Block[];
-          snapshotClock: HLC | null;
-          title?: string;
-        } = { id: pageId, snapshot, snapshotClock: clock };
+        const updateData: { id: string; title?: string } = { id: pageId };
 
         let titleChanged = false;
         // Only update title if we're still on the same page
         if (autoTitleRef.current && pageId === id) {
-          const extractedTitle = extractTitleFromBlocks(snapshot);
+          const extractedTitle = extractTitleFromBlocks(blocks);
           if (extractedTitle !== currentTitleRef.current) {
             updateData.title = extractedTitle;
             setCurrentTitle(extractedTitle);
@@ -364,13 +348,6 @@ export default function EditorPage() {
         }
 
         await updatePage(updateData);
-
-        // Confirm save succeeded - update snapshotClock and mark operations as synced
-        // This is only called after the backend confirms the save, not optimistically
-        // Only confirm if we're still on the same page
-        if (clock && confirmSaveFnRef.current && pageId === id) {
-          confirmSaveFnRef.current(clock);
-        }
 
         // Invalidate page list queries AFTER save completes so sidebar gets updated title
         if (titleChanged) {
@@ -402,9 +379,9 @@ export default function EditorPage() {
   // Handle content changes from editor (local changes only - for saving)
   // Captures current page ID to ensure save targets the correct page
   const handleContentChange = useCallback(
-    (snapshot: Block[], clock: HLC | null) => {
+    (blocks: Block[]) => {
       if (!id) return;
-      debouncedSave({ pageId: id, snapshot, clock });
+      debouncedSave({ pageId: id, blocks });
     },
     [id, debouncedSave],
   );
@@ -425,15 +402,13 @@ export default function EditorPage() {
       if (restoreFnRef.current) {
         // Normal restore through mounted editor (generates CRDT operations)
         restoreFnRef.current(blocks);
-        debouncedSave({ pageId: id, snapshot: blocks, clock: null });
       } else {
         // Corrupted state — no editor mounted, restore directly
         setPageSnapshot(blocks);
         setPersistedState(null);
-        debouncedSave({ pageId: id, snapshot: blocks, clock: null });
       }
     },
-    [id, debouncedSave],
+    [id],
   );
 
   // Expose restore callback to context (not in readonly mode)
@@ -521,11 +496,9 @@ export default function EditorPage() {
 
   // Pass snapshot blocks to the editor
   // Snapshot is loaded once on mount, editor manages state from there
-  const headerSlot = document.getElementById("top-action-bar-slot");
-
   return (
     <div className="flex flex-col w-full h-full">
-      {headerSlot && createPortal(<PageActionBar pageId={id} />, headerSlot)}
+      <TopActionBarPortal><PageActionBar pageId={id} /></TopActionBarPortal>
       <div className="relative flex-1 min-h-0 overflow-hidden">
         {/* Schedule tag overlaid on editor, scrolls with canvas content */}
         <div
@@ -545,21 +518,12 @@ export default function EditorPage() {
           pageId={id}
           spaceId={activeSpaceId ?? undefined}
           onSyncStateChange={setSyncState}
-          snapshotClock={snapshotClock}
-          onSnapshotClockUpdate={readonly ? undefined : setSnapshotClock}
           onAwarenessChange={handleAwarenessChange}
           onRestoreReady={
             readonly
               ? undefined
               : (restoreFn) => {
                   restoreFnRef.current = restoreFn;
-                }
-          }
-          onConfirmSaveReady={
-            readonly
-              ? undefined
-              : (confirmFn) => {
-                  confirmSaveFnRef.current = confirmFn;
                 }
           }
           readonly={readonly}

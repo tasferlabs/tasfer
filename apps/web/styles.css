@@ -294,6 +294,31 @@
   color: var(--foreground);
 }
 
+/* ── QR Scanner ── */
+
+.qr-scanner-container {
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+/* Hide html5-qrcode default UI */
+#qr-reader {
+  border: none !important;
+}
+
+#qr-reader video {
+  border-radius: var(--radius-xl);
+  object-fit: cover;
+}
+
+#qr-reader__dashboard,
+#qr-reader__status_span,
+#qr-reader__header_message,
+#qr-reader__scan_region > img,
+#qr-shaded-region {
+  display: none !important;
+}
+
 /* Disable text selection on native apps (Capacitor) */
 body.native {
   -webkit-user-select: none;

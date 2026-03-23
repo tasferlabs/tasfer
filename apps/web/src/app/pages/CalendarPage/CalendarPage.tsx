@@ -1,5 +1,5 @@
 import { useMemo, useRef, useEffect, useLayoutEffect, useState, useCallback } from "react";
-import { createPortal } from "react-dom";
+import { TopActionBarPortal } from "../../layout/TopActionBarSlot";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -24,7 +24,6 @@ import {
   useUpdatePage,
   updatePage as updatePageApi,
   type ICalendarPage,
-  type HLC,
 } from "../../api/pages.api";
 import {
   HOUR_HEIGHT,
@@ -205,14 +204,12 @@ export default function CalendarPage() {
 
   const { mutate: createPage } = useCreatePage({
     onSuccess: async (newPage) => {
-      // Save draft snapshot content to the new page
-      const { snapshot, clock } = draftSnapshotRef.current;
-      if (snapshot) {
+      // Save draft title to the new page
+      const { blocks } = draftSnapshotRef.current;
+      if (blocks) {
         await updatePageApi({
           id: newPage.id,
-          snapshot,
-          snapshotClock: clock,
-          title: extractTitleFromBlocks(snapshot),
+          title: extractTitleFromBlocks(blocks),
         });
       }
       draftSnapshotRef.current = {};
@@ -282,22 +279,21 @@ export default function CalendarPage() {
     [activeSpaceId, selectedDate],
   );
 
-  const draftSnapshotRef = useRef<{ snapshot?: Block[]; clock?: HLC | null }>(
+  const draftSnapshotRef = useRef<{ blocks?: Block[] }>(
     {},
   );
 
   const handleDraftSave = useCallback(
     (
-      snapshot?: Block[],
-      clock?: HLC | null,
+      blocks?: Block[],
+      _clock?: unknown,
       parentId?: string | null,
       task?: boolean,
     ) => {
       if (!draftEvent || !activeSpaceId) return;
-      // Store snapshot to save after page creation
-      draftSnapshotRef.current = { snapshot, clock };
+      draftSnapshotRef.current = { blocks };
       createPage({
-        title: snapshot ? extractTitleFromBlocks(snapshot) : "",
+        title: blocks ? extractTitleFromBlocks(blocks) : "",
         parentId: parentId ?? null,
         spaceId: activeSpaceId,
         scheduledAt: draftEvent.scheduledAt,
@@ -1276,115 +1272,109 @@ export default function CalendarPage() {
     );
   }
 
-  const headerSlot = document.getElementById("top-action-bar-slot");
-
   return (
     <div className={style.container}>
-      {headerSlot &&
-        createPortal(
-          <>
-            <div className={style.headerNav}>
-              <button
-                className={style.headerNavButton}
-                onClick={() => goToDay(-1)}
-              >
-                {isRtl ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-              </button>
-              <button className={style.todayButton} onClick={goToToday}>
-                {t("common.today", "Today")}
-              </button>
-              <button
-                className={style.headerNavButton}
-                onClick={() => goToDay(1)}
-              >
-                {isRtl ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
-              </button>
-            </div>
-            <span className={clsx(style.headerTitle, style.headerTitleDesktop)}>
-              {viewMode === "day"
-                ? formatDate(selectedDate)
-                : formatWeekRange(selectedDate)}
-            </span>
-            <button
-              className={clsx(
-                style.headerTitle,
-                style.headerTitleMobile,
-                style.miniCalTrigger,
-              )}
-              onClick={() => setMiniCalOpen(true)}
+      <TopActionBarPortal>
+        <div className={style.headerNav}>
+          <button
+            className={style.headerNavButton}
+            onClick={() => goToDay(-1)}
+          >
+            {isRtl ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+          </button>
+          <button className={style.todayButton} onClick={goToToday}>
+            {t("common.today", "Today")}
+          </button>
+          <button
+            className={style.headerNavButton}
+            onClick={() => goToDay(1)}
+          >
+            {isRtl ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
+          </button>
+        </div>
+        <span className={clsx(style.headerTitle, style.headerTitleDesktop)}>
+          {viewMode === "day"
+            ? formatDate(selectedDate)
+            : formatWeekRange(selectedDate)}
+        </span>
+        <button
+          className={clsx(
+            style.headerTitle,
+            style.headerTitleMobile,
+            style.miniCalTrigger,
+          )}
+          onClick={() => setMiniCalOpen(true)}
+        >
+          {formatMonthLong(selectedDate)}
+          <ChevronDown size={14} />
+        </button>
+        <button
+          className={clsx(style.todayButtonMobile, "ms-auto")}
+          onClick={goToToday}
+          aria-label={t("common.today", "Today")}
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="3" y="4" width="18" height="18" rx="2" />
+            <line x1="3" y1="10" x2="21" y2="10" />
+            <line x1="8" y1="2" x2="8" y2="6" />
+            <line x1="16" y1="2" x2="16" y2="6" />
+            <text
+              x="12"
+              y="19"
+              textAnchor="middle"
+              stroke="none"
+              fill="currentColor"
+              fontSize="8"
+              fontWeight="700"
             >
-              {formatMonthLong(selectedDate)}
-              <ChevronDown size={14} />
-            </button>
-            <button
-              className={clsx(style.todayButtonMobile, "ms-auto")}
-              onClick={goToToday}
-              aria-label={t("common.today", "Today")}
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="3" y="4" width="18" height="18" rx="2" />
-                <line x1="3" y1="10" x2="21" y2="10" />
-                <line x1="8" y1="2" x2="8" y2="6" />
-                <line x1="16" y1="2" x2="16" y2="6" />
-                <text
-                  x="12"
-                  y="19"
-                  textAnchor="middle"
-                  stroke="none"
-                  fill="currentColor"
-                  fontSize="8"
-                  fontWeight="700"
-                >
-                  {new Date().getDate()}
-                </text>
-              </svg>
-            </button>
-            <DateTimePickerOverlay
-              open={miniCalOpen}
-              onClose={() => setMiniCalOpen(false)}
-              selectedYear={overlayYear}
-              selectedMonth={overlayMonth}
-              selectedDay={overlayDay}
-              setSelectedYear={setOverlayYear}
-              setSelectedMonth={setOverlayMonth}
-              setSelectedDay={setOverlayDay}
-              selectedHour="00"
-              selectedMinute="00"
-              setSelectedHour={() => {}}
-              setSelectedMinute={() => {}}
-              value={overlayValue}
-              id="mini-cal"
-              timezone={tz}
-              type="date"
-              maxDate="9999-12-31"
-              minDate="0001-01-01"
-            />
-            <div className={clsx(style.viewToggle, "me-4")}>
-              <button
-                className={`${style.viewToggleButton} ${viewMode === "day" ? style.viewToggleActive : ""}`}
-                onClick={() => setViewMode("day")}
-              >
-                {t("calendar.day", "Day")}
-              </button>
-              <button
-                className={`${style.viewToggleButton} ${viewMode === "week" ? style.viewToggleActive : ""}`}
-                onClick={() => setViewMode("week")}
-              >
-                {t("calendar.week", "Week")}
-              </button>
-            </div>
-          </>,
-          headerSlot,
-        )}
+              {new Date().getDate()}
+            </text>
+          </svg>
+        </button>
+        <DateTimePickerOverlay
+          open={miniCalOpen}
+          onClose={() => setMiniCalOpen(false)}
+          selectedYear={overlayYear}
+          selectedMonth={overlayMonth}
+          selectedDay={overlayDay}
+          setSelectedYear={setOverlayYear}
+          setSelectedMonth={setOverlayMonth}
+          setSelectedDay={setOverlayDay}
+          selectedHour="00"
+          selectedMinute="00"
+          setSelectedHour={() => {}}
+          setSelectedMinute={() => {}}
+          value={overlayValue}
+          id="mini-cal"
+          timezone={tz}
+          type="date"
+          maxDate="9999-12-31"
+          minDate="0001-01-01"
+        />
+        <div className={clsx(style.viewToggle, "me-4")}>
+          <button
+            className={`${style.viewToggleButton} ${viewMode === "day" ? style.viewToggleActive : ""}`}
+            onClick={() => setViewMode("day")}
+          >
+            {t("calendar.day", "Day")}
+          </button>
+          <button
+            className={`${style.viewToggleButton} ${viewMode === "week" ? style.viewToggleActive : ""}`}
+            onClick={() => setViewMode("week")}
+          >
+            {t("calendar.week", "Week")}
+          </button>
+        </div>
+      </TopActionBarPortal>
 
       {allDayPages.length > 0 && (
         <div className={style.allDaySection}>

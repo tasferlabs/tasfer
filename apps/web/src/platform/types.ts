@@ -55,8 +55,7 @@ export interface PageListItem {
 
 /** Full page with content */
 export interface PageFull extends PageListItem {
-  snapshot: Block[] | null;
-  snapshotClock: HLC | null;
+  blocks: Block[] | null;
   createdAt: string;
   updatedAt: string;
   parents?: { id: string; title: string; color?: string | null }[];
@@ -79,8 +78,6 @@ export interface PageUpdateInput {
   title?: string;
   autoTitle?: boolean;
   color?: string | null;
-  snapshot?: Block[];
-  snapshotClock?: HLC | null;
   scheduledAt?: string | null;
   duration?: number | null;
   allDay?: boolean | null;
@@ -120,15 +117,16 @@ export interface PageCalendarItem {
   createdAt: string;
 }
 
-/** Page snapshot for version history */
+/** Page version for version history (derived from operation log) */
 export interface PageSnapshot {
   id: string;
   pageId: string;
   blocks: Block[];
-  size: number;
   clock: HLC | null;
-  createdAt: string;
-  updatedAt: string;
+  /** Total operations at this version point */
+  opCount: number;
+  /** Wall-clock timestamp (ms since epoch). 0 if unknown. */
+  createdAt: number;
 }
 
 /** Stored asset metadata */
@@ -146,6 +144,7 @@ export interface Asset {
 /** Peer user info for awareness */
 export interface RoomUser {
   name?: string;
+  avatar?: string | null;
   color?: string;
 }
 
@@ -166,6 +165,7 @@ export interface SpaceMember {
   publicKey: string;
   name: string;
   role: "owner" | "editor";
+  avatar: string | null;
   addedAt: string;
 }
 
@@ -195,6 +195,14 @@ export interface MemberAdd extends SpaceBaseOp {
   op: "member_add";
   publicKey: string;
   name: string;
+}
+
+/** Update a member property (name, avatar, etc.) */
+export interface MemberSet extends SpaceBaseOp {
+  op: "member_set";
+  publicKey: string;
+  field: string;
+  value: unknown;
 }
 
 /** Remove a member from the space (self-leave or owner kick) */
@@ -235,6 +243,7 @@ export interface PageSet extends SpaceBaseOp {
 export type SpaceOperation =
   | SpaceSet
   | MemberAdd
+  | MemberSet
   | MemberRemove
   | PageAdd
   | PageRemove
@@ -264,6 +273,8 @@ export interface PairCallbacks {
   onPeerIdentity?: (peer: { publicKey: string; name: string }) => void;
   onComplete?: (peer: Peer) => void;
   onError?: (error: string) => void;
+  /** Multi-peer mode: allow multiple peers to join before explicitly stopping */
+  multi?: boolean;
 }
 
 // =============================================================================
@@ -277,7 +288,7 @@ export interface SyncEvents {
   /** A sync request from a peer */
   onSyncRequest: (
     versionVector: Record<string, number>,
-    snapshotClock: { counter: number; peerId: string } | null | undefined,
+    snapshotClock: undefined,
     requesterId?: string,
   ) => void;
   /** A sync response from a peer */
@@ -365,6 +376,13 @@ export interface Platform {
     rename(id: string, name: string): Promise<void>;
     /** Leave a space (self-removal) */
     leave(id: string): Promise<void>;
+    /** Update a member property (name, role, etc.) */
+    updateMember(
+      spaceId: string,
+      publicKey: string,
+      field: string,
+      value: unknown,
+    ): Promise<void>;
     /** Remove a member (owner only) */
     removeMember(spaceId: string, publicKey: string): Promise<void>;
     /** Subscribe to space change events */
@@ -447,7 +465,6 @@ export interface Platform {
     sendSyncRequest(
       roomId: string,
       versionVector: Record<string, number>,
-      snapshotClock?: { counter: number; peerId: string } | null,
     ): void;
     /** Send a sync response to a specific peer */
     sendSyncResponse(
@@ -475,6 +492,8 @@ export interface Platform {
     persist(pageId: string, ops: Operation[]): Promise<void>;
     /** Load all persisted operations for a page (on mount) */
     load(pageId: string): Promise<Operation[]>;
+    /** Convert blocks to CRDT ops and persist them (used by import) */
+    writeBlocks(pageId: string, blocks: Block[]): Promise<void>;
   };
 
   // ---------------------------------------------------------------------------

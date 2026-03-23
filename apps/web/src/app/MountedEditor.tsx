@@ -49,9 +49,9 @@ import { uploadImage } from "./api/images.api";
 import { useP2PRoom, type SyncState } from "@/app/hooks/useP2PRoom";
 import {
   SyncEngine,
-  type HLC,
   serializeVV,
   deserializeVV,
+  advanceGlobalClock,
 } from "@/editor/sync/sync";
 import {
   positionToAwarenessCursor,
@@ -110,8 +110,8 @@ function loadCursorPosition(pageId: string): StoredCursorPosition | null {
 interface MountedEditorProps {
   snapshot: Block[];
   className?: string;
-  /** Called when content changes. clock is the HLC of the latest operation. */
-  onContentChange?: (snapshot: Block[], clock: HLC | null) => void;
+  /** Called when content changes locally (for saving). */
+  onContentChange?: (blocks: Block[]) => void;
   /** Callback for all content updates (local and remote) - used for word count, etc. */
   onContentUpdate?: (blocks: (Block & { originalIndex: number })[]) => void;
   autoFocus?: boolean;
@@ -121,16 +121,10 @@ interface MountedEditorProps {
   spaceId?: string;
   /** Callback when sync state changes */
   onSyncStateChange?: (state: SyncState) => void;
-  /** Clock of the snapshot - used for delta sync */
-  snapshotClock?: HLC | null;
-  /** Callback to update snapshotClock after operations are sent */
-  onSnapshotClockUpdate?: (clock: HLC | null) => void;
   /** Callback when active users change */
   onAwarenessChange?: (users: AwarenessUser[]) => void;
   /** Callback when restore function is ready */
   onRestoreReady?: (restoreFn: (blocks: Block[]) => void) => void;
-  /** Callback when confirmSave function is ready - call this after backend save succeeds */
-  onConfirmSaveReady?: (confirmFn: (clock: HLC) => void) => void;
   /** When true, editor is read-only - no editing, no CRDT sync, no native bridge updates */
   readonly?: boolean;
   /** Override default canvas padding */
@@ -157,11 +151,8 @@ export function MountedEditor({
   pageId,
   spaceId,
   onSyncStateChange,
-  snapshotClock,
-  onSnapshotClockUpdate,
   onAwarenessChange,
   onRestoreReady,
-  onConfirmSaveReady,
   readonly = false,
   padding,
   blockStyleOverrides,
@@ -178,8 +169,6 @@ export function MountedEditor({
   onContentChangeRef.current = onContentChange;
   const onContentUpdateRef = useRef(onContentUpdate);
   onContentUpdateRef.current = onContentUpdate;
-  const onSnapshotClockUpdateRef = useRef(onSnapshotClockUpdate);
-  onSnapshotClockUpdateRef.current = onSnapshotClockUpdate;
   const [slashMenuState, setSlashMenuState] = useState<{
     visible: boolean;
     x: number;
@@ -263,14 +252,6 @@ export function MountedEditor({
   );
   // Track when applying remote operations to prevent triggering saves for non-local changes
   const isApplyingRemoteOpsRef = useRef(false);
-  // Track snapshot clock for delta operations (operations after this clock need to be sent)
-  const snapshotClockRef = useRef<HLC | null>(snapshotClock ?? null);
-
-  // Update ref when snapshotClock prop changes
-  useEffect(() => {
-    snapshotClockRef.current = snapshotClock ?? null;
-  }, [snapshotClock]);
-
   // Track current toolbar icon type
   const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">(
     "format",
@@ -281,7 +262,6 @@ export function MountedEditor({
   const onRoomSyncRequestRef = useRef<
     | ((
         vv: Record<string, number>,
-        clock: { counter: number; peerId: string } | null | undefined,
         requesterId?: string,
       ) => void)
     | null
@@ -300,8 +280,6 @@ export function MountedEditor({
   const onRoomJoinedRef = useRef<((hasOtherPeers: boolean) => void) | null>(
     null,
   );
-  // Track sync state for confirmSave callback
-  const syncStateRef = useRef<SyncState>({ status: "disconnected" });
 
   // Use the P2P room subscription (WebRTC DataChannels)
   const {
@@ -321,10 +299,9 @@ export function MountedEditor({
       onSyncRequest: useCallback(
         (
           vv: Record<string, number>,
-          clock: { counter: number; peerId: string } | null | undefined,
           requesterId?: string,
         ) => {
-          onRoomSyncRequestRef.current?.(vv, clock, requesterId);
+          onRoomSyncRequestRef.current?.(vv, requesterId);
         },
         [],
       ),
@@ -366,11 +343,6 @@ export function MountedEditor({
   peerIdRef.current = peerId;
   const localUserRef = useRef(localUser);
   localUserRef.current = localUser;
-
-  // Keep syncStateRef up to date for use in callbacks
-  useEffect(() => {
-    syncStateRef.current = syncState;
-  }, [syncState]);
 
   // Notify parent of sync state changes
   useEffect(() => {
@@ -493,28 +465,30 @@ export function MountedEditor({
     }
 
     // Load persisted operations from SQLite (if any)
-    // This restores local changes that weren't synced before page reload
+    // This restores the sync engine's VV and applies any ops that arrived
+    // while the page was closed (e.g. from bulk P2P sync while offline).
+    // Load persisted ops into SyncEngine for VV tracking.
+    // Page content is already rebuilt from ops by the engine, so no need
+    // to apply them to the editor — just feed the SyncEngine.
     const platform = getPlatform();
     const opsLoadedPromise = platform.ops.load(pageId).then((persistedOps) => {
       if (persistedOps.length > 0 && syncEngineRef.current) {
         syncEngineRef.current.loadOperations(persistedOps);
+        // Advance the global HLC past all loaded ops so that new operations
+        // (typing, restore, etc.) get HLC values higher than historical ops.
+        // Without this, mergeOps full-rebuild would sort session ops before
+        // historical ops, breaking causality (e.g. deletes before inserts).
+        const lastOp = persistedOps[persistedOps.length - 1];
+        if (lastOp) {
+          advanceGlobalClock(lastOp.clock);
+        }
       }
     });
 
     // Expose restore function to parent
-    // Uses restoreFromSnapshot which generates and broadcasts operations
     if (onRestoreReady) {
       onRestoreReady((blocks: Block[]) => {
         mounted.editor.restoreFromSnapshot(blocks);
-      });
-    }
-
-    // Expose confirmSave function to parent
-    // Called after snapshot save — updates snapshotClock
-    if (onConfirmSaveReady) {
-      onConfirmSaveReady((clock: HLC) => {
-        snapshotClockRef.current = clock;
-        onSnapshotClockUpdateRef.current?.(clock);
       });
     }
 
@@ -522,18 +496,29 @@ export function MountedEditor({
     const syncEngine = new SyncEngine(pageId, peerIdRef.current);
     syncEngineRef.current = syncEngine;
 
-    // Wire up room callbacks to sync engine and editor
-    // These refs are called by useRoom when messages arrive
-    onRoomOperationsRef.current = (ops) => {
+    // Apply remote ops to the in-memory sync engine and update the editor.
+    // Persistence is handled by the Replicator before ops reach these callbacks.
+    const applyRemoteOps = (ops: Operation[]) => {
       isApplyingRemoteOpsRef.current = true;
       syncEngine.apply(ops);
-      mounted.editor.applyRemoteOperations(ops);
+      // Advance the global HLC past all received ops so that subsequent
+      // local operations (typing, deleting) get HLC values that respect
+      // causality. Without this, a local delete could get a lower counter
+      // than the remote inserts it depends on, breaking convergence during
+      // rebuildState (which sorts by HLC).
+      for (const op of ops) {
+        advanceGlobalClock(op.clock);
+      }
+      mounted.editor.updatePageFromSync(syncEngine.getState());
       isApplyingRemoteOpsRef.current = false;
     };
 
+    // Wire up room callbacks to sync engine and editor
+    // These refs are called by useRoom when messages arrive
+    onRoomOperationsRef.current = applyRemoteOps;
+
     onRoomSyncRequestRef.current = (
       versionVector,
-      _snapshotClock,
       requesterId,
     ) => {
       const remoteVV = deserializeVV(versionVector);
@@ -547,10 +532,7 @@ export function MountedEditor({
 
     onRoomSyncResponseRef.current = (ops, _versionVector) => {
       if (ops.length > 0) {
-        isApplyingRemoteOpsRef.current = true;
-        syncEngine.apply(ops);
-        mounted.editor.applyRemoteOperations(ops);
-        isApplyingRemoteOpsRef.current = false;
+        applyRemoteOps(ops);
       }
     };
 
@@ -604,7 +586,7 @@ export function MountedEditor({
         // Wait for persisted ops to load so the VV is accurate
         opsLoadedPromise.then(() => {
           const localVV = serializeVV(syncEngine.getVersionVector());
-          roomSendSyncRequest(localVV, snapshotClockRef.current);
+          roomSendSyncRequest(localVV);
         });
 
         // Broadcast current awareness state so peers see our cursor
@@ -800,16 +782,7 @@ export function MountedEditor({
             if (findBarOpenRef.current) handleFindCloseRef.current?.();
           }
           if (!isApplyingRemoteOpsRef.current && onContentChangeRef.current) {
-            // Get the latest clock for the save request
-            const latestClock = syncEngineRef.current?.getLatestClock() ?? null;
-
-            // NOTE: snapshotClock is NOT updated here - it will be updated
-            // by confirmSave() after the backend confirms the save succeeded.
-            // This prevents offline operations from being marked as synced
-            // before they're actually persisted to the server.
-
-            // Save snapshot with tombstones preserved for offline sync
-            onContentChangeRef.current(currentBlocks as Block[], latestClock);
+            onContentChangeRef.current(currentBlocks as Block[]);
           }
         }
       }

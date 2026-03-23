@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from "react";
 import JSZip from "jszip";
+import { getPlatform } from "@/platform";
 import {
   Dialog,
   DialogContent,
@@ -384,6 +385,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
     }
 
     // Step 2: Create pages top-down
+    const platform = getPlatform();
     async function createPages(
       nodes: PageNode[],
       parentId: string | null,
@@ -418,11 +420,13 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
             ...(metadata?.duration != null && { duration: metadata.duration }),
             ...(metadata?.allDay != null && { allDay: metadata.allDay }),
           });
-          await updatePage({
-            id: createdPage.id,
-            snapshot: page.blocks,
-            ...(metadata?.color && { color: metadata.color }),
-          });
+          await platform.ops.writeBlocks(createdPage.id, page.blocks);
+          if (metadata?.color) {
+            await updatePage({
+              id: createdPage.id,
+              color: metadata.color,
+            });
+          }
 
           importResult.pagesCreated++;
           done++;
@@ -452,6 +456,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
     spaceId: string,
     importResult: ImportResult,
   ) {
+    const platform = getPlatform();
     setProgress({ done: 0, total: mdFiles.length });
     let done = 0;
 
@@ -475,11 +480,13 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
           ...(metadata?.duration != null && { duration: metadata.duration }),
           ...(metadata?.allDay != null && { allDay: metadata.allDay }),
         });
-        await updatePage({
-          id: createdPage.id,
-          snapshot: page.blocks,
-          ...(metadata?.color && { color: metadata.color }),
-        });
+        await platform.ops.writeBlocks(createdPage.id, page.blocks);
+        if (metadata?.color) {
+          await updatePage({
+            id: createdPage.id,
+            color: metadata.color,
+          });
+        }
 
         importResult.pagesCreated++;
       } catch (err) {

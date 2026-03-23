@@ -23,7 +23,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const isStaging = import.meta.env.VITE_STAGING === "true";
 
-type Tab = "database" | "logs" | "network";
+type Tab = "database" | "logs" | "network" | "crdt";
 type DbView = "tables" | "query";
 
 type QueryResult =
@@ -397,6 +397,144 @@ const DIR_STYLE: Record<NetDirection, { label: string; color: string }> = {
   recv: { label: "IN", color: "text-emerald-400" },
 };
 
+// ─── CRDT ops viewer ────────────────────────────────────────────────────
+
+interface CrdtOpEntry {
+  id: number;
+  scopeId: string;
+  peerId: string;
+  clock: number;
+  type: string;
+  data: Record<string, unknown>;
+  timestamp: number;
+}
+
+const CRDT_OP_TYPES = [
+  "text_insert",
+  "text_delete",
+  "format_set",
+  "block_insert",
+  "block_delete",
+  "block_set",
+  "space_set",
+  "member_add",
+  "member_set",
+  "member_remove",
+  "page_add",
+  "page_remove",
+  "page_set",
+];
+
+const OP_TYPE_COLORS: Record<string, string> = {
+  text_insert: "text-emerald-400",
+  text_delete: "text-red-400",
+  format_set: "text-purple-400",
+  block_insert: "text-blue-400",
+  block_delete: "text-red-400",
+  block_set: "text-amber-400",
+  space_set: "text-cyan-400",
+  member_add: "text-emerald-400",
+  member_set: "text-amber-400",
+  member_remove: "text-red-400",
+  page_add: "text-emerald-400",
+  page_remove: "text-red-400",
+  page_set: "text-amber-400",
+};
+
+async function fetchCrdtOps(
+  pageId: string,
+  opType: string,
+): Promise<CrdtOpEntry[]> {
+  const db = getDb();
+  let query = "SELECT id, scope_id, peer_id, clock, type, data, timestamp FROM ops";
+  const params: unknown[] = [];
+  const conditions: string[] = [];
+
+  if (pageId !== "all") {
+    conditions.push("scope_id = ?");
+    params.push(pageId);
+  }
+  if (opType !== "all") {
+    conditions.push("type = ?");
+    params.push(opType);
+  }
+
+  if (conditions.length > 0) query += " WHERE " + conditions.join(" AND ");
+  query += " ORDER BY timestamp DESC, clock DESC LIMIT 200";
+
+  const rows = await db.execute(query, params);
+  return rows.map((r: DbRow) => {
+    let parsed: Record<string, unknown> = {};
+    try {
+      const raw = r.data;
+      if (raw instanceof Uint8Array) {
+        parsed = JSON.parse(new TextDecoder().decode(raw));
+      } else if (typeof raw === "string") {
+        parsed = JSON.parse(raw);
+      }
+    } catch {
+      /* ignore */
+    }
+    return {
+      id: r.id as number,
+      scopeId: r.scope_id as string,
+      peerId: r.peer_id as string,
+      clock: r.clock as number,
+      type: r.type as string,
+      data: parsed,
+      timestamp: r.timestamp as number,
+    };
+  });
+}
+
+async function fetchCrdtPages(): Promise<{ id: string; title: string }[]> {
+  const db = getDb();
+  const rows = await db.execute(
+    "SELECT DISTINCT ops.scope_id as id, COALESCE(pages.title, ops.scope_id) as title FROM ops LEFT JOIN pages ON ops.scope_id = pages.id ORDER BY title",
+  );
+  return rows.map((r: DbRow) => ({
+    id: r.id as string,
+    title: r.title as string,
+  }));
+}
+
+function crdtOpSummary(op: CrdtOpEntry): string {
+  const d = op.data;
+  switch (op.type) {
+    case "text_insert": {
+      const runs = d.charRuns as { text?: string }[] | undefined;
+      const text = runs?.map((r) => r.text ?? "").join("") ?? "";
+      return text.length > 40 ? `"${text.slice(0, 40)}..."` : `"${text}"`;
+    }
+    case "text_delete":
+      return `${(d.charIds as string[])?.length ?? 0} chars`;
+    case "format_set":
+      return `${d.format}=${String(d.value)} on ${(d.charIds as string[])?.length ?? 0} chars`;
+    case "block_insert":
+      return `${d.blockType} after ${d.afterBlockId ? String(d.afterBlockId).slice(0, 8) : "start"}`;
+    case "block_delete":
+      return String(d.blockId ?? "").slice(0, 16);
+    case "block_set":
+      return `${d.field}=${JSON.stringify(d.value)}`;
+    case "space_set":
+      return `${d.field}=${JSON.stringify(d.value)}`;
+    case "member_add":
+      return `${d.name} (${String(d.publicKey ?? "").slice(0, 8)}...)`;
+    case "member_set":
+      return `${d.field}=${JSON.stringify(d.value)} for ${String(d.publicKey ?? "").slice(0, 8)}...`;
+    case "member_remove":
+      return String(d.publicKey ?? "").slice(0, 16);
+    case "page_add":
+      return String(d.title ?? "untitled");
+    case "page_remove":
+      return String(d.pageId ?? "").slice(0, 16);
+    case "page_set":
+      return `${d.field}=${JSON.stringify(d.value)}`;
+    default:
+      return "";
+  }
+}
+
 // ─── Cell renderer ──────────────────────────────────────────────────────
 
 function CellEditor({ col, colType, nullable, editing, setEditing, saveEdit, row, typeColor }: {
@@ -488,11 +626,17 @@ function CellEditor({ col, colType, nullable, editing, setEditing, saveEdit, row
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+const PANEL_MIN_H = 200;
+const PANEL_MAX_H_VH = 80; // percent of viewport
+const PANEL_DEFAULT_H = 520;
+
 export function DevToolbar() {
   const [open, setOpen] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [tab, setTab] = useState<Tab>("database");
   const [conn, setConn] = useState<ConnectionState>("disconnected");
+  const [panelHeight, setPanelHeight] = useState(PANEL_DEFAULT_H);
+  const [isResizing, setIsResizing] = useState(false);
 
   // database — tables view
   const [dbView, setDbView] = useState<DbView>("tables");
@@ -528,6 +672,58 @@ export function DevToolbar() {
   const [dirFilter, setDirFilter] = useState<NetDirection | "all">("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const netEndRef = useRef<HTMLDivElement>(null);
+
+  // crdt ops
+  const [crdtPageId, setCrdtPageId] = useState<string>("all");
+  const [crdtOpType, setCrdtOpType] = useState<string>("all");
+  const [crdtOps, setCrdtOps] = useState<CrdtOpEntry[]>([]);
+  const [crdtPages, setCrdtPages] = useState<{ id: string; title: string }[]>(
+    [],
+  );
+  const [crdtLoading, setCrdtLoading] = useState(false);
+  const [crdtExpanded, setCrdtExpanded] = useState<number | null>(null);
+  const [crdtFilter, setCrdtFilter] = useState("");
+  const [crdtCopied, setCrdtCopied] = useState(false);
+  const [logsCopied, setLogsCopied] = useState(false);
+  const [netCopied, setNetCopied] = useState(false);
+
+  // Set CSS variable so layout can shrink to make room
+  useEffect(() => {
+    const el = document.documentElement;
+    if (open) {
+      el.style.setProperty("--devtool-height", `${panelHeight}px`);
+    } else {
+      el.style.setProperty("--devtool-height", "0px");
+    }
+    return () => {
+      el.style.setProperty("--devtool-height", "0px");
+    };
+  }, [open, panelHeight]);
+
+  // Resize drag handler
+  const onResizePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      setIsResizing(true);
+      const startY = e.clientY;
+      const startH = panelHeight;
+      const maxH = window.innerHeight * (PANEL_MAX_H_VH / 100);
+
+      const onMove = (ev: PointerEvent) => {
+        const delta = startY - ev.clientY;
+        const next = Math.min(maxH, Math.max(PANEL_MIN_H, startH + delta));
+        setPanelHeight(next);
+      };
+      const onUp = () => {
+        setIsResizing(false);
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [panelHeight],
+  );
 
   useEffect(() => {
     if (open && tab === "logs")
@@ -566,6 +762,63 @@ export function DevToolbar() {
     if (open && tab === "database" && dbView === "tables")
       load(table, offset, search);
   }, [open, tab, dbView, table, offset, search, load]);
+
+  const loadCrdtOps = useCallback(async () => {
+    setCrdtLoading(true);
+    try {
+      const [ops, pages] = await Promise.all([
+        fetchCrdtOps(crdtPageId, crdtOpType),
+        fetchCrdtPages(),
+      ]);
+      setCrdtOps(ops);
+      setCrdtPages(pages);
+    } catch (e) {
+      console.error("crdt:", e);
+    } finally {
+      setCrdtLoading(false);
+    }
+  }, [crdtPageId, crdtOpType]);
+
+  useEffect(() => {
+    if (open && tab === "crdt") loadCrdtOps();
+  }, [open, tab, loadCrdtOps]);
+
+  const getFilteredCrdtOps = useCallback(() => {
+    return crdtOps.filter(
+      (o) =>
+        !crdtFilter ||
+        crdtOpSummary(o).toLowerCase().includes(crdtFilter.toLowerCase()) ||
+        o.peerId.toLowerCase().includes(crdtFilter.toLowerCase()),
+    );
+  }, [crdtOps, crdtFilter]);
+
+  const copyCrdtOps = useCallback(async () => {
+    const filtered = getFilteredCrdtOps();
+    const json = JSON.stringify(
+      filtered.map((o) => o.data),
+      null,
+      2,
+    );
+    await navigator.clipboard.writeText(json);
+    setCrdtCopied(true);
+    setTimeout(() => setCrdtCopied(false), 1500);
+  }, [getFilteredCrdtOps]);
+
+  const exportCrdtOps = useCallback(() => {
+    const filtered = getFilteredCrdtOps();
+    const json = JSON.stringify(
+      filtered.map((o) => o.data),
+      null,
+      2,
+    );
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `crdt-ops-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [getFilteredCrdtOps]);
 
   const runQuery = useCallback(async () => {
     const trimmed = sql.trim();
@@ -709,6 +962,68 @@ export function DevToolbar() {
     return true;
   });
 
+  const copyLogs = useCallback(async () => {
+    const text = filteredLogs
+      .map((l) => `[${fmtTime(l.timestamp)}] [${l.level}] ${l.message}`)
+      .join("\n");
+    await navigator.clipboard.writeText(text);
+    setLogsCopied(true);
+    setTimeout(() => setLogsCopied(false), 1500);
+  }, [filteredLogs]);
+
+  const exportLogs = useCallback(() => {
+    const text = filteredLogs
+      .map((l) => `[${fmtTime(l.timestamp)}] [${l.level}] ${l.message}`)
+      .join("\n");
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `logs-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.log`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filteredLogs]);
+
+  const copyNetLogs = useCallback(async () => {
+    const json = JSON.stringify(
+      filteredNet.map((l) => ({
+        time: fmtTime(l.timestamp),
+        direction: l.direction,
+        peer: l.peer,
+        type: l.type,
+        summary: l.summary,
+        size: l.size,
+      })),
+      null,
+      2,
+    );
+    await navigator.clipboard.writeText(json);
+    setNetCopied(true);
+    setTimeout(() => setNetCopied(false), 1500);
+  }, [filteredNet]);
+
+  const exportNetLogs = useCallback(() => {
+    const json = JSON.stringify(
+      filteredNet.map((l) => ({
+        time: fmtTime(l.timestamp),
+        direction: l.direction,
+        peer: l.peer,
+        type: l.type,
+        summary: l.summary,
+        size: l.size,
+      })),
+      null,
+      2,
+    );
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `network-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filteredNet]);
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -720,16 +1035,23 @@ export function DevToolbar() {
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: 24, opacity: 0, scale: 0.98 }}
           transition={{ type: "spring", damping: 30, stiffness: 500 }}
+          style={{ height: panelHeight }}
           className={cn(
-            "fixed inset-x-3 bottom-3 z-[9999] top-auto",
-            "h-[min(520px,70vh)]",
+            "fixed inset-x-0 bottom-0 z-40 top-auto",
             "bg-popover/95 backdrop-blur-xl",
-            "border border-border rounded-xl",
+            "border-t border-border",
             "shadow-2xl",
             "font-sans",
             "flex flex-col overflow-hidden",
           )}
         >
+          {/* Resize handle */}
+          <div
+            onPointerDown={onResizePointerDown}
+            className="shrink-0 h-1.5 cursor-ns-resize flex items-center justify-center hover:bg-muted/50 transition-colors group"
+          >
+            <div className="w-8 h-0.5 rounded-full bg-border group-hover:bg-muted-foreground transition-colors" />
+          </div>
           {/* Top bar */}
           <div className="flex items-center h-9 px-2 border-b border-border shrink-0 gap-1">
             <button
@@ -753,7 +1075,7 @@ export function DevToolbar() {
 
             <div className="w-px h-4 bg-border" />
 
-            {(["database", "logs", "network"] as Tab[]).map((t) => (
+            {(["database", "logs", "network", "crdt"] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -766,7 +1088,7 @@ export function DevToolbar() {
               >
                 {tab === t && (
                   <motion.span
-                    layoutId="devtool-tab"
+                    layoutId={isResizing ? undefined : "devtool-tab"}
                     className="absolute inset-0 bg-foreground rounded-md"
                     transition={{ type: "spring", damping: 30, stiffness: 500 }}
                   />
@@ -1562,6 +1884,18 @@ export function DevToolbar() {
                   {filteredLogs.length}
                 </span>
                 <button
+                  onClick={copyLogs}
+                  className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  {logsCopied ? "Copied!" : "Copy"}
+                </button>
+                <button
+                  onClick={exportLogs}
+                  className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  Export
+                </button>
+                <button
                   onClick={clearConsoleLogs}
                   className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
@@ -1703,6 +2037,18 @@ export function DevToolbar() {
                   {filteredNet.length}
                 </span>
                 <button
+                  onClick={copyNetLogs}
+                  className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  {netCopied ? "Copied!" : "Copy"}
+                </button>
+                <button
+                  onClick={exportNetLogs}
+                  className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  Export
+                </button>
+                <button
                   onClick={clearNetLogs}
                   className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
@@ -1760,6 +2106,187 @@ export function DevToolbar() {
               </ScrollArea>
             </motion.div>
           )}
+
+          {/* ── CRDT tab ── */}
+          {tab === "crdt" && (
+            <motion.div
+              key="crdt"
+              {...tabMotion}
+              className="flex flex-col flex-1 min-h-0"
+            >
+              <div className="flex items-center h-8 px-2 border-b border-border shrink-0 gap-1.5">
+                {/* Page filter */}
+                <select
+                  value={crdtPageId}
+                  onChange={(e) => setCrdtPageId(e.target.value)}
+                  className="h-5 px-1.5 text-[10px] rounded bg-transparent border border-border text-foreground focus:outline-none max-w-[140px]"
+                >
+                  <option value="all">all pages</option>
+                  {crdtPages.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.title.startsWith("space:") ? `[space] ${p.title.slice(6, 14)}...` : p.title || p.id.slice(0, 12)}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="w-px h-3.5 bg-border shrink-0" />
+
+                {/* Op type filter */}
+                <select
+                  value={crdtOpType}
+                  onChange={(e) => setCrdtOpType(e.target.value)}
+                  className="h-5 px-1.5 text-[10px] rounded bg-transparent border border-border text-foreground focus:outline-none"
+                >
+                  <option value="all">all ops</option>
+                  {CRDT_OP_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="w-px h-3.5 bg-border shrink-0" />
+
+                {/* Text filter */}
+                <div className="relative flex items-center flex-1 max-w-[180px]">
+                  <svg
+                    className="absolute start-2 w-3 h-3 text-muted-foreground pointer-events-none"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                  <input
+                    type="text"
+                    value={crdtFilter}
+                    onChange={(e) => setCrdtFilter(e.target.value)}
+                    placeholder="Filter..."
+                    className="h-5 w-full ps-7 pe-5 text-[11px] rounded bg-transparent text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+                  />
+                  {crdtFilter && (
+                    <button
+                      onClick={() => setCrdtFilter("")}
+                      className="absolute end-1 text-muted-foreground hover:text-foreground"
+                    >
+                      <svg
+                        className="w-3 h-3"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex-1" />
+
+                <span className="text-[10px] text-muted-foreground tabular-nums">
+                  {getFilteredCrdtOps().length}
+                </span>
+                <button
+                  onClick={copyCrdtOps}
+                  className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  {crdtCopied ? "Copied!" : "Copy"}
+                </button>
+                <button
+                  onClick={exportCrdtOps}
+                  className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  Export
+                </button>
+                <button
+                  onClick={loadCrdtOps}
+                  className={cn(
+                    "h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors",
+                    crdtLoading && "animate-pulse",
+                  )}
+                >
+                  Reload
+                </button>
+              </div>
+
+              <ScrollArea className="flex-1 min-h-0">
+                <div className="font-mono text-[11px]">
+                  {getFilteredCrdtOps().map((op) => {
+                      const isExpanded = crdtExpanded === op.id;
+                      return (
+                        <div key={op.id}>
+                          <button
+                            onClick={() =>
+                              setCrdtExpanded(isExpanded ? null : op.id)
+                            }
+                            className="flex items-baseline gap-2 px-2.5 py-0.5 border-b border-border/20 hover:bg-muted/20 transition-colors w-full text-start"
+                          >
+                            <span className="text-[10px] text-muted-foreground/50 tabular-nums shrink-0">
+                              {op.clock}
+                            </span>
+                            <span
+                              className={cn(
+                                "text-[10px] shrink-0 font-semibold w-24 text-start",
+                                OP_TYPE_COLORS[op.type] ?? "text-foreground",
+                              )}
+                            >
+                              {op.type}
+                            </span>
+                            <span
+                              className="text-[10px] text-muted-foreground shrink-0 w-16 truncate"
+                              title={op.peerId}
+                            >
+                              {op.peerId.slice(0, 8)}
+                            </span>
+                            <span className="text-muted-foreground truncate min-w-0">
+                              {crdtOpSummary(op)}
+                            </span>
+                            <svg
+                              className={cn(
+                                "w-3 h-3 text-muted-foreground/30 shrink-0 ms-auto transition-transform",
+                                isExpanded && "rotate-180",
+                              )}
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={2}
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M19 9l-7 7-7-7"
+                              />
+                            </svg>
+                          </button>
+                          {isExpanded && (
+                            <div className="px-4 py-2 bg-muted/30 border-b border-border/20">
+                              <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-all">
+                                {JSON.stringify(op.data, null, 2)}
+                              </pre>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  {crdtOps.length === 0 && (
+                    <div className="px-3 py-8 text-center text-muted-foreground/50 text-xs">
+                      {crdtLoading ? "Loading..." : "No operations found"}
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            </motion.div>
+          )}
         </motion.div>
       ) : (
         <motion.div
@@ -1769,7 +2296,7 @@ export function DevToolbar() {
           exit={{ y: 12, opacity: 0, scale: 0.95 }}
           transition={{ type: "spring", damping: 30, stiffness: 500 }}
           className={cn(
-            "fixed bottom-3 end-3 z-[9999]",
+            "fixed bottom-3 end-3 z-40",
             "bg-popover/95 backdrop-blur-xl",
             "border border-border rounded-full",
             "shadow-lg font-sans",

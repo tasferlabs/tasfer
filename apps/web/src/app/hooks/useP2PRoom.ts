@@ -31,7 +31,6 @@ export interface RoomConfig {
   onPeerJoined?: (peerId: string) => void;
   onSyncRequest?: (
     versionVector: Record<string, number>,
-    snapshotClock: { counter: number; peerId: string } | null | undefined,
     requesterId?: string,
   ) => void;
   onSyncResponse?: (
@@ -40,7 +39,6 @@ export interface RoomConfig {
   ) => void;
   onAwarenessUpdate?: (peerId: string, state: AwarenessState | null) => void;
   onAwarenessStates?: (states: Record<string, AwarenessState>) => void;
-  snapshotClock?: { counter: number; peerId: string } | null;
 }
 
 export interface UseP2PRoomReturn {
@@ -48,7 +46,6 @@ export interface UseP2PRoomReturn {
   broadcastAwareness: (state: AwarenessState) => void;
   sendSyncRequest: (
     versionVector: Record<string, number>,
-    snapshotClock?: { counter: number; peerId: string } | null,
   ) => void;
   sendSyncResponse: (
     operations: Operation[],
@@ -102,15 +99,15 @@ export function useP2PRoom(
 
       const myPeerId = identity.publicKey.slice(0, 32);
       setPeerId(myPeerId);
-      setLocalUser({ peerId: myPeerId, name: identity.name, color: getColorForPeer(identity.name || myPeerId) });
+      setLocalUser({ peerId: myPeerId, name: identity.name, avatar: identity.avatar, color: getColorForPeer(identity.name || myPeerId) });
 
       setSyncState({ status: "connecting" });
 
       const callbacks: Partial<SyncEvents> = {
         onOperations: (ops) => configRef.current.onOperations?.(ops),
 
-        onSyncRequest: (vv, clock, reqId) =>
-          configRef.current.onSyncRequest?.(vv, clock, reqId),
+        onSyncRequest: (vv, _clock, reqId) =>
+          configRef.current.onSyncRequest?.(vv, reqId),
 
         onSyncResponse: (ops, vv) =>
           configRef.current.onSyncResponse?.(ops, vv),
@@ -122,6 +119,7 @@ export function useP2PRoom(
               user: {
                 peerId: joinedPeerId,
                 name: user.name,
+                avatar: user.avatar,
                 color: user.color || getColorForPeer(user.name || joinedPeerId),
               },
               cursor: null,
@@ -163,7 +161,7 @@ export function useP2PRoom(
       await platform.sync.joinRoom(
         roomId,
         myPeerId,
-        { name: identity.name },
+        { name: identity.name, avatar: identity.avatar },
         callbacks,
         spaceId,
       );
@@ -239,11 +237,10 @@ export function useP2PRoom(
   const sendSyncRequest = useCallback(
     (
       versionVector: Record<string, number>,
-      snapshotClock?: { counter: number; peerId: string } | null,
     ) => {
       if (!roomId) return;
       try {
-        getPlatform().sync.sendSyncRequest(roomId, versionVector, snapshotClock);
+        getPlatform().sync.sendSyncRequest(roomId, versionVector);
       } catch { /* not initialized */ }
     },
     [roomId],

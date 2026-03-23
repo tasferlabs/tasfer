@@ -257,8 +257,14 @@ export const createInitialState = (
 ): EditorState => {
   const peerId = generatePeerId();
 
-  // Initialize global CRDT context
-  setCRDTContext(page.id, peerId);
+  // Only initialize the global CRDT context for editable editors.
+  // Readonly editors (e.g. snapshot previews) never generate operations,
+  // and calling setCRDTContext here would overwrite the main editor's
+  // context — causing restore operations to get wrong pageId, peerId,
+  // and HLC clocks near zero, which breaks op ordering and convergence.
+  if (options?.mode !== "readonly") {
+    setCRDTContext(page.id, peerId);
+  }
 
   return {
     document: {

@@ -33,7 +33,7 @@ function memberToLegacy(m: SpaceMember): ISpaceMember {
     createdAt: m.addedAt,
     userName: m.name,
     userEmail: "",
-    userAvatar: null,
+    userAvatar: m.avatar,
   };
 }
 

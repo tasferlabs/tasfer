@@ -10,30 +10,13 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { FileTextIcon, PlusIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import { Ellipsis, PanelLeftClose } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import React, { useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
-import { z } from "zod";
 import { Button } from "../../components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../../components/ui/dialog";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "../../components/ui/drawer";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,14 +24,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu";
-import {
-  Form,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "../../components/ui/form";
-import { Input } from "../../components/ui/input";
 import { ScrollArea } from "../../components/ui/scroll-area";
 import {
   useCreatePage,
@@ -58,11 +33,11 @@ import {
 } from "../api/pages.api";
 // import { useGetSharedByMe, useGetSharedWithMe } from "../api/shares.api";
 import { useAssetUrl } from "../api/images.api";
-import { useCreateSpace, useLeaveSpace } from "../api/spaces.api";
+import { useLeaveSpace } from "../api/spaces.api";
+import { AvatarPreviewDialog } from "../components/AvatarPreviewDialog";
 import { useConfirmation } from "../components/ConfirmationDialog";
 import { EditGroupDialog } from "../components/EditGroupDialog";
 import { InviteMembersDialog } from "../components/InviteMembersDialog";
-import { JoinSpaceDialog } from "../components/JoinSpaceDialog";
 import Icons from "../components/uiKit/Icons/Icons";
 import { useAuth } from "../contexts/AuthContext";
 import { useSpaces } from "../contexts/SpaceContext";
@@ -76,8 +51,10 @@ import style from "./Layout.module.css";
 
 export function SidebarContent({
   setOpen,
+  onAddSpace,
 }: {
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  onAddSpace: () => void;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -88,11 +65,10 @@ export function SidebarContent({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeDragData, setActiveDragData] = useState<IListPage | null>(null);
 
-  // Dialog states — matching l4r PagesLayout pattern
-  const [showAddGroupDialog, setShowAddGroupDialog] = useState(false);
-  const [showJoinSpaceDialog, setShowJoinSpaceDialog] = useState(false);
+  // Dialog states
   const [groupSettingsId, setGroupSettingsId] = useState<string | null>(null);
   const [inviteMembersId, setInviteMembersId] = useState<string | null>(null);
+  const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false);
   // const [sharedCollapsed, setSharedCollapsed] = useState(false);
 
   // const { id: currentPageId } = useParams<{ id: string }>();
@@ -176,12 +152,6 @@ export function SidebarContent({
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["pages"] });
-    },
-  });
-
-  const { mutate: createGroupSpace } = useCreateSpace({
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["spaces"] });
     },
   });
 
@@ -419,7 +389,11 @@ export function SidebarContent({
       {!hasPanel && (
         <>
           <div className={clsx(style.appSidebarHeader, "gap-3")}>
-            <div className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full">
+            <button
+              className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full rounded-md hover:bg-accent/50 transition-colors"
+              onClick={() => avatarUrl && setAvatarPreviewOpen(true)}
+              style={{ cursor: avatarUrl ? "pointer" : "default" }}
+            >
               <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
                 {avatarUrl ? (
                   <img
@@ -434,7 +408,7 @@ export function SidebarContent({
               <span className="text-sm font-medium text-foreground truncate">
                 {user?.name}
               </span>
-            </div>
+            </button>
 
             <Button
               variant="ghost"
@@ -467,26 +441,13 @@ export function SidebarContent({
               className={style.appNavigationLink}
               onClick={() => {
                 if (isMobile) setOpen(false);
-                setShowAddGroupDialog(true);
+                onAddSpace();
               }}
             >
               <div className={style.appNavigationLinkIcon}>
                 <Icons.AddGroup />
               </div>
               {t("space.addSpace", "Add space")}
-            </button>
-
-            <button
-              className={style.appNavigationLink}
-              onClick={() => {
-                if (isMobile) setOpen(false);
-                setShowJoinSpaceDialog(true);
-              }}
-            >
-              <div className={style.appNavigationLinkIcon}>
-                <Icons.Shared />
-              </div>
-              {t("space.joinSpace", "Join space")}
             </button>
           </div>
 
@@ -567,12 +528,6 @@ export function SidebarContent({
         </>
       )}
 
-      {/* Dialogs — rendered outside sidebar, matching l4r PagesLayout pattern */}
-      <AddGroupDialog
-        open={showAddGroupDialog}
-        onOpenChange={setShowAddGroupDialog}
-        onSubmit={(data) => createGroupSpace({ name: data.name })}
-      />
       <EditGroupDialog
         spaceId={groupSettingsId || ""}
         open={!!groupSettingsId}
@@ -588,115 +543,13 @@ export function SidebarContent({
           setInviteMembersId(open ? inviteMembersId : null)
         }
       />
-      <JoinSpaceDialog
-        open={showJoinSpaceDialog}
-        onOpenChange={setShowJoinSpaceDialog}
+      <AvatarPreviewDialog
+        open={avatarPreviewOpen}
+        onOpenChange={setAvatarPreviewOpen}
+        imageUrl={avatarUrl}
+        name={user?.name}
       />
     </>
   );
 }
 
-function AddGroupDialog({
-  open,
-  onOpenChange,
-  onSubmit,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSubmit: (data: { name: string }) => void;
-}) {
-  const { t } = useTranslation();
-  const isMobile = useResponsive("(max-width: 768px)");
-
-  const FormSchema = useMemo(
-    () =>
-      z.object({
-        name: z
-          .string()
-          .min(1, t("validation.spaceNameRequired", "Space name is required"))
-          .min(3, t("validation.spaceNameTooShort", "Space name is too short"))
-          .max(50, t("validation.spaceNameTooLong", "Space name is too long")),
-      }),
-    [t],
-  );
-
-  const form = useForm<z.infer<typeof FormSchema>>({
-    resolver: zodResolver(FormSchema),
-    defaultValues: {
-      name: "",
-    },
-  });
-
-  useEffect(() => {
-    if (open) {
-      form.reset();
-    }
-  }, [open, form]);
-
-  function handleSubmit(data: z.infer<typeof FormSchema>) {
-    onSubmit(data);
-    onOpenChange(false);
-  }
-
-  const content = (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          {t("space.createNewSpaceDesc", "Create a new space to organize your pages")}
-        </p>
-
-        <FormField
-          control={form.control}
-          name="name"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t("common.name", "Name")}</FormLabel>
-              <Input {...field} placeholder={t("space.spaceName", "Space name")} />
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        {isMobile ? null : (
-          <DialogFooter>
-            <Button type="submit">{t("common.create", "Create")}</Button>
-          </DialogFooter>
-        )}
-      </form>
-    </Form>
-  );
-
-  if (isMobile) {
-    return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent>
-          <div className="mx-auto w-full max-w-sm pb-6">
-            <DrawerHeader>
-              <DrawerTitle>{t("space.createNewSpace", "Create new space")}</DrawerTitle>
-            </DrawerHeader>
-            <div className="px-4">{content}</div>
-            <DrawerFooter className="pt-4">
-              <Button onClick={form.handleSubmit(handleSubmit)}>
-                {t("common.create", "Create")}
-              </Button>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                {t("common.cancel", "Cancel")}
-              </Button>
-            </DrawerFooter>
-          </div>
-        </DrawerContent>
-      </Drawer>
-    );
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{t("space.createNewSpace", "Create new space")}</DialogTitle>
-        </DialogHeader>
-        {content}
-      </DialogContent>
-    </Dialog>
-  );
-}

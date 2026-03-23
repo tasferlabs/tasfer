@@ -33,7 +33,7 @@
  *     { type: "awareness",  pageId, peerId, state }
  *
  *   Per-page sync (fallback for late-opening editors):
- *     { type: "sync-req",   pageId, versionVector, snapshotClock?, requesterId }
+ *     { type: "sync-req",   pageId, versionVector, requesterId }
  *     { type: "sync-res",   pageId, ops[], versionVector }
  *
  *   Asset (lazy pull):
@@ -92,6 +92,10 @@ export interface ReplicatorHost {
   applyRemoteSpaceOps(spaceId: string, ops: SpaceOperation[]): Promise<void>;
   /** Store remote page ops */
   applyRemotePageOps(pageId: string, ops: Operation[]): Promise<void>;
+  /** Read a local asset's raw data + extension. Returns null if not found. */
+  getAssetData(hash: string): Promise<{ ext: string; data: Uint8Array } | null>;
+  /** Store an asset received from a peer */
+  storeAssetData(hash: string, ext: string, data: Uint8Array): Promise<void>;
 }
 
 // =============================================================================
@@ -107,7 +111,7 @@ interface RoomJoinMsg { type: "room-join"; pageId: string; peerId: string; user?
 interface RoomLeaveMsg { type: "room-leave"; pageId: string; peerId: string }
 interface RoomPeersMsg { type: "room-peers"; pageId: string; peers: { peerId: string; user?: RoomUser }[]; awarenessStates?: Record<string, AwarenessState> }
 interface AwarenessMsg { type: "awareness"; pageId: string; peerId: string; state: AwarenessState }
-interface SyncReqMsg { type: "sync-req"; pageId: string; versionVector: Record<string, number>; snapshotClock?: { counter: number; peerId: string } | null; requesterId: string }
+interface SyncReqMsg { type: "sync-req"; pageId: string; versionVector: Record<string, number>; requesterId: string }
 interface SyncResMsg { type: "sync-res"; pageId: string; ops: Operation[]; versionVector: Record<string, number> }
 interface AssetReqMsg { type: "asset-req"; hash: string }
 interface AssetDataMsg { type: "asset-data"; hash: string; ext: string; data: string }
@@ -153,6 +157,10 @@ interface PairingSession {
   privateKey: string;
   callbacks: PairCallbacks;
   completed: boolean;
+  /** Multi-peer mode: don't destroy topic after first peer */
+  multi: boolean;
+  /** Track peers that already completed pairing (by public key) */
+  completedPeers: Set<string>;
 }
 
 // =============================================================================
@@ -192,6 +200,9 @@ export class Replicator {
 
   /** Active pairing session */
   private pairingSession: PairingSession | null = null;
+
+  /** Pending asset requests: hash → resolve callbacks waiting for the data */
+  private pendingAssetRequests = new Map<string, Array<(found: boolean) => void>>();
 
   /** Connection state */
   private connectionState: ConnectionState = "disconnected";
@@ -329,7 +340,6 @@ export class Replicator {
   sendSyncRequest(
     roomId: string,
     versionVector: Record<string, number>,
-    snapshotClock?: { counter: number; peerId: string } | null,
   ): void {
     const room = this.rooms.get(roomId);
     if (!room || !room.spaceId) return;
@@ -338,7 +348,6 @@ export class Replicator {
       type: "sync-req",
       pageId: roomId,
       versionVector,
-      snapshotClock,
       requesterId: room.localPeerId,
     });
   }
@@ -393,6 +402,43 @@ export class Replicator {
   }
 
   // ---------------------------------------------------------------------------
+  // Asset sync (lazy pull from peers)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Request an asset by hash from all connected peers.
+   * Returns true if any peer responded with the data, false if none had it.
+   */
+  requestAsset(hash: string): Promise<boolean> {
+    if (this.peers.size === 0) return Promise.resolve(false);
+
+    // If there's already a pending request for this hash, piggyback on it
+    const existing = this.pendingAssetRequests.get(hash);
+    if (existing) {
+      return new Promise<boolean>((resolve) => { existing.push(resolve); });
+    }
+
+    return new Promise<boolean>((resolve) => {
+      const callbacks = [resolve];
+      this.pendingAssetRequests.set(hash, callbacks);
+
+      // Broadcast request to all peers
+      const msg: AssetReqMsg = { type: "asset-req", hash };
+      for (const conn of this.peers.values()) {
+        this.sendDirect(conn, msg);
+      }
+
+      // Timeout after 10s — peer might be offline or not have it
+      setTimeout(() => {
+        if (this.pendingAssetRequests.has(hash)) {
+          this.pendingAssetRequests.delete(hash);
+          for (const cb of callbacks) cb(false);
+        }
+      }, 10_000);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // Push methods (called by Engine when local ops are generated)
   // ---------------------------------------------------------------------------
 
@@ -440,6 +486,8 @@ export class Replicator {
       privateKey: opts.privateKey,
       callbacks: opts.callbacks,
       completed: false,
+      multi: opts.callbacks.multi ?? false,
+      completedPeers: new Set(),
     };
 
     const session = this.pairingSession;
@@ -611,10 +659,10 @@ export class Replicator {
 
       // Asset
       case "asset-req":
-        // TODO: handle asset requests
+        await this.handleAssetReq(fromPubKey, msg);
         break;
       case "asset-data":
-        // TODO: handle asset data
+        await this.handleAssetData(msg);
         break;
     }
   }
@@ -814,7 +862,7 @@ export class Replicator {
   private handleSyncReq(msg: SyncReqMsg) {
     const room = this.rooms.get(msg.pageId);
     if (!room) return;
-    room.callbacks.onSyncRequest?.(msg.versionVector, msg.snapshotClock, msg.requesterId);
+    room.callbacks.onSyncRequest?.(msg.versionVector, undefined, msg.requesterId);
   }
 
   private async handleSyncRes(msg: SyncResMsg) {
@@ -827,6 +875,38 @@ export class Replicator {
     }
 
     room.callbacks.onSyncResponse?.(msg.ops, msg.versionVector);
+  }
+
+  // --- Asset sync ---
+
+  private async handleAssetReq(fromPubKey: string, msg: AssetReqMsg) {
+    const conn = this.peers.get(fromPubKey);
+    if (!conn) return;
+
+    const asset = await this.host.getAssetData(msg.hash);
+    if (!asset) return; // We don't have it either
+
+    // Encode as base64 for JSON transport
+    const base64 = uint8ToBase64(asset.data);
+    this.sendDirect(conn, {
+      type: "asset-data",
+      hash: msg.hash,
+      ext: asset.ext,
+      data: base64,
+    });
+  }
+
+  private async handleAssetData(msg: AssetDataMsg) {
+    // Decode base64 → Uint8Array and store locally
+    const bytes = base64ToUint8(msg.data);
+    await this.host.storeAssetData(msg.hash, msg.ext, bytes);
+
+    // Resolve any pending requests for this hash
+    const callbacks = this.pendingAssetRequests.get(msg.hash);
+    if (callbacks) {
+      this.pendingAssetRequests.delete(msg.hash);
+      for (const cb of callbacks) cb(true);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -856,6 +936,9 @@ export class Replicator {
     const session = this.pairingSession;
     if (!session || session.completed) return;
 
+    // Skip if we already paired with this peer (multi-peer mode)
+    if (session.completedPeers.has(msg.publicKey)) return;
+
     const cryptoDriver = this.host.getCrypto();
     const secretBytes = enc.encode(session.invite.secret);
     const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", secretBytes));
@@ -882,7 +965,7 @@ export class Replicator {
       peer.send(ackData);
     }
 
-    session.completed = true;
+    session.completedPeers.add(msg.publicKey);
 
     // Fire completion callback (engine will trust peer, add members, etc.)
     session.callbacks.onComplete?.({
@@ -892,12 +975,15 @@ export class Replicator {
       lastSeen: new Date().toISOString(),
     });
 
-    // Clean up pairing topic
-    await session.topic.destroy();
-    this.pairingSession = null;
-
     // Establish replication connection to the new peer
     await this.addPeer(msg.publicKey);
+
+    // In single-peer mode, clean up immediately
+    if (!session.multi) {
+      session.completed = true;
+      await session.topic.destroy();
+      this.pairingSession = null;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -990,6 +1076,25 @@ async function computePeerTopic(pubKeyA: string, pubKeyB: string): Promise<strin
   return Array.from(new Uint8Array(hash))
     .map(b => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+/** Uint8Array → base64 string (for JSON-safe transport over DataChannel) */
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/** base64 string → Uint8Array */
+function base64ToUint8(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
 
 function hexToBytes(hex: string): Uint8Array {

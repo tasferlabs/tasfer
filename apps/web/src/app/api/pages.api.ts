@@ -4,7 +4,6 @@ import {
   useQuery,
   type UseQueryOptions,
 } from "@tanstack/react-query";
-import type { Block } from "@/deserializer/loadPage";
 import { getPlatform } from "@/platform";
 import type {
   PageListItem,
@@ -13,7 +12,6 @@ import type {
   PageCalendarItem,
   PageSnapshot,
 } from "@/platform";
-import type { HLC } from "@/editor/sync/types";
 
 // =============================================================================
 // Type aliases — keep old names so consumers don't need updating
@@ -21,7 +19,6 @@ import type { HLC } from "@/editor/sync/types";
 
 export type IListPage = PageListItem;
 export type IPage = PageFull;
-export type { HLC };
 export type ISearchPage = PageSearchResult;
 export type ICalendarPage = PageCalendarItem;
 export type ISnapshot = PageSnapshot;
@@ -95,8 +92,6 @@ interface IUpdatePage {
   title?: string;
   autoTitle?: boolean;
   color?: string | null;
-  snapshot?: Block[];
-  snapshotClock?: HLC | null;
   scheduledAt?: string | null;
   duration?: number | null;
   allDay?: boolean | null;

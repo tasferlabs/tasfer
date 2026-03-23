@@ -28,6 +28,7 @@ import {
   isCharIdInRange,
   charRunsToChars,
 } from "./char-runs";
+import { findBlockInsertIndex } from "./conflicts";
 
 export interface InsertCharsResult {
   newCharRuns: CharRun[];
@@ -615,14 +616,12 @@ function applyRemoteBlockInsert(page: Page, op: BlockInsert): Page {
       newBlock = { ...baseBlock, type: "paragraph" };
   }
 
-  // Find insertion position based on afterBlockId
-  let insertIndex = 0;
-  if (op.afterBlockId) {
-    const afterIndex = page.blocks.findIndex((b) => b.id === op.afterBlockId);
-    if (afterIndex !== -1) {
-      insertIndex = afterIndex + 1;
-    }
-  }
+  // Find insertion position using proper conflict resolution
+  const insertIndex = findBlockInsertIndex(
+    page.blocks,
+    op.afterBlockId,
+    op.blockId
+  );
 
   const newBlocks = [...page.blocks];
   newBlocks.splice(insertIndex, 0, newBlock);

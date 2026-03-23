@@ -98,6 +98,18 @@ export function getPeerId(): string {
   return globalHLC.peerId;
 }
 
+/**
+ * Advance the global HLC to be at least as recent as a remote clock.
+ * Call this after loading persisted operations so that new operations
+ * get HLC values higher than all historical ops. Without this,
+ * mergeOps (full rebuild) would sort session ops before historical ops,
+ * breaking causality.
+ */
+export function advanceGlobalClock(remoteClock: HLC): void {
+  if (globalHLC === null) return;
+  globalHLC = receiveHLC(globalHLC, remoteClock);
+}
+
 // Re-export types for consumers
 export type {
   BlockDelete,

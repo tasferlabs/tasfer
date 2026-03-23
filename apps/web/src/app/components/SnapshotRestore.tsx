@@ -33,12 +33,15 @@ import { useGetPageSnapshots } from "../api/pages.api";
 import type { Block } from "@/deserializer/loadPage";
 import { SnapshotPreview } from "./SnapshotPreview";
 
-// Snapshot data type
+// Version data type (derived from ops, not stored snapshots)
 interface Snapshot {
   id: string;
-  createdAt: Date;
+  versionNumber: number;
+  opCount: number;
   blockCount: number;
-  blocks: Block[]; // Actual block data for restoration
+  blocks: Block[];
+  /** Wall-clock timestamp (ms). 0 if unknown (legacy ops). */
+  createdAt: number;
 }
 
 // Group snapshots by time intervals
@@ -47,21 +50,10 @@ interface SnapshotGroup {
   snapshots: Snapshot[];
 }
 
-const SNAPSHOT_GROUP_KEYS = [
-  "Last 5 minutes",
-  "Last 15 minutes",
-  "Last hour",
-  "Earlier today",
-  "Yesterday",
-  "This week",
-  "Older",
-] as const;
-
-function groupSnapshots(snapshots: Snapshot[]): SnapshotGroup[] {
+function groupSnapshots(snapshots: Snapshot[], t: (key: string, fallback: string) => string): SnapshotGroup[] {
   const now = new Date();
   const groups: Map<string, Snapshot[]> = new Map();
 
-  // Define time boundaries
   const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
   const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
   const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
@@ -71,37 +63,62 @@ function groupSnapshots(snapshots: Snapshot[]): SnapshotGroup[] {
   yesterdayStart.setDate(yesterdayStart.getDate() - 1);
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-  snapshots.forEach((snapshot) => {
-    let groupKey: string;
-    const date = snapshot.createdAt;
+  const labelKeys = [
+    "snapshot.last5Minutes",
+    "snapshot.last15Minutes",
+    "snapshot.lastHour",
+    "snapshot.earlierToday",
+    "snapshot.yesterday",
+    "snapshot.thisWeek",
+    "snapshot.older",
+  ];
+  const labelFallbacks = [
+    "Last 5 minutes",
+    "Last 15 minutes",
+    "Last hour",
+    "Earlier today",
+    "Yesterday",
+    "This week",
+    "Older",
+  ];
 
-    if (date >= fiveMinutesAgo) {
-      groupKey = "Last 5 minutes";
+  snapshots.forEach((snapshot) => {
+    const date = new Date(snapshot.createdAt);
+    let labelIndex: number;
+
+    if (snapshot.createdAt <= 0) {
+      labelIndex = 6; // Older
+    } else if (date >= fiveMinutesAgo) {
+      labelIndex = 0;
     } else if (date >= fifteenMinutesAgo) {
-      groupKey = "Last 15 minutes";
+      labelIndex = 1;
     } else if (date >= oneHourAgo) {
-      groupKey = "Last hour";
+      labelIndex = 2;
     } else if (date >= todayStart) {
-      groupKey = "Earlier today";
+      labelIndex = 3;
     } else if (date >= yesterdayStart) {
-      groupKey = "Yesterday";
+      labelIndex = 4;
     } else if (date >= weekAgo) {
-      groupKey = "This week";
+      labelIndex = 5;
     } else {
-      groupKey = "Older";
+      labelIndex = 6;
     }
 
-    const existing = groups.get(groupKey) || [];
+    const key = labelKeys[labelIndex];
+    const existing = groups.get(key) || [];
     existing.push(snapshot);
-    groups.set(groupKey, existing);
+    groups.set(key, existing);
   });
 
-  return SNAPSHOT_GROUP_KEYS
-    .filter((label) => groups.has(label))
-    .map((label) => ({
-      label,
-      snapshots: groups.get(label)!,
-    }));
+  return labelKeys
+    .filter((key) => groups.has(key))
+    .map((key, _, _arr) => {
+      const idx = labelKeys.indexOf(key);
+      return {
+        label: t(key, labelFallbacks[idx]),
+        snapshots: groups.get(key)!,
+      };
+    });
 }
 
 interface SnapshotItemProps {
@@ -117,10 +134,16 @@ function SnapshotItem({ snapshot, onPreview }: SnapshotItemProps) {
       <div className="flex items-center gap-3 min-w-0 flex-1">
         <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
         <div className="min-w-0 flex-1">
-          <RelativeDate
-            date={snapshot.createdAt}
-            className="text-sm font-medium truncate block"
-          />
+          {snapshot.createdAt > 0 ? (
+            <RelativeDate
+              date={new Date(snapshot.createdAt)}
+              className="text-sm font-medium truncate block"
+            />
+          ) : (
+            <p className="text-sm font-medium truncate">
+              {t("common.version", "Version")} {snapshot.versionNumber}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">
             {snapshot.blockCount}{" "}
             {snapshot.blockCount === 1 ? t("blocks.blockKw", "block") : t("blocks.blocksKw", "blocks")}
@@ -140,35 +163,30 @@ function SnapshotItem({ snapshot, onPreview }: SnapshotItemProps) {
   );
 }
 
-interface SnapshotRestoreContentProps {
+interface VersionListContentProps {
   snapshots: Snapshot[];
   isLoading?: boolean;
   onPreview: (snapshot: Snapshot) => void;
 }
 
-function SnapshotRestoreContent({
+function VersionListContent({
   snapshots,
   isLoading,
   onPreview,
-}: SnapshotRestoreContentProps) {
+}: VersionListContentProps) {
   const { t } = useTranslation();
   const groupedSnapshots = useMemo(
-    () => groupSnapshots(snapshots),
-    [snapshots]
+    () => groupSnapshots(snapshots, t),
+    [snapshots, t]
   );
 
-  // Get first group key for default expanded state
   const defaultExpanded = groupedSnapshots[0]?.label;
-
-  const handlePreview = (snapshot: Snapshot) => {
-    onPreview(snapshot);
-  };
 
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground mb-4" />
-        <p className="text-muted-foreground">{t("snapshot.loading", "Loading snapshots...")}</p>
+        <p className="text-muted-foreground">{t("snapshot.loading", "Loading versions...")}</p>
       </div>
     );
   }
@@ -177,16 +195,16 @@ function SnapshotRestoreContent({
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <History className="h-12 w-12 text-muted-foreground/50 mb-4" />
-        <p className="text-muted-foreground">{t("snapshot.noSnapshots", "No snapshots available")}</p>
+        <p className="text-muted-foreground">{t("snapshot.noSnapshots", "No version history available")}</p>
         <p className="text-xs text-muted-foreground/70 mt-1">
-          {t("snapshot.createdAutomatically", "Snapshots are created automatically as you edit")}
+          {t("snapshot.createdAutomatically", "Versions are derived from your edit history")}
         </p>
       </div>
     );
   }
 
   return (
-    <ScrollArea className="flex-1">
+    <ScrollArea className="flex-1 overflow-hidden">
       <div className="p-4 pt-0">
         <Accordion
           type="single"
@@ -198,7 +216,7 @@ function SnapshotRestoreContent({
             <AccordionItem key={group.label} value={group.label}>
               <AccordionTrigger className="text-sm">
                 <span className="flex items-center gap-2">
-                  {t(group.label)}
+                  {group.label}
                   <span className="text-xs text-muted-foreground font-normal">
                     ({group.snapshots.length})
                   </span>
@@ -210,7 +228,7 @@ function SnapshotRestoreContent({
                     <SnapshotItem
                       key={snapshot.id}
                       snapshot={snapshot}
-                      onPreview={handlePreview}
+                      onPreview={onPreview}
                     />
                   ))}
                 </div>
@@ -243,14 +261,12 @@ export function SnapshotRestore({
   const isMobile = useResponsive("(max-width: 768px)");
   const isRtl = i18n.dir() === "rtl";
 
-  // Use controlled state if provided, otherwise use internal state
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
   const setOpen = onOpenChange || setInternalOpen;
 
   const { onRestoreSnapshot, pageId } = usePageSettings();
   const { getConfirmation } = useConfirmation();
 
-  // Clear preview when closing
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
       setPreviewingSnapshot(null);
@@ -258,20 +274,22 @@ export function SnapshotRestore({
     setOpen(newOpen);
   };
 
-  // Fetch all snapshots from API (version history)
+  // Fetch version history derived from ops
   const { data: snapshotsData, isLoading } = useGetPageSnapshots(
     open ? pageId ?? undefined : undefined
   );
 
-  // Convert API snapshots to our Snapshot format
+  // Convert API data to our Snapshot format
   const snapshots = useMemo<Snapshot[]>(() => {
     if (!snapshotsData || snapshotsData.length === 0) return [];
 
-    return snapshotsData.map((s) => ({
+    return snapshotsData.map((s, index) => ({
       id: s.id,
-      createdAt: new Date(s.createdAt),
+      versionNumber: snapshotsData.length - index,
+      opCount: s.opCount,
       blockCount: s.blocks.filter((b) => !b.deleted).length,
       blocks: s.blocks,
+      createdAt: s.createdAt,
     }));
   }, [snapshotsData]);
 
@@ -279,20 +297,18 @@ export function SnapshotRestore({
     async (snapshot: Snapshot) => {
       const confirmed = await getConfirmation({
         title: t("snapshot.restoreVersion", "Restore this version?"),
-        description: t("snapshot.willReplace", "This will replace your current content with the selected snapshot. Any unsaved changes will be lost."),
+        description: t("snapshot.willReplace", "This will replace your current content with the selected version. This is done by appending new operations — nothing is lost."),
         cancelText: t("common.cancel", "Cancel"),
         confirmText: t("common.restore", "Restore"),
       });
 
       if (!confirmed) return;
 
-      // Call the restore function with the snapshot blocks
+      // Restore by appending CRDT operations (append-only, no data is lost)
       if (onRestoreSnapshot && snapshot.blocks.length > 0) {
         onRestoreSnapshot(snapshot.blocks);
         setPreviewingSnapshot(null);
         setOpen(false);
-      } else {
-        console.warn("No restore function available or snapshot has no blocks");
       }
 
       onPreview?.(snapshot);
@@ -318,18 +334,20 @@ export function SnapshotRestore({
     return (
       <>
         <Drawer open={open} onOpenChange={handleOpenChange}>
-          <DrawerContent className="max-h-[85vh]">
+          <DrawerContent className="max-h-[85vh] flex flex-col">
             <DrawerHeader>
               <DrawerTitle>{t("snapshot.versionHistory", "Version history")}</DrawerTitle>
               <DrawerDescription>
                 {t("snapshot.restorePrevious", "Restore a previous version of this page")}
               </DrawerDescription>
             </DrawerHeader>
-            <SnapshotRestoreContent
-              snapshots={snapshots}
-              isLoading={isLoading}
-              onPreview={handlePreview}
-            />
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <VersionListContent
+                snapshots={snapshots}
+                isLoading={isLoading}
+                onPreview={handlePreview}
+              />
+            </div>
             <DrawerFooter>
               <DrawerClose asChild>
                 <Button variant="outline">{t("common.cancel", "Cancel")}</Button>
@@ -370,8 +388,6 @@ export function SnapshotRestore({
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-1 basis-full gap-4 overflow-hidden mt-4">
-          {/* Snapshot list */}
-
           {/* Preview area */}
           <div className="flex-1 overflow-hidden h-full">
             {previewingSnapshot ? (
@@ -383,12 +399,13 @@ export function SnapshotRestore({
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
                 <Eye className="h-12 w-12 mb-4 opacity-50" />
-                <p>{t("snapshot.selectToPreview", "Select a snapshot to preview")}</p>
+                <p>{t("snapshot.selectToPreview", "Select a version to preview")}</p>
               </div>
             )}
           </div>
+          {/* Version list */}
           <div className="w-80 shrink-0 border-s pe-4 flex flex-col h-full overflow-hidden">
-            <SnapshotRestoreContent
+            <VersionListContent
               snapshots={snapshots}
               isLoading={isLoading}
               onPreview={handlePreview}

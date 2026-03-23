@@ -7,10 +7,10 @@ const config: CapacitorConfig = {
   server: {
     // For development, uncomment and set your dev server URL:
     // url: "http://192.168.68.55:4000",
-    // cleartext: true,
+    cleartext: true,
     hostname: "cypher.md",
     androidScheme: "https",
-    allowNavigation: ["cypher.md"],
+    allowNavigation: ["cypher.md", "192.168.68.58:8080"],
   },
   ios: {
     backgroundColor: "#0a0a0a",

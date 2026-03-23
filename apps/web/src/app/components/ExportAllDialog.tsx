@@ -159,7 +159,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
 
           // Fetch full page content
           const fullPage = await getPage(listPage.id);
-          const blocks = fullPage.snapshot || [];
+          const blocks = fullPage.blocks || [];
           const metadata = extractPageMetadata(fullPage);
           const markdown = serializeToMarkdown(blocks, metadata);
 

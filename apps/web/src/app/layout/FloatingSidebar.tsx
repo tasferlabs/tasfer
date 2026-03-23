@@ -8,9 +8,11 @@ import { SidebarContent } from "./SidebarContent";
 export function FloatingSidebar({
   open,
   setOpen,
+  onAddSpace,
 }: {
   open: boolean;
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  onAddSpace: () => void;
 }) {
   const { i18n } = useTranslation();
   const location = useLocation();
@@ -29,7 +31,7 @@ export function FloatingSidebar({
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm" />
         <Drawer.Content className={style.floatingSidebar}>
-          <SidebarContent setOpen={setOpen} />
+          <SidebarContent setOpen={setOpen} onAddSpace={onAddSpace} />
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>

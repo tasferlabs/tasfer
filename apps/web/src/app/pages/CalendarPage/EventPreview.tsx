@@ -44,7 +44,6 @@ import {
   useGetPage,
   useMovePage,
   useUpdatePage,
-  type HLC,
   type ISearchPage,
 } from "../../api/pages.api";
 import { useSidebarPanel } from "../../contexts/SidebarPanelContext";
@@ -133,8 +132,8 @@ export function EventPreview({
   onSidebarModeChange: (mode: boolean) => void;
   draft?: DraftEvent | null;
   onDraftSave?: (
-    snapshot?: Block[],
-    clock?: HLC | null,
+    blocks?: Block[],
+    clock?: unknown,
     parentId?: string | null,
     task?: boolean,
   ) => void;
@@ -532,12 +531,10 @@ export function EventPreview({
 
   // Save edits from preview editor
   const handleSave = useCallback(
-    async (data: { pageId: string; snapshot: Block[]; clock: HLC | null }) => {
-      const title = extractTitleFromBlocks(data.snapshot);
+    async (data: { pageId: string; blocks: Block[] }) => {
+      const title = extractTitleFromBlocks(data.blocks);
       await updatePageApi({
         id: data.pageId,
-        snapshot: data.snapshot,
-        snapshotClock: data.clock,
         title,
       });
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
@@ -550,18 +547,17 @@ export function EventPreview({
 
   // Store latest draft content so we can pass it when saving
   const draftContentRef = useRef<{
-    snapshot: Block[];
-    clock: HLC | null;
+    blocks: Block[];
   } | null>(null);
 
   const handleContentChange = useCallback(
-    (snapshot: Block[], clock: HLC | null) => {
+    (blocks: Block[]) => {
       if (isDraft) {
-        draftContentRef.current = { snapshot, clock };
+        draftContentRef.current = { blocks };
         return;
       }
       if (!pageId) return;
-      debouncedSave({ pageId, snapshot, clock });
+      debouncedSave({ pageId, blocks });
     },
     [pageId, isDraft, debouncedSave],
   );
@@ -718,8 +714,8 @@ export function EventPreview({
   const handleDraftSaveClick = useCallback(() => {
     const content = draftContentRef.current;
     onDraftSave?.(
-      content?.snapshot,
-      content?.clock,
+      content?.blocks,
+      null,
       draftParent?.id ?? null,
       draftIsTask,
     );
@@ -740,7 +736,6 @@ export function EventPreview({
     <MountedEditor
       snapshot={draftSnapshot}
       pageId="__draft__"
-      snapshotClock={null}
       onContentChange={handleContentChange}
       className="h-full"
       autoFocus
@@ -750,11 +745,10 @@ export function EventPreview({
     />
   ) : isLoading ? (
     <div className={style.previewLoading}>{t("common.loading", "Loading...")}</div>
-  ) : previewPage?.snapshot && pageId ? (
+  ) : previewPage?.blocks && pageId ? (
     <MountedEditor
-      snapshot={previewPage.snapshot}
+      snapshot={previewPage.blocks}
       pageId={pageId}
-      snapshotClock={previewPage.snapshotClock}
       onContentChange={handleContentChange}
       className="h-full"
       autoFocus

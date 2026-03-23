@@ -1,14 +1,14 @@
 import { Button } from "@/components/ui/button";
-import { RelativeDate } from "@/components/ui/relative-date";
 import type { Block } from "@/deserializer/loadPage";
-import { ChevronRight, FileText, RotateCcw } from "lucide-react";
+import { ChevronRight, FileText, Layers, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { MountedEditor } from "../MountedEditor";
 
 interface SnapshotPreviewProps {
   snapshot: {
     id: string;
-    createdAt: Date;
+    versionNumber: number;
+    opCount: number;
     blockCount: number;
     blocks: Block[];
   };
@@ -25,8 +25,6 @@ export function SnapshotPreview({
 
   return (
     <div className="flex flex-col h-full flex-1">
-      {/* Header */}
-
       {/* Editor Preview */}
       <div className="flex-1 overflow-hidden bg-background">
         <MountedEditor
@@ -37,7 +35,7 @@ export function SnapshotPreview({
         />
       </div>
 
-      <div className="flex items-center  gap-4 justify-between p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t">
+      <div className="flex items-center gap-4 justify-between p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t">
         <Button onClick={onRestore} size={"lg"}>
           <RotateCcw className="h-3.5 w-3.5 me-1.5" />
           {t("common.restore", "Restore")}
@@ -46,12 +44,16 @@ export function SnapshotPreview({
         <div className="flex items-center justify-between gap-2 flex-1">
           <div className="flex items-center gap-4">
             <div>
-              <h3 className="text-sm font-medium">{t("common.preview", "Preview")}</h3>
+              <h3 className="text-sm font-medium">
+                {t("common.version", "Version")} {snapshot.versionNumber}
+              </h3>
               <div className="flex gap-2">
-                <RelativeDate
-                  date={snapshot.createdAt}
-                  className="text-xs text-muted-foreground"
-                />
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Layers className="h-3 w-3" />
+                  <span>
+                    {snapshot.opCount} {snapshot.opCount === 1 ? t("snapshot.operation", "operation") : t("snapshot.operations", "operations")}
+                  </span>
+                </div>
 
                 <div className="flex items-center gap-1 text-xs text-muted-foreground me-2">
                   <FileText className="h-3 w-3" />

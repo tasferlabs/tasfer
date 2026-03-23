@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
 import tokenizePage from "@/deserializer/tokenizer";
+import { getPlatform } from "@/platform";
 import parsePage from "@/deserializer/parser";
 import { parseFrontmatter, type PageMetadata } from "@/deserializer/loadPage";
 import { useState, useRef, useCallback, useEffect } from "react";
@@ -87,10 +88,11 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: async (newPage) => {
       if (pendingBlocks) {
-        // Update the new page with the imported blocks and metadata
+        // Write imported blocks as CRDT ops and update metadata
+        const platform = getPlatform();
+        await platform.ops.writeBlocks(newPage.id, pendingBlocks);
         await updatePage({
           id: newPage.id,
-          snapshot: pendingBlocks,
           ...(pendingMetadata?.task && { task: true }),
           ...(pendingMetadata?.color && { color: pendingMetadata.color }),
           ...(pendingMetadata?.scheduledAt && { scheduledAt: pendingMetadata.scheduledAt }),

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createPortal } from "react-dom";
+import { TopActionBarPortal } from "../../layout/TopActionBarSlot";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { ChevronRight, User, SlidersHorizontal, Download, Info } from "lucide-react";
@@ -59,18 +59,14 @@ export default function SettingsPage() {
     information: t("common.information", "Information"),
   };
 
-  const headerSlot = document.getElementById("top-action-bar-slot");
-
   if (isMobile) {
     const DrawerContentComponent = openDrawer ? CONTENT[openDrawer] : null;
 
     return (
       <div className={style.container}>
-        {headerSlot &&
-          createPortal(
-            <span className={style.heading}>{t("settings.title", "Settings")}</span>,
-            headerSlot
-          )}
+        <TopActionBarPortal>
+          <span className={style.heading}>{t("settings.title", "Settings")}</span>
+        </TopActionBarPortal>
 
         <div className={style.list}>
           {TABS.map((tab) => {
@@ -111,11 +107,9 @@ export default function SettingsPage() {
 
   return (
     <div className={style.container}>
-      {headerSlot &&
-        createPortal(
-          <span className={style.heading}>{t("settings.title", "Settings")}</span>,
-          headerSlot
-        )}
+      <TopActionBarPortal>
+        <span className={style.heading}>{t("settings.title", "Settings")}</span>
+      </TopActionBarPortal>
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className={style.tabsList}>

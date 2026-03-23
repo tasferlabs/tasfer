@@ -5,6 +5,7 @@ import { PanelLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import useResponsive from "../hooks/useResponsive";
 import { Button } from "../../components/ui/button";
+import { useTopActionBarSlotRef } from "./TopActionBarSlot";
 
 export function TopActionBar({
   open,
@@ -15,6 +16,7 @@ export function TopActionBar({
 }) {
   const { t } = useTranslation();
   const isMobile = useResponsive("(max-width: 768px)");
+  const slotRef = useTopActionBarSlotRef();
 
   return (
     <div className={style.appHeader}>
@@ -32,7 +34,7 @@ export function TopActionBar({
         </Button>
       )}
 
-      <div id="top-action-bar-slot" className="flex items-center gap-3 flex-1 min-w-0" />
+      <div ref={slotRef} className="flex items-center gap-3 flex-1 min-w-0" />
     </div>
   );
 }

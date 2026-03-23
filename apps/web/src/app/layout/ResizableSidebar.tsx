@@ -11,9 +11,11 @@ import clsx from "clsx";
 export function ResizableSidebar({
   setOpen,
   open,
+  onAddSpace,
 }: {
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
   open: boolean;
+  onAddSpace: () => void;
 }) {
   const { hasPanel } = useSidebarPanel();
   const { i18n } = useTranslation();
@@ -78,7 +80,7 @@ export function ResizableSidebar({
           transition={{ type: "spring", bounce: 0, duration: 0.2 }}
         >
           <div className={style.appSidebarContent}>
-            <SidebarContent setOpen={setOpen} />
+            <SidebarContent setOpen={setOpen} onAddSpace={onAddSpace} />
           </div>
           {isFine && (
             <div
