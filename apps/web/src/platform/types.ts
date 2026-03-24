@@ -429,6 +429,8 @@ export interface Platform {
     calendar(start: number, end: number): Promise<PageCalendarItem[]>;
     /** Get version history snapshots */
     snapshots(pageId: string): Promise<PageSnapshot[]>;
+    /** Subscribe to page deletion events (fired for both local and remote deletions) */
+    onDeleted(cb: (pageId: string) => void): () => void;
   };
 
   // ---------------------------------------------------------------------------

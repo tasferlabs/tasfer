@@ -23,7 +23,7 @@ export function useP2PPageEvents(handlers: PageEventHandlers): void {
       return;
     }
 
-    const unsub = platform.sync.onPageEvents({
+    const unsubSync = platform.sync.onPageEvents({
       onPageCreated: (page) => handlersRef.current.onPageCreated?.(page),
       onPageDeleted: (pageId) => handlersRef.current.onPageDeleted?.(pageId),
       onPageMoved: (pageId, oldParent, newParent) =>
@@ -34,7 +34,16 @@ export function useP2PPageEvents(handlers: PageEventHandlers): void {
         handlersRef.current.onPageTitleUpdated?.(pageId, title),
     });
 
-    return unsub;
+    // Also subscribe to engine-level page deletion events
+    // (fires for both local deletions and remote CRDT page_remove ops)
+    const unsubDelete = platform.pages.onDeleted((pageId) => {
+      handlersRef.current.onPageDeleted?.(pageId);
+    });
+
+    return () => {
+      unsubSync();
+      unsubDelete();
+    };
   }, []);
 }
 

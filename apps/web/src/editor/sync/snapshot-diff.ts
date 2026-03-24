@@ -234,13 +234,9 @@ function diffBlocks(current: Block, snapshot: Block): BlockChanges | null {
 // =============================================================================
 
 /**
- * Context needed to generate restore operations.
+ * Context needed to generate operations from blocks.
  */
-export interface RestoreContext {
-  /** Current visible blocks */
-  currentBlocks: readonly Block[];
-  /** Blocks to restore to */
-  newBlocks: Block[];
+export interface OpsContext {
   /** Page ID for operations */
   pageId: string;
   /** Peer ID for char runs */
@@ -252,36 +248,24 @@ export interface RestoreContext {
 }
 
 /**
- * Generate operations to restore from snapshot.
- * Deletes all current blocks and inserts all new blocks with their content.
+ * Convert blocks into CRDT insert operations.
+ * Used by both import (writeBlocks) and snapshot restore flows.
  */
-export function generateRestoreOperations(ctx: RestoreContext): Operation[] {
+export function blocksToOps(
+  blocks: Block[],
+  ctx: OpsContext,
+): Operation[] {
   const ops: Operation[] = [];
-  const { currentBlocks, newBlocks, pageId, peerId, nextId, getClock } = ctx;
+  const { pageId, peerId, nextId, getClock } = ctx;
 
-  // Step 1: Delete all current visible blocks
-  for (const block of currentBlocks) {
-    if (block.deleted) continue;
-    const deleteOp: BlockDelete = {
-      op: "block_delete",
-      id: nextId(),
-      clock: getClock(),
-      pageId,
-      blockId: block.id,
-    };
-    ops.push(deleteOp);
-  }
-
-  // Step 2: Insert all new blocks with their content
   let lastInsertedBlockId: string | null = null;
 
-  for (const block of newBlocks) {
+  for (const block of blocks) {
     if (block.deleted) continue;
 
     const newBlockId = `b-${nextId()}`;
 
     if (block.type === "image") {
-      // Insert image block
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
         id: nextId(),
@@ -301,7 +285,6 @@ export function generateRestoreOperations(ctx: RestoreContext): Operation[] {
       ops.push(blockInsertOp);
       lastInsertedBlockId = newBlockId;
     } else if (block.type === "line") {
-      // Insert line block
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
         id: nextId(),
@@ -361,10 +344,8 @@ export function generateRestoreOperations(ctx: RestoreContext): Operation[] {
 
       // Insert text content - create CharRun directly
       if (visibleOldChars.length > 0) {
-        // Build text string from visible chars
         const text = visibleOldChars.map((c) => c.char).join("");
 
-        // Extract startCounter from first new char ID (format: "peerId:counter")
         const firstCharId = newCharIds[0];
         const startCounter = parseInt(firstCharId.split(":")[1], 10);
 
@@ -442,6 +423,43 @@ export function generateRestoreOperations(ctx: RestoreContext): Operation[] {
       lastInsertedBlockId = newBlockId;
     }
   }
+
+  return ops;
+}
+
+/**
+ * Context needed to generate restore operations.
+ */
+export interface RestoreContext extends OpsContext {
+  /** Current visible blocks */
+  currentBlocks: readonly Block[];
+  /** Blocks to restore to */
+  newBlocks: Block[];
+}
+
+/**
+ * Generate operations to restore from snapshot.
+ * Deletes all current blocks and inserts all new blocks with their content.
+ */
+export function generateRestoreOperations(ctx: RestoreContext): Operation[] {
+  const ops: Operation[] = [];
+  const { currentBlocks, newBlocks, nextId, getClock, pageId } = ctx;
+
+  // Step 1: Delete all current visible blocks
+  for (const block of currentBlocks) {
+    if (block.deleted) continue;
+    const deleteOp: BlockDelete = {
+      op: "block_delete",
+      id: nextId(),
+      clock: getClock(),
+      pageId,
+      blockId: block.id,
+    };
+    ops.push(deleteOp);
+  }
+
+  // Step 2: Insert all new blocks
+  ops.push(...blocksToOps(newBlocks, ctx));
 
   return ops;
 }

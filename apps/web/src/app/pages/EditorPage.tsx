@@ -158,6 +158,7 @@ export default function EditorPage() {
   // Restore function ref from MountedEditor
   const restoreFnRef = useRef<((blocks: Block[]) => void) | null>(null);
 
+  const navigate = useNavigate();
   const { activeSpaceId } = useSpaces();
   const treeExpand = useTreeExpand();
   const { data: pages, isLoading: isLoadingPages } = useGetPages(
@@ -207,12 +208,18 @@ export default function EditorPage() {
     };
   }, [id, setLastPageId, setPageId, setPermission]);
 
-  // Listen for page deletion events from other users
+  // Listen for page deletion events (both local and remote)
   useP2PPageEvents({
     onPageDeleted: (deletedPageId) => {
       if (deletedPageId === id) {
-        // Page was deleted by another user, show not found state
         setIsDeletedByOther(true);
+        // Navigate to another page so the user isn't stuck on a deleted page
+        const remaining = pages?.filter((p) => p.id !== deletedPageId);
+        if (remaining && remaining.length > 0) {
+          navigate(`/page/${remaining[0].id}`, { replace: true });
+        } else {
+          navigate("/page", { replace: true });
+        }
       }
     },
   });

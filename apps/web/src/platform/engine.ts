@@ -33,6 +33,7 @@ import type { ReplicatorHost } from "./sync";
 /** Minimal interface the engine uses to push ops — avoids circular imports */
 interface EngineReplicator {
   pushSpaceOps(spaceId: string, ops: SpaceOperation[]): void;
+  pushPageOps(spaceId: string, pageId: string, ops: import("@/editor/sync/types").Operation[]): void;
   requestAsset(hash: string): Promise<boolean>;
   addPeer(publicKey: string): Promise<void>;
   startPairing(opts: {
@@ -127,6 +128,7 @@ export class Engine implements Platform {
   private replicator: EngineReplicator | null = null;
   private spaceHlcCounters = new Map<string, number>();
   private spaceChangeListeners = new Set<(spaceId: string) => void>();
+  private pageDeleteListeners = new Set<(pageId: string) => void>();
   private signalUrl = "";
 
   constructor(driver: Driver) {
@@ -576,12 +578,7 @@ export class Engine implements Platform {
         op: "member_remove",
         publicKey: identity.publicKey,
       });
-      await this.driver.db.run(
-        "DELETE FROM space_members WHERE space_id = ? AND public_key = ?",
-        [id, identity.publicKey],
-      );
-      // Clean up local space data
-      await this.driver.db.run("DELETE FROM spaces WHERE id = ?", [id]);
+      await this.cleanupSpaceData(id);
       this.notifySpaceChange(id);
     },
 
@@ -1066,6 +1063,11 @@ export class Engine implements Platform {
           await this.emitSpaceOp(spaceId, { op: "page_remove", pageId });
         }
       }
+
+      // Notify page delete listeners (so the editor can react if the deleted page is open)
+      for (const pageId of ids) {
+        this.notifyPageDeleted(pageId);
+      }
     },
 
     move: async (data: PageMoveInput): Promise<void> => {
@@ -1265,6 +1267,11 @@ export class Engine implements Platform {
 
       return results.reverse();
     },
+
+    onDeleted: (cb: (pageId: string) => void): (() => void) => {
+      this.pageDeleteListeners.add(cb);
+      return () => { this.pageDeleteListeners.delete(cb); };
+    },
   };
 
   // ---------------------------------------------------------------------------
@@ -1441,9 +1448,30 @@ export class Engine implements Platform {
       pageId: string,
       blocks: import("@/deserializer/loadPage").Block[],
     ): Promise<void> => {
-      const { snapshotToOps } = await import("@/editor/sync/snapshot-to-ops");
-      const ops = snapshotToOps(pageId, blocks);
+      const { blocksToOps } = await import("@/editor/sync/snapshot-diff");
+      const { createIdGenerator, generatePeerId } = await import(
+        "@/editor/sync/id"
+      );
+      const { createHLC, tickHLC } = await import("@/editor/sync/hlc");
+
+      const peerId = generatePeerId();
+      const nextId = createIdGenerator(peerId);
+      let hlc = createHLC(peerId);
+      const getClock = () => {
+        hlc = tickHLC(hlc);
+        return hlc;
+      };
+
+      const ops = blocksToOps(blocks, { pageId, peerId, nextId, getClock });
       await this.ops.persist(pageId, ops);
+
+      // Broadcast to connected peers so they get the content immediately
+      if (this.replicator && ops.length > 0) {
+        const spaceId = await this.getPageSpaceId(pageId);
+        if (spaceId) {
+          this.replicator.pushPageOps(spaceId, pageId, ops);
+        }
+      }
     },
 
     load: async (
@@ -1613,6 +1641,38 @@ export class Engine implements Platform {
     return rows[0].private_key;
   }
 
+  private async cleanupSpaceData(spaceId: string): Promise<void> {
+    // Find all pages in this space
+    const pages = await this.driver.db.execute<{ id: string }>(
+      "SELECT id FROM pages WHERE space_id = ?",
+      [spaceId],
+    );
+    const pageIds = pages.map((r) => r.id);
+
+    await this.driver.db.transaction(async (db) => {
+      if (pageIds.length > 0) {
+        const placeholders = pageIds.map(() => "?").join(", ");
+        // Delete page ops
+        await db.run(
+          `DELETE FROM ops WHERE scope_id IN (${placeholders})`,
+          pageIds,
+        );
+        // Delete pages
+        await db.run(
+          `DELETE FROM pages WHERE id IN (${placeholders})`,
+          pageIds,
+        );
+      }
+      // Delete space ops
+      await db.run("DELETE FROM ops WHERE scope_id = ?", [
+        `space:${spaceId}`,
+      ]);
+      // Delete space members and space itself
+      await db.run("DELETE FROM space_members WHERE space_id = ?", [spaceId]);
+      await db.run("DELETE FROM spaces WHERE id = ?", [spaceId]);
+    });
+  }
+
   private async getPageSpaceId(pageId: string): Promise<string | null> {
     const rows = await this.driver.db.execute<{ space_id: string | null }>(
       "SELECT space_id FROM pages WHERE id = ?",
@@ -1735,12 +1795,18 @@ export class Engine implements Platform {
         break;
       }
 
-      case "member_remove":
+      case "member_remove": {
         await this.driver.db.run(
           "DELETE FROM space_members WHERE space_id = ? AND public_key = ?",
           [op.spaceId, op.publicKey],
         );
+        // If we were removed from the space, clean up all local data
+        const self = await this.identity.get();
+        if (op.publicKey === self.publicKey) {
+          await this.cleanupSpaceData(op.spaceId);
+        }
         break;
+      }
 
       case "page_add": {
         // Create page if it doesn't exist locally
@@ -1776,7 +1842,11 @@ export class Engine implements Platform {
       }
 
       case "page_remove":
-        await this.driver.db.run("DELETE FROM pages WHERE id = ?", [op.pageId]);
+        await this.driver.db.transaction(async (db) => {
+          await db.run("DELETE FROM ops WHERE scope_id = ?", [op.pageId]);
+          await db.run("DELETE FROM pages WHERE id = ?", [op.pageId]);
+        });
+        this.notifyPageDeleted(op.pageId);
         break;
 
       case "page_set": {
@@ -1811,6 +1881,10 @@ export class Engine implements Platform {
 
   private notifySpaceChange(spaceId: string) {
     for (const cb of this.spaceChangeListeners) cb(spaceId);
+  }
+
+  private notifyPageDeleted(pageId: string) {
+    for (const cb of this.pageDeleteListeners) cb(pageId);
   }
 
   // ---------------------------------------------------------------------------
