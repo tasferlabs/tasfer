@@ -36,6 +36,7 @@ interface EngineReplicator {
   pushPageOps(spaceId: string, pageId: string, ops: import("@/editor/sync/types").Operation[]): void;
   requestAsset(hash: string): Promise<boolean>;
   addPeer(publicKey: string): Promise<void>;
+  removePeer(publicKey: string): Promise<void>;
   startPairing(opts: {
     invite: SpaceInvite;
     role: "initiator" | "acceptor";
@@ -1568,6 +1569,29 @@ export class Engine implements Platform {
     for (const op of ops) {
       await this.storeSpaceOp(op);
       await this.applySpaceOp(op);
+
+      // When a new member is added, connect to them so all peers
+      // have direct connections (not routed through the inviter).
+      if (op.op === "member_add" && this.replicator) {
+        const identity = await this.identity.get();
+        if (op.publicKey !== identity.publicKey) {
+          this.replicator.addPeer(op.publicKey);
+        }
+      }
+
+      // When a member is removed, disconnect if they no longer share any space.
+      if (op.op === "member_remove" && this.replicator) {
+        const identity = await this.identity.get();
+        if (op.publicKey !== identity.publicKey) {
+          const remaining = await this.driver.db.execute<{ cnt: number }>(
+            "SELECT COUNT(*) as cnt FROM space_members WHERE public_key = ? AND archived_at IS NULL",
+            [op.publicKey],
+          );
+          if (remaining[0].cnt === 0) {
+            this.replicator.removePeer(op.publicKey);
+          }
+        }
+      }
     }
     this.notifySpaceChange(spaceId);
   }
