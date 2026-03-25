@@ -51,7 +51,7 @@ interface EngineReplicator {
 // Schema & Migrations
 // =============================================================================
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 7;
 
 const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS identity (
@@ -76,12 +76,13 @@ const SCHEMA_SQL = `
   );
 
   CREATE TABLE IF NOT EXISTS space_members (
-    space_id   TEXT NOT NULL,
-    public_key TEXT NOT NULL,
-    name       TEXT NOT NULL DEFAULT '',
-    role       TEXT NOT NULL DEFAULT 'editor',
-    avatar     TEXT,
-    added_at   TEXT NOT NULL,
+    space_id    TEXT NOT NULL,
+    public_key  TEXT NOT NULL,
+    name        TEXT NOT NULL DEFAULT '',
+    role        TEXT NOT NULL DEFAULT 'editor',
+    avatar      TEXT,
+    archived_at TEXT,
+    added_at    TEXT NOT NULL,
     PRIMARY KEY (space_id, public_key)
   );
 
@@ -98,6 +99,7 @@ const SCHEMA_SQL = `
     duration      INTEGER,
     all_day       INTEGER,
     recurrence_id TEXT,
+    archived_at   TEXT,
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL
   );
@@ -175,6 +177,14 @@ export class Engine implements Platform {
 
     if (user_version < 5) {
       await this.migrateDropKv();
+    }
+
+    if (user_version < 6) {
+      await this.migrateAddPagesArchivedAt();
+    }
+
+    if (user_version < 7) {
+      await this.migrateAddMembersArchivedAt();
     }
 
     if (user_version < SCHEMA_VERSION) {
@@ -276,6 +286,33 @@ export class Engine implements Platform {
    */
   private async migrateDropKv(): Promise<void> {
     await this.driver.db.exec("DROP TABLE IF EXISTS kv");
+  }
+
+  /**
+   * Migration 6: add archived_at tombstone column to pages table.
+   * page_remove now soft-deletes instead of hard-deleting, making
+   * space CRDT operations commutative regardless of arrival order.
+   */
+  private async migrateAddPagesArchivedAt(): Promise<void> {
+    const cols = await this.driver.db.execute<{ name: string }>(
+      "PRAGMA table_info(pages)",
+    );
+    if (!cols.some((c) => c.name === "archived_at")) {
+      await this.driver.db.exec("ALTER TABLE pages ADD COLUMN archived_at TEXT");
+    }
+  }
+
+  /**
+   * Migration 7: add archived_at tombstone column to space_members table.
+   * member_remove now soft-deletes; member_add clears the tombstone on re-invite.
+   */
+  private async migrateAddMembersArchivedAt(): Promise<void> {
+    const cols = await this.driver.db.execute<{ name: string }>(
+      "PRAGMA table_info(space_members)",
+    );
+    if (!cols.some((c) => c.name === "archived_at")) {
+      await this.driver.db.exec("ALTER TABLE space_members ADD COLUMN archived_at TEXT");
+    }
   }
 
   /** Load max HLC counters from persisted ops so we never regress after restart */
@@ -400,7 +437,7 @@ export class Engine implements Platform {
       // Propagate changes to all spaces the user belongs to
       const identity = await this.identity.get();
       const memberships = await this.driver.db.execute<{ space_id: string }>(
-        "SELECT space_id FROM space_members WHERE public_key = ?",
+        "SELECT space_id FROM space_members WHERE public_key = ? AND archived_at IS NULL",
         [identity.publicKey],
       );
       for (const { space_id } of memberships) {
@@ -480,11 +517,18 @@ export class Engine implements Platform {
 
   spaces = {
     list: async (): Promise<Space[]> => {
+      const identity = await this.identity.get();
       const rows = await this.driver.db.execute<{
         id: string;
         name: string;
         created_at: string;
-      }>("SELECT * FROM spaces ORDER BY name");
+      }>(
+        `SELECT s.* FROM spaces s
+         JOIN space_members m ON m.space_id = s.id
+         WHERE m.public_key = ? AND m.archived_at IS NULL
+         ORDER BY s.name`,
+        [identity.publicKey],
+      );
       return rows.map((r) => ({
         id: r.id,
         name: r.name,
@@ -509,7 +553,7 @@ export class Engine implements Platform {
         role: string;
         avatar: string | null;
         added_at: string;
-      }>("SELECT * FROM space_members WHERE space_id = ? ORDER BY added_at", [
+      }>("SELECT * FROM space_members WHERE space_id = ? AND archived_at IS NULL ORDER BY added_at", [
         id,
       ]);
 
@@ -574,11 +618,15 @@ export class Engine implements Platform {
 
     leave: async (id: string): Promise<void> => {
       const identity = await this.identity.get();
+      const now = new Date().toISOString();
       await this.emitSpaceOp(id, {
         op: "member_remove",
         publicKey: identity.publicKey,
       });
-      await this.cleanupSpaceData(id);
+      await this.driver.db.run(
+        "UPDATE space_members SET archived_at = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL",
+        [now, id, identity.publicKey],
+      );
       this.notifySpaceChange(id);
     },
 
@@ -602,7 +650,7 @@ export class Engine implements Platform {
       const col = memberFieldMap[field];
       if (col) {
         await this.driver.db.run(
-          `UPDATE space_members SET ${col} = ? WHERE space_id = ? AND public_key = ?`,
+          `UPDATE space_members SET ${col} = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL`,
           [value, spaceId, publicKey],
         );
       }
@@ -617,9 +665,10 @@ export class Engine implements Platform {
 
     removeMember: async (spaceId: string, publicKey: string): Promise<void> => {
       await this.emitSpaceOp(spaceId, { op: "member_remove", publicKey });
+      const now = new Date().toISOString();
       await this.driver.db.run(
-        "DELETE FROM space_members WHERE space_id = ? AND public_key = ?",
-        [spaceId, publicKey],
+        "UPDATE space_members SET archived_at = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL",
+        [now, spaceId, publicKey],
       );
       this.notifySpaceChange(spaceId);
     },
@@ -679,12 +728,15 @@ export class Engine implements Platform {
               name: peer.name,
             });
             await this.driver.db.run(
-              "INSERT OR IGNORE INTO space_members (space_id, public_key, name, role, added_at) VALUES (?, ?, ?, 'editor', ?)",
+              `INSERT INTO space_members (space_id, public_key, name, role, added_at)
+               VALUES (?, ?, ?, 'editor', ?)
+               ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
               [
                 invite.spaceId,
                 peer.publicKey,
                 peer.name,
                 new Date().toISOString(),
+                peer.name,
               ],
             );
             this.notifySpaceChange(invite.spaceId);
@@ -723,13 +775,17 @@ export class Engine implements Platform {
             );
             // Add self as editor
             await this.driver.db.run(
-              "INSERT OR IGNORE INTO space_members (space_id, public_key, name, role, added_at) VALUES (?, ?, ?, 'editor', ?)",
-              [invite.spaceId, identity.publicKey, identity.name, now],
+              `INSERT INTO space_members (space_id, public_key, name, role, added_at)
+               VALUES (?, ?, ?, 'editor', ?)
+               ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
+              [invite.spaceId, identity.publicKey, identity.name, now, identity.name],
             );
             // Add the initiator as owner (so hello exchange can identify shared spaces)
             await this.driver.db.run(
-              "INSERT OR IGNORE INTO space_members (space_id, public_key, name, role, added_at) VALUES (?, ?, ?, 'owner', ?)",
-              [invite.spaceId, peer.publicKey, peer.name, now],
+              `INSERT INTO space_members (space_id, public_key, name, role, added_at)
+               VALUES (?, ?, ?, 'owner', ?)
+               ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
+              [invite.spaceId, peer.publicKey, peer.name, now, peer.name],
             );
 
             // Replicator.addPeer is called automatically after pairing completes
@@ -760,12 +816,12 @@ export class Engine implements Platform {
       const params: unknown[] = [];
 
       if (parentId === null || parentId === undefined) {
-        sql = `SELECT p.*, EXISTS(SELECT 1 FROM pages c WHERE c.parent_id = p.id) as has_children
-               FROM pages p WHERE p.space_id = ? AND p.parent_id IS NULL`;
+        sql = `SELECT p.*, EXISTS(SELECT 1 FROM pages c WHERE c.parent_id = p.id AND c.archived_at IS NULL) as has_children
+               FROM pages p WHERE p.space_id = ? AND p.parent_id IS NULL AND p.archived_at IS NULL`;
         params.push(spaceId);
       } else {
-        sql = `SELECT p.*, EXISTS(SELECT 1 FROM pages c WHERE c.parent_id = p.id) as has_children
-               FROM pages p WHERE p.space_id = ? AND p.parent_id = ?`;
+        sql = `SELECT p.*, EXISTS(SELECT 1 FROM pages c WHERE c.parent_id = p.id AND c.archived_at IS NULL) as has_children
+               FROM pages p WHERE p.space_id = ? AND p.parent_id = ? AND p.archived_at IS NULL`;
         params.push(spaceId, parentId);
       }
 
@@ -826,8 +882,8 @@ export class Engine implements Platform {
         created_at: string;
         updated_at: string;
       }>(
-        `SELECT p.*, EXISTS(SELECT 1 FROM pages c WHERE c.parent_id = p.id) as has_children
-         FROM pages p WHERE p.id = ?`,
+        `SELECT p.*, EXISTS(SELECT 1 FROM pages c WHERE c.parent_id = p.id AND c.archived_at IS NULL) as has_children
+         FROM pages p WHERE p.id = ? AND p.archived_at IS NULL`,
         [id],
       );
 
@@ -901,8 +957,8 @@ export class Engine implements Platform {
         max_order: number | null;
       }>(
         data.parentId
-          ? 'SELECT MAX("order") as max_order FROM pages WHERE parent_id = ?'
-          : 'SELECT MAX("order") as max_order FROM pages WHERE parent_id IS NULL',
+          ? 'SELECT MAX("order") as max_order FROM pages WHERE parent_id = ? AND archived_at IS NULL'
+          : 'SELECT MAX("order") as max_order FROM pages WHERE parent_id IS NULL AND archived_at IS NULL',
         data.parentId ? [data.parentId] : [],
       );
       const order = (orderRows[0]?.max_order ?? 0) + 1;
@@ -1041,9 +1097,9 @@ export class Engine implements Platform {
 
       const tree = await this.driver.db.execute<{ id: string }>(
         `WITH RECURSIVE subtree(id) AS (
-           SELECT id FROM pages WHERE id = ?
+           SELECT id FROM pages WHERE id = ? AND archived_at IS NULL
            UNION ALL
-           SELECT p.id FROM pages p JOIN subtree s ON p.parent_id = s.id
+           SELECT p.id FROM pages p JOIN subtree s ON p.parent_id = s.id WHERE p.archived_at IS NULL
          )
          SELECT id FROM subtree`,
         [id],
@@ -1051,11 +1107,12 @@ export class Engine implements Platform {
       const ids = tree.map((r) => r.id);
 
       const placeholders = ids.map(() => "?").join(", ");
+      const now = new Date().toISOString();
 
-      await this.driver.db.transaction(async (db) => {
-        await db.run(`DELETE FROM ops WHERE scope_id IN (${placeholders})`, ids);
-        await db.run(`DELETE FROM pages WHERE id IN (${placeholders})`, ids);
-      });
+      await this.driver.db.run(
+        `UPDATE pages SET archived_at = ? WHERE id IN (${placeholders}) AND archived_at IS NULL`,
+        [now, ...ids],
+      );
 
       // Generate space op for each deleted page
       if (spaceId) {
@@ -1129,7 +1186,7 @@ export class Engine implements Platform {
         parent_id: string | null;
         color: string | null;
       }>(
-        "SELECT id, title, parent_id, color FROM pages WHERE title LIKE ? LIMIT 20",
+        "SELECT id, title, parent_id, color FROM pages WHERE title LIKE ? AND archived_at IS NULL LIMIT 20",
         [`%${query}%`],
       );
 
@@ -1166,7 +1223,7 @@ export class Engine implements Platform {
         created_at: string;
       }>(
         `SELECT * FROM pages
-         WHERE scheduled_at IS NOT NULL
+         WHERE scheduled_at IS NOT NULL AND archived_at IS NULL
          AND scheduled_at >= ? AND scheduled_at <= ?
          ORDER BY scheduled_at ASC`,
         [new Date(start).toISOString(), new Date(end).toISOString()],
@@ -1641,37 +1698,6 @@ export class Engine implements Platform {
     return rows[0].private_key;
   }
 
-  private async cleanupSpaceData(spaceId: string): Promise<void> {
-    // Find all pages in this space
-    const pages = await this.driver.db.execute<{ id: string }>(
-      "SELECT id FROM pages WHERE space_id = ?",
-      [spaceId],
-    );
-    const pageIds = pages.map((r) => r.id);
-
-    await this.driver.db.transaction(async (db) => {
-      if (pageIds.length > 0) {
-        const placeholders = pageIds.map(() => "?").join(", ");
-        // Delete page ops
-        await db.run(
-          `DELETE FROM ops WHERE scope_id IN (${placeholders})`,
-          pageIds,
-        );
-        // Delete pages
-        await db.run(
-          `DELETE FROM pages WHERE id IN (${placeholders})`,
-          pageIds,
-        );
-      }
-      // Delete space ops
-      await db.run("DELETE FROM ops WHERE scope_id = ?", [
-        `space:${spaceId}`,
-      ]);
-      // Delete space members and space itself
-      await db.run("DELETE FROM space_members WHERE space_id = ?", [spaceId]);
-      await db.run("DELETE FROM spaces WHERE id = ?", [spaceId]);
-    });
-  }
 
   private async getPageSpaceId(pageId: string): Promise<string | null> {
     const rows = await this.driver.db.execute<{ space_id: string | null }>(
@@ -1761,7 +1787,7 @@ export class Engine implements Platform {
         await this.driver.db.run(
           `INSERT INTO space_members (space_id, public_key, name, role, added_at)
            VALUES (?, ?, ?, 'editor', ?)
-           ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?`,
+           ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
           [op.spaceId, op.publicKey, op.name, now, op.name],
         );
         // Also trust this peer
@@ -1781,7 +1807,7 @@ export class Engine implements Platform {
         const memberCol = memberFieldMap[op.field];
         if (memberCol) {
           await this.driver.db.run(
-            `UPDATE space_members SET ${memberCol} = ? WHERE space_id = ? AND public_key = ?`,
+            `UPDATE space_members SET ${memberCol} = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL`,
             [op.value, op.spaceId, op.publicKey],
           );
         }
@@ -1797,19 +1823,14 @@ export class Engine implements Platform {
 
       case "member_remove": {
         await this.driver.db.run(
-          "DELETE FROM space_members WHERE space_id = ? AND public_key = ?",
-          [op.spaceId, op.publicKey],
+          "UPDATE space_members SET archived_at = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL",
+          [now, op.spaceId, op.publicKey],
         );
-        // If we were removed from the space, clean up all local data
-        const self = await this.identity.get();
-        if (op.publicKey === self.publicKey) {
-          await this.cleanupSpaceData(op.spaceId);
-        }
         break;
       }
 
       case "page_add": {
-        // Create page if it doesn't exist locally
+        // Create page if it doesn't exist locally (including tombstoned)
         const exists = await this.driver.db.execute(
           "SELECT 1 FROM pages WHERE id = ?",
           [op.pageId],
@@ -1842,10 +1863,10 @@ export class Engine implements Platform {
       }
 
       case "page_remove":
-        await this.driver.db.transaction(async (db) => {
-          await db.run("DELETE FROM ops WHERE scope_id = ?", [op.pageId]);
-          await db.run("DELETE FROM pages WHERE id = ?", [op.pageId]);
-        });
+        await this.driver.db.run(
+          "UPDATE pages SET archived_at = ? WHERE id = ? AND archived_at IS NULL",
+          [now, op.pageId],
+        );
         this.notifyPageDeleted(op.pageId);
         break;
 
@@ -1870,7 +1891,7 @@ export class Engine implements Platform {
             val = val === null ? null : val ? 1 : 0;
           }
           await this.driver.db.run(
-            `UPDATE pages SET ${col} = ?, updated_at = ? WHERE id = ?`,
+            `UPDATE pages SET ${col} = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL`,
             [val, now, op.pageId],
           );
         }
@@ -1903,7 +1924,7 @@ export class Engine implements Platform {
         title: string;
         parent_id: string | null;
         color: string | null;
-      }>("SELECT id, title, parent_id, color FROM pages WHERE id = ?", [
+      }>("SELECT id, title, parent_id, color FROM pages WHERE id = ? AND archived_at IS NULL", [
         currentId,
       ]);
 
