@@ -1,6 +1,8 @@
 {
   "name": "cypher-desktop",
   "version": "1.0.0",
+  "description": "Cypher desktop application",
+  "author": "Hamza Khuswan",
   "private": true,
   "main": "out/main/index.js",
   "scripts": {
@@ -10,7 +12,6 @@
     "package": "electron-builder"
   },
   "dependencies": {
-    "@paralleldrive/cuid2": "^2.2.2",
     "better-sqlite3": "^11.8.1",
     "electron-updater": "^6.3.9"
   },

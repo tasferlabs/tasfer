@@ -5,13 +5,18 @@
  * and registers all IPC handlers.
  */
 
-import { app, BrowserWindow, Tray, Menu, nativeImage } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, net } from "electron";
 import path from "path";
 import { getDb, closeDb } from "./db";
 import { registerDbHandlers } from "./handlers/db";
 import { registerFsHandlers } from "./handlers/fs";
 import { registerCryptoHandlers } from "./handlers/crypto";
 import { registerUpdaterHandlers } from "./handlers/updater";
+
+// Register custom protocol before app is ready
+protocol.registerSchemesAsPrivileged([
+  { scheme: "app", privileges: { standard: true, secure: true } },
+]);
 
 let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -54,9 +59,7 @@ function createWindow() {
     win.loadURL(DEV_SERVER_URL);
     win.webContents.openDevTools({ mode: "detach" });
   } else {
-    // Production: load from the bundled web app (extraResources → resources/web/)
-    const rendererPath = path.join(process.resourcesPath, "web/index.html");
-    win.loadFile(rendererPath);
+    win.loadURL("app://cypher/index.html");
   }
 
   mainWindow = win;
@@ -116,6 +119,14 @@ function createTray() {
 // ── App lifecycle ──────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  // Serve bundled web app via custom protocol so absolute asset paths work
+  const webRoot = path.join(process.resourcesPath, "web");
+  protocol.handle("app", (request) => {
+    const url = new URL(request.url);
+    const filePath = path.join(webRoot, url.pathname);
+    return net.fetch(`file://${filePath}`);
+  });
+
   // Set dock icon on macOS (needed in dev since there's no .app bundle)
   if (process.platform === "darwin") {
     const dockIcon = nativeImage.createFromPath(

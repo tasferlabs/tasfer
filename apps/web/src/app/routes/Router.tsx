@@ -11,11 +11,12 @@ function RestoreLastRoute() {
     return <Navigate to="/home" replace />;
   }
 
+
   return <Navigate to={lastRoute || "/page"} replace />;
 }
 
-/** Guard: only allow /home on web platform, redirect others to editor */
-function HomeGuard({ children }: { children: React.ReactNode }) {
+/** Guard: only allow /home and /privacy on web platform, redirect others to editor */
+function WebOnlyGuard({ children }: { children: React.ReactNode }) {
   if (getClientPlatform() !== "web") {
     return <Navigate to="/page" replace />;
   }
@@ -64,14 +65,18 @@ export const router = createBrowserRouter([
   {
     path: "/home",
     element: (
-      <HomeGuard>
+      <WebOnlyGuard>
         <HomePage />
-      </HomeGuard>
+      </WebOnlyGuard>
     ),
   },
   {
     path: "/privacy",
-    element: <PrivacyPage />,
+    element: (
+      <WebOnlyGuard>
+        <PrivacyPage />
+      </WebOnlyGuard>
+    ),
   },
   {
     path: "*",

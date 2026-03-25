@@ -3,10 +3,20 @@ import path from "path";
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: ["@paralleldrive/cuid2"] })],
+    plugins: [externalizeDepsPlugin()],
+    build: {
+      lib: {
+        entry: path.join(__dirname, "src/main/index.ts"),
+      },
+    },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
+    build: {
+      lib: {
+        entry: path.join(__dirname, "src/preload/index.ts"),
+      },
+    },
   },
   renderer: {
     build: {

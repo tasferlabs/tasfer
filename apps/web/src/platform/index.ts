@@ -17,10 +17,11 @@ export type * from "./driver";
 // Client platform detection (ios / android / web)
 // =============================================================================
 
-export type ClientPlatform = "ios" | "android" | "web";
+export type ClientPlatform = "ios" | "android" | "electron" | "web";
 
 function detectClientPlatform(): ClientPlatform {
   if (typeof window !== "undefined") {
+    if ((window as any).cypher) return "electron";
     // Check for unified CypherBridge first, then legacy markers
     if (
       (window as any).__CYPHER_IOS__ ||
