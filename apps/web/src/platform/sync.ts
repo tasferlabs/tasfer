@@ -982,7 +982,7 @@ export class Replicator {
     session.completedPeers.add(msg.publicKey);
 
     // Fire completion callback (engine will trust peer, add members, etc.)
-    session.callbacks.onComplete?.({
+    await session.callbacks.onComplete?.({
       publicKey: msg.publicKey,
       name: msg.name,
       trusted: true,

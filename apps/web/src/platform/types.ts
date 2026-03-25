@@ -271,7 +271,7 @@ export interface SpaceInvite {
 export interface PairCallbacks {
   onConnected?: () => void;
   onPeerIdentity?: (peer: { publicKey: string; name: string }) => void;
-  onComplete?: (peer: Peer) => void;
+  onComplete?: (peer: Peer) => void | Promise<void>;
   onError?: (error: string) => void;
   /** Multi-peer mode: allow multiple peers to join before explicitly stopping */
   multi?: boolean;
