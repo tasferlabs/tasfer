@@ -81,7 +81,7 @@ export async function initPlatform(): Promise<Platform> {
 
 async function _initPlatformInner(): Promise<Platform> {
   const env = detectAdapter();
-  const signalUrl = import.meta.env.VITE_SIGNAL_URL ?? "ws://localhost:8080";
+  const signalUrl = import.meta.env.VITE_SIGNAL_URL ?? "ws://localhost:8787";
   let engine: Engine;
   let replicator: Replicator;
 

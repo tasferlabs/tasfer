@@ -954,36 +954,12 @@ export function DevToolbar() {
     }
   }, [info, selected, table, load, offset, search, rowKey]);
 
-  if (!isStaging || hidden) return null;
-
-  const selectTable = (t: TableName) => {
-    setTable(t);
-    setOffset(0);
-    setSearch("");
-    setInput("");
-    setDbView("tables");
-    setSelected(new Set());
-    setEditing(null);
-  };
-  const totalPages = info ? Math.ceil(info.total / PAGE_SIZE) : 0;
-  const page = Math.floor(offset / PAGE_SIZE) + 1;
-
-  // Tab content fade animation
-  const tabMotion = {
-    initial: { opacity: 0, y: 3 } as const,
-    animate: { opacity: 1, y: 0 } as const,
-    transition: { duration: 0.1 } as const,
-  };
-
   const filteredLogs = logs.filter((l) => {
     if (levelFilter !== "all" && l.level !== levelFilter) return false;
     if (logFilter && !l.message.toLowerCase().includes(logFilter.toLowerCase()))
       return false;
     return true;
   });
-
-  // Get unique message types for the filter
-  const msgTypes = [...new Set(netLogs.map((l) => l.type))].sort();
 
   const filteredNet = netLogs.filter((l) => {
     if (dirFilter !== "all" && l.direction !== dirFilter) return false;
@@ -1058,6 +1034,30 @@ export function DevToolbar() {
     a.click();
     URL.revokeObjectURL(url);
   }, [filteredNet]);
+
+  if (!isStaging || hidden) return null;
+
+  const selectTable = (t: TableName) => {
+    setTable(t);
+    setOffset(0);
+    setSearch("");
+    setInput("");
+    setDbView("tables");
+    setSelected(new Set());
+    setEditing(null);
+  };
+  const totalPages = info ? Math.ceil(info.total / PAGE_SIZE) : 0;
+  const page = Math.floor(offset / PAGE_SIZE) + 1;
+
+  // Tab content fade animation
+  const tabMotion = {
+    initial: { opacity: 0, y: 3 } as const,
+    animate: { opacity: 1, y: 0 } as const,
+    transition: { duration: 0.1 } as const,
+  };
+
+  // Get unique message types for the filter
+  const msgTypes = [...new Set(netLogs.map((l) => l.type))].sort();
 
   // ─── Render ────────────────────────────────────────────────────────────────
 

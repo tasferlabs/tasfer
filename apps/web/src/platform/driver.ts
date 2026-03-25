@@ -140,6 +140,18 @@ export interface NetworkDriver {
   setLocalId(id: string): void;
 
   /**
+   * Register an encryption key for a topic.
+   * All signaling and relay payloads on this topic will be encrypted
+   * with AES-GCM using this key. Must be called before join().
+   */
+  registerTopicKey(topicHex: string, key: Uint8Array): void;
+
+  /**
+   * Remove a previously registered topic encryption key.
+   */
+  unregisterTopicKey(topicHex: string): void;
+
+  /**
    * Join a discovery topic. Peers joining the same topic will find each other.
    * For replication: topic = SHA-256(sorted(pubKeyA, pubKeyB)) per peer pair.
    * For pairing: topic = random one-time hex.

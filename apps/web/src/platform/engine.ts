@@ -52,7 +52,7 @@ interface EngineReplicator {
 // Schema & Migrations
 // =============================================================================
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS identity (
@@ -67,7 +67,8 @@ const SCHEMA_SQL = `
     public_key TEXT PRIMARY KEY,
     name       TEXT,
     trusted    INTEGER NOT NULL DEFAULT 0,
-    last_seen  INTEGER
+    last_seen  INTEGER,
+    shared_key TEXT
   );
 
   CREATE TABLE IF NOT EXISTS spaces (
@@ -186,6 +187,10 @@ export class Engine implements Platform {
 
     if (user_version < 7) {
       await this.migrateAddMembersArchivedAt();
+    }
+
+    if (user_version < 8) {
+      await this.migrateAddPeersSharedKey();
     }
 
     if (user_version < SCHEMA_VERSION) {
@@ -316,6 +321,19 @@ export class Engine implements Platform {
     }
   }
 
+  /**
+   * Migration 8: add shared_key column to peers table.
+   * Stores the per-peer AES-GCM key (hex) for encrypting signaling through CF.
+   */
+  private async migrateAddPeersSharedKey(): Promise<void> {
+    const cols = await this.driver.db.execute<{ name: string }>(
+      "PRAGMA table_info(peers)",
+    );
+    if (!cols.some((c) => c.name === "shared_key")) {
+      await this.driver.db.exec("ALTER TABLE peers ADD COLUMN shared_key TEXT");
+    }
+  }
+
   /** Load max HLC counters from persisted ops so we never regress after restart */
   private async loadSpaceHlcCounters(): Promise<void> {
     const rows = await this.driver.db.execute<{
@@ -377,6 +395,13 @@ export class Engine implements Platform {
         if (!(await this.driver.fs.exists(path))) {
           await this.driver.fs.write(path, data);
         }
+      },
+      getPeerSharedKey: async (publicKey: string): Promise<string | null> => {
+        const rows = await this.driver.db.execute<{ shared_key: string | null }>(
+          "SELECT shared_key FROM peers WHERE public_key = ?",
+          [publicKey],
+        );
+        return rows[0]?.shared_key ?? null;
       },
     };
   }
@@ -477,11 +502,11 @@ export class Engine implements Platform {
       }));
     },
 
-    trust: async (publicKey: string, name?: string): Promise<Peer> => {
+    trust: async (publicKey: string, name?: string, sharedKey?: string): Promise<Peer> => {
       await this.driver.db.run(
-        `INSERT INTO peers (public_key, name, trusted) VALUES (?, ?, 1)
-         ON CONFLICT(public_key) DO UPDATE SET trusted = 1, name = COALESCE(?, name)`,
-        [publicKey, name ?? "", name ?? null],
+        `INSERT INTO peers (public_key, name, trusted, shared_key) VALUES (?, ?, 1, ?)
+         ON CONFLICT(public_key) DO UPDATE SET trusted = 1, name = COALESCE(?, name), shared_key = COALESCE(?, shared_key)`,
+        [publicKey, name ?? "", sharedKey ?? null, name ?? null, sharedKey ?? null],
       );
       const rows = await this.driver.db.execute<{
         public_key: string;
@@ -721,7 +746,11 @@ export class Engine implements Platform {
           onConnected: callbacks?.onConnected,
           onPeerIdentity: callbacks?.onPeerIdentity,
           onComplete: async (peer) => {
-            await this.peers.trust(peer.publicKey, peer.name);
+            // Derive shared signaling key from pairing secret + both public keys
+            const sharedKey = await deriveSharedSignalingKey(
+              invite.secret, identity.publicKey, peer.publicKey,
+            );
+            await this.peers.trust(peer.publicKey, peer.name, sharedKey);
             // Add the new peer as a member of the space
             await this.emitSpaceOp(invite.spaceId, {
               op: "member_add",
@@ -766,7 +795,11 @@ export class Engine implements Platform {
           onConnected: callbacks?.onConnected,
           onPeerIdentity: callbacks?.onPeerIdentity,
           onComplete: async (peer) => {
-            await this.peers.trust(peer.publicKey, peer.name);
+            // Derive shared signaling key from pairing secret + both public keys
+            const sharedKey = await deriveSharedSignalingKey(
+              invite.secret, identity.publicKey, peer.publicKey,
+            );
+            await this.peers.trust(peer.publicKey, peer.name, sharedKey);
 
             // Create the space locally from invite metadata
             const now = new Date().toISOString();
@@ -2018,4 +2051,34 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+  }
+  return bytes;
+}
+
+/**
+ * Derive a shared signaling encryption key from the pairing secret
+ * and both peers' public keys. Both sides independently compute the
+ * same key — used for all future signaling through Cloudflare.
+ */
+async function deriveSharedSignalingKey(
+  secretHex: string,
+  pubA: string,
+  pubB: string,
+): Promise<string> {
+  const secret = hexToBytes(secretHex);
+  const sorted = pubA < pubB ? `${pubA}:${pubB}` : `${pubB}:${pubA}`;
+  const info = new TextEncoder().encode("cypher-shared-key:" + sorted);
+  const keyMaterial = await crypto.subtle.importKey("raw", secret.buffer as ArrayBuffer, "HKDF", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info },
+    keyMaterial,
+    256,
+  );
+  return bytesToHex(new Uint8Array(bits));
 }

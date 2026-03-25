@@ -1,10 +1,25 @@
 import React from "react";
 import { Navigate, createBrowserRouter } from "react-router-dom";
 import Layout from "../layout/Layout";
+import { getClientPlatform } from "@/platform";
 
 function RestoreLastRoute() {
-  const lastRoute = localStorage.getItem("lastRoute") || "/page";
-  return <Navigate to={lastRoute} replace />;
+  const lastRoute = localStorage.getItem("lastRoute");
+
+  // New user on web → show home page
+  if (!lastRoute && getClientPlatform() === "web") {
+    return <Navigate to="/home" replace />;
+  }
+
+  return <Navigate to={lastRoute || "/page"} replace />;
+}
+
+/** Guard: only allow /home on web platform, redirect others to editor */
+function HomeGuard({ children }: { children: React.ReactNode }) {
+  if (getClientPlatform() !== "web") {
+    return <Navigate to="/page" replace />;
+  }
+  return <>{children}</>;
 }
 
 const EditorPage = React.lazy(() => import("../pages/EditorPage"));
@@ -45,7 +60,11 @@ export const router = createBrowserRouter([
   },
   {
     path: "/home",
-    element: <HomePage />,
+    element: (
+      <HomeGuard>
+        <HomePage />
+      </HomeGuard>
+    ),
   },
   {
     path: "*",

@@ -97,6 +97,19 @@
   user-select: none;
 }
 
+/* Electron: top action bar is the window drag region */
+:global(body.electron) .appHeader {
+  -webkit-app-region: drag;
+  padding-top: 50px;
+  height: calc(60px + 50px);
+}
+
+:global(body.electron) .appHeader button,
+:global(body.electron) .appHeader a,
+:global(body.electron) .appHeader input {
+  -webkit-app-region: no-drag;
+}
+
 .iconButton {
   background-color: transparent;
   border: none;
@@ -223,6 +236,28 @@
   flex: 0 0 60px;
   padding-block: 0;
   padding-inline: 1rem 0.25rem;
+}
+
+/* Electron: draggable spacer above sidebar for macOS traffic lights */
+.electronSidebarDragArea {
+  display: none;
+}
+
+:global(body.electron) .electronSidebarDragArea {
+  display: block;
+  flex: 0 0 auto;
+  height: 50px;
+  -webkit-app-region: drag;
+}
+
+/* Electron: sidebar header is also draggable */
+:global(body.electron) .appSidebarHeader {
+  -webkit-app-region: drag;
+}
+
+:global(body.electron) .appSidebarHeader button,
+:global(body.electron) .appSidebarHeader a {
+  -webkit-app-region: no-drag;
 }
 
 .appSidebarMain {

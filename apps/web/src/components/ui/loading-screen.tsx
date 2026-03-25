@@ -6,7 +6,7 @@ export default function LoadingScreen() {
   return (
     <div
       className={cn(
-        "flex items-center justify-center h-screen-dvh w-screen-dvw"
+        "flex items-center justify-center h-dvh w-full overflow-hidden"
       )}
     >
       <img

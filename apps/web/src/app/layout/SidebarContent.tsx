@@ -388,6 +388,7 @@ export function SidebarContent({
 
       {!hasPanel && (
         <>
+          <div className={style.electronSidebarDragArea} />
           <div className={clsx(style.appSidebarHeader, "gap-3")}>
             <button
               className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full rounded-md hover:bg-accent/50 transition-colors"

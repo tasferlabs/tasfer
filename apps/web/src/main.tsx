@@ -51,6 +51,11 @@ if ((window as any).Capacitor?.isNativePlatform?.()) {
   document.body.classList.add("native");
 }
 
+// Mark Electron so CSS can apply window-chrome styles (drag regions, traffic-light insets)
+if ((window as any).cypher) {
+  document.body.classList.add("electron");
+}
+
 // Start font loading in background — don't block initial render.
 // Font metrics are computed lazily on first use per size/weight combo.
 loadFonts();
@@ -118,21 +123,145 @@ function renderApp() {
   root.render(<App />);
 }
 
+/**
+ * Acquire an exclusive Web Lock so only one tab can run the app.
+ * OPFS + wa-sqlite requires exclusive access — a second tab would corrupt state.
+ * Electron and Capacitor are single-window, so this only applies to the web platform.
+ */
+function acquireTabLock(): Promise<boolean> {
+  if (
+    !navigator.locks ||
+    (window as any).cypher || // Electron
+    (window as any).Capacitor?.isNativePlatform?.() // Capacitor
+  ) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise((resolve) => {
+    navigator.locks.request("cypher-app", { ifAvailable: true }, (lock) => {
+      if (!lock) {
+        // Another tab holds the lock
+        resolve(false);
+        return;
+      }
+      // Hold the lock for the lifetime of this tab by returning
+      // a promise that never resolves
+      resolve(true);
+      return new Promise(() => {});
+    });
+  });
+}
+
+/** Apply the user's saved theme so CSS variables resolve correctly. */
+function applyStoredTheme() {
+  const stored = localStorage.getItem("theme");
+  const root = document.documentElement;
+  if (stored === "dark") {
+    root.classList.add("dark");
+  } else if (stored === "light") {
+    root.classList.remove("dark");
+  } else {
+    // "system" or unset — follow OS preference
+    if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+  }
+}
+
+function renderTabError() {
+  applyStoredTheme();
+  if (!root) {
+    root = createRoot(document.getElementById("root")!);
+    (window as any).__CYPHER_ROOT__ = root;
+  }
+  root.render(<TabAlreadyOpenScreen />);
+}
+
+function TabAlreadyOpenScreen() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100dvh",
+        width: "100%",
+        overflow: "hidden",
+        fontFamily:
+          'ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+        padding: "24px",
+        textAlign: "center",
+        background: "var(--background)",
+        color: "var(--foreground)",
+      }}
+    >
+      <div style={{ fontSize: "32px", marginBottom: "16px" }}>&#9888;</div>
+      <h1
+        style={{
+          fontSize: "18px",
+          fontWeight: 600,
+          margin: "0 0 12px",
+        }}
+      >
+        {i18next.t("error.tabAlreadyOpen", "Cypher is already open")}
+      </h1>
+      <p
+        style={{
+          fontSize: "14px",
+          color: "var(--muted-foreground)",
+          maxWidth: "400px",
+          lineHeight: 1.7,
+          margin: "0 0 24px",
+        }}
+      >
+        {i18next.t(
+          "error.tabAlreadyOpenDesc",
+          "Cypher can only run in one tab at a time. Please close this tab and use the one that's already open.",
+        )}
+      </p>
+      <button
+        onClick={() => window.location.reload()}
+        style={{
+          padding: "10px 24px",
+          background: "var(--primary)",
+          color: "var(--primary-foreground)",
+          border: "none",
+          cursor: "pointer",
+          fontFamily: "inherit",
+          fontSize: "13px",
+          fontWeight: 600,
+        }}
+      >
+        {i18next.t("error.tryAgainTab", "Try again")}
+      </button>
+    </div>
+  );
+}
+
 if (platformReady) {
   // Platform already initialized from a previous HMR cycle — just re-render
   renderApp();
 } else {
-  // Initialize platform adapter (web/electron/capacitor) before rendering.
-  // Must await — the worker-backed SQLite needs time to spin up.
-  initPlatform()
-    .then(() => {
-      platformReady = true;
-      (window as any).__CYPHER_PLATFORM_READY__ = true;
-      renderApp();
-    })
-    .catch((err) => {
-      console.error("[Platform] Failed to initialize:", err);
-    });
+  acquireTabLock().then((acquired) => {
+    if (!acquired) {
+      renderTabError();
+      return;
+    }
+    // Initialize platform adapter (web/electron/capacitor) before rendering.
+    // Must await — the worker-backed SQLite needs time to spin up.
+    initPlatform()
+      .then(() => {
+        platformReady = true;
+        (window as any).__CYPHER_PLATFORM_READY__ = true;
+        renderApp();
+      })
+      .catch((err) => {
+        console.error("[Platform] Failed to initialize:", err);
+      });
+  });
 }
 
 // Register service worker for offline support

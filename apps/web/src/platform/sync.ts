@@ -96,6 +96,8 @@ export interface ReplicatorHost {
   getAssetData(hash: string): Promise<{ ext: string; data: Uint8Array } | null>;
   /** Store an asset received from a peer */
   storeAssetData(hash: string, ext: string, data: Uint8Array): Promise<void>;
+  /** Get the shared encryption key for a peer (hex string). Returns null if not set. */
+  getPeerSharedKey(publicKey: string): Promise<string | null>;
 }
 
 // =============================================================================
@@ -255,6 +257,7 @@ export class Replicator {
     }
     for (const [hex, entry] of this.topics) {
       if (entry.remotePubKey === publicKey) {
+        this.network.unregisterTopicKey(hex);
         await entry.topic.destroy();
         this.topics.delete(hex);
         break;
@@ -485,6 +488,11 @@ export class Replicator {
     if (this.pairingSession) await this.cancelPairing();
 
     const topicHex = opts.invite.topic;
+
+    // Derive and register encryption key for the pairing topic
+    const pairingKey = await derivePairingKey(opts.invite.secret, topicHex);
+    this.network.registerTopicKey(topicHex, pairingKey);
+
     const topic = await this.network.join(hexToBytes(topicHex));
 
     this.pairingSession = {
@@ -524,6 +532,7 @@ export class Replicator {
 
   async cancelPairing(): Promise<void> {
     if (!this.pairingSession) return;
+    this.network.unregisterTopicKey(this.pairingSession.topicHex);
     await this.pairingSession.topic.destroy();
     this.pairingSession = null;
   }
@@ -536,6 +545,12 @@ export class Replicator {
     const topicHex = await computePeerTopic(this.localPublicKey, remotePubKey);
 
     if (this.topics.has(topicHex)) return;
+
+    // Register the E2E encryption key for this topic before joining
+    const sharedKeyHex = await this.host.getPeerSharedKey(remotePubKey);
+    if (sharedKeyHex) {
+      this.network.registerTopicKey(topicHex, hexToBytes(sharedKeyHex));
+    }
 
     const topic = await this.network.join(hexToBytes(topicHex));
     this.topics.set(topicHex, { topic, remotePubKey });
@@ -998,6 +1013,7 @@ export class Replicator {
     // In single-peer mode, clean up immediately
     if (!session.multi) {
       session.completed = true;
+      this.network.unregisterTopicKey(session.topicHex);
       await session.topic.destroy();
       this.pairingSession = null;
     }
@@ -1131,4 +1147,20 @@ function hexToBytes(hex: string): Uint8Array {
     return bytes;
   }
   return new TextEncoder().encode(hex);
+}
+
+/**
+ * Derive an encryption key for a pairing topic.
+ * Both peers know the invite secret and topic — HKDF produces the same key.
+ */
+async function derivePairingKey(secretHex: string, topicHex: string): Promise<Uint8Array> {
+  const secret = hexToBytes(secretHex);
+  const info = enc.encode("cypher-pair:" + topicHex);
+  const keyMaterial = await crypto.subtle.importKey("raw", secret.buffer as ArrayBuffer, "HKDF", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info },
+    keyMaterial,
+    256,
+  );
+  return new Uint8Array(bits);
 }

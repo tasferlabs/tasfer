@@ -62,6 +62,7 @@ export function VersionProvider({ children }: { children: ReactNode }) {
     updateAvailable: apiUpdateAvailable,
     platform,
     updateUrl,
+    performPlatformUpdate,
   } = useVersionCheck();
 
   const [serviceWorkerUpdateReady, setServiceWorkerUpdateReady] =
@@ -111,6 +112,12 @@ export function VersionProvider({ children }: { children: ReactNode }) {
   }, [versionInfo]);
 
   const performUpdate = useCallback(async () => {
+    // Electron: delegate to the native auto-updater
+    if (performPlatformUpdate) {
+      await performPlatformUpdate();
+      return;
+    }
+
     // Clear all caches first to ensure fresh resources
     await clearAllCaches();
 
@@ -153,7 +160,7 @@ export function VersionProvider({ children }: { children: ReactNode }) {
 
     // Default: reload with cache-busting to get latest assets
     window.location.href = window.location.pathname + "?_update=" + Date.now();
-  }, [activateServiceWorker, updateUrl]);
+  }, [activateServiceWorker, updateUrl, performPlatformUpdate]);
 
   return (
     <VersionContext.Provider
