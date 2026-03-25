@@ -2,7 +2,11 @@
   "name": "cypher-desktop",
   "version": "1.0.0",
   "description": "Cypher desktop application",
-  "author": "Hamza Khuswan",
+  "homepage": "https://github.com/hamza512b/cypher",
+  "author": {
+    "name": "Hamza Khuswan",
+    "email": "hi@hamza.se"
+  },
   "private": true,
   "main": "out/main/index.js",
   "scripts": {

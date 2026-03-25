@@ -15,7 +15,15 @@ import { registerUpdaterHandlers } from "./handlers/updater";
 
 // Register custom protocol before app is ready
 protocol.registerSchemesAsPrivileged([
-  { scheme: "app", privileges: { standard: true, secure: true } },
+  {
+    scheme: "app",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
 ]);
 
 let tray: Tray | null = null;

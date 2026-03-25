@@ -264,8 +264,9 @@ if (platformReady) {
   });
 }
 
-// Register service worker for offline support
-const updateSW = registerSW({
+// Register service worker for offline support (skip in Electron — app:// doesn't support SW)
+const isElectron = !!(window as any).cypher;
+const updateSW = isElectron ? (() => {}) : registerSW({
   onNeedRefresh() {
     // New version available - notify VersionContext via bridge
     console.log("[SW] New version available");
