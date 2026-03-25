@@ -638,7 +638,7 @@ export class Replicator {
         await this.handleSyncPull(fromPubKey, msg);
         break;
       case "sync-data":
-        await this.handleSyncData(msg);
+        await this.handleSyncData(fromPubKey, msg);
         break;
 
       // Real-time push
@@ -761,7 +761,10 @@ export class Replicator {
     });
   }
 
-  private async handleSyncData(msg: SyncDataMsg) {
+  private async handleSyncData(fromPubKey: string, msg: SyncDataMsg) {
+    const conn = this.peers.get(fromPubKey);
+    if (!conn || !conn.sharedSpaces.has(msg.spaceId)) return;
+
     if (msg.spaceOps.length > 0) {
       await this.host.applyRemoteSpaceOps(msg.spaceId, msg.spaceOps);
     }
