@@ -1946,9 +1946,11 @@ export class Engine implements Platform {
     parentId: string | null,
   ): Promise<{ id: string; title: string; color?: string | null }[]> {
     const chain: { id: string; title: string; color?: string | null }[] = [];
+    const visited = new Set<string>();
     let currentId = parentId;
 
-    while (currentId) {
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
       const rows = await this.driver.db.execute<{
         id: string;
         title: string;
