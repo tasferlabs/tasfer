@@ -1462,6 +1462,12 @@ export class Engine implements Platform {
     onConnectionChange() {
       return () => {};
     },
+    getConnectedPeers() {
+      return [];
+    },
+    onConnectedPeersChange() {
+      return () => {};
+    },
   };
 
   /** Replace the sync implementation (called by platform init) */

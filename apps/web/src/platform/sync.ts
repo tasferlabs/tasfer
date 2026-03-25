@@ -207,6 +207,7 @@ export class Replicator {
   /** Connection state */
   private connectionState: ConnectionState = "disconnected";
   private connectionListeners = new Set<(state: ConnectionState) => void>();
+  private connectedPeersListeners = new Set<(peers: string[]) => void>();
   private pageEventListeners = new Set<Partial<PageEvents>>();
 
   constructor(network: NetworkDriver, host: ReplicatorHost) {
@@ -250,6 +251,7 @@ export class Replicator {
       conn.cleanup();
       conn.netPeer.close();
       this.peers.delete(publicKey);
+      this.emitConnectedPeers();
     }
     for (const [hex, entry] of this.topics) {
       if (entry.remotePubKey === publicKey) {
@@ -399,6 +401,15 @@ export class Replicator {
   onConnectionChange(cb: (state: ConnectionState) => void): () => void {
     this.connectionListeners.add(cb);
     return () => { this.connectionListeners.delete(cb); };
+  }
+
+  getConnectedPeers(): string[] {
+    return Array.from(this.peers.keys());
+  }
+
+  onConnectedPeersChange(cb: (peers: string[]) => void): () => void {
+    this.connectedPeersListeners.add(cb);
+    return () => { this.connectedPeersListeners.delete(cb); };
   }
 
   // ---------------------------------------------------------------------------
@@ -554,6 +565,7 @@ export class Replicator {
 
     const unsubClose = netPeer.onClose(() => {
       this.peers.delete(remotePubKey);
+      this.emitConnectedPeers();
       for (const room of this.rooms.values()) {
         const peerId = remotePubKey.slice(0, 32);
         if (room.remotePeers.has(peerId)) {
@@ -572,6 +584,7 @@ export class Replicator {
       cleanup: () => { unsub(); unsubClose(); },
     };
     this.peers.set(remotePubKey, conn);
+    this.emitConnectedPeers();
 
     // Send hello with our space list
     this.sendHello(netPeer);
@@ -584,6 +597,7 @@ export class Replicator {
     conn.cleanup();
     conn.netPeer.close();
     this.peers.delete(publicKey);
+    this.emitConnectedPeers();
 
     for (const room of this.rooms.values()) {
       const peerId = publicKey.slice(0, 32);
@@ -1039,6 +1053,11 @@ export class Replicator {
     }
   }
 
+  private emitConnectedPeers() {
+    const peers = this.getConnectedPeers();
+    for (const cb of this.connectedPeersListeners) cb(peers);
+  }
+
   // ---------------------------------------------------------------------------
   // Cleanup
   // ---------------------------------------------------------------------------
@@ -1049,6 +1068,7 @@ export class Replicator {
       conn.netPeer.close();
     }
     this.peers.clear();
+    this.emitConnectedPeers();
 
     for (const entry of this.topics.values()) {
       await entry.topic.destroy();
@@ -1058,6 +1078,7 @@ export class Replicator {
     await this.cancelPairing();
     this.rooms.clear();
     this.connectionListeners.clear();
+    this.connectedPeersListeners.clear();
     this.pageEventListeners.clear();
   }
 }

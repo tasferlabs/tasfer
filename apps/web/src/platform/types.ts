@@ -483,6 +483,10 @@ export interface Platform {
     getConnectionState(): ConnectionState;
     /** Subscribe to connection state changes */
     onConnectionChange(cb: (state: ConnectionState) => void): () => void;
+    /** Get currently connected peers by public key */
+    getConnectedPeers(): string[];
+    /** Subscribe to connected peer list changes */
+    onConnectedPeersChange(cb: (peers: string[]) => void): () => void;
   };
 
   // ---------------------------------------------------------------------------

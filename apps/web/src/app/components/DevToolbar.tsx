@@ -633,6 +633,8 @@ export function DevToolbar() {
   const [hidden, setHidden] = useState(false);
   const [tab, setTab] = useState<Tab>("database");
   const [conn, setConn] = useState<ConnectionState>("disconnected");
+  const [connectedPeers, setConnectedPeers] = useState<string[]>([]);
+  const [connectedPeerNames, setConnectedPeerNames] = useState<string[]>([]);
   const [panelHeight, setPanelHeight] = useState(PANEL_DEFAULT_H);
   const [isResizing, setIsResizing] = useState(false);
 
@@ -735,14 +737,49 @@ export function DevToolbar() {
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
+    let unsubPeers: (() => void) | undefined;
+    let active = true;
     try {
       const p = getPlatform();
       setConn(p.sync.getConnectionState());
+      const hydratePeers = async (peerKeys: string[]) => {
+        try {
+          const knownPeers = await p.peers.list();
+          if (!active) return;
+          const nameByKey = new Map(
+            knownPeers.map((peer) => [peer.publicKey, peer.name]),
+          );
+          setConnectedPeerNames(
+            peerKeys.map(
+              (key) =>
+                nameByKey.get(key) || `${key.slice(0, 8)}...${key.slice(-4)}`,
+            ),
+          );
+        } catch {
+          if (!active) return;
+          setConnectedPeerNames(
+            peerKeys.map((key) => `${key.slice(0, 8)}...${key.slice(-4)}`),
+          );
+        }
+      };
+
+      const initialPeers = p.sync.getConnectedPeers();
+      setConnectedPeers(initialPeers);
+      void hydratePeers(initialPeers);
+
       unsub = p.sync.onConnectionChange(setConn);
+      unsubPeers = p.sync.onConnectedPeersChange((peerKeys) => {
+        setConnectedPeers(peerKeys);
+        void hydratePeers(peerKeys);
+      });
     } catch {
       /* not ready */
     }
-    return () => unsub?.();
+    return () => {
+      active = false;
+      unsub?.();
+      unsubPeers?.();
+    };
   }, []);
 
   const load = useCallback(async (t: TableName, o: number, s: string) => {
@@ -1024,6 +1061,11 @@ export function DevToolbar() {
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
+  const peersSummary =
+    connectedPeerNames.length > 0
+      ? connectedPeerNames.join(", ")
+      : "No peers connected";
+
   return (
     <AnimatePresence mode="wait">
       {open ? (
@@ -1096,6 +1138,34 @@ export function DevToolbar() {
             ))}
 
             <div className="flex-1" />
+
+            <div
+              className={cn(
+                "flex items-center max-w-[320px] h-6 px-2 gap-1.5 rounded-md",
+                "border border-border/70 bg-muted/40",
+              )}
+              title={peersSummary}
+            >
+              <svg
+                className="w-3 h-3 text-muted-foreground shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M17 20a4 4 0 00-8 0m8 0H7m10 0h3m-3 0a4 4 0 00-8 0m-5 0h3m0 0a4 4 0 018 0m0-8a3 3 0 11-6 0 3 3 0 016 0zm6 1a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zM8 13a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"
+                />
+              </svg>
+              <span className="text-[10px] text-foreground font-medium tabular-nums shrink-0">
+                {connectedPeers.length}
+              </span>
+              <span className="text-[10px] text-muted-foreground truncate">
+                {peersSummary}
+              </span>
+            </div>
 
             <div className="flex items-center gap-1.5 px-2">
               <div
@@ -2313,6 +2383,29 @@ export function DevToolbar() {
             />
             <span className="text-[11px] font-medium">Dev</span>
           </button>
+          <div
+            className={cn(
+              "flex items-center h-6 px-2 gap-1 rounded-full",
+              "border border-border/70 bg-muted/40",
+              "text-[10px] text-muted-foreground tabular-nums",
+            )}
+            title={peersSummary}
+          >
+            <svg
+              className="w-2.5 h-2.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M17 20a4 4 0 00-8 0m8 0H7m10 0h3m-3 0a4 4 0 00-8 0m-5 0h3m0 0a4 4 0 018 0m0-8a3 3 0 11-6 0 3 3 0 016 0zm6 1a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zM8 13a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"
+              />
+            </svg>
+            {connectedPeers.length}
+          </div>
           <button
             onClick={() => setHidden(true)}
             className="flex items-center justify-center w-6 h-6 rounded-full text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-colors"
