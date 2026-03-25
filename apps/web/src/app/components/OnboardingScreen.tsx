@@ -67,6 +67,11 @@ export function OnboardingScreen() {
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-background p-4">
+      {/* Electron: fixed drag region at top so the window can be moved */}
+      <div
+        className="fixed inset-x-0 top-0 h-12 z-50"
+        style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+      />
       <div className="w-full max-w-md">
         {/* Progress dots */}
         <div className="flex items-center justify-center gap-2 mb-8">

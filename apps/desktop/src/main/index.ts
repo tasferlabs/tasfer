@@ -5,7 +5,15 @@
  * and registers all IPC handlers.
  */
 
-import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, net } from "electron";
+import {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  nativeImage,
+  protocol,
+  net,
+} from "electron";
 import path from "path";
 import fs from "fs";
 import { getDb, closeDb } from "./db";
@@ -36,14 +44,27 @@ const isDev = !app.isPackaged;
 const DEV_SERVER_URL = "http://localhost:4000";
 
 function createWindow() {
+  const isMac = process.platform === "darwin";
+  const isWindows = process.platform === "win32";
+
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 400,
     minHeight: 300,
     icon: path.join(__dirname, "../../resources/icon.png"),
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 18 },
+    // macOS: hidden inset keeps traffic lights with custom positioning
+    // Windows/Linux: hidden + titleBarOverlay gives native controls without the title bar
+    titleBarStyle: isMac ? "hiddenInset" : "hidden",
+    ...(isMac
+      ? { trafficLightPosition: { x: 16, y: 18 } }
+      : {
+          titleBarOverlay: {
+            color: "#00000000", // transparent background
+            symbolColor: "#9ca3af", // muted gray icons
+            height: 48,
+          },
+        }),
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"), // electron-vite outputs to out/main and out/preload
       contextIsolation: true,
@@ -51,6 +72,11 @@ function createWindow() {
       sandbox: false, // needed for better-sqlite3 native module
     },
   });
+
+  // Remove menu bar on Windows/Linux — macOS uses the system menu bar
+  if (!isMac) {
+    Menu.setApplicationMenu(null);
+  }
 
   // Hide to tray instead of closing
   win.on("close", (e) => {

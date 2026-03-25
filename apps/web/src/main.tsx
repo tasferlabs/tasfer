@@ -54,6 +54,13 @@ if ((window as any).Capacitor?.isNativePlatform?.()) {
 // Mark Electron so CSS can apply window-chrome styles (drag regions, traffic-light insets)
 if ((window as any).cypher) {
   document.body.classList.add("electron");
+  // Add platform-specific class for Windows vs macOS title bar differences
+  const platform = (window as any).cypher.platform;
+  if (platform === "win32") {
+    document.body.classList.add("electron-win");
+  } else if (platform === "darwin") {
+    document.body.classList.add("electron-mac");
+  }
 }
 
 // Start font loading in background — don't block initial render.

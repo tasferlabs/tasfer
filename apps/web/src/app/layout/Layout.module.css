@@ -104,6 +104,13 @@
   height: calc(60px + 50px);
 }
 
+/* Windows: less top padding (no traffic lights), but reserve right space for overlay controls */
+:global(body.electron-win) .appHeader {
+  padding-top: 8px;
+  height: calc(60px + 8px);
+  padding-inline-end: 144px; /* space for min/max/close overlay buttons */
+}
+
 :global(body.electron) .appHeader button,
 :global(body.electron) .appHeader a,
 :global(body.electron) .appHeader input {
@@ -248,6 +255,11 @@
   flex: 0 0 auto;
   height: 50px;
   -webkit-app-region: drag;
+}
+
+/* Windows: smaller drag area (no traffic lights to clear) */
+:global(body.electron-win) .electronSidebarDragArea {
+  height: 8px;
 }
 
 /* Electron: sidebar header is also draggable */

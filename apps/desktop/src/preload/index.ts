@@ -16,6 +16,8 @@ const bridge = {
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
   },
+
+  platform: process.platform,
 };
 
 contextBridge.exposeInMainWorld("cypher", bridge);
