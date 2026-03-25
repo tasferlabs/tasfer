@@ -12,6 +12,7 @@ import {
   Type,
 } from "lucide-react";
 import { useEffect, useRef, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import type { Block } from "../deserializer/loadPage";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
@@ -161,6 +162,7 @@ export function MountedEditor({
 }: MountedEditorProps) {
   const { setOnOpenFind } = usePageSettings();
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
   const mountedRef = useRef<MountedEditorInstance | null>(null);
   const syncEngineRef = useRef<SyncEngine | null>(null);
   const onScrollRef = useRef(onScroll);
@@ -1340,13 +1342,13 @@ export function MountedEditor({
     const items: ContextMenuItem[] = [
       {
         id: "selectAll",
-        label: "Select All",
+        label: t("contextMenu.selectAll", "Select All"),
         icon: <Type size={16} />,
         action: () => handleContextMenuAction("selectAll"),
       },
       {
         id: "copy",
-        label: "Copy",
+        label: t("contextMenu.copy", "Copy"),
         icon: <Copy size={16} />,
         action: () => handleContextMenuAction("copy"),
         disabled: !hasSelection,
@@ -1357,7 +1359,7 @@ export function MountedEditor({
     if (!readonly) {
       items.push({
         id: "cut",
-        label: "Cut",
+        label: t("contextMenu.cut", "Cut"),
         icon: <Scissors size={16} />,
         action: () => handleContextMenuAction("cut"),
         disabled: !hasSelection,
@@ -1366,7 +1368,7 @@ export function MountedEditor({
       if (canPaste) {
         items.push({
           id: "paste",
-          label: "Paste",
+          label: t("contextMenu.paste", "Paste"),
           icon: <Clipboard size={16} />,
           action: () => handleContextMenuAction("paste"),
         });
@@ -1443,40 +1445,40 @@ export function MountedEditor({
 
       items.push({
         id: "format",
-        label: "Format",
+        label: t("contextMenu.format", "Format"),
         icon: <Type size={16} />,
         children: [
           {
             id: "format-bold",
-            label: "Bold",
+            label: t("contextMenu.bold", "Bold"),
             icon: <Bold size={16} />,
             action: () => mountedRef.current?.editor.toggleBold(),
             active: isBold,
           },
           {
             id: "format-italic",
-            label: "Italic",
+            label: t("contextMenu.italic", "Italic"),
             icon: <Italic size={16} />,
             action: () => mountedRef.current?.editor.toggleItalic(),
             active: isItalic,
           },
           {
             id: "format-code",
-            label: "Code",
+            label: t("contextMenu.code", "Code"),
             icon: <Code size={16} />,
             action: () => mountedRef.current?.editor.toggleCode(),
             active: isCode,
           },
           {
             id: "format-strikethrough",
-            label: "Strikethrough",
+            label: t("contextMenu.strikethrough", "Strikethrough"),
             icon: <Strikethrough size={16} />,
             action: () => mountedRef.current?.editor.toggleStrikethrough(),
             active: isStrikethrough,
           },
           {
             id: "format-link",
-            label: "Link",
+            label: t("contextMenu.link", "Link"),
             icon: <Link size={16} />,
             action: () => {
               const currentState = mountedRef.current?.editor.getState();
