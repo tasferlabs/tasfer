@@ -25,17 +25,24 @@ import {
   extractTitleFromBlocks,
   getVisibleTextFromRuns,
 } from "@/editor/sync/char-runs";
-import { formatDatePreferred, formatTimePreferred } from "@/lib/dateTimePreferences";
-import { DURATION_OPTIONS, formatDurationLabel, type TFunction } from "@/lib/utils";
-import type { SyncState } from "@/websocket/hooks/useRoom";
+import {
+  formatDatePreferred,
+  formatTimePreferred,
+} from "@/lib/dateTimePreferences";
+import {
+  DURATION_OPTIONS,
+  formatDurationLabel,
+  type TFunction,
+} from "@/lib/utils";
+import type { SyncState } from "@/app/hooks/useP2PRoom";
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import * as Popover from "@radix-ui/react-popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { debounce } from "lodash-es";
-import { Calendar, Trash } from "lucide-react";
+import { Calendar, History, Trash } from "lucide-react";
 import { DateTime } from "luxon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { TopActionBarPortal } from "../layout/TopActionBarSlot";
 import { Controller, useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
@@ -45,7 +52,7 @@ import { SavingIndicator } from "../components/SavingIndicator";
 import { MountedEditor } from "../MountedEditor";
 
 import { PagePicker } from "@/components/PagePicker";
-import { usePageEvents } from "@/websocket/hooks/usePageEvents";
+import { useP2PPageEvents } from "@/app/hooks/useP2PPageEvents";
 import clsx from "clsx";
 import {
   getPage,
@@ -54,11 +61,11 @@ import {
   useGetPages,
   useMovePage,
   useUpdatePage,
-  type HLC,
 } from "../api/pages.api";
 import EmptyStateIllustration from "../components/illustrations/empty-state";
 import ErrorStateIllustration from "../components/illustrations/error-state";
 import NotFoundStateIllustration from "../components/illustrations/not-found-state";
+import { SnapshotRestore } from "../components/SnapshotRestore";
 import { WordCountOverlay } from "../components/WordCountOverlay";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useSpaces } from "../contexts/SpaceContext";
@@ -129,17 +136,15 @@ export default function EditorPage() {
   const [permission, setLocalPermission] = useState<"view" | "edit" | "owner">(
     "owner",
   );
-  // State for loading page snapshot once on mount
+  // State for loading page blocks once on mount
   const [pageSnapshot, setPageSnapshot] = useState<Block[] | null>(null);
-  // Snapshot clock - used for delta sync
-  const [snapshotClock, setSnapshotClock] = useState<HLC | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
   // Track if page was deleted by another user (via WebSocket)
   const [isDeletedByOther, setIsDeletedByOther] = useState(false);
   // Persisted editor state - once entered, stays until user takes action
   const [persistedState, setPersistedState] = useState<
-    "empty" | "not-found" | "error" | null
+    "empty" | "not-found" | "error" | "corrupted" | null
   >(null);
   // Auto-title state - when true, title is auto-generated from content
   const [autoTitle, setAutoTitle] = useState(true);
@@ -152,9 +157,8 @@ export default function EditorPage() {
   const scheduleTagRef = useRef<HTMLDivElement>(null);
   // Restore function ref from MountedEditor
   const restoreFnRef = useRef<((blocks: Block[]) => void) | null>(null);
-  // Confirm save function ref from MountedEditor - called after backend confirms save
-  const confirmSaveFnRef = useRef<((clock: HLC) => void) | null>(null);
 
+  const navigate = useNavigate();
   const { activeSpaceId } = useSpaces();
   const treeExpand = useTreeExpand();
   const { data: pages, isLoading: isLoadingPages } = useGetPages(
@@ -204,12 +208,18 @@ export default function EditorPage() {
     };
   }, [id, setLastPageId, setPageId, setPermission]);
 
-  // Listen for page deletion events from other users
-  usePageEvents({
+  // Listen for page deletion events (both local and remote)
+  useP2PPageEvents({
     onPageDeleted: (deletedPageId) => {
       if (deletedPageId === id) {
-        // Page was deleted by another user, show not found state
         setIsDeletedByOther(true);
+        // Navigate to another page so the user isn't stuck on a deleted page
+        const remaining = pages?.filter((p) => p.id !== deletedPageId);
+        if (remaining && remaining.length > 0) {
+          navigate(`/page/${remaining[0].id}`, { replace: true });
+        } else {
+          navigate("/page", { replace: true });
+        }
       }
     },
   });
@@ -271,20 +281,31 @@ export default function EditorPage() {
       try {
         const page = await getPage(id!);
         if (!cancelled) {
-          const snapshot = page.snapshot || [];
-          setPageSnapshot(snapshot);
-          // Track snapshot clock for delta sync
-          setSnapshotClock(page.snapshotClock || null);
+          const blocks = page.blocks || [];
+          // Detect corrupted/empty page data — a valid page must have at least one visible block
+          const hasVisibleBlocks = blocks.some((b) => !b.deleted);
+          if (!hasVisibleBlocks) {
+            // Page exists but has no content — mark as corrupted so user can recover from snapshots
+            setPageSnapshot(blocks);
+            setAutoTitle(page.autoTitle);
+            setCurrentTitle(page.title || "");
+            setLocalPermission("owner");
+            setPermission("owner");
+            setIsLoading(false);
+            setPersistedState("corrupted");
+            return;
+          }
+          setPageSnapshot(blocks);
           // Track auto-title state
           setAutoTitle(page.autoTitle);
           setCurrentTitle(page.title || "");
           // Track permission
-          const perm = page.permission || "owner";
+          const perm = "owner";
           setLocalPermission(perm);
           setPermission(perm);
           setIsLoading(false);
           // Update initial word count from blocks
-          setWordCount(countWordsFromBlocks(snapshot));
+          setWordCount(countWordsFromBlocks(blocks));
           // Expand all ancestor pages in the sidebar tree
           if (page.parents && page.parents.length > 0) {
             treeExpand.expandMany(page.parents.map((p) => p.id));
@@ -312,28 +333,20 @@ export default function EditorPage() {
   const handleSave = useCallback(
     async ({
       pageId,
-      snapshot,
-      clock,
+      blocks,
     }: {
       pageId: string;
-      snapshot: Block[];
-      clock: HLC | null;
+      blocks: Block[];
     }) => {
       if (!pageId) return;
 
       try {
-        // Check if we should auto-update the title
-        const updateData: {
-          id: string;
-          snapshot: Block[];
-          snapshotClock: HLC | null;
-          title?: string;
-        } = { id: pageId, snapshot, snapshotClock: clock };
+        const updateData: { id: string; title?: string } = { id: pageId };
 
         let titleChanged = false;
         // Only update title if we're still on the same page
         if (autoTitleRef.current && pageId === id) {
-          const extractedTitle = extractTitleFromBlocks(snapshot);
+          const extractedTitle = extractTitleFromBlocks(blocks);
           if (extractedTitle !== currentTitleRef.current) {
             updateData.title = extractedTitle;
             setCurrentTitle(extractedTitle);
@@ -342,13 +355,6 @@ export default function EditorPage() {
         }
 
         await updatePage(updateData);
-
-        // Confirm save succeeded - update snapshotClock and mark operations as synced
-        // This is only called after the backend confirms the save, not optimistically
-        // Only confirm if we're still on the same page
-        if (clock && confirmSaveFnRef.current && pageId === id) {
-          confirmSaveFnRef.current(clock);
-        }
 
         // Invalidate page list queries AFTER save completes so sidebar gets updated title
         if (titleChanged) {
@@ -380,9 +386,9 @@ export default function EditorPage() {
   // Handle content changes from editor (local changes only - for saving)
   // Captures current page ID to ensure save targets the correct page
   const handleContentChange = useCallback(
-    (snapshot: Block[], clock: HLC | null) => {
+    (blocks: Block[]) => {
       if (!id) return;
-      debouncedSave({ pageId: id, snapshot, clock });
+      debouncedSave({ pageId: id, blocks });
     },
     [id, debouncedSave],
   );
@@ -401,12 +407,15 @@ export default function EditorPage() {
     (blocks: Block[]) => {
       if (!id) return;
       if (restoreFnRef.current) {
+        // Normal restore through mounted editor (generates CRDT operations)
         restoreFnRef.current(blocks);
-        // Trigger save after restore - include pageId for correct targeting
-        debouncedSave({ pageId: id, snapshot: blocks, clock: null });
+      } else {
+        // Corrupted state — no editor mounted, restore directly
+        setPageSnapshot(blocks);
+        setPersistedState(null);
       }
     },
-    [id, debouncedSave],
+    [id],
   );
 
   // Expose restore callback to context (not in readonly mode)
@@ -463,6 +472,9 @@ export default function EditorPage() {
   if (persistedState === "error") {
     return <EditorErrorState />;
   }
+  if (persistedState === "corrupted") {
+    return <EditorCorruptedState />;
+  }
 
   // If no ID in URL
   if (!id) {
@@ -491,11 +503,9 @@ export default function EditorPage() {
 
   // Pass snapshot blocks to the editor
   // Snapshot is loaded once on mount, editor manages state from there
-  const headerSlot = document.getElementById("top-action-bar-slot");
-
   return (
     <div className="flex flex-col w-full h-full">
-      {headerSlot && createPortal(<PageActionBar pageId={id} />, headerSlot)}
+      <TopActionBarPortal><PageActionBar pageId={id} /></TopActionBarPortal>
       <div className="relative flex-1 min-h-0 overflow-hidden">
         {/* Schedule tag overlaid on editor, scrolls with canvas content */}
         <div
@@ -513,22 +523,14 @@ export default function EditorPage() {
           onContentUpdate={handleContentUpdate}
           autoFocus={!readonly}
           pageId={id}
+          spaceId={activeSpaceId ?? undefined}
           onSyncStateChange={setSyncState}
-          snapshotClock={snapshotClock}
-          onSnapshotClockUpdate={readonly ? undefined : setSnapshotClock}
           onAwarenessChange={handleAwarenessChange}
           onRestoreReady={
             readonly
               ? undefined
               : (restoreFn) => {
                   restoreFnRef.current = restoreFn;
-                }
-          }
-          onConfirmSaveReady={
-            readonly
-              ? undefined
-              : (confirmFn) => {
-                  confirmSaveFnRef.current = confirmFn;
                 }
           }
           readonly={readonly}
@@ -569,7 +571,11 @@ function formatScheduleLabel(
       duration: formatDurationLabel(duration, t),
     });
   }
-  return t("format.dateTime", { defaultValue: "{{date}}, {{time}}", date, time });
+  return t("format.dateTime", {
+    defaultValue: "{{date}}, {{time}}",
+    date,
+    time,
+  });
 }
 
 interface ScheduleFormValues {
@@ -618,7 +624,9 @@ function ScheduleContent({
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <label className="text-sm font-medium">{t("settings.dateTime.title", "Date & Time")}</label>
+        <label className="text-sm font-medium">
+          {t("settings.dateTime.title", "Date & Time")}
+        </label>
         <Controller
           control={control}
           name="scheduledAt"
@@ -639,7 +647,9 @@ function ScheduleContent({
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">{t("calendar.duration", "Duration")}</label>
+        <label className="text-sm font-medium">
+          {t("calendar.duration", "Duration")}
+        </label>
         <Controller
           control={control}
           name="duration"
@@ -703,7 +713,7 @@ function ScheduleTag({
 
   const isScheduled = !!page?.scheduledAt;
   const label = isScheduled
-    ? formatScheduleLabel(page.scheduledAt!, page.duration, t)
+    ? formatScheduleLabel(page.scheduledAt!, page.duration || null, t)
     : t("calendar.schedule", "Schedule");
 
   const content = (
@@ -766,7 +776,9 @@ function ScheduleTag({
             }
           }}
         >
-          <h3 className="text-sm font-semibold mb-3">{t("calendar.schedule", "Schedule")}</h3>
+          <h3 className="text-sm font-semibold mb-3">
+            {t("calendar.schedule", "Schedule")}
+          </h3>
           {content}
         </Popover.Content>
       </Popover.Portal>
@@ -822,10 +834,7 @@ function PageActionBar({ pageId }: { pageId: string }) {
   return (
     <>
       {permission !== "view" && page ? (
-        <MovePageButton
-          pageId={pageId}
-          currentParentId={page.parentId}
-        >
+        <MovePageButton pageId={pageId} currentParentId={page.parentId}>
           <button className={style.breadcrumbs} style={{ cursor: "pointer" }}>
             {page.parents &&
               page.parents.length > 1 &&
@@ -833,7 +842,12 @@ function PageActionBar({ pageId }: { pageId: string }) {
                 const parent = page.parents[page.parents.length - 2];
                 return (
                   <>
-                    <span className={clsx(style.breadcrumbLink, "inline-flex! items-center gap-1.5")}>
+                    <span
+                      className={clsx(
+                        style.breadcrumbLink,
+                        "inline-flex! items-center gap-1.5",
+                      )}
+                    >
                       <span
                         className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
                         style={{
@@ -841,7 +855,9 @@ function PageActionBar({ pageId }: { pageId: string }) {
                           opacity: parent.color ? 1 : 0.3,
                         }}
                       />
-                      <span className="truncate">{parent.title || t("common.untitled", "Untitled")}</span>
+                      <span className="truncate">
+                        {parent.title || t("common.untitled", "Untitled")}
+                      </span>
                     </span>
                     <span className={style.breadcrumbSeparator}>
                       <CaretRightIcon size={12} />
@@ -849,7 +865,12 @@ function PageActionBar({ pageId }: { pageId: string }) {
                   </>
                 );
               })()}
-            <span className={clsx(style.breadcrumbLink, "inline-flex! items-center gap-1.5")}>
+            <span
+              className={clsx(
+                style.breadcrumbLink,
+                "inline-flex! items-center gap-1.5",
+              )}
+            >
               <span
                 className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
                 style={{
@@ -857,7 +878,9 @@ function PageActionBar({ pageId }: { pageId: string }) {
                   opacity: effectiveColor ? 1 : 0.3,
                 }}
               />
-              <span className="truncate">{page.title || t("common.untitled", "Untitled")}</span>
+              <span className="truncate">
+                {page.title || t("common.untitled", "Untitled")}
+              </span>
             </span>
             <CaretDownIcon size={10} className="shrink-0 opacity-40" />
           </button>
@@ -870,7 +893,12 @@ function PageActionBar({ pageId }: { pageId: string }) {
               const parent = page.parents[page.parents.length - 2];
               return (
                 <>
-                  <span className={clsx(style.breadcrumbLink, "inline-flex! items-center gap-2")}>
+                  <span
+                    className={clsx(
+                      style.breadcrumbLink,
+                      "inline-flex! items-center gap-2",
+                    )}
+                  >
                     <span
                       className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
                       style={{
@@ -886,7 +914,12 @@ function PageActionBar({ pageId }: { pageId: string }) {
                 </>
               );
             })()}
-          <span className={clsx(style.breadcrumbLink, "inline-flex! items-center gap-2")}>
+          <span
+            className={clsx(
+              style.breadcrumbLink,
+              "inline-flex! items-center gap-2",
+            )}
+          >
             <span
               className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
               style={{
@@ -948,14 +981,18 @@ function EditorEmptyState() {
   return (
     <div className={style.appErrorState}>
       <EmptyStateIllustration />
-      <div className={style.appError}>{t("page.noPagesFound", "No pages found")}</div>
+      <div className={style.appError}>
+        {t("page.noPagesFound", "No pages found")}
+      </div>
       <p className={style.appErrorDescription}>
-        {t("page.noWorriesCreate", "No worries. You can create your first page right away")}
+        {t(
+          "page.noWorriesCreate",
+          "No worries. You can create your first page right away",
+        )}
       </p>
-      <Button
-        onClick={() => handleAdd()}
-        disabled={isCreating}
-      >{t("page.createNewPage", "Create new page")}</Button>
+      <Button onClick={() => handleAdd()} disabled={isCreating}>
+        {t("page.createNewPage", "Create new page")}
+      </Button>
     </div>
   );
 }
@@ -965,9 +1002,14 @@ function EditorNotFoundState() {
   return (
     <div className={style.appErrorState}>
       <NotFoundStateIllustration />
-      <div className={style.appError}>{t("error.pageNotFound", "The page has not been found")}</div>
+      <div className={style.appError}>
+        {t("error.pageNotFound", "The page has not been found")}
+      </div>
       <p className={style.appErrorDescription}>
-        {t("error.pageDeletedOrNotExist", "The page has been deleted or does not exist")}
+        {t(
+          "error.pageDeletedOrNotExist",
+          "The page has been deleted or does not exist",
+        )}
       </p>
     </div>
   );
@@ -978,7 +1020,39 @@ export function EditorErrorState() {
   return (
     <div className={style.appErrorState}>
       <ErrorStateIllustration />
-      <div className={style.appError}>{t("error.pageLoadFailed", "Error occurred loading the page")}</div>
+      <div className={style.appError}>
+        {t("error.pageLoadFailed", "Error occurred loading the page")}
+      </div>
+    </div>
+  );
+}
+
+function EditorCorruptedState() {
+  const { t } = useTranslation();
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+
+  return (
+    <div className={style.appErrorState}>
+      <ErrorStateIllustration />
+      <div className={style.appError}>
+        {t("error.pageCorrupted", "This page appears to corrupted")}
+      </div>
+      <p className={style.appErrorDescription}>
+        {t(
+          "error.pageCorruptedDescription",
+          "The page content could not be loaded. You can restore a previous version or start with a blank page.",
+        )}
+      </p>
+      <div className="flex gap-3">
+        <Button onClick={() => setShowVersionHistory(true)}>
+          <History className="h-4 w-4 mr-2" />
+          {t("snapshot.versionHistory", "Version history")}
+        </Button>
+      </div>
+      <SnapshotRestore
+        open={showVersionHistory}
+        onOpenChange={setShowVersionHistory}
+      />
     </div>
   );
 }

@@ -1,5 +1,4 @@
-import { usePageEventsWithQueryClient } from "@/websocket/hooks/usePageEvents";
-import { useSpaceEventsWithQueryClient } from "@/websocket/hooks/useSpaceEvents";
+import { useP2PPageEventsWithQueryClient } from "@/app/hooks/useP2PPageEvents";
 import {
   closestCenter,
   DndContext,
@@ -11,48 +10,21 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { FileTextIcon, PlusIcon, SignOutIcon } from "@phosphor-icons/react";
+import { FileTextIcon, PlusIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { ChevronsUpDown, Ellipsis, PanelLeftClose } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { Ellipsis, PanelLeftClose } from "lucide-react";
+import React, { useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
-import { z } from "zod";
 import { Button } from "../../components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../../components/ui/dialog";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "../../components/ui/drawer";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu";
-import {
-  Form,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "../../components/ui/form";
-import { Input } from "../../components/ui/input";
 import { ScrollArea } from "../../components/ui/scroll-area";
-import { Textarea } from "../../components/ui/textarea";
 import {
   useCreatePage,
   useMovePage,
@@ -60,12 +32,10 @@ import {
   type IListPage,
 } from "../api/pages.api";
 // import { useGetSharedByMe, useGetSharedWithMe } from "../api/shares.api";
-import { getImageUrl } from "../api/images.api";
+import { useAssetUrl } from "../api/images.api";
+import { useLeaveSpace } from "../api/spaces.api";
 import { AvatarPreviewDialog } from "../components/AvatarPreviewDialog";
-import { useCreateSpace, useLeaveSpace } from "../api/spaces.api";
 import { useConfirmation } from "../components/ConfirmationDialog";
-import { EditGroupDialog } from "../components/EditGroupDialog";
-import { InviteMembersDialog } from "../components/InviteMembersDialog";
 import Icons from "../components/uiKit/Icons/Icons";
 import { useAuth } from "../contexts/AuthContext";
 import { useSpaces } from "../contexts/SpaceContext";
@@ -79,8 +49,14 @@ import style from "./Layout.module.css";
 
 export function SidebarContent({
   setOpen,
+  onAddSpace,
+  onSpaceSettings,
+  onInviteMembers,
 }: {
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  onAddSpace: () => void;
+  onSpaceSettings: (spaceId: string) => void;
+  onInviteMembers: (spaceId: string) => void;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -91,21 +67,18 @@ export function SidebarContent({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeDragData, setActiveDragData] = useState<IListPage | null>(null);
 
-  // Dialog states — matching l4r PagesLayout pattern
-  const [showAddGroupDialog, setShowAddGroupDialog] = useState(false);
-  const [groupSettingsId, setGroupSettingsId] = useState<string | null>(null);
-  const [inviteMembersId, setInviteMembersId] = useState<string | null>(null);
+  // Dialog states
+  const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false);
   // const [sharedCollapsed, setSharedCollapsed] = useState(false);
 
   // const { id: currentPageId } = useParams<{ id: string }>();
-  const { user, logout } = useAuth();
-  const { personalSpace, groupSpaces } = useSpaces();
+  const { user } = useAuth();
+  const { spaces } = useSpaces();
   // const { data: sharedWithMe } = useGetSharedWithMe();
   // const { data: sharedByMe } = useGetSharedByMe();
 
   // Subscribe to real-time page and space events from other users
-  usePageEventsWithQueryClient();
-  useSpaceEventsWithQueryClient();
+  useP2PPageEventsWithQueryClient();
 
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: (newPage, variables) => {
@@ -182,12 +155,6 @@ export function SidebarContent({
     },
   });
 
-  const { mutate: createGroupSpace } = useCreateSpace({
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["spaces"] });
-    },
-  });
-
   const { mutate: requestLeaveGroup } = useLeaveSpace({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["spaces"] });
@@ -236,11 +203,9 @@ export function SidebarContent({
     setActiveDragData(event.active.data.current as IListPage);
   }
 
-  // Helper to get a space's display name from its ID
   function getSpaceName(spaceId: string): string {
-    if (personalSpace?.id === spaceId) return t("common.private", "Private");
-    const group = groupSpaces.find((g) => g.id === spaceId);
-    return group?.name || t("common.spaceKw", "space");
+    const space = spaces.find((s) => s.id === spaceId);
+    return space?.name || t("common.spaceKw", "space");
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -407,8 +372,7 @@ export function SidebarContent({
         .slice(0, 2)
     : "?";
 
-  const avatarUrl = user?.avatar ? getImageUrl(user.avatar) : null;
-  const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false);
+  const avatarUrl = useAssetUrl(user?.avatar);
 
   return (
     <>
@@ -424,54 +388,28 @@ export function SidebarContent({
 
       {!hasPanel && (
         <>
+          <div className={style.electronSidebarDragArea} />
           <div className={clsx(style.appSidebarHeader, "gap-3")}>
-            {/* User avatar with popover menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 min-w-0 rounded-md px-1.5 py-1 hover:bg-accent transition-colors cursor-pointer w-full">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
-                    {avatarUrl ? (
-                      <img
-                        src={avatarUrl}
-                        alt=""
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      initials
-                    )}
-                  </div>
-                  <span className="text-sm font-medium text-foreground truncate">
-                    {user?.name}
-                  </span>
-                  <ChevronsUpDown
-                    size={14}
-                    className="shrink-0 text-muted-foreground"
+            <button
+              className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full rounded-md hover:bg-accent/50 transition-colors"
+              onClick={() => avatarUrl && setAvatarPreviewOpen(true)}
+              style={{ cursor: avatarUrl ? "pointer" : "default" }}
+            >
+              <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt=""
+                    className="w-full h-full object-cover"
                   />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-48">
-                <DropdownMenuLabel>
-                  {user?.email ?? user?.name}
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {avatarUrl && (
-                  <DropdownMenuItem onSelect={() => setAvatarPreviewOpen(true)}>
-                    {t("profile.viewAvatar", "View avatar")}
-                  </DropdownMenuItem>
+                ) : (
+                  initials
                 )}
-                <DropdownMenuItem onSelect={logout}>
-                  <SignOutIcon size={16} />
-                  {t("auth.signOut", "Sign out")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <AvatarPreviewDialog
-              open={avatarPreviewOpen}
-              onOpenChange={setAvatarPreviewOpen}
-              imageUrl={avatarUrl}
-              name={user?.name}
-            />
+              </div>
+              <span className="text-sm font-medium text-foreground truncate">
+                {user?.name}
+              </span>
+            </button>
 
             <Button
               variant="ghost"
@@ -504,7 +442,7 @@ export function SidebarContent({
               className={style.appNavigationLink}
               onClick={() => {
                 if (isMobile) setOpen(false);
-                setShowAddGroupDialog(true);
+                onAddSpace();
               }}
             >
               <div className={style.appNavigationLinkIcon}>
@@ -522,15 +460,14 @@ export function SidebarContent({
               onDragEnd={handleDragEnd}
             >
               <ScrollArea className={style.appSidebarScrollArea}>
-                {/* Group spaces */}
-                {groupSpaces.map((group) => (
-                  <React.Fragment key={group.id}>
+                {spaces.map((space) => (
+                  <React.Fragment key={space.id}>
                     <div className={style.appSidebarSection}>
                       <div className={style.appSidebarSectionTitle}>
                         <div className={style.appSidebarSectionIcon}>
                           <Icons.Shared />
                         </div>
-                        {group.name}
+                        {space.name}
                       </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger
@@ -541,26 +478,24 @@ export function SidebarContent({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
                           <DropdownMenuItem
-                            onSelect={(ev) => {
-                              ev.preventDefault();
+                            onSelect={() => {
                               if (isMobile) setOpen(false);
-                              setGroupSettingsId(group.id);
+                              onSpaceSettings(space.id);
                             }}
                           >
                             {t("space.settings", "Space settings")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onSelect={(ev) => {
-                              ev.preventDefault();
+                            onSelect={() => {
                               if (isMobile) setOpen(false);
-                              setInviteMembersId(group.id);
+                              onInviteMembers(space.id);
                             }}
                           >
                             {t("share.inviteMembers", "Invite members")}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
-                            onClick={() => leaveGroup(group.id)}
+                            onClick={() => leaveGroup(space.id)}
                           >
                             {t("space.leaveSpace", "Leave space")}
                           </DropdownMenuItem>
@@ -568,44 +503,16 @@ export function SidebarContent({
                       </DropdownMenu>
                       <button
                         className={style.appSidebarSectionButton}
-                        onClick={() => handleAdd(null, group.id)}
+                        onClick={() => handleAdd(null, space.id)}
                         disabled={isCreating}
                       >
                         <PlusIcon size={20} />
                         <span className="sr-only">{t("page.addPage", "Add page")}</span>
                       </button>
                     </div>
-                    <PagesArea parentId={null} spaceId={group.id} />
+                    <PagesArea parentId={null} spaceId={space.id} />
                   </React.Fragment>
                 ))}
-
-                {/* Personal space */}
-                {personalSpace && (
-                  <>
-                    <div className={style.appSidebarSection}>
-                      <div className={style.appSidebarSectionTitle}>
-                        <div className={style.appSidebarSectionIcon}>
-                          <Icons.Lock width={20} height={20} />
-                        </div>
-                        {t("common.private", "Private")}
-                      </div>
-                      <button
-                        className={style.appSidebarSectionButton}
-                        onClick={() => handleAdd(null, personalSpace.id)}
-                        disabled={isCreating}
-                      >
-                        <PlusIcon size={20} />
-                        <span className="sr-only">{t("page.addPage", "Add page")}</span>
-                      </button>
-                    </div>
-
-                    <PagesArea
-                      className={style.appSidebarSectionPagesArea}
-                      parentId={null}
-                      spaceId={personalSpace.id}
-                    />
-                  </>
-                )}
               </ScrollArea>
               <DragOverlay>
                 {activeId && activeDragData ? (
@@ -620,148 +527,13 @@ export function SidebarContent({
         </>
       )}
 
-      {/* Dialogs — rendered outside sidebar, matching l4r PagesLayout pattern */}
-      <AddGroupDialog
-        open={showAddGroupDialog}
-        onOpenChange={setShowAddGroupDialog}
-        onSubmit={(data) => createGroupSpace(data)}
-      />
-      <EditGroupDialog
-        spaceId={groupSettingsId || ""}
-        open={!!groupSettingsId}
-        onOpenChange={(open) =>
-          setGroupSettingsId(open ? groupSettingsId : null)
-        }
-        openInviteMembers={setInviteMembersId}
-      />
-      <InviteMembersDialog
-        spaceId={inviteMembersId || ""}
-        open={!!inviteMembersId}
-        onOpenChange={(open) =>
-          setInviteMembersId(open ? inviteMembersId : null)
-        }
+      <AvatarPreviewDialog
+        open={avatarPreviewOpen}
+        onOpenChange={setAvatarPreviewOpen}
+        imageUrl={avatarUrl}
+        name={user?.name}
       />
     </>
   );
 }
 
-// --- Add Group Dialog (with name + description, like l4r AddGroupDialog) ---
-
-function AddGroupDialog({
-  open,
-  onOpenChange,
-  onSubmit,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSubmit: (data: { name: string; description: string }) => void;
-}) {
-  const { t } = useTranslation();
-  const isMobile = useResponsive("(max-width: 768px)");
-
-  const FormSchema = useMemo(
-    () =>
-      z.object({
-        name: z
-          .string()
-          .min(1, t("validation.spaceNameRequired", "Space name is required"))
-          .min(3, t("validation.spaceNameTooShort", "Space name is too short"))
-          .max(50, t("validation.spaceNameTooLong", "Space name is too long")),
-        description: z.string().max(500, t("validation.descriptionTooLong", "Description is too long")),
-      }),
-    [t],
-  );
-
-  const form = useForm<z.infer<typeof FormSchema>>({
-    resolver: zodResolver(FormSchema),
-    defaultValues: {
-      name: "",
-      description: "",
-    },
-  });
-
-  useEffect(() => {
-    if (open) {
-      form.reset();
-    }
-  }, [open, form]);
-
-  function handleSubmit(data: z.infer<typeof FormSchema>) {
-    onSubmit(data);
-    onOpenChange(false);
-  }
-
-  const content = (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          {t("space.createNewSpaceDesc", "Create a new space to share pages with others")}
-        </p>
-
-        <FormField
-          control={form.control}
-          name="name"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t("common.name", "Name")}</FormLabel>
-              <Input {...field} placeholder={t("space.spaceName", "Space name")} />
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="description"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t("common.description", "Description")}</FormLabel>
-              <Textarea {...field} placeholder={t("common.description", "Description")} rows={3} />
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        {isMobile ? null : (
-          <DialogFooter>
-            <Button type="submit">{t("common.create", "Create")}</Button>
-          </DialogFooter>
-        )}
-      </form>
-    </Form>
-  );
-
-  if (isMobile) {
-    return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent>
-          <div className="mx-auto w-full max-w-sm pb-6">
-            <DrawerHeader>
-              <DrawerTitle>{t("space.createNewSpace", "Create new space")}</DrawerTitle>
-            </DrawerHeader>
-            <div className="px-4">{content}</div>
-            <DrawerFooter className="pt-4">
-              <Button onClick={form.handleSubmit(handleSubmit)}>
-                {t("common.create", "Create")}
-              </Button>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                {t("common.cancel", "Cancel")}
-              </Button>
-            </DrawerFooter>
-          </div>
-        </DrawerContent>
-      </Drawer>
-    );
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{t("space.createNewSpace", "Create new space")}</DialogTitle>
-        </DialogHeader>
-        {content}
-      </DialogContent>
-    </Dialog>
-  );
-}

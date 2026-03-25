@@ -1409,13 +1409,8 @@ export default function createEditor(
     }
     scheduleRender(); // Schedule render when focus changes
 
-    // Notify native platforms of editor focus state
-    if (window.AndroidBridge?.setEditorFocused) {
-      window.AndroidBridge.setEditorFocused(focused);
-    }
-    if (window.IOSBridge?.setEditorFocused) {
-      window.IOSBridge.setEditorFocused(focused);
-    }
+    // Notify native platform of editor focus state
+    window.CypherBridge?.editor.setFocused(focused);
   }
 
   function setInitialCursor() {
@@ -2062,17 +2057,20 @@ export default function createEditor(
     // Clear all block caches
     clearAllBlockCaches(newPage.blocks);
 
-    // Update state with new page and reset cursor to beginning
-    const visibleBlocks = state.view.visibleBlocks;
+    // Update visibleBlocks from the new page so cursor targets a valid block
+    state.view.visibleBlocks = getVisibleBlocks(newPage);
+    const newVisibleBlocks = state.view.visibleBlocks;
+
+    // Reset cursor to beginning of first visible block
     state = {
       ...state,
       document: {
         ...state.document,
         page: newPage,
         cursor:
-          visibleBlocks.length > 0
+          newVisibleBlocks.length > 0
             ? {
-                position: { blockIndex: 0, textIndex: 0 },
+                position: { blockIndex: newVisibleBlocks[0].originalIndex, textIndex: 0 },
                 lastUpdate: Date.now(),
               }
             : null,
@@ -2088,8 +2086,9 @@ export default function createEditor(
       broadcastFn(ops);
     }
 
-    // Mark document height as dirty
+    // Mark document height as dirty and reset scroll to top
     documentHeightDirty = true;
+    viewport = { ...viewport, scrollY: 0 };
 
     // Re-render and notify listeners
     const currentState = state;

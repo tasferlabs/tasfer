@@ -1,7 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { CLIENT_VERSION, meetsMinimumVersion } from "@/version";
-import { getPlatform, type Platform } from "@/platform";
-import { API_BASE, authFetch } from "../api/client";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { getClientPlatform, type ClientPlatform } from "@/platform";
 
 export interface UpdateUrls {
   ios: string | null;
@@ -27,91 +25,113 @@ export interface VersionCheckResult {
   /** Whether a newer version is available */
   updateAvailable: boolean;
   /** Current platform */
-  platform: Platform;
+  platform: ClientPlatform;
   /** Update URL for current platform */
   updateUrl: string | null;
   /** Refresh version check */
   refresh: () => void;
+  /** Platform-specific update action (download + install) */
+  performPlatformUpdate: (() => Promise<void>) | null;
 }
 
-const VERSION_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+type CypherBridge = {
+  invoke(channel: string, ...args: unknown[]): Promise<unknown>;
+  on(channel: string, callback: (...args: unknown[]) => void): () => void;
+};
 
+function getElectronBridge(): CypherBridge | null {
+  if (typeof window !== "undefined" && (window as any).cypher) {
+    return (window as any).cypher as CypherBridge;
+  }
+  return null;
+}
+
+/**
+ * Version check hook.
+ *
+ * On Electron: subscribes to auto-updater IPC events from the main process.
+ * On other platforms: returns safe defaults (no central server to check).
+ */
 export function useVersionCheck(): VersionCheckResult {
-  const [isLoading, setIsLoading] = useState(true);
+  const platform = getClientPlatform();
+  const bridgeRef = useRef(getElectronBridge());
+
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updateDownloaded, setUpdateDownloaded] = useState(false);
 
-  const platform = getPlatform();
+  useEffect(() => {
+    const bridge = bridgeRef.current;
+    if (!bridge) return;
 
-  const checkVersion = useCallback(async () => {
-    try {
-      const response = await authFetch(`${API_BASE}/version`, {
-        headers: {
-          "X-Client-Version": String(CLIENT_VERSION),
-          "X-Client-Platform": platform,
-        },
-      });
+    const unsubs: (() => void)[] = [];
 
-      if (!response.ok) {
-        throw new Error(`Version check failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data.success) {
-        setVersionInfo(data.data);
+    unsubs.push(
+      bridge.on("updater:checking", () => {
+        setIsLoading(true);
         setError(null);
-      } else {
-        throw new Error(data.error || "Unknown error");
-      }
-    } catch (err) {
-      // Don't block app if version check fails - could be offline
-      console.warn("[VersionCheck] Failed to check version:", err);
-      setError(err instanceof Error ? err.message : "Version check failed");
-    } finally {
-      setIsLoading(false);
+      }),
+    );
+
+    unsubs.push(
+      bridge.on("updater:available", () => {
+        setIsLoading(false);
+        setUpdateAvailable(true);
+      }),
+    );
+
+    unsubs.push(
+      bridge.on("updater:not-available", () => {
+        setIsLoading(false);
+        setUpdateAvailable(false);
+      }),
+    );
+
+    unsubs.push(
+      bridge.on("updater:downloaded", () => {
+        setUpdateDownloaded(true);
+      }),
+    );
+
+    unsubs.push(
+      bridge.on("updater:error", (data: any) => {
+        setIsLoading(false);
+        setError(data?.message ?? "Update check failed");
+      }),
+    );
+
+    return () => unsubs.forEach((fn) => fn());
+  }, []);
+
+  const refresh = useCallback(() => {
+    const bridge = bridgeRef.current;
+    if (bridge) {
+      bridge.invoke("updater:check").catch(() => {});
     }
-  }, [platform]);
+  }, []);
 
-  // Initial check
-  useEffect(() => {
-    checkVersion();
-  }, [checkVersion]);
+  const performPlatformUpdate = useCallback(async () => {
+    const bridge = bridgeRef.current;
+    if (!bridge) return;
 
-  // Periodic re-check (in case API updates minVersion while app is open)
-  useEffect(() => {
-    const interval = setInterval(checkVersion, VERSION_CHECK_INTERVAL);
-    return () => clearInterval(interval);
-  }, [checkVersion]);
-
-  // Also check when app comes back online
-  useEffect(() => {
-    const handleOnline = () => {
-      checkVersion();
-    };
-    window.addEventListener("online", handleOnline);
-    return () => window.removeEventListener("online", handleOnline);
-  }, [checkVersion]);
-
-  // Calculate derived state
-  const meetsMinimum = versionInfo
-    ? meetsMinimumVersion(CLIENT_VERSION, versionInfo.minVersion)
-    : true; // Assume OK if we can't check
-
-  const updateAvailable = versionInfo
-    ? CLIENT_VERSION < versionInfo.latestVersion
-    : false;
-
-  // Get platform-specific update URL
-  const updateUrl = versionInfo?.updateUrls?.[platform] ?? null;
+    if (updateDownloaded) {
+      await bridge.invoke("updater:install");
+    } else {
+      await bridge.invoke("updater:download");
+      // updater:downloaded event will fire → then user can trigger install
+    }
+  }, [updateDownloaded]);
 
   return {
     isLoading,
     error,
-    versionInfo,
-    meetsMinimum,
+    versionInfo: null,
+    meetsMinimum: true, // Desktop users should never be blocked from local data
     updateAvailable,
     platform,
-    updateUrl,
-    refresh: checkVersion,
+    updateUrl: null,
+    refresh,
+    performPlatformUpdate: bridgeRef.current ? performPlatformUpdate : null,
   };
 }

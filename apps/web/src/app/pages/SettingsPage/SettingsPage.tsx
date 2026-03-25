@@ -1,41 +1,35 @@
-import { useState } from "react";
-import { createPortal } from "react-dom";
-import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router-dom";
-import { ChevronRight, User, Lock, SlidersHorizontal, Download, Info } from "lucide-react";
-import { Preferences } from "./PreferencesTab/Preferences";
-import { Data } from "./DataTab/Data";
-import { Profile } from "./ProfileTab/Profile";
-import { Security } from "./SecurityTab/Security";
-import { Information } from "./InformationTab/Information";
-import style from "./SettingsPage.module.css";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import useResponsive from "@/app/hooks/useResponsive";
 import {
   Drawer,
   DrawerContent,
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import useResponsive from "@/app/hooks/useResponsive";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ChevronRight, Download, SlidersHorizontal, User } from "lucide-react";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
+import { TopActionBarPortal } from "../../layout/TopActionBarSlot";
+import { Data } from "./DataTab/Data";
+import { Preferences } from "./PreferencesTab/Preferences";
+import { Profile } from "./ProfileTab/Profile";
+import style from "./SettingsPage.module.css";
 
-const TABS = ["profile", "security", "preferences", "data", "information"] as const;
+const TABS = ["profile", "preferences", "data"] as const;
 type Tab = (typeof TABS)[number];
 const DEFAULT_TAB = "profile";
 
 const TAB_ICONS: Record<Tab, React.ElementType> = {
   profile: User,
-  security: Lock,
   preferences: SlidersHorizontal,
   data: Download,
-  information: Info,
 };
 
 const CONTENT: Record<Tab, React.FC> = {
   profile: Profile,
-  security: Security,
   preferences: Preferences,
   data: Data,
-  information: Information,
 };
 
 export default function SettingsPage() {
@@ -57,24 +51,20 @@ export default function SettingsPage() {
 
   const tabLabels: Record<Tab, string> = {
     profile: t("settings.profile", "Profile"),
-    security: t("settings.security.title", "Security"),
     preferences: t("settings.preferences", "Preferences"),
     data: t("export.title", "Export"),
-    information: t("common.information", "Information"),
   };
-
-  const headerSlot = document.getElementById("top-action-bar-slot");
 
   if (isMobile) {
     const DrawerContentComponent = openDrawer ? CONTENT[openDrawer] : null;
 
     return (
       <div className={style.container}>
-        {headerSlot &&
-          createPortal(
-            <span className={style.heading}>{t("settings.title", "Settings")}</span>,
-            headerSlot
-          )}
+        <TopActionBarPortal>
+          <span className={style.heading}>
+            {t("settings.title", "Settings")}
+          </span>
+        </TopActionBarPortal>
 
         <div className={style.list}>
           {TABS.map((tab) => {
@@ -102,7 +92,9 @@ export default function SettingsPage() {
         >
           <DrawerContent>
             <DrawerHeader>
-              <DrawerTitle>{openDrawer ? tabLabels[openDrawer] : ""}</DrawerTitle>
+              <DrawerTitle>
+                {openDrawer ? tabLabels[openDrawer] : ""}
+              </DrawerTitle>
             </DrawerHeader>
             <div className={style.drawerBody}>
               {DrawerContentComponent && <DrawerContentComponent />}
@@ -115,34 +107,28 @@ export default function SettingsPage() {
 
   return (
     <div className={style.container}>
-      {headerSlot &&
-        createPortal(
-          <span className={style.heading}>{t("settings.title", "Settings")}</span>,
-          headerSlot
-        )}
+      <TopActionBarPortal>
+        <span className={style.heading}>{t("settings.title", "Settings")}</span>
+      </TopActionBarPortal>
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className={style.tabsList}>
-          <TabsTrigger value="profile">{t("settings.profile", "Profile")}</TabsTrigger>
-          <TabsTrigger value="security">{t("settings.security.title", "Security")}</TabsTrigger>
-          <TabsTrigger value="preferences">{t("settings.preferences", "Preferences")}</TabsTrigger>
+          <TabsTrigger value="profile">
+            {t("settings.profile", "Profile")}
+          </TabsTrigger>
+          <TabsTrigger value="preferences">
+            {t("settings.preferences", "Preferences")}
+          </TabsTrigger>
           <TabsTrigger value="data">{t("export.title", "Export")}</TabsTrigger>
-          <TabsTrigger value="information">{t("common.information", "Information")}</TabsTrigger>
         </TabsList>
         <TabsContent value={"profile"}>
           <Profile />
-        </TabsContent>
-        <TabsContent value={"security"}>
-          <Security />
         </TabsContent>
         <TabsContent value={"preferences"}>
           <Preferences />
         </TabsContent>
         <TabsContent value={"data"}>
           <Data />
-        </TabsContent>
-        <TabsContent value={"information"}>
-          <Information />
         </TabsContent>
       </Tabs>
     </div>

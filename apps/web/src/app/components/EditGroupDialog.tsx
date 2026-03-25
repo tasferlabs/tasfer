@@ -6,7 +6,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Form,
   FormField,
@@ -41,7 +40,7 @@ import {
   useLeaveSpace,
   type ISpace,
 } from "../api/spaces.api";
-import { getImageUrl } from "../api/images.api";
+import { useAssetUrl } from "../api/images.api";
 import { AvatarPreviewDialog } from "./AvatarPreviewDialog";
 import { useAuth } from "../contexts/AuthContext";
 import { useConfirmation } from "./ConfirmationDialog";
@@ -134,25 +133,18 @@ function GeneralTab({
           .min(1, t("validation.spaceNameRequired", "Space name is required"))
           .min(3, t("validation.spaceNameTooShort", "Space name is too short"))
           .max(50, t("validation.spaceNameTooLong", "Space name is too long")),
-        description: z.string().max(500, t("validation.descriptionTooLong", "Description is too long")),
       }),
     [t],
   );
 
   // Get the space data from the spaces query cache
-  const spaces = queryClient.getQueryData<{
-    owned: ISpace[];
-    member: (ISpace & { role: string })[];
-  }>(["spaces"]);
-  const space =
-    spaces?.owned.find((s) => s.id === spaceId) ??
-    spaces?.member.find((s) => s.id === spaceId);
+  const spaces = queryClient.getQueryData<ISpace[]>(["spaces"]);
+  const space = spaces?.find((s) => s.id === spaceId);
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
     values: {
       name: space?.name || "",
-      description: space?.description || "",
     },
   });
 
@@ -169,7 +161,7 @@ function GeneralTab({
   }, [open]);
 
   function onSubmit(data: z.infer<typeof FormSchema>) {
-    updateSpace({ id: spaceId, name: data.name, description: data.description });
+    updateSpace({ id: spaceId, name: data.name });
   }
 
   return (
@@ -182,18 +174,6 @@ function GeneralTab({
             <FormItem>
               <FormLabel>{t("common.name", "Name")}</FormLabel>
               <Input {...field} placeholder={t("space.spaceName", "Space name")} />
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="description"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t("common.description", "Description")}</FormLabel>
-              <Textarea {...field} placeholder={t("common.description", "Description")} rows={3} />
               <FormMessage />
             </FormItem>
           )}
@@ -213,6 +193,23 @@ function GeneralTab({
 
 // --- Members Tab ---
 
+function MemberAvatar({ avatar, name, onClick }: { avatar?: string | null; name?: string | null; onClick: () => void }) {
+  const avatarUrl = useAssetUrl(avatar);
+  return (
+    <div
+      className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden"
+      style={{ cursor: avatar ? "pointer" : undefined }}
+      onClick={onClick}
+    >
+      {avatarUrl ? (
+        <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+      ) : (
+        name?.charAt(0).toUpperCase() || "?"
+      )}
+    </div>
+  );
+}
+
 function MembersTab({
   spaceId,
   open,
@@ -231,6 +228,7 @@ function MembersTab({
     avatar: string;
     name: string | null;
   } | null>(null);
+  const previewAvatarUrl = useAssetUrl(previewMember?.avatar);
 
   const { data: members, isLoading: isLoadingMembers } = useGetSpaceMembers(
     open ? spaceId : undefined,
@@ -302,9 +300,9 @@ function MembersTab({
               key={member.id}
               className="flex items-center justify-between rounded-md border p-2 gap-2"
             >
-              <div
-                className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden"
-                style={{ cursor: member.userAvatar ? "pointer" : undefined }}
+              <MemberAvatar
+                avatar={member.userAvatar}
+                name={member.userName}
                 onClick={() =>
                   member.userAvatar &&
                   setPreviewMember({
@@ -312,13 +310,7 @@ function MembersTab({
                     name: member.userName,
                   })
                 }
-              >
-                {member.userAvatar ? (
-                  <img src={getImageUrl(member.userAvatar)} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  member.userName?.charAt(0).toUpperCase() || "?"
-                )}
-              </div>
+              />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium truncate">{member.userName}</p>
                 <p className="text-xs text-muted-foreground truncate">
@@ -358,7 +350,7 @@ function MembersTab({
       <AvatarPreviewDialog
         open={!!previewMember}
         onOpenChange={(open) => { if (!open) setPreviewMember(null); }}
-        imageUrl={previewMember ? getImageUrl(previewMember.avatar) : null}
+        imageUrl={previewAvatarUrl}
         name={previewMember?.name}
       />
     </div>

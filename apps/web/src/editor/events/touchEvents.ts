@@ -90,15 +90,9 @@ export function triggerHapticFeedback(
   style: "light" | "medium" | "heavy" = "heavy"
 ): void {
   try {
-    // iOS native bridge
-    if (window.IOSBridge?.postMessage) {
-      window.IOSBridge.postMessage({ action: "haptic", style });
-      return;
-    }
-
-    // Android native bridge
-    if (window.AndroidBridge?.haptic) {
-      window.AndroidBridge.haptic(style);
+    // Native bridge (iOS / Android)
+    if (window.CypherBridge) {
+      window.CypherBridge.haptic.trigger(style);
       return;
     }
 

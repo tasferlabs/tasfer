@@ -1,6 +1,8 @@
-import { useMutation, type UseMutationOptions, useQuery, type UseQueryOptions } from "@tanstack/react-query";
+import { useMutation, type UseMutationOptions } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
 import imageCompression from "browser-image-compression";
-import { authFetch, API_BASE, getAuthenticatedImageUrl } from "./client";
+import { getPlatform } from "@/platform";
+import type { Asset } from "@/platform";
 
 export interface IImage {
   id: string;
@@ -32,25 +34,22 @@ async function compressFile(file: File): Promise<File> {
   }
 }
 
+function assetToImage(asset: Asset): IImage {
+  return {
+    id: asset.hash,
+    url: asset.hash,
+    fileName: asset.fileName,
+    mimeType: asset.mimeType,
+    size: asset.size,
+  };
+}
+
 // Upload image
 export async function uploadImage(file: File): Promise<IImage> {
   const compressed = await compressFile(file);
-
-  const formData = new FormData();
-  formData.append("image", compressed);
-
-  const response = await authFetch(`${API_BASE}/images/upload`, {
-    method: "POST",
-    body: formData,
-  });
-
-  const result = await response.json();
-
-  if (!result.success) {
-    throw new Error(result.error || "Failed to upload image");
-  }
-
-  return result.data;
+  const platform = getPlatform();
+  const asset = await platform.assets.store(compressed);
+  return assetToImage(asset);
 }
 
 export function useUploadImage<TContext = unknown>(
@@ -62,42 +61,14 @@ export function useUploadImage<TContext = unknown>(
   });
 }
 
-// Get image info
-export async function getImageInfo(id: string): Promise<IImage> {
-  const response = await authFetch(`${API_BASE}/images/${id}/info`);
-  const data = await response.json();
-
-  if (!data.success) {
-    throw new Error(data.error || "Failed to fetch image info");
-  }
-
-  return data.data;
-}
-
-export function useGetImageInfo(id?: string, options?: UseQueryOptions<IImage, Error, IImage, any>) {
-  return useQuery({
-    queryKey: ["image-info", id],
-    queryFn: () => getImageInfo(id!),
-    enabled: !!id,
-    ...options,
-  });
-}
-
 // Delete image
 interface IDeleteImage {
   id: string;
 }
 
 export async function deleteImage(data: IDeleteImage): Promise<void> {
-  const response = await authFetch(`${API_BASE}/images/${data.id}`, {
-    method: "DELETE",
-  });
-
-  const result = await response.json();
-
-  if (!result.success) {
-    throw new Error(result.error || "Failed to delete image");
-  }
+  const platform = getPlatform();
+  return platform.assets.delete(data.id);
 }
 
 export function useDeleteImage<TContext = unknown>(
@@ -110,6 +81,28 @@ export function useDeleteImage<TContext = unknown>(
 }
 
 // Get image URL helper
-export function getImageUrl(imageId: string): string {
-  return getAuthenticatedImageUrl(`${API_BASE}/images/${imageId}`);
+export async function getImageUrl(imageId: string): Promise<string> {
+  const platform = getPlatform();
+  return platform.assets.getUrl(imageId);
+}
+
+// React hook for resolving an asset hash to a blob URL
+export function useAssetUrl(hash: string | null | undefined): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!hash) {
+      setUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    getImageUrl(hash).then(
+      (resolved) => { if (!cancelled) setUrl(resolved); },
+      () => { if (!cancelled) setUrl(null); },
+    );
+    return () => { cancelled = true; };
+  }, [hash]);
+
+  return url;
 }

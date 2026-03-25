@@ -338,14 +338,9 @@ export function handleMouseDown(
     if (position) {
       const linkData = getLinkAtPosition(position, state);
       if (linkData) {
-        // Open the link in a new tab using native bridge on mobile apps
-        if (window.IOSBridge?.postMessage) {
-          window.IOSBridge.postMessage({
-            action: "open-url",
-            url: linkData.url,
-          });
-        } else if (window.AndroidBridge?.openUrl) {
-          window.AndroidBridge.openUrl(linkData.url);
+        // Open the link using native bridge on mobile apps, or browser on web
+        if (window.CypherBridge) {
+          window.CypherBridge.navigation.openUrl(linkData.url);
         } else {
           window.open(linkData.url, "_blank", "noopener,noreferrer");
         }

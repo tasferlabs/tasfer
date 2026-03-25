@@ -8,7 +8,7 @@ import {
 } from "react";
 import { useVersionCheck, type VersionInfo } from "../hooks/useVersionCheck";
 import { serviceWorkerBridge } from "@/serviceWorkerBridge";
-import type { Platform } from "@/platform";
+import type { ClientPlatform } from "@/platform";
 
 interface VersionContextValue {
   /** Whether version check is loading */
@@ -24,7 +24,7 @@ interface VersionContextValue {
   /** Whether the service worker detected a new version */
   serviceWorkerUpdateReady: boolean;
   /** Current platform (ios, android, web) */
-  platform: Platform;
+  platform: ClientPlatform;
   /** Platform-specific update URL */
   updateUrl: string | null;
   /** Dismiss the update popup for this session */
@@ -62,6 +62,7 @@ export function VersionProvider({ children }: { children: ReactNode }) {
     updateAvailable: apiUpdateAvailable,
     platform,
     updateUrl,
+    performPlatformUpdate,
   } = useVersionCheck();
 
   const [serviceWorkerUpdateReady, setServiceWorkerUpdateReady] =
@@ -111,6 +112,12 @@ export function VersionProvider({ children }: { children: ReactNode }) {
   }, [versionInfo]);
 
   const performUpdate = useCallback(async () => {
+    // Electron: delegate to the native auto-updater
+    if (performPlatformUpdate) {
+      await performPlatformUpdate();
+      return;
+    }
+
     // Clear all caches first to ensure fresh resources
     await clearAllCaches();
 
@@ -153,7 +160,7 @@ export function VersionProvider({ children }: { children: ReactNode }) {
 
     // Default: reload with cache-busting to get latest assets
     window.location.href = window.location.pathname + "?_update=" + Date.now();
-  }, [activateServiceWorker, updateUrl]);
+  }, [activateServiceWorker, updateUrl, performPlatformUpdate]);
 
   return (
     <VersionContext.Provider

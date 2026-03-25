@@ -135,19 +135,11 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
   };
 
   const handleOpenLibrary = () => {
-    if (window.IOSBridge) {
-      window.IOSBridge.postMessage({ action: "open-photo-library" });
-    } else if (window.AndroidBridge?.openPhotoLibrary) {
-      window.AndroidBridge.openPhotoLibrary();
-    }
+    window.CypherBridge?.navigation.openPhotoLibrary();
   };
 
   const handleOpenCamera = () => {
-    if (window.IOSBridge) {
-      window.IOSBridge.postMessage({ action: "open-camera" });
-    } else if (window.AndroidBridge?.openCamera) {
-      window.AndroidBridge.openCamera();
-    }
+    window.CypherBridge?.navigation.openCamera();
   };
 
   const isNative = hasNativeBridge();

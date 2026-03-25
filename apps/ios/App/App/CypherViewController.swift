@@ -58,32 +58,49 @@ class CypherViewController: CAPBridgeViewController {
                     });
                 }
 
-                window.IOSBridge = {
-                    postMessage: function(msg) { window.webkit.messageHandlers.IOSBridge.postMessage(msg); },
-                    setEditorFocused: function(focused) {
-                        window.webkit.messageHandlers.IOSBridge.postMessage({action: 'editor-focus', focused: focused});
+                // Helper to call native IOSBridge message handler and return a Promise
+                function callNative(msg) {
+                    return new Promise(function(resolve) {
+                        window.webkit.messageHandlers.IOSBridge.postMessage(msg);
+                        resolve();
+                    });
+                }
+
+                window.CypherBridge = {
+                    clipboard: {
+                        copy: function(text) { return callNative({action: 'copy', text: text}); },
+                        cut: function(text) { return callNative({action: 'cut', text: text}); },
+                        paste: function() {
+                            return callStorage('paste', {});
+                        }
                     },
-                    // Storage methods (same interface as AndroidBridge, but returning Promises)
-                    storageWrite: function(path, base64Data) {
-                        return callStorage('write', { path: path, data: base64Data });
+                    haptic: {
+                        trigger: function(style) { return callNative({action: 'haptic', style: style}); }
                     },
-                    storageRead: function(path) {
-                        return callStorage('read', { path: path });
+                    editor: {
+                        setFocused: function(focused) { return callNative({action: 'editor-focus', focused: focused}); },
+                        updateUndoRedoState: function(canUndo, canRedo) { return callNative({action: 'undo-redo-state', canUndo: canUndo, canRedo: canRedo}); },
+                        updateToolbarIcon: function(iconType) { return callNative({action: 'toolbar-icon', iconType: iconType}); },
+                        updateFormattingState: function(bold, italic, code, strikethrough) { return callNative({action: 'formatting-state', bold: bold, italic: italic, code: code, strikethrough: strikethrough}); },
+                        setColorScheme: function(scheme) { return callNative({action: 'setColorScheme', colorScheme: scheme}); }
                     },
-                    storageDelete: function(path) {
-                        return callStorage('delete', { path: path });
+                    navigation: {
+                        openUrl: function(url) { return callNative({action: 'open-url', url: url}); },
+                        openPhotoLibrary: function() { return callNative({action: 'open-photo-library'}); },
+                        openCamera: function() { return callNative({action: 'open-camera'}); }
                     },
-                    storageList: function(path) {
-                        return callStorage('list', { path: path });
+                    files: {
+                        shareFile: function(base64Data, fileName, mimeType) {
+                            return callStorage('shareFile', { data: base64Data, fileName: fileName, mimeType: mimeType });
+                        }
                     },
-                    storageExists: function(path) {
-                        return callStorage('exists', { path: path });
-                    },
-                    getStorageInfo: function() {
-                        return callStorage('getStorageInfo', {});
-                    },
-                    shareFile: function(base64Data, fileName, mimeType) {
-                        return callStorage('shareFile', { data: base64Data, fileName: fileName, mimeType: mimeType });
+                    storage: {
+                        write: function(path, base64Data) { return callStorage('write', { path: path, data: base64Data }); },
+                        read: function(path) { return callStorage('read', { path: path }); },
+                        delete: function(path) { return callStorage('delete', { path: path }); },
+                        list: function(path) { return callStorage('list', { path: path }); },
+                        exists: function(path) { return callStorage('exists', { path: path }); },
+                        getInfo: function() { return callStorage('getStorageInfo', {}); }
                     }
                 };
             })();

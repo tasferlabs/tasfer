@@ -112,6 +112,29 @@
   font-size: 14px;
 }
 
+.home-btn-install,
+.home-btn-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-btn-install {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.home-btn-open {
+  background: transparent;
+  color: var(--foreground);
+  border: 1px solid var(--border);
+}
+
+.home-btn-open:hover {
+  border-color: var(--foreground);
+  opacity: 1;
+}
+
 /* ── Hero ── */
 
 .home-hero {
@@ -238,94 +261,6 @@
   line-height: 1.8;
 }
 
-/* ── Terminal ── */
-
-.home-terminal {
-  border: 1px solid var(--border);
-  background: var(--secondary);
-  overflow: hidden;
-  direction: ltr;
-  text-align: left;
-}
-
-.home-terminal-header {
-  display: flex;
-  gap: 6px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.home-terminal-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
-.home-terminal-dot--red {
-  background: #ef4444;
-}
-
-.home-terminal-dot--yellow {
-  background: #eab308;
-}
-
-.home-terminal-dot--green {
-  background: var(--primary);
-}
-
-.home-terminal-body {
-  padding: 20px 24px;
-  font-family: var(--home-mono);
-}
-
-.home-terminal-line {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.home-terminal-line--last {
-  margin-top: 16px;
-}
-
-.home-terminal-prompt {
-  color: var(--primary);
-  font-weight: 700;
-}
-
-.home-terminal-cmd {
-  color: var(--foreground);
-}
-
-.home-terminal-output {
-  display: flex;
-  gap: 16px;
-  padding-inline-start: 20px;
-}
-
-.home-terminal-key {
-  color: var(--muted-foreground);
-  min-width: 140px;
-  flex-shrink: 0;
-}
-
-.home-terminal-val {
-  color: var(--primary);
-}
-
-.home-terminal-cursor {
-  display: inline-block;
-  width: 8px;
-  height: 16px;
-  background: var(--primary);
-  animation: blink 1s step-end infinite;
-}
-
-@keyframes blink {
-  50% {
-    opacity: 0;
-  }
-}
 
 /* ── Principles ── */
 
@@ -395,6 +330,14 @@
   margin: 0 0 36px;
 }
 
+.home-cta-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 /* ── Footer ── */
 
 .home-footer {
@@ -405,6 +348,12 @@
   justify-content: space-between;
   padding: 24px 40px;
   border-top: 1px solid var(--border);
+}
+
+.home-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
 }
 
 .home-footer-text {
@@ -432,14 +381,6 @@
     grid-template-columns: 1fr;
   }
 
-  .home-terminal-key {
-    min-width: 100px;
-  }
-
-  .home-terminal-output {
-    flex-direction: column;
-    gap: 2px;
-  }
 
   .home-principle {
     flex-direction: column;

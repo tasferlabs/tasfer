@@ -1,0 +1,51 @@
+appId: com.cypher.desktop
+productName: Cypher
+
+publish:
+  provider: github
+  owner: hamza512b
+  repo: cypher
+
+directories:
+  output: release
+
+asar: true
+
+files:
+  - out/**
+  - package.json
+
+extraResources:
+  - from: ../web/dist
+    to: web
+
+icon: resources/icon.png
+
+mac:
+  icon: resources/icon.icns
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+
+win:
+  icon: resources/icon.ico
+  target: nsis
+
+nsis:
+  oneClick: true
+  perMachine: false
+
+linux:
+  icon: resources/icon.png
+  target:
+    - AppImage
+    - deb
+    - rpm
+    - pacman
+  category: Office

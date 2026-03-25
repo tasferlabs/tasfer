@@ -40,6 +40,11 @@ export function setEditorPadding(
   paddingOverride = padding;
 }
 
+/** Return the current padding override (for save/restore across editor instances). */
+export function getEditorPadding() {
+  return paddingOverride;
+}
+
 /**
  * Override block text styles (e.g. heading font sizes).
  * Pass null to reset to defaults.
@@ -50,6 +55,11 @@ export function setBlockStyleOverrides(
   blockStyleOverrides = overrides;
 }
 
+/** Return the current block style overrides (for save/restore across editor instances). */
+export function getBlockStyleOverrides() {
+  return blockStyleOverrides;
+}
+
 /**
  * Override placeholder copy for a mounted editor.
  * Pass null to reset to defaults.
@@ -58,6 +68,11 @@ export function setPlaceholderOverrides(
   overrides: Partial<PlaceholderStyles> | null,
 ): void {
   placeholderOverrides = overrides;
+}
+
+/** Return the current placeholder overrides (for save/restore across editor instances). */
+export function getPlaceholderOverrides() {
+  return placeholderOverrides;
 }
 
 /**

@@ -10,7 +10,7 @@ import {
 } from "../../components/ui/dialog";
 import { Button } from "../../components/ui/button";
 import { getPages, getPage, type IListPage } from "../api/pages.api";
-import { authFetch, API_BASE } from "../api/client";
+import { getPlatform } from "@/platform";
 import { useSpaces } from "../contexts/SpaceContext";
 import { serializeToMarkdown, type PageMetadata } from "../../deserializer/serializer";
 import { downloadFile } from "@/downloadFile";
@@ -26,7 +26,6 @@ interface ExportAllDialogProps {
 interface SpaceOption {
   id: string;
   name: string;
-  type: "personal" | "group";
 }
 
 /** Sanitize a string for use as a filesystem name */
@@ -65,18 +64,11 @@ function extractPageMetadata(page: IPage): PageMetadata | undefined {
 
 export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
   const { t } = useTranslation();
-  const { personalSpace, groupSpaces } = useSpaces();
+  const { spaces } = useSpaces();
 
   const allSpaces: SpaceOption[] = React.useMemo(() => {
-    const spaces: SpaceOption[] = [];
-    if (personalSpace) {
-      spaces.push({ id: personalSpace.id, name: t("common.private", "Private"), type: "personal" });
-    }
-    for (const g of groupSpaces) {
-      spaces.push({ id: g.id, name: g.name, type: "group" });
-    }
-    return spaces;
-  }, [personalSpace, groupSpaces]);
+    return spaces.map((s) => ({ id: s.id, name: s.name }));
+  }, [spaces]);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [phase, setPhase] = useState<"select" | "exporting">("select");
@@ -167,7 +159,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
 
           // Fetch full page content
           const fullPage = await getPage(listPage.id);
-          const blocks = fullPage.snapshot || [];
+          const blocks = fullPage.blocks || [];
           const metadata = extractPageMetadata(fullPage);
           const markdown = serializeToMarkdown(blocks, metadata);
 
@@ -224,7 +216,8 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
       for (const imgId of imageIds) {
         if (abortRef.current) return;
         try {
-          const response = await authFetch(`${API_BASE}/images/${imgId}`);
+          const imgUrl = await getPlatform().assets.getUrl(imgId);
+          const response = await fetch(imgUrl);
           if (response.ok) {
             const blob = await response.blob();
             const contentType = response.headers.get("content-type") || "image/png";
@@ -302,7 +295,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
                   />
                   <span className="text-sm font-medium">{space.name}</span>
                   <span className="text-xs text-muted-foreground ms-auto">
-                    {space.type === "personal" ? t("common.personal", "Personal") : t("space.space", "Space")}
+                    {t("space.space", "Space")}
                   </span>
                 </label>
               ))}

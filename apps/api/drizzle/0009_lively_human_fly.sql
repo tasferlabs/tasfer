@@ -1,1 +1,0 @@
-ALTER TABLE "pages" ADD COLUMN "color" varchar(7);

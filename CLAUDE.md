@@ -14,19 +14,18 @@ Think through the problem more broadly before writing code. The first idea is of
 
 ## Project Overview
 
-Cypher is a canvas-based markdown text editor combining Google Docs-like editing with Notion-style block architecture. Text is rendered directly on HTML5 canvas (not DOM-based). Features real-time collaborative editing with offline-first CRDT synchronization.
+Cypher is a canvas-based markdown text editor combining Google Docs-like editing with Notion-style block architecture. Text is rendered directly on HTML5 canvas (not DOM-based). Fully peer-to-peer and local-first — no central server, no accounts, no cloud dependency. Data lives on your device, collaboration happens directly between peers over WebRTC, and everything works offline.
 
 ## Monorepo Structure
 
 ```
 apps/
 ├── web/      # Main React SPA (Vite + React 19 + TypeScript)
-├── api/      # Express 5 backend (PostgreSQL + Drizzle ORM + Redis)
-├── live/     # WebSocket signaling server for CRDT sync
+├── desktop/  # Electron app wrapper with native IPC layer
+├── live/     # Stateless WebRTC signaling relay (port 8080)
 ├── ios/      # iOS native WebView wrapper (Capacitor)
 └── android/  # Android native WebView wrapper (Capacitor)
 shared/       # Shared TypeScript types and utilities
-cdn/          # Local asset storage (images/, snapshots/)
 ```
 
 ## Development Commands
@@ -38,16 +37,7 @@ npm run dev:host     # Dev server accessible from network (for mobile testing)
 npm run build        # TypeScript check + production build
 ```
 
-### API Server (`apps/api`) — uses Bun
-```bash
-npm run dev          # Watch mode with tsx + env-cmd
-npm run db:generate  # Generate Drizzle migrations
-npm run db:migrate   # Execute migrations
-npm run db:push      # Push schema changes directly
-npm run db:studio    # Drizzle Studio UI
-```
-
-### Live Server (`apps/live`) — uses Bun
+### Signaling Server (`apps/live`) — uses Bun
 ```bash
 npm run dev          # Watch mode with tsx
 ```
@@ -62,6 +52,22 @@ npm run cap:open:android   # Open Android project in Android Studio
 No linting, formatting, or test tooling is configured.
 
 ## Architecture
+
+### Platform Layer (`apps/web/src/platform/`)
+Cross-platform abstraction — one implementation, three runtimes (Web, Electron, Capacitor).
+
+- `types.ts` — Platform interface contract: identity, peers, spaces, pages, sync events, storage
+- `engine.ts` — Shared business logic: SQLite schema, CRDT space operations, identity/keypair management, pairing protocol, peer trust, asset management
+- `sync.ts` — Replicator: pull-based P2P replication over WebRTC DataChannels, version vector sync, awareness routing, lazy asset pull
+- `driver.ts` — Minimal platform contract: `DbDriver`, `FsDriver`, `CryptoDriver`
+- `bridge.ts` — Native bridge definition injected by iOS/Android (clipboard, haptics, navigation, storage)
+- `index.ts` — Platform detection and initialization (detects Web/Electron/Capacitor, creates appropriate drivers)
+
+### Platform Adapters (`apps/web/src/platform/adapters/`)
+- `web.ts` — Browser: OPFS (Origin Private File System) + wa-sqlite (WebAssembly SQLite in Web Worker)
+- `electron.ts` — Desktop: IPC proxy to Electron main process (better-sqlite3 + node:fs + node:crypto)
+- `capacitor.ts` — Mobile: native SQLite plugin + Capacitor filesystem + TweetNaCl.js for Ed25519
+- `webrtc.ts` — Shared WebRTC network driver (all platforms): signaling via WebSocket to `apps/live`, then direct P2P DataChannels
 
 ### Canvas Rendering Engine (`apps/web/src/editor/`)
 - Custom text rendering directly on HTML5 Canvas — not DOM-based
@@ -79,7 +85,6 @@ Operation-log CRDT for offline-first collaborative editing:
 - `oplog.ts` — Operation log management
 - `reducer.ts` — Applies operations to document state
 - `sync.ts` — Public CRDT API + version vector tracking
-- `websocket.ts` — WebSocket sync protocol
 - `awareness.ts` — Peer cursors/selections/presence
 - Character IDs use `${peerId}:${counter}` format
 
@@ -90,43 +95,68 @@ Three-layer state architecture:
 3. **ViewState** — Ephemeral viewport info (scroll position)
 
 ### Web App (`apps/web/src/`)
-- Entry point: `main.tsx` (React Query with offline-first network mode, PWA service worker registration)
+- Entry point: `main.tsx` — calls `initPlatform()` to set up Engine + Replicator, starts P2P sync before rendering
 - Path aliases: `@/*` → `./src/*`, `@shared/*` → `../../shared/*`
-- `app/MountedEditor.tsx` — Main editor mount component
-- `app/api/` — API client functions
-- `app/contexts/` — Auth, Version, Theme contexts
+- `app/MountedEditor.tsx` — Main editor mount component, uses `useP2PRoom` hook for real-time sync
+- `app/hooks/useP2PRoom.ts` — Page-level P2P room subscription (operations, awareness, peer presence)
 - `deserializer/` — Page loading (`loadPage.ts`), markdown parsing (`parser.ts`, `tokenizer.ts`), serialization (`serializer.ts`)
-- `offline/` — Offline support
 - `sw.ts` / `sw-router.ts` — Service Worker (PWA via workbox/VitePWA injectManifest)
 - i18n via i18next
 
-### API Server (`apps/api/src/`)
-- `index.ts` — Express 5 server, CORS, basic auth gate (via `TRAEFIK_AUTH`), 10MB body limit
-- Routes: `/api/auth`, `/api/pages`, `/api/images`, `/api/spaces`, `/api/version`, `/health`
-- `/api/internal/check-access` — Internal endpoint for live server (requires `X-Internal-Key` header)
-- `middleware/auth.ts` — Session-based auth (90-day expiry, cookie or `x-session-id` header)
-- `lib/permissions.ts` — Access control (owner/editor hierarchy, space membership)
-- `lib/snapshot.ts` — Snapshot encoding/decoding
-- `services/email.ts` — Nodemailer SMTP integration (verification, password reset)
-- Redis pub/sub on channel `cypher:page-events` for real-time page event broadcasting
+### Desktop App (`apps/desktop/`)
+Thin Electron wrapper — IPC layer to native APIs:
+- `src/main/index.ts` — Entry point, creates browser window, registers IPC handlers
+- `src/main/handlers/db.ts` — SQL execution via better-sqlite3
+- `src/main/handlers/fs.ts` — Filesystem operations via node:fs
+- `src/main/handlers/crypto.ts` — Ed25519 keypair generation/signing/verification via node:crypto
 
-### WebSocket Server (`apps/live/src/server.ts`)
-Room-based peer synchronization:
-- Peers join rooms (one room per document)
-- Operations relayed in real-time (no server-side operation storage)
-- Message types: `join`, `leave`, `sync-request`, `sync-response`, `operations`, `awareness`, `peer-joined`, `peer-left`, `room-peers`, `update-available`, `server-shutdown`
-- Validates page access via internal API call to `apps/api`
-- Subscribes to Redis `cypher:page-events` channel to broadcast API-originated page events
-- Client-server version negotiation via `version.json`
+### Signaling Server (`apps/live/src/server.ts`)
+Stateless WebRTC signaling relay (~200 lines):
+- Handles topic-based peer discovery and SDP/ICE exchange
+- Message types: `join`, `leave`, `signal`, `peers`, `peer-join`
+- No operation storage, no auth, no business logic
+- Peers establish direct P2P connections once signaling completes
 
-## Database Schema (PostgreSQL)
+## Identity & Cryptography
 
-Tables: `users`, `spaces`, `space_members`, `pages`, `snapshots`, `images`, `pageShares`, `sessions`
-- Schema defined in `apps/api/src/db/schema.ts` using Drizzle ORM
-- Migrations in `apps/api/drizzle/`
-- Snapshots store compressed page state with HLC timestamps (clockWall, clockLogical, clockPeerId)
-- Max 50 snapshots per page (garbage collected)
-- Pages support scheduling fields (scheduledAt, duration, allDay, recurrenceId) and task/color properties
+- Each device generates an **Ed25519 keypair** on first launch, stored in local SQLite
+- Public key = peer identity (hex-encoded 32-byte key)
+- Peer trust established via one-time pairing invites (random topic + secret + mutual Ed25519 signature proof)
+- No passwords, no accounts, no central auth server
+
+## Storage
+
+All data stored locally on each device — no central database.
+
+### SQLite Schema (local, per-device)
+Tables: `identity`, `peers`, `spaces`, `space_members`, `pages`, `operations`, `snapshots`, `assets`
+- Defined in `apps/web/src/platform/engine.ts`
+- Per-platform SQLite implementation: wa-sqlite (Web), better-sqlite3 (Electron), @capacitor-community/sqlite (Mobile)
+
+### Per-Platform Storage
+- **Web**: OPFS (Origin Private File System) + wa-sqlite in Web Worker
+- **Electron**: `~/.cypher/` directory + better-sqlite3
+- **Mobile**: App sandbox + native SQLite plugin
+
+### CRDT State is Source of Truth
+Pages are not stored as files. The CRDT operation log + snapshots are the authoritative representation. Markdown export is optional (one-way derived view).
+
+### Assets
+Content-addressed (`assets/{content-hash}.{ext}`). CRDT ops sync eagerly, assets sync lazily (pulled when document is opened).
+
+## Sync — P2P, CRDT-powered
+
+- **WebRTC DataChannels** for direct peer-to-peer data transfer
+- **Deterministic topics**: SHA-256(sorted public keys) for peer discovery
+- **Pull-based replication**: version vector exchange, then missing ops sent
+- **Real-time push**: after catch-up, new ops broadcast immediately
+- **Awareness**: cursor/selection updates for collaborative editing
+- **Lazy asset pull**: images requested from connected peers on demand
+- **Offline**: edit freely, sync merges automatically when peers reconnect
+- **No conflicts**: CRDT guarantees convergence
+
+### Space Operations (CRDT)
+Spaces are CRDT-replicated collections: `space_set`, `member_add`, `member_remove`, `page_add`, `page_remove`, `page_set` — all HLC-stamped, no central authority.
 
 ## Internationalization (i18n)
 
@@ -146,16 +176,7 @@ The app is fully internationalized using i18next + react-i18next. **All user-fac
 - RTL text (Arabic, Hebrew) supported with bidirectional rendering
 - IME/composition input handled specially for CJK languages
 
-## Deployment
-
-- Docker: `Dockerfile.web` (Node 22 → nginx, port 4000), `Dockerfile.api` (Bun, port 3000), `Dockerfile.live` (Bun, port 8080)
-- Orchestration: Nomad (`cypher.nomad.hcl`)
-- Deploy script: `deploy.sh` (rsync + Docker build + Nomad deploy)
-- Version management: `version.json` at project root (version number, minVersion, update URLs)
-
 ## Ports
 
 - Web dev server: 4000
-- API server: 3000
-- WebSocket server: 8080
-- Web production (Docker): 4000
+- Signaling server: 8080

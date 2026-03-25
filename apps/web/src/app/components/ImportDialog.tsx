@@ -18,13 +18,14 @@ import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
 import tokenizePage from "@/deserializer/tokenizer";
+import { getPlatform } from "@/platform";
 import parsePage from "@/deserializer/parser";
 import { parseFrontmatter, type PageMetadata } from "@/deserializer/loadPage";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCreatePage, updatePage } from "../api/pages.api";
-import { getImageUrl, uploadImage } from "../api/images.api";
+import { uploadImage } from "../api/images.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import { extractTitleFromBlocks, getVisibleTextFromRuns } from "@/editor/sync/char-runs";
 import type { Block } from "@/deserializer/loadPage";
@@ -87,10 +88,11 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: async (newPage) => {
       if (pendingBlocks) {
-        // Update the new page with the imported blocks and metadata
+        // Write imported blocks as CRDT ops and update metadata
+        const platform = getPlatform();
+        await platform.ops.writeBlocks(newPage.id, pendingBlocks);
         await updatePage({
           id: newPage.id,
-          snapshot: pendingBlocks,
           ...(pendingMetadata?.task && { task: true }),
           ...(pendingMetadata?.color && { color: pendingMetadata.color }),
           ...(pendingMetadata?.scheduledAt && { scheduledAt: pendingMetadata.scheduledAt }),
@@ -173,7 +175,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
               const mimeType = guessMimeType(fileName);
               const imageFile = new File([blob], fileName, { type: mimeType });
               const uploaded = await uploadImage(imageFile);
-              imageUrlMap.set(fileName, getImageUrl(uploaded.id));
+              imageUrlMap.set(fileName, uploaded.id);
             } catch {
               // Skip images that fail to upload
             }

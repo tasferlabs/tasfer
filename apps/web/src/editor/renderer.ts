@@ -31,7 +31,7 @@ import {
   isCharDeleted,
   iterateVisibleChars,
 } from "./sync/char-runs";
-import { getAuthenticatedImageUrl } from "../app/api/client";
+import { getPlatform } from "@/platform";
 import type {
   BlockBounds,
   EditorState,
@@ -1445,35 +1445,49 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     return pendingLoads.get(url)!;
   }
 
-  const promise = new Promise<HTMLImageElement>((resolve, reject) => {
-    const img = new Image();
-    const resolvedUrl = getAuthenticatedImageUrl(url);
-    if (resolvedUrl === url) {
-      img.crossOrigin = "anonymous";
+  const promise = (async () => {
+    const isAlreadyUrl =
+      url.startsWith("blob:") ||
+      url.startsWith("data:") ||
+      url.startsWith("http://") ||
+      url.startsWith("https://");
+    let resolvedUrl = url;
+    if (!isAlreadyUrl) {
+      try {
+        resolvedUrl = await getPlatform().assets.getUrl(url);
+      } catch {
+        // Asset not found — use as-is
+      }
     }
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      if (isAlreadyUrl) {
+        img.crossOrigin = "anonymous";
+      }
 
-    img.onload = () => {
-      imageCache.set(url, img);
-      pendingLoads.delete(url);
-      resolve(img);
-    };
+      img.onload = () => {
+        imageCache.set(url, img);
+        pendingLoads.delete(url);
+        resolve(img);
+      };
 
-    img.onerror = () => {
-      // Cache the failed URL to prevent repeated requests
-      failedImageCache.add(url);
-      pendingLoads.delete(url);
-      reject(new Error(`Failed to load image: ${url}`));
-    };
+      img.onerror = () => {
+        // Cache the failed URL to prevent repeated requests
+        failedImageCache.add(url);
+        pendingLoads.delete(url);
+        reject(new Error(`Failed to load image: ${url}`));
+      };
 
-    img.src = resolvedUrl;
+      img.src = resolvedUrl;
 
-    // If already complete (from browser cache), resolve immediately
-    if (img.complete) {
-      imageCache.set(url, img);
-      pendingLoads.delete(url);
-      resolve(img);
-    }
-  });
+      // If already complete (from browser cache), resolve immediately
+      if (img.complete) {
+        imageCache.set(url, img);
+        pendingLoads.delete(url);
+        resolve(img);
+      }
+    });
+  })();
 
   pendingLoads.set(url, promise);
   return promise;

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from "react";
 import JSZip from "jszip";
+import { getPlatform } from "@/platform";
 import {
   Dialog,
   DialogContent,
@@ -18,7 +19,7 @@ import {
 } from "../../components/ui/select";
 import { Upload } from "lucide-react";
 import { createPage, updatePage } from "../api/pages.api";
-import { getImageUrl, uploadImage } from "../api/images.api";
+import { uploadImage } from "../api/images.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useQueryClient } from "@tanstack/react-query";
 import tokenizePage from "@/deserializer/tokenizer";
@@ -35,7 +36,6 @@ interface ImportAllDialogProps {
 interface SpaceOption {
   id: string;
   name: string;
-  type: "personal" | "group";
 }
 
 interface PageNode {
@@ -236,19 +236,12 @@ function buildPageTree(zip: JSZip): {
 
 export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
   const { t } = useTranslation();
-  const { personalSpace, groupSpaces } = useSpaces();
+  const { spaces } = useSpaces();
   const queryClient = useQueryClient();
 
   const allSpaces: SpaceOption[] = React.useMemo(() => {
-    const spaces: SpaceOption[] = [];
-    if (personalSpace) {
-      spaces.push({ id: personalSpace.id, name: t("common.private", "Private"), type: "personal" });
-    }
-    for (const g of groupSpaces) {
-      spaces.push({ id: g.id, name: g.name, type: "group" });
-    }
-    return spaces;
-  }, [personalSpace, groupSpaces]);
+    return spaces.map((s) => ({ id: s.id, name: s.name }));
+  }, [spaces]);
 
   const [selectedSpaceId, setSelectedSpaceId] = useState<string>("");
   const [files, setFiles] = useState<File[]>([]);
@@ -381,7 +374,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
         const mimeType = guessMimeType(fileName);
         const imageFile = new File([blob], fileName, { type: mimeType });
         const uploaded = await uploadImage(imageFile);
-        imageUrlMap.set(fileName, getImageUrl(uploaded.id));
+        imageUrlMap.set(fileName, uploaded.id);
         importResult.imagesUploaded++;
       } catch {
         importResult.errors.push(`Failed to upload image: ${fileName}`);
@@ -392,6 +385,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
     }
 
     // Step 2: Create pages top-down
+    const platform = getPlatform();
     async function createPages(
       nodes: PageNode[],
       parentId: string | null,
@@ -426,11 +420,13 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
             ...(metadata?.duration != null && { duration: metadata.duration }),
             ...(metadata?.allDay != null && { allDay: metadata.allDay }),
           });
-          await updatePage({
-            id: createdPage.id,
-            snapshot: page.blocks,
-            ...(metadata?.color && { color: metadata.color }),
-          });
+          await platform.ops.writeBlocks(createdPage.id, page.blocks);
+          if (metadata?.color) {
+            await updatePage({
+              id: createdPage.id,
+              color: metadata.color,
+            });
+          }
 
           importResult.pagesCreated++;
           done++;
@@ -460,6 +456,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
     spaceId: string,
     importResult: ImportResult,
   ) {
+    const platform = getPlatform();
     setProgress({ done: 0, total: mdFiles.length });
     let done = 0;
 
@@ -483,11 +480,13 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
           ...(metadata?.duration != null && { duration: metadata.duration }),
           ...(metadata?.allDay != null && { allDay: metadata.allDay }),
         });
-        await updatePage({
-          id: createdPage.id,
-          snapshot: page.blocks,
-          ...(metadata?.color && { color: metadata.color }),
-        });
+        await platform.ops.writeBlocks(createdPage.id, page.blocks);
+        if (metadata?.color) {
+          await updatePage({
+            id: createdPage.id,
+            color: metadata.color,
+          });
+        }
 
         importResult.pagesCreated++;
       } catch (err) {

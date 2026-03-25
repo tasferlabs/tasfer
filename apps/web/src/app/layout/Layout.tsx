@@ -1,76 +1,31 @@
-import { useOfflineStatus } from "@/offline/hooks/useOfflineStatus";
 import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { ConfirmationDialogProvider } from "../components/ConfirmationDialog";
 import { DevToolbar } from "../components/DevToolbar";
+import { OnboardingScreen } from "../components/OnboardingScreen";
 import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
 import { CommandCenter } from "../components/CommandCenter";
 import UpdatePopup from "../components/UpdatePopup";
-import { useAuth } from "../contexts/AuthContext";
 import { PageSettingsProvider } from "../contexts/PageSettingsContext";
 import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
 import { TreeExpandProvider } from "../contexts/TreeExpandContext";
-import { SpaceProvider } from "../contexts/SpaceContext";
+import { SpaceProvider, useSpaces } from "../contexts/SpaceContext";
 import { useVersion } from "../contexts/VersionContext";
-import { WebSocketProvider } from "../contexts/WebSocketContext";
 import useLocalStorage from "../hooks/useLocalStorage";
 import useResponsive from "../hooks/useResponsive";
 import ForceUpdatePage from "../pages/ForceUpdatePage";
+import { AddSpaceDialog } from "../components/AddSpaceDialog";
+import { EditGroupDialog } from "../components/EditGroupDialog";
+import { InviteMembersDialog } from "../components/InviteMembersDialog";
 import { FloatingSidebar } from "./FloatingSidebar";
 import style from "./Layout.module.css";
 import { ResizableSidebar } from "./ResizableSidebar";
 import { TopActionBar } from "./TopActionBar";
+import { TopActionBarSlotProvider } from "./TopActionBarSlot";
 
-import { isNative } from "../api/client";
-
-// WebSocket server URL - defaults to using Vite proxy
-function getWebSocketUrl(): string {
-  let base =
-    import.meta.env.VITE_WEBSOCKET_URL ||
-    `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${
-      window.location.host
-    }/ws`;
-
-  if (isNative) {
-    // Inject basic auth credentials into the URL for Traefik
-    const basicAuth = import.meta.env.VITE_BASIC_AUTH;
-    if (basicAuth) {
-      base = base.replace("://", `://${basicAuth}@`);
-    }
-
-    const sessionId = localStorage.getItem("cypher_session_id");
-    if (sessionId) {
-      const separator = base.includes("?") ? "&" : "?";
-      base += `${separator}sessionId=${encodeURIComponent(sessionId)}`;
-    }
-  }
-
-  return base;
-}
 
 export default function Layout() {
-  const [resizableOpen, setResizableOpen] = useLocalStorage(
-    "resizable-sidebar-open",
-    true
-  );
-  const [floatingOpen, setFloatingOpen] = React.useState(false);
-  const isMobile = useResponsive("(max-width: 768px)");
-
-  // Silent background sync for offline mutations
-  useOfflineStatus();
-
-  // Remember the last visited route so we can restore it on next visit
-  const location = useLocation();
-  React.useEffect(() => {
-    const path = location.pathname;
-    if (path === "/") return;
-    localStorage.setItem("lastRoute", path);
-  }, [location.pathname]);
-
-  const { user } = useAuth();
   const { isLoading, meetsMinimum } = useVersion();
-
-  const websocketUrl = getWebSocketUrl();
 
   // Track if app ever mounted with valid version (user was working)
   const hadValidVersion = React.useRef(false);
@@ -86,40 +41,86 @@ export default function Layout() {
   }
 
   return (
-    <WebSocketProvider serverUrl={websocketUrl} userName={user?.name} userAvatar={user?.avatar}>
+      <TopActionBarSlotProvider>
       <SpaceProvider>
       <TreeExpandProvider>
       <SidebarPanelProvider>
       <PageSettingsProvider>
         <ConfirmationDialogProvider>
           <UnsavedChangesDialogProvider>
-            <div className={style.appContainer} inert={needsForceUpdate ? (true as unknown as boolean) : undefined}>
-              {isMobile ? (
-                <FloatingSidebar open={floatingOpen} setOpen={setFloatingOpen} />
-              ) : (
-                <ResizableSidebar open={!!resizableOpen} setOpen={setResizableOpen} />
-              )}
-
-              <div className={style.appFrame}>
-                <TopActionBar
-                  open={isMobile ? floatingOpen : !!resizableOpen}
-                  setOpen={isMobile ? setFloatingOpen : setResizableOpen}
-                />
-                <div className="flex-1 min-h-0 w-full">
-                  <Outlet />
-                </div>
-              </div>
-            </div>
-            <CommandCenter />
-            <UpdatePopup />
-            <DevToolbar />
-            {needsForceUpdate && <ForceUpdatePage />}
+            <LayoutInner needsForceUpdate={needsForceUpdate} />
           </UnsavedChangesDialogProvider>
         </ConfirmationDialogProvider>
       </PageSettingsProvider>
       </SidebarPanelProvider>
       </TreeExpandProvider>
       </SpaceProvider>
-    </WebSocketProvider>
+      </TopActionBarSlotProvider>
+  );
+}
+
+function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
+  const [resizableOpen, setResizableOpen] = useLocalStorage(
+    "resizable-sidebar-open",
+    true
+  );
+  const [floatingOpen, setFloatingOpen] = React.useState(false);
+  const [showAddSpace, setShowAddSpace] = React.useState(false);
+  const [groupSettingsId, setGroupSettingsId] = React.useState<string | null>(null);
+  const [inviteMembersId, setInviteMembersId] = React.useState<string | null>(null);
+  const isMobile = useResponsive("(max-width: 768px)");
+  const { spaces, isLoading: spacesLoading } = useSpaces();
+
+  // Remember the last visited route so we can restore it on next visit
+  const location = useLocation();
+  React.useEffect(() => {
+    const path = location.pathname;
+    if (path === "/") return;
+    localStorage.setItem("lastRoute", path);
+  }, [location.pathname]);
+
+  // Show onboarding when spaces have loaded and there are none
+  const showOnboarding = !spacesLoading && spaces.length === 0;
+
+  if (showOnboarding) {
+    return <OnboardingScreen />;
+  }
+
+  return (
+    <>
+      <div className={style.appContainer} inert={needsForceUpdate ? (true as unknown as boolean) : undefined}>
+        {isMobile ? (
+          <FloatingSidebar open={floatingOpen} setOpen={setFloatingOpen} onAddSpace={() => setShowAddSpace(true)} onSpaceSettings={setGroupSettingsId} onInviteMembers={setInviteMembersId} />
+        ) : (
+          <ResizableSidebar open={!!resizableOpen} setOpen={setResizableOpen} onAddSpace={() => setShowAddSpace(true)} onSpaceSettings={setGroupSettingsId} onInviteMembers={setInviteMembersId} />
+        )}
+
+        <div className={style.appFrame}>
+          <TopActionBar
+            open={isMobile ? floatingOpen : !!resizableOpen}
+            setOpen={isMobile ? setFloatingOpen : setResizableOpen}
+          />
+          <div className="flex-1 min-h-0 w-full">
+            <Outlet />
+          </div>
+        </div>
+      </div>
+      <AddSpaceDialog open={showAddSpace} onOpenChange={setShowAddSpace} />
+      <EditGroupDialog
+        spaceId={groupSettingsId || ""}
+        open={!!groupSettingsId}
+        onOpenChange={(open) => setGroupSettingsId(open ? groupSettingsId : null)}
+        openInviteMembers={setInviteMembersId}
+      />
+      <InviteMembersDialog
+        spaceId={inviteMembersId || ""}
+        open={!!inviteMembersId}
+        onOpenChange={(open) => setInviteMembersId(open ? inviteMembersId : null)}
+      />
+      <CommandCenter />
+      <UpdatePopup />
+      <DevToolbar />
+      {needsForceUpdate && <ForceUpdatePage />}
+    </>
   );
 }

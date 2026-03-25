@@ -1,11 +1,19 @@
-import { useEffect } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { loadArabicFonts } from "@/editor/fonts";
 import "./HomePage.css";
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+
 export default function HomePage() {
   const { t, i18n } = useTranslation();
+  const deferredPrompt = useRef<BeforeInstallPromptEvent | null>(null);
+  const [installable, setInstallable] = useState(false);
+  const [installed, setInstalled] = useState(false);
 
   useEffect(() => {
     if (i18n.language === "ar") {
@@ -13,20 +21,50 @@ export default function HomePage() {
     }
   }, [i18n.language]);
 
+  useEffect(() => {
+    const onBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      deferredPrompt.current = e as BeforeInstallPromptEvent;
+      setInstallable(true);
+    };
+
+    const onAppInstalled = () => {
+      setInstalled(true);
+      setInstallable(false);
+      deferredPrompt.current = null;
+    };
+
+    window.addEventListener("beforeinstallprompt", onBeforeInstall);
+    window.addEventListener("appinstalled", onAppInstalled);
+
+    // Check if already running as installed PWA
+    if (window.matchMedia("(display-mode: standalone)").matches) {
+      setInstalled(true);
+    }
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+      window.removeEventListener("appinstalled", onAppInstalled);
+    };
+  }, []);
+
+  const handleInstall = async () => {
+    if (!deferredPrompt.current) return;
+    await deferredPrompt.current.prompt();
+    const { outcome } = await deferredPrompt.current.userChoice;
+    if (outcome === "accepted") {
+      setInstalled(true);
+      setInstallable(false);
+    }
+    deferredPrompt.current = null;
+  };
+
   return (
     <div className="home">
       <div className="home-grid" />
 
       <nav className="home-nav">
         <span className="home-logo">cypher</span>
-        <div className="home-nav-links">
-          <Link to="/login" className="home-link">
-            {t("home.signIn", "sign in")}
-          </Link>
-          <Link to="/register" className="home-btn">
-            {t("home.getStarted", "get started")}
-          </Link>
-        </div>
       </nav>
 
       <section className="home-hero">
@@ -40,8 +78,19 @@ export default function HomePage() {
         </h1>
         <p className="home-subtitle">{t("home.heroSubtitle", "A canvas-based editor that runs on your device, syncs peer-to-peer, and answers to no server. Your data never leaves your hands.")}</p>
         <div className="home-hero-actions">
-          <Link to="/register" className="home-btn home-btn-lg">
-            {t("home.startWriting", "start writing")}
+          {installable && !installed && (
+            <button onClick={handleInstall} className="home-btn home-btn-lg home-btn-install">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 1v9M4.5 6.5 8 10l3.5-3.5M3 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              {t("home.installApp", "install app")}
+            </button>
+          )}
+          <Link to="/" className="home-btn home-btn-lg home-btn-open">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M6 3H3v10h10v-3M9 1h6v6M15 1 7 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            {t("home.openInBrowser", "open in browser")}
           </Link>
           <a href="#manifesto" className="home-link">
             {t("home.readManifesto", "read the manifesto")} &darr;
@@ -92,56 +141,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="home-section">
-        <div className="home-section-label">&gt; stack</div>
-        <div className="home-terminal">
-          <div className="home-terminal-header">
-            <span className="home-terminal-dot home-terminal-dot--red" />
-            <span className="home-terminal-dot home-terminal-dot--yellow" />
-            <span className="home-terminal-dot home-terminal-dot--green" />
-          </div>
-          <div className="home-terminal-body">
-            <div className="home-terminal-line">
-              <span className="home-terminal-prompt">$</span>
-              <span className="home-terminal-cmd">cypher --info</span>
-            </div>
-            <div className="home-terminal-output">
-              <span className="home-terminal-key">renderer</span>
-              <span className="home-terminal-val">html5 canvas</span>
-            </div>
-            <div className="home-terminal-output">
-              <span className="home-terminal-key">sync</span>
-              <span className="home-terminal-val">
-                operation-log crdt + hybrid logical clock
-              </span>
-            </div>
-            <div className="home-terminal-output">
-              <span className="home-terminal-key">storage</span>
-              <span className="home-terminal-val">local / indexeddb</span>
-            </div>
-            <div className="home-terminal-output">
-              <span className="home-terminal-key">network</span>
-              <span className="home-terminal-val">
-                webrtc p2p + thin relay
-              </span>
-            </div>
-            <div className="home-terminal-output">
-              <span className="home-terminal-key">auth</span>
-              <span className="home-terminal-val">
-                cryptographic keypair (no passwords)
-              </span>
-            </div>
-            <div className="home-terminal-output">
-              <span className="home-terminal-key">dependencies</span>
-              <span className="home-terminal-val">you</span>
-            </div>
-            <div className="home-terminal-line home-terminal-line--last">
-              <span className="home-terminal-prompt">$</span>
-              <span className="home-terminal-cursor" />
-            </div>
-          </div>
-        </div>
-      </section>
 
       <section className="home-section">
         <div className="home-section-label">&gt; principles</div>
@@ -174,14 +173,30 @@ export default function HomePage() {
         <div className="home-section-label">&gt; begin</div>
         <h2 className="home-cta-title">{t("home.ctaTitle", "download. write. own it.")}</h2>
         <p className="home-cta-sub">{t("home.ctaSubtitle", "No account required. No cloud. No strings.")}</p>
-        <Link to="/register" className="home-btn home-btn-lg">
-          {t("home.startWriting", "start writing")}
-        </Link>
+        <div className="home-cta-actions">
+          {installable && !installed && (
+            <button onClick={handleInstall} className="home-btn home-btn-lg home-btn-install">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 1v9M4.5 6.5 8 10l3.5-3.5M3 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              {t("home.installApp", "install app")}
+            </button>
+          )}
+          <Link to="/" className="home-btn home-btn-lg home-btn-open">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M6 3H3v10h10v-3M9 1h6v6M15 1 7 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            {t("home.openInBrowser", "open in browser")}
+          </Link>
+        </div>
       </section>
 
       <footer className="home-footer">
         <span className="home-logo">cypher</span>
-        <span className="home-footer-text">{t("home.footerText", "decentralized by design. built in the open.")}</span>
+        <div className="home-footer-right">
+          <Link to="/privacy" className="home-link">{t("privacy.title", "privacy policy")}</Link>
+          <span className="home-footer-text">{t("home.footerText", "decentralized by design. built in the open.")}</span>
+        </div>
       </footer>
     </div>
   );

@@ -149,11 +149,8 @@ export const LinkDrawer: React.FC<LinkDrawerProps> = ({
             onTouchEnd={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              // Use native bridge on mobile apps, fallback to window.open on web
-              if (window.IOSBridge?.postMessage) {
-                window.IOSBridge.postMessage({ action: "open-url", url: editedUrl });
-              } else if (window.AndroidBridge?.openUrl) {
-                window.AndroidBridge.openUrl(editedUrl);
+              if (window.CypherBridge) {
+                window.CypherBridge.navigation.openUrl(editedUrl);
               } else {
                 window.open(editedUrl, "_blank", "noopener,noreferrer");
               }

@@ -9,12 +9,25 @@
   <meta name="theme-color" content="#1db984" />
   <meta name="color-scheme" content="light dark" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+  <link rel="preload" href="/wa-sqlite.wasm" as="fetch" crossorigin />
   <title>Cypher</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 
 <body>
-  <div id="root"></div>
+  <div id="root">
+    <div id="loading" style="display:flex;align-items:center;justify-content:center;height:100dvh;width:100%;overflow:hidden">
+      <img src="/spinner.png" alt="Loading..." width="32" height="32" style="animation:spin 1s linear infinite" />
+    </div>
+    <style>
+      @keyframes spin{to{transform:rotate(360deg)}}
+      #loading{background:oklch(1 0 0)}
+      @media(prefers-color-scheme:dark){#loading{background:#09090b}}
+    </style>
+    <script>
+      (function(){var t=localStorage.getItem("theme");if(t==="dark")document.getElementById("loading").style.background="#09090b";else if(t==="light")document.getElementById("loading").style.background="oklch(1 0 0)"})()
+    </script>
+  </div>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 

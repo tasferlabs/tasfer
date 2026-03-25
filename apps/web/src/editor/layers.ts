@@ -40,6 +40,9 @@ export function createCanvasLayers(
     canvas.style.height = "100%";
     canvas.style.zIndex = zIndex.toString();
     canvas.style.pointerEvents = pointerEvents ? "auto" : "none";
+    canvas.style.userSelect = "none";
+    canvas.style.webkitUserSelect = "none";
+    (canvas.style as unknown as { webkitTouchCallout?: string }).webkitTouchCallout = "none";
 
     // Set display size (CSS pixels)
     canvas.style.width = `${width}px`;

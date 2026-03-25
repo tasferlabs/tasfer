@@ -193,24 +193,16 @@ function charsToRuns(chars: Char[]): CharRun[] {
 }
 
 export function hasNativeBridge(): boolean {
-  return !!(window.IOSBridge || window.AndroidBridge);
+  return !!window.CypherBridge;
 }
 
 async function copyToNativeClipboard(text: string): Promise<boolean> {
   try {
-    if (window.IOSBridge) {
-      window.IOSBridge.postMessage({
-        action: "copy",
-        text,
-      });
+    const bridge = window.CypherBridge;
+    if (bridge) {
+      await bridge.clipboard.copy(text);
       return true;
     }
-
-    if (window.AndroidBridge) {
-      window.AndroidBridge.copy(text);
-      return true;
-    }
-
     return false;
   } catch (error) {
     console.error("Failed to copy to native clipboard:", error);
@@ -220,19 +212,11 @@ async function copyToNativeClipboard(text: string): Promise<boolean> {
 
 async function cutToNativeClipboard(text: string): Promise<boolean> {
   try {
-    if (window.IOSBridge) {
-      window.IOSBridge.postMessage({
-        action: "cut",
-        text,
-      });
+    const bridge = window.CypherBridge;
+    if (bridge) {
+      await bridge.clipboard.cut(text);
       return true;
     }
-
-    if (window.AndroidBridge) {
-      window.AndroidBridge.cut(text);
-      return true;
-    }
-
     return false;
   } catch (error) {
     console.error("Failed to cut to native clipboard:", error);
@@ -242,30 +226,11 @@ async function cutToNativeClipboard(text: string): Promise<boolean> {
 
 async function pasteFromNativeClipboard(): Promise<string | null> {
   try {
-    if (window.IOSBridge) {
-      return new Promise((resolve) => {
-        window.IOSBridge!.postMessage({
-          action: "paste",
-        });
-        const handler = (event: MessageEvent) => {
-          if (event.data?.type === "clipboard-paste") {
-            window.removeEventListener("message", handler);
-            resolve(event.data.text || null);
-          }
-        };
-        window.addEventListener("message", handler);
-        setTimeout(() => {
-          window.removeEventListener("message", handler);
-          resolve(null);
-        }, 1000);
-      });
-    }
-
-    if (window.AndroidBridge) {
-      const text = window.AndroidBridge.paste();
+    const bridge = window.CypherBridge;
+    if (bridge) {
+      const text = await bridge.clipboard.paste();
       return text || null;
     }
-
     return null;
   } catch (error) {
     console.error("Failed to paste from native clipboard:", error);

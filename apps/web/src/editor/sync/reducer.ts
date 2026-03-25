@@ -390,10 +390,36 @@ export function rebuildState(pageId: string, ops: Operation[]): Page {
   // Sort operations by HLC
   const sorted = [...ops].sort((a, b) => compareHLC(a.clock, b.clock));
 
+  // Track which char IDs have been inserted so far, so we can detect
+  // text_delete ops that reference chars not yet inserted (due to HLC
+  // ordering not matching causal order when clocks weren't advanced).
+  const insertedCharIds = new Set<string>();
+  const deferredOps: Operation[] = [];
+
   // Apply operations in order
   let state = createEmptyPageState(pageId);
 
   for (const op of sorted) {
+    // Track inserted char IDs
+    if (op.op === "text_insert") {
+      for (const run of op.charRuns) {
+        for (let i = 0; i < run.text.length; i++) {
+          insertedCharIds.add(`${run.peerId}:${run.startCounter + i}`);
+        }
+      }
+    }
+
+    // Defer text_delete if any referenced chars haven't been inserted yet
+    if (op.op === "text_delete" && !op.charIds.every((id) => insertedCharIds.has(id))) {
+      deferredOps.push(op);
+      continue;
+    }
+
+    state = applyOp(state, op);
+  }
+
+  // Apply deferred deletes — the chars they reference should now exist
+  for (const op of deferredOps) {
     state = applyOp(state, op);
   }
 

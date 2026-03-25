@@ -1,0 +1,2084 @@
+/**
+ * Shared Engine
+ *
+ * Implements the Platform interface using a Driver.
+ * All business logic (SQL queries, snapshot encoding, identity management,
+ * space CRDT, pairing) lives here — written ONCE, shared across
+ * Electron, Capacitor, and Web.
+ */
+
+import type {
+  Platform,
+  PageListItem,
+  PageFull,
+  PageCreateInput,
+  PageUpdateInput,
+  PageMoveInput,
+  PageSearchResult,
+  PageCalendarItem,
+  PageSnapshot,
+  Identity,
+  Peer,
+  Asset,
+  Space,
+  SpaceMember,
+  SpaceOperation,
+  SpaceInvite,
+  PairCallbacks,
+} from "./types";
+import type { Driver, CryptoDriver } from "./driver";
+import type { HLC } from "@/editor/sync/types";
+import type { ReplicatorHost } from "./sync";
+
+/** Minimal interface the engine uses to push ops — avoids circular imports */
+interface EngineReplicator {
+  pushSpaceOps(spaceId: string, ops: SpaceOperation[]): void;
+  pushPageOps(spaceId: string, pageId: string, ops: import("@/editor/sync/types").Operation[]): void;
+  requestAsset(hash: string): Promise<boolean>;
+  addPeer(publicKey: string): Promise<void>;
+  removePeer(publicKey: string): Promise<void>;
+  startPairing(opts: {
+    invite: SpaceInvite;
+    role: "initiator" | "acceptor";
+    localPublicKey: string;
+    localName: string;
+    privateKey: string;
+    callbacks: PairCallbacks;
+  }): Promise<void>;
+  cancelPairing(): Promise<void>;
+}
+
+// =============================================================================
+// Schema & Migrations
+// =============================================================================
+
+const SCHEMA_VERSION = 8;
+
+const SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS identity (
+    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    public_key TEXT NOT NULL,
+    private_key TEXT NOT NULL,
+    name       TEXT NOT NULL DEFAULT '',
+    avatar     TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS peers (
+    public_key TEXT PRIMARY KEY,
+    name       TEXT,
+    trusted    INTEGER NOT NULL DEFAULT 0,
+    last_seen  INTEGER,
+    shared_key TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS spaces (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS space_members (
+    space_id    TEXT NOT NULL,
+    public_key  TEXT NOT NULL,
+    name        TEXT NOT NULL DEFAULT '',
+    role        TEXT NOT NULL DEFAULT 'editor',
+    avatar      TEXT,
+    archived_at TEXT,
+    added_at    TEXT NOT NULL,
+    PRIMARY KEY (space_id, public_key)
+  );
+
+  CREATE TABLE IF NOT EXISTS pages (
+    id            TEXT PRIMARY KEY,
+    title         TEXT NOT NULL DEFAULT '',
+    auto_title    INTEGER NOT NULL DEFAULT 1,
+    parent_id     TEXT,
+    "order"       REAL NOT NULL DEFAULT 0,
+    space_id      TEXT,
+    task          INTEGER NOT NULL DEFAULT 0,
+    color         TEXT,
+    scheduled_at  TEXT,
+    duration      INTEGER,
+    all_day       INTEGER,
+    recurrence_id TEXT,
+    archived_at   TEXT,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_pages_space ON pages(space_id);
+
+  CREATE TABLE IF NOT EXISTS ops (
+    id         INTEGER PRIMARY KEY,
+    scope_id   TEXT NOT NULL,
+    peer_id    TEXT NOT NULL,
+    clock      INTEGER NOT NULL,
+    type       TEXT NOT NULL,
+    data       BLOB NOT NULL,
+    timestamp  INTEGER NOT NULL,
+    UNIQUE(scope_id, peer_id, clock)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_ops_scope ON ops(scope_id);
+
+`;
+
+// =============================================================================
+// Engine
+// =============================================================================
+
+export class Engine implements Platform {
+  private driver: Driver;
+  private replicator: EngineReplicator | null = null;
+  private spaceHlcCounters = new Map<string, number>();
+  private spaceChangeListeners = new Set<(spaceId: string) => void>();
+  private pageDeleteListeners = new Set<(pageId: string) => void>();
+  private signalUrl = "";
+
+  constructor(driver: Driver) {
+    this.driver = driver;
+  }
+
+  /** Expose the raw DbDriver for debugging tools */
+  getDb() {
+    return this.driver.db;
+  }
+
+  /** Initialize the database schema. Call once at startup. */
+  async init(): Promise<void> {
+    await this.driver.db.exec(SCHEMA_SQL);
+    await this.runMigrations();
+    await this.loadSpaceHlcCounters();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migrations — sequential, forward-only, idempotent
+  // Bump SCHEMA_VERSION when adding a new migration.
+  // ---------------------------------------------------------------------------
+
+  private async runMigrations(): Promise<void> {
+    const [{ user_version }] = await this.driver.db.execute<{ user_version: number }>(
+      "PRAGMA user_version",
+    );
+
+    if (user_version < 1) {
+      await this.migrateOpsUniqueConstraint();
+    }
+
+    if (user_version < 2) {
+      await this.migrateSpaceMembersAvatar();
+    }
+
+    if (user_version < 3) {
+      await this.migrateDropSnapshots();
+    }
+
+    if (user_version < 4) {
+      await this.migrateOpsRenameColumns();
+    }
+
+    if (user_version < 5) {
+      await this.migrateDropKv();
+    }
+
+    if (user_version < 6) {
+      await this.migrateAddPagesArchivedAt();
+    }
+
+    if (user_version < 7) {
+      await this.migrateAddMembersArchivedAt();
+    }
+
+    if (user_version < 8) {
+      await this.migrateAddPeersSharedKey();
+    }
+
+    if (user_version < SCHEMA_VERSION) {
+      await this.driver.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    }
+  }
+
+  /**
+   * Migration 1: add UNIQUE constraint to ops table.
+   * SQLite can't ALTER TABLE ADD CONSTRAINT, so we recreate the table.
+   * Note: uses legacy column names — migration 4 will rename them.
+   */
+  private async migrateOpsUniqueConstraint(): Promise<void> {
+    const cols = await this.driver.db.execute<{ name: string }>(
+      "PRAGMA table_info(ops)",
+    );
+    // Skip if table doesn't exist or already uses new column names (scope_id)
+    if (cols.length === 0 || !cols.some((c) => c.name === "page_id")) return;
+
+    await this.driver.db.exec(`
+      CREATE TABLE IF NOT EXISTS ops_new (
+        id        INTEGER PRIMARY KEY,
+        page_id   TEXT NOT NULL,
+        peer_id   TEXT NOT NULL,
+        counter   INTEGER NOT NULL,
+        type      TEXT NOT NULL,
+        data      BLOB NOT NULL,
+        timestamp INTEGER NOT NULL,
+        UNIQUE(page_id, peer_id, counter)
+      );
+      INSERT OR IGNORE INTO ops_new (page_id, peer_id, counter, type, data, timestamp)
+        SELECT page_id, peer_id, counter, type, data, timestamp FROM ops;
+      DROP TABLE ops;
+      ALTER TABLE ops_new RENAME TO ops;
+      CREATE INDEX IF NOT EXISTS idx_ops_page ON ops(page_id);
+    `);
+  }
+
+  /**
+   * Migration 2: add avatar column to space_members table.
+   */
+  private async migrateSpaceMembersAvatar(): Promise<void> {
+    const cols = await this.driver.db.execute<{ name: string }>(
+      "PRAGMA table_info(space_members)",
+    );
+    if (!cols.some((c) => c.name === "avatar")) {
+      await this.driver.db.exec("ALTER TABLE space_members ADD COLUMN avatar TEXT");
+    }
+  }
+
+  /**
+   * Migration 3: drop snapshots table — version history is now derived from ops.
+   */
+  private async migrateDropSnapshots(): Promise<void> {
+    await this.driver.db.exec(`
+      DROP TABLE IF EXISTS snapshots;
+      DROP INDEX IF EXISTS idx_snapshots_page;
+    `);
+  }
+
+  /**
+   * Migration 4: rename ops columns for clarity.
+   *   page_id → scope_id  (used for both page IDs and 'space:{id}')
+   *   counter → clock     (HLC Lamport counter, not a generic counter)
+   * Also fix timestamp: set any rows where timestamp looks like a Lamport
+   * counter (< year 2000 in ms) to 0, since the real wall-clock was lost.
+   */
+  private async migrateOpsRenameColumns(): Promise<void> {
+    const cols = await this.driver.db.execute<{ name: string }>(
+      "PRAGMA table_info(ops)",
+    );
+    // Skip if table doesn't exist or already uses new column names
+    if (cols.length === 0 || !cols.some((c) => c.name === "page_id")) return;
+
+    await this.driver.db.exec(`
+      CREATE TABLE IF NOT EXISTS ops_new (
+        id         INTEGER PRIMARY KEY,
+        scope_id   TEXT NOT NULL,
+        peer_id    TEXT NOT NULL,
+        clock      INTEGER NOT NULL,
+        type       TEXT NOT NULL,
+        data       BLOB NOT NULL,
+        timestamp  INTEGER NOT NULL,
+        UNIQUE(scope_id, peer_id, clock)
+      );
+      INSERT OR IGNORE INTO ops_new (scope_id, peer_id, clock, type, data, timestamp)
+        SELECT page_id, peer_id, counter, type, data,
+               CASE WHEN timestamp > 946684800000 THEN timestamp ELSE 0 END
+        FROM ops;
+      DROP TABLE ops;
+      ALTER TABLE ops_new RENAME TO ops;
+      DROP INDEX IF EXISTS idx_ops_page;
+      CREATE INDEX IF NOT EXISTS idx_ops_scope ON ops(scope_id);
+    `);
+  }
+
+  /**
+   * Migration 5: drop kv table — signalUrl is now stored in memory.
+   */
+  private async migrateDropKv(): Promise<void> {
+    await this.driver.db.exec("DROP TABLE IF EXISTS kv");
+  }
+
+  /**
+   * Migration 6: add archived_at tombstone column to pages table.
+   * page_remove now soft-deletes instead of hard-deleting, making
+   * space CRDT operations commutative regardless of arrival order.
+   */
+  private async migrateAddPagesArchivedAt(): Promise<void> {
+    const cols = await this.driver.db.execute<{ name: string }>(
+      "PRAGMA table_info(pages)",
+    );
+    if (!cols.some((c) => c.name === "archived_at")) {
+      await this.driver.db.exec("ALTER TABLE pages ADD COLUMN archived_at TEXT");
+    }
+  }
+
+  /**
+   * Migration 7: add archived_at tombstone column to space_members table.
+   * member_remove now soft-deletes; member_add clears the tombstone on re-invite.
+   */
+  private async migrateAddMembersArchivedAt(): Promise<void> {
+    const cols = await this.driver.db.execute<{ name: string }>(
+      "PRAGMA table_info(space_members)",
+    );
+    if (!cols.some((c) => c.name === "archived_at")) {
+      await this.driver.db.exec("ALTER TABLE space_members ADD COLUMN archived_at TEXT");
+    }
+  }
+
+  /**
+   * Migration 8: add shared_key column to peers table.
+   * Stores the per-peer AES-GCM key (hex) for encrypting signaling through CF.
+   */
+  private async migrateAddPeersSharedKey(): Promise<void> {
+    const cols = await this.driver.db.execute<{ name: string }>(
+      "PRAGMA table_info(peers)",
+    );
+    if (!cols.some((c) => c.name === "shared_key")) {
+      await this.driver.db.exec("ALTER TABLE peers ADD COLUMN shared_key TEXT");
+    }
+  }
+
+  /** Load max HLC counters from persisted ops so we never regress after restart */
+  private async loadSpaceHlcCounters(): Promise<void> {
+    const rows = await this.driver.db.execute<{
+      scope_id: string;
+      max_clock: number;
+    }>(
+      "SELECT scope_id, MAX(clock) as max_clock FROM ops WHERE scope_id LIKE 'space:%' GROUP BY scope_id",
+    );
+    for (const r of rows) {
+      const spaceId = r.scope_id.slice(6); // strip 'space:' prefix
+      this.spaceHlcCounters.set(spaceId, r.max_clock);
+    }
+  }
+
+  /** Set the replicator instance for space sync + pairing */
+  setReplicator(repl: EngineReplicator): void {
+    this.replicator = repl;
+  }
+
+  // ---------------------------------------------------------------------------
+  // ReplicatorHost implementation
+  // ---------------------------------------------------------------------------
+
+  /** Build a ReplicatorHost adapter for this engine */
+  asReplicatorHost(): ReplicatorHost {
+    return {
+      getIdentity: () => this.identity.get(),
+      getPrivateKey: () => this.getPrivateKey(),
+      getCrypto: (): CryptoDriver => this.driver.crypto,
+      getTrustedPeers: () => this.peers.list(),
+      getSpaceIds: async () => {
+        const spaces = await this.spaces.list();
+        return spaces.map(s => s.id);
+      },
+      getSpaceMembers: async (spaceId: string) => {
+        const space = await this.spaces.get(spaceId);
+        return space.members.map(m => ({ publicKey: m.publicKey }));
+      },
+      getSpaceVV: (spaceId: string) => this.getSpaceVV(spaceId),
+      getPageVVs: (spaceId: string) => this.getPageVVs(spaceId),
+      buildSyncResponse: (spaceId, spaceVV, pageVVs) =>
+        this.buildSpaceSyncResponse(spaceId, spaceVV, pageVVs),
+      applyRemoteSpaceOps: (spaceId, ops) =>
+        this.handleRemoteSpaceOps(spaceId, ops),
+      applyRemotePageOps: (pageId, ops) =>
+        this.handleRemotePageOps(pageId, ops),
+      getAssetData: async (hash: string) => {
+        const assetsDir = `${this.driver.basePath}/assets`;
+        const files = await this.driver.fs.list(assetsDir);
+        const match = files.find((f) => f.startsWith(hash));
+        if (!match) return null;
+        const data = await this.driver.fs.read(`${assetsDir}/${match}`);
+        if (!data) return null;
+        const ext = match.includes(".") ? match.split(".").pop()! : "bin";
+        return { ext, data };
+      },
+      storeAssetData: async (hash: string, ext: string, data: Uint8Array) => {
+        const path = `${this.driver.basePath}/assets/${hash}.${ext}`;
+        if (!(await this.driver.fs.exists(path))) {
+          await this.driver.fs.write(path, data);
+        }
+      },
+      getPeerSharedKey: async (publicKey: string): Promise<string | null> => {
+        const rows = await this.driver.db.execute<{ shared_key: string | null }>(
+          "SELECT shared_key FROM peers WHERE public_key = ?",
+          [publicKey],
+        );
+        return rows[0]?.shared_key ?? null;
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Identity
+  // ---------------------------------------------------------------------------
+
+  identity = {
+    get: async (): Promise<Identity> => {
+      const rows = await this.driver.db.execute<{
+        public_key: string;
+        name: string;
+        avatar: string | null;
+      }>("SELECT public_key, name, avatar FROM identity WHERE id = 1");
+
+      if (rows.length === 0) {
+        // First run — generate keypair
+        const { publicKey, privateKey } =
+          await this.driver.crypto.generateKeypair();
+        await this.driver.db.run(
+          "INSERT INTO identity (id, public_key, private_key, name) VALUES (1, ?, ?, '')",
+          [publicKey, privateKey],
+        );
+        return { publicKey, name: "", avatar: null };
+      }
+
+      const row = rows[0];
+      return {
+        publicKey: row.public_key,
+        name: row.name,
+        avatar: row.avatar,
+      };
+    },
+
+    update: async (data: {
+      name?: string;
+      avatar?: string | null;
+    }): Promise<Identity> => {
+      const sets: string[] = [];
+      const params: unknown[] = [];
+
+      if (data.name !== undefined) {
+        sets.push("name = ?");
+        params.push(data.name);
+      }
+      if (data.avatar !== undefined) {
+        sets.push("avatar = ?");
+        params.push(data.avatar);
+      }
+
+      if (sets.length > 0) {
+        await this.driver.db.run(
+          `UPDATE identity SET ${sets.join(", ")} WHERE id = 1`,
+          params,
+        );
+      }
+
+      // Propagate changes to all spaces the user belongs to
+      const identity = await this.identity.get();
+      const memberships = await this.driver.db.execute<{ space_id: string }>(
+        "SELECT space_id FROM space_members WHERE public_key = ? AND archived_at IS NULL",
+        [identity.publicKey],
+      );
+      for (const { space_id } of memberships) {
+        if (data.name !== undefined) {
+          await this.spaces.updateMember(space_id, identity.publicKey, "name", data.name);
+        }
+        if (data.avatar !== undefined) {
+          await this.spaces.updateMember(space_id, identity.publicKey, "avatar", data.avatar);
+        }
+      }
+
+      return identity;
+    },
+  };
+
+  // ---------------------------------------------------------------------------
+  // Peers
+  // ---------------------------------------------------------------------------
+
+  peers = {
+    list: async (): Promise<Peer[]> => {
+      const rows = await this.driver.db.execute<{
+        public_key: string;
+        name: string | null;
+        trusted: number;
+        last_seen: number | null;
+      }>(
+        "SELECT public_key, name, trusted, last_seen FROM peers ORDER BY name",
+      );
+
+      return rows.map((r) => ({
+        publicKey: r.public_key,
+        name: r.name ?? "",
+        trusted: r.trusted === 1,
+        lastSeen: r.last_seen ? new Date(r.last_seen).toISOString() : null,
+      }));
+    },
+
+    trust: async (publicKey: string, name?: string, sharedKey?: string): Promise<Peer> => {
+      await this.driver.db.run(
+        `INSERT INTO peers (public_key, name, trusted, shared_key) VALUES (?, ?, 1, ?)
+         ON CONFLICT(public_key) DO UPDATE SET trusted = 1, name = COALESCE(?, name), shared_key = COALESCE(?, shared_key)`,
+        [publicKey, name ?? "", sharedKey ?? null, name ?? null, sharedKey ?? null],
+      );
+      const rows = await this.driver.db.execute<{
+        public_key: string;
+        name: string | null;
+        trusted: number;
+        last_seen: number | null;
+      }>("SELECT * FROM peers WHERE public_key = ?", [publicKey]);
+      const r = rows[0];
+      return {
+        publicKey: r.public_key,
+        name: r.name ?? "",
+        trusted: true,
+        lastSeen: r.last_seen ? new Date(r.last_seen).toISOString() : null,
+      };
+    },
+
+    untrust: async (publicKey: string): Promise<void> => {
+      await this.driver.db.run(
+        "UPDATE peers SET trusted = 0 WHERE public_key = ?",
+        [publicKey],
+      );
+    },
+
+    remove: async (publicKey: string): Promise<void> => {
+      await this.driver.db.run("DELETE FROM peers WHERE public_key = ?", [
+        publicKey,
+      ]);
+    },
+  };
+
+  // ---------------------------------------------------------------------------
+  // Spaces
+  // ---------------------------------------------------------------------------
+
+  spaces = {
+    list: async (): Promise<Space[]> => {
+      const identity = await this.identity.get();
+      const rows = await this.driver.db.execute<{
+        id: string;
+        name: string;
+        created_at: string;
+      }>(
+        `SELECT s.* FROM spaces s
+         JOIN space_members m ON m.space_id = s.id
+         WHERE m.public_key = ? AND m.archived_at IS NULL
+         ORDER BY s.name`,
+        [identity.publicKey],
+      );
+      return rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        createdAt: r.created_at,
+      }));
+    },
+
+    get: async (id: string): Promise<Space & { members: SpaceMember[] }> => {
+      const spaceRows = await this.driver.db.execute<{
+        id: string;
+        name: string;
+        created_at: string;
+      }>("SELECT * FROM spaces WHERE id = ?", [id]);
+
+      if (spaceRows.length === 0) throw new Error(`Space not found: ${id}`);
+      const s = spaceRows[0];
+
+      const memberRows = await this.driver.db.execute<{
+        space_id: string;
+        public_key: string;
+        name: string;
+        role: string;
+        avatar: string | null;
+        added_at: string;
+      }>("SELECT * FROM space_members WHERE space_id = ? AND archived_at IS NULL ORDER BY added_at", [
+        id,
+      ]);
+
+      return {
+        id: s.id,
+        name: s.name,
+        createdAt: s.created_at,
+        members: memberRows.map((m) => ({
+          spaceId: m.space_id,
+          publicKey: m.public_key,
+          name: m.name,
+          role: m.role as "owner" | "editor",
+          avatar: m.avatar,
+          addedAt: m.added_at,
+        })),
+      };
+    },
+
+    create: async (name: string): Promise<Space> => {
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const identity = await this.identity.get();
+
+      await this.driver.db.run(
+        "INSERT INTO spaces (id, name, created_at) VALUES (?, ?, ?)",
+        [id, name, now],
+      );
+
+      await this.driver.db.run(
+        "INSERT INTO space_members (space_id, public_key, name, role, added_at) VALUES (?, ?, ?, 'owner', ?)",
+        [id, identity.publicKey, identity.name, now],
+      );
+
+      // Generate CRDT ops
+      await this.emitSpaceOp(id, {
+        op: "space_set",
+        field: "name",
+        value: name,
+      });
+
+      await this.emitSpaceOp(id, {
+        op: "member_add",
+        publicKey: identity.publicKey,
+        name: identity.name,
+      });
+
+      return { id, name, createdAt: now };
+    },
+
+    rename: async (id: string, name: string): Promise<void> => {
+      await this.driver.db.run("UPDATE spaces SET name = ? WHERE id = ?", [
+        name,
+        id,
+      ]);
+      await this.emitSpaceOp(id, {
+        op: "space_set",
+        field: "name",
+        value: name,
+      });
+      this.notifySpaceChange(id);
+    },
+
+    leave: async (id: string): Promise<void> => {
+      const identity = await this.identity.get();
+      const now = new Date().toISOString();
+      await this.emitSpaceOp(id, {
+        op: "member_remove",
+        publicKey: identity.publicKey,
+      });
+      await this.driver.db.run(
+        "UPDATE space_members SET archived_at = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL",
+        [now, id, identity.publicKey],
+      );
+      this.notifySpaceChange(id);
+    },
+
+    updateMember: async (
+      spaceId: string,
+      publicKey: string,
+      field: string,
+      value: unknown,
+    ): Promise<void> => {
+      await this.emitSpaceOp(spaceId, {
+        op: "member_set",
+        publicKey,
+        field,
+        value,
+      });
+      const memberFieldMap: Record<string, string> = {
+        name: "name",
+        role: "role",
+        avatar: "avatar",
+      };
+      const col = memberFieldMap[field];
+      if (col) {
+        await this.driver.db.run(
+          `UPDATE space_members SET ${col} = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL`,
+          [value, spaceId, publicKey],
+        );
+      }
+      if (field === "name") {
+        await this.driver.db.run(
+          "UPDATE peers SET name = ? WHERE public_key = ?",
+          [value, publicKey],
+        );
+      }
+      this.notifySpaceChange(spaceId);
+    },
+
+    removeMember: async (spaceId: string, publicKey: string): Promise<void> => {
+      await this.emitSpaceOp(spaceId, { op: "member_remove", publicKey });
+      const now = new Date().toISOString();
+      await this.driver.db.run(
+        "UPDATE space_members SET archived_at = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL",
+        [now, spaceId, publicKey],
+      );
+      this.notifySpaceChange(spaceId);
+    },
+
+    onChange: (cb: (spaceId: string) => void): (() => void) => {
+      this.spaceChangeListeners.add(cb);
+      return () => {
+        this.spaceChangeListeners.delete(cb);
+      };
+    },
+  };
+
+  // ---------------------------------------------------------------------------
+  // Pairing
+  // ---------------------------------------------------------------------------
+
+  pairing = {
+    createInvite: async (spaceId: string): Promise<SpaceInvite> => {
+      const topicBytes = new Uint8Array(32);
+      crypto.getRandomValues(topicBytes);
+      const topic = bytesToHex(topicBytes);
+
+      const secretBytes = new Uint8Array(32);
+      crypto.getRandomValues(secretBytes);
+      const secret = bytesToHex(secretBytes);
+
+      const space = await this.spaces.get(spaceId);
+      const signalUrl = this.signalUrl;
+
+      return { topic, secret, signalUrl, spaceId, spaceName: space.name };
+    },
+
+    waitForPeer: async (
+      invite: SpaceInvite,
+      callbacks?: PairCallbacks,
+    ): Promise<void> => {
+      if (!this.replicator) throw new Error("Replicator not initialized");
+      const identity = await this.identity.get();
+      const privateKey = await this.getPrivateKey();
+
+      await this.replicator.startPairing({
+        invite,
+        role: "initiator",
+        localPublicKey: identity.publicKey,
+        localName: identity.name,
+        privateKey,
+        callbacks: {
+          multi: callbacks?.multi,
+          onConnected: callbacks?.onConnected,
+          onPeerIdentity: callbacks?.onPeerIdentity,
+          onComplete: async (peer) => {
+            // Derive shared signaling key from pairing secret + both public keys
+            const sharedKey = await deriveSharedSignalingKey(
+              invite.secret, identity.publicKey, peer.publicKey,
+            );
+            await this.peers.trust(peer.publicKey, peer.name, sharedKey);
+            // Add the new peer as a member of the space
+            await this.emitSpaceOp(invite.spaceId, {
+              op: "member_add",
+              publicKey: peer.publicKey,
+              name: peer.name,
+            });
+            await this.driver.db.run(
+              `INSERT INTO space_members (space_id, public_key, name, role, added_at)
+               VALUES (?, ?, ?, 'editor', ?)
+               ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
+              [
+                invite.spaceId,
+                peer.publicKey,
+                peer.name,
+                new Date().toISOString(),
+                peer.name,
+              ],
+            );
+            this.notifySpaceChange(invite.spaceId);
+            callbacks?.onComplete?.(peer);
+          },
+          onError: callbacks?.onError,
+        },
+      });
+    },
+
+    acceptInvite: async (
+      invite: SpaceInvite,
+      callbacks?: PairCallbacks,
+    ): Promise<void> => {
+      if (!this.replicator) throw new Error("Replicator not initialized");
+      const identity = await this.identity.get();
+      const privateKey = await this.getPrivateKey();
+
+      await this.replicator.startPairing({
+        invite,
+        role: "acceptor",
+        localPublicKey: identity.publicKey,
+        localName: identity.name,
+        privateKey,
+        callbacks: {
+          onConnected: callbacks?.onConnected,
+          onPeerIdentity: callbacks?.onPeerIdentity,
+          onComplete: async (peer) => {
+            // Derive shared signaling key from pairing secret + both public keys
+            const sharedKey = await deriveSharedSignalingKey(
+              invite.secret, identity.publicKey, peer.publicKey,
+            );
+            await this.peers.trust(peer.publicKey, peer.name, sharedKey);
+
+            // Create the space locally from invite metadata
+            const now = new Date().toISOString();
+            await this.driver.db.run(
+              "INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)",
+              [invite.spaceId, invite.spaceName, now],
+            );
+            // Add self as editor
+            await this.driver.db.run(
+              `INSERT INTO space_members (space_id, public_key, name, role, added_at)
+               VALUES (?, ?, ?, 'editor', ?)
+               ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
+              [invite.spaceId, identity.publicKey, identity.name, now, identity.name],
+            );
+            // Add the initiator as owner (so hello exchange can identify shared spaces)
+            await this.driver.db.run(
+              `INSERT INTO space_members (space_id, public_key, name, role, added_at)
+               VALUES (?, ?, ?, 'owner', ?)
+               ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
+              [invite.spaceId, peer.publicKey, peer.name, now, peer.name],
+            );
+
+            // Replicator.addPeer is called automatically after pairing completes
+            this.notifySpaceChange(invite.spaceId);
+            callbacks?.onComplete?.(peer);
+          },
+          onError: callbacks?.onError,
+        },
+      });
+    },
+
+    cancel: async (): Promise<void> => {
+      if (this.replicator) await this.replicator.cancelPairing();
+    },
+  };
+
+  // ---------------------------------------------------------------------------
+  // Pages
+  // ---------------------------------------------------------------------------
+
+  pages = {
+    list: async (
+      spaceId: string,
+      parentId?: string | null,
+      options?: { includeTasks?: boolean },
+    ): Promise<PageListItem[]> => {
+      let sql: string;
+      const params: unknown[] = [];
+
+      if (parentId === null || parentId === undefined) {
+        sql = `SELECT p.*, EXISTS(SELECT 1 FROM pages c WHERE c.parent_id = p.id AND c.archived_at IS NULL) as has_children
+               FROM pages p WHERE p.space_id = ? AND p.parent_id IS NULL AND p.archived_at IS NULL`;
+        params.push(spaceId);
+      } else {
+        sql = `SELECT p.*, EXISTS(SELECT 1 FROM pages c WHERE c.parent_id = p.id AND c.archived_at IS NULL) as has_children
+               FROM pages p WHERE p.space_id = ? AND p.parent_id = ? AND p.archived_at IS NULL`;
+        params.push(spaceId, parentId);
+      }
+
+      if (!options?.includeTasks) {
+        sql += " AND p.task = 0";
+      }
+
+      sql += ' ORDER BY p."order" ASC';
+
+      const rows = await this.driver.db.execute<{
+        id: string;
+        title: string;
+        auto_title: number;
+        parent_id: string | null;
+        order: number;
+        has_children: number;
+        space_id: string | null;
+        task: number;
+        color: string | null;
+        scheduled_at: string | null;
+        duration: number | null;
+        all_day: number | null;
+        recurrence_id: string | null;
+      }>(sql, params);
+
+      return rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        autoTitle: r.auto_title === 1,
+        parentId: r.parent_id,
+        order: r.order,
+        hasChildren: r.has_children === 1,
+        spaceId: r.space_id,
+        task: r.task === 1,
+        color: r.color,
+        scheduledAt: r.scheduled_at,
+        duration: r.duration,
+        allDay: r.all_day === null ? null : r.all_day === 1,
+        recurrenceId: r.recurrence_id,
+      }));
+    },
+
+    get: async (id: string): Promise<PageFull> => {
+      const rows = await this.driver.db.execute<{
+        id: string;
+        title: string;
+        auto_title: number;
+        parent_id: string | null;
+        order: number;
+        has_children: number;
+        space_id: string | null;
+        task: number;
+        color: string | null;
+        scheduled_at: string | null;
+        duration: number | null;
+        all_day: number | null;
+        recurrence_id: string | null;
+        created_at: string;
+        updated_at: string;
+      }>(
+        `SELECT p.*, EXISTS(SELECT 1 FROM pages c WHERE c.parent_id = p.id AND c.archived_at IS NULL) as has_children
+         FROM pages p WHERE p.id = ? AND p.archived_at IS NULL`,
+        [id],
+      );
+
+      if (rows.length === 0) {
+        throw new Error(`Page not found: ${id}`);
+      }
+
+      const r = rows[0];
+
+      // Rebuild page content from ops (ops are the single source of truth).
+      let blocks = await this.rebuildBlocksFromOps(id);
+      if (!blocks || blocks.length === 0) {
+        // Truly empty page — create default block and persist its
+        // block_insert op so the block survives rebuild-from-ops.
+        // Derive blockId deterministically from pageId so every peer
+        // independently creates the exact same initial block.
+        const initialBlockId = `__init_block__:${id}`;
+        blocks = [
+          {
+            id: initialBlockId,
+            type: "heading1",
+            charRuns: [],
+            formats: [],
+          },
+        ];
+
+        const blockInsertOp = {
+          op: "block_insert" as const,
+          id: `__init__:0`,
+          clock: { counter: 0, peerId: "__init__" },
+          pageId: id,
+          afterBlockId: null,
+          blockId: initialBlockId,
+          blockType: "heading1" as const,
+        };
+        const opData = new TextEncoder().encode(JSON.stringify(blockInsertOp));
+        await this.driver.db.run(
+          "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+          [id, "__init__", 0, "block_insert", opData, Date.now()],
+        );
+      }
+
+      const parents = await this.buildParentChain(r.parent_id);
+
+      return {
+        id: r.id,
+        title: r.title,
+        autoTitle: r.auto_title === 1,
+        parentId: r.parent_id,
+        order: r.order,
+        hasChildren: r.has_children === 1,
+        spaceId: r.space_id,
+        task: r.task === 1,
+        color: r.color,
+        scheduledAt: r.scheduled_at,
+        duration: r.duration,
+        allDay: r.all_day === null ? null : r.all_day === 1,
+        recurrenceId: r.recurrence_id,
+        blocks,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+        parents,
+      };
+    },
+
+    create: async (data: PageCreateInput): Promise<PageFull> => {
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+
+      const orderRows = await this.driver.db.execute<{
+        max_order: number | null;
+      }>(
+        data.parentId
+          ? 'SELECT MAX("order") as max_order FROM pages WHERE parent_id = ? AND archived_at IS NULL'
+          : 'SELECT MAX("order") as max_order FROM pages WHERE parent_id IS NULL AND archived_at IS NULL',
+        data.parentId ? [data.parentId] : [],
+      );
+      const order = (orderRows[0]?.max_order ?? 0) + 1;
+
+      await this.driver.db.run(
+        `INSERT INTO pages (id, title, parent_id, "order", space_id, task, scheduled_at, duration, all_day, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          data.title,
+          data.parentId,
+          order,
+          data.spaceId ?? null,
+          data.task ? 1 : 0,
+          data.scheduledAt ?? null,
+          data.duration ?? null,
+          data.allDay !== undefined ? (data.allDay ? 1 : 0) : null,
+          now,
+          now,
+        ],
+      );
+
+      // Derive blockId deterministically from pageId so every peer
+      // independently creates the exact same initial block.
+      const initialBlockId = `__init_block__:${id}`;
+
+      // Persist a block_insert op for the initial block
+      const blockInsertOp = {
+        op: "block_insert" as const,
+        id: `__init__:0`,
+        clock: { counter: 0, peerId: "__init__" },
+        pageId: id,
+        afterBlockId: null,
+        blockId: initialBlockId,
+        blockType: "heading1" as const,
+      };
+      const opData = new TextEncoder().encode(JSON.stringify(blockInsertOp));
+      await this.driver.db.run(
+        "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+        [id, "__init__", 0, "block_insert", opData, Date.now()],
+      );
+
+      // Auto-generate space op if page belongs to a space
+      if (data.spaceId) {
+        await this.emitSpaceOp(data.spaceId, {
+          op: "page_add",
+          pageId: id,
+          title: data.title,
+          parentId: data.parentId,
+          order,
+          task: data.task,
+          color: undefined,
+          scheduledAt: data.scheduledAt ?? null,
+          duration: data.duration ?? null,
+          allDay: data.allDay ?? null,
+        });
+      }
+
+      return this.pages.get(id);
+    },
+
+    update: async (data: PageUpdateInput): Promise<PageFull> => {
+      const sets: string[] = [];
+      const params: unknown[] = [];
+
+      // Track which fields changed for space ops
+      const changedFields: { field: string; value: unknown }[] = [];
+
+      if (data.title !== undefined) {
+        sets.push("title = ?");
+        params.push(data.title);
+        changedFields.push({ field: "title", value: data.title });
+      }
+      if (data.autoTitle !== undefined) {
+        sets.push("auto_title = ?");
+        params.push(data.autoTitle ? 1 : 0);
+        changedFields.push({ field: "autoTitle", value: data.autoTitle });
+      }
+      if (data.color !== undefined) {
+        sets.push("color = ?");
+        params.push(data.color);
+        changedFields.push({ field: "color", value: data.color });
+      }
+      if (data.scheduledAt !== undefined) {
+        sets.push("scheduled_at = ?");
+        params.push(data.scheduledAt);
+        changedFields.push({ field: "scheduledAt", value: data.scheduledAt });
+      }
+      if (data.duration !== undefined) {
+        sets.push("duration = ?");
+        params.push(data.duration);
+        changedFields.push({ field: "duration", value: data.duration });
+      }
+      if (data.allDay !== undefined) {
+        sets.push("all_day = ?");
+        params.push(data.allDay === null ? null : data.allDay ? 1 : 0);
+        changedFields.push({ field: "allDay", value: data.allDay });
+      }
+      if (data.task !== undefined) {
+        sets.push("task = ?");
+        params.push(data.task ? 1 : 0);
+        changedFields.push({ field: "task", value: data.task });
+      }
+
+      if (sets.length > 0) {
+        sets.push("updated_at = ?");
+        params.push(new Date().toISOString());
+        params.push(data.id);
+        await this.driver.db.run(
+          `UPDATE pages SET ${sets.join(", ")} WHERE id = ?`,
+          params,
+        );
+      }
+
+      // Auto-generate space ops for metadata changes
+      if (changedFields.length > 0) {
+        const spaceId = await this.getPageSpaceId(data.id);
+        if (spaceId) {
+          for (const { field, value } of changedFields) {
+            await this.emitSpaceOp(spaceId, {
+              op: "page_set",
+              pageId: data.id,
+              field,
+              value,
+            });
+          }
+        }
+      }
+
+      return this.pages.get(data.id);
+    },
+
+    delete: async (id: string): Promise<void> => {
+      // Check if page belongs to a space before deleting
+      const spaceId = await this.getPageSpaceId(id);
+
+      const tree = await this.driver.db.execute<{ id: string }>(
+        `WITH RECURSIVE subtree(id) AS (
+           SELECT id FROM pages WHERE id = ? AND archived_at IS NULL
+           UNION ALL
+           SELECT p.id FROM pages p JOIN subtree s ON p.parent_id = s.id WHERE p.archived_at IS NULL
+         )
+         SELECT id FROM subtree`,
+        [id],
+      );
+      const ids = tree.map((r) => r.id);
+
+      const placeholders = ids.map(() => "?").join(", ");
+      const now = new Date().toISOString();
+
+      await this.driver.db.run(
+        `UPDATE pages SET archived_at = ? WHERE id IN (${placeholders}) AND archived_at IS NULL`,
+        [now, ...ids],
+      );
+
+      // Generate space op for each deleted page
+      if (spaceId) {
+        for (const pageId of ids) {
+          await this.emitSpaceOp(spaceId, { op: "page_remove", pageId });
+        }
+      }
+
+      // Notify page delete listeners (so the editor can react if the deleted page is open)
+      for (const pageId of ids) {
+        this.notifyPageDeleted(pageId);
+      }
+    },
+
+    move: async (data: PageMoveInput): Promise<void> => {
+      const spaceId = await this.getPageSpaceId(data.id);
+
+      const sets = ["parent_id = ?", "updated_at = ?"];
+      const params: unknown[] = [data.parentId, new Date().toISOString()];
+
+      if (data.order !== undefined) {
+        sets.push('"order" = ?');
+        params.push(data.order);
+      }
+
+      params.push(data.id);
+      await this.driver.db.run(
+        `UPDATE pages SET ${sets.join(", ")} WHERE id = ?`,
+        params,
+      );
+
+      if (spaceId) {
+        await this.emitSpaceOp(spaceId, {
+          op: "page_set",
+          pageId: data.id,
+          field: "parentId",
+          value: data.parentId,
+        });
+        if (data.order !== undefined) {
+          await this.emitSpaceOp(spaceId, {
+            op: "page_set",
+            pageId: data.id,
+            field: "order",
+            value: data.order,
+          });
+        }
+      }
+    },
+
+    reorder: async (id: string, order: number): Promise<void> => {
+      await this.driver.db.run(
+        'UPDATE pages SET "order" = ?, updated_at = ? WHERE id = ?',
+        [order, new Date().toISOString(), id],
+      );
+
+      const spaceId = await this.getPageSpaceId(id);
+      if (spaceId) {
+        await this.emitSpaceOp(spaceId, {
+          op: "page_set",
+          pageId: id,
+          field: "order",
+          value: order,
+        });
+      }
+    },
+
+    search: async (query: string): Promise<PageSearchResult[]> => {
+      const rows = await this.driver.db.execute<{
+        id: string;
+        title: string | null;
+        parent_id: string | null;
+        color: string | null;
+      }>(
+        "SELECT id, title, parent_id, color FROM pages WHERE title LIKE ? AND archived_at IS NULL LIMIT 20",
+        [`%${query}%`],
+      );
+
+      const results: PageSearchResult[] = [];
+      for (const r of rows) {
+        const path = await this.buildParentChain(r.parent_id);
+        results.push({
+          id: r.id,
+          title: r.title,
+          parentId: r.parent_id,
+          path,
+          color: r.color,
+        });
+      }
+      return results;
+    },
+
+    calendar: async (
+      start: number,
+      end: number,
+    ): Promise<PageCalendarItem[]> => {
+      const rows = await this.driver.db.execute<{
+        id: string;
+        title: string;
+        auto_title: number;
+        parent_id: string | null;
+        order: number;
+        color: string | null;
+        scheduled_at: string;
+        duration: number | null;
+        all_day: number | null;
+        recurrence_id: string | null;
+        task: number;
+        created_at: string;
+      }>(
+        `SELECT * FROM pages
+         WHERE scheduled_at IS NOT NULL AND archived_at IS NULL
+         AND scheduled_at >= ? AND scheduled_at <= ?
+         ORDER BY scheduled_at ASC`,
+        [new Date(start).toISOString(), new Date(end).toISOString()],
+      );
+
+      const results: PageCalendarItem[] = [];
+      for (const r of rows) {
+        const path = await this.buildParentChain(r.parent_id);
+        results.push({
+          id: r.id,
+          title: r.title,
+          autoTitle: r.auto_title === 1,
+          parentId: r.parent_id,
+          order: r.order,
+          color: r.color,
+          scheduledAt: r.scheduled_at,
+          duration: r.duration,
+          allDay: r.all_day === null ? null : r.all_day === 1,
+          recurrenceId: r.recurrence_id,
+          task: r.task === 1,
+          path,
+          createdAt: r.created_at,
+        });
+      }
+      return results;
+    },
+
+    snapshots: async (pageId: string): Promise<PageSnapshot[]> => {
+      const rows = await this.driver.db.execute<{ data: Uint8Array; timestamp: number }>(
+        "SELECT data, timestamp FROM ops WHERE scope_id = ? ORDER BY clock, peer_id",
+        [pageId],
+      );
+      if (rows.length === 0) return [];
+
+      type ParsedRow = { op: import("@/editor/sync/types").Operation; timestamp: number };
+      const parsed: ParsedRow[] = [];
+      for (const r of rows) {
+        try {
+          parsed.push({
+            op: JSON.parse(new TextDecoder().decode(r.data as Uint8Array)),
+            timestamp: r.timestamp,
+          });
+        } catch { /* skip corrupted */ }
+      }
+      if (parsed.length === 0) return [];
+
+      // Pick evenly-spaced sample points
+      const MAX_VERSIONS = 25;
+      const total = parsed.length;
+      const step = Math.max(1, Math.floor(total / MAX_VERSIONS));
+      const sampleIndices = new Set<number>();
+      for (let i = step - 1; i < total; i += step) sampleIndices.add(i);
+      sampleIndices.add(total - 1);
+
+      // Apply ops incrementally, snapshot at sample points.
+      // Defers text_delete ops whose referenced chars haven't been inserted
+      // yet (HLC order ≠ causal order).
+      const { applyOp, createEmptyPageState } = await import("@/editor/sync/reducer");
+      const { resolveBlockOrder } = await import("@/editor/sync/conflicts");
+
+      let state = createEmptyPageState(pageId);
+      const insertedCharIds = new Set<string>();
+      const deferredOps: import("@/editor/sync/types").Operation[] = [];
+      const results: PageSnapshot[] = [];
+
+      for (let i = 0; i < total; i++) {
+        const { op, timestamp } = parsed[i];
+
+        if (op.op === "text_insert") {
+          for (const run of op.charRuns) {
+            for (let j = 0; j < run.text.length; j++) {
+              insertedCharIds.add(`${run.peerId}:${run.startCounter + j}`);
+            }
+          }
+        }
+
+        if (op.op === "text_delete" && !op.charIds.every((id) => insertedCharIds.has(id))) {
+          deferredOps.push(op);
+        } else {
+          state = applyOp(state, op);
+        }
+
+        if (sampleIndices.has(i)) {
+          let snapshotState = state;
+          for (const deferred of deferredOps) {
+            snapshotState = applyOp(snapshotState, deferred);
+          }
+          results.push({
+            id: `${op.clock.counter}-${op.clock.peerId}`,
+            pageId,
+            blocks: resolveBlockOrder(snapshotState.blocks),
+            clock: op.clock,
+            opCount: i + 1,
+            createdAt: timestamp || 0,
+          });
+        }
+      }
+
+      return results.reverse();
+    },
+
+    onDeleted: (cb: (pageId: string) => void): (() => void) => {
+      this.pageDeleteListeners.add(cb);
+      return () => { this.pageDeleteListeners.delete(cb); };
+    },
+  };
+
+  // ---------------------------------------------------------------------------
+  // Assets
+  // ---------------------------------------------------------------------------
+
+  private blobUrlCache = new Map<string, string>();
+
+  private createBlobUrl(data: Uint8Array, mimeType?: string): string {
+    const blob = new Blob([data as BlobPart], {
+      type: mimeType || "application/octet-stream",
+    });
+    return URL.createObjectURL(blob);
+  }
+
+  private guessMimeType(fileName: string): string {
+    const ext = fileName.split(".").pop()?.toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      png: "image/png",
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      gif: "image/gif",
+      webp: "image/webp",
+      svg: "image/svg+xml",
+      bmp: "image/bmp",
+      ico: "image/x-icon",
+    };
+    return mimeTypes[ext || ""] || "application/octet-stream";
+  }
+
+  assets = {
+    store: async (file: File): Promise<Asset> => {
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      const hash = await hashBytes(buffer);
+      const ext = file.name.split(".").pop() || "bin";
+      const path = `${this.driver.basePath}/assets/${hash}.${ext}`;
+
+      if (!(await this.driver.fs.exists(path))) {
+        await this.driver.fs.write(path, buffer);
+      }
+
+      if (!this.blobUrlCache.has(hash)) {
+        this.blobUrlCache.set(hash, this.createBlobUrl(buffer, file.type));
+      }
+
+      return {
+        hash,
+        fileName: file.name,
+        mimeType: file.type,
+        size: buffer.length,
+      };
+    },
+
+    getUrl: async (hash: string): Promise<string> => {
+      if (this.blobUrlCache.has(hash)) {
+        return this.blobUrlCache.get(hash)!;
+      }
+
+      const assetsDir = `${this.driver.basePath}/assets`;
+      let files = await this.driver.fs.list(assetsDir);
+      let match = files.find((f) => f.startsWith(hash));
+
+      // Not found locally — try requesting from connected peers
+      if (!match && this.replicator) {
+        const found = await this.replicator.requestAsset(hash);
+        if (found) {
+          files = await this.driver.fs.list(assetsDir);
+          match = files.find((f) => f.startsWith(hash));
+        }
+      }
+
+      if (!match) {
+        throw new Error(`Asset not found: ${hash}`);
+      }
+
+      const data = await this.driver.fs.read(`${assetsDir}/${match}`);
+      if (!data) {
+        throw new Error(`Asset file unreadable: ${match}`);
+      }
+
+      const blobUrl = this.createBlobUrl(data, this.guessMimeType(match));
+      this.blobUrlCache.set(hash, blobUrl);
+      return blobUrl;
+    },
+
+    delete: async (hash: string): Promise<void> => {
+      const cachedUrl = this.blobUrlCache.get(hash);
+      if (cachedUrl) {
+        URL.revokeObjectURL(cachedUrl);
+        this.blobUrlCache.delete(hash);
+      }
+
+      const files = await this.driver.fs.list(`${this.driver.basePath}/assets`);
+      for (const file of files) {
+        if (file.startsWith(hash)) {
+          await this.driver.fs.delete(`${this.driver.basePath}/assets/${file}`);
+        }
+      }
+    },
+  };
+
+  // ---------------------------------------------------------------------------
+  // Sync — platform-specific, must be provided
+  // ---------------------------------------------------------------------------
+
+  sync: Platform["sync"] = {
+    async joinRoom() {
+      throw new Error("Sync not initialized");
+    },
+    async leaveRoom() {
+      throw new Error("Sync not initialized");
+    },
+    sendOperations() {
+      throw new Error("Sync not initialized");
+    },
+    sendSyncRequest() {
+      throw new Error("Sync not initialized");
+    },
+    sendSyncResponse() {
+      throw new Error("Sync not initialized");
+    },
+    sendAwareness() {
+      throw new Error("Sync not initialized");
+    },
+    onPageEvents() {
+      return () => {};
+    },
+    getConnectionState() {
+      return "disconnected" as const;
+    },
+    onConnectionChange() {
+      return () => {};
+    },
+    getConnectedPeers() {
+      return [];
+    },
+    onConnectedPeersChange() {
+      return () => {};
+    },
+  };
+
+  /** Replace the sync implementation (called by platform init) */
+  setSync(sync: Platform["sync"]): void {
+    this.sync = sync;
+  }
+
+  /** Set the signal URL (called once at init) */
+  setSignalUrl(url: string): void {
+    this.signalUrl = url;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ops (CRDT operation persistence)
+  // ---------------------------------------------------------------------------
+
+  ops = {
+    persist: async (
+      pageId: string,
+      operations: import("@/editor/sync/types").Operation[],
+    ): Promise<void> => {
+      const now = Date.now();
+      for (const op of operations) {
+        const data = new TextEncoder().encode(JSON.stringify(op));
+        await this.driver.db.run(
+          "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+          [
+            pageId,
+            op.clock.peerId,
+            op.clock.counter,
+            op.op,
+            data,
+            now,
+          ],
+        );
+      }
+    },
+
+    /** Convert blocks to CRDT ops and persist them (used by import) */
+    writeBlocks: async (
+      pageId: string,
+      blocks: import("@/deserializer/loadPage").Block[],
+    ): Promise<void> => {
+      const { blocksToOps } = await import("@/editor/sync/snapshot-diff");
+      const { createIdGenerator, generatePeerId } = await import(
+        "@/editor/sync/id"
+      );
+      const { createHLC, tickHLC } = await import("@/editor/sync/hlc");
+
+      const peerId = generatePeerId();
+      const nextId = createIdGenerator(peerId);
+      let hlc = createHLC(peerId);
+      const getClock = () => {
+        hlc = tickHLC(hlc);
+        return hlc;
+      };
+
+      const ops = blocksToOps(blocks, { pageId, peerId, nextId, getClock });
+      await this.ops.persist(pageId, ops);
+
+      // Broadcast to connected peers so they get the content immediately
+      if (this.replicator && ops.length > 0) {
+        const spaceId = await this.getPageSpaceId(pageId);
+        if (spaceId) {
+          this.replicator.pushPageOps(spaceId, pageId, ops);
+        }
+      }
+    },
+
+    load: async (
+      pageId: string,
+    ): Promise<import("@/editor/sync/types").Operation[]> => {
+      const rows = await this.driver.db.execute<{ data: Uint8Array }>(
+        "SELECT data FROM ops WHERE scope_id = ? ORDER BY clock, peer_id",
+        [pageId],
+      );
+      const ops: import("@/editor/sync/types").Operation[] = [];
+      for (const r of rows) {
+        try {
+          ops.push(JSON.parse(new TextDecoder().decode(r.data as Uint8Array)));
+        } catch {
+          /* skip corrupted ops */
+        }
+      }
+      return ops;
+    },
+  };
+
+  // ---------------------------------------------------------------------------
+  // Space CRDT: Remote ops handling (called by sync layer)
+  // ---------------------------------------------------------------------------
+
+  /** Apply remote space operations received from a peer */
+  async handleRemoteSpaceOps(
+    spaceId: string,
+    ops: SpaceOperation[],
+  ): Promise<void> {
+    for (const op of ops) {
+      await this.storeSpaceOp(op);
+      await this.applySpaceOp(op);
+
+      // When a new member is added, connect to them so all peers
+      // have direct connections (not routed through the inviter).
+      if (op.op === "member_add" && this.replicator) {
+        const identity = await this.identity.get();
+        if (op.publicKey !== identity.publicKey) {
+          this.replicator.addPeer(op.publicKey);
+        }
+      }
+
+      // When a member is removed, disconnect if they no longer share any space.
+      if (op.op === "member_remove" && this.replicator) {
+        const identity = await this.identity.get();
+        if (op.publicKey !== identity.publicKey) {
+          const remaining = await this.driver.db.execute<{ cnt: number }>(
+            "SELECT COUNT(*) as cnt FROM space_members WHERE public_key = ? AND archived_at IS NULL",
+            [op.publicKey],
+          );
+          if (remaining[0].cnt === 0) {
+            this.replicator.removePeer(op.publicKey);
+          }
+        }
+      }
+    }
+    this.notifySpaceChange(spaceId);
+  }
+
+  /** Apply remote page content operations received from a peer */
+  async handleRemotePageOps(
+    pageId: string,
+    ops: import("@/editor/sync/types").Operation[],
+  ): Promise<void> {
+    const now = Date.now();
+    for (const op of ops) {
+      const data = new TextEncoder().encode(JSON.stringify(op));
+      await this.driver.db.run(
+        "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+        [
+          pageId,
+          op.clock.peerId,
+          op.clock.counter,
+          op.op,
+          data,
+          now,
+        ],
+      );
+    }
+  }
+
+  /** Build a sync response for a requesting peer */
+  async buildSpaceSyncResponse(
+    spaceId: string,
+    remoteSpaceVV: Record<string, number>,
+    remotePageVVs: Record<string, Record<string, number>>,
+  ): Promise<{
+    spaceOps: SpaceOperation[];
+    pageOps: Record<string, import("@/editor/sync/types").Operation[]>;
+  }> {
+    // Get missing space ops
+    const allSpaceOps = await this.getSpaceOps(spaceId);
+    const missingSpaceOps = allSpaceOps.filter((op) => {
+      const known = remoteSpaceVV[op.clock.peerId] ?? -1;
+      return op.clock.counter > known;
+    });
+
+    // Get missing page ops for all pages in this space
+    const pageRows = await this.driver.db.execute<{ id: string }>(
+      "SELECT id FROM pages WHERE space_id = ?",
+      [spaceId],
+    );
+
+    const pageOps: Record<string, import("@/editor/sync/types").Operation[]> =
+      {};
+    for (const { id: pageId } of pageRows) {
+      const remoteVV = remotePageVVs[pageId] ?? {};
+      const rows = await this.driver.db.execute<{
+        data: Uint8Array;
+        peer_id: string;
+        clock: number;
+      }>(
+        "SELECT data, peer_id, clock FROM ops WHERE scope_id = ? ORDER BY clock",
+        [pageId],
+      );
+
+      const missing: import("@/editor/sync/types").Operation[] = [];
+      for (const row of rows) {
+        const known = remoteVV[row.peer_id] ?? -1;
+        if (row.clock > known) {
+          try {
+            missing.push(
+              JSON.parse(new TextDecoder().decode(row.data as Uint8Array)),
+            );
+          } catch {
+            /* skip corrupted ops */
+          }
+        }
+      }
+      if (missing.length > 0) {
+        pageOps[pageId] = missing;
+      }
+    }
+
+    return { spaceOps: missingSpaceOps, pageOps };
+  }
+
+  /** Get the space version vector (for sync requests) */
+  async getSpaceVV(spaceId: string): Promise<Record<string, number>> {
+    const scopeId = `space:${spaceId}`;
+    const rows = await this.driver.db.execute<{
+      peer_id: string;
+      max_clock: number;
+    }>(
+      "SELECT peer_id, MAX(clock) as max_clock FROM ops WHERE scope_id = ? GROUP BY peer_id",
+      [scopeId],
+    );
+    const vv: Record<string, number> = {};
+    for (const r of rows) vv[r.peer_id] = r.max_clock;
+    return vv;
+  }
+
+  /** Get page version vectors for all pages in a space */
+  async getPageVVs(
+    spaceId: string,
+  ): Promise<Record<string, Record<string, number>>> {
+    const pageRows = await this.driver.db.execute<{ id: string }>(
+      "SELECT id FROM pages WHERE space_id = ?",
+      [spaceId],
+    );
+
+    const result: Record<string, Record<string, number>> = {};
+    for (const { id: pageId } of pageRows) {
+      const rows = await this.driver.db.execute<{
+        peer_id: string;
+        max_clock: number;
+      }>(
+        "SELECT peer_id, MAX(clock) as max_clock FROM ops WHERE scope_id = ? GROUP BY peer_id",
+        [pageId],
+      );
+      if (rows.length > 0) {
+        const vv: Record<string, number> = {};
+        for (const r of rows) vv[r.peer_id] = r.max_clock;
+        result[pageId] = vv;
+      }
+    }
+    return result;
+  }
+
+
+  // ---------------------------------------------------------------------------
+  // Private: Space CRDT helpers
+  // ---------------------------------------------------------------------------
+
+  private async getPrivateKey(): Promise<string> {
+    const rows = await this.driver.db.execute<{ private_key: string }>(
+      "SELECT private_key FROM identity WHERE id = 1",
+    );
+    return rows[0].private_key;
+  }
+
+
+  private async getPageSpaceId(pageId: string): Promise<string | null> {
+    const rows = await this.driver.db.execute<{ space_id: string | null }>(
+      "SELECT space_id FROM pages WHERE id = ?",
+      [pageId],
+    );
+    return rows[0]?.space_id ?? null;
+  }
+
+  private nextSpaceHlcCounter(spaceId: string): number {
+    const current = this.spaceHlcCounters.get(spaceId) ?? 0;
+    const next = current + 1;
+    this.spaceHlcCounters.set(spaceId, next);
+    return next;
+  }
+
+  private async emitSpaceOp(
+    spaceId: string,
+    partial: Record<string, unknown> & { op: string },
+  ): Promise<void> {
+    const identity = await this.identity.get();
+    const counter = this.nextSpaceHlcCounter(spaceId);
+    const clock: HLC = { counter, peerId: identity.publicKey };
+    const id = `${identity.publicKey}:${counter}`;
+
+    const op = { ...partial, id, clock, spaceId } as SpaceOperation;
+    await this.storeSpaceOp(op);
+
+    // Broadcast to peers
+    if (this.replicator) {
+      this.replicator.pushSpaceOps(spaceId, [op]);
+    }
+  }
+
+  private async storeSpaceOp(op: SpaceOperation): Promise<void> {
+    const scopeId = `space:${op.spaceId}`;
+    const data = new TextEncoder().encode(JSON.stringify(op));
+    await this.driver.db.run(
+      "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+      [
+        scopeId,
+        op.clock.peerId,
+        op.clock.counter,
+        op.op,
+        data,
+        Date.now(),
+      ],
+    );
+
+    // Update local HLC counter
+    const current = this.spaceHlcCounters.get(op.spaceId) ?? 0;
+    if (op.clock.counter > current) {
+      this.spaceHlcCounters.set(op.spaceId, op.clock.counter);
+    }
+  }
+
+  private async getSpaceOps(spaceId: string): Promise<SpaceOperation[]> {
+    const scopeId = `space:${spaceId}`;
+    const rows = await this.driver.db.execute<{ data: Uint8Array }>(
+      "SELECT data FROM ops WHERE scope_id = ? ORDER BY clock, peer_id",
+      [scopeId],
+    );
+    const ops: SpaceOperation[] = [];
+    for (const r of rows) {
+      try {
+        ops.push(JSON.parse(new TextDecoder().decode(r.data as Uint8Array)));
+      } catch {
+        /* skip corrupted */
+      }
+    }
+    return ops;
+  }
+
+  private async applySpaceOp(op: SpaceOperation): Promise<void> {
+    const now = new Date().toISOString();
+    switch (op.op) {
+      case "space_set":
+        if (op.field === "name") {
+          await this.driver.db.run("UPDATE spaces SET name = ? WHERE id = ?", [
+            op.value,
+            op.spaceId,
+          ]);
+        }
+        break;
+
+      case "member_add":
+        await this.driver.db.run(
+          `INSERT INTO space_members (space_id, public_key, name, role, added_at)
+           VALUES (?, ?, ?, 'editor', ?)
+           ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
+          [op.spaceId, op.publicKey, op.name, now, op.name],
+        );
+        // Also trust this peer
+        await this.driver.db.run(
+          `INSERT INTO peers (public_key, name, trusted) VALUES (?, ?, 1)
+           ON CONFLICT(public_key) DO UPDATE SET name = COALESCE(?, name), trusted = 1`,
+          [op.publicKey, op.name, op.name],
+        );
+        break;
+
+      case "member_set": {
+        const memberFieldMap: Record<string, string> = {
+          name: "name",
+          role: "role",
+          avatar: "avatar",
+        };
+        const memberCol = memberFieldMap[op.field];
+        if (memberCol) {
+          await this.driver.db.run(
+            `UPDATE space_members SET ${memberCol} = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL`,
+            [op.value, op.spaceId, op.publicKey],
+          );
+        }
+        // Also update peer name if that's what changed
+        if (op.field === "name") {
+          await this.driver.db.run(
+            "UPDATE peers SET name = ? WHERE public_key = ?",
+            [op.value, op.publicKey],
+          );
+        }
+        break;
+      }
+
+      case "member_remove": {
+        await this.driver.db.run(
+          "UPDATE space_members SET archived_at = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL",
+          [now, op.spaceId, op.publicKey],
+        );
+        break;
+      }
+
+      case "page_add": {
+        // Create page if it doesn't exist locally (including tombstoned)
+        const exists = await this.driver.db.execute(
+          "SELECT 1 FROM pages WHERE id = ?",
+          [op.pageId],
+        );
+        if (exists.length === 0) {
+          await this.driver.db.run(
+            `INSERT INTO pages (id, title, parent_id, "order", space_id, task, color, scheduled_at, duration, all_day, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              op.pageId,
+              op.title,
+              op.parentId,
+              op.order,
+              op.spaceId,
+              op.task ? 1 : 0,
+              op.color ?? null,
+              op.scheduledAt ?? null,
+              op.duration ?? null,
+              op.allDay !== undefined && op.allDay !== null
+                ? op.allDay
+                  ? 1
+                  : 0
+                : null,
+              now,
+              now,
+            ],
+          );
+        }
+        break;
+      }
+
+      case "page_remove":
+        await this.driver.db.run(
+          "UPDATE pages SET archived_at = ? WHERE id = ? AND archived_at IS NULL",
+          [now, op.pageId],
+        );
+        this.notifyPageDeleted(op.pageId);
+        break;
+
+      case "page_set": {
+        const fieldMap: Record<string, string> = {
+          title: "title",
+          autoTitle: "auto_title",
+          parentId: "parent_id",
+          order: '"order"',
+          color: "color",
+          task: "task",
+          scheduledAt: "scheduled_at",
+          duration: "duration",
+          allDay: "all_day",
+        };
+        const col = fieldMap[op.field];
+        if (col) {
+          let val = op.value;
+          if (op.field === "task" || op.field === "autoTitle") {
+            val = val ? 1 : 0;
+          } else if (op.field === "allDay") {
+            val = val === null ? null : val ? 1 : 0;
+          }
+          await this.driver.db.run(
+            `UPDATE pages SET ${col} = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL`,
+            [val, now, op.pageId],
+          );
+        }
+        break;
+      }
+    }
+  }
+
+  private notifySpaceChange(spaceId: string) {
+    for (const cb of this.spaceChangeListeners) cb(spaceId);
+  }
+
+  private notifyPageDeleted(pageId: string) {
+    for (const cb of this.pageDeleteListeners) cb(pageId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
+
+  private async buildParentChain(
+    parentId: string | null,
+  ): Promise<{ id: string; title: string; color?: string | null }[]> {
+    const chain: { id: string; title: string; color?: string | null }[] = [];
+    const visited = new Set<string>();
+    let currentId = parentId;
+
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+      const rows = await this.driver.db.execute<{
+        id: string;
+        title: string;
+        parent_id: string | null;
+        color: string | null;
+      }>("SELECT id, title, parent_id, color FROM pages WHERE id = ? AND archived_at IS NULL", [
+        currentId,
+      ]);
+
+      if (rows.length === 0) break;
+
+      const r = rows[0];
+      chain.unshift({ id: r.id, title: r.title, color: r.color });
+      currentId = r.parent_id;
+    }
+
+    return chain;
+  }
+
+  /** Load all ops for a page as parsed Operation objects */
+  private async loadPageOps(
+    pageId: string,
+  ): Promise<import("@/editor/sync/types").Operation[]> {
+    const rows = await this.driver.db.execute<{ data: Uint8Array }>(
+      "SELECT data FROM ops WHERE scope_id = ? ORDER BY clock, peer_id",
+      [pageId],
+    );
+    const ops: import("@/editor/sync/types").Operation[] = [];
+    for (const r of rows) {
+      try {
+        ops.push(JSON.parse(new TextDecoder().decode(r.data as Uint8Array)));
+      } catch { /* skip corrupted */ }
+    }
+    return ops;
+  }
+
+  /** Rebuild a page's Block[] from persisted CRDT ops */
+  private async rebuildBlocksFromOps(
+    pageId: string,
+  ): Promise<import("@/deserializer/loadPage").Block[] | null> {
+    const ops = await this.loadPageOps(pageId);
+    if (ops.length === 0) return null;
+
+    const { rebuildState } = await import("@/editor/sync/reducer");
+    const page = rebuildState(pageId, ops);
+
+    return page.blocks.length > 0 ? page.blocks : null;
+  }
+
+}
+
+// =============================================================================
+// Utilities
+// =============================================================================
+
+async function hashBytes(data: Uint8Array): Promise<string> {
+  const hash = await crypto.subtle.digest(
+    "SHA-256",
+    data.buffer as ArrayBuffer,
+  );
+  return bytesToHex(new Uint8Array(hash));
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+  }
+  return bytes;
+}
+
+/**
+ * Derive a shared signaling encryption key from the pairing secret
+ * and both peers' public keys. Both sides independently compute the
+ * same key — used for all future signaling through Cloudflare.
+ */
+async function deriveSharedSignalingKey(
+  secretHex: string,
+  pubA: string,
+  pubB: string,
+): Promise<string> {
+  const secret = hexToBytes(secretHex);
+  const sorted = pubA < pubB ? `${pubA}:${pubB}` : `${pubB}:${pubA}`;
+  const info = new TextEncoder().encode("cypher-shared-key:" + sorted);
+  const keyMaterial = await crypto.subtle.importKey("raw", secret.buffer as ArrayBuffer, "HKDF", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info },
+    keyMaterial,
+    256,
+  );
+  return bytesToHex(new Uint8Array(bits));
+}
