@@ -3,3 +3,7 @@ dist
 cdn
 out
 .DS_Store
+.env
+.env.*
+!.env.example
+internal

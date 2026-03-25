@@ -193,7 +193,10 @@ export default function HomePage() {
 
       <footer className="home-footer">
         <span className="home-logo">cypher</span>
-        <span className="home-footer-text">{t("home.footerText", "decentralized by design. built in the open.")}</span>
+        <div className="home-footer-right">
+          <Link to="/privacy" className="home-link">{t("privacy.title", "privacy policy")}</Link>
+          <span className="home-footer-text">{t("home.footerText", "decentralized by design. built in the open.")}</span>
+        </div>
       </footer>
     </div>
   );

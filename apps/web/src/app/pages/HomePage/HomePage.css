@@ -350,6 +350,12 @@
   border-top: 1px solid var(--border);
 }
 
+.home-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
 .home-footer-text {
   font-size: 12px;
   color: var(--muted-foreground);

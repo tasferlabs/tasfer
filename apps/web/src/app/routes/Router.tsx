@@ -30,6 +30,9 @@ const SettingsPage = React.lazy(
   () => import("../pages/SettingsPage/SettingsPage"),
 );
 const HomePage = React.lazy(() => import("../pages/HomePage/HomePage"));
+const PrivacyPage = React.lazy(
+  () => import("../pages/PrivacyPage/PrivacyPage"),
+);
 
 export const router = createBrowserRouter([
   {
@@ -65,6 +68,10 @@ export const router = createBrowserRouter([
         <HomePage />
       </HomeGuard>
     ),
+  },
+  {
+    path: "/privacy",
+    element: <PrivacyPage />,
   },
   {
     path: "*",
