@@ -7,6 +7,7 @@
 
 import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, net } from "electron";
 import path from "path";
+import fs from "fs";
 import { getDb, closeDb } from "./db";
 import { registerDbHandlers } from "./handlers/db";
 import { registerFsHandlers } from "./handlers/fs";
@@ -75,10 +76,17 @@ function createWindow() {
 }
 
 function createTray() {
-  const iconPath = path.join(__dirname, "../../resources/trayIconTemplate.png");
-  const icon = nativeImage.createFromPath(iconPath);
-  // Mark as template so macOS renders it correctly in light/dark menu bar
-  icon.setTemplateImage(true);
+  let icon: Electron.NativeImage;
+  if (process.platform === "darwin") {
+    // macOS: use template image (system renders it as monochrome for light/dark menu bar)
+    const iconPath = path.join(__dirname, "../../resources/trayIconTemplate.png");
+    icon = nativeImage.createFromPath(iconPath);
+    icon.setTemplateImage(true);
+  } else {
+    // Windows/Linux: use the full app icon, resized for tray
+    const iconPath = path.join(__dirname, "../../resources/icon.png");
+    icon = nativeImage.createFromPath(iconPath).resize({ width: 24, height: 24 });
+  }
 
   tray = new Tray(icon);
   tray.setToolTip("Cypher");
@@ -131,7 +139,11 @@ app.whenReady().then(() => {
   const webRoot = path.join(process.resourcesPath, "web");
   protocol.handle("app", (request) => {
     const url = new URL(request.url);
-    const filePath = path.join(webRoot, url.pathname);
+    let filePath = path.join(webRoot, url.pathname);
+    // SPA fallback: serve index.html for routes that don't match a real file
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+      filePath = path.join(webRoot, "index.html");
+    }
     return net.fetch(`file://${filePath}`);
   });
 
