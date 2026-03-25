@@ -6,9 +6,10 @@ import { Camera, X } from "lucide-react";
 interface QRScannerViewProps {
   onScan: (data: string) => void;
   onClose: () => void;
+  hideClose?: boolean;
 }
 
-export function QRScannerView({ onScan, onClose }: QRScannerViewProps) {
+export function QRScannerView({ onScan, onClose, hideClose }: QRScannerViewProps) {
   const { t } = useTranslation();
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -145,13 +146,15 @@ export function QRScannerView({ onScan, onClose }: QRScannerViewProps) {
         )}
 
         {/* Close button */}
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute top-3 end-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        {!hideClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-3 end-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {/* Hint text */}

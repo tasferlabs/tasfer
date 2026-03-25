@@ -1,5 +1,13 @@
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+} from "@/components/ui/dialog";
+import {
+  Drawer,
+  DrawerContent,
+} from "@/components/ui/drawer";
+import {
   Form,
   FormField,
   FormItem,
@@ -27,9 +35,10 @@ import {
   Shield,
   UserPlus,
   Users,
-  WifiOff
+  WifiOff,
+  X,
 } from "lucide-react";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
@@ -41,6 +50,7 @@ import {
   useCreateSpace,
 } from "../api/spaces.api";
 import { useAuth } from "../contexts/AuthContext";
+import useResponsive from "../hooks/useResponsive";
 import { AvatarCropDialog } from "./AvatarCropDialog";
 import { QRScannerView } from "./QRScannerView";
 
@@ -405,7 +415,7 @@ function SpaceStep({ onBack }: { onBack: () => void }) {
   const [joinStatus, setJoinStatus] = useState<
     "input" | "connecting" | "done" | "error"
   >("input");
-  const [joinTab, setJoinTab] = useState<"code" | "scan">("code");
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [spaceName, setSpaceName] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -440,8 +450,9 @@ function SpaceStep({ onBack }: { onBack: () => void }) {
     });
   }
 
-  React.useEffect(() => {
+  useEffect(() => {
     return () => {
+      setScannerOpen(false);
       cancelPairing();
     };
   }, []);
@@ -449,6 +460,7 @@ function SpaceStep({ onBack }: { onBack: () => void }) {
   function goBackToPick() {
     setView("pick");
     setJoinStatus("input");
+    setScannerOpen(false);
     setErrorMsg("");
     joinForm.reset();
     createForm.reset();
@@ -588,6 +600,7 @@ function SpaceStep({ onBack }: { onBack: () => void }) {
   );
 
   function handleQrScan(data: string) {
+    setScannerOpen(false);
     const invite = decodeInvite(data);
     if (!invite) {
       setJoinStatus("error");
@@ -672,21 +685,18 @@ function SpaceStep({ onBack }: { onBack: () => void }) {
 
       <button
         type="button"
-        onClick={() => setJoinTab("scan")}
+        onClick={() => setScannerOpen(true)}
         className="mt-4 group flex items-center justify-center gap-2 rounded-lg border border-border py-2.5 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
       >
         <QrCode className="h-4 w-4" />
         {t("scanner.scanQR", "Scan QR")}
       </button>
 
-      {joinTab === "scan" && (
-        <div className="mt-4">
-          <QRScannerView
-            onScan={handleQrScan}
-            onClose={() => setJoinTab("code")}
-          />
-        </div>
-      )}
+      <QRScannerDialog
+        open={scannerOpen}
+        onOpenChange={setScannerOpen}
+        onScan={handleQrScan}
+      />
     </div>
   );
 
@@ -768,6 +778,65 @@ function SpaceStep({ onBack }: { onBack: () => void }) {
   if (view === "pick") return pickContent;
   if (view === "create") return createContent;
   return joinContent;
+}
+
+// ─── QR Scanner Dialog/Drawer ────────────────────────────────
+
+function QRScannerDialog({
+  open,
+  onOpenChange,
+  onScan,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onScan: (data: string) => void;
+}) {
+  const { t } = useTranslation();
+  const isMobile = useResponsive("(max-width: 768px)");
+
+  const scannerContent = (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-medium text-foreground">
+          {t("scanner.scanQR", "Scan QR")}
+        </h2>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => onOpenChange(false)}
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      {open && (
+        <QRScannerView
+          onScan={onScan}
+          onClose={() => onOpenChange(false)}
+          hideClose
+        />
+      )}
+    </div>
+  );
+
+  if (isMobile) {
+    return (
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerContent>
+          <div className="mx-auto w-full max-w-sm px-4 pb-6 pt-4">
+            {scannerContent}
+          </div>
+        </DrawerContent>
+      </Drawer>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[420px] p-5 gap-0">
+        {scannerContent}
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // ─── Small helpers ──────────────────────────────────────────
