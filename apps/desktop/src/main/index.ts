@@ -43,6 +43,11 @@ let isQuitting = false;
 const isDev = !app.isPackaged;
 const DEV_SERVER_URL = "http://localhost:4000";
 
+// Resources path: in dev, relative to source; in prod, extraResources dir
+const resourcesDir = isDev
+  ? path.join(__dirname, "../../resources")
+  : path.join(process.resourcesPath, "resources");
+
 function createWindow() {
   const isMac = process.platform === "darwin";
   const isWindows = process.platform === "win32";
@@ -52,7 +57,7 @@ function createWindow() {
     height: 800,
     minWidth: 400,
     minHeight: 300,
-    icon: path.join(__dirname, "../../resources/icon.png"),
+    icon: path.join(resourcesDir, "icon.png"),
     // macOS: hidden inset keeps traffic lights with custom positioning
     // Windows/Linux: hidden + titleBarOverlay gives native controls without the title bar
     titleBarStyle: isMac ? "hiddenInset" : "hidden",
@@ -105,12 +110,12 @@ function createTray() {
   let icon: Electron.NativeImage;
   if (process.platform === "darwin") {
     // macOS: use template image (system renders it as monochrome for light/dark menu bar)
-    const iconPath = path.join(__dirname, "../../resources/trayIconTemplate.png");
+    const iconPath = path.join(resourcesDir, "trayIconTemplate.png");
     icon = nativeImage.createFromPath(iconPath);
     icon.setTemplateImage(true);
   } else {
     // Windows/Linux: use the full app icon, resized for tray
-    const iconPath = path.join(__dirname, "../../resources/icon.png");
+    const iconPath = path.join(resourcesDir, "icon.png");
     icon = nativeImage.createFromPath(iconPath).resize({ width: 24, height: 24 });
   }
 
@@ -173,10 +178,10 @@ app.whenReady().then(() => {
     return net.fetch(`file://${filePath}`);
   });
 
-  // Set dock icon on macOS (needed in dev since there's no .app bundle)
-  if (process.platform === "darwin") {
+  // Set dock icon on macOS in dev only — production uses the .icns from the .app bundle
+  if (process.platform === "darwin" && isDev) {
     const dockIcon = nativeImage.createFromPath(
-      path.join(__dirname, "../../resources/icon-1024.png"),
+      path.join(resourcesDir, "icon-1024.png"),
     );
     if (!dockIcon.isEmpty()) app.dock?.setIcon(dockIcon);
   }

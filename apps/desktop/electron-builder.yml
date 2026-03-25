@@ -18,6 +18,8 @@ files:
 extraResources:
   - from: ../web/dist
     to: web
+  - from: resources
+    to: resources
 
 icon: resources/icon.png
 
