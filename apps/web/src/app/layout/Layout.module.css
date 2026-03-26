@@ -58,6 +58,15 @@
   overflow: hidden;
 }
 
+/* Electron macOS: clear traffic lights in panel mode */
+:global(body.electron) .sidebarPanelSlot {
+  padding-top: 50px;
+}
+
+:global(body.electron-win) .sidebarPanelSlot {
+  padding-top: 8px;
+}
+
 .appSidebar .appSidebarResizer {
   flex: 0 0 6px;
   justify-self: flex-end;
@@ -84,7 +93,7 @@
   align-items: center;
   gap: 0.5rem;
   padding-block: 0;
-  padding-inline: 1rem 0.25rem;
+  padding-inline: 0.5rem 0.25rem;
   /* Support both Android (--safe-area-inset-top) and iOS (env()) */
   padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
   height: calc(
@@ -97,17 +106,22 @@
   user-select: none;
 }
 
-/* Electron: top action bar is the window drag region */
+/* Electron macOS: action bar sits inside the title bar region */
 :global(body.electron) .appHeader {
   -webkit-app-region: drag;
-  padding-top: 50px;
-  height: calc(60px + 50px);
+  height: 50px;
+  padding-top: 0;
 }
 
-/* Windows: less top padding (no traffic lights), but reserve right space for overlay controls */
+/* Electron macOS: clear traffic lights when sidebar is closed */
+:global(body.electron) .appHeaderSidebarClosed {
+  padding-inline-start: 100px;
+}
+
+/* Windows: action bar in title bar, reserve right space for overlay controls */
 :global(body.electron-win) .appHeader {
-  padding-top: 8px;
-  height: calc(60px + 8px);
+  height: 36px;
+  padding-top: 0;
   padding-inline-end: 144px; /* space for min/max/close overlay buttons */
 }
 
@@ -239,32 +253,37 @@
 .appSidebarHeader {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   flex: 0 0 60px;
   padding-block: 0;
   padding-inline: 1rem 0.25rem;
 }
 
-/* Electron: draggable spacer above sidebar for macOS traffic lights */
-.electronSidebarDragArea {
-  display: none;
+@media (min-width: 769px) {
+  .appSidebarHeader {
+    flex: 0 0 auto;
+    padding: 0.25rem 0.5rem;
+  }
 }
 
-:global(body.electron) .electronSidebarDragArea {
-  display: block;
+.appSidebarFooter {
   flex: 0 0 auto;
-  height: 50px;
-  -webkit-app-region: drag;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--border);
 }
 
-/* Windows: smaller drag area (no traffic lights to clear) */
-:global(body.electron-win) .electronSidebarDragArea {
-  height: 8px;
-}
-
-/* Electron: sidebar header is also draggable */
+/* Electron macOS: sidebar header sits alongside traffic lights */
 :global(body.electron) .appSidebarHeader {
   -webkit-app-region: drag;
+  padding-inline-start: 76px;
+  min-height: 50px;
+}
+
+/* Electron Windows: no traffic lights to clear */
+:global(body.electron-win) .appSidebarHeader {
+  padding-top: 4px;
+  padding-inline-start: 0.5rem;
+  min-height: 36px;
 }
 
 :global(body.electron) .appSidebarHeader button,
@@ -384,8 +403,9 @@
   margin-top: 0.25rem;
 }
 
-.appSidebarClose {
-  margin-inline-start: auto;
+/* Electron: sidebar footer is also draggable */
+:global(body.electron) .appSidebarFooter {
+  -webkit-app-region: no-drag;
 }
 
 .floatingSidebar {

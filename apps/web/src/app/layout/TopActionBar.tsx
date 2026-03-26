@@ -19,7 +19,7 @@ export function TopActionBar({
   const slotRef = useTopActionBarSlotRef();
 
   return (
-    <div className={style.appHeader}>
+    <div className={clsx(style.appHeader, !open && style.appHeaderSidebarClosed)}>
       {(!open || isMobile) && (
         <Button
           variant="ghost"

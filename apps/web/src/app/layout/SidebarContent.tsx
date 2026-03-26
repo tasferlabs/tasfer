@@ -388,42 +388,47 @@ export function SidebarContent({
 
       {!hasPanel && (
         <>
-          <div className={style.electronSidebarDragArea} />
-          <div className={clsx(style.appSidebarHeader, "gap-3")}>
-            <button
-              className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full rounded-md hover:bg-accent/50 transition-colors"
-              onClick={() => avatarUrl && setAvatarPreviewOpen(true)}
-              style={{ cursor: avatarUrl ? "pointer" : "default" }}
-            >
-              <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
-                {avatarUrl ? (
-                  <img
-                    src={avatarUrl}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  initials
-                )}
-              </div>
-              <span className="text-sm font-medium text-foreground truncate">
-                {user?.name}
-              </span>
-            </button>
-
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={clsx(
-                "text-muted-foreground hover:text-foreground",
-                style.appSidebarClose,
-              )}
-              onClick={() => setOpen(false)}
-            >
-              <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
-              <span className="sr-only">{t("sidebar.close", "Close sidebar")}</span>
-            </Button>
-          </div>
+          {isMobile ? (
+            <div className={clsx(style.appSidebarHeader, "gap-3")}>
+              <button
+                className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full rounded-md hover:bg-accent/50 transition-colors"
+                onClick={() => avatarUrl && setAvatarPreviewOpen(true)}
+                style={{ cursor: avatarUrl ? "pointer" : "default" }}
+              >
+                <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    initials
+                  )}
+                </div>
+                <span className="text-sm font-medium text-foreground truncate">
+                  {user?.name}
+                </span>
+              </button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground ms-auto"
+                onClick={() => setOpen(false)}
+              >
+                <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
+                <span className="sr-only">{t("sidebar.close", "Close sidebar")}</span>
+              </Button>
+            </div>
+          ) : (
+            <div className={style.appSidebarHeader}>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => setOpen(false)}
+              >
+                <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
+                <span className="sr-only">{t("sidebar.close", "Close sidebar")}</span>
+              </Button>
+            </div>
+          )}
           <div className={style.appNavigationLinks}>
             <RouterLink className={style.appNavigationLink} to={"/settings"}>
               <div className={style.appNavigationLinkIcon}>
@@ -524,6 +529,31 @@ export function SidebarContent({
               </DragOverlay>
             </DndContext>
           </div>
+
+          {!isMobile && (
+            <div className={style.appSidebarFooter}>
+              <button
+                className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full rounded-md hover:bg-accent/50 transition-colors"
+                onClick={() => avatarUrl && setAvatarPreviewOpen(true)}
+                style={{ cursor: avatarUrl ? "pointer" : "default" }}
+              >
+                <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
+                  {avatarUrl ? (
+                    <img
+                      src={avatarUrl}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    initials
+                  )}
+                </div>
+                <span className="text-sm font-medium text-foreground truncate">
+                  {user?.name}
+                </span>
+              </button>
+            </div>
+          )}
         </>
       )}
 
