@@ -77,10 +77,12 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
     localStorage.setItem("lastRoute", path);
   }, [location.pathname]);
 
-  // Show onboarding when spaces have loaded and there are none
-  const showOnboarding = !spacesLoading && spaces.length === 0;
+  // Wait for spaces to load before deciding what to show
+  if (spacesLoading) {
+    return null;
+  }
 
-  if (showOnboarding) {
+  if (spaces.length === 0) {
     return <OnboardingScreen />;
   }
 

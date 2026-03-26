@@ -1,19 +1,7 @@
 import React from "react";
-import { Navigate, createBrowserRouter, createHashRouter } from "react-router-dom";
+import { Navigate, createBrowserRouter, createHashRouter, redirect } from "react-router-dom";
 import Layout from "../layout/Layout";
 import { getClientPlatform } from "@/platform";
-
-function RestoreLastRoute() {
-  const lastRoute = localStorage.getItem("lastRoute");
-
-  // New user on web → show home page
-  if (!lastRoute && getClientPlatform() === "web") {
-    return <Navigate to="/home" replace />;
-  }
-
-
-  return <Navigate to={lastRoute || "/page"} replace />;
-}
 
 /** Guard: only allow /home and /privacy on web platform, redirect others to editor */
 function WebOnlyGuard({ children }: { children: React.ReactNode }) {
@@ -45,7 +33,14 @@ export const router = createRouter([
     children: [
       {
         index: true,
-        element: <RestoreLastRoute />,
+        loader: () => {
+          const lastRoute = localStorage.getItem("lastRoute");
+          // New user on web → show home page
+          if (!lastRoute && getClientPlatform() === "web") {
+            return redirect("/home");
+          }
+          return redirect(lastRoute || "/page");
+        },
       },
       {
         path: "page/:id",
