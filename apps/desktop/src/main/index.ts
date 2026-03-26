@@ -11,29 +11,14 @@ import {
   Tray,
   Menu,
   nativeImage,
-  protocol,
-  net,
+  ipcMain,
 } from "electron";
 import path from "path";
-import fs from "fs";
 import { getDb, closeDb } from "./db";
 import { registerDbHandlers } from "./handlers/db";
 import { registerFsHandlers } from "./handlers/fs";
 import { registerCryptoHandlers } from "./handlers/crypto";
 import { registerUpdaterHandlers } from "./handlers/updater";
-
-// Register custom protocol before app is ready
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: "app",
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      corsEnabled: true,
-    },
-  },
-]);
 
 let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -43,10 +28,10 @@ let isQuitting = false;
 const isDev = !app.isPackaged;
 const DEV_SERVER_URL = "http://localhost:4000";
 
-// Resources path: in dev, relative to source; in prod, extraResources dir
+// Icons are bundled inside the asar via the `files` config
 const resourcesDir = isDev
   ? path.join(__dirname, "../../resources")
-  : path.join(process.resourcesPath, "resources");
+  : path.join(__dirname, "../../resources");
 
 function createWindow() {
   const isMac = process.platform === "darwin";
@@ -78,7 +63,8 @@ function createWindow() {
     },
   });
 
-  // Remove menu bar on Windows/Linux — macOS uses the system menu bar
+  // Remove native menu bar on Windows/Linux — we render a custom one in the renderer.
+  // macOS uses the system menu bar automatically.
   if (!isMac) {
     Menu.setApplicationMenu(null);
   }
@@ -99,7 +85,8 @@ function createWindow() {
     win.loadURL(DEV_SERVER_URL);
     win.webContents.openDevTools({ mode: "detach" });
   } else {
-    win.loadURL("app://cypher/index.html");
+    const webRoot = path.join(process.resourcesPath, "web");
+    win.loadFile(path.join(webRoot, "index.html"));
   }
 
   mainWindow = win;
@@ -166,18 +153,6 @@ function createTray() {
 // ── App lifecycle ──────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
-  // Serve bundled web app via custom protocol so absolute asset paths work
-  const webRoot = path.join(process.resourcesPath, "web");
-  protocol.handle("app", (request) => {
-    const url = new URL(request.url);
-    let filePath = path.join(webRoot, url.pathname);
-    // SPA fallback: serve index.html for routes that don't match a real file
-    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-      filePath = path.join(webRoot, "index.html");
-    }
-    return net.fetch(`file://${filePath}`);
-  });
-
   // Set dock icon on macOS in dev only — production uses the .icns from the .app bundle
   if (process.platform === "darwin" && isDev) {
     const dockIcon = nativeImage.createFromPath(
@@ -195,6 +170,30 @@ app.whenReady().then(() => {
   registerFsHandlers();
   registerCryptoHandlers();
   registerUpdaterHandlers();
+
+  // IPC handlers for custom menu bar actions (Windows/Linux renderer menu)
+  ipcMain.handle("app:reload", () => mainWindow?.webContents.reload());
+  ipcMain.handle("app:force-reload", () => mainWindow?.webContents.reloadIgnoringCache());
+  ipcMain.handle("app:toggle-devtools", () => mainWindow?.webContents.toggleDevTools());
+  ipcMain.handle("app:reset-zoom", () => mainWindow?.webContents.setZoomLevel(0));
+  ipcMain.handle("app:zoom-in", () => {
+    if (!mainWindow) return;
+    const current = mainWindow.webContents.getZoomLevel();
+    mainWindow.webContents.setZoomLevel(current + 0.5);
+  });
+  ipcMain.handle("app:zoom-out", () => {
+    if (!mainWindow) return;
+    const current = mainWindow.webContents.getZoomLevel();
+    mainWindow.webContents.setZoomLevel(current - 0.5);
+  });
+  ipcMain.handle("app:toggle-fullscreen", () => {
+    if (!mainWindow) return;
+    mainWindow.setFullScreen(!mainWindow.isFullScreen());
+  });
+  ipcMain.handle("app:quit", () => {
+    isQuitting = true;
+    app.quit();
+  });
 
   createTray();
   createWindow();

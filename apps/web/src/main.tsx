@@ -60,6 +60,8 @@ if ((window as any).cypher) {
     document.body.classList.add("electron-win");
   } else if (platform === "darwin") {
     document.body.classList.add("electron-mac");
+  } else if (platform === "linux") {
+    document.body.classList.add("electron-linux");
   }
 }
 
@@ -271,7 +273,7 @@ if (platformReady) {
   });
 }
 
-// Register service worker for offline support (skip in Electron — app:// doesn't support SW)
+// Register service worker for offline support (skip in Electron — loaded via file://)
 const isElectron = !!(window as any).cypher;
 const updateSW = isElectron ? (() => {}) : registerSW({
   onNeedRefresh() {

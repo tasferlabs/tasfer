@@ -1,0 +1,62 @@
+import { Menubar as MenubarPrimitive } from "radix-ui";
+import { useTranslation } from "react-i18next";
+
+const invoke = (channel: string) => (window as any).cypher?.invoke(channel);
+
+export function ElectronMenuBar() {
+  const { t } = useTranslation();
+
+  return (
+    <MenubarPrimitive.Root className="flex items-center h-9 shrink-0 text-xs text-muted-foreground px-1 pe-[144px]" style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
+      <Menu label={t("menu.file", "File")}>
+        <Item label={t("menu.quit", "Quit")} shortcut="Ctrl+Q" onSelect={() => invoke("app:quit")} />
+      </Menu>
+      <Menu label={t("menu.view", "View")}>
+        <Item label={t("menu.reload", "Reload")} shortcut="Ctrl+R" onSelect={() => invoke("app:reload")} />
+        <Item label={t("menu.forceReload", "Force Reload")} shortcut="Ctrl+Shift+R" onSelect={() => invoke("app:force-reload")} />
+        <Item label={t("menu.toggleDevTools", "Toggle Developer Tools")} shortcut="Ctrl+Shift+I" onSelect={() => invoke("app:toggle-devtools")} />
+        <Separator />
+        <Item label={t("menu.resetZoom", "Reset Zoom")} shortcut="Ctrl+0" onSelect={() => invoke("app:reset-zoom")} />
+        <Item label={t("menu.zoomIn", "Zoom In")} shortcut="Ctrl+=" onSelect={() => invoke("app:zoom-in")} />
+        <Item label={t("menu.zoomOut", "Zoom Out")} shortcut="Ctrl+-" onSelect={() => invoke("app:zoom-out")} />
+        <Separator />
+        <Item label={t("menu.fullscreen", "Toggle Fullscreen")} shortcut="F11" onSelect={() => invoke("app:toggle-fullscreen")} />
+      </Menu>
+    </MenubarPrimitive.Root>
+  );
+}
+
+function Menu({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <MenubarPrimitive.Menu>
+      <MenubarPrimitive.Trigger className="flex items-center px-2.5 py-1 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        {label}
+      </MenubarPrimitive.Trigger>
+      <MenubarPrimitive.Portal>
+        <MenubarPrimitive.Content
+          align="start"
+          sideOffset={4}
+          className="animate-in fade-in-0 zoom-in-95 z-50 min-w-[200px] rounded-md bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
+        >
+          {children}
+        </MenubarPrimitive.Content>
+      </MenubarPrimitive.Portal>
+    </MenubarPrimitive.Menu>
+  );
+}
+
+function Item({ label, shortcut, onSelect }: { label: string; shortcut?: string; onSelect: () => void }) {
+  return (
+    <MenubarPrimitive.Item
+      className="flex items-center gap-4 rounded-sm px-2 py-1.5 text-sm cursor-default select-none outline-none focus:bg-accent focus:text-accent-foreground"
+      onSelect={onSelect}
+    >
+      <span className="flex-1">{label}</span>
+      {shortcut && <span className="text-xs text-muted-foreground ms-auto">{shortcut}</span>}
+    </MenubarPrimitive.Item>
+  );
+}
+
+function Separator() {
+  return <MenubarPrimitive.Separator className="bg-border -mx-1 my-1 h-px" />;
+}

@@ -35,6 +35,7 @@ export default defineConfig({
     __BUILD_TIMESTAMP__: JSON.stringify(buildTimestamp),
     __CLIENT_VERSION__: versionConfig.version,
   },
+  base: "./",
   build: {},
   resolve: {
     alias: {

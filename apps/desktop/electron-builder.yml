@@ -14,12 +14,11 @@ asar: true
 files:
   - out/**
   - package.json
+  - resources/**
 
 extraResources:
   - from: ../web/dist
     to: web
-  - from: resources
-    to: resources
 
 icon: resources/icon.png
 

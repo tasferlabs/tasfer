@@ -5,6 +5,11 @@
   transition: height 0.05s ease-out;
 }
 
+/* Windows/Linux Electron: subtract menu bar height (36px) */
+:global(body.electron:not(.electron-mac)) .appContainer {
+  height: calc(100dvh - 36px - var(--devtool-height, 0px));
+}
+
 .appSidebar {
   flex: 0 0 auto;
   min-width: 300px;
@@ -63,7 +68,7 @@
   padding-top: 50px;
 }
 
-:global(body.electron-win) .sidebarPanelSlot {
+:global(body.electron:not(.electron-mac)) .sidebarPanelSlot {
   padding-top: 8px;
 }
 
@@ -114,15 +119,14 @@
 }
 
 /* Electron macOS: clear traffic lights when sidebar is closed */
-:global(body.electron) .appHeaderSidebarClosed {
+:global(body.electron-mac) .appHeaderSidebarClosed {
   padding-inline-start: 100px;
 }
 
-/* Windows: action bar in title bar, reserve right space for overlay controls */
-:global(body.electron-win) .appHeader {
+/* Windows/Linux: menu bar is a separate row above, so action bar is normal height */
+:global(body.electron:not(.electron-mac)) .appHeader {
   height: 36px;
   padding-top: 0;
-  padding-inline-end: 144px; /* space for min/max/close overlay buttons */
 }
 
 :global(body.electron) .appHeader button,
@@ -280,7 +284,7 @@
 }
 
 /* Electron Windows: no traffic lights to clear */
-:global(body.electron-win) .appSidebarHeader {
+:global(body.electron:not(.electron-mac)) .appSidebarHeader {
   padding-top: 4px;
   padding-inline-start: 0.5rem;
   min-height: 36px;

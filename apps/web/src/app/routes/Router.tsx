@@ -1,5 +1,5 @@
 import React from "react";
-import { Navigate, createBrowserRouter } from "react-router-dom";
+import { Navigate, createBrowserRouter, createHashRouter } from "react-router-dom";
 import Layout from "../layout/Layout";
 import { getClientPlatform } from "@/platform";
 
@@ -35,7 +35,10 @@ const PrivacyPage = React.lazy(
   () => import("../pages/PrivacyPage/PrivacyPage"),
 );
 
-export const router = createBrowserRouter([
+const createRouter =
+  getClientPlatform() === "web" ? createBrowserRouter : createHashRouter;
+
+export const router = createRouter([
   {
     path: "/",
     element: <Layout />,

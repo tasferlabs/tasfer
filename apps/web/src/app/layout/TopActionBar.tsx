@@ -6,7 +6,6 @@ import { useTranslation } from "react-i18next";
 import useResponsive from "../hooks/useResponsive";
 import { Button } from "../../components/ui/button";
 import { useTopActionBarSlotRef } from "./TopActionBarSlot";
-
 export function TopActionBar({
   open,
   setOpen,
