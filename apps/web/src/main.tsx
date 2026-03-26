@@ -63,6 +63,17 @@ if ((window as any).cypher) {
   } else if (platform === "linux") {
     document.body.classList.add("electron-linux");
   }
+
+  // Mount the custom menu bar + window controls for Windows/Linux
+  // The element is already visible (set by inline script in index.html to avoid flash).
+  if (platform !== "darwin") {
+    const el = document.getElementById("electron-menubar");
+    if (el) {
+      import("./app/layout/ElectronMenuBar").then(({ ElectronMenuBar }) => {
+        createRoot(el).render(<ElectronMenuBar />);
+      });
+    }
+  }
 }
 
 // Start font loading in background — don't block initial render.

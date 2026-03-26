@@ -22,12 +22,6 @@ import style from "./Layout.module.css";
 import { ResizableSidebar } from "./ResizableSidebar";
 import { TopActionBar } from "./TopActionBar";
 import { TopActionBarSlotProvider } from "./TopActionBarSlot";
-import { ElectronMenuBar } from "./ElectronMenuBar";
-
-const isElectronNonMac =
-  !!(window as any).cypher && (window as any).cypher.platform !== "darwin";
-
-
 export default function Layout() {
   const { isLoading, meetsMinimum } = useVersion();
 
@@ -92,7 +86,6 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
 
   return (
     <>
-      {isElectronNonMac && <ElectronMenuBar />}
       <div className={style.appContainer} inert={needsForceUpdate ? (true as unknown as boolean) : undefined}>
         {isMobile ? (
           <FloatingSidebar open={floatingOpen} setOpen={setFloatingOpen} onAddSpace={() => setShowAddSpace(true)} onSpaceSettings={setGroupSettingsId} onInviteMembers={setInviteMembersId} />

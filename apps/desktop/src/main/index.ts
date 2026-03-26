@@ -44,16 +44,14 @@ function createWindow() {
     minHeight: 300,
     icon: path.join(resourcesDir, "icon.png"),
     // macOS: hidden inset keeps traffic lights with custom positioning
-    // Windows/Linux: hidden + titleBarOverlay gives native controls without the title bar
-    titleBarStyle: isMac ? "hiddenInset" : "hidden",
+    // Windows/Linux: fully frameless — window controls rendered in the web app
     ...(isMac
-      ? { trafficLightPosition: { x: 16, y: 18 } }
+      ? {
+          titleBarStyle: "hiddenInset" as const,
+          trafficLightPosition: { x: 16, y: 18 },
+        }
       : {
-          titleBarOverlay: {
-            color: "#00000000", // transparent background
-            symbolColor: "#9ca3af", // muted gray icons
-            height: 48,
-          },
+          frame: false,
         }),
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"), // electron-vite outputs to out/main and out/preload
@@ -194,6 +192,13 @@ app.whenReady().then(() => {
     isQuitting = true;
     app.quit();
   });
+  // Window control handlers (frameless window on Windows/Linux)
+  ipcMain.handle("app:minimize", () => mainWindow?.minimize());
+  ipcMain.handle("app:maximize", () => {
+    if (!mainWindow) return;
+    mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
+  });
+  ipcMain.handle("app:close", () => mainWindow?.close());
 
   createTray();
   createWindow();

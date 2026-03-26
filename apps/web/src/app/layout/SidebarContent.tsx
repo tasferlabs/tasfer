@@ -101,9 +101,8 @@ export function SidebarContent({
       });
 
       // Remove the page from whichever list it currently lives in
-      queryClient.setQueriesData<IListPage[]>(
-        { queryKey: ["pages"] },
-        (old) => (old ? old.filter((p) => p.id !== variables.id) : old),
+      queryClient.setQueriesData<IListPage[]>({ queryKey: ["pages"] }, (old) =>
+        old ? old.filter((p) => p.id !== variables.id) : old,
       );
 
       return { previousData };
@@ -188,7 +187,10 @@ export function SidebarContent({
   async function leaveGroup(groupId: string) {
     const confirmed = await getConfirmation({
       title: t("space.leaveSpace", "Leave space"),
-      description: t("space.confirmLeaveSpace", "Are you sure you want to leave this space?"),
+      description: t(
+        "space.confirmLeaveSpace",
+        "Are you sure you want to leave this space?",
+      ),
       confirmText: t("common.leave", "Leave"),
       cancelText: t("common.cancel", "Cancel"),
     });
@@ -373,6 +375,8 @@ export function SidebarContent({
     : "?";
 
   const avatarUrl = useAssetUrl(user?.avatar);
+  const shouldShowTheProfileAtTop =
+    (window as any)?.cypher?.platform !== "electron-mac" || true;
 
   return (
     <>
@@ -388,7 +392,7 @@ export function SidebarContent({
 
       {!hasPanel && (
         <>
-          {isMobile ? (
+          {shouldShowTheProfileAtTop ? (
             <div className={clsx(style.appSidebarHeader, "gap-3")}>
               <button
                 className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full rounded-md hover:bg-accent/50 transition-colors"
@@ -397,7 +401,11 @@ export function SidebarContent({
               >
                 <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
                   {avatarUrl ? (
-                    <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+                    <img
+                      src={avatarUrl}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
                     initials
                   )}
@@ -413,7 +421,9 @@ export function SidebarContent({
                 onClick={() => setOpen(false)}
               >
                 <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
-                <span className="sr-only">{t("sidebar.close", "Close sidebar")}</span>
+                <span className="sr-only">
+                  {t("sidebar.close", "Close sidebar")}
+                </span>
               </Button>
             </div>
           ) : (
@@ -425,7 +435,9 @@ export function SidebarContent({
                 onClick={() => setOpen(false)}
               >
                 <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
-                <span className="sr-only">{t("sidebar.close", "Close sidebar")}</span>
+                <span className="sr-only">
+                  {t("sidebar.close", "Close sidebar")}
+                </span>
               </Button>
             </div>
           )}
@@ -479,7 +491,9 @@ export function SidebarContent({
                           className={style.appSidebarSectionButton}
                         >
                           <Ellipsis size={20} />
-                          <span className="sr-only">{t("space.settings", "Space settings")}</span>
+                          <span className="sr-only">
+                            {t("space.settings", "Space settings")}
+                          </span>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
                           <DropdownMenuItem
@@ -512,7 +526,9 @@ export function SidebarContent({
                         disabled={isCreating}
                       >
                         <PlusIcon size={20} />
-                        <span className="sr-only">{t("page.addPage", "Add page")}</span>
+                        <span className="sr-only">
+                          {t("page.addPage", "Add page")}
+                        </span>
                       </button>
                     </div>
                     <PagesArea parentId={null} spaceId={space.id} />
@@ -523,14 +539,16 @@ export function SidebarContent({
                 {activeId && activeDragData ? (
                   <div className={style.dragOverlay}>
                     <FileTextIcon size={20} />
-                    <span>{activeDragData.title || t("common.untitled", "Untitled")}</span>
+                    <span>
+                      {activeDragData.title || t("common.untitled", "Untitled")}
+                    </span>
                   </div>
                 ) : null}
               </DragOverlay>
             </DndContext>
           </div>
 
-          {!isMobile && (
+          {!(shouldShowTheProfileAtTop) && (
             <div className={style.appSidebarFooter}>
               <button
                 className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full rounded-md hover:bg-accent/50 transition-colors"
@@ -566,4 +584,3 @@ export function SidebarContent({
     </>
   );
 }
-

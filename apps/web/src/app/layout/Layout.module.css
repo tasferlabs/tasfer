@@ -125,7 +125,7 @@
 
 /* Windows/Linux: menu bar is a separate row above, so action bar is normal height */
 :global(body.electron:not(.electron-mac)) .appHeader {
-  height: 36px;
+  min-height: 56px;
   padding-top: 0;
 }
 
@@ -266,6 +266,7 @@
 @media (min-width: 769px) {
   .appSidebarHeader {
     flex: 0 0 auto;
+    min-height: 60px;
     padding: 0.25rem 0.5rem;
   }
 }
@@ -287,7 +288,7 @@
 :global(body.electron:not(.electron-mac)) .appSidebarHeader {
   padding-top: 4px;
   padding-inline-start: 0.5rem;
-  min-height: 36px;
+  min-height: 56px;
 }
 
 :global(body.electron) .appSidebarHeader button,
@@ -429,7 +430,10 @@
     --safe-area-inset-bottom,
     env(safe-area-inset-bottom, 0px)
   );
-  padding-inline-start: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  padding-inline-start: var(
+    --safe-area-inset-left,
+    env(safe-area-inset-left, 0px)
+  );
   display: flex;
   flex-direction: column;
   gap: 0.25rem;

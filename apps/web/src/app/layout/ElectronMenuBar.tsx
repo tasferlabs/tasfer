@@ -1,5 +1,6 @@
 import { Menubar as MenubarPrimitive } from "radix-ui";
 import { useTranslation } from "react-i18next";
+import { Minus, Square, X } from "lucide-react";
 
 const invoke = (channel: string) => (window as any).cypher?.invoke(channel);
 
@@ -7,29 +8,53 @@ export function ElectronMenuBar() {
   const { t } = useTranslation();
 
   return (
-    <MenubarPrimitive.Root className="flex items-center h-9 shrink-0 text-xs text-muted-foreground px-1 pe-[144px]" style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
-      <Menu label={t("menu.file", "File")}>
-        <Item label={t("menu.quit", "Quit")} shortcut="Ctrl+Q" onSelect={() => invoke("app:quit")} />
-      </Menu>
-      <Menu label={t("menu.view", "View")}>
-        <Item label={t("menu.reload", "Reload")} shortcut="Ctrl+R" onSelect={() => invoke("app:reload")} />
-        <Item label={t("menu.forceReload", "Force Reload")} shortcut="Ctrl+Shift+R" onSelect={() => invoke("app:force-reload")} />
-        <Item label={t("menu.toggleDevTools", "Toggle Developer Tools")} shortcut="Ctrl+Shift+I" onSelect={() => invoke("app:toggle-devtools")} />
-        <Separator />
-        <Item label={t("menu.resetZoom", "Reset Zoom")} shortcut="Ctrl+0" onSelect={() => invoke("app:reset-zoom")} />
-        <Item label={t("menu.zoomIn", "Zoom In")} shortcut="Ctrl+=" onSelect={() => invoke("app:zoom-in")} />
-        <Item label={t("menu.zoomOut", "Zoom Out")} shortcut="Ctrl+-" onSelect={() => invoke("app:zoom-out")} />
-        <Separator />
-        <Item label={t("menu.fullscreen", "Toggle Fullscreen")} shortcut="F11" onSelect={() => invoke("app:toggle-fullscreen")} />
-      </Menu>
-    </MenubarPrimitive.Root>
+    <div className="flex items-center h-9 shrink-0 w-full bg-background" style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
+      <MenubarPrimitive.Root className="flex items-center h-full text-xs text-muted-foreground px-1" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <Menu label={t("menu.file", "File")}>
+          <Item label={t("menu.quit", "Quit")} shortcut="Ctrl+Q" onSelect={() => invoke("app:quit")} />
+        </Menu>
+        <Menu label={t("menu.view", "View")}>
+          <Item label={t("menu.reload", "Reload")} shortcut="Ctrl+R" onSelect={() => invoke("app:reload")} />
+          <Item label={t("menu.forceReload", "Force Reload")} shortcut="Ctrl+Shift+R" onSelect={() => invoke("app:force-reload")} />
+          <Item label={t("menu.toggleDevTools", "Toggle Developer Tools")} shortcut="Ctrl+Shift+I" onSelect={() => invoke("app:toggle-devtools")} />
+          <Separator />
+          <Item label={t("menu.resetZoom", "Reset Zoom")} shortcut="Ctrl+0" onSelect={() => invoke("app:reset-zoom")} />
+          <Item label={t("menu.zoomIn", "Zoom In")} shortcut="Ctrl+=" onSelect={() => invoke("app:zoom-in")} />
+          <Item label={t("menu.zoomOut", "Zoom Out")} shortcut="Ctrl+-" onSelect={() => invoke("app:zoom-out")} />
+          <Separator />
+          <Item label={t("menu.fullscreen", "Toggle Fullscreen")} shortcut="F11" onSelect={() => invoke("app:toggle-fullscreen")} />
+        </Menu>
+      </MenubarPrimitive.Root>
+
+      {/* Window controls — replaces native titleBarOverlay */}
+      <div className="flex items-center ms-auto h-full" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <button
+          onClick={() => invoke("app:minimize")}
+          className="inline-flex items-center justify-center h-full w-11 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+        >
+          <Minus className="size-3.5" />
+        </button>
+        <button
+          onClick={() => invoke("app:maximize")}
+          className="inline-flex items-center justify-center h-full w-11 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+        >
+          <Square className="size-3" />
+        </button>
+        <button
+          onClick={() => invoke("app:close")}
+          className="inline-flex items-center justify-center h-full w-11 text-muted-foreground hover:bg-destructive hover:text-white transition-colors"
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
+    </div>
   );
 }
 
 function Menu({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <MenubarPrimitive.Menu>
-      <MenubarPrimitive.Trigger className="flex items-center px-2.5 py-1 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+      <MenubarPrimitive.Trigger className="flex items-center px-2.5 py-1 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground">
         {label}
       </MenubarPrimitive.Trigger>
       <MenubarPrimitive.Portal>
