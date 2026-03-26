@@ -8,7 +8,7 @@ export function ElectronMenuBar() {
   const { t } = useTranslation();
 
   return (
-    <div className="flex items-center h-9 shrink-0 w-full bg-background" style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
+    <div className="flex items-center h-9 shrink-0 w-full bg-background border-b" style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
       <MenubarPrimitive.Root className="flex items-center h-full text-xs text-muted-foreground px-1" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
         <Menu label={t("menu.file", "File")}>
           <Item label={t("menu.quit", "Quit")} shortcut="Ctrl+Q" onSelect={() => invoke("app:quit")} />

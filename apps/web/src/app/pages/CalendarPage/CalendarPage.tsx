@@ -1631,6 +1631,10 @@ export default function CalendarPage() {
         ) : (
           /* ── Week View ── */
           <>
+            <div
+              className={style.timeline}
+              ref={timelineRef}
+            >
             <div className={style.weekHeader}>
               <div className={style.weekTimeLabelSpacer} />
               {weekDays.map((day, i) => (
@@ -1647,10 +1651,6 @@ export default function CalendarPage() {
                 </div>
               ))}
             </div>
-            <div
-              className={style.timeline}
-              ref={timelineRef}
-            >
               <div className={style.swipeStrip} onTouchStart={handleSwipeTouchStart} onTouchEnd={handleSwipeTouchEnd} onTouchCancel={handleSwipeTouchEnd}>
               <div className={style.swipeTrack} ref={swipeTrackRef}>
                 <div className={style.swipePanel}>
