@@ -10,10 +10,9 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { FileTextIcon, PlusIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { Ellipsis, PanelLeftClose } from "lucide-react";
+import { Ellipsis, FileText, PanelLeftClose, Plus } from "lucide-react";
 import React, { useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/button";
@@ -525,7 +524,7 @@ export function SidebarContent({
                         onClick={() => handleAdd(null, space.id)}
                         disabled={isCreating}
                       >
-                        <PlusIcon size={20} />
+                        <Plus size={20} />
                         <span className="sr-only">
                           {t("page.addPage", "Add page")}
                         </span>
@@ -538,7 +537,7 @@ export function SidebarContent({
               <DragOverlay>
                 {activeId && activeDragData ? (
                   <div className={style.dragOverlay}>
-                    <FileTextIcon size={20} />
+                    <FileText size={20} />
                     <span>
                       {activeDragData.title || t("common.untitled", "Untitled")}
                     </span>

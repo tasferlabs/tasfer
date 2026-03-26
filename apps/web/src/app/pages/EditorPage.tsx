@@ -35,11 +35,10 @@ import {
   type TFunction,
 } from "@/lib/utils";
 import type { SyncState } from "@/app/hooks/useP2PRoom";
-import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import * as Popover from "@radix-ui/react-popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { debounce } from "lodash-es";
-import { Calendar, History, Trash } from "lucide-react";
+import { Calendar, ChevronDown, ChevronRight, History, Trash } from "lucide-react";
 import { DateTime } from "luxon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TopActionBarPortal } from "../layout/TopActionBarSlot";
@@ -860,7 +859,7 @@ function PageActionBar({ pageId }: { pageId: string }) {
                       </span>
                     </span>
                     <span className={style.breadcrumbSeparator}>
-                      <CaretRightIcon size={12} />
+                      <ChevronRight size={12} />
                     </span>
                   </>
                 );
@@ -882,7 +881,7 @@ function PageActionBar({ pageId }: { pageId: string }) {
                 {page.title || t("common.untitled", "Untitled")}
               </span>
             </span>
-            <CaretDownIcon size={10} className="shrink-0 opacity-40" />
+            <ChevronDown size={10} className="shrink-0 opacity-40" />
           </button>
         </MovePageButton>
       ) : (
@@ -909,7 +908,7 @@ function PageActionBar({ pageId }: { pageId: string }) {
                     {parent.title || t("common.untitled", "Untitled")}
                   </span>
                   <span className={style.breadcrumbSeparator}>
-                    <CaretRightIcon size={16} />
+                    <ChevronRight size={16} />
                   </span>
                 </>
               );

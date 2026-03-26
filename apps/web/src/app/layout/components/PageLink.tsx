@@ -1,5 +1,4 @@
 import { useDraggable } from "@dnd-kit/core";
-import { CircleNotch } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -26,7 +25,7 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "../../../components/ui/drawer";
-import { Ellipsis } from "lucide-react";
+import { Ellipsis, LoaderCircle } from "lucide-react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { DropZone } from "./DropZone";
 import { PagesArea } from "./PagesArea";
@@ -656,7 +655,7 @@ function PageLinkMenuContent({
           disabled={isCreating}
         >
           {isCreating ? (
-            <CircleNotch className="spin" size={18} />
+            <LoaderCircle className="spin" size={18} />
           ) : (
             <Icons.Plus width={18} height={18} />
           )}
@@ -671,7 +670,7 @@ function PageLinkMenuContent({
           disabled={isDeleting}
         >
           {isDeleting ? (
-            <CircleNotch className="spin" size={18} />
+            <LoaderCircle className="spin" size={18} />
           ) : (
             <Icons.Trash width={18} height={18} />
           )}

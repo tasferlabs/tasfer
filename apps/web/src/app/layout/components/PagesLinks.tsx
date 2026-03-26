@@ -1,4 +1,4 @@
-import { CircleNotch } from "@phosphor-icons/react";
+import { LoaderCircle } from "lucide-react";
 import { useGetPages } from "../../api/pages.api";
 import { PageLink } from "./PageLink";
 import style from "./PagesLinks.module.css";
@@ -54,7 +54,7 @@ export default function PagesLinks({
             disabled={isCreating}
           >
             {isCreating ? (
-              <CircleNotch className="spin" size={16} />
+              <LoaderCircle className="spin" size={16} />
             ) : (
               <Icons.Plus width={16} height={16} />
             )}

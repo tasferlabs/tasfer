@@ -43,7 +43,6 @@
     "@fontsource/noto-sans-arabic": "^5.2.10",
     "@fontsource/poppins": "^5.2.6",
     "@hookform/resolvers": "^5.2.2",
-    "@phosphor-icons/react": "^2.1.10",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-scroll-area": "^1.2.9",
