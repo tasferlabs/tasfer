@@ -351,7 +351,7 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
                     placeholder={t("space.pasteCodeHere", "Paste code here...")}
                     rows={3}
                     autoFocus
-                    className="font-mono text-xs"
+                    className="font-mono text-xs break-all"
                   />
                   <FormMessage />
                 </FormItem>
