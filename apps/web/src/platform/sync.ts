@@ -701,7 +701,7 @@ export class Replicator {
 
   // --- Handshake ---
 
-  private async handleHello(fromPubKey: string, msg: HelloMsg) {
+  private async handleHello(fromPubKey: string, _msg: HelloMsg) {
     console.log(`[Sync] hello from ${fromPubKey.slice(0, 8)}`);
     const conn = this.peers.get(fromPubKey);
     if (!conn) return;
