@@ -799,7 +799,8 @@ class WebRtcNetworkDriver implements NetworkDriver {
 
     this.credentialsFetching = (async () => {
       try {
-        const res = await fetch(`${this.signalUrl}/turn-credentials`);
+        const httpUrl = this.signalUrl.replace(/^wss?:\/\//, (m) => m === "wss://" ? "https://" : "http://");
+        const res = await fetch(`${httpUrl}/turn-credentials`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const { iceServers } = await res.json() as { iceServers: RTCIceServer };
         this.rtcConfig = {
