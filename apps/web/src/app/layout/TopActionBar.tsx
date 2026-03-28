@@ -33,7 +33,7 @@ export function TopActionBar({
         </Button>
       )}
 
-      <div ref={slotRef} className="flex items-center gap-3 flex-1 min-w-0" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties} />
+      <div ref={slotRef} className={clsx("flex items-center gap-3 flex-1 min-w-0", style.appHeaderSlot)} />
     </div>
   );
 }

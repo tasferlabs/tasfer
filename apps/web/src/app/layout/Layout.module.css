@@ -135,6 +135,11 @@
   -webkit-app-region: no-drag;
 }
 
+/* Slot children (portaled content) are interactive, not the empty space */
+:global(body.electron) .appHeaderSlot > * {
+  -webkit-app-region: no-drag;
+}
+
 .iconButton {
   background-color: transparent;
   border: none;
