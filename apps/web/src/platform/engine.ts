@@ -131,6 +131,8 @@ export class Engine implements Platform {
   private driver: Driver;
   private replicator: EngineReplicator | null = null;
   private spaceHlcCounters = new Map<string, number>();
+  /** LWW winners: key = "spaceId\0entity\0field", value = {counter, peerId} */
+  private spaceLwwWinners = new Map<string, { counter: number; peerId: string }>();
   private spaceChangeListeners = new Set<(spaceId: string) => void>();
   private pageDeleteListeners = new Set<(pageId: string) => void>();
   private signalUrl = "";
@@ -334,7 +336,8 @@ export class Engine implements Platform {
     }
   }
 
-  /** Load max HLC counters from persisted ops so we never regress after restart */
+
+  /** Load max HLC counters and LWW winners from persisted ops so we never regress after restart */
   private async loadSpaceHlcCounters(): Promise<void> {
     const rows = await this.driver.db.execute<{
       scope_id: string;
@@ -345,6 +348,41 @@ export class Engine implements Platform {
     for (const r of rows) {
       const spaceId = r.scope_id.slice(6); // strip 'space:' prefix
       this.spaceHlcCounters.set(spaceId, r.max_clock);
+    }
+
+    // Replay all space ops in HLC order to build the LWW winners map
+    const scopes = await this.driver.db.execute<{ scope_id: string }>(
+      "SELECT DISTINCT scope_id FROM ops WHERE scope_id LIKE 'space:%'",
+    );
+    for (const s of scopes) {
+      const spaceId = s.scope_id.slice(6);
+      const ops = await this.getSpaceOps(spaceId);
+      for (const op of ops) {
+        this.lwwCheckFromOp(op);
+      }
+    }
+  }
+
+  /** Populate LWW map entry from an op (used during startup replay, no return value needed) */
+  private lwwCheckFromOp(op: SpaceOperation): void {
+    switch (op.op) {
+      case "space_set":
+        this.lwwCheck(op.spaceId, "space", op.field, op.clock);
+        break;
+      case "member_add":
+      case "member_remove":
+        this.lwwCheck(op.spaceId, `member:${op.publicKey}`, "_alive", op.clock);
+        break;
+      case "member_set":
+        this.lwwCheck(op.spaceId, `member:${op.publicKey}`, op.field, op.clock);
+        break;
+      case "page_add":
+      case "page_remove":
+        this.lwwCheck(op.spaceId, `page:${op.pageId}`, "_alive", op.clock);
+        break;
+      case "page_set":
+        this.lwwCheck(op.spaceId, `page:${op.pageId}`, op.field, op.clock);
+        break;
     }
   }
 
@@ -1834,10 +1872,40 @@ export class Engine implements Platform {
     return ops;
   }
 
+  /**
+   * Check if an op's HLC wins for the given (spaceId, entity, field) slot.
+   * If it wins (or is the first op for this slot), update the winner and return true.
+   */
+  private lwwCheck(
+    spaceId: string,
+    entity: string,
+    field: string,
+    clock: HLC,
+  ): boolean {
+    const key = `${spaceId}\0${entity}\0${field}`;
+    const current = this.spaceLwwWinners.get(key);
+    if (current) {
+      // Incoming must be strictly greater to win
+      if (
+        clock.counter < current.counter ||
+        (clock.counter === current.counter &&
+          clock.peerId <= current.peerId)
+      ) {
+        return false;
+      }
+    }
+    this.spaceLwwWinners.set(key, {
+      counter: clock.counter,
+      peerId: clock.peerId,
+    });
+    return true;
+  }
+
   private async applySpaceOp(op: SpaceOperation): Promise<void> {
     const now = new Date().toISOString();
     switch (op.op) {
       case "space_set":
+        if (!this.lwwCheck(op.spaceId, "space", op.field, op.clock)) break;
         if (op.field === "name") {
           await this.driver.db.run("UPDATE spaces SET name = ? WHERE id = ?", [
             op.value,
@@ -1846,7 +1914,8 @@ export class Engine implements Platform {
         }
         break;
 
-      case "member_add":
+      case "member_add": {
+        if (!this.lwwCheck(op.spaceId, `member:${op.publicKey}`, "_alive", op.clock)) break;
         await this.driver.db.run(
           `INSERT INTO space_members (space_id, public_key, name, role, added_at)
            VALUES (?, ?, ?, 'editor', ?)
@@ -1860,8 +1929,10 @@ export class Engine implements Platform {
           [op.publicKey, op.name, op.name],
         );
         break;
+      }
 
       case "member_set": {
+        if (!this.lwwCheck(op.spaceId, `member:${op.publicKey}`, op.field, op.clock)) break;
         const memberFieldMap: Record<string, string> = {
           name: "name",
           role: "role",
@@ -1885,6 +1956,7 @@ export class Engine implements Platform {
       }
 
       case "member_remove": {
+        if (!this.lwwCheck(op.spaceId, `member:${op.publicKey}`, "_alive", op.clock)) break;
         await this.driver.db.run(
           "UPDATE space_members SET archived_at = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL",
           [now, op.spaceId, op.publicKey],
@@ -1893,9 +1965,9 @@ export class Engine implements Platform {
       }
 
       case "page_add": {
-        // Create page if it doesn't exist locally (including tombstoned)
+        if (!this.lwwCheck(op.spaceId, `page:${op.pageId}`, "_alive", op.clock)) break;
         const exists = await this.driver.db.execute(
-          "SELECT 1 FROM pages WHERE id = ?",
+          "SELECT archived_at FROM pages WHERE id = ?",
           [op.pageId],
         );
         if (exists.length === 0) {
@@ -1921,11 +1993,18 @@ export class Engine implements Platform {
               now,
             ],
           );
+        } else if (exists[0].archived_at !== null) {
+          // Un-archive: a page_add with higher HLC wins over a prior page_remove
+          await this.driver.db.run(
+            "UPDATE pages SET archived_at = NULL, updated_at = ? WHERE id = ?",
+            [now, op.pageId],
+          );
         }
         break;
       }
 
       case "page_remove":
+        if (!this.lwwCheck(op.spaceId, `page:${op.pageId}`, "_alive", op.clock)) break;
         await this.driver.db.run(
           "UPDATE pages SET archived_at = ? WHERE id = ? AND archived_at IS NULL",
           [now, op.pageId],
@@ -1934,6 +2013,7 @@ export class Engine implements Platform {
         break;
 
       case "page_set": {
+        if (!this.lwwCheck(op.spaceId, `page:${op.pageId}`, op.field, op.clock)) break;
         const fieldMap: Record<string, string> = {
           title: "title",
           autoTitle: "auto_title",
