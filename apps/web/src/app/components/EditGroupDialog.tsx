@@ -24,14 +24,6 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   useUpdateSpace,
@@ -249,32 +241,28 @@ function MembersTab({
     },
   });
 
-  const handleRoleChange = async (member: { id: string; userId: string }, value: string) => {
+  const handleRemoveMember = async (member: { id: string; userId: string }) => {
     const isMe = member.userId === user?.id;
 
-    if (value === "remove") {
-      if (isMe) {
-        // Leave group
-        const confirmed = await getConfirmation({
-          title: t("space.leaveSpace", "Leave space"),
-          description: t("space.confirmLeaveSpace", "Are you sure you want to leave this space?"),
-          cancelText: t("common.cancel", "Cancel"),
-          confirmText: t("common.leave", "Leave"),
-        });
-        if (confirmed) {
-          leaveSpace(spaceId);
-        }
-      } else {
-        // Kick member
-        const confirmed = await getConfirmation({
-          title: t("space.removeMember", "Remove member"),
-          description: t("space.confirmRemoveMember", "Are you sure you want to remove this member from this space?"),
-          cancelText: t("common.cancel", "Cancel"),
-          confirmText: t("common.remove", "Remove"),
-        });
-        if (confirmed) {
-          removeMember({ spaceId, memberId: member.id });
-        }
+    if (isMe) {
+      const confirmed = await getConfirmation({
+        title: t("space.leaveSpace", "Leave space"),
+        description: t("space.confirmLeaveSpace", "Are you sure you want to leave this space?"),
+        cancelText: t("common.cancel", "Cancel"),
+        confirmText: t("common.leave", "Leave"),
+      });
+      if (confirmed) {
+        leaveSpace(spaceId);
+      }
+    } else {
+      const confirmed = await getConfirmation({
+        title: t("space.removeMember", "Remove member"),
+        description: t("space.confirmRemoveMember", "Are you sure you want to remove this member from this space?"),
+        cancelText: t("common.cancel", "Cancel"),
+        confirmText: t("common.remove", "Remove"),
+      });
+      if (confirmed) {
+        removeMember({ spaceId, memberId: member.id });
       }
     }
   };
@@ -293,7 +281,6 @@ function MembersTab({
         )}
         {members?.map((member) => {
           const isMe = member.userId === user?.id;
-          const isOwner = member.role === "owner";
 
           return (
             <div
@@ -317,27 +304,14 @@ function MembersTab({
                   {member.userEmail}
                 </p>
               </div>
-              <Select
-                value={member.role}
-                onValueChange={(v) => handleRoleChange(member, v)}
-                disabled={isOwner}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-destructive shrink-0"
+                onClick={() => handleRemoveMember(member)}
               >
-                <SelectTrigger className="w-24 h-8 text-xs shrink-0">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="owner">{t("space.owner", "Owner")}</SelectItem>
-                  <SelectItem value="editor">{t("share.editor", "Editor")}</SelectItem>
-                  {!isOwner && (
-                    <>
-                      <SelectSeparator />
-                      <SelectItem value="remove" className="text-destructive">
-                        {isMe ? t("common.leave", "Leave") : t("common.remove", "Remove")}
-                      </SelectItem>
-                    </>
-                  )}
-                </SelectContent>
-              </Select>
+                {isMe ? t("common.leave", "Leave") : t("common.remove", "Remove")}
+              </Button>
             </div>
           );
         })}

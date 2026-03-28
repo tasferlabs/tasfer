@@ -18,7 +18,6 @@ export interface ISpace {
 export interface ISpaceMember {
   id: string;
   userId: string;
-  role: string;
   createdAt: string;
   userName: string;
   userEmail: string;
@@ -29,7 +28,6 @@ function memberToLegacy(m: SpaceMember): ISpaceMember {
   return {
     id: m.publicKey,
     userId: m.publicKey,
-    role: m.role,
     createdAt: m.addedAt,
     userName: m.name,
     userEmail: "",

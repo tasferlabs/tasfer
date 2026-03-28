@@ -81,7 +81,6 @@ const SCHEMA_SQL = `
     space_id    TEXT NOT NULL,
     public_key  TEXT NOT NULL,
     name        TEXT NOT NULL DEFAULT '',
-    role        TEXT NOT NULL DEFAULT 'editor',
     avatar      TEXT,
     archived_at TEXT,
     added_at    TEXT NOT NULL,
@@ -614,7 +613,6 @@ export class Engine implements Platform {
         space_id: string;
         public_key: string;
         name: string;
-        role: string;
         avatar: string | null;
         added_at: string;
       }>("SELECT * FROM space_members WHERE space_id = ? AND archived_at IS NULL ORDER BY added_at", [
@@ -629,7 +627,6 @@ export class Engine implements Platform {
           spaceId: m.space_id,
           publicKey: m.public_key,
           name: m.name,
-          role: m.role as "owner" | "editor",
           avatar: m.avatar,
           addedAt: m.added_at,
         })),
@@ -647,7 +644,7 @@ export class Engine implements Platform {
       );
 
       await this.driver.db.run(
-        "INSERT INTO space_members (space_id, public_key, name, role, added_at) VALUES (?, ?, ?, 'owner', ?)",
+        "INSERT INTO space_members (space_id, public_key, name, added_at) VALUES (?, ?, ?, ?)",
         [id, identity.publicKey, identity.name, now],
       );
 
@@ -708,7 +705,6 @@ export class Engine implements Platform {
       });
       const memberFieldMap: Record<string, string> = {
         name: "name",
-        role: "role",
         avatar: "avatar",
       };
       const col = memberFieldMap[field];
@@ -796,8 +792,8 @@ export class Engine implements Platform {
               name: peer.name,
             });
             await this.driver.db.run(
-              `INSERT INTO space_members (space_id, public_key, name, role, added_at)
-               VALUES (?, ?, ?, 'editor', ?)
+              `INSERT INTO space_members (space_id, public_key, name, added_at)
+               VALUES (?, ?, ?, ?)
                ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
               [
                 invite.spaceId,
@@ -845,17 +841,17 @@ export class Engine implements Platform {
               "INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)",
               [invite.spaceId, invite.spaceName, now],
             );
-            // Add self as editor
+            // Add self as member
             await this.driver.db.run(
-              `INSERT INTO space_members (space_id, public_key, name, role, added_at)
-               VALUES (?, ?, ?, 'editor', ?)
+              `INSERT INTO space_members (space_id, public_key, name, added_at)
+               VALUES (?, ?, ?, ?)
                ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
               [invite.spaceId, identity.publicKey, identity.name, now, identity.name],
             );
-            // Add the initiator as owner (so hello exchange can identify shared spaces)
+            // Add the initiator as member (so hello exchange can identify shared spaces)
             await this.driver.db.run(
-              `INSERT INTO space_members (space_id, public_key, name, role, added_at)
-               VALUES (?, ?, ?, 'owner', ?)
+              `INSERT INTO space_members (space_id, public_key, name, added_at)
+               VALUES (?, ?, ?, ?)
                ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
               [invite.spaceId, peer.publicKey, peer.name, now, peer.name],
             );
@@ -1917,8 +1913,8 @@ export class Engine implements Platform {
       case "member_add": {
         if (!this.lwwCheck(op.spaceId, `member:${op.publicKey}`, "_alive", op.clock)) break;
         await this.driver.db.run(
-          `INSERT INTO space_members (space_id, public_key, name, role, added_at)
-           VALUES (?, ?, ?, 'editor', ?)
+          `INSERT INTO space_members (space_id, public_key, name, added_at)
+           VALUES (?, ?, ?, ?)
            ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
           [op.spaceId, op.publicKey, op.name, now, op.name],
         );
@@ -1935,7 +1931,6 @@ export class Engine implements Platform {
         if (!this.lwwCheck(op.spaceId, `member:${op.publicKey}`, op.field, op.clock)) break;
         const memberFieldMap: Record<string, string> = {
           name: "name",
-          role: "role",
           avatar: "avatar",
         };
         const memberCol = memberFieldMap[op.field];

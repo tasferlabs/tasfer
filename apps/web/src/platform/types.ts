@@ -164,7 +164,6 @@ export interface SpaceMember {
   spaceId: string;
   publicKey: string;
   name: string;
-  role: "owner" | "editor";
   avatar: string | null;
   addedAt: string;
 }
