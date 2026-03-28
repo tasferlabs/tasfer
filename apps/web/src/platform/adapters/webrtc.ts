@@ -29,20 +29,12 @@ import type { NetworkDriver, NetworkTopic, NetworkPeer } from "../driver";
 // Config
 // =============================================================================
 
-const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    {
-      urls: [
-        "turn:openrelay.metered.ca:80",
-        "turn:openrelay.metered.ca:443",
-        "turn:openrelay.metered.ca:443?transport=tcp",
-      ],
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-  ],
+const STUN_ONLY_CONFIG: RTCConfiguration = {
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
+
+/** How long before we re-fetch TURN credentials (refresh well before 24h TTL). */
+const TURN_CREDENTIAL_REFRESH_MS = 12 * 60 * 60 * 1000; // 12h
 
 // =============================================================================
 // E2E Encryption — AES-256-GCM with HKDF-derived keys
@@ -376,6 +368,7 @@ class WebRtcTopic implements NetworkTopic {
   private topicHex: string;
   private signalUrl: string;
   private encKey: CryptoKey | null;
+  private rtcConfig: RTCConfiguration;
   private ws: WebSocket | null = null;
   private wsReady: Promise<void> = Promise.resolve();
   private resolveWsReady!: () => void;
@@ -392,11 +385,13 @@ class WebRtcTopic implements NetworkTopic {
     topicHex: string,
     signalUrl: string,
     encKey: CryptoKey | null,
+    rtcConfig: RTCConfiguration,
   ) {
     this.localPeerId = localPeerId;
     this.topicHex = topicHex;
     this.signalUrl = signalUrl;
     this.encKey = encKey;
+    this.rtcConfig = rtcConfig;
   }
 
   /** Connect to the CF Worker and start receiving signals. */
@@ -547,7 +542,7 @@ class WebRtcTopic implements NetworkTopic {
     const rShort = remotePeerId.slice(0, 8);
     const topicShort = this.topicHex.slice(0, 8);
 
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const pc = new RTCPeerConnection(this.rtcConfig);
     const peer = new WebRtcPeer(remotePeerId, pc);
     this.peers.set(remotePeerId, peer);
 
@@ -622,7 +617,7 @@ class WebRtcTopic implements NetworkTopic {
       }
 
       if (!peer) {
-        const pc = new RTCPeerConnection(RTC_CONFIG);
+        const pc = new RTCPeerConnection(this.rtcConfig);
         peer = new WebRtcPeer(from, pc);
         this.peers.set(from, peer);
 
@@ -772,6 +767,9 @@ class WebRtcNetworkDriver implements NetworkDriver {
   private localPeerId: string = "";
   private topics = new Map<string, WebRtcTopic>();
   private topicKeys = new Map<string, Uint8Array>();
+  private rtcConfig: RTCConfiguration = STUN_ONLY_CONFIG;
+  private credentialsFetchedAt = 0;
+  private credentialsFetching: Promise<void> | null = null;
 
   constructor(signalUrl: string) {
     this.signalUrl = signalUrl;
@@ -789,6 +787,40 @@ class WebRtcNetworkDriver implements NetworkDriver {
     this.topicKeys.delete(topicHex);
   }
 
+  /**
+   * Fetch short-lived TURN credentials from the Worker and cache them.
+   * Falls back to STUN-only if the endpoint is unavailable (e.g. not yet configured).
+   * Credentials are refreshed after TURN_CREDENTIAL_REFRESH_MS (12h).
+   */
+  private async ensureTurnCredentials(): Promise<void> {
+    const now = Date.now();
+    if (now - this.credentialsFetchedAt < TURN_CREDENTIAL_REFRESH_MS) return;
+    if (this.credentialsFetching) return this.credentialsFetching;
+
+    this.credentialsFetching = (async () => {
+      try {
+        const res = await fetch(`${this.signalUrl}/turn-credentials`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const { iceServers } = await res.json() as { iceServers: RTCIceServer };
+        this.rtcConfig = {
+          iceServers: [
+            { urls: "stun:stun.cloudflare.com:3478" },
+            iceServers,
+          ],
+        };
+        this.credentialsFetchedAt = Date.now();
+        console.log("[WebRTC] TURN credentials fetched");
+      } catch (e) {
+        console.warn("[WebRTC] TURN credentials unavailable, using STUN only:", e);
+        this.rtcConfig = STUN_ONLY_CONFIG;
+      } finally {
+        this.credentialsFetching = null;
+      }
+    })();
+
+    return this.credentialsFetching;
+  }
+
   async join(topic: Uint8Array): Promise<NetworkTopic> {
     const hex = Array.from(topic).map((b) => b.toString(16).padStart(2, "0")).join("");
     if (this.topics.has(hex)) return this.topics.get(hex)!;
@@ -797,11 +829,13 @@ class WebRtcNetworkDriver implements NetworkDriver {
       throw new Error("NetworkDriver: setLocalId() must be called before join()");
     }
 
+    await this.ensureTurnCredentials();
+
     // Derive AES-GCM key from the raw topic key (if registered)
     const rawKey = this.topicKeys.get(hex);
     const encKey = rawKey ? await deriveAesKey(rawKey, `cypher-signal:${hex}`) : null;
 
-    const nt = new WebRtcTopic(this.localPeerId, hex, this.signalUrl, encKey);
+    const nt = new WebRtcTopic(this.localPeerId, hex, this.signalUrl, encKey, this.rtcConfig);
     this.topics.set(hex, nt);
 
     await nt.connect();

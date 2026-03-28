@@ -7,6 +7,11 @@ routes = [
   { pattern = "signaling.cypher.md", custom_domain = true }
 ]
 
+[vars]
+# Cloudflare Calls TURN key ID — get from: CF Dashboard → Calls → TURN → Create Key
+# Set the secret token via: wrangler secret put TURN_API_TOKEN
+TURN_KEY_ID = "1f35a92cf25e752529a313b7404a5a47"
+
 [durable_objects]
 bindings = [
   { name = "SIGNAL_ROOM", class_name = "SignalRoom" }
