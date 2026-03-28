@@ -104,6 +104,111 @@ function base64ToUint8(b64: string): Uint8Array {
 }
 
 // =============================================================================
+// Message chunking — split large messages so they fit within DataChannel limits
+// =============================================================================
+
+/**
+ * WebRTC DataChannels have a browser-dependent max message size (16KB–256KB).
+ * We use 15KB payload per chunk to stay safely under all implementations.
+ *
+ * Wire format:
+ *   Single message (fits in one chunk):
+ *     [0x00] [payload...]
+ *
+ *   Chunked message:
+ *     [0x01] [msgId: uint32] [chunkIndex: uint16] [totalChunks: uint16] [payload...]
+ *
+ * Overhead: 1 byte for small messages, 9 bytes per chunk for large messages.
+ */
+
+const MAX_CHUNK_PAYLOAD = 15 * 1024; // 15 KB — safe for all browsers
+const FLAG_SINGLE = 0x00;
+const FLAG_CHUNKED = 0x01;
+const CHUNK_HEADER_SIZE = 9; // 1 flag + 4 msgId + 2 chunkIndex + 2 totalChunks
+
+let nextChunkMsgId = 0;
+
+function chunkMessage(data: Uint8Array): Uint8Array[] {
+  if (data.byteLength <= MAX_CHUNK_PAYLOAD) {
+    // Fits in a single frame — prepend flag byte
+    const frame = new Uint8Array(1 + data.byteLength);
+    frame[0] = FLAG_SINGLE;
+    frame.set(data, 1);
+    return [frame];
+  }
+
+  const msgId = (nextChunkMsgId++) & 0xFFFFFFFF;
+  const totalChunks = Math.ceil(data.byteLength / MAX_CHUNK_PAYLOAD);
+  const chunks: Uint8Array[] = [];
+
+  for (let i = 0; i < totalChunks; i++) {
+    const start = i * MAX_CHUNK_PAYLOAD;
+    const end = Math.min(start + MAX_CHUNK_PAYLOAD, data.byteLength);
+    const payload = data.subarray(start, end);
+
+    const frame = new Uint8Array(CHUNK_HEADER_SIZE + payload.byteLength);
+    const view = new DataView(frame.buffer);
+    frame[0] = FLAG_CHUNKED;
+    view.setUint32(1, msgId);
+    view.setUint16(5, i);
+    view.setUint16(7, totalChunks);
+    frame.set(payload, CHUNK_HEADER_SIZE);
+    chunks.push(frame);
+  }
+
+  return chunks;
+}
+
+/** Reassembly buffer for incoming chunked messages from a single peer. */
+class ChunkAssembler {
+  private pending = new Map<number, { chunks: (Uint8Array | null)[]; received: number; totalSize: number }>();
+
+  /**
+   * Process an incoming frame. Returns the complete message once all chunks
+   * arrive, or null if still waiting for more chunks.
+   */
+  process(frame: Uint8Array): Uint8Array | null {
+    if (frame[0] === FLAG_SINGLE) {
+      return frame.subarray(1);
+    }
+
+    const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
+    const msgId = view.getUint32(1);
+    const chunkIndex = view.getUint16(5);
+    const totalChunks = view.getUint16(7);
+    const payload = frame.subarray(CHUNK_HEADER_SIZE);
+
+    let entry = this.pending.get(msgId);
+    if (!entry) {
+      entry = { chunks: new Array(totalChunks).fill(null), received: 0, totalSize: 0 };
+      this.pending.set(msgId, entry);
+    }
+
+    if (entry.chunks[chunkIndex] === null) {
+      entry.chunks[chunkIndex] = payload;
+      entry.received++;
+      entry.totalSize += payload.byteLength;
+    }
+
+    if (entry.received < totalChunks) return null;
+
+    // All chunks received — reassemble
+    this.pending.delete(msgId);
+    const assembled = new Uint8Array(entry.totalSize);
+    let offset = 0;
+    for (const chunk of entry.chunks) {
+      assembled.set(chunk!, offset);
+      offset += chunk!.byteLength;
+    }
+    return assembled;
+  }
+
+  clear() {
+    this.pending.clear();
+  }
+}
+
+// =============================================================================
 // Peer — wraps one RTCPeerConnection + DataChannel
 // =============================================================================
 
@@ -115,6 +220,7 @@ class WebRtcPeer implements NetworkPeer {
   private closeListeners = new Set<() => void>();
   private dcReady: Promise<void>;
   private resolveDcReady!: () => void;
+  private assembler = new ChunkAssembler();
 
   constructor(remotePublicKey: string, pc: RTCPeerConnection) {
     this.remotePublicKey = remotePublicKey;
@@ -128,8 +234,11 @@ class WebRtcPeer implements NetworkPeer {
     dc.binaryType = "arraybuffer";
 
     dc.onmessage = (e) => {
-      const data = new Uint8Array(e.data as ArrayBuffer);
-      for (const cb of this.messageListeners) cb(data);
+      const frame = new Uint8Array(e.data as ArrayBuffer);
+      const message = this.assembler.process(frame);
+      if (message) {
+        for (const cb of this.messageListeners) cb(message);
+      }
     };
 
     dc.onclose = () => this._fireClose();
@@ -142,17 +251,25 @@ class WebRtcPeer implements NetworkPeer {
   }
 
   _fireClose() {
+    this.assembler.clear();
     for (const cb of this.closeListeners) cb();
     this.messageListeners.clear();
     this.closeListeners.clear();
   }
 
+  private _sendRaw(data: Uint8Array): void {
+    this.dc!.send(data as ArrayBufferView<ArrayBuffer>);
+  }
+
   send(data: Uint8Array): void {
+    const chunks = chunkMessage(data);
     if (this.dc?.readyState === "open") {
-      this.dc.send(data as ArrayBufferView<ArrayBuffer>);
+      for (const chunk of chunks) this._sendRaw(chunk);
     } else {
       this.dcReady.then(() => {
-        if (this.dc?.readyState === "open") this.dc.send(data as ArrayBufferView<ArrayBuffer>);
+        if (this.dc?.readyState === "open") {
+          for (const chunk of chunks) this._sendRaw(chunk);
+        }
       });
     }
   }
@@ -184,6 +301,7 @@ class RelayPeer implements NetworkPeer {
   private messageListeners = new Set<(data: Uint8Array) => void>();
   private closeListeners = new Set<() => void>();
   private closed = false;
+  private assembler = new ChunkAssembler();
 
   constructor(
     remotePublicKey: string,
@@ -195,13 +313,18 @@ class RelayPeer implements NetworkPeer {
 
   send(data: Uint8Array): void {
     if (this.closed) return;
-    // Encode binary as base64 for JSON transport
-    this.relaySend(this.remotePublicKey, uint8ToBase64(data));
+    const chunks = chunkMessage(data);
+    for (const chunk of chunks) {
+      this.relaySend(this.remotePublicKey, uint8ToBase64(chunk));
+    }
   }
 
   /** Called by the topic when a relay message arrives for this peer */
   _receiveRelay(data: Uint8Array): void {
-    for (const cb of this.messageListeners) cb(data);
+    const message = this.assembler.process(data);
+    if (message) {
+      for (const cb of this.messageListeners) cb(message);
+    }
   }
 
   onMessage(cb: (data: Uint8Array) => void): () => void {
@@ -217,6 +340,7 @@ class RelayPeer implements NetworkPeer {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.assembler.clear();
     for (const cb of this.closeListeners) cb();
     this.messageListeners.clear();
     this.closeListeners.clear();
