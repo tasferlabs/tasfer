@@ -104,7 +104,7 @@ export interface ReplicatorHost {
 // Message Types
 // =============================================================================
 
-interface HelloMsg { type: "hello"; publicKey: string; spaces: string[] }
+interface HelloMsg { type: "hello"; publicKey: string }
 interface SyncPullMsg { type: "sync-pull"; spaceId: string; spaceVV: Record<string, number>; pageVVs: Record<string, Record<string, number>> }
 interface SyncDataMsg { type: "sync-data"; spaceId: string; spaceOps: SpaceOperation[]; pageOps: Record<string, Operation[]> }
 interface SpaceOpsMsg { type: "space-ops"; spaceId: string; ops: SpaceOperation[] }
@@ -630,12 +630,10 @@ export class Replicator {
   }
 
   private async sendHello(netPeer: NetworkPeer): Promise<void> {
-    const spaceIds = await this.host.getSpaceIds();
-    console.log(`[Sync] sending hello to ${netPeer.remotePublicKey.slice(0, 8)} spaces=${spaceIds.length}`);
+    console.log(`[Sync] sending hello to ${netPeer.remotePublicKey.slice(0, 8)}`);
     const msg: Message = {
       type: "hello",
       publicKey: this.localPublicKey,
-      spaces: spaceIds,
     };
     const data = encode(msg);
     logNet("send", netPeer.remotePublicKey, msg, data.byteLength);
@@ -704,19 +702,14 @@ export class Replicator {
   // --- Handshake ---
 
   private async handleHello(fromPubKey: string, msg: HelloMsg) {
-    console.log(`[Sync] hello from ${fromPubKey.slice(0, 8)} spaces=${msg.spaces.length}`);
+    console.log(`[Sync] hello from ${fromPubKey.slice(0, 8)}`);
     const conn = this.peers.get(fromPubKey);
     if (!conn) return;
 
-    // Compute shared spaces: intersection of both space lists,
-    // filtered by membership (access control)
+    // Determine shared spaces by checking which of our spaces this peer is a member of
     const localSpaceIds = await this.host.getSpaceIds();
-    const remoteSpaces = new Set(msg.spaces);
-
     const shared = new Set<string>();
     for (const sid of localSpaceIds) {
-      if (!remoteSpaces.has(sid)) continue;
-      // Verify the remote peer is actually a member
       const members = await this.host.getSpaceMembers(sid);
       if (members.some(m => m.publicKey === fromPubKey)) {
         shared.add(sid);
@@ -833,6 +826,7 @@ export class Replicator {
     if (!conn) return;
 
     const room = this.rooms.get(msg.pageId);
+    if (room && !conn.sharedSpaces.has(room.spaceId)) return;
 
     if (room) {
       // We have the same page open — full room awareness exchange
