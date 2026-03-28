@@ -433,6 +433,8 @@ export class Engine implements Platform {
           await this.driver.fs.write(path, data);
         }
       },
+      buildPageSyncResponse: (pageId: string, remoteVV: Record<string, number>) =>
+        this.buildPageSyncResponse(pageId, remoteVV),
       getPeerSharedKey: async (publicKey: string): Promise<string | null> => {
         const rows = await this.driver.db.execute<{ shared_key: string | null }>(
           "SELECT shared_key FROM peers WHERE public_key = ?",
@@ -1083,6 +1085,10 @@ export class Engine implements Platform {
           duration: data.duration ?? null,
           allDay: data.allDay ?? null,
         });
+
+        // Push the initial block op to already-connected peers so they don't
+        // have to wait for a full re-sync to see the new page's structure.
+        this.replicator?.pushPageOps(data.spaceId, id, [blockInsertOp]);
       }
 
       return this.pages.get(id);
@@ -1739,6 +1745,40 @@ export class Engine implements Platform {
     }
 
     return { spaceOps: missingSpaceOps, pageOps };
+  }
+
+  /** Build a per-page sync response: return ops the requester is missing + local VV */
+  async buildPageSyncResponse(
+    pageId: string,
+    remoteVV: Record<string, number>,
+  ): Promise<{ ops: import("@/editor/sync/types").Operation[]; versionVector: Record<string, number> }> {
+    const rows = await this.driver.db.execute<{
+      data: Uint8Array;
+      peer_id: string;
+      clock: number;
+    }>(
+      "SELECT data, peer_id, clock FROM ops WHERE scope_id = ? ORDER BY clock",
+      [pageId],
+    );
+
+    const missing: import("@/editor/sync/types").Operation[] = [];
+    const localVV: Record<string, number> = {};
+    for (const row of rows) {
+      // Build local VV
+      if (localVV[row.peer_id] === undefined || row.clock > localVV[row.peer_id]) {
+        localVV[row.peer_id] = row.clock;
+      }
+      // Collect missing ops
+      const known = remoteVV[row.peer_id] ?? -1;
+      if (row.clock > known) {
+        try {
+          missing.push(
+            JSON.parse(new TextDecoder().decode(row.data as Uint8Array)),
+          );
+        } catch { /* skip corrupted */ }
+      }
+    }
+    return { ops: missing, versionVector: localVV };
   }
 
   /** Get the space version vector (for sync requests) */

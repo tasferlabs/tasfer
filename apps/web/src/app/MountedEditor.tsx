@@ -51,7 +51,6 @@ import { useP2PRoom, type SyncState } from "@/app/hooks/useP2PRoom";
 import {
   SyncEngine,
   serializeVV,
-  deserializeVV,
   advanceGlobalClock,
 } from "@/editor/sync/sync";
 import {
@@ -261,13 +260,6 @@ export function MountedEditor({
 
   // Callbacks for useRoom - use refs to avoid recreating callbacks
   const onRoomOperationsRef = useRef<((ops: Operation[]) => void) | null>(null);
-  const onRoomSyncRequestRef = useRef<
-    | ((
-        vv: Record<string, number>,
-        requesterId?: string,
-      ) => void)
-    | null
-  >(null);
   const onRoomSyncResponseRef = useRef<
     ((ops: Operation[], vv: Record<string, number>) => void) | null
   >(null);
@@ -288,7 +280,6 @@ export function MountedEditor({
     broadcast: roomBroadcast,
     broadcastAwareness: roomBroadcastAwareness,
     sendSyncRequest: roomSendSyncRequest,
-    sendSyncResponse: roomSendSyncResponse,
     syncState,
     localUser,
     peerId,
@@ -298,15 +289,6 @@ export function MountedEditor({
       onOperations: useCallback((ops: Operation[]) => {
         onRoomOperationsRef.current?.(ops);
       }, []),
-      onSyncRequest: useCallback(
-        (
-          vv: Record<string, number>,
-          requesterId?: string,
-        ) => {
-          onRoomSyncRequestRef.current?.(vv, requesterId);
-        },
-        [],
-      ),
       onSyncResponse: useCallback(
         (ops: Operation[], vv: Record<string, number>) => {
           onRoomSyncResponseRef.current?.(ops, vv);
@@ -518,19 +500,6 @@ export function MountedEditor({
     // Wire up room callbacks to sync engine and editor
     // These refs are called by useRoom when messages arrive
     onRoomOperationsRef.current = applyRemoteOps;
-
-    onRoomSyncRequestRef.current = (
-      versionVector,
-      requesterId,
-    ) => {
-      const remoteVV = deserializeVV(versionVector);
-      const missingOps = syncEngine.getOpsSince(remoteVV);
-      const localVV = serializeVV(syncEngine.getVersionVector());
-
-      if (missingOps.length > 0 || requesterId) {
-        roomSendSyncResponse(missingOps, localVV, requesterId);
-      }
-    };
 
     onRoomSyncResponseRef.current = (ops, _versionVector) => {
       if (ops.length > 0) {
@@ -1110,7 +1079,6 @@ export function MountedEditor({
 
       // Clear room callback refs
       onRoomOperationsRef.current = null;
-      onRoomSyncRequestRef.current = null;
       onRoomSyncResponseRef.current = null;
       onRoomAwarenessRef.current = null;
       onRoomFirstPeerRef.current = null;
@@ -1137,7 +1105,6 @@ export function MountedEditor({
     roomBroadcast,
     roomBroadcastAwareness,
     roomSendSyncRequest,
-    roomSendSyncResponse,
     // peerId and localUser are read from refs (peerIdRef, localUserRef) to avoid
     // destroying/recreating the editor when the P2P identity loads asynchronously.
     // This prevents a race where callback refs are briefly null during re-mount.

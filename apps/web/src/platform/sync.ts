@@ -45,7 +45,12 @@
  *     { type: "pair-ack",   publicKey, name, proof }
  */
 
-import type { NetworkDriver, NetworkTopic, NetworkPeer, CryptoDriver } from "./driver";
+import type {
+  NetworkDriver,
+  NetworkTopic,
+  NetworkPeer,
+  CryptoDriver,
+} from "./driver";
 import { logNet } from "./devlog";
 import type {
   ConnectionState,
@@ -87,7 +92,10 @@ export interface ReplicatorHost {
     spaceId: string,
     spaceVV: Record<string, number>,
     pageVVs: Record<string, Record<string, number>>,
-  ): Promise<{ spaceOps: SpaceOperation[]; pageOps: Record<string, Operation[]> }>;
+  ): Promise<{
+    spaceOps: SpaceOperation[];
+    pageOps: Record<string, Operation[]>;
+  }>;
   /** Store + apply remote space ops */
   applyRemoteSpaceOps(spaceId: string, ops: SpaceOperation[]): Promise<void>;
   /** Store remote page ops */
@@ -96,6 +104,11 @@ export interface ReplicatorHost {
   getAssetData(hash: string): Promise<{ ext: string; data: Uint8Array } | null>;
   /** Store an asset received from a peer */
   storeAssetData(hash: string, ext: string, data: Uint8Array): Promise<void>;
+  /** Build a per-page sync response: return ops the requester is missing + local VV */
+  buildPageSyncResponse(
+    pageId: string,
+    remoteVV: Record<string, number>,
+  ): Promise<{ ops: Operation[]; versionVector: Record<string, number> }>;
   /** Get the shared encryption key for a peer (hex string). Returns null if not set. */
   getPeerSharedKey(publicKey: string): Promise<string | null>;
 }
@@ -104,29 +117,109 @@ export interface ReplicatorHost {
 // Message Types
 // =============================================================================
 
-interface HelloMsg { type: "hello"; publicKey: string }
-interface SyncPullMsg { type: "sync-pull"; spaceId: string; spaceVV: Record<string, number>; pageVVs: Record<string, Record<string, number>> }
-interface SyncDataMsg { type: "sync-data"; spaceId: string; spaceOps: SpaceOperation[]; pageOps: Record<string, Operation[]> }
-interface SpaceOpsMsg { type: "space-ops"; spaceId: string; ops: SpaceOperation[] }
-interface PageOpsMsg { type: "page-ops"; spaceId: string; pageId: string; ops: Operation[] }
-interface RoomJoinMsg { type: "room-join"; pageId: string; peerId: string; user?: RoomUser }
-interface RoomLeaveMsg { type: "room-leave"; pageId: string; peerId: string }
-interface RoomPeersMsg { type: "room-peers"; pageId: string; peers: { peerId: string; user?: RoomUser }[]; awarenessStates?: Record<string, AwarenessState> }
-interface AwarenessMsg { type: "awareness"; pageId: string; peerId: string; state: AwarenessState }
-interface SyncReqMsg { type: "sync-req"; pageId: string; versionVector: Record<string, number>; requesterId: string }
-interface SyncResMsg { type: "sync-res"; pageId: string; ops: Operation[]; versionVector: Record<string, number> }
-interface AssetReqMsg { type: "asset-req"; hash: string }
-interface AssetDataMsg { type: "asset-data"; hash: string; ext: string; data: string }
-interface PairHelloMsg { type: "pair-hello"; publicKey: string; name: string; proof: string; spaceId: string; spaceName: string }
-interface PairAckMsg { type: "pair-ack"; publicKey: string; name: string; proof: string }
+interface HelloMsg {
+  type: "hello";
+  publicKey: string;
+}
+interface SyncPullMsg {
+  type: "sync-pull";
+  spaceId: string;
+  spaceVV: Record<string, number>;
+  pageVVs: Record<string, Record<string, number>>;
+}
+interface SyncDataMsg {
+  type: "sync-data";
+  spaceId: string;
+  spaceOps: SpaceOperation[];
+  pageOps: Record<string, Operation[]>;
+}
+interface SpaceOpsMsg {
+  type: "space-ops";
+  spaceId: string;
+  ops: SpaceOperation[];
+}
+interface PageOpsMsg {
+  type: "page-ops";
+  spaceId: string;
+  pageId: string;
+  ops: Operation[];
+}
+interface RoomJoinMsg {
+  type: "room-join";
+  pageId: string;
+  peerId: string;
+  user?: RoomUser;
+}
+interface RoomLeaveMsg {
+  type: "room-leave";
+  pageId: string;
+  peerId: string;
+}
+interface RoomPeersMsg {
+  type: "room-peers";
+  pageId: string;
+  peers: { peerId: string; user?: RoomUser }[];
+  awarenessStates?: Record<string, AwarenessState>;
+}
+interface AwarenessMsg {
+  type: "awareness";
+  pageId: string;
+  peerId: string;
+  state: AwarenessState;
+}
+interface SyncReqMsg {
+  type: "sync-req";
+  pageId: string;
+  versionVector: Record<string, number>;
+  requesterId: string;
+}
+interface SyncResMsg {
+  type: "sync-res";
+  pageId: string;
+  ops: Operation[];
+  versionVector: Record<string, number>;
+}
+interface AssetReqMsg {
+  type: "asset-req";
+  hash: string;
+}
+interface AssetDataMsg {
+  type: "asset-data";
+  hash: string;
+  ext: string;
+  data: string;
+}
+interface PairHelloMsg {
+  type: "pair-hello";
+  publicKey: string;
+  name: string;
+  proof: string;
+  spaceId: string;
+  spaceName: string;
+}
+interface PairAckMsg {
+  type: "pair-ack";
+  publicKey: string;
+  name: string;
+  proof: string;
+}
 
 type Message =
-  | HelloMsg | SyncPullMsg | SyncDataMsg
-  | SpaceOpsMsg | PageOpsMsg
-  | RoomJoinMsg | RoomLeaveMsg | RoomPeersMsg
-  | AwarenessMsg | SyncReqMsg | SyncResMsg
-  | AssetReqMsg | AssetDataMsg
-  | PairHelloMsg | PairAckMsg;
+  | HelloMsg
+  | SyncPullMsg
+  | SyncDataMsg
+  | SpaceOpsMsg
+  | PageOpsMsg
+  | RoomJoinMsg
+  | RoomLeaveMsg
+  | RoomPeersMsg
+  | AwarenessMsg
+  | SyncReqMsg
+  | SyncResMsg
+  | AssetReqMsg
+  | AssetDataMsg
+  | PairHelloMsg
+  | PairAckMsg;
 
 // =============================================================================
 // Internal State
@@ -177,8 +270,11 @@ function encode(msg: Message): Uint8Array {
 }
 
 function decode(data: Uint8Array): Message | null {
-  try { return JSON.parse(dec.decode(data)); }
-  catch { return null; }
+  try {
+    return JSON.parse(dec.decode(data));
+  } catch {
+    return null;
+  }
 }
 
 // =============================================================================
@@ -192,7 +288,10 @@ export class Replicator {
   private localPublicKey = "";
 
   /** One topic per trusted peer, keyed by topic hex */
-  private topics = new Map<string, { topic: NetworkTopic; remotePubKey: string }>();
+  private topics = new Map<
+    string,
+    { topic: NetworkTopic; remotePubKey: string }
+  >();
 
   /** Connected peers, keyed by public key */
   private peers = new Map<string, PeerConnection>();
@@ -204,7 +303,10 @@ export class Replicator {
   private pairingSession: PairingSession | null = null;
 
   /** Pending asset requests: hash → resolve callbacks waiting for the data */
-  private pendingAssetRequests = new Map<string, Array<(found: boolean) => void>>();
+  private pendingAssetRequests = new Map<
+    string,
+    Array<(found: boolean) => void>
+  >();
 
   /** Connection state */
   private connectionState: ConnectionState = "disconnected";
@@ -234,7 +336,14 @@ export class Replicator {
     this.network.setLocalId(this.localPublicKey);
 
     const trustedPeers = await this.host.getTrustedPeers();
-    console.log(`[Sync] trusted peers: ${trustedPeers.filter(p => p.trusted).map(p => p.publicKey.slice(0, 8)).join(", ") || "(none)"}`);
+    console.log(
+      `[Sync] trusted peers: ${
+        trustedPeers
+          .filter((p) => p.trusted)
+          .map((p) => p.publicKey.slice(0, 8))
+          .join(", ") || "(none)"
+      }`,
+    );
     for (const peer of trustedPeers) {
       if (peer.trusted) {
         await this.connectToPeer(peer.publicKey);
@@ -344,10 +453,7 @@ export class Replicator {
     });
   }
 
-  sendSyncRequest(
-    roomId: string,
-    versionVector: Record<string, number>,
-  ): void {
+  sendSyncRequest(roomId: string, versionVector: Record<string, number>): void {
     const room = this.rooms.get(roomId);
     if (!room || !room.spaceId) return;
 
@@ -396,7 +502,9 @@ export class Replicator {
 
   onPageEvents(callbacks: Partial<PageEvents>): () => void {
     this.pageEventListeners.add(callbacks);
-    return () => { this.pageEventListeners.delete(callbacks); };
+    return () => {
+      this.pageEventListeners.delete(callbacks);
+    };
   }
 
   getConnectionState(): ConnectionState {
@@ -405,7 +513,9 @@ export class Replicator {
 
   onConnectionChange(cb: (state: ConnectionState) => void): () => void {
     this.connectionListeners.add(cb);
-    return () => { this.connectionListeners.delete(cb); };
+    return () => {
+      this.connectionListeners.delete(cb);
+    };
   }
 
   getConnectedPeers(): string[] {
@@ -414,7 +524,9 @@ export class Replicator {
 
   onConnectedPeersChange(cb: (peers: string[]) => void): () => void {
     this.connectedPeersListeners.add(cb);
-    return () => { this.connectedPeersListeners.delete(cb); };
+    return () => {
+      this.connectedPeersListeners.delete(cb);
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -431,7 +543,9 @@ export class Replicator {
     // If there's already a pending request for this hash, piggyback on it
     const existing = this.pendingAssetRequests.get(hash);
     if (existing) {
-      return new Promise<boolean>((resolve) => { existing.push(resolve); });
+      return new Promise<boolean>((resolve) => {
+        existing.push(resolve);
+      });
     }
 
     return new Promise<boolean>((resolve) => {
@@ -547,7 +661,9 @@ export class Replicator {
     const topicHex = await computePeerTopic(this.localPublicKey, remotePubKey);
 
     if (this.topics.has(topicHex)) return;
-    console.log(`[Sync] joining topic=${topicHex} for peer=${remotePubKey.slice(0, 8)}`);
+    console.log(
+      `[Sync] joining topic=${topicHex} for peer=${remotePubKey.slice(0, 8)}`,
+    );
 
     // Register the E2E encryption key for this topic before joining
     const sharedKeyHex = await this.host.getPeerSharedKey(remotePubKey);
@@ -600,7 +716,10 @@ export class Replicator {
       publicKey: remotePubKey,
       netPeer,
       sharedSpaces: new Set(),
-      cleanup: () => { unsub(); unsubClose(); },
+      cleanup: () => {
+        unsub();
+        unsubClose();
+      },
     };
     this.peers.set(remotePubKey, conn);
     this.emitConnectedPeers();
@@ -630,7 +749,9 @@ export class Replicator {
   }
 
   private async sendHello(netPeer: NetworkPeer): Promise<void> {
-    console.log(`[Sync] sending hello to ${netPeer.remotePublicKey.slice(0, 8)}`);
+    console.log(
+      `[Sync] sending hello to ${netPeer.remotePublicKey.slice(0, 8)}`,
+    );
     const msg: Message = {
       type: "hello",
       publicKey: this.localPublicKey,
@@ -683,10 +804,10 @@ export class Replicator {
 
       // Per-page sync (fallback)
       case "sync-req":
-        this.handleSyncReq(msg);
+        await this.handleSyncReq(msg);
         break;
       case "sync-res":
-        this.handleSyncRes(msg);
+        await this.handleSyncRes(msg);
         break;
 
       // Asset
@@ -711,13 +832,15 @@ export class Replicator {
     const shared = new Set<string>();
     for (const sid of localSpaceIds) {
       const members = await this.host.getSpaceMembers(sid);
-      if (members.some(m => m.publicKey === fromPubKey)) {
+      if (members.some((m) => m.publicKey === fromPubKey)) {
         shared.add(sid);
       }
     }
 
     conn.sharedSpaces = shared;
-    console.log(`[Sync] shared spaces with ${fromPubKey.slice(0, 8)}: ${shared.size} (${[...shared].map(s => s.slice(0, 8)).join(", ")})`);
+    console.log(
+      `[Sync] shared spaces with ${fromPubKey.slice(0, 8)}: ${shared.size} (${[...shared].map((s) => s.slice(0, 8)).join(", ")})`,
+    );
 
     // For each shared space, send a sync-pull with our version vectors
     for (const spaceId of shared) {
@@ -894,22 +1017,37 @@ export class Replicator {
 
   // --- Per-page sync (fallback) ---
 
-  private handleSyncReq(msg: SyncReqMsg) {
-    const room = this.rooms.get(msg.pageId);
-    if (!room) return;
-    room.callbacks.onSyncRequest?.(msg.versionVector, undefined, msg.requesterId);
+  private async handleSyncReq(msg: SyncReqMsg) {
+    // Respond at the space-peer level from the DB — no need to have the page open
+    const { ops, versionVector } = await this.host.buildPageSyncResponse(
+      msg.pageId,
+      msg.versionVector,
+    );
+
+    if (ops.length > 0 || msg.requesterId) {
+      const res: SyncResMsg = {
+        type: "sync-res",
+        pageId: msg.pageId,
+        ops,
+        versionVector,
+      };
+
+      // Send back to the requester only
+      this.sendToPeer(msg.requesterId, res);
+    }
   }
 
   private async handleSyncRes(msg: SyncResMsg) {
-    const room = this.rooms.get(msg.pageId);
-    if (!room) return;
-
-    // Persist the ops we received
+    // Always persist ops — even if the page isn't open in the editor
     if (msg.ops.length > 0) {
       await this.host.applyRemotePageOps(msg.pageId, msg.ops);
     }
 
-    room.callbacks.onSyncResponse?.(msg.ops, msg.versionVector);
+    // If the page is open in the editor, notify it so the UI updates live
+    const room = this.rooms.get(msg.pageId);
+    if (room) {
+      room.callbacks.onSyncResponse?.(msg.ops, msg.versionVector);
+    }
   }
 
   // --- Asset sync ---
@@ -948,10 +1086,15 @@ export class Replicator {
   // Private: Pairing
   // ---------------------------------------------------------------------------
 
-  private async sendPairHello(peer: NetworkPeer, session: PairingSession): Promise<void> {
+  private async sendPairHello(
+    peer: NetworkPeer,
+    session: PairingSession,
+  ): Promise<void> {
     const cryptoDriver = this.host.getCrypto();
     const secretBytes = enc.encode(session.invite.secret);
-    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", secretBytes));
+    const hash = new Uint8Array(
+      await crypto.subtle.digest("SHA-256", secretBytes),
+    );
     const proof = await cryptoDriver.sign(session.privateKey, hash);
 
     const msg: Message = {
@@ -967,7 +1110,10 @@ export class Replicator {
     peer.send(data);
   }
 
-  private async handlePairingMessage(peer: NetworkPeer, msg: PairHelloMsg | PairAckMsg): Promise<void> {
+  private async handlePairingMessage(
+    peer: NetworkPeer,
+    msg: PairHelloMsg | PairAckMsg,
+  ): Promise<void> {
     const session = this.pairingSession;
     if (!session || session.completed) return;
 
@@ -976,15 +1122,22 @@ export class Replicator {
 
     const cryptoDriver = this.host.getCrypto();
     const secretBytes = enc.encode(session.invite.secret);
-    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", secretBytes));
+    const hash = new Uint8Array(
+      await crypto.subtle.digest("SHA-256", secretBytes),
+    );
     const valid = await cryptoDriver.verify(msg.publicKey, msg.proof, hash);
 
     if (!valid) {
-      session.callbacks.onError?.("Invalid pairing proof — peer doesn't know the invite secret");
+      session.callbacks.onError?.(
+        "Invalid pairing proof — peer doesn't know the invite secret",
+      );
       return;
     }
 
-    session.callbacks.onPeerIdentity?.({ publicKey: msg.publicKey, name: msg.name });
+    session.callbacks.onPeerIdentity?.({
+      publicKey: msg.publicKey,
+      name: msg.name,
+    });
 
     // If we received a hello, send ack back
     if (msg.type === "pair-hello") {
@@ -1113,11 +1266,15 @@ export class Replicator {
  * Compute a deterministic topic for a peer pair.
  * SHA-256(sorted(pubKeyA, pubKeyB)) — only these two peers can derive it.
  */
-async function computePeerTopic(pubKeyA: string, pubKeyB: string): Promise<string> {
-  const sorted = pubKeyA < pubKeyB ? `${pubKeyA}:${pubKeyB}` : `${pubKeyB}:${pubKeyA}`;
+async function computePeerTopic(
+  pubKeyA: string,
+  pubKeyB: string,
+): Promise<string> {
+  const sorted =
+    pubKeyA < pubKeyB ? `${pubKeyA}:${pubKeyB}` : `${pubKeyB}:${pubKeyA}`;
   const hash = await crypto.subtle.digest("SHA-256", enc.encode(sorted));
   return Array.from(new Uint8Array(hash))
-    .map(b => b.toString(16).padStart(2, "0"))
+    .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
 
@@ -1156,10 +1313,19 @@ function hexToBytes(hex: string): Uint8Array {
  * Derive an encryption key for a pairing topic.
  * Both peers know the invite secret and topic — HKDF produces the same key.
  */
-async function derivePairingKey(secretHex: string, topicHex: string): Promise<Uint8Array> {
+async function derivePairingKey(
+  secretHex: string,
+  topicHex: string,
+): Promise<Uint8Array> {
   const secret = hexToBytes(secretHex);
   const info = enc.encode("cypher-pair:" + topicHex);
-  const keyMaterial = await crypto.subtle.importKey("raw", secret.buffer as ArrayBuffer, "HKDF", false, ["deriveBits"]);
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    secret.buffer as ArrayBuffer,
+    "HKDF",
+    false,
+    ["deriveBits"],
+  );
   const bits = await crypto.subtle.deriveBits(
     { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info },
     keyMaterial,
