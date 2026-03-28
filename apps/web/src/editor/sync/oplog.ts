@@ -12,6 +12,7 @@ import type { OpLog, Operation, VersionVector } from "./types";
 import { compareHLC } from "./hlc";
 import { extractPeerId, extractCounter } from "./id";
 import { applyOp, createEmptyPageState, rebuildState } from "./reducer";
+import { resolveBlockOrder } from "./conflicts";
 
 /**
  * Create an empty operation log for a page.
@@ -112,11 +113,8 @@ export function mergeOps(log: OpLog, ops: Operation[]): OpLog {
     return log;
   }
 
-  // Add all new operations
-  const allOps = [...log.operations, ...newOps];
-
-  // Sort by HLC
-  allOps.sort((a, b) => compareHLC(a.clock, b.clock));
+  // Sort new ops by HLC
+  newOps.sort((a, b) => compareHLC(a.clock, b.clock));
 
   // Update version vector
   let newVV = new Map(log.versionVector);
@@ -124,8 +122,33 @@ export function mergeOps(log: OpLog, ops: Operation[]): OpLog {
     newVV = updateVersionVector(newVV, op);
   }
 
-  // Rebuild state from all operations
-  // (This is simpler but less efficient than incremental apply)
+  // Check if all new ops sort after all existing ops (fast path).
+  // If so, we can append + apply incrementally instead of full rebuild.
+  const lastExisting = log.operations.length > 0
+    ? log.operations[log.operations.length - 1]
+    : null;
+  const canApplyIncrementally =
+    !lastExisting || compareHLC(lastExisting.clock, newOps[0].clock) < 0;
+
+  if (canApplyIncrementally) {
+    const allOps = [...log.operations, ...newOps];
+
+    // Apply new ops incrementally to existing state
+    let state = log.state;
+    for (const op of newOps) {
+      state = applyOp(state, op);
+    }
+    // Resolve block ordering for any new block_insert ops
+    if (newOps.some((op) => op.op === "block_insert" || op.op === "block_delete")) {
+      state = { ...state, blocks: resolveBlockOrder(state.blocks) };
+    }
+
+    return { ...log, operations: allOps, versionVector: newVV, state };
+  }
+
+  // Slow path: ops interleave — full rebuild required
+  const allOps = [...log.operations, ...newOps];
+  allOps.sort((a, b) => compareHLC(a.clock, b.clock));
   const newState = rebuildState(log.pageId, allOps);
 
   return {

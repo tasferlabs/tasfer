@@ -786,13 +786,14 @@ export class Replicator {
 
     for (const [pageId, ops] of Object.entries(msg.pageOps)) {
       if (ops.length > 0) {
-        await this.host.applyRemotePageOps(pageId, ops);
-
-        // If the page is open in the editor, notify it
+        // Notify the editor immediately so the UI updates without waiting for DB
         const room = this.rooms.get(pageId);
         if (room) {
           room.callbacks.onOperations?.(ops);
         }
+
+        // Persist to DB in the background
+        this.host.applyRemotePageOps(pageId, ops);
       }
     }
   }
@@ -810,13 +811,14 @@ export class Replicator {
     const conn = this.peers.get(fromPubKey);
     if (!conn || !conn.sharedSpaces.has(msg.spaceId)) return;
 
-    await this.host.applyRemotePageOps(msg.pageId, msg.ops);
-
-    // If the page is open, notify the editor
+    // Notify the editor immediately so the UI updates without waiting for DB
     const room = this.rooms.get(msg.pageId);
     if (room) {
       room.callbacks.onOperations?.(msg.ops);
     }
+
+    // Persist to DB in the background
+    this.host.applyRemotePageOps(msg.pageId, msg.ops);
   }
 
   // --- Room awareness ---
