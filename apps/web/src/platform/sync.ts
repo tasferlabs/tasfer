@@ -228,11 +228,13 @@ export class Replicator {
   async start(): Promise<void> {
     const identity = await this.host.getIdentity();
     this.localPublicKey = identity.publicKey;
+    console.log(`[Sync] start localPeer=${this.localPublicKey.slice(0, 8)}`);
 
     // Set our public key as the signaling ID
     this.network.setLocalId(this.localPublicKey);
 
     const trustedPeers = await this.host.getTrustedPeers();
+    console.log(`[Sync] trusted peers: ${trustedPeers.filter(p => p.trusted).map(p => p.publicKey.slice(0, 8)).join(", ") || "(none)"}`);
     for (const peer of trustedPeers) {
       if (peer.trusted) {
         await this.connectToPeer(peer.publicKey);
@@ -545,6 +547,7 @@ export class Replicator {
     const topicHex = await computePeerTopic(this.localPublicKey, remotePubKey);
 
     if (this.topics.has(topicHex)) return;
+    console.log(`[Sync] joining topic=${topicHex} for peer=${remotePubKey.slice(0, 8)}`);
 
     // Register the E2E encryption key for this topic before joining
     const sharedKeyHex = await this.host.getPeerSharedKey(remotePubKey);
@@ -569,6 +572,7 @@ export class Replicator {
 
     // Already connected
     if (this.peers.has(remotePubKey)) return;
+    console.log(`[Sync] peer joined: ${remotePubKey.slice(0, 8)}`);
 
     const unsub = netPeer.onMessage((data) => {
       const msg = decode(data);
@@ -627,6 +631,7 @@ export class Replicator {
 
   private async sendHello(netPeer: NetworkPeer): Promise<void> {
     const spaceIds = await this.host.getSpaceIds();
+    console.log(`[Sync] sending hello to ${netPeer.remotePublicKey.slice(0, 8)} spaces=${spaceIds.length}`);
     const msg: Message = {
       type: "hello",
       publicKey: this.localPublicKey,
@@ -699,6 +704,7 @@ export class Replicator {
   // --- Handshake ---
 
   private async handleHello(fromPubKey: string, msg: HelloMsg) {
+    console.log(`[Sync] hello from ${fromPubKey.slice(0, 8)} spaces=${msg.spaces.length}`);
     const conn = this.peers.get(fromPubKey);
     if (!conn) return;
 
@@ -718,6 +724,7 @@ export class Replicator {
     }
 
     conn.sharedSpaces = shared;
+    console.log(`[Sync] shared spaces with ${fromPubKey.slice(0, 8)}: ${shared.size} (${[...shared].map(s => s.slice(0, 8)).join(", ")})`);
 
     // For each shared space, send a sync-pull with our version vectors
     for (const spaceId of shared) {

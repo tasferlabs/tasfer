@@ -229,9 +229,10 @@ class WebRtcPeer implements NetworkPeer {
   }
 
   /** Called by the topic when a data channel is established */
-  _setDataChannel(dc: RTCDataChannel) {
+  _setDataChannel(dc: RTCDataChannel, onOpen?: () => void) {
     this.dc = dc;
     dc.binaryType = "arraybuffer";
+    const rShort = this.remotePublicKey.slice(0, 8);
 
     dc.onmessage = (e) => {
       const frame = new Uint8Array(e.data as ArrayBuffer);
@@ -243,10 +244,18 @@ class WebRtcPeer implements NetworkPeer {
 
     dc.onclose = () => this._fireClose();
 
+    dc.onerror = (e) => {
+      console.error(`[WebRTC] datachannel error remote=${rShort}`, e);
+    };
+
     if (dc.readyState === "open") {
       this.resolveDcReady();
+      onOpen?.();
     } else {
-      dc.onopen = () => this.resolveDcReady();
+      dc.onopen = () => {
+        this.resolveDcReady();
+        onOpen?.();
+      };
     }
   }
 
@@ -397,7 +406,10 @@ class WebRtcTopic implements NetworkTopic {
     const url = `${this.signalUrl}/topic/${this.topicHex}?peerId=${this.localPeerId}`;
     this.ws = new WebSocket(url);
 
+    const topicShort = this.topicHex.slice(0, 8);
+
     this.ws.onopen = () => {
+      console.log(`[WS] connected topic=${topicShort} peer=${this.localPeerId.slice(0, 8)}`);
       this.reconnectAttempt = 0;
       this.resolveWsReady();
     };
@@ -406,7 +418,11 @@ class WebRtcTopic implements NetworkTopic {
       this.handleWsMessage(e.data);
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (ev) => {
+      console.log(`[WS] closed topic=${topicShort} code=${ev.code} clean=${ev.wasClean} reason=${ev.reason || "(none)"}`);
+      if (!ev.wasClean) {
+        console.error(`[WS] unexpected close topic=${topicShort} code=${ev.code} reason=${ev.reason || "(none)"}`);
+      }
       // Tear down peer connections but keep listeners so reconnected peers
       // re-trigger handlePeerJoin in the Replicator.
       this._reset();
@@ -417,6 +433,7 @@ class WebRtcTopic implements NetworkTopic {
       const delay = Math.min(1000 * 2 ** this.reconnectAttempt, 30000);
       this.reconnectAttempt++;
       this.ws = null;
+      console.log(`[WS] reconnecting topic=${topicShort} attempt=${this.reconnectAttempt} delay=${delay}ms`);
 
       this.reconnectTimer = setTimeout(() => {
         this.reconnectTimer = null;
@@ -425,6 +442,7 @@ class WebRtcTopic implements NetworkTopic {
     };
 
     this.ws.onerror = () => {
+      console.error(`[WS] connection error topic=${topicShort} url=${url}`);
       // onerror is always followed by onclose, which handles reconnection
     };
 
@@ -434,6 +452,8 @@ class WebRtcTopic implements NetworkTopic {
   private wsSend(msg: unknown) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
+    } else {
+      console.error(`[WS] send dropped — socket not open (state=${this.ws?.readyState ?? "null"}) topic=${this.topicHex.slice(0, 8)}`);
     }
   }
 
@@ -462,23 +482,31 @@ class WebRtcTopic implements NetworkTopic {
       msg = JSON.parse(typeof raw === "string" ? raw : raw.toString());
     } catch { return; }
 
+    const topicShort = this.topicHex.slice(0, 8);
+
     switch (msg.type) {
       case "peers":
+        console.log(`[WS] peers topic=${topicShort} count=${msg.peerIds.length} ids=[${msg.peerIds.map((id: string) => id.slice(0, 8)).join(", ")}]`);
         for (const peerId of msg.peerIds) {
           this._handlePeerJoin(peerId);
         }
         break;
       case "peer-join":
+        console.log(`[WS] peer-join topic=${topicShort} peer=${msg.peerId.slice(0, 8)}`);
         this._handlePeerJoin(msg.peerId);
         break;
       case "peer-left":
+        console.log(`[WS] peer-left topic=${topicShort} peer=${msg.peerId.slice(0, 8)}`);
         this._handlePeerLeft(msg.peerId);
         break;
       case "signal": {
         const decrypted = this.encKey
           ? await decrypt(this.encKey, msg.data)
           : msg.data;
-        if (decrypted === null) return; // Decryption failed
+        if (decrypted === null) {
+          console.error(`[WebRTC] signal decryption failed from=${msg.from?.slice(0, 8)}`);
+          return;
+        }
         const data = typeof decrypted === "string" ? JSON.parse(decrypted) : decrypted;
         this._handleSignal(msg.from, data);
         break;
@@ -487,7 +515,10 @@ class WebRtcTopic implements NetworkTopic {
         const decrypted = this.encKey
           ? await decrypt(this.encKey, msg.data)
           : msg.data;
-        if (decrypted === null) return;
+        if (decrypted === null) {
+          console.error(`[WebRTC] relay decryption failed from=${msg.from?.slice(0, 8)}`);
+          return;
+        }
         const bytes = base64ToUint8(decrypted);
         this._handleRelayMessage(msg.from, bytes);
         break;
@@ -502,12 +533,16 @@ class WebRtcTopic implements NetworkTopic {
   async _handlePeerJoin(remotePeerId: string) {
     if (this.peers.has(remotePeerId)) return;
 
+    const rShort = remotePeerId.slice(0, 8);
+    const topicShort = this.topicHex.slice(0, 8);
+
     const pc = new RTCPeerConnection(RTC_CONFIG);
     const peer = new WebRtcPeer(remotePeerId, pc);
     this.peers.set(remotePeerId, peer);
 
     // Deterministic: higher ID creates the offer (prevents duplicate connections)
     const isInitiator = this.localPeerId > remotePeerId;
+    console.log(`[WebRTC] new peer remote=${rShort} topic=${topicShort} role=${isInitiator ? "initiator" : "responder"}`);
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
@@ -516,7 +551,9 @@ class WebRtcTopic implements NetworkTopic {
     };
 
     pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] connectionState=${pc.connectionState} remote=${rShort}`);
       if (pc.connectionState === "failed") {
+        console.error(`[WebRTC] connection failed remote=${rShort}`);
         this._promoteToRelay(remotePeerId);
       } else if (pc.connectionState === "closed") {
         this._removePeer(remotePeerId);
@@ -525,22 +562,29 @@ class WebRtcTopic implements NetworkTopic {
 
     // Firefox fires iceConnectionState "failed" more reliably than connectionState
     pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC] iceConnectionState=${pc.iceConnectionState} remote=${rShort}`);
       if (pc.iceConnectionState === "failed") {
+        console.error(`[WebRTC] ICE failed remote=${rShort}`);
         this._promoteToRelay(remotePeerId);
+      } else if (pc.iceConnectionState === "disconnected") {
+        console.warn(`[WebRTC] ICE disconnected remote=${rShort}`);
       }
     };
 
     if (isInitiator) {
       const dc = pc.createDataChannel("data", { ordered: true });
-      peer._setDataChannel(dc);
+      peer._setDataChannel(dc, () => {
+        console.log(`[WebRTC] datachannel opened remote=${rShort}`);
+        for (const cb of this.joinListeners) cb(peer);
+      });
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+      console.log(`[WebRTC] sent offer remote=${rShort}`);
       this.sendSignal(remotePeerId, { type: "offer", sdp: offer });
-
-      for (const cb of this.joinListeners) cb(peer);
     } else {
       pc.ondatachannel = (e) => {
+        console.log(`[WebRTC] datachannel opened remote=${rShort}`);
         peer._setDataChannel(e.channel);
         for (const cb of this.joinListeners) cb(peer);
       };
@@ -549,6 +593,9 @@ class WebRtcTopic implements NetworkTopic {
 
   /** Called when we receive signaling data from a remote peer */
   async _handleSignal(from: string, data: any) {
+    const fShort = from.slice(0, 8);
+    console.log(`[WebRTC] signal recv type=${data.type} from=${fShort}`);
+
     let peer = this.peers.get(from);
 
     // Ignore signaling for peers that already fell back to relay
