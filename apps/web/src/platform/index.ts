@@ -55,7 +55,7 @@ export function getClientPlatform(): ClientPlatform {
 
 type AdapterType = "electron" | "capacitor" | "web";
 
-function detectAdapter(): AdapterType {
+export function detectAdapter(): AdapterType {
   if (typeof window === "undefined") return "web";
   if ((window as any).cypher) return "electron";
   if ((window as any).Capacitor?.isNativePlatform?.()) return "capacitor";

@@ -45,6 +45,7 @@ import { PagesArea } from "./components/PagesArea";
 import { useTranslation } from "react-i18next";
 import { useSidebarPanel } from "../contexts/SidebarPanelContext";
 import style from "./Layout.module.css";
+import { detectAdapter } from "@/platform";
 
 export function SidebarContent({
   setOpen,
@@ -374,9 +375,7 @@ export function SidebarContent({
     : "?";
 
   const avatarUrl = useAssetUrl(user?.avatar);
-  const shouldShowTheProfileAtTop =
-    (window as any)?.cypher?.platform !== "electron-mac" || true;
-
+  const shouldShowTheProfileAtTop = detectAdapter() !== "electron";
   return (
     <>
       {/* Portal target for page panels (e.g. calendar event preview) — replaces entire sidebar */}
@@ -547,7 +546,7 @@ export function SidebarContent({
             </DndContext>
           </div>
 
-          {!(shouldShowTheProfileAtTop) && (
+          {!shouldShowTheProfileAtTop && (
             <div className={style.appSidebarFooter}>
               <button
                 className="flex items-center gap-2 min-w-0 px-1.5 py-1 w-full rounded-md hover:bg-accent/50 transition-colors"
