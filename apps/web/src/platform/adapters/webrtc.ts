@@ -614,6 +614,13 @@ class WebRtcTopic implements NetworkTopic {
     if (peer instanceof RelayPeer) return;
 
     if (data.type === "offer") {
+      // Ignore renegotiation offers on an already-connected peer — these are
+      // spurious retries caused by duplicate peer-join events on the initiator side.
+      if (peer instanceof WebRtcPeer && peer.pc.connectionState === "connected") {
+        console.warn(`[WebRTC] ignoring renegotiation offer from ${fShort} (already connected)`);
+        return;
+      }
+
       if (!peer) {
         const pc = new RTCPeerConnection(RTC_CONFIG);
         peer = new WebRtcPeer(from, pc);
@@ -640,8 +647,9 @@ class WebRtcTopic implements NetworkTopic {
         };
 
         pc.ondatachannel = (e) => {
-          (peer as WebRtcPeer)._setDataChannel(e.channel);
-          for (const cb of this.joinListeners) cb(peer!);
+          (peer as WebRtcPeer)._setDataChannel(e.channel, () => {
+            for (const cb of this.joinListeners) cb(peer!);
+          });
         };
       }
 
