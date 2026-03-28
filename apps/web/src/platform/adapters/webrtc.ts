@@ -30,7 +30,18 @@ import type { NetworkDriver, NetworkTopic, NetworkPeer } from "../driver";
 // =============================================================================
 
 const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    {
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp",
+      ],
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+  ],
 };
 
 // =============================================================================
@@ -584,9 +595,10 @@ class WebRtcTopic implements NetworkTopic {
       this.sendSignal(remotePeerId, { type: "offer", sdp: offer });
     } else {
       pc.ondatachannel = (e) => {
-        console.log(`[WebRTC] datachannel opened remote=${rShort}`);
-        peer._setDataChannel(e.channel);
-        for (const cb of this.joinListeners) cb(peer);
+        peer._setDataChannel(e.channel, () => {
+          console.log(`[WebRTC] datachannel opened remote=${rShort}`);
+          for (const cb of this.joinListeners) cb(peer);
+        });
       };
     }
   }
