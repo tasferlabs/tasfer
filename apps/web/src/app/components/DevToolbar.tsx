@@ -635,7 +635,9 @@ export function DevToolbar() {
   const [conn, setConn] = useState<ConnectionState>("disconnected");
   const [connectedPeers, setConnectedPeers] = useState<string[]>([]);
   const [connectedPeerNames, setConnectedPeerNames] = useState<string[]>([]);
-  const [panelHeight, setPanelHeight] = useState(PANEL_DEFAULT_H);
+  const [panelHeight, setPanelHeight] = useState(() =>
+    Math.min(PANEL_DEFAULT_H, Math.floor(window.innerHeight * (PANEL_MAX_H_VH / 100)))
+  );
   const [isResizing, setIsResizing] = useState(false);
 
   // database — tables view
@@ -1075,7 +1077,7 @@ export function DevToolbar() {
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: 24, opacity: 0, scale: 0.98 }}
           transition={{ type: "spring", damping: 30, stiffness: 500 }}
-          style={{ height: panelHeight }}
+          style={{ height: panelHeight, maxHeight: `${PANEL_MAX_H_VH}vh` }}
           className={cn(
             "fixed inset-x-0 bottom-0 z-40 top-auto",
             "bg-popover/95 backdrop-blur-xl",
