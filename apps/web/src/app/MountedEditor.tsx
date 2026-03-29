@@ -513,6 +513,7 @@ export function MountedEditor({
 
     // When a new peer joins our room, re-broadcast our awareness so they see our cursor
     onRoomPeerJoinedRef.current = (_joinedPeerId) => {
+      if (!localUserRef.current.peerId) return;
       const editorState = mounted.editor.getState();
       if (editorState) {
         const { page, cursor, selection } = editorState.document;
@@ -590,7 +591,9 @@ export function MountedEditor({
     });
 
     // Connect editor's awareness broadcast to room
+    // Guard: don't broadcast before P2P identity loads (localUserRef starts as { peerId: "", color: "" })
     mounted.editor.setAwarenessBroadcast((state: AwarenessState) => {
+      if (!localUserRef.current.peerId) return;
       roomBroadcastAwareness(state);
     }, localUserRef.current);
 
@@ -1124,6 +1127,21 @@ export function MountedEditor({
         },
         localUser,
       );
+      // Re-broadcast current cursor state so connected peers overwrite any stale
+      // awareness entry they stored before our identity finished loading (color: "").
+      const editorState = mountedRef.current.editor.getState();
+      if (editorState) {
+        const { page, cursor, selection } = editorState.document;
+        roomBroadcastAwareness({
+          user: localUser,
+          cursor: cursor ? positionToAwarenessCursor(cursor.position, page) : null,
+          selection:
+            selection && !selection.isCollapsed
+              ? selectionToAwarenessSelection(selection, page)
+              : null,
+          lastUpdate: Date.now(),
+        });
+      }
     }
   }, [localUser, roomBroadcastAwareness]);
 
