@@ -23,7 +23,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const isStaging = import.meta.env.VITE_STAGING === "true";
 
-type Tab = "database" | "logs" | "network" | "crdt";
+type Tab = "database" | "logs" | "network" | "crdt" | "peers";
 type DbView = "tables" | "query";
 
 type QueryResult =
@@ -367,6 +367,12 @@ function fmtCell(v: unknown): string {
 }
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
+
+function fmtBytes(b: number): string {
+  if (b < 1024) return `${b}B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)}KB`;
+  return `${(b / (1024 * 1024)).toFixed(1)}MB`;
+}
 
 function fmtTime(ts: number): string {
   const d = new Date(ts);
@@ -1095,81 +1101,58 @@ export function DevToolbar() {
             <div className="w-8 h-0.5 rounded-full bg-border group-hover:bg-muted-foreground transition-colors" />
           </div>
           {/* Top bar */}
-          <div className="flex items-center h-9 px-2 border-b border-border shrink-0 gap-1">
+          <div className="flex items-center h-7 px-1.5 border-b border-border shrink-0 gap-0.5">
             <button
               onClick={() => setOpen(false)}
-              className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+              className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
             >
-              <svg
-                className="w-3.5 h-3.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M19 9l-7 7-7-7"
-                />
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
             </button>
 
-            <div className="w-px h-4 bg-border" />
+            <div className="w-px h-3 bg-border shrink-0 mx-0.5" />
 
-            {(["database", "logs", "network", "crdt"] as Tab[]).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={cn(
-                  "relative px-2.5 py-0.5 rounded-md text-[11px] capitalize transition-colors",
-                  tab === t
-                    ? "text-background font-medium"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted",
-                )}
-              >
-                {tab === t && (
-                  <motion.span
-                    layoutId={isResizing ? undefined : "devtool-tab"}
-                    className="absolute inset-0 bg-foreground rounded-md"
-                    transition={{ type: "spring", damping: 30, stiffness: 500 }}
-                  />
-                )}
-                <span className="relative z-10">{t}</span>
-              </button>
-            ))}
+            <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar min-w-0 flex-1">
+              {(["database", "logs", "network", "crdt", "peers"] as Tab[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={cn(
+                    "relative px-2 py-px rounded text-[10px] capitalize transition-colors whitespace-nowrap shrink-0",
+                    tab === t
+                      ? "text-background font-medium"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                  )}
+                >
+                  {tab === t && (
+                    <motion.span
+                      layoutId={isResizing ? undefined : "devtool-tab"}
+                      className="absolute inset-0 bg-foreground rounded"
+                      transition={{ type: "spring", damping: 30, stiffness: 500 }}
+                    />
+                  )}
+                  <span className="relative z-10">{t}</span>
+                </button>
+              ))}
+            </div>
 
-            <div className="flex-1" />
-
-            <div
+            <button
+              onClick={() => setTab("peers")}
               className={cn(
-                "flex items-center max-w-[320px] h-6 px-2 gap-1.5 rounded-md",
-                "border border-border/70 bg-muted/40",
+                "flex items-center gap-0.5 h-5 px-1 rounded transition-colors shrink-0",
+                "border border-border/70",
+                tab === "peers" ? "bg-muted text-foreground" : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted",
               )}
               title={peersSummary}
             >
-              <svg
-                className="w-3 h-3 text-muted-foreground shrink-0"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M17 20a4 4 0 00-8 0m8 0H7m10 0h3m-3 0a4 4 0 00-8 0m-5 0h3m0 0a4 4 0 018 0m0-8a3 3 0 11-6 0 3 3 0 016 0zm6 1a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zM8 13a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"
-                />
+              <svg className="w-2.5 h-2.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 20a4 4 0 00-8 0m8 0H7m10 0h3m-3 0a4 4 0 00-8 0m-5 0h3m0 0a4 4 0 018 0m0-8a3 3 0 11-6 0 3 3 0 016 0zm6 1a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0zM8 13a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
               </svg>
-              <span className="text-[10px] text-foreground font-medium tabular-nums shrink-0">
-                {connectedPeers.length}
-              </span>
-              <span className="text-[10px] text-muted-foreground truncate">
-                {peersSummary}
-              </span>
-            </div>
+              <span className="text-[10px] font-medium tabular-nums">{connectedPeers.length}</span>
+            </button>
 
-            <div className="flex items-center gap-1.5 px-2">
+            <div className="flex items-center gap-1 px-1.5 shrink-0">
               <div
                 className={cn(
                   "w-1.5 h-1.5 rounded-full",
@@ -1180,7 +1163,6 @@ export function DevToolbar() {
                       : "bg-red-500",
                 )}
               />
-              <span className="text-[10px] text-muted-foreground">{conn}</span>
             </div>
           </div>
 
@@ -2353,6 +2335,168 @@ export function DevToolbar() {
                       {crdtLoading ? "Loading..." : "No operations found"}
                     </div>
                   )}
+                </div>
+              </ScrollArea>
+            </motion.div>
+          )}
+
+          {/* ── Peers tab ── */}
+          {tab === "peers" && (
+            <motion.div
+              key="peers"
+              {...tabMotion}
+              className="flex flex-col flex-1 min-h-0"
+            >
+              <ScrollArea className="flex-1 min-h-0">
+                <div className="p-3 flex flex-col gap-2">
+                  {(() => {
+                    // Build per-peer stats from netLogs
+                    type PeerStats = {
+                      sent: number;
+                      recv: number;
+                      bytesSent: number;
+                      bytesRecv: number;
+                      lastActivity: number;
+                      types: Record<string, { send: number; recv: number }>;
+                    };
+                    const statsMap = new Map<string, PeerStats>();
+                    for (const entry of netLogs) {
+                      let s = statsMap.get(entry.peer);
+                      if (!s) {
+                        s = { sent: 0, recv: 0, bytesSent: 0, bytesRecv: 0, lastActivity: 0, types: {} };
+                        statsMap.set(entry.peer, s);
+                      }
+                      if (entry.direction === "send") { s.sent++; s.bytesSent += entry.size; }
+                      else { s.recv++; s.bytesRecv += entry.size; }
+                      if (entry.timestamp > s.lastActivity) s.lastActivity = entry.timestamp;
+                      if (!s.types[entry.type]) s.types[entry.type] = { send: 0, recv: 0 };
+                      if (entry.direction === "send") s.types[entry.type].send++;
+                      else s.types[entry.type].recv++;
+                    }
+
+                    // Build display list: connected peers first, then seen-only peers
+                    const connectedSet = new Set(connectedPeers.map((k) => k.slice(0, 8)));
+                    const allPeerIds = [...new Set([
+                      ...connectedPeers.map((k) => k.slice(0, 8)),
+                      ...statsMap.keys(),
+                    ])];
+
+                    // Aggregate totals across all peers
+                    let totalSent = 0, totalRecv = 0, totalBytesSent = 0, totalBytesRecv = 0;
+                    const totalTypes: Record<string, { send: number; recv: number }> = {};
+                    for (const s of statsMap.values()) {
+                      totalSent += s.sent;
+                      totalRecv += s.recv;
+                      totalBytesSent += s.bytesSent;
+                      totalBytesRecv += s.bytesRecv;
+                      for (const [type, counts] of Object.entries(s.types)) {
+                        if (!totalTypes[type]) totalTypes[type] = { send: 0, recv: 0 };
+                        totalTypes[type].send += counts.send;
+                        totalTypes[type].recv += counts.recv;
+                      }
+                    }
+                    const topTotalTypes = Object.entries(totalTypes)
+                      .sort((a, b) => (b[1].send + b[1].recv) - (a[1].send + a[1].recv))
+                      .slice(0, 6);
+
+                    if (allPeerIds.length === 0) {
+                      return (
+                        <div className="py-8 text-center text-muted-foreground/50 text-xs">
+                          No peers seen yet
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <>
+                        {/* Summary card */}
+                        <div className="rounded-lg border border-border bg-muted/30 p-2.5 flex flex-col gap-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-semibold text-foreground">All peers</span>
+                            <span className="text-[10px] text-muted-foreground tabular-nums">
+                              {connectedPeers.length} connected · {allPeerIds.length} total
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 text-[10px] font-mono">
+                            <span className="text-sky-400">↑ {totalSent} <span className="text-muted-foreground/50">({fmtBytes(totalBytesSent)})</span></span>
+                            <span className="text-amber-400">↓ {totalRecv} <span className="text-muted-foreground/50">({fmtBytes(totalBytesRecv)})</span></span>
+                          </div>
+                          {topTotalTypes.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {topTotalTypes.map(([type, counts]) => (
+                                <span key={type} className="inline-flex items-center gap-0.5 px-1 py-px rounded text-[9px] bg-muted text-muted-foreground font-mono">
+                                  {type}
+                                  {counts.send > 0 && <span className="text-sky-400/70">↑{counts.send}</span>}
+                                  {counts.recv > 0 && <span className="text-amber-400/70">↓{counts.recv}</span>}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Per-peer cards */}
+                        {allPeerIds.map((shortKey) => {
+                      const idx = connectedPeers.findIndex((k) => k.slice(0, 8) === shortKey);
+                      const name = idx >= 0 ? connectedPeerNames[idx] : shortKey;
+                      const isConnected = connectedSet.has(shortKey);
+                      const stats = statsMap.get(shortKey);
+                      const topTypes = stats
+                        ? Object.entries(stats.types)
+                            .sort((a, b) => (b[1].send + b[1].recv) - (a[1].send + a[1].recv))
+                            .slice(0, 4)
+                        : [];
+
+                      return (
+                        <div
+                          key={shortKey}
+                          className={cn(
+                            "rounded-lg border p-2.5 flex flex-col gap-1.5",
+                            isConnected ? "border-emerald-500/30 bg-emerald-500/5" : "border-border/50 bg-muted/20",
+                          )}
+                        >
+                          {/* Header */}
+                          <div className="flex items-center gap-2">
+                            <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", isConnected ? "bg-emerald-500" : "bg-muted-foreground/30")} />
+                            <span className="text-[11px] font-medium text-foreground truncate flex-1">{name}</span>
+                            <span className="text-[10px] text-muted-foreground/50 font-mono shrink-0">{shortKey}</span>
+                            {stats && (
+                              <span className="text-[10px] text-muted-foreground/40 shrink-0">
+                                {new Date(stats.lastActivity).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Stats row */}
+                          {stats ? (
+                            <>
+                              <div className="flex items-center gap-3 text-[10px] font-mono">
+                                <span className="text-sky-400">↑ {stats.sent} <span className="text-muted-foreground/50">({fmtBytes(stats.bytesSent)})</span></span>
+                                <span className="text-amber-400">↓ {stats.recv} <span className="text-muted-foreground/50">({fmtBytes(stats.bytesRecv)})</span></span>
+                              </div>
+                              {topTypes.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {topTypes.map(([type, counts]) => (
+                                    <span
+                                      key={type}
+                                      className="inline-flex items-center gap-0.5 px-1 py-px rounded text-[9px] bg-muted text-muted-foreground font-mono"
+                                    >
+                                      {type}
+                                      {counts.send > 0 && <span className="text-sky-400/70">↑{counts.send}</span>}
+                                      {counts.recv > 0 && <span className="text-amber-400/70">↓{counts.recv}</span>}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground/40">No messages yet</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                      </>
+                    );
+                  })()}
                 </div>
               </ScrollArea>
             </motion.div>
