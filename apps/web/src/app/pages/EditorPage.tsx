@@ -1,3 +1,4 @@
+import type { SyncState } from "@/app/hooks/useP2PRoom";
 import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,24 +35,23 @@ import {
   formatDurationLabel,
   type TFunction,
 } from "@/lib/utils";
-import type { SyncState } from "@/app/hooks/useP2PRoom";
 import * as Popover from "@radix-ui/react-popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { debounce } from "lodash-es";
 import { Calendar, ChevronDown, ChevronRight, History, Trash } from "lucide-react";
 import { DateTime } from "luxon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { TopActionBarPortal } from "../layout/TopActionBarSlot";
 import { Controller, useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { ActiveUsersAvatars } from "../components/ActiveUsersAvatars";
 import { PageSettings } from "../components/PageSettings";
 import { SavingIndicator } from "../components/SavingIndicator";
+import { TopActionBarPortal } from "../layout/TopActionBarSlot";
 import { MountedEditor } from "../MountedEditor";
 
-import { PagePicker } from "@/components/PagePicker";
 import { useP2PPageEvents } from "@/app/hooks/useP2PPageEvents";
+import { PagePicker } from "@/components/PagePicker";
 import clsx from "clsx";
 import {
   getPage,
@@ -940,9 +940,9 @@ function PageActionBar({ pageId }: { pageId: string }) {
   );
 }
 
-function EditorLoadingState() {
+export function EditorLoadingState({padding = true}: {padding?: boolean}) {
   return (
-    <div className="w-full h-full p-6 md:p-10">
+    <div className={clsx("w-full h-full", padding && "p-6 md:p-10")}>
       <Skeleton className="h-12 w-3/4 mb-8" />
       <Skeleton className="h-6 w-full mb-4" />
       <Skeleton className="h-6 w-full mb-4" />

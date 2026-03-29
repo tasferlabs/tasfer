@@ -1,4 +1,19 @@
+import { useP2PRoom, type SyncState } from "@/app/hooks/useP2PRoom";
 import { Button } from "@/components/ui/button";
+import { hasNativeBridge } from "@/editor/actions/clipboard";
+import {
+  positionToAwarenessCursor,
+  selectionToAwarenessSelection,
+  type AwarenessState,
+  type AwarenessUser,
+} from "@/editor/sync/awareness";
+import {
+  SyncEngine,
+  advanceGlobalClock,
+  serializeVV,
+} from "@/editor/sync/sync";
+import type { Operation } from "@/editor/sync/types";
+import { getPlatform } from "@/platform";
 import {
   Bold,
   Clipboard,
@@ -11,10 +26,11 @@ import {
   Strikethrough,
   Type,
 } from "lucide-react";
-import { useEffect, useRef, useState, useCallback } from "react";
-import { useTranslation } from "react-i18next";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import type { Block } from "../deserializer/loadPage";
+import { isTextualBlock } from "../deserializer/loadPage";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { FindBar } from "../editor/FindBar";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
@@ -26,8 +42,6 @@ import {
   getFormatsAtPosition,
   getSelectionRange,
 } from "../editor/actions/commands";
-import { allCharsHaveFormat } from "../editor/sync/crdt-helpers";
-import { isTextualBlock } from "../deserializer/loadPage";
 import {
   mountEditor,
   type MountedEditor as MountedEditorInstance,
@@ -39,6 +53,7 @@ import {
   getBlockTextLength,
   isTouchDevice,
 } from "../editor/state";
+import { allCharsHaveFormat } from "../editor/sync/crdt-helpers";
 import type {
   EditorState,
   PlaceholderStyles,
@@ -47,22 +62,8 @@ import type {
 } from "../editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
-import { useP2PRoom, type SyncState } from "@/app/hooks/useP2PRoom";
-import {
-  SyncEngine,
-  serializeVV,
-  advanceGlobalClock,
-} from "@/editor/sync/sync";
-import {
-  positionToAwarenessCursor,
-  selectionToAwarenessSelection,
-  type AwarenessState,
-  type AwarenessUser,
-} from "@/editor/sync/awareness";
-import type { Operation } from "@/editor/sync/types";
-import { hasNativeBridge } from "@/editor/actions/clipboard";
-import { getPlatform } from "@/platform";
 import { usePageSettings } from "./contexts/PageSettingsContext";
+import { EditorLoadingState } from "./pages/EditorPage";
 
 // --- Cursor position persistence ---
 const CURSOR_STORAGE_KEY = "cypher:cursor-positions";
@@ -253,6 +254,8 @@ export function MountedEditor({
   );
   // Track when applying remote operations to prevent triggering saves for non-local changes
   const isApplyingRemoteOpsRef = useRef(false);
+  // Spinner overlay: hidden once we've confirmed local storage state (ops loaded or snapshot has content)
+  const [isContentReady, setIsContentReady] = useState(false);
   // Track current toolbar icon type
   const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">(
     "format",
@@ -371,6 +374,8 @@ export function MountedEditor({
     lastSerializedBlocksRef.current = null;
     editorInitializedRef.current = false;
 
+    setIsContentReady(false);
+
     // Use live editor content if available (HMR re-mount for same page), otherwise use snapshot prop
     const initialBlocks =
       liveBlocksRef.current?.pageId === pageId
@@ -386,6 +391,18 @@ export function MountedEditor({
       placeholderOverrides,
     });
     mountedRef.current = mounted;
+
+    // True if snapshot has any block with actual text (not just the auto-generated empty init block).
+    // Used to decide whether to show the spinner overlay until local ops are confirmed loaded.
+    const snapshotHasContent = initialBlocks.some((b) => {
+      if (isTextualBlock(b)) return b.charRuns.some((r) => r.text.length > 0);
+      return true; // image and line blocks are always real content
+    });
+
+    if (snapshotHasContent) {
+      // Content is already in the snapshot — reveal after the canvas renders its first frame.
+      requestAnimationFrame(() => setIsContentReady(true));
+    }
 
     // Wire up scroll callback
     mounted.editor.onScroll((scrollY) => {
@@ -439,6 +456,11 @@ export function MountedEditor({
         }
       });
 
+      // Readonly mode never receives sync updates, so reveal immediately if not already done.
+      if (!snapshotHasContent) {
+        setIsContentReady(true);
+      }
+
       return () => {
         unsubscribe();
         mounted.destroy();
@@ -467,6 +489,10 @@ export function MountedEditor({
           advanceGlobalClock(lastOp.clock);
         }
       }
+      // Local storage confirmed — we have whatever we have. Reveal the canvas.
+      if (!snapshotHasContent) {
+        requestAnimationFrame(() => setIsContentReady(true));
+      }
     });
 
     // Expose restore function to parent
@@ -479,6 +505,16 @@ export function MountedEditor({
     // Initialize sync engine for CRDT (use same peerId as WebSocket)
     const syncEngine = new SyncEngine(pageId, peerIdRef.current);
     syncEngineRef.current = syncEngine;
+
+    // Debounced snapshot writer — keeps the FS snapshot in sync after edits.
+    // 2s delay avoids writing on every keystroke.
+    let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
+    const saveSnapshot = (blocks: Block[]) => {
+      if (snapshotTimer) clearTimeout(snapshotTimer);
+      snapshotTimer = setTimeout(() => {
+        platform.snapshots.save(pageId, blocks);
+      }, 2000);
+    };
 
     // Apply remote ops to the in-memory sync engine and update the editor.
     // Persistence is handled by the Replicator before ops reach these callbacks.
@@ -494,6 +530,7 @@ export function MountedEditor({
         advanceGlobalClock(op.clock);
       }
       mounted.editor.updatePageFromSync(syncEngine.getState());
+      saveSnapshot(syncEngine.getState().blocks);
       isApplyingRemoteOpsRef.current = false;
     };
 
@@ -588,6 +625,8 @@ export function MountedEditor({
       roomBroadcast(ops);
       // Persist to SQLite
       platform.ops.persist(pageId, ops);
+      // Keep FS snapshot in sync so next page-open skips the op-log rebuild
+      saveSnapshot(syncEngine.getState().blocks);
     });
 
     // Connect editor's awareness broadcast to room
@@ -1089,6 +1128,9 @@ export function MountedEditor({
       onRoomAwarenessStatesRef.current = null;
       onRoomJoinedRef.current = null;
 
+      // Cancel pending snapshot write
+      if (snapshotTimer) clearTimeout(snapshotTimer);
+
       // Clean up sync engine
       if (syncEngineRef.current) {
         syncEngineRef.current = null;
@@ -1134,7 +1176,9 @@ export function MountedEditor({
         const { page, cursor, selection } = editorState.document;
         roomBroadcastAwareness({
           user: localUser,
-          cursor: cursor ? positionToAwarenessCursor(cursor.position, page) : null,
+          cursor: cursor
+            ? positionToAwarenessCursor(cursor.position, page)
+            : null,
           selection:
             selection && !selection.isCollapsed
               ? selectionToAwarenessSelection(selection, page)
@@ -1605,6 +1649,8 @@ export function MountedEditor({
       aria-label="Text editor"
       aria-multiline="true"
     >
+      {/* Spinner overlay — visible until local storage state is confirmed */}
+      {!isContentReady && <EditorLoadingState />}
       {/* Slash command menu portal */}
       {slashMenuState &&
         mountedRef.current?.portalContainer &&

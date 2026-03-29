@@ -962,8 +962,26 @@ export class Engine implements Platform {
 
       const r = rows[0];
 
-      // Rebuild page content from ops (ops are the single source of truth).
-      let blocks = await this.rebuildBlocksFromOps(id);
+      // Fast path: use filesystem snapshot if op count matches.
+      // Rebuilding from all ops is expensive on mobile — the snapshot lets us
+      // skip it when nothing has changed since the last save.
+      const [{ cnt: opCount }] = await this.driver.db.execute<{ cnt: number }>(
+        "SELECT COUNT(*) as cnt FROM ops WHERE scope_id = ?",
+        [id],
+      );
+      const cached = await this.loadSnapshot(id);
+      let blocks: import("@/deserializer/loadPage").Block[] | null = null;
+      if (cached && cached.opCount === opCount && cached.blocks.length > 0) {
+        blocks = cached.blocks;
+      } else {
+        // Slow path: replay full op log and persist a fresh snapshot.
+        blocks = await this.rebuildBlocksFromOps(id);
+        if (blocks && blocks.length > 0) {
+          // Fire-and-forget — don't block the page open on the write.
+          this.snapshots.save(id, blocks).catch(() => {});
+        }
+      }
+
       if (!blocks || blocks.length === 0) {
         // Truly empty page — create default block and persist its
         // block_insert op so the block survives rebuild-from-ops.
@@ -1553,26 +1571,43 @@ export class Engine implements Platform {
   // Ops (CRDT operation persistence)
   // ---------------------------------------------------------------------------
 
+  /** Batch-insert ops using multi-row INSERT to minimise IPC round-trips on iOS. */
+  private async insertOpsBatch(
+    pageId: string,
+    operations: import("@/editor/sync/types").Operation[],
+    now: number,
+  ): Promise<void> {
+    if (operations.length === 0) return;
+    // SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999; each row uses 6 params.
+    // Chunk at 100 rows (600 params) to stay well within every platform's limit.
+    const CHUNK = 100;
+    for (let i = 0; i < operations.length; i += CHUNK) {
+      const chunk = operations.slice(i, i + CHUNK);
+      const placeholders = chunk.map(() => "(?, ?, ?, ?, ?, ?)").join(", ");
+      const params: unknown[] = [];
+      for (const op of chunk) {
+        params.push(
+          pageId,
+          op.clock.peerId,
+          op.clock.counter,
+          op.op,
+          new TextEncoder().encode(JSON.stringify(op)),
+          now,
+        );
+      }
+      await this.driver.db.run(
+        `INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES ${placeholders}`,
+        params,
+      );
+    }
+  }
+
   ops = {
     persist: async (
       pageId: string,
       operations: import("@/editor/sync/types").Operation[],
     ): Promise<void> => {
-      const now = Date.now();
-      for (const op of operations) {
-        const data = new TextEncoder().encode(JSON.stringify(op));
-        await this.driver.db.run(
-          "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-          [
-            pageId,
-            op.clock.peerId,
-            op.clock.counter,
-            op.op,
-            data,
-            now,
-          ],
-        );
-      }
+      await this.insertOpsBatch(pageId, operations, Date.now());
     },
 
     /** Convert blocks to CRDT ops and persist them (used by import) */
@@ -1626,6 +1661,50 @@ export class Engine implements Platform {
   };
 
   // ---------------------------------------------------------------------------
+  // Filesystem snapshots — fast page-open path for large op logs
+  // ---------------------------------------------------------------------------
+
+  private snapshotPath(pageId: string): string {
+    return `${this.driver.basePath}/snapshots/${pageId}.json`;
+  }
+
+  snapshots = {
+    save: async (
+      pageId: string,
+      blocks: import("@/deserializer/loadPage").Block[],
+    ): Promise<void> => {
+      try {
+        const [{ cnt }] = await this.driver.db.execute<{ cnt: number }>(
+          "SELECT COUNT(*) as cnt FROM ops WHERE scope_id = ?",
+          [pageId],
+        );
+        // Strip ephemeral render cache before persisting — cachedHeight/cachedWidth
+        // are per-canvas-width hints that are invalid across sessions and screen sizes.
+        const cleanBlocks = blocks.map(({ cachedHeight: _h, cachedWidth: _w, ...b }) => b);
+        const data = new TextEncoder().encode(
+          JSON.stringify({ opCount: cnt, blocks: cleanBlocks }),
+        );
+        await this.driver.fs.write(this.snapshotPath(pageId), data);
+      } catch (err) {
+        console.warn("[Engine] Failed to save snapshot:", err);
+      }
+    },
+  };
+
+  private async loadSnapshot(pageId: string): Promise<{
+    opCount: number;
+    blocks: import("@/deserializer/loadPage").Block[];
+  } | null> {
+    try {
+      const data = await this.driver.fs.read(this.snapshotPath(pageId));
+      if (!data) return null;
+      return JSON.parse(new TextDecoder().decode(data));
+    } catch {
+      return null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Space CRDT: Remote ops handling (called by sync layer)
   // ---------------------------------------------------------------------------
 
@@ -1669,21 +1748,7 @@ export class Engine implements Platform {
     pageId: string,
     ops: import("@/editor/sync/types").Operation[],
   ): Promise<void> {
-    const now = Date.now();
-    for (const op of ops) {
-      const data = new TextEncoder().encode(JSON.stringify(op));
-      await this.driver.db.run(
-        "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-        [
-          pageId,
-          op.clock.peerId,
-          op.clock.counter,
-          op.op,
-          data,
-          now,
-        ],
-      );
-    }
+    await this.insertOpsBatch(pageId, ops, Date.now());
   }
 
   /** Build a sync response for a requesting peer */

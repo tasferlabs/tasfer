@@ -497,4 +497,13 @@ export interface Platform {
     writeBlocks(pageId: string, blocks: Block[]): Promise<void>;
   };
 
+  snapshots: {
+    /**
+     * Save a snapshot of the current block state to the filesystem.
+     * Called after local edits and after applying remote ops, so that
+     * subsequent page opens can skip the full op-log rebuild.
+     */
+    save(pageId: string, blocks: Block[]): Promise<void>;
+  };
+
 }

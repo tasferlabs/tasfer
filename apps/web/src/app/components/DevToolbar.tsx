@@ -694,6 +694,7 @@ export function DevToolbar() {
   const [crdtCopied, setCrdtCopied] = useState(false);
   const [logsCopied, setLogsCopied] = useState(false);
   const [netCopied, setNetCopied] = useState(false);
+  const [queryCopied, setQueryCopied] = useState(false);
 
   // Set CSS variable so layout can shrink to make room
   useEffect(() => {
@@ -862,6 +863,25 @@ export function DevToolbar() {
     a.click();
     URL.revokeObjectURL(url);
   }, [getFilteredCrdtOps]);
+
+  const copyQueryResult = useCallback(async () => {
+    if (!queryResult || !queryResult.ok) return;
+    await navigator.clipboard.writeText(JSON.stringify(queryResult.rows, null, 2));
+    setQueryCopied(true);
+    setTimeout(() => setQueryCopied(false), 1500);
+  }, [queryResult]);
+
+  const exportQueryResult = useCallback(() => {
+    if (!queryResult || !queryResult.ok) return;
+    const json = JSON.stringify(queryResult.rows, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `query-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [queryResult]);
 
   const runQuery = useCallback(async () => {
     const trimmed = sql.trim();
@@ -1368,11 +1388,25 @@ export function DevToolbar() {
                     </span>
                     <div className="flex-1" />
                     {queryResult && queryResult.ok && (
-                      <span className="text-[10px] text-muted-foreground tabular-nums">
-                        {queryResult.rows.length} row
-                        {queryResult.rows.length !== 1 ? "s" : ""} in{" "}
-                        {queryResult.time.toFixed(1)}ms
-                      </span>
+                      <>
+                        <span className="text-[10px] text-muted-foreground tabular-nums">
+                          {queryResult.rows.length} row
+                          {queryResult.rows.length !== 1 ? "s" : ""} in{" "}
+                          {queryResult.time.toFixed(1)}ms
+                        </span>
+                        <button
+                          onClick={copyQueryResult}
+                          className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                        >
+                          {queryCopied ? "Copied!" : "Copy"}
+                        </button>
+                        <button
+                          onClick={exportQueryResult}
+                          className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                        >
+                          Export
+                        </button>
+                      </>
                     )}
                     {sqlHistory.length > 0 && (
                       <button
