@@ -119,9 +119,6 @@ async function _initPlatformInner(): Promise<Platform> {
     }
   }
 
-  // Store the signal URL for pairing invites
-  engine.setSignalUrl(signalUrl);
-
   // Start the replicator — connects to all trusted peers for background sync
   await replicator.start();
 

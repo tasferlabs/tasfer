@@ -35,8 +35,20 @@ interface InviteMembersDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2)
+    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+  return bytes;
+}
+
+/** Pack topic (32B) + secret (32B) + spaceId (16B) = 80 bytes → base64 (108 chars) */
 function encodeInvite(invite: SpaceInvite): string {
-  return btoa(JSON.stringify(invite));
+  const bytes = new Uint8Array(80);
+  bytes.set(hexToBytes(invite.topic), 0);
+  bytes.set(hexToBytes(invite.secret), 32);
+  bytes.set(hexToBytes(invite.spaceId.replace(/-/g, "")), 64);
+  return btoa(String.fromCharCode(...bytes));
 }
 
 /** Joined peer shown in the list */

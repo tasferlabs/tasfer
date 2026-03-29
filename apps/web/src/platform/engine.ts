@@ -40,6 +40,7 @@ interface EngineReplicator {
   startPairing(opts: {
     invite: SpaceInvite;
     role: "initiator" | "acceptor";
+    spaceName?: string;
     localPublicKey: string;
     localName: string;
     privateKey: string;
@@ -134,7 +135,6 @@ export class Engine implements Platform {
   private spaceLwwWinners = new Map<string, { counter: number; peerId: string }>();
   private spaceChangeListeners = new Set<(spaceId: string) => void>();
   private pageDeleteListeners = new Set<(pageId: string) => void>();
-  private signalUrl = "";
 
   constructor(driver: Driver) {
     this.driver = driver;
@@ -757,10 +757,7 @@ export class Engine implements Platform {
       crypto.getRandomValues(secretBytes);
       const secret = bytesToHex(secretBytes);
 
-      const space = await this.spaces.get(spaceId);
-      const signalUrl = this.signalUrl;
-
-      return { topic, secret, signalUrl, spaceId, spaceName: space.name };
+      return { topic, secret, spaceId };
     },
 
     waitForPeer: async (
@@ -770,10 +767,12 @@ export class Engine implements Platform {
       if (!this.replicator) throw new Error("Replicator not initialized");
       const identity = await this.identity.get();
       const privateKey = await this.getPrivateKey();
+      const space = await this.spaces.get(invite.spaceId);
 
       await this.replicator.startPairing({
         invite,
         role: "initiator",
+        spaceName: space.name,
         localPublicKey: identity.publicKey,
         localName: identity.name,
         privateKey,
@@ -830,7 +829,7 @@ export class Engine implements Platform {
         callbacks: {
           onConnected: callbacks?.onConnected,
           onPeerIdentity: callbacks?.onPeerIdentity,
-          onComplete: async (peer) => {
+          onComplete: async (peer, spaceName) => {
             // Derive shared signaling key from pairing secret + both public keys
             const sharedKey = await deriveSharedSignalingKey(
               invite.secret, identity.publicKey, peer.publicKey,
@@ -841,7 +840,7 @@ export class Engine implements Platform {
             const now = new Date().toISOString();
             await this.driver.db.run(
               "INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)",
-              [invite.spaceId, invite.spaceName, now],
+              [invite.spaceId, spaceName ?? invite.spaceId, now],
             );
             // Add self as member
             await this.driver.db.run(
@@ -860,7 +859,7 @@ export class Engine implements Platform {
 
             // Replicator.addPeer is called automatically after pairing completes
             this.notifySpaceChange(invite.spaceId);
-            callbacks?.onComplete?.(peer);
+            callbacks?.onComplete?.(peer, spaceName);
           },
           onError: callbacks?.onError,
         },
@@ -1549,10 +1548,6 @@ export class Engine implements Platform {
     this.sync = sync;
   }
 
-  /** Set the signal URL (called once at init) */
-  setSignalUrl(url: string): void {
-    this.signalUrl = url;
-  }
 
   // ---------------------------------------------------------------------------
   // Ops (CRDT operation persistence)

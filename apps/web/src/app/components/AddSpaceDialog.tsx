@@ -48,12 +48,22 @@ interface AddSpaceDialogProps {
 
 type View = "pick" | "create" | "join";
 
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Unpack 80 bytes: topic (32B) + secret (32B) + spaceId (16B) */
 function decodeInvite(code: string): SpaceInvite | null {
   try {
-    const json = atob(code.trim());
-    const obj = JSON.parse(json);
-    if (obj.topic && obj.secret && obj.spaceId) return obj as SpaceInvite;
-    return null;
+    const str = atob(code.trim());
+    if (str.length !== 80) return null;
+    const bytes = new Uint8Array(80);
+    for (let i = 0; i < 80; i++) bytes[i] = str.charCodeAt(i);
+    const topic = bytesToHex(bytes.subarray(0, 32));
+    const secret = bytesToHex(bytes.subarray(32, 64));
+    const h = bytesToHex(bytes.subarray(64, 80));
+    const spaceId = `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+    return { topic, secret, spaceId };
   } catch {
     return null;
   }
@@ -127,14 +137,14 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
     const invite = decodeInvite(data.code);
     if (!invite) return;
 
-    setSpaceName(invite.spaceName);
     setJoinStatus("connecting");
 
     acceptInvite({
       invite,
       callbacks: {
         onConnected: () => {},
-        onComplete: () => {
+        onComplete: (_peer, name) => {
+          if (name) setSpaceName(name);
           setJoinStatus("done");
           queryClient.invalidateQueries({ queryKey: ["spaces"] });
           queryClient.invalidateQueries({ queryKey: ["pages"] });
@@ -283,13 +293,13 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
       setErrorMsg(t("space.invalidInviteCode", "Invalid invite code"));
       return;
     }
-    setSpaceName(invite.spaceName);
     setJoinStatus("connecting");
     acceptInvite({
       invite,
       callbacks: {
         onConnected: () => {},
-        onComplete: () => {
+        onComplete: (_peer, name) => {
+          if (name) setSpaceName(name);
           setJoinStatus("done");
           queryClient.invalidateQueries({ queryKey: ["spaces"] });
           queryClient.invalidateQueries({ queryKey: ["pages"] });
@@ -388,7 +398,7 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
       </div>
       <div className="text-center">
         <p className="text-sm font-medium">
-          {t("space.connectingToSpace", 'Connecting to "{{name}}"...', { name: spaceName })}
+          {t("space.connecting", "Connecting...")}
         </p>
         <p className="text-xs text-muted-foreground mt-1">
           {t("space.waitingForPeer", "Waiting for peer to connect...")}

@@ -258,19 +258,15 @@ export interface SpaceInvite {
   topic: string;
   /** Shared secret for mutual authentication (random hex) */
   secret: string;
-  /** Signal relay server URL */
-  signalUrl: string;
   /** Space to join after pairing */
   spaceId: string;
-  /** Space name (for display before joining) */
-  spaceName: string;
 }
 
 /** Pairing lifecycle callbacks */
 export interface PairCallbacks {
   onConnected?: () => void;
   onPeerIdentity?: (peer: { publicKey: string; name: string }) => void;
-  onComplete?: (peer: Peer) => void | Promise<void>;
+  onComplete?: (peer: Peer, spaceName?: string) => void | Promise<void>;
   onError?: (error: string) => void;
   /** Multi-peer mode: allow multiple peers to join before explicitly stopping */
   multi?: boolean;

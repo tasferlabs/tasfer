@@ -247,6 +247,8 @@ interface PairingSession {
   topic: NetworkTopic;
   invite: SpaceInvite;
   role: "initiator" | "acceptor";
+  /** Space name — initiator provides from DB, acceptor receives via pair-hello */
+  spaceName: string;
   localPublicKey: string;
   localName: string;
   privateKey: string;
@@ -596,6 +598,7 @@ export class Replicator {
   async startPairing(opts: {
     invite: SpaceInvite;
     role: "initiator" | "acceptor";
+    spaceName?: string;
     localPublicKey: string;
     localName: string;
     privateKey: string;
@@ -616,6 +619,7 @@ export class Replicator {
       topic,
       invite: opts.invite,
       role: opts.role,
+      spaceName: opts.spaceName ?? "",
       localPublicKey: opts.localPublicKey,
       localName: opts.localName,
       privateKey: opts.privateKey,
@@ -1103,7 +1107,7 @@ export class Replicator {
       name: session.localName,
       proof,
       spaceId: session.invite.spaceId,
-      spaceName: session.invite.spaceName,
+      spaceName: session.spaceName,
     };
     const data = encode(msg);
     logNet("send", peer.remotePublicKey, msg, data.byteLength);
@@ -1155,13 +1159,18 @@ export class Replicator {
 
     session.completedPeers.add(msg.publicKey);
 
+    // Update session spaceName from pair-hello (acceptor receives it from initiator)
+    if (msg.type === "pair-hello" && msg.spaceName) {
+      session.spaceName = msg.spaceName;
+    }
+
     // Fire completion callback (engine will trust peer, add members, etc.)
     await session.callbacks.onComplete?.({
       publicKey: msg.publicKey,
       name: msg.name,
       trusted: true,
       lastSeen: new Date().toISOString(),
-    });
+    }, session.spaceName || undefined);
 
     // Establish replication connection to the new peer
     await this.addPeer(msg.publicKey);
