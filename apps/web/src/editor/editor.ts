@@ -1916,12 +1916,15 @@ export default function createEditor(
   }
 
   function updatePageFromSync(page: Page) {
-    const visibleBlocks = state.view.visibleBlocks;
     // Update the page from CRDT sync while preserving cursor/selection
     // This is called when remote operations are applied
 
     // Clear all block caches since page structure may have changed
     clearAllBlockCaches(page.blocks);
+
+    // Compute visible blocks from the NEW page, not the stale view state
+    const visibleBlocks = getVisibleBlocks(page);
+    state.view.visibleBlocks = visibleBlocks;
 
     // Validate and adjust cursor position if needed
     let cursor = state.document.cursor;
@@ -1947,7 +1950,17 @@ export default function createEditor(
       } else {
         // Validate textIndex for the block
         const block = page.blocks[blockIndex];
-        if (block && !block.deleted) {
+        if (!block || block.deleted) {
+          // Cursor's block was deleted, move to end of last visible block
+          const lastBlockText = getBlockTextContent(lastVisibleBlock);
+          cursor = {
+            ...cursor,
+            position: {
+              blockIndex: maxBlockIndex,
+              textIndex: lastBlockText.length,
+            },
+          };
+        } else {
           const blockText = getBlockTextContent(block);
           if (textIndex > blockText.length) {
             cursor = {
@@ -2140,9 +2153,12 @@ export default function createEditor(
     // Clear all block caches since page structure may have changed
     clearAllBlockCaches(newPage.blocks);
 
+    // Compute visible blocks from the NEW page, not the stale view state
+    const visibleBlocksForOps = getVisibleBlocks(newPage);
+    state.view.visibleBlocks = visibleBlocksForOps;
+
     // Validate and adjust cursor position if needed
     let cursor = state.document.cursor;
-    const visibleBlocksForOps = state.view.visibleBlocks;
     if (cursor && visibleBlocksForOps.length > 0) {
       const { blockIndex: blockIndex, textIndex } = cursor.position;
       // Find the last visible block's index in the full array
@@ -2166,7 +2182,17 @@ export default function createEditor(
       } else {
         // Validate textIndex for the block
         const block = newPage.blocks[blockIndex];
-        if (block && !block.deleted) {
+        if (!block || block.deleted) {
+          // Cursor's block was deleted, move to end of last visible block
+          const lastBlockText = getBlockTextContent(lastVisibleBlockForOps);
+          cursor = {
+            ...cursor,
+            position: {
+              blockIndex: maxBlockIndex,
+              textIndex: lastBlockText.length,
+            },
+          };
+        } else {
           const blockText = getBlockTextContent(block);
           if (textIndex > blockText.length) {
             cursor = {
