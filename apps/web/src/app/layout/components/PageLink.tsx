@@ -81,6 +81,7 @@ export function PageLink({
   const { t } = useTranslation();
   const isCoarse = useResponsive("(pointer: coarse)");
   const queryClient = useQueryClient();
+
   const { getConfirmation } = useConfirmation();
   const navigate = useNavigate();
   const { id: currentPageId } = useParams<{ id: string }>();
@@ -237,6 +238,7 @@ export function PageLink({
   // Use draggable for maximum flexibility
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: data.id,
+    disabled: menuOpen || !!contextPos,
     data: {
       type: "pageLink",
       ...data,
@@ -722,6 +724,7 @@ function PageLinkMenu({
       aria-label={t("page.options", "Page options")}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
     >
       <Ellipsis size={18} />
     </button>
