@@ -36,7 +36,7 @@ export default defineConfig({
     __CLIENT_VERSION__: versionConfig.version,
   },
   base: "./",
-  build: {},
+  build: { sourcemap: true },
   resolve: {
     alias: {
       "@": "/src",
