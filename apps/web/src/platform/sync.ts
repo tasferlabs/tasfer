@@ -111,84 +111,102 @@ export interface ReplicatorHost {
   ): Promise<{ ops: Operation[]; versionVector: Record<string, number> }>;
   /** Get the shared encryption key for a peer (hex string). Returns null if not set. */
   getPeerSharedKey(publicKey: string): Promise<string | null>;
+  /** Get all space ops for a space (used to notify archived peers of their removal) */
+  getAllSpaceOps(spaceId: string): Promise<SpaceOperation[]>;
+  /** Get space IDs where a peer has been archived (removed but was once a member) */
+  getArchivedSpaceIds(publicKey: string): Promise<string[]>;
 }
 
 // =============================================================================
 // Message Types
 // =============================================================================
 
+/** Initial handshake sent when a DataChannel opens. Identifies the sender by public key so both peers can look each other up in their trusted-peer list. */
 interface HelloMsg {
   type: "hello";
   publicKey: string;
 }
+/** Pull request: "here is what I already have — send me what I'm missing." Carries the sender's version vector for a space and all its pages so the recipient can compute the diff. */
 interface SyncPullMsg {
   type: "sync-pull";
   spaceId: string;
   spaceVV: Record<string, number>;
   pageVVs: Record<string, Record<string, number>>;
 }
+/** Response to a sync-pull. Contains every space-level op and every page-level op the requesting peer had not yet seen, as determined by comparing version vectors. */
 interface SyncDataMsg {
   type: "sync-data";
   spaceId: string;
   spaceOps: SpaceOperation[];
   pageOps: Record<string, Operation[]>;
 }
+/** Real-time push of one or more space-level CRDT ops (e.g. page_add, member_add) generated after catch-up is complete. */
 interface SpaceOpsMsg {
   type: "space-ops";
   spaceId: string;
   ops: SpaceOperation[];
 }
+/** Real-time push of one or more page-level CRDT ops (text_insert, format_set, etc.) generated after catch-up is complete. */
 interface PageOpsMsg {
   type: "page-ops";
   spaceId: string;
   pageId: string;
   ops: Operation[];
 }
+/** Sent when a peer opens a page. Announces presence to every other peer already in the room so they can show the peer's cursor and avatar. */
 interface RoomJoinMsg {
   type: "room-join";
   pageId: string;
   peerId: string;
   user?: RoomUser;
 }
+/** Sent when a peer closes a page or disconnects. Tells the room to remove that peer's cursor and presence indicator. */
 interface RoomLeaveMsg {
   type: "room-leave";
   pageId: string;
   peerId: string;
 }
+/** Sent by a peer already in the room to a newcomer. Delivers the full list of currently present peers and their last-known awareness states so the newcomer can render everyone's cursors immediately. */
 interface RoomPeersMsg {
   type: "room-peers";
   pageId: string;
   peers: { peerId: string; user?: RoomUser }[];
   awarenessStates?: Record<string, AwarenessState>;
 }
+/** Carries a single peer's ephemeral awareness state (cursor position, selection, scroll) to all other peers in the same room. Sent on every local cursor/selection change. */
 interface AwarenessMsg {
   type: "awareness";
   pageId: string;
   peerId: string;
   state: AwarenessState;
 }
+/** Fallback per-page sync request for editors that open after the initial catch-up handshake. Includes the requester's current version vector so the responder can send only the missing ops. */
 interface SyncReqMsg {
   type: "sync-req";
   pageId: string;
   versionVector: Record<string, number>;
   requesterId: string;
 }
+/** Response to a sync-req. Returns the ops the requester was missing plus the responder's current version vector for the page. */
 interface SyncResMsg {
   type: "sync-res";
   pageId: string;
   ops: Operation[];
   versionVector: Record<string, number>;
 }
+/** Lazy asset request: "I need this content-addressed asset — can you send it?" Triggered when an image block is rendered but the local asset store has no data for that hash. */
 interface AssetReqMsg {
   type: "asset-req";
   hash: string;
 }
+/** Response to an asset-req. Delivers the raw asset bytes (base64-encoded) and file extension so the receiver can store and display the asset. */
 interface AssetDataMsg {
   type: "asset-data";
   hash: string;
   ext: string;
   data: string;
 }
+/** First message of the one-time pairing handshake. The sender introduces themselves with their public key, display name, a cryptographic proof (Ed25519 signature over the shared invite secret), and the space they want to share. */
 interface PairHelloMsg {
   type: "pair-hello";
   publicKey: string;
@@ -197,6 +215,7 @@ interface PairHelloMsg {
   spaceId: string;
   spaceName: string;
 }
+/** Acknowledgement in the pairing handshake. The acceptor echoes back their own public key, name, and signature proof, completing the mutual authentication and establishing trust. */
 interface PairAckMsg {
   type: "pair-ack";
   publicKey: string;
@@ -225,6 +244,7 @@ type Message =
 // Internal State
 // =============================================================================
 
+/** Tracks an active WebRTC DataChannel connection to a single trusted peer, including which spaces are shared with them and a cleanup callback to tear down listeners when the connection closes. */
 interface PeerConnection {
   publicKey: string;
   netPeer: NetworkPeer;
@@ -232,6 +252,7 @@ interface PeerConnection {
   cleanup: () => void;
 }
 
+/** Represents a local peer's membership in a page's awareness room — who is present, their display info, and the latest cursor/selection state for each remote participant. */
 interface RoomState {
   pageId: string;
   spaceId: string;
@@ -242,6 +263,7 @@ interface RoomState {
   awarenessStates: Map<string, AwarenessState>;
 }
 
+/** Holds all state for an in-progress device-pairing flow. A pairing session is created when the user generates or scans an invite code and is torn down once both sides have exchanged proofs and stored each other as trusted peers. */
 interface PairingSession {
   topicHex: string;
   topic: NetworkTopic;
