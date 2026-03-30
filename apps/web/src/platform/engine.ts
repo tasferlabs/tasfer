@@ -29,6 +29,7 @@ import type {
 import type { Driver, CryptoDriver } from "./driver";
 import type { HLC } from "@/editor/sync/types";
 import type { ReplicatorHost } from "./sync";
+import { MEMBER_REMOVAL_GRACE_PERIOD_MS } from "@/editor/constants";
 
 /** Minimal interface the engine uses to push ops — avoids circular imports */
 interface EngineReplicator {
@@ -441,6 +442,15 @@ export class Engine implements Platform {
           [publicKey],
         );
         return rows[0]?.shared_key ?? null;
+      },
+      getAllSpaceOps: (spaceId: string) => this.getSpaceOps(spaceId),
+      getArchivedSpaceIds: async (publicKey: string): Promise<string[]> => {
+        const cutoff = new Date(Date.now() - MEMBER_REMOVAL_GRACE_PERIOD_MS).toISOString();
+        const rows = await this.driver.db.execute<{ space_id: string }>(
+          "SELECT space_id FROM space_members WHERE public_key = ? AND archived_at IS NOT NULL AND archived_at >= ?",
+          [publicKey, cutoff],
+        );
+        return rows.map((r) => r.space_id);
       },
     };
   }

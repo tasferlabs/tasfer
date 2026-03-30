@@ -863,6 +863,21 @@ export class Replicator {
       }
     }
 
+    // Deliver member_remove tombstone to recently-removed peers (within grace period).
+    // They won't appear in sharedSpaces (archived_at IS NOT NULL), but they still need
+    // to receive their removal op so they stop participating.
+    const archivedSpaceIds = await this.host.getArchivedSpaceIds(fromPubKey);
+    for (const spaceId of archivedSpaceIds) {
+      if (shared.has(spaceId)) continue;
+      const allOps = await this.host.getAllSpaceOps(spaceId);
+      const tombstone = allOps.find(
+        (op) => op.op === "member_remove" && (op as { publicKey?: string }).publicKey === fromPubKey,
+      );
+      if (tombstone) {
+        this.sendDirect(conn, { type: "space-ops", spaceId, ops: [tombstone] });
+      }
+    }
+
     conn.sharedSpaces = shared;
     console.log(
       `[Sync] shared spaces with ${fromPubKey.slice(0, 8)}: ${shared.size} (${[...shared].map((s) => s.slice(0, 8)).join(", ")})`,
