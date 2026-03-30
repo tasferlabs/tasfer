@@ -59,6 +59,37 @@ class CapacitorDbDriver implements DbDriver {
     this.db = CapacitorSQLite;
   }
 
+  // CapacitorSQLite doesn't support Uint8Array bind params — encode as base64
+  // with a sentinel prefix so we can decode transparently on reads.
+  private static readonly BLOB_PREFIX = "__blob__:";
+
+  private encodeParam(v: unknown): unknown {
+    if (v === undefined) return null;
+    if (v instanceof Uint8Array) {
+      return CapacitorDbDriver.BLOB_PREFIX + btoa(new TextDecoder("latin1").decode(v));
+    }
+    return v;
+  }
+
+  private decodeRow<T extends DbRow>(row: T): T {
+    const keys = Object.keys(row);
+    const rowRec = row as Record<string, unknown>;
+    if (!keys.some((k) => typeof rowRec[k] === "string" && (rowRec[k] as string).startsWith(CapacitorDbDriver.BLOB_PREFIX))) {
+      return row;
+    }
+    const out: Record<string, unknown> = {};
+    for (const key of keys) {
+      const val = rowRec[key];
+      if (typeof val === "string" && val.startsWith(CapacitorDbDriver.BLOB_PREFIX)) {
+        const binary = atob(val.slice(CapacitorDbDriver.BLOB_PREFIX.length));
+        out[key] = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+      } else {
+        out[key] = val;
+      }
+    }
+    return out as T;
+  }
+
   async execute<T extends DbRow = DbRow>(
     sql: string,
     params?: unknown[],
@@ -67,14 +98,12 @@ class CapacitorDbDriver implements DbDriver {
     const result = await this.db.query({
       database: "cypher",
       statement: sql,
-      values: params ?? [],
+      values: params ? params.map((v) => this.encodeParam(v)) : [],
     });
     const rows = result.values ?? [];
     // iOS returns an ios_columns metadata row as the first element — skip it
-    if (rows.length > 0 && rows[0].ios_columns) {
-      return rows.slice(1) as T[];
-    }
-    return rows as T[];
+    const data = rows.length > 0 && rows[0].ios_columns ? rows.slice(1) : rows;
+    return data.map((r: DbRow) => this.decodeRow(r as T));
   }
 
   async run(sql: string, params?: unknown[]): Promise<DbRunResult> {
@@ -82,7 +111,7 @@ class CapacitorDbDriver implements DbDriver {
     const result = await this.db.run({
       database: "cypher",
       statement: sql,
-      values: params ?? [],
+      values: params ? params.map((v) => this.encodeParam(v)) : [],
       // The plugin auto-wraps each run() in a transaction by default.
       // Disable that when we're already inside an explicit transaction.
       transaction: !this.inTransaction,
