@@ -11,6 +11,7 @@
   padding-inline: 4px;
   cursor: grab;
   user-select: none;
+  touch-action: none;
 }
 
 .link:active {
@@ -37,8 +38,6 @@
   flex: 1 1 0;
   min-width: 0;
   margin-inline-start: 5px;
-  position: relative;
-  z-index: 1;
   overflow: hidden;
 }
 
@@ -51,7 +50,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   padding: 4px;
-  cursor: pointer;
+  cursor: inherit;
 }
 
 .linkTitle input {
@@ -80,8 +79,6 @@
   opacity: 0.6;
   cursor: pointer;
   padding: 0;
-  position: relative;
-  z-index: 1;
   flex-shrink: 0;
   margin-inline-start: auto;
 }
@@ -108,8 +105,6 @@
   color: var(--foreground);
   cursor: pointer;
   padding: 0;
-  position: relative;
-  z-index: 1;
 }
 
 .action svg {

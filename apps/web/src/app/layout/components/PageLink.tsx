@@ -422,6 +422,7 @@ export function PageLink({
             longPressTimerRef.current = null;
           }
         }}
+        onDragStart={(e) => e.preventDefault()}
         onContextMenu={(e) => {
           e.preventDefault();
           if (isCoarse) {
