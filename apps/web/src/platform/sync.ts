@@ -65,6 +65,13 @@ import type {
 } from "./types";
 import type { AwarenessState } from "@/editor/sync/awareness";
 import type { Operation } from "@/editor/sync/types";
+import {
+  BINARY_ASSET_TAG,
+  hexToBytes,
+  bytesToHex,
+  compressOp,
+  expandOp,
+} from "./wire-codec";
 
 // =============================================================================
 // ReplicatorHost — what the Replicator needs from the Engine
@@ -111,10 +118,12 @@ export interface ReplicatorHost {
   ): Promise<{ ops: Operation[]; versionVector: Record<string, number> }>;
   /** Get the shared encryption key for a peer (hex string). Returns null if not set. */
   getPeerSharedKey(publicKey: string): Promise<string | null>;
-  /** Get all space ops for a space (used to notify archived peers of their removal) */
-  getAllSpaceOps(spaceId: string): Promise<SpaceOperation[]>;
-  /** Get space IDs where a peer has been archived (removed but was once a member) */
+  /** Update the last-seen timestamp for a peer to now */
+  updatePeerLastSeen(publicKey: string): Promise<void>;
+  /** Get space IDs where a peer has been archived within the removal grace period */
   getArchivedSpaceIds(publicKey: string): Promise<string[]>;
+  /** Get the member_remove op for a specific peer in a space, if one exists */
+  getMemberRemoveOp(spaceId: string, publicKey: string): Promise<SpaceOperation | null>;
 }
 
 // =============================================================================
@@ -199,13 +208,6 @@ interface AssetReqMsg {
   type: "asset-req";
   hash: string;
 }
-/** Response to an asset-req. Delivers the raw asset bytes (base64-encoded) and file extension so the receiver can store and display the asset. */
-interface AssetDataMsg {
-  type: "asset-data";
-  hash: string;
-  ext: string;
-  data: string;
-}
 /** First message of the one-time pairing handshake. The sender introduces themselves with their public key, display name, a cryptographic proof (Ed25519 signature over the shared invite secret), and the space they want to share. */
 interface PairHelloMsg {
   type: "pair-hello";
@@ -236,7 +238,6 @@ type Message =
   | SyncReqMsg
   | SyncResMsg
   | AssetReqMsg
-  | AssetDataMsg
   | PairHelloMsg
   | PairAckMsg;
 
@@ -284,18 +285,47 @@ interface PairingSession {
 
 // =============================================================================
 // Encoder / Decoder — JSON over Uint8Array
+// Wire-level optimisations (op shortcodes, charId runs, pageId stripping) are
+// applied inside encode/decode via helpers imported from ./wire-codec.
 // =============================================================================
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
 function encode(msg: Message): Uint8Array {
-  return enc.encode(JSON.stringify(msg));
+  let wire: any = msg;
+
+  if (msg.type === "page-ops") {
+    wire = { ...msg, ops: msg.ops.map((op) => compressOp(op, msg.pageId)) };
+  } else if (msg.type === "sync-data") {
+    const pageOps: Record<string, any[]> = {};
+    for (const [pid, ops] of Object.entries(msg.pageOps)) {
+      pageOps[pid] = ops.map((op) => compressOp(op, pid));
+    }
+    wire = { ...msg, pageOps };
+  } else if (msg.type === "sync-res") {
+    wire = { ...msg, ops: msg.ops.map((op) => compressOp(op, msg.pageId)) };
+  }
+
+  return enc.encode(JSON.stringify(wire));
 }
 
 function decode(data: Uint8Array): Message | null {
   try {
-    return JSON.parse(dec.decode(data));
+    const raw = JSON.parse(dec.decode(data));
+    if (!raw || typeof raw.type !== "string") return null;
+
+    if (raw.type === "page-ops" && Array.isArray(raw.ops)) {
+      raw.ops = raw.ops.map((op: any) => expandOp(op, raw.pageId));
+    } else if (raw.type === "sync-data" && raw.pageOps) {
+      for (const pid of Object.keys(raw.pageOps)) {
+        raw.pageOps[pid] = raw.pageOps[pid].map((op: any) => expandOp(op, pid));
+      }
+    } else if (raw.type === "sync-res" && Array.isArray(raw.ops)) {
+      raw.ops = raw.ops.map((op: any) => expandOp(op, raw.pageId));
+    }
+
+    return raw as Message;
   } catch {
     return null;
   }
@@ -717,6 +747,11 @@ export class Replicator {
     console.log(`[Sync] peer joined: ${remotePubKey.slice(0, 8)}`);
 
     const unsub = netPeer.onMessage((data) => {
+      // Binary asset-data frames start with BINARY_ASSET_TAG, not '{' (0x7B)
+      if (data[0] === BINARY_ASSET_TAG) {
+        this.handleBinaryAssetData(data);
+        return;
+      }
       const msg = decode(data);
       if (msg) {
         logNet("recv", remotePubKey, msg, data.byteLength);
@@ -840,9 +875,6 @@ export class Replicator {
       case "asset-req":
         await this.handleAssetReq(fromPubKey, msg);
         break;
-      case "asset-data":
-        await this.handleAssetData(msg);
-        break;
     }
   }
 
@@ -852,6 +884,8 @@ export class Replicator {
     console.log(`[Sync] hello from ${fromPubKey.slice(0, 8)}`);
     const conn = this.peers.get(fromPubKey);
     if (!conn) return;
+
+    await this.host.updatePeerLastSeen(fromPubKey);
 
     // Determine shared spaces by checking which of our spaces this peer is a member of
     const localSpaceIds = await this.host.getSpaceIds();
@@ -869,10 +903,7 @@ export class Replicator {
     const archivedSpaceIds = await this.host.getArchivedSpaceIds(fromPubKey);
     for (const spaceId of archivedSpaceIds) {
       if (shared.has(spaceId)) continue;
-      const allOps = await this.host.getAllSpaceOps(spaceId);
-      const tombstone = allOps.find(
-        (op) => op.op === "member_remove" && (op as { publicKey?: string }).publicKey === fromPubKey,
-      );
+      const tombstone = await this.host.getMemberRemoveOp(spaceId, fromPubKey);
       if (tombstone) {
         this.sendDirect(conn, { type: "space-ops", spaceId, ops: [tombstone] });
       }
@@ -1100,25 +1131,34 @@ export class Replicator {
     const asset = await this.host.getAssetData(msg.hash);
     if (!asset) return; // We don't have it either
 
-    // Encode as base64 for JSON transport
-    const base64 = uint8ToBase64(asset.data);
-    this.sendDirect(conn, {
-      type: "asset-data",
-      hash: msg.hash,
-      ext: asset.ext,
-      data: base64,
-    });
+    // Send as a raw binary frame — eliminates the ~33% base64 overhead.
+    // Layout: [BINARY_ASSET_TAG][32 raw hash bytes][1 ext-len byte][ext][data]
+    const hashBytes = hexToBytes(msg.hash);
+    const extBytes = enc.encode(asset.ext);
+    const frame = new Uint8Array(1 + 32 + 1 + extBytes.length + asset.data.length);
+    let off = 0;
+    frame[off++] = BINARY_ASSET_TAG;
+    frame.set(hashBytes, off); off += 32;
+    frame[off++] = extBytes.length;
+    frame.set(extBytes, off); off += extBytes.length;
+    frame.set(asset.data, off);
+
+    conn.netPeer.send(frame);
   }
 
-  private async handleAssetData(msg: AssetDataMsg) {
-    // Decode base64 → Uint8Array and store locally
-    const bytes = base64ToUint8(msg.data);
-    await this.host.storeAssetData(msg.hash, msg.ext, bytes);
+  private async handleBinaryAssetData(frame: Uint8Array) {
+    // Layout: [BINARY_ASSET_TAG][32 hash bytes][1 ext-len][ext bytes][data]
+    let off = 1; // skip tag
+    const hash = bytesToHex(frame.slice(off, off + 32)); off += 32;
+    const extLen = frame[off++];
+    const ext = dec.decode(frame.slice(off, off + extLen)); off += extLen;
+    const data = frame.slice(off);
 
-    // Resolve any pending requests for this hash
-    const callbacks = this.pendingAssetRequests.get(msg.hash);
+    await this.host.storeAssetData(hash, ext, data);
+
+    const callbacks = this.pendingAssetRequests.get(hash);
     if (callbacks) {
-      this.pendingAssetRequests.delete(msg.hash);
+      this.pendingAssetRequests.delete(hash);
       for (const cb of callbacks) cb(true);
     }
   }
@@ -1322,37 +1362,6 @@ async function computePeerTopic(
   return Array.from(new Uint8Array(hash))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-}
-
-/** Uint8Array → base64 string (for JSON-safe transport over DataChannel) */
-function uint8ToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
-/** base64 string → Uint8Array */
-function base64ToUint8(b64: string): Uint8Array {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const clean = hex.replace(/-/g, "");
-  if (/^[0-9a-f]+$/i.test(clean) && clean.length % 2 === 0) {
-    const bytes = new Uint8Array(clean.length / 2);
-    for (let i = 0; i < clean.length; i += 2) {
-      bytes[i / 2] = parseInt(clean.substring(i, i + 2), 16);
-    }
-    return bytes;
-  }
-  return new TextEncoder().encode(hex);
 }
 
 /**

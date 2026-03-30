@@ -286,35 +286,37 @@ if (platformReady) {
 
 // Register service worker for offline support (skip in Electron — loaded via file://)
 const isElectron = !!(window as any).cypher;
-const updateSW = isElectron ? (() => {}) : registerSW({
-  onNeedRefresh() {
-    // New version available - notify VersionContext via bridge
-    console.log("[SW] New version available");
-    serviceWorkerBridge.triggerUpdate();
-  },
-  onOfflineReady() {
-    console.log("[SW] App ready to work offline");
-  },
-  onRegisteredSW(swUrl: string, r: ServiceWorkerRegistration | undefined) {
-    // Store the update function for VersionContext via bridge
-    if (r) {
-      serviceWorkerBridge.setActivator(() => {
-        r.waiting?.postMessage({ type: "SKIP_WAITING" });
-      });
-    }
+const updateSW = isElectron
+  ? () => {}
+  : registerSW({
+      onNeedRefresh() {
+        // New version available - notify VersionContext via bridge
+        console.log("[SW] New version available");
+        serviceWorkerBridge.triggerUpdate();
+      },
+      onOfflineReady() {
+        console.log("[SW] App ready to work offline");
+      },
+      onRegisteredSW(swUrl: string, r: ServiceWorkerRegistration | undefined) {
+        // Store the update function for VersionContext via bridge
+        if (r) {
+          serviceWorkerBridge.setActivator(() => {
+            r.waiting?.postMessage({ type: "SKIP_WAITING" });
+          });
+        }
 
-    // Register for background sync if supported
-    if (r && "sync" in r) {
-      r.sync?.register("sync-mutations").catch(() => {
-        // Background sync not supported
-      });
-    }
-    console.log("[SW] Service worker registered:", swUrl);
-  },
-  onRegisterError(error: unknown) {
-    console.error("[SW] Registration error:", error);
-  },
-});
+        // Register for background sync if supported
+        if (r && "sync" in r) {
+          r.sync?.register("sync-mutations").catch(() => {
+            // Background sync not supported
+          });
+        }
+        console.log("[SW] Service worker registered:", swUrl);
+      },
+      onRegisterError(error: unknown) {
+        console.error("[SW] Registration error:", error);
+      },
+    });
 
 // Export updateSW for manual triggering if needed
 export { updateSW };

@@ -34,7 +34,11 @@ import { MEMBER_REMOVAL_GRACE_PERIOD_MS } from "@/editor/constants";
 /** Minimal interface the engine uses to push ops — avoids circular imports */
 interface EngineReplicator {
   pushSpaceOps(spaceId: string, ops: SpaceOperation[]): void;
-  pushPageOps(spaceId: string, pageId: string, ops: import("@/editor/sync/types").Operation[]): void;
+  pushPageOps(
+    spaceId: string,
+    pageId: string,
+    ops: import("@/editor/sync/types").Operation[],
+  ): void;
   requestAsset(hash: string): Promise<boolean>;
   addPeer(publicKey: string): Promise<void>;
   removePeer(publicKey: string): Promise<void>;
@@ -54,7 +58,7 @@ interface EngineReplicator {
 // Schema & Migrations
 // =============================================================================
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 0;
 
 const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS identity (
@@ -117,10 +121,12 @@ const SCHEMA_SQL = `
     type       TEXT NOT NULL,
     data       BLOB NOT NULL,
     timestamp  INTEGER NOT NULL,
+    target_key TEXT,
     UNIQUE(scope_id, peer_id, clock)
   );
 
   CREATE INDEX IF NOT EXISTS idx_ops_scope ON ops(scope_id);
+  CREATE INDEX IF NOT EXISTS idx_ops_target ON ops(scope_id, type, target_key);
 
 `;
 
@@ -133,7 +139,10 @@ export class Engine implements Platform {
   private replicator: EngineReplicator | null = null;
   private spaceHlcCounters = new Map<string, number>();
   /** LWW winners: key = "spaceId\0entity\0field", value = {counter, peerId} */
-  private spaceLwwWinners = new Map<string, { counter: number; peerId: string }>();
+  private spaceLwwWinners = new Map<
+    string,
+    { counter: number; peerId: string }
+  >();
   private spaceChangeListeners = new Set<(spaceId: string) => void>();
   private pageDeleteListeners = new Set<(pageId: string) => void>();
 
@@ -159,183 +168,14 @@ export class Engine implements Platform {
   // ---------------------------------------------------------------------------
 
   private async runMigrations(): Promise<void> {
-    const [{ user_version }] = await this.driver.db.execute<{ user_version: number }>(
-      "PRAGMA user_version",
-    );
-
-    if (user_version < 1) {
-      await this.migrateOpsUniqueConstraint();
-    }
-
-    if (user_version < 2) {
-      await this.migrateSpaceMembersAvatar();
-    }
-
-    if (user_version < 3) {
-      await this.migrateDropSnapshots();
-    }
-
-    if (user_version < 4) {
-      await this.migrateOpsRenameColumns();
-    }
-
-    if (user_version < 5) {
-      await this.migrateDropKv();
-    }
-
-    if (user_version < 6) {
-      await this.migrateAddPagesArchivedAt();
-    }
-
-    if (user_version < 7) {
-      await this.migrateAddMembersArchivedAt();
-    }
-
-    if (user_version < 8) {
-      await this.migrateAddPeersSharedKey();
-    }
+    const [{ user_version }] = await this.driver.db.execute<{
+      user_version: number;
+    }>("PRAGMA user_version");
 
     if (user_version < SCHEMA_VERSION) {
       await this.driver.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     }
   }
-
-  /**
-   * Migration 1: add UNIQUE constraint to ops table.
-   * SQLite can't ALTER TABLE ADD CONSTRAINT, so we recreate the table.
-   * Note: uses legacy column names — migration 4 will rename them.
-   */
-  private async migrateOpsUniqueConstraint(): Promise<void> {
-    const cols = await this.driver.db.execute<{ name: string }>(
-      "PRAGMA table_info(ops)",
-    );
-    // Skip if table doesn't exist or already uses new column names (scope_id)
-    if (cols.length === 0 || !cols.some((c) => c.name === "page_id")) return;
-
-    await this.driver.db.exec(`
-      CREATE TABLE IF NOT EXISTS ops_new (
-        id        INTEGER PRIMARY KEY,
-        page_id   TEXT NOT NULL,
-        peer_id   TEXT NOT NULL,
-        counter   INTEGER NOT NULL,
-        type      TEXT NOT NULL,
-        data      BLOB NOT NULL,
-        timestamp INTEGER NOT NULL,
-        UNIQUE(page_id, peer_id, counter)
-      );
-      INSERT OR IGNORE INTO ops_new (page_id, peer_id, counter, type, data, timestamp)
-        SELECT page_id, peer_id, counter, type, data, timestamp FROM ops;
-      DROP TABLE ops;
-      ALTER TABLE ops_new RENAME TO ops;
-      CREATE INDEX IF NOT EXISTS idx_ops_page ON ops(page_id);
-    `);
-  }
-
-  /**
-   * Migration 2: add avatar column to space_members table.
-   */
-  private async migrateSpaceMembersAvatar(): Promise<void> {
-    const cols = await this.driver.db.execute<{ name: string }>(
-      "PRAGMA table_info(space_members)",
-    );
-    if (!cols.some((c) => c.name === "avatar")) {
-      await this.driver.db.exec("ALTER TABLE space_members ADD COLUMN avatar TEXT");
-    }
-  }
-
-  /**
-   * Migration 3: drop snapshots table — version history is now derived from ops.
-   */
-  private async migrateDropSnapshots(): Promise<void> {
-    await this.driver.db.exec(`
-      DROP TABLE IF EXISTS snapshots;
-      DROP INDEX IF EXISTS idx_snapshots_page;
-    `);
-  }
-
-  /**
-   * Migration 4: rename ops columns for clarity.
-   *   page_id → scope_id  (used for both page IDs and 'space:{id}')
-   *   counter → clock     (HLC Lamport counter, not a generic counter)
-   * Also fix timestamp: set any rows where timestamp looks like a Lamport
-   * counter (< year 2000 in ms) to 0, since the real wall-clock was lost.
-   */
-  private async migrateOpsRenameColumns(): Promise<void> {
-    const cols = await this.driver.db.execute<{ name: string }>(
-      "PRAGMA table_info(ops)",
-    );
-    // Skip if table doesn't exist or already uses new column names
-    if (cols.length === 0 || !cols.some((c) => c.name === "page_id")) return;
-
-    await this.driver.db.exec(`
-      CREATE TABLE IF NOT EXISTS ops_new (
-        id         INTEGER PRIMARY KEY,
-        scope_id   TEXT NOT NULL,
-        peer_id    TEXT NOT NULL,
-        clock      INTEGER NOT NULL,
-        type       TEXT NOT NULL,
-        data       BLOB NOT NULL,
-        timestamp  INTEGER NOT NULL,
-        UNIQUE(scope_id, peer_id, clock)
-      );
-      INSERT OR IGNORE INTO ops_new (scope_id, peer_id, clock, type, data, timestamp)
-        SELECT page_id, peer_id, counter, type, data,
-               CASE WHEN timestamp > 946684800000 THEN timestamp ELSE 0 END
-        FROM ops;
-      DROP TABLE ops;
-      ALTER TABLE ops_new RENAME TO ops;
-      DROP INDEX IF EXISTS idx_ops_page;
-      CREATE INDEX IF NOT EXISTS idx_ops_scope ON ops(scope_id);
-    `);
-  }
-
-  /**
-   * Migration 5: drop kv table — signalUrl is now stored in memory.
-   */
-  private async migrateDropKv(): Promise<void> {
-    await this.driver.db.exec("DROP TABLE IF EXISTS kv");
-  }
-
-  /**
-   * Migration 6: add archived_at tombstone column to pages table.
-   * page_remove now soft-deletes instead of hard-deleting, making
-   * space CRDT operations commutative regardless of arrival order.
-   */
-  private async migrateAddPagesArchivedAt(): Promise<void> {
-    const cols = await this.driver.db.execute<{ name: string }>(
-      "PRAGMA table_info(pages)",
-    );
-    if (!cols.some((c) => c.name === "archived_at")) {
-      await this.driver.db.exec("ALTER TABLE pages ADD COLUMN archived_at TEXT");
-    }
-  }
-
-  /**
-   * Migration 7: add archived_at tombstone column to space_members table.
-   * member_remove now soft-deletes; member_add clears the tombstone on re-invite.
-   */
-  private async migrateAddMembersArchivedAt(): Promise<void> {
-    const cols = await this.driver.db.execute<{ name: string }>(
-      "PRAGMA table_info(space_members)",
-    );
-    if (!cols.some((c) => c.name === "archived_at")) {
-      await this.driver.db.exec("ALTER TABLE space_members ADD COLUMN archived_at TEXT");
-    }
-  }
-
-  /**
-   * Migration 8: add shared_key column to peers table.
-   * Stores the per-peer AES-GCM key (hex) for encrypting signaling through CF.
-   */
-  private async migrateAddPeersSharedKey(): Promise<void> {
-    const cols = await this.driver.db.execute<{ name: string }>(
-      "PRAGMA table_info(peers)",
-    );
-    if (!cols.some((c) => c.name === "shared_key")) {
-      await this.driver.db.exec("ALTER TABLE peers ADD COLUMN shared_key TEXT");
-    }
-  }
-
 
   /** Load max HLC counters and LWW winners from persisted ops so we never regress after restart */
   private async loadSpaceHlcCounters(): Promise<void> {
@@ -404,11 +244,11 @@ export class Engine implements Platform {
       getTrustedPeers: () => this.peers.list(),
       getSpaceIds: async () => {
         const spaces = await this.spaces.list();
-        return spaces.map(s => s.id);
+        return spaces.map((s) => s.id);
       },
       getSpaceMembers: async (spaceId: string) => {
         const space = await this.spaces.get(spaceId);
-        return space.members.map(m => ({ publicKey: m.publicKey }));
+        return space.members.map((m) => ({ publicKey: m.publicKey }));
       },
       getSpaceVV: (spaceId: string) => this.getSpaceVV(spaceId),
       getPageVVs: (spaceId: string) => this.getPageVVs(spaceId),
@@ -434,23 +274,48 @@ export class Engine implements Platform {
           await this.driver.fs.write(path, data);
         }
       },
-      buildPageSyncResponse: (pageId: string, remoteVV: Record<string, number>) =>
-        this.buildPageSyncResponse(pageId, remoteVV),
+      buildPageSyncResponse: (
+        pageId: string,
+        remoteVV: Record<string, number>,
+      ) => this.buildPageSyncResponse(pageId, remoteVV),
       getPeerSharedKey: async (publicKey: string): Promise<string | null> => {
-        const rows = await this.driver.db.execute<{ shared_key: string | null }>(
-          "SELECT shared_key FROM peers WHERE public_key = ?",
-          [publicKey],
-        );
+        const rows = await this.driver.db.execute<{
+          shared_key: string | null;
+        }>("SELECT shared_key FROM peers WHERE public_key = ?", [publicKey]);
         return rows[0]?.shared_key ?? null;
       },
-      getAllSpaceOps: (spaceId: string) => this.getSpaceOps(spaceId),
+      updatePeerLastSeen: async (publicKey: string): Promise<void> => {
+        await this.driver.db.run(
+          "UPDATE peers SET last_seen = ? WHERE public_key = ?",
+          [Date.now(), publicKey],
+        );
+      },
       getArchivedSpaceIds: async (publicKey: string): Promise<string[]> => {
-        const cutoff = new Date(Date.now() - MEMBER_REMOVAL_GRACE_PERIOD_MS).toISOString();
+        const cutoff = new Date(
+          Date.now() - MEMBER_REMOVAL_GRACE_PERIOD_MS,
+        ).toISOString();
         const rows = await this.driver.db.execute<{ space_id: string }>(
           "SELECT space_id FROM space_members WHERE public_key = ? AND archived_at IS NOT NULL AND archived_at >= ?",
           [publicKey, cutoff],
         );
         return rows.map((r) => r.space_id);
+      },
+      getMemberRemoveOp: async (
+        spaceId: string,
+        publicKey: string,
+      ): Promise<SpaceOperation | null> => {
+        const rows = await this.driver.db.execute<{ data: Uint8Array }>(
+          "SELECT data FROM ops WHERE scope_id = ? AND type = 'member_remove' AND target_key = ? LIMIT 1",
+          [`space:${spaceId}`, publicKey],
+        );
+        if (rows.length === 0) return null;
+        try {
+          return JSON.parse(
+            new TextDecoder().decode(rows[0].data as Uint8Array),
+          ) as SpaceOperation;
+        } catch {
+          return null;
+        }
       },
     };
   }
@@ -517,10 +382,20 @@ export class Engine implements Platform {
       );
       for (const { space_id } of memberships) {
         if (data.name !== undefined) {
-          await this.spaces.updateMember(space_id, identity.publicKey, "name", data.name);
+          await this.spaces.updateMember(
+            space_id,
+            identity.publicKey,
+            "name",
+            data.name,
+          );
         }
         if (data.avatar !== undefined) {
-          await this.spaces.updateMember(space_id, identity.publicKey, "avatar", data.avatar);
+          await this.spaces.updateMember(
+            space_id,
+            identity.publicKey,
+            "avatar",
+            data.avatar,
+          );
         }
       }
 
@@ -551,11 +426,24 @@ export class Engine implements Platform {
       }));
     },
 
-    trust: async (publicKey: string, name?: string, sharedKey?: string): Promise<Peer> => {
+    trust: async (
+      publicKey: string,
+      name?: string,
+      sharedKey?: string,
+    ): Promise<Peer> => {
+      const now = Date.now();
       await this.driver.db.run(
-        `INSERT INTO peers (public_key, name, trusted, shared_key) VALUES (?, ?, 1, ?)
-         ON CONFLICT(public_key) DO UPDATE SET trusted = 1, name = COALESCE(?, name), shared_key = COALESCE(?, shared_key)`,
-        [publicKey, name ?? "", sharedKey ?? null, name ?? null, sharedKey ?? null],
+        `INSERT INTO peers (public_key, name, trusted, shared_key, last_seen) VALUES (?, ?, 1, ?, ?)
+         ON CONFLICT(public_key) DO UPDATE SET trusted = 1, name = COALESCE(?, name), shared_key = COALESCE(?, shared_key), last_seen = ?`,
+        [
+          publicKey,
+          name ?? "",
+          sharedKey ?? null,
+          now,
+          name ?? null,
+          sharedKey ?? null,
+          now,
+        ],
       );
       const rows = await this.driver.db.execute<{
         public_key: string;
@@ -627,9 +515,10 @@ export class Engine implements Platform {
         name: string;
         avatar: string | null;
         added_at: string;
-      }>("SELECT * FROM space_members WHERE space_id = ? AND archived_at IS NULL ORDER BY added_at", [
-        id,
-      ]);
+      }>(
+        "SELECT * FROM space_members WHERE space_id = ? AND archived_at IS NULL ORDER BY added_at",
+        [id],
+      );
 
       return {
         id: s.id,
@@ -793,7 +682,9 @@ export class Engine implements Platform {
           onComplete: async (peer) => {
             // Derive shared signaling key from pairing secret + both public keys
             const sharedKey = await deriveSharedSignalingKey(
-              invite.secret, identity.publicKey, peer.publicKey,
+              invite.secret,
+              identity.publicKey,
+              peer.publicKey,
             );
             await this.peers.trust(peer.publicKey, peer.name, sharedKey);
             // Add the new peer as a member of the space
@@ -842,7 +733,9 @@ export class Engine implements Platform {
           onComplete: async (peer, spaceName) => {
             // Derive shared signaling key from pairing secret + both public keys
             const sharedKey = await deriveSharedSignalingKey(
-              invite.secret, identity.publicKey, peer.publicKey,
+              invite.secret,
+              identity.publicKey,
+              peer.publicKey,
             );
             await this.peers.trust(peer.publicKey, peer.name, sharedKey);
 
@@ -857,7 +750,13 @@ export class Engine implements Platform {
               `INSERT INTO space_members (space_id, public_key, name, added_at)
                VALUES (?, ?, ?, ?)
                ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
-              [invite.spaceId, identity.publicKey, identity.name, now, identity.name],
+              [
+                invite.spaceId,
+                identity.publicKey,
+                identity.name,
+                now,
+                identity.name,
+              ],
             );
             // Add the initiator as member (so hello exchange can identify shared spaces)
             await this.driver.db.run(
@@ -1353,13 +1252,19 @@ export class Engine implements Platform {
     },
 
     snapshots: async (pageId: string): Promise<PageSnapshot[]> => {
-      const rows = await this.driver.db.execute<{ data: Uint8Array; timestamp: number }>(
+      const rows = await this.driver.db.execute<{
+        data: Uint8Array;
+        timestamp: number;
+      }>(
         "SELECT data, timestamp FROM ops WHERE scope_id = ? ORDER BY clock, peer_id",
         [pageId],
       );
       if (rows.length === 0) return [];
 
-      type ParsedRow = { op: import("@/editor/sync/types").Operation; timestamp: number };
+      type ParsedRow = {
+        op: import("@/editor/sync/types").Operation;
+        timestamp: number;
+      };
       const parsed: ParsedRow[] = [];
       for (const r of rows) {
         try {
@@ -1367,7 +1272,9 @@ export class Engine implements Platform {
             op: JSON.parse(new TextDecoder().decode(r.data as Uint8Array)),
             timestamp: r.timestamp,
           });
-        } catch { /* skip corrupted */ }
+        } catch {
+          /* skip corrupted */
+        }
       }
       if (parsed.length === 0) return [];
 
@@ -1382,7 +1289,8 @@ export class Engine implements Platform {
       // Apply ops incrementally, snapshot at sample points.
       // Defers text_delete ops whose referenced chars haven't been inserted
       // yet (HLC order ≠ causal order).
-      const { applyOp, createEmptyPageState } = await import("@/editor/sync/reducer");
+      const { applyOp, createEmptyPageState } =
+        await import("@/editor/sync/reducer");
       const { resolveBlockOrder } = await import("@/editor/sync/conflicts");
 
       let state = createEmptyPageState(pageId);
@@ -1401,7 +1309,10 @@ export class Engine implements Platform {
           }
         }
 
-        if (op.op === "text_delete" && !op.charIds.every((id) => insertedCharIds.has(id))) {
+        if (
+          op.op === "text_delete" &&
+          !op.charIds.every((id) => insertedCharIds.has(id))
+        ) {
           deferredOps.push(op);
         } else {
           state = applyOp(state, op);
@@ -1428,7 +1339,9 @@ export class Engine implements Platform {
 
     onDeleted: (cb: (pageId: string) => void): (() => void) => {
       this.pageDeleteListeners.add(cb);
-      return () => { this.pageDeleteListeners.delete(cb); };
+      return () => {
+        this.pageDeleteListeners.delete(cb);
+      };
     },
   };
 
@@ -1576,7 +1489,6 @@ export class Engine implements Platform {
     this.sync = sync;
   }
 
-
   // ---------------------------------------------------------------------------
   // Ops (CRDT operation persistence)
   // ---------------------------------------------------------------------------
@@ -1626,9 +1538,8 @@ export class Engine implements Platform {
       blocks: import("@/deserializer/loadPage").Block[],
     ): Promise<void> => {
       const { blocksToOps } = await import("@/editor/sync/snapshot-diff");
-      const { createIdGenerator, generatePeerId } = await import(
-        "@/editor/sync/id"
-      );
+      const { createIdGenerator, generatePeerId } =
+        await import("@/editor/sync/id");
       const { createHLC, tickHLC } = await import("@/editor/sync/hlc");
 
       const peerId = generatePeerId();
@@ -1690,7 +1601,9 @@ export class Engine implements Platform {
         );
         // Strip ephemeral render cache before persisting — cachedHeight/cachedWidth
         // are per-canvas-width hints that are invalid across sessions and screen sizes.
-        const cleanBlocks = blocks.map(({ cachedHeight: _h, cachedWidth: _w, ...b }) => b);
+        const cleanBlocks = blocks.map(
+          ({ cachedHeight: _h, cachedWidth: _w, ...b }) => b,
+        );
         const data = new TextEncoder().encode(
           JSON.stringify({ opCount: cnt, blocks: cleanBlocks }),
         );
@@ -1777,16 +1690,38 @@ export class Engine implements Platform {
       return op.clock.counter > known;
     });
 
-    // Get missing page ops for all pages in this space
-    const pageRows = await this.driver.db.execute<{ id: string }>(
-      "SELECT id FROM pages WHERE space_id = ?",
+    // Get all local page VVs in one query, then only fetch ops for pages
+    // where we have something the remote hasn't seen.
+    const localVVRows = await this.driver.db.execute<{
+      page_id: string;
+      peer_id: string;
+      max_clock: number;
+    }>(
+      `SELECT o.scope_id as page_id, o.peer_id, MAX(o.clock) as max_clock
+       FROM ops o
+       INNER JOIN pages p ON p.id = o.scope_id
+       WHERE p.space_id = ?
+       GROUP BY o.scope_id, o.peer_id`,
       [spaceId],
     );
 
+    const localPageVVs: Record<string, Record<string, number>> = {};
+    for (const row of localVVRows) {
+      if (!localPageVVs[row.page_id]) localPageVVs[row.page_id] = {};
+      localPageVVs[row.page_id][row.peer_id] = row.max_clock;
+    }
+
     const pageOps: Record<string, import("@/editor/sync/types").Operation[]> =
       {};
-    for (const { id: pageId } of pageRows) {
+    for (const [pageId, localVV] of Object.entries(localPageVVs)) {
       const remoteVV = remotePageVVs[pageId] ?? {};
+
+      // Skip this page if the remote already has everything we have
+      const hasMissing = Object.entries(localVV).some(
+        ([peerId, maxClock]) => maxClock > (remoteVV[peerId] ?? -1),
+      );
+      if (!hasMissing) continue;
+
       const rows = await this.driver.db.execute<{
         data: Uint8Array;
         peer_id: string;
@@ -1821,7 +1756,10 @@ export class Engine implements Platform {
   async buildPageSyncResponse(
     pageId: string,
     remoteVV: Record<string, number>,
-  ): Promise<{ ops: import("@/editor/sync/types").Operation[]; versionVector: Record<string, number> }> {
+  ): Promise<{
+    ops: import("@/editor/sync/types").Operation[];
+    versionVector: Record<string, number>;
+  }> {
     const rows = await this.driver.db.execute<{
       data: Uint8Array;
       peer_id: string;
@@ -1835,7 +1773,10 @@ export class Engine implements Platform {
     const localVV: Record<string, number> = {};
     for (const row of rows) {
       // Build local VV
-      if (localVV[row.peer_id] === undefined || row.clock > localVV[row.peer_id]) {
+      if (
+        localVV[row.peer_id] === undefined ||
+        row.clock > localVV[row.peer_id]
+      ) {
         localVV[row.peer_id] = row.clock;
       }
       // Collect missing ops
@@ -1845,7 +1786,9 @@ export class Engine implements Platform {
           missing.push(
             JSON.parse(new TextDecoder().decode(row.data as Uint8Array)),
           );
-        } catch { /* skip corrupted */ }
+        } catch {
+          /* skip corrupted */
+        }
       }
     }
     return { ops: missing, versionVector: localVV };
@@ -1870,29 +1813,26 @@ export class Engine implements Platform {
   async getPageVVs(
     spaceId: string,
   ): Promise<Record<string, Record<string, number>>> {
-    const pageRows = await this.driver.db.execute<{ id: string }>(
-      "SELECT id FROM pages WHERE space_id = ?",
+    const rows = await this.driver.db.execute<{
+      page_id: string;
+      peer_id: string;
+      max_clock: number;
+    }>(
+      `SELECT o.scope_id as page_id, o.peer_id, MAX(o.clock) as max_clock
+       FROM ops o
+       INNER JOIN pages p ON p.id = o.scope_id
+       WHERE p.space_id = ?
+       GROUP BY o.scope_id, o.peer_id`,
       [spaceId],
     );
 
     const result: Record<string, Record<string, number>> = {};
-    for (const { id: pageId } of pageRows) {
-      const rows = await this.driver.db.execute<{
-        peer_id: string;
-        max_clock: number;
-      }>(
-        "SELECT peer_id, MAX(clock) as max_clock FROM ops WHERE scope_id = ? GROUP BY peer_id",
-        [pageId],
-      );
-      if (rows.length > 0) {
-        const vv: Record<string, number> = {};
-        for (const r of rows) vv[r.peer_id] = r.max_clock;
-        result[pageId] = vv;
-      }
+    for (const row of rows) {
+      if (!result[row.page_id]) result[row.page_id] = {};
+      result[row.page_id][row.peer_id] = row.max_clock;
     }
     return result;
   }
-
 
   // ---------------------------------------------------------------------------
   // Private: Space CRDT helpers
@@ -1904,7 +1844,6 @@ export class Engine implements Platform {
     );
     return rows[0].private_key;
   }
-
 
   private async getPageSpaceId(pageId: string): Promise<string | null> {
     const rows = await this.driver.db.execute<{ space_id: string | null }>(
@@ -1942,8 +1881,9 @@ export class Engine implements Platform {
   private async storeSpaceOp(op: SpaceOperation): Promise<void> {
     const scopeId = `space:${op.spaceId}`;
     const data = new TextEncoder().encode(JSON.stringify(op));
+    const targetKey = (op as { publicKey?: string }).publicKey ?? null;
     await this.driver.db.run(
-      "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT OR IGNORE INTO ops (scope_id, peer_id, clock, type, data, timestamp, target_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
       [
         scopeId,
         op.clock.peerId,
@@ -1951,6 +1891,7 @@ export class Engine implements Platform {
         op.op,
         data,
         Date.now(),
+        targetKey,
       ],
     );
 
@@ -1994,8 +1935,7 @@ export class Engine implements Platform {
       // Incoming must be strictly greater to win
       if (
         clock.counter < current.counter ||
-        (clock.counter === current.counter &&
-          clock.peerId <= current.peerId)
+        (clock.counter === current.counter && clock.peerId <= current.peerId)
       ) {
         return false;
       }
@@ -2021,7 +1961,15 @@ export class Engine implements Platform {
         break;
 
       case "member_add": {
-        if (!this.lwwCheck(op.spaceId, `member:${op.publicKey}`, "_alive", op.clock)) break;
+        if (
+          !this.lwwCheck(
+            op.spaceId,
+            `member:${op.publicKey}`,
+            "_alive",
+            op.clock,
+          )
+        )
+          break;
         await this.driver.db.run(
           `INSERT INTO space_members (space_id, public_key, name, added_at)
            VALUES (?, ?, ?, ?)
@@ -2038,7 +1986,15 @@ export class Engine implements Platform {
       }
 
       case "member_set": {
-        if (!this.lwwCheck(op.spaceId, `member:${op.publicKey}`, op.field, op.clock)) break;
+        if (
+          !this.lwwCheck(
+            op.spaceId,
+            `member:${op.publicKey}`,
+            op.field,
+            op.clock,
+          )
+        )
+          break;
         const memberFieldMap: Record<string, string> = {
           name: "name",
           avatar: "avatar",
@@ -2061,7 +2017,15 @@ export class Engine implements Platform {
       }
 
       case "member_remove": {
-        if (!this.lwwCheck(op.spaceId, `member:${op.publicKey}`, "_alive", op.clock)) break;
+        if (
+          !this.lwwCheck(
+            op.spaceId,
+            `member:${op.publicKey}`,
+            "_alive",
+            op.clock,
+          )
+        )
+          break;
         await this.driver.db.run(
           "UPDATE space_members SET archived_at = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL",
           [now, op.spaceId, op.publicKey],
@@ -2070,7 +2034,8 @@ export class Engine implements Platform {
       }
 
       case "page_add": {
-        if (!this.lwwCheck(op.spaceId, `page:${op.pageId}`, "_alive", op.clock)) break;
+        if (!this.lwwCheck(op.spaceId, `page:${op.pageId}`, "_alive", op.clock))
+          break;
         const exists = await this.driver.db.execute(
           "SELECT archived_at FROM pages WHERE id = ?",
           [op.pageId],
@@ -2109,7 +2074,8 @@ export class Engine implements Platform {
       }
 
       case "page_remove":
-        if (!this.lwwCheck(op.spaceId, `page:${op.pageId}`, "_alive", op.clock)) break;
+        if (!this.lwwCheck(op.spaceId, `page:${op.pageId}`, "_alive", op.clock))
+          break;
         await this.driver.db.run(
           "UPDATE pages SET archived_at = ? WHERE id = ? AND archived_at IS NULL",
           [now, op.pageId],
@@ -2118,7 +2084,8 @@ export class Engine implements Platform {
         break;
 
       case "page_set": {
-        if (!this.lwwCheck(op.spaceId, `page:${op.pageId}`, op.field, op.clock)) break;
+        if (!this.lwwCheck(op.spaceId, `page:${op.pageId}`, op.field, op.clock))
+          break;
         const fieldMap: Record<string, string> = {
           title: "title",
           autoTitle: "auto_title",
@@ -2174,9 +2141,10 @@ export class Engine implements Platform {
         title: string;
         parent_id: string | null;
         color: string | null;
-      }>("SELECT id, title, parent_id, color FROM pages WHERE id = ? AND archived_at IS NULL", [
-        currentId,
-      ]);
+      }>(
+        "SELECT id, title, parent_id, color FROM pages WHERE id = ? AND archived_at IS NULL",
+        [currentId],
+      );
 
       if (rows.length === 0) break;
 
@@ -2200,7 +2168,9 @@ export class Engine implements Platform {
     for (const r of rows) {
       try {
         ops.push(JSON.parse(new TextDecoder().decode(r.data as Uint8Array)));
-      } catch { /* skip corrupted */ }
+      } catch {
+        /* skip corrupted */
+      }
     }
     return ops;
   }
@@ -2217,7 +2187,6 @@ export class Engine implements Platform {
 
     return page.blocks.length > 0 ? page.blocks : null;
   }
-
 }
 
 // =============================================================================
@@ -2259,7 +2228,13 @@ async function deriveSharedSignalingKey(
   const secret = hexToBytes(secretHex);
   const sorted = pubA < pubB ? `${pubA}:${pubB}` : `${pubB}:${pubA}`;
   const info = new TextEncoder().encode("cypher-shared-key:" + sorted);
-  const keyMaterial = await crypto.subtle.importKey("raw", secret.buffer as ArrayBuffer, "HKDF", false, ["deriveBits"]);
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    secret.buffer as ArrayBuffer,
+    "HKDF",
+    false,
+    ["deriveBits"],
+  );
   const bits = await crypto.subtle.deriveBits(
     { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info },
     keyMaterial,
