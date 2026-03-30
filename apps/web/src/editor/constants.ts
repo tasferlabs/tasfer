@@ -13,5 +13,5 @@ export const IMAGE_DEFAULT_HEIGHT = 220;
 export const SCROLLBAR_HOLD_DURATION = 150; // Shorter than long press, iOS feels snappy
 export const SCROLLBAR_TOUCH_BUFFER = 16; // Pixels of buffer area around the thumb for touch detection
 export const SELECTION_HANDLE_TOUCH_TARGET = 44; // Touch target size for selection handles (iOS HIG minimum)
-export const MEMBER_REMOVAL_GRACE_PERIOD_MS = 48 * 60 * 60 * 1000; // 48h grace period to deliver member_remove tombstone before closing peer topic
+export const MEMBER_REMOVAL_GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000; // 7-day grace period to deliver member_remove tombstone before closing peer topic
 
