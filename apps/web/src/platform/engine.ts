@@ -30,6 +30,7 @@ import type { Driver, CryptoDriver } from "./driver";
 import type { HLC } from "@/editor/sync/types";
 import type { ReplicatorHost } from "./sync";
 import { MEMBER_REMOVAL_GRACE_PERIOD_MS } from "@/editor/constants";
+import { nanoid } from "nanoid";
 
 /** Minimal interface the engine uses to push ops — avoids circular imports */
 interface EngineReplicator {
@@ -535,7 +536,7 @@ export class Engine implements Platform {
     },
 
     create: async (name: string): Promise<Space> => {
-      const id = crypto.randomUUID();
+      const id = nanoid(10);
       const now = new Date().toISOString();
       const identity = await this.identity.get();
 
@@ -946,7 +947,7 @@ export class Engine implements Platform {
     },
 
     create: async (data: PageCreateInput): Promise<PageFull> => {
-      const id = crypto.randomUUID();
+      const id = nanoid(10);
       const now = new Date().toISOString();
 
       const orderRows = await this.driver.db.execute<{

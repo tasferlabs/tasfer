@@ -11,34 +11,13 @@
  * when peerId is unique.
  */
 
+import { nanoid } from "nanoid";
+
 /**
- * Generate a unique peer ID.
- * Uses crypto.randomUUID() if available, falls back to custom generation.
+ * Generate a unique peer ID (6 URL-safe chars, 36 bits of entropy).
  */
 export function generatePeerId(): string {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    // Use short form of UUID (first 8 chars) for more compact IDs
-    return crypto.randomUUID().slice(0, 4);
-  }
-
-  // Fallback: generate random hex string
-  const array: number[] = [0, 0, 0, 0];
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    const tempArray = new Uint8Array(4);
-    crypto.getRandomValues(tempArray);
-    for (let i = 0; i < 4; i++) {
-      array[i] = tempArray[i];
-    }
-  } else {
-    // Last resort: Math.random (not cryptographically secure)
-    for (let i = 0; i < array.length; i++) {
-      array[i] = Math.floor(Math.random() * 256);
-    }
-  }
-
-  return array
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return nanoid(6);
 }
 
 /**
