@@ -1649,8 +1649,15 @@ export function MountedEditor({
       aria-label="Text editor"
       aria-multiline="true"
     >
-      {/* Spinner overlay — visible until local storage state is confirmed */}
-      {!isContentReady && <EditorLoadingState />}
+      {/* Spinner overlay — visible until local storage state is confirmed.
+          Absolutely positioned so it overlays the canvas regardless of DOM order,
+          preventing the skeleton from pushing the canvas below the viewport
+          (which would block mousedown events from reaching the canvas). */}
+      {!isContentReady && (
+        <div className="absolute inset-0 z-10">
+          <EditorLoadingState />
+        </div>
+      )}
       {/* Slash command menu portal */}
       {slashMenuState &&
         mountedRef.current?.portalContainer &&
