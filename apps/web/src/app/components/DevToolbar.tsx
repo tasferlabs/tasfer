@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getPlatform } from "@/platform";
 import type { Engine } from "@/platform/engine";
-import type { ConnectionState } from "@/platform/types";
+import type { ConnectionState, Peer } from "@/platform/types";
 import type { DbRow } from "@/platform/driver";
 import {
   getNetLogs,
@@ -374,6 +374,19 @@ function fmtBytes(b: number): string {
   return `${(b / (1024 * 1024)).toFixed(1)}MB`;
 }
 
+function fmtRelTime(ts: number): string {
+  const diff = Date.now() - ts;
+  const s = Math.floor(diff / 1000);
+  if (s < 10) return "just now";
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
 function fmtTime(ts: number): string {
   const d = new Date(ts);
   return (
@@ -641,6 +654,7 @@ export function DevToolbar() {
   const [conn, setConn] = useState<ConnectionState>("disconnected");
   const [connectedPeers, setConnectedPeers] = useState<string[]>([]);
   const [connectedPeerNames, setConnectedPeerNames] = useState<string[]>([]);
+  const [knownPeers, setKnownPeers] = useState<Peer[]>([]);
   const [panelHeight, setPanelHeight] = useState(() =>
     Math.min(PANEL_DEFAULT_H, Math.floor(window.innerHeight * (PANEL_MAX_H_VH / 100)))
   );
@@ -806,6 +820,13 @@ export function DevToolbar() {
     if (open && tab === "database" && dbView === "tables")
       load(table, offset, search);
   }, [open, tab, dbView, table, offset, search, load]);
+
+  useEffect(() => {
+    if (!open || tab !== "peers") return;
+    try {
+      getPlatform().peers.list().then(setKnownPeers).catch(() => {});
+    } catch { /* not ready */ }
+  }, [open, tab]);
 
   const loadCrdtOps = useCallback(async () => {
     setCrdtLoading(true);
@@ -2408,12 +2429,34 @@ export function DevToolbar() {
                       else s.types[entry.type].recv++;
                     }
 
-                    // Build display list: connected peers first, then seen-only peers
+                    // Build per-peer lookup from DB
+                    const knownByShortKey = new Map<string, Peer>();
+                    for (const p of knownPeers) knownByShortKey.set(p.publicKey.slice(0, 8), p);
+
+                    // Build display list: connected + netlog + all known DB peers
                     const connectedSet = new Set(connectedPeers.map((k) => k.slice(0, 8)));
                     const allPeerIds = [...new Set([
                       ...connectedPeers.map((k) => k.slice(0, 8)),
                       ...statsMap.keys(),
+                      ...knownPeers.map((p) => p.publicKey.slice(0, 8)),
                     ])];
+
+                    // Compute last communicated for each peer (netlog activity > DB lastSeen)
+                    const lastComm = (shortKey: string): number => {
+                      const activity = statsMap.get(shortKey)?.lastActivity ?? 0;
+                      const dbSeen = knownByShortKey.get(shortKey)?.lastSeen
+                        ? new Date(knownByShortKey.get(shortKey)!.lastSeen!).getTime()
+                        : 0;
+                      return Math.max(activity, dbSeen);
+                    };
+
+                    // Sort: connected first, then by last communicated desc
+                    allPeerIds.sort((a, b) => {
+                      const aC = connectedSet.has(a) ? 1 : 0;
+                      const bC = connectedSet.has(b) ? 1 : 0;
+                      if (aC !== bC) return bC - aC;
+                      return lastComm(b) - lastComm(a);
+                    });
 
                     // Aggregate totals across all peers
                     let totalSent = 0, totalRecv = 0, totalBytesSent = 0, totalBytesRecv = 0;
@@ -2471,7 +2514,10 @@ export function DevToolbar() {
                         {/* Per-peer cards */}
                         {allPeerIds.map((shortKey) => {
                       const idx = connectedPeers.findIndex((k) => k.slice(0, 8) === shortKey);
-                      const name = idx >= 0 ? connectedPeerNames[idx] : shortKey;
+                      const dbPeer = knownByShortKey.get(shortKey);
+                      const name = idx >= 0
+                        ? connectedPeerNames[idx]
+                        : (dbPeer?.name || shortKey);
                       const isConnected = connectedSet.has(shortKey);
                       const stats = statsMap.get(shortKey);
                       const topTypes = stats
@@ -2479,6 +2525,7 @@ export function DevToolbar() {
                             .sort((a, b) => (b[1].send + b[1].recv) - (a[1].send + a[1].recv))
                             .slice(0, 4)
                         : [];
+                      const lc = lastComm(shortKey);
 
                       return (
                         <div
@@ -2493,11 +2540,16 @@ export function DevToolbar() {
                             <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", isConnected ? "bg-emerald-500" : "bg-muted-foreground/30")} />
                             <span className="text-[11px] font-medium text-foreground truncate flex-1">{name}</span>
                             <span className="text-[10px] text-muted-foreground/50 font-mono shrink-0">{shortKey}</span>
-                            {stats && (
-                              <span className="text-[10px] text-muted-foreground/40 shrink-0">
-                                {new Date(stats.lastActivity).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                              </span>
-                            )}
+                          </div>
+
+                          {/* Last communicated */}
+                          <div className="text-[10px] text-muted-foreground/50">
+                            {isConnected
+                              ? <span className="text-emerald-400/80">Connected</span>
+                              : lc > 0
+                                ? <span>Last seen {fmtRelTime(lc)}</span>
+                                : <span>Never connected</span>
+                            }
                           </div>
 
                           {/* Stats row */}
@@ -2523,7 +2575,7 @@ export function DevToolbar() {
                               )}
                             </>
                           ) : (
-                            <span className="text-[10px] text-muted-foreground/40">No messages yet</span>
+                            <span className="text-[10px] text-muted-foreground/40">No messages this session</span>
                           )}
                         </div>
                       );

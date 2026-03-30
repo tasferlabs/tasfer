@@ -22,9 +22,10 @@ export interface ISpaceMember {
   userName: string;
   userEmail: string;
   userAvatar: string | null;
+  lastSeen: string | null;
 }
 
-function memberToLegacy(m: SpaceMember): ISpaceMember {
+function memberToLegacy(m: SpaceMember, lastSeen: string | null = null): ISpaceMember {
   return {
     id: m.publicKey,
     userId: m.publicKey,
@@ -32,6 +33,7 @@ function memberToLegacy(m: SpaceMember): ISpaceMember {
     userName: m.name,
     userEmail: "",
     userAvatar: m.avatar,
+    lastSeen,
   };
 }
 
@@ -99,8 +101,12 @@ export function useLeaveSpace<TContext = unknown>(
 
 export async function getSpaceMembers(spaceId: string): Promise<ISpaceMember[]> {
   const platform = getPlatform();
-  const space = await platform.spaces.get(spaceId);
-  return space.members.map(memberToLegacy);
+  const [space, peers] = await Promise.all([
+    platform.spaces.get(spaceId),
+    platform.peers.list(),
+  ]);
+  const peerLastSeen = new Map(peers.map((p) => [p.publicKey, p.lastSeen]));
+  return space.members.map((m) => memberToLegacy(m, peerLastSeen.get(m.publicKey) ?? null));
 }
 
 export function useGetSpaceMembers(spaceId?: string) {

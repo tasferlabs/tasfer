@@ -34,6 +34,7 @@ import {
 } from "../api/spaces.api";
 import { useAssetUrl } from "../api/images.api";
 import { AvatarPreviewDialog } from "./AvatarPreviewDialog";
+import { RelativeDate } from "@/components/ui/relative-date";
 import { useAuth } from "../contexts/AuthContext";
 import { useConfirmation } from "./ConfirmationDialog";
 import useResponsive from "../hooks/useResponsive";
@@ -226,6 +227,17 @@ function MembersTab({
     open ? spaceId : undefined,
   );
 
+  // Snapshot sort by lastSeen desc when data first loads; does not re-sort on re-renders
+  const sortedMembers = useMemo(() => {
+    if (!members) return members;
+    return [...members].sort((a, b) => {
+      if (!a.lastSeen && !b.lastSeen) return 0;
+      if (!a.lastSeen) return 1;
+      if (!b.lastSeen) return -1;
+      return new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime();
+    });
+  }, [members]);
+
   const { mutate: removeMember } = useRemoveSpaceMember({
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -274,12 +286,12 @@ function MembersTab({
         {isLoadingMembers && (
           <p className="text-sm text-muted-foreground">{t("common.loading", "Loading...")}</p>
         )}
-        {members?.length === 0 && (
+        {sortedMembers?.length === 0 && (
           <p className="text-sm text-muted-foreground">
             {t("space.noMembers", "No members yet")}
           </p>
         )}
-        {members?.map((member) => {
+        {sortedMembers?.map((member) => {
           const isMe = member.userId === user?.id;
 
           return (
@@ -301,7 +313,11 @@ function MembersTab({
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium truncate">{member.userName}</p>
                 <p className="text-xs text-muted-foreground truncate">
-                  {member.userEmail}
+                  {member.lastSeen ? (
+                    <RelativeDate date={member.lastSeen} />
+                  ) : (
+                    t("space.noActivity", "No activity")
+                  )}
                 </p>
               </div>
               <Button
