@@ -1,7 +1,8 @@
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogContent
+  DialogContent,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import {
   Drawer,
@@ -466,7 +467,7 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
           <ArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
         </button>
       )}
-      <h2 className="text-lg font-medium text-foreground">{title}</h2>
+      <DialogTitle className="text-lg font-medium text-foreground">{title}</DialogTitle>
     </div>
   );
 

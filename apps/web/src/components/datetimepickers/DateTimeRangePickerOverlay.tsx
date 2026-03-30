@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverAnchor } from '@/components/ui/popover';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { DateTime } from 'luxon';
@@ -406,6 +406,7 @@ export function DateTimeRangePickerOverlay({
     return (
       <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
         <DialogContent className="max-w-[400px] p-4 pt-6 max-h-[90vh] overflow-y-auto">
+          <DialogTitle className="sr-only">{t("common.date", "Date")}</DialogTitle>
           {component}
           <div className="flex justify-end mt-2">
             <Button onClick={onClose} variant="secondary" size="sm">

@@ -16,6 +16,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import {
   Drawer,
@@ -102,7 +103,10 @@ export function EditGroupDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>{content}</DialogContent>
+      <DialogContent>
+        <DialogTitle className="sr-only">{t("space.settings", "Space settings")}</DialogTitle>
+        {content}
+      </DialogContent>
     </Dialog>
   );
 }
