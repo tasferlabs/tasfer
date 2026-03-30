@@ -362,6 +362,12 @@ export class Replicator {
     Array<(found: boolean) => void>
   >();
 
+  /** Per-room awareness throttle state (50 ms leading+trailing) */
+  private awarenessThrottle = new Map<
+    string,
+    { timer: ReturnType<typeof setTimeout> | null; pending: AwarenessState | null }
+  >();
+
   /** Connection state */
   private connectionState: ConnectionState = "disconnected";
   private connectionListeners = new Set<(state: ConnectionState) => void>();
@@ -492,6 +498,11 @@ export class Replicator {
     }
 
     this.rooms.delete(roomId);
+
+    const th = this.awarenessThrottle.get(roomId);
+    if (th?.timer !== null && th?.timer !== undefined) clearTimeout(th.timer);
+    this.awarenessThrottle.delete(roomId);
+
     this.updateConnectionState();
   }
 
@@ -546,6 +557,31 @@ export class Replicator {
     const room = this.rooms.get(roomId);
     if (!room || !room.spaceId) return;
 
+    let th = this.awarenessThrottle.get(roomId);
+    if (!th) {
+      th = { timer: null, pending: null };
+      this.awarenessThrottle.set(roomId, th);
+    }
+
+    if (th.timer === null) {
+      // Leading edge: send immediately, then open a 50 ms window
+      this._broadcastAwareness(room, roomId, state);
+      th.timer = setTimeout(() => {
+        th!.timer = null;
+        if (th!.pending !== null) {
+          const s = th!.pending;
+          th!.pending = null;
+          const r = this.rooms.get(roomId);
+          if (r) this._broadcastAwareness(r, roomId, s);
+        }
+      }, 50);
+    } else {
+      // Within window: buffer latest state for the trailing send
+      th.pending = state;
+    }
+  }
+
+  private _broadcastAwareness(room: RoomState, roomId: string, state: AwarenessState): void {
     this.broadcastToSpacePeers(room.spaceId, {
       type: "awareness",
       pageId: roomId,
