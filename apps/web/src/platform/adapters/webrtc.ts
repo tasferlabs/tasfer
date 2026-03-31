@@ -800,7 +800,7 @@ class WebRtcNetworkDriver implements NetworkDriver {
     this.credentialsFetching = (async () => {
       try {
         const httpUrl = this.signalUrl.replace(/^wss?:\/\//, (m) => m === "wss://" ? "https://" : "http://");
-        const res = await fetch(`${httpUrl}/turn-credentials`);
+        const res = await fetch(`${httpUrl}/turn-credentials`, { signal: AbortSignal.timeout(5000) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const { iceServers } = await res.json() as { iceServers: RTCIceServer };
         this.rtcConfig = {
