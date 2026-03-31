@@ -18,6 +18,7 @@ import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
 import type { Block } from "@/deserializer/loadPage";
 import { extractTitleFromBlocks } from "@/editor/sync/char-runs";
+import { getPlatform } from "@/platform";
 import {
   useGetCalendarPages,
   useCreatePage,
@@ -204,13 +205,17 @@ export default function CalendarPage() {
 
   const { mutate: createPage } = useCreatePage({
     onSuccess: async (newPage) => {
-      // Save draft title to the new page
+      // Save draft title and body to the new page
       const { blocks } = draftSnapshotRef.current;
       if (blocks) {
         await updatePageApi({
           id: newPage.id,
           title: extractTitleFromBlocks(blocks),
         });
+        // Persist the typed content as CRDT ops so the editor shows it on open.
+        // writeBlocks reuses the existing init block for the first block so we
+        // don't end up with two heading1 blocks.
+        await getPlatform().ops.writeBlocks(newPage.id, blocks);
       }
       draftSnapshotRef.current = {};
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });

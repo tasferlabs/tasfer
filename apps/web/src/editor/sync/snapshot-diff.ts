@@ -245,6 +245,13 @@ export interface OpsContext {
   nextId: () => string;
   /** Function to get current HLC */
   getClock: () => HLC;
+  /**
+   * When set, the first non-deleted block reuses this block ID and its
+   * block_insert op is skipped (the block already exists in the DB).
+   * Used when writing draft content into a newly-created page whose init
+   * block was already persisted by createPage().
+   */
+  existingFirstBlockId?: string;
 }
 
 /**
@@ -259,11 +266,16 @@ export function blocksToOps(
   const { pageId, peerId, nextId, getClock } = ctx;
 
   let lastInsertedBlockId: string | null = null;
+  let isFirstBlock = true;
 
   for (const block of blocks) {
     if (block.deleted) continue;
 
-    const newBlockId = `b-${nextId()}`;
+    // For the first block, reuse the existing init block ID if provided so we
+    // don't duplicate the block_insert that createPage() already persisted.
+    const useExisting = isFirstBlock && !!ctx.existingFirstBlockId;
+    const newBlockId = useExisting ? ctx.existingFirstBlockId! : `b-${nextId()}`;
+    isFirstBlock = false;
 
     if (block.type === "image") {
       const blockInsertOp: BlockInsert = {
@@ -282,7 +294,30 @@ export function blocksToOps(
           objectFit: block.objectFit,
         },
       };
-      ops.push(blockInsertOp);
+      if (!useExisting) {
+        ops.push(blockInsertOp);
+      } else {
+        // Fix the init block's type and set all image properties via block_set ops
+        const fields: Array<[string, unknown]> = [
+          ["type", "image"],
+          ["url", block.url],
+        ];
+        if (block.alt !== undefined) fields.push(["alt", block.alt]);
+        if (block.width !== undefined) fields.push(["width", block.width]);
+        if (block.height !== undefined) fields.push(["height", block.height]);
+        if (block.objectFit !== undefined) fields.push(["objectFit", block.objectFit]);
+        for (const [field, value] of fields) {
+          ops.push({
+            op: "block_set",
+            id: nextId(),
+            clock: getClock(),
+            pageId,
+            blockId: newBlockId,
+            field,
+            value,
+          } as BlockSet);
+        }
+      }
       lastInsertedBlockId = newBlockId;
     } else if (block.type === "line") {
       const blockInsertOp: BlockInsert = {
@@ -294,7 +329,19 @@ export function blocksToOps(
         blockId: newBlockId,
         blockType: "line",
       };
-      ops.push(blockInsertOp);
+      if (!useExisting) {
+        ops.push(blockInsertOp);
+      } else {
+        ops.push({
+          op: "block_set",
+          id: nextId(),
+          clock: getClock(),
+          pageId,
+          blockId: newBlockId,
+          field: "type",
+          value: "line",
+        } as BlockSet);
+      }
       lastInsertedBlockId = newBlockId;
     } else if (isTextualBlock(block)) {
       // Collect visible chars and generate new IDs for them
@@ -330,7 +377,7 @@ export function blocksToOps(
         })
         .filter((f): f is FormatSpan => f !== null);
 
-      // Insert block
+      // Insert block (skip if reusing the existing init block)
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
         id: nextId(),
@@ -340,7 +387,21 @@ export function blocksToOps(
         blockId: newBlockId,
         blockType: block.type as any,
       };
-      ops.push(blockInsertOp);
+      if (!useExisting) {
+        ops.push(blockInsertOp);
+      } else if (block.type !== "heading1") {
+        // The init block was persisted as heading1. Fix the type if it differs.
+        const typeOp: BlockSet = {
+          op: "block_set",
+          id: nextId(),
+          clock: getClock(),
+          pageId,
+          blockId: newBlockId,
+          field: "type",
+          value: block.type,
+        };
+        ops.push(typeOp);
+      }
 
       // Insert text content - create CharRun directly
       if (visibleOldChars.length > 0) {

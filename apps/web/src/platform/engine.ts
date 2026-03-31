@@ -1539,7 +1539,13 @@ export class Engine implements Platform {
         return hlc;
       };
 
-      const ops = blocksToOps(blocks, { pageId, peerId, nextId, getClock });
+      const ops = blocksToOps(blocks, {
+        pageId,
+        peerId,
+        nextId,
+        getClock,
+        existingFirstBlockId: `__init_block__:${pageId}`,
+      });
       await this.ops.persist(pageId, ops);
 
       // Broadcast to connected peers so they get the content immediately

@@ -435,6 +435,25 @@ export function EventPreview({
 
   const { data: previewPage, isLoading } = useGetPage(pageId || undefined);
 
+  // Stabilize the snapshot so the editor doesn't remount on every react-query
+  // refetch. The editor manages its own state via CRDT ops after the initial
+  // mount — we only need the snapshot once per pageId.
+  const [pageSnapshot, setPageSnapshot] = useState<Block[] | null>(null);
+  const snapshotPageIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (pageId !== snapshotPageIdRef.current) {
+      snapshotPageIdRef.current = pageId;
+      setPageSnapshot(null);
+    }
+  }, [pageId]);
+
+  useEffect(() => {
+    if (previewPage?.blocks && snapshotPageIdRef.current === pageId && !pageSnapshot) {
+      setPageSnapshot(previewPage.blocks);
+    }
+  }, [previewPage?.blocks, pageId, pageSnapshot]);
+
   const { mutate: updatePage } = useUpdatePage({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
@@ -743,11 +762,12 @@ export function EventPreview({
       blockStyleOverrides={editorBlockStyleOverrides}
       placeholderOverrides={previewPlaceholderOverrides}
     />
-  ) : isLoading ? (
+  ) : isLoading && !pageSnapshot ? (
     <div className={style.previewLoading}>{t("common.loading", "Loading...")}</div>
-  ) : previewPage?.blocks && pageId ? (
+  ) : pageSnapshot && pageId ? (
     <MountedEditor
-      snapshot={previewPage.blocks}
+      key={pageId}
+      snapshot={pageSnapshot}
       pageId={pageId}
       onContentChange={handleContentChange}
       className="h-full"
