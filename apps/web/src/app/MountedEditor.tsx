@@ -275,6 +275,13 @@ export function MountedEditor({
   });
   const { isKeyboardOpen, keyboardHeight } = useKeyboardOpen();
 
+  // Forward the authoritative keyboard height into the canvas resize logic.
+  // mount.ts no longer uses window.visualViewport directly because it is
+  // unreliable on iOS (resize:"none") and Android (edge-to-edge mode).
+  useEffect(() => {
+    mountedRef.current?.setKeyboardHeight(keyboardHeight);
+  }, [keyboardHeight]);
+
   // Track current toolbar icon type
   const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">(
     "format",

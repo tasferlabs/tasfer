@@ -31,6 +31,8 @@ export interface MountedEditor {
   refocus: () => void;
   /** Blur the hidden input to dismiss the soft keyboard */
   blurInput: () => void;
+  /** Notify the canvas of the current soft-keyboard height (px). Call whenever the keyboard appears, disappears, or changes size. */
+  setKeyboardHeight: (height: number) => void;
   destroy: () => void;
 }
 
@@ -199,23 +201,21 @@ export function mountEditor(
     editor.updateViewport({ width: baseWidth, height: availableHeight });
   };
 
-  // Use the Visual Viewport API to detect keyboard open/close — no native
-  // messages needed. On both iOS WKWebView and Android WebView,
-  // visualViewport.height shrinks when the soft keyboard appears.
-  const handleViewportResize = () => {
-    if (!window.visualViewport) return;
-    const newKeyboardHeight = Math.max(
-      0,
-      window.innerHeight - window.visualViewport.height,
-    );
+  // setKeyboardHeight is called by the React component (MountedEditor.tsx) via
+  // useKeyboardOpen(), which uses platform-native sources:
+  //   iOS  — @capacitor/keyboard keyboardWillShow/Hide events
+  //   Android — native postMessage from MainActivity
+  //   Web/desktop — window.visualViewport resize events
+  // This avoids relying on window.visualViewport directly here, which is
+  // unreliable on iOS (resize:"none" keeps the viewport unchanged) and Android
+  // (edge-to-edge mode makes innerHeight - visualViewport.height inaccurate).
+  const setKeyboardHeight = (height: number) => {
     const wasOpen = keyboardHeight > 50;
-    const isOpen = newKeyboardHeight > 50;
-    keyboardHeight = newKeyboardHeight;
+    const isOpen = height > 50;
+    keyboardHeight = height;
     if (wasOpen !== isOpen) setKeyboardOpen(isOpen);
     resizeCanvasForKeyboard();
   };
-
-  window.visualViewport?.addEventListener("resize", handleViewportResize);
 
   // Keep physical keyboard detection from native messages (still useful)
   const handlePhysicalKeyboardMessage = (event: MessageEvent) => {
@@ -400,7 +400,6 @@ export function mountEditor(
       clearTimeout(blurTimeoutId);
       blurTimeoutId = null;
     }
-    window.visualViewport?.removeEventListener("resize", handleViewportResize);
     window.removeEventListener("message", handlePhysicalKeyboardMessage);
     window.removeEventListener("focus", handleWindowFocus);
     window.removeEventListener("blur", handleWindowBlur);
@@ -421,5 +420,5 @@ export function mountEditor(
     canvasContainer.remove();
   };
 
-  return { editor, refocus, blurInput, destroy, portalContainer };
+  return { editor, refocus, blurInput, setKeyboardHeight, destroy, portalContainer };
 }
