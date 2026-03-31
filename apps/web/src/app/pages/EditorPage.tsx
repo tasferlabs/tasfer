@@ -830,10 +830,11 @@ function PageActionBar({ pageId }: { pageId: string }) {
   const { isSaving, activeUsers, permission } = usePageSettings();
   const { t } = useTranslation();
 
-  // Effective color: use resolved color from parents array (last entry is the page itself with inherited color)
-  const effectiveColor = page?.parents?.length
-    ? page.parents[page.parents.length - 1].color
-    : page?.color;
+  // Effective color: page's own color, or inherit from closest ancestor that has one
+  const effectiveColor =
+    page?.color ??
+    [...(page?.parents ?? [])].reverse().find((p) => p.color)?.color ??
+    null;
 
   return (
     <>
@@ -843,7 +844,14 @@ function PageActionBar({ pageId }: { pageId: string }) {
             {page.parents &&
               page.parents.length > 1 &&
               (() => {
-                const parent = page.parents[page.parents.length - 2];
+                const parentIdx = page.parents!.length - 2;
+                const parent = page.parents![parentIdx];
+                const parentColor =
+                  parent.color ??
+                  [...page.parents!.slice(0, parentIdx)]
+                    .reverse()
+                    .find((p) => p.color)?.color ??
+                  null;
                 return (
                   <>
                     <span
@@ -855,8 +863,8 @@ function PageActionBar({ pageId }: { pageId: string }) {
                       <span
                         className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
                         style={{
-                          backgroundColor: parent.color || "var(--primary)",
-                          opacity: parent.color ? 1 : 0.3,
+                          backgroundColor: parentColor || "var(--primary)",
+                          opacity: parentColor ? 1 : 0.3,
                         }}
                       />
                       <span className="truncate">
@@ -894,7 +902,14 @@ function PageActionBar({ pageId }: { pageId: string }) {
           {page?.parents &&
             page.parents.length > 1 &&
             (() => {
-              const parent = page.parents[page.parents.length - 2];
+              const parentIdx = page.parents!.length - 2;
+              const parent = page.parents![parentIdx];
+              const parentColor =
+                parent.color ??
+                [...page.parents!.slice(0, parentIdx)]
+                  .reverse()
+                  .find((p) => p.color)?.color ??
+                null;
               return (
                 <>
                   <span
@@ -906,8 +921,8 @@ function PageActionBar({ pageId }: { pageId: string }) {
                     <span
                       className="shrink-0 inline-block w-2.5 h-2.5 rounded-full"
                       style={{
-                        backgroundColor: parent.color || "var(--primary)",
-                        opacity: parent.color ? 1 : 0.3,
+                        backgroundColor: parentColor || "var(--primary)",
+                        opacity: parentColor ? 1 : 0.3,
                       }}
                     />
                     {parent.title || t("common.untitled", "Untitled")}

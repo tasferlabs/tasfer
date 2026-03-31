@@ -1,18 +1,9 @@
 import { Command } from "cmdk";
-import {
-  Calendar,
-  Moon,
-  Plus,
-  Settings,
-  Sun,
-} from "lucide-react";
+import { Calendar, Moon, Plus, Settings, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import {
-  useCreatePage,
-  useSearchPages,
-} from "../api/pages.api";
+import { useCreatePage, useSearchPages } from "../api/pages.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useTheme } from "../hooks/useTheme";
 import { useQueryClient } from "@tanstack/react-query";
@@ -35,10 +26,7 @@ export function CommandCenter() {
   const { setTheme, effectiveTheme } = useTheme();
   const queryClient = useQueryClient();
 
-  const { data: pages } = useSearchPages(
-    open ? activeSpaceId : null,
-    search
-  );
+  const { data: pages } = useSearchPages(open ? activeSpaceId : null, search);
 
   const createPage = useCreatePage({
     onSuccess: (page) => {
@@ -92,7 +80,10 @@ export function CommandCenter() {
 
         {/* Pages */}
         {pages && pages.length > 0 && (
-          <Command.Group heading={t("page.pages", "Pages")} className={groupHeadingClass}>
+          <Command.Group
+            heading={t("page.pages", "Pages")}
+            className={groupHeadingClass}
+          >
             {pages.map((page) => (
               <Command.Item
                 key={page.id}
@@ -103,8 +94,18 @@ export function CommandCenter() {
                 <span
                   className="shrink-0 inline-block w-3 h-3 rounded-full"
                   style={{
-                    backgroundColor: page.color || "var(--primary)",
-                    opacity: page.color ? 1 : 0.3,
+                    backgroundColor: (() => {
+                      const c =
+                        page.color ??
+                        (page.path &&
+                          [...page.path].reverse().find((p) => p.color)?.color);
+                      return c || "var(--primary)";
+                    })(),
+                    opacity:
+                      page.color ||
+                      (page.path && page.path.some((p) => p.color))
+                        ? 1
+                        : 0.3,
                   }}
                 />
                 <div className="flex-1 min-w-0">
@@ -125,10 +126,22 @@ export function CommandCenter() {
         )}
 
         {/* Actions */}
-        <Command.Group heading={t("common.actions", "Actions")} className={groupHeadingClass}>
+        <Command.Group
+          heading={t("common.actions", "Actions")}
+          className={groupHeadingClass}
+        >
           <Command.Item
             value="new-page"
-            keywords={["create", t("common.createKw", "create"), "new", t("common.newKw", "new"), "page", t("common.pageKw", "page"), "add", t("common.add", "add")]}
+            keywords={[
+              "create",
+              t("common.createKw", "create"),
+              "new",
+              t("common.newKw", "new"),
+              "page",
+              t("common.pageKw", "page"),
+              "add",
+              t("common.add", "add"),
+            ]}
             onSelect={() =>
               runAction(() => {
                 if (activeSpaceId) {
@@ -150,7 +163,14 @@ export function CommandCenter() {
 
           <Command.Item
             value="calendar"
-            keywords={["calendar", t("calendar.calendarKw", "calendar"), "schedule", t("calendar.scheduleKw", "schedule"), "events", t("calendar.eventsKw", "events")]}
+            keywords={[
+              "calendar",
+              t("calendar.calendarKw", "calendar"),
+              "schedule",
+              t("calendar.scheduleKw", "schedule"),
+              "events",
+              t("calendar.eventsKw", "events"),
+            ]}
             onSelect={() => runAction(() => navigate("/calendar"))}
             className={itemClass}
           >
@@ -162,7 +182,14 @@ export function CommandCenter() {
 
           <Command.Item
             value="settings"
-            keywords={["settings", t("settings.settingsKw", "settings"), "preferences", t("settings.preferencesKw", "preferences"), "account", t("common.account", "account")]}
+            keywords={[
+              "settings",
+              t("settings.settingsKw", "settings"),
+              "preferences",
+              t("settings.preferencesKw", "preferences"),
+              "account",
+              t("common.account", "account"),
+            ]}
             onSelect={() => runAction(() => navigate("/settings"))}
             className={itemClass}
           >
@@ -174,10 +201,21 @@ export function CommandCenter() {
 
           <Command.Item
             value="toggle-theme"
-            keywords={["theme", t("settings.theme.themeKw", "theme"), "dark", t("settings.theme.darkKw", "dark"), "light", t("settings.theme.lightKw", "light"), "mode", t("settings.theme.modeKw", "mode"), "appearance", t("settings.appearanceKw", "appearance")]}
+            keywords={[
+              "theme",
+              t("settings.theme.themeKw", "theme"),
+              "dark",
+              t("settings.theme.darkKw", "dark"),
+              "light",
+              t("settings.theme.lightKw", "light"),
+              "mode",
+              t("settings.theme.modeKw", "mode"),
+              "appearance",
+              t("settings.appearanceKw", "appearance"),
+            ]}
             onSelect={() =>
               runAction(() =>
-                setTheme(effectiveTheme === "dark" ? "light" : "dark")
+                setTheme(effectiveTheme === "dark" ? "light" : "dark"),
               )
             }
             className={itemClass}

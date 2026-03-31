@@ -106,7 +106,7 @@ export interface PageSearchResult {
   id: string;
   title: string | null;
   parentId: string | null;
-  path: { id: string; title: string }[] | null;
+  path: { id: string; title: string; color?: string | null }[] | null;
   color?: string | null;
 }
 
