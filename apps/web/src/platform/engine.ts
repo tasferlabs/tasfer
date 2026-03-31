@@ -29,7 +29,6 @@ import type {
 import type { Driver, CryptoDriver } from "./driver";
 import type { HLC } from "@/editor/sync/types";
 import type { ReplicatorHost } from "./sync";
-import { MEMBER_REMOVAL_GRACE_PERIOD_MS } from "@/editor/constants";
 import { nanoid } from "nanoid";
 
 /** Minimal interface the engine uses to push ops — avoids circular imports */
@@ -59,15 +58,16 @@ interface EngineReplicator {
 // Schema & Migrations
 // =============================================================================
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 0;
 
 const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS identity (
-    id         INTEGER PRIMARY KEY CHECK (id = 1),
-    public_key TEXT NOT NULL,
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    public_key  TEXT NOT NULL,
     private_key TEXT NOT NULL,
-    name       TEXT NOT NULL DEFAULT '',
-    avatar     TEXT
+    name        TEXT NOT NULL DEFAULT '',
+    avatar      TEXT,
+    device_type TEXT NOT NULL DEFAULT ''
   );
 
   CREATE TABLE IF NOT EXISTS peers (
@@ -79,9 +79,10 @@ const SCHEMA_SQL = `
   );
 
   CREATE TABLE IF NOT EXISTS spaces (
-    id         TEXT PRIMARY KEY,
-    name       TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL DEFAULT '',
+    archived_at TEXT,
+    created_at  TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS space_members (
@@ -89,8 +90,8 @@ const SCHEMA_SQL = `
     public_key  TEXT NOT NULL,
     name        TEXT NOT NULL DEFAULT '',
     avatar      TEXT,
-    archived_at TEXT,
     added_at    TEXT NOT NULL,
+    archived_at TEXT,
     PRIMARY KEY (space_id, public_key)
   );
 
@@ -173,12 +174,6 @@ export class Engine implements Platform {
       user_version: number;
     }>("PRAGMA user_version");
 
-    if (user_version < 1) {
-      await this.driver.db.run(
-        "ALTER TABLE identity ADD COLUMN device_type TEXT NOT NULL DEFAULT ''",
-      );
-    }
-
     if (user_version < SCHEMA_VERSION) {
       await this.driver.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     }
@@ -217,8 +212,7 @@ export class Engine implements Platform {
         this.lwwCheck(op.spaceId, "space", op.field, op.clock);
         break;
       case "member_add":
-      case "member_remove":
-        this.lwwCheck(op.spaceId, `member:${op.publicKey}`, "_alive", op.clock);
+        // member_add is idempotent — no competing remove op
         break;
       case "member_set":
         this.lwwCheck(op.spaceId, `member:${op.publicKey}`, op.field, op.clock);
@@ -297,33 +291,6 @@ export class Engine implements Platform {
           [Date.now(), publicKey],
         );
       },
-      getArchivedSpaceIds: async (publicKey: string): Promise<string[]> => {
-        const cutoff = new Date(
-          Date.now() - MEMBER_REMOVAL_GRACE_PERIOD_MS,
-        ).toISOString();
-        const rows = await this.driver.db.execute<{ space_id: string }>(
-          "SELECT space_id FROM space_members WHERE public_key = ? AND archived_at IS NOT NULL AND archived_at >= ?",
-          [publicKey, cutoff],
-        );
-        return rows.map((r) => r.space_id);
-      },
-      getMemberRemoveOp: async (
-        spaceId: string,
-        publicKey: string,
-      ): Promise<SpaceOperation | null> => {
-        const rows = await this.driver.db.execute<{ data: Uint8Array }>(
-          "SELECT data FROM ops WHERE scope_id = ? AND type = 'member_remove' AND target_key = ? LIMIT 1",
-          [`space:${spaceId}`, publicKey],
-        );
-        if (rows.length === 0) return null;
-        try {
-          return JSON.parse(
-            new TextDecoder().decode(rows[0].data as Uint8Array),
-          ) as SpaceOperation;
-        } catch {
-          return null;
-        }
-      },
     };
   }
 
@@ -338,7 +305,9 @@ export class Engine implements Platform {
         name: string;
         avatar: string | null;
         device_type: string;
-      }>("SELECT public_key, name, avatar, device_type FROM identity WHERE id = 1");
+      }>(
+        "SELECT public_key, name, avatar, device_type FROM identity WHERE id = 1",
+      );
 
       if (rows.length === 0) {
         // First run — generate keypair
@@ -502,7 +471,7 @@ export class Engine implements Platform {
       }>(
         `SELECT s.* FROM spaces s
          JOIN space_members m ON m.space_id = s.id
-         WHERE m.public_key = ? AND m.archived_at IS NULL
+         WHERE m.public_key = ? AND s.archived_at IS NULL
          ORDER BY s.name`,
         [identity.publicKey],
       );
@@ -529,10 +498,9 @@ export class Engine implements Platform {
         name: string;
         avatar: string | null;
         added_at: string;
-      }>(
-        "SELECT * FROM space_members WHERE space_id = ? AND archived_at IS NULL ORDER BY added_at",
-        [id],
-      );
+      }>("SELECT * FROM space_members WHERE space_id = ? ORDER BY added_at", [
+        id,
+      ]);
 
       return {
         id: s.id,
@@ -592,16 +560,19 @@ export class Engine implements Platform {
       this.notifySpaceChange(id);
     },
 
-    leave: async (id: string): Promise<void> => {
-      const identity = await this.identity.get();
+    archive: async (id: string): Promise<void> => {
       const now = new Date().toISOString();
-      await this.emitSpaceOp(id, {
-        op: "member_remove",
-        publicKey: identity.publicKey,
-      });
       await this.driver.db.run(
-        "UPDATE space_members SET archived_at = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL",
-        [now, id, identity.publicKey],
+        "UPDATE spaces SET archived_at = ? WHERE id = ? AND archived_at IS NULL",
+        [now, id],
+      );
+      this.notifySpaceChange(id);
+    },
+
+    unarchive: async (id: string): Promise<void> => {
+      await this.driver.db.run(
+        "UPDATE spaces SET archived_at = NULL WHERE id = ?",
+        [id],
       );
       this.notifySpaceChange(id);
     },
@@ -625,7 +596,7 @@ export class Engine implements Platform {
       const col = memberFieldMap[field];
       if (col) {
         await this.driver.db.run(
-          `UPDATE space_members SET ${col} = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL`,
+          `UPDATE space_members SET ${col} = ? WHERE space_id = ? AND public_key = ?`,
           [value, spaceId, publicKey],
         );
       }
@@ -635,16 +606,6 @@ export class Engine implements Platform {
           [value, publicKey],
         );
       }
-      this.notifySpaceChange(spaceId);
-    },
-
-    removeMember: async (spaceId: string, publicKey: string): Promise<void> => {
-      await this.emitSpaceOp(spaceId, { op: "member_remove", publicKey });
-      const now = new Date().toISOString();
-      await this.driver.db.run(
-        "UPDATE space_members SET archived_at = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL",
-        [now, spaceId, publicKey],
-      );
       this.notifySpaceChange(spaceId);
     },
 
@@ -1662,20 +1623,6 @@ export class Engine implements Platform {
           this.replicator.addPeer(op.publicKey);
         }
       }
-
-      // When a member is removed, disconnect if they no longer share any space.
-      if (op.op === "member_remove" && this.replicator) {
-        const identity = await this.identity.get();
-        if (op.publicKey !== identity.publicKey) {
-          const remaining = await this.driver.db.execute<{ cnt: number }>(
-            "SELECT COUNT(*) as cnt FROM space_members WHERE public_key = ? AND archived_at IS NULL",
-            [op.publicKey],
-          );
-          if (remaining[0].cnt === 0) {
-            this.replicator.removePeer(op.publicKey);
-          }
-        }
-      }
     }
     this.notifySpaceChange(spaceId);
   }
@@ -1975,19 +1922,10 @@ export class Engine implements Platform {
         break;
 
       case "member_add": {
-        if (
-          !this.lwwCheck(
-            op.spaceId,
-            `member:${op.publicKey}`,
-            "_alive",
-            op.clock,
-          )
-        )
-          break;
         await this.driver.db.run(
           `INSERT INTO space_members (space_id, public_key, name, added_at)
            VALUES (?, ?, ?, ?)
-           ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?, archived_at = NULL`,
+           ON CONFLICT(space_id, public_key) DO UPDATE SET name = ?`,
           [op.spaceId, op.publicKey, op.name, now, op.name],
         );
         // Also trust this peer
@@ -2027,23 +1965,6 @@ export class Engine implements Platform {
             [op.value, op.publicKey],
           );
         }
-        break;
-      }
-
-      case "member_remove": {
-        if (
-          !this.lwwCheck(
-            op.spaceId,
-            `member:${op.publicKey}`,
-            "_alive",
-            op.clock,
-          )
-        )
-          break;
-        await this.driver.db.run(
-          "UPDATE space_members SET archived_at = ? WHERE space_id = ? AND public_key = ? AND archived_at IS NULL",
-          [now, op.spaceId, op.publicKey],
-        );
         break;
       }
 

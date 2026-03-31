@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
+import { P2PTutorial, hasSeenP2PTutorial } from "./P2PTutorial";
 import {
   Dialog,
   DialogContent,
@@ -69,6 +70,7 @@ export function InviteMembersDialog({
   const queryClient = useQueryClient();
   const isMobile = useResponsive("(max-width: 768px)");
 
+  const [showTutorial, setShowTutorial] = useState(false);
   const [invite, setInvite] = useState<SpaceInvite | null>(null);
   const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState<"generating" | "listening" | "error">("generating");
@@ -95,7 +97,7 @@ export function InviteMembersDialog({
     },
   });
 
-  // Generate invite when dialog opens
+  // Generate invite when dialog opens (or show tutorial first)
   useEffect(() => {
     if (open && spaceId) {
       setInvite(null);
@@ -105,12 +107,23 @@ export function InviteMembersDialog({
       setJoinedPeers([]);
       setTab("qr");
       justJoinedRef.current = null;
-      createInvite(spaceId);
+
+      if (!hasSeenP2PTutorial()) {
+        setShowTutorial(true);
+      } else {
+        setShowTutorial(false);
+        createInvite(spaceId);
+      }
     }
     return () => {
       cancelPairing();
     };
   }, [open, spaceId]);
+
+  const handleTutorialComplete = useCallback(() => {
+    setShowTutorial(false);
+    createInvite(spaceId);
+  }, [spaceId, createInvite]);
 
   // Start listening for peers (multi-peer mode)
   useEffect(() => {
@@ -157,7 +170,11 @@ export function InviteMembersDialog({
 
   const content = (
     <div className="flex flex-col gap-4">
-      {status === "generating" && (
+      {showTutorial && (
+        <P2PTutorial onComplete={handleTutorialComplete} />
+      )}
+
+      {!showTutorial && status === "generating" && (
         <div className="flex flex-col items-center justify-center py-10 gap-3">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
@@ -166,7 +183,7 @@ export function InviteMembersDialog({
         </div>
       )}
 
-      {status === "listening" && (
+      {!showTutorial && status === "listening" && (
         <>
           {/* Tab switcher */}
           <div className="flex rounded-lg bg-muted p-1 gap-1">
@@ -297,7 +314,7 @@ export function InviteMembersDialog({
         </>
       )}
 
-      {status === "error" && (
+      {!showTutorial && status === "error" && (
         <div className="flex flex-col items-center py-6 gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
             <span className="text-lg text-destructive">!</span>

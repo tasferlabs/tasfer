@@ -120,10 +120,6 @@ export interface ReplicatorHost {
   getPeerSharedKey(publicKey: string): Promise<string | null>;
   /** Update the last-seen timestamp for a peer to now */
   updatePeerLastSeen(publicKey: string): Promise<void>;
-  /** Get space IDs where a peer has been archived within the removal grace period */
-  getArchivedSpaceIds(publicKey: string): Promise<string[]>;
-  /** Get the member_remove op for a specific peer in a space, if one exists */
-  getMemberRemoveOp(spaceId: string, publicKey: string): Promise<SpaceOperation | null>;
 }
 
 // =============================================================================
@@ -930,18 +926,6 @@ export class Replicator {
       const members = await this.host.getSpaceMembers(sid);
       if (members.some((m) => m.publicKey === fromPubKey)) {
         shared.add(sid);
-      }
-    }
-
-    // Deliver member_remove tombstone to recently-removed peers (within grace period).
-    // They won't appear in sharedSpaces (archived_at IS NOT NULL), but they still need
-    // to receive their removal op so they stop participating.
-    const archivedSpaceIds = await this.host.getArchivedSpaceIds(fromPubKey);
-    for (const spaceId of archivedSpaceIds) {
-      if (shared.has(spaceId)) continue;
-      const tombstone = await this.host.getMemberRemoveOp(spaceId, fromPubKey);
-      if (tombstone) {
-        this.sendDirect(conn, { type: "space-ops", spaceId, ops: [tombstone] });
       }
     }
 

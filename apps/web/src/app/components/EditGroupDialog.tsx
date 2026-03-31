@@ -29,15 +29,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   useUpdateSpace,
   useGetSpaceMembers,
-  useRemoveSpaceMember,
-  useLeaveSpace,
   type ISpace,
 } from "../api/spaces.api";
 import { useAssetUrl } from "../api/images.api";
 import { AvatarPreviewDialog } from "./AvatarPreviewDialog";
 import { RelativeDate } from "@/components/ui/relative-date";
-import { useAuth } from "../contexts/AuthContext";
-import { useConfirmation } from "./ConfirmationDialog";
 import useResponsive from "../hooks/useResponsive";
 
 interface EditGroupDialogProps {
@@ -217,9 +213,6 @@ function MembersTab({
   openInviteMembers: () => void;
 }) {
   const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const { getConfirmation } = useConfirmation();
-  const { user } = useAuth();
 
   const [previewMember, setPreviewMember] = useState<{
     avatar: string;
@@ -242,47 +235,6 @@ function MembersTab({
     });
   }, [members]);
 
-  const { mutate: removeMember } = useRemoveSpaceMember({
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["space-members", spaceId],
-      });
-    },
-  });
-
-  const { mutate: leaveSpace } = useLeaveSpace({
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["spaces"] });
-      queryClient.invalidateQueries({ queryKey: ["pages"] });
-    },
-  });
-
-  const handleRemoveMember = async (member: { id: string; userId: string }) => {
-    const isMe = member.userId === user?.id;
-
-    if (isMe) {
-      const confirmed = await getConfirmation({
-        title: t("space.leaveSpace", "Leave space"),
-        description: t("space.confirmLeaveSpace", "Are you sure you want to leave this space?"),
-        cancelText: t("common.cancel", "Cancel"),
-        confirmText: t("common.leave", "Leave"),
-      });
-      if (confirmed) {
-        leaveSpace(spaceId);
-      }
-    } else {
-      const confirmed = await getConfirmation({
-        title: t("space.removeMember", "Remove member"),
-        description: t("space.confirmRemoveMember", "Are you sure you want to remove this member from this space?"),
-        cancelText: t("common.cancel", "Cancel"),
-        confirmText: t("common.remove", "Remove"),
-      });
-      if (confirmed) {
-        removeMember({ spaceId, memberId: member.id });
-      }
-    }
-  };
-
   return (
     <div className="space-y-4 pt-4">
       {/* Members list */}
@@ -295,46 +247,34 @@ function MembersTab({
             {t("space.noMembers", "No members yet")}
           </p>
         )}
-        {sortedMembers?.map((member) => {
-          const isMe = member.userId === user?.id;
-
-          return (
-            <div
-              key={member.id}
-              className="flex items-center justify-between rounded-md border p-2 gap-2"
-            >
-              <MemberAvatar
-                avatar={member.userAvatar}
-                name={member.userName}
-                onClick={() =>
-                  member.userAvatar &&
-                  setPreviewMember({
-                    avatar: member.userAvatar,
-                    name: member.userName,
-                  })
-                }
-              />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium truncate">{member.userName}</p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {member.lastSeen ? (
-                    <RelativeDate date={member.lastSeen} />
-                  ) : (
-                    t("space.noActivity", "No activity")
-                  )}
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs text-destructive shrink-0"
-                onClick={() => handleRemoveMember(member)}
-              >
-                {isMe ? t("common.leave", "Leave") : t("common.remove", "Remove")}
-              </Button>
+        {sortedMembers?.map((member) => (
+          <div
+            key={member.id}
+            className="flex items-center justify-between rounded-md border p-2 gap-2"
+          >
+            <MemberAvatar
+              avatar={member.userAvatar}
+              name={member.userName}
+              onClick={() =>
+                member.userAvatar &&
+                setPreviewMember({
+                  avatar: member.userAvatar,
+                  name: member.userName,
+                })
+              }
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium truncate">{member.userName}</p>
+              <p className="text-xs text-muted-foreground truncate">
+                {member.lastSeen ? (
+                  <RelativeDate date={member.lastSeen} />
+                ) : (
+                  t("space.noActivity", "No activity")
+                )}
+              </p>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
 
       <Button variant="secondary" onClick={openInviteMembers} className="w-full">

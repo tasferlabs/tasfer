@@ -215,12 +215,6 @@ export interface MemberSet extends SpaceBaseOp {
   value: unknown;
 }
 
-/** Remove a member from the space (self-leave or owner kick) */
-export interface MemberRemove extends SpaceBaseOp {
-  op: "member_remove";
-  publicKey: string;
-}
-
 /** Add a page to the space (page created) */
 export interface PageAdd extends SpaceBaseOp {
   op: "page_add";
@@ -254,7 +248,6 @@ export type SpaceOperation =
   | SpaceSet
   | MemberAdd
   | MemberSet
-  | MemberRemove
   | PageAdd
   | PageRemove
   | PageSet;
@@ -380,8 +373,10 @@ export interface Platform {
     create(name: string): Promise<Space>;
     /** Rename a space */
     rename(id: string, name: string): Promise<void>;
-    /** Leave a space (self-removal) */
-    leave(id: string): Promise<void>;
+    /** Archive a space locally (stop syncing, hide from list) */
+    archive(id: string): Promise<void>;
+    /** Unarchive a previously archived space */
+    unarchive(id: string): Promise<void>;
     /** Update a member property (name, role, etc.) */
     updateMember(
       spaceId: string,
@@ -389,8 +384,6 @@ export interface Platform {
       field: string,
       value: unknown,
     ): Promise<void>;
-    /** Remove a member (owner only) */
-    removeMember(spaceId: string, publicKey: string): Promise<void>;
     /** Subscribe to space change events */
     onChange(cb: (spaceId: string) => void): () => void;
   };

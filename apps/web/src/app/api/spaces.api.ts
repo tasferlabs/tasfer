@@ -85,16 +85,16 @@ export function useUpdateSpace<TContext = unknown>(
   });
 }
 
-export async function leaveSpace(spaceId: string): Promise<void> {
+export async function archiveSpace(spaceId: string): Promise<void> {
   const platform = getPlatform();
-  await platform.spaces.leave(spaceId);
+  await platform.spaces.archive(spaceId);
 }
 
-export function useLeaveSpace<TContext = unknown>(
+export function useArchiveSpace<TContext = unknown>(
   options?: UseMutationOptions<void, Error, string, TContext>,
 ) {
   return useMutation({
-    mutationFn: leaveSpace,
+    mutationFn: archiveSpace,
     ...options,
   });
 }
@@ -186,30 +186,3 @@ export function useAddSpaceMember<TContext = unknown>(
   });
 }
 
-export async function removeSpaceMember(data: { spaceId: string; memberId: string }): Promise<void> {
-  const platform = getPlatform();
-  await platform.spaces.removeMember(data.spaceId, data.memberId);
-}
-
-export function useRemoveSpaceMember<TContext = unknown>(
-  options?: UseMutationOptions<void, Error, { spaceId: string; memberId: string }, TContext>,
-) {
-  return useMutation({
-    mutationFn: removeSpaceMember,
-    ...options,
-  });
-}
-
-export async function deleteSpace(id: string): Promise<void> {
-  const platform = getPlatform();
-  await platform.spaces.leave(id);
-}
-
-export function useDeleteSpace<TContext = unknown>(
-  options?: UseMutationOptions<void, Error, string, TContext>,
-) {
-  return useMutation({
-    mutationFn: deleteSpace,
-    ...options,
-  });
-}

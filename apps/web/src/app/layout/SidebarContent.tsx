@@ -32,7 +32,7 @@ import {
 } from "../api/pages.api";
 // import { useGetSharedByMe, useGetSharedWithMe } from "../api/shares.api";
 import { useAssetUrl } from "../api/images.api";
-import { useLeaveSpace } from "../api/spaces.api";
+import { useArchiveSpace } from "../api/spaces.api";
 import { AvatarPreviewDialog } from "../components/AvatarPreviewDialog";
 import { useConfirmation } from "../components/ConfirmationDialog";
 import Icons from "../components/uiKit/Icons/Icons";
@@ -154,7 +154,7 @@ export function SidebarContent({
     },
   });
 
-  const { mutate: requestLeaveGroup } = useLeaveSpace({
+  const { mutate: requestArchiveSpace } = useArchiveSpace({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["spaces"] });
       queryClient.invalidateQueries({ queryKey: ["pages"] });
@@ -184,19 +184,19 @@ export function SidebarContent({
     });
   }
 
-  async function leaveGroup(groupId: string) {
+  async function archiveGroup(groupId: string) {
     const confirmed = await getConfirmation({
-      title: t("space.leaveSpace", "Leave space"),
+      title: t("space.archiveSpace", "Archive space"),
       description: t(
-        "space.confirmLeaveSpace",
-        "Are you sure you want to leave this space?",
+        "space.confirmArchiveSpace",
+        "Are you sure you want to archive this space? You will stop syncing and receiving updates.",
       ),
-      confirmText: t("common.leave", "Leave"),
+      confirmText: t("common.archive", "Archive"),
       cancelText: t("common.cancel", "Cancel"),
     });
 
     if (confirmed) {
-      requestLeaveGroup(groupId);
+      requestArchiveSpace(groupId);
     }
   }
 
@@ -512,9 +512,9 @@ export function SidebarContent({
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
-                            onClick={() => leaveGroup(space.id)}
+                            onClick={() => archiveGroup(space.id)}
                           >
-                            {t("space.leaveSpace", "Leave space")}
+                            {t("space.archiveSpace", "Archive space")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
