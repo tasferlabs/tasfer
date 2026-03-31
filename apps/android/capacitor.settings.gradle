@@ -7,3 +7,6 @@ project(':capacitor-community-sqlite').projectDir = new File('../web/node_module
 
 include ':capacitor-filesystem'
 project(':capacitor-filesystem').projectDir = new File('../web/node_modules/@capacitor/filesystem/android')
+
+include ':capacitor-keyboard'
+project(':capacitor-keyboard').projectDir = new File('../web/node_modules/@capacitor/keyboard/android')

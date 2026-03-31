@@ -27,6 +27,9 @@ const config: CapacitorConfig = {
     CapacitorHttp: {
       enabled: false,
     },
+    Keyboard: {
+      resize: "none",
+    },
   },
 };
 

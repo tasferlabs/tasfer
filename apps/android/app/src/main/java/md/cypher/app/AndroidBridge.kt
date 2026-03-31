@@ -40,18 +40,8 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     }
 
     @JavascriptInterface
-    fun updateUndoRedoState(canUndo: Boolean, canRedo: Boolean) {
-        (context as? MainActivity)?.updateUndoRedoButtons(canUndo, canRedo)
-    }
-
-    @JavascriptInterface
     fun haptic(style: String) {
         (context as? MainActivity)?.triggerHaptic(style)
-    }
-
-    @JavascriptInterface
-    fun setEditorFocused(focused: Boolean) {
-        (context as? MainActivity)?.updateEditorFocus(focused)
     }
 
     @JavascriptInterface
@@ -66,16 +56,6 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
         (context as? MainActivity)?.runOnUiThread {
             (context as? MainActivity)?.launchCamera()
         }
-    }
-
-    @JavascriptInterface
-    fun updateToolbarIcon(iconType: String) {
-        (context as? MainActivity)?.updateToolbarIcon(iconType)
-    }
-
-    @JavascriptInterface
-    fun updateFormattingState(isBold: Boolean, isItalic: Boolean, isCode: Boolean, isStrikethrough: Boolean) {
-        (context as? MainActivity)?.updateFormattingState(isBold, isItalic, isCode, isStrikethrough)
     }
 
     @JavascriptInterface

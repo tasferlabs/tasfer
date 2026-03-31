@@ -19,10 +19,8 @@
 		A1000001CYPHER000000000002 /* ClipboardBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000002 /* ClipboardBridge.swift */; };
 		A1000001CYPHER000000000003 /* StorageBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000003 /* StorageBridge.swift */; };
 		A1000001CYPHER000000000004 /* ImagePickerCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000004 /* ImagePickerCoordinator.swift */; };
-		A1000001CYPHER000000000005 /* CustomWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000005 /* CustomWebView.swift */; };
-		A1000001CYPHER000000000006 /* BlockTypeInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000006 /* BlockTypeInputView.swift */; };
-		A1000001CYPHER000000000007 /* AccessoryIslandView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000007 /* AccessoryIslandView.swift */; };
 		A1000001CYPHER000000000008 /* CypherBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000008 /* CypherBridgePlugin.swift */; };
+		A1000001CYPHER000000000009 /* NoAccessoryWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002CYPHER000000000009 /* NoAccessoryWebView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,10 +39,8 @@
 		A1000002CYPHER000000000002 /* ClipboardBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardBridge.swift; sourceTree = "<group>"; };
 		A1000002CYPHER000000000003 /* StorageBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageBridge.swift; sourceTree = "<group>"; };
 		A1000002CYPHER000000000004 /* ImagePickerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePickerCoordinator.swift; sourceTree = "<group>"; };
-		A1000002CYPHER000000000005 /* CustomWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomWebView.swift; sourceTree = "<group>"; };
-		A1000002CYPHER000000000006 /* BlockTypeInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockTypeInputView.swift; sourceTree = "<group>"; };
-		A1000002CYPHER000000000007 /* AccessoryIslandView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessoryIslandView.swift; sourceTree = "<group>"; };
 		A1000002CYPHER000000000008 /* CypherBridgePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CypherBridgePlugin.swift; sourceTree = "<group>"; };
+		A1000002CYPHER000000000009 /* NoAccessoryWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoAccessoryWebView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -85,10 +81,8 @@
 				A1000002CYPHER000000000002 /* ClipboardBridge.swift */,
 				A1000002CYPHER000000000003 /* StorageBridge.swift */,
 				A1000002CYPHER000000000004 /* ImagePickerCoordinator.swift */,
-				A1000002CYPHER000000000005 /* CustomWebView.swift */,
-				A1000002CYPHER000000000006 /* BlockTypeInputView.swift */,
-				A1000002CYPHER000000000007 /* AccessoryIslandView.swift */,
-				A1000002CYPHER000000000008 /* CypherBridgePlugin.swift */,
+					A1000002CYPHER000000000008 /* CypherBridgePlugin.swift */,
+				A1000002CYPHER000000000009 /* NoAccessoryWebView.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -186,10 +180,8 @@
 				A1000001CYPHER000000000002 /* ClipboardBridge.swift in Sources */,
 				A1000001CYPHER000000000003 /* StorageBridge.swift in Sources */,
 				A1000001CYPHER000000000004 /* ImagePickerCoordinator.swift in Sources */,
-				A1000001CYPHER000000000005 /* CustomWebView.swift in Sources */,
-				A1000001CYPHER000000000006 /* BlockTypeInputView.swift in Sources */,
-				A1000001CYPHER000000000007 /* AccessoryIslandView.swift in Sources */,
-				A1000001CYPHER000000000008 /* CypherBridgePlugin.swift in Sources */,
+					A1000001CYPHER000000000008 /* CypherBridgePlugin.swift in Sources */,
+				A1000001CYPHER000000000009 /* NoAccessoryWebView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

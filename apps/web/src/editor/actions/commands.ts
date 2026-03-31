@@ -35,7 +35,7 @@ import {
   findPreviousVisibleBlockIndex,
 } from "../sync/reducer";
 import { getClock, getPageId, nextId } from "../sync/sync";
-import type { BlockInsert, BlockSet, FormatSet, Operation } from "../sync/types";
+import type { BlockInsert, BlockSet, FormatSet, TextDelete, Operation } from "../sync/types";
 import type {
   CommandResult,
   EditorState,
@@ -384,20 +384,21 @@ function detectAndApplyInlineMarkdown(
 function applyMarkdownPrefix(
   block: Block,
   preserveType: boolean = false
-): Block {
+): { block: Block; ops: Operation[] } {
   if (!isTextualBlock(block)) {
-    return block;
+    return { block, ops: [] };
   }
   const text = getVisibleText(block.charRuns);
+  const ops: Operation[] = [];
+  const oldType = block.type;
 
   // Calculate indent level from leading spaces (2 spaces = 1 indent)
   const leadingSpaces = text.match(/^ +/)?.[0].length || 0;
   const indentLevel = Math.floor(leadingSpaces / 2);
   const textAfterSpaces = text.slice(leadingSpaces);
 
-  // Helper to remove prefix characters (mutates block.charRuns)
+  // Helper to remove prefix characters (mutates block.charRuns, generates text_delete op)
   const removePrefix = (startIdx: number, endIdx: number) => {
-    // Get char IDs to delete
     const charIds: string[] = [];
     let visibleCount = 0;
     for (const { id } of iterateVisibleChars(block.charRuns)) {
@@ -407,8 +408,32 @@ function applyMarkdownPrefix(
       visibleCount++;
       if (visibleCount >= endIdx) break;
     }
-    // Delete from runs
-    block.charRuns = deleteFromRuns(block.charRuns, charIds);
+    if (charIds.length > 0) {
+      block.charRuns = deleteFromRuns(block.charRuns, charIds);
+      const deleteOp: TextDelete = {
+        op: "text_delete",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        blockId: block.id,
+        charIds,
+      };
+      ops.push(deleteOp);
+    }
+  };
+
+  // Helper to emit block_set ops for type/property changes
+  const setBlockField = (field: string, value: any) => {
+    const setOp: BlockSet = {
+      op: "block_set",
+      id: nextId(),
+      clock: getClock(),
+      pageId: getPageId(),
+      blockId: block.id,
+      field,
+      value,
+    };
+    ops.push(setOp);
   };
 
   // Check for list markers
@@ -418,6 +443,9 @@ function applyMarkdownPrefix(
     (block as any).checked = false;
     (block as any).indent = indentLevel;
     removePrefix(0, leadingSpaces + 6);
+    if (oldType !== "todo_list") setBlockField("type", "todo_list");
+    setBlockField("checked", false);
+    setBlockField("indent", indentLevel);
   } else if (
     textAfterSpaces.startsWith("- [x] ") ||
     textAfterSpaces.startsWith("- [X] ")
@@ -427,11 +455,16 @@ function applyMarkdownPrefix(
     (block as any).checked = true;
     (block as any).indent = indentLevel;
     removePrefix(0, leadingSpaces + 6);
+    if (oldType !== "todo_list") setBlockField("type", "todo_list");
+    setBlockField("checked", true);
+    setBlockField("indent", indentLevel);
   } else if (textAfterSpaces.match(/^[-*+] /)) {
     // Bullet list
     (block as any).type = "bullet_list";
     (block as any).indent = indentLevel;
     removePrefix(0, leadingSpaces + 2);
+    if (oldType !== "bullet_list") setBlockField("type", "bullet_list");
+    setBlockField("indent", indentLevel);
   } else if (textAfterSpaces.match(/^\d+\. /)) {
     // Numbered list
     const match = textAfterSpaces.match(/^(\d+)\. /);
@@ -439,26 +472,51 @@ function applyMarkdownPrefix(
       (block as any).type = "numbered_list";
       (block as any).indent = indentLevel;
       removePrefix(0, leadingSpaces + match[0].length);
+      if (oldType !== "numbered_list") setBlockField("type", "numbered_list");
+      setBlockField("indent", indentLevel);
     }
   } else if (text.startsWith("### ")) {
     block.type = "heading3";
     removePrefix(0, 4);
+    if (oldType !== "heading3") setBlockField("type", "heading3");
   } else if (text.startsWith("## ")) {
     block.type = "heading2";
     removePrefix(0, 3);
+    if (oldType !== "heading2") setBlockField("type", "heading2");
   } else if (text.startsWith("# ")) {
     block.type = "heading1";
     removePrefix(0, 2);
+    if (oldType !== "heading1") setBlockField("type", "heading1");
   } else if (text.match(/^-{3,}$/)) {
     // Line/divider block - three or more dashes with nothing else
+    // Generate text_delete for all visible chars before clearing
+    const allCharIds: string[] = [];
+    for (const { id } of iterateVisibleChars(block.charRuns)) {
+      allCharIds.push(id);
+    }
+    if (allCharIds.length > 0) {
+      block.charRuns = deleteFromRuns(block.charRuns, allCharIds);
+      const deleteOp: TextDelete = {
+        op: "text_delete",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        blockId: block.id,
+        charIds: allCharIds,
+      };
+      ops.push(deleteOp);
+    }
     (block as any).type = "line";
-    // Line blocks don't have chars - clear them
     (block as any).charRuns = [];
+    setBlockField("type", "line");
   } else if (!preserveType) {
-    block.type = "paragraph";
+    if (oldType !== "paragraph") {
+      (block as any).type = "paragraph";
+      setBlockField("type", "paragraph");
+    }
     // Chars stay as-is with formatting preserved
   }
-  return block;
+  return { block, ops };
 }
 
 // Helper function to get selection range in proper order (start to end)
@@ -600,7 +658,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
     const blockCopy: Block = { ...block, charRuns: newCharRuns };
 
     if (block.type === "paragraph") {
-      applyMarkdownPrefix(blockCopy);
+      ops.push(...applyMarkdownPrefix(blockCopy).ops);
     }
 
     // Invalidate cache for the changed block
@@ -752,7 +810,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
     };
 
     if (startBlock.type === "paragraph") {
-      applyMarkdownPrefix(blockCopy);
+      ops.push(...applyMarkdownPrefix(blockCopy).ops);
     }
 
     // Invalidate cache for merged block
@@ -908,7 +966,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
         charRuns: newCharRuns,
         formats: newFormats,
       };
-      applyMarkdownPrefix(blockBeforeMarkdown, oldBlock.type !== "paragraph");
+      ops.push(...applyMarkdownPrefix(blockBeforeMarkdown, oldBlock.type !== "paragraph").ops);
       invalidateBlockCache(blockBeforeMarkdown);
 
       const blocksBeforeMarkdown = [
@@ -965,7 +1023,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
     charRuns: finalCharRuns,
     formats: finalFormats,
   };
-  applyMarkdownPrefix(blockCopy, oldBlock.type !== "paragraph");
+  ops.push(...applyMarkdownPrefix(blockCopy, oldBlock.type !== "paragraph").ops);
 
   // Invalidate cache for the changed block (do it BEFORE adding to page)
   invalidateBlockCache(blockCopy);
@@ -1043,7 +1101,7 @@ export function deleteText(state: EditorState): CommandResult {
 
     const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
     if (oldBlock.type === "paragraph") {
-      applyMarkdownPrefix(blockCopy);
+      ops.push(...applyMarkdownPrefix(blockCopy).ops);
     }
     // Invalidate cache for the changed block
     invalidateBlockCache(blockCopy);
@@ -1269,7 +1327,7 @@ export function deleteText(state: EditorState): CommandResult {
     };
     // Only apply markdown prefix if the resulting type is a paragraph
     if (blockCopy.type === "paragraph") {
-      applyMarkdownPrefix(blockCopy);
+      ops.push(...applyMarkdownPrefix(blockCopy).ops);
     }
     // Invalidate the merged block
     invalidateBlockCache(blockCopy);
@@ -1374,7 +1432,7 @@ export function deleteForward(state: EditorState): CommandResult {
 
     const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
     if (oldBlock.type === "paragraph") {
-      applyMarkdownPrefix(blockCopy);
+      ops.push(...applyMarkdownPrefix(blockCopy).ops);
     }
     // Invalidate cache for the changed block
     invalidateBlockCache(blockCopy);
@@ -1491,7 +1549,7 @@ export function deleteForward(state: EditorState): CommandResult {
       };
       // Only apply markdown prefix if the resulting type is a paragraph
       if (blockCopy.type === "paragraph") {
-        applyMarkdownPrefix(blockCopy);
+        ops.push(...applyMarkdownPrefix(blockCopy).ops);
       }
       // Invalidate the merged block
       invalidateBlockCache(blockCopy);
@@ -1810,7 +1868,7 @@ export function deleteWordForward(state: EditorState): CommandResult {
 
     const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
     if (oldBlock.type === "paragraph") {
-      applyMarkdownPrefix(blockCopy);
+      ops.push(...applyMarkdownPrefix(blockCopy).ops);
     }
     // Invalidate cache for the changed block
     invalidateBlockCache(blockCopy);
@@ -1867,7 +1925,7 @@ export function deleteWordForward(state: EditorState): CommandResult {
       };
       // Only apply markdown prefix if the resulting type is a paragraph
       if (blockCopy.type === "paragraph") {
-        applyMarkdownPrefix(blockCopy);
+        ops.push(...applyMarkdownPrefix(blockCopy).ops);
       }
       // Invalidate the merged block
       invalidateBlockCache(blockCopy);
@@ -1931,7 +1989,7 @@ export function deleteWordBackward(state: EditorState): CommandResult {
 
     const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
     if (oldBlock.type === "paragraph") {
-      applyMarkdownPrefix(blockCopy);
+      ops.push(...applyMarkdownPrefix(blockCopy).ops);
     }
     // Invalidate cache for the changed block
     invalidateBlockCache(blockCopy);
@@ -1983,7 +2041,7 @@ export function deleteWordBackward(state: EditorState): CommandResult {
     };
     // Only apply markdown prefix if the resulting type is a paragraph
     if (blockCopy.type === "paragraph") {
-      applyMarkdownPrefix(blockCopy);
+      ops.push(...applyMarkdownPrefix(blockCopy).ops);
     }
     // Invalidate the merged block
     invalidateBlockCache(blockCopy);
@@ -2572,7 +2630,7 @@ export function splitBlock(state: EditorState): CommandResult {
   }
 
   // Handle heading and paragraph blocks (non-list text blocks)
-  let blockCopy1Type: "heading1" | "heading2" | "heading3" | "paragraph";
+  let blockCopy1Type: Block["type"];
   let blockCopy2Type: "heading1" | "heading2" | "heading3" | "paragraph";
 
   if (originalType.startsWith("heading")) {
@@ -2633,13 +2691,19 @@ export function splitBlock(state: EditorState): CommandResult {
     formats: currentBlock.formats,
   };
 
-  // Only apply markdown prefix if the block type is a paragraph
+  // Only apply markdown prefix if the block type is a paragraph.
+  // applyMarkdownPrefix is the sole owner of block_set ops for type, indent, and
+  // checked when it fires — the guard below only emits a type op when
+  // applyMarkdownPrefix did NOT change the type (i.e. non-markdown type change).
+  const typeBeforeMarkdown = blockCopy1Type;
   if (blockCopy1Type === "paragraph") {
-    applyMarkdownPrefix(blockCopy1);
+    ops.push(...applyMarkdownPrefix(blockCopy1).ops);
+    // applyMarkdownPrefix may have changed the type (e.g. paragraph → bullet_list)
+    blockCopy1Type = blockCopy1.type;
   }
 
-  // Change block type if needed
-  if (blockCopy1Type !== originalType) {
+  // Emit a type-change op only when applyMarkdownPrefix didn't already handle it
+  if (blockCopy1Type !== originalType && blockCopy1Type === typeBeforeMarkdown) {
     const blockSetOp: BlockSet = {
       op: "block_set",
       id: nextId(),

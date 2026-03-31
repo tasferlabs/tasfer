@@ -13,7 +13,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.2.0"),
         .package(name: "CapacitorCommunitySqlite", path: "../../../web/node_modules/@capacitor-community/sqlite"),
-        .package(name: "CapacitorFilesystem", path: "../../../web/node_modules/@capacitor/filesystem")
+        .package(name: "CapacitorFilesystem", path: "../../../web/node_modules/@capacitor/filesystem"),
+        .package(name: "CapacitorKeyboard", path: "../../../web/node_modules/@capacitor/keyboard")
     ],
     targets: [
         .target(
@@ -22,7 +23,8 @@ let package = Package(
                 .product(name: "Capacitor", package: "capacitor-swift-pm"),
                 .product(name: "Cordova", package: "capacitor-swift-pm"),
                 .product(name: "CapacitorCommunitySqlite", package: "CapacitorCommunitySqlite"),
-                .product(name: "CapacitorFilesystem", package: "CapacitorFilesystem")
+                .product(name: "CapacitorFilesystem", package: "CapacitorFilesystem"),
+                .product(name: "CapacitorKeyboard", package: "CapacitorKeyboard")
             ]
         )
     ]

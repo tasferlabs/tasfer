@@ -27,6 +27,11 @@ import {
   Type,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  MobileKeyboardToolbar,
+  type BlockType as MobileBlockType,
+} from "./components/MobileKeyboardToolbar";
+import { useKeyboardOpen } from "./hooks/useKeyboardOpen";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { Block } from "../deserializer/loadPage";
@@ -256,6 +261,20 @@ export function MountedEditor({
   const isApplyingRemoteOpsRef = useRef(false);
   // Spinner overlay: hidden once we've confirmed local storage state (ops loaded or snapshot has content)
   const [isContentReady, setIsContentReady] = useState(false);
+
+  // Mobile keyboard toolbar state (updated on every editor state change)
+  const [mobileToolbar, setMobileToolbar] = useState({
+    canUndo: false,
+    canRedo: false,
+    isBold: false,
+    isItalic: false,
+    isCode: false,
+    isStrikethrough: false,
+    blockType: "paragraph" as MobileBlockType,
+    isEditorFocused: false,
+  });
+  const { isKeyboardOpen, keyboardHeight } = useKeyboardOpen();
+
   // Track current toolbar icon type
   const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">(
     "format",
@@ -928,12 +947,6 @@ export function MountedEditor({
         persistedImageHoverRef.current = null;
       }
 
-      // Send undo/redo state to native bridge
-      window.CypherBridge?.editor.updateUndoRedoState(
-        state.undoManager.undoStack.length > 0,
-        state.undoManager.redoStack.length > 0,
-      );
-
       // Update toolbar icon based on selection state
       const determineToolbarIcon = (): "link" | "image" | "format" | "none" => {
         // Check if an image block is selected
@@ -984,8 +997,6 @@ export function MountedEditor({
 
       // Update the ref so format button handler knows current icon
       currentIconTypeRef.current = iconType;
-
-      window.CypherBridge?.editor.updateToolbarIcon(iconType);
 
       // Send formatting state to native bridge
       // When there's a selection, check if ALL chars have the format
@@ -1050,12 +1061,41 @@ export function MountedEditor({
         isStrikethrough = activeFormats.some((f) => f.type === "strikethrough");
       }
 
-      window.CypherBridge?.editor.updateFormattingState(
+      // Update mobile toolbar state
+      const cursorBlockIndex = state.document.cursor?.position.blockIndex;
+      const cursorBlock =
+        cursorBlockIndex !== undefined
+          ? state.document.page.blocks[cursorBlockIndex]
+          : null;
+      const rawBlockType = cursorBlock?.type ?? "paragraph";
+      // Map editor block types to MobileBlockType
+      const MOBILE_BLOCK_TYPES: readonly MobileBlockType[] = [
+        "paragraph",
+        "heading1",
+        "heading2",
+        "heading3",
+        "bullet_list",
+        "numbered_list",
+        "todo_list",
+        "image",
+        "line",
+      ];
+      const blockType: MobileBlockType = MOBILE_BLOCK_TYPES.includes(
+        rawBlockType as MobileBlockType,
+      )
+        ? (rawBlockType as MobileBlockType)
+        : "paragraph";
+
+      setMobileToolbar({
+        canUndo: state.undoManager.undoStack.length > 0,
+        canRedo: state.undoManager.redoStack.length > 0,
         isBold,
         isItalic,
         isCode,
         isStrikethrough,
-      );
+        blockType,
+        isEditorFocused: state.view.isFocused,
+      });
     };
 
     const unsubscribe = mounted.editor.subscribe(handleStateChange);
@@ -2104,6 +2144,36 @@ export function MountedEditor({
           totalMatches={findMatches.length}
         />
       )}
+
+      {/* Mobile keyboard toolbar — always mounted while editor is focused on touch so
+          the slide-in/out animation can play. Visibility is driven by isKeyboardOpen. */}
+      {!readonly &&
+        mobileToolbar.isEditorFocused &&
+        isTouchDevice() && (
+          <MobileKeyboardToolbar
+            isVisible={isKeyboardOpen}
+            keyboardHeight={keyboardHeight}
+            canUndo={mobileToolbar.canUndo}
+            canRedo={mobileToolbar.canRedo}
+            isBold={mobileToolbar.isBold}
+            isItalic={mobileToolbar.isItalic}
+            isCode={mobileToolbar.isCode}
+            isStrikethrough={mobileToolbar.isStrikethrough}
+            currentBlockType={mobileToolbar.blockType}
+            onUndo={() => mountedRef.current?.editor.undo()}
+            onRedo={() => mountedRef.current?.editor.redo()}
+            onToggleBold={() => mountedRef.current?.editor.toggleBold()}
+            onToggleItalic={() => mountedRef.current?.editor.toggleItalic()}
+            onToggleCode={() => mountedRef.current?.editor.toggleCode()}
+            onToggleStrikethrough={() =>
+              mountedRef.current?.editor.toggleStrikethrough()
+            }
+            onSetBlockType={(type) =>
+              mountedRef.current?.editor.setBlockType(type as any)
+            }
+            onDismissKeyboard={() => mountedRef.current?.blurInput()}
+          />
+        )}
     </div>
   );
 }

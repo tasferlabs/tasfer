@@ -29,6 +29,8 @@ export interface MountedEditor {
   readonly portalContainer: HTMLDivElement;
   /** Refocus the hidden input (useful after closing drawers/modals) */
   refocus: () => void;
+  /** Blur the hidden input to dismiss the soft keyboard */
+  blurInput: () => void;
   destroy: () => void;
 }
 
@@ -178,12 +180,17 @@ export function mountEditor(
     hiddenInput
   );
 
+  // Height reserved by the React keyboard toolbar when keyboard is open
+  const KEYBOARD_TOOLBAR_HEIGHT = 48;
+
   let keyboardHeight = 0;
   let baseWidth = initial.width;
   let baseHeight = initial.height;
 
   const resizeCanvasForKeyboard = () => {
-    const availableHeight = Math.max(baseHeight - keyboardHeight, 100);
+    const isKbOpen = keyboardHeight > 50;
+    const toolbarOffset = isKbOpen && isTouchDevice() ? KEYBOARD_TOOLBAR_HEIGHT : 0;
+    const availableHeight = Math.max(baseHeight - keyboardHeight - toolbarOffset, 100);
     canvasContainer.style.width = `${baseWidth}px`;
     canvasContainer.style.height = `${availableHeight}px`;
     portalContainer.style.width = `${baseWidth}px`;
@@ -192,22 +199,31 @@ export function mountEditor(
     editor.updateViewport({ width: baseWidth, height: availableHeight });
   };
 
-  const handleKeyboardMessage = (event: MessageEvent) => {
-    if (event.data?.type === "keyboard-show") {
-      keyboardHeight = event.data.height || 0;
-      setKeyboardOpen(true);
-      resizeCanvasForKeyboard();
-    } else if (event.data?.type === "keyboard-hide") {
-      keyboardHeight = 0;
-      setKeyboardOpen(false);
-      resizeCanvasForKeyboard();
-    } else if (event.data?.type === "physical-keyboard-connected") {
-      const hasPhysicalKeyboard = event.data.connected === true;
-      editor.setPhysicalKeyboard(hasPhysicalKeyboard);
-    }
+  // Use the Visual Viewport API to detect keyboard open/close — no native
+  // messages needed. On both iOS WKWebView and Android WebView,
+  // visualViewport.height shrinks when the soft keyboard appears.
+  const handleViewportResize = () => {
+    if (!window.visualViewport) return;
+    const newKeyboardHeight = Math.max(
+      0,
+      window.innerHeight - window.visualViewport.height,
+    );
+    const wasOpen = keyboardHeight > 50;
+    const isOpen = newKeyboardHeight > 50;
+    keyboardHeight = newKeyboardHeight;
+    if (wasOpen !== isOpen) setKeyboardOpen(isOpen);
+    resizeCanvasForKeyboard();
   };
 
-  window.addEventListener("message", handleKeyboardMessage);
+  window.visualViewport?.addEventListener("resize", handleViewportResize);
+
+  // Keep physical keyboard detection from native messages (still useful)
+  const handlePhysicalKeyboardMessage = (event: MessageEvent) => {
+    if (event.data?.type === "physical-keyboard-connected") {
+      editor.setPhysicalKeyboard(event.data.connected === true);
+    }
+  };
+  window.addEventListener("message", handlePhysicalKeyboardMessage);
 
   const initialKeyboardState = detectPhysicalKeyboardHeuristic();
   editor.setPhysicalKeyboard(initialKeyboardState);
@@ -232,6 +248,9 @@ export function mountEditor(
       return;
     }
     editor.setFocus(false, true);
+    if (e instanceof TouchEvent) {
+      hiddenInput.blur();
+    }
   };
 
   let blurTimeoutId: number | null = null;
@@ -316,6 +335,8 @@ export function mountEditor(
     if (!target) return;
     if (target === hiddenInput) return;
     if (canvasContainer.contains(target)) return;
+    // Don't unfocus when focus moves into editor overlay UI (e.g. mobile keyboard toolbar)
+    if (target instanceof HTMLElement && target.closest("[data-editor-overlay]")) return;
     if (editor.getState()?.view.isFocused) {
       editor.setFocus(false);
     }
@@ -356,8 +377,14 @@ export function mountEditor(
   themeObserver.observe(document.documentElement, { attributes: true });
 
   const refocus = () => {
-    if (hiddenInput && !destroyed && window.CypherBridge) {
+    if (hiddenInput && !destroyed) {
       hiddenInput.focus({ preventScroll: true });
+    }
+  };
+
+  const blurInput = () => {
+    if (!destroyed) {
+      hiddenInput.blur();
     }
   };
 
@@ -373,7 +400,8 @@ export function mountEditor(
       clearTimeout(blurTimeoutId);
       blurTimeoutId = null;
     }
-    window.removeEventListener("message", handleKeyboardMessage);
+    window.visualViewport?.removeEventListener("resize", handleViewportResize);
+    window.removeEventListener("message", handlePhysicalKeyboardMessage);
     window.removeEventListener("focus", handleWindowFocus);
     window.removeEventListener("blur", handleWindowBlur);
     themeObserver.disconnect();
@@ -393,5 +421,5 @@ export function mountEditor(
     canvasContainer.remove();
   };
 
-  return { editor, refocus, destroy, portalContainer };
+  return { editor, refocus, blurInput, destroy, portalContainer };
 }

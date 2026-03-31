@@ -1408,9 +1408,6 @@ export default function createEditor(
       state = clearSelection(state);
     }
     scheduleRender(); // Schedule render when focus changes
-
-    // Notify native platform of editor focus state
-    window.CypherBridge?.editor.setFocused(focused);
   }
 
   function setInitialCursor() {

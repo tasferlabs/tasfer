@@ -25,17 +25,6 @@ export interface CypherBridge {
   };
 
   editor: {
-    setFocused(focused: boolean): Promise<void>;
-    updateUndoRedoState(canUndo: boolean, canRedo: boolean): Promise<void>;
-    updateToolbarIcon(
-      iconType: "link" | "image" | "format" | "none",
-    ): Promise<void>;
-    updateFormattingState(
-      isBold: boolean,
-      isItalic: boolean,
-      isCode: boolean,
-      isStrikethrough: boolean,
-    ): Promise<void>;
     setColorScheme(scheme: "light" | "dark"): Promise<void>;
   };
 

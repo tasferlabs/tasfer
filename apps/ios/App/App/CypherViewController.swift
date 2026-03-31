@@ -78,10 +78,6 @@ class CypherViewController: CAPBridgeViewController {
                         trigger: function(style) { return callNative({action: 'haptic', style: style}); }
                     },
                     editor: {
-                        setFocused: function(focused) { return callNative({action: 'editor-focus', focused: focused}); },
-                        updateUndoRedoState: function(canUndo, canRedo) { return callNative({action: 'undo-redo-state', canUndo: canUndo, canRedo: canRedo}); },
-                        updateToolbarIcon: function(iconType) { return callNative({action: 'toolbar-icon', iconType: iconType}); },
-                        updateFormattingState: function(bold, italic, code, strikethrough) { return callNative({action: 'formatting-state', bold: bold, italic: italic, code: code, strikethrough: strikethrough}); },
                         setColorScheme: function(scheme) { return callNative({action: 'setColorScheme', colorScheme: scheme}); }
                     },
                     navigation: {
@@ -109,65 +105,6 @@ class CypherViewController: CAPBridgeViewController {
             source: scriptSource, injectionTime: .atDocumentStart, forMainFrameOnly: false)
         userContentController.addUserScript(script)
 
-        // Inject script to disable keyboard shortcuts bar on all input elements
-        let disableShortcutsBarScript = """
-            (function() {
-                const style = document.createElement('style');
-                style.textContent = `
-                    input, textarea {
-                        -webkit-user-select: text !important;
-                    }
-                `;
-                document.head.appendChild(style);
-
-                function configureInput(input) {
-                    if (!input) return;
-                    input.setAttribute('autocorrect', 'off');
-                    input.setAttribute('autocapitalize', 'off');
-                    input.setAttribute('spellcheck', 'false');
-                }
-
-                function applyToExistingInputs() {
-                    const inputs = document.querySelectorAll('input, textarea');
-                    inputs.forEach(configureInput);
-                }
-
-                const observer = new MutationObserver(function(mutations) {
-                    mutations.forEach(function(mutation) {
-                        mutation.addedNodes.forEach(function(node) {
-                            if (node.nodeType === 1) {
-                                if (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') {
-                                    configureInput(node);
-                                }
-                                if (node.querySelectorAll) {
-                                    const inputs = node.querySelectorAll('input, textarea');
-                                    inputs.forEach(configureInput);
-                                }
-                            }
-                        });
-                    });
-                });
-
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', function() {
-                        applyToExistingInputs();
-                        if (document.body) {
-                            observer.observe(document.body, { childList: true, subtree: true });
-                        }
-                    });
-                } else {
-                    applyToExistingInputs();
-                    if (document.body) {
-                        observer.observe(document.body, { childList: true, subtree: true });
-                    }
-                }
-            })();
-            """
-        let disableShortcutsScript = WKUserScript(
-            source: disableShortcutsBarScript, injectionTime: .atDocumentEnd,
-            forMainFrameOnly: false)
-        userContentController.addUserScript(disableShortcutsScript)
-
         // Add native message handlers
         let clipboardBridge = ClipboardBridge()
         let storageBridge = StorageBridge()
@@ -182,9 +119,9 @@ class CypherViewController: CAPBridgeViewController {
         self._storageBridge = storageBridge
         self._imagePickerCoordinator = imagePickerCoordinator
 
-        // Create the custom web view
-        let webView = CustomWebView(frame: frame, configuration: configuration)
-        webView.setupAccessoryView()
+        // Create the web view — use our subclass to suppress the native input accessory bar
+        // (the up/down/checkmark row) so only our custom MobileKeyboardToolbar is shown.
+        let webView = NoAccessoryWebView(frame: frame, configuration: configuration)
 
         // Set WebView background to theme color to prevent white flash
         webView.isOpaque = false
@@ -221,31 +158,6 @@ class CypherViewController: CAPBridgeViewController {
         // Set presenting view controller for image picker
         imagePickerCoordinator.presentingViewController = self
 
-        // Register keyboard notifications for web
-        NotificationCenter.default.addObserver(
-            forName: UIResponder.keyboardWillShowNotification,
-            object: nil,
-            queue: .main
-        ) { notification in
-            if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey]
-                as? CGRect
-            {
-                let keyboardHeight = keyboardFrame.height
-                let js =
-                    "window.postMessage({type: 'keyboard-show', height: \(keyboardHeight)}, '*');"
-                webView.evaluateJavaScript(js, completionHandler: nil)
-            }
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: UIResponder.keyboardWillHideNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            let js = "window.postMessage({type: 'keyboard-hide'}, '*');"
-            webView.evaluateJavaScript(js, completionHandler: nil)
-        }
-
         #if DEBUG
             if #available(iOS 16.4, *) {
                 webView.isInspectable = true
@@ -259,4 +171,12 @@ class CypherViewController: CAPBridgeViewController {
     private var _clipboardBridge: ClipboardBridge?
     private var _storageBridge: StorageBridge?
     private var _imagePickerCoordinator: ImagePickerCoordinator?
+}
+
+private extension UIColor {
+    func toHex() -> String {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        getRed(&r, green: &g, blue: &b, alpha: &a)
+        return String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
+    }
 }
