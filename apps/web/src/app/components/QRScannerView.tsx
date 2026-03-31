@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Html5Qrcode } from "html5-qrcode";
 import { Camera, X } from "lucide-react";
@@ -11,6 +11,8 @@ interface QRScannerViewProps {
 
 export function QRScannerView({ onScan, onClose, hideClose }: QRScannerViewProps) {
   const { t } = useTranslation();
+  const reactId = useId();
+  const scannerId = `qr-reader-${reactId.replace(/:/g, "")}`;
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -18,70 +20,88 @@ export function QRScannerView({ onScan, onClose, hideClose }: QRScannerViewProps
   const hasScannedRef = useRef(false);
   const isRunningRef = useRef(false);
 
-  const startScanner = useCallback(async () => {
-    if (!containerRef.current) return;
+  useEffect(() => {
+    let cancelled = false;
 
-    try {
-      const scanner = new Html5Qrcode("qr-reader", { verbose: false });
-      scannerRef.current = scanner;
+    async function startScanner() {
+      if (!containerRef.current) return;
 
-      const cameras = await Html5Qrcode.getCameras();
-      if (cameras.length === 0) {
-        setError(t("scanner.noCamera", "No camera found on this device"));
-        return;
-      }
+      let scanner: Html5Qrcode | null = null;
+      try {
+        scanner = new Html5Qrcode(scannerId, { verbose: false });
+        scannerRef.current = scanner;
 
-      // Prefer back camera on mobile
-      const backCamera = cameras.find(
-        (c) =>
-          c.label.toLowerCase().includes("back") ||
-          c.label.toLowerCase().includes("rear") ||
-          c.label.toLowerCase().includes("environment"),
-      );
-      const cameraId = backCamera ? backCamera.id : cameras[0].id;
+        const cameras = await Html5Qrcode.getCameras();
 
-      await scanner.start(
-        cameraId,
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 250 },
-          aspectRatio: 1,
-        },
-        (decodedText) => {
-          if (hasScannedRef.current) return;
-          hasScannedRef.current = true;
-          onScan(decodedText);
-        },
-        () => {
-          // ignore scan failures (no QR in frame)
-        },
-      );
+        // Effect was cleaned up while awaiting — stop immediately and bail
+        if (cancelled) {
+          scanner.clear();
+          return;
+        }
 
-      isRunningRef.current = true;
-      setReady(true);
-    } catch (err) {
-      if (err instanceof Error && err.message.includes("Permission")) {
-        setError(
-          t(
-            "scanner.permissionDenied",
-            "Camera permission denied. Please allow camera access to scan QR codes.",
-          ),
+        if (cameras.length === 0) {
+          setError(t("scanner.noCamera", "No camera found on this device"));
+          return;
+        }
+
+        // Prefer back camera on mobile
+        const backCamera = cameras.find(
+          (c) =>
+            c.label.toLowerCase().includes("back") ||
+            c.label.toLowerCase().includes("rear") ||
+            c.label.toLowerCase().includes("environment"),
         );
-      } else {
-        setError(
-          t(
-            "scanner.cameraError",
-            "Could not access camera. Make sure no other app is using it.",
-          ),
+        const cameraId = backCamera ? backCamera.id : cameras[0].id;
+
+        await scanner.start(
+          cameraId,
+          {
+            fps: 10,
+            qrbox: { width: 250, height: 250 },
+            aspectRatio: 1,
+          },
+          (decodedText) => {
+            if (hasScannedRef.current) return;
+            hasScannedRef.current = true;
+            onScan(decodedText);
+          },
+          () => {
+            // ignore scan failures (no QR in frame)
+          },
         );
+
+        // Effect was cleaned up while the camera was starting — stop it now
+        if (cancelled) {
+          scanner.stop().then(() => scanner!.clear()).catch(() => {});
+          return;
+        }
+
+        isRunningRef.current = true;
+        setReady(true);
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof Error && err.message.includes("Permission")) {
+          setError(
+            t(
+              "scanner.permissionDenied",
+              "Camera permission denied. Please allow camera access to scan QR codes.",
+            ),
+          );
+        } else {
+          setError(
+            t(
+              "scanner.cameraError",
+              "Could not access camera. Make sure no other app is using it.",
+            ),
+          );
+        }
       }
     }
-  }, [onScan, t]);
 
-  useEffect(() => {
     startScanner();
 
     return () => {
+      cancelled = true;
       const scanner = scannerRef.current;
       if (scanner && isRunningRef.current) {
         isRunningRef.current = false;
@@ -91,7 +111,7 @@ export function QRScannerView({ onScan, onClose, hideClose }: QRScannerViewProps
           .catch(() => {});
       }
     };
-  }, [startScanner]);
+  }, [scannerId, onScan, t]);
 
   if (error) {
     return (
@@ -117,7 +137,7 @@ export function QRScannerView({ onScan, onClose, hideClose }: QRScannerViewProps
       <div className="relative w-full overflow-hidden rounded-xl" ref={containerRef}>
         {/* Camera feed — html5-qrcode renders into this div */}
         <div
-          id="qr-reader"
+          id={scannerId}
           className="qr-scanner-container w-full"
           style={{ minHeight: 280 }}
         />
