@@ -160,7 +160,10 @@ export class Engine implements Platform {
   /** Initialize the database schema. Call once at startup. */
   async init(): Promise<void> {
     await this.driver.db.exec(SCHEMA_SQL);
-    await this.runMigrations();
+    // In staging, migrations are applied explicitly via DevToolbar.
+    if (import.meta.env.VITE_STAGING !== "true") {
+      await this.applyMigrations();
+    }
     await this.loadSpaceHlcCounters();
   }
 
@@ -169,7 +172,16 @@ export class Engine implements Platform {
   // Bump SCHEMA_VERSION when adding a new migration.
   // ---------------------------------------------------------------------------
 
-  private async runMigrations(): Promise<void> {
+  /** Returns how many migrations are pending (0 means schema is up to date). */
+  async getPendingMigrations(): Promise<number> {
+    const [{ user_version }] = await this.driver.db.execute<{
+      user_version: number;
+    }>("PRAGMA user_version");
+    return Math.max(0, SCHEMA_VERSION - (user_version as number));
+  }
+
+  /** Apply all pending migrations. Safe to call multiple times. */
+  async applyMigrations(): Promise<void> {
     const [{ user_version }] = await this.driver.db.execute<{
       user_version: number;
     }>("PRAGMA user_version");

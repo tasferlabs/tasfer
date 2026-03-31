@@ -660,6 +660,10 @@ export function DevToolbar() {
   );
   const [isResizing, setIsResizing] = useState(false);
 
+  // migrations
+  const [pendingMigrations, setPendingMigrations] = useState(0);
+  const [migrating, setMigrating] = useState(false);
+
   // database — tables view
   const [dbView, setDbView] = useState<DbView>("tables");
   const [table, setTable] = useState<TableName>("pages");
@@ -820,6 +824,25 @@ export function DevToolbar() {
     if (open && tab === "database" && dbView === "tables")
       load(table, offset, search);
   }, [open, tab, dbView, table, offset, search, load]);
+
+  useEffect(() => {
+    if (!open || tab !== "database") return;
+    try {
+      (getPlatform() as unknown as Engine).getPendingMigrations()
+        .then(setPendingMigrations)
+        .catch(() => {});
+    } catch { /* not ready */ }
+  }, [open, tab]);
+
+  async function runMigrations() {
+    setMigrating(true);
+    try {
+      await (getPlatform() as unknown as Engine).applyMigrations();
+      setPendingMigrations(0);
+    } catch { /* ignore */ } finally {
+      setMigrating(false);
+    }
+  }
 
   useEffect(() => {
     if (!open || tab !== "peers") return;
@@ -1443,6 +1466,29 @@ export function DevToolbar() {
                   </>
                 )}
               </div>
+
+              {/* ── Migration banner ── */}
+              {pendingMigrations > 0 && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-yellow-500/10 border-b border-yellow-500/20 text-yellow-600 dark:text-yellow-400 shrink-0">
+                  <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                  </svg>
+                  <span className="text-[11px] flex-1">
+                    {pendingMigrations} pending migration{pendingMigrations !== 1 ? "s" : ""}
+                  </span>
+                  <button
+                    onClick={runMigrations}
+                    disabled={migrating}
+                    className={cn(
+                      "h-5 px-2.5 rounded text-[10px] font-medium transition-colors",
+                      "bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-700 dark:text-yellow-300",
+                      "disabled:opacity-40 disabled:pointer-events-none",
+                    )}
+                  >
+                    {migrating ? "Applying..." : "Apply"}
+                  </button>
+                </div>
+              )}
 
               {/* ── Tables view ── */}
               {dbView === "tables" && (
