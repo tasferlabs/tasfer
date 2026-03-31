@@ -207,7 +207,7 @@ export function SidebarContent({
 
   function getSpaceName(spaceId: string): string {
     const space = spaces.find((s) => s.id === spaceId);
-    return space?.name || t("common.spaceKw", "space");
+    return space?.name || t("common.untitled", "Untitled");
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -482,7 +482,7 @@ export function SidebarContent({
                         <div className={style.appSidebarSectionIcon}>
                           <Icons.Shared />
                         </div>
-                        {space.name}
+                        {space.name || t("common.untitled", "Untitled")}
                       </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger

@@ -591,7 +591,7 @@ export function ImportAllDialog({ open, onOpenChange }: ImportAllDialogProps) {
                 <SelectContent>
                   {allSpaces.map((space) => (
                     <SelectItem key={space.id} value={space.id}>
-                      {space.name}
+                      {space.name || t("common.untitled", "Untitled")}
                     </SelectItem>
                   ))}
                 </SelectContent>

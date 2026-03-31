@@ -48,7 +48,7 @@ function encodeInvite(invite: SpaceInvite): string {
   const bytes = new Uint8Array(80);
   bytes.set(hexToBytes(invite.topic), 0);
   bytes.set(hexToBytes(invite.secret), 32);
-  bytes.set(hexToBytes(invite.spaceId.replace(/-/g, "")), 64);
+  bytes.set(new TextEncoder().encode(invite.spaceId).subarray(0, 16), 64);
   return btoa(String.fromCharCode(...bytes));
 }
 

@@ -247,6 +247,8 @@ interface PeerConnection {
   netPeer: NetworkPeer;
   sharedSpaces: Set<string>;
   cleanup: () => void;
+  /** Serial message queue so async handlers don't interleave. */
+  msgQueue: Promise<void>;
 }
 
 /** Represents a local peer's membership in a page's awareness room — who is present, their display info, and the latest cursor/selection state for each remote participant. */
@@ -407,9 +409,34 @@ export class Replicator {
     }
   }
 
-  /** Connect to a newly-paired peer */
+  /** Connect to a newly-paired peer, or re-negotiate shared spaces if already connected. */
   async addPeer(publicKey: string): Promise<void> {
-    if (this.peers.has(publicKey)) return;
+    const existing = this.peers.get(publicKey);
+    if (existing) {
+      // Already connected — recompute local sharedSpaces and push data only
+      // for spaces that are newly shared (bootstrapping), not all of them.
+      const prev = new Set(existing.sharedSpaces);
+      await this.recomputeSharedSpaces(existing);
+
+      // Push full data only for newly-shared spaces the remote may not know about
+      for (const spaceId of existing.sharedSpaces) {
+        if (!prev.has(spaceId)) {
+          const response = await this.host.buildSyncResponse(spaceId, {}, {});
+          if (response.spaceOps.length > 0 || Object.keys(response.pageOps).length > 0) {
+            this.sendDirect(existing, {
+              type: "sync-data",
+              spaceId,
+              spaceOps: response.spaceOps,
+              pageOps: response.pageOps,
+            });
+          }
+        }
+      }
+
+      // Re-send hello so the remote also recomputes its shared spaces
+      this.sendHello(existing.netPeer);
+      return;
+    }
     await this.connectToPeer(publicKey);
   }
 
@@ -787,7 +814,14 @@ export class Replicator {
       const msg = decode(data);
       if (msg) {
         logNet("recv", remotePubKey, msg, data.byteLength);
-        this.handleMessage(remotePubKey, msg);
+        // Serialize message handling per-peer so async handlers (e.g. hello
+        // computing sharedSpaces) complete before subsequent messages run.
+        const peer = this.peers.get(remotePubKey);
+        if (peer) {
+          peer.msgQueue = peer.msgQueue.then(() =>
+            this.handleMessage(remotePubKey, msg),
+          );
+        }
       }
     });
 
@@ -813,6 +847,7 @@ export class Replicator {
         unsub();
         unsubClose();
       },
+      msgQueue: Promise.resolve(),
     };
     this.peers.set(remotePubKey, conn);
     this.emitConnectedPeers();
@@ -912,29 +947,36 @@ export class Replicator {
 
   // --- Handshake ---
 
+  /** Recompute which spaces are shared with a connected peer. */
+  private async recomputeSharedSpaces(conn: PeerConnection): Promise<void> {
+    const localSpaceIds = await this.host.getSpaceIds();
+    const shared = new Set<string>();
+    for (const sid of localSpaceIds) {
+      const members = await this.host.getSpaceMembers(sid);
+      if (members.some((m) => m.publicKey === conn.publicKey)) {
+        shared.add(sid);
+      }
+    }
+    conn.sharedSpaces = shared;
+    console.log(
+      `[Sync] shared spaces with ${conn.publicKey.slice(0, 8)}: ${shared.size} (${[...shared].map((s) => s.slice(0, 8)).join(", ")})`,
+    );
+  }
+
   private async handleHello(fromPubKey: string, _msg: HelloMsg) {
     console.log(`[Sync] hello from ${fromPubKey.slice(0, 8)}`);
     const conn = this.peers.get(fromPubKey);
     if (!conn) return;
 
     await this.host.updatePeerLastSeen(fromPubKey);
+    await this.recomputeSharedSpaces(conn);
 
-    // Determine shared spaces by checking which of our spaces this peer is a member of
-    const localSpaceIds = await this.host.getSpaceIds();
-    const shared = new Set<string>();
-    for (const sid of localSpaceIds) {
-      const members = await this.host.getSpaceMembers(sid);
-      if (members.some((m) => m.publicKey === fromPubKey)) {
-        shared.add(sid);
-      }
-    }
+    const shared = conn.sharedSpaces;
 
-    conn.sharedSpaces = shared;
-    console.log(
-      `[Sync] shared spaces with ${fromPubKey.slice(0, 8)}: ${shared.size} (${[...shared].map((s) => s.slice(0, 8)).join(", ")})`,
-    );
-
-    // For each shared space, send a sync-pull with our version vectors
+    // For each shared space, send a sync-pull with our version vectors.
+    // The remote will respond with only the ops we're missing.
+    // Note: bootstrapping pushes (for spaces the remote doesn't know about)
+    // are handled in addPeer() when new shared spaces are detected.
     for (const spaceId of shared) {
       const spaceVV = await this.host.getSpaceVV(spaceId);
       const pageVVs = await this.host.getPageVVs(spaceId);
@@ -973,9 +1015,26 @@ export class Replicator {
 
   // --- Replication ---
 
+  /**
+   * Check if a space is shared with a peer. If not, recompute shared spaces
+   * once as a fallback (handles race conditions where sync messages arrive
+   * before hello completes, or spaces added after the initial handshake).
+   */
+  private async ensureSharedSpace(
+    conn: PeerConnection,
+    spaceId: string,
+  ): Promise<boolean> {
+    if (conn.sharedSpaces.has(spaceId)) return true;
+    await this.recomputeSharedSpaces(conn);
+    return conn.sharedSpaces.has(spaceId);
+  }
+
   private async handleSyncPull(fromPubKey: string, msg: SyncPullMsg) {
     const conn = this.peers.get(fromPubKey);
-    if (!conn || !conn.sharedSpaces.has(msg.spaceId)) return;
+    if (!conn || !(await this.ensureSharedSpace(conn, msg.spaceId))) {
+      console.warn(`[Sync] dropped sync-pull for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`);
+      return;
+    }
 
     const response = await this.host.buildSyncResponse(
       msg.spaceId,
@@ -993,7 +1052,15 @@ export class Replicator {
 
   private async handleSyncData(fromPubKey: string, msg: SyncDataMsg) {
     const conn = this.peers.get(fromPubKey);
-    if (!conn || !conn.sharedSpaces.has(msg.spaceId)) return;
+    // Accept sync-data from any connected peer, even for unknown spaces.
+    // The data may contain space_set + member_add ops that bootstrap a space
+    // the remote peer created with us as a member.
+    if (!conn) {
+      console.warn(`[Sync] dropped sync-data for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (no connection)`);
+      return;
+    }
+
+    const wasUnknown = !conn.sharedSpaces.has(msg.spaceId);
 
     if (msg.spaceOps.length > 0) {
       await this.host.applyRemoteSpaceOps(msg.spaceId, msg.spaceOps);
@@ -1011,20 +1078,43 @@ export class Replicator {
         this.host.applyRemotePageOps(pageId, ops);
       }
     }
+
+    // If this sync-data bootstrapped a previously unknown space, recompute
+    // shared spaces and send a sync-pull back so we get anything we missed.
+    if (wasUnknown) {
+      await this.recomputeSharedSpaces(conn);
+      if (conn.sharedSpaces.has(msg.spaceId)) {
+        console.log(`[Sync] bootstrapped space ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)}`);
+        const spaceVV = await this.host.getSpaceVV(msg.spaceId);
+        const pageVVs = await this.host.getPageVVs(msg.spaceId);
+        this.sendDirect(conn, {
+          type: "sync-pull",
+          spaceId: msg.spaceId,
+          spaceVV,
+          pageVVs,
+        });
+      }
+    }
   }
 
   // --- Real-time push ---
 
   private async handleSpaceOps(fromPubKey: string, msg: SpaceOpsMsg) {
     const conn = this.peers.get(fromPubKey);
-    if (!conn || !conn.sharedSpaces.has(msg.spaceId)) return;
+    if (!conn || !(await this.ensureSharedSpace(conn, msg.spaceId))) {
+      console.warn(`[Sync] dropped space-ops for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`);
+      return;
+    }
 
     await this.host.applyRemoteSpaceOps(msg.spaceId, msg.ops);
   }
 
   private async handlePageOps(fromPubKey: string, msg: PageOpsMsg) {
     const conn = this.peers.get(fromPubKey);
-    if (!conn || !conn.sharedSpaces.has(msg.spaceId)) return;
+    if (!conn || !(await this.ensureSharedSpace(conn, msg.spaceId))) {
+      console.warn(`[Sync] dropped page-ops for ${msg.spaceId.slice(0, 8)} from ${fromPubKey.slice(0, 8)} (not in sharedSpaces)`);
+      return;
+    }
 
     // Notify the editor immediately so the UI updates without waiting for DB
     const room = this.rooms.get(msg.pageId);

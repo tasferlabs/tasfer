@@ -293,7 +293,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
                     onChange={() => toggleSpace(space.id)}
                     className="size-4 rounded border-border accent-primary"
                   />
-                  <span className="text-sm font-medium">{space.name}</span>
+                  <span className="text-sm font-medium">{space.name || t("common.untitled", "Untitled")}</span>
                   <span className="text-xs text-muted-foreground ms-auto">
                     {t("space.space", "Space")}
                   </span>

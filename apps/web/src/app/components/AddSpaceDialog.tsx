@@ -63,8 +63,9 @@ function decodeInvite(code: string): SpaceInvite | null {
     for (let i = 0; i < 80; i++) bytes[i] = str.charCodeAt(i);
     const topic = bytesToHex(bytes.subarray(0, 32));
     const secret = bytesToHex(bytes.subarray(32, 64));
-    const h = bytesToHex(bytes.subarray(64, 80));
-    const spaceId = `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+    const raw = bytes.subarray(64, 80);
+    const end = raw.indexOf(0);
+    const spaceId = new TextDecoder().decode(raw.subarray(0, end >= 0 ? end : 16));
     return { topic, secret, spaceId };
   } catch {
     return null;

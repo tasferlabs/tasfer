@@ -148,6 +148,8 @@ export default function EditorPage() {
   // Auto-title state - when true, title is auto-generated from content
   const [autoTitle, setAutoTitle] = useState(true);
   const [currentTitle, setCurrentTitle] = useState<string>("");
+  // The page's actual space_id (from DB), used for P2P sync routing
+  const [pageSpaceId, setPageSpaceId] = useState<string | null>(null);
   // Live sync state
   const [_syncState, setSyncState] = useState<SyncState>({
     status: "disconnected",
@@ -288,6 +290,7 @@ export default function EditorPage() {
             setPageSnapshot(blocks);
             setAutoTitle(page.autoTitle);
             setCurrentTitle(page.title || "");
+            setPageSpaceId(page.spaceId ?? null);
             setLocalPermission("owner");
             setPermission("owner");
             setIsLoading(false);
@@ -298,6 +301,8 @@ export default function EditorPage() {
           // Track auto-title state
           setAutoTitle(page.autoTitle);
           setCurrentTitle(page.title || "");
+          // Store the page's actual space ID for P2P sync routing
+          setPageSpaceId(page.spaceId ?? null);
           // Track permission
           const perm = "owner";
           setLocalPermission(perm);
@@ -522,7 +527,7 @@ export default function EditorPage() {
           onContentUpdate={handleContentUpdate}
           autoFocus={!readonly}
           pageId={id}
-          spaceId={activeSpaceId ?? undefined}
+          spaceId={pageSpaceId ?? activeSpaceId ?? undefined}
           onSyncStateChange={setSyncState}
           onAwarenessChange={handleAwarenessChange}
           onRestoreReady={

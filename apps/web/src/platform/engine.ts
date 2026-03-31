@@ -662,12 +662,8 @@ export class Engine implements Platform {
               peer.publicKey,
             );
             await this.peers.trust(peer.publicKey, peer.name, sharedKey);
-            // Add the new peer as a member of the space
-            await this.emitSpaceOp(invite.spaceId, {
-              op: "member_add",
-              publicKey: peer.publicKey,
-              name: peer.name,
-            });
+            // Insert member into DB first so recomputeSharedSpaces (triggered
+            // by emitSpaceOp -> addPeer) can find this peer in the space.
             await this.driver.db.run(
               `INSERT INTO space_members (space_id, public_key, name, added_at)
                VALUES (?, ?, ?, ?)
@@ -680,6 +676,11 @@ export class Engine implements Platform {
                 peer.name,
               ],
             );
+            await this.emitSpaceOp(invite.spaceId, {
+              op: "member_add",
+              publicKey: peer.publicKey,
+              name: peer.name,
+            });
             this.notifySpaceChange(invite.spaceId);
             callbacks?.onComplete?.(peer);
           },
@@ -717,8 +718,9 @@ export class Engine implements Platform {
             // Create the space locally from invite metadata
             const now = new Date().toISOString();
             await this.driver.db.run(
-              "INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (?, ?, ?)",
-              [invite.spaceId, spaceName ?? invite.spaceId, now],
+              `INSERT INTO spaces (id, name, created_at) VALUES (?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET archived_at = NULL`,
+              [invite.spaceId, spaceName ?? "", now],
             );
             // Add self as member
             await this.driver.db.run(
@@ -1833,6 +1835,14 @@ export class Engine implements Platform {
     const op = { ...partial, id, clock, spaceId } as SpaceOperation;
     await this.storeSpaceOp(op);
 
+    // When we locally add a member, recompute shared spaces so
+    // broadcastToSpacePeers can reach them for this space.
+    if (op.op === "member_add" && this.replicator) {
+      if (op.publicKey !== identity.publicKey) {
+        await this.replicator.addPeer(op.publicKey);
+      }
+    }
+
     // Broadcast to peers
     if (this.replicator) {
       this.replicator.pushSpaceOps(spaceId, [op]);
@@ -1914,10 +1924,13 @@ export class Engine implements Platform {
       case "space_set":
         if (!this.lwwCheck(op.spaceId, "space", op.field, op.clock)) break;
         if (op.field === "name") {
-          await this.driver.db.run("UPDATE spaces SET name = ? WHERE id = ?", [
-            op.value,
-            op.spaceId,
-          ]);
+          // Upsert so the space row is created when receiving ops for a space
+          // we don't yet have locally (bootstrapping from a remote peer).
+          await this.driver.db.run(
+            `INSERT INTO spaces (id, name, created_at) VALUES (?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET name = ?`,
+            [op.spaceId, op.value, now, op.value],
+          );
         }
         break;
 
