@@ -6,7 +6,7 @@
  */
 
 // Realistic ID shapes matching current implementation
-const PEER_ID = "aZbY3x";      // nanoid(6)
+const PEER_ID = "aZbY3xKm9pQ2wR4t";  // nanoid(16)
 const PAGE_ID = "aBcDeFgHiJ";  // nanoid(10)
 const BLOCK_ID = `b-${PEER_ID}:0`;
 

@@ -59,7 +59,7 @@ interface EngineReplicator {
 // Schema & Migrations
 // =============================================================================
 
-const SCHEMA_VERSION = 0;
+const SCHEMA_VERSION = 1;
 
 const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS identity (
@@ -172,6 +172,12 @@ export class Engine implements Platform {
     const [{ user_version }] = await this.driver.db.execute<{
       user_version: number;
     }>("PRAGMA user_version");
+
+    if (user_version < 1) {
+      await this.driver.db.run(
+        "ALTER TABLE identity ADD COLUMN device_type TEXT NOT NULL DEFAULT ''",
+      );
+    }
 
     if (user_version < SCHEMA_VERSION) {
       await this.driver.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -331,7 +337,8 @@ export class Engine implements Platform {
         public_key: string;
         name: string;
         avatar: string | null;
-      }>("SELECT public_key, name, avatar FROM identity WHERE id = 1");
+        device_type: string;
+      }>("SELECT public_key, name, avatar, device_type FROM identity WHERE id = 1");
 
       if (rows.length === 0) {
         // First run — generate keypair
@@ -341,7 +348,7 @@ export class Engine implements Platform {
           "INSERT INTO identity (id, public_key, private_key, name) VALUES (1, ?, ?, '')",
           [publicKey, privateKey],
         );
-        return { publicKey, name: "", avatar: null };
+        return { publicKey, name: "", avatar: null, deviceType: "" };
       }
 
       const row = rows[0];
@@ -349,12 +356,14 @@ export class Engine implements Platform {
         publicKey: row.public_key,
         name: row.name,
         avatar: row.avatar,
+        deviceType: (row.device_type || "") as Identity["deviceType"],
       };
     },
 
     update: async (data: {
       name?: string;
       avatar?: string | null;
+      deviceType?: string;
     }): Promise<Identity> => {
       const sets: string[] = [];
       const params: unknown[] = [];
@@ -366,6 +375,10 @@ export class Engine implements Platform {
       if (data.avatar !== undefined) {
         sets.push("avatar = ?");
         params.push(data.avatar);
+      }
+      if (data.deviceType !== undefined) {
+        sets.push("device_type = ?");
+        params.push(data.deviceType);
       }
 
       if (sets.length > 0) {

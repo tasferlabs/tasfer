@@ -15,7 +15,7 @@ export default function UpdatePopup() {
     performUpdate,
   } = useVersion();
   const [isUpdating, setIsUpdating] = useState(false);
-  const isKeyboardOpen = useKeyboardOpen();
+  const { isKeyboardOpen } = useKeyboardOpen();
 
   const handleUpdate = async () => {
     setIsUpdating(true);

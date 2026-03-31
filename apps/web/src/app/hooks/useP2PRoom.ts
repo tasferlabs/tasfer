@@ -99,7 +99,7 @@ export function useP2PRoom(
 
       const myPeerId = identity.publicKey.slice(0, 32);
       setPeerId(myPeerId);
-      setLocalUser({ peerId: myPeerId, name: identity.name, avatar: identity.avatar, color: getColorForPeer(identity.name || myPeerId) });
+      setLocalUser({ peerId: myPeerId, name: identity.name, avatar: identity.avatar, color: getColorForPeer(identity.name || myPeerId), deviceType: identity.deviceType });
 
       setSyncState({ status: "connecting" });
 
@@ -121,6 +121,7 @@ export function useP2PRoom(
                 name: user.name,
                 avatar: user.avatar,
                 color: user.color || getColorForPeer(user.name || joinedPeerId),
+                deviceType: user.deviceType,
               },
               cursor: null,
               selection: null,
@@ -161,7 +162,7 @@ export function useP2PRoom(
       await platform.sync.joinRoom(
         roomId,
         myPeerId,
-        { name: identity.name, avatar: identity.avatar },
+        { name: identity.name, avatar: identity.avatar, deviceType: identity.deviceType },
         callbacks,
         spaceId,
       );

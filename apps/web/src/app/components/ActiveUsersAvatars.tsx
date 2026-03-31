@@ -4,6 +4,18 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/comp
 import { useAssetUrl } from '../api/images.api';
 import { AvatarPreviewDialog } from './AvatarPreviewDialog';
 import { useState } from 'react';
+import { Laptop, Monitor, Smartphone, Tablet } from 'lucide-react';
+
+function DeviceIcon({ deviceType }: { deviceType?: string }) {
+  const cls = "h-3 w-3 shrink-0 opacity-70";
+  switch (deviceType) {
+    case "laptop": return <Laptop className={cls} />;
+    case "desktop": return <Monitor className={cls} />;
+    case "phone": return <Smartphone className={cls} />;
+    case "tablet": return <Tablet className={cls} />;
+    default: return null;
+  }
+}
 
 interface ActiveUsersAvatarsProps {
   users: AwarenessUser[];
@@ -35,7 +47,10 @@ function UserAvatarItem({ user, onClick }: { user: AwarenessUser; onClick: () =>
         </div>
       </TooltipTrigger>
       <TooltipContent>
-        <p>{user.name || user.peerId}</p>
+        <div className="flex items-center gap-1.5">
+          <DeviceIcon deviceType={user.deviceType} />
+          <span>{user.name || user.peerId}</span>
+        </div>
       </TooltipContent>
     </Tooltip>
   );

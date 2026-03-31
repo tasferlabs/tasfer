@@ -38,6 +38,7 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
+import type { DeviceType } from "@/platform/types";
 import React, { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -50,6 +51,7 @@ import {
   useCreateSpace,
 } from "../api/spaces.api";
 import { useAuth } from "../contexts/AuthContext";
+import { useKeyboardOpen } from "../hooks/useKeyboardOpen";
 import useResponsive from "../hooks/useResponsive";
 import { AvatarCropDialog } from "./AvatarCropDialog";
 import { QRScannerView } from "./QRScannerView";
@@ -78,15 +80,39 @@ function decodeInvite(code: string): SpaceInvite | null {
   }
 }
 
+function detectDeviceType(): DeviceType {
+  if (typeof navigator === "undefined") return "";
+  const ua = navigator.userAgent;
+
+  // Check for tablets first (before phone detection)
+  if (/iPad/i.test(ua) || (/Macintosh/i.test(ua) && "ontouchend" in document)) {
+    return "tablet";
+  }
+  if (/Android/i.test(ua) && !/Mobile/i.test(ua)) {
+    return "tablet";
+  }
+
+  // Phones
+  if (/iPhone|iPod/i.test(ua)) return "phone";
+  if (/Android/i.test(ua) && /Mobile/i.test(ua)) return "phone";
+
+  // Desktop vs Laptop — can't truly distinguish, default to laptop for portables
+  return "laptop";
+}
+
 export function OnboardingScreen() {
   const { user } = useAuth();
+  const { keyboardHeight } = useKeyboardOpen();
 
   // Skip profile step if name is already set
   const initialStep: Step = user?.name ? "identity" : "profile";
   const [step, setStep] = useState<Step>(initialStep);
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-background p-4">
+    <div
+      className="flex h-dvh max-h-lvh overflow-y-auto items-center justify-center bg-background p-4"
+      style={{ paddingBottom: `calc(1rem + ${keyboardHeight}px)` }}
+    >
       {/* Electron: fixed drag region at top so the window can be moved */}
       <div
         className="fixed inset-x-0 top-0 h-12 z-50"
@@ -161,6 +187,7 @@ function ProfileStep({ onNext }: { onNext: () => void }) {
       const updated = await updateProfile({
         name: trimmed,
         avatar: avatarId,
+        deviceType: detectDeviceType(),
       });
       updateUser(updated);
       onNext();

@@ -14,6 +14,14 @@ import type { AwarenessState } from "@/editor/sync/awareness";
 // Data Types
 // =============================================================================
 
+/** Device type identifier */
+export type DeviceType =
+  | "laptop"
+  | "desktop"
+  | "phone"
+  | "tablet"
+  | "";
+
 /** User identity — local device owner */
 export interface Identity {
   /** Public key (hex or base64 encoded) */
@@ -22,6 +30,8 @@ export interface Identity {
   name: string;
   /** Avatar URL or data URI */
   avatar: string | null;
+  /** Device type for identification when multiple devices share a name */
+  deviceType: DeviceType;
 }
 
 /** A known peer */
@@ -146,6 +156,7 @@ export interface RoomUser {
   name?: string;
   avatar?: string | null;
   color?: string;
+  deviceType?: DeviceType;
 }
 
 // =============================================================================

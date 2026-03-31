@@ -24,6 +24,8 @@ export interface AwarenessUser {
   readonly avatar?: string | null;
   /** User color for cursor/selection highlighting */
   readonly color: string;
+  /** Device type (optional) */
+  readonly deviceType?: string;
 }
 
 /** Cursor position in awareness (uses block ID for stability) */

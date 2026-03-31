@@ -66,7 +66,7 @@ class CapacitorDbDriver implements DbDriver {
   private encodeParam(v: unknown): unknown {
     if (v === undefined) return null;
     if (v instanceof Uint8Array) {
-      return CapacitorDbDriver.BLOB_PREFIX + btoa(new TextDecoder("latin1").decode(v));
+      return CapacitorDbDriver.BLOB_PREFIX + btoa(String.fromCharCode(...v));
     }
     return v;
   }
