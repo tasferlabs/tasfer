@@ -611,9 +611,20 @@ class WebRtcTopic implements NetworkTopic {
     if (data.type === "offer") {
       // Ignore renegotiation offers on an already-connected peer — these are
       // spurious retries caused by duplicate peer-join events on the initiator side.
+      // Exception: if ICE has gone to "disconnected" or "failed", the existing
+      // connection is stale and the offer is a legitimate reconnect — tear down
+      // the old peer and accept the new connection.
       if (peer instanceof WebRtcPeer && peer.pc.connectionState === "connected") {
-        console.warn(`[WebRTC] ignoring renegotiation offer from ${fShort} (already connected)`);
-        return;
+        const iceHealthy =
+          peer.pc.iceConnectionState === "connected" ||
+          peer.pc.iceConnectionState === "completed";
+        if (iceHealthy) {
+          console.warn(`[WebRTC] ignoring renegotiation offer from ${fShort} (already connected)`);
+          return;
+        }
+        console.log(`[WebRTC] stale connection to ${fShort} (ice=${peer.pc.iceConnectionState}) — accepting reconnect offer`);
+        this._removePeer(from);
+        peer = undefined;
       }
 
       if (!peer) {
