@@ -1388,14 +1388,19 @@ export default function CalendarPage() {
               key={page.id}
               className={style.allDayBadge}
               onClick={() => navigate(`/page/${page.id}`)}
-              style={
-                page.color
+              style={(() => {
+                const c =
+                  page.color ??
+                  (page.path &&
+                    [...page.path].reverse().find((p) => p.color)?.color) ??
+                  null;
+                return c
                   ? {
-                      backgroundColor: `color-mix(in srgb, ${page.color}, transparent 85%)`,
-                      color: page.color,
+                      backgroundColor: `color-mix(in srgb, ${c}, transparent 85%)`,
+                      color: c,
                     }
-                  : undefined
-              }
+                  : undefined;
+              })()}
             >
               {page.title || t("common.untitled", "Untitled")}
             </div>

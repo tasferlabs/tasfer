@@ -53,11 +53,15 @@ export function EventCard({
         height: actualHeight,
         opacity: isDragging ? 0.3 : 1,
         ...(compact ? { insetInlineStart: 0, insetInlineEnd: 0, padding: "2px 6px" } : {}),
-        ...(page.color && !isDraft
-          ? { borderInlineStartColor: page.color }
-          : {
-              borderInlineStartColor: "var(--primary)",
-            }),
+        ...(() => {
+          const c =
+            page.color ??
+            (page.path && [...page.path].reverse().find((p) => p.color)?.color) ??
+            null;
+          return c && !isDraft
+            ? { borderInlineStartColor: c }
+            : { borderInlineStartColor: "var(--primary)" };
+        })(),
       }}
       {...listeners}
       {...attributes}

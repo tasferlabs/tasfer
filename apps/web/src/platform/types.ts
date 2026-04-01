@@ -123,7 +123,7 @@ export interface PageCalendarItem {
   allDay: boolean | null;
   recurrenceId: string | null;
   task: boolean;
-  path: { id: string; title: string }[] | null;
+  path: { id: string; title: string; color?: string | null }[] | null;
   createdAt: string;
 }
 
