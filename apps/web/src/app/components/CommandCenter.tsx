@@ -1,6 +1,6 @@
 import { Command } from "cmdk";
 import { Calendar, Moon, Plus, Settings, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useCreatePage, useSearchPages } from "../api/pages.api";
@@ -25,6 +25,8 @@ export function CommandCenter() {
   const { activeSpaceId } = useSpaces();
   const { setTheme, effectiveTheme } = useTheme();
   const queryClient = useQueryClient();
+
+  const listRef = useRef<HTMLDivElement>(null);
 
   const { data: pages } = useSearchPages(open ? activeSpaceId : null, search);
 
@@ -53,6 +55,11 @@ export function CommandCenter() {
     if (!open) setSearch("");
   }, [open]);
 
+  // Reset scroll when search changes
+  useEffect(() => {
+    listRef.current?.scrollTo(0, 0);
+  }, [search]);
+
   const runAction = (fn: () => void) => {
     setOpen(false);
     fn();
@@ -73,7 +80,7 @@ export function CommandCenter() {
         placeholder={t("editor.searchPagesActions", "Search pages, actions...")}
         className="h-12 w-full border-b border-border bg-transparent px-4 text-sm outline-none placeholder:text-muted-foreground"
       />
-      <Command.List className="max-h-[340px] overflow-y-auto p-2">
+      <Command.List ref={listRef} className="max-h-[340px] overflow-y-auto p-2">
         <Command.Empty className="py-8 text-center text-sm text-muted-foreground">
           {t("common.noResultsFound", "No results found")}
         </Command.Empty>
