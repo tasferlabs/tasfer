@@ -48,6 +48,7 @@ import {
   type ViewMode,
 } from "./utils";
 import { triggerHapticFeedback } from "@/editor/events/touchEvents";
+import { useP2PPageEventsWithQueryClient } from "../../hooks/useP2PPageEvents";
 import { EventCard } from "./EventCard";
 import { EventPreview } from "./EventPreview";
 import { DateTimePickerOverlay } from "@/components/datetimepickers/DateTimePickerOverlay";
@@ -87,6 +88,7 @@ export default function CalendarPage() {
   const isRtl = i18next.dir() === "rtl";
   const navigate = useNavigate();
   const { activeSpaceId } = useSpaces();
+  useP2PPageEventsWithQueryClient();
   const timelineRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const [selectedDate, setSelectedDate] = useState(() => new Date());

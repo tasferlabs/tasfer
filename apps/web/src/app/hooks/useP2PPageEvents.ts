@@ -73,6 +73,7 @@ export function useP2PPageEventsWithQueryClient(): void {
     const unsub = platform.spaces.onChange(() => {
       queryClient.invalidateQueries({ queryKey: ["pages"] });
       queryClient.invalidateQueries({ queryKey: ["spaces"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
     });
 
     return unsub;
