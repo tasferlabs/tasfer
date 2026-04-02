@@ -62,7 +62,10 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
     "resizable-sidebar-open",
     true
   );
-  const [floatingOpen, setFloatingOpen] = React.useState(false);
+  const [floatingOpen, setFloatingOpen] = useLocalStorage(
+    "floating-sidebar-open",
+    false
+  );
   const [showAddSpace, setShowAddSpace] = React.useState(false);
   const [groupSettingsId, setGroupSettingsId] = React.useState<string | null>(null);
   const [inviteMembersId, setInviteMembersId] = React.useState<string | null>(null);
@@ -90,20 +93,22 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
     <>
       <div className={style.appContainer} inert={needsForceUpdate ? (true as unknown as boolean) : undefined}>
         {isMobile ? (
-          <FloatingSidebar open={floatingOpen} setOpen={setFloatingOpen} onAddSpace={() => setShowAddSpace(true)} onSpaceSettings={setGroupSettingsId} onInviteMembers={setInviteMembersId} />
+          <FloatingSidebar open={!!floatingOpen} setOpen={setFloatingOpen} onAddSpace={() => setShowAddSpace(true)} onSpaceSettings={setGroupSettingsId} onInviteMembers={setInviteMembersId} />
         ) : (
           <ResizableSidebar open={!!resizableOpen} setOpen={setResizableOpen} onAddSpace={() => setShowAddSpace(true)} onSpaceSettings={setGroupSettingsId} onInviteMembers={setInviteMembersId} />
         )}
 
-        <div className={style.appFrame}>
-          <TopActionBar
-            open={isMobile ? floatingOpen : !!resizableOpen}
-            setOpen={isMobile ? setFloatingOpen : setResizableOpen}
-          />
-          <div className="flex-1 min-h-0 w-full">
-            <Outlet />
+        {!(isMobile && floatingOpen) && (
+          <div className={style.appFrame}>
+            <TopActionBar
+              open={isMobile ? !!floatingOpen : !!resizableOpen}
+              setOpen={isMobile ? setFloatingOpen : setResizableOpen}
+            />
+            <div className="flex-1 min-h-0 w-full">
+              <Outlet />
+            </div>
           </div>
-        </div>
+        )}
       </div>
       <AddSpaceDialog open={showAddSpace} onOpenChange={setShowAddSpace} />
       <EditGroupDialog

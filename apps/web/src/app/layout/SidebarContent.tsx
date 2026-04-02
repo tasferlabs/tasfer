@@ -13,7 +13,7 @@ import {
 } from "@dnd-kit/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { Ellipsis, FileText, PanelLeftClose, Plus } from "lucide-react";
+import { Ellipsis, FileText, PanelLeftClose, Plus, Search } from "lucide-react";
 import React, { useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/button";
@@ -39,7 +39,6 @@ import { useConfirmation } from "../components/ConfirmationDialog";
 import Icons from "../components/uiKit/Icons/Icons";
 import { useAuth } from "../contexts/AuthContext";
 import { useSpaces } from "../contexts/SpaceContext";
-import useResponsive from "../hooks/useResponsive";
 import { setRecentDragEnd } from "./components/PageLink";
 import { PagesArea } from "./components/PagesArea";
 // import pageLinkStyle from "./components/PagesLinks.module.css";
@@ -47,6 +46,7 @@ import { useTranslation } from "react-i18next";
 import { useSidebarPanel } from "../contexts/SidebarPanelContext";
 import style from "./Layout.module.css";
 import { detectAdapter } from "@/platform";
+import useResponsive from "../hooks/useResponsive";
 
 export function SidebarContent({
   setOpen,
@@ -62,7 +62,7 @@ export function SidebarContent({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const isMobile = useResponsive("(max-width: 768px)");
+  const isFine = useResponsive("(pointer: fine)");
   const { getConfirmation } = useConfirmation();
   const { panelRef, hasPanel, setSlotMounted } = useSidebarPanel();
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -442,6 +442,28 @@ export function SidebarContent({
             </div>
           )}
           <div className={style.appNavigationLinks}>
+            <button
+              className={style.appNavigationLink}
+              onClick={() => {
+                document.dispatchEvent(
+                  new KeyboardEvent("keydown", {
+                    key: "k",
+                    metaKey: true,
+                    bubbles: true,
+                  }),
+                );
+              }}
+            >
+              <div className={style.appNavigationLinkIcon}>
+                <Search size={20} />
+              </div>
+              {t("sidebar.search", "Search")}
+              {isFine && (
+                <kbd className={style.appNavigationLinkShortcut}>
+                  {/Mac|iPhone|iPad/.test(navigator.platform) ? "\u2318K" : "Ctrl+K"}
+                </kbd>
+              )}
+            </button>
             <RouterLink className={style.appNavigationLink} to={"/settings"}>
               <div className={style.appNavigationLinkIcon}>
                 <Icons.Gear width={24} height={24} />
@@ -458,7 +480,6 @@ export function SidebarContent({
             <button
               className={style.appNavigationLink}
               onClick={() => {
-                if (isMobile) setOpen(false);
                 onAddSpace();
               }}
             >
@@ -498,7 +519,6 @@ export function SidebarContent({
                         <DropdownMenuContent>
                           <DropdownMenuItem
                             onSelect={() => {
-                              if (isMobile) setOpen(false);
                               onSpaceSettings(space.id);
                             }}
                           >
@@ -506,7 +526,6 @@ export function SidebarContent({
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onSelect={() => {
-                              if (isMobile) setOpen(false);
                               onInviteMembers(space.id);
                             }}
                           >
