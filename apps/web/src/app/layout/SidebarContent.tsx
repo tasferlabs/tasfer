@@ -1,4 +1,5 @@
 import { useP2PPageEventsWithQueryClient } from "@/app/hooks/useP2PPageEvents";
+import { triggerHapticFeedback } from "@/editor/events/touchEvents";
 import {
   closestCenter,
   DndContext,
@@ -170,8 +171,8 @@ export function SidebarContent({
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 800,
-        tolerance: 8,
+        delay: 300,
+        tolerance: 5,
       },
     }),
   );
@@ -203,6 +204,7 @@ export function SidebarContent({
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
     setActiveDragData(event.active.data.current as IListPage);
+    triggerHapticFeedback("medium");
   }
 
   function getSpaceName(spaceId: string): string {

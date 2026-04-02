@@ -11,7 +11,6 @@
   padding-inline: 4px;
   cursor: grab;
   user-select: none;
-  touch-action: none;
 }
 
 .link:active {

@@ -104,7 +104,6 @@ export function PageLink({
   const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(
     null,
   );
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const treeExpand = useTreeExpand();
   const isExpanded = useIsExpanded(data.id);
   const setIsExpanded = useCallback(
@@ -412,39 +411,11 @@ export function PageLink({
           e.stopPropagation();
           // Call the original listener from dnd-kit
           listeners?.onPointerDown?.(e);
-          // Long-press to open drawer menu on touch
-          if (isCoarse) {
-            longPressTimerRef.current = setTimeout(() => {
-              longPressTimerRef.current = null;
-              setMenuOpen(true);
-            }, 500);
-          }
-        }}
-        onPointerUp={() => {
-          if (longPressTimerRef.current) {
-            clearTimeout(longPressTimerRef.current);
-            longPressTimerRef.current = null;
-          }
-        }}
-        onPointerCancel={() => {
-          if (longPressTimerRef.current) {
-            clearTimeout(longPressTimerRef.current);
-            longPressTimerRef.current = null;
-          }
-        }}
-        onPointerMove={() => {
-          // Cancel long-press if finger moves (scrolling)
-          if (longPressTimerRef.current) {
-            clearTimeout(longPressTimerRef.current);
-            longPressTimerRef.current = null;
-          }
         }}
         onDragStart={(e) => e.preventDefault()}
         onContextMenu={(e) => {
           e.preventDefault();
-          if (isCoarse) {
-            setMenuOpen(true);
-          } else {
+          if (!isCoarse) {
             setContextPos({ x: e.clientX, y: e.clientY });
           }
         }}
