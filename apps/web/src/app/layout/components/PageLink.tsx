@@ -37,9 +37,21 @@ import type { TFunction } from "i18next";
 import { useIsExpanded, useTreeExpand } from "../../contexts/TreeExpandContext";
 
 const PRESET_COLORS = [
-  "#EF4444", "#F97316", "#F59E0B", "#EAB308", "#84CC16",
-  "#22C55E", "#14B8A6", "#06B6D4", "#3B82F6", "#6366F1",
-  "#8B5CF6", "#A855F7", "#D946EF", "#EC4899", "#F43F5E",
+  "#EF4444",
+  "#F97316",
+  "#F59E0B",
+  "#EAB308",
+  "#84CC16",
+  "#22C55E",
+  "#14B8A6",
+  "#06B6D4",
+  "#3B82F6",
+  "#6366F1",
+  "#8B5CF6",
+  "#A855F7",
+  "#D946EF",
+  "#EC4899",
+  "#F43F5E",
 ];
 
 // Global flag to track recent drag - module level to avoid React timing issues
@@ -89,7 +101,9 @@ export function PageLink({
   const wasDraggingRef = useRef(false);
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(null);
+  const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(
+    null,
+  );
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const treeExpand = useTreeExpand();
   const isExpanded = useIsExpanded(data.id);
@@ -294,7 +308,10 @@ export function PageLink({
   async function handleDelete() {
     const confirmed = await getConfirmation({
       title: t("page.deletePage", "Delete Page"),
-      description: t("page.confirmDeletePage", "Are you sure you want to delete this page?"),
+      description: t(
+        "page.confirmDeletePage",
+        "Are you sure you want to delete this page?",
+      ),
       cancelText: t("common.cancel", "Cancel"),
       confirmText: t("common.delete", "Delete"),
     });
@@ -434,16 +451,23 @@ export function PageLink({
       >
         <button
           onClick={() => setIsExpanded((old) => !old)}
-          className={clsx(style.action, style.collapseAction, {
-            [style.hasChildren]: data.hasChildren,
-          })}
+          className={clsx(
+            style.action,
+            style.collapseAction,
+            style.hasChildren,
+          )}
         >
           <Icons.ChevronRight
             width={20}
             height={20}
-            className={clsx(style.collapseIcon, isExpanded && style.collapseIconExpanded)}
+            className={clsx(
+              style.collapseIcon,
+              isExpanded && style.collapseIconExpanded,
+            )}
           />
-          <VisuallyHidden>{t("page.openSubPages", "Open sub pages")}</VisuallyHidden>
+          <VisuallyHidden>
+            {t("page.openSubPages", "Open sub pages")}
+          </VisuallyHidden>
         </button>
         <span
           className="color-picker-blob"
@@ -561,7 +585,7 @@ export function PageLink({
         spaceId={spaceId}
       />
 
-      {isExpanded && (data.hasChildren || isCoarse) ? (
+      {isExpanded /*  && data.hasChildren || isCoarse */ ? (
         <div className={style.accordion}>
           <PagesArea
             parentId={data.id}
@@ -681,7 +705,9 @@ function PageLinkMenuContent({
         </button>
       </div>
       <div className="px-4 pb-4 pt-1">
-        <div className="text-xs text-muted-foreground mb-2">{t("common.color", "Color")}</div>
+        <div className="text-xs text-muted-foreground mb-2">
+          {t("common.color", "Color")}
+        </div>
         <ColorGrid
           color={color}
           onColorChange={(c) => {
