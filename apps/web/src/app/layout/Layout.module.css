@@ -283,7 +283,7 @@
 }
 
 .appNavigationLinkShortcut {
-  margin-inline-start: auto;
+  /* margin-inline-start: auto; */
   font-size: 0.7rem;
   font-family: inherit;
   color: var(--muted-foreground);

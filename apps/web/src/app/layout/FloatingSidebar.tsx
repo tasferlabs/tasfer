@@ -53,7 +53,7 @@ export function FloatingSidebar({
       className={clsx(style.floatingSidebar, open && style.floatingSidebarOpen)}
       onTransitionEnd={handleTransitionEnd}
     >
-      <SidebarContent setOpen={setOpen} onAddSpace={onAddSpace} onSpaceSettings={onSpaceSettings} onInviteMembers={onInviteMembers} />
+      <SidebarContent setOpen={setOpen} onAddSpace={onAddSpace} onSpaceSettings={onSpaceSettings} onInviteMembers={onInviteMembers} isMobile />
     </div>
   );
 }

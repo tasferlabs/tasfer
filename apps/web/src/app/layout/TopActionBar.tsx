@@ -1,7 +1,7 @@
 import React from "react";
 import style from "./Layout.module.css";
 import { clsx } from "clsx";
-import { PanelLeft } from "lucide-react";
+import { ChevronLeft, PanelLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import useResponsive from "../hooks/useResponsive";
 import { Button } from "../../components/ui/button";
@@ -28,7 +28,11 @@ export function TopActionBar({
           })}
           onClick={() => setOpen(true)}
         >
-          <PanelLeft className="h-4 w-4 rtl:-scale-x-100" />
+          {isMobile ? (
+            <ChevronLeft className="h-5 w-5 rtl:-scale-x-100" />
+          ) : (
+            <PanelLeft className="h-4 w-4 rtl:-scale-x-100" />
+          )}
           <span className="sr-only">{t("sidebar.open", "Open sidebar")}</span>
         </Button>
       )}

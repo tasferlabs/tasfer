@@ -53,11 +53,13 @@ export function SidebarContent({
   onAddSpace,
   onSpaceSettings,
   onInviteMembers,
+  isMobile,
 }: {
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
   onAddSpace: () => void;
   onSpaceSettings: (spaceId: string) => void;
   onInviteMembers: (spaceId: string) => void;
+  isMobile?: boolean;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -414,31 +416,35 @@ export function SidebarContent({
                   {user?.name}
                 </span>
               </button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="text-muted-foreground hover:text-foreground ms-auto"
-                onClick={() => setOpen(false)}
-              >
-                <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
-                <span className="sr-only">
-                  {t("sidebar.close", "Close sidebar")}
-                </span>
-              </Button>
+              {!isMobile && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground hover:text-foreground ms-auto"
+                  onClick={() => setOpen(false)}
+                >
+                  <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
+                  <span className="sr-only">
+                    {t("sidebar.close", "Close sidebar")}
+                  </span>
+                </Button>
+              )}
             </div>
           ) : (
             <div className={style.appSidebarHeader}>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="text-muted-foreground hover:text-foreground"
-                onClick={() => setOpen(false)}
-              >
-                <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
-                <span className="sr-only">
-                  {t("sidebar.close", "Close sidebar")}
-                </span>
-              </Button>
+              {!isMobile && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() => setOpen(false)}
+                >
+                  <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
+                  <span className="sr-only">
+                    {t("sidebar.close", "Close sidebar")}
+                  </span>
+                </Button>
+              )}
             </div>
           )}
           <div className={style.appNavigationLinks}>
@@ -459,8 +465,10 @@ export function SidebarContent({
               </div>
               {t("sidebar.search", "Search")}
               {isFine && (
-                <kbd className={style.appNavigationLinkShortcut}>
-                  {/Mac|iPhone|iPad/.test(navigator.platform) ? "\u2318K" : "Ctrl+K"}
+                <kbd className={clsx(style.appNavigationLinkShortcut)}>
+                  {/Mac|iPhone|iPad/.test(navigator.platform)
+                    ? "\u2318K"
+                    : "Ctrl+K"}
                 </kbd>
               )}
             </button>
