@@ -179,7 +179,7 @@ export function Profile() {
         <div className={styles.row}>
           <div className={styles.column}>
             <p className={cn("text-sm", styles.title)}>{t("profile.deviceType", "Device type")}</p>
-            <p className="text-sm opacity-75">{t("profile.deviceTypeDesc", "Helps identify this device")}</p>
+            <p className="text-sm opacity-75">{t("profile.deviceTypeDesc", "Helps you identify this device")}</p>
           </div>
 
           <Select value={deviceType} onValueChange={(v) => setDeviceType(v as DeviceType)}>
