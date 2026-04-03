@@ -119,6 +119,18 @@ export interface SelectionHandleDragState {
   readonly startY: number;
 }
 
+// Cursor drag state for mobile cursor repositioning with magnifier
+export interface CursorDragState {
+  readonly isActive: boolean;
+  readonly touchX: number; // Current touch X (canvas coords)
+  readonly touchY: number; // Current touch Y (canvas coords)
+  readonly cursorX: number; // Current cursor X (viewport coords)
+  readonly cursorY: number; // Current cursor Y (viewport coords)
+  readonly touchRadiusY: number; // Touch contact radius Y (px) for finger-aware positioning
+  readonly lineHeight: number; // Rendered line height in px (fontSize * lineHeightMultiplier)
+  readonly lastPosition: Position | null; // Last cursor position (for haptic on change)
+}
+
 // Image Hover State - Not a menu, just visual feedback
 export interface ImageHoverState {
   readonly blockIndex: number;
@@ -142,6 +154,7 @@ export interface UIState {
   readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)
   readonly imageDrag: ImageDragState | null; // Active image drag operation
   readonly selectionHandleDrag: SelectionHandleDragState | null; // Active selection handle drag (mobile)
+  readonly cursorDrag: CursorDragState | null; // Active cursor drag for repositioning (mobile)
   readonly autoCreatedParagraph: { blockIndex: number; blockId: string } | null; // Track auto-created paragraphs from arrow up/down on images
 }
 

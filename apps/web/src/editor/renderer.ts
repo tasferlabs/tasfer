@@ -2566,6 +2566,26 @@ export function renderCursorLayer(
   ctx.fillStyle = styles.cursor.color;
   ctx.fillRect(cursorPos.x, cursorPos.y, styles.cursor.width, cursorPos.height);
 
+  // Draw cursor drag handle on touch devices (small circle below cursor)
+  if (isTouchDevice()) {
+    const handleRadius = 5;
+    const handleStemHeight = 3;
+    const handleY = cursorPos.y + cursorPos.height + handleStemHeight + handleRadius;
+
+    // Draw stem (same x and width as cursor so they align)
+    ctx.fillRect(
+      cursorPos.x,
+      cursorPos.y + cursorPos.height,
+      styles.cursor.width,
+      handleStemHeight,
+    );
+
+    // Draw circle
+    ctx.beginPath();
+    ctx.arc(cursorPos.x + styles.cursor.width / 2, handleY, handleRadius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   // Restore context state
   ctx.restore();
 }

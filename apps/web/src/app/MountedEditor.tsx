@@ -27,6 +27,7 @@ import {
   Type,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CursorMagnifier } from "./components/CursorMagnifier";
 import {
   MobileKeyboardToolbar,
   type BlockType as MobileBlockType,
@@ -60,6 +61,7 @@ import {
 } from "../editor/state";
 import { allCharsHaveFormat } from "../editor/sync/crdt-helpers";
 import type {
+  CursorDragState,
   EditorState,
   PlaceholderStyles,
   SlashCommand,
@@ -228,6 +230,10 @@ export function MountedEditor({
 
   const lastImageHoverStateRef = useRef<typeof imageHoverState>(null);
   const persistedImageHoverRef = useRef<typeof imageHoverState>(null);
+
+  // Cursor drag state (for mobile magnifier)
+  const [cursorDragState, setCursorDragState] = useState<CursorDragState | null>(null);
+  const lastCursorDragStateRef = useRef<CursorDragState | null>(null);
 
   // Find bar state
   const [findBarOpen, setFindBarOpen] = useState(false);
@@ -952,6 +958,13 @@ export function MountedEditor({
       // Clear persisted state when image upload closes
       if (state.ui.activeMenu.type !== "imageUpload") {
         persistedImageHoverRef.current = null;
+      }
+
+      // Update cursor drag state for magnifier
+      const newCursorDragState = state.ui.cursorDrag ?? null;
+      if (!shallowEqual(newCursorDragState, lastCursorDragStateRef.current)) {
+        lastCursorDragStateRef.current = newCursorDragState;
+        setCursorDragState(newCursorDragState);
       }
 
       // Update toolbar icon based on selection state
@@ -2180,6 +2193,28 @@ export function MountedEditor({
             }
             onDismissKeyboard={() => mountedRef.current?.blurInput()}
           />
+        )}
+
+      {/* Cursor magnifier for mobile cursor drag repositioning */}
+      {cursorDragState?.isActive &&
+        createPortal(
+          <CursorMagnifier
+            cursorDrag={cursorDragState}
+            contentCanvas={
+              wrapperRef.current?.querySelector<HTMLCanvasElement>(
+                "#content-layer",
+              ) ?? null
+            }
+            cursorCanvas={
+              wrapperRef.current?.querySelector<HTMLCanvasElement>(
+                "#cursor-layer",
+              ) ?? null
+            }
+            containerRect={
+              wrapperRef.current?.getBoundingClientRect() ?? null
+            }
+          />,
+          document.body,
         )}
     </div>
   );

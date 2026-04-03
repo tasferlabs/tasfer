@@ -6,6 +6,7 @@ import {
   selectWordAtPosition,
 } from "../actions/commands";
 import {
+  CURSOR_TOUCH_RADIUS,
   DOUBLE_CLICK_TIME,
   EDGE_SCROLL_THRESHOLD,
   MOVEMENT_THRESHOLD,
@@ -36,6 +37,7 @@ import {
   updateScrollFromThumbDrag,
 } from "../scrollbar";
 import {
+  getCursorDocumentCoords,
   getTextPositionFromViewport,
   isPointWithinSelectionRects,
 } from "../selection";
@@ -51,8 +53,22 @@ import {
   updateCursor,
   updateMode,
 } from "../state";
-import { getEditorStyles } from "../styles";
+import { getEditorStyles, getTextStyle } from "../styles";
 import type { EditorState, ViewportState } from "../types";
+
+/** Get rendered line height (px) for the block at the given position. */
+function getLineHeightAtPosition(
+  state: EditorState,
+  blockIndex: number,
+): number {
+  const block = state.document.page.blocks[blockIndex];
+  if (!block) return 16 * 1.6;
+  const type = block.type;
+  if (type === "image" || type === "line") return 16 * 1.6;
+  const styles = getEditorStyles();
+  const textStyle = getTextStyle(styles, type);
+  return textStyle.fontSize * textStyle.lineHeight;
+}
 
 // Touch state storage (needs to be outside functions to persist between events)
 export let touchState: {
@@ -70,6 +86,9 @@ export let touchState: {
   currentTouchX: number;
   currentTouchY: number;
   isTouchingSelection: boolean;
+  isTouchingCursor: boolean;
+  isCursorDrag: boolean;
+  touchRadiusY: number;
   isTwoFingerScroll?: boolean;
 } | null = null;
 // Touch tap tracking for double/triple tap detection (similar to clickTracker)
@@ -161,6 +180,9 @@ export function handleTouchStart(
       currentTouchX: (touch1.clientX + touch2.clientX) / 2 - containerRect.left,
       currentTouchY: avgY,
       isTouchingSelection: false,
+      isTouchingCursor: false,
+      isCursorDrag: false,
+      touchRadiusY: 0,
       isTwoFingerScroll: true,
     };
 
@@ -222,6 +244,9 @@ export function handleTouchStart(
         currentTouchX: canvasX,
         currentTouchY: canvasY,
         isTouchingSelection: true, // We're on a selection
+        isTouchingCursor: false,
+        isCursorDrag: false,
+        touchRadiusY: touch.radiusY ?? 0,
       };
 
       return {
@@ -278,6 +303,9 @@ export function handleTouchStart(
           currentTouchX: canvasX,
           currentTouchY: canvasY,
           isTouchingSelection: false,
+          isTouchingCursor: false,
+          isCursorDrag: false,
+          touchRadiusY: touch.radiusY ?? 0,
         };
 
         return {
@@ -326,9 +354,36 @@ export function handleTouchStart(
         currentTouchX: canvasX,
         currentTouchY: canvasY,
         isTouchingSelection: false,
+        isTouchingCursor: false,
+        isCursorDrag: false,
+        touchRadiusY: touch.radiusY ?? 0,
       };
     } else {
       // Regular touch (not on scrollbar)
+      // Check if touch is near the cursor for cursor drag mode
+      let isTouchingCursor = false;
+      if (
+        state.document.cursor &&
+        !isTouchingSelection &&
+        (!state.document.selection || state.document.selection.isCollapsed) &&
+        state.ui.mode !== "readonly"
+      ) {
+        const cursorCoords = getCursorDocumentCoords(
+          state.document.cursor.position,
+          state,
+          viewport,
+        );
+        if (cursorCoords) {
+          // Convert document coords to viewport coords
+          const cursorScreenX = cursorCoords.x;
+          const cursorScreenY = cursorCoords.y - viewport.scrollY;
+          const dx = canvasX - cursorScreenX;
+          const dy = canvasY - (cursorScreenY + cursorCoords.height / 2);
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          isTouchingCursor = dist <= CURSOR_TOUCH_RADIUS;
+        }
+      }
+
       touchState = {
         startY: canvasY,
         startScrollY: viewport.scrollY,
@@ -344,6 +399,9 @@ export function handleTouchStart(
         currentTouchX: canvasX,
         currentTouchY: canvasY,
         isTouchingSelection,
+        isTouchingCursor,
+        isCursorDrag: false,
+        touchRadiusY: touch.radiusY ?? 0,
       };
     }
 
@@ -721,6 +779,92 @@ export function handleTouchMove(
       };
     }
 
+    // Handle cursor drag mode (mobile cursor repositioning with magnifier)
+    if (touchState.isCursorDrag) {
+      touchState.lastY = canvasY;
+      touchState.lastTime = currentTime;
+      touchState.currentTouchX = canvasX;
+      touchState.currentTouchY = canvasY;
+      touchState.touchRadiusY = touch.radiusY ?? touchState.touchRadiusY;
+
+      // Check for edge scrolling during cursor drag
+      const isNearEdge =
+        canvasY < EDGE_SCROLL_THRESHOLD ||
+        canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
+        canvasY < 0 ||
+        canvasY > viewport.height;
+
+      if (isNearEdge) {
+        if (!autoScrollState.isActive) {
+          startAutoScroll();
+        }
+        autoScrollState.lastMouseX = canvasX;
+        autoScrollState.lastMouseY = canvasY;
+      } else {
+        if (autoScrollState.isActive) {
+          stopAutoScroll();
+        }
+      }
+
+      // Get the new cursor position based on touch location
+      const newPosition = getTextPositionFromViewport(
+        canvasX,
+        canvasY,
+        state,
+        viewport,
+      );
+
+      if (newPosition) {
+        const prevPosition = state.ui.cursorDrag?.lastPosition;
+        // Trigger haptic when cursor crosses a character or line boundary
+        if (
+          prevPosition &&
+          (prevPosition.blockIndex !== newPosition.blockIndex ||
+            prevPosition.textIndex !== newPosition.textIndex)
+        ) {
+          triggerHapticFeedback("light");
+        }
+
+        state = updateCursor(state, newPosition);
+
+        // Update cursorDrag state with new touch position and cursor coords
+        const cursorCoords = getCursorDocumentCoords(
+          newPosition,
+          state,
+          viewport,
+        );
+
+        const touchRadiusY = event.touches[0]?.radiusY ?? 0;
+        state = {
+          ...state,
+          ui: {
+            ...state.ui,
+            cursorDrag: {
+              isActive: true,
+              touchX: canvasX,
+              touchY: canvasY,
+              cursorX: cursorCoords ? cursorCoords.x : canvasX,
+              cursorY: cursorCoords ? cursorCoords.y - viewport.scrollY : canvasY,
+              touchRadiusY,
+              lineHeight: getLineHeightAtPosition(state, newPosition.blockIndex),
+              lastPosition: newPosition,
+            },
+          },
+        };
+      }
+
+      return {
+        ...state,
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
+        },
+      };
+    }
+
     // Check if we've moved significantly from start position
     const deltaX = Math.abs(canvasX - touchState.startX);
     const deltaY = Math.abs(canvasY - touchState.startY);
@@ -740,7 +884,8 @@ export function handleTouchMove(
       }
 
       // Close all menus on movement - scrolling has priority
-      if (state.ui.activeMenu.type !== "none") {
+      // But don't close menus if we're about to enter cursor drag mode
+      if (state.ui.activeMenu.type !== "none" && !touchState.isTouchingCursor) {
         state = closeActiveMenu(state);
       }
     }
@@ -946,6 +1091,29 @@ export function handleTouchEnd(
         ui: {
           ...state.ui,
           selectionHandleDrag: null,
+        },
+        view: {
+          ...state.view,
+          scrollbar: {
+            ...state.view.scrollbar,
+            lastInteraction: Date.now(),
+          },
+        },
+      },
+      ops,
+    };
+  }
+
+  // End cursor drag if active
+  if (touchState?.isCursorDrag) {
+    triggerHapticFeedback("medium");
+    touchState = null;
+    return {
+      state: {
+        ...state,
+        ui: {
+          ...state.ui,
+          cursorDrag: null,
         },
         view: {
           ...state.view,
@@ -1681,6 +1849,17 @@ export function handleTouchCancel(state: EditorState): EditorState {
       ui: {
         ...state.ui,
         selectionHandleDrag: null,
+      },
+    };
+  }
+
+  // End cursor drag if active
+  if (state.ui.cursorDrag) {
+    state = {
+      ...state,
+      ui: {
+        ...state.ui,
+        cursorDrag: null,
       },
     };
   }

@@ -1,5 +1,6 @@
 import {
   CONTEXT_MENU_DURATION,
+  CURSOR_DRAG_ACTIVATION_DELAY,
   EDGE_SCROLL_ACCELERATION_RATE,
   EDGE_SCROLL_MAX_SPEED,
   EDGE_SCROLL_SPEED,
@@ -12,7 +13,7 @@ import {
   startScrollbarDrag,
   updateScrollbarFadeOpacity,
 } from "../scrollbar";
-import { getTextPositionFromViewport } from "../selection";
+import { getCursorDocumentCoords, getTextPositionFromViewport } from "../selection";
 import {
   closeActiveMenu,
   openContextMenu,
@@ -22,6 +23,7 @@ import {
   updateSelectionFocus,
 } from "../state";
 import type { Operation } from "../sync/types";
+import { getEditorStyles, getTextStyle } from "../styles";
 import type { EditorState, MouseEvent, ViewportState } from "../types";
 import {
   handleCompositionEnd,
@@ -48,6 +50,21 @@ import {
   touchState,
   triggerHapticFeedback,
 } from "./touchEvents";
+
+/** Get rendered line height (px) for the block at the given index. */
+function getBlockLineHeight(
+  state: EditorState,
+  blockIndex: number | undefined,
+): number {
+  if (blockIndex == null) return 16 * 1.6;
+  const block = state.document.page.blocks[blockIndex];
+  if (!block) return 16 * 1.6;
+  const type = block.type;
+  if (type === "image" || type === "line") return 16 * 1.6;
+  const styles = getEditorStyles();
+  const textStyle = getTextStyle(styles, type);
+  return textStyle.fontSize * textStyle.lineHeight;
+}
 
 export function handleEvents(
   state: EditorState,
@@ -90,10 +107,57 @@ export function handleEvents(
     }
   }
 
+  // Check for cursor drag activation (200ms, before the 600ms long-press)
+  if (
+    touchState &&
+    touchState.isTouchingCursor &&
+    !touchState.isCursorDrag &&
+    !touchState.isLongPress &&
+    !touchState.hasMoved &&
+    !touchState.isScrollbarDrag &&
+    !state.ui.imageDrag &&
+    !state.ui.selectionHandleDrag
+  ) {
+    const timeSinceStart = Date.now() - touchState.startTime;
+    if (timeSinceStart >= CURSOR_DRAG_ACTIVATION_DELAY) {
+      touchState.isCursorDrag = true;
+      triggerHapticFeedback("light");
+
+      // Get cursor coordinates for initial magnifier position
+      const cursorCoords = state.document.cursor
+        ? getCursorDocumentCoords(
+            state.document.cursor.position,
+            state,
+            viewport,
+          )
+        : null;
+
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          cursorDrag: {
+            isActive: true,
+            touchX: touchState.currentTouchX,
+            touchY: touchState.currentTouchY,
+            cursorX: cursorCoords ? cursorCoords.x : touchState.currentTouchX,
+            cursorY: cursorCoords
+              ? cursorCoords.y - viewport.scrollY
+              : touchState.currentTouchY,
+            touchRadiusY: touchState.touchRadiusY,
+            lineHeight: getBlockLineHeight(state, state.document.cursor?.position?.blockIndex),
+            lastPosition: state.document.cursor?.position ?? null,
+          },
+        },
+      };
+    }
+  }
+
   // Check for long press trigger (independent of touchmove events)
   if (
     touchState &&
     !touchState.isLongPress &&
+    !touchState.isCursorDrag && // Don't trigger long press if we're in cursor drag mode
     !touchState.hasMoved &&
     !touchState.isScrollbarDrag &&
     !state.ui.imageDrag && // Don't open context menu if we're dragging an image
@@ -380,6 +444,83 @@ export function handleEvents(
           scrollbar: {
             ...state.view.scrollbar,
             lastInteraction: Date.now(),
+          },
+        },
+      };
+    }
+  } else if (autoScrollState.isActive && touchState?.isCursorDrag) {
+    // Apply auto-scroll for cursor drag (touch)
+    const elapsedTime = Date.now() - autoScrollState.startTime;
+    const timeBasedMultiplier = Math.min(
+      Math.pow(EDGE_SCROLL_ACCELERATION_RATE, elapsedTime / 1000),
+      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED,
+    );
+    autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
+
+    let autoScrollDelta = 0;
+    const touchY = autoScrollState.lastMouseY;
+
+    if (touchY < 0) {
+      const distance = Math.abs(touchY);
+      const speedMultiplier = Math.min(distance / 100, 3);
+      autoScrollDelta =
+        -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
+    } else if (touchY < EDGE_SCROLL_THRESHOLD) {
+      const proximity = 1 - touchY / EDGE_SCROLL_THRESHOLD;
+      autoScrollDelta = -EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
+    } else if (touchY > viewport.height) {
+      const distance = touchY - viewport.height;
+      const speedMultiplier = Math.min(distance / 100, 3);
+      autoScrollDelta =
+        EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
+    } else if (touchY > viewport.height - EDGE_SCROLL_THRESHOLD) {
+      const proximity =
+        (touchY - (viewport.height - EDGE_SCROLL_THRESHOLD)) /
+        EDGE_SCROLL_THRESHOLD;
+      autoScrollDelta = EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
+    }
+
+    if (autoScrollDelta !== 0 && updateViewportCallback) {
+      const maxScroll = documentHeight - viewport.height;
+      const newScrollY = Math.max(
+        0,
+        Math.min(maxScroll, viewport.scrollY + autoScrollDelta),
+      );
+
+      if (newScrollY !== viewport.scrollY) {
+        updateViewportCallback({ scrollY: newScrollY });
+      }
+    }
+
+    // Update cursor position based on new scroll position
+    const position = getTextPositionFromViewport(
+      autoScrollState.lastMouseX,
+      autoScrollState.lastMouseY,
+      state,
+      viewport,
+    );
+
+    if (position) {
+      state = updateCursor(state, position);
+
+      const cursorCoords = getCursorDocumentCoords(position, state, viewport);
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          cursorDrag: {
+            isActive: true,
+            touchX: touchState.currentTouchX,
+            touchY: touchState.currentTouchY,
+            cursorX: cursorCoords
+              ? cursorCoords.x
+              : touchState.currentTouchX,
+            cursorY: cursorCoords
+              ? cursorCoords.y - viewport.scrollY
+              : touchState.currentTouchY,
+            touchRadiusY: touchState.touchRadiusY,
+            lineHeight: getBlockLineHeight(state, position.blockIndex),
+            lastPosition: position,
           },
         },
       };

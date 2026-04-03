@@ -284,6 +284,7 @@ export const createInitialState = (
       imageHover: null,
       imageDrag: null,
       selectionHandleDrag: null,
+      cursorDrag: null,
       autoCreatedParagraph: null,
     },
     view: {

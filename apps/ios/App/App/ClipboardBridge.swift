@@ -105,7 +105,7 @@ class ClipboardBridge: NSObject, WKScriptMessageHandler {
                 default:
                     break
                 }
-            }
+            } 
         }
     }
 }
