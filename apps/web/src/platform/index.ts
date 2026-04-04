@@ -54,10 +54,35 @@ export function getClientPlatform(): ClientPlatform {
 // =============================================================================
 
 type AdapterType = "electron" | "capacitor" | "web";
+type DetailedAdapterType =
+  | "electron-macos"
+  | "electron-windows"
+  | "electron-linux"
+  | "capacitor-native"
+  | "capacitor-web"
+  | "electron"
+  | "capacitor"
+  | "web";
 
 export function detectAdapter(): AdapterType {
   if (typeof window === "undefined") return "web";
   if ((window as any).cypher) return "electron";
+  if ((window as any).Capacitor?.isNativePlatform?.()) return "capacitor";
+  return "web";
+}
+
+export function detectAdapterDetailed(): DetailedAdapterType {
+  if (typeof window === "undefined") return "web";
+  if ((window as any).cypher) {
+    if ((window as any).cypher.platform === "darwin") {
+      return "electron-macos";
+    } else if ((window as any).cypher.platform === "win32") {
+      return "electron-windows";
+    } else if ((window as any).cypher.platform === "linux") {
+      return "electron-linux";
+    }
+    return "electron";
+  }
   if ((window as any).Capacitor?.isNativePlatform?.()) return "capacitor";
   return "web";
 }
@@ -82,7 +107,8 @@ export async function initPlatform(): Promise<Platform> {
 
 async function _initPlatformInner(): Promise<Platform> {
   const env = detectAdapter();
-  const signalUrl = import.meta.env.VITE_SIGNAL_URL ?? "wss://signaling.cypher.md";
+  const signalUrl =
+    import.meta.env.VITE_SIGNAL_URL ?? "wss://signaling.cypher.md";
   let engine: Engine;
   let replicator: Replicator;
 

@@ -42,11 +42,11 @@ import { useSpaces } from "../contexts/SpaceContext";
 import { setRecentDragEnd } from "./components/PageLink";
 import { PagesArea } from "./components/PagesArea";
 // import pageLinkStyle from "./components/PagesLinks.module.css";
+import { detectAdapterDetailed } from "@/platform";
 import { useTranslation } from "react-i18next";
 import { useSidebarPanel } from "../contexts/SidebarPanelContext";
-import style from "./Layout.module.css";
-import { detectAdapter } from "@/platform";
 import useResponsive from "../hooks/useResponsive";
+import style from "./Layout.module.css";
 
 export function SidebarContent({
   setOpen,
@@ -379,7 +379,8 @@ export function SidebarContent({
     : "?";
 
   const avatarUrl = useAssetUrl(user?.avatar);
-  const shouldShowTheProfileAtTop = detectAdapter() !== "electron";
+  const shouldShowTheProfileAtTop =
+    detectAdapterDetailed() !== "electron-macos";
   return (
     <>
       {/* Portal target for page panels (e.g. calendar event preview) — replaces entire sidebar */}
