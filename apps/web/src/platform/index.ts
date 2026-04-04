@@ -147,7 +147,8 @@ async function _initPlatformInner(): Promise<Platform> {
 
   // Start the replicator in the background — do not block app render on network I/O
   replicator.start().catch((e) => {
-    console.error("[Sync] Replicator failed to start:", e);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[Sync] Replicator failed to start: ${msg}`);
   });
 
   _platform = engine;

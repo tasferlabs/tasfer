@@ -372,6 +372,7 @@ class WebRtcTopic implements NetworkTopic {
   private ws: WebSocket | null = null;
   private wsReady: Promise<void> = Promise.resolve();
   private resolveWsReady!: () => void;
+  private rejectWsReady!: (err: Error) => void;
   private destroyed = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -407,14 +408,27 @@ class WebRtcTopic implements NetworkTopic {
     if (this.ws?.readyState === WebSocket.OPEN) return Promise.resolve();
     if (this.ws?.readyState === WebSocket.CONNECTING) return this.wsReady;
 
-    this.wsReady = new Promise((r) => { this.resolveWsReady = r; });
+    this.wsReady = new Promise((resolve, reject) => {
+      this.resolveWsReady = resolve;
+      this.rejectWsReady = reject;
+    });
 
     const url = `${this.signalUrl}/topic/${this.topicHex}?peerId=${this.localPeerId}`;
-    this.ws = new WebSocket(url);
-
     const topicShort = this.topicHex.slice(0, 8);
 
+    try {
+      this.ws = new WebSocket(url);
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      console.error(`[WS] failed to create WebSocket topic=${topicShort} url=${url}:`, err.message);
+      this.rejectWsReady(err);
+      return this.wsReady;
+    }
+
+    let opened = false;
+
     this.ws.onopen = () => {
+      opened = true;
       console.log(`[WS] connected topic=${topicShort} peer=${this.localPeerId.slice(0, 8)}`);
       this.reconnectAttempt = 0;
       this.resolveWsReady();
@@ -429,6 +443,13 @@ class WebRtcTopic implements NetworkTopic {
       if (!ev.wasClean) {
         console.error(`[WS] unexpected close topic=${topicShort} code=${ev.code} reason=${ev.reason || "(none)"}`);
       }
+
+      // If the socket closed before onopen fired, reject the pending promise
+      // so callers don't hang forever.
+      if (!opened) {
+        this.rejectWsReady(new Error(`WebSocket closed before open (code=${ev.code})`));
+      }
+
       // Tear down peer connections but keep listeners so reconnected peers
       // re-trigger handlePeerJoin in the Replicator.
       this._reset();

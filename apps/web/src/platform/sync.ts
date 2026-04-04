@@ -404,7 +404,12 @@ export class Replicator {
     );
     for (const peer of trustedPeers) {
       if (peer.trusted) {
-        await this.connectToPeer(peer.publicKey);
+        try {
+          await this.connectToPeer(peer.publicKey);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error(`[Sync] failed to connect to peer ${peer.publicKey.slice(0, 8)}: ${msg}`);
+        }
       }
     }
   }
