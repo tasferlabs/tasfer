@@ -1106,23 +1106,35 @@ export function handleTouchEnd(
 
   // End cursor drag if active
   if (touchState?.isCursorDrag) {
+    const didNotMove = !touchState.hasMoved;
+    const touchX = touchState.currentTouchX;
+    const touchY = touchState.currentTouchY;
     triggerHapticFeedback("medium");
     touchState = null;
-    return {
-      state: {
-        ...state,
-        ui: {
-          ...state.ui,
-          cursorDrag: null,
-        },
-        view: {
-          ...state.view,
-          scrollbar: {
-            ...state.view.scrollbar,
-            lastInteraction: Date.now(),
-          },
+
+    let newState: EditorState = {
+      ...state,
+      ui: {
+        ...state.ui,
+        cursorDrag: null,
+      },
+      view: {
+        ...state.view,
+        scrollbar: {
+          ...state.view.scrollbar,
+          lastInteraction: Date.now(),
         },
       },
+    };
+
+    // If the user held on the cursor without moving, open context menu
+    // This matches standard mobile behavior (long-press on cursor = paste menu)
+    if (didNotMove) {
+      newState = openContextMenu(newState, touchX, touchY);
+    }
+
+    return {
+      state: newState,
       ops,
     };
   }

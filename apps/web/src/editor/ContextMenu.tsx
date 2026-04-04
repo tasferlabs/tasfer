@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Check, ChevronRight } from "lucide-react";
+import { triggerHapticFeedback } from "./events/touchEvents";
 
 export interface ContextMenuItem {
   id: string;
@@ -46,12 +47,12 @@ const Submenu: React.FC<SubmenuProps> = ({
       <Popover.Trigger asChild>
         <button
           data-context-menu-item-id={item.id}
-          className={`w-full px-2 py-2 flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors ${
+          className={`w-full px-2.5 py-[7px] flex items-center gap-2.5 rounded-[9px] text-[13px] font-medium transition-all duration-75 ${
             item.disabled
               ? "opacity-50 cursor-not-allowed text-muted-foreground"
               : isOpen
               ? "bg-accent text-accent-foreground"
-              : "text-popover-foreground hover:bg-accent hover:text-accent-foreground active:bg-accent/80"
+              : "text-popover-foreground hover:bg-accent hover:text-accent-foreground active:bg-accent/80 active:scale-[0.98]"
           }`}
           onMouseDown={(e) => {
             e.preventDefault();
@@ -62,12 +63,13 @@ const Submenu: React.FC<SubmenuProps> = ({
             {item.icon}
           </span>
           <span className="flex-1 text-start">{item.label}</span>
-          <ChevronRight size={14} className="text-muted-foreground" />
+          <ChevronRight size={13} className="text-muted-foreground/70" />
         </button>
       </Popover.Trigger>
       <Popover.Portal container={container}>
         <Popover.Content
-          className="bg-popover rounded-xl shadow-lg border border-border p-1 min-w-[160px] z-[51] select-none pointer-events-auto animate-in fade-in zoom-in-95 duration-100"
+          className="bg-popover/95 backdrop-blur-xl rounded-xl border border-border/60 p-1.5 min-w-[170px] z-[51] select-none pointer-events-auto animate-in fade-in zoom-in-95 duration-100"
+          style={{ boxShadow: "0 0 0 0.5px rgba(0,0,0,0.03), 0 2px 4px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.1), 0 24px 48px rgba(0,0,0,0.06)" }}
           side="right"
           align="start"
           sideOffset={4}
@@ -85,7 +87,7 @@ const Submenu: React.FC<SubmenuProps> = ({
               <button
                 key={child.id}
                 data-context-menu-item-id={child.id}
-                className={`text-start w-full px-2 py-2 flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground active:bg-accent/80 ${
+                className={`text-start w-full px-2.5 py-[7px] flex items-center gap-2.5 rounded-[9px] text-[13px] font-medium transition-all duration-75 hover:bg-accent hover:text-accent-foreground active:bg-accent/80 active:scale-[0.98] ${
                   child.active
                     ? "text-primary"
                     : "text-popover-foreground"
@@ -108,7 +110,7 @@ const Submenu: React.FC<SubmenuProps> = ({
                 </span>
                 <span className="flex-1">{child.label}</span>
                 {child.active && (
-                  <Check size={14} className="text-primary" />
+                  <Check size={13} className="text-primary" />
                 )}
               </button>
             );
@@ -128,6 +130,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   container,
   hoveredItemId,
 }) => {
+  useEffect(() => {
+    triggerHapticFeedback("medium");
+  }, []);
+
   if (items.length === 0) {
     return null;
   }
@@ -145,7 +151,8 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
       />
       <Popover.Portal container={container}>
         <Popover.Content
-          className="bg-popover rounded-xl shadow-lg border border-border p-1 min-w-[160px] z-50 select-none pointer-events-auto animate-in fade-in zoom-in-95 duration-100"
+          className="bg-popover/95 backdrop-blur-xl rounded-xl border border-border/60 p-1.5 min-w-[170px] z-50 select-none pointer-events-auto animate-in fade-in zoom-in-95 duration-100"
+          style={{ boxShadow: "0 0 0 0.5px rgba(0,0,0,0.03), 0 2px 4px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.1), 0 24px 48px rgba(0,0,0,0.06)" }}
           side="top"
           align="start"
           sideOffset={5}
@@ -177,12 +184,12 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
               <button
                 key={item.id}
                 data-context-menu-item-id={item.id}
-                className={`w-full px-2 py-2 flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`w-full px-2.5 py-[7px] flex items-center gap-2.5 rounded-[9px] text-[13px] font-medium transition-all duration-75 ${
                   item.disabled
                     ? "opacity-50 cursor-not-allowed text-muted-foreground"
                     : isHovered
                     ? "bg-accent text-accent-foreground"
-                    : "text-popover-foreground hover:bg-accent hover:text-accent-foreground active:bg-accent/80"
+                    : "text-popover-foreground hover:bg-accent hover:text-accent-foreground active:bg-accent/80 active:scale-[0.98]"
                 }`}
                 onClick={() => {
                   if (!item.disabled && item.action) {
