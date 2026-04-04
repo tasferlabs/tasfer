@@ -156,8 +156,18 @@ export function PagePicker({
                 <span
                   className="shrink-0 inline-block w-3 h-3 rounded-full"
                   style={{
-                    backgroundColor: page.color || "var(--primary)",
-                    opacity: page.color ? 1 : 0.3,
+                    backgroundColor: (() => {
+                      const c =
+                        page.color ??
+                        (page.path &&
+                          [...page.path].reverse().find((p) => p.color)?.color);
+                      return c || "var(--primary)";
+                    })(),
+                    opacity:
+                      page.color ||
+                      (page.path && page.path.some((p) => p.color))
+                        ? 1
+                        : 0.3,
                   }}
                 />
                 <div className="min-w-0 flex-1 flex gap-2">

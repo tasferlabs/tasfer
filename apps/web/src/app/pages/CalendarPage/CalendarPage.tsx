@@ -1094,7 +1094,7 @@ export default function CalendarPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [createPageAtTime, viewMode, previewPageId]);
+  }, [createPageAtTime, viewMode, previewPageId, draftEvent]);
 
   const noopHandler = useCallback(() => {}, []);
 
