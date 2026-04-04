@@ -120,7 +120,12 @@
 
 /* Electron macOS: clear traffic lights when sidebar is closed */
 :global(body.electron-mac) .appHeaderSidebarClosed {
-  padding-inline-start: 100px;
+  padding-left: 100px;
+}
+
+/* Electron macOS + RTL: sidebar is on the right, so traffic lights overlap the header even when sidebar is open */
+:global([dir="rtl"] body.electron-mac) .appHeader {
+  padding-left: 76px;
 }
 
 /* Windows/Linux: menu bar is a separate row above, so action bar is normal height */
@@ -338,11 +343,16 @@
   border-top: 1px solid var(--border);
 }
 
-/* Electron macOS: sidebar header sits alongside traffic lights */
+/* Electron macOS: sidebar header sits alongside traffic lights (always on the left) */
 :global(body.electron) .appSidebarHeader {
   -webkit-app-region: drag;
-  padding-inline-start: 76px;
+  padding-left: 76px;
   min-height: 50px;
+}
+
+/* RTL: sidebar is on the right, no traffic lights to clear */
+:global([dir="rtl"] body.electron-mac) .appSidebarHeader {
+  padding-left: 0;
 }
 
 /* Electron Windows: no traffic lights to clear */
