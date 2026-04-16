@@ -48,6 +48,7 @@ export function EventCard({
     <div
       ref={setNodeRef}
       className={`${style.eventCard}${isDraft ? ` ${style.eventCardDraft}` : ""}`}
+      {...(isDraft ? { "data-draft-card": "" } : {})}
       style={{
         top,
         height: actualHeight,

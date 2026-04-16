@@ -100,13 +100,42 @@ function computePosition(
   else if (clampedW <= spaceInlineStart) {
     left = isRtl ? anchor.right + GAP : anchor.left - GAP - clampedW;
   }
-  // Pick the larger side and shrink to fit
-  else if (spaceInlineEnd >= spaceInlineStart) {
-    clampedW = Math.max(MIN_WIDTH, spaceInlineEnd);
-    left = isRtl ? anchor.left - GAP - clampedW : anchor.right + GAP;
-  } else {
-    clampedW = Math.max(MIN_WIDTH, spaceInlineStart);
-    left = isRtl ? anchor.right + GAP : anchor.left - GAP - clampedW;
+  // Pick the larger side and shrink to fit if MIN_WIDTH fits
+  else if (
+    spaceInlineEnd >= MIN_WIDTH ||
+    spaceInlineStart >= MIN_WIDTH
+  ) {
+    if (spaceInlineEnd >= spaceInlineStart) {
+      clampedW = Math.max(MIN_WIDTH, spaceInlineEnd);
+      left = isRtl ? anchor.left - GAP - clampedW : anchor.right + GAP;
+    } else {
+      clampedW = Math.max(MIN_WIDTH, spaceInlineStart);
+      left = isRtl ? anchor.right + GAP : anchor.left - GAP - clampedW;
+    }
+  }
+  // Neither side fits MIN_WIDTH — position above or below the anchor instead
+  else {
+    clampedW = Math.min(width, window.innerWidth - 2 * GAP);
+    left = isRtl
+      ? window.innerWidth - GAP - clampedW
+      : GAP;
+
+    const spaceBelow = window.innerHeight - anchor.bottom - GAP;
+    const spaceAbove = anchor.top - GAP;
+
+    if (spaceBelow >= clampedH) {
+      top = anchor.bottom + GAP;
+    } else if (spaceAbove >= clampedH) {
+      top = anchor.top - GAP - clampedH;
+    } else {
+      // Not enough room above or below either — center in viewport
+      top = Math.max(GAP, (window.innerHeight - clampedH) / 2);
+      left = Math.max(GAP, (window.innerWidth - clampedW) / 2);
+    }
+
+    top ??= 0;
+    top = Math.max(GAP, Math.min(top, window.innerHeight - clampedH - GAP));
+    return { top, left, width: clampedW, height: clampedH };
   }
 
   // Vertically center relative to anchor, clamped to viewport

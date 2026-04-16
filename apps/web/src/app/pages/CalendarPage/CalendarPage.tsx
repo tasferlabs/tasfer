@@ -286,6 +286,20 @@ export default function CalendarPage() {
     [activeSpaceId, selectedDate],
   );
 
+  // After the draft card renders, resolve its position as the anchor
+  useEffect(() => {
+    if (!draftEvent || previewAnchor) return;
+    const frame = requestAnimationFrame(() => {
+      const el = document.querySelector(
+        `[data-draft-card]`,
+      ) as HTMLElement | null;
+      if (el) {
+        setPreviewAnchor(el.getBoundingClientRect());
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [draftEvent, previewAnchor]);
+
   const draftSnapshotRef = useRef<{ blocks?: Block[] }>(
     {},
   );

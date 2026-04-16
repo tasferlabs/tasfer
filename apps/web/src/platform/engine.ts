@@ -1175,7 +1175,7 @@ export class Engine implements Platform {
         parent_id: string | null;
         color: string | null;
       }>(
-        "SELECT id, title, parent_id, color FROM pages WHERE title LIKE ? AND archived_at IS NULL LIMIT 20",
+        "SELECT id, title, parent_id, color FROM pages WHERE title LIKE ? AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 20",
         [`%${query}%`],
       );
 
