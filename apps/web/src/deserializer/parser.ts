@@ -5,6 +5,7 @@ import type {
   Paragraph,
   Image,
   Line,
+  Math,
   TextFormat,
   Char,
   CharRun,
@@ -32,6 +33,7 @@ import {
   IMAGE_END,
   HTML_IMG,
   HORIZONTAL_RULE,
+  MATH_BLOCK,
   NEWLINE,
   STRIKETHROUGH_END,
   STRIKETHROUGH_START,
@@ -203,6 +205,7 @@ function parseBlock(context: ParserContext): Block {
   
   // Check for other block types
   if (check(context, HORIZONTAL_RULE)) return parseHorizontalRule(context);
+  if (check(context, MATH_BLOCK)) return parseMathBlock(context);
   if (check(context, HTML_IMG)) return parseHTMLImage(context);
   if (check(context, IMAGE_START)) return parseImage(context);
   if (match(context, HEADING_1)) return parseHeading(context, 1);
@@ -387,6 +390,19 @@ function parseHorizontalRule(context: ParserContext): Line {
   return {
     id: `block-${context.blockIdCounter++}`,
     type: "line",
+  };
+}
+
+function parseMathBlock(context: ParserContext): Math {
+  match(context, MATH_BLOCK);
+  const latex = (previous(context) as VisibleToken).content;
+  match(context, NEWLINE);
+
+  return {
+    id: `block-${context.blockIdCounter++}`,
+    type: "math",
+    latex,
+    displayMode: true,
   };
 }
 

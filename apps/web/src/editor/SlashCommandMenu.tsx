@@ -9,6 +9,7 @@ import {
   List,
   ListOrdered,
   Minus,
+  Sigma,
   Type,
 } from "lucide-react";
 import React, { useEffect, useMemo, useRef } from "react";
@@ -76,6 +77,15 @@ function useSlashCommands(): SlashCommandWithMeta[] {
         description: t("image.addSuitable", "Add a suitable image."),
         icon: <Image size={18} />,
         keywords: ["image", t("blocks.imageKw", "image"), "img", "picture", t("blocks.pictureKw", "picture"), "photo", t("blocks.photoKw", "photo"), "upload", t("blocks.uploadKw", "upload")],
+        category: "media" as const,
+      },
+      {
+        id: "math",
+        type: "math" as const,
+        label: t("blocks.math", "Math Equation"),
+        description: t("blocks.desc.math", "LaTeX math expression."),
+        icon: <Sigma size={18} />,
+        keywords: ["math", t("blocks.mathKw", "math"), "equation", t("blocks.equationKw", "equation"), "latex", "formula", t("blocks.formulaKw", "formula"), "$$"],
         category: "media" as const,
       },
       {
@@ -181,6 +191,15 @@ export function getSlashCommands(): SlashCommandWithMeta[] {
       description: t("image.addSuitable", "Add a suitable image."),
       icon: "",
       keywords: ["image", t("blocks.imageKw", "image"), "img", "picture", t("blocks.pictureKw", "picture"), "photo", t("blocks.photoKw", "photo"), "upload", t("blocks.uploadKw", "upload")],
+      category: "media",
+    },
+    {
+      id: "math",
+      type: "math",
+      label: t("blocks.math", "Math Equation"),
+      description: t("blocks.desc.math", "LaTeX math expression."),
+      icon: "",
+      keywords: ["math", t("blocks.mathKw", "math"), "equation", t("blocks.equationKw", "equation"), "latex", "formula", t("blocks.formulaKw", "formula"), "$$"],
       category: "media",
     },
     {

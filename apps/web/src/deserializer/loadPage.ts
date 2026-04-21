@@ -61,6 +61,13 @@ export interface Line extends BlockRuntimeState {
   type: "line";
 }
 
+// Math block - rendered LaTeX equation
+export interface Math extends BlockRuntimeState {
+  type: "math";
+  latex: string;
+  displayMode: boolean; // true = display/block mode, false = inline mode
+}
+
 // TODO: Normal inline image block (future implementation)
 // export interface Image {
 //   id: string;
@@ -142,15 +149,15 @@ export type ListBlock = BulletListItem | NumberedListItem | TodoListItem;
 
 export type TextualBlock = TextBlock | ListBlock;
 
-// Visual blocks contain visual content (images, lines, etc.)
-export type VisualBlock = Image | Line;
+// Visual blocks contain visual content (images, lines, math, etc.)
+export type VisualBlock = Image | Line | Math;
 
 // Block is a union of all block types
 export type Block = TextBlock | VisualBlock | ListBlock;
 
 // Type guards
 export function isTextualBlock(block: Block): block is TextualBlock {
-  return block.type !== "image" && block.type !== "line";
+  return block.type !== "image" && block.type !== "line" && block.type !== "math";
 }
 
 export function isListBlock(block: Block): block is ListBlock {

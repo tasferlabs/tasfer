@@ -60,7 +60,7 @@ function getBlockLineHeight(
   const block = state.document.page.blocks[blockIndex];
   if (!block) return 16 * 1.6;
   const type = block.type;
-  if (type === "image" || type === "line") return 16 * 1.6;
+  if (type === "image" || type === "line" || type === "math") return 16 * 1.6;
   const styles = getEditorStyles();
   const textStyle = getTextStyle(styles, type);
   return textStyle.fontSize * textStyle.lineHeight;

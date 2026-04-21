@@ -210,7 +210,7 @@ export function getLineBlockAtPoint(
           y < displayY + displayHeight
         ) {
           return {
-            blockIndex: visibleIdx,
+            blockIndex: visibleBlock.originalIndex,
             x: displayX,
             y: displayY,
             width: displayWidth,
@@ -227,6 +227,60 @@ export function getLineBlockAtPoint(
 
   return null;
 }
+export function getMathBlockAtPoint(
+  x: number,
+  y: number,
+  state: EditorState,
+  viewport: ViewportState
+): {
+  blockIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} | null {
+  const styles = getEditorStyles();
+  let currentY = styles.canvas.paddingTop - viewport.scrollY;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+
+  const visibleBlocks = state.view.visibleBlocks;
+
+  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+    const visibleBlock = visibleBlocks[visibleIdx];
+    const blockHeight = getBlockHeight(visibleBlock, maxWidth, styles, visibleIdx === 0);
+
+    if (y >= currentY && y < currentY + blockHeight) {
+      if (visibleBlock.type === "math") {
+        const displayX = styles.canvas.paddingLeft;
+        const displayWidth = maxWidth;
+        const displayY = currentY;
+        const displayHeight = blockHeight;
+
+        if (
+          x >= displayX &&
+          x < displayX + displayWidth &&
+          y >= displayY &&
+          y < displayY + displayHeight
+        ) {
+          return {
+            blockIndex: visibleBlock.originalIndex,
+            x: displayX,
+            y: displayY,
+            width: displayWidth,
+            height: displayHeight,
+          };
+        }
+      }
+      return null;
+    }
+
+    currentY += blockHeight;
+  }
+
+  return null;
+}
+
 /**
  * Helper function to detect which drag handle (if any) is being hovered
  * @param x Mouse/touch x position relative to canvas

@@ -161,7 +161,7 @@ function invertTextDelete(
   }
 
   // Skip blocks without text content
-  if (block.type === "image" || block.type === "line") {
+  if (block.type === "image" || block.type === "line" || block.type === "math") {
     return null;
   }
 

@@ -325,3 +325,111 @@ body.native {
   user-select: none;
   -webkit-touch-callout: none;
 }
+
+/* ── Math Block Editor ── */
+
+.math-editor-popover {
+  background-color: var(--popover);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  width: 420px;
+  max-width: calc(100vw - 24px);
+  overflow: hidden;
+  box-shadow:
+    0 0 0 0.5px oklch(0 0 0 / 0.04),
+    0 2px 6px oklch(0 0 0 / 0.04),
+    0 12px 32px oklch(0 0 0 / 0.1),
+    0 28px 56px oklch(0 0 0 / 0.06);
+}
+
+:is(.dark) .math-editor-popover {
+  box-shadow:
+    0 0 0 0.5px oklch(1 0 0 / 0.06),
+    0 2px 6px oklch(0 0 0 / 0.2),
+    0 12px 32px oklch(0 0 0 / 0.4),
+    0 28px 56px oklch(0 0 0 / 0.3);
+}
+
+.math-editor-preview {
+  background:
+    radial-gradient(circle at 20% 50%, oklch(from var(--primary) l c h / 0.03) 0%, transparent 60%),
+    oklch(from var(--muted) l c h / 0.3);
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:is(.dark) .math-editor-preview {
+  background:
+    radial-gradient(circle at 20% 50%, oklch(from var(--primary) l c h / 0.06) 0%, transparent 60%),
+    oklch(0 0 0 / 0.25);
+}
+
+.math-editor-preview mjx-container {
+  font-size: 1.3em;
+}
+
+.math-editor-preview mjx-container[display="true"] {
+  margin: 0;
+}
+
+/* MathJax error background rects inherit fill=currentColor, making them
+   the same color as text. Override to a subtle semi-transparent fill. */
+.math-preview-content svg rect[data-background] {
+  fill: rgba(128, 128, 128, 0.15) !important;
+}
+
+.math-preview-error svg {
+  color: var(--destructive);
+}
+
+.math-editor-input-area {
+  position: relative;
+}
+
+.math-editor-lang-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: oklch(from var(--muted-foreground) l c h / 0.45);
+  user-select: none;
+}
+
+.math-editor-textarea {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  max-height: 160px;
+  padding: 4px 12px 6px;
+  margin: 0;
+  border: none;
+  background: transparent;
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.65;
+  resize: none;
+  outline: none;
+  field-sizing: content;
+}
+
+.math-editor-textarea::placeholder {
+  color: oklch(from var(--muted-foreground) l c h / 0.35);
+  font-style: italic;
+}
+
+/* Snippet previews inside buttons */
+.math-snippet-preview mjx-container {
+  font-size: 0.85em;
+}
+
+/* Math block rendered on canvas - overlay button */
+.math-block-edit-btn {
+  position: absolute;
+  inset-inline-end: 8px;
+  top: 8px;
+  pointer-events: auto;
+}

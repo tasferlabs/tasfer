@@ -40,6 +40,7 @@ import { isTextualBlock } from "../deserializer/loadPage";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { FindBar } from "../editor/FindBar";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
+import { MathBlockEditor } from "../editor/MathBlockEditor";
 import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
@@ -217,6 +218,12 @@ export function MountedEditor({
     y: number;
     blockIndex: number;
     uploadStatus: "idle" | "uploading" | "complete" | "error";
+  } | null>(null);
+
+  const [mathEditState, setMathEditState] = useState<{
+    x: number;
+    y: number;
+    blockIndex: number;
   } | null>(null);
 
   const [imageHoverState, setImageHoverState] = useState<{
@@ -926,6 +933,20 @@ export function MountedEditor({
         }
       } else if (imageUploadState) {
         setImageUploadState(null);
+      }
+
+      // Calculate math edit state
+      if (state.ui.activeMenu.type === "mathEdit") {
+        const containerRect = wrapperRef.current?.getBoundingClientRect();
+        if (containerRect) {
+          setMathEditState({
+            x: containerRect.left + state.ui.activeMenu.x,
+            y: containerRect.top + state.ui.activeMenu.y,
+            blockIndex: state.ui.activeMenu.blockIndex,
+          });
+        }
+      } else if (mathEditState) {
+        setMathEditState(null);
       }
 
       // Calculate new image hover state
@@ -1881,6 +1902,57 @@ export function MountedEditor({
               // Clear the menu state in the editor
               mountedRef.current.editor.closeActiveMenu();
               setImageUploadState(null);
+            }}
+            collisionBoundary={mountedRef.current?.portalContainer}
+            container={mountedRef.current?.portalContainer}
+          />,
+          mountedRef.current.portalContainer,
+        )}
+
+      {/* Math block editor popover */}
+      {mathEditState &&
+        mountedRef.current?.portalContainer &&
+        createPortal(
+          <MathBlockEditor
+            x={mathEditState.x}
+            y={mathEditState.y}
+            initialLatex={(() => {
+              if (!mountedRef.current) return "";
+              const block =
+                mountedRef.current.editor.getState()?.document.page.blocks[
+                  mathEditState.blockIndex
+                ];
+              return block?.type === "math" ? block.latex : "";
+            })()}
+            displayMode={(() => {
+              if (!mountedRef.current) return true;
+              const block =
+                mountedRef.current.editor.getState()?.document.page.blocks[
+                  mathEditState.blockIndex
+                ];
+              return block?.type === "math" ? block.displayMode : true;
+            })()}
+            onSubmit={(latex, displayMode) => {
+              if (!mountedRef.current) return;
+              mountedRef.current.editor.updateMathBlock(
+                mathEditState.blockIndex,
+                { latex, displayMode },
+              );
+              mountedRef.current.editor.closeActiveMenu();
+              setMathEditState(null);
+            }}
+            onDelete={() => {
+              if (!mountedRef.current) return;
+              // Delete the math block (reuse image delete logic pattern)
+              mountedRef.current.editor.deleteImageBlock(
+                mathEditState.blockIndex,
+              );
+              setMathEditState(null);
+            }}
+            onClose={() => {
+              if (!mountedRef.current) return;
+              mountedRef.current.editor.closeActiveMenu();
+              setMathEditState(null);
             }}
             collisionBoundary={mountedRef.current?.portalContainer}
             container={mountedRef.current?.portalContainer}

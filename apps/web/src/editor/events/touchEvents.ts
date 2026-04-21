@@ -64,7 +64,7 @@ function getLineHeightAtPosition(
   const block = state.document.page.blocks[blockIndex];
   if (!block) return 16 * 1.6;
   const type = block.type;
-  if (type === "image" || type === "line") return 16 * 1.6;
+  if (type === "image" || type === "line" || type === "math") return 16 * 1.6;
   const styles = getEditorStyles();
   const textStyle = getTextStyle(styles, type);
   return textStyle.fontSize * textStyle.lineHeight;
@@ -1718,7 +1718,7 @@ export function handleTouchEnd(
           if (!selectedBlock || selectedBlock.deleted) return { state, ops };
           if (
             selectedBlock &&
-            (selectedBlock.type === "image" || selectedBlock.type === "line")
+            (selectedBlock.type === "image" || selectedBlock.type === "line" || selectedBlock.type === "math")
           ) {
             // We have a visual block selected, but tapped outside it - clear the selection
             state = clearSelection(state);

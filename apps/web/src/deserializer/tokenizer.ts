@@ -28,6 +28,7 @@ export const TODO_LIST_UNCHECKED = "todo_unchecked";
 export const TODO_LIST_CHECKED = "todo_checked";
 export const INDENT = "indent";
 export const HORIZONTAL_RULE = "horizontal_rule";
+export const MATH_BLOCK = "math_block";
 export const NEWLINE = "newline";
 
 type FormatTokenType =
@@ -57,6 +58,7 @@ type VisibleTokenType =
   | HeadingTokenTypes
   | "text"
   | "horizontal_rule"
+  | "math_block"
   | FormatTokenType
   | ListTokenType;
 export type TokenType = VisibleTokenType | "newline";
@@ -115,6 +117,8 @@ export default function tokenizePage(content: string) {
     } else if (state.startOfLine && tryTokenizeList(state, tokens)) {
       // List was tokenized, continue
       state.startOfLine = false;
+    } else if (state.startOfLine && tryTokenizeMathBlock(state, tokens)) {
+      // Math block was tokenized, continue
     } else {
       tokenizeLine(state, tokens);
     }
@@ -161,6 +165,65 @@ function tryTokenizeHorizontalRule(
   }
 
   return false;
+}
+
+// Try to tokenize display math block ($$...$$) at start of line
+function tryTokenizeMathBlock(
+  state: TokenizerState,
+  tokens: Token[]
+): boolean {
+  const char = current(state);
+  if (char !== "$" || peek(state) !== "$") return false;
+
+  // Find closing $$
+  let i = 2; // Skip opening $$
+  // Skip optional newline after opening $$
+  if (peek(state, i) === "\n") i++;
+  else if (peek(state, i) === "\r" && peek(state, i + 1) === "\n") i += 2;
+
+  const contentStart = i;
+  let found = false;
+
+  while (state.index + i < state.content.length) {
+    if (
+      state.content[state.index + i] === "$" &&
+      state.index + i + 1 < state.content.length &&
+      state.content[state.index + i + 1] === "$"
+    ) {
+      found = true;
+      break;
+    }
+    i++;
+  }
+
+  if (!found) return false;
+
+  let latex = state.content.slice(state.index + contentStart, state.index + i);
+  // Trim trailing newline before closing $$
+  if (latex.endsWith("\n")) latex = latex.slice(0, -1);
+  if (latex.endsWith("\r")) latex = latex.slice(0, -1);
+
+  tokens.push({
+    type: MATH_BLOCK,
+    content: latex,
+  });
+
+  next(state, i + 2); // Skip content + closing $$
+
+  // Skip optional trailing newline
+  if (!isEnd(state) && current(state) === "\n") {
+    tokens.push({ type: "newline" });
+    next(state);
+  } else if (
+    !isEnd(state) &&
+    current(state) === "\r" &&
+    peek(state) === "\n"
+  ) {
+    tokens.push({ type: "newline" });
+    next(state, 2);
+  }
+
+  return true;
 }
 
 // Count leading spaces for indent detection (2 spaces = 1 indent level)

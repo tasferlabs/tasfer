@@ -104,6 +104,13 @@ export function createEmptyBlock(
         ...base,
         type: "line",
       };
+    case "math":
+      return {
+        ...base,
+        type: "math",
+        latex: "",
+        displayMode: true,
+      };
   }
 }
 

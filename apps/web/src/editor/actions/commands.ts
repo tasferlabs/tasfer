@@ -3473,6 +3473,91 @@ export function applySlashCommand(
     return { state: newState, ops };
   }
 
+  // Special handling for math blocks
+  if (command.type === "math") {
+    const newBlock: Block = {
+      id: block.id,
+      type: "math",
+      latex: "",
+      displayMode: true,
+    };
+
+    invalidateBlockCache(newBlock);
+
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[blockIndex] = newBlock;
+    const newPage = { ...state.document.page, blocks: newBlocks };
+
+    // Emit CRDT operations: delete all text and change block type
+    if (isTextualBlock(block)) {
+      const textLength = getVisibleLength(block.charRuns);
+      if (textLength > 0) {
+        const { op: deleteOp } = deleteCharsInRange(
+          block.charRuns,
+          0,
+          textLength,
+          block.id
+        );
+        ops.push(deleteOp);
+      }
+
+      const blockSetOp: BlockSet = {
+        op: "block_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        blockId: block.id,
+        field: "type",
+        value: "math",
+      };
+      ops.push(blockSetOp);
+    }
+
+    // Update state
+    let newState: EditorState = {
+      ...state,
+      document: { ...state.document, page: newPage },
+    };
+    newState = closeSlashCommand(newState);
+
+    // Move cursor to next block (create one if needed)
+    if (blockIndex + 1 < newBlocks.length) {
+      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
+    } else {
+      const newParagraphId = nextId();
+      const newParagraph: Block = {
+        id: newParagraphId,
+        type: "paragraph",
+        charRuns: [],
+        formats: [],
+      };
+
+      const blockInsertOp: BlockInsert = {
+        op: "block_insert",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        afterBlockId: block.id,
+        blockId: newParagraphId,
+        blockType: "paragraph",
+      };
+      ops.push(blockInsertOp);
+
+      const blocksWithNewParagraph = [...newBlocks, newParagraph];
+      newState = {
+        ...newState,
+        document: {
+          ...newState.document,
+          page: { ...newPage, blocks: blocksWithNewParagraph },
+        },
+      };
+
+      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
+    }
+
+    return { state: newState, ops };
+  }
+
   // Special handling for line/divider blocks
   if (command.type === "line") {
     // For line blocks, we replace the current block with a line block
@@ -3560,8 +3645,8 @@ export function applySlashCommand(
   }
 
   // Regular text-based blocks and list blocks
-  // If the current block is already an image cover, just close the slash command
-  if (block.type === "image") {
+  // If the current block is already an image cover or math block, just close the slash command
+  if (block.type === "image" || block.type === "math") {
     return { state: closeSlashCommand(state), ops: [] };
   }
 

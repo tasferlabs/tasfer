@@ -146,6 +146,11 @@ export interface Editor {
     existingUrl?: string,
     existingAlt?: string
   ) => void;
+  updateMathBlock: (
+    blockIndex: number,
+    updates: { latex?: string; displayMode?: boolean }
+  ) => void;
+  openMathEditMenu: (blockIndex: number, x: number, y: number) => void;
   closeActiveMenu: () => void;
   /** Update page content from CRDT sync (remote operations) */
   updatePageFromSync: (page: Page) => void;
@@ -1791,6 +1796,8 @@ export default function createEditor(
       ops.push(op);
     }
 
+    const prevState = state;
+
     state = {
       ...state,
       ui: newUIState,
@@ -1799,6 +1806,11 @@ export default function createEditor(
         page: { ...state.document.page, blocks: newBlocks },
       },
     };
+
+    // Record to undo stack
+    if (ops.length > 0) {
+      state = recordUndoOps(prevState, state, ops, getPeerId());
+    }
 
     // Broadcast operations
     if (ops.length > 0 && broadcastFn) {
@@ -1813,15 +1825,15 @@ export default function createEditor(
   function deleteImageBlockMethod(blockIndex: number) {
     const block = state.document.page.blocks[blockIndex];
 
-    if (!block || block.deleted || block.type !== "image") {
-      console.error("Attempted to delete non-image block");
+    if (!block || block.deleted || (block.type !== "image" && block.type !== "math")) {
+      console.error("Attempted to delete non-visual block");
       return;
     }
 
     // Get block ID before deletion
     const blockId = block.id;
 
-    state = state;
+    const prevState = state;
 
     const newBlocks = [...state.document.page.blocks];
     newBlocks.splice(blockIndex, 1);
@@ -1871,6 +1883,11 @@ export default function createEditor(
       },
     };
 
+    // Record to undo stack
+    if (ops.length > 0) {
+      state = recordUndoOps(prevState, state, ops, getPeerId());
+    }
+
     // Broadcast operations
     if (ops.length > 0 && broadcastFn) {
       broadcastFn(ops);
@@ -1890,6 +1907,86 @@ export default function createEditor(
   ) {
     state = setActiveMenu(state, {
       type: "imageUpload",
+      blockIndex,
+      x,
+      y,
+    });
+
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  function updateMathBlock(
+    blockIndex: number,
+    updates: { latex?: string; displayMode?: boolean }
+  ) {
+    const block = state.document.page.blocks[blockIndex];
+    if (!block || block.deleted || block.type !== "math") {
+      return;
+    }
+
+    const prevState = state;
+
+    const updatedBlock = { ...block, ...updates };
+    invalidateBlockCache(updatedBlock);
+
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[blockIndex] = updatedBlock;
+
+    const ops: Operation[] = [];
+    const blockId = block.id;
+
+    if (updates.latex !== undefined) {
+      const op: BlockSet = {
+        op: "block_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        blockId,
+        field: "latex",
+        value: updates.latex,
+      };
+      ops.push(op);
+    }
+    if (updates.displayMode !== undefined) {
+      const op: BlockSet = {
+        op: "block_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        blockId,
+        field: "displayMode",
+        value: updates.displayMode,
+      };
+      ops.push(op);
+    }
+
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        page: { ...state.document.page, blocks: newBlocks },
+      },
+    };
+
+    // Record to undo stack
+    if (ops.length > 0) {
+      state = recordUndoOps(prevState, state, ops, getPeerId());
+    }
+
+    if (ops.length > 0 && broadcastFn) {
+      broadcastFn(ops);
+    }
+
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  function openMathEditMenu(blockIndex: number, x: number, y: number) {
+    state = setActiveMenu(state, {
+      type: "mathEdit",
       blockIndex,
       x,
       y,
@@ -2304,6 +2401,8 @@ export default function createEditor(
     updateImageBlock: updateImageBlock,
     deleteImageBlock: deleteImageBlockMethod,
     openImageUploadMenu,
+    updateMathBlock,
+    openMathEditMenu,
     closeActiveMenu: closeActiveMenuMethod,
     setPhysicalKeyboard,
     updatePageFromSync,

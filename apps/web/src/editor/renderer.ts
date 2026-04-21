@@ -551,6 +551,21 @@ export const renderBlock = (
     );
   }
 
+  // Handle math blocks
+  if (block.type === "math") {
+    return renderMathBlock(
+      ctx,
+      state,
+      block,
+      blockIndex,
+      x,
+      y,
+      maxWidth,
+      styles,
+      remoteAwareness,
+    );
+  }
+
   const textStyle = getTextStyle(styles, block.type);
   const fontFamily = getCurrentFontFamily();
   const codePadding = styles.textFormats.code.padding;
@@ -1493,6 +1508,236 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   return promise;
 }
 
+// ── Math block rendering ──
+
+// Cache for rendered math SVG images: key = latex + displayMode
+const mathImageCache = new Map<string, { img: HTMLImageElement | ImageBitmap; width: number; height: number }>();
+const pendingMathRenders = new Set<string>();
+
+function getMathCacheKey(latex: string, displayMode: boolean, dpr: number): string {
+  return `${displayMode ? "D" : "I"}:${dpr}:${latex}`;
+}
+
+function renderMathToImage(
+  latex: string,
+  displayMode: boolean,
+  _maxWidth: number,
+): void {
+  const dpr = window.devicePixelRatio || 1;
+  const cacheKey = getMathCacheKey(latex, displayMode, dpr);
+  if (mathImageCache.has(cacheKey) || pendingMathRenders.has(cacheKey)) return;
+
+  pendingMathRenders.add(cacheKey);
+
+  // Lazy import MathJax renderer
+  import("./mathjax").then(({ renderToSVG }) => {
+    try {
+      const svgString = renderToSVG(latex, displayMode);
+      const color = getEditorStyles().blocks.paragraph.color;
+
+      // Inject fill color into the SVG for proper theming
+      const coloredSvg = svgString.replace(
+        /^<mjx-container[^>]*>([\s\S]*)<\/mjx-container>$/,
+        "$1",
+      );
+
+      // Parse SVG to get its intrinsic dimensions
+      const parser = new DOMParser();
+      const svgDoc = parser.parseFromString(coloredSvg, "image/svg+xml");
+      const svgEl = svgDoc.querySelector("svg");
+      if (!svgEl) {
+        pendingMathRenders.delete(cacheKey);
+        return;
+      }
+
+      // Set fill color on the SVG root
+      svgEl.setAttribute("color", color);
+      svgEl.style.color = color;
+
+      // Fix MathJax error background rects: they inherit fill="currentColor"
+      // from the parent <g>, making error backgrounds the same color as text.
+      // Set them to a semi-transparent color instead.
+      for (const rect of svgEl.querySelectorAll("rect[data-background]")) {
+        rect.setAttribute("fill", "rgba(128,128,128,0.15)");
+      }
+
+      // Scale up: MathJax uses ex units, we want ~20px font equivalent
+      const scaleFactor = 2.2;
+      const viewBox = svgEl.getAttribute("viewBox");
+      const widthAttr = svgEl.getAttribute("width");
+      const heightAttr = svgEl.getAttribute("height");
+
+      // Parse logical dimensions from ex units or viewBox
+      let w: number;
+      let h: number;
+
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(Number);
+        // viewBox is in MathJax internal units (1000 units per ex)
+        w = Math.ceil((parts[2] / 1000) * 8.5 * scaleFactor) + 4;
+        h = Math.ceil((parts[3] / 1000) * 8.5 * scaleFactor) + 4;
+      } else {
+        w = parseFloat(widthAttr || "100") * scaleFactor;
+        h = parseFloat(heightAttr || "40") * scaleFactor;
+      }
+
+      // Set SVG dimensions to physical pixels so the browser rasterizes at full DPR resolution
+      svgEl.setAttribute("width", String(w * dpr));
+      svgEl.setAttribute("height", String(h * dpr));
+
+      const finalSvg = new XMLSerializer().serializeToString(svgEl);
+      const svgBlob = new Blob([finalSvg], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(svgBlob);
+
+      const img = new Image();
+      img.onload = () => {
+        const offscreen = document.createElement("canvas");
+        offscreen.width = w * dpr;
+        offscreen.height = h * dpr;
+        const offCtx = offscreen.getContext("2d")!;
+        offCtx.drawImage(img, 0, 0, w * dpr, h * dpr);
+        URL.revokeObjectURL(url);
+
+        createImageBitmap(offscreen).then((bitmap) => {
+          mathImageCache.set(cacheKey, { img: bitmap, width: w, height: h });
+          pendingMathRenders.delete(cacheKey);
+        }).catch(() => {
+          pendingMathRenders.delete(cacheKey);
+        });
+      };
+      img.onerror = () => {
+        pendingMathRenders.delete(cacheKey);
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    } catch {
+      pendingMathRenders.delete(cacheKey);
+    }
+  });
+}
+
+// Render math block on canvas
+function renderMathBlock(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  block: Block,
+  blockIndex: number,
+  x: number,
+  y: number,
+  maxWidth: number,
+  styles: EditorStyles,
+  remoteAwareness?: Map<string, AwarenessState>,
+): RenderedBlock {
+  if (block.type !== "math") {
+    throw new Error("renderMathBlock called on non-math block");
+  }
+
+  const mathStyles = styles.blocks.math;
+  const contentY = y + mathStyles.paddingTop;
+  const cachedContentHeight = block.cachedHeight !== undefined
+    ? block.cachedHeight - mathStyles.paddingTop - mathStyles.paddingBottom
+    : mathStyles.minHeight;
+  const contentHeight = Math.max(mathStyles.minHeight, cachedContentHeight);
+  const totalHeight = contentHeight + mathStyles.paddingTop + mathStyles.paddingBottom;
+
+  if (block.latex) {
+    const dpr = window.devicePixelRatio || 1;
+    const cacheKey = getMathCacheKey(block.latex, block.displayMode, dpr);
+    const cached = mathImageCache.get(cacheKey);
+
+    if (cached) {
+      // Draw the rendered math centered
+      const drawX = x + Math.max(0, (maxWidth - cached.width) / 2);
+      const drawY = contentY + Math.max(0, (contentHeight - cached.height) / 2);
+      ctx.drawImage(cached.img, drawX, drawY, cached.width, cached.height);
+    } else {
+      // Trigger rendering and show placeholder
+      renderMathToImage(block.latex, block.displayMode, maxWidth);
+
+      // Draw loading placeholder
+      ctx.save();
+      ctx.fillStyle = mathStyles.placeholder.textColor;
+      ctx.font = "14px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.globalAlpha = 0.5;
+      ctx.fillText("Rendering...", x + maxWidth / 2, contentY + contentHeight / 2);
+      ctx.restore();
+    }
+  } else {
+    // Empty math block - draw placeholder
+    ctx.save();
+    ctx.fillStyle = mathStyles.placeholder.backgroundColor;
+    ctx.beginPath();
+    ctx.roundRect(x, contentY, maxWidth, contentHeight, 6);
+    ctx.fill();
+
+    ctx.fillStyle = mathStyles.placeholder.textColor;
+    ctx.font = "14px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(mathStyles.placeholder.text, x + maxWidth / 2, contentY + contentHeight / 2);
+    ctx.restore();
+  }
+
+  // Render remote selection overlays
+  if (remoteAwareness && remoteAwareness.size > 0) {
+    for (const [_peerId, awareness] of remoteAwareness) {
+      if (!awareness.selection) continue;
+      const selection = awarenessSelectionToSelection(awareness.selection, state.document.page);
+      if (!selection) continue;
+
+      const isVisualBlockSelected =
+        selection.anchor.blockIndex === blockIndex &&
+        selection.focus.blockIndex === blockIndex;
+
+      const { anchor, focus } = selection;
+      const start = anchor.blockIndex <= focus.blockIndex ? anchor : focus;
+      const end = anchor.blockIndex <= focus.blockIndex ? focus : anchor;
+      const isInMultiBlockSelection =
+        !selection.isCollapsed &&
+        blockIndex >= start.blockIndex &&
+        blockIndex <= end.blockIndex;
+
+      if (isVisualBlockSelected || isInMultiBlockSelection) {
+        ctx.save();
+        ctx.fillStyle = awareness.user.color;
+        ctx.globalAlpha = 0.2;
+        ctx.beginPath();
+        ctx.roundRect(x, contentY, maxWidth, contentHeight, 6);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+
+  // Recalculate the actual layout height to ensure highlight matches layout
+  const layoutHeight = getBlockHeight(block, maxWidth, styles, false);
+
+  // Render local selection overlay
+  if (state.document.selection && !state.document.selection.isCollapsed) {
+    const { anchor, focus } = state.document.selection;
+    const start = anchor.blockIndex <= focus.blockIndex ? anchor : focus;
+    const end = anchor.blockIndex <= focus.blockIndex ? focus : anchor;
+
+    if (blockIndex >= start.blockIndex && blockIndex <= end.blockIndex) {
+      ctx.save();
+      ctx.fillStyle = styles.selection.backgroundColor;
+      ctx.globalAlpha = styles.selection.opacity;
+      ctx.beginPath();
+      ctx.roundRect(x, y, maxWidth, layoutHeight, 6);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  return {
+    block,
+    bounds: { x, y, width: maxWidth, height: layoutHeight },
+    lines: [],
+  };
+}
+
 // Render image cover block
 function renderImageBlock(
   ctx: CanvasRenderingContext2D,
@@ -1954,6 +2199,20 @@ export const calculateBlockHeight = (
   // Handle line/divider blocks
   if (block.type === "line") {
     return styles.blocks.line.height;
+  }
+
+  // Handle math blocks
+  if (block.type === "math") {
+    const mathStyles = styles.blocks.math;
+    if (block.latex) {
+      const dpr = window.devicePixelRatio || 1;
+      const cacheKey = getMathCacheKey(block.latex, block.displayMode, dpr);
+      const cached = mathImageCache.get(cacheKey);
+      if (cached) {
+        return Math.max(mathStyles.minHeight, cached.height) + mathStyles.paddingTop + mathStyles.paddingBottom;
+      }
+    }
+    return mathStyles.minHeight + mathStyles.paddingTop + mathStyles.paddingBottom;
   }
 
   if (!isTextualBlock(block)) {

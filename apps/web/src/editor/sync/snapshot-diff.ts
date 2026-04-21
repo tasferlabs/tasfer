@@ -343,6 +343,51 @@ export function blocksToOps(
         } as BlockSet);
       }
       lastInsertedBlockId = newBlockId;
+    } else if (block.type === "math") {
+      const blockInsertOp: BlockInsert = {
+        op: "block_insert",
+        id: nextId(),
+        clock: getClock(),
+        pageId,
+        afterBlockId: lastInsertedBlockId,
+        blockId: newBlockId,
+        blockType: "math",
+      };
+      if (!useExisting) {
+        ops.push(blockInsertOp);
+      } else {
+        ops.push({
+          op: "block_set",
+          id: nextId(),
+          clock: getClock(),
+          pageId,
+          blockId: newBlockId,
+          field: "type",
+          value: "math",
+        } as BlockSet);
+      }
+      // Set math properties
+      if (block.latex) {
+        ops.push({
+          op: "block_set",
+          id: nextId(),
+          clock: getClock(),
+          pageId,
+          blockId: newBlockId,
+          field: "latex",
+          value: block.latex,
+        } as BlockSet);
+      }
+      ops.push({
+        op: "block_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId,
+        blockId: newBlockId,
+        field: "displayMode",
+        value: block.displayMode,
+      } as BlockSet);
+      lastInsertedBlockId = newBlockId;
     } else if (isTextualBlock(block)) {
       // Collect visible chars and generate new IDs for them
       const visibleOldChars: Array<{ id: string; char: string }> = [];
