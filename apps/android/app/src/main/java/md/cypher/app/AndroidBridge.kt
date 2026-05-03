@@ -79,6 +79,23 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     }
 
     @JavascriptInterface
+    fun htmlToPdf(html: String, callbackId: String) {
+        val renderer = PdfRenderer(context)
+        renderer.render(html) { bytes, err ->
+            val payload = JSONObject()
+            if (bytes != null) {
+                payload.put("result", Base64.encodeToString(bytes, Base64.NO_WRAP))
+            } else {
+                payload.put("error", err ?: "Unknown error")
+            }
+            val js = "window.__nativePdfCallbacks && window.__nativePdfCallbacks.get('$callbackId') && window.__nativePdfCallbacks.get('$callbackId')($payload)"
+            (context as? MainActivity)?.runOnUiThread {
+                webView.evaluateJavascript(js, null)
+            }
+        }
+    }
+
+    @JavascriptInterface
     fun openUrl(url: String) {
         (context as? MainActivity)?.runOnUiThread {
             try {

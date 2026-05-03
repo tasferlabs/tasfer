@@ -280,7 +280,26 @@ class MainActivity : BridgeActivity() {
                         openCamera: function() { nb.openCamera(); return Promise.resolve(); }
                     },
                     files: {
-                        shareFile: function(d, n, m) { return Promise.resolve(nb.shareFile(d, n, m)); }
+                        shareFile: function(d, n, m) { return Promise.resolve(nb.shareFile(d, n, m)); },
+                        htmlToPdf: function(html) {
+                            return new Promise(function(resolve, reject) {
+                                if (!window.__nativePdfCallbacks) window.__nativePdfCallbacks = new Map();
+                                var id = 'pdf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+                                var timeout = setTimeout(function() {
+                                    if (window.__nativePdfCallbacks.has(id)) {
+                                        window.__nativePdfCallbacks.delete(id);
+                                        reject(new Error('PDF render timed out'));
+                                    }
+                                }, 35000);
+                                window.__nativePdfCallbacks.set(id, function(response) {
+                                    clearTimeout(timeout);
+                                    window.__nativePdfCallbacks.delete(id);
+                                    if (response.error) reject(new Error(response.error));
+                                    else resolve(response.result);
+                                });
+                                nb.htmlToPdf(html, id);
+                            });
+                        }
                     },
                     storage: {
                         write: function(p, d) { return Promise.resolve(nb.storageWrite(p, d)); },

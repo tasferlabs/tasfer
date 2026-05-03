@@ -14,11 +14,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FileText, FileCode, Loader2 } from "lucide-react";
+import { FileText, FileCode, FileType, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
 import { serializeToMarkdown } from "@/deserializer/serializer";
+import { serializeToHTML } from "@/deserializer/htmlSerializer";
 import {
   getVisibleTextFromRuns,
   extractTitleFromBlocks,
@@ -28,6 +29,18 @@ import { imageCache } from "@/editor/renderer";
 import { getPage } from "../api/pages.api";
 import type { PageMetadata } from "@/deserializer/serializer";
 import { downloadFile } from "@/downloadFile";
+import { getBridge } from "@/platform/bridge";
+
+interface ElectronWindow {
+  cypher?: { invoke(channel: string, ...args: unknown[]): Promise<unknown> };
+}
+
+function base64ToBlob(base64: string, mimeType: string): Blob {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType });
+}
 
 function serializeToText(blocks: Block[]): string {
   return blocks
@@ -141,6 +154,100 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     }
   };
 
+  const blobToDataUrl = (blob: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error);
+      reader.onload = () => resolve(reader.result as string);
+      reader.readAsDataURL(blob);
+    });
+
+  const buildExportHtml = async (): Promise<string> => {
+    // Resolve image URLs to data URLs so they survive across windows / native renderers
+    const imageUrlMap = new Map<string, string>();
+    const seen = new Set<string>();
+    for (const block of currentBlocks) {
+      if (block.type === "image" && (block as Image).url) {
+        const url = (block as Image).url;
+        if (seen.has(url)) continue;
+        seen.add(url);
+        const blob = await fetchImageBlob(url);
+        if (blob) {
+          try {
+            imageUrlMap.set(url, await blobToDataUrl(blob));
+          } catch {
+            // ignore — the image just won't render
+          }
+        }
+      }
+    }
+    return serializeToHTML(currentBlocks, { title: getBaseName(), imageUrlMap });
+  };
+
+  const printViaWindow = async (html: string) => {
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+
+    const triggerPrint = async () => {
+      const imgs = Array.from(win.document.images);
+      await Promise.all(
+        imgs.map((img) =>
+          img.complete
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => {
+                img.onload = () => resolve();
+                img.onerror = () => resolve();
+              }),
+        ),
+      );
+      win.focus();
+      win.print();
+    };
+
+    if (win.document.readyState === "complete") await triggerPrint();
+    else win.addEventListener("load", () => void triggerPrint());
+  };
+
+  const handleExportPdf = async () => {
+    setIsExporting(true);
+    try {
+      const html = await buildExportHtml();
+      const baseName = getBaseName();
+
+      // Native (iOS/Android): render PDF in the WebView, then share via system sheet
+      const bridge = getBridge();
+      if (bridge?.files.htmlToPdf) {
+        const pdfBase64 = await bridge.files.htmlToPdf(html);
+        if (pdfBase64) {
+          const blob = base64ToBlob(pdfBase64, "application/pdf");
+          await downloadFile(blob, `${baseName}.pdf`, "application/pdf");
+          onOpenChange(false);
+          return;
+        }
+        // fall through to print-window fallback if native returned null
+      }
+
+      // Electron: silent printToPDF in main process, then download via existing flow
+      const electron = (window as unknown as ElectronWindow).cypher;
+      if (electron?.invoke) {
+        const buf = (await electron.invoke("pdf:generate", html)) as ArrayBuffer;
+        const blob = new Blob([buf], { type: "application/pdf" });
+        await downloadFile(blob, `${baseName}.pdf`, "application/pdf");
+        onOpenChange(false);
+        return;
+      }
+
+      // Web fallback: open new window and trigger system print dialog
+      await printViaWindow(html);
+      onOpenChange(false);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handleExportMarkdown = async () => {
     const metadata = await fetchMetadata();
     const markdown = serializeToMarkdown(currentBlocks, metadata);
@@ -220,6 +327,22 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
               <Button
                 variant="outline"
                 className="w-full justify-start gap-3 h-auto py-3"
+                onClick={handleExportPdf}
+                disabled={isExporting}
+              >
+                {isExporting ? (
+                  <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
+                ) : (
+                  <FileType className="h-5 w-5 text-muted-foreground" />
+                )}
+                <div className="flex flex-col items-start">
+                  <span className="font-medium">{t("export.pdf", "PDF")}</span>
+                  <span className="text-xs text-muted-foreground">.pdf</span>
+                </div>
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-3 h-auto py-3"
                 onClick={handleExportMarkdown}
                 disabled={isExporting}
               >
@@ -249,7 +372,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             {t("export.chooseFormat", "Choose a format to export your document")}
           </DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <button
             onClick={handleExportTxt}
             className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer"
@@ -257,6 +380,19 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             <FileText className="h-8 w-8 mb-2 text-muted-foreground" />
             <span className="font-medium">{t("export.plainText", "Plain Text")}</span>
             <span className="text-xs text-muted-foreground">.txt</span>
+          </button>
+          <button
+            onClick={handleExportPdf}
+            disabled={isExporting}
+            className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isExporting ? (
+              <Loader2 className="h-8 w-8 mb-2 text-muted-foreground animate-spin" />
+            ) : (
+              <FileType className="h-8 w-8 mb-2 text-muted-foreground" />
+            )}
+            <span className="font-medium">{t("export.pdf", "PDF")}</span>
+            <span className="text-xs text-muted-foreground">.pdf</span>
           </button>
           <button
             onClick={handleExportMarkdown}

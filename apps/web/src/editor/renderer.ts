@@ -1664,7 +1664,7 @@ function renderMathBlock(
     ? block.cachedHeight - mathStyles.paddingTop - mathStyles.paddingBottom
     : mathStyles.minHeight;
   const contentHeight = Math.max(mathStyles.minHeight, cachedContentHeight);
-  const totalHeight = contentHeight + mathStyles.paddingTop + mathStyles.paddingBottom;
+  // const totalHeight = contentHeight + mathStyles.paddingTop + mathStyles.paddingBottom;
 
   if (block.latex) {
     const dpr = window.devicePixelRatio || 1;

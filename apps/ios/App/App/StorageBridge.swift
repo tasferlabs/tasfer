@@ -74,6 +74,25 @@ class StorageBridge: NSObject, WKScriptMessageHandler {
                 errorMsg = "Invalid data or fileName"
             }
 
+        case "htmlToPdf":
+            if let html = body["html"] as? String {
+                if #available(iOS 14.0, *) {
+                    let renderer = PdfRenderer { [weak self] data, err in
+                        if let data = data {
+                            self?.sendCallback(callbackId: callbackId, result: data.base64EncodedString(), error: nil)
+                        } else {
+                            self?.sendCallback(callbackId: callbackId, result: nil, error: err ?? "PDF render failed")
+                        }
+                    }
+                    renderer.render(html: html)
+                    return // async
+                } else {
+                    errorMsg = "PDF export requires iOS 14 or later"
+                }
+            } else {
+                errorMsg = "Invalid html"
+            }
+
         case "write":
             if let path = body["path"] as? String,
                 let dataStr = body["data"] as? String,

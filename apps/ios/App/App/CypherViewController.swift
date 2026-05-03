@@ -88,6 +88,9 @@ class CypherViewController: CAPBridgeViewController {
                     files: {
                         shareFile: function(base64Data, fileName, mimeType) {
                             return callStorage('shareFile', { data: base64Data, fileName: fileName, mimeType: mimeType });
+                        },
+                        htmlToPdf: function(html) {
+                            return callStorage('htmlToPdf', { html: html });
                         }
                     },
                     storage: {
