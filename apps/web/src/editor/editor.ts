@@ -30,6 +30,7 @@ import {
   renderPage,
   setSearchHighlights as setRendererSearchHighlights,
   clearSearchHighlights as clearRendererSearchHighlights,
+  setRequestRedraw,
 } from "./renderer";
 import {
   getCursorDocumentCoords,
@@ -1207,6 +1208,7 @@ export default function createEditor(
 
   // Initialize the editor and start the render loop
   (() => {
+    setRequestRedraw(scheduleRender);
     scheduleRender(); // Schedule initial render
     renderLoop();
 
@@ -1298,6 +1300,8 @@ export default function createEditor(
     if (animationFrameId) {
       cancelAnimationFrame(animationFrameId);
     }
+
+    setRequestRedraw(null);
 
     if (canvasClickHandler) {
       contentCanvas.removeEventListener("click", canvasClickHandler);
@@ -1835,8 +1839,10 @@ export default function createEditor(
 
     const prevState = state;
 
+    // Tombstone the block (mark as deleted) instead of splicing it out, so
+    // undo can locate it in state to compute the inverse block_insert.
     const newBlocks = [...state.document.page.blocks];
-    newBlocks.splice(blockIndex, 1);
+    newBlocks[blockIndex] = { ...block, deleted: true };
 
     // Create CRDT operations
     const ops: Operation[] = [];
@@ -1851,9 +1857,10 @@ export default function createEditor(
     };
     ops.push(deleteOp);
 
-    // If we deleted the last block, add an empty paragraph
+    // If this was the only visible block, add an empty paragraph
+    const visibleCount = newBlocks.filter((b) => !b.deleted).length;
     let newParagraphBlockId: string | null = null;
-    if (newBlocks.length === 0) {
+    if (visibleCount === 0) {
       newParagraphBlockId = `b-${nextId()}`;
       newBlocks.push({
         id: newParagraphBlockId,

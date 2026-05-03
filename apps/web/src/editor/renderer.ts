@@ -1424,6 +1424,13 @@ function renderRemoteSelections(
   }
 }
 
+// Redraw callback — set by the editor so the renderer can request a re-render
+// after async work (image decode, math typeset) populates a cache.
+let requestRedrawFn: (() => void) | null = null;
+export function setRequestRedraw(fn: (() => void) | null) {
+  requestRedrawFn = fn;
+}
+
 // Image cache to avoid reloading images
 export const imageCache = new Map<string, HTMLImageElement>();
 // Cache for failed image loads to prevent repeated requests
@@ -1483,6 +1490,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
       img.onload = () => {
         imageCache.set(url, img);
         pendingLoads.delete(url);
+        requestRedrawFn?.();
         resolve(img);
       };
 
@@ -1490,6 +1498,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
         // Cache the failed URL to prevent repeated requests
         failedImageCache.add(url);
         pendingLoads.delete(url);
+        requestRedrawFn?.();
         reject(new Error(`Failed to load image: ${url}`));
       };
 
@@ -1499,6 +1508,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
       if (img.complete) {
         imageCache.set(url, img);
         pendingLoads.delete(url);
+        requestRedrawFn?.();
         resolve(img);
       }
     });
@@ -1535,7 +1545,7 @@ function renderMathToImage(
       const svgString = renderToSVG(latex, displayMode);
       const color = getEditorStyles().blocks.paragraph.color;
 
-      // Inject fill color into the SVG for proper theming
+      // Strip the mjx-container wrapper so we can manipulate the inner <svg>
       const coloredSvg = svgString.replace(
         /^<mjx-container[^>]*>([\s\S]*)<\/mjx-container>$/,
         "$1",
@@ -1567,7 +1577,7 @@ function renderMathToImage(
       const widthAttr = svgEl.getAttribute("width");
       const heightAttr = svgEl.getAttribute("height");
 
-      // Parse logical dimensions from ex units or viewBox
+      // Logical (CSS-pixel) dimensions
       let w: number;
       let h: number;
 
@@ -1577,34 +1587,50 @@ function renderMathToImage(
         w = Math.ceil((parts[2] / 1000) * 8.5 * scaleFactor) + 4;
         h = Math.ceil((parts[3] / 1000) * 8.5 * scaleFactor) + 4;
       } else {
-        w = parseFloat(widthAttr || "100") * scaleFactor;
-        h = parseFloat(heightAttr || "40") * scaleFactor;
+        w = Math.ceil(parseFloat(widthAttr || "100") * scaleFactor);
+        h = Math.ceil(parseFloat(heightAttr || "40") * scaleFactor);
       }
 
-      // Set SVG dimensions to physical pixels so the browser rasterizes at full DPR resolution
-      svgEl.setAttribute("width", String(w * dpr));
-      svgEl.setAttribute("height", String(h * dpr));
+      // Physical-pixel dimensions for rasterization. Render at 2x the screen
+      // DPR so glyph edges stay sharp even after downscale, and to compensate
+      // for browsers that rasterize SVG <img> at lower-than-requested density.
+      const renderScale = dpr * 2;
+      const pxW = Math.max(1, Math.ceil(w * renderScale));
+      const pxH = Math.max(1, Math.ceil(h * renderScale));
+
+      // Set SVG natural size to integer physical pixels
+      svgEl.setAttribute("width", String(pxW));
+      svgEl.setAttribute("height", String(pxH));
+      svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
 
       const finalSvg = new XMLSerializer().serializeToString(svgEl);
       const svgBlob = new Blob([finalSvg], { type: "image/svg+xml;charset=utf-8" });
       const url = URL.createObjectURL(svgBlob);
 
       const img = new Image();
-      img.onload = () => {
+      img.decoding = "sync";
+      img.width = pxW;
+      img.height = pxH;
+      const finalize = () => {
         const offscreen = document.createElement("canvas");
-        offscreen.width = w * dpr;
-        offscreen.height = h * dpr;
+        offscreen.width = pxW;
+        offscreen.height = pxH;
         const offCtx = offscreen.getContext("2d")!;
-        offCtx.drawImage(img, 0, 0, w * dpr, h * dpr);
+        offCtx.imageSmoothingEnabled = true;
+        offCtx.imageSmoothingQuality = "high";
+        offCtx.drawImage(img, 0, 0, pxW, pxH);
         URL.revokeObjectURL(url);
 
         createImageBitmap(offscreen).then((bitmap) => {
+          // Store both the physical-pixel bitmap size and the logical CSS size
           mathImageCache.set(cacheKey, { img: bitmap, width: w, height: h });
           pendingMathRenders.delete(cacheKey);
+          requestRedrawFn?.();
         }).catch(() => {
           pendingMathRenders.delete(cacheKey);
         });
       };
+      img.onload = finalize;
       img.onerror = () => {
         pendingMathRenders.delete(cacheKey);
         URL.revokeObjectURL(url);
@@ -1646,10 +1672,15 @@ function renderMathBlock(
     const cached = mathImageCache.get(cacheKey);
 
     if (cached) {
-      // Draw the rendered math centered
-      const drawX = x + Math.max(0, (maxWidth - cached.width) / 2);
-      const drawY = contentY + Math.max(0, (contentHeight - cached.height) / 2);
-      ctx.drawImage(cached.img, drawX, drawY, cached.width, cached.height);
+      // Draw the rendered math centered, snapping to the physical pixel grid
+      // to avoid bilinear interpolation blur on high-DPI canvases.
+      const rawX = x + Math.max(0, (maxWidth - cached.width) / 2);
+      const rawY = contentY + Math.max(0, (contentHeight - cached.height) / 2);
+      const drawX = Math.round(rawX * dpr) / dpr;
+      const drawY = Math.round(rawY * dpr) / dpr;
+      const drawW = Math.round(cached.width * dpr) / dpr;
+      const drawH = Math.round(cached.height * dpr) / dpr;
+      ctx.drawImage(cached.img, drawX, drawY, drawW, drawH);
     } else {
       // Trigger rendering and show placeholder
       renderMathToImage(block.latex, block.displayMode, maxWidth);
