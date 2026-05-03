@@ -45,7 +45,8 @@ export type BlockType =
   | "numbered_list"
   | "todo_list"
   | "image"
-  | "line";
+  | "line"
+  | "math";
 
 /**
  * Block properties that can be set via BlockSet operation.
@@ -65,6 +66,10 @@ export interface BlockProps {
   height?: number;
   /** Image object fit */
   objectFit?: "cover" | "contain";
+  /** Math block LaTeX source */
+  latex?: string;
+  /** Math block display mode (true = display/block, false = inline) */
+  displayMode?: boolean;
 }
 
 // =============================================================================

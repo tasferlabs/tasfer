@@ -208,6 +208,16 @@ export function getEditorStyles(): EditorStyles {
           borderRadius: 6,
         },
       },
+      math: {
+        paddingTop: 12,
+        paddingBottom: 12,
+        minHeight: 48,
+        placeholder: {
+          backgroundColor: getCSSVariable("--muted"),
+          textColor: getCSSVariable("--muted-foreground"),
+          text: i18next.t("math.clickToEdit", "Click to add equation"),
+        },
+      },
     },
     cursor: {
       width: 2,

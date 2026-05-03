@@ -126,6 +126,15 @@ export function serializeToMarkdown(blocks: Block[], metadata?: PageMetadata): s
       return "---";
     }
 
+    // Handle math blocks
+    if (block.type === "math") {
+      if (!block.latex) return "";
+      if (block.displayMode) {
+        return `$$\n${block.latex}\n$$`;
+      }
+      return `$${block.latex}$`;
+    }
+
     // Handle image cover blocks separately
     if (block.type === "image") {
       const alt = block.alt || "";
@@ -250,7 +259,7 @@ export function serializeToMarkdown(blocks: Block[], metadata?: PageMetadata): s
   const lastBlock = blocks[blocks.length - 1];
 
   // Only check for empty content if it's a text block or list block
-  if (lastBlock.type !== "image" && lastBlock.type !== "line") {
+  if (lastBlock.type !== "image" && lastBlock.type !== "line" && lastBlock.type !== "math") {
     const hasContent = isListBlock(lastBlock) || lastBlock.type === "heading1" || lastBlock.type === "heading2" || lastBlock.type === "heading3" || lastBlock.type === "paragraph";
     if (hasContent && isTextualBlock(lastBlock)) {
       const lastBlockIsEmpty = getVisibleTextFromRuns(lastBlock.charRuns).length === 0;

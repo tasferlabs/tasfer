@@ -76,6 +76,12 @@ export type ActiveMenu =
       x: number;
       y: number;
       uploadStatus?: "uploading" | "complete" | "error";
+    }
+  | {
+      type: "mathEdit";
+      blockIndex: number;
+      x: number;
+      y: number;
     };
 
 // Document State - Only this goes in undo/redo
@@ -350,6 +356,17 @@ export interface CanvasStyles {
   readonly lineHeight: number;
 }
 
+export interface MathStyles {
+  readonly paddingTop: number;
+  readonly paddingBottom: number;
+  readonly minHeight: number;
+  readonly placeholder: {
+    readonly backgroundColor: string;
+    readonly textColor: string;
+    readonly text: string;
+  };
+}
+
 export interface BlockStyles {
   readonly heading1: TextStyle;
   readonly heading2: TextStyle;
@@ -357,6 +374,7 @@ export interface BlockStyles {
   readonly paragraph: TextStyle;
   readonly image: ImageStyles;
   readonly line: LineStyles;
+  readonly math: MathStyles;
   readonly bulletList: TextStyle;
   readonly numberedList: TextStyle;
   readonly todoList: TextStyle;

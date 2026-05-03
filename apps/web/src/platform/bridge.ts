@@ -40,6 +40,12 @@ export interface CypherBridge {
       fileName: string,
       mimeType: string,
     ): Promise<boolean>;
+    /**
+     * Render HTML to a PDF using the native WebView. Returns base64-encoded
+     * PDF bytes, or null if the platform doesn't support it.
+     * Optional — older shells may not implement it.
+     */
+    htmlToPdf?(html: string): Promise<string | null>;
   };
 
   storage: {

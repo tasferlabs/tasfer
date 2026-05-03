@@ -567,23 +567,30 @@ export function deleteSelectedText(state: EditorState): CommandResult {
     const block = state.document.page.blocks[start.blockIndex];
     if (!block || block.deleted) return { state, ops: [] };
 
-    // Handle image block deletion
+    // Handle visual (image/line/math) block deletion
     if (!isTextualBlock(block)) {
-      // For image blocks (and other visual blocks), delete the entire block
-      // Check if this is the only visible block - if so, replace with empty paragraph
-      const visibleBlocks = state.view.visibleBlocks;
-      if (visibleBlocks.length === 1) {
-        // Delete the image block
-        const blockDeleteOp: Operation = {
-          op: "block_delete",
-          id: nextId(),
-          clock: getClock(),
-          pageId: getPageId(),
-          blockId: block.id,
-        };
-        ops.push(blockDeleteOp);
+      // Delete the visual block — tombstone (don't splice) so undo can find it
+      const blockDeleteOp: Operation = {
+        op: "block_delete",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        blockId: block.id,
+      };
+      ops.push(blockDeleteOp);
 
-        // Create new empty paragraph
+      const visibleBlocks = state.view.visibleBlocks;
+      const wasOnlyVisibleBlock = visibleBlocks.length === 1;
+
+      // Tombstone the deleted block in place
+      const tombstonedBlocks = [...state.document.page.blocks];
+      tombstonedBlocks[start.blockIndex] = { ...block, deleted: true };
+
+      let finalBlocks = tombstonedBlocks;
+      let cursorBlockIndex = start.blockIndex;
+
+      if (wasOnlyVisibleBlock) {
+        // Append a new empty paragraph (the tombstone stays in place)
         const emptyParagraphId = nextId();
         const emptyParagraph: Block = {
           id: emptyParagraphId,
@@ -603,45 +610,35 @@ export function deleteSelectedText(state: EditorState): CommandResult {
         };
         ops.push(blockInsertOp);
 
-        const newPage = { ...state.document.page, blocks: [emptyParagraph] };
-
-        let newState: EditorState = {
-          ...state,
-          document: { ...state.document, page: newPage },
-        };
-        newState = moveCursorToPosition(newState, 0, 0);
-        newState = clearSelection(newState);
-        return { state: newState, ops };
+        finalBlocks = [...tombstonedBlocks, emptyParagraph];
+        cursorBlockIndex = finalBlocks.length - 1;
+      } else {
+        // Move cursor to the next visible block, or previous if at end
+        let nextVisible = -1;
+        for (let i = start.blockIndex + 1; i < finalBlocks.length; i++) {
+          if (!finalBlocks[i].deleted) {
+            nextVisible = i;
+            break;
+          }
+        }
+        if (nextVisible === -1) {
+          for (let i = start.blockIndex - 1; i >= 0; i--) {
+            if (!finalBlocks[i].deleted) {
+              nextVisible = i;
+              break;
+            }
+          }
+        }
+        cursorBlockIndex = nextVisible === -1 ? 0 : nextVisible;
       }
 
-      // Delete the image block
-      const blockDeleteOp: Operation = {
-        op: "block_delete",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
-        blockId: block.id,
-      };
-      ops.push(blockDeleteOp);
-
-      // Remove the image block
-      const newBlocks = [
-        ...state.document.page.blocks.slice(0, start.blockIndex),
-        ...state.document.page.blocks.slice(start.blockIndex + 1),
-      ];
-      const newPage = { ...state.document.page, blocks: newBlocks };
-
-      // Move cursor to the start of the next block, or end of previous block
-      const newBlockIndex =
-        start.blockIndex < newBlocks.length
-          ? start.blockIndex
-          : start.blockIndex - 1;
+      const newPage = { ...state.document.page, blocks: finalBlocks };
 
       let newState: EditorState = {
         ...state,
         document: { ...state.document, page: newPage },
       };
-      newState = moveCursorToPosition(newState, newBlockIndex, 0);
+      newState = moveCursorToPosition(newState, cursorBlockIndex, 0);
       newState = clearSelection(newState);
       return { state: newState, ops };
     }
@@ -881,8 +878,14 @@ export function insertText(state: EditorState, input: string): CommandResult {
       anchor.textIndex === focus.textIndex
     ) {
       const block = state.document.page.blocks[anchor.blockIndex];
-      if (block && !block.deleted && block.type === "image") {
-        // Block typing on selected image
+      if (
+        block &&
+        !block.deleted &&
+        (block.type === "image" ||
+          block.type === "math" ||
+          block.type === "line")
+      ) {
+        // Block typing on selected visual block (image/math/line)
         return { state, ops: [] };
       }
     }
@@ -2362,16 +2365,22 @@ export function splitBlock(state: EditorState): CommandResult {
   const { blockIndex: blockIndex, textIndex } = position;
   const oldBlock = state.document.page.blocks[blockIndex];
 
-  // Handle Enter key on selected image: create new paragraph below
+  // Handle Enter key on selected visual block (image/math/line): create new paragraph below
   if (state.document.selection && !state.document.selection.isCollapsed) {
     const { anchor, focus } = state.document.selection;
-    // Check if this is a single image selection (anchor and focus at same position)
+    // Check if this is a single visual-block selection (anchor and focus at same position)
     if (
       anchor.blockIndex === focus.blockIndex &&
       anchor.textIndex === focus.textIndex
     ) {
       const block = state.document.page.blocks[anchor.blockIndex];
-      if (block && !block.deleted && block.type === "image") {
+      if (
+        block &&
+        !block.deleted &&
+        (block.type === "image" ||
+          block.type === "math" ||
+          block.type === "line")
+      ) {
         // Create a new paragraph below the image
         const newParagraphId = nextId();
         const newParagraph: Block = {
@@ -3473,6 +3482,91 @@ export function applySlashCommand(
     return { state: newState, ops };
   }
 
+  // Special handling for math blocks
+  if (command.type === "math") {
+    const newBlock: Block = {
+      id: block.id,
+      type: "math",
+      latex: "",
+      displayMode: true,
+    };
+
+    invalidateBlockCache(newBlock);
+
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[blockIndex] = newBlock;
+    const newPage = { ...state.document.page, blocks: newBlocks };
+
+    // Emit CRDT operations: delete all text and change block type
+    if (isTextualBlock(block)) {
+      const textLength = getVisibleLength(block.charRuns);
+      if (textLength > 0) {
+        const { op: deleteOp } = deleteCharsInRange(
+          block.charRuns,
+          0,
+          textLength,
+          block.id
+        );
+        ops.push(deleteOp);
+      }
+
+      const blockSetOp: BlockSet = {
+        op: "block_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        blockId: block.id,
+        field: "type",
+        value: "math",
+      };
+      ops.push(blockSetOp);
+    }
+
+    // Update state
+    let newState: EditorState = {
+      ...state,
+      document: { ...state.document, page: newPage },
+    };
+    newState = closeSlashCommand(newState);
+
+    // Move cursor to next block (create one if needed)
+    if (blockIndex + 1 < newBlocks.length) {
+      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
+    } else {
+      const newParagraphId = nextId();
+      const newParagraph: Block = {
+        id: newParagraphId,
+        type: "paragraph",
+        charRuns: [],
+        formats: [],
+      };
+
+      const blockInsertOp: BlockInsert = {
+        op: "block_insert",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        afterBlockId: block.id,
+        blockId: newParagraphId,
+        blockType: "paragraph",
+      };
+      ops.push(blockInsertOp);
+
+      const blocksWithNewParagraph = [...newBlocks, newParagraph];
+      newState = {
+        ...newState,
+        document: {
+          ...newState.document,
+          page: { ...newPage, blocks: blocksWithNewParagraph },
+        },
+      };
+
+      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
+    }
+
+    return { state: newState, ops };
+  }
+
   // Special handling for line/divider blocks
   if (command.type === "line") {
     // For line blocks, we replace the current block with a line block
@@ -3560,8 +3654,8 @@ export function applySlashCommand(
   }
 
   // Regular text-based blocks and list blocks
-  // If the current block is already an image cover, just close the slash command
-  if (block.type === "image") {
+  // If the current block is already an image cover or math block, just close the slash command
+  if (block.type === "image" || block.type === "math") {
     return { state: closeSlashCommand(state), ops: [] };
   }
 

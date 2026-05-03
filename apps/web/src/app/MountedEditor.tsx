@@ -19,6 +19,7 @@ import {
   Clipboard,
   Code,
   Copy,
+  Download,
   Image as ImageIcon,
   Italic,
   Link,
@@ -40,6 +41,7 @@ import { isTextualBlock } from "../deserializer/loadPage";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { FindBar } from "../editor/FindBar";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
+import { MathBlockEditor } from "../editor/MathBlockEditor";
 import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
@@ -71,6 +73,64 @@ import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { usePageSettings } from "./contexts/PageSettingsContext";
 import { EditorLoadingState } from "./pages/EditorPage";
+
+async function downloadImage(url: string, alt?: string): Promise<void> {
+  const isAlreadyUrl =
+    url.startsWith("blob:") ||
+    url.startsWith("data:") ||
+    url.startsWith("http://") ||
+    url.startsWith("https://");
+  let resolvedUrl = url;
+  if (!isAlreadyUrl) {
+    try {
+      resolvedUrl = await getPlatform().assets.getUrl(url);
+    } catch {
+      // fall through; fetch will fail
+    }
+  }
+
+  const response = await fetch(resolvedUrl);
+  const blob = await response.blob();
+
+  const extFromMime = blob.type.split("/")[1]?.split(";")[0];
+  const extFromUrl = url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)?.[1];
+  const ext = extFromUrl || extFromMime || "png";
+  const baseName = (alt && alt.trim()) || "image";
+  const safeName = baseName.replace(/[/\\?%*:|"<>]/g, "-");
+  const filename = safeName.toLowerCase().endsWith(`.${ext.toLowerCase()}`)
+    ? safeName
+    : `${safeName}.${ext}`;
+
+  const bridge = window.CypherBridge;
+  if (bridge) {
+    const base64 = await blobToBase64(blob);
+    const mimeType = blob.type || `image/${ext}`;
+    await bridge.files.shareFile(base64, filename, mimeType);
+    return;
+  }
+
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(objectUrl);
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
 
 // --- Cursor position persistence ---
 const CURSOR_STORAGE_KEY = "cypher:cursor-positions";
@@ -217,6 +277,12 @@ export function MountedEditor({
     y: number;
     blockIndex: number;
     uploadStatus: "idle" | "uploading" | "complete" | "error";
+  } | null>(null);
+
+  const [mathEditState, setMathEditState] = useState<{
+    x: number;
+    y: number;
+    blockIndex: number;
   } | null>(null);
 
   const [imageHoverState, setImageHoverState] = useState<{
@@ -928,6 +994,20 @@ export function MountedEditor({
         setImageUploadState(null);
       }
 
+      // Calculate math edit state
+      if (state.ui.activeMenu.type === "mathEdit") {
+        const containerRect = wrapperRef.current?.getBoundingClientRect();
+        if (containerRect) {
+          setMathEditState({
+            x: containerRect.left + state.ui.activeMenu.x,
+            y: containerRect.top + state.ui.activeMenu.y,
+            blockIndex: state.ui.activeMenu.blockIndex,
+          });
+        }
+      } else if (mathEditState) {
+        setMathEditState(null);
+      }
+
       // Calculate new image hover state
       let newImageHoverState: typeof imageHoverState = null;
       // Don't show hover button when dragging an image
@@ -1464,6 +1544,28 @@ export function MountedEditor({
       }
     }
 
+    // Add Download item when cursor is on an image block with a url
+    {
+      const state = mountedRef.current?.editor.getState();
+      const blockIndex = state?.document.cursor?.position.blockIndex;
+      const block =
+        blockIndex !== undefined
+          ? state?.document.page.blocks[blockIndex]
+          : undefined;
+      if (block && block.type === "image" && block.url) {
+        const url = block.url;
+        const alt = block.alt;
+        items.push({
+          id: "downloadImage",
+          label: t("contextMenu.downloadImage", "Download image"),
+          icon: <Download size={16} />,
+          action: () => {
+            void downloadImage(url, alt);
+          },
+        });
+      }
+    }
+
     // Add Format submenu for desktop when text is selected (not in readonly mode)
     if (hasSelection && !isTouchDevice() && !readonly) {
       // Get active formats from current selection
@@ -1888,6 +1990,57 @@ export function MountedEditor({
           mountedRef.current.portalContainer,
         )}
 
+      {/* Math block editor popover */}
+      {mathEditState &&
+        mountedRef.current?.portalContainer &&
+        createPortal(
+          <MathBlockEditor
+            x={mathEditState.x}
+            y={mathEditState.y}
+            initialLatex={(() => {
+              if (!mountedRef.current) return "";
+              const block =
+                mountedRef.current.editor.getState()?.document.page.blocks[
+                  mathEditState.blockIndex
+                ];
+              return block?.type === "math" ? block.latex : "";
+            })()}
+            displayMode={(() => {
+              if (!mountedRef.current) return true;
+              const block =
+                mountedRef.current.editor.getState()?.document.page.blocks[
+                  mathEditState.blockIndex
+                ];
+              return block?.type === "math" ? block.displayMode : true;
+            })()}
+            onSubmit={(latex, displayMode) => {
+              if (!mountedRef.current) return;
+              mountedRef.current.editor.updateMathBlock(
+                mathEditState.blockIndex,
+                { latex, displayMode },
+              );
+              mountedRef.current.editor.closeActiveMenu();
+              setMathEditState(null);
+            }}
+            onDelete={() => {
+              if (!mountedRef.current) return;
+              // Delete the math block (reuse image delete logic pattern)
+              mountedRef.current.editor.deleteImageBlock(
+                mathEditState.blockIndex,
+              );
+              setMathEditState(null);
+            }}
+            onClose={() => {
+              if (!mountedRef.current) return;
+              mountedRef.current.editor.closeActiveMenu();
+              setMathEditState(null);
+            }}
+            collisionBoundary={mountedRef.current?.portalContainer}
+            container={mountedRef.current?.portalContainer}
+          />,
+          mountedRef.current.portalContainer,
+        )}
+
       {/* Image hover edit button overlay */}
       {(imageHoverState ||
         imageUploadState ||
@@ -1946,8 +2099,27 @@ export function MountedEditor({
                   right: "8px",
                   top: "8px",
                   pointerEvents: "auto",
+                  display: "flex",
+                  gap: "6px",
                 }}
               >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (block.type === "image" && block.url) {
+                      void downloadImage(block.url, block.alt);
+                    }
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                  }}
+                  aria-label={t("contextMenu.downloadImage", "Download image")}
+                  title={t("contextMenu.downloadImage", "Download image")}
+                >
+                  <Download className="size-4" />
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"

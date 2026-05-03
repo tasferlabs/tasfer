@@ -14,7 +14,7 @@ i18next
     fallbackLng: "en",
     supportedLngs: ["en", "ar"],
     backend: {
-      loadPath: "/app/locales/{{lng}}/{{ns}}.json",
+      loadPath: `${import.meta.env.BASE_URL}app/locales/{{lng}}/{{ns}}.json`,
     },
     fallbackNS: "translation",
     defaultNS: "translation",

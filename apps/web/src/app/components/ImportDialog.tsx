@@ -41,7 +41,7 @@ function isPageEmpty(blocks: Block[]): boolean {
   // Check if all blocks have no visible content
   for (const block of blocks) {
     // Images and lines count as content
-    if (block.type === "image" || block.type === "line") {
+    if (block.type === "image" || block.type === "line" || block.type === "math") {
       return false;
     }
     // Check textual blocks for content

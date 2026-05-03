@@ -6,7 +6,11 @@ import {
 } from "../actions/commands";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
 import { getCurrentFontFamily, getFontMetrics } from "../fonts";
-import { getBlockHeight, getOutOfViewIndicatorAtPoint, imageCache } from "../renderer";
+import {
+  getBlockHeight,
+  getOutOfViewIndicatorAtPoint,
+  imageCache,
+} from "../renderer";
 import { getTextDirection } from "../rtl";
 import {
   endScrollbarDrag,
@@ -51,6 +55,7 @@ import {
   getDragHandleAtPoint,
   getImageBlockAtPoint,
   getLineBlockAtPoint,
+  getMathBlockAtPoint,
   isTouchDevice,
   isWithinClickDistance,
   startImageDrag,
@@ -64,7 +69,7 @@ export function handleTodoCheckboxClick(
   state: EditorState,
   canvasX: number,
   canvasY: number,
-  viewport: ViewportState
+  viewport: ViewportState,
 ): { state: EditorState; ops: Operation[] } | null {
   // Block checkbox toggle in readonly mode
   if (state.ui.mode === "readonly") {
@@ -86,7 +91,7 @@ export function handleTodoCheckboxClick(
       visibleBlock,
       maxWidth,
       styles,
-      visibleIdx === 0
+      visibleIdx === 0,
     );
     // Check if click is within this block's Y bounds
     if (canvasY >= currentY && canvasY < currentY + blockHeight) {
@@ -126,7 +131,7 @@ export function handleTodoCheckboxClick(
         const fontMetrics = getFontMetrics(
           textStyle.fontSize,
           textStyle.fontWeight,
-          fontFamily
+          fontFamily,
         );
         const checkboxY = currentY + fontMetrics.ascent - checkboxSize + 2;
 
@@ -164,7 +169,7 @@ export function isPointOverCheckbox(
   state: EditorState,
   canvasX: number,
   canvasY: number,
-  viewport: ViewportState
+  viewport: ViewportState,
 ): boolean {
   const styles = getEditorStyles();
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
@@ -179,7 +184,7 @@ export function isPointOverCheckbox(
       visibleBlock,
       maxWidth,
       styles,
-      visibleIdx === 0
+      visibleIdx === 0,
     );
 
     if (canvasY >= currentY && canvasY < currentY + blockHeight) {
@@ -210,7 +215,7 @@ export function isPointOverCheckbox(
         const fontMetrics = getFontMetrics(
           textStyle.fontSize,
           textStyle.fontWeight,
-          fontFamily
+          fontFamily,
         );
         const checkboxY = currentY + fontMetrics.ascent - checkboxSize + 2;
 
@@ -243,7 +248,7 @@ export function handleMouseDown(
   event: MouseEvent,
   containerRect: { left: number; top: number },
   documentHeight: number,
-  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
   stopAutoScroll();
@@ -293,7 +298,7 @@ export function handleMouseDown(
     state,
     canvasX,
     canvasY,
-    viewport
+    viewport,
   );
   if (checkboxClickResult) {
     return checkboxClickResult;
@@ -332,7 +337,7 @@ export function handleMouseDown(
       canvasX,
       canvasY,
       state,
-      viewport
+      viewport,
     );
 
     if (position) {
@@ -368,7 +373,7 @@ export function handleMouseDown(
         canvasY,
         viewport,
         documentHeight,
-        state.view.scrollbar
+        state.view.scrollbar,
       )
     ) {
       return {
@@ -380,7 +385,7 @@ export function handleMouseDown(
               state.view.scrollbar,
               canvasY,
               viewport,
-              documentHeight
+              documentHeight,
             ),
           },
         },
@@ -392,7 +397,7 @@ export function handleMouseDown(
         canvasY,
         viewport,
         documentHeight,
-        state.view.scrollbar
+        state.view.scrollbar,
       );
       if (updateViewportCallback) {
         updateViewportCallback({ scrollY: newScrollY });
@@ -520,10 +525,60 @@ export function handleMouseDown(
     }
   }
 
-  // Check if we have a visual block (image/line) selected but clicked outside its container
+  // Check if clicking on a math block
+  const mathBlock = getMathBlockAtPoint(canvasX, canvasY, state, viewport);
+  if (mathBlock) {
+    const block = state.document.page.blocks[mathBlock.blockIndex];
+    if (!block || block.deleted || block.type !== "math") {
+      return { state, ops };
+    }
+
+    if (state.ui.mode !== "readonly") {
+      // Don't reopen if we just closed the menu for this same block
+      if (
+        wasMenuOpen &&
+        previousMenu.type === "mathEdit" &&
+        previousMenu.blockIndex === mathBlock.blockIndex
+      ) {
+        return { state, ops };
+      }
+
+      // Open the math editor at the click position
+      return {
+        state: setActiveMenu(state, {
+          type: "mathEdit",
+          blockIndex: mathBlock.blockIndex,
+          x: canvasX,
+          y: canvasY,
+        }),
+        ops,
+      };
+    }
+
+    // In readonly mode, just select the block
+    const mathPosition = { blockIndex: mathBlock.blockIndex, textIndex: 0 };
+    let newState = updateCursor(state, mathPosition);
+    newState = {
+      ...newState,
+      document: {
+        ...newState.document,
+        selection: {
+          anchor: mathPosition,
+          focus: mathPosition,
+          isForward: true,
+          isCollapsed: false,
+          lastUpdate: Date.now(),
+        },
+      },
+    };
+    return { state: updateMode(newState, "edit"), ops };
+  }
+
+  // Check if we have a visual block (image/line/math) selected but clicked outside its container
   if (
     !imageBlock &&
     !lineBlock &&
+    !mathBlock &&
     state.document.selection &&
     !state.document.selection.isCollapsed
   ) {
@@ -537,7 +592,9 @@ export function handleMouseDown(
       if (!selectedBlock || selectedBlock.deleted) return { state, ops };
       if (
         selectedBlock &&
-        (selectedBlock.type === "image" || selectedBlock.type === "line")
+        (selectedBlock.type === "image" ||
+          selectedBlock.type === "line" ||
+          selectedBlock.type === "math")
       ) {
         // We have a visual block selected, but clicked outside it - clear the selection
         state = clearSelection(state);
@@ -568,7 +625,7 @@ export function handleMouseDown(
       canvasX,
       canvasY,
       state,
-      viewport
+      viewport,
     );
 
     if (paddingPosition) {
@@ -582,7 +639,7 @@ export function handleMouseDown(
     canvasX,
     canvasY,
     state,
-    viewport
+    viewport,
   );
 
   // If clicking in padding/outside editor area, preserve active selections
@@ -601,7 +658,7 @@ export function handleMouseDown(
   const lastVisibleBlockIndex =
     visibleBlocks.length > 0
       ? state.document.page.blocks.findIndex(
-          (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id
+          (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id,
         )
       : -1;
   if (
@@ -616,7 +673,12 @@ export function handleMouseDown(
     const isClickBelowContent = canvasY > totalContentHeight - viewport.scrollY;
 
     // If clicking below content and last block is an image, select it
-    if (isClickBelowContent && lastBlock.type === "image") {
+    if (
+      isClickBelowContent &&
+      (lastBlock.type === "image" ||
+        lastBlock.type === "line" ||
+        lastBlock.type === "math")
+    ) {
       const imagePosition = { blockIndex: lastVisibleBlockIndex, textIndex: 0 };
       let newState = updateCursor(state, imagePosition);
 
@@ -651,7 +713,7 @@ export function handleMouseDown(
     currentTime - state.view.clickTracker.lastClickTime <= DOUBLE_CLICK_TIME &&
     isWithinClickDistance(
       currentPosition,
-      state.view.clickTracker.lastClickPosition
+      state.view.clickTracker.lastClickPosition,
     )
   ) {
     clickCount = state.view.clickTracker.count + 1;
@@ -700,7 +762,7 @@ export function handleMouseMove(
   event: MouseEvent,
   containerRect: { left: number; top: number },
   documentHeight: number,
-  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): EditorState {
   const canvasX = event.x - containerRect.left;
   const canvasY = event.y - containerRect.top;
@@ -710,7 +772,7 @@ export function handleMouseMove(
       canvasY,
       viewport,
       documentHeight,
-      state.view.scrollbar
+      state.view.scrollbar,
     );
     if (updateViewportCallback) {
       updateViewportCallback({ scrollY: newScrollY });
@@ -732,7 +794,7 @@ export function handleMouseMove(
     canvasY,
     viewport,
     documentHeight,
-    state.view.scrollbar
+    state.view.scrollbar,
   );
   state = {
     ...state,
@@ -740,7 +802,7 @@ export function handleMouseMove(
       ...state.view,
       scrollbar: updateScrollbarHover(
         state.view.scrollbar,
-        isOverScrollbarThumb
+        isOverScrollbarThumb,
       ),
     },
   };
@@ -758,7 +820,8 @@ export function handleMouseMove(
   }
 
   // Check for out-of-view peer indicator hover (for pointer cursor)
-  const isOverPeerIndicator = getOutOfViewIndicatorAtPoint(canvasX, canvasY) !== null;
+  const isOverPeerIndicator =
+    getOutOfViewIndicatorAtPoint(canvasX, canvasY) !== null;
   if (isOverPeerIndicator !== state.ui.isHoveringPeerIndicator) {
     state = {
       ...state,
@@ -779,11 +842,12 @@ export function handleMouseMove(
     // Only block scrolling down if: bottom handle + near bottom edge + image at max height
     let shouldBlockBottomScroll = false;
     const objectFit =
-      block.type === "image" ? block.objectFit ?? "cover" : "cover";
+      block.type === "image" ? (block.objectFit ?? "cover") : "cover";
     if (
       handle === "bottom" &&
       objectFit === "cover" &&
       block.type === "image" &&
+      
       block.url
     ) {
       const cachedImage = imageCache.get(block.url);
@@ -848,7 +912,7 @@ export function handleMouseMove(
         imageBlock.y,
         imageBlock.width,
         imageBlock.height,
-        objectFit
+        objectFit,
       );
 
       // Mouse is over an image block - set imageHover state (not a blocking menu)
@@ -902,7 +966,7 @@ export function handleMouseMove(
         canvasX,
         canvasY,
         state,
-        viewport
+        viewport,
       );
 
       let isOverLink = false;
@@ -931,7 +995,7 @@ export function handleMouseMove(
             const linkCoords = getCursorDocumentCoords(
               linkStartPos,
               state,
-              viewport
+              viewport,
             );
 
             if (linkCoords) {
@@ -1014,7 +1078,7 @@ export function handleMouseMove(
     canvasX,
     canvasY,
     state,
-    viewport
+    viewport,
   );
 
   if (!position) return state;
@@ -1051,7 +1115,7 @@ export function handleMouseUp(
   state: EditorState,
   _viewport: ViewportState,
   _event: MouseEvent,
-  _visibility: { start: number; end: number }
+  _visibility: { start: number; end: number },
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
   stopAutoScroll();
@@ -1136,7 +1200,7 @@ export function handleWheel(
   viewport: ViewportState,
   event: WheelEvent,
   documentHeight: number,
-  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): EditorState {
   // In locked mode, block scrolling (but allow in readonly mode)
   if (state.ui.mode === "locked") {
@@ -1160,7 +1224,7 @@ export function handleWheel(
     event.deltaY,
     viewport,
     documentHeight,
-    state.view.scrollbar
+    state.view.scrollbar,
   );
 
   if (updateViewportCallback) {

@@ -259,7 +259,7 @@ function getSelectedContent(state: EditorState): {
     const textLength = getBlockTextLength(block);
 
     // Image cover and line blocks are included as-is
-    if (block.type === "image" || block.type === "line") {
+    if (block.type === "image" || block.type === "line" || block.type === "math") {
       return {
         blocks: [block],
         isPartial: false,
@@ -312,7 +312,7 @@ function getSelectedContent(state: EditorState): {
     const textLength = getBlockTextLength(block);
 
     // Image cover and line blocks are included as-is
-    if (block.type === "image" || block.type === "line") {
+    if (block.type === "image" || block.type === "line" || block.type === "math") {
       blocks.push(block);
       continue;
     }

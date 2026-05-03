@@ -66,7 +66,7 @@ export function getCursorDocumentCoords(
   if (!block) return null;
 
   // Image cover and line blocks don't have cursors - they shouldn't be used with this function
-  if (block.type === "image" || block.type === "line") return null;
+  if (block.type === "image" || block.type === "line" || block.type === "math") return null;
 
   if (!isTextualBlock(block)) {
     return null;
@@ -213,7 +213,7 @@ export function getCursorCoordinatesWithComposition(
   if (!block) return null;
 
   // Image cover and line blocks don't have cursors
-  if (block.type === "image" || block.type === "line") return null;
+  if (block.type === "image" || block.type === "line" || block.type === "math") return null;
 
   if (!isTextualBlock(block)) {
     return null;
@@ -702,7 +702,7 @@ function getPositionWithinBlock(
 ): Position {
   // Image cover and line blocks don't have text content - position at start of block
   // The cursor will actually be in a neighboring text block
-  if (block.type === "image" || block.type === "line") {
+  if (block.type === "image" || block.type === "line" || block.type === "math") {
     return {
       blockIndex: blockIndex,
       textIndex: 0,
@@ -1039,7 +1039,7 @@ export function getLinkAtPosition(
   if (!block) return null;
 
   // Image cover and line blocks don't have text content or links
-  if (block.type === "image" || block.type === "line") return null;
+  if (block.type === "image" || block.type === "line" || block.type === "math") return null;
 
   if (!isTextualBlock(block)) return null;
 
