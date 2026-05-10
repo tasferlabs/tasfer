@@ -29,6 +29,8 @@ export const TODO_LIST_CHECKED = "todo_checked";
 export const INDENT = "indent";
 export const HORIZONTAL_RULE = "horizontal_rule";
 export const MATH_BLOCK = "math_block";
+export const INLINE_MATH_START = "inline_math_start";
+export const INLINE_MATH_END = "inline_math_end";
 export const NEWLINE = "newline";
 
 type FormatTokenType =
@@ -46,7 +48,9 @@ type FormatTokenType =
   | "image_start"
   | "image_alt_end"
   | "image_end"
-  | "html_img";
+  | "html_img"
+  | "inline_math_start"
+  | "inline_math_end";
 type ListTokenType =
   | "bullet_list"
   | "numbered_list"
@@ -503,6 +507,40 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
       tokens.push({ type: TEXT, content: text });
       next(state);
     }
+    // Check for inline math ($...$) - does not nest, content is verbatim LaTeX.
+    // Single $ only; $$ at start of line is the display math block (handled elsewhere).
+    else if (char === "$") {
+      const start = state.index;
+      next(state); // consume opening $
+
+      // Find closing $ on the same line. Reject empty content.
+      let foundEnd = false;
+      const contentStart = state.index;
+      while (
+        !isEnd(state) &&
+        current(state) !== "\n" &&
+        current(state) !== "\r"
+      ) {
+        if (current(state) === "$") {
+          foundEnd = true;
+          break;
+        }
+        next(state);
+      }
+
+      if (foundEnd && state.index > contentStart) {
+        const latex = state.content.slice(contentStart, state.index);
+        tokens.push({ type: INLINE_MATH_START, content: "$" });
+        tokens.push({ type: TEXT, content: latex });
+        tokens.push({ type: INLINE_MATH_END, content: "$" });
+        next(state); // consume closing $
+      } else {
+        // Not a valid inline math, treat the $ as literal text
+        state.index = start;
+        tokens.push({ type: TEXT, content: "$" });
+        next(state);
+      }
+    }
     // Check for code (backticks) - code doesn't nest
     else if (char === "`") {
       const start = state.index;
@@ -601,7 +639,8 @@ function tokenizeRegularText(state: TokenizerState, tokens: Token[]) {
       char === "~" ||
       char === "[" ||
       char === "!" ||
-      char === "<"
+      char === "<" ||
+      char === "$"
     ) {
       break;
     }

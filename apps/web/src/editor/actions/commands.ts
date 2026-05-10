@@ -332,6 +332,45 @@ function detectAndApplyInlineMarkdown(
     };
   }
 
+  // Check for inline math pattern: $text$
+  const mathMatch = fullText.slice(0, textIndex).match(/\$([^$\n]+)\$$/);
+  if (mathMatch) {
+    const matchStart = textIndex - mathMatch[0].length;
+    const matchEnd = textIndex;
+    const innerTextEnd = matchStart + 1 + mathMatch[1].length;
+
+    const { newCharRuns: charRunsAfterFirst, op: deleteOp1 } =
+      deleteCharsInRange(charRuns, matchEnd - 1, matchEnd, blockId);
+    ops.push(deleteOp1);
+
+    const { newCharRuns: charRunsAfterSecond, op: deleteOp2 } =
+      deleteCharsInRange(
+        charRunsAfterFirst,
+        matchStart,
+        matchStart + 1,
+        blockId
+      );
+    ops.push(deleteOp2);
+
+    const { newFormats: updatedFormats, op: formatOp } = formatCharsInRange(
+      charRunsAfterSecond,
+      formats,
+      matchStart,
+      innerTextEnd - 1,
+      blockId,
+      { type: "math" },
+      true
+    );
+    ops.push(formatOp);
+
+    return {
+      charRuns: charRunsAfterSecond,
+      formats: updatedFormats,
+      newTextIndex: matchStart + mathMatch[1].length,
+      ops,
+    };
+  }
+
   // Check for code pattern: `text`
   const codeMatch = fullText.slice(0, textIndex).match(/`([^`]+)`$/);
   if (codeMatch) {
@@ -950,7 +989,8 @@ export function insertText(state: EditorState, input: string): CommandResult {
   }
 
   // Inline markdown detection (only on closing delimiter characters)
-  const isClosingDelimiter = input === "*" || input === "`" || input === "~";
+  const isClosingDelimiter =
+    input === "*" || input === "`" || input === "~" || input === "$";
   let finalCharRuns = newCharRuns;
   let finalFormats = newFormats;
   let finalTextIndex = newTextIndex;

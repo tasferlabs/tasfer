@@ -273,6 +273,12 @@ export function getEditorStyles(): EditorStyles {
         underlineThickness: 1,
         hoverColor: getCSSVariable("--editor-link-hover"),
       },
+      inlineMath: {
+        backgroundColor: getCSSVariable("--editor-code-bg"),
+        color: getCSSVariable("--editor-code-text"),
+        padding: 2,
+        borderRadius: 3,
+      },
     },
     imageResize: {
       dragHandles: {

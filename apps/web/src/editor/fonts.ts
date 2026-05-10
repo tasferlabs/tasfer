@@ -10,6 +10,7 @@ import "@fontsource/poppins/600.css";
 import "@fontsource/poppins/700.css";
 // Formatted text measurement - handles Char[] with FormatSpan[]
 import type { Char, FormatSpan, TextFormat } from "../deserializer/loadPage";
+import { getInlineMathDims } from "./inlineMath";
 
 // Import Libre Baskerville font (multiple weights)
 import "@fontsource/libre-baskerville/400.css";
@@ -477,6 +478,7 @@ export interface TextBatch {
   isCode: boolean;
   isStrikethrough: boolean;
   isLink: boolean;
+  isMath: boolean;
   linkUrl?: string;
 }
 
@@ -520,6 +522,7 @@ export function batchCRDTChars(
       const isItalic = charFormats.some((f) => f.type === "italic");
       const isCode = charFormats.some((f) => f.type === "code");
       const isStrikethrough = charFormats.some((f) => f.type === "strikethrough");
+      const isMath = charFormats.some((f) => f.type === "math");
       const linkFormat = charFormats.find((f) => f.type === "link");
 
       currentBatch = {
@@ -530,6 +533,7 @@ export function batchCRDTChars(
         isCode,
         isStrikethrough,
         isLink: !!linkFormat,
+        isMath,
         linkUrl: linkFormat?.type === "link" ? linkFormat.url : undefined,
       };
       batches.push(currentBatch);
@@ -551,6 +555,14 @@ export function measureBatchedText(
   let width = 0;
 
   for (const batch of batches) {
+    if (batch.isMath) {
+      const dims = getInlineMathDims(batch.text, fontSize);
+      if (dims) {
+        width += dims.width;
+        continue;
+      }
+      // Fall back to text measurement on render error
+    }
     const effectiveFontWeight = batch.isBold ? "bold" : baseFontWeight;
     // Measure the entire batch as a string (preserves ligature widths)
     width += measureText(batch.text, fontSize, effectiveFontWeight, fontFamily);

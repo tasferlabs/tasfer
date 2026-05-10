@@ -180,6 +180,8 @@ export function serializeToMarkdown(blocks: Block[], metadata?: PageMetadata): s
               text = `~~${text}~~`;
             } else if (format.type === 'code') {
               text = `\`${text}\``;
+            } else if (format.type === 'math') {
+              text = `$${text}$`;
             } else if (format.type === 'link' && format.url) {
               text = `[${text}](${format.url})`;
             }
@@ -235,6 +237,8 @@ export function serializeToMarkdown(blocks: Block[], metadata?: PageMetadata): s
               text = `~~${text}~~`;
             } else if (format.type === 'code') {
               text = `\`${text}\``;
+            } else if (format.type === 'math') {
+              text = `$${text}$`;
             } else if (format.type === 'link' && format.url) {
               text = `[${text}](${format.url})`;
             }

@@ -445,6 +445,12 @@ export interface TextFormatStyles {
     readonly underlineThickness: number;
     readonly hoverColor: string;
   };
+  readonly inlineMath: {
+    readonly backgroundColor: string;
+    readonly color: string;
+    readonly padding: number;
+    readonly borderRadius: number;
+  };
 }
 
 export interface ImageResizeStyles {

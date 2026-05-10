@@ -79,7 +79,7 @@ export interface Math extends BlockRuntimeState {
 // }
 
 export interface TextFormat {
-  type: "bold" | "italic" | "strikethrough" | "code" | "link";
+  type: "bold" | "italic" | "strikethrough" | "code" | "link" | "math";
   url?: string; // Only for link type
 }
 

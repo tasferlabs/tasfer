@@ -34,6 +34,8 @@ import {
   HTML_IMG,
   HORIZONTAL_RULE,
   MATH_BLOCK,
+  INLINE_MATH_START,
+  INLINE_MATH_END,
   NEWLINE,
   STRIKETHROUGH_END,
   STRIKETHROUGH_START,
@@ -251,6 +253,11 @@ function parseCharsAndFormats(context: ParserContext): { chars: Char[]; formats:
       formatStack.push({ type: "strikethrough" });
     } else if (node.type === CODE_START) {
       formatStack.push({ type: "code" });
+    } else if (node.type === INLINE_MATH_START) {
+      formatStack.push({ type: "math" });
+    } else if (node.type === INLINE_MATH_END) {
+      const index = formatStack.findIndex((f) => f.type === "math");
+      if (index !== -1) formatStack.splice(index, 1);
     } else if (node.type === LINK_START) {
       // Start collecting link text
     } else if (node.type === LINK_TEXT_END) {

@@ -17,6 +17,11 @@ import {
   type TextBatch,
 } from "./fonts";
 import { renderScrollbar } from "./scrollbar";
+import {
+  getInlineMathDims,
+  getInlineMathImage,
+  setInlineMathRedrawCallback,
+} from "./inlineMath";
 import { getTextDirection } from "./rtl";
 import { getBlockTextContent, isCursorBlinking, isTouchDevice } from "./state";
 import { getEditorStyles, getTextStyle } from "./styles";
@@ -334,17 +339,62 @@ function renderCRDTLine(
     ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily)}`;
     ctx.textBaseline = "alphabetic";
 
+    // Inline math: draw the rendered MathJax SVG at its natural width.
+    if (batch.isMath) {
+      const dpr = window.devicePixelRatio || 1;
+      const dims = getInlineMathDims(batch.text, textStyle.fontSize);
+      const mathStyle = styles.textFormats.inlineMath;
+
+      if (dims) {
+        const mathWidth = dims.width;
+        const visualX = currentX;
+        const drawX = isRTL ? visualX - mathWidth : visualX;
+
+        // Background chip behind the math, sized to SVG dimensions
+        const padding = mathStyle.padding;
+        ctx.save();
+        ctx.fillStyle = mathStyle.backgroundColor;
+        const rectX = drawX - padding;
+        const rectY = y - dims.height + dims.depthBelowBaseline - padding;
+        const rectWidth = mathWidth + padding * 2;
+        const rectHeight = dims.height + padding * 2;
+        ctx.beginPath();
+        ctx.roundRect(rectX, rectY, rectWidth, rectHeight, mathStyle.borderRadius);
+        ctx.fill();
+        ctx.restore();
+
+        const image = getInlineMathImage(batch.text, textStyle.fontSize, dpr);
+        if (image) {
+          const imgY = y - dims.height + dims.depthBelowBaseline;
+          ctx.drawImage(image.bitmap, drawX, imgY, mathWidth, dims.height);
+        }
+        // While image is decoding the chip alone is shown; once decode lands
+        // the redraw callback re-renders and the SVG appears.
+
+        if (isRTL) {
+          currentX -= mathWidth;
+        } else {
+          currentX += mathWidth;
+        }
+        continue;
+      }
+      // Dimension lookup failed (invalid LaTeX) — fall through to render as
+      // a regular code-style chip with the source text visible.
+    }
+
     // Measure the entire batch text width
     const textWidth = ctx.measureText(batch.text).width;
     const visualX = currentX;
 
-    // Handle code background
-    if (batch.isCode) {
-      const codeStyle = styles.textFormats.code;
-      const padding = codeStyle.padding;
+    // Handle code / inline math background (math reuses the code-style chip).
+    if (batch.isCode || batch.isMath) {
+      const chipStyle = batch.isMath
+        ? styles.textFormats.inlineMath
+        : styles.textFormats.code;
+      const padding = chipStyle.padding;
 
       ctx.save();
-      ctx.fillStyle = codeStyle.backgroundColor;
+      ctx.fillStyle = chipStyle.backgroundColor;
 
       let rectX: number;
       if (isRTL) {
@@ -363,12 +413,12 @@ function renderCRDTLine(
         rectY,
         rectWidth,
         rectHeight,
-        codeStyle.borderRadius,
+        chipStyle.borderRadius,
       );
       ctx.fill();
       ctx.restore();
 
-      ctx.fillStyle = codeStyle.color;
+      ctx.fillStyle = chipStyle.color;
     } else if (batch.isLink) {
       ctx.fillStyle = styles.textFormats.link.color;
     } else {
@@ -1429,6 +1479,7 @@ function renderRemoteSelections(
 let requestRedrawFn: (() => void) | null = null;
 export function setRequestRedraw(fn: (() => void) | null) {
   requestRedrawFn = fn;
+  setInlineMathRedrawCallback(fn);
 }
 
 // Image cache to avoid reloading images

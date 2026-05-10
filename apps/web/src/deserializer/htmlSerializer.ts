@@ -88,6 +88,15 @@ function renderInline(charRuns: CharRun[], formats: FormatSpan[]): string {
       // Wrap in a deterministic order so nesting is consistent
       const has = (t: string) => seg.formats!.some((f) => f.type === t);
       const link = seg.formats.find((f) => f.type === "link");
+      if (has("math")) {
+        // Replace text content with MathJax SVG; if rendering fails, fall back to $...$ source
+        try {
+          html = renderToSVG(seg.text, false);
+        } catch {
+          html = `<code>$${escapeHtml(seg.text)}$</code>`;
+        }
+        return html;
+      }
       if (has("code")) html = `<code>${html}</code>`;
       if (has("bold")) html = `<strong>${html}</strong>`;
       if (has("italic")) html = `<em>${html}</em>`;
