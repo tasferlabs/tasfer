@@ -442,7 +442,39 @@ function extractFormatsForChars(
  * Convert blocks to plain text
  */
 function blocksToPlainText(blocks: Block[]): string {
-  return blocks.map((block) => getBlockTextContent(block)).join("\n\n");
+  return blocks
+    .map((block) => {
+      if (block.type === "math") {
+        if (!block.latex) return "";
+        return block.displayMode ? `$$\n${block.latex}\n$$` : `$${block.latex}$`;
+      }
+      if (!isTextualBlock(block)) return getBlockTextContent(block);
+
+      const visible: { id: string; char: string }[] = [];
+      for (const { id, char } of iterateVisibleChars(block.charRuns)) {
+        visible.push({ id, char });
+      }
+      const mathChars = new Set<string>();
+      for (const span of block.formats) {
+        if (span.format.type !== "math") continue;
+        const start = visible.findIndex((c) => c.id === span.startCharId);
+        const end = visible.findIndex((c) => c.id === span.endCharId);
+        if (start === -1 || end === -1) continue;
+        for (let i = start; i <= end; i++) mathChars.add(visible[i].id);
+      }
+      let out = "";
+      let inMath = false;
+      for (const { id, char } of visible) {
+        const isMath = mathChars.has(id);
+        if (isMath && !inMath) out += "$";
+        else if (!isMath && inMath) out += "$";
+        inMath = isMath;
+        out += char;
+      }
+      if (inMath) out += "$";
+      return out;
+    })
+    .join("\n\n");
 }
 
 /**
@@ -511,7 +543,16 @@ function blocksToHTML(blocks: Block[]): string {
     }
 
     // Generate HTML for each character
-    for (const char of visibleChars) {
+    let inMath = false;
+    for (let i = 0; i < visibleChars.length; i++) {
+      const char = visibleChars[i];
+      const formats = charFormats.get(char.id) || [];
+      const isMath = formats.some((f) => f.type === "math");
+
+      if (isMath && !inMath) htmlContent += "$";
+      else if (!isMath && inMath) htmlContent += "$";
+      inMath = isMath;
+
       // Escape HTML special characters
       let text = char.char
         .replace(/&/g, "&amp;")
@@ -520,24 +561,26 @@ function blocksToHTML(blocks: Block[]): string {
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
 
-      // Apply formats as HTML tags
-      const formats = charFormats.get(char.id) || [];
-      for (const format of formats) {
-        if (format.type === "bold") {
-          text = `<strong>${text}</strong>`;
-        } else if (format.type === "italic") {
-          text = `<em>${text}</em>`;
-        } else if (format.type === "strikethrough") {
-          text = `<s>${text}</s>`;
-        } else if (format.type === "code") {
-          text = `<code>${text}</code>`;
-        } else if (format.type === "link" && format.url) {
-          text = `<a href="${format.url}">${text}</a>`;
+      // Apply non-math formats as HTML tags (math is handled via $...$ wrapping)
+      if (!isMath) {
+        for (const format of formats) {
+          if (format.type === "bold") {
+            text = `<strong>${text}</strong>`;
+          } else if (format.type === "italic") {
+            text = `<em>${text}</em>`;
+          } else if (format.type === "strikethrough") {
+            text = `<s>${text}</s>`;
+          } else if (format.type === "code") {
+            text = `<code>${text}</code>`;
+          } else if (format.type === "link" && format.url) {
+            text = `<a href="${format.url}">${text}</a>`;
+          }
         }
       }
 
       htmlContent += text;
     }
+    if (inMath) htmlContent += "$";
 
     switch (block.type) {
       case "heading1":
@@ -768,10 +811,42 @@ function parseHTMLToBlocks(html: string): Block[] {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent || "";
       if (text) {
-        segments.push({
-          content: text,
-          formats: currentFormats.length > 0 ? [...currentFormats] : undefined,
-        });
+        // Don't split for inline math if already inside a code/math format
+        const skipMath = currentFormats.some(
+          (f) => f.type === "code" || f.type === "math"
+        );
+        if (skipMath) {
+          segments.push({
+            content: text,
+            formats: currentFormats.length > 0 ? [...currentFormats] : undefined,
+          });
+        } else {
+          // Split out inline math `$...$` segments (single-line, non-empty content)
+          const re = /\$([^$\n]+)\$/g;
+          let last = 0;
+          let m: RegExpExecArray | null;
+          while ((m = re.exec(text)) !== null) {
+            if (m.index > last) {
+              segments.push({
+                content: text.slice(last, m.index),
+                formats:
+                  currentFormats.length > 0 ? [...currentFormats] : undefined,
+              });
+            }
+            segments.push({
+              content: m[1],
+              formats: [...currentFormats, { type: "math" }],
+            });
+            last = m.index + m[0].length;
+          }
+          if (last < text.length) {
+            segments.push({
+              content: text.slice(last),
+              formats:
+                currentFormats.length > 0 ? [...currentFormats] : undefined,
+            });
+          }
+        }
       }
     } else if (node.nodeType === Node.ELEMENT_NODE) {
       const element = node as Element;

@@ -433,3 +433,48 @@ body.native {
   top: 8px;
   pointer-events: auto;
 }
+
+/* ── Inline math editor (compact, Notion-style) ── */
+
+.math-editor-popover-inline {
+  background-color: var(--popover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  overflow: hidden;
+  box-shadow:
+    0 0 0 0.5px oklch(0 0 0 / 0.04),
+    0 2px 6px oklch(0 0 0 / 0.06),
+    0 8px 20px oklch(0 0 0 / 0.08);
+}
+
+:is(.dark) .math-editor-popover-inline {
+  box-shadow:
+    0 0 0 0.5px oklch(1 0 0 / 0.06),
+    0 2px 6px oklch(0 0 0 / 0.25),
+    0 8px 20px oklch(0 0 0 / 0.35);
+}
+
+.math-editor-inline {
+  /* container reset; child row controls layout */
+}
+
+.math-editor-lang-tag-inline {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: oklch(from var(--muted-foreground) l c h / 0.08);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.math-editor-textarea-inline {
+  min-height: 0;
+  max-height: 96px;
+  padding: 2px 4px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  flex: 1;
+  field-sizing: content;
+}

@@ -1091,6 +1091,48 @@ export function insertText(state: EditorState, input: string): CommandResult {
   return { state: newState, ops };
 }
 
+/**
+ * Find the inline-math format span covering a given visible-index position.
+ * `position` is interpreted as a caret edge (0..length); `mode` controls whether
+ * positions exactly at the edges are considered "in" the span.
+ */
+function findInlineMathSpan(
+  block: Block,
+  position: number,
+  mode: "leftEdge" | "rightEdge" | "inside"
+): { startIndex: number; endIndex: number } | null {
+  if (!isTextualBlock(block)) return null;
+
+  const visibleIds: string[] = [];
+  for (const { id } of iterateVisibleChars(block.charRuns)) {
+    visibleIds.push(id);
+  }
+
+  for (const span of block.formats) {
+    if (span.format.type !== "math") continue;
+    const startIdx = visibleIds.indexOf(span.startCharId);
+    const endIdx = visibleIds.indexOf(span.endCharId);
+    if (startIdx === -1 || endIdx === -1) continue;
+    const spanStart = startIdx;
+    const spanEnd = endIdx + 1;
+
+    if (mode === "leftEdge" && position === spanStart) {
+      return { startIndex: spanStart, endIndex: spanEnd };
+    }
+    if (mode === "rightEdge" && position === spanEnd) {
+      return { startIndex: spanStart, endIndex: spanEnd };
+    }
+    if (
+      mode === "inside" &&
+      position > spanStart &&
+      position < spanEnd
+    ) {
+      return { startIndex: spanStart, endIndex: spanEnd };
+    }
+  }
+  return null;
+}
+
 export function deleteText(state: EditorState): CommandResult {
   if (!state.document.cursor) {
     return { state, ops: [] };
@@ -1132,6 +1174,38 @@ export function deleteText(state: EditorState): CommandResult {
   if (!isTextualBlock(oldBlock)) {
     return { state, ops };
   }
+
+  // Inline math is atomic: backspace at the right edge of a math chip deletes
+  // the whole chip in one go rather than chipping characters off the LaTeX.
+  if (textIndex > 0) {
+    const mathSpan = findInlineMathSpan(oldBlock, textIndex, "rightEdge");
+    if (mathSpan) {
+      const { newCharRuns, op } = deleteCharsInRange(
+        oldBlock.charRuns,
+        mathSpan.startIndex,
+        mathSpan.endIndex,
+        oldBlock.id
+      );
+      ops.push(op);
+      const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
+      invalidateBlockCache(blockCopy);
+      const newBlocks = [...state.document.page.blocks];
+      newBlocks[blockIndex] = blockCopy;
+      const newPage = { ...state.document.page, blocks: newBlocks };
+      let newState: EditorState = {
+        ...state,
+        document: { ...state.document, page: newPage },
+      };
+      newState = moveCursorToPosition(
+        newState,
+        blockIndex,
+        mathSpan.startIndex,
+        true
+      );
+      return { state: newState, ops };
+    }
+  }
+
   if (textIndex > 0) {
     // Delete one character before cursor using CRDT helper
     const { newCharRuns, op } = deleteCharsInRange(
@@ -1462,6 +1536,37 @@ export function deleteForward(state: EditorState): CommandResult {
   }
 
   const oldText = getBlockTextContent(oldBlock);
+
+  // Inline math is atomic: forward delete at the left edge of a math chip
+  // removes the whole chip rather than chipping off the first LaTeX char.
+  if (textIndex < oldText.length) {
+    const mathSpan = findInlineMathSpan(oldBlock, textIndex, "leftEdge");
+    if (mathSpan) {
+      const { newCharRuns, op } = deleteCharsInRange(
+        oldBlock.charRuns,
+        mathSpan.startIndex,
+        mathSpan.endIndex,
+        oldBlock.id
+      );
+      ops.push(op);
+      const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
+      invalidateBlockCache(blockCopy);
+      const newBlocks = [...state.document.page.blocks];
+      newBlocks[blockIndex] = blockCopy;
+      const newPage = { ...state.document.page, blocks: newBlocks };
+      let newState: EditorState = {
+        ...state,
+        document: { ...state.document, page: newPage },
+      };
+      newState = moveCursorToPosition(
+        newState,
+        blockIndex,
+        mathSpan.startIndex,
+        true
+      );
+      return { state: newState, ops };
+    }
+  }
 
   if (textIndex < oldText.length) {
     // Delete character after cursor using CRDT helper

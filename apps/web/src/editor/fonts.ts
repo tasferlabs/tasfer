@@ -633,6 +633,69 @@ export const measureCRDTTextUpToIndex = (
 ): number => {
   // Use batched measurement to preserve Arabic ligatures
   const batches = batchCRDTChars(chars, formats, startIndex, endIndex);
+
+  // Inline-math atomic-span fixup. batchCRDTChars can produce a math batch
+  // whose text is a *partial* slice of the span's LaTeX (when the requested
+  // range cuts mid-span). measureBatchedText would then run MathJax on
+  // unparseable input. Rewrite each math batch to match the wrap convention:
+  // the span's first char carries the full SVG width, every other char in
+  // the span carries 0. This keeps measurement consistent with rendering and
+  // wrapping, so the cursor x stays aligned with the rendered chip.
+  if (batches.some((b) => b.isMath)) {
+    const visIdxOfId = new Map<string, number>();
+    const visibleChars: string[] = [];
+    {
+      let v = 0;
+      for (const c of chars) {
+        if (c.deleted) continue;
+        visIdxOfId.set(c.id, v);
+        visibleChars.push(c.char);
+        v++;
+      }
+    }
+
+    type MathSpan = {
+      startVisIdx: number;
+      endVisIdx: number;
+      latex: string;
+    };
+    const mathSpans: MathSpan[] = [];
+    for (const f of formats) {
+      if (f.format.type !== "math") continue;
+      const s = visIdxOfId.get(f.startCharId);
+      const e = visIdxOfId.get(f.endCharId);
+      if (s === undefined || e === undefined) continue;
+      mathSpans.push({
+        startVisIdx: s,
+        endVisIdx: e,
+        latex: visibleChars.slice(s, e + 1).join(""),
+      });
+    }
+
+    let visIdx = startIndex;
+    for (const batch of batches) {
+      const batchStart = visIdx;
+      const batchEnd = batchStart + batch.text.length;
+      visIdx = batchEnd;
+      if (!batch.isMath) continue;
+      const span = mathSpans.find(
+        (s) =>
+          s.startVisIdx <= batchStart && s.endVisIdx >= batchEnd - 1,
+      );
+      if (!span) continue;
+      if (batchStart === span.startVisIdx) {
+        // First char of the span is included → contribute full SVG width.
+        // Use the full LaTeX so getInlineMathDims hits the cache key used
+        // by the renderer.
+        batch.text = span.latex;
+      } else {
+        // Past the first char of the span → contribute 0 width.
+        batch.text = "";
+        batch.isMath = false;
+      }
+    }
+  }
+
   return measureBatchedText(batches, fontSize, baseFontWeight, fontFamily);
 };
 
@@ -850,6 +913,40 @@ export const wrapCRDTText = (
     return charFormats.some((f) => f.type === "bold") ? "bold" : baseFontWeight;
   };
 
+  // Pre-compute inline-math span ranges (visible indices) and their rendered
+  // widths. The math chip is drawn as a single SVG image whose width is the
+  // rendered width — not the sum of the source LaTeX character widths — so
+  // wrapping must treat the span as an atomic unit at the rendered width.
+  // We attribute the full span width to the first char and 0 to the rest,
+  // which makes the span effectively non-breakable (subsequent 0-width chars
+  // can never trigger a wrap on their own).
+  const mathSpanFirstWidth = new Map<number, number>();
+  const mathSpanIsTail = new Set<number>();
+  for (const span of formats) {
+    if (span.format.type !== "math") continue;
+    const startOrig = chars.findIndex((c) => c.id === span.startCharId);
+    const endOrig = chars.findIndex((c) => c.id === span.endCharId);
+    if (startOrig === -1 || endOrig === -1) continue;
+    let startVis = -1;
+    let endVis = -1;
+    for (let i = 0; i < visibleToOriginalIndex.length; i++) {
+      const orig = visibleToOriginalIndex[i];
+      if (orig === startOrig) startVis = i;
+      if (orig === endOrig) endVis = i;
+    }
+    if (startVis === -1 || endVis === -1) continue;
+    const latex = visibleChars
+      .slice(startVis, endVis + 1)
+      .map((c) => c.char)
+      .join("");
+    const dims = getInlineMathDims(latex, fontSize);
+    if (!dims) continue; // fall through to plain-text widths on render error
+    mathSpanFirstWidth.set(startVis, dims.width);
+    for (let i = startVis + 1; i <= endVis; i++) {
+      mathSpanIsTail.add(i);
+    }
+  }
+
   const lines: WrappedLine[] = [];
   let currentLine = "";
   let currentLineWidth = 0;
@@ -866,9 +963,19 @@ export const wrapCRDTText = (
     const isCJK = isCJKCharacter(char);
     const isSpace = char === " ";
 
-    // Measure this single character (O(1) per character)
-    const fontWeight = getFontWeightAtIndex(visibleIndex);
-    const charWidth = measureText(char, fontSize, fontWeight, fontFamily);
+    // Measure this single character (O(1) per character).
+    // Inline math: first char of the span carries the full rendered width;
+    // remaining chars in the span carry 0 width so the span is atomic.
+    let charWidth: number;
+    const mathFirstWidth = mathSpanFirstWidth.get(visibleIndex);
+    if (mathFirstWidth !== undefined) {
+      charWidth = mathFirstWidth;
+    } else if (mathSpanIsTail.has(visibleIndex)) {
+      charWidth = 0;
+    } else {
+      const fontWeight = getFontWeightAtIndex(visibleIndex);
+      charWidth = measureText(char, fontSize, fontWeight, fontFamily);
+    }
 
     // Check if adding this character would exceed max width
     if (currentLineWidth + charWidth > maxWidth && currentLine.length > 0) {

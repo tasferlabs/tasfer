@@ -26,6 +26,7 @@ import {
 } from "@/editor/sync/char-runs";
 import { isTextualBlock, isListBlock, type Block, type Image } from "@/deserializer/loadPage";
 import { imageCache } from "@/editor/renderer";
+import { getPlatform } from "@/platform";
 import { getPage } from "../api/pages.api";
 import type { PageMetadata } from "@/deserializer/serializer";
 import { downloadFile } from "@/downloadFile";
@@ -87,12 +88,30 @@ function imageElementToBlob(img: HTMLImageElement): Promise<Blob | null> {
   });
 }
 
-/** Fetch an image blob, falling back to the renderer's imageCache for revoked blob URLs */
+/** Fetch an image blob, resolving asset hashes via the platform and falling back to imageCache. */
 async function fetchImageBlob(url: string): Promise<Blob | null> {
-  // Try fetch first (works for platform asset URLs and live blob URLs)
+  const isAlreadyUrl =
+    url.startsWith("blob:") ||
+    url.startsWith("data:") ||
+    url.startsWith("http://") ||
+    url.startsWith("https://");
+
+  // Resolve asset hashes (e.g. "assets/<hash>.png") to a real URL the same way the renderer does
+  let resolvedUrl = url;
+  if (!isAlreadyUrl) {
+    try {
+      resolvedUrl = await getPlatform().assets.getUrl(url);
+    } catch {
+      // ignore — fall through to fetch attempt / cache fallback
+    }
+  }
+
   try {
-    const response = await fetch(url);
-    if (response.ok) return response.blob();
+    const response = await fetch(resolvedUrl);
+    if (response.ok) {
+      const blob = await response.blob();
+      if (blob.size > 0) return blob;
+    }
   } catch {
     // fetch failed — fall through to imageCache
   }

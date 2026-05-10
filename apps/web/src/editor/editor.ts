@@ -45,6 +45,8 @@ import {
   getBlockTextContent,
   isCursorBlinking,
   isTouchDevice,
+  moveCursorLeft,
+  moveCursorRight,
   moveCursorToPosition,
   setActiveMenu,
   updateCursor,
@@ -152,6 +154,33 @@ export interface Editor {
     updates: { latex?: string; displayMode?: boolean }
   ) => void;
   openMathEditMenu: (blockIndex: number, x: number, y: number) => void;
+  openInlineMathEditMenu: (
+    blockIndex: number,
+    startIndex: number,
+    endIndex: number,
+    latex: string,
+    x: number,
+    y: number
+  ) => void;
+  updateInlineMath: (
+    blockIndex: number,
+    startIndex: number,
+    endIndex: number,
+    newLatex: string
+  ) => void;
+  deleteInlineMath: (
+    blockIndex: number,
+    startIndex: number,
+    endIndex: number
+  ) => void;
+  /** Close the inline-math edit popover and move the caret past the chip in the
+   * given visual direction. Used when the user arrows out of the popover input. */
+  exitInlineMath: (
+    blockIndex: number,
+    startIndex: number,
+    endIndex: number,
+    direction: "left" | "right"
+  ) => void;
   closeActiveMenu: () => void;
   /** Update page content from CRDT sync (remote operations) */
   updatePageFromSync: (page: Page) => void;
@@ -403,7 +432,8 @@ export default function createEditor(
     isHoveringLinkWithModifier: boolean,
     dragHandleHover: "left" | "right" | "bottom" | null = null,
     isHoveringCheckbox: boolean = false,
-    isHoveringPeerIndicator: boolean = false
+    isHoveringPeerIndicator: boolean = false,
+    isHoveringMath: boolean = false
   ) => {
     // Only update cursor on desktop (not touch devices)
     if (isTouchDevice()) {
@@ -431,6 +461,9 @@ export default function createEditor(
       contentCanvas.style.cursor = "pointer";
     } else if (isHoveringPeerIndicator) {
       // When hovering over out-of-view peer indicator, use pointer cursor
+      contentCanvas.style.cursor = "pointer";
+    } else if (isHoveringMath) {
+      // Inline math chip / math block — both are clickable
       contentCanvas.style.cursor = "pointer";
     } else {
       // When hovering over text, use text cursor
@@ -548,6 +581,26 @@ export default function createEditor(
           dirtyLayers.content = true;
         }
 
+        // Math hover state changes affect rendered chip/block backgrounds.
+        // The inline-math edit popover also styles its chip as hovered.
+        if (
+          prevState.ui.inlineMathHover !== state.ui.inlineMathHover ||
+          prevState.ui.hoveredMathBlockIndex !==
+            state.ui.hoveredMathBlockIndex ||
+          (prevState.ui.activeMenu.type === "inlineMathEdit") !==
+            (state.ui.activeMenu.type === "inlineMathEdit") ||
+          (prevState.ui.activeMenu.type === "inlineMathEdit" &&
+            state.ui.activeMenu.type === "inlineMathEdit" &&
+            (prevState.ui.activeMenu.blockIndex !==
+              state.ui.activeMenu.blockIndex ||
+              prevState.ui.activeMenu.startIndex !==
+                state.ui.activeMenu.startIndex ||
+              prevState.ui.activeMenu.endIndex !==
+                state.ui.activeMenu.endIndex))
+        ) {
+          dirtyLayers.content = true;
+        }
+
         // Broadcast awareness when cursor or selection changes
         if (
           prevState.document.cursor?.position !==
@@ -607,7 +660,9 @@ export default function createEditor(
             state.ui.isHoveringLinkWithModifier,
             state.ui.imageHover?.hoveredHandle || null,
             state.ui.isHoveringCheckbox,
-            state.ui.isHoveringPeerIndicator
+            state.ui.isHoveringPeerIndicator,
+            state.ui.inlineMathHover !== null ||
+              state.ui.hoveredMathBlockIndex !== null
           );
 
           dirtyLayers.content = false;
@@ -2004,6 +2059,172 @@ export default function createEditor(
     listeners.forEach((listener) => listener(currentState));
   }
 
+  function openInlineMathEditMenu(
+    blockIndex: number,
+    startIndex: number,
+    endIndex: number,
+    latex: string,
+    x: number,
+    y: number,
+  ) {
+    state = setActiveMenu(state, {
+      type: "inlineMathEdit",
+      blockIndex,
+      startIndex,
+      endIndex,
+      latex,
+      x,
+      y,
+    });
+
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  function updateInlineMathMethod(
+    blockIndex: number,
+    startIndex: number,
+    endIndex: number,
+    newLatex: string,
+  ) {
+    const block = state.document.page.blocks[blockIndex];
+    if (!block || block.deleted || !isTextualBlock(block)) return;
+    if (newLatex.length === 0) {
+      // Empty latex is treated as a delete
+      deleteInlineMathMethod(blockIndex, startIndex, endIndex);
+      return;
+    }
+
+    const prevState = state;
+    const ops: Operation[] = [];
+    const blockId = block.id;
+
+    // Replace the existing chars in [startIndex, endIndex) with the new LaTeX,
+    // then re-apply the math format to the freshly inserted chars.
+    const { newCharRuns: charsAfterDelete, op: deleteOp } = deleteCharsInRange(
+      block.charRuns,
+      startIndex,
+      endIndex,
+      blockId,
+    );
+    ops.push(deleteOp);
+
+    const { newCharRuns: charsAfterInsert, op: insertOp } =
+      insertCharsAtPosition(charsAfterDelete, startIndex, newLatex, blockId);
+    ops.push(insertOp);
+
+    const { newFormats, op: formatOp } = formatCharsInRange(
+      charsAfterInsert,
+      block.formats,
+      startIndex,
+      startIndex + newLatex.length,
+      blockId,
+      { type: "math" },
+      true,
+    );
+    ops.push(formatOp);
+
+    const updatedBlock = {
+      ...block,
+      charRuns: charsAfterInsert,
+      formats: newFormats,
+    };
+    invalidateBlockCache(updatedBlock);
+
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[blockIndex] = updatedBlock;
+
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        page: { ...state.document.page, blocks: newBlocks },
+      },
+    };
+
+    if (ops.length > 0) {
+      state = recordUndoOps(prevState, state, ops, getPeerId());
+    }
+
+    if (ops.length > 0 && broadcastFn) {
+      broadcastFn(ops);
+    }
+
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  function deleteInlineMathMethod(
+    blockIndex: number,
+    startIndex: number,
+    endIndex: number,
+  ) {
+    const block = state.document.page.blocks[blockIndex];
+    if (!block || block.deleted || !isTextualBlock(block)) return;
+    if (endIndex <= startIndex) return;
+
+    const prevState = state;
+    const blockId = block.id;
+    const { newCharRuns, op } = deleteCharsInRange(
+      block.charRuns,
+      startIndex,
+      endIndex,
+      blockId,
+    );
+
+    const updatedBlock = { ...block, charRuns: newCharRuns };
+    invalidateBlockCache(updatedBlock);
+
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[blockIndex] = updatedBlock;
+
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        page: { ...state.document.page, blocks: newBlocks },
+      },
+    };
+
+    state = recordUndoOps(prevState, state, [op], getPeerId());
+
+    // Place caret where the chip used to be
+    state = moveCursorToPosition(state, blockIndex, startIndex);
+
+    if (broadcastFn) {
+      broadcastFn([op]);
+    }
+
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
+  function exitInlineMathMethod(
+    blockIndex: number,
+    startIndex: number,
+    endIndex: number,
+    direction: "left" | "right"
+  ) {
+    state = closeActiveMenu(state);
+
+    // Place the caret on the side we're exiting toward, then step out one
+    // position so snapInlineMathPosition doesn't pull us back into the chip.
+    if (direction === "left") {
+      state = moveCursorToPosition(state, blockIndex, startIndex);
+      state = moveCursorLeft(state);
+    } else {
+      state = moveCursorToPosition(state, blockIndex, endIndex);
+      state = moveCursorRight(state);
+    }
+
+    const currentState = state;
+    scheduleRender();
+    listeners.forEach((listener) => listener(currentState));
+  }
+
   function closeActiveMenuMethod() {
     state = closeActiveMenu(state);
     const currentState = state;
@@ -2410,6 +2631,10 @@ export default function createEditor(
     openImageUploadMenu,
     updateMathBlock,
     openMathEditMenu,
+    openInlineMathEditMenu,
+    updateInlineMath: updateInlineMathMethod,
+    deleteInlineMath: deleteInlineMathMethod,
+    exitInlineMath: exitInlineMathMethod,
     closeActiveMenu: closeActiveMenuMethod,
     setPhysicalKeyboard,
     updatePageFromSync,

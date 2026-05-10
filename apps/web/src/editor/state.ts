@@ -18,6 +18,7 @@ import {
   getVisibleTextFromRuns,
   getVisibleLengthFromRuns,
   charRunsToChars,
+  iterateVisibleChars,
 } from "./sync/char-runs";
 import {
   createInitialMomentumState,
@@ -279,6 +280,8 @@ export const createInitialState = (
       isHoveringLinkWithModifier: false,
       isHoveringCheckbox: false,
       isHoveringPeerIndicator: false,
+      inlineMathHover: null,
+      hoveredMathBlockIndex: null,
       composition: null,
       activeFormatsMode: { type: "inherit" },
       imageHover: null,
@@ -488,6 +491,87 @@ export function isCursorBlinking(cursor: CursorState, styles: EditorStyles) {
   return Math.floor(now / styles.cursor.blinkInterval) % 2 !== 0;
 }
 
+/**
+ * Inline math is stored as a tagged run of characters but is treated as a
+ * single atomic chip in the editor. Caret positions inside the chip are
+ * disallowed — this helper snaps a candidate visible-index past the chip in
+ * the requested logical direction.
+ *
+ * Returns the snapped index, or the original index if it did not fall inside
+ * an inline-math span.
+ */
+/**
+ * If a cursor move went from one boundary of an inline-math span to the
+ * opposite boundary (i.e. the snap fired and we crossed the chip), return the
+ * span. Used to open the inline-math editor popover when arrow-keying inbound.
+ */
+export function getCrossedInlineMathSpan(
+  block: Block,
+  prevTextIndex: number,
+  newTextIndex: number
+): { startIndex: number; endIndex: number; latex: string } | null {
+  if (!isTextualBlock(block)) return null;
+
+  const visibleIds: string[] = [];
+  const visibleChars: string[] = [];
+  for (const { id, char } of iterateVisibleChars(block.charRuns)) {
+    visibleIds.push(id);
+    visibleChars.push(char);
+  }
+
+  for (const span of block.formats) {
+    if (span.format.type !== "math") continue;
+    const startIdx = visibleIds.indexOf(span.startCharId);
+    const endIdx = visibleIds.indexOf(span.endCharId);
+    if (startIdx === -1 || endIdx === -1) continue;
+
+    const spanStart = startIdx;
+    const spanEnd = endIdx + 1;
+
+    if (
+      (prevTextIndex === spanStart && newTextIndex === spanEnd) ||
+      (prevTextIndex === spanEnd && newTextIndex === spanStart)
+    ) {
+      return {
+        startIndex: spanStart,
+        endIndex: spanEnd,
+        latex: visibleChars.slice(spanStart, spanEnd).join(""),
+      };
+    }
+  }
+
+  return null;
+}
+
+function snapInlineMathPosition(
+  block: Block,
+  textIndex: number,
+  direction: "left" | "right"
+): number {
+  if (!isTextualBlock(block)) return textIndex;
+
+  const visibleIds: string[] = [];
+  for (const { id } of iterateVisibleChars(block.charRuns)) {
+    visibleIds.push(id);
+  }
+
+  for (const span of block.formats) {
+    if (span.format.type !== "math") continue;
+    const startIdx = visibleIds.indexOf(span.startCharId);
+    const endIdx = visibleIds.indexOf(span.endCharId);
+    if (startIdx === -1 || endIdx === -1) continue;
+
+    const spanStart = startIdx;
+    const spanEnd = endIdx + 1;
+
+    if (textIndex > spanStart && textIndex < spanEnd) {
+      return direction === "left" ? spanStart : spanEnd;
+    }
+  }
+
+  return textIndex;
+}
+
 // Cursor Movement Functions
 export const moveCursorToPosition = (
   state: EditorState,
@@ -569,7 +653,12 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
     const currentBlockLength = getBlockTextLength(currentBlock);
 
     if (textIndex < currentBlockLength) {
-      return moveCursorToPosition(state, blockIndex, textIndex + 1);
+      const snapped = snapInlineMathPosition(
+        currentBlock,
+        textIndex + 1,
+        "right"
+      );
+      return moveCursorToPosition(state, blockIndex, snapped);
     } else {
       // Moving to next visible block
       const nextBlockIndex = findNextVisibleBlockIndex(
@@ -601,7 +690,12 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
   } else {
     // LTR text: visual left is logical backward (decrement)
     if (textIndex > 0) {
-      return moveCursorToPosition(state, blockIndex, textIndex - 1);
+      const snapped = snapInlineMathPosition(
+        currentBlock,
+        textIndex - 1,
+        "left"
+      );
+      return moveCursorToPosition(state, blockIndex, snapped);
     } else {
       // Moving to previous visible block
       const prevBlockIndex = findPreviousVisibleBlockIndex(
@@ -673,7 +767,12 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   if (isRTL) {
     // In RTL text, visual right is logical backward (decrement)
     if (textIndex > 0) {
-      return moveCursorToPosition(state, blockIndex, textIndex - 1);
+      const snapped = snapInlineMathPosition(
+        currentBlock,
+        textIndex - 1,
+        "left"
+      );
+      return moveCursorToPosition(state, blockIndex, snapped);
     } else {
       // Moving to previous visible block
       const prevBlockIndex = findPreviousVisibleBlockIndex(
@@ -706,7 +805,12 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   } else {
     // LTR text: visual right is logical forward (increment)
     if (textIndex < currentBlockLength) {
-      return moveCursorToPosition(state, blockIndex, textIndex + 1);
+      const snapped = snapInlineMathPosition(
+        currentBlock,
+        textIndex + 1,
+        "right"
+      );
+      return moveCursorToPosition(state, blockIndex, snapped);
     } else {
       // Moving to next visible block
       const nextBlockIndex = findNextVisibleBlockIndex(

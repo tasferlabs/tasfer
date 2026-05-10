@@ -36,6 +36,7 @@ import { getTextDirection } from "../rtl";
 import {
   scrollToMakeCursorVisible,
   getTextPositionFromViewport,
+  getCursorDocumentCoords,
 } from "../selection";
 import { getSlashCommands } from "../SlashCommandMenu";
 import {
@@ -63,6 +64,8 @@ import {
   openSlashCommand,
   updateCursor,
   openContextMenu,
+  getCrossedInlineMathSpan,
+  setActiveMenu,
 } from "../state";
 import type {
   EditorState,
@@ -71,6 +74,45 @@ import type {
   MouseEvent,
 } from "../types";
 import { undoState, redoState } from "../undo";
+
+// Open the inline-math editor popover when an arrow key crosses an inline
+// math chip (snap fired between opposite boundaries).
+function maybeOpenInlineMathOnArrowCross(
+  prevState: EditorState,
+  newState: EditorState,
+  viewport: ViewportState
+): EditorState {
+  const prevCursor = prevState.document.cursor;
+  const newCursor = newState.document.cursor;
+  if (!prevCursor || !newCursor) return newState;
+  if (prevCursor.position.blockIndex !== newCursor.position.blockIndex) {
+    return newState;
+  }
+
+  const block =
+    newState.document.page.blocks[newCursor.position.blockIndex];
+  if (!block || block.deleted) return newState;
+
+  const span = getCrossedInlineMathSpan(
+    block,
+    prevCursor.position.textIndex,
+    newCursor.position.textIndex
+  );
+  if (!span) return newState;
+
+  const coords = getCursorDocumentCoords(newCursor.position, newState, viewport);
+  if (!coords) return newState;
+
+  return setActiveMenu(newState, {
+    type: "inlineMathEdit",
+    blockIndex: newCursor.position.blockIndex,
+    startIndex: span.startIndex,
+    endIndex: span.endIndex,
+    latex: span.latex,
+    x: coords.x,
+    y: coords.y - viewport.scrollY,
+  });
+}
 
 export function handleKeyDown(
   state: EditorState,
@@ -654,6 +696,8 @@ export function handleKeyDown(
             newState = clearAutoCreatedParagraph(newState);
           }
         }
+
+        newState = maybeOpenInlineMathOnArrowCross(state, newState, viewport);
       }
       break;
     case "ArrowRight":
@@ -871,6 +915,8 @@ export function handleKeyDown(
             newState = clearAutoCreatedParagraph(newState);
           }
         }
+
+        newState = maybeOpenInlineMathOnArrowCross(state, newState, viewport);
       }
       break;
     case "ArrowUp":

@@ -646,6 +646,8 @@ export function handleEvents(
         ...state.ui,
         isHoveringLinkWithModifier: false,
         imageHover: null,
+        inlineMathHover: null,
+        hoveredMathBlockIndex: null,
       },
     };
   }

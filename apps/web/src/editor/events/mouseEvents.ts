@@ -24,6 +24,7 @@ import {
 } from "../scrollbar";
 import {
   getCursorDocumentCoords,
+  getInlineMathAtPosition,
   getLinkAtPosition,
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
@@ -642,6 +643,43 @@ export function handleMouseDown(
     viewport,
   );
 
+  // Click landed on an inline math chip → open the inline math editor popover
+  // instead of placing the cursor inside the LaTeX source.
+  if (position && state.ui.mode !== "readonly") {
+    const inlineMath = getInlineMathAtPosition(
+      position.blockIndex,
+      position.textIndex,
+      state,
+      "inside",
+      { x: canvasX, viewport },
+    );
+    if (inlineMath) {
+      // Don't reopen if we just closed the popover for this same chip
+      if (
+        wasMenuOpen &&
+        previousMenu.type === "inlineMathEdit" &&
+        previousMenu.blockIndex === position.blockIndex &&
+        previousMenu.startIndex === inlineMath.startIndex &&
+        previousMenu.endIndex === inlineMath.endIndex
+      ) {
+        return { state, ops };
+      }
+
+      return {
+        state: setActiveMenu(state, {
+          type: "inlineMathEdit",
+          blockIndex: position.blockIndex,
+          startIndex: inlineMath.startIndex,
+          endIndex: inlineMath.endIndex,
+          latex: inlineMath.latex,
+          x: canvasX,
+          y: canvasY,
+        }),
+        ops,
+      };
+    }
+  }
+
   // If clicking in padding/outside editor area, preserve active selections
   if (!position) {
     // Only clear selection if it's collapsed or doesn't exist
@@ -938,6 +976,57 @@ export function handleMouseMove(
           ...state.ui,
           imageHover: null,
         },
+      };
+    }
+
+    // Math block hover (full block backdrop)
+    const mathBlock = getMathBlockAtPoint(canvasX, canvasY, state, viewport);
+    const newMathBlockHover = mathBlock ? mathBlock.blockIndex : null;
+    if (newMathBlockHover !== state.ui.hoveredMathBlockIndex) {
+      state = {
+        ...state,
+        ui: { ...state.ui, hoveredMathBlockIndex: newMathBlockHover },
+      };
+    }
+
+    // Inline math chip hover (per-chip background highlight)
+    let newInlineMathHover: typeof state.ui.inlineMathHover = null;
+    if (!mathBlock) {
+      const hoverPos = getTextPositionFromViewport(
+        canvasX,
+        canvasY,
+        state,
+        viewport,
+      );
+      if (hoverPos) {
+        const inlineMath = getInlineMathAtPosition(
+          hoverPos.blockIndex,
+          hoverPos.textIndex,
+          state,
+          "inside",
+          { x: canvasX, viewport },
+        );
+        if (inlineMath) {
+          newInlineMathHover = {
+            blockIndex: hoverPos.blockIndex,
+            startIndex: inlineMath.startIndex,
+            endIndex: inlineMath.endIndex,
+          };
+        }
+      }
+    }
+    const prevInline = state.ui.inlineMathHover;
+    const inlineChanged =
+      (prevInline === null) !== (newInlineMathHover === null) ||
+      (prevInline &&
+        newInlineMathHover &&
+        (prevInline.blockIndex !== newInlineMathHover.blockIndex ||
+          prevInline.startIndex !== newInlineMathHover.startIndex ||
+          prevInline.endIndex !== newInlineMathHover.endIndex));
+    if (inlineChanged) {
+      state = {
+        ...state,
+        ui: { ...state.ui, inlineMathHover: newInlineMathHover },
       };
     }
   }
@@ -1243,6 +1332,8 @@ export function handleWheel(
       activeMenu: { type: "none" },
       isHoveringLinkWithModifier: false,
       imageHover: null,
+      inlineMathHover: null,
+      hoveredMathBlockIndex: null,
     },
   };
 }

@@ -11,7 +11,7 @@ import {
   getFontStack,
   getCurrentFontFamily,
   getFontMetrics,
-  measureText,
+  measureCRDTTextUpToIndex,
   wrapCRDTText,
   type FontFamily,
   type TextBatch,
@@ -209,25 +209,20 @@ function measureCRDTLineWidth(
   lineEndIndex: number,
   textStyle: TextStyle,
   fontFamily: FontFamily,
-  _codePadding: number,
+  codePadding: number,
 ): number {
-  // Use batched measurement to preserve Arabic ligatures
-  // This is critical for accurate cursor positioning in Arabic text
-  const batches = batchCRDTChars(chars, formats, lineStartIndex, lineEndIndex);
-
-  let width = 0;
-  for (const batch of batches) {
-    const effectiveFontWeight = batch.isBold ? "bold" : textStyle.fontWeight;
-    // Measure the entire batch as a string (preserves ligature widths)
-    width += measureText(
-      batch.text,
-      textStyle.fontSize,
-      effectiveFontWeight,
-      fontFamily,
-    );
-  }
-
-  return width;
+  // Delegate to the shared math-aware measurement so cursor x stays aligned
+  // with both wrap and render (atomic inline-math span widths).
+  return measureCRDTTextUpToIndex(
+    chars,
+    formats,
+    lineStartIndex,
+    lineEndIndex,
+    textStyle.fontSize,
+    textStyle.fontWeight,
+    fontFamily,
+    codePadding,
+  );
 }
 
 // Helper to render underline decoration for composition text
@@ -317,6 +312,7 @@ function renderCRDTLine(
   fontFamily: FontFamily,
   styles: EditorStyles,
   isRTL: boolean,
+  hoveredInlineMath: { startIndex: number; endIndex: number } | null = null,
 ) {
   // Set canvas direction
   ctx.direction = isRTL ? "rtl" : "ltr";
@@ -331,6 +327,9 @@ function renderCRDTLine(
 
   // Render each batch
   let currentX = x;
+  // Track the visible-index of the start of the current batch within the
+  // block. Used to detect whether the hovered inline-math span overlaps it.
+  let batchVisibleStart = lineStartIndex;
 
   for (const batch of batches) {
     const effectiveFontWeight = batch.isBold ? "bold" : textStyle.fontWeight;
@@ -338,6 +337,13 @@ function renderCRDTLine(
 
     ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily)}`;
     ctx.textBaseline = "alphabetic";
+
+    const batchVisibleEnd = batchVisibleStart + batch.text.length;
+    const isBatchHovered =
+      batch.isMath &&
+      hoveredInlineMath !== null &&
+      batchVisibleStart >= hoveredInlineMath.startIndex &&
+      batchVisibleEnd <= hoveredInlineMath.endIndex;
 
     // Inline math: draw the rendered MathJax SVG at its natural width.
     if (batch.isMath) {
@@ -350,18 +356,21 @@ function renderCRDTLine(
         const visualX = currentX;
         const drawX = isRTL ? visualX - mathWidth : visualX;
 
-        // Background chip behind the math, sized to SVG dimensions
-        const padding = mathStyle.padding;
-        ctx.save();
-        ctx.fillStyle = mathStyle.backgroundColor;
-        const rectX = drawX - padding;
-        const rectY = y - dims.height + dims.depthBelowBaseline - padding;
-        const rectWidth = mathWidth + padding * 2;
-        const rectHeight = dims.height + padding * 2;
-        ctx.beginPath();
-        ctx.roundRect(rectX, rectY, rectWidth, rectHeight, mathStyle.borderRadius);
-        ctx.fill();
-        ctx.restore();
+        // Background chip behind the math, sized to SVG dimensions.
+        // Only drawn on hover — otherwise the math sits flush in the text.
+        if (isBatchHovered) {
+          const padding = mathStyle.padding;
+          ctx.save();
+          ctx.fillStyle = mathStyle.hoverBackgroundColor;
+          const rectX = drawX - padding;
+          const rectY = y - dims.height + dims.depthBelowBaseline - padding;
+          const rectWidth = mathWidth + padding * 2;
+          const rectHeight = dims.height + padding * 2;
+          ctx.beginPath();
+          ctx.roundRect(rectX, rectY, rectWidth, rectHeight, mathStyle.borderRadius);
+          ctx.fill();
+          ctx.restore();
+        }
 
         const image = getInlineMathImage(batch.text, textStyle.fontSize, dpr);
         if (image) {
@@ -376,6 +385,7 @@ function renderCRDTLine(
         } else {
           currentX += mathWidth;
         }
+        batchVisibleStart = batchVisibleEnd;
         continue;
       }
       // Dimension lookup failed (invalid LaTeX) — fall through to render as
@@ -393,30 +403,37 @@ function renderCRDTLine(
         : styles.textFormats.code;
       const padding = chipStyle.padding;
 
-      ctx.save();
-      ctx.fillStyle = chipStyle.backgroundColor;
+      // Math: only show the background chip on hover. Code: always.
+      const drawChip = batch.isCode || isBatchHovered;
+      if (drawChip) {
+        ctx.save();
+        ctx.fillStyle =
+          batch.isMath && isBatchHovered
+            ? styles.textFormats.inlineMath.hoverBackgroundColor
+            : chipStyle.backgroundColor;
 
-      let rectX: number;
-      if (isRTL) {
-        rectX = visualX - textWidth - padding;
-      } else {
-        rectX = visualX - padding;
+        let rectX: number;
+        if (isRTL) {
+          rectX = visualX - textWidth - padding;
+        } else {
+          rectX = visualX - padding;
+        }
+
+        const rectY = y - textStyle.fontSize - padding;
+        const rectWidth = textWidth + padding * 2;
+        const rectHeight = textStyle.fontSize * textStyle.lineHeight;
+
+        ctx.beginPath();
+        ctx.roundRect(
+          rectX,
+          rectY,
+          rectWidth,
+          rectHeight,
+          chipStyle.borderRadius,
+        );
+        ctx.fill();
+        ctx.restore();
       }
-
-      const rectY = y - textStyle.fontSize - padding;
-      const rectWidth = textWidth + padding * 2;
-      const rectHeight = textStyle.fontSize * textStyle.lineHeight;
-
-      ctx.beginPath();
-      ctx.roundRect(
-        rectX,
-        rectY,
-        rectWidth,
-        rectHeight,
-        chipStyle.borderRadius,
-      );
-      ctx.fill();
-      ctx.restore();
 
       ctx.fillStyle = chipStyle.color;
     } else if (batch.isLink) {
@@ -471,6 +488,7 @@ function renderCRDTLine(
     } else {
       currentX += textWidth;
     }
+    batchVisibleStart = batchVisibleEnd;
   }
 
   // Reset direction
@@ -717,7 +735,25 @@ export const renderBlock = (
       );
     }
 
-    // Render the line with formatting (using CRDT data with composition)
+    // Render the line with formatting (using CRDT data with composition).
+    // The active inline-math edit popover also styles its chip as hovered.
+    const activeInlineMathEdit =
+      state.ui.activeMenu.type === "inlineMathEdit" &&
+      state.ui.activeMenu.blockIndex === blockIndex
+        ? {
+            startIndex: state.ui.activeMenu.startIndex,
+            endIndex: state.ui.activeMenu.endIndex,
+          }
+        : null;
+    const hoveredInlineMath =
+      activeInlineMathEdit ??
+      (state.ui.inlineMathHover &&
+      state.ui.inlineMathHover.blockIndex === blockIndex
+        ? {
+            startIndex: state.ui.inlineMathHover.startIndex,
+            endIndex: state.ui.inlineMathHover.endIndex,
+          }
+        : null);
     renderCRDTLine(
       ctx,
       renderChars,
@@ -730,6 +766,7 @@ export const renderBlock = (
       fontFamily,
       styles,
       isRTL,
+      hoveredInlineMath,
     );
 
     // Render composition underline if this line contains composition text
@@ -1716,6 +1753,18 @@ function renderMathBlock(
     : mathStyles.minHeight;
   const contentHeight = Math.max(mathStyles.minHeight, cachedContentHeight);
   // const totalHeight = contentHeight + mathStyles.paddingTop + mathStyles.paddingBottom;
+
+  // Hover backdrop for the entire math block — signals it is clickable.
+  if (state.ui.hoveredMathBlockIndex === blockIndex && block.latex) {
+    const totalHeight =
+      contentHeight + mathStyles.paddingTop + mathStyles.paddingBottom;
+    ctx.save();
+    ctx.fillStyle = mathStyles.hoverBackgroundColor;
+    ctx.beginPath();
+    ctx.roundRect(x, y, maxWidth, totalHeight, mathStyles.hoverBorderRadius);
+    ctx.fill();
+    ctx.restore();
+  }
 
   if (block.latex) {
     const dpr = window.devicePixelRatio || 1;

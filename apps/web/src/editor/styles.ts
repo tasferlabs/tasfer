@@ -212,6 +212,8 @@ export function getEditorStyles(): EditorStyles {
         paddingTop: 12,
         paddingBottom: 12,
         minHeight: 48,
+        hoverBackgroundColor: getCSSVariable("--muted"),
+        hoverBorderRadius: 6,
         placeholder: {
           backgroundColor: getCSSVariable("--muted"),
           textColor: getCSSVariable("--muted-foreground"),
@@ -275,6 +277,7 @@ export function getEditorStyles(): EditorStyles {
       },
       inlineMath: {
         backgroundColor: getCSSVariable("--editor-code-bg"),
+        hoverBackgroundColor: getCSSVariable("--muted"),
         color: getCSSVariable("--editor-code-text"),
         padding: 2,
         borderRadius: 3,

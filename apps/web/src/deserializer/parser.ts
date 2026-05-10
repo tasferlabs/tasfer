@@ -57,9 +57,14 @@ interface ParserContext {
   charIdCounter: number; // Counter for generating unique char IDs
 }
 
-// Generate a unique char ID
+// Generate a unique char ID.
+// Use compound `${peerId}:${counter}` form so the ID survives a
+// `charsToRuns` → `iterateVisibleChars` round-trip (which always rebuilds
+// IDs as `${run.peerId}:${run.startCounter + offset}`). With a single
+// shared peerId and a sequential counter, all chars coalesce into one run
+// and the IDs stored in format spans keep matching runtime char IDs.
 function generateCharId(context: ParserContext): string {
-  return `init-${context.charIdCounter++}`;
+  return `init:${context.charIdCounter++}`;
 }
 
 /**

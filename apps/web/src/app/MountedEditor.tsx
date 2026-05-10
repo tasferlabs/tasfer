@@ -285,6 +285,15 @@ export function MountedEditor({
     blockIndex: number;
   } | null>(null);
 
+  const [inlineMathEditState, setInlineMathEditState] = useState<{
+    x: number;
+    y: number;
+    blockIndex: number;
+    startIndex: number;
+    endIndex: number;
+    latex: string;
+  } | null>(null);
+
   const [imageHoverState, setImageHoverState] = useState<{
     x: number;
     y: number;
@@ -1006,6 +1015,23 @@ export function MountedEditor({
         }
       } else if (mathEditState) {
         setMathEditState(null);
+      }
+
+      // Calculate inline math edit state
+      if (state.ui.activeMenu.type === "inlineMathEdit") {
+        const containerRect = wrapperRef.current?.getBoundingClientRect();
+        if (containerRect) {
+          setInlineMathEditState({
+            x: containerRect.left + state.ui.activeMenu.x,
+            y: containerRect.top + state.ui.activeMenu.y,
+            blockIndex: state.ui.activeMenu.blockIndex,
+            startIndex: state.ui.activeMenu.startIndex,
+            endIndex: state.ui.activeMenu.endIndex,
+            latex: state.ui.activeMenu.latex,
+          });
+        }
+      } else if (inlineMathEditState) {
+        setInlineMathEditState(null);
       }
 
       // Calculate new image hover state
@@ -2034,6 +2060,59 @@ export function MountedEditor({
               if (!mountedRef.current) return;
               mountedRef.current.editor.closeActiveMenu();
               setMathEditState(null);
+            }}
+            collisionBoundary={mountedRef.current?.portalContainer}
+            container={mountedRef.current?.portalContainer}
+          />,
+          mountedRef.current.portalContainer,
+        )}
+
+      {/* Inline math edit popover */}
+      {inlineMathEditState &&
+        mountedRef.current?.portalContainer &&
+        createPortal(
+          <MathBlockEditor
+            x={inlineMathEditState.x}
+            y={inlineMathEditState.y}
+            initialLatex={inlineMathEditState.latex}
+            displayMode={false}
+            inline
+            onSubmit={(latex) => {
+              if (!mountedRef.current) return;
+              mountedRef.current.editor.updateInlineMath(
+                inlineMathEditState.blockIndex,
+                inlineMathEditState.startIndex,
+                inlineMathEditState.endIndex,
+                latex,
+              );
+              mountedRef.current.editor.closeActiveMenu();
+              setInlineMathEditState(null);
+            }}
+            onDelete={() => {
+              if (!mountedRef.current) return;
+              mountedRef.current.editor.deleteInlineMath(
+                inlineMathEditState.blockIndex,
+                inlineMathEditState.startIndex,
+                inlineMathEditState.endIndex,
+              );
+              mountedRef.current.editor.closeActiveMenu();
+              setInlineMathEditState(null);
+            }}
+            onClose={() => {
+              if (!mountedRef.current) return;
+              mountedRef.current.editor.closeActiveMenu();
+              setInlineMathEditState(null);
+            }}
+            onExitArrow={(direction) => {
+              if (!mountedRef.current) return;
+              mountedRef.current.editor.exitInlineMath(
+                inlineMathEditState.blockIndex,
+                inlineMathEditState.startIndex,
+                inlineMathEditState.endIndex,
+                direction,
+              );
+              setInlineMathEditState(null);
+              mountedRef.current.refocus();
             }}
             collisionBoundary={mountedRef.current?.portalContainer}
             container={mountedRef.current?.portalContainer}

@@ -951,6 +951,49 @@ function getPositionWithinLine(
       }
     }
 
+    // Inline-math chips occupy multiple visible indices but render as one
+    // atomic unit. measureCRDTPositions assigns the chip's full width to
+    // positions[startIdx+1] and zero to positions[startIdx+2..endIdx+1], so
+    // the closest-position scan can land *inside* the span (especially when
+    // the chip is at end-of-line: clicks past it tie at the chip's right edge
+    // and the earliest-tying index wins, dropping the cursor mid-LaTeX).
+    // Snap to whichever span boundary is closer to relativeX.
+    {
+      const visIdxOfId = new Map<string, number>();
+      let v = 0;
+      for (const { id } of iterateVisibleChars(block.charRuns)) {
+        visIdxOfId.set(id, v);
+        v++;
+      }
+      for (const f of block.formats) {
+        if (f.format.type !== "math") continue;
+        const s = visIdxOfId.get(f.startCharId);
+        const e = visIdxOfId.get(f.endCharId);
+        if (s === undefined || e === undefined) continue;
+        if (bestPosition > s && bestPosition < e + 1) {
+          const spanStartLocal = s - lineStartIndex;
+          const spanEndLocal = e + 1 - lineStartIndex;
+          if (
+            spanStartLocal >= 0 &&
+            spanEndLocal <= line.length &&
+            spanStartLocal < positionWidths.length &&
+            spanEndLocal < positionWidths.length
+          ) {
+            const spanStartX = positionWidths[spanStartLocal];
+            const spanEndX = positionWidths[spanEndLocal];            // Only snap when the click falls outside the chip's x-range —
+            // clicks on the chip itself must stay inside the span so hover
+            // and click handlers can detect them via getInlineMathAtPosition.
+            if (relativeX < spanStartX) {
+              bestPosition = s;
+            } else if (relativeX > spanEndX) {
+              bestPosition = e + 1;
+            }
+          }
+          break;
+        }
+      }
+    }
+
     return {
       blockIndex: 0, // Placeholder - will be overridden by caller
       textIndex: bestPosition,
@@ -1111,6 +1154,105 @@ export function getLinkAtPosition(
         text: linkText.join(""),
         startIndex: startVisIndex,
         endIndex: endVisIndex + 1,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Find the inline-math span containing a visible character index within a block.
+ * Inline math is stored as a run of LaTeX characters tagged with the "math" format.
+ * The span is treated as a single atomic unit by callers — the cursor should snap
+ * to either the start (visible index = startIndex) or the end (visible index = endIndex)
+ * rather than landing inside the chip.
+ *
+ * `mode` controls inclusivity at the boundaries:
+ * - "inside": treat positions strictly between [startIndex+1, endIndex-1] as inside
+ *             (positions at the edges return null — cursor is fine to sit there)
+ * - "any":    return the span if the index is anywhere within [startIndex, endIndex]
+ */
+export function getInlineMathAtPosition(
+  blockIndex: number,
+  textIndex: number,
+  state: EditorState,
+  mode: "inside" | "any" = "inside",
+  pointer?: { x: number; viewport: ViewportState; styles?: EditorStyles },
+): {
+  blockId: string;
+  startIndex: number;
+  endIndex: number;
+  latex: string;
+} | null {
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return null;
+  if (!isTextualBlock(block)) return null;
+
+  // Build a quick id → visible-index lookup for chars in this block
+  const visibleIds: string[] = [];
+  const visibleChars: string[] = [];
+  for (const { id, char } of iterateVisibleChars(block.charRuns)) {
+    visibleIds.push(id);
+    visibleChars.push(char);
+  }
+
+  for (const formatSpan of block.formats) {
+    if (formatSpan.format.type !== "math") continue;
+
+    const startIdx = visibleIds.indexOf(formatSpan.startCharId);
+    const endIdx = visibleIds.indexOf(formatSpan.endCharId);
+    if (startIdx === -1 || endIdx === -1) continue;
+
+    // Visible-index range is [startIdx, endIdx + 1) — caret positions go from
+    // startIdx (before first char) to endIdx + 1 (after last char).
+    const spanStart = startIdx;
+    const spanEnd = endIdx + 1;
+
+    let insideHit =
+      mode === "any"
+        ? textIndex >= spanStart && textIndex <= spanEnd
+        : textIndex > spanStart && textIndex < spanEnd;
+
+    // Boundary disambiguation for single-char spans (and any case where
+    // textIndex sits on a span boundary): textIndex alone can't tell "end
+    // of preceding text" from "start of chip". When pointer x is provided,
+    // verify the click landed within the chip's rendered x-range.
+    if (
+      !insideHit &&
+      mode === "inside" &&
+      pointer &&
+      (textIndex === spanStart || textIndex === spanEnd)
+    ) {
+      const startCoords = getCursorDocumentCoords(
+        { blockIndex, textIndex: spanStart },
+        state,
+        pointer.viewport,
+        pointer.styles,
+      );
+      const endCoords = getCursorDocumentCoords(
+        { blockIndex, textIndex: spanEnd },
+        state,
+        pointer.viewport,
+        pointer.styles,
+      );
+      if (
+        startCoords &&
+        endCoords &&
+        startCoords.y === endCoords.y &&
+        pointer.x >= startCoords.x &&
+        pointer.x <= endCoords.x
+      ) {
+        insideHit = true;
+      }
+    }
+
+    if (insideHit) {
+      return {
+        blockId: block.id,
+        startIndex: spanStart,
+        endIndex: spanEnd,
+        latex: visibleChars.slice(spanStart, spanEnd).join(""),
       };
     }
   }

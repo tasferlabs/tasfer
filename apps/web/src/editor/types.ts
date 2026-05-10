@@ -82,6 +82,15 @@ export type ActiveMenu =
       blockIndex: number;
       x: number;
       y: number;
+    }
+  | {
+      type: "inlineMathEdit";
+      blockIndex: number;
+      startIndex: number;
+      endIndex: number;
+      latex: string;
+      x: number;
+      y: number;
     };
 
 // Document State - Only this goes in undo/redo
@@ -155,6 +164,12 @@ export interface UIState {
   readonly isHoveringLinkWithModifier: boolean;
   readonly isHoveringCheckbox: boolean;
   readonly isHoveringPeerIndicator: boolean;
+  readonly inlineMathHover: {
+    readonly blockIndex: number;
+    readonly startIndex: number;
+    readonly endIndex: number;
+  } | null;
+  readonly hoveredMathBlockIndex: number | null;
   readonly composition: CompositionState | null;
   readonly activeFormatsMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
   readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)
@@ -360,6 +375,8 @@ export interface MathStyles {
   readonly paddingTop: number;
   readonly paddingBottom: number;
   readonly minHeight: number;
+  readonly hoverBackgroundColor: string;
+  readonly hoverBorderRadius: number;
   readonly placeholder: {
     readonly backgroundColor: string;
     readonly textColor: string;
@@ -447,6 +464,7 @@ export interface TextFormatStyles {
   };
   readonly inlineMath: {
     readonly backgroundColor: string;
+    readonly hoverBackgroundColor: string;
     readonly color: string;
     readonly padding: number;
     readonly borderRadius: number;
