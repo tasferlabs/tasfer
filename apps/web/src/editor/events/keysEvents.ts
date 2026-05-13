@@ -343,28 +343,20 @@ export function handleKeyDown(
           if (!block || block.deleted) return { state, ops };
 
           // Visual blocks (image/line/math) don't have text content, so guard anyway
-          if (block.type === "image" || block.type === "line" || block.type === "math") {
+          if (!isTextualBlock(block)) {
             return { state: closeSlashCommand(state), ops };
           }
 
           // Remove the "/" and filter text using CRDT operations
-          const { newCharRuns } = deleteCharsInRange(
-            block.charRuns,
+          const { newPage } = deleteCharsInRange(
+            state.document.page,
+            block.id,
             textIndex - 1, // Remove the "/"
             state.document.cursor.position.textIndex, // Remove up to cursor (the filter text)
-            block.id
           );
 
-          const newBlock: Block = {
-            ...block,
-            charRuns: newCharRuns,
-          };
-
+          const newBlock = newPage.blocks[blockIndex];
           invalidateBlockCache(newBlock);
-
-          const newBlocks = [...state.document.page.blocks];
-          newBlocks[blockIndex] = newBlock;
-          const newPage = { ...state.document.page, blocks: newBlocks };
 
           let newState: EditorState = {
             ...state,
@@ -509,7 +501,7 @@ export function handleKeyDown(
           const isFirstBlock =
             firstVisibleBlock && currentBlock.id === firstVisibleBlock.id;
 
-          if (isFirstBlock && (currentBlock?.type === "image" || currentBlock?.type === "line" || currentBlock?.type === "math")) {
+          if (isFirstBlock && (currentBlock && !isTextualBlock(currentBlock))) {
             // Create a new paragraph above the visual block
             const newParagraphId = nextId();
             const newParagraph: Block = {
@@ -598,7 +590,7 @@ export function handleKeyDown(
             const visibleBlocks = newState.view.visibleBlocks;
             const firstBlock =
               visibleBlocks.length > 0 ? visibleBlocks[0] : null;
-            if (firstBlock?.type === "image" || firstBlock?.type === "line" || firstBlock?.type === "math") {
+            if (firstBlock && !isTextualBlock(firstBlock)) {
               newState = {
                 ...newState,
                 document: {
@@ -624,7 +616,7 @@ export function handleKeyDown(
           : null;
         const isVisualBlockSelection =
           range &&
-          (startBlock?.type === "image" || startBlock?.type === "line" || startBlock?.type === "math") &&
+          (startBlock && !isTextualBlock(startBlock)) &&
           range.start.blockIndex === range.end.blockIndex;
 
         if (range && !isVisualBlockSelection) {
@@ -665,7 +657,7 @@ export function handleKeyDown(
             ];
           if (
             targetBlock &&
-            (targetBlock.type === "image" || targetBlock.type === "line" || targetBlock.type === "math")
+            (!isTextualBlock(targetBlock))
           ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
@@ -727,7 +719,7 @@ export function handleKeyDown(
 
           if (
             isLastBlock &&
-            (currentBlock?.type === "image" || currentBlock?.type === "line" || currentBlock?.type === "math")
+            (currentBlock && !isTextualBlock(currentBlock))
           ) {
             // Create a new paragraph below the visual block
             const newParagraphId = nextId();
@@ -817,7 +809,7 @@ export function handleKeyDown(
             const visibleBlocks = newState.view.visibleBlocks;
             const firstBlock =
               visibleBlocks.length > 0 ? visibleBlocks[0] : null;
-            if (firstBlock?.type === "image" || firstBlock?.type === "line" || firstBlock?.type === "math") {
+            if (firstBlock && !isTextualBlock(firstBlock)) {
               newState = {
                 ...newState,
                 document: {
@@ -843,7 +835,7 @@ export function handleKeyDown(
           : null;
         const isVisualBlockSelection =
           range &&
-          (endBlock?.type === "image" || endBlock?.type === "line" || endBlock?.type === "math") &&
+          (endBlock && !isTextualBlock(endBlock)) &&
           range.start.blockIndex === range.end.blockIndex;
 
         if (range && !isVisualBlockSelection) {
@@ -884,7 +876,7 @@ export function handleKeyDown(
             ];
           if (
             targetBlock &&
-            (targetBlock.type === "image" || targetBlock.type === "line" || targetBlock.type === "math")
+            (!isTextualBlock(targetBlock))
           ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
@@ -936,7 +928,7 @@ export function handleKeyDown(
 
           if (
             isFirstBlock &&
-            (currentBlock?.type === "image" || currentBlock?.type === "line" || currentBlock?.type === "math")
+            (currentBlock && !isTextualBlock(currentBlock))
           ) {
             // Create a new paragraph above the visual block
             const newParagraphId = nextId();
@@ -992,7 +984,7 @@ export function handleKeyDown(
             ];
           if (
             targetBlock &&
-            (targetBlock.type === "image" || targetBlock.type === "line" || targetBlock.type === "math")
+            (!isTextualBlock(targetBlock))
           ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
@@ -1083,7 +1075,7 @@ export function handleKeyDown(
             const visibleBlocks = newState.view.visibleBlocks;
             const firstBlock =
               visibleBlocks.length > 0 ? visibleBlocks[0] : null;
-            if (firstBlock?.type === "image" || firstBlock?.type === "line" || firstBlock?.type === "math") {
+            if (firstBlock && !isTextualBlock(firstBlock)) {
               newState = {
                 ...newState,
                 document: {
@@ -1120,7 +1112,7 @@ export function handleKeyDown(
 
           if (
             isLastBlock &&
-            (currentBlock?.type === "image" || currentBlock?.type === "line" || currentBlock?.type === "math")
+            (currentBlock && !isTextualBlock(currentBlock))
           ) {
             // Create a new paragraph below the visual block
             const newParagraphId = nextId();
@@ -1169,7 +1161,7 @@ export function handleKeyDown(
             ];
           if (
             targetBlock &&
-            (targetBlock.type === "image" || targetBlock.type === "line" || targetBlock.type === "math")
+            (!isTextualBlock(targetBlock))
           ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
@@ -1219,7 +1211,7 @@ export function handleKeyDown(
 
           if (
             isFirstBlock &&
-            (currentBlock?.type === "image" || currentBlock?.type === "line" || currentBlock?.type === "math")
+            (currentBlock && !isTextualBlock(currentBlock))
           ) {
             // Create a new paragraph above the visual block
             const newParagraphId = nextId();
@@ -1273,7 +1265,7 @@ export function handleKeyDown(
             ];
           if (
             targetBlock &&
-            (targetBlock.type === "image" || targetBlock.type === "line" || targetBlock.type === "math")
+            (!isTextualBlock(targetBlock))
           ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
@@ -1362,7 +1354,7 @@ export function handleKeyDown(
             const visibleBlocks = newState.view.visibleBlocks;
             const firstBlock =
               visibleBlocks.length > 0 ? visibleBlocks[0] : null;
-            if (firstBlock?.type === "image" || firstBlock?.type === "line" || firstBlock?.type === "math") {
+            if (firstBlock && !isTextualBlock(firstBlock)) {
               newState = {
                 ...newState,
                 document: {
@@ -1399,7 +1391,7 @@ export function handleKeyDown(
 
           if (
             isLastBlock &&
-            (currentBlock?.type === "image" || currentBlock?.type === "line" || currentBlock?.type === "math")
+            (currentBlock && !isTextualBlock(currentBlock))
           ) {
             // Create a new paragraph below the visual block
             const newParagraphId = nextId();
@@ -1446,7 +1438,7 @@ export function handleKeyDown(
             ];
           if (
             targetBlock &&
-            (targetBlock.type === "image" || targetBlock.type === "line" || targetBlock.type === "math")
+            (!isTextualBlock(targetBlock))
           ) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,

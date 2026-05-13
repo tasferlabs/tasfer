@@ -1,4 +1,4 @@
-import type { Block } from "@/deserializer/loadPage";
+import { isTextualBlock, type Block } from "@/deserializer/loadPage";
 import type { Operation } from "../sync/sync";
 import { getPageId, nextId, getClock } from "../sync/sync";
 import {
@@ -63,10 +63,9 @@ function getLineHeightAtPosition(
 ): number {
   const block = state.document.page.blocks[blockIndex];
   if (!block) return 16 * 1.6;
-  const type = block.type;
-  if (type === "image" || type === "line" || type === "math") return 16 * 1.6;
+  if (!isTextualBlock(block)) return 16 * 1.6;
   const styles = getEditorStyles();
-  const textStyle = getTextStyle(styles, type);
+  const textStyle = getTextStyle(styles, block.type);
   return textStyle.fontSize * textStyle.lineHeight;
 }
 
@@ -1716,10 +1715,7 @@ export function handleTouchEnd(
         ) {
           const selectedBlock = state.document.page.blocks[anchor.blockIndex];
           if (!selectedBlock || selectedBlock.deleted) return { state, ops };
-          if (
-            selectedBlock &&
-            (selectedBlock.type === "image" || selectedBlock.type === "line" || selectedBlock.type === "math")
-          ) {
+          if (selectedBlock && !isTextualBlock(selectedBlock)) {
             // We have a visual block selected, but tapped outside it - clear the selection
             state = clearSelection(state);
           }

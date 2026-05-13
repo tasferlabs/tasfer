@@ -591,12 +591,7 @@ export function handleMouseDown(
     ) {
       const selectedBlock = state.document.page.blocks[anchor.blockIndex];
       if (!selectedBlock || selectedBlock.deleted) return { state, ops };
-      if (
-        selectedBlock &&
-        (selectedBlock.type === "image" ||
-          selectedBlock.type === "line" ||
-          selectedBlock.type === "math")
-      ) {
+      if (selectedBlock && !isTextualBlock(selectedBlock)) {
         // We have a visual block selected, but clicked outside it - clear the selection
         state = clearSelection(state);
       }
@@ -711,12 +706,7 @@ export function handleMouseDown(
     const isClickBelowContent = canvasY > totalContentHeight - viewport.scrollY;
 
     // If clicking below content and last block is an image, select it
-    if (
-      isClickBelowContent &&
-      (lastBlock.type === "image" ||
-        lastBlock.type === "line" ||
-        lastBlock.type === "math")
-    ) {
+    if (isClickBelowContent && !isTextualBlock(lastBlock)) {
       const imagePosition = { blockIndex: lastVisibleBlockIndex, textIndex: 0 };
       let newState = updateCursor(state, imagePosition);
 

@@ -125,6 +125,94 @@ export type {
   VersionVector,
 } from "./types";
 
+// =============================================================================
+// Typed BlockSet builder
+// =============================================================================
+
+/**
+ * Compile-time map of block type → settable fields and their value types.
+ *
+ * Mirrors the runtime BLOCK_REGISTRY but expresses the field shapes at the
+ * type level so that `createBlockSet` can refuse, at compile time, ops that
+ * target a field that doesn't exist on a block type or carry a wrongly-typed
+ * value. The wire shape itself stays `field: string, value: unknown` — this
+ * is purely a guard at construction sites that know the block's static type.
+ *
+ * Keep in sync with BLOCK_REGISTRY in block-registry.ts.
+ */
+export interface BlockFieldsOf {
+  paragraph: {};
+  heading1: {};
+  heading2: {};
+  heading3: {};
+  bullet_list: { indent: number };
+  numbered_list: { indent: number };
+  todo_list: { indent: number; checked: boolean };
+  image: {
+    url: string;
+    alt?: string;
+    width?: number | "full";
+    height?: number;
+    objectFit?: "cover" | "contain";
+  };
+  line: {};
+  math: { latex: string; displayMode: boolean };
+}
+
+/**
+ * Field name allowed on a BlockSet for block type T.
+ *
+ * Includes "type" (always valid) plus all registered fields for that block
+ * type.
+ */
+export type BlockSetField<T extends BlockType> =
+  | "type"
+  | (keyof BlockFieldsOf[T] & string);
+
+/**
+ * Value type for a given (block type, field) pair.
+ *
+ * - "type" accepts any BlockType.
+ * - Other fields are looked up in BlockFieldsOf.
+ */
+export type BlockSetValue<
+  T extends BlockType,
+  F extends BlockSetField<T>,
+> = F extends "type"
+  ? BlockType
+  : F extends keyof BlockFieldsOf[T]
+  ? BlockFieldsOf[T][F]
+  : never;
+
+/**
+ * Construct a typed BlockSet op.
+ *
+ * Use this at emit sites that know the block's static type. The wire shape
+ * is identical to the untyped form (field: string, value: unknown) so this
+ * is a compile-time-only guard — no runtime cost.
+ *
+ * Example:
+ *   createBlockSet<"todo_list", "checked">(blockId, "checked", true)
+ *   createBlockSet<"math", "latex">(blockId, "latex", "x^2")
+ *
+ * Use the untyped form on `BlockSet`'s wire shape when the type isn't known
+ * statically (e.g. when forwarding ops from a peer).
+ */
+export function createBlockSet<
+  T extends BlockType,
+  F extends BlockSetField<T>,
+>(blockId: string, field: F, value: BlockSetValue<T, F>): BlockSet {
+  return {
+    op: "block_set",
+    id: nextId(),
+    clock: getClock(),
+    pageId: getPageId(),
+    blockId,
+    field,
+    value,
+  };
+}
+
 // Re-export utilities
 export { compareHLC, deserializeHLC, serializeHLC } from "./hlc";
 export { deserializeVV, serializeVV } from "./oplog";

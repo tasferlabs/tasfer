@@ -10,8 +10,12 @@ import type {
   CharRun,
   FormatSpan,
 } from "@/deserializer/loadPage";
-import { isListBlock, isTextualBlock } from "@/deserializer/loadPage";
+import { isTextualBlock } from "@/deserializer/loadPage";
 import { getVisibleTextFromRuns, iterateVisibleChars } from "./char-runs";
+import {
+  getBlockDescriptor,
+  getBlockFieldNames,
+} from "./block-registry";
 import type {
   BlockDelete,
   BlockInsert,
@@ -148,13 +152,11 @@ function diffBlocks(current: Block, snapshot: Block): BlockChanges | null {
   const changes: BlockChanges = {};
   let hasChanges = false;
 
-  // Check type change
   if (current.type !== snapshot.type) {
     changes.typeChanged = { from: snapshot.type, to: current.type };
     hasChanges = true;
   }
 
-  // Check text content for textual blocks
   if (isTextualBlock(current) && isTextualBlock(snapshot)) {
     const currentText = getVisibleTextFromRuns(current.charRuns);
     const snapshotText = getVisibleTextFromRuns(snapshot.charRuns);
@@ -165,59 +167,16 @@ function diffBlocks(current: Block, snapshot: Block): BlockChanges | null {
     }
   }
 
-  // Check block-specific properties
   const propsChanged: Array<{ field: string; from: unknown; to: unknown }> = [];
 
-  // Check indent for list blocks
-  if ("indent" in current && "indent" in snapshot) {
-    if (current.indent !== snapshot.indent) {
-      propsChanged.push({
-        field: "indent",
-        from: snapshot.indent,
-        to: current.indent,
-      });
-    }
-  }
-
-  // Check checked for todo blocks
-  if ("checked" in current && "checked" in snapshot) {
-    if (current.checked !== snapshot.checked) {
-      propsChanged.push({
-        field: "checked",
-        from: snapshot.checked,
-        to: current.checked,
-      });
-    }
-  }
-
-  // Check image properties
-  if (current.type === "image" && snapshot.type === "image") {
-    if (current.url !== snapshot.url) {
-      propsChanged.push({ field: "url", from: snapshot.url, to: current.url });
-    }
-    if (current.alt !== snapshot.alt) {
-      propsChanged.push({ field: "alt", from: snapshot.alt, to: current.alt });
-    }
-    if (current.width !== snapshot.width) {
-      propsChanged.push({
-        field: "width",
-        from: snapshot.width,
-        to: current.width,
-      });
-    }
-    if (current.height !== snapshot.height) {
-      propsChanged.push({
-        field: "height",
-        from: snapshot.height,
-        to: current.height,
-      });
-    }
-    if (current.objectFit !== snapshot.objectFit) {
-      propsChanged.push({
-        field: "objectFit",
-        from: snapshot.objectFit,
-        to: current.objectFit,
-      });
+  if (current.type === snapshot.type) {
+    for (const fieldName of getBlockFieldNames(current.type)) {
+      if (fieldName === "type") continue;
+      const currentVal = (current as unknown as Record<string, unknown>)[fieldName];
+      const snapshotVal = (snapshot as unknown as Record<string, unknown>)[fieldName];
+      if (currentVal !== snapshotVal) {
+        propsChanged.push({ field: fieldName, from: snapshotVal, to: currentVal });
+      }
     }
   }
 
@@ -277,125 +236,37 @@ export function blocksToOps(
     const newBlockId = useExisting ? ctx.existingFirstBlockId! : `b-${nextId()}`;
     isFirstBlock = false;
 
-    if (block.type === "image") {
-      const blockInsertOp: BlockInsert = {
+    // The existing init block was persisted as heading1. Morph its type when
+    // needed; otherwise emit a fresh block_insert.
+    if (!useExisting) {
+      const insertOp: BlockInsert = {
         op: "block_insert",
         id: nextId(),
         clock: getClock(),
         pageId,
         afterBlockId: lastInsertedBlockId,
         blockId: newBlockId,
-        blockType: "image",
-        initialProps: {
-          url: block.url,
-          alt: block.alt,
-          width: block.width,
-          height: block.height,
-          objectFit: block.objectFit,
-        },
+        blockType: block.type,
       };
-      if (!useExisting) {
-        ops.push(blockInsertOp);
-      } else {
-        // Fix the init block's type and set all image properties via block_set ops
-        const fields: Array<[string, unknown]> = [
-          ["type", "image"],
-          ["url", block.url],
-        ];
-        if (block.alt !== undefined) fields.push(["alt", block.alt]);
-        if (block.width !== undefined) fields.push(["width", block.width]);
-        if (block.height !== undefined) fields.push(["height", block.height]);
-        if (block.objectFit !== undefined) fields.push(["objectFit", block.objectFit]);
-        for (const [field, value] of fields) {
-          ops.push({
-            op: "block_set",
-            id: nextId(),
-            clock: getClock(),
-            pageId,
-            blockId: newBlockId,
-            field,
-            value,
-          } as BlockSet);
-        }
-      }
-      lastInsertedBlockId = newBlockId;
-    } else if (block.type === "line") {
-      const blockInsertOp: BlockInsert = {
-        op: "block_insert",
-        id: nextId(),
-        clock: getClock(),
-        pageId,
-        afterBlockId: lastInsertedBlockId,
-        blockId: newBlockId,
-        blockType: "line",
-      };
-      if (!useExisting) {
-        ops.push(blockInsertOp);
-      } else {
-        ops.push({
-          op: "block_set",
-          id: nextId(),
-          clock: getClock(),
-          pageId,
-          blockId: newBlockId,
-          field: "type",
-          value: "line",
-        } as BlockSet);
-      }
-      lastInsertedBlockId = newBlockId;
-    } else if (block.type === "math") {
-      const blockInsertOp: BlockInsert = {
-        op: "block_insert",
-        id: nextId(),
-        clock: getClock(),
-        pageId,
-        afterBlockId: lastInsertedBlockId,
-        blockId: newBlockId,
-        blockType: "math",
-      };
-      if (!useExisting) {
-        ops.push(blockInsertOp);
-      } else {
-        ops.push({
-          op: "block_set",
-          id: nextId(),
-          clock: getClock(),
-          pageId,
-          blockId: newBlockId,
-          field: "type",
-          value: "math",
-        } as BlockSet);
-      }
-      // Set math properties
-      if (block.latex) {
-        ops.push({
-          op: "block_set",
-          id: nextId(),
-          clock: getClock(),
-          pageId,
-          blockId: newBlockId,
-          field: "latex",
-          value: block.latex,
-        } as BlockSet);
-      }
+      ops.push(insertOp);
+    } else if (block.type !== "heading1") {
       ops.push({
         op: "block_set",
         id: nextId(),
         clock: getClock(),
         pageId,
         blockId: newBlockId,
-        field: "displayMode",
-        value: block.displayMode,
+        field: "type",
+        value: block.type,
       } as BlockSet);
-      lastInsertedBlockId = newBlockId;
-    } else if (isTextualBlock(block)) {
-      // Collect visible chars and generate new IDs for them
+    }
+
+    if (isTextualBlock(block)) {
       const visibleOldChars: Array<{ id: string; char: string }> = [];
       for (const { id, char } of iterateVisibleChars(block.charRuns)) {
         visibleOldChars.push({ id, char });
       }
 
-      // Generate new char IDs and build mapping
       const newCharIds: string[] = [];
       const oldToNewCharIdMap = new Map<string, string>();
 
@@ -405,7 +276,6 @@ export function blocksToOps(
         oldToNewCharIdMap.set(visibleOldChars[i].id, newId);
       }
 
-      // Map formats to use new char IDs
       const newFormats: FormatSpan[] = block.formats
         .map((f) => {
           const newStartId = oldToNewCharIdMap.get(f.startCharId);
@@ -422,36 +292,8 @@ export function blocksToOps(
         })
         .filter((f): f is FormatSpan => f !== null);
 
-      // Insert block (skip if reusing the existing init block)
-      const blockInsertOp: BlockInsert = {
-        op: "block_insert",
-        id: nextId(),
-        clock: getClock(),
-        pageId,
-        afterBlockId: lastInsertedBlockId,
-        blockId: newBlockId,
-        blockType: block.type as any,
-      };
-      if (!useExisting) {
-        ops.push(blockInsertOp);
-      } else if (block.type !== "heading1") {
-        // The init block was persisted as heading1. Fix the type if it differs.
-        const typeOp: BlockSet = {
-          op: "block_set",
-          id: nextId(),
-          clock: getClock(),
-          pageId,
-          blockId: newBlockId,
-          field: "type",
-          value: block.type,
-        };
-        ops.push(typeOp);
-      }
-
-      // Insert text content - create CharRun directly
       if (visibleOldChars.length > 0) {
         const text = visibleOldChars.map((c) => c.char).join("");
-
         const firstCharId = newCharIds[0];
         const startCounter = parseInt(firstCharId.split(":")[1], 10);
 
@@ -473,7 +315,6 @@ export function blocksToOps(
         ops.push(textInsertOp);
       }
 
-      // Add format operations
       for (const format of newFormats) {
         const startIdx = newCharIds.findIndex(
           (id) => id === format.startCharId
@@ -497,37 +338,27 @@ export function blocksToOps(
           ops.push(formatOp);
         }
       }
-
-      // Add list properties if needed
-      if (isListBlock(block)) {
-        if (block.indent > 0) {
-          const indentOp: BlockSet = {
-            op: "block_set",
-            id: nextId(),
-            clock: getClock(),
-            pageId,
-            blockId: newBlockId,
-            field: "indent",
-            value: block.indent,
-          };
-          ops.push(indentOp);
-        }
-        if (block.type === "todo_list") {
-          const checkedOp: BlockSet = {
-            op: "block_set",
-            id: nextId(),
-            clock: getClock(),
-            pageId,
-            blockId: newBlockId,
-            field: "checked",
-            value: block.checked,
-          };
-          ops.push(checkedOp);
-        }
-      }
-
-      lastInsertedBlockId = newBlockId;
     }
+
+    const descriptor = getBlockDescriptor(block.type);
+    const defaultBlock = descriptor.defaults(newBlockId, lastInsertedBlockId);
+    for (const fieldName of getBlockFieldNames(block.type)) {
+      if (fieldName === "type") continue;
+      const currentVal = (block as unknown as Record<string, unknown>)[fieldName];
+      const defaultVal = (defaultBlock as unknown as Record<string, unknown>)[fieldName];
+      if (currentVal === defaultVal) continue;
+      ops.push({
+        op: "block_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId,
+        blockId: newBlockId,
+        field: fieldName,
+        value: currentVal,
+      } as BlockSet);
+    }
+
+    lastInsertedBlockId = newBlockId;
   }
 
   return ops;

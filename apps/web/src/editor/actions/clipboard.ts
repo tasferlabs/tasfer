@@ -3,6 +3,7 @@ import type {
   Char,
   CharRun,
   FormatSpan,
+  Page,
   TextFormat,
 } from "../../deserializer/loadPage";
 import {
@@ -29,6 +30,7 @@ import {
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
 import { extractCounter, extractPeerId } from "../sync/id";
+import { applyOps } from "../sync/reducer";
 import { getClock, getPageId, nextId } from "../sync/sync";
 import type {
   BlockInsert,
@@ -51,34 +53,35 @@ const URL_REGEX_GLOBAL =
  * Used after pasting to auto-link any URLs in the pasted content.
  */
 function autoLinkInRange(
-  charRuns: CharRun[],
-  formats: FormatSpan[],
+  page: Page,
+  blockId: string,
   text: string,
   rangeStart: number,
   rangeEnd: number,
-  blockId: string
-): { newFormats: FormatSpan[]; ops: Operation[] } {
+): { newPage: Page; ops: Operation[] } {
   const rangeText = text.slice(rangeStart, rangeEnd);
   const ops: Operation[] = [];
-  let currentFormats = formats;
+  let pageAcc = page;
 
   URL_REGEX_GLOBAL.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = URL_REGEX_GLOBAL.exec(rangeText)) !== null) {
-    // Strip trailing punctuation
     let urlText = match[0].replace(/[.,;:!?)]+$/, "");
     const start = rangeStart + match.index;
     const end = start + urlText.length;
 
-    // Normalize URL
     let url = urlText;
     if (url.startsWith("www.")) {
       url = "https://" + url;
     }
 
+    const block = pageAcc.blocks.find((b) => b.id === blockId);
+    if (!block || !isTextualBlock(block)) continue;
+    const charRuns = block.charRuns;
+
     // Check if already formatted as link
     let alreadyLinked = false;
-    for (const span of currentFormats) {
+    for (const span of block.formats) {
       if (span.format.type === "link") {
         let inSpan = false;
         let spanStart = -1;
@@ -101,21 +104,15 @@ function autoLinkInRange(
     }
 
     if (!alreadyLinked) {
-      const { newFormats: updatedFormats, op } = formatCharsInRange(
-        charRuns,
-        currentFormats,
-        start,
-        end,
-        blockId,
-        { type: "link", url },
-        url
+      const { newPage, op } = formatCharsInRange(
+        pageAcc, blockId, start, end, { type: "link", url }, url,
       );
-      currentFormats = updatedFormats;
+      pageAcc = newPage;
       ops.push(op);
     }
   }
 
-  return { newFormats: currentFormats, ops };
+  return { newPage: pageAcc, ops };
 }
 
 /**
@@ -258,16 +255,6 @@ function getSelectedContent(state: EditorState): {
     if (!block || block.deleted) return null;
     const textLength = getBlockTextLength(block);
 
-    // Image cover and line blocks are included as-is
-    if (block.type === "image" || block.type === "line" || block.type === "math") {
-      return {
-        blocks: [block],
-        isPartial: false,
-        start,
-        end,
-      };
-    }
-
     if (!isTextualBlock(block)) {
       return {
         blocks: [block],
@@ -310,12 +297,6 @@ function getSelectedContent(state: EditorState): {
     const block = state.document.page.blocks[i];
     if (!block || block.deleted) continue;
     const textLength = getBlockTextLength(block);
-
-    // Image cover and line blocks are included as-is
-    if (block.type === "image" || block.type === "line" || block.type === "math") {
-      blocks.push(block);
-      continue;
-    }
 
     if (!isTextualBlock(block)) {
       blocks.push(block);
@@ -1614,24 +1595,22 @@ function insertBlocksAtCursor(
     const pasteText = getVisibleText(pasteBlock.charRuns);
 
     // Insert the pasted text at cursor position
-    const { newCharRuns, op: insertOp } = insertCharsAtPosition(
-      currentBlock.charRuns,
-      textIndex,
-      pasteText,
-      currentBlock.id
+    const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
+      newState.document.page, currentBlock.id, textIndex, pasteText,
     );
     ops.push(insertOp);
 
-    // Apply formatting from pasted block
-    let newFormats = currentBlock.formats;
-    // Convert pasteBlock.charRuns to Char[] for finding indices
+    // Apply formatting from pasted block (manual op construction since the
+    // format spans are computed from the paste-block's existing char IDs,
+    // not from index ranges).
+    let pageAcc = pageAfterInsert;
     const pasteChars: Char[] = [];
     for (const { id, char } of iterateVisibleChars(pasteBlock.charRuns)) {
       pasteChars.push({ id, char, deleted: false });
     }
 
+    const insertedChars = charRunsToChars(insertOp.charRuns);
     for (const pasteFormat of pasteBlock.formats) {
-      // Find the new char IDs in the inserted range
       const pasteStartIdx = pasteChars.findIndex(
         (c) => c.id === pasteFormat.startCharId
       );
@@ -1640,21 +1619,10 @@ function insertBlocksAtCursor(
       );
 
       if (pasteStartIdx !== -1 && pasteEndIdx !== -1) {
-        // Map to the newly inserted chars
-        const insertedChars = charRunsToChars(insertOp.charRuns);
         const newStartCharId = insertedChars[pasteStartIdx]?.id;
         const newEndCharId = insertedChars[pasteEndIdx]?.id;
 
         if (newStartCharId && newEndCharId) {
-          const newSpan: FormatSpan = {
-            startCharId: newStartCharId,
-            endCharId: newEndCharId,
-            format: pasteFormat.format,
-            clock: getClock(),
-          };
-          newFormats = [...newFormats, newSpan];
-
-          // Create format operation
           const charIds = insertedChars
             .slice(pasteStartIdx, pasteEndIdx + 1)
             .map((c) => c.id);
@@ -1672,44 +1640,28 @@ function insertBlocksAtCursor(
                 : true,
           };
           ops.push(formatOp);
+          pageAcc = applyOps(pageAcc, [formatOp]);
         }
       }
     }
 
     // Auto-detect URLs in pasted text (only for portions not already link-formatted)
-    const fullText = getVisibleText(newCharRuns);
+    const insertedBlock = pageAcc.blocks.find((b) => b.id === currentBlock.id);
+    const fullText = insertedBlock && isTextualBlock(insertedBlock)
+      ? getVisibleText(insertedBlock.charRuns)
+      : "";
     const autoLinkResult = autoLinkInRange(
-      newCharRuns,
-      newFormats,
-      fullText,
-      textIndex,
-      textIndex + pasteText.length,
-      currentBlock.id
+      pageAcc, currentBlock.id, fullText,
+      textIndex, textIndex + pasteText.length,
     );
-    newFormats = autoLinkResult.newFormats;
+    pageAcc = autoLinkResult.newPage;
     ops.push(...autoLinkResult.ops);
 
-    const newBlock: Block = {
-      ...currentBlock,
-      charRuns: newCharRuns,
-      formats: newFormats,
-    };
-
-    // Invalidate only the affected block
-    invalidateBlockCache(newBlock);
-
-    const newBlocks = [
-      ...newState.document.page.blocks.slice(0, blockIndex),
-      newBlock,
-      ...newState.document.page.blocks.slice(blockIndex + 1),
-    ];
+    invalidateBlockCache(pageAcc.blocks[blockIndex]);
 
     newState = {
       ...newState,
-      document: {
-        ...newState.document,
-        page: { ...newState.document.page, blocks: newBlocks },
-      },
+      document: { ...newState.document, page: pageAcc },
     };
 
     // Move cursor to end of pasted text
@@ -1751,13 +1703,12 @@ function insertBlocksAtCursor(
     );
 
     // Delete text after cursor in current block
+    let pasteWorkPage = newState.document.page;
     if (textIndex < currentTextLength) {
-      const { op: deleteOp } = deleteCharsInRange(
-        currentBlock.charRuns,
-        textIndex,
-        currentTextLength,
-        currentBlock.id
+      const { newPage: p, op: deleteOp } = deleteCharsInRange(
+        pasteWorkPage, currentBlock.id, textIndex, currentTextLength,
       );
+      pasteWorkPage = p;
       ops.push(deleteOp);
     }
 
@@ -1896,16 +1847,15 @@ function insertBlocksAtCursor(
     if (isTextualBlock(firstPastedBlock)) {
       // Merge first pasted block's content with current block
       const firstPastedText = getVisibleText(firstPastedBlock.charRuns);
-      const beforeCharRuns = charsToRuns(beforeChars);
       const beforeLength = beforeChars.filter((c) => !c.deleted).length;
-      const { newCharRuns: firstBlockCharRuns, op: firstInsertOp } =
+      const { newPage: pageAfterFirstInsert, op: firstInsertOp } =
         insertCharsAtPosition(
-          beforeCharRuns,
-          beforeLength,
-          firstPastedText,
-          currentBlock.id
+          pasteWorkPage, currentBlock.id, beforeLength, firstPastedText,
         );
-      // Convert back to Char[] for format mapping
+      pasteWorkPage = pageAfterFirstInsert;
+      const firstBlockInPage = pasteWorkPage.blocks.find((b) => b.id === currentBlock.id);
+      const firstBlockCharRuns = firstBlockInPage && isTextualBlock(firstBlockInPage)
+        ? firstBlockInPage.charRuns : [];
       const firstBlockChars: Char[] = [];
       for (const { id, char } of iterateVisibleChars(firstBlockCharRuns)) {
         firstBlockChars.push({ id, char, deleted: false });

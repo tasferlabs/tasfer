@@ -6,12 +6,43 @@
  * - Tracks version vectors for sync
  * - Maintains computed state
  * - Provides delta sync operations
+ *
+ * ## Per-origin ordering invariant
+ *
+ * The version vector here is a max-only counter per peer. Op IDs from a
+ * single origin can have GAPS (block_insert reserves 2 IDs, insertText
+ * reserves text.length + 1), so the VV cannot distinguish "seen 8" from
+ * "seen 2 then 8 — never saw the 3..7 we don't own".
+ *
+ * Callers MUST deliver ops from a single origin in counter order. If a
+ * downstream peer applies p000:8 before p000:2, the VV jumps to 8 and
+ * isOpKnown silently drops p000:2 (2 <= 8 = true).
+ *
+ * The transport stack preserves this invariant:
+ *   - WebRTC DataChannels are created with { ordered: true } (SCTP-ordered).
+ *   - The chunk reassembler in webrtc.ts emits whole messages in arrival
+ *     order; ordered SCTP means arrival order == send order per channel.
+ *   - Each PageOps / SyncData message carries ops in per-origin counter
+ *     order (real-time push uses the editor's local oplog which is
+ *     monotonic per origin; catch-up uses `ORDER BY clock` from SQLite).
+ *   - The Replicator serializes incoming message handlers per peer via
+ *     `peer.msgQueue` so handleMessage calls from one connection don't
+ *     interleave.
+ *
+ * If you change the transport, a different replication strategy, or batch
+ * ops differently — re-evaluate this invariant. Option for the future:
+ * gap-tracking VV (Map<peerId, { ceiling: number; seen: Set<number> }>)
+ * which makes the protocol robust to any delivery order at the cost of
+ * a richer wire format. Not implemented today because the transport
+ * already provides ordering.
  */
 
 import type { OpLog, Operation, VersionVector } from "./types";
 import { compareHLC } from "./hlc";
 import { extractPeerId, extractCounter } from "./id";
 import { applyOp, createEmptyPageState, rebuildState } from "./reducer";
+
+const IS_DEV = typeof import.meta !== "undefined" && !!import.meta.env?.DEV;
 
 /**
  * Create an empty operation log for a page.
@@ -98,61 +129,106 @@ export function appendOp(log: OpLog, op: Operation): OpLog {
 
 /**
  * Merge remote operations into the log.
- * Filters out already-known operations and rebuilds state if needed.
+ *
+ * Fast path (every new op sorts strictly after every existing op): fold
+ * applyOp incrementally over newOps. insertIntoRuns is locally RGA-correct
+ * so concurrent same-anchor inserts converge in this path.
+ *
+ * Slow path (any new op interleaves with the existing log): replay the full
+ * HLC-sorted log via rebuildState. This is the safety net for cases the
+ * apply-time reducer cannot resolve locally — text_insert ops referencing
+ * an afterCharId whose creating op hasn't been applied yet, format_set
+ * overlaps with non-LWW order dependence, and similar reorder hazards.
  *
  * @param log - Current operation log
  * @param ops - Remote operations to merge
  * @returns Updated operation log
  */
 export function mergeOps(log: OpLog, ops: Operation[]): OpLog {
-  // Filter out already-known operations
+  if (IS_DEV) assertPerOriginOrder(ops);
+
   const newOps = ops.filter((op) => !isOpKnown(log.versionVector, op));
 
   if (newOps.length === 0) {
     return log;
   }
 
-  // Sort new ops by HLC
   newOps.sort((a, b) => compareHLC(a.clock, b.clock));
 
-  // Update version vector
   let newVV = new Map(log.versionVector);
   for (const op of newOps) {
     newVV = updateVersionVector(newVV, op);
   }
 
-  // Check if all new ops sort after all existing ops (fast path).
-  // If so, we can append + apply incrementally instead of full rebuild.
-  const lastExisting = log.operations.length > 0
-    ? log.operations[log.operations.length - 1]
-    : null;
+  const lastExisting =
+    log.operations.length > 0
+      ? log.operations[log.operations.length - 1]
+      : null;
   const canApplyIncrementally =
     !lastExisting || compareHLC(lastExisting.clock, newOps[0].clock) < 0;
 
   if (canApplyIncrementally) {
-    const allOps = [...log.operations, ...newOps];
-
-    // applyBlockInsert resolves block order on every insert, so no batch
-    // re-resolution is needed here.
     let state = log.state;
     for (const op of newOps) {
       state = applyOp(state, op);
     }
 
+    const allOps = mergeSortedOps(log.operations, newOps);
+
+    if (IS_DEV) {
+      const rebuilt = rebuildState(log.pageId, allOps);
+      if (JSON.stringify(state) !== JSON.stringify(rebuilt)) {
+        console.error(
+          `[mergeOps] incremental state diverged from rebuilt state for page ${log.pageId}; new op ids: ${newOps.map((o) => o.id).join(", ")}`
+        );
+      }
+    }
+
     return { ...log, operations: allOps, versionVector: newVV, state };
   }
 
-  // Slow path: ops interleave — full rebuild required
-  const allOps = [...log.operations, ...newOps];
-  allOps.sort((a, b) => compareHLC(a.clock, b.clock));
-  const newState = rebuildState(log.pageId, allOps);
+  const allOps = mergeSortedOps(log.operations, newOps);
+  const state = rebuildState(log.pageId, allOps);
+  return { ...log, operations: allOps, versionVector: newVV, state };
+}
 
-  return {
-    ...log,
-    operations: allOps,
-    versionVector: newVV,
-    state: newState,
-  };
+/**
+ * Dev-only invariant check: ops from a single origin in a batch must be in
+ * counter-ascending order. If a batch contains p000:8 before p000:2, the
+ * max-only VV will jump to 8 and silently drop p000:2 on arrival. The
+ * transport (ordered WebRTC DataChannels + serialized handler queues) is
+ * responsible for preserving this; this assertion catches regressions.
+ */
+function assertPerOriginOrder(ops: Operation[]): void {
+  const lastByPeer = new Map<string, number>();
+  for (const op of ops) {
+    const peerId = extractPeerId(op.id);
+    const counter = extractCounter(op.id);
+    const prev = lastByPeer.get(peerId);
+    if (prev !== undefined && counter < prev) {
+      console.error(
+        `[mergeOps] per-origin order violated: peer=${peerId} counter ${counter} arrived after ${prev}. The VV is max-only; any op from ${peerId} with counter in (prev, max-of-batch] will be silently dropped.`,
+      );
+    }
+    if (prev === undefined || counter > prev) lastByPeer.set(peerId, counter);
+  }
+}
+
+function mergeSortedOps(a: Operation[], b: Operation[]): Operation[] {
+  const out: Operation[] = new Array(a.length + b.length);
+  let i = 0;
+  let j = 0;
+  let k = 0;
+  while (i < a.length && j < b.length) {
+    if (compareHLC(a[i].clock, b[j].clock) <= 0) {
+      out[k++] = a[i++];
+    } else {
+      out[k++] = b[j++];
+    }
+  }
+  while (i < a.length) out[k++] = a[i++];
+  while (j < b.length) out[k++] = b[j++];
+  return out;
 }
 
 /**

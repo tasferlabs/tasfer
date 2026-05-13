@@ -32,6 +32,11 @@ import type {
   TextInsert,
 } from "./types";
 import { applyTextInsertOp } from "./crdt-helpers";
+import {
+  canMorphTo,
+  createDefaultBlock,
+  validateBlockField,
+} from "./block-registry";
 
 /**
  * Create an empty page state.
@@ -44,75 +49,12 @@ export function createEmptyPageState(pageId: string): Page {
   };
 }
 
-/**
- * Create an empty block state.
- */
 export function createEmptyBlock(
   id: string,
   afterId: string | null,
   type: BlockType
 ): Block {
-  const base = {
-    id,
-    afterId,
-    deleted: false,
-  };
-
-  switch (type) {
-    case "heading1":
-    case "heading2":
-    case "heading3":
-    case "paragraph":
-      return {
-        ...base,
-        type,
-        charRuns: [],
-        formats: [],
-      };
-    case "bullet_list":
-      return {
-        ...base,
-        type: "bullet_list",
-        charRuns: [],
-        formats: [],
-        indent: 0,
-      };
-    case "numbered_list":
-      return {
-        ...base,
-        type: "numbered_list",
-        charRuns: [],
-        formats: [],
-        indent: 0,
-      };
-    case "todo_list":
-      return {
-        ...base,
-        type: "todo_list",
-        charRuns: [],
-        formats: [],
-        checked: false,
-        indent: 0,
-      };
-    case "image":
-      return {
-        ...base,
-        type: "image",
-        url: "",
-      };
-    case "line":
-      return {
-        ...base,
-        type: "line",
-      };
-    case "math":
-      return {
-        ...base,
-        type: "math",
-        latex: "",
-        displayMode: true,
-      };
-  }
+  return createDefaultBlock(type, id, afterId);
 }
 
 /**
@@ -385,14 +327,18 @@ function applyBlockSet(state: Page, op: BlockSet): Page {
     return state;
   }
 
-  // Handle 'type' field specially - need to rebuild block with proper shape
+  if (!validateBlockField(block.type, op.field, op.value)) {
+    return state;
+  }
+
   if (op.field === "type") {
     const newType = op.value as BlockType;
     const newBlock = createEmptyBlock(block.id, block.afterId ?? null, newType);
 
-    // Preserve charRuns and formats for textual blocks
     const updatedBlock: Block =
-      isTextualBlock(block) && isTextualBlock(newBlock)
+      canMorphTo(block.type, newType) &&
+      isTextualBlock(block) &&
+      isTextualBlock(newBlock)
         ? {
             ...newBlock,
             charRuns: block.charRuns,
@@ -411,7 +357,6 @@ function applyBlockSet(state: Page, op: BlockSet): Page {
     };
   }
 
-  // Apply the field update
   const updatedBlock: Block = {
     ...block,
     [op.field]: op.value,

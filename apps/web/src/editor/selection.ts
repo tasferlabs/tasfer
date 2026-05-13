@@ -65,9 +65,6 @@ export function getCursorDocumentCoords(
   const block = targetBlock;
   if (!block) return null;
 
-  // Image cover and line blocks don't have cursors - they shouldn't be used with this function
-  if (block.type === "image" || block.type === "line" || block.type === "math") return null;
-
   if (!isTextualBlock(block)) {
     return null;
   }
@@ -211,9 +208,6 @@ export function getCursorCoordinatesWithComposition(
   const block = state.document.page.blocks[position.blockIndex];
   if (!block || block.deleted) return null;
   if (!block) return null;
-
-  // Image cover and line blocks don't have cursors
-  if (block.type === "image" || block.type === "line" || block.type === "math") return null;
 
   if (!isTextualBlock(block)) {
     return null;
@@ -469,12 +463,7 @@ function getPositionFromPaddingClick(
 
     // Check if click is within this block's Y bounds
     if (y >= currentY && y < currentY + blockHeight) {
-      // Image and line blocks - position at start (they don't have text content)
-      if (
-        block.type === "image" ||
-        block.type === "line" ||
-        !isTextualBlock(block)
-      ) {
+      if (!isTextualBlock(block)) {
         return { blockIndex: block.originalIndex, textIndex: 0 };
       }
 
@@ -700,15 +689,6 @@ function getPositionWithinBlock(
   maxWidth: number,
   styles: EditorStyles
 ): Position {
-  // Image cover and line blocks don't have text content - position at start of block
-  // The cursor will actually be in a neighboring text block
-  if (block.type === "image" || block.type === "line" || block.type === "math") {
-    return {
-      blockIndex: blockIndex,
-      textIndex: 0,
-    };
-  }
-
   if (!isTextualBlock(block)) {
     return {
       blockIndex: blockIndex,
@@ -1080,9 +1060,6 @@ export function getLinkAtPosition(
   const block = state.document.page.blocks[position.blockIndex];
   if (!block || block.deleted) return null;
   if (!block) return null;
-
-  // Image cover and line blocks don't have text content or links
-  if (block.type === "image" || block.type === "line" || block.type === "math") return null;
 
   if (!isTextualBlock(block)) return null;
 

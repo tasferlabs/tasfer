@@ -1,13 +1,12 @@
-import { isTextualBlock, type Page, type TextFormat } from "../deserializer/loadPage";
+import { isTextualBlock, type Page } from "../deserializer/loadPage";
 import { invertOperations, refreshOps } from "./inverse";
 import { invalidateBlockCache } from "./renderer";
 import { updateCursor, updateSelection } from "./state";
 import {
   findCharInRuns,
-  isCharIdInRange,
   iterateVisibleChars
 } from "./sync/char-runs";
-import { applyOps } from "./sync/reducer";
+import { applyOp, applyOps } from "./sync/reducer";
 import { getPeerId } from "./sync/sync";
 import type { Operation } from "./sync/types";
 import type {
@@ -16,7 +15,6 @@ import type {
   CRDTSelectionState,
   EditorState,
   Position,
-  PriorFormatEntry,
   UndoGroup,
   UndoManagerState,
 } from "./types";
@@ -257,54 +255,17 @@ function restoreSelection(
 }
 
 /**
- * For each charId affected by a format_set op, find the format of the same
- * type (if any) that was active on that char in stateBefore. Returns null if
- * the block is missing, isn't a textual block, or the op has no charIds.
- */
-function capturePriorFormatsForOp(
-  stateBefore: EditorState,
-  op: Operation
-): PriorFormatEntry[] | null {
-  if (op.op !== "format_set") return null;
-  if (op.charIds.length === 0) return null;
-
-  const block = stateBefore.document.page.blocks.find((b) => b.id === op.blockId);
-  if (!block || block.deleted || !isTextualBlock(block)) return null;
-
-  const entries: PriorFormatEntry[] = [];
-  for (const charId of op.charIds) {
-    let priorFormat: TextFormat | null = null;
-    let priorClockCounter = -1;
-    let priorClockPeer = "";
-
-    // Walk all spans of the same format type; the latest-clock one wins LWW.
-    for (const span of block.formats) {
-      if (span.format.type !== op.format.type) continue;
-      if (!isCharIdInRange(block.charRuns, charId, span.startCharId, span.endCharId)) {
-        continue;
-      }
-      if (
-        span.clock.counter > priorClockCounter ||
-        (span.clock.counter === priorClockCounter && span.clock.peerId > priorClockPeer)
-      ) {
-        priorFormat = span.format;
-        priorClockCounter = span.clock.counter;
-        priorClockPeer = span.clock.peerId;
-      }
-    }
-
-    entries.push({ charId, priorFormat });
-  }
-
-  return entries;
-}
-
-/**
  * Record operations to the undo stack.
- * Called after any operation that modifies the document.
+ *
+ * Captures the inverses of `ops` against `stateBefore` and stores them on
+ * the UndoGroup. At undo time those inverses are re-stamped with fresh
+ * id/clock and applied verbatim — they don't get recomputed from current
+ * state. That decouples undo from any intervening remote edits and removes
+ * a whole class of "inverse function drifted from apply function" bugs.
+ *
  * Clears the redo stack since a new action invalidates redo history.
  *
- * @param stateBefore - The state BEFORE the operations were applied (for cursor capture)
+ * @param stateBefore - The state BEFORE the operations were applied
  * @param stateAfter - The state AFTER the operations were applied
  * @param ops - The operations that were applied
  * @param peerId - The peer ID of the user who performed the operations
@@ -317,34 +278,24 @@ export function recordUndoOps(
 ): EditorState {
   if (ops.length === 0) return stateAfter;
 
-  // Capture cursor/selection state BEFORE operations (for undo restoration)
   const cursorBefore = captureCRDTCursor(stateBefore);
   const selectionBefore = captureCRDTSelection(stateBefore);
-
-  // Capture cursor/selection state AFTER operations (for redo restoration)
   const cursorAfter = captureCRDTCursor(stateAfter);
   const selectionAfter = captureCRDTSelection(stateAfter);
 
-  // Snapshot prior format state for every format_set op so undo can restore
-  // per-char what was there before (preserves link URLs, prior bold/italic, etc.)
-  // rather than just toggling the format off.
-  let priorFormats: Map<string, readonly PriorFormatEntry[]> | undefined;
-  for (const op of ops) {
-    if (op.op !== "format_set") continue;
-    const entries = capturePriorFormatsForOp(stateBefore, op);
-    if (!entries) continue;
-    if (!priorFormats) priorFormats = new Map();
-    priorFormats.set(op.id, entries);
-  }
+  // Capture inverses now, against stateBefore. invertOperations folds
+  // applyOp through `ops` so each op's inverse is computed against the
+  // state immediately before that specific op was applied.
+  const inverses = invertOperations(ops, stateBefore.document.page, applyOp);
 
   const undoGroup: UndoGroup = {
     operations: ops,
+    inverses,
     peerId,
     cursorBefore,
     selectionBefore,
     cursorAfter,
     selectionAfter,
-    priorFormats,
   };
 
   return {
@@ -392,8 +343,14 @@ function invalidateAffectedBlocks(
 
 /**
  * Undo the last operation group by this user.
- * Computes inverse operations on-the-fly using tombstones.
- * Returns the updated state and the inverse operations that were applied.
+ *
+ * Applies the captured inverses (re-stamped with fresh id/clock via
+ * refreshOps) instead of recomputing them from current state. The captured
+ * inverses encode the original action's pre-state and apply cleanly even if
+ * other peers have edited the document around them in the meantime.
+ *
+ * Returns the updated state and the inverse operations that were applied
+ * (already stamped with fresh id/clock, ready to be broadcast to peers).
  */
 export function undoState(state: EditorState): {
   state: EditorState;
@@ -418,34 +375,22 @@ export function undoState(state: EditorState): {
 
   const undoGroup = undoStack[lastUserGroupIndex];
 
-  // Compute inverse operations on-the-fly using current state and tombstones.
-  // priorFormats lets invertFormatSet restore per-char prior format state
-  // (link URLs etc.) instead of just toggling the format off.
-  const inverseOps = invertOperations(
-    undoGroup.operations,
-    state,
-    undoGroup.priorFormats
-  );
-
-  // If no valid inverses (e.g., all operations target tombstoned blocks), skip this group
-  if (inverseOps.length === 0) {
-    // Remove this group and try the next one
+  // If the captured inverses are empty (e.g. all the original ops were
+  // no-ops in the first place), skip this group and try the next.
+  if (undoGroup.inverses.length === 0) {
     const newUndoStack = [
       ...undoStack.slice(0, lastUserGroupIndex),
       ...undoStack.slice(lastUserGroupIndex + 1),
     ];
-
-    const stateWithUpdatedStack = {
+    return undoState({
       ...state,
-      undoManager: {
-        ...state.undoManager,
-        undoStack: newUndoStack,
-      },
-    };
-
-    // Recursively try the next group
-    return undoState(stateWithUpdatedStack);
+      undoManager: { ...state.undoManager, undoStack: newUndoStack },
+    });
   }
+
+  // Re-stamp the captured inverses with fresh id/clock so peers (and the
+  // local oplog) see them as new events. Payload is unchanged.
+  const inverseOps = refreshOps(undoGroup.inverses);
 
   // Apply inverse operations to the page
   const newPage = applyOps(state.document.page, inverseOps);
@@ -471,17 +416,17 @@ export function undoState(state: EditorState): {
     ...undoStack.slice(lastUserGroupIndex + 1),
   ];
 
-  // For redo, store the original operations and preserve cursor state.
-  // Carry priorFormats forward so a future undo-after-redo can still restore
-  // per-char prior format state.
+  // Carry the original group onto the redo stack verbatim, including its
+  // captured inverses. A subsequent redo→undo cycle will reuse the same
+  // inverses, keeping the round-trip deterministic.
   const redoGroup: UndoGroup = {
-    operations: undoGroup.operations, // Store original ops for redo
+    operations: undoGroup.operations,
+    inverses: undoGroup.inverses,
     peerId: currentPeerId,
     cursorBefore: undoGroup.cursorBefore,
     selectionBefore: undoGroup.selectionBefore,
     cursorAfter: undoGroup.cursorAfter,
     selectionAfter: undoGroup.selectionAfter,
-    priorFormats: undoGroup.priorFormats,
   };
 
   return {
@@ -498,8 +443,11 @@ export function undoState(state: EditorState): {
 
 /**
  * Redo the last undone operation group by this user.
- * Reapplies the original operations that were undone.
- * Returns the updated state and the operations that were applied.
+ *
+ * Re-applies the original operations (re-stamped with fresh id/clock via
+ * refreshOps). The captured inverses are carried back to the undo stack so
+ * subsequent re-undo uses the same inverses — the same emit-time pre-state
+ * is still the correct rollback target.
  */
 export function redoState(state: EditorState): {
   state: EditorState;
@@ -522,29 +470,13 @@ export function redoState(state: EditorState): {
     return { state, ops: [] };
   }
 
-  // Get the original operations to reapply.
-  //
-  // We must re-stamp each op with a fresh id/clock. The originals are already
-  // in every peer's version vector from the first broadcast, so re-sending
-  // them is a no-op on remote peers — and on the local oplog too. The
-  // re-stamped ops are new events that propagate normally; their semantic
-  // effect is identical because the payload (charIds, blockId, format, value,
-  // afterCharId, etc.) is unchanged, and the apply paths key off those stable
-  // IDs (e.g. text_insert un-tombstones by char id).
   const redoGroupData = redoStack[lastUserGroupIndex];
-  const redoOps = refreshOps(redoGroupData.operations);
 
-  // Re-key priorFormats from the old op ids to the refreshed ones so that
-  // a future undo-after-redo can still look up per-char prior format state.
-  let redoPriorFormats: Map<string, readonly PriorFormatEntry[]> | undefined;
-  if (redoGroupData.priorFormats) {
-    redoPriorFormats = new Map();
-    for (let i = 0; i < redoGroupData.operations.length; i++) {
-      const oldId = redoGroupData.operations[i].id;
-      const entries = redoGroupData.priorFormats.get(oldId);
-      if (entries) redoPriorFormats.set(redoOps[i].id, entries);
-    }
-  }
+  // Re-stamp the original ops with fresh id/clock. The originals are
+  // already in every peer's version vector from the first broadcast, so
+  // re-sending them would be a no-op; the re-stamped copies propagate
+  // normally. Semantic effect is identical because the payload is unchanged.
+  const redoOps = refreshOps(redoGroupData.operations);
 
   // Apply redo operations to the page
   const newPage = applyOps(state.document.page, redoOps);
@@ -570,15 +502,16 @@ export function redoState(state: EditorState): {
     ...redoStack.slice(lastUserGroupIndex + 1),
   ];
 
-  // Put back on undo stack for potential re-undo, preserving cursor state
+  // Carry the captured inverses back to the undo stack so subsequent
+  // re-undo rolls back to the same emit-time pre-state.
   const undoGroup: UndoGroup = {
-    operations: redoOps, // The ops we just applied
+    operations: redoGroupData.operations,
+    inverses: redoGroupData.inverses,
     peerId: currentPeerId,
     cursorBefore: redoGroupData.cursorBefore,
     selectionBefore: redoGroupData.selectionBefore,
     cursorAfter: redoGroupData.cursorAfter,
     selectionAfter: redoGroupData.selectionAfter,
-    priorFormats: redoPriorFormats,
   };
 
   return {

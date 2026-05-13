@@ -2,6 +2,7 @@ import type {
   Block,
   CharRun,
   FormatSpan,
+  Page,
   TextFormat
 } from "../../deserializer/loadPage";
 import { isListBlock, isTextualBlock } from "../../deserializer/loadPage";
@@ -98,22 +99,24 @@ function detectUrlBeforeCursor(
 
 /**
  * Apply link format to a detected URL in a block's char runs.
- * Returns updated formats and any CRDT ops, or null if no URL was detected.
+ * Returns the updated page and any CRDT ops, or null if no URL was detected.
  */
 function autoLinkAtCursor(
-  charRuns: CharRun[],
-  formats: FormatSpan[],
+  page: Page,
+  blockId: string,
   text: string,
-  cursorIndex: number,
-  blockId: string
-): { newFormats: FormatSpan[]; ops: Operation[] } | null {
+  cursorIndex: number
+): { newPage: Page; ops: Operation[] } | null {
   const detected = detectUrlBeforeCursor(text, cursorIndex);
   if (!detected) return null;
 
+  const block = page.blocks.find((b) => b.id === blockId);
+  if (!block || !isTextualBlock(block)) return null;
+  const charRuns = block.charRuns;
+
   // Check if this range is already a link
-  for (const span of formats) {
+  for (const span of block.formats) {
     if (span.format.type === "link") {
-      // Get the char indices of this span to check overlap
       let inSpan = false;
       let spanStart = -1;
       let spanEnd = -1;
@@ -127,24 +130,22 @@ function autoLinkAtCursor(
         if (id === span.endCharId) break;
         idx++;
       }
-      // If there's overlap, skip
       if (spanStart !== -1 && spanStart < detected.end && spanEnd > detected.start) {
         return null;
       }
     }
   }
 
-  const { newFormats, op } = formatCharsInRange(
-    charRuns,
-    formats,
+  const { newPage, op } = formatCharsInRange(
+    page,
+    blockId,
     detected.start,
     detected.end,
-    blockId,
     { type: "link", url: detected.url },
     detected.url
   );
 
-  return { newFormats, ops: [op] };
+  return { newPage, ops: [op] };
 }
 
 /**
@@ -184,230 +185,66 @@ export function getFormatsAtPosition(
 }
 
 /**
- * Detect and apply live markdown inline formatting patterns
- * Returns null if no pattern was matched, otherwise returns the transformed content and new cursor position
+ * Detect and apply live markdown inline formatting patterns.
+ * Returns null if no pattern matched, otherwise the transformed page,
+ * new cursor index, and ops that produced it.
  */
 function detectAndApplyInlineMarkdown(
-  charRuns: CharRun[],
-  formats: FormatSpan[],
-  textIndex: number,
-  blockId: string
+  page: Page,
+  blockId: string,
+  textIndex: number
 ): {
-  charRuns: CharRun[];
-  formats: FormatSpan[];
+  newPage: Page;
   newTextIndex: number;
   ops: Operation[];
 } | null {
-  const fullText = getVisibleText(charRuns);
-  const ops: Operation[] = [];
+  const block = page.blocks.find((b) => b.id === blockId);
+  if (!block || !isTextualBlock(block)) return null;
+  const fullText = getVisibleText(block.charRuns);
 
-  // Patterns to match (in order of precedence to avoid conflicts)
-  // **text** -> bold
-  // *text* -> italic
-  // ~~text~~ -> strikethrough
-  // `text` -> code
+  const patterns: Array<{
+    regex: RegExp;
+    markerLen: number;
+    format: TextFormat;
+  }> = [
+    { regex: /\*\*([^\*]+)\*\*$/, markerLen: 2, format: { type: "bold" } },
+    { regex: /(?<!\*)\*([^\*]+)\*$/, markerLen: 1, format: { type: "italic" } },
+    { regex: /~~([^~]+)~~$/, markerLen: 2, format: { type: "strikethrough" } },
+    { regex: /\$([^$\n]+)\$$/, markerLen: 1, format: { type: "math" } },
+    { regex: /`([^`]+)`$/, markerLen: 1, format: { type: "code" } },
+  ];
 
-  // Check for bold pattern: **text**
-  const boldMatch = fullText.slice(0, textIndex).match(/\*\*([^\*]+)\*\*$/);
-  if (boldMatch) {
-    const matchStart = textIndex - boldMatch[0].length;
+  for (const { regex, markerLen, format } of patterns) {
+    const match = fullText.slice(0, textIndex).match(regex);
+    if (!match) continue;
+    const matchStart = textIndex - match[0].length;
     const matchEnd = textIndex;
-    const innerTextEnd = matchStart + 2 + boldMatch[1].length;
+    const innerLen = match[1].length;
+    const ops: Operation[] = [];
 
-    // Delete the opening and closing ** markers
-    const { newCharRuns: charRunsAfterFirst, op: deleteOp1 } =
-      deleteCharsInRange(charRuns, matchEnd - 2, matchEnd, blockId);
+    // Delete the closing then opening marker (closing first to preserve indices).
+    let pageAcc = page;
+    const { newPage: p1, op: deleteOp1 } = deleteCharsInRange(
+      pageAcc, blockId, matchEnd - markerLen, matchEnd,
+    );
+    pageAcc = p1;
     ops.push(deleteOp1);
 
-    const { newCharRuns: charRunsAfterSecond, op: deleteOp2 } =
-      deleteCharsInRange(
-        charRunsAfterFirst,
-        matchStart,
-        matchStart + 2,
-        blockId
-      );
+    const { newPage: p2, op: deleteOp2 } = deleteCharsInRange(
+      pageAcc, blockId, matchStart, matchStart + markerLen,
+    );
+    pageAcc = p2;
     ops.push(deleteOp2);
 
-    // Apply bold formatting to the inner text
-    const { newFormats: updatedFormats, op: formatOp } = formatCharsInRange(
-      charRunsAfterSecond,
-      formats,
-      matchStart,
-      innerTextEnd - 2, // Adjust for deleted opening marker only
-      blockId,
-      { type: "bold" },
-      true
+    const { newPage: p3, op: formatOp } = formatCharsInRange(
+      pageAcc, blockId, matchStart, matchStart + innerLen, format, true,
     );
+    pageAcc = p3;
     ops.push(formatOp);
 
     return {
-      charRuns: charRunsAfterSecond,
-      formats: updatedFormats,
-      newTextIndex: matchStart + boldMatch[1].length,
-      ops,
-    };
-  }
-
-  // Check for italic pattern: *text* (but not **)
-  const italicMatch = fullText
-    .slice(0, textIndex)
-    .match(/(?<!\*)\*([^\*]+)\*$/);
-  if (italicMatch) {
-    const matchStart = textIndex - italicMatch[0].length;
-    const matchEnd = textIndex;
-    const innerTextEnd = matchStart + 1 + italicMatch[1].length;
-
-    // Delete the opening and closing * markers
-    const { newCharRuns: charRunsAfterFirst, op: deleteOp1 } =
-      deleteCharsInRange(charRuns, matchEnd - 1, matchEnd, blockId);
-    ops.push(deleteOp1);
-
-    const { newCharRuns: charRunsAfterSecond, op: deleteOp2 } =
-      deleteCharsInRange(
-        charRunsAfterFirst,
-        matchStart,
-        matchStart + 1,
-        blockId
-      );
-    ops.push(deleteOp2);
-
-    // Apply italic formatting to the inner text
-    const { newFormats: updatedFormats, op: formatOp } = formatCharsInRange(
-      charRunsAfterSecond,
-      formats,
-      matchStart,
-      innerTextEnd - 1, // Adjust for deleted opening marker only
-      blockId,
-      { type: "italic" },
-      true
-    );
-    ops.push(formatOp);
-
-    return {
-      charRuns: charRunsAfterSecond,
-      formats: updatedFormats,
-      newTextIndex: matchStart + italicMatch[1].length,
-      ops,
-    };
-  }
-
-  // Check for strikethrough pattern: ~~text~~
-  const strikethroughMatch = fullText.slice(0, textIndex).match(/~~([^~]+)~~$/);
-  if (strikethroughMatch) {
-    const matchStart = textIndex - strikethroughMatch[0].length;
-    const matchEnd = textIndex;
-    const innerTextEnd = matchStart + 2 + strikethroughMatch[1].length;
-
-    // Delete the opening and closing ~~ markers
-    const { newCharRuns: charRunsAfterFirst, op: deleteOp1 } =
-      deleteCharsInRange(charRuns, matchEnd - 2, matchEnd, blockId);
-    ops.push(deleteOp1);
-
-    const { newCharRuns: charRunsAfterSecond, op: deleteOp2 } =
-      deleteCharsInRange(
-        charRunsAfterFirst,
-        matchStart,
-        matchStart + 2,
-        blockId
-      );
-    ops.push(deleteOp2);
-
-    // Apply strikethrough formatting to the inner text
-    const { newFormats: updatedFormats, op: formatOp } = formatCharsInRange(
-      charRunsAfterSecond,
-      formats,
-      matchStart,
-      innerTextEnd - 2, // Adjust for deleted opening marker only
-      blockId,
-      { type: "strikethrough" },
-      true
-    );
-    ops.push(formatOp);
-
-    return {
-      charRuns: charRunsAfterSecond,
-      formats: updatedFormats,
-      newTextIndex: matchStart + strikethroughMatch[1].length,
-      ops,
-    };
-  }
-
-  // Check for inline math pattern: $text$
-  const mathMatch = fullText.slice(0, textIndex).match(/\$([^$\n]+)\$$/);
-  if (mathMatch) {
-    const matchStart = textIndex - mathMatch[0].length;
-    const matchEnd = textIndex;
-    const innerTextEnd = matchStart + 1 + mathMatch[1].length;
-
-    const { newCharRuns: charRunsAfterFirst, op: deleteOp1 } =
-      deleteCharsInRange(charRuns, matchEnd - 1, matchEnd, blockId);
-    ops.push(deleteOp1);
-
-    const { newCharRuns: charRunsAfterSecond, op: deleteOp2 } =
-      deleteCharsInRange(
-        charRunsAfterFirst,
-        matchStart,
-        matchStart + 1,
-        blockId
-      );
-    ops.push(deleteOp2);
-
-    const { newFormats: updatedFormats, op: formatOp } = formatCharsInRange(
-      charRunsAfterSecond,
-      formats,
-      matchStart,
-      innerTextEnd - 1,
-      blockId,
-      { type: "math" },
-      true
-    );
-    ops.push(formatOp);
-
-    return {
-      charRuns: charRunsAfterSecond,
-      formats: updatedFormats,
-      newTextIndex: matchStart + mathMatch[1].length,
-      ops,
-    };
-  }
-
-  // Check for code pattern: `text`
-  const codeMatch = fullText.slice(0, textIndex).match(/`([^`]+)`$/);
-  if (codeMatch) {
-    const matchStart = textIndex - codeMatch[0].length;
-    const matchEnd = textIndex;
-    const innerTextEnd = matchStart + 1 + codeMatch[1].length;
-
-    // Delete the opening and closing ` markers
-    const { newCharRuns: charRunsAfterFirst, op: deleteOp1 } =
-      deleteCharsInRange(charRuns, matchEnd - 1, matchEnd, blockId);
-    ops.push(deleteOp1);
-
-    const { newCharRuns: charRunsAfterSecond, op: deleteOp2 } =
-      deleteCharsInRange(
-        charRunsAfterFirst,
-        matchStart,
-        matchStart + 1,
-        blockId
-      );
-    ops.push(deleteOp2);
-
-    // Apply code formatting to the inner text
-    const { newFormats: updatedFormats, op: formatOp } = formatCharsInRange(
-      charRunsAfterSecond,
-      formats,
-      matchStart,
-      innerTextEnd - 1, // Adjust for deleted opening marker only
-      blockId,
-      { type: "code" },
-      true
-    );
-    ops.push(formatOp);
-
-    return {
-      charRuns: charRunsAfterSecond,
-      formats: updatedFormats,
-      newTextIndex: matchStart + codeMatch[1].length,
+      newPage: pageAcc,
+      newTextIndex: matchStart + innerLen,
       ops,
     };
   }
@@ -707,30 +544,25 @@ export function deleteSelectedText(state: EditorState): CommandResult {
     }
 
     // Handle text block deletion using CRDT helper
-    const { newCharRuns, op } = deleteCharsInRange(
-      block.charRuns,
+    const { newPage: pageAfterDelete, op } = deleteCharsInRange(
+      state.document.page,
+      block.id,
       start.textIndex,
       end.textIndex,
-      block.id
     );
     ops.push(op);
 
-    const blockCopy: Block = { ...block, charRuns: newCharRuns };
+    const blockCopy = pageAfterDelete.blocks[start.blockIndex];
 
     if (block.type === "paragraph") {
       ops.push(...applyMarkdownPrefix(blockCopy).ops);
     }
 
-    // Invalidate cache for the changed block
     invalidateBlockCache(blockCopy);
-
-    const newBlocks = [...state.document.page.blocks];
-    newBlocks[start.blockIndex] = blockCopy;
-    const newPage = { ...state.document.page, blocks: newBlocks };
 
     let newState: EditorState = {
       ...state,
-      document: { ...state.document, page: newPage },
+      document: { ...state.document, page: pageAfterDelete },
     };
     newState = moveCursorToPosition(
       newState,
@@ -834,12 +666,12 @@ export function deleteSelectedText(state: EditorState): CommandResult {
     // Both are text blocks - delete text from start and end, merge blocks
     // Delete from start position to end of start block
     const startBlockLen = getVisibleLength(startBlock.charRuns);
-    const { newCharRuns: startNewCharRuns, op: startDeleteOp } =
+    const { newPage: pageAfterStartDelete, op: startDeleteOp } =
       deleteCharsInRange(
-        startBlock.charRuns,
+        state.document.page,
+        startBlock.id,
         start.textIndex,
         startBlockLen,
-        startBlock.id
       );
     ops.push(startDeleteOp);
 
@@ -847,61 +679,47 @@ export function deleteSelectedText(state: EditorState): CommandResult {
     const endBlockText = getBlockTextContent(endBlock);
     const textToKeep = endBlockText.slice(end.textIndex);
 
-    // Merge: start block's charRuns (up to start.textIndex) + end block's charRuns (from end.textIndex)
-    let mergedCharRuns = startNewCharRuns;
-
+    let pageAfterMerge = pageAfterStartDelete;
     if (textToKeep.length > 0) {
-      // Insert the remaining text from end block into start block
-      const { newCharRuns: finalCharRuns, op: insertOp } =
+      const { newPage: pageAfterInsert, op: insertOp } =
         insertCharsAtPosition(
-          mergedCharRuns,
+          pageAfterMerge,
+          startBlock.id,
           start.textIndex,
           textToKeep,
-          startBlock.id
         );
-      mergedCharRuns = finalCharRuns;
+      pageAfterMerge = pageAfterInsert;
       ops.push(insertOp);
     }
 
-    // TODO: Merge format spans from both blocks
-    const blockCopy: Block = {
-      ...startBlock,
-      charRuns: mergedCharRuns,
-    };
-
-    if (startBlock.type === "paragraph") {
-      ops.push(...applyMarkdownPrefix(blockCopy).ops);
-    }
-
-    // Invalidate cache for merged block
-    invalidateBlockCache(blockCopy);
-
-    // Delete all blocks from start+1 to end (inclusive)
+    // Delete all blocks from start+1 to end (inclusive). Build the block_delete
+    // ops and apply them through applyOps so the page reflects tombstones.
+    const blockDeleteOps: Operation[] = [];
     for (let i = start.blockIndex + 1; i <= end.blockIndex; i++) {
       const blockToDelete = state.document.page.blocks[i];
       if (!blockToDelete || blockToDelete.deleted) continue;
-      const blockDeleteOp: Operation = {
+      blockDeleteOps.push({
         op: "block_delete",
         id: nextId(),
         clock: getClock(),
         pageId: getPageId(),
         blockId: blockToDelete.id,
-      };
-      ops.push(blockDeleteOp);
+      });
     }
+    ops.push(...blockDeleteOps);
 
-    // Apply operations to get new page state (blocks will be tombstoned, not removed)
-    // This properly applies text operations and block deletions
-    let newPage = applyOps(state.document.page, ops);
+    let newPage = applyOps(pageAfterMerge, blockDeleteOps);
 
-    // Update the start block with merged chars (since text ops modified it)
+    // TODO: Merge format spans from both blocks
     const startBlockIndex = newPage.blocks.findIndex(
       (b: Block) => b.id === startBlock.id
     );
     if (startBlockIndex !== -1) {
-      const newBlocks = [...newPage.blocks];
-      newBlocks[startBlockIndex] = blockCopy;
-      newPage = { ...newPage, blocks: newBlocks };
+      const blockCopy = newPage.blocks[startBlockIndex];
+      if (startBlock.type === "paragraph") {
+        ops.push(...applyMarkdownPrefix(blockCopy).ops);
+      }
+      invalidateBlockCache(blockCopy);
     }
 
     let newState: EditorState = {
@@ -941,13 +759,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
       anchor.textIndex === focus.textIndex
     ) {
       const block = state.document.page.blocks[anchor.blockIndex];
-      if (
-        block &&
-        !block.deleted &&
-        (block.type === "image" ||
-          block.type === "math" ||
-          block.type === "line")
-      ) {
+      if (block && !block.deleted && !isTextualBlock(block)) {
         // Block typing on selected visual block (image/math/line)
         return { state, ops: [] };
       }
@@ -990,34 +802,24 @@ export function insertText(state: EditorState, input: string): CommandResult {
   }
 
   // Use CRDT helper to insert chars and generate operation atomically
-  // This ensures the data and operation always match by construction
-  const { newCharRuns, op } = insertCharsAtPosition(
-    oldBlock.charRuns,
+  const { newPage: pageAfterInsert, op } = insertCharsAtPosition(
+    state.document.page,
+    oldBlock.id,
     textIndex,
     input,
-    oldBlock.id
   );
   ops.push(op);
 
-  // Calculate the position after insertion
   const newTextIndex = textIndex + input.length;
+  let pageAcc = pageAfterInsert;
 
   // Handle active formats (when user has toggled formatting without selection)
-  let newFormats = oldBlock.formats;
   if (state.ui.activeFormatsMode.type === "explicit") {
-    const activeFormats = state.ui.activeFormatsMode.formats;
-    // Apply each active format to the newly inserted characters
-    for (const format of activeFormats) {
-      const { newFormats: updatedFormats, op: formatOp } = formatCharsInRange(
-        newCharRuns,
-        newFormats,
-        textIndex,
-        newTextIndex,
-        oldBlock.id,
-        format,
-        true // value for toggle formats (bold, italic, etc.)
+    for (const format of state.ui.activeFormatsMode.formats) {
+      const { newPage: pageAfterFormat, op: formatOp } = formatCharsInRange(
+        pageAcc, oldBlock.id, textIndex, newTextIndex, format, true,
       );
-      newFormats = updatedFormats;
+      pageAcc = pageAfterFormat;
       ops.push(formatOp);
     }
   }
@@ -1025,40 +827,23 @@ export function insertText(state: EditorState, input: string): CommandResult {
   // Inline markdown detection (only on closing delimiter characters)
   const isClosingDelimiter =
     input === "*" || input === "`" || input === "~" || input === "$";
-  let finalCharRuns = newCharRuns;
-  let finalFormats = newFormats;
   let finalTextIndex = newTextIndex;
 
   if (isClosingDelimiter) {
     const markdownResult = detectAndApplyInlineMarkdown(
-      newCharRuns,
-      newFormats,
-      newTextIndex,
-      oldBlock.id
+      pageAcc, oldBlock.id, newTextIndex,
     );
     if (markdownResult) {
-      // Save history BEFORE applying markdown (with raw markdown text)
-      const blockBeforeMarkdown: Block = {
-        ...oldBlock,
-        charRuns: newCharRuns,
-        formats: newFormats,
-      };
+      // Save history BEFORE applying markdown (with raw markdown text).
+      // applyMarkdownPrefix mutates the block in place, so we operate on the
+      // pre-markdown page's block directly.
+      const blockBeforeMarkdown = pageAcc.blocks[blockIndex];
       ops.push(...applyMarkdownPrefix(blockBeforeMarkdown, oldBlock.type !== "paragraph").ops);
       invalidateBlockCache(blockBeforeMarkdown);
 
-      const blocksBeforeMarkdown = [
-        ...state.document.page.blocks.slice(0, blockIndex),
-        blockBeforeMarkdown,
-        ...state.document.page.blocks.slice(blockIndex + 1),
-      ];
-      const pageBeforeMarkdown = {
-        ...state.document.page,
-        blocks: blocksBeforeMarkdown,
-      };
-
       let stateBeforeMarkdown: EditorState = {
         ...state,
-        document: { ...state.document, page: pageBeforeMarkdown },
+        document: { ...state.document, page: pageAcc },
       };
       stateBeforeMarkdown = moveCursorToPosition(
         stateBeforeMarkdown,
@@ -1070,9 +855,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
       // Record the state with raw markdown
       state = stateBeforeMarkdown;
 
-      // Now apply the markdown transformation
-      finalCharRuns = markdownResult.charRuns;
-      finalFormats = markdownResult.formats;
+      pageAcc = markdownResult.newPage;
       finalTextIndex = markdownResult.newTextIndex;
       ops.push(...markdownResult.ops);
     }
@@ -1080,48 +863,35 @@ export function insertText(state: EditorState, input: string): CommandResult {
 
   // Auto-detect URLs when a word boundary is typed (space)
   if (input === " ") {
-    const text = getVisibleText(finalCharRuns);
-    const linkResult = autoLinkAtCursor(
-      finalCharRuns,
-      finalFormats,
-      text,
-      finalTextIndex,
-      oldBlock.id
-    );
-    if (linkResult) {
-      finalFormats = linkResult.newFormats;
-      ops.push(...linkResult.ops);
+    const currentBlock = pageAcc.blocks[blockIndex];
+    if (isTextualBlock(currentBlock)) {
+      const text = getVisibleText(currentBlock.charRuns);
+      const linkResult = autoLinkAtCursor(
+        pageAcc, oldBlock.id, text, finalTextIndex,
+      );
+      if (linkResult) {
+        pageAcc = linkResult.newPage;
+        ops.push(...linkResult.ops);
+      }
     }
   }
 
-  // Create updated block with new charRuns and formats
-  const blockCopy: Block = {
-    ...oldBlock,
-    charRuns: finalCharRuns,
-    formats: finalFormats,
-  };
+  // Apply any markdown prefix (e.g. "## " → heading2). This mutates the
+  // block in place; pageAcc.blocks[blockIndex] already holds the latest copy.
+  const blockCopy = pageAcc.blocks[blockIndex];
   ops.push(...applyMarkdownPrefix(blockCopy, oldBlock.type !== "paragraph").ops);
-
-  // Invalidate cache for the changed block (do it BEFORE adding to page)
   invalidateBlockCache(blockCopy);
-
-  const newBlocks = [
-    ...state.document.page.blocks.slice(0, blockIndex),
-    blockCopy,
-    ...state.document.page.blocks.slice(blockIndex + 1),
-  ];
-  const newPage = { ...state.document.page, blocks: newBlocks };
 
   let newState: EditorState = {
     ...state,
-    document: { ...state.document, page: newPage },
+    document: { ...state.document, page: pageAcc },
   };
 
   // If applyMarkdownPrefix converted this into a math block (e.g. user typed `$$`),
   // advance the cursor to the next block (creating one if needed) — math blocks
   // are non-textual, so the caret can't sit inside them.
   if ((blockCopy.type as string) === "math") {
-    if (blockIndex + 1 >= newBlocks.length) {
+    if (blockIndex + 1 >= pageAcc.blocks.length) {
       const newParagraphId = nextId();
       const newParagraph: Block = {
         id: newParagraphId,
@@ -1140,12 +910,12 @@ export function insertText(state: EditorState, input: string): CommandResult {
       };
       ops.push(blockInsertOp);
 
-      const blocksWithNewParagraph = [...newBlocks, newParagraph];
+      const blocksWithNewParagraph = [...pageAcc.blocks, newParagraph];
       newState = {
         ...newState,
         document: {
           ...newState.document,
-          page: { ...newPage, blocks: blocksWithNewParagraph },
+          page: { ...pageAcc, blocks: blocksWithNewParagraph },
         },
       };
     }
@@ -1157,7 +927,6 @@ export function insertText(state: EditorState, input: string): CommandResult {
 
   // Preserve active formats when moving cursor after typing
   newState = moveCursorToPosition(newState, blockIndex, finalTextIndex, true);
-  // Clear auto-created paragraph tracking on text input
   newState = clearAutoCreatedParagraph(newState);
   newState = updateMode(newState, "edit");
 
@@ -1253,18 +1022,11 @@ export function deleteText(state: EditorState): CommandResult {
   if (textIndex > 0) {
     const mathSpan = findInlineMathSpan(oldBlock, textIndex, "rightEdge");
     if (mathSpan) {
-      const { newCharRuns, op } = deleteCharsInRange(
-        oldBlock.charRuns,
-        mathSpan.startIndex,
-        mathSpan.endIndex,
-        oldBlock.id
+      const { newPage, op } = deleteCharsInRange(
+        state.document.page, oldBlock.id, mathSpan.startIndex, mathSpan.endIndex,
       );
       ops.push(op);
-      const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
-      invalidateBlockCache(blockCopy);
-      const newBlocks = [...state.document.page.blocks];
-      newBlocks[blockIndex] = blockCopy;
-      const newPage = { ...state.document.page, blocks: newBlocks };
+      invalidateBlockCache(newPage.blocks[blockIndex]);
       let newState: EditorState = {
         ...state,
         document: { ...state.document, page: newPage },
@@ -1281,23 +1043,16 @@ export function deleteText(state: EditorState): CommandResult {
 
   if (textIndex > 0) {
     // Delete one character before cursor using CRDT helper
-    const { newCharRuns, op } = deleteCharsInRange(
-      oldBlock.charRuns,
-      textIndex - 1,
-      textIndex,
-      oldBlock.id
+    const { newPage, op } = deleteCharsInRange(
+      state.document.page, oldBlock.id, textIndex - 1, textIndex,
     );
     ops.push(op);
 
-    const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
+    const blockCopy = newPage.blocks[blockIndex];
     if (oldBlock.type === "paragraph") {
       ops.push(...applyMarkdownPrefix(blockCopy).ops);
     }
-    // Invalidate cache for the changed block
     invalidateBlockCache(blockCopy);
-    const newBlocks = [...state.document.page.blocks];
-    newBlocks[blockIndex] = blockCopy;
-    const newPage = { ...state.document.page, blocks: newBlocks };
     let newState: EditorState = {
       ...state,
       document: { ...state.document, page: newPage },
@@ -1615,18 +1370,11 @@ export function deleteForward(state: EditorState): CommandResult {
   if (textIndex < oldText.length) {
     const mathSpan = findInlineMathSpan(oldBlock, textIndex, "leftEdge");
     if (mathSpan) {
-      const { newCharRuns, op } = deleteCharsInRange(
-        oldBlock.charRuns,
-        mathSpan.startIndex,
-        mathSpan.endIndex,
-        oldBlock.id
+      const { newPage, op } = deleteCharsInRange(
+        state.document.page, oldBlock.id, mathSpan.startIndex, mathSpan.endIndex,
       );
       ops.push(op);
-      const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
-      invalidateBlockCache(blockCopy);
-      const newBlocks = [...state.document.page.blocks];
-      newBlocks[blockIndex] = blockCopy;
-      const newPage = { ...state.document.page, blocks: newBlocks };
+      invalidateBlockCache(newPage.blocks[blockIndex]);
       let newState: EditorState = {
         ...state,
         document: { ...state.document, page: newPage },
@@ -1643,23 +1391,16 @@ export function deleteForward(state: EditorState): CommandResult {
 
   if (textIndex < oldText.length) {
     // Delete character after cursor using CRDT helper
-    const { newCharRuns, op } = deleteCharsInRange(
-      oldBlock.charRuns,
-      textIndex,
-      textIndex + 1,
-      oldBlock.id
+    const { newPage, op } = deleteCharsInRange(
+      state.document.page, oldBlock.id, textIndex, textIndex + 1,
     );
     ops.push(op);
 
-    const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
+    const blockCopy = newPage.blocks[blockIndex];
     if (oldBlock.type === "paragraph") {
       ops.push(...applyMarkdownPrefix(blockCopy).ops);
     }
-    // Invalidate cache for the changed block
     invalidateBlockCache(blockCopy);
-    const newBlocks = [...state.document.page.blocks];
-    newBlocks[blockIndex] = blockCopy;
-    const newPage = { ...state.document.page, blocks: newBlocks };
     let newState: EditorState = {
       ...state,
       document: { ...state.document, page: newPage },
@@ -2079,23 +1820,16 @@ export function deleteWordForward(state: EditorState): CommandResult {
   if (textIndex < oldText.length) {
     // Delete word forward within the current line using CRDT helper
     const endIndex = findWordDeleteBoundaryRight(oldText, textIndex);
-    const { newCharRuns, op } = deleteCharsInRange(
-      oldBlock.charRuns,
-      textIndex,
-      endIndex,
-      oldBlock.id
+    const { newPage, op } = deleteCharsInRange(
+      state.document.page, oldBlock.id, textIndex, endIndex,
     );
     ops.push(op);
 
-    const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
+    const blockCopy = newPage.blocks[blockIndex];
     if (oldBlock.type === "paragraph") {
       ops.push(...applyMarkdownPrefix(blockCopy).ops);
     }
-    // Invalidate cache for the changed block
     invalidateBlockCache(blockCopy);
-    const newBlocks = [...state.document.page.blocks];
-    newBlocks[blockIndex] = blockCopy;
-    const newPage = { ...state.document.page, blocks: newBlocks };
     let newState: EditorState = {
       ...state,
       document: { ...state.document, page: newPage },
@@ -2200,23 +1934,16 @@ export function deleteWordBackward(state: EditorState): CommandResult {
   if (textIndex > 0) {
     // Delete word backward within the current line using CRDT helper
     const startIndex = findWordDeleteBoundaryLeft(oldText, textIndex);
-    const { newCharRuns, op } = deleteCharsInRange(
-      oldBlock.charRuns,
-      startIndex,
-      textIndex,
-      oldBlock.id
+    const { newPage, op } = deleteCharsInRange(
+      state.document.page, oldBlock.id, startIndex, textIndex,
     );
     ops.push(op);
 
-    const blockCopy: Block = { ...oldBlock, charRuns: newCharRuns };
+    const blockCopy = newPage.blocks[blockIndex];
     if (oldBlock.type === "paragraph") {
       ops.push(...applyMarkdownPrefix(blockCopy).ops);
     }
-    // Invalidate cache for the changed block
     invalidateBlockCache(blockCopy);
-    const newBlocks = [...state.document.page.blocks];
-    newBlocks[blockIndex] = blockCopy;
-    const newPage = { ...state.document.page, blocks: newBlocks };
     let newState: EditorState = {
       ...state,
       document: { ...state.document, page: newPage },
@@ -2592,13 +2319,7 @@ export function splitBlock(state: EditorState): CommandResult {
       anchor.textIndex === focus.textIndex
     ) {
       const block = state.document.page.blocks[anchor.blockIndex];
-      if (
-        block &&
-        !block.deleted &&
-        (block.type === "image" ||
-          block.type === "math" ||
-          block.type === "line")
-      ) {
+      if (block && !block.deleted && !isTextualBlock(block)) {
         // Create a new paragraph below the image
         const newParagraphId = nextId();
         const newParagraph: Block = {
@@ -2647,32 +2368,19 @@ export function splitBlock(state: EditorState): CommandResult {
   {
     const text = getVisibleText(currentBlock.charRuns);
     const linkResult = autoLinkAtCursor(
-      currentBlock.charRuns,
-      currentBlock.formats,
-      text,
-      textIndex,
-      currentBlock.id
+      state.document.page, currentBlock.id, text, textIndex,
     );
     if (linkResult) {
-      currentBlock = {
-        ...currentBlock,
-        formats: linkResult.newFormats,
-      };
+      const linkedBlock = linkResult.newPage.blocks[blockIndex];
+      if (isTextualBlock(linkedBlock)) {
+        currentBlock = linkedBlock;
+      }
       invalidateBlockCache(currentBlock);
       ops.push(...linkResult.ops);
 
-      // Update the block in state so the split operates on the updated block
-      const updatedBlocks = [
-        ...state.document.page.blocks.slice(0, blockIndex),
-        currentBlock,
-        ...state.document.page.blocks.slice(blockIndex + 1),
-      ];
       state = {
         ...state,
-        document: {
-          ...state.document,
-          page: { ...state.document.page, blocks: updatedBlocks },
-        },
+        document: { ...state.document, page: linkResult.newPage },
       };
     }
   }
@@ -2759,55 +2467,21 @@ export function splitBlock(state: EditorState): CommandResult {
     // Split the text content at cursor position
     const afterCharsText = oldText.slice(textIndex);
 
-    // Delete text after cursor from first block
-    let blockCopy1CharRuns = oldBlock.charRuns;
+    let pageAcc = state.document.page;
     if (textIndex < oldText.length) {
-      const { newCharRuns, op: deleteOp } = deleteCharsInRange(
-        oldBlock.charRuns,
-        textIndex,
-        oldText.length,
-        oldBlock.id
+      const { newPage: pageAfterDelete, op: deleteOp } = deleteCharsInRange(
+        pageAcc, oldBlock.id, textIndex, oldText.length,
       );
-      blockCopy1CharRuns = newCharRuns;
+      pageAcc = pageAfterDelete;
       ops.push(deleteOp);
     }
 
-    // Create new list item of same type
-    const blockCopy1: Block = {
-      ...oldBlock,
-      charRuns: blockCopy1CharRuns,
-    };
-
     const newBlockId = nextId();
-    let blockCopy2: Block;
-    if (oldBlock.type === "bullet_list") {
-      blockCopy2 = {
-        id: newBlockId,
-        type: "bullet_list",
-        charRuns: [],
-        formats: [],
-        indent: oldBlock.indent,
-      };
-    } else if (oldBlock.type === "numbered_list") {
-      blockCopy2 = {
-        id: newBlockId,
-        type: "numbered_list",
-        charRuns: [],
-        formats: [],
-        indent: oldBlock.indent,
-      };
-    } else {
-      blockCopy2 = {
-        id: newBlockId,
-        type: "todo_list",
-        charRuns: [],
-        formats: [],
-        checked: false, // New todo items start unchecked
-        indent: oldBlock.indent,
-      };
-    }
+    const newBlockType: "bullet_list" | "numbered_list" | "todo_list" =
+      oldBlock.type === "bullet_list" || oldBlock.type === "numbered_list"
+        ? oldBlock.type
+        : "todo_list";
 
-    // Insert the new block
     const blockInsertOp: BlockInsert = {
       op: "block_insert",
       id: nextId(),
@@ -2815,43 +2489,34 @@ export function splitBlock(state: EditorState): CommandResult {
       pageId: getPageId(),
       afterBlockId: oldBlock.id,
       blockId: newBlockId,
-      blockType: blockCopy2.type,
+      blockType: newBlockType,
       initialProps:
         oldBlock.type === "todo_list"
           ? { checked: false, indent: oldBlock.indent }
           : { indent: oldBlock.indent },
     };
     ops.push(blockInsertOp);
+    pageAcc = applyOps(pageAcc, [blockInsertOp]);
 
-    // Insert text into new block if there was text after cursor
     if (afterCharsText.length > 0) {
-      const { newCharRuns, op: insertOp } = insertCharsAtPosition(
-        blockCopy2.charRuns,
-        0,
-        afterCharsText,
-        newBlockId
+      const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
+        pageAcc, newBlockId, 0, afterCharsText,
       );
-      blockCopy2.charRuns = newCharRuns;
+      pageAcc = pageAfterInsert;
       ops.push(insertOp);
     }
 
-    invalidateBlockCache(blockCopy1);
-    invalidateBlockCache(blockCopy2);
-
-    const newBlocks = [
-      ...state.document.page.blocks.slice(0, blockIndex),
-      blockCopy1,
-      blockCopy2,
-      ...state.document.page.blocks.slice(blockIndex + 1),
-    ];
-    const newPage = { ...state.document.page, blocks: newBlocks };
+    const block1Index = pageAcc.blocks.findIndex((b) => b.id === oldBlock.id);
+    const block2Index = pageAcc.blocks.findIndex((b) => b.id === newBlockId);
+    if (block1Index !== -1) invalidateBlockCache(pageAcc.blocks[block1Index]);
+    if (block2Index !== -1) invalidateBlockCache(pageAcc.blocks[block2Index]);
 
     const newState: EditorState = {
       ...state,
-      document: { ...state.document, page: newPage },
+      document: { ...state.document, page: pageAcc },
     };
     return {
-      state: moveCursorToPosition(newState, blockIndex + 1, 0),
+      state: moveCursorToPosition(newState, block2Index !== -1 ? block2Index : blockIndex + 1, 0),
       ops,
     };
   }
@@ -2888,35 +2553,29 @@ export function splitBlock(state: EditorState): CommandResult {
   // Split the text content
   const afterCharsText = oldText.slice(textIndex);
 
+  let pageAcc = state.document.page;
+
   // Delete text after cursor from first block if needed
   if (textIndex < oldText.length) {
-    const { op: deleteOp } = deleteCharsInRange(
-      oldBlock.charRuns,
-      textIndex,
-      oldText.length,
-      oldBlock.id
+    const { newPage: pageAfterDelete, op: deleteOp } = deleteCharsInRange(
+      pageAcc, oldBlock.id, textIndex, oldText.length,
     );
+    pageAcc = pageAfterDelete;
     ops.push(deleteOp);
   }
 
-  // Delete text after cursor from first block if needed
-  let blockCopy1CharRuns = oldBlock.charRuns;
-  if (textIndex < oldText.length) {
-    const { newCharRuns } = deleteCharsInRange(
-      oldBlock.charRuns,
-      textIndex,
-      oldText.length,
-      oldBlock.id
-    );
-    blockCopy1CharRuns = newCharRuns;
-  }
-
-  const blockCopy1: Block = {
-    id: oldBlock.id,
-    type: blockCopy1Type,
-    charRuns: blockCopy1CharRuns,
-    formats: currentBlock.formats,
-  };
+  const block1AfterDelete = pageAcc.blocks.find((b) => b.id === oldBlock.id);
+  const blockCopy1: Block = block1AfterDelete && isTextualBlock(block1AfterDelete)
+    ? {
+        ...block1AfterDelete,
+        type: blockCopy1Type,
+      } as Block
+    : {
+        id: oldBlock.id,
+        type: blockCopy1Type,
+        charRuns: oldBlock.charRuns,
+        formats: currentBlock.formats,
+      };
 
   // Only apply markdown prefix if the block type is a paragraph.
   // applyMarkdownPrefix is the sole owner of block_set ops for type, indent, and
@@ -2925,7 +2584,6 @@ export function splitBlock(state: EditorState): CommandResult {
   const typeBeforeMarkdown = blockCopy1Type;
   if (blockCopy1Type === "paragraph") {
     ops.push(...applyMarkdownPrefix(blockCopy1).ops);
-    // applyMarkdownPrefix may have changed the type (e.g. paragraph → bullet_list)
     blockCopy1Type = blockCopy1.type;
   }
 
@@ -2946,7 +2604,7 @@ export function splitBlock(state: EditorState): CommandResult {
   const newBlockId = nextId();
 
   // Insert the new block FIRST (before inserting text into it)
-  // This ensures remote peers have the block before receiving text operations for it
+  // so remote peers have the block before receiving text operations for it.
   const blockInsertOp: BlockInsert = {
     op: "block_insert",
     id: nextId(),
@@ -2957,24 +2615,22 @@ export function splitBlock(state: EditorState): CommandResult {
     blockType: blockCopy2Type,
   };
   ops.push(blockInsertOp);
+  pageAcc = applyOps(pageAcc, [blockInsertOp]);
 
   // Insert text into new block if there was text after cursor
-  let blockCopy2CharRuns: CharRun[] = [];
   if (afterCharsText.length > 0) {
-    const { newCharRuns, op: insertOp } = insertCharsAtPosition(
-      [],
-      0,
-      afterCharsText,
-      newBlockId
+    const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
+      pageAcc, newBlockId, 0, afterCharsText,
     );
-    blockCopy2CharRuns = newCharRuns;
+    pageAcc = pageAfterInsert;
     ops.push(insertOp);
   }
 
   // Transfer formats that cover text after cursor to the new block
+  const block2 = pageAcc.blocks.find((b) => b.id === newBlockId);
+  const blockCopy2CharRuns: CharRun[] = block2 && isTextualBlock(block2) ? block2.charRuns : [];
   let blockCopy2Formats: FormatSpan[] = [];
   if (afterCharsText.length > 0 && currentBlock.formats.length > 0) {
-    // Collect old char IDs for the "after cursor" range and new char IDs from blockCopy2
     const afterCharIds: string[] = [];
     let visibleCount = 0;
     for (const { id } of iterateVisibleChars(oldBlock.charRuns)) {
@@ -2997,7 +2653,6 @@ export function splitBlock(state: EditorState): CommandResult {
       }
 
       for (const span of currentBlock.formats) {
-        // Find which old char IDs in the after range are covered by this span
         const coveredNewIds: string[] = [];
         for (const oldId of afterCharIds) {
           if (isCharIdInRange(oldBlock.charRuns, oldId, span.startCharId, span.endCharId)) {
@@ -3040,13 +2695,14 @@ export function splitBlock(state: EditorState): CommandResult {
   invalidateBlockCache(blockCopy1);
   invalidateBlockCache(blockCopy2);
 
-  const newBlocks = [
-    ...state.document.page.blocks.slice(0, blockIndex),
-    blockCopy1,
-    blockCopy2,
-    ...state.document.page.blocks.slice(blockIndex + 1),
-  ];
-  const newPage = { ...state.document.page, blocks: newBlocks };
+  // Splice blockCopy1 and blockCopy2 into pageAcc to override what applyOps produced
+  // (blockCopy1 has the locally-computed type; blockCopy2 has the format spans).
+  const newBlocks = pageAcc.blocks.map((b) => {
+    if (b.id === oldBlock.id) return blockCopy1;
+    if (b.id === newBlockId) return blockCopy2;
+    return b;
+  });
+  const newPage = { ...pageAcc, blocks: newBlocks };
 
   const newState: EditorState = {
     ...state,
@@ -3244,23 +2900,17 @@ export function toggleFormat(
       formatType
     );
 
-    // Toggle formatting: use helper to get new formats and operation
-    const { newFormats, op } = formatCharsInRange(
-      block.charRuns,
-      block.formats,
+    // Toggle formatting: use helper to apply the op and get the new page
+    const { newPage, op } = formatCharsInRange(
+      state.document.page,
+      block.id,
       start.textIndex,
       end.textIndex,
-      block.id,
       { type: formatType },
       !hasFormat // Toggle: if has format, remove it (false); otherwise add it (true)
     );
 
-    const newBlock: Block = { ...block, formats: newFormats };
-    invalidateBlockCache(newBlock);
-
-    const newBlocks = [...state.document.page.blocks];
-    newBlocks[start.blockIndex] = newBlock;
-    const newPage = { ...state.document.page, blocks: newBlocks };
+    invalidateBlockCache(newPage.blocks[start.blockIndex]);
 
     return {
       state: {
@@ -3272,15 +2922,13 @@ export function toggleFormat(
   } else {
     // Multi-block selection
     const ops: Operation[] = [];
-    const newBlocks = [...state.document.page.blocks];
+    let pageAcc = state.document.page;
 
     // First, check if all selected characters across all blocks have the format
     let hasFormat = true;
     for (let i = start.blockIndex; i <= end.blockIndex; i++) {
-      const block = newBlocks[i];
-      if (!isTextualBlock(block)) {
-        continue;
-      }
+      const block = pageAcc.blocks[i];
+      if (!isTextualBlock(block)) continue;
 
       let formatStart: number;
       let formatEnd: number;
@@ -3316,10 +2964,8 @@ export function toggleFormat(
 
     // Now apply the formatting to each block
     for (let i = start.blockIndex; i <= end.blockIndex; i++) {
-      const block = newBlocks[i];
-      if (!isTextualBlock(block)) {
-        continue;
-      }
+      const block = pageAcc.blocks[i];
+      if (!isTextualBlock(block)) continue;
 
       let formatStart: number;
       let formatEnd: number;
@@ -3339,29 +2985,20 @@ export function toggleFormat(
       }
 
       if (formatStart < formatEnd) {
-        const { newFormats, op } = formatCharsInRange(
-          block.charRuns,
-          block.formats,
-          formatStart,
-          formatEnd,
-          block.id,
-          { type: formatType },
-          !hasFormat // Toggle based on overall selection state
+        const { newPage, op } = formatCharsInRange(
+          pageAcc, block.id, formatStart, formatEnd,
+          { type: formatType }, !hasFormat,
         );
-
-        const newBlock: Block = { ...block, formats: newFormats };
-        invalidateBlockCache(newBlock);
-        newBlocks[i] = newBlock;
+        invalidateBlockCache(newPage.blocks[i]);
+        pageAcc = newPage;
         ops.push(op);
       }
     }
 
-    const newPage = { ...state.document.page, blocks: newBlocks };
-
     return {
       state: {
         ...state,
-        document: { ...state.document, page: newPage },
+        document: { ...state.document, page: pageAcc },
       },
       ops,
     };
@@ -3634,10 +3271,7 @@ export function applySlashCommand(
       const textLength = getVisibleLength(block.charRuns);
       if (textLength > 0) {
         const { op: deleteOp } = deleteCharsInRange(
-          block.charRuns,
-          0,
-          textLength,
-          block.id
+          state.document.page, block.id, 0, textLength,
         );
         ops.push(deleteOp);
       }
@@ -3720,10 +3354,7 @@ export function applySlashCommand(
       const textLength = getVisibleLength(block.charRuns);
       if (textLength > 0) {
         const { op: deleteOp } = deleteCharsInRange(
-          block.charRuns,
-          0,
-          textLength,
-          block.id
+          state.document.page, block.id, 0, textLength,
         );
         ops.push(deleteOp);
       }
@@ -3805,10 +3436,7 @@ export function applySlashCommand(
       const textLength = getVisibleLength(block.charRuns);
       if (textLength > 0) {
         const { op: deleteOp } = deleteCharsInRange(
-          block.charRuns,
-          0,
-          textLength,
-          block.id
+          state.document.page, block.id, 0, textLength,
         );
         ops.push(deleteOp);
       }
@@ -3888,13 +3516,13 @@ export function applySlashCommand(
   // Delete the slash command text using CRDT helper
   let updatedCharRuns = block.charRuns;
   if (deleteEnd > deleteStart) {
-    const { newCharRuns, op: deleteOp } = deleteCharsInRange(
-      block.charRuns,
-      deleteStart,
-      deleteEnd,
-      block.id
+    const { newPage: pageAfterDelete, op: deleteOp } = deleteCharsInRange(
+      state.document.page, block.id, deleteStart, deleteEnd,
     );
-    updatedCharRuns = newCharRuns;
+    const updatedBlock = pageAfterDelete.blocks[blockIndex];
+    if (isTextualBlock(updatedBlock)) {
+      updatedCharRuns = updatedBlock.charRuns;
+    }
     ops.push(deleteOp);
   }
 
@@ -4346,51 +3974,34 @@ export function updateLinkInBlock(
   }
 
   const oldText = getVisibleText(block.charRuns).slice(startIndex, endIndex);
-  let updatedCharRuns = block.charRuns;
-  let updatedFormats = block.formats;
+  let pageAcc = state.document.page;
 
-  // If text changed, delete old text and insert new text
   if (oldText !== newText) {
-    // Delete old text
-    const { newCharRuns: charRunsAfterDelete, op: deleteOp } =
-      deleteCharsInRange(updatedCharRuns, startIndex, endIndex, block.id);
-    updatedCharRuns = charRunsAfterDelete;
+    const { newPage: pageAfterDelete, op: deleteOp } = deleteCharsInRange(
+      pageAcc, block.id, startIndex, endIndex,
+    );
+    pageAcc = pageAfterDelete;
     ops.push(deleteOp);
 
-    // Insert new text
-    const { newCharRuns: charRunsAfterInsert, op: insertOp } =
-      insertCharsAtPosition(updatedCharRuns, startIndex, newText, block.id);
-    updatedCharRuns = charRunsAfterInsert;
+    const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
+      pageAcc, block.id, startIndex, newText,
+    );
+    pageAcc = pageAfterInsert;
     ops.push(insertOp);
   }
 
-  // Apply link formatting
-  const { newFormats, op: formatOp } = formatCharsInRange(
-    updatedCharRuns,
-    updatedFormats,
-    startIndex,
-    startIndex + newText.length,
-    block.id,
-    { type: "link", url: newUrl },
-    newUrl // value is the URL for link format
+  const { newPage: pageAfterFormat, op: formatOp } = formatCharsInRange(
+    pageAcc, block.id, startIndex, startIndex + newText.length,
+    { type: "link", url: newUrl }, newUrl,
   );
-  updatedFormats = newFormats;
+  pageAcc = pageAfterFormat;
   ops.push(formatOp);
 
-  const newBlock: Block = {
-    ...block,
-    charRuns: updatedCharRuns,
-    formats: updatedFormats,
-  };
-  invalidateBlockCache(newBlock);
-
-  const newBlocks = [...state.document.page.blocks];
-  newBlocks[blockIndex] = newBlock;
-  const newPage = { ...state.document.page, blocks: newBlocks };
+  invalidateBlockCache(pageAcc.blocks[blockIndex]);
 
   let newState: EditorState = {
     ...state,
-    document: { ...state.document, page: newPage },
+    document: { ...state.document, page: pageAcc },
   };
 
   return { state: newState, ops };
@@ -4419,26 +4030,13 @@ export function clearLinkInBlock(
   }
 
   // Remove link formatting by setting value to false
-  const { newFormats, op } = formatCharsInRange(
-    block.charRuns,
-    block.formats,
-    startIndex,
-    endIndex,
-    block.id,
-    { type: "link" },
-    false // false removes the format
+  const { newPage, op } = formatCharsInRange(
+    state.document.page, block.id, startIndex, endIndex,
+    { type: "link" }, false,
   );
   ops.push(op);
 
-  const newBlock: Block = {
-    ...block,
-    formats: newFormats,
-  };
-  invalidateBlockCache(newBlock);
-
-  const newBlocks = [...state.document.page.blocks];
-  newBlocks[blockIndex] = newBlock;
-  const newPage = { ...state.document.page, blocks: newBlocks };
+  invalidateBlockCache(newPage.blocks[blockIndex]);
 
   return {
     state: {

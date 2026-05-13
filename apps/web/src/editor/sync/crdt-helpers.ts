@@ -1,11 +1,12 @@
 /**
  * CRDT Helper Functions
  *
- * These helpers return BOTH the new data AND the CRDT operation atomically.
- * Also includes functions to apply remote CRDT operations to editor Page blocks.
+ * Local-emit helpers that construct an Operation and apply it via the same
+ * reducer path remote ops take. This keeps local apply and remote apply
+ * algorithmically identical — see `applyOp` in `reducer.ts`.
  */
 
-import type { Char, CharRun, FormatSpan, Page, TextFormat } from "../../deserializer/loadPage";
+import type { CharRun, FormatSpan, Page, TextFormat } from "../../deserializer/loadPage";
 import { isTextualBlock } from "../../deserializer/loadPage";
 import type {
   FormatSet,
@@ -16,7 +17,6 @@ import { getPageId, nextId, getClock } from "./sync";
 import { extractPeerId, extractCounter } from "./id";
 import {
   insertIntoRuns,
-  deleteFromRuns,
   getVisibleTextFromRuns,
   getVisibleLengthFromRuns,
   getCharIdAtVisiblePosition,
@@ -24,66 +24,55 @@ import {
   isCharIdInRange,
   charRunsToChars,
 } from "./char-runs";
+import { applyOp } from "./reducer";
 
 export interface InsertCharsResult {
-  newCharRuns: CharRun[];
+  newPage: Page;
   op: TextInsert;
 }
 
 export interface DeleteCharsResult {
-  newCharRuns: CharRun[];
+  newPage: Page;
   op: TextDelete;
 }
 
 export interface FormatCharsResult {
-  newFormats: FormatSpan[];
+  newPage: Page;
   op: FormatSet;
 }
 
 /**
- * Insert text at a position - returns new charRuns AND the operation
+ * Insert text at a position in a block's visible content.
  */
 export function insertCharsAtPosition(
-  charRuns: CharRun[] | undefined,
+  page: Page,
+  blockId: string,
   position: number,
-  text: string,
-  blockId: string
+  text: string
 ): InsertCharsResult {
   if (text.length === 0) {
-    // No text to insert - return unchanged
     throw new Error("Cannot insert empty text");
   }
 
+  const block = page.blocks.find((b) => b.id === blockId);
+  const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
   const afterCharId = getCharIdAtVisiblePosition(charRuns, position);
 
-  // Generate consecutive IDs for the text
+  // Pre-allocate consecutive IDs for the inserted chars so they form a
+  // single CharRun. The op id is allocated after the char IDs so its
+  // counter never collides with the chars it references.
   const firstId = nextId();
   const peerId = extractPeerId(firstId);
   const startCounter = extractCounter(firstId);
-
-  // Pre-allocate remaining IDs to maintain sequence
-  // This ensures IDs are consecutive: peerId:N, peerId:N+1, peerId:N+2, ...
   for (let i = 1; i < text.length; i++) {
-    nextId(); // Consume ID to maintain counter sequence
+    nextId();
   }
 
-  // Create CharRun directly for the operation
   const newCharRun: CharRun = {
     peerId,
     startCounter,
     text,
-    // deletedMask omitted (no deletions on new text)
   };
-
-  // Create Char[] for insertion into existing runs
-  // This is needed to work with insertIntoRuns()
-  const newCharObjects: Char[] = Array.from(text).map((char, i) => ({
-    id: `${peerId}:${startCounter + i}`,
-    char,
-  }));
-
-  // Insert into runs
-  const newCharRuns = insertIntoRuns(charRuns, afterCharId, newCharObjects);
 
   const op: TextInsert = {
     op: "text_insert",
@@ -92,26 +81,24 @@ export function insertCharsAtPosition(
     pageId: getPageId(),
     blockId,
     afterCharId,
-    charRuns: [newCharRun], // NEW: Use CharRun instead of Char[]
+    charRuns: [newCharRun],
   };
 
-  return { newCharRuns, op };
+  return { newPage: applyOp(page, op), op };
 }
 
 /**
- * Delete text in a range - returns new charRuns AND the operation
+ * Delete a range of visible characters from a block.
  */
 export function deleteCharsInRange(
-  charRuns: CharRun[] | undefined,
+  page: Page,
+  blockId: string,
   startIndex: number,
-  endIndex: number,
-  blockId: string
+  endIndex: number
 ): DeleteCharsResult {
-  // Get char IDs to delete
-  const deletedIds = getCharIdsInRange(charRuns, startIndex, endIndex);
-
-  // Delete from runs
-  const newCharRuns = deleteFromRuns(charRuns, deletedIds);
+  const block = page.blocks.find((b) => b.id === blockId);
+  const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
+  const charIds = getCharIdsInRangeFromRuns(charRuns, startIndex, endIndex);
 
   const op: TextDelete = {
     op: "text_delete",
@@ -119,137 +106,26 @@ export function deleteCharsInRange(
     clock: getClock(),
     pageId: getPageId(),
     blockId,
-    charIds: deletedIds,
+    charIds,
   };
 
-  return { newCharRuns, op };
+  return { newPage: applyOp(page, op), op };
 }
 
 /**
- * Check if a character ID is within a format span
- */
-function isCharIdInSpan(charId: string, span: FormatSpan, charRuns: CharRun[] | undefined): boolean {
-  if (!charRuns) return false;
-  return isCharIdInRange(charRuns, charId, span.startCharId, span.endCharId);
-}
-
-/**
- * Apply formatting to a range - returns new formats AND the operation
- * When value is false, removes the format from the range
+ * Apply (or remove, when `value === false`) a format to a visible range.
  */
 export function formatCharsInRange(
-  charRuns: CharRun[] | undefined,
-  formats: FormatSpan[],
+  page: Page,
+  blockId: string,
   startIndex: number,
   endIndex: number,
-  blockId: string,
   format: TextFormat,
   value: boolean | string
 ): FormatCharsResult {
-  const charIds = getCharIdsInRange(charRuns, startIndex, endIndex);
-
-  if (charIds.length === 0) {
-    return {
-      newFormats: formats,
-      op: {
-        op: "format_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
-        blockId,
-        charIds: [],
-        format,
-        value,
-      },
-    };
-  }
-
-  let newFormats: FormatSpan[];
-
-  if (value === false) {
-    // Remove format: split spans that overlap with our range
-    // Instead of removing entire spans, preserve parts outside the selection
-    newFormats = [];
-    const selectionCharIdSet = new Set(charIds);
-
-    for (const span of formats) {
-      if (span.format.type !== format.type) {
-        // Different format type, keep as-is
-        newFormats.push(span);
-        continue;
-      }
-
-      // Check if this span overlaps with any of our charIds
-      const overlaps = charIds.some(charId => isCharIdInSpan(charId, span, charRuns));
-      if (!overlaps) {
-        // No overlap, keep span as-is
-        newFormats.push(span);
-        continue;
-      }
-
-      // Span overlaps with selection - need to split it
-      // Find chars in the span that are NOT in the selection
-      const spanChars: string[] = [];
-      let inSpan = false;
-      for (const { id } of iterateVisibleChars(charRuns)) {
-        if (id === span.startCharId) inSpan = true;
-        if (inSpan) spanChars.push(id);
-        if (id === span.endCharId) break;
-      }
-
-      // Build new spans for parts outside selection
-      let currentSpanStart: string | null = null;
-      let currentSpanEnd: string | null = null;
-
-      for (const charId of spanChars) {
-        if (!selectionCharIdSet.has(charId)) {
-          // This char is in the span but NOT in selection - keep it formatted
-          if (currentSpanStart === null) {
-            currentSpanStart = charId;
-          }
-          currentSpanEnd = charId;
-        } else {
-          // This char IS in selection - close any open span
-          if (currentSpanStart !== null && currentSpanEnd !== null) {
-            newFormats.push({
-              startCharId: currentSpanStart,
-              endCharId: currentSpanEnd,
-              format: span.format,
-              clock: span.clock,
-            });
-            currentSpanStart = null;
-            currentSpanEnd = null;
-          }
-        }
-      }
-
-      // Close final span if any
-      if (currentSpanStart !== null && currentSpanEnd !== null) {
-        newFormats.push({
-          startCharId: currentSpanStart,
-          endCharId: currentSpanEnd,
-          format: span.format,
-          clock: span.clock,
-        });
-      }
-    }
-  } else {
-    // Add format: create a new span
-    const newSpan: FormatSpan = {
-      startCharId: charIds[0],
-      endCharId: charIds[charIds.length - 1],
-      format,
-      clock: getClock(),
-    };
-    // Filter out existing spans of same format type that overlap with new range
-    // This prevents format span accumulation
-    const filteredFormats = formats.filter(span => {
-      if (span.format.type !== format.type) return true;
-      const overlaps = charIds.some(charId => isCharIdInSpan(charId, span, charRuns));
-      return !overlaps;
-    });
-    newFormats = [...filteredFormats, newSpan];
-  }
+  const block = page.blocks.find((b) => b.id === blockId);
+  const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
+  const charIds = getCharIdsInRangeFromRuns(charRuns, startIndex, endIndex);
 
   const op: FormatSet = {
     op: "format_set",
@@ -262,7 +138,7 @@ export function formatCharsInRange(
     value,
   };
 
-  return { newFormats, op };
+  return { newPage: applyOp(page, op), op };
 }
 
 export function getVisibleText(charRuns: CharRun[]): string {
@@ -273,7 +149,7 @@ export function getVisibleLength(charRuns: CharRun[]): number {
   return getVisibleLengthFromRuns(charRuns);
 }
 
-export function getCharIdsInRange(
+function getCharIdsInRangeFromRuns(
   charRuns: CharRun[] | undefined,
   startIndex: number,
   endIndex: number
@@ -294,8 +170,9 @@ export function getCharIdsInRange(
   return ids;
 }
 
-function findCharIdAtPosition(charRuns: CharRun[] | undefined, position: number): string | null {
-  return getCharIdAtVisiblePosition(charRuns, position);
+function isCharIdInSpan(charId: string, span: FormatSpan, charRuns: CharRun[] | undefined): boolean {
+  if (!charRuns) return false;
+  return isCharIdInRange(charRuns, charId, span.startCharId, span.endCharId);
 }
 
 /**
@@ -310,10 +187,9 @@ export function allCharsHaveFormat(
 ): boolean {
   if (!charRuns) return false;
 
-  const charIds = getCharIdsInRange(charRuns, startIndex, endIndex);
+  const charIds = getCharIdsInRangeFromRuns(charRuns, startIndex, endIndex);
   if (charIds.length === 0) return false;
 
-  // Check if all char IDs are covered by format spans of the given type
   return charIds.every(charId =>
     formats.some(span =>
       span.format.type === formatType &&
@@ -332,11 +208,9 @@ export function getFormatsAtCharPosition(
 ): TextFormat[] {
   if (position === 0) return [];
 
-  // Get the char ID at position (inherit from previous char)
-  const charId = findCharIdAtPosition(charRuns, position);
+  const charId = getCharIdAtVisiblePosition(charRuns, position);
   if (!charId) return [];
 
-  // Find all format spans that include this char
   const activeFormats: TextFormat[] = [];
   for (const span of formats) {
     if (isCharIdInSpan(charId, span, charRuns)) {
@@ -353,30 +227,24 @@ export function getFormatsAtCharPosition(
 
 /**
  * Apply a text insert operation to a page.
- * Shared logic used by both local and remote text insert handlers.
- * Inserts characters after the specified character ID.
- * If chars already exist (as tombstones), un-tombstones them instead of duplicating.
+ * Shared by `applyOp` (reducer) — handles both fresh inserts and un-tombstoning
+ * chars that already exist (e.g. undo restoring a deleted character).
  */
 export function applyTextInsertOp(page: Page, op: TextInsert): Page {
   const blockIndex = page.blocks.findIndex((b) => b.id === op.blockId);
 
   if (blockIndex === -1) {
-    // Block not found - this can happen if block insert is received later
     return page;
   }
 
   const block = page.blocks[blockIndex];
 
-  // Skip operations on deleted blocks or blocks without text content
   if (!block || block.deleted || !isTextualBlock(block)) {
     return page;
   }
 
-  // Convert CharRuns to Char[] for insertion
   const chars = charRunsToChars(op.charRuns);
 
-  // Check if any chars already exist (as tombstones) - if so, un-tombstone them
-  // This handles undo operations that restore deleted characters
   const existingCharIds = new Set<string>();
   for (const run of block.charRuns || []) {
     for (let i = 0; i < run.text.length; i++) {
@@ -390,7 +258,6 @@ export function applyTextInsertOp(page: Page, op: TextInsert): Page {
 
   let newCharRuns = block.charRuns || [];
 
-  // Un-tombstone existing chars (restore them)
   if (charsToRestore.length > 0) {
     const charIdsToRestore = new Set(charsToRestore.map((c) => c.id));
     newCharRuns = newCharRuns.map((run) => {
@@ -410,7 +277,6 @@ export function applyTextInsertOp(page: Page, op: TextInsert): Page {
       }
 
       if (modified) {
-        // Check if mask is all zeros now
         const hasAnyDeleted = newMask?.some((byte) => byte !== 0);
         return { ...run, deletedMask: hasAnyDeleted ? newMask : undefined };
       }
@@ -418,7 +284,6 @@ export function applyTextInsertOp(page: Page, op: TextInsert): Page {
     });
   }
 
-  // Insert truly new chars
   if (charsToInsert.length > 0) {
     newCharRuns = insertIntoRuns(newCharRuns, op.afterCharId, charsToInsert);
   }
@@ -429,4 +294,3 @@ export function applyTextInsertOp(page: Page, op: TextInsert): Page {
 
   return { ...page, blocks: newBlocks };
 }
-

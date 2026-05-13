@@ -62,6 +62,7 @@ import {
   getPageId,
   nextId,
   getClock,
+  createBlockSet,
 } from "./sync/sync";
 import type { AwarenessCursor, AwarenessSelection, AwarenessState, AwarenessUser } from "./sync/awareness";
 import {
@@ -80,7 +81,6 @@ import { generateRestoreOperations } from "./sync/snapshot-diff";
 import type {
   BlockDelete,
   BlockInsert,
-  BlockSet,
   Operation,
 } from "./sync/types";
 import type {
@@ -1670,54 +1670,29 @@ export default function createEditor(
     const ops: Operation[] = [];
 
     // Delete the selected text first
-    const { newCharRuns: charRunsAfterDelete, op: deleteOp } =
-      deleteCharsInRange(
-        block.charRuns,
-        start.textIndex,
-        end.textIndex,
-        block.id
-      );
+    const { newPage: p1, op: deleteOp } = deleteCharsInRange(
+      state.document.page, block.id, start.textIndex, end.textIndex,
+    );
     ops.push(deleteOp);
 
     // Insert the new link text
-    const { newCharRuns: charRunsAfterInsert, op: insertOp } =
-      insertCharsAtPosition(
-        charRunsAfterDelete,
-        start.textIndex,
-        text,
-        block.id
-      );
+    const { newPage: p2, op: insertOp } = insertCharsAtPosition(
+      p1, block.id, start.textIndex, text,
+    );
     ops.push(insertOp);
 
     // Apply link formatting to the inserted text
-    const { newFormats, op: formatOp } = formatCharsInRange(
-      charRunsAfterInsert,
-      block.formats,
-      start.textIndex,
-      start.textIndex + text.length,
-      block.id,
-      { type: "link", url },
-      url
+    const { newPage: p3, op: formatOp } = formatCharsInRange(
+      p2, block.id, start.textIndex, start.textIndex + text.length,
+      { type: "link", url }, url,
     );
     ops.push(formatOp);
 
-    const newBlock = {
-      ...block,
-      charRuns: charRunsAfterInsert,
-      formats: newFormats,
-    };
-
-    invalidateBlockCache(newBlock);
-
-    const newBlocks = [...state.document.page.blocks];
-    newBlocks[start.blockIndex] = newBlock;
+    invalidateBlockCache(p3.blocks[start.blockIndex]);
 
     const newState = {
       ...state,
-      document: {
-        ...state.document,
-        page: { ...state.document.page, blocks: newBlocks },
-      },
+      document: { ...state.document, page: p3 },
     };
 
     // Clear selection and move cursor to end of inserted link
@@ -1826,33 +1801,17 @@ export default function createEditor(
       };
     }
 
-    // Create CRDT operations for image property updates
+    // Create CRDT operations for image property updates. Use the typed
+    // createBlockSet helper so the field name + value are checked against
+    // the image block's registered field schema at compile time.
     const ops: Operation[] = [];
     const blockId = block.id;
 
     if (updates.url !== undefined) {
-      const op: BlockSet = {
-        op: "block_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
-        blockId,
-        field: "url",
-        value: updates.url,
-      };
-      ops.push(op);
+      ops.push(createBlockSet<"image", "url">(blockId, "url", updates.url));
     }
     if (updates.alt !== undefined) {
-      const op: BlockSet = {
-        op: "block_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
-        blockId,
-        field: "alt",
-        value: updates.alt,
-      };
-      ops.push(op);
+      ops.push(createBlockSet<"image", "alt">(blockId, "alt", updates.alt));
     }
 
     const prevState = state;
@@ -1996,32 +1955,23 @@ export default function createEditor(
     const newBlocks = [...state.document.page.blocks];
     newBlocks[blockIndex] = updatedBlock;
 
+    // Use the typed createBlockSet helper so the field name + value are
+    // checked against the math block's registered field schema at compile
+    // time.
     const ops: Operation[] = [];
     const blockId = block.id;
 
     if (updates.latex !== undefined) {
-      const op: BlockSet = {
-        op: "block_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
-        blockId,
-        field: "latex",
-        value: updates.latex,
-      };
-      ops.push(op);
+      ops.push(createBlockSet<"math", "latex">(blockId, "latex", updates.latex));
     }
     if (updates.displayMode !== undefined) {
-      const op: BlockSet = {
-        op: "block_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
-        blockId,
-        field: "displayMode",
-        value: updates.displayMode,
-      };
-      ops.push(op);
+      ops.push(
+        createBlockSet<"math", "displayMode">(
+          blockId,
+          "displayMode",
+          updates.displayMode,
+        ),
+      );
     }
 
     state = {
@@ -2102,45 +2052,27 @@ export default function createEditor(
 
     // Replace the existing chars in [startIndex, endIndex) with the new LaTeX,
     // then re-apply the math format to the freshly inserted chars.
-    const { newCharRuns: charsAfterDelete, op: deleteOp } = deleteCharsInRange(
-      block.charRuns,
-      startIndex,
-      endIndex,
-      blockId,
+    const { newPage: p1, op: deleteOp } = deleteCharsInRange(
+      state.document.page, blockId, startIndex, endIndex,
     );
     ops.push(deleteOp);
 
-    const { newCharRuns: charsAfterInsert, op: insertOp } =
-      insertCharsAtPosition(charsAfterDelete, startIndex, newLatex, blockId);
+    const { newPage: p2, op: insertOp } = insertCharsAtPosition(
+      p1, blockId, startIndex, newLatex,
+    );
     ops.push(insertOp);
 
-    const { newFormats, op: formatOp } = formatCharsInRange(
-      charsAfterInsert,
-      block.formats,
-      startIndex,
-      startIndex + newLatex.length,
-      blockId,
-      { type: "math" },
-      true,
+    const { newPage: p3, op: formatOp } = formatCharsInRange(
+      p2, blockId, startIndex, startIndex + newLatex.length,
+      { type: "math" }, true,
     );
     ops.push(formatOp);
 
-    const updatedBlock = {
-      ...block,
-      charRuns: charsAfterInsert,
-      formats: newFormats,
-    };
-    invalidateBlockCache(updatedBlock);
-
-    const newBlocks = [...state.document.page.blocks];
-    newBlocks[blockIndex] = updatedBlock;
+    invalidateBlockCache(p3.blocks[blockIndex]);
 
     state = {
       ...state,
-      document: {
-        ...state.document,
-        page: { ...state.document.page, blocks: newBlocks },
-      },
+      document: { ...state.document, page: p3 },
     };
 
     if (ops.length > 0) {
@@ -2167,25 +2099,14 @@ export default function createEditor(
 
     const prevState = state;
     const blockId = block.id;
-    const { newCharRuns, op } = deleteCharsInRange(
-      block.charRuns,
-      startIndex,
-      endIndex,
-      blockId,
+    const { newPage, op } = deleteCharsInRange(
+      state.document.page, blockId, startIndex, endIndex,
     );
-
-    const updatedBlock = { ...block, charRuns: newCharRuns };
-    invalidateBlockCache(updatedBlock);
-
-    const newBlocks = [...state.document.page.blocks];
-    newBlocks[blockIndex] = updatedBlock;
+    invalidateBlockCache(newPage.blocks[blockIndex]);
 
     state = {
       ...state,
-      document: {
-        ...state.document,
-        page: { ...state.document.page, blocks: newBlocks },
-      },
+      document: { ...state.document, page: newPage },
     };
 
     state = recordUndoOps(prevState, state, [op], getPeerId());

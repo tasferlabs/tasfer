@@ -10,7 +10,7 @@
 
 import type { Block, Char, CharRun, TextualBlock } from "@/deserializer/loadPage";
 import { isTextualBlock } from "@/deserializer/loadPage";
-import { extractPeerId, extractCounter } from "./id";
+import { compareIds, extractCounter, extractPeerId } from "./id";
 
 // =============================================================================
 // ID and Deletion Helpers
@@ -232,27 +232,17 @@ export function* iterateVisibleChars(
 // =============================================================================
 
 /**
- * Insert characters into runs after a specific character ID.
+ * Insert characters into runs after a specific character ID (RGA insert).
  * If afterCharId is null, inserts at the beginning.
  *
- * NOTE on concurrent-insert ordering: this function does NOT compare IDs of
- * other chars also inserted after the same anchor. It just splices the new
- * run immediately after afterCharId. That LOOKS like an RGA bug, but it's
- * fine *because of how mergeOps schedules application*:
- *
- *  - The fast path in mergeOps only fires when every incoming op has a
- *    higher HLC than every op already in the log. In that case the incoming
- *    op was strictly later than any existing concurrent insert, so splicing
- *    it right after the anchor (pushing existing same-anchor inserts
- *    further from the anchor) reproduces the deterministic global order.
- *  - The moment a new op interleaves with existing ops, mergeOps falls
- *    back to rebuildState, which sorts every op by HLC and replays from
- *    scratch. Whichever peer applies the lower-HLC op first ends up with
- *    the same final state as everyone else.
- *
- * So convergence here is an emergent property of the apply scheduler, not
- * something insertIntoRuns enforces locally. Any future "incremental apply
- * out of HLC order" optimization must restore RGA-style ID comparison here.
+ * Local-RGA invariant: among concurrent inserts that share the same anchor,
+ * the char with the higher ID lands closer to the anchor. We start at the
+ * position immediately after afterCharId, then skip forward past any
+ * existing chars whose ID is greater than the new run's first ID — the
+ * standard RGA "skip-greater-ids" rule. This makes the mergeOps fast path
+ * convergent for concurrent same-anchor inserts; reorderings that violate
+ * causality (afterCharId references a char from a not-yet-applied op) are
+ * still handled by the mergeOps slow-path rebuild.
  *
  * @returns New runs array (does not mutate input)
  */
@@ -261,64 +251,83 @@ export function insertIntoRuns(
   afterCharId: string | null,
   newChars: Char[]
 ): CharRun[] {
-  // Handle undefined or empty runs
   if (!runs || !Array.isArray(runs)) {
     runs = [];
   }
 
   if (newChars.length === 0) return runs;
 
-  // Create a new run from the inserted characters
   const firstChar = newChars[0];
   const newRun: CharRun = {
     peerId: extractPeerId(firstChar.id),
     startCounter: extractCounter(firstChar.id),
     text: newChars.map((c) => c.char).join(""),
   };
+  const newFirstId = firstChar.id;
 
-  // Handle insertion at beginning
+  // Locate the position immediately after afterCharId (or at the start).
+  let runIdx: number;
+  let offset: number;
   if (afterCharId === null) {
-    return [newRun, ...runs];
+    runIdx = 0;
+    offset = 0;
+  } else {
+    const location = findCharInRuns(runs, afterCharId);
+    if (!location) {
+      return [...runs, newRun];
+    }
+    runIdx = location.runIndex;
+    offset = location.offset + 1;
   }
 
-  // Find the character to insert after
-  const location = findCharInRuns(runs, afterCharId);
-  if (!location) {
-    // Character not found - append at end
+  // Normalize past the end of a run.
+  while (runIdx < runs.length && offset >= runs[runIdx].text.length) {
+    runIdx++;
+    offset = 0;
+  }
+
+  // Skip past existing chars with ID strictly greater than the new run's
+  // first ID (RGA: higher IDs at the same anchor are placed first).
+  while (runIdx < runs.length) {
+    const existingId = getCharIdFromRun(runs[runIdx], offset);
+    if (compareIds(existingId, newFirstId) <= 0) break;
+    offset++;
+    if (offset >= runs[runIdx].text.length) {
+      runIdx++;
+      offset = 0;
+    }
+  }
+
+  // Splice at (runIdx, offset).
+  if (runIdx >= runs.length) {
     return [...runs, newRun];
   }
-
-  const { runIndex, offset } = location;
-  const targetRun = runs[runIndex];
-
-  // If inserting at the end of a run
-  if (offset === targetRun.text.length - 1) {
+  if (offset === 0) {
     const result = [...runs];
-    result.splice(runIndex + 1, 0, newRun);
+    result.splice(runIdx, 0, newRun);
     return result;
   }
 
-  // If inserting in the middle of a run, split it
+  const targetRun = runs[runIdx];
   const beforeRun: CharRun = {
     peerId: targetRun.peerId,
     startCounter: targetRun.startCounter,
-    text: targetRun.text.slice(0, offset + 1),
+    text: targetRun.text.slice(0, offset),
     deletedMask: targetRun.deletedMask
-      ? sliceDeletedMask(targetRun.deletedMask, 0, offset + 1)
+      ? sliceDeletedMask(targetRun.deletedMask, 0, offset)
       : undefined,
   };
-
   const afterRun: CharRun = {
     peerId: targetRun.peerId,
-    startCounter: targetRun.startCounter + offset + 1,
-    text: targetRun.text.slice(offset + 1),
+    startCounter: targetRun.startCounter + offset,
+    text: targetRun.text.slice(offset),
     deletedMask: targetRun.deletedMask
-      ? sliceDeletedMask(targetRun.deletedMask, offset + 1, targetRun.text.length)
+      ? sliceDeletedMask(targetRun.deletedMask, offset, targetRun.text.length)
       : undefined,
   };
 
   const result = [...runs];
-  result.splice(runIndex, 1, beforeRun, newRun, afterRun);
+  result.splice(runIdx, 1, beforeRun, newRun, afterRun);
   return result;
 }
 

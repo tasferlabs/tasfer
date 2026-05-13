@@ -1,5 +1,6 @@
 import type { HLC } from "../editor/sync/sync";
 import { IMAGE_DEFAULT_HEIGHT } from "../editor/constants";
+import { hasTextContent } from "../editor/sync/block-registry";
 import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
 
@@ -157,7 +158,7 @@ export type Block = TextBlock | VisualBlock | ListBlock;
 
 // Type guards
 export function isTextualBlock(block: Block): block is TextualBlock {
-  return block.type !== "image" && block.type !== "line" && block.type !== "math";
+  return hasTextContent(block.type);
 }
 
 export function isListBlock(block: Block): block is ListBlock {

@@ -13,6 +13,7 @@ import {
   startScrollbarDrag,
   updateScrollbarFadeOpacity,
 } from "../scrollbar";
+import { isTextualBlock } from "@/deserializer/loadPage";
 import { getCursorDocumentCoords, getTextPositionFromViewport } from "../selection";
 import {
   closeActiveMenu,
@@ -59,10 +60,9 @@ function getBlockLineHeight(
   if (blockIndex == null) return 16 * 1.6;
   const block = state.document.page.blocks[blockIndex];
   if (!block) return 16 * 1.6;
-  const type = block.type;
-  if (type === "image" || type === "line" || type === "math") return 16 * 1.6;
+  if (!isTextualBlock(block)) return 16 * 1.6;
   const styles = getEditorStyles();
-  const textStyle = getTextStyle(styles, type);
+  const textStyle = getTextStyle(styles, block.type);
   return textStyle.fontSize * textStyle.lineHeight;
 }
 

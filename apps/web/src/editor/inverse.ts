@@ -1,18 +1,38 @@
 /**
  * Operation Inversion for User-Independent Undo/Redo
  *
- * This module computes inverse operations for each operation type.
- * When undoing, we apply the inverse operation instead of restoring state snapshots.
- * This allows undo/redo to work independently per user in a CRDT environment.
+ * Inverses are captured AT EMIT TIME (in `recordUndoOps`) against the page
+ * state the user actually had, then stored on the UndoGroup. At undo time
+ * the captured inverses are re-stamped with fresh id/clock via `refreshOp`
+ * and applied directly. The undo path no longer recomputes inverses from
+ * current state — that historically introduced bugs whenever the inverse
+ * function and the apply function drifted (e.g. forgetting to copy a new
+ * block field through into `initialProps` of the inverse block_insert).
+ *
+ * Per-op inverse functions therefore take the `Page` state that existed
+ * IMMEDIATELY BEFORE the corresponding op was applied. `invertOperations`
+ * folds `applyOp` through the batch to materialise these intermediate
+ * states; callers pass `applyOp` in to avoid a circular import.
  */
-
-import type { Block, Char, CharRun, TextFormat } from "@/deserializer/loadPage";
+import type {
+  Block,
+  Char,
+  CharRun,
+  Page,
+  TextFormat,
+} from "@/deserializer/loadPage";
+import { isTextualBlock } from "@/deserializer/loadPage";
 import { getClock, nextId } from "./sync/sync";
 import {
   iterateAllChars,
   charRunsToChars,
+  isCharIdInRange,
 } from "./sync/char-runs";
 import { extractPeerId, extractCounter } from "./sync/id";
+import {
+  getBlockDescriptor,
+  getBlockFieldNames,
+} from "./sync/block-registry";
 import type {
   BlockDelete,
   BlockInsert,
@@ -20,9 +40,8 @@ import type {
   FormatSet,
   Operation,
   TextDelete,
-  TextInsert
+  TextInsert,
 } from "./sync/types";
-import type { EditorState, PriorFormatEntry } from "./types";
 
 /**
  * Convert Char[] to CharRun[] (for inverse operations).
@@ -113,16 +132,25 @@ function createCharRunFromDeleted(
   return { peerId, startCounter, text, deletedMask };
 }
 
+// =============================================================================
+// Per-op inversion
+//
+// Each inverter takes the Page as it existed BEFORE the corresponding op was
+// applied. They read whatever prior state the inverse needs (deleted-char
+// payload for TextDelete, prior format value for FormatSet, full block fields
+// for BlockDelete, prior field value for BlockSet) and produce an op with a
+// placeholder id/clock. The id/clock get re-stamped via refreshOp at the
+// moment the inverse is applied so peers see the undo as a new event.
+// =============================================================================
+
 /**
  * Compute the inverse of a text insert operation.
  * Inverse: Delete the inserted characters.
+ *
+ * Doesn't depend on the pre-state — the inserted char IDs come directly from
+ * the op's charRuns.
  */
-function invertTextInsert(
-  op: TextInsert,
-  _state: EditorState
-): TextDelete | null {
-  // To invert a text insert, we need to delete the characters that were inserted
-  // Convert charRuns back to chars to get the IDs
+function invertTextInsert(op: TextInsert): TextDelete | null {
   const chars = charRunsToChars(op.charRuns);
   const charIds = chars.map((c) => c.id);
 
@@ -142,68 +170,45 @@ function invertTextInsert(
 
 /**
  * Compute the inverse of a text delete operation.
- * Inverse: Re-insert the deleted characters (tombstones).
+ * Inverse: Re-insert the deleted characters.
+ *
+ * The chars being deleted are still visible in `pageBefore` (the op hasn't
+ * been applied yet at this point), so we capture their content and position
+ * directly. After this we don't need pageBefore again — the inverse carries
+ * everything it needs.
  */
-function invertTextDelete(
-  op: TextDelete,
-  state: EditorState
-): TextInsert | null {
-  // Find the block (including tombstoned blocks)
-  const block = state.document.page.blocks.find((b) => b.id === op.blockId);
+function invertTextDelete(op: TextDelete, pageBefore: Page): TextInsert | null {
+  const block = pageBefore.blocks.find((b) => b.id === op.blockId);
 
-  if (!block) {
-    return null;
-  }
+  if (!block) return null;
+  if (block.deleted) return null;
+  if (!isTextualBlock(block)) return null;
 
-  // Skip if block itself is tombstoned (deleted by someone else)
-  if (block.deleted) {
-    return null;
-  }
-
-  // Skip blocks without text content
-  if (block.type === "image" || block.type === "line" || block.type === "math") {
-    return null;
-  }
-
-  // Find the tombstoned (deleted) characters in the block
-  const charsToReinsert: Char[] = [];
+  // Capture the chars that will be deleted (they're still visible).
   const charIdSet = new Set(op.charIds);
-
-  // Iterate through all chars (including deleted) to find tombstoned ones
+  const charsToReinsert: Char[] = [];
   for (const { id, char, deleted } of iterateAllChars(block.charRuns)) {
-    if (charIdSet.has(id) && deleted) {
-      charsToReinsert.push({
-        id,
-        char,
-      });
+    if (charIdSet.has(id) && !deleted) {
+      charsToReinsert.push({ id, char });
     }
   }
 
-  if (charsToReinsert.length === 0) {
-    return null; // All chars already restored or missing
-  }
+  if (charsToReinsert.length === 0) return null;
 
-  // Find the position to insert after
-  // Look for the character IMMEDIATELY BEFORE the first char to restore in the charRuns sequence
-  // This preserves the original CRDT position regardless of tombstone status
+  // Determine the insertion position by looking at the char immediately
+  // before the first reinserted char in the pre-state's full sequence
+  // (including tombstones — tombstones preserve CRDT ordering).
   let afterCharId: string | null = null;
   const firstDeletedId = charsToReinsert[0].id;
-
-  // Get all chars in order to find the preceding char
-  const allChars: Array<{ id: string; deleted: boolean }> = [];
-  for (const { id, deleted } of iterateAllChars(block.charRuns)) {
-    allChars.push({ id, deleted });
+  const sequenceIds: string[] = [];
+  for (const { id } of iterateAllChars(block.charRuns)) {
+    sequenceIds.push(id);
   }
-
-  const firstDeletedIndex = allChars.findIndex((c) => c.id === firstDeletedId);
+  const firstDeletedIndex = sequenceIds.indexOf(firstDeletedId);
   if (firstDeletedIndex > 0) {
-    // Use the character immediately before (regardless of its deleted status)
-    // This preserves the original CRDT ordering
-    afterCharId = allChars[firstDeletedIndex - 1].id;
+    afterCharId = sequenceIds[firstDeletedIndex - 1];
   }
-  // If firstDeletedIndex is 0 or -1, afterCharId stays null (insert at beginning)
 
-  // Convert to CharRuns
   const charRuns = charsToCharRuns(charsToReinsert);
 
   return {
@@ -213,52 +218,60 @@ function invertTextDelete(
     pageId: op.pageId,
     blockId: op.blockId,
     afterCharId,
-    charRuns: charRuns,
+    charRuns,
   };
 }
 
 /**
  * Compute the inverse of a format set operation.
  *
- * If priorEntries is provided (captured by recordUndoOps at the time the op
- * was applied), we restore the per-char prior state: contiguous runs of chars
- * that had the same prior format become one format_set op, preserving link
- * URLs and any other format-specific data.
+ * For each affected char in `pageBefore`, find whether a span of the same
+ * format type covered it; if so, what value did it have? Group consecutive
+ * chars with the same prior value into a single inverse op so we emit one
+ * op per contiguous run rather than one per char.
  *
- * Without priorEntries we fall back to a naive toggle (the legacy behavior
- * before per-char prior state was captured).
+ * Without a pre-state (shouldn't happen for ops captured by recordUndoOps)
+ * this returns an empty array — there's no safe fallback if we don't know
+ * the prior value, and undo failing loud is better than corrupting state.
  */
-function invertFormatSet(
-  op: FormatSet,
-  state: EditorState,
-  priorEntries: readonly PriorFormatEntry[] | undefined
-): FormatSet[] {
-  const block = state.document.page.blocks.find((b) => b.id === op.blockId);
-  if (!block || block.deleted) return [];
+function invertFormatSet(op: FormatSet, pageBefore: Page): FormatSet[] {
+  const block = pageBefore.blocks.find((b) => b.id === op.blockId);
+  if (!block || block.deleted || !isTextualBlock(block)) return [];
 
-  if (!priorEntries || priorEntries.length === 0) {
-    // Fallback: legacy toggle. Loses prior URL on link, prior state under
-    // overlapping spans, etc. — only used when prior-format snapshot is
-    // missing (shouldn't happen for ops recorded after this commit).
-    const inverseValue: boolean | string =
-      typeof op.value === "boolean" ? !op.value : false;
-    return [
-      {
-        op: "format_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: op.pageId,
-        blockId: op.blockId,
-        charIds: op.charIds,
-        format: op.format,
-        value: inverseValue,
-      },
-    ];
+  // Look up the prior value of `op.format.type` on each affected char.
+  // For overlapping same-type spans we pick the one with the latest HLC
+  // (LWW — matches how applyFormatSet computes the visible state).
+  type Prior = { charId: string; priorFormat: TextFormat | null };
+  const priors: Prior[] = [];
+  for (const charId of op.charIds) {
+    let priorFormat: TextFormat | null = null;
+    let priorCounter = -1;
+    let priorPeer = "";
+    for (const span of block.formats) {
+      if (span.format.type !== op.format.type) continue;
+      if (
+        !isCharIdInRange(
+          block.charRuns,
+          charId,
+          span.startCharId,
+          span.endCharId,
+        )
+      ) {
+        continue;
+      }
+      if (
+        span.clock.counter > priorCounter ||
+        (span.clock.counter === priorCounter && span.clock.peerId > priorPeer)
+      ) {
+        priorFormat = span.format;
+        priorCounter = span.clock.counter;
+        priorPeer = span.clock.peerId;
+      }
+    }
+    priors.push({ charId, priorFormat });
   }
 
-  // Group consecutive entries by prior-format identity so we emit one op per
-  // contiguous run rather than per char. Two priorFormats are "the same" if
-  // they're both null OR both have the same type and (for link) the same url.
+  // Group consecutive entries by prior-format identity.
   const sameFormat = (a: TextFormat | null, b: TextFormat | null): boolean => {
     if (a === null && b === null) return true;
     if (a === null || b === null) return false;
@@ -267,58 +280,54 @@ function invertFormatSet(
     return true;
   };
 
-  const groups: { priorFormat: TextFormat | null; charIds: string[] }[] = [];
-  for (const entry of priorEntries) {
-    const last = groups[groups.length - 1];
-    if (last && sameFormat(last.priorFormat, entry.priorFormat)) {
-      last.charIds.push(entry.charId);
-    } else {
-      groups.push({ priorFormat: entry.priorFormat, charIds: [entry.charId] });
+  const inverses: FormatSet[] = [];
+  let runStart = 0;
+  while (runStart < priors.length) {
+    const groupPrior = priors[runStart].priorFormat;
+    let runEnd = runStart;
+    while (
+      runEnd + 1 < priors.length &&
+      sameFormat(priors[runEnd + 1].priorFormat, groupPrior)
+    ) {
+      runEnd++;
     }
-  }
-
-  const ops: FormatSet[] = [];
-  for (const group of groups) {
-    if (group.priorFormat === null) {
-      // No prior format of this type: remove it across this run.
-      ops.push({
+    const charIds = priors.slice(runStart, runEnd + 1).map((p) => p.charId);
+    if (groupPrior === null) {
+      // No prior format of this type on these chars — undo by removing.
+      inverses.push({
         op: "format_set",
         id: nextId(),
         clock: getClock(),
         pageId: op.pageId,
         blockId: op.blockId,
-        charIds: group.charIds,
+        charIds,
         format: op.format,
         value: false,
       });
     } else {
-      // Had a prior format (potentially with different url for links):
-      // re-apply that format across this run. value just needs to be truthy
-      // for applyRemoteFormatSet to take the "add" path; the format object
-      // carries the meaningful data (type, url).
-      ops.push({
+      // Had a prior format (possibly with a different URL for links):
+      // re-apply it so the original span is restored.
+      inverses.push({
         op: "format_set",
         id: nextId(),
         clock: getClock(),
         pageId: op.pageId,
         blockId: op.blockId,
-        charIds: group.charIds,
-        format: group.priorFormat,
+        charIds,
+        format: groupPrior,
         value: true,
       });
     }
+    runStart = runEnd + 1;
   }
-  return ops;
+  return inverses;
 }
 
 /**
  * Compute the inverse of a block insert operation.
  * Inverse: Delete the inserted block.
  */
-function invertBlockInsert(
-  op: BlockInsert,
-  _state: EditorState
-): BlockDelete | null {
+function invertBlockInsert(op: BlockInsert): BlockDelete {
   return {
     op: "block_delete",
     id: nextId(),
@@ -330,37 +339,23 @@ function invertBlockInsert(
 
 /**
  * Compute the inverse of a block delete operation.
- * Inverse: Re-insert the deleted block (tombstone).
+ *
+ * Reads the block from `pageBefore` (where it still exists, not yet
+ * tombstoned). Uses the block-type registry to extract every field's value
+ * into `initialProps`, so adding a new field to a block type doesn't require
+ * touching this function — the registry is the single source of truth.
  */
-function invertBlockDelete(
-  op: BlockDelete,
-  state: EditorState
-): BlockInsert | null {
-  // Find the tombstoned block in the current state
-  const block: Block | undefined = state.document.page.blocks.find(
-    (b) => b.id === op.blockId && b.deleted
+function invertBlockDelete(op: BlockDelete, pageBefore: Page): BlockInsert | null {
+  const block: Block | undefined = pageBefore.blocks.find(
+    (b) => b.id === op.blockId,
   );
+  if (!block || block.deleted) return null;
 
-  if (!block) {
-    return null; // Block not found or already restored
-  }
-
-  // Use the block's afterId directly (tombstone preserves position)
-  const afterBlockId = block.afterId;
-
-  // Build initial props based on block type
-  let initialProps: any = {};
-  if (block.type === "bullet_list" || block.type === "numbered_list") {
-    initialProps.indent = block.indent;
-  } else if (block.type === "todo_list") {
-    initialProps.checked = block.checked;
-    initialProps.indent = block.indent;
-  } else if (block.type === "image") {
-    initialProps.url = block.url;
-    initialProps.alt = block.alt;
-    initialProps.width = block.width;
-    initialProps.height = block.height;
-    initialProps.objectFit = block.objectFit;
+  const descriptor = getBlockDescriptor(block.type);
+  const initialProps: Record<string, unknown> = {};
+  for (const fieldName of getBlockFieldNames(block.type)) {
+    if (fieldName === "type") continue;
+    initialProps[fieldName] = descriptor.fields[fieldName].extractForInverse(block);
   }
 
   return {
@@ -368,7 +363,7 @@ function invertBlockDelete(
     id: nextId(),
     clock: getClock(),
     pageId: op.pageId,
-    afterBlockId: afterBlockId || null,
+    afterBlockId: block.afterId ?? null,
     blockId: op.blockId,
     blockType: block.type,
     initialProps,
@@ -377,24 +372,21 @@ function invertBlockDelete(
 
 /**
  * Compute the inverse of a block set operation.
- * Inverse: Set the property back to its previous value.
+ *
+ * Reads the prior value of the field from `pageBefore`. Uses the registry's
+ * `extractForInverse` so type-specific extraction lives in one place.
  */
-function invertBlockSet(op: BlockSet, state: EditorState): BlockSet | null {
-  // To invert a block set, we need to know the previous value
-  const block = state.document.page.blocks.find((b) => b.id === op.blockId);
+function invertBlockSet(op: BlockSet, pageBefore: Page): BlockSet | null {
+  const block = pageBefore.blocks.find((b) => b.id === op.blockId);
+  if (!block || block.deleted) return null;
 
-  if (!block || block.deleted) {
-    return null;
-  }
-
-  // Get the current value (which is the previous value before this op was applied)
+  const descriptor = getBlockDescriptor(block.type);
   let previousValue: unknown;
-
   if (op.field === "type") {
     previousValue = block.type;
   } else {
-    // Access the field directly on the block (for indent, checked, url, etc.)
-    previousValue = (block as any)[op.field];
+    const fieldDesc = descriptor.fields[op.field];
+    previousValue = fieldDesc ? fieldDesc.extractForInverse(block) : undefined;
   }
 
   return {
@@ -409,36 +401,33 @@ function invertBlockSet(op: BlockSet, state: EditorState): BlockSet | null {
 }
 
 /**
- * Compute the inverse of any operation. Returns an array because some op
- * types (format_set) may need multiple inverses to restore per-char prior
- * state. Returns an empty array if the operation cannot be inverted.
+ * Compute the inverse(s) of a single op against the page state before that
+ * op was applied. Returns an empty array when the op cannot be inverted
+ * (e.g. the original op was a no-op already).
+ *
+ * Some op kinds invert into multiple ops — format_set crossing pre-existing
+ * formatting boundaries inverts into one op per prior segment.
  */
-export function invertOperation(
-  op: Operation,
-  state: EditorState,
-  priorFormats?: ReadonlyMap<string, readonly PriorFormatEntry[]>
-): Operation[] {
+export function invertOperation(op: Operation, pageBefore: Page): Operation[] {
   switch (op.op) {
     case "text_insert": {
-      const inv = invertTextInsert(op, state);
+      const inv = invertTextInsert(op);
       return inv ? [inv] : [];
     }
     case "text_delete": {
-      const inv = invertTextDelete(op, state);
+      const inv = invertTextDelete(op, pageBefore);
       return inv ? [inv] : [];
     }
     case "format_set":
-      return invertFormatSet(op, state, priorFormats?.get(op.id));
-    case "block_insert": {
-      const inv = invertBlockInsert(op, state);
-      return inv ? [inv] : [];
-    }
+      return invertFormatSet(op, pageBefore);
+    case "block_insert":
+      return [invertBlockInsert(op)];
     case "block_delete": {
-      const inv = invertBlockDelete(op, state);
+      const inv = invertBlockDelete(op, pageBefore);
       return inv ? [inv] : [];
     }
     case "block_set": {
-      const inv = invertBlockSet(op, state);
+      const inv = invertBlockSet(op, pageBefore);
       return inv ? [inv] : [];
     }
     default:
@@ -447,33 +436,57 @@ export function invertOperation(
 }
 
 /**
- * Compute inverses for a batch of operations (in reverse order).
- * When undoing multiple operations, we need to invert them in reverse order.
+ * Compute inverses for a batch of operations.
+ *
+ * Each op's inverse is computed against the page state IMMEDIATELY BEFORE
+ * that op was applied. We fold `applyOp` through `pageBefore` to materialise
+ * the per-op pre-state, then invert each op against its own pre-state. The
+ * `applyOp` function is passed in to avoid a circular import (reducer →
+ * crdt-helpers → inverse).
+ *
+ * Returned in REVERSE order so applying them in array order rolls back the
+ * batch (last op undone first).
  */
 export function invertOperations(
   ops: readonly Operation[],
-  state: EditorState,
-  priorFormats?: ReadonlyMap<string, readonly PriorFormatEntry[]>
+  pageBefore: Page,
+  applyOp: (page: Page, op: Operation) => Page,
 ): Operation[] {
-  const inverses: Operation[] = [];
-
-  // Process in reverse order
-  for (let i = ops.length - 1; i >= 0; i--) {
-    for (const inverse of invertOperation(ops[i], state, priorFormats)) {
-      inverses.push(inverse);
-    }
+  // Materialise the per-op pre-state.
+  const preStates: Page[] = new Array(ops.length);
+  let current = pageBefore;
+  for (let i = 0; i < ops.length; i++) {
+    preStates[i] = current;
+    current = applyOp(current, ops[i]);
   }
 
+  // Invert each op against its own pre-state, in reverse order.
+  const inverses: Operation[] = [];
+  for (let i = ops.length - 1; i >= 0; i--) {
+    for (const inv of invertOperation(ops[i], preStates[i])) {
+      inverses.push(inv);
+    }
+  }
   return inverses;
 }
 
+// =============================================================================
+// Re-stamping ops for replay
+// =============================================================================
+
 /**
  * Return a copy of an operation with a fresh id and clock so it appears as a
- * new event to peers. Used by redo: the original op's id/clock is already in
- * every peer's version vector, so re-broadcasting it would be silently
- * dropped. Replaying it with a fresh stamp re-applies the change everywhere
- * (un-tombstoning chars/blocks for inserts, re-tombstoning for deletes,
- * creating a new span for format_set, and overwriting fields for block_set).
+ * new event to peers.
+ *
+ * Used by both undo and redo:
+ * - Undo applies stored inverses (captured with placeholder id/clock at emit
+ *   time). Re-stamping promotes them to fresh events.
+ * - Redo re-applies the original op, but the original id/clock is already
+ *   in every peer's version vector from the first broadcast. Re-stamping
+ *   makes the re-broadcast actually propagate.
+ *
+ * The semantic effect of the replayed op is identical because the payload
+ * (charIds, blockId, format, value, afterCharId, etc.) is unchanged.
  */
 export function refreshOp(op: Operation): Operation {
   return {

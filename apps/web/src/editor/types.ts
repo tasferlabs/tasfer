@@ -1,7 +1,7 @@
 import type { Block, Page, TextFormat } from "../deserializer/loadPage";
 import type { FontFamily } from "./fonts";
 import type { MomentumState, ScrollbarState } from "./scrollbar";
-import type { HLC, Operation } from "./sync/types";
+import type { Operation } from "./sync/types";
 
 export interface SlashCommand {
   id: string;
@@ -189,28 +189,23 @@ export interface ViewState {
   visibleBlocks: (Block & { originalIndex: number })[];
 }
 
-// For each charId in a format_set op, the format of the same type that was
-// active on that char *before* the op was applied. null means the char had no
-// format of that type. Used by undo to restore prior format state per-char
-// (e.g. preserve a link's URL across undo/redo) rather than just toggling.
-export interface PriorFormatEntry {
-  readonly charId: string;
-  readonly priorFormat: TextFormat | null;
-}
-
-// Undo tracks operations per user for independent undo/redo
-// Inverses are computed on-the-fly during undo using tombstones
+// Undo tracks operations per user for independent undo/redo.
+//
+// Inverses are captured AT EMIT TIME (in `recordUndoOps`) against the page
+// state the user actually had, then stored on the group. At undo time the
+// stored inverses are re-stamped with fresh id/clock and applied directly
+// — no recomputation from current state. This decouples undo from any
+// intervening remote edits and eliminates the class of bugs where inverse
+// extraction drifts behind apply behaviour (e.g. forgetting to copy a new
+// block field into the inverse block_insert's initialProps).
 export interface UndoGroup {
-  readonly operations: readonly Operation[]; // Original operations performed
+  readonly operations: readonly Operation[]; // Original operations performed (used for redo broadcast)
+  readonly inverses: readonly Operation[]; // Captured at emit time; replayed verbatim on undo
   readonly peerId: string; // User who performed these operations
   readonly cursorBefore: CRDTCursorState | null; // Cursor state before operations (restored on undo)
   readonly selectionBefore: CRDTSelectionState | null; // Selection state before operations (restored on undo)
   readonly cursorAfter: CRDTCursorState | null; // Cursor state after operations (restored on redo)
   readonly selectionAfter: CRDTSelectionState | null; // Selection state after operations (restored on redo)
-  // Per-op prior format snapshot, keyed by Operation.id. Only present for
-  // format_set ops; lookup returns undefined for any other op type. Captured
-  // from stateBefore inside recordUndoOps.
-  readonly priorFormats?: ReadonlyMap<string, readonly PriorFormatEntry[]>;
 }
 
 export interface UndoManagerState {
@@ -224,20 +219,12 @@ export interface EditorState {
   readonly ui: UIState;
   readonly view: ViewState;
   readonly undoManager: UndoManagerState;
-  readonly crdt: CRDTContext;
 }
 
 // Command result - all commands return state + operations
 export interface CommandResult {
   readonly state: EditorState;
   readonly ops: Operation[];
-}
-
-// CRDT context - external dependencies for generating operations
-export interface CRDTContext {
-  readonly pageId: string;
-  readonly idGen: () => string;
-  readonly clock: () => HLC;
 }
 
 export interface CursorState {

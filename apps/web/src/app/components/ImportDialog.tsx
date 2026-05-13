@@ -28,7 +28,7 @@ import { useCreatePage, updatePage } from "../api/pages.api";
 import { uploadImage } from "../api/images.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import { extractTitleFromBlocks, getVisibleTextFromRuns } from "@/editor/sync/char-runs";
-import type { Block } from "@/deserializer/loadPage";
+import { isTextualBlock, type Block } from "@/deserializer/loadPage";
 
 interface ImportDialogProps {
   open: boolean;
@@ -40,11 +40,10 @@ function isPageEmpty(blocks: Block[]): boolean {
 
   // Check if all blocks have no visible content
   for (const block of blocks) {
-    // Images and lines count as content
-    if (block.type === "image" || block.type === "line" || block.type === "math") {
+    // Non-textual blocks (images, lines, math) count as content.
+    if (!isTextualBlock(block)) {
       return false;
     }
-    // Check textual blocks for content
     if ("charRuns" in block) {
       const text = getVisibleTextFromRuns(block.charRuns);
       if (text.trim() !== "") {
