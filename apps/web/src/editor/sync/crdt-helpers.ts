@@ -16,13 +16,11 @@ import type {
 import { getPageId, nextId, getClock } from "./sync";
 import { extractPeerId, extractCounter } from "./id";
 import {
-  insertIntoRuns,
   getVisibleTextFromRuns,
   getVisibleLengthFromRuns,
   getCharIdAtVisiblePosition,
   iterateVisibleChars,
   isCharIdInRange,
-  charRunsToChars,
 } from "./char-runs";
 import { applyOp } from "./reducer";
 
@@ -221,76 +219,3 @@ export function getFormatsAtCharPosition(
   return activeFormats;
 }
 
-// =============================================================================
-// Remote Operation Application
-// =============================================================================
-
-/**
- * Apply a text insert operation to a page.
- * Shared by `applyOp` (reducer) — handles both fresh inserts and un-tombstoning
- * chars that already exist (e.g. undo restoring a deleted character).
- */
-export function applyTextInsertOp(page: Page, op: TextInsert): Page {
-  const blockIndex = page.blocks.findIndex((b) => b.id === op.blockId);
-
-  if (blockIndex === -1) {
-    return page;
-  }
-
-  const block = page.blocks[blockIndex];
-
-  if (!block || block.deleted || !isTextualBlock(block)) {
-    return page;
-  }
-
-  const chars = charRunsToChars(op.charRuns);
-
-  const existingCharIds = new Set<string>();
-  for (const run of block.charRuns || []) {
-    for (let i = 0; i < run.text.length; i++) {
-      const charId = `${run.peerId}:${run.startCounter + i}`;
-      existingCharIds.add(charId);
-    }
-  }
-
-  const charsToRestore = chars.filter((c) => existingCharIds.has(c.id));
-  const charsToInsert = chars.filter((c) => !existingCharIds.has(c.id));
-
-  let newCharRuns = block.charRuns || [];
-
-  if (charsToRestore.length > 0) {
-    const charIdsToRestore = new Set(charsToRestore.map((c) => c.id));
-    newCharRuns = newCharRuns.map((run) => {
-      let modified = false;
-      let newMask = run.deletedMask ? [...run.deletedMask] : undefined;
-
-      for (let i = 0; i < run.text.length; i++) {
-        const charId = `${run.peerId}:${run.startCounter + i}`;
-        if (charIdsToRestore.has(charId) && newMask) {
-          const byteIndex = Math.floor(i / 8);
-          const bitIndex = i % 8;
-          if (byteIndex < newMask.length && (newMask[byteIndex] & (1 << bitIndex)) !== 0) {
-            newMask[byteIndex] &= ~(1 << bitIndex);
-            modified = true;
-          }
-        }
-      }
-
-      if (modified) {
-        const hasAnyDeleted = newMask?.some((byte) => byte !== 0);
-        return { ...run, deletedMask: hasAnyDeleted ? newMask : undefined };
-      }
-      return run;
-    });
-  }
-
-  if (charsToInsert.length > 0) {
-    newCharRuns = insertIntoRuns(newCharRuns, op.afterCharId, charsToInsert);
-  }
-
-  const updatedBlock = { ...block, charRuns: newCharRuns };
-  const newBlocks = [...page.blocks];
-  newBlocks[blockIndex] = updatedBlock;
-
-  return { ...page, blocks: newBlocks };
-}

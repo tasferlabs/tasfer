@@ -7,6 +7,7 @@
  */
 
 import type { Char, CharRun, Page, TextFormat } from "@/deserializer/loadPage";
+import { BLOCK_REGISTRY } from "./block-registry";
 import { compareHLC, createHLC, receiveHLC, tickHLC } from "./hlc";
 import { createIdGenerator, generateBlockId, generatePeerId, extractPeerId, extractCounter } from "./id";
 import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
@@ -138,7 +139,13 @@ export type {
  * value. The wire shape itself stays `field: string, value: unknown` — this
  * is purely a guard at construction sites that know the block's static type.
  *
- * Keep in sync with BLOCK_REGISTRY in block-registry.ts.
+ * The KEYS of each entry are checked against BLOCK_REGISTRY at compile time
+ * by `_BlockFieldsOfMatchesRegistry` below. The VALUE TYPES still need
+ * manual sync with the descriptor's `validate` predicates — adding a new
+ * field requires touching both the registry and this map; the assertion
+ * catches the field-name half of that. (Encoding value types in the
+ * registry would require lifting them into FieldDescriptor's generics; not
+ * done because the validate functions already enforce them at runtime.)
  */
 export interface BlockFieldsOf {
   paragraph: {};
@@ -158,6 +165,48 @@ export interface BlockFieldsOf {
   line: {};
   math: { latex: string; displayMode: boolean };
 }
+
+// =============================================================================
+// Compile-time check: BlockFieldsOf keys === BLOCK_REGISTRY field keys
+// =============================================================================
+//
+// If a block-type's field set drifts between BlockFieldsOf (compile-time)
+// and BLOCK_REGISTRY (runtime), one of the symbols below collapses to
+// `never` and surfaces as a "Type 'true' is not assignable to type 'never'"
+// error at the `_assertBlockFieldsOfMatchesRegistry` declaration.
+
+/** Field keys registered on a block type (excluding "type", which is always valid). */
+type _RegistryFieldKeys<T extends BlockType> = Exclude<
+  keyof (typeof BLOCK_REGISTRY)[T]["fields"] & string,
+  "type"
+>;
+
+/** Field keys declared in BlockFieldsOf for a block type. */
+type _BlockFieldsOfKeys<T extends BlockType> = keyof BlockFieldsOf[T] & string;
+
+/** `true` iff A and B are mutually assignable as constraints. */
+type _Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
+
+/** Per-block-type key-set equality assertion. */
+type _BlockFieldsOfMatchesRegistry = {
+  [T in BlockType]: _Equal<_RegistryFieldKeys<T>, _BlockFieldsOfKeys<T>>;
+};
+
+// Force the assertion to evaluate. If any block-type's key sets diverge,
+// the corresponding entry becomes `never` and this declaration fails.
+const _assertBlockFieldsOfMatchesRegistry: _BlockFieldsOfMatchesRegistry = {
+  paragraph: true,
+  heading1: true,
+  heading2: true,
+  heading3: true,
+  bullet_list: true,
+  numbered_list: true,
+  todo_list: true,
+  image: true,
+  line: true,
+  math: true,
+};
+void _assertBlockFieldsOfMatchesRegistry;
 
 /**
  * Field name allowed on a BlockSet for block type T.

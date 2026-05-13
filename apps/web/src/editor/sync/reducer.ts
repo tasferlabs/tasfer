@@ -15,9 +15,11 @@ import {
 import { resolveBlockOrder } from "./conflicts";
 import { compareHLC } from "./hlc";
 import {
+  charRunsToChars,
   deleteFromRuns,
   getVisibleTextFromRuns,
   getCharIdAtVisiblePosition,
+  insertIntoRuns,
   isCharIdInRange,
   iterateVisibleChars,
 } from "./char-runs";
@@ -31,7 +33,6 @@ import type {
   TextDelete,
   TextInsert,
 } from "./types";
-import { applyTextInsertOp } from "./crdt-helpers";
 import {
   canMorphTo,
   createDefaultBlock,
@@ -75,11 +76,76 @@ function findBlockIndex(state: Page, blockId: string): number {
 
 /**
  * Apply a text insert operation.
- * Inserts characters after the specified character ID.
- * If chars already exist (as tombstones), un-tombstones them instead of duplicating.
+ *
+ * Inserts characters after the specified character ID. If any chars in
+ * `op.charRuns` already exist as tombstones, un-tombstones them rather than
+ * inserting duplicates — that path supports undo restoring deleted chars.
  */
 function applyTextInsert(state: Page, op: TextInsert): Page {
-  return applyTextInsertOp(state, op);
+  const blockIndex = findBlockIndex(state, op.blockId);
+
+  if (blockIndex === -1) {
+    return state;
+  }
+
+  const block = state.blocks[blockIndex];
+
+  if (!block || block.deleted || !isTextualBlock(block)) {
+    return state;
+  }
+
+  const chars = charRunsToChars(op.charRuns);
+
+  const existingCharIds = new Set<string>();
+  for (const run of block.charRuns || []) {
+    for (let i = 0; i < run.text.length; i++) {
+      existingCharIds.add(`${run.peerId}:${run.startCounter + i}`);
+    }
+  }
+
+  const charsToRestore = chars.filter((c) => existingCharIds.has(c.id));
+  const charsToInsert = chars.filter((c) => !existingCharIds.has(c.id));
+
+  let newCharRuns = block.charRuns || [];
+
+  if (charsToRestore.length > 0) {
+    const charIdsToRestore = new Set(charsToRestore.map((c) => c.id));
+    newCharRuns = newCharRuns.map((run) => {
+      let modified = false;
+      const newMask = run.deletedMask ? [...run.deletedMask] : undefined;
+
+      for (let i = 0; i < run.text.length; i++) {
+        const charId = `${run.peerId}:${run.startCounter + i}`;
+        if (charIdsToRestore.has(charId) && newMask) {
+          const byteIndex = Math.floor(i / 8);
+          const bitIndex = i % 8;
+          if (
+            byteIndex < newMask.length &&
+            (newMask[byteIndex] & (1 << bitIndex)) !== 0
+          ) {
+            newMask[byteIndex] &= ~(1 << bitIndex);
+            modified = true;
+          }
+        }
+      }
+
+      if (modified) {
+        const hasAnyDeleted = newMask?.some((byte) => byte !== 0);
+        return { ...run, deletedMask: hasAnyDeleted ? newMask : undefined };
+      }
+      return run;
+    });
+  }
+
+  if (charsToInsert.length > 0) {
+    newCharRuns = insertIntoRuns(newCharRuns, op.afterCharId, charsToInsert);
+  }
+
+  const updatedBlock = { ...block, charRuns: newCharRuns };
+  const newBlocks = [...state.blocks];
+  newBlocks[blockIndex] = updatedBlock;
+
+  return { ...state, blocks: newBlocks };
 }
 
 /**

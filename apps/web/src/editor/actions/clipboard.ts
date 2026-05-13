@@ -59,14 +59,29 @@ function autoLinkInRange(
   rangeStart: number,
   rangeEnd: number,
 ): { newPage: Page; ops: Operation[] } {
+  // `format_set` ops applied below only append link spans — they never
+  // mutate charRuns. So the block's charRuns and the (link-)format spans we
+  // need to check are stable across the URL loop; only the accumulated link
+  // ops we ourselves emit need to be considered. Hoist the initial lookup
+  // out of the loop and track newly-added links locally.
+  const initialBlock = page.blocks.find((b) => b.id === blockId);
+  if (!initialBlock || !isTextualBlock(initialBlock)) {
+    return { newPage: page, ops: [] };
+  }
+  const charRuns = initialBlock.charRuns;
+  const existingLinkSpans = initialBlock.formats.filter(
+    (s) => s.format.type === "link",
+  );
+
   const rangeText = text.slice(rangeStart, rangeEnd);
   const ops: Operation[] = [];
   let pageAcc = page;
+  const newLinkRanges: Array<{ start: number; end: number }> = [];
 
   URL_REGEX_GLOBAL.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = URL_REGEX_GLOBAL.exec(rangeText)) !== null) {
-    let urlText = match[0].replace(/[.,;:!?)]+$/, "");
+    const urlText = match[0].replace(/[.,;:!?)]+$/, "");
     const start = rangeStart + match.index;
     const end = start + urlText.length;
 
@@ -75,14 +90,13 @@ function autoLinkInRange(
       url = "https://" + url;
     }
 
-    const block = pageAcc.blocks.find((b) => b.id === blockId);
-    if (!block || !isTextualBlock(block)) continue;
-    const charRuns = block.charRuns;
-
-    // Check if already formatted as link
-    let alreadyLinked = false;
-    for (const span of block.formats) {
-      if (span.format.type === "link") {
+    // Check if already formatted as link — either by a pre-existing span,
+    // or by an auto-link we emitted earlier in this same loop.
+    let alreadyLinked = newLinkRanges.some(
+      (r) => r.start < end && r.end > start,
+    );
+    if (!alreadyLinked) {
+      for (const span of existingLinkSpans) {
         let inSpan = false;
         let spanStart = -1;
         let spanEnd = -1;
@@ -109,6 +123,7 @@ function autoLinkInRange(
       );
       pageAcc = newPage;
       ops.push(op);
+      newLinkRanges.push({ start, end });
     }
   }
 

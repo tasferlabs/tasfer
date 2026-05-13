@@ -158,9 +158,18 @@ export function resolveBlockOrder(blocks: Block[]): Block[] {
     afterMap.set(key, existing);
   }
 
-  // Sort blocks with same afterId by their own ID
+  // RGA sibling rule: among blocks sharing the same `afterId`, the one with
+  // the HIGHER id (the later/newer insert) lands closer to the anchor. This
+  // matches the char-level rule in `insertIntoRuns` (skip-greater-ids), and
+  // makes it so that pressing Enter in the middle of a document — which
+  // emits a block_insert with `afterBlockId = currentBlock.id` — places the
+  // new block immediately after the current one, ahead of any pre-existing
+  // sibling that also targets the same anchor.
+  //
+  // The orphan walk below intentionally keeps ascending order: orphans
+  // need deterministic placement but have no anchor-relative semantics.
   for (const [key, blocksAtPosition] of afterMap) {
-    blocksAtPosition.sort(compareBlocks);
+    blocksAtPosition.sort((a, b) => -compareBlocks(a, b));
     afterMap.set(key, blocksAtPosition);
   }
 

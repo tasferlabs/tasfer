@@ -197,10 +197,15 @@ const VISUAL_CAPS: BlockCapabilities = {
   togglable: false,
 };
 
-const paragraphDescriptor: BlockTypeDescriptor = {
+// Each descriptor uses `satisfies BlockTypeDescriptor` (not a wide
+// annotation) so that `typeof xDescriptor.fields` keeps its literal key
+// type — that's what the cross-file compile-time check in sync.ts indexes
+// into to detect BlockFieldsOf drift.
+
+const paragraphDescriptor = {
   type: "paragraph",
   capabilities: TEXTUAL_CAPS,
-  defaults: (id, afterId) => ({
+  defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "paragraph",
     charRuns: [],
@@ -208,12 +213,12 @@ const paragraphDescriptor: BlockTypeDescriptor = {
   }),
   fields: { type: typeField },
   textPreservingMorphs: TEXTUAL_BLOCK_TYPES,
-};
+} satisfies BlockTypeDescriptor;
 
-const heading1Descriptor: BlockTypeDescriptor = {
+const heading1Descriptor = {
   type: "heading1",
   capabilities: TEXTUAL_CAPS,
-  defaults: (id, afterId) => ({
+  defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "heading1",
     charRuns: [],
@@ -221,12 +226,12 @@ const heading1Descriptor: BlockTypeDescriptor = {
   }),
   fields: { type: typeField },
   textPreservingMorphs: TEXTUAL_BLOCK_TYPES,
-};
+} satisfies BlockTypeDescriptor;
 
-const heading2Descriptor: BlockTypeDescriptor = {
+const heading2Descriptor = {
   type: "heading2",
   capabilities: TEXTUAL_CAPS,
-  defaults: (id, afterId) => ({
+  defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "heading2",
     charRuns: [],
@@ -234,12 +239,12 @@ const heading2Descriptor: BlockTypeDescriptor = {
   }),
   fields: { type: typeField },
   textPreservingMorphs: TEXTUAL_BLOCK_TYPES,
-};
+} satisfies BlockTypeDescriptor;
 
-const heading3Descriptor: BlockTypeDescriptor = {
+const heading3Descriptor = {
   type: "heading3",
   capabilities: TEXTUAL_CAPS,
-  defaults: (id, afterId) => ({
+  defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "heading3",
     charRuns: [],
@@ -247,12 +252,12 @@ const heading3Descriptor: BlockTypeDescriptor = {
   }),
   fields: { type: typeField },
   textPreservingMorphs: TEXTUAL_BLOCK_TYPES,
-};
+} satisfies BlockTypeDescriptor;
 
-const bulletListDescriptor: BlockTypeDescriptor = {
+const bulletListDescriptor = {
   type: "bullet_list",
   capabilities: LIST_CAPS,
-  defaults: (id, afterId) => ({
+  defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "bullet_list",
     charRuns: [],
@@ -261,12 +266,12 @@ const bulletListDescriptor: BlockTypeDescriptor = {
   }),
   fields: { type: typeField, indent: indentField },
   textPreservingMorphs: TEXTUAL_BLOCK_TYPES,
-};
+} satisfies BlockTypeDescriptor;
 
-const numberedListDescriptor: BlockTypeDescriptor = {
+const numberedListDescriptor = {
   type: "numbered_list",
   capabilities: LIST_CAPS,
-  defaults: (id, afterId) => ({
+  defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "numbered_list",
     charRuns: [],
@@ -275,12 +280,12 @@ const numberedListDescriptor: BlockTypeDescriptor = {
   }),
   fields: { type: typeField, indent: indentField },
   textPreservingMorphs: TEXTUAL_BLOCK_TYPES,
-};
+} satisfies BlockTypeDescriptor;
 
-const todoListDescriptor: BlockTypeDescriptor = {
+const todoListDescriptor = {
   type: "todo_list",
   capabilities: TODO_CAPS,
-  defaults: (id, afterId) => ({
+  defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "todo_list",
     charRuns: [],
@@ -290,12 +295,12 @@ const todoListDescriptor: BlockTypeDescriptor = {
   }),
   fields: { type: typeField, indent: indentField, checked: checkedField },
   textPreservingMorphs: TEXTUAL_BLOCK_TYPES,
-};
+} satisfies BlockTypeDescriptor;
 
-const imageDescriptor: BlockTypeDescriptor = {
+const imageDescriptor = {
   type: "image",
   capabilities: VISUAL_CAPS,
-  defaults: (id, afterId) => ({
+  defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "image",
     url: "",
@@ -309,23 +314,23 @@ const imageDescriptor: BlockTypeDescriptor = {
     objectFit: objectFitField,
   },
   textPreservingMorphs: ["image"],
-};
+} satisfies BlockTypeDescriptor;
 
-const lineDescriptor: BlockTypeDescriptor = {
+const lineDescriptor = {
   type: "line",
   capabilities: VISUAL_CAPS,
-  defaults: (id, afterId) => ({
+  defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "line",
   }),
   fields: { type: typeField },
   textPreservingMorphs: ["line"],
-};
+} satisfies BlockTypeDescriptor;
 
-const mathDescriptor: BlockTypeDescriptor = {
+const mathDescriptor = {
   type: "math",
   capabilities: VISUAL_CAPS,
-  defaults: (id, afterId) => ({
+  defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "math",
     latex: "",
@@ -337,9 +342,14 @@ const mathDescriptor: BlockTypeDescriptor = {
     displayMode: displayModeField,
   },
   textPreservingMorphs: ["math"],
-};
+} satisfies BlockTypeDescriptor;
 
-export const BLOCK_REGISTRY: Readonly<Record<BlockType, BlockTypeDescriptor>> = {
+// `satisfies` (rather than a wide annotation) preserves the per-key
+// inferred type, so `(typeof BLOCK_REGISTRY)["image"]["fields"]` carries
+// the literal field keys `"type" | "url" | "alt" | ...`. That's what lets
+// the compile-time check in sync.ts verify BlockFieldsOf against the
+// registry without drift.
+export const BLOCK_REGISTRY = {
   paragraph: paragraphDescriptor,
   heading1: heading1Descriptor,
   heading2: heading2Descriptor,
@@ -350,30 +360,38 @@ export const BLOCK_REGISTRY: Readonly<Record<BlockType, BlockTypeDescriptor>> = 
   image: imageDescriptor,
   line: lineDescriptor,
   math: mathDescriptor,
-};
+} satisfies Record<BlockType, BlockTypeDescriptor>;
 
 // =============================================================================
 // Helpers
 // =============================================================================
+//
+// All helpers below access the registry through the wide BlockTypeDescriptor
+// view so that runtime-string indexing into `fields` and runtime-typed
+// `BlockType` indexing into `textPreservingMorphs` work. The narrow per-key
+// inferred types are only needed for the compile-time check in sync.ts;
+// callers want the homogeneous descriptor shape.
+
+const REGISTRY: Readonly<Record<BlockType, BlockTypeDescriptor>> = BLOCK_REGISTRY;
 
 export function getBlockDescriptor(type: BlockType): BlockTypeDescriptor {
-  return BLOCK_REGISTRY[type];
+  return REGISTRY[type];
 }
 
 export function hasTextContent(type: BlockType): boolean {
-  return BLOCK_REGISTRY[type].capabilities.hasText;
+  return REGISTRY[type].capabilities.hasText;
 }
 
 export function canHaveFormats(type: BlockType): boolean {
-  return BLOCK_REGISTRY[type].capabilities.hasFormats;
+  return REGISTRY[type].capabilities.hasFormats;
 }
 
 export function isIndentable(type: BlockType): boolean {
-  return BLOCK_REGISTRY[type].capabilities.indentable;
+  return REGISTRY[type].capabilities.indentable;
 }
 
 export function isTogglable(type: BlockType): boolean {
-  return BLOCK_REGISTRY[type].capabilities.togglable;
+  return REGISTRY[type].capabilities.togglable;
 }
 
 export function createDefaultBlock(
@@ -381,7 +399,7 @@ export function createDefaultBlock(
   id: string,
   afterId: string | null,
 ): Block {
-  return BLOCK_REGISTRY[type].defaults(id, afterId);
+  return REGISTRY[type].defaults(id, afterId);
 }
 
 export function validateBlockField(
@@ -389,17 +407,17 @@ export function validateBlockField(
   field: string,
   value: unknown,
 ): boolean {
-  const descriptor = BLOCK_REGISTRY[type].fields[field];
+  const descriptor = REGISTRY[type].fields[field];
   if (!descriptor) return false;
   return descriptor.validate(value);
 }
 
 export function getBlockFieldNames(type: BlockType): readonly string[] {
-  return Object.keys(BLOCK_REGISTRY[type].fields);
+  return Object.keys(REGISTRY[type].fields);
 }
 
 export function canMorphTo(from: BlockType, to: BlockType): boolean {
-  return BLOCK_REGISTRY[from].textPreservingMorphs.includes(to);
+  return REGISTRY[from].textPreservingMorphs.includes(to);
 }
 
 export function isValidBlockType(value: unknown): value is BlockType {

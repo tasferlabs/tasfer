@@ -1,7 +1,6 @@
 import type {
   Block,
   CharRun,
-  FormatSpan,
   Page,
   TextFormat
 } from "../../deserializer/loadPage";
@@ -2550,12 +2549,14 @@ export function splitBlock(state: EditorState): CommandResult {
     blockCopy2Type = "paragraph";
   }
 
-  // Split the text content
+  // Split the text content. Every modification below routes through ops
+  // and is replayed onto `pageAcc` via applyOps, so the local page state
+  // ends up byte-identical to what `applyOps(pre-split-page, ops)` would
+  // produce on a remote peer — no manual block overrides needed.
   const afterCharsText = oldText.slice(textIndex);
-
   let pageAcc = state.document.page;
 
-  // Delete text after cursor from first block if needed
+  // 1. Delete text after cursor from block 1.
   if (textIndex < oldText.length) {
     const { newPage: pageAfterDelete, op: deleteOp } = deleteCharsInRange(
       pageAcc, oldBlock.id, textIndex, oldText.length,
@@ -2564,30 +2565,29 @@ export function splitBlock(state: EditorState): CommandResult {
     ops.push(deleteOp);
   }
 
-  const block1AfterDelete = pageAcc.blocks.find((b) => b.id === oldBlock.id);
-  const blockCopy1: Block = block1AfterDelete && isTextualBlock(block1AfterDelete)
-    ? {
-        ...block1AfterDelete,
-        type: blockCopy1Type,
-      } as Block
-    : {
-        id: oldBlock.id,
-        type: blockCopy1Type,
-        charRuns: oldBlock.charRuns,
-        formats: currentBlock.formats,
-      };
-
-  // Only apply markdown prefix if the block type is a paragraph.
-  // applyMarkdownPrefix is the sole owner of block_set ops for type, indent, and
-  // checked when it fires — the guard below only emits a type op when
-  // applyMarkdownPrefix did NOT change the type (i.e. non-markdown type change).
+  // 2. Apply markdown-prefix detection on block 1.
+  //    applyMarkdownPrefix mutates its argument AND pushes the corresponding
+  //    ops; we feed it a throwaway clone and apply the ops to pageAcc so
+  //    pageAcc stays the single source of truth. Only blockCopy1.type from
+  //    the clone matters downstream — to decide whether to emit an extra
+  //    block_set in step 3.
   const typeBeforeMarkdown = blockCopy1Type;
   if (blockCopy1Type === "paragraph") {
-    ops.push(...applyMarkdownPrefix(blockCopy1).ops);
-    blockCopy1Type = blockCopy1.type;
+    const currentBlock1 = pageAcc.blocks.find((b) => b.id === oldBlock.id);
+    if (currentBlock1 && isTextualBlock(currentBlock1)) {
+      const mutableClone = { ...currentBlock1, type: blockCopy1Type } as Block;
+      const { ops: prefixOps } = applyMarkdownPrefix(mutableClone);
+      if (prefixOps.length > 0) {
+        ops.push(...prefixOps);
+        pageAcc = applyOps(pageAcc, prefixOps);
+      }
+      blockCopy1Type = mutableClone.type;
+    }
   }
 
-  // Emit a type-change op only when applyMarkdownPrefix didn't already handle it
+  // 3. If our split logic wants a type different from the original but
+  //    applyMarkdownPrefix didn't already cover it (e.g. heading → paragraph
+  //    at the start of a heading), emit a block_set and apply it.
   if (blockCopy1Type !== originalType && blockCopy1Type === typeBeforeMarkdown) {
     const blockSetOp: BlockSet = {
       op: "block_set",
@@ -2599,12 +2599,12 @@ export function splitBlock(state: EditorState): CommandResult {
       value: blockCopy1Type,
     };
     ops.push(blockSetOp);
+    pageAcc = applyOps(pageAcc, [blockSetOp]);
   }
 
+  // 4. Insert block 2 (before its text so remote peers have the block when
+  //    text ops for it arrive).
   const newBlockId = nextId();
-
-  // Insert the new block FIRST (before inserting text into it)
-  // so remote peers have the block before receiving text operations for it.
   const blockInsertOp: BlockInsert = {
     op: "block_insert",
     id: nextId(),
@@ -2617,7 +2617,7 @@ export function splitBlock(state: EditorState): CommandResult {
   ops.push(blockInsertOp);
   pageAcc = applyOps(pageAcc, [blockInsertOp]);
 
-  // Insert text into new block if there was text after cursor
+  // 5. Insert text into block 2.
   if (afterCharsText.length > 0) {
     const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
       pageAcc, newBlockId, 0, afterCharsText,
@@ -2626,10 +2626,12 @@ export function splitBlock(state: EditorState): CommandResult {
     ops.push(insertOp);
   }
 
-  // Transfer formats that cover text after cursor to the new block
+  // 6. Transfer format spans covering the after-cursor range onto block 2.
+  //    Match each original FormatSpan against the inserted chars, emit one
+  //    format_set per overlap, then apply them to pageAcc in one batch.
   const block2 = pageAcc.blocks.find((b) => b.id === newBlockId);
-  const blockCopy2CharRuns: CharRun[] = block2 && isTextualBlock(block2) ? block2.charRuns : [];
-  let blockCopy2Formats: FormatSpan[] = [];
+  const block2CharRuns: CharRun[] =
+    block2 && isTextualBlock(block2) ? block2.charRuns : [];
   if (afterCharsText.length > 0 && currentBlock.formats.length > 0) {
     const afterCharIds: string[] = [];
     let visibleCount = 0;
@@ -2642,7 +2644,7 @@ export function splitBlock(state: EditorState): CommandResult {
     }
 
     const newCharIds: string[] = [];
-    for (const { id } of iterateVisibleChars(blockCopy2CharRuns)) {
+    for (const { id } of iterateVisibleChars(block2CharRuns)) {
       newCharIds.push(id);
     }
 
@@ -2652,6 +2654,7 @@ export function splitBlock(state: EditorState): CommandResult {
         oldIdToNewId.set(afterCharIds[i], newCharIds[i]);
       }
 
+      const formatOps: FormatSet[] = [];
       for (const span of currentBlock.formats) {
         const coveredNewIds: string[] = [];
         for (const oldId of afterCharIds) {
@@ -2661,14 +2664,7 @@ export function splitBlock(state: EditorState): CommandResult {
         }
 
         if (coveredNewIds.length > 0) {
-          blockCopy2Formats.push({
-            startCharId: coveredNewIds[0],
-            endCharId: coveredNewIds[coveredNewIds.length - 1],
-            format: span.format,
-            clock: getClock(),
-          });
-
-          const formatOp: FormatSet = {
+          formatOps.push({
             op: "format_set",
             id: nextId(),
             clock: getClock(),
@@ -2677,36 +2673,28 @@ export function splitBlock(state: EditorState): CommandResult {
             charIds: coveredNewIds,
             format: span.format,
             value: span.format.type === "link" ? (span.format.url || true) : true,
-          };
-          ops.push(formatOp);
+          });
         }
+      }
+
+      if (formatOps.length > 0) {
+        ops.push(...formatOps);
+        pageAcc = applyOps(pageAcc, formatOps);
       }
     }
   }
 
-  const blockCopy2: Block = {
-    id: newBlockId,
-    type: blockCopy2Type,
-    charRuns: blockCopy2CharRuns,
-    formats: blockCopy2Formats,
-  } as Block;
-
-  // Invalidate cache for both new blocks
-  invalidateBlockCache(blockCopy1);
-  invalidateBlockCache(blockCopy2);
-
-  // Splice blockCopy1 and blockCopy2 into pageAcc to override what applyOps produced
-  // (blockCopy1 has the locally-computed type; blockCopy2 has the format spans).
-  const newBlocks = pageAcc.blocks.map((b) => {
-    if (b.id === oldBlock.id) return blockCopy1;
-    if (b.id === newBlockId) return blockCopy2;
-    return b;
-  });
-  const newPage = { ...pageAcc, blocks: newBlocks };
+  // 7. Invalidate render caches on the final pageAcc blocks (NOT on any
+  //    intermediate clone — invalidateBlockCache mutates the block ref
+  //    in place, and only the rendered ref's caches need clearing).
+  const block1Final = pageAcc.blocks.find((b) => b.id === oldBlock.id);
+  const block2Final = pageAcc.blocks.find((b) => b.id === newBlockId);
+  if (block1Final) invalidateBlockCache(block1Final);
+  if (block2Final) invalidateBlockCache(block2Final);
 
   const newState: EditorState = {
     ...state,
-    document: { ...state.document, page: newPage },
+    document: { ...state.document, page: pageAcc },
   };
   return {
     state: moveCursorToPosition(newState, blockIndex + 1, 0),
