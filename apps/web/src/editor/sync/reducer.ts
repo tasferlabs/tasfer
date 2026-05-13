@@ -12,12 +12,13 @@ import {
   type FormatSpan,
   type Page,
 } from "@/deserializer/loadPage";
-import { findBlockInsertIndex, resolveBlockOrder } from "./conflicts";
+import { resolveBlockOrder } from "./conflicts";
 import { compareHLC } from "./hlc";
 import {
   deleteFromRuns,
   getVisibleTextFromRuns,
   getCharIdAtVisiblePosition,
+  isCharIdInRange,
   iterateVisibleChars,
 } from "./char-runs";
 import type {
@@ -176,7 +177,16 @@ function applyTextDelete(state: Page, op: TextDelete): Page {
 
 /**
  * Apply a format set operation.
- * Adds or updates a format span on the specified characters.
+ *
+ * When op.value === false, splits any same-type spans that overlap the
+ * affected range so that only the parts outside the selection remain.
+ *
+ * When op.value !== false, drops any same-type spans overlapping the new
+ * range and appends a fresh span for it.
+ *
+ * The local-emit path in crdt-helpers::formatCharsInRange uses the same
+ * algorithm — they must stay in sync, otherwise the locally-rendered state
+ * diverges from what remote peers compute from the same op.
  */
 function applyFormatSet(state: Page, op: FormatSet): Page {
   const blockIndex = findBlockIndex(state, op.blockId);
@@ -187,35 +197,98 @@ function applyFormatSet(state: Page, op: FormatSet): Page {
 
   const block = state.blocks[blockIndex];
 
-  // Skip operations on deleted blocks or blocks without text content
   if (!block || block.deleted || !isTextualBlock(block)) {
     return state;
   }
 
-  // Create a new format span
-  const newSpan: FormatSpan = {
-    startCharId: op.charIds[0],
-    endCharId: op.charIds[op.charIds.length - 1],
-    format: op.format,
-    clock: op.clock,
-  };
-
-  // Check if this exact span already exists (idempotency check)
-  // Use clock as unique identifier - same clock means same operation
-  const spanExists = block.formats.some(
-    (span) =>
-      span.clock.counter === op.clock.counter &&
-      span.clock.peerId === op.clock.peerId
-  );
-
-  if (spanExists) {
+  if (op.charIds.length === 0) {
     return state;
   }
 
-  // Add to formats (LWW will be resolved when reading)
+  let newFormats: FormatSpan[];
+
+  if (op.value === false) {
+    newFormats = [];
+    const selectionSet = new Set(op.charIds);
+
+    for (const span of block.formats) {
+      if (span.format.type !== op.format.type) {
+        newFormats.push(span);
+        continue;
+      }
+
+      const overlaps = op.charIds.some((charId) =>
+        isCharIdInRange(block.charRuns, charId, span.startCharId, span.endCharId)
+      );
+      if (!overlaps) {
+        newFormats.push(span);
+        continue;
+      }
+
+      const spanCharIds: string[] = [];
+      let inSpan = false;
+      for (const { id } of iterateVisibleChars(block.charRuns)) {
+        if (id === span.startCharId) inSpan = true;
+        if (inSpan) spanCharIds.push(id);
+        if (id === span.endCharId) break;
+      }
+
+      let runStart: string | null = null;
+      let runEnd: string | null = null;
+      for (const charId of spanCharIds) {
+        if (!selectionSet.has(charId)) {
+          if (runStart === null) runStart = charId;
+          runEnd = charId;
+        } else if (runStart !== null && runEnd !== null) {
+          newFormats.push({
+            startCharId: runStart,
+            endCharId: runEnd,
+            format: span.format,
+            clock: span.clock,
+          });
+          runStart = null;
+          runEnd = null;
+        }
+      }
+      if (runStart !== null && runEnd !== null) {
+        newFormats.push({
+          startCharId: runStart,
+          endCharId: runEnd,
+          format: span.format,
+          clock: span.clock,
+        });
+      }
+    }
+  } else {
+    const alreadyApplied = block.formats.some(
+      (span) =>
+        span.clock.counter === op.clock.counter &&
+        span.clock.peerId === op.clock.peerId
+    );
+    if (alreadyApplied) {
+      return state;
+    }
+
+    const filtered = block.formats.filter((span) => {
+      if (span.format.type !== op.format.type) return true;
+      const overlaps = op.charIds.some((charId) =>
+        isCharIdInRange(block.charRuns, charId, span.startCharId, span.endCharId)
+      );
+      return !overlaps;
+    });
+
+    const newSpan: FormatSpan = {
+      startCharId: op.charIds[0],
+      endCharId: op.charIds[op.charIds.length - 1],
+      format: op.format,
+      clock: op.clock,
+    };
+    newFormats = [...filtered, newSpan];
+  }
+
   const updatedBlock: Block = {
     ...block,
-    formats: [...block.formats, newSpan],
+    formats: newFormats,
   };
 
   const newBlocks = [...state.blocks];
@@ -229,44 +302,35 @@ function applyFormatSet(state: Page, op: FormatSet): Page {
 
 /**
  * Apply a block insert operation.
- * Inserts a new block after the specified block ID.
- * If block already exists as tombstone, restores it.
+ *
+ * The new block is appended to the array and the full order is recomputed
+ * via `resolveBlockOrder`. The previous splice-based approach used a
+ * shallow scan that disagreed with `resolveBlockOrder` whenever a new
+ * sibling was inserted alongside an existing block that already had
+ * descendants — the splice would land mid-subtree while the tree walk
+ * places siblings after their predecessor's full subtree. Routing every
+ * insert through the same canonical order ensures local-emit and remote
+ * apply (and rebuild) all converge on the same block array.
  */
 function applyBlockInsert(state: Page, op: BlockInsert): Page {
-  // Check if block already exists
   const existingBlock = findBlock(state, op.blockId);
   if (existingBlock) {
-    // Block exists - if it's tombstoned, restore it; otherwise it's idempotent (no-op)
     if (existingBlock.deleted) {
-      // Restore the tombstoned block by marking it as not deleted
       const blockIndex = findBlockIndex(state, op.blockId);
       const restoredBlock = { ...existingBlock, deleted: false };
       const newBlocks = [...state.blocks];
       newBlocks[blockIndex] = restoredBlock;
       return { ...state, blocks: newBlocks };
     }
-    // Block already exists and is not deleted - idempotent, do nothing
     return state;
   }
 
-  // Create the new block
   const baseBlock = createEmptyBlock(op.blockId, op.afterBlockId, op.blockType);
-
-  // Apply initial props if provided
   const newBlock = op.initialProps
     ? { ...baseBlock, ...op.initialProps }
     : baseBlock;
 
-  // Find insertion position
-  const insertIndex = findBlockInsertIndex(
-    state.blocks,
-    op.afterBlockId,
-    op.blockId
-  );
-
-  // Insert block
-  const newBlocks = [...state.blocks];
-  newBlocks.splice(insertIndex, 0, newBlock);
+  const newBlocks = resolveBlockOrder([...state.blocks, newBlock]);
 
   return {
     ...state,
@@ -386,6 +450,17 @@ export function applyOp(state: Page, op: Operation): Page {
 }
 
 /**
+ * Apply a batch of operations sequentially.
+ */
+export function applyOps(state: Page, ops: Operation[]): Page {
+  let result = state;
+  for (const op of ops) {
+    result = applyOp(result, op);
+  }
+  return result;
+}
+
+/**
  * Rebuild state from scratch by applying all operations.
  * Operations are sorted by HLC before applying.
  *
@@ -429,12 +504,6 @@ export function rebuildState(pageId: string, ops: Operation[]): Page {
   for (const op of deferredOps) {
     state = applyOp(state, op);
   }
-
-  // Resolve block ordering
-  state = {
-    ...state,
-    blocks: resolveBlockOrder(state.blocks),
-  };
 
   return state;
 }

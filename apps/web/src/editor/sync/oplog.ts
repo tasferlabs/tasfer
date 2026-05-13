@@ -12,7 +12,6 @@ import type { OpLog, Operation, VersionVector } from "./types";
 import { compareHLC } from "./hlc";
 import { extractPeerId, extractCounter } from "./id";
 import { applyOp, createEmptyPageState, rebuildState } from "./reducer";
-import { resolveBlockOrder } from "./conflicts";
 
 /**
  * Create an empty operation log for a page.
@@ -133,14 +132,11 @@ export function mergeOps(log: OpLog, ops: Operation[]): OpLog {
   if (canApplyIncrementally) {
     const allOps = [...log.operations, ...newOps];
 
-    // Apply new ops incrementally to existing state
+    // applyBlockInsert resolves block order on every insert, so no batch
+    // re-resolution is needed here.
     let state = log.state;
     for (const op of newOps) {
       state = applyOp(state, op);
-    }
-    // Resolve block ordering for any new block_insert ops
-    if (newOps.some((op) => op.op === "block_insert" || op.op === "block_delete")) {
-      state = { ...state, blocks: resolveBlockOrder(state.blocks) };
     }
 
     return { ...log, operations: allOps, versionVector: newVV, state };

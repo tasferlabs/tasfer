@@ -71,11 +71,11 @@ import {
   awarenessSelectionsEqual,
 } from "./sync/awareness";
 import {
-  applyRemoteOps,
   deleteCharsInRange,
   formatCharsInRange,
   insertCharsAtPosition,
 } from "./sync/crdt-helpers";
+import { applyOps } from "./sync/reducer";
 import { generateRestoreOperations } from "./sync/snapshot-diff";
 import type {
   BlockDelete,
@@ -2387,7 +2387,7 @@ export default function createEditor(
     if (ops.length === 0) return;
 
     // Apply operations to local state
-    const newPage = applyRemoteOps(currentPage, ops);
+    const newPage = applyOps(currentPage, ops);
 
     // Clear all block caches
     clearAllBlockCaches(newPage.blocks);
@@ -2470,7 +2470,7 @@ export default function createEditor(
     if (ops.length === 0) return;
 
     // Apply remote operations to current page state
-    const newPage = applyRemoteOps(state.document.page, ops);
+    const newPage = applyOps(state.document.page, ops);
 
     // Clear all block caches since page structure may have changed
     clearAllBlockCaches(newPage.blocks);

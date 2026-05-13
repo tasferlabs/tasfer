@@ -189,6 +189,15 @@ export interface ViewState {
   visibleBlocks: (Block & { originalIndex: number })[];
 }
 
+// For each charId in a format_set op, the format of the same type that was
+// active on that char *before* the op was applied. null means the char had no
+// format of that type. Used by undo to restore prior format state per-char
+// (e.g. preserve a link's URL across undo/redo) rather than just toggling.
+export interface PriorFormatEntry {
+  readonly charId: string;
+  readonly priorFormat: TextFormat | null;
+}
+
 // Undo tracks operations per user for independent undo/redo
 // Inverses are computed on-the-fly during undo using tombstones
 export interface UndoGroup {
@@ -198,6 +207,10 @@ export interface UndoGroup {
   readonly selectionBefore: CRDTSelectionState | null; // Selection state before operations (restored on undo)
   readonly cursorAfter: CRDTCursorState | null; // Cursor state after operations (restored on redo)
   readonly selectionAfter: CRDTSelectionState | null; // Selection state after operations (restored on redo)
+  // Per-op prior format snapshot, keyed by Operation.id. Only present for
+  // format_set ops; lookup returns undefined for any other op type. Captured
+  // from stateBefore inside recordUndoOps.
+  readonly priorFormats?: ReadonlyMap<string, readonly PriorFormatEntry[]>;
 }
 
 export interface UndoManagerState {

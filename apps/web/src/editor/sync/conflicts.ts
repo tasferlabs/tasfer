@@ -97,59 +97,6 @@ export function findCharInsertIndex(
 }
 
 /**
- * Find insertion index for a new block in the linked list.
- * Blocks with the same afterBlockId are sorted by their own ID.
- *
- * @param blocks - All blocks (including deleted)
- * @param afterBlockId - ID of block to insert after (null = beginning)
- * @param newBlockId - ID of the new block being inserted
- * @returns Index where the new block should be inserted
- */
-export function findBlockInsertIndex(
-  blocks: Block[],
-  afterBlockId: string | null,
-  newBlockId: string
-): number {
-  if (afterBlockId === null) {
-    // Insert at beginning
-    let index = 0;
-    while (index < blocks.length && blocks[index].afterId === null) {
-      if (compareIds(blocks[index].id, newBlockId) >= 0) {
-        break;
-      }
-      index++;
-    }
-    return index;
-  }
-
-  // Find blocks that come after afterBlockId
-  const afterIndex = blocks.findIndex((b) => b.id === afterBlockId);
-
-  if (afterIndex === -1) {
-    // afterBlockId not found - insert at end as fallback
-    return blocks.length;
-  }
-
-  // Insert after afterIndex, respecting ordering
-  let insertIndex = afterIndex + 1;
-
-  while (insertIndex < blocks.length) {
-    const existingBlock = blocks[insertIndex];
-    // If this block was inserted after a different block, stop
-    if (existingBlock.afterId !== afterBlockId) {
-      break;
-    }
-    // Both inserted after same block - use ID for ordering
-    if (compareIds(existingBlock.id, newBlockId) >= 0) {
-      break;
-    }
-    insertIndex++;
-  }
-
-  return insertIndex;
-}
-
-/**
  * Merge format spans using Last-Writer-Wins (LWW).
  * For overlapping formats of the same type, the one with the latest HLC wins.
  *
@@ -188,6 +135,13 @@ export function mergeFormatSpans(spans: FormatSpan[]): FormatSpan[] {
  * Resolve block ordering from linked list representation.
  * Handles concurrent inserts and deleted blocks.
  *
+ * Orphan blocks — those whose `afterId` references a block not present in
+ * the input (typically because a `block_insert` for the parent has yet to
+ * arrive) — are emitted at the end in deterministic ID order so that all
+ * peers agree on placement even before the missing parent has been
+ * received. They migrate into the correct position once the parent block
+ * is applied.
+ *
  * @param blocks - All blocks (unordered, may include deleted)
  * @returns Ordered array of all blocks (including tombstones)
  */
@@ -221,16 +175,21 @@ export function resolveBlockOrder(blocks: Block[]): Block[] {
       if (visited.has(block.id)) continue;
       visited.add(block.id);
 
-      // Add this block (even if deleted, for now)
       ordered.push(block);
-
-      // Visit blocks that come after this one
       visit(block.id);
     }
   }
 
   visit(null);
 
-  // Keep tombstones in the ordering - filtering happens at render time
+  // Emit orphans (afterId points at a block not in the input) at the end
+  // in deterministic ID order so peers don't silently lose them.
+  if (visited.size < blocks.length) {
+    const orphans = blocks
+      .filter((b) => !visited.has(b.id))
+      .sort(compareBlocks);
+    ordered.push(...orphans);
+  }
+
   return ordered;
 }

@@ -10,7 +10,7 @@
 
 import type { Block, Char, CharRun, TextualBlock } from "@/deserializer/loadPage";
 import { isTextualBlock } from "@/deserializer/loadPage";
-import { extractPeerId, extractCounter, compareIds } from "./id";
+import { extractPeerId, extractCounter } from "./id";
 
 // =============================================================================
 // ID and Deletion Helpers
@@ -235,10 +235,24 @@ export function* iterateVisibleChars(
  * Insert characters into runs after a specific character ID.
  * If afterCharId is null, inserts at the beginning.
  *
- * This function handles the CRDT insertion logic:
- * - Finds the correct position based on afterCharId
- * - Creates a new run for the inserted characters
- * - May split an existing run if inserting in the middle
+ * NOTE on concurrent-insert ordering: this function does NOT compare IDs of
+ * other chars also inserted after the same anchor. It just splices the new
+ * run immediately after afterCharId. That LOOKS like an RGA bug, but it's
+ * fine *because of how mergeOps schedules application*:
+ *
+ *  - The fast path in mergeOps only fires when every incoming op has a
+ *    higher HLC than every op already in the log. In that case the incoming
+ *    op was strictly later than any existing concurrent insert, so splicing
+ *    it right after the anchor (pushing existing same-anchor inserts
+ *    further from the anchor) reproduces the deterministic global order.
+ *  - The moment a new op interleaves with existing ops, mergeOps falls
+ *    back to rebuildState, which sorts every op by HLC and replays from
+ *    scratch. Whichever peer applies the lower-HLC op first ends up with
+ *    the same final state as everyone else.
+ *
+ * So convergence here is an emergent property of the apply scheduler, not
+ * something insertIntoRuns enforces locally. Any future "incremental apply
+ * out of HLC order" optimization must restore RGA-style ID comparison here.
  *
  * @returns New runs array (does not mutate input)
  */
@@ -547,95 +561,6 @@ export function isCharIdInRange(
   }
 
   return false;
-}
-
-// =============================================================================
-// CRDT Ordering Helpers
-// =============================================================================
-
-/**
- * Find the correct insertion index for a new character after afterCharId.
- * Handles concurrent insertions by comparing IDs for deterministic ordering.
- *
- * This is the core CRDT logic for character ordering:
- * - Characters inserted after the same afterCharId are ordered by their ID
- * - This ensures all peers converge to the same order
- *
- * @returns The run index and offset where the new character should be inserted
- */
-export function findInsertPosition(
-  runs: CharRun[] | undefined,
-  afterCharId: string | null,
-  newCharId: string
-): { runIndex: number; offset: number } {
-  if (!runs || !Array.isArray(runs)) {
-    return { runIndex: 0, offset: 0 };
-  }
-
-  // If afterCharId is null, find position at start based on ID comparison
-  if (afterCharId === null) {
-    // Find first char that should come after newCharId
-    let insertBeforeRunIndex = 0;
-    let insertBeforeOffset = 0;
-
-    for (let runIndex = 0; runIndex < runs.length; runIndex++) {
-      const run = runs[runIndex];
-      for (let offset = 0; offset < run.text.length; offset++) {
-        const existingId = getCharIdFromRun(run, offset);
-        // Skip chars that also have null afterCharId and should come before newCharId
-        if (compareIds(existingId, newCharId) > 0) {
-          return { runIndex: insertBeforeRunIndex, offset: insertBeforeOffset };
-        }
-        insertBeforeRunIndex = runIndex;
-        insertBeforeOffset = offset + 1;
-      }
-    }
-
-    return { runIndex: insertBeforeRunIndex, offset: insertBeforeOffset };
-  }
-
-  // Find afterCharId
-  const afterLocation = findCharInRuns(runs, afterCharId);
-  if (!afterLocation) {
-    // afterCharId not found, append at end
-    const lastRun = runs[runs.length - 1];
-    return { runIndex: runs.length - 1, offset: lastRun ? lastRun.text.length : 0 };
-  }
-
-  // Start searching from right after afterCharId
-  let { runIndex, offset } = afterLocation;
-  offset++; // Move past afterCharId
-
-  // Handle offset overflow to next run
-  while (runIndex < runs.length && offset >= runs[runIndex].text.length) {
-    offset = 0;
-    runIndex++;
-  }
-
-  // Find the correct position among concurrent insertions
-  // (chars that also have the same afterCharId)
-  while (runIndex < runs.length) {
-    const run = runs[runIndex];
-    while (offset < run.text.length) {
-      const existingId = getCharIdFromRun(run, offset);
-
-      // Check if this char also had the same afterCharId
-      // (would need to track this - for now, use ID comparison)
-      if (compareIds(existingId, newCharId) > 0) {
-        return { runIndex, offset };
-      }
-
-      offset++;
-    }
-    offset = 0;
-    runIndex++;
-  }
-
-  // Insert at the end
-  return {
-    runIndex: runs.length > 0 ? runs.length - 1 : 0,
-    offset: runs.length > 0 ? runs[runs.length - 1].text.length : 0,
-  };
 }
 
 // =============================================================================

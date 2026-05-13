@@ -6,7 +6,7 @@
  * This allows undo/redo to work independently per user in a CRDT environment.
  */
 
-import type { Block, Char, CharRun } from "@/deserializer/loadPage";
+import type { Block, Char, CharRun, TextFormat } from "@/deserializer/loadPage";
 import { getClock, nextId } from "./sync/sync";
 import {
   iterateAllChars,
@@ -22,7 +22,7 @@ import type {
   TextDelete,
   TextInsert
 } from "./sync/types";
-import type { EditorState } from "./types";
+import type { EditorState, PriorFormatEntry } from "./types";
 
 /**
  * Convert Char[] to CharRun[] (for inverse operations).
@@ -219,39 +219,96 @@ function invertTextDelete(
 
 /**
  * Compute the inverse of a format set operation.
- * Inverse: Set format back to previous value.
+ *
+ * If priorEntries is provided (captured by recordUndoOps at the time the op
+ * was applied), we restore the per-char prior state: contiguous runs of chars
+ * that had the same prior format become one format_set op, preserving link
+ * URLs and any other format-specific data.
+ *
+ * Without priorEntries we fall back to a naive toggle (the legacy behavior
+ * before per-char prior state was captured).
  */
-function invertFormatSet(op: FormatSet, state: EditorState): FormatSet | null {
-  // To invert a format set, we need to know the previous value
-  // Since formats use LWW (Last-Writer-Wins), we can just set it to the opposite for toggles
-  // For links, we'd need to track the previous URL (simplified here: just toggle off)
-
+function invertFormatSet(
+  op: FormatSet,
+  state: EditorState,
+  priorEntries: readonly PriorFormatEntry[] | undefined
+): FormatSet[] {
   const block = state.document.page.blocks.find((b) => b.id === op.blockId);
+  if (!block || block.deleted) return [];
 
-  if (!block || block.deleted) {
-    return null;
+  if (!priorEntries || priorEntries.length === 0) {
+    // Fallback: legacy toggle. Loses prior URL on link, prior state under
+    // overlapping spans, etc. — only used when prior-format snapshot is
+    // missing (shouldn't happen for ops recorded after this commit).
+    const inverseValue: boolean | string =
+      typeof op.value === "boolean" ? !op.value : false;
+    return [
+      {
+        op: "format_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId: op.pageId,
+        blockId: op.blockId,
+        charIds: op.charIds,
+        format: op.format,
+        value: inverseValue,
+      },
+    ];
   }
 
-  // For boolean formats (bold, italic, etc.), toggle the value
-  let inverseValue: boolean | string;
-
-  if (typeof op.value === "boolean") {
-    inverseValue = !op.value;
-  } else {
-    // For link formats, setting value to false removes the link
-    inverseValue = false;
-  }
-
-  return {
-    op: "format_set",
-    id: nextId(),
-    clock: getClock(),
-    pageId: op.pageId,
-    blockId: op.blockId,
-    charIds: op.charIds,
-    format: op.format,
-    value: inverseValue,
+  // Group consecutive entries by prior-format identity so we emit one op per
+  // contiguous run rather than per char. Two priorFormats are "the same" if
+  // they're both null OR both have the same type and (for link) the same url.
+  const sameFormat = (a: TextFormat | null, b: TextFormat | null): boolean => {
+    if (a === null && b === null) return true;
+    if (a === null || b === null) return false;
+    if (a.type !== b.type) return false;
+    if (a.type === "link") return a.url === b.url;
+    return true;
   };
+
+  const groups: { priorFormat: TextFormat | null; charIds: string[] }[] = [];
+  for (const entry of priorEntries) {
+    const last = groups[groups.length - 1];
+    if (last && sameFormat(last.priorFormat, entry.priorFormat)) {
+      last.charIds.push(entry.charId);
+    } else {
+      groups.push({ priorFormat: entry.priorFormat, charIds: [entry.charId] });
+    }
+  }
+
+  const ops: FormatSet[] = [];
+  for (const group of groups) {
+    if (group.priorFormat === null) {
+      // No prior format of this type: remove it across this run.
+      ops.push({
+        op: "format_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId: op.pageId,
+        blockId: op.blockId,
+        charIds: group.charIds,
+        format: op.format,
+        value: false,
+      });
+    } else {
+      // Had a prior format (potentially with different url for links):
+      // re-apply that format across this run. value just needs to be truthy
+      // for applyRemoteFormatSet to take the "add" path; the format object
+      // carries the meaningful data (type, url).
+      ops.push({
+        op: "format_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId: op.pageId,
+        blockId: op.blockId,
+        charIds: group.charIds,
+        format: group.priorFormat,
+        value: true,
+      });
+    }
+  }
+  return ops;
 }
 
 /**
@@ -352,28 +409,40 @@ function invertBlockSet(op: BlockSet, state: EditorState): BlockSet | null {
 }
 
 /**
- * Compute the inverse of any operation.
- * Returns null if the operation cannot be inverted (e.g., missing data).
+ * Compute the inverse of any operation. Returns an array because some op
+ * types (format_set) may need multiple inverses to restore per-char prior
+ * state. Returns an empty array if the operation cannot be inverted.
  */
 export function invertOperation(
   op: Operation,
-  state: EditorState
-): Operation | null {
+  state: EditorState,
+  priorFormats?: ReadonlyMap<string, readonly PriorFormatEntry[]>
+): Operation[] {
   switch (op.op) {
-    case "text_insert":
-      return invertTextInsert(op, state);
-    case "text_delete":
-      return invertTextDelete(op, state);
+    case "text_insert": {
+      const inv = invertTextInsert(op, state);
+      return inv ? [inv] : [];
+    }
+    case "text_delete": {
+      const inv = invertTextDelete(op, state);
+      return inv ? [inv] : [];
+    }
     case "format_set":
-      return invertFormatSet(op, state);
-    case "block_insert":
-      return invertBlockInsert(op, state);
-    case "block_delete":
-      return invertBlockDelete(op, state);
-    case "block_set":
-      return invertBlockSet(op, state);
+      return invertFormatSet(op, state, priorFormats?.get(op.id));
+    case "block_insert": {
+      const inv = invertBlockInsert(op, state);
+      return inv ? [inv] : [];
+    }
+    case "block_delete": {
+      const inv = invertBlockDelete(op, state);
+      return inv ? [inv] : [];
+    }
+    case "block_set": {
+      const inv = invertBlockSet(op, state);
+      return inv ? [inv] : [];
+    }
     default:
-      return null;
+      return [];
   }
 }
 
@@ -383,17 +452,37 @@ export function invertOperation(
  */
 export function invertOperations(
   ops: readonly Operation[],
-  state: EditorState
+  state: EditorState,
+  priorFormats?: ReadonlyMap<string, readonly PriorFormatEntry[]>
 ): Operation[] {
   const inverses: Operation[] = [];
 
   // Process in reverse order
   for (let i = ops.length - 1; i >= 0; i--) {
-    const inverse = invertOperation(ops[i], state);
-    if (inverse) {
+    for (const inverse of invertOperation(ops[i], state, priorFormats)) {
       inverses.push(inverse);
     }
   }
 
   return inverses;
+}
+
+/**
+ * Return a copy of an operation with a fresh id and clock so it appears as a
+ * new event to peers. Used by redo: the original op's id/clock is already in
+ * every peer's version vector, so re-broadcasting it would be silently
+ * dropped. Replaying it with a fresh stamp re-applies the change everywhere
+ * (un-tombstoning chars/blocks for inserts, re-tombstoning for deletes,
+ * creating a new span for format_set, and overwriting fields for block_set).
+ */
+export function refreshOp(op: Operation): Operation {
+  return {
+    ...op,
+    id: nextId(),
+    clock: getClock(),
+  };
+}
+
+export function refreshOps(ops: readonly Operation[]): Operation[] {
+  return ops.map(refreshOp);
 }

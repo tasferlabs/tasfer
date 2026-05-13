@@ -22,7 +22,6 @@ import {
 import { deleteFromRuns, isCharIdInRange, iterateVisibleChars } from "../sync/char-runs";
 import {
   allCharsHaveFormat,
-  applyRemoteOps,
   deleteCharsInRange,
   formatCharsInRange,
   getFormatsAtCharPosition,
@@ -31,6 +30,7 @@ import {
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
 import {
+  applyOps,
   findNextVisibleBlockIndex,
   findPreviousVisibleBlockIndex,
 } from "../sync/reducer";
@@ -548,6 +548,30 @@ function applyMarkdownPrefix(
     (block as any).type = "line";
     (block as any).charRuns = [];
     setBlockField("type", "line");
+  } else if (text === "$$") {
+    // Math block - $$ on its own line
+    const allCharIds: string[] = [];
+    for (const { id } of iterateVisibleChars(block.charRuns)) {
+      allCharIds.push(id);
+    }
+    if (allCharIds.length > 0) {
+      block.charRuns = deleteFromRuns(block.charRuns, allCharIds);
+      const deleteOp: TextDelete = {
+        op: "text_delete",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        blockId: block.id,
+        charIds: allCharIds,
+      };
+      ops.push(deleteOp);
+    }
+    (block as any).type = "math";
+    (block as any).latex = "";
+    (block as any).displayMode = true;
+    (block as any).charRuns = [];
+    (block as any).formats = [];
+    setBlockField("type", "math");
   } else if (!preserveType) {
     if (oldType !== "paragraph") {
       (block as any).type = "paragraph";
@@ -765,7 +789,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
       }
 
       // Apply operations to get new page state (blocks will be tombstoned, not removed)
-      const newPage = applyRemoteOps(state.document.page, ops);
+      const newPage = applyOps(state.document.page, ops);
 
       // Find first non-deleted block at or after start position for cursor placement
       let newBlockIndex = start.blockIndex;
@@ -868,7 +892,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
 
     // Apply operations to get new page state (blocks will be tombstoned, not removed)
     // This properly applies text operations and block deletions
-    let newPage = applyRemoteOps(state.document.page, ops);
+    let newPage = applyOps(state.document.page, ops);
 
     // Update the start block with merged chars (since text ops modified it)
     const startBlockIndex = newPage.blocks.findIndex(
@@ -952,6 +976,16 @@ export function insertText(state: EditorState, input: string): CommandResult {
   const oldBlock = state.document.page.blocks[blockIndex];
 
   if (!isTextualBlock(oldBlock)) {
+    return { state, ops };
+  }
+
+  // Inline math chips are atomic: typing while the caret is strictly inside a
+  // math span would mix new chars into the LaTeX source (visible chars between
+  // startCharId/endCharId ARE the LaTeX) and corrupt the formula. Block here;
+  // the user can navigate to either edge or click the chip to open the math
+  // editor. Insertions at the edges (textIndex === spanStart or === spanEnd)
+  // are allowed — those are "type before/after the chip".
+  if (findInlineMathSpan(oldBlock, textIndex, "inside")) {
     return { state, ops };
   }
 
@@ -1082,6 +1116,45 @@ export function insertText(state: EditorState, input: string): CommandResult {
     ...state,
     document: { ...state.document, page: newPage },
   };
+
+  // If applyMarkdownPrefix converted this into a math block (e.g. user typed `$$`),
+  // advance the cursor to the next block (creating one if needed) — math blocks
+  // are non-textual, so the caret can't sit inside them.
+  if ((blockCopy.type as string) === "math") {
+    if (blockIndex + 1 >= newBlocks.length) {
+      const newParagraphId = nextId();
+      const newParagraph: Block = {
+        id: newParagraphId,
+        type: "paragraph",
+        charRuns: [],
+        formats: [],
+      };
+      const blockInsertOp: BlockInsert = {
+        op: "block_insert",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        afterBlockId: blockCopy.id,
+        blockId: newParagraphId,
+        blockType: "paragraph",
+      };
+      ops.push(blockInsertOp);
+
+      const blocksWithNewParagraph = [...newBlocks, newParagraph];
+      newState = {
+        ...newState,
+        document: {
+          ...newState.document,
+          page: { ...newPage, blocks: blocksWithNewParagraph },
+        },
+      };
+    }
+    newState = moveCursorToPosition(newState, blockIndex + 1, 0);
+    newState = clearAutoCreatedParagraph(newState);
+    newState = updateMode(newState, "edit");
+    return { state: newState, ops };
+  }
+
   // Preserve active formats when moving cursor after typing
   newState = moveCursorToPosition(newState, blockIndex, finalTextIndex, true);
   // Clear auto-created paragraph tracking on text input

@@ -1,12 +1,13 @@
-import { isTextualBlock, type Page } from "../deserializer/loadPage";
-import { invertOperations } from "./inverse";
+import { isTextualBlock, type Page, type TextFormat } from "../deserializer/loadPage";
+import { invertOperations, refreshOps } from "./inverse";
 import { invalidateBlockCache } from "./renderer";
 import { updateCursor, updateSelection } from "./state";
 import {
   findCharInRuns,
+  isCharIdInRange,
   iterateVisibleChars
 } from "./sync/char-runs";
-import { applyRemoteOps } from "./sync/crdt-helpers";
+import { applyOps } from "./sync/reducer";
 import { getPeerId } from "./sync/sync";
 import type { Operation } from "./sync/types";
 import type {
@@ -15,6 +16,7 @@ import type {
   CRDTSelectionState,
   EditorState,
   Position,
+  PriorFormatEntry,
   UndoGroup,
   UndoManagerState,
 } from "./types";
@@ -255,6 +257,49 @@ function restoreSelection(
 }
 
 /**
+ * For each charId affected by a format_set op, find the format of the same
+ * type (if any) that was active on that char in stateBefore. Returns null if
+ * the block is missing, isn't a textual block, or the op has no charIds.
+ */
+function capturePriorFormatsForOp(
+  stateBefore: EditorState,
+  op: Operation
+): PriorFormatEntry[] | null {
+  if (op.op !== "format_set") return null;
+  if (op.charIds.length === 0) return null;
+
+  const block = stateBefore.document.page.blocks.find((b) => b.id === op.blockId);
+  if (!block || block.deleted || !isTextualBlock(block)) return null;
+
+  const entries: PriorFormatEntry[] = [];
+  for (const charId of op.charIds) {
+    let priorFormat: TextFormat | null = null;
+    let priorClockCounter = -1;
+    let priorClockPeer = "";
+
+    // Walk all spans of the same format type; the latest-clock one wins LWW.
+    for (const span of block.formats) {
+      if (span.format.type !== op.format.type) continue;
+      if (!isCharIdInRange(block.charRuns, charId, span.startCharId, span.endCharId)) {
+        continue;
+      }
+      if (
+        span.clock.counter > priorClockCounter ||
+        (span.clock.counter === priorClockCounter && span.clock.peerId > priorClockPeer)
+      ) {
+        priorFormat = span.format;
+        priorClockCounter = span.clock.counter;
+        priorClockPeer = span.clock.peerId;
+      }
+    }
+
+    entries.push({ charId, priorFormat });
+  }
+
+  return entries;
+}
+
+/**
  * Record operations to the undo stack.
  * Called after any operation that modifies the document.
  * Clears the redo stack since a new action invalidates redo history.
@@ -280,6 +325,18 @@ export function recordUndoOps(
   const cursorAfter = captureCRDTCursor(stateAfter);
   const selectionAfter = captureCRDTSelection(stateAfter);
 
+  // Snapshot prior format state for every format_set op so undo can restore
+  // per-char what was there before (preserves link URLs, prior bold/italic, etc.)
+  // rather than just toggling the format off.
+  let priorFormats: Map<string, readonly PriorFormatEntry[]> | undefined;
+  for (const op of ops) {
+    if (op.op !== "format_set") continue;
+    const entries = capturePriorFormatsForOp(stateBefore, op);
+    if (!entries) continue;
+    if (!priorFormats) priorFormats = new Map();
+    priorFormats.set(op.id, entries);
+  }
+
   const undoGroup: UndoGroup = {
     operations: ops,
     peerId,
@@ -287,6 +344,7 @@ export function recordUndoOps(
     selectionBefore,
     cursorAfter,
     selectionAfter,
+    priorFormats,
   };
 
   return {
@@ -360,8 +418,14 @@ export function undoState(state: EditorState): {
 
   const undoGroup = undoStack[lastUserGroupIndex];
 
-  // Compute inverse operations on-the-fly using current state and tombstones
-  const inverseOps = invertOperations(undoGroup.operations, state);
+  // Compute inverse operations on-the-fly using current state and tombstones.
+  // priorFormats lets invertFormatSet restore per-char prior format state
+  // (link URLs etc.) instead of just toggling the format off.
+  const inverseOps = invertOperations(
+    undoGroup.operations,
+    state,
+    undoGroup.priorFormats
+  );
 
   // If no valid inverses (e.g., all operations target tombstoned blocks), skip this group
   if (inverseOps.length === 0) {
@@ -384,7 +448,7 @@ export function undoState(state: EditorState): {
   }
 
   // Apply inverse operations to the page
-  const newPage = applyRemoteOps(state.document.page, inverseOps);
+  const newPage = applyOps(state.document.page, inverseOps);
 
   // Create state with new page
   let newState: EditorState = {
@@ -407,7 +471,9 @@ export function undoState(state: EditorState): {
     ...undoStack.slice(lastUserGroupIndex + 1),
   ];
 
-  // For redo, store the original operations and preserve cursor state
+  // For redo, store the original operations and preserve cursor state.
+  // Carry priorFormats forward so a future undo-after-redo can still restore
+  // per-char prior format state.
   const redoGroup: UndoGroup = {
     operations: undoGroup.operations, // Store original ops for redo
     peerId: currentPeerId,
@@ -415,6 +481,7 @@ export function undoState(state: EditorState): {
     selectionBefore: undoGroup.selectionBefore,
     cursorAfter: undoGroup.cursorAfter,
     selectionAfter: undoGroup.selectionAfter,
+    priorFormats: undoGroup.priorFormats,
   };
 
   return {
@@ -455,12 +522,32 @@ export function redoState(state: EditorState): {
     return { state, ops: [] };
   }
 
-  // Get the original operations to reapply
+  // Get the original operations to reapply.
+  //
+  // We must re-stamp each op with a fresh id/clock. The originals are already
+  // in every peer's version vector from the first broadcast, so re-sending
+  // them is a no-op on remote peers — and on the local oplog too. The
+  // re-stamped ops are new events that propagate normally; their semantic
+  // effect is identical because the payload (charIds, blockId, format, value,
+  // afterCharId, etc.) is unchanged, and the apply paths key off those stable
+  // IDs (e.g. text_insert un-tombstones by char id).
   const redoGroupData = redoStack[lastUserGroupIndex];
-  const redoOps = [...redoGroupData.operations];
+  const redoOps = refreshOps(redoGroupData.operations);
+
+  // Re-key priorFormats from the old op ids to the refreshed ones so that
+  // a future undo-after-redo can still look up per-char prior format state.
+  let redoPriorFormats: Map<string, readonly PriorFormatEntry[]> | undefined;
+  if (redoGroupData.priorFormats) {
+    redoPriorFormats = new Map();
+    for (let i = 0; i < redoGroupData.operations.length; i++) {
+      const oldId = redoGroupData.operations[i].id;
+      const entries = redoGroupData.priorFormats.get(oldId);
+      if (entries) redoPriorFormats.set(redoOps[i].id, entries);
+    }
+  }
 
   // Apply redo operations to the page
-  const newPage = applyRemoteOps(state.document.page, redoOps);
+  const newPage = applyOps(state.document.page, redoOps);
 
   // Create state with new page
   let newState: EditorState = {
@@ -491,6 +578,7 @@ export function redoState(state: EditorState): {
     selectionBefore: redoGroupData.selectionBefore,
     cursorAfter: redoGroupData.cursorAfter,
     selectionAfter: redoGroupData.selectionAfter,
+    priorFormats: redoPriorFormats,
   };
 
   return {

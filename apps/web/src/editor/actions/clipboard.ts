@@ -514,6 +514,17 @@ function blocksToHTML(blocks: Block[]): string {
       return "<hr />";
     }
 
+    // Handle math blocks
+    if (block.type === "math") {
+      const latex = (block.latex || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+      const mode = block.displayMode ? "display" : "inline";
+      return `<div data-cypher-math="${mode}">${latex}</div>`;
+    }
+
     if (!isTextualBlock(block)) {
       return "";
     }
@@ -964,6 +975,12 @@ function parseHTMLToBlocks(html: string): Block[] {
     > = [];
     const tagName = element.tagName.toLowerCase();
 
+    // Cypher math block — recognize regardless of tag and don't recurse
+    if (element.hasAttribute("data-cypher-math")) {
+      blockElements.push(element);
+      return blockElements;
+    }
+
     // If this is a block element itself, add it
     if (isBlockElement(tagName)) {
       blockElements.push(element);
@@ -1063,6 +1080,19 @@ function parseHTMLToBlocks(html: string): Block[] {
 
     // Handle regular HTML elements
     const tagName = element.tagName.toLowerCase();
+
+    // Handle Cypher math blocks
+    if (element.hasAttribute("data-cypher-math")) {
+      const mode = element.getAttribute("data-cypher-math");
+      const latex = element.textContent || "";
+      blocks.push({
+        id: generateBlockId(),
+        type: "math",
+        latex,
+        displayMode: mode !== "inline",
+      });
+      continue;
+    }
 
     // Handle img tags
     if (tagName === "img") {
@@ -1465,6 +1495,71 @@ function insertBlocksAtCursor(
       return { state: clearSelection(newState), ops };
     }
 
+    // Handle pasting a single math block
+    if (blocks[0].type === "math") {
+      const mathBlock = blocks[0];
+      const newBlockId = generateBlockId();
+
+      const newMathBlock: Block = {
+        id: newBlockId,
+        type: "math",
+        latex: mathBlock.latex,
+        displayMode: mathBlock.displayMode,
+      };
+      invalidateBlockCache(newMathBlock);
+
+      const blockInsertOp: BlockInsert = {
+        op: "block_insert",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        afterBlockId: currentBlock.id,
+        blockId: newBlockId,
+        blockType: "math",
+      };
+      ops.push(blockInsertOp);
+
+      const latexOp: BlockSet = {
+        op: "block_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        blockId: newBlockId,
+        field: "latex",
+        value: mathBlock.latex,
+      };
+      ops.push(latexOp);
+
+      const displayModeOp: BlockSet = {
+        op: "block_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        blockId: newBlockId,
+        field: "displayMode",
+        value: mathBlock.displayMode,
+      };
+      ops.push(displayModeOp);
+
+      const newBlocks = [
+        ...newState.document.page.blocks.slice(0, blockIndex + 1),
+        newMathBlock,
+        ...newState.document.page.blocks.slice(blockIndex + 1),
+      ];
+
+      newState = {
+        ...newState,
+        document: {
+          ...newState.document,
+          page: { ...newState.document.page, blocks: newBlocks },
+        },
+      };
+
+      newState = moveCursorToPosition(newState, blockIndex + 2, 0);
+
+      return { state: clearSelection(newState), ops };
+    }
+
     // Handle pasting a single line block
     if (blocks[0].type === "line") {
       const newBlockId = generateBlockId();
@@ -1758,6 +1853,40 @@ function insertBlocksAtCursor(
       ops.push(blockInsertOp);
     };
 
+    const createMathBlockOps = (
+      mathBlock: Block & { type: "math" },
+      newBlockId: string,
+      afterBlockId: string | null
+    ) => {
+      ops.push({
+        op: "block_insert",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        afterBlockId,
+        blockId: newBlockId,
+        blockType: "math",
+      });
+      ops.push({
+        op: "block_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        blockId: newBlockId,
+        field: "latex",
+        value: mathBlock.latex,
+      });
+      ops.push({
+        op: "block_set",
+        id: nextId(),
+        clock: getClock(),
+        pageId: getPageId(),
+        blockId: newBlockId,
+        field: "displayMode",
+        value: mathBlock.displayMode,
+      });
+    };
+
     const firstPastedBlock = blocks[0];
     const lastPastedBlock = blocks[blocks.length - 1];
     const resultBlocks: Block[] = [];
@@ -1889,6 +2018,26 @@ function insertBlocksAtCursor(
       createLineBlockOps(newLineBlockId, currentBlock.id);
       resultBlocks.push(newLineBlock);
       lastInsertedBlockId = newLineBlockId;
+    } else if (firstPastedBlock.type === "math") {
+      const firstBlock: Block = {
+        ...currentBlock,
+        charRuns: charsToRuns(beforeChars),
+        formats: beforeFormats,
+      };
+      invalidateBlockCache(firstBlock);
+      resultBlocks.push(firstBlock);
+
+      const newMathBlockId = generateBlockId();
+      const newMathBlock: Block = {
+        id: newMathBlockId,
+        type: "math",
+        latex: firstPastedBlock.latex,
+        displayMode: firstPastedBlock.displayMode,
+      };
+      invalidateBlockCache(newMathBlock);
+      createMathBlockOps(firstPastedBlock as any, newMathBlockId, currentBlock.id);
+      resultBlocks.push(newMathBlock);
+      lastInsertedBlockId = newMathBlockId;
     }
 
     // Handle middle blocks (all blocks except first and last)
@@ -1918,6 +2067,17 @@ function insertBlocksAtCursor(
         invalidateBlockCache(newLineBlock);
         createLineBlockOps(newBlockId, lastInsertedBlockId);
         resultBlocks.push(newLineBlock);
+        lastInsertedBlockId = newBlockId;
+      } else if (block.type === "math") {
+        const newMathBlock: Block = {
+          id: newBlockId,
+          type: "math",
+          latex: block.latex,
+          displayMode: block.displayMode,
+        };
+        invalidateBlockCache(newMathBlock);
+        createMathBlockOps(block as any, newBlockId, lastInsertedBlockId);
+        resultBlocks.push(newMathBlock);
         lastInsertedBlockId = newBlockId;
       } else if (isTextualBlock(block)) {
         // Generate new chars with new IDs for CRDT sync
@@ -2344,6 +2504,18 @@ function insertBlocksAtCursor(
           resultBlocks.push(afterBlock);
           lastInsertedBlockId = afterBlockId;
         }
+      } else if (lastPastedBlock.type === "math") {
+        const newMathBlockId = generateBlockId();
+        const newMathBlock: Block = {
+          id: newMathBlockId,
+          type: "math",
+          latex: lastPastedBlock.latex,
+          displayMode: lastPastedBlock.displayMode,
+        };
+        invalidateBlockCache(newMathBlock);
+        createMathBlockOps(lastPastedBlock as any, newMathBlockId, lastInsertedBlockId);
+        resultBlocks.push(newMathBlock);
+        lastInsertedBlockId = newMathBlockId;
       } else if (lastPastedBlock.type === "line") {
         // Insert line as new block
         const newLineBlockId = generateBlockId();
