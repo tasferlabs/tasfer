@@ -298,7 +298,7 @@
   "home.heroLine1": "your words.",
   "home.heroLine2": "your machine.",
   "home.heroLine3": "your rules.",
-  "home.heroSubtitle": "An editor that runs on your device, syncs directly between your devices, and answers to no server. Your data never leaves your hands.",
+  "home.heroSubtitle": "A canvas-based editor that runs on your device, syncs peer-to-peer, and answers to no server. Your data never leaves your hands.",
   "home.localFirst": "local-first",
   "home.localFirstDesc": "Everything runs on your machine. Your data stored locally. No round-trips to servers, no loading spinners, no permission asked.",
   "home.manifesto": "manifesto",

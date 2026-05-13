@@ -1,12 +1,16 @@
 /* ── Base ── */
 
 .home {
+  /* Terminal labels (> manifesto, etc.) keep mono so the prompt prefix
+     still reads as a terminal cue. Body copy uses Poppins per the design
+     system — same family as the rest of the app, sets the editor in
+     conversation with the manifesto. */
   --home-mono:
     ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
   --home-text:
-    "Noto Sans Arabic", ui-monospace, "SFMono-Regular", "SF Mono", Menlo,
-    Consolas, "Liberation Mono", monospace;
+    "Noto Sans Arabic", "Poppins", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
   position: relative;
   min-height: 100vh;
@@ -62,11 +66,12 @@
 }
 
 .home-logo {
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  color: var(--primary);
-  text-transform: lowercase;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--wordmark-color);
+  text-transform: none;
 }
 
 .home-nav-links {
@@ -101,6 +106,8 @@
   border: none;
   cursor: pointer;
   transition: opacity 0.15s;
+  /* Manifesto buttons are deliberately sharp rectangles. */
+  border-radius: 0;
 }
 
 .home-btn:hover {

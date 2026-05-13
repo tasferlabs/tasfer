@@ -15,6 +15,11 @@ import { getInlineMathDims } from "./inlineMath";
 // Import Libre Baskerville font (multiple weights)
 import "@fontsource/libre-baskerville/400.css";
 import "@fontsource/libre-baskerville/700.css";
+// Import Space Grotesk - display face reserved for the "Cypher" wordmark
+import "@fontsource/space-grotesk/400.css";
+import "@fontsource/space-grotesk/500.css";
+import "@fontsource/space-grotesk/600.css";
+import "@fontsource/space-grotesk/700.css";
 import type { FontMetrics, CharacterMetrics } from "./types";
 import type FontConfig from "./types";
 

@@ -512,7 +512,7 @@ export function SidebarContent({
                     <div className={style.appSidebarSection}>
                       <div className={style.appSidebarSectionTitle}>
                         <div className={style.appSidebarSectionIcon}>
-                          <Icons.Shared />
+                          <Icons.Box />
                         </div>
                         {space.name || t("common.untitled", "Untitled")}
                       </div>

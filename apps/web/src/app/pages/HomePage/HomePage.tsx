@@ -64,7 +64,7 @@ export default function HomePage() {
       <div className="home-grid" />
 
       <nav className="home-nav">
-        <span className="home-logo">cypher</span>
+        <span className="home-logo">Cypher</span>
       </nav>
 
       <section className="home-hero">
@@ -192,7 +192,7 @@ export default function HomePage() {
       </section>
 
       <footer className="home-footer">
-        <span className="home-logo">cypher</span>
+        <span className="home-logo">Cypher</span>
         <div className="home-footer-right">
           <Link to="/privacy" className="home-link">{t("privacy.title", "privacy policy")}</Link>
           <span className="home-footer-text">{t("home.footerText", "decentralized by design. built in the open.")}</span>
