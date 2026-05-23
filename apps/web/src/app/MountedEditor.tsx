@@ -10,6 +10,8 @@ import {
 import {
   SyncEngine,
   advanceGlobalClock,
+  advanceGlobalIdCounter,
+  maxOpIdCounter,
   serializeVV,
 } from "@/editor/sync/sync";
 import type { Operation } from "@/editor/sync/types";
@@ -595,6 +597,10 @@ export function MountedEditor({
         if (lastOp) {
           advanceGlobalClock(lastOp.clock);
         }
+        // Same monotonicity requirement applies to the id-counter: future
+        // local ids must out-counter every persisted id so RGA sibling
+        // sorts place new blocks/chars after pre-existing siblings.
+        advanceGlobalIdCounter(maxOpIdCounter(persistedOps));
       }
       // Local storage confirmed — we have whatever we have. Reveal the canvas.
       if (!snapshotHasContent) {
@@ -636,6 +642,8 @@ export function MountedEditor({
       for (const op of ops) {
         advanceGlobalClock(op.clock);
       }
+      // And bump the id-counter past any remote ids — same reason as above.
+      advanceGlobalIdCounter(maxOpIdCounter(ops));
       mounted.editor.updatePageFromSync(syncEngine.getState());
       saveSnapshot(syncEngine.getState().blocks);
       isApplyingRemoteOpsRef.current = false;

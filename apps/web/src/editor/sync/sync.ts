@@ -9,7 +9,7 @@
 import type { Char, CharRun, Page, TextFormat } from "@/deserializer/loadPage";
 import { BLOCK_REGISTRY } from "./block-registry";
 import { compareHLC, createHLC, receiveHLC, tickHLC } from "./hlc";
-import { createIdGenerator, generateBlockId, generatePeerId, extractPeerId, extractCounter } from "./id";
+import { createIdGenerator, generateBlockId, generatePeerId, extractPeerId, extractCounter, type IdGenerator } from "./id";
 import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
 import { findCharIdAtPosition, getCharIdsInRange } from "./reducer";
 import type {
@@ -36,7 +36,7 @@ import type {
  * These are initialized per-page and used throughout the editor.
  */
 let globalPageId: string | null = null;
-let globalIdGen: (() => string) | null = null;
+let globalIdGen: IdGenerator | null = null;
 let globalHLC: HLC | null = null;
 
 /**
@@ -109,6 +109,39 @@ export function getPeerId(): string {
 export function advanceGlobalClock(remoteClock: HLC): void {
   if (globalHLC === null) return;
   globalHLC = receiveHLC(globalHLC, remoteClock);
+}
+
+/**
+ * Bump the global id-counter so the next id we generate has counter > `n`.
+ * Required for RGA sibling tie-breaks across sessions — see IdGenerator.advance.
+ */
+export function advanceGlobalIdCounter(n: number): void {
+  if (globalIdGen === null) return;
+  globalIdGen.advance(n);
+}
+
+/**
+ * Scan ops for the highest id-counter value present anywhere — op ids,
+ * inserted-block ids, inserted-char starting counters (and their full run
+ * length). Used to advance our local idGen past every counter we've seen
+ * so RGA sibling sorts place new local ids after pre-existing siblings.
+ */
+export function maxOpIdCounter(ops: readonly Operation[]): number {
+  let max = 0;
+  for (const op of ops) {
+    const c = extractCounter(op.id);
+    if (c > max) max = c;
+    if (op.op === "block_insert") {
+      const bc = extractCounter(op.blockId);
+      if (bc > max) max = bc;
+    } else if (op.op === "text_insert") {
+      for (const run of op.charRuns) {
+        const lastCounter = run.startCounter + run.text.length - 1;
+        if (lastCounter > max) max = lastCounter;
+      }
+    }
+  }
+  return max;
 }
 
 // Re-export types for consumers
@@ -320,7 +353,7 @@ export class SyncEngine {
   private opLog: OpLog;
   private hlc: ReturnType<typeof createHLC>;
   private peerId: string;
-  private idGen: () => string;
+  private idGen: IdGenerator;
   private listeners: Set<StateChangeListener> = new Set();
 
   /**
@@ -370,6 +403,10 @@ export class SyncEngine {
       // Update HLC to be at least as recent as loaded operations
       this.hlc = receiveHLC(this.hlc, op.clock);
     }
+    // Advance idGen past every id-counter seen in the loaded ops so the
+    // next block/char we emit out-counters every pre-existing sibling
+    // (RGA sibling sort compares by counter — see maxOpIdCounter).
+    this.idGen.advance(maxOpIdCounter(ops));
   }
 
   /**
@@ -398,6 +435,9 @@ export class SyncEngine {
     for (const op of ops) {
       this.hlc = receiveHLC(this.hlc, op.clock);
     }
+    // Mirror the HLC bump for the id-counter so future local ops out-counter
+    // every remote id we've now seen (RGA sibling tie-break invariant).
+    this.idGen.advance(maxOpIdCounter(ops));
 
     this.opLog = mergeOps(this.opLog, ops);
     this.notifyListeners();

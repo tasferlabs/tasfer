@@ -11,8 +11,8 @@ import {
   measureCRDTTextUpToIndex,
   type FontFamily,
 } from "./fonts";
-import { generatePeerId } from "./sync/id";
-import { setCRDTContext } from "./sync/sync";
+import { extractCounter, generatePeerId } from "./sync/id";
+import { advanceGlobalIdCounter, setCRDTContext } from "./sync/sync";
 import { isRTLChar } from "./rtl";
 import {
   getVisibleTextFromRuns,
@@ -265,6 +265,25 @@ export const createInitialState = (
   // and HLC clocks near zero, which breaks op ordering and convergence.
   if (options?.mode !== "readonly") {
     setCRDTContext(page.id, peerId);
+    // Bump the id-counter past every block / char counter present in the
+    // loaded page so the next op we emit (e.g. user presses Enter to split
+    // a block) out-counters its pre-existing siblings. Without this the
+    // RGA sibling sort — counter-first via compareIds — places our fresh
+    // low-counter inserts AFTER everything loaded, which materialises as
+    // "the second half of a split jumps to the end of the page" and
+    // "characters typed mid-block jump to the end".
+    let maxCounter = 0;
+    for (const block of page.blocks) {
+      const blockCounter = extractCounter(block.id);
+      if (blockCounter > maxCounter) maxCounter = blockCounter;
+      if (isTextualBlock(block)) {
+        for (const run of block.charRuns) {
+          const lastCounter = run.startCounter + run.text.length - 1;
+          if (lastCounter > maxCounter) maxCounter = lastCounter;
+        }
+      }
+    }
+    advanceGlobalIdCounter(maxCounter);
   }
 
   return {

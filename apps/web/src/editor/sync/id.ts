@@ -33,17 +33,38 @@ export function generatePeerId(): string {
  * genId(); // "abc123:0"
  * genId(); // "abc123:1"
  */
+export type IdGenerator = (() => string) & {
+  /**
+   * Bump the counter so that the NEXT id returned has counter > `toAtLeast`.
+   * No-op if the internal counter is already past `toAtLeast`.
+   *
+   * Used to keep the RGA sibling-tie-break invariant across sessions: the
+   * sibling sort compares ids by counter-first (see `compareIds`), so new
+   * ids must out-counter every id we've ever seen — otherwise a fresh
+   * session (counter starting at 0) emits low-counter ids that the sort
+   * places AFTER pre-existing siblings (counter from the original session),
+   * pushing newly-split blocks / newly-typed chars to the end of the page.
+   */
+  advance: (toAtLeast: number) => void;
+};
+
 export function createIdGenerator(
   peerId: string,
   startCounter: number = 0
-): () => string {
+): IdGenerator {
   let counter = startCounter;
 
-  return () => {
+  const gen = (() => {
     const id = `${peerId}:${counter}`;
     counter++;
     return id;
+  }) as IdGenerator;
+
+  gen.advance = (toAtLeast: number) => {
+    if (toAtLeast >= counter) counter = toAtLeast + 1;
   };
+
+  return gen;
 }
 
 /**
