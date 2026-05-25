@@ -442,6 +442,153 @@ function applyMarkdownPrefix(
   return { block, ops };
 }
 
+/**
+ * Merge `source` into the end of `target`, emitting CRDT ops for everything
+ * (text move + format transfer + block delete) so local apply, remote apply,
+ * and undo all see the same change. No callers should ever splice the page
+ * by hand alongside this.
+ *
+ * Mirrors the structure of `splitBlock` (which transfers formats onto
+ * newly-inserted chars in a sibling block). The crucial bit is that
+ * `insertCharsAtPosition` allocates FRESH char IDs in target's id-space —
+ * undo's `text_delete` inverse targets those new ids and cleanly removes
+ * the moved content from target, leaving source's tombstoned chars to be
+ * restored by the inverse of `block_delete(source)`.
+ *
+ * Cursor positioning is the caller's responsibility: look up
+ * `newPage.blocks.findIndex(b => b.id === target.id && !b.deleted)` after
+ * this returns. The surviving block keeps target's id and original array
+ * position; source is tombstoned at its original position.
+ */
+function mergeBlocksOps(
+  page: Page,
+  source: Block,
+  target: Block,
+): { newPage: Page; ops: Operation[] } {
+  const ops: Operation[] = [];
+  let pageAcc = page;
+
+  // Non-textual source can't contribute content; just tombstone it.
+  if (!isTextualBlock(source) || !isTextualBlock(target)) {
+    const delOp: Operation = {
+      op: "block_delete",
+      id: nextId(),
+      clock: getClock(),
+      pageId: getPageId(),
+      blockId: source.id,
+    };
+    ops.push(delOp);
+    pageAcc = applyOps(pageAcc, [delOp]);
+    return { newPage: pageAcc, ops };
+  }
+
+  const sourceText = getVisibleText(source.charRuns);
+
+  if (sourceText.length > 0) {
+    const targetLen = getVisibleLength(target.charRuns);
+    const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
+      pageAcc,
+      target.id,
+      targetLen,
+      sourceText,
+    );
+    pageAcc = pageAfterInsert;
+    ops.push(insertOp);
+
+    // Re-target source's format spans onto the freshly-inserted chars in
+    // target. We map source char ids → new target char ids by visible
+    // position (insertCharsAtPosition appended the new chars at the end of
+    // target, so they're the trailing sourceText.length visible chars).
+    if (source.formats.length > 0) {
+      const sourceIds: string[] = [];
+      for (const { id } of iterateVisibleChars(source.charRuns)) {
+        sourceIds.push(id);
+      }
+      const targetAfter = pageAcc.blocks.find((b) => b.id === target.id);
+      const targetIdsAll: string[] = [];
+      if (targetAfter && isTextualBlock(targetAfter)) {
+        for (const { id } of iterateVisibleChars(targetAfter.charRuns)) {
+          targetIdsAll.push(id);
+        }
+      }
+      const newIds = targetIdsAll.slice(-sourceText.length);
+
+      if (sourceIds.length === newIds.length) {
+        const sourceToNew = new Map<string, string>();
+        for (let i = 0; i < sourceIds.length; i++) {
+          sourceToNew.set(sourceIds[i], newIds[i]);
+        }
+
+        const formatOps: FormatSet[] = [];
+        for (const span of source.formats) {
+          const coveredNewIds: string[] = [];
+          for (const oldId of sourceIds) {
+            if (
+              isCharIdInRange(
+                source.charRuns,
+                oldId,
+                span.startCharId,
+                span.endCharId,
+              )
+            ) {
+              coveredNewIds.push(sourceToNew.get(oldId)!);
+            }
+          }
+          if (coveredNewIds.length > 0) {
+            formatOps.push({
+              op: "format_set",
+              id: nextId(),
+              clock: getClock(),
+              pageId: getPageId(),
+              blockId: target.id,
+              charIds: coveredNewIds,
+              format: span.format,
+              value:
+                span.format.type === "link" ? span.format.url || true : true,
+            });
+          }
+        }
+        if (formatOps.length > 0) {
+          ops.push(...formatOps);
+          pageAcc = applyOps(pageAcc, formatOps);
+        }
+      }
+    }
+  }
+
+  const delOp: Operation = {
+    op: "block_delete",
+    id: nextId(),
+    clock: getClock(),
+    pageId: getPageId(),
+    blockId: source.id,
+  };
+  ops.push(delOp);
+  pageAcc = applyOps(pageAcc, [delOp]);
+
+  // Post-merge markdown detection on the surviving paragraph (e.g. backspacing
+  // such that target's text now starts with "1. " should convert it to a
+  // numbered list). Clone before passing to applyMarkdownPrefix — that
+  // function mutates its argument in place; we don't want that bleeding into
+  // pageAcc. The ops it returns are applied via applyOps for parity.
+  const targetAfterMerge = pageAcc.blocks.find((b) => b.id === target.id);
+  if (
+    targetAfterMerge &&
+    !targetAfterMerge.deleted &&
+    targetAfterMerge.type === "paragraph" &&
+    isTextualBlock(targetAfterMerge)
+  ) {
+    const clone = { ...targetAfterMerge } as Block;
+    const { ops: prefixOps } = applyMarkdownPrefix(clone);
+    if (prefixOps.length > 0) {
+      ops.push(...prefixOps);
+      pageAcc = applyOps(pageAcc, prefixOps);
+    }
+  }
+
+  return { newPage: pageAcc, ops };
+}
+
 // Helper function to get selection range in proper order (start to end)
 export function getSelectionRange(
   state: EditorState,
@@ -1290,51 +1437,34 @@ export function deleteText(state: EditorState): CommandResult {
       }
 
       const prevText = getBlockTextContent(prevBlock);
-      // Merge the charRuns and formats arrays
-      const mergedCharRuns = [...prevBlock.charRuns, ...oldBlock.charRuns];
-      const mergedFormats = [...prevBlock.formats, ...oldBlock.formats];
-
-      // Determine which block to preserve
       const prevIsEmpty = prevText.length === 0;
       const blockToPreserve = prevIsEmpty ? oldBlock : prevBlock;
       const blockToDelete = prevIsEmpty ? prevBlock : oldBlock;
 
-      // Delete the block that's being merged away
-      const blockDeleteOp: Operation = {
-        op: "block_delete",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
-        blockId: blockToDelete.id,
-      };
-      ops.push(blockDeleteOp);
+      const { newPage, ops: mergeOps } = mergeBlocksOps(
+        state.document.page,
+        blockToDelete,
+        blockToPreserve,
+      );
+      ops.push(...mergeOps);
 
-      const blockCopy: Block = {
-        ...blockToPreserve,
-        charRuns: mergedCharRuns,
-        formats: mergedFormats,
-      };
-      // Only apply markdown prefix if the resulting type is a paragraph
-      if (blockCopy.type === "paragraph") {
-        ops.push(...applyMarkdownPrefix(blockCopy).ops);
-      }
-      // Invalidate the merged block
-      invalidateBlockCache(blockCopy);
-      const newBlocks = [
-        ...state.document.page.blocks.slice(0, prevBlockIndex),
-        blockCopy,
-        ...state.document.page.blocks.slice(blockIndex + 1),
-      ];
-      const newPage = { ...state.document.page, blocks: newBlocks };
+      const survivingIdx = newPage.blocks.findIndex(
+        (b) => b.id === blockToPreserve.id && !b.deleted,
+      );
+      const survivingBlock = survivingIdx !== -1 ? newPage.blocks[survivingIdx] : null;
+      if (survivingBlock) invalidateBlockCache(survivingBlock);
+
       let newState: EditorState = {
         ...state,
         document: { ...state.document, page: newPage },
       };
-
+      // Cursor lands at the join point: end of preserved block's pre-merge
+      // text when prev had content; start of preserved (old) block when prev
+      // was empty.
       newState = moveCursorToPosition(
         newState,
-        prevBlockIndex,
-        prevText.length,
+        survivingIdx !== -1 ? survivingIdx : prevBlockIndex,
+        prevIsEmpty ? 0 : prevText.length,
       );
       return { state: newState, ops };
     } else {
@@ -1540,46 +1670,34 @@ export function deleteForward(state: EditorState): CommandResult {
         return { state: newState, ops };
       }
 
-      const mergedCharRuns = [...oldBlock.charRuns, ...nextBlock.charRuns];
-      const mergedFormats = [...oldBlock.formats, ...nextBlock.formats];
-
-      // Determine which block to preserve
       const currentIsEmpty = oldText.length === 0;
       const blockToPreserve = currentIsEmpty ? nextBlock : oldBlock;
       const blockToDelete = currentIsEmpty ? oldBlock : nextBlock;
 
-      // Delete the block that's being merged away
-      const blockDeleteOp: Operation = {
-        op: "block_delete",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
-        blockId: blockToDelete.id,
-      };
-      ops.push(blockDeleteOp);
+      const { newPage, ops: mergeOps } = mergeBlocksOps(
+        state.document.page,
+        blockToDelete,
+        blockToPreserve,
+      );
+      ops.push(...mergeOps);
 
-      const blockCopy: Block = {
-        ...blockToPreserve,
-        charRuns: mergedCharRuns,
-        formats: mergedFormats,
-      };
-      // Only apply markdown prefix if the resulting type is a paragraph
-      if (blockCopy.type === "paragraph") {
-        ops.push(...applyMarkdownPrefix(blockCopy).ops);
-      }
-      // Invalidate the merged block
-      invalidateBlockCache(blockCopy);
-      const newBlocks = [
-        ...state.document.page.blocks.slice(0, blockIndex),
-        blockCopy,
-        ...state.document.page.blocks.slice(nextBlockIndex + 1),
-      ];
-      const newPage = { ...state.document.page, blocks: newBlocks };
+      const survivingIdx = newPage.blocks.findIndex(
+        (b) => b.id === blockToPreserve.id && !b.deleted,
+      );
+      const survivingBlock = survivingIdx !== -1 ? newPage.blocks[survivingIdx] : null;
+      if (survivingBlock) invalidateBlockCache(survivingBlock);
+
       let newState: EditorState = {
         ...state,
         document: { ...state.document, page: newPage },
       };
-      newState = moveCursorToPosition(newState, blockIndex, textIndex);
+      // Cursor stays at the join point: textIndex (end of preserved old's
+      // pre-merge text) when old was non-empty; 0 (start of next) otherwise.
+      newState = moveCursorToPosition(
+        newState,
+        survivingIdx !== -1 ? survivingIdx : blockIndex,
+        currentIsEmpty ? 0 : textIndex,
+      );
       return { state: newState, ops };
     }
   }
@@ -1912,46 +2030,32 @@ export function deleteWordForward(state: EditorState): CommandResult {
       if (!isTextualBlock(nextBlock)) {
         return { state, ops };
       }
-      const mergedCharRuns = [...oldBlock.charRuns, ...nextBlock.charRuns];
-      const mergedFormats = [...oldBlock.formats, ...nextBlock.formats];
-
-      // Determine which block to preserve
       const currentIsEmpty = oldText.length === 0;
       const blockToPreserve = currentIsEmpty ? nextBlock : oldBlock;
       const blockToDelete = currentIsEmpty ? oldBlock : nextBlock;
 
-      // Delete the block that's being merged away
-      const blockDeleteOp: Operation = {
-        op: "block_delete",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
-        blockId: blockToDelete.id,
-      };
-      ops.push(blockDeleteOp);
+      const { newPage, ops: mergeOps } = mergeBlocksOps(
+        state.document.page,
+        blockToDelete,
+        blockToPreserve,
+      );
+      ops.push(...mergeOps);
 
-      const blockCopy: Block = {
-        ...blockToPreserve,
-        charRuns: mergedCharRuns,
-        formats: mergedFormats,
-      };
-      // Only apply markdown prefix if the resulting type is a paragraph
-      if (blockCopy.type === "paragraph") {
-        ops.push(...applyMarkdownPrefix(blockCopy).ops);
-      }
-      // Invalidate the merged block
-      invalidateBlockCache(blockCopy);
-      const newBlocks = [
-        ...state.document.page.blocks.slice(0, blockIndex),
-        blockCopy,
-        ...state.document.page.blocks.slice(nextBlockIndex + 1),
-      ];
-      const newPage = { ...state.document.page, blocks: newBlocks };
+      const survivingIdx = newPage.blocks.findIndex(
+        (b) => b.id === blockToPreserve.id && !b.deleted,
+      );
+      const survivingBlock = survivingIdx !== -1 ? newPage.blocks[survivingIdx] : null;
+      if (survivingBlock) invalidateBlockCache(survivingBlock);
+
       let newState: EditorState = {
         ...state,
         document: { ...state.document, page: newPage },
       };
-      newState = moveCursorToPosition(newState, blockIndex, textIndex);
+      newState = moveCursorToPosition(
+        newState,
+        survivingIdx !== -1 ? survivingIdx : blockIndex,
+        currentIsEmpty ? 0 : textIndex,
+      );
       return { state: newState, ops };
     }
   }
@@ -2024,46 +2128,32 @@ export function deleteWordBackward(state: EditorState): CommandResult {
       return { state, ops };
     }
     const prevText = getBlockTextContent(prevBlock);
-    const mergedCharRuns = [...prevBlock.charRuns, ...oldBlock.charRuns];
-    const mergedFormats = [...prevBlock.formats, ...oldBlock.formats];
-
-    // Determine which block to preserve
     const prevIsEmpty = prevText.length === 0;
     const blockToPreserve = prevIsEmpty ? oldBlock : prevBlock;
     const blockToDelete = prevIsEmpty ? prevBlock : oldBlock;
 
-    // Delete the block that's being merged away
-    const blockDeleteOp: Operation = {
-      op: "block_delete",
-      id: nextId(),
-      clock: getClock(),
-      pageId: getPageId(),
-      blockId: blockToDelete.id,
-    };
-    ops.push(blockDeleteOp);
+    const { newPage, ops: mergeOps } = mergeBlocksOps(
+      state.document.page,
+      blockToDelete,
+      blockToPreserve,
+    );
+    ops.push(...mergeOps);
 
-    const blockCopy: Block = {
-      ...blockToPreserve,
-      charRuns: mergedCharRuns,
-      formats: mergedFormats,
-    };
-    // Only apply markdown prefix if the resulting type is a paragraph
-    if (blockCopy.type === "paragraph") {
-      ops.push(...applyMarkdownPrefix(blockCopy).ops);
-    }
-    // Invalidate the merged block
-    invalidateBlockCache(blockCopy);
-    const newBlocks = [
-      ...state.document.page.blocks.slice(0, blockIndex - 1),
-      blockCopy,
-      ...state.document.page.blocks.slice(blockIndex + 1),
-    ];
-    const newPage = { ...state.document.page, blocks: newBlocks };
+    const survivingIdx = newPage.blocks.findIndex(
+      (b) => b.id === blockToPreserve.id && !b.deleted,
+    );
+    const survivingBlock = survivingIdx !== -1 ? newPage.blocks[survivingIdx] : null;
+    if (survivingBlock) invalidateBlockCache(survivingBlock);
+
     let newState: EditorState = {
       ...state,
       document: { ...state.document, page: newPage },
     };
-    newState = moveCursorToPosition(newState, blockIndex - 1, prevText.length);
+    newState = moveCursorToPosition(
+      newState,
+      survivingIdx !== -1 ? survivingIdx : blockIndex - 1,
+      prevIsEmpty ? 0 : prevText.length,
+    );
     return { state: newState, ops };
   }
   return { state, ops };
