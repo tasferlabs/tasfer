@@ -32,7 +32,8 @@ function formatKeysToFormats(keys: Set<string>): TextFormat[] | undefined {
   if (keys.size === 0) return undefined;
   const formats: TextFormat[] = [];
   for (const key of keys) {
-    if (key.startsWith("link:")) formats.push({ type: "link", url: key.slice(5) });
+    if (key.startsWith("link:"))
+      formats.push({ type: "link", url: key.slice(5) });
     else formats.push({ type: key as TextFormat["type"] });
   }
   return formats.length > 0 ? formats : undefined;
@@ -53,7 +54,8 @@ function groupChars(charRuns: CharRun[], formats: FormatSpan[]): Segment[] {
     for (let i = startIdx; i <= endIdx; i++) {
       const charId = visibleChars[i].id;
       if (!formatMap.has(charId)) formatMap.set(charId, new Set());
-      const key = span.format.type + (span.format.url ? `:${span.format.url}` : "");
+      const key =
+        span.format.type + (span.format.url ? `:${span.format.url}` : "");
       formatMap.get(charId)!.add(key);
     }
   }
@@ -67,14 +69,20 @@ function groupChars(charRuns: CharRun[], formats: FormatSpan[]): Segment[] {
       currentChars.push(c.char);
     } else {
       if (currentChars.length > 0) {
-        segments.push({ text: currentChars.join(""), formats: formatKeysToFormats(currentFormatKeys) });
+        segments.push({
+          text: currentChars.join(""),
+          formats: formatKeysToFormats(currentFormatKeys),
+        });
       }
       currentChars = [c.char];
       currentFormatKeys = new Set(cf);
     }
   }
   if (currentChars.length > 0) {
-    segments.push({ text: currentChars.join(""), formats: formatKeysToFormats(currentFormatKeys) });
+    segments.push({
+      text: currentChars.join(""),
+      formats: formatKeysToFormats(currentFormatKeys),
+    });
   }
   return segments;
 }
@@ -101,23 +109,32 @@ function renderInline(charRuns: CharRun[], formats: FormatSpan[]): string {
       if (has("bold")) html = `<strong>${html}</strong>`;
       if (has("italic")) html = `<em>${html}</em>`;
       if (has("strikethrough")) html = `<s>${html}</s>`;
-      if (link && link.url) html = `<a href="${escapeAttr(link.url)}">${html}</a>`;
+      if (link && link.url)
+        html = `<a href="${escapeAttr(link.url)}">${html}</a>`;
       return html;
     })
     .join("");
 }
 
-function renderImageBlock(block: Extract<Block, { type: "image" }>, urlOverride?: string): string {
+function renderImageBlock(
+  block: Extract<Block, { type: "image" }>,
+  urlOverride?: string,
+): string {
   const src = urlOverride ?? block.url;
   const alt = block.alt ? escapeAttr(block.alt) : "";
-  const styles: string[] = ["max-width:100%", "height:auto", "display:block", "margin:1em auto"];
+  const styles: string[] = [
+    "max-width:100%",
+    "height:auto",
+    "display:block",
+    "margin:1em auto",
+  ];
 
   if (!isImageDefault(block)) {
     if (typeof block.width === "number") styles.push(`width:${block.width}px`);
-    if (block.height) styles.push(`height:${block.height}px`);
+    // if (block.height) styles.push(`height:${block.height}px`);
     const fit = block.objectFit ?? "cover";
     styles.push(`object-fit:${fit}`);
-    if (!block.height) styles.push(`height:${IMAGE_DEFAULT_HEIGHT}px`);
+    // if (!block.height) styles.push(`height:${IMAGE_DEFAULT_HEIGHT}px`);
   }
 
   return `<img src="${escapeAttr(src)}" alt="${alt}" style="${styles.join(";")}" />`;
@@ -138,6 +155,7 @@ function renderMathBlock(block: Extract<Block, { type: "math" }>): string {
 
 const STYLES = `
   body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 720px; margin: 2em auto; padding: 0 1em; color: #111; line-height: 1.6; font-size: 11pt; }
+  @page { margin: 0.3in; }
   h1 { font-size: 2em; margin: 0.67em 0; }
   h2 { font-size: 1.5em; margin: 0.83em 0; }
   h3 { font-size: 1.17em; margin: 1em 0; }
@@ -151,7 +169,7 @@ const STYLES = `
   .todo li { display: flex; align-items: flex-start; gap: 0.5em; }
   .todo input { margin-top: 0.3em; }
   svg { max-width: 100%; }
-  @media print { body { margin: 0; padding: 0; max-width: none; } a { color: inherit; text-decoration: none; } }
+  @media print { html, body { margin: 0; padding: 0; max-width: none; } body > *:first-child { margin-top: 0; } a { color: inherit; text-decoration: none; } }
 `;
 
 interface RenderOptions {
@@ -186,8 +204,20 @@ function flushLists(stack: ListGroup[], target: number): string {
   return out;
 }
 
-export function serializeToHTML(blocks: Block[], options: RenderOptions = {}): string {
-  const live = blocks.filter((b) => !b.deleted);
+function isEmptyTextualBlock(b: Block): boolean {
+  if (!isTextualBlock(b)) return false;
+  for (const _ of iterateVisibleChars(b.charRuns)) return false;
+  return true;
+}
+
+export function serializeToHTML(
+  blocks: Block[],
+  options: RenderOptions = {},
+): string {
+  let live = blocks.filter((b) => !b.deleted);
+  while (live.length > 0 && isEmptyTextualBlock(live[0])) live.shift();
+  while (live.length > 0 && isEmptyTextualBlock(live[live.length - 1]))
+    live.pop();
   const parts: string[] = [];
   const listStack: ListGroup[] = [];
 
@@ -198,14 +228,19 @@ export function serializeToHTML(blocks: Block[], options: RenderOptions = {}): s
   for (const block of live) {
     if (isListBlock(block)) {
       const kind: ListGroup["type"] =
-        block.type === "numbered_list" ? "numbered" : block.type === "todo_list" ? "todo" : "bullet";
+        block.type === "numbered_list"
+          ? "numbered"
+          : block.type === "todo_list"
+            ? "todo"
+            : "bullet";
       const indent = block.indent || 0;
 
       // Pop deeper or differently-typed groups at same level
       while (
         listStack.length > 0 &&
         (listStack[listStack.length - 1].indent > indent ||
-          (listStack[listStack.length - 1].indent === indent && listStack[listStack.length - 1].type !== kind))
+          (listStack[listStack.length - 1].indent === indent &&
+            listStack[listStack.length - 1].type !== kind))
       ) {
         const popped = flushLists(listStack, listStack.length - 1);
         if (popped) parts.push(popped);
@@ -224,7 +259,9 @@ export function serializeToHTML(blocks: Block[], options: RenderOptions = {}): s
       const group = listStack[listStack.length - 1];
       if (block.type === "todo_list") {
         const checked = block.checked ? " checked" : "";
-        group.html.push(`<li><input type="checkbox" disabled${checked} /><span>${inner}</span></li>`);
+        group.html.push(
+          `<li><input type="checkbox" disabled${checked} /><span>${inner}</span></li>`,
+        );
       } else {
         group.html.push(`<li>${inner}</li>`);
       }
@@ -241,7 +278,7 @@ export function serializeToHTML(blocks: Block[], options: RenderOptions = {}): s
     } else if (block.type === "math") {
       parts.push(renderMathBlock(block));
     } else if (isTextualBlock(block)) {
-      const inner = renderInline(block.charRuns, block.formats) || "&nbsp;";
+      const inner = renderInline(block.charRuns, block.formats);
       if (block.type === "heading1") parts.push(`<h1>${inner}</h1>`);
       else if (block.type === "heading2") parts.push(`<h2>${inner}</h2>`);
       else if (block.type === "heading3") parts.push(`<h3>${inner}</h3>`);
