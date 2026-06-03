@@ -7,8 +7,8 @@ import type {
 import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
 import {
   getCurrentFontFamily,
-  measureText,
-  measureCRDTTextUpToIndex,
+  measureCtxText,
+  measureTextUpToIndex,
   type FontFamily,
 } from "./fonts";
 import { extractCounter, generatePeerId } from "./sync/id";
@@ -117,7 +117,7 @@ function wrapCharsDetailed(
   let currentLineWidth = 0;
   let currentCharIndex = 0;
 
-  const spaceWidth = measureText(" ", fontSize, baseFontWeight, fontFamily);
+  const spaceWidth = measureCtxText(" ", fontSize, baseFontWeight, fontFamily);
 
   // Measure a substring of visible chars
   const measureSubstring = (start: number, end: number): number => {
@@ -128,7 +128,7 @@ function wrapCharsDetailed(
       const isBold = formats?.has("bold") || false;
       const isCode = formats?.has("code") || false;
       const fontWeight = isBold ? "bold" : baseFontWeight;
-      width += measureText(char.char, fontSize, fontWeight, fontFamily);
+      width += measureCtxText(char.char, fontSize, fontWeight, fontFamily);
       if (isCode) width += codePadding * 2;
     }
     return width;
@@ -169,7 +169,7 @@ function wrapCharsDetailed(
             const formats = charIdToFormats.get(char.id);
             const isBold = formats?.has("bold") || false;
             const fontWeight = isBold ? "bold" : baseFontWeight;
-            const charWidth = measureText(
+            const charWidth = measureCtxText(
               char.char,
               fontSize,
               fontWeight,
@@ -223,7 +223,7 @@ function measureCharsUpToIndex(
   const chars = charRunsToChars(charRuns);
   // Use the batched measurement function from fonts.ts
   // This preserves Arabic ligatures by measuring text in batches with the same formatting
-  return measureCRDTTextUpToIndex(
+  return measureTextUpToIndex(
     chars,
     formats,
     startIndex,

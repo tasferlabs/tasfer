@@ -38,14 +38,16 @@ export type FontFamily = "poppins" | "libre-baskerville";
 export const FONT_STACKS: Record<FontFamily, string> = {
   poppins:
     'Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-  "libre-baskerville": 'Libre Baskerville, Georgia, "Times New Roman", Times, serif',
+  "libre-baskerville":
+    'Libre Baskerville, Georgia, "Times New Roman", Times, serif',
 };
 
 // Font stacks with Arabic fonts prepended (used when Arabic fonts are loaded)
 const FONT_STACKS_ARABIC: Record<FontFamily, string> = {
   poppins:
     '"Noto Sans Arabic", Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-  "libre-baskerville": 'Amiri, Libre Baskerville, Georgia, "Times New Roman", Times, serif',
+  "libre-baskerville":
+    'Amiri, Libre Baskerville, Georgia, "Times New Roman", Times, serif',
 };
 
 /**
@@ -184,7 +186,7 @@ export async function loadFonts(): Promise<void> {
   }
 
   fontLoadingPromise = Promise.all(
-    FONT_CONFIGS.map(({ family, weight }) => loadSingleFont(family, weight))
+    FONT_CONFIGS.map(({ family, weight }) => loadSingleFont(family, weight)),
   ).then(() => {
     fontsLoaded = true;
     // Flush cached metrics so they're re-measured with the real fonts
@@ -220,8 +222,8 @@ export async function loadArabicFonts(): Promise<void> {
     // Wait for the browser to actually load the font faces
     await Promise.all(
       ARABIC_FONT_CONFIGS.map(({ family, weight }) =>
-        loadSingleFont(family, weight)
-      )
+        loadSingleFont(family, weight),
+      ),
     );
 
     arabicFontsLoaded = true;
@@ -244,7 +246,7 @@ let metricsCache: ReadonlyMap<string, FontMetrics> = new Map();
 const createCacheKey = (
   fontFamily: FontFamily,
   fontSize: number,
-  fontWeight: string
+  fontWeight: string,
 ): string => {
   return `${fontFamily}-${fontSize}-${fontWeight}`;
 };
@@ -261,7 +263,7 @@ const applyFont = (
   ctx: CanvasRenderingContext2D,
   fontSize: number,
   fontWeight: string,
-  fontFamily: FontFamily
+  fontFamily: FontFamily,
 ): void => {
   const fontStack = getFontStack(fontFamily);
   ctx.font = `${fontWeight} ${fontSize}px ${fontStack}`;
@@ -270,7 +272,7 @@ const applyFont = (
 const calculateFontMetrics = (
   fontFamily: FontFamily,
   fontSize: number,
-  fontWeight: string
+  fontWeight: string,
 ): FontMetrics => {
   const ctx = measurementCanvas;
   applyFont(ctx, fontSize, fontWeight, fontFamily);
@@ -303,7 +305,7 @@ const calculateFontMetrics = (
 export const getFontMetrics = (
   fontSize: number,
   fontWeight: string,
-  fontFamily: FontFamily
+  fontFamily: FontFamily,
 ): FontMetrics => {
   const cacheKey = createCacheKey(fontFamily, fontSize, fontWeight);
   const cached = metricsCache.get(cacheKey);
@@ -322,11 +324,11 @@ export const getFontMetrics = (
 };
 
 // Measure character
-export const measureText = (
+export const measureCtxText = (
   text: string,
   fontSize: number,
   fontWeight: string,
-  fontFamily: FontFamily
+  fontFamily: FontFamily,
 ): number => {
   // Fallback to canvas measurement
   const ctx = measurementCanvas;
@@ -334,103 +336,11 @@ export const measureText = (
   return ctx.measureText(text).width;
 };
 
-// Text wrapping function
-export const wrapText = (
-  text: string,
-  maxWidth: number,
-  fontSize: number,
-  fontWeight: string,
-  fontFamily: FontFamily
-): string[] => {
-  const lines: string[] = [];
-  const words = text.split(" ");
-  let currentLine = "";
-  let currentLineWidth = 0;
-
-  const spaceWidth = measureText(" ", fontSize, fontWeight, fontFamily);
-
-  for (let i = 0; i < words.length; i++) {
-    const word = words[i];
-    const wordWidth = measureText(word, fontSize, fontWeight, fontFamily);
-
-    // Calculate space needed for this word including preceding space if line not empty
-    const spaceIfNeeded = currentLine ? spaceWidth : 0;
-
-    if (currentLineWidth + spaceIfNeeded + wordWidth <= maxWidth) {
-      // Fits on current line
-      currentLine = currentLine ? currentLine + " " + word : word;
-      currentLineWidth += spaceIfNeeded + wordWidth;
-    } else {
-      // Does not fit. Push current line if it has content.
-      if (currentLine) {
-        lines.push(currentLine);
-        currentLine = "";
-        currentLineWidth = 0;
-      }
-
-      // Now check if the word itself fits on a new line
-      if (wordWidth <= maxWidth) {
-        currentLine = word;
-        currentLineWidth = wordWidth;
-      } else {
-        // Word is too long, must split
-        let remainingWord = word;
-
-        while (remainingWord) {
-          // Check if remaining fits
-          const remainingWidth = measureText(
-            remainingWord,
-            fontSize,
-            fontWeight,
-            fontFamily
-          );
-          if (remainingWidth <= maxWidth) {
-            currentLine = remainingWord;
-            currentLineWidth = remainingWidth;
-            remainingWord = "";
-            break;
-          }
-
-          // Find split index
-          let currentWidth = 0;
-          let splitIndex = 0;
-          for (let j = 0; j < remainingWord.length; j++) {
-            const charWidth = measureText(
-              remainingWord[j],
-              fontSize,
-              fontWeight,
-              fontFamily
-            );
-            if (currentWidth + charWidth > maxWidth) {
-              splitIndex = j;
-              break;
-            }
-            currentWidth += charWidth;
-          }
-
-          // Safety for very narrow maxWidth (smaller than 1 char)
-          if (splitIndex === 0) splitIndex = 1;
-
-          const chunk = remainingWord.substring(0, splitIndex);
-          lines.push(chunk);
-          remainingWord = remainingWord.substring(splitIndex);
-        }
-      }
-    }
-  }
-
-  if (currentLine) {
-    lines.push(currentLine);
-  }
-
-  return lines.length > 0 ? lines : [""];
-};
-
 // Helper: Check if a char is within a format span
 function isCharInSpan(
   charIndex: number,
   span: FormatSpan,
-  chars: Char[]
+  chars: Char[],
 ): boolean {
   const startIdx = chars.findIndex((c) => c.id === span.startCharId);
   const endIdx = chars.findIndex((c) => c.id === span.endCharId);
@@ -444,7 +354,7 @@ function isCharInSpan(
 export function getFormatsAtIndex(
   charIndex: number,
   chars: Char[],
-  formats: FormatSpan[]
+  formats: FormatSpan[],
 ): TextFormat[] {
   const activeFormats: TextFormat[] = [];
 
@@ -489,11 +399,11 @@ export interface TextBatch {
 
 // Batch CRDT characters by formatting within a visible index range
 // This preserves Arabic ligatures by keeping same-formatted chars together
-export function batchCRDTChars(
+export function batchChars(
   chars: Char[],
   formats: FormatSpan[],
   startIndex: number,
-  endIndex: number
+  endIndex: number,
 ): TextBatch[] {
   const batches: TextBatch[] = [];
   let currentBatch: TextBatch | null = null;
@@ -526,7 +436,9 @@ export function batchCRDTChars(
       const isBold = charFormats.some((f) => f.type === "bold");
       const isItalic = charFormats.some((f) => f.type === "italic");
       const isCode = charFormats.some((f) => f.type === "code");
-      const isStrikethrough = charFormats.some((f) => f.type === "strikethrough");
+      const isStrikethrough = charFormats.some(
+        (f) => f.type === "strikethrough",
+      );
       const isMath = charFormats.some((f) => f.type === "math");
       const linkFormat = charFormats.find((f) => f.type === "link");
 
@@ -555,7 +467,7 @@ export function measureBatchedText(
   batches: TextBatch[],
   fontSize: number,
   baseFontWeight: string,
-  fontFamily: FontFamily
+  fontFamily: FontFamily,
 ): number {
   let width = 0;
 
@@ -570,7 +482,12 @@ export function measureBatchedText(
     }
     const effectiveFontWeight = batch.isBold ? "bold" : baseFontWeight;
     // Measure the entire batch as a string (preserves ligature widths)
-    width += measureText(batch.text, fontSize, effectiveFontWeight, fontFamily);
+    width += measureCtxText(
+      batch.text,
+      fontSize,
+      effectiveFontWeight,
+      fontFamily,
+    );
   }
 
   return width;
@@ -600,7 +517,7 @@ export function measureCRDTPositions(
   endIndex: number,
   fontSize: number,
   baseFontWeight: string,
-  fontFamily: FontFamily
+  fontFamily: FontFamily,
 ): number[] {
   const lineLength = endIndex - startIndex;
   const positions: number[] = new Array(lineLength + 1);
@@ -610,14 +527,14 @@ export function measureCRDTPositions(
   // For each position, measure from the start to that position
   // This ensures Arabic ligatures are formed correctly across formatting boundaries
   for (let i = 1; i <= lineLength; i++) {
-    positions[i] = measureCRDTTextUpToIndex(
+    positions[i] = measureTextUpToIndex(
       chars,
       formats,
       startIndex,
       startIndex + i,
       fontSize,
       baseFontWeight,
-      fontFamily
+      fontFamily,
     );
   }
 
@@ -626,7 +543,7 @@ export function measureCRDTPositions(
 
 // Measure width of CRDT text (Char[] with FormatSpan[]) up to a specific character position
 // Uses batching to preserve Arabic ligature widths
-export const measureCRDTTextUpToIndex = (
+export const measureTextUpToIndex = (
   chars: Char[],
   formats: FormatSpan[],
   startIndex: number,
@@ -634,10 +551,10 @@ export const measureCRDTTextUpToIndex = (
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
-  _codePadding: number = 0
+  _codePadding: number = 0,
 ): number => {
   // Use batched measurement to preserve Arabic ligatures
-  const batches = batchCRDTChars(chars, formats, startIndex, endIndex);
+  const batches = batchChars(chars, formats, startIndex, endIndex);
 
   // Inline-math atomic-span fixup. batchCRDTChars can produce a math batch
   // whose text is a *partial* slice of the span's LaTeX (when the requested
@@ -684,8 +601,7 @@ export const measureCRDTTextUpToIndex = (
       visIdx = batchEnd;
       if (!batch.isMath) continue;
       const span = mathSpans.find(
-        (s) =>
-          s.startVisIdx <= batchStart && s.endVisIdx >= batchEnd - 1,
+        (s) => s.startVisIdx <= batchStart && s.endVisIdx >= batchEnd - 1,
       );
       if (!span) continue;
       if (batchStart === span.startVisIdx) {
@@ -711,10 +627,10 @@ export const measureCRDTText = (
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
-  codePadding: number = 0
+  codePadding: number = 0,
 ): number => {
   const visibleLength = chars.filter((c) => !c.deleted).length;
-  return measureCRDTTextUpToIndex(
+  return measureTextUpToIndex(
     chars,
     formats,
     0,
@@ -722,7 +638,7 @@ export const measureCRDTText = (
     fontSize,
     baseFontWeight,
     fontFamily,
-    codePadding
+    codePadding,
   );
 };
 
@@ -734,20 +650,20 @@ export const measureTextSegment = (
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
-  codePadding: number = 0
+  codePadding: number = 0,
 ): number => {
   // Determine effective font weight (bold overrides base weight)
   const effectiveFontWeight = textSegment.formats?.some(
-    (f) => f.type === "bold"
+    (f) => f.type === "bold",
   )
     ? "bold"
     : baseFontWeight;
 
-  let width = measureText(
+  let width = measureCtxText(
     textSegment.content,
     fontSize,
     effectiveFontWeight,
-    fontFamily
+    fontFamily,
   );
 
   // Add code padding if applicable
@@ -764,7 +680,7 @@ export const measureFormattedText = (
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
-  codePadding: number = 0
+  codePadding: number = 0,
 ): number => {
   let totalWidth = 0;
   for (const segment of segments) {
@@ -773,7 +689,7 @@ export const measureFormattedText = (
       fontSize,
       baseFontWeight,
       fontFamily,
-      codePadding
+      codePadding,
     );
   }
   return totalWidth;
@@ -788,7 +704,7 @@ export const measureFormattedTextUpToIndex = (
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
-  codePadding: number = 0
+  codePadding: number = 0,
 ): number => {
   let width = 0;
   let currentIndex = 0;
@@ -814,18 +730,18 @@ export const measureFormattedTextUpToIndex = (
     const overlapEnd = Math.min(segmentEnd, endIndex);
     const textToMeasure = segment.content.substring(
       overlapStart - segmentStart,
-      overlapEnd - segmentStart
+      overlapEnd - segmentStart,
     );
 
     const effectiveFontWeight = segment.formats?.some((f) => f.type === "bold")
       ? "bold"
       : baseFontWeight;
 
-    let segmentWidth = measureText(
+    let segmentWidth = measureCtxText(
       textToMeasure,
       fontSize,
       effectiveFontWeight,
-      fontFamily
+      fontFamily,
     );
 
     width += segmentWidth;
@@ -881,7 +797,7 @@ export const containsCJK = (text: string): boolean => {
 
 // Wrap CRDT text (Char[] with FormatSpan[]) for rendering
 // Uses incremental character measurement for O(n) complexity
-export const wrapCRDTText = (
+export const wrapText = (
   chars: Char[],
   formats: FormatSpan[],
   maxWidth: number,
@@ -889,7 +805,7 @@ export const wrapCRDTText = (
   baseFontWeight: string,
   fontFamily: FontFamily,
   _codePadding: number = 0,
-  _compositionRange: { start: number; end: number } | null = null
+  _compositionRange: { start: number; end: number } | null = null,
 ): WrappedLine[] => {
   // Get visible text
   const visibleChars = chars.filter((c) => !c.deleted);
@@ -979,7 +895,7 @@ export const wrapCRDTText = (
       charWidth = 0;
     } else {
       const fontWeight = getFontWeightAtIndex(visibleIndex);
-      charWidth = measureText(char, fontSize, fontWeight, fontFamily);
+      charWidth = measureCtxText(char, fontSize, fontWeight, fontFamily);
     }
 
     // Check if adding this character would exceed max width
@@ -1049,7 +965,7 @@ const wrapFormattedTextCJK = (
   baseFontWeight: string,
   fontFamily: FontFamily,
   codePadding: number,
-  compositionRange: { start: number; end: number } | null = null
+  compositionRange: { start: number; end: number } | null = null,
 ): WrappedLine[] => {
   const lines: WrappedLine[] = [];
   let currentLine = "";
@@ -1065,7 +981,7 @@ const wrapFormattedTextCJK = (
       fontSize,
       baseFontWeight,
       fontFamily,
-      codePadding
+      codePadding,
     );
   };
 
@@ -1085,13 +1001,13 @@ const wrapFormattedTextCJK = (
     const fontWeight = segment.formats?.some((f) => f.type === "bold")
       ? "bold"
       : baseFontWeight;
-    const charWidth = measureText(char, fontSize, fontWeight, fontFamily);
+    const charWidth = measureCtxText(char, fontSize, fontWeight, fontFamily);
 
     // If this is the start of composition text, check if entire composition fits on current line
     if (isCompositionStart && currentLine.length > 0 && compositionRange) {
       const compositionWidth = measureSubstring(
         compositionRange.start,
-        compositionRange.end
+        compositionRange.end,
       );
 
       // If composition would overflow, break to new line before starting composition
@@ -1114,7 +1030,7 @@ const wrapFormattedTextCJK = (
       if (isInComposition && compositionRange) {
         const compositionWidth = measureSubstring(
           compositionRange.start,
-          compositionRange.end
+          compositionRange.end,
         );
 
         // Only keep composition together if it fits on one line by itself
@@ -1185,7 +1101,7 @@ export const wrapFormattedText = (
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
-  codePadding: number = 0
+  codePadding: number = 0,
 ): string[] => {
   const result = wrapFormattedTextDetailed(
     segments,
@@ -1193,7 +1109,7 @@ export const wrapFormattedText = (
     fontSize,
     baseFontWeight,
     fontFamily,
-    codePadding
+    codePadding,
   );
   return result.map((line) => line.text);
 };
@@ -1206,7 +1122,7 @@ export const wrapFormattedTextDetailed = (
   baseFontWeight: string,
   fontFamily: FontFamily,
   codePadding: number = 0,
-  compositionRange: { start: number; end: number } | null = null
+  compositionRange: { start: number; end: number } | null = null,
 ): WrappedLine[] => {
   // Convert segments to plain text for wrapping
   const fullText = segments.map((s) => s.content).join("");
@@ -1233,7 +1149,7 @@ export const wrapFormattedTextDetailed = (
       baseFontWeight,
       fontFamily,
       codePadding,
-      compositionRange
+      compositionRange,
     );
   }
 
@@ -1253,12 +1169,12 @@ export const wrapFormattedTextDetailed = (
       fontSize,
       baseFontWeight,
       fontFamily,
-      codePadding
+      codePadding,
     );
   };
 
   // Measure space with base weight
-  const spaceWidth = measureText(" ", fontSize, baseFontWeight, fontFamily);
+  const spaceWidth = measureCtxText(" ", fontSize, baseFontWeight, fontFamily);
 
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
@@ -1316,7 +1232,7 @@ export const wrapFormattedTextDetailed = (
         if (wordContainsComposition) {
           const compositionWidth = measureSubstring(
             compositionRange.start,
-            compositionRange.end
+            compositionRange.end,
           );
 
           // Only keep composition together if it fits on one line by itself
@@ -1337,15 +1253,15 @@ export const wrapFormattedTextDetailed = (
                 const segIdx = charToSegment[j];
                 const segment = segments[segIdx];
                 const fontWeight = segment.formats?.some(
-                  (f) => f.type === "bold"
+                  (f) => f.type === "bold",
                 )
                   ? "bold"
                   : baseFontWeight;
-                const charWidth = measureText(
+                const charWidth = measureCtxText(
                   fullText[j],
                   fontSize,
                   fontWeight,
-                  fontFamily
+                  fontFamily,
                 );
 
                 if (
@@ -1384,11 +1300,11 @@ export const wrapFormattedTextDetailed = (
               const fontWeight = segment.formats?.some((f) => f.type === "bold")
                 ? "bold"
                 : baseFontWeight;
-              const charWidth = measureText(
+              const charWidth = measureCtxText(
                 fullText[j],
                 fontSize,
                 fontWeight,
-                fontFamily
+                fontFamily,
               );
 
               if (

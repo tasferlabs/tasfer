@@ -7,12 +7,12 @@ import type {
 } from "../deserializer/loadPage";
 import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
 import {
-  batchCRDTChars,
+  batchChars,
   getFontStack,
   getCurrentFontFamily,
   getFontMetrics,
-  measureCRDTTextUpToIndex,
-  wrapCRDTText,
+  measureTextUpToIndex,
+  wrapText,
   type FontFamily,
   type TextBatch,
 } from "./fonts";
@@ -202,7 +202,7 @@ export const clearAllBlockCaches = (blocks: Block[]) => {
 // Rendering Functions
 // Helper function to measure the width of a portion of CRDT text
 // Uses batched measurement to preserve Arabic ligatures
-function measureCRDTLineWidth(
+function measureLineWidth(
   chars: Char[],
   formats: FormatSpan[],
   lineStartIndex: number,
@@ -213,7 +213,7 @@ function measureCRDTLineWidth(
 ): number {
   // Delegate to the shared math-aware measurement so cursor x stays aligned
   // with both wrap and render (atomic inline-math span widths).
-  return measureCRDTTextUpToIndex(
+  return measureTextUpToIndex(
     chars,
     formats,
     lineStartIndex,
@@ -250,7 +250,7 @@ function renderCompositionUnderline(
   if (underlineStart >= underlineEnd) return;
 
   // Measure width from line start to underline start
-  const offsetToStart = measureCRDTLineWidth(
+  const offsetToStart = measureLineWidth(
     chars,
     formats,
     lineStartIndex,
@@ -261,7 +261,7 @@ function renderCompositionUnderline(
   );
 
   // Measure width of the underlined portion
-  const underlineWidth = measureCRDTLineWidth(
+  const underlineWidth = measureLineWidth(
     chars,
     formats,
     underlineStart,
@@ -300,7 +300,7 @@ function renderCompositionUnderline(
 
 // Helper function to render a line with CRDT formatting
 // Batches consecutive characters with same formatting to preserve Arabic ligatures
-function renderCRDTLine(
+function renderLine(
   ctx: CanvasRenderingContext2D,
   chars: Char[],
   formats: FormatSpan[],
@@ -318,7 +318,7 @@ function renderCRDTLine(
   ctx.direction = isRTL ? "rtl" : "ltr";
 
   // Batch characters by formatting to preserve Arabic ligatures
-  const batches: TextBatch[] = batchCRDTChars(
+  const batches: TextBatch[] = batchChars(
     chars,
     formats,
     lineStartIndex,
@@ -367,7 +367,13 @@ function renderCRDTLine(
           const rectWidth = mathWidth + padding * 2;
           const rectHeight = dims.height + padding * 2;
           ctx.beginPath();
-          ctx.roundRect(rectX, rectY, rectWidth, rectHeight, mathStyle.borderRadius);
+          ctx.roundRect(
+            rectX,
+            rectY,
+            rectWidth,
+            rectHeight,
+            mathStyle.borderRadius,
+          );
           ctx.fill();
           ctx.restore();
         }
@@ -684,7 +690,7 @@ export const renderBlock = (
   // Use adjusted max width for list blocks to account for indent and marker
   // Convert charRuns to chars for measurement functions
   const charsForWrapping = renderChars || charRunsToChars(block.charRuns);
-  const lines = wrapCRDTText(
+  const lines = wrapText(
     charsForWrapping,
     renderFormats || block.formats,
     adjustedMaxWidth,
@@ -754,7 +760,7 @@ export const renderBlock = (
             endIndex: state.ui.inlineMathHover.endIndex,
           }
         : null);
-    renderCRDTLine(
+    renderLine(
       ctx,
       renderChars,
       renderFormats,
@@ -800,7 +806,7 @@ export const renderBlock = (
     const textHeight = fontMetrics.ascent + fontMetrics.descent;
 
     // Measure the line width (need to account for formatting)
-    const lineWidth = measureCRDTLineWidth(
+    const lineWidth = measureLineWidth(
       renderChars,
       renderFormats,
       lineStartIndex,
@@ -833,12 +839,11 @@ export const renderBlock = (
   // Render search highlights (behind selections)
   if (searchHighlights.length > 0) {
     const blockHighlights = searchHighlights.filter(
-      (h) => h.blockIndex === blockIndex
+      (h) => h.blockIndex === blockIndex,
     );
     for (let hi = 0; hi < blockHighlights.length; hi++) {
       const h = blockHighlights[hi];
-      const isActive =
-        searchHighlights.indexOf(h) === activeSearchIndex;
+      const isActive = searchHighlights.indexOf(h) === activeSearchIndex;
       const fakeSelection = {
         anchor: { blockIndex, textIndex: h.startIndex },
         focus: { blockIndex, textIndex: h.endIndex },
@@ -1113,9 +1118,9 @@ function renderPlaceholder(
 ) {
   ctx.save();
   ctx.fillStyle = styles.placeholder.color;
-  ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${
-    getFontStack(getCurrentFontFamily())
-  }`;
+  ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${getFontStack(
+    getCurrentFontFamily(),
+  )}`;
   ctx.textBaseline = "alphabetic";
   ctx.direction = isRTL ? "rtl" : "ltr";
 
@@ -1235,7 +1240,7 @@ function renderSelectionCore(
             const selEndTextIndex = Math.min(line.endIndex, end.textIndex);
 
             const blockChars = charRunsToChars(block.charRuns);
-            const widthToSelStart = measureCRDTLineWidth(
+            const widthToSelStart = measureLineWidth(
               blockChars,
               block.formats,
               line.startIndex,
@@ -1245,7 +1250,7 @@ function renderSelectionCore(
               codePadding,
             );
 
-            const widthToSelEnd = measureCRDTLineWidth(
+            const widthToSelEnd = measureLineWidth(
               blockChars,
               block.formats,
               line.startIndex,
@@ -1261,7 +1266,7 @@ function renderSelectionCore(
             // LTR logic
             const blockChars = charRunsToChars(block.charRuns);
             if (start.textIndex > line.startIndex) {
-              selectionStartX += measureCRDTLineWidth(
+              selectionStartX += measureLineWidth(
                 blockChars,
                 block.formats,
                 line.startIndex,
@@ -1272,7 +1277,7 @@ function renderSelectionCore(
               );
             }
             if (end.textIndex < line.endIndex) {
-              const selectedWidth = measureCRDTLineWidth(
+              const selectedWidth = measureLineWidth(
                 blockChars,
                 block.formats,
                 Math.max(line.startIndex, start.textIndex),
@@ -1308,7 +1313,7 @@ function renderSelectionCore(
             );
 
             const blockChars = charRunsToChars(block.charRuns);
-            const widthToSelStart = measureCRDTLineWidth(
+            const widthToSelStart = measureLineWidth(
               blockChars,
               block.formats,
               line.startIndex,
@@ -1323,7 +1328,7 @@ function renderSelectionCore(
           } else {
             const blockChars = charRunsToChars(block.charRuns);
             if (start.textIndex > line.startIndex) {
-              selectionStartX += measureCRDTLineWidth(
+              selectionStartX += measureLineWidth(
                 blockChars,
                 block.formats,
                 line.startIndex,
@@ -1347,7 +1352,7 @@ function renderSelectionCore(
             const selEndTextIndex = Math.min(line.endIndex, end.textIndex);
 
             const blockChars = charRunsToChars(block.charRuns);
-            const widthToSelEnd = measureCRDTLineWidth(
+            const widthToSelEnd = measureLineWidth(
               blockChars,
               block.formats,
               line.startIndex,
@@ -1364,7 +1369,7 @@ function renderSelectionCore(
             if (end.textIndex < line.endIndex) {
               selectionEndX =
                 x +
-                measureCRDTLineWidth(
+                measureLineWidth(
                   blockChars,
                   block.formats,
                   line.startIndex,
@@ -1609,10 +1614,17 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 // ── Math block rendering ──
 
 // Cache for rendered math SVG images: key = latex + displayMode
-const mathImageCache = new Map<string, { img: HTMLImageElement | ImageBitmap; width: number; height: number }>();
+const mathImageCache = new Map<
+  string,
+  { img: HTMLImageElement | ImageBitmap; width: number; height: number }
+>();
 const pendingMathRenders = new Set<string>();
 
-function getMathCacheKey(latex: string, displayMode: boolean, dpr: number): string {
+function getMathCacheKey(
+  latex: string,
+  displayMode: boolean,
+  dpr: number,
+): string {
   return `${displayMode ? "D" : "I"}:${dpr}:${latex}`;
 }
 
@@ -1692,7 +1704,9 @@ function renderMathToImage(
       svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
 
       const finalSvg = new XMLSerializer().serializeToString(svgEl);
-      const svgBlob = new Blob([finalSvg], { type: "image/svg+xml;charset=utf-8" });
+      const svgBlob = new Blob([finalSvg], {
+        type: "image/svg+xml;charset=utf-8",
+      });
       const url = URL.createObjectURL(svgBlob);
 
       const img = new Image();
@@ -1709,14 +1723,16 @@ function renderMathToImage(
         offCtx.drawImage(img, 0, 0, pxW, pxH);
         URL.revokeObjectURL(url);
 
-        createImageBitmap(offscreen).then((bitmap) => {
-          // Store both the physical-pixel bitmap size and the logical CSS size
-          mathImageCache.set(cacheKey, { img: bitmap, width: w, height: h });
-          pendingMathRenders.delete(cacheKey);
-          requestRedrawFn?.();
-        }).catch(() => {
-          pendingMathRenders.delete(cacheKey);
-        });
+        createImageBitmap(offscreen)
+          .then((bitmap) => {
+            // Store both the physical-pixel bitmap size and the logical CSS size
+            mathImageCache.set(cacheKey, { img: bitmap, width: w, height: h });
+            pendingMathRenders.delete(cacheKey);
+            requestRedrawFn?.();
+          })
+          .catch(() => {
+            pendingMathRenders.delete(cacheKey);
+          });
       };
       img.onload = finalize;
       img.onerror = () => {
@@ -1748,9 +1764,10 @@ function renderMathBlock(
 
   const mathStyles = styles.blocks.math;
   const contentY = y + mathStyles.paddingTop;
-  const cachedContentHeight = block.cachedHeight !== undefined
-    ? block.cachedHeight - mathStyles.paddingTop - mathStyles.paddingBottom
-    : mathStyles.minHeight;
+  const cachedContentHeight =
+    block.cachedHeight !== undefined
+      ? block.cachedHeight - mathStyles.paddingTop - mathStyles.paddingBottom
+      : mathStyles.minHeight;
   const contentHeight = Math.max(mathStyles.minHeight, cachedContentHeight);
   // const totalHeight = contentHeight + mathStyles.paddingTop + mathStyles.paddingBottom;
 
@@ -1792,7 +1809,11 @@ function renderMathBlock(
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.globalAlpha = 0.5;
-      ctx.fillText("Rendering...", x + maxWidth / 2, contentY + contentHeight / 2);
+      ctx.fillText(
+        "Rendering...",
+        x + maxWidth / 2,
+        contentY + contentHeight / 2,
+      );
       ctx.restore();
     }
   } else {
@@ -1807,7 +1828,11 @@ function renderMathBlock(
     ctx.font = "14px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(mathStyles.placeholder.text, x + maxWidth / 2, contentY + contentHeight / 2);
+    ctx.fillText(
+      mathStyles.placeholder.text,
+      x + maxWidth / 2,
+      contentY + contentHeight / 2,
+    );
     ctx.restore();
   }
 
@@ -1815,7 +1840,10 @@ function renderMathBlock(
   if (remoteAwareness && remoteAwareness.size > 0) {
     for (const [_peerId, awareness] of remoteAwareness) {
       if (!awareness.selection) continue;
-      const selection = awarenessSelectionToSelection(awareness.selection, state.document.page);
+      const selection = awarenessSelectionToSelection(
+        awareness.selection,
+        state.document.page,
+      );
       if (!selection) continue;
 
       const isVisualBlockSelected =
@@ -2340,10 +2368,16 @@ export const calculateBlockHeight = (
       const cacheKey = getMathCacheKey(block.latex, block.displayMode, dpr);
       const cached = mathImageCache.get(cacheKey);
       if (cached) {
-        return Math.max(mathStyles.minHeight, cached.height) + mathStyles.paddingTop + mathStyles.paddingBottom;
+        return (
+          Math.max(mathStyles.minHeight, cached.height) +
+          mathStyles.paddingTop +
+          mathStyles.paddingBottom
+        );
       }
     }
-    return mathStyles.minHeight + mathStyles.paddingTop + mathStyles.paddingBottom;
+    return (
+      mathStyles.minHeight + mathStyles.paddingTop + mathStyles.paddingBottom
+    );
   }
 
   if (!isTextualBlock(block)) {
@@ -2369,7 +2403,7 @@ export const calculateBlockHeight = (
 
   // Use CRDT wrapping
   const blockChars = charRunsToChars(block.charRuns);
-  const lines = wrapCRDTText(
+  const lines = wrapText(
     blockChars,
     block.formats,
     adjustedMaxWidth,
@@ -2464,7 +2498,7 @@ function calculateCursorPosition(
   const chars = renderChars ?? charRunsToChars(block.charRuns);
   const formats = renderFormats ?? block.formats;
 
-  const lines = wrapCRDTText(
+  const lines = wrapText(
     chars,
     formats,
     adjustedMaxWidth,
@@ -2517,7 +2551,7 @@ function calculateCursorPosition(
       cursorHeight = fontMetrics.ascent + fontMetrics.descent;
 
       if (isRTL) {
-        const widthFromStart = measureCRDTLineWidth(
+        const widthFromStart = measureLineWidth(
           chars,
           formats,
           lineStartIndex,
@@ -2530,7 +2564,7 @@ function calculateCursorPosition(
       } else {
         cursorX =
           baseX +
-          measureCRDTLineWidth(
+          measureLineWidth(
             chars,
             formats,
             lineStartIndex,
@@ -2785,9 +2819,7 @@ function renderRemoteCursors(
       const isCursorRTL = getTextDirection(blockText) === "rtl";
 
       // In RTL, label extends to the left of cursor; in LTR, to the right
-      let labelX = isCursorRTL
-        ? cursorPos.x - labelWidth
-        : cursorPos.x;
+      let labelX = isCursorRTL ? cursorPos.x - labelWidth : cursorPos.x;
       let labelY = cursorPos.y - labelHeight - 2;
 
       // Prevent going off the right edge
@@ -2806,13 +2838,7 @@ function renderRemoteCursors(
       // Draw label background
       ctx.fillStyle = awareness.user.color;
       ctx.beginPath();
-      ctx.roundRect(
-        labelX,
-        labelY,
-        labelWidth,
-        labelHeight,
-        2,
-      );
+      ctx.roundRect(labelX, labelY, labelWidth, labelHeight, 2);
       ctx.fill();
 
       // Draw label text with correct direction
@@ -2832,7 +2858,13 @@ function renderRemoteCursors(
 
   // Render out-of-view indicators (offset above indicators below the tags area)
   if (outOfViewPeers.length > 0) {
-    renderOutOfViewIndicators(ctx, outOfViewPeers, viewport, styles, styles.canvas.paddingTop);
+    renderOutOfViewIndicators(
+      ctx,
+      outOfViewPeers,
+      viewport,
+      styles,
+      styles.canvas.paddingTop,
+    );
   } else {
     outOfViewIndicatorHitAreas = [];
   }
@@ -2931,7 +2963,13 @@ export function renderCursorLayer(
   // Calculate the target cursor position (original position + composition offset if composing)
   let targetCursorIndex = state.document.cursor.position.textIndex;
   if (compositionRange && state.ui.composition?.isComposing) {
-    const offset = Math.max(0, Math.min(state.ui.composition.cursorOffset, compositionRange.end - compositionRange.start));
+    const offset = Math.max(
+      0,
+      Math.min(
+        state.ui.composition.cursorOffset,
+        compositionRange.end - compositionRange.start,
+      ),
+    );
     targetCursorIndex = compositionRange.start + offset;
   }
 
@@ -2960,7 +2998,8 @@ export function renderCursorLayer(
   if (isTouchDevice()) {
     const handleRadius = 5;
     const handleStemHeight = 3;
-    const handleY = cursorPos.y + cursorPos.height + handleStemHeight + handleRadius;
+    const handleY =
+      cursorPos.y + cursorPos.height + handleStemHeight + handleRadius;
 
     // Draw stem (same x and width as cursor so they align)
     ctx.fillRect(
@@ -2972,7 +3011,13 @@ export function renderCursorLayer(
 
     // Draw circle
     ctx.beginPath();
-    ctx.arc(cursorPos.x + styles.cursor.width / 2, handleY, handleRadius, 0, Math.PI * 2);
+    ctx.arc(
+      cursorPos.x + styles.cursor.width / 2,
+      handleY,
+      handleRadius,
+      0,
+      Math.PI * 2,
+    );
     ctx.fill();
   }
 
@@ -3155,7 +3200,7 @@ function getPositionCoordinates(
 
   // Calculate line wrapping
   const blockChars = charRunsToChars(block.charRuns);
-  const lines = wrapCRDTText(
+  const lines = wrapText(
     blockChars,
     block.formats,
     adjustedMaxWidth,
@@ -3174,7 +3219,7 @@ function getPositionCoordinates(
     if (position.textIndex >= textIndex && position.textIndex <= lineEndIndex) {
       // Calculate X position
       const blockChars = charRunsToChars(block.charRuns);
-      const widthFromStart = measureCRDTLineWidth(
+      const widthFromStart = measureLineWidth(
         blockChars,
         block.formats,
         textIndex,
@@ -3403,7 +3448,7 @@ let activeSearchIndex = -1;
 
 export function setSearchHighlights(
   highlights: SearchHighlight[],
-  activeIndex: number
+  activeIndex: number,
 ) {
   searchHighlights = highlights;
   activeSearchIndex = activeIndex;

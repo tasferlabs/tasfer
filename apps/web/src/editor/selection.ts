@@ -4,8 +4,8 @@ import {
   getCurrentFontFamily,
   getFontMetrics,
   measureCRDTPositions,
-  measureCRDTTextUpToIndex,
-  wrapCRDTText,
+  measureTextUpToIndex,
+  wrapText,
   type FontFamily,
 } from "./fonts";
 import { getBlockHeight } from "./renderer";
@@ -109,7 +109,7 @@ export function getCursorDocumentCoords(
   }
 
   // Use CRDT text wrapping
-  const lines = wrapCRDTText(
+  const lines = wrapText(
     charRunsToChars(block.charRuns),
     block.formats,
     adjustedMaxWidth,
@@ -131,7 +131,7 @@ export function getCursorDocumentCoords(
         // - Cursor at logical index 0 (lineStartIndex) appears at the RIGHT (baseX + adjustedMaxWidth)
         // - Cursor at logical index N appears at the LEFT
         // Measure from line start to cursor position
-        const widthFromStart = measureCRDTTextUpToIndex(
+        const widthFromStart = measureTextUpToIndex(
           charRunsToChars(block.charRuns),
           block.formats,
           textIndex,
@@ -150,7 +150,7 @@ export function getCursorDocumentCoords(
       } else {
         // LTR: Calculate X using format-aware measurement
         // Measure from the line start to the cursor position
-        const textWidth = measureCRDTTextUpToIndex(
+        const textWidth = measureTextUpToIndex(
           charRunsToChars(block.charRuns),
           block.formats,
           textIndex,
@@ -320,7 +320,7 @@ export function getCursorCoordinatesWithComposition(
     start: cursorTextIndex,
     end: cursorTextIndex + compositionText.length,
   };
-  const lines = wrapCRDTText(
+  const lines = wrapText(
     modifiedChars,
     block.formats,
     adjustedMaxWidth,
@@ -339,7 +339,7 @@ export function getCursorCoordinatesWithComposition(
 
     if (targetTextIndex >= textIndex && targetTextIndex <= lineEndIndex) {
       if (isRTL) {
-        const widthFromStart = measureCRDTTextUpToIndex(
+        const widthFromStart = measureTextUpToIndex(
           modifiedChars,
           block.formats,
           textIndex,
@@ -355,7 +355,7 @@ export function getCursorCoordinatesWithComposition(
           height: lineHeight,
         };
       } else {
-        const textWidth = measureCRDTTextUpToIndex(
+        const textWidth = measureTextUpToIndex(
           modifiedChars,
           block.formats,
           textIndex,
@@ -486,7 +486,7 @@ function getPositionFromPaddingClick(
       }
 
       // Wrap text to get lines
-      const lines = wrapCRDTText(
+      const lines = wrapText(
         charRunsToChars(block.charRuns),
         block.formats,
         adjustedMaxWidth,
@@ -737,7 +737,7 @@ function getPositionWithinBlock(
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
   // Wrap text to get lines using CRDT text wrapping
-  const lines = wrapCRDTText(
+  const lines = wrapText(
     charRunsToChars(block.charRuns),
     block.formats,
     adjustedMaxWidth,
@@ -1330,7 +1330,7 @@ export function isPointWithinSelectionRects(
     }
 
     // Get wrapped lines for this block
-    const wrappedLines = wrapCRDTText(
+    const wrappedLines = wrapText(
       charRunsToChars(block.charRuns),
       block.formats,
       adjustedMaxWidth,
@@ -1352,7 +1352,7 @@ export function isPointWithinSelectionRects(
         textIndex + lineText.length + (wrappedLine.consumedSpace ? 1 : 0);
 
       // Measure the line width
-      const lineWidth = measureCRDTTextUpToIndex(
+      const lineWidth = measureTextUpToIndex(
         charRunsToChars(block.charRuns),
         block.formats,
         lineStartIndex,
@@ -1388,7 +1388,7 @@ export function isPointWithinSelectionRects(
             );
 
             if (isRTL) {
-              const widthToSelStart = measureCRDTTextUpToIndex(
+              const widthToSelStart = measureTextUpToIndex(
                 charRunsToChars(block.charRuns),
                 block.formats,
                 lineStartIndex,
@@ -1398,7 +1398,7 @@ export function isPointWithinSelectionRects(
                 fontFamily,
                 codePadding
               );
-              const widthToSelEnd = measureCRDTTextUpToIndex(
+              const widthToSelEnd = measureTextUpToIndex(
                 charRunsToChars(block.charRuns),
                 block.formats,
                 lineStartIndex,
@@ -1412,7 +1412,7 @@ export function isPointWithinSelectionRects(
               selectionStartX = baseX + adjustedMaxWidth - widthToSelEnd;
             } else {
               if (start.textIndex > lineStartIndex) {
-                selectionStartX += measureCRDTTextUpToIndex(
+                selectionStartX += measureTextUpToIndex(
                   charRunsToChars(block.charRuns),
                   block.formats,
                   lineStartIndex,
@@ -1424,7 +1424,7 @@ export function isPointWithinSelectionRects(
                 );
               }
               if (end.textIndex < lineStartIndex + lineText.length) {
-                const selectedWidth = measureCRDTTextUpToIndex(
+                const selectedWidth = measureTextUpToIndex(
                   charRunsToChars(block.charRuns),
                   block.formats,
                   Math.max(lineStartIndex, start.textIndex),
@@ -1457,7 +1457,7 @@ export function isPointWithinSelectionRects(
           if (start.textIndex <= lineEndIndex) {
             hasSelection = true;
             if (isRTL) {
-              const widthToSelStart = measureCRDTTextUpToIndex(
+              const widthToSelStart = measureTextUpToIndex(
                 charRunsToChars(block.charRuns),
                 block.formats,
                 lineStartIndex,
@@ -1472,7 +1472,7 @@ export function isPointWithinSelectionRects(
               selectionStartX = lineStartX;
             } else {
               if (start.textIndex > lineStartIndex) {
-                selectionStartX += measureCRDTTextUpToIndex(
+                selectionStartX += measureTextUpToIndex(
                   charRunsToChars(block.charRuns),
                   block.formats,
                   lineStartIndex,
@@ -1494,7 +1494,7 @@ export function isPointWithinSelectionRects(
             hasSelection = true;
             if (isRTL) {
               const lineStartX = baseX + adjustedMaxWidth - lineWidth;
-              const widthToSelEnd = measureCRDTTextUpToIndex(
+              const widthToSelEnd = measureTextUpToIndex(
                 charRunsToChars(block.charRuns),
                 block.formats,
                 lineStartIndex,
@@ -1510,7 +1510,7 @@ export function isPointWithinSelectionRects(
               if (end.textIndex < lineStartIndex + lineText.length) {
                 selectionEndX =
                   baseX +
-                  measureCRDTTextUpToIndex(
+                  measureTextUpToIndex(
                     charRunsToChars(block.charRuns),
                     block.formats,
                     lineStartIndex,
