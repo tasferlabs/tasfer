@@ -23,6 +23,8 @@
     "noUncheckedSideEffectImports": true,
     "baseUrl": ".",
     "paths": {
+      "@cypherkit/editor": ["../../packages/editor/src/index.ts"],
+      "@cypherkit/editor/*": ["../../packages/editor/src/*"],
       "@/*": ["./src/*"],
       "@shared/*": ["../../shared/*"]
     }

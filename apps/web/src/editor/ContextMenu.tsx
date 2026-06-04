@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Check, ChevronRight } from "lucide-react";
-import { triggerHapticFeedback } from "./events/touchEvents";
+import { triggerHapticFeedback } from "@cypherkit/editor/events/touchEvents";
 
 export interface ContextMenuItem {
   id: string;

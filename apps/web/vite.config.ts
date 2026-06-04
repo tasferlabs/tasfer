@@ -39,6 +39,7 @@ export default defineConfig({
   build: { sourcemap: true },
   resolve: {
     alias: {
+      "@cypherkit/editor": resolve(__dirname, "../../packages/editor/src"),
       "@": "/src",
       "@shared": resolve(__dirname, "../../shared"),
     },

@@ -22,10 +22,10 @@ import { createPage, updatePage } from "../api/pages.api";
 import { uploadImage } from "../api/images.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useQueryClient } from "@tanstack/react-query";
-import tokenizePage from "@/deserializer/tokenizer";
-import parsePage from "@/deserializer/parser";
-import { parseFrontmatter } from "@/deserializer/loadPage";
-import { extractTitleFromBlocks } from "@/editor/sync/char-runs";
+import tokenizePage from "@cypherkit/editor/deserializer/tokenizer";
+import parsePage from "@cypherkit/editor/deserializer/parser";
+import { parseFrontmatter } from "@cypherkit/editor/deserializer/loadPage";
+import { extractTitleFromBlocks } from "@cypherkit/editor/sync/char-runs";
 import { useTranslation } from "react-i18next";
 
 interface ImportAllDialogProps {

@@ -16,8 +16,8 @@ import { useTranslation } from "react-i18next";
 import i18next from "i18next";
 import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
-import type { Block } from "@/deserializer/loadPage";
-import { extractTitleFromBlocks } from "@/editor/sync/char-runs";
+import type { Block } from "@cypherkit/editor/deserializer/loadPage";
+import { extractTitleFromBlocks } from "@cypherkit/editor/sync/char-runs";
 import { getPlatform } from "@/platform";
 import {
   useGetCalendarPages,
@@ -47,7 +47,7 @@ import {
   formatMonthLong,
   type ViewMode,
 } from "./utils";
-import { triggerHapticFeedback } from "@/editor/events/touchEvents";
+import { triggerHapticFeedback } from "@cypherkit/editor/events/touchEvents";
 import { useP2PPageEventsWithQueryClient } from "../../hooks/useP2PPageEvents";
 import { EventCard } from "./EventCard";
 import { EventPreview } from "./EventPreview";

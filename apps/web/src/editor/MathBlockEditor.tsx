@@ -16,7 +16,7 @@ import {
 } from "../components/ui/drawer";
 import useResponsive from "../app/hooks/useResponsive";
 import { useTranslation } from "react-i18next";
-import { renderToSVG, isValidLatex } from "./mathjax";
+import { renderToSVG, isValidLatex } from "@cypherkit/editor/mathjax";
 import { AnimatePresence, motion } from "framer-motion";
 
 // Common LaTeX snippets for quick insertion

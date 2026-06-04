@@ -15,7 +15,7 @@ import {
 import React, { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollArea } from "../components/ui/scroll-area";
-import type { SlashCommand } from "./types";
+import type { SlashCommand } from "@cypherkit/editor/types";
 
 interface SlashCommandWithMeta extends SlashCommand {
   category: "basic" | "media" | "lists";

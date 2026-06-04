@@ -1,20 +1,20 @@
 import { useP2PRoom, type SyncState } from "@/app/hooks/useP2PRoom";
 import { Button } from "@/components/ui/button";
-import { hasNativeBridge } from "@/editor/actions/clipboard";
+import { hasNativeBridge } from "@cypherkit/editor/actions/clipboard";
 import {
   positionToAwarenessCursor,
   selectionToAwarenessSelection,
   type AwarenessState,
   type AwarenessUser,
-} from "@/editor/sync/awareness";
+} from "@cypherkit/editor/sync/awareness";
 import {
   SyncEngine,
   advanceGlobalClock,
   advanceGlobalIdCounter,
   maxOpIdCounter,
   serializeVV,
-} from "@/editor/sync/sync";
-import type { Operation } from "@/editor/sync/types";
+} from "@cypherkit/editor/sync/sync";
+import type { Operation } from "@cypherkit/editor/sync/types";
 import { getPlatform } from "@/platform";
 import {
   Bold,
@@ -38,8 +38,8 @@ import {
 import { useKeyboardOpen } from "./hooks/useKeyboardOpen";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import type { Block } from "../deserializer/loadPage";
-import { isTextualBlock } from "../deserializer/loadPage";
+import type { Block } from "@cypherkit/editor/deserializer/loadPage";
+import { isTextualBlock } from "@cypherkit/editor/deserializer/loadPage";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { FindBar } from "../editor/FindBar";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
@@ -51,26 +51,26 @@ import { SlashCommandMenu } from "../editor/SlashCommandMenu";
 import {
   getFormatsAtPosition,
   getSelectionRange,
-} from "../editor/actions/commands";
+} from "@cypherkit/editor/actions/commands";
 import {
   mountEditor,
   type MountedEditor as MountedEditorInstance,
-} from "../editor/mount";
-import { clearFailedImageCache } from "../editor/renderer";
-import { getLinkAtPosition } from "../editor/selection";
+} from "@cypherkit/editor/mount";
+import { clearFailedImageCache } from "@cypherkit/editor/renderer";
+import { getLinkAtPosition } from "@cypherkit/editor/selection";
 import {
   getBlockTextContent,
   getBlockTextLength,
   isTouchDevice,
-} from "../editor/state";
-import { allCharsHaveFormat } from "../editor/sync/crdt-helpers";
+} from "@cypherkit/editor/state";
+import { allCharsHaveFormat } from "@cypherkit/editor/sync/crdt-helpers";
 import type {
   CursorDragState,
   EditorState,
   PlaceholderStyles,
   SlashCommand,
   TextStyle,
-} from "../editor/types";
+} from "@cypherkit/editor/types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { usePageSettings } from "./contexts/PageSettingsContext";

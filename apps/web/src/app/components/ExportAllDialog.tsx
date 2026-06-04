@@ -12,9 +12,9 @@ import { Button } from "../../components/ui/button";
 import { getPages, getPage, type IListPage } from "../api/pages.api";
 import { getPlatform } from "@/platform";
 import { useSpaces } from "../contexts/SpaceContext";
-import { serializeToMarkdown, type PageMetadata } from "../../deserializer/serializer";
+import { serializeToMarkdown, type PageMetadata } from "@cypherkit/editor/deserializer/serializer";
 import { downloadFile } from "@/downloadFile";
-import type { Image } from "../../deserializer/loadPage";
+import type { Image } from "@cypherkit/editor/deserializer/loadPage";
 import type { IPage } from "../api/pages.api";
 import { useTranslation } from "react-i18next";
 
