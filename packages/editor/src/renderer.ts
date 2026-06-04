@@ -33,6 +33,7 @@ import {
   isCharDeleted,
   iterateVisibleChars,
 } from "./sync/char-runs";
+import type { Operation } from "./sync/sync";
 import type {
   BlockBounds,
   EditorState,
@@ -182,6 +183,40 @@ export function getBlockHeight(
   }
 
   return height;
+}
+
+/**
+ * Invalidate cache for affected blocks based on CRDT operations.
+ */
+export function invalidateAffectedBlocks(
+  state: EditorState,
+  operations: Operation[],
+): void {
+  const affectedBlockIds = new Set<string>();
+
+  // Collect all affected block IDs
+  for (const op of operations) {
+    switch (op.op) {
+      case "text_insert":
+      case "text_delete":
+      case "format_set":
+      case "block_set":
+        affectedBlockIds.add(op.blockId);
+        break;
+      case "block_insert":
+      case "block_delete":
+        affectedBlockIds.add(op.blockId);
+        break;
+    }
+  }
+
+  // Invalidate cache for affected blocks
+  for (const blockId of affectedBlockIds) {
+    const block = state.document.page.blocks.find((b) => b.id === blockId);
+    if (block) {
+      invalidateBlockCache(block);
+    }
+  }
 }
 
 // Invalidate cache for specific block (when content changes)

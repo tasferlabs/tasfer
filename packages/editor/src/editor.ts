@@ -73,6 +73,7 @@ import {
   formatCharsInRange,
   insertCharsAtPosition,
 } from "./sync/crdt-helpers";
+import { recordUndoOps, redoState, undoState } from "./sync/crdt-undo";
 import { applyOps } from "./sync/reducer";
 import { generateRestoreOperations } from "./sync/snapshot-diff";
 import {
@@ -90,7 +91,6 @@ import type {
   SlashCommand,
   ViewportState,
 } from "./types";
-import { recordUndoOps, redoState, undoState } from "./undo";
 
 export interface Editor {
   getState: () => EditorState | null;

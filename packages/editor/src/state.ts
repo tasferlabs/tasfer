@@ -18,6 +18,7 @@ import {
   getVisibleTextFromRuns,
   iterateVisibleChars,
 } from "./sync/char-runs";
+import { initialUndoManagerState } from "./sync/crdt-undo";
 import { extractCounter, generatePeerId } from "./sync/id";
 import {
   findNextVisibleBlockIndex,
@@ -37,7 +38,6 @@ import type {
   Position,
   ViewportState,
 } from "./types";
-import { initialUndoManagerState } from "./undo";
 
 /**
  * Measure text width up to a specific index in the chars array

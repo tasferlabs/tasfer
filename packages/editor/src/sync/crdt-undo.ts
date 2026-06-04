@@ -1,15 +1,15 @@
-import { invertOperations, refreshOps } from "./inverse";
-import { invalidateBlockCache } from "./renderer";
+import { invertOperations, refreshOps } from "../inverse";
+import { invalidateAffectedBlocks } from "../renderer";
+import type { EditorState, UndoGroup, UndoManagerState } from "../types";
 import {
   captureCRDTCursor,
   captureCRDTSelection,
   restoreCursor,
   restoreSelection,
-} from "./sync/crdt-utils";
-import { applyOp, applyOps } from "./sync/reducer";
-import { getPeerId } from "./sync/sync";
-import type { Operation } from "./sync/types";
-import type { EditorState, UndoGroup, UndoManagerState } from "./types";
+} from "./crdt-utils";
+import { applyOp, applyOps } from "./reducer";
+import { getPeerId } from "./sync";
+import type { Operation } from "./types";
 
 export const initialUndoManagerState: UndoManagerState = {
   undoStack: [],
@@ -67,40 +67,6 @@ export function recordUndoOps(
       redoStack: [], // Clear redo stack on new operations
     },
   };
-}
-
-/**
- * Invalidate cache for affected blocks after applying operations.
- */
-function invalidateAffectedBlocks(
-  state: EditorState,
-  operations: Operation[],
-): void {
-  const affectedBlockIds = new Set<string>();
-
-  // Collect all affected block IDs
-  for (const op of operations) {
-    switch (op.op) {
-      case "text_insert":
-      case "text_delete":
-      case "format_set":
-      case "block_set":
-        affectedBlockIds.add(op.blockId);
-        break;
-      case "block_insert":
-      case "block_delete":
-        affectedBlockIds.add(op.blockId);
-        break;
-    }
-  }
-
-  // Invalidate cache for affected blocks
-  for (const blockId of affectedBlockIds) {
-    const block = state.document.page.blocks.find((b) => b.id === blockId);
-    if (block) {
-      invalidateBlockCache(block);
-    }
-  }
 }
 
 /**

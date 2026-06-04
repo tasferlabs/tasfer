@@ -11,7 +11,6 @@ export interface SlashCommand {
   icon: string | React.ReactElement; //NOTE -  add perdeps, but the project should be headless no opninion about ui.
   keywords?: string[];
 }
-
 // Editor State Types
 export interface ClickTracker {
   count: number;

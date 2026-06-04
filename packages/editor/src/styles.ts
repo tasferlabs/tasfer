@@ -96,6 +96,7 @@ function getCSSVariable(name: string, fallback?: string): string {
   return value || fallback || "";
 }
 
+//NOTE -  We make as customizable as possible, but as well make sure that we offload customization to the consumers.
 /**
  * Get editor styles from CSS variables
  * Falls back to default values if CSS variables are not available

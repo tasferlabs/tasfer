@@ -29,6 +29,7 @@ import {
   getVisibleText,
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
+import {} from "../sync/crdt-undo";
 import { extractCounter, extractPeerId } from "../sync/id";
 import { applyOps } from "../sync/reducer";
 import { getClock, getPageId, nextId } from "../sync/sync";
@@ -40,7 +41,6 @@ import type {
   TextInsert,
 } from "../sync/types";
 import type { CommandResult, EditorState, Position } from "../types";
-import {} from "../undo";
 
 /**
  * URL regex for detecting links in pasted text.

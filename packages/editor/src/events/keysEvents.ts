@@ -65,6 +65,7 @@ import {
   updateSlashCommandSelection,
 } from "../state";
 import { deleteCharsInRange } from "../sync/crdt-helpers";
+import { redoState, undoState } from "../sync/crdt-undo";
 import type { Operation } from "../sync/sync";
 import { getClock, getPageId, nextId } from "../sync/sync";
 import type {
@@ -73,7 +74,6 @@ import type {
   MouseEvent,
   ViewportState,
 } from "../types";
-import { redoState, undoState } from "../undo";
 import { ensureCursorVisible, isTouchDevice } from "./eventUtils";
 
 // Open the inline-math editor popover when an arrow key crosses an inline
