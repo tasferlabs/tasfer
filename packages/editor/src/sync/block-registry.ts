@@ -10,7 +10,7 @@
  */
 
 import type { BlockType } from "./types";
-import type { Block } from "@/deserializer/loadPage";
+import type { Block } from "@/serlization/loadPage";
 
 // =============================================================================
 // Field descriptors

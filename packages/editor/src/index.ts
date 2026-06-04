@@ -26,6 +26,6 @@ export type {
   FormatSpan,
   Page,
   TextFormat,
-} from "./deserializer/loadPage";
+} from "./serlization/loadPage";
 export type { HLC, Operation } from "./sync/types";
-export type { EditorState, SlashCommand, ViewportState } from "./types";
+export type { EditorState, SlashCommand, ViewportState } from "./state-types";

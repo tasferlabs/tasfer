@@ -10,8 +10,8 @@ import {
 import { getEditorStyles } from "../styles";
 import type { Operation } from "../sync/sync";
 import { getClock, getPageId, nextId } from "../sync/sync";
-import type { EditorState, ViewportState } from "../types";
-import type { Block } from "@/deserializer/loadPage";
+import type { EditorState, ViewportState } from "../state-types";
+import type { Block } from "@/serlization/loadPage";
 
 export function isTouchDevice(): boolean {
   return (

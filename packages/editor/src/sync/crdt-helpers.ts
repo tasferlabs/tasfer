@@ -11,8 +11,8 @@ import type {
   FormatSpan,
   Page,
   TextFormat,
-} from "../deserializer/loadPage";
-import { isTextualBlock } from "../deserializer/loadPage";
+} from "../serlization/loadPage";
+import { isTextualBlock } from "../serlization/loadPage";
 import type { FormatSet, TextDelete, TextInsert } from "../sync/types";
 import {
   getCharIdAtVisiblePosition,

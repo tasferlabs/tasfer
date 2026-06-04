@@ -1,10 +1,10 @@
-import { getBlockHeight, getSearchHighlights } from "./renderer";
-import { getEditorStyles } from "./styles";
+import type { EditorState, ViewportState } from "../state-types";
+import { getEditorStyles } from "../styles";
 import {
   awarenessCursorToPosition,
   type AwarenessState,
-} from "./sync/awareness";
-import type { EditorState, ViewportState } from "./types";
+} from "../sync/awareness";
+import { getBlockHeight, getSearchHighlights } from "./renderer";
 import i18next from "i18next";
 
 /** Whether the app UI is currently RTL */

@@ -1,7 +1,7 @@
 import { IMAGE_DEFAULT_HEIGHT } from "./constants";
 import { getCurrentFontFamily, getFontStack } from "./fonts";
-import { isTouchDevice } from "./state";
-import type { EditorStyles, PlaceholderStyles, TextStyle } from "./types";
+import { isTouchDevice } from "./state-utils";
+import type { EditorStyles, PlaceholderStyles, TextStyle } from "./state-types";
 import i18next from "i18next";
 
 /**

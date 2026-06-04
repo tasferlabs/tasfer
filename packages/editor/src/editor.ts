@@ -15,9 +15,9 @@ import {
   toggleStrikethrough,
   updateLinkInBlock,
 } from "./actions/commands";
-import type { Block, Page } from "./deserializer/loadPage";
-import { isTextualBlock } from "./deserializer/loadPage";
-import { serializeToMarkdown } from "./deserializer/serializer";
+import type { Block, Page } from "./serlization/loadPage";
+import { isTextualBlock } from "./serlization/loadPage";
+import { serializeToMarkdown } from "./serlization/serializer";
 import { handleEvents } from "./events/events";
 import { isInLongPressMode } from "./events/touchEvents";
 import { onFontFamilyChange, onFontsReady } from "./fonts";
@@ -46,7 +46,7 @@ import {
   setActiveMenu,
   updateMode,
   updatePhysicalKeyboardState,
-} from "./state";
+} from "./state-utils";
 import {
   moveCursorLeft,
   moveCursorRight,
@@ -92,7 +92,7 @@ import type {
   EditorState,
   SlashCommand,
   ViewportState,
-} from "./types";
+} from "./state-types";
 
 export interface Editor {
   getState: () => EditorState | null;

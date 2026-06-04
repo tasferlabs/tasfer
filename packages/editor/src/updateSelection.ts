@@ -1,5 +1,5 @@
 import { isForwardSelection, isCollapsedSelection } from "./selection";
-import type { EditorState, PartialSelectionState } from "./types";
+import type { EditorState, PartialSelectionState } from "./state-types";
 
 
 export function updateSelection(

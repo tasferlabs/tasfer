@@ -1,4 +1,4 @@
-import { isTextualBlock, type Page } from "../deserializer/loadPage";
+import { isTextualBlock, type Page } from "../serlization/loadPage";
 import { updateSelection } from "@/updateSelection";
 import { updateCursor } from "@/selection";
 import type {
@@ -7,7 +7,7 @@ import type {
   CRDTSelectionState,
   EditorState,
   Position,
-} from "../types";
+} from "../state-types";
 import { findCharInRuns, iterateVisibleChars } from "./char-runs";
 
 //NOTE - we should move the crdt to crdt folder

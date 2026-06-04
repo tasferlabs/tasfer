@@ -1,6 +1,6 @@
 import { resolveAssetUrl } from "./adapters";
-import type { Block, Char, CharRun, FormatSpan } from "./deserializer/loadPage";
-import { isListBlock, isTextualBlock } from "./deserializer/loadPage";
+import type { Block, Char, CharRun, FormatSpan } from "./serlization/loadPage";
+import { isListBlock, isTextualBlock } from "./serlization/loadPage";
 import {
   batchChars,
   type FontFamily,
@@ -19,7 +19,7 @@ import {
 import { getTextDirection } from "./rtl";
 import { renderScrollbar } from "./scrollbar";
 import { isCursorBlinking } from "./selection";
-import { getBlockTextContent, isTouchDevice } from "./state";
+import { getBlockTextContent, isTouchDevice } from "./state-utils";
 import { getEditorStyles, getTextStyle } from "./styles";
 import type { AwarenessState } from "./sync/awareness";
 import {
@@ -44,7 +44,7 @@ import type {
   SelectionState,
   TextStyle,
   ViewportState,
-} from "./types";
+} from "./state-types";
 import i18next from "i18next";
 
 /**

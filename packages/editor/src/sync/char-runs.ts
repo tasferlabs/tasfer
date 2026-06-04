@@ -14,8 +14,8 @@ import type {
   Char,
   CharRun,
   TextualBlock,
-} from "@/deserializer/loadPage";
-import { isTextualBlock } from "@/deserializer/loadPage";
+} from "@/serlization/loadPage";
+import { isTextualBlock } from "@/serlization/loadPage";
 
 // =============================================================================
 // ID and Deletion Helpers

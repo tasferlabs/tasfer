@@ -1,5 +1,3 @@
-import type { Block, Char } from "./deserializer/loadPage";
-import { isListBlock, isTextualBlock } from "./deserializer/loadPage";
 import {
   type FontFamily,
   getCurrentFontFamily,
@@ -9,8 +7,19 @@ import {
   measureTextUpToIndex,
   wrapText,
 } from "./fonts";
-import { getBlockHeight } from "./renderer";
+import { getBlockHeight } from "./rendering/renderer";
 import { getTextDirection } from "./rtl";
+import type { Block, Char } from "./serlization/loadPage";
+import { isListBlock, isTextualBlock } from "./serlization/loadPage";
+import type {
+  CursorState,
+  EditorState,
+  EditorStyles,
+  PartialSelectionState,
+  Position,
+  TextStyle,
+  ViewportState,
+} from "./state-types";
 import {
   createInitialCursorState,
   getBlockTextContent,
@@ -18,7 +27,7 @@ import {
   getLineInfoAtPosition,
   getTextIndexAtRelativePosition,
   snapInlineMathPosition,
-} from "./state";
+} from "./state-utils";
 import { getEditorStyles, getTextStyle } from "./styles";
 import {
   charRunsToChars,
@@ -32,15 +41,6 @@ import {
   findNextVisibleBlockIndex,
   findPreviousVisibleBlockIndex,
 } from "./sync/reducer";
-import type {
-  CursorState,
-  EditorState,
-  EditorStyles,
-  PartialSelectionState,
-  Position,
-  TextStyle,
-  ViewportState,
-} from "./types";
 
 export function getCursorDocumentCoords(
   position: Position,

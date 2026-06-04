@@ -7,19 +7,15 @@ import type {
   FormatSpan,
   Page,
   TextFormat,
-} from "../deserializer/loadPage";
+} from "../serlization/loadPage";
 import {
   isListBlock,
   isTextualBlock,
   loadPage,
-} from "../deserializer/loadPage";
-import { serializeToMarkdown } from "../deserializer/serializer";
+} from "../serlization/loadPage";
+import { serializeToMarkdown } from "../serlization/serializer";
 import { invalidateBlockCache } from "../renderer";
-import {
-  generateBlockId,
-  getBlockTextContent,
-  getBlockTextLength,
-} from "../state";
+import { getBlockTextContent, getBlockTextLength } from "../state-utils";
 import {
   charRunsToChars,
   charsToRuns,
@@ -41,8 +37,13 @@ import type {
   Operation,
   TextInsert,
 } from "../sync/types";
-import type { CommandResult, EditorState, Position } from "../types";
+import type { CommandResult, EditorState, Position } from "../state-types";
 import { clearSelection, moveCursorToPosition } from "@/selection";
+import { generateBlockId } from "@/sync/id";
+
+function globalGenerateBlockId(): string {
+  return generateBlockId(nextId);
+}
 
 /**
  * URL regex for detecting links in pasted text.
@@ -980,7 +981,7 @@ function parseHTMLToBlocks(html: string): Block[] {
     if (content.length > 0) {
       const { chars, formats } = segmentsToCharsAndFormats(content);
       blocks.push({
-        id: generateBlockId(),
+        id: globalGenerateBlockId(),
         type: "paragraph",
         charRuns: charsToRuns(chars),
         formats,
@@ -1000,7 +1001,7 @@ function parseHTMLToBlocks(html: string): Block[] {
       if (hasContent) {
         const { chars, formats } = segmentsToCharsAndFormats(content);
         blocks.push({
-          id: generateBlockId(),
+          id: globalGenerateBlockId(),
           type: "paragraph",
           charRuns: charsToRuns(chars),
           formats,
@@ -1017,7 +1018,7 @@ function parseHTMLToBlocks(html: string): Block[] {
       const mode = element.getAttribute("data-cypher-math");
       const latex = element.textContent || "";
       blocks.push({
-        id: generateBlockId(),
+        id: globalGenerateBlockId(),
         type: "math",
         latex,
         displayMode: mode !== "inline",
@@ -1045,7 +1046,7 @@ function parseHTMLToBlocks(html: string): Block[] {
         const objectFit = objectFitAttr as ("cover" | "contain") | undefined;
 
         blocks.push({
-          id: generateBlockId(),
+          id: globalGenerateBlockId(),
           type: "image",
           url: src,
           alt,
@@ -1080,7 +1081,7 @@ function parseHTMLToBlocks(html: string): Block[] {
       if (listType === "todo") {
         const checked = element.getAttribute("data-checked") === "true";
         blocks.push({
-          id: generateBlockId(),
+          id: globalGenerateBlockId(),
           type: "todo_list",
           charRuns: charsToRuns(chars),
           formats,
@@ -1089,7 +1090,7 @@ function parseHTMLToBlocks(html: string): Block[] {
         });
       } else if (listType === "numbered") {
         blocks.push({
-          id: generateBlockId(),
+          id: globalGenerateBlockId(),
           type: "numbered_list",
           charRuns: charsToRuns(chars),
           formats,
@@ -1098,7 +1099,7 @@ function parseHTMLToBlocks(html: string): Block[] {
       } else {
         // Default to bullet list for generic <li> tags
         blocks.push({
-          id: generateBlockId(),
+          id: globalGenerateBlockId(),
           type: "bullet_list",
           charRuns: charsToRuns(chars),
           formats,
@@ -1140,7 +1141,7 @@ function parseHTMLToBlocks(html: string): Block[] {
     );
 
     const block: Block = {
-      id: generateBlockId(),
+      id: globalGenerateBlockId(),
       type: blockType,
       charRuns: charsToRuns(chars),
       formats,
@@ -1159,7 +1160,7 @@ function parseHTMLToBlocks(html: string): Block[] {
           { content: trimmed },
         ]);
         blocks.push({
-          id: generateBlockId(),
+          id: globalGenerateBlockId(),
           type: "paragraph",
           charRuns: charsToRuns(chars),
           formats,
@@ -1212,7 +1213,7 @@ function parsePlainTextToBlocks(text: string): Block[] {
 
       const { chars, formats } = segmentsToCharsAndFormats([{ content }]);
       block = {
-        id: generateBlockId(),
+        id: globalGenerateBlockId(),
         type: blockType,
         charRuns: charsToRuns(chars),
         formats,
@@ -1317,7 +1318,7 @@ function insertBlocksAtCursor(
     // Handle pasting a single image block
     if (blocks[0].type === "image") {
       const imageBlock = blocks[0];
-      const newBlockId = generateBlockId();
+      const newBlockId = globalGenerateBlockId();
 
       // Create the image block
       const newImageBlock: Block = {
@@ -1429,7 +1430,7 @@ function insertBlocksAtCursor(
     // Handle pasting a single math block
     if (blocks[0].type === "math") {
       const mathBlock = blocks[0];
-      const newBlockId = generateBlockId();
+      const newBlockId = globalGenerateBlockId();
 
       const newMathBlock: Block = {
         id: newBlockId,
@@ -1493,7 +1494,7 @@ function insertBlocksAtCursor(
 
     // Handle pasting a single line block
     if (blocks[0].type === "line") {
-      const newBlockId = generateBlockId();
+      const newBlockId = globalGenerateBlockId();
 
       const newLineBlock: Block = {
         id: newBlockId,
@@ -1898,7 +1899,7 @@ function insertBlocksAtCursor(
       invalidateBlockCache(firstBlock);
       resultBlocks.push(firstBlock);
 
-      const newImageBlockId = generateBlockId();
+      const newImageBlockId = globalGenerateBlockId();
       const newImageBlock: Block = {
         id: newImageBlockId,
         type: "image",
@@ -1926,7 +1927,7 @@ function insertBlocksAtCursor(
       invalidateBlockCache(firstBlock);
       resultBlocks.push(firstBlock);
 
-      const newLineBlockId = generateBlockId();
+      const newLineBlockId = globalGenerateBlockId();
       const newLineBlock: Block = {
         id: newLineBlockId,
         type: "line",
@@ -1944,7 +1945,7 @@ function insertBlocksAtCursor(
       invalidateBlockCache(firstBlock);
       resultBlocks.push(firstBlock);
 
-      const newMathBlockId = generateBlockId();
+      const newMathBlockId = globalGenerateBlockId();
       const newMathBlock: Block = {
         id: newMathBlockId,
         type: "math",
@@ -1964,7 +1965,7 @@ function insertBlocksAtCursor(
     // Handle middle blocks (all blocks except first and last)
     const middleBlocks = blocks.slice(1, -1);
     for (const block of middleBlocks) {
-      const newBlockId = generateBlockId();
+      const newBlockId = globalGenerateBlockId();
 
       if (block.type === "image") {
         const newImageBlock: Block = {
@@ -2134,7 +2135,7 @@ function insertBlocksAtCursor(
     if (blocks.length > 1) {
       if (isTextualBlock(lastPastedBlock)) {
         // Last block: pasted content + after content from current block
-        const lastBlockId = generateBlockId();
+        const lastBlockId = globalGenerateBlockId();
 
         // Generate new chars with new IDs for pasted content
         const visiblePastedChars: Array<{ id: string; char: string }> = [];
@@ -2303,7 +2304,7 @@ function insertBlocksAtCursor(
         lastInsertedBlockId = lastBlockId;
       } else if (lastPastedBlock.type === "image") {
         // Insert image as new block
-        const newImageBlockId = generateBlockId();
+        const newImageBlockId = globalGenerateBlockId();
         const newImageBlock: Block = {
           id: newImageBlockId,
           type: "image",
@@ -2324,7 +2325,7 @@ function insertBlocksAtCursor(
 
         // If there's after-cursor content, create a new paragraph for it
         if (afterChars.length > 0 && afterChars.some((c) => !c.deleted)) {
-          const afterBlockId = generateBlockId();
+          const afterBlockId = globalGenerateBlockId();
 
           // Generate new chars with new IDs for after content
           const visibleAfterCharsForImg = afterChars.filter((c) => !c.deleted);
@@ -2426,7 +2427,7 @@ function insertBlocksAtCursor(
           lastInsertedBlockId = afterBlockId;
         }
       } else if (lastPastedBlock.type === "math") {
-        const newMathBlockId = generateBlockId();
+        const newMathBlockId = globalGenerateBlockId();
         const newMathBlock: Block = {
           id: newMathBlockId,
           type: "math",
@@ -2443,7 +2444,7 @@ function insertBlocksAtCursor(
         lastInsertedBlockId = newMathBlockId;
       } else if (lastPastedBlock.type === "line") {
         // Insert line as new block
-        const newLineBlockId = generateBlockId();
+        const newLineBlockId = globalGenerateBlockId();
         const newLineBlock: Block = {
           id: newLineBlockId,
           type: "line",
@@ -2455,7 +2456,7 @@ function insertBlocksAtCursor(
 
         // If there's after-cursor content, create a new paragraph for it
         if (afterChars.length > 0 && afterChars.some((c) => !c.deleted)) {
-          const afterBlockId = generateBlockId();
+          const afterBlockId = globalGenerateBlockId();
 
           // Generate new chars with new IDs for after content
           const visibleAfterCharsForLine = afterChars.filter((c) => !c.deleted);
@@ -2568,7 +2569,7 @@ function insertBlocksAtCursor(
         afterChars.length > 0 &&
         afterChars.some((c) => !c.deleted)
       ) {
-        const afterBlockId = generateBlockId();
+        const afterBlockId = globalGenerateBlockId();
 
         // Generate new chars with new IDs for after content
         const visibleAfterCharsSingle = afterChars.filter((c) => !c.deleted);
@@ -2753,7 +2754,7 @@ export function pasteFromClipboardEvent(
     const blobUrl = URL.createObjectURL(imageFile);
     const result = insertBlocksAtCursor(state, [
       {
-        id: generateBlockId(),
+        id: globalGenerateBlockId(),
         type: "image",
         url: blobUrl,
         alt: imageFile.name || "Pasted image",

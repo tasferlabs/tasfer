@@ -7,7 +7,7 @@ import {
   isTextualBlock,
   type Page,
   type TextFormat,
-} from "@/deserializer/loadPage";
+} from "@/serlization/loadPage";
 
 type TextualType = "paragraph" | "heading1" | "bullet_list" | "todo_list";
 const TEXTUAL_TYPES: TextualType[] = [

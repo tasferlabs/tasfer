@@ -1,4 +1,4 @@
-import type { EditorState, Position } from "./types";
+import type { EditorState, Position } from "./state-types";
 
 // Composition (IME) State Management
 

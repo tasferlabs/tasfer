@@ -1,7 +1,13 @@
-import type { Block } from "./deserializer/loadPage";
-import { isListBlock, isTextualBlock } from "./deserializer/loadPage";
 import { getCurrentFontFamily, measureCharsUpToIndex, wrapText } from "./fonts";
 import { getTextDirection } from "./rtl";
+import type { Block } from "./serlization/loadPage";
+import { isListBlock, isTextualBlock } from "./serlization/loadPage";
+import type {
+  EditorMode,
+  EditorState,
+  EditorStyles,
+  Position,
+} from "./state-types";
 import { getEditorStyles, getTextStyle } from "./styles";
 import {
   charRunsToChars,
@@ -9,23 +15,6 @@ import {
   getVisibleTextFromRunsFromRuns,
   iterateVisibleChars,
 } from "./sync/char-runs";
-import type { EditorMode, EditorState, EditorStyles, Position } from "./types";
-
-// =============================================================================
-// Block ID Generation
-// =============================================================================
-
-// Centralized Counter
-let blockIdCounter = 10000; // Start high to avoid conflicts with parsed blocks
-
-/**
- * Generate a unique block ID.
- * Block IDs are generated in the CRDTContext passed to commands.
- * This is a fallback for non-CRDT contexts (e.g., initial page load).
- */
-export function generateBlockId(): string {
-  return `block-${blockIdCounter++}`;
-}
 
 export function updateMode(state: EditorState, mode: EditorMode): EditorState {
   // If editor was initialized as readonly, enforce readonly behavior

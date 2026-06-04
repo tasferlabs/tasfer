@@ -14,7 +14,7 @@
 import { invertOperation } from "../../inverse";
 import { applyOp } from "../reducer";
 import { setCRDTContext, SyncEngine } from "../sync";
-import type { Math as MathBlock } from "@/deserializer/loadPage";
+import type { Math as MathBlock } from "@/serlization/loadPage";
 
 setCRDTContext("math-undo-page", "p001");
 

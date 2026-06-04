@@ -14,7 +14,7 @@ import type {
   Char,
   FormatSpan,
   TextFormat,
-} from "@/deserializer/loadPage";
+} from "@/serlization/loadPage";
 
 /**
  * Compare two characters for ordering.

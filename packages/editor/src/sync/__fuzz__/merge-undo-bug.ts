@@ -28,7 +28,7 @@ import { insertCharsAtPosition } from "../crdt-helpers";
 import { applyOp, applyOps, createEmptyPageState } from "../reducer";
 import { getClock, getPageId, nextId, setCRDTContext } from "../sync";
 import type { BlockInsert, Operation, TextInsert } from "../types";
-import { isTextualBlock, type Page } from "@/deserializer/loadPage";
+import { isTextualBlock, type Page } from "@/serlization/loadPage";
 
 setCRDTContext("merge-undo-repro", "p001");
 const pageId = getPageId();

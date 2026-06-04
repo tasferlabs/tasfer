@@ -1,16 +1,18 @@
-import { type Block, type Page } from "./deserializer/loadPage";
 import createEditor, { type Editor } from "./editor";
 import {
   createCanvasLayers,
   destroyCanvasLayers,
   resizeCanvasLayers,
 } from "./layers";
-import { setKeyboardOpen } from "./scrollbar";
+import { setKeyboardOpen } from "./rendering/scrollbar";
+import { type Block, type Page } from "./serlization/loadPage";
+import type { PlaceholderStyles, TextStyle } from "./state-types";
+import type { ViewportState } from "./state-types";
 import {
   createInitialState,
   detectPhysicalKeyboardHeuristic,
   isTouchDevice,
-} from "./state";
+} from "./state-utils";
 import {
   getBlockStyleOverrides,
   getEditorPadding,
@@ -20,8 +22,6 @@ import {
   setPlaceholderOverrides,
   setWindowFocused,
 } from "./styles";
-import type { PlaceholderStyles, TextStyle } from "./types";
-import type { ViewportState } from "./types";
 
 export interface MountedEditor {
   readonly editor: Editor;

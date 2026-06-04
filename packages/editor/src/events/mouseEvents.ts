@@ -20,7 +20,7 @@ import {
   updateScrollFromThumbDrag,
   updateScrollFromTrackClick,
   updateScrollFromWheel,
-} from "../scrollbar";
+} from "../rendering/scrollbar";
 import {
   getCursorDocumentCoords,
   getInlineMathAtPosition,
@@ -35,13 +35,13 @@ import {
   getBlockTextContent,
   setActiveMenu,
   updateMode,
-} from "../state";
+} from "../state-utils";
 import { updateFocus } from "@/selection";
 import { updateCursor } from "@/selection";
 import { clearSelection, startSelection, updateSelectionFocus } from "@/selection";
 import { getEditorStyles, getTextStyle } from "../styles";
 import type { Operation } from "../sync/sync";
-import type { EditorState, MouseEvent, ViewportState } from "../types";
+import type { EditorState, MouseEvent, ViewportState } from "../state-types";
 import {
   autoScrollState,
   clearScrollPress,
@@ -60,7 +60,7 @@ import {
   updateImageDrag,
 } from "./eventUtils";
 import { startAutoScroll, stopAutoScroll } from "./touchEvents";
-import { isTextualBlock } from "@/deserializer/loadPage";
+import { isTextualBlock } from "@/serlization/loadPage";
 
 // Helper function to detect and handle checkbox clicks for todo list items
 

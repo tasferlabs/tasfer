@@ -41,7 +41,7 @@ import {
   setActiveMenu,
   updateSlashCommandFilter,
   updateSlashCommandSelection,
-} from "../state";
+} from "../state-utils";
 import {
   moveCursorLeft,
   moveCursorRight,
@@ -67,13 +67,13 @@ import type {
   KeyboardEvent,
   MouseEvent,
   ViewportState,
-} from "../types";
+} from "../state-types";
 import { ensureCursorVisible, isTouchDevice } from "./eventUtils";
 import {
   type Block,
   isListBlock,
   isTextualBlock,
-} from "@/deserializer/loadPage";
+} from "@/serlization/loadPage";
 
 // Open the inline-math editor popover when an arrow key crosses an inline
 // math chip (snap fired between opposite boundaries).

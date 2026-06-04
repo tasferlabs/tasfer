@@ -3,8 +3,8 @@ import type {
   CharRun,
   Page,
   TextFormat,
-} from "../deserializer/loadPage";
-import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
+} from "../serlization/loadPage";
+import { isListBlock, isTextualBlock } from "../serlization/loadPage";
 import { isCJKCharacter } from "../fonts";
 import { invalidateBlockCache } from "../renderer";
 import { isRTLChar } from "../rtl";
@@ -14,7 +14,7 @@ import {
   getBlockTextContent,
   getBlockTextLength,
   updateMode,
-} from "../state";
+} from "../state-utils";
 import {
   deleteFromRuns,
   isCharIdInRange,
@@ -47,7 +47,7 @@ import type {
   EditorState,
   Position,
   SlashCommand,
-} from "../types";
+} from "../state-types";
 import { moveCursorToPosition } from "@/selection";
 import {
   clearSelection,

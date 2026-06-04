@@ -30,8 +30,8 @@ import {
   SyncEngine,
 } from "../sync";
 import type { FormatSet } from "../types";
-import type { Page, Paragraph } from "@/deserializer/loadPage";
-import { isTextualBlock } from "@/deserializer/loadPage";
+import type { Page, Paragraph } from "@/serlization/loadPage";
+import { isTextualBlock } from "@/serlization/loadPage";
 
 // Two peers. Production uses one global HLC (set via setCRDTContext)
 // which the per-op helpers (crdt-helpers, inverse) consume via

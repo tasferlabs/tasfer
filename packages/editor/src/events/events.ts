@@ -12,7 +12,7 @@ import {
   applyMomentum,
   startScrollbarDrag,
   updateScrollbarFadeOpacity,
-} from "../scrollbar";
+} from "../rendering/scrollbar";
 import {
   getCursorDocumentCoords,
   getTextPositionFromViewport,
@@ -21,12 +21,12 @@ import {
   closeActiveMenu,
   openContextMenu,
   updateMode,
-} from "../state";
+} from "../state-utils";
 import { updateCursor } from "@/selection";
 import { startSelection, updateSelectionFocus } from "@/selection";
 import { getEditorStyles, getTextStyle } from "../styles";
 import type { Operation } from "../sync/types";
-import type { EditorState, MouseEvent, ViewportState } from "../types";
+import type { EditorState, MouseEvent, ViewportState } from "../state-types";
 import {
   handleCompositionEnd,
   handleCompositionStart,
@@ -52,7 +52,7 @@ import {
   touchState,
   triggerHapticFeedback,
 } from "./touchEvents";
-import { isTextualBlock } from "@/deserializer/loadPage";
+import { isTextualBlock } from "@/serlization/loadPage";
 
 /** Get rendered line height (px) for the block at the given index. */
 function getBlockLineHeight(

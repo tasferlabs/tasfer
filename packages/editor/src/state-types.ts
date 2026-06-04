@@ -1,6 +1,6 @@
-import type { Block, Page, TextFormat } from "./deserializer/loadPage";
 import type { FontFamily } from "./fonts";
-import type { MomentumState, ScrollbarState } from "./scrollbar";
+import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
+import type { Block, Page, TextFormat } from "./serlization/loadPage";
 import type { Operation } from "./sync/types";
 import type { ReactElement } from "react";
 export interface SlashCommand {
@@ -218,6 +218,7 @@ export interface EditorState {
   readonly ui: UIState;
   readonly view: ViewState;
   readonly undoManager: UndoManagerState;
+  readonly CRDTbinding?: CRDTbinding;
 }
 
 // Command result - all commands return state + operations
@@ -610,17 +611,8 @@ export interface FontMetrics {
   readonly characters: ReadonlyMap<string, CharacterMetrics>;
 }
 
-export interface WordMetrics {
-  readonly word: string;
-  readonly width: number;
-  readonly startIndex: number;
-  readonly endIndex: number;
-}
-
-export interface TextMeasurementResult {
-  readonly totalWidth: number;
-  readonly words: readonly WordMetrics[];
-}
 export default interface FontConfig {
   readonly fontFamily: FontFamily;
 }
+
+interface CRDTbinding {}

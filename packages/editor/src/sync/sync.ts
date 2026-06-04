@@ -32,7 +32,7 @@ import type {
   TextInsert,
   VersionVector,
 } from "./types";
-import type { Char, CharRun, Page, TextFormat } from "@/deserializer/loadPage";
+import type { Char, CharRun, Page, TextFormat } from "@/serlization/loadPage";
 
 // ==========================================================================
 // Global CRDT Context Functions

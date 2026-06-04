@@ -22,11 +22,11 @@ import type {
   CharRun,
   FormatSpan,
   TextFormat,
-} from "./deserializer/loadPage";
+} from "./serlization/loadPage";
 import { getInlineMathDims } from "./inlineMath";
 import { charRunsToChars } from "./sync/char-runs";
-import type FontConfig from "./types";
-import type { CharacterMetrics, FontMetrics } from "./types";
+import type FontConfig from "./state-types";
+import type { CharacterMetrics, FontMetrics } from "./state-types";
 
 // Arabic font loading state
 let arabicFontsLoaded = false;

@@ -19,8 +19,8 @@ import type {
   Operation,
   TextInsert,
 } from "./types";
-import type { Block, CharRun, FormatSpan } from "@/deserializer/loadPage";
-import { isTextualBlock } from "@/deserializer/loadPage";
+import type { Block, CharRun, FormatSpan } from "@/serlization/loadPage";
+import { isTextualBlock } from "@/serlization/loadPage";
 
 // =============================================================================
 // Types

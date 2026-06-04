@@ -2,7 +2,7 @@ import { pasteFromClipboardEvent } from "../actions/clipboard";
 import { scrollToMakeCursorVisible } from "../selection";
 import type { Operation } from "../sync/sync";
 import { getVisibleBlocks } from "../sync/sync";
-import type { EditorState, ViewportState } from "../types";
+import type { EditorState, ViewportState } from "../state-types";
 
 export function handlePaste(
   state: EditorState,

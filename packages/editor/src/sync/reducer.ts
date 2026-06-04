@@ -37,7 +37,7 @@ import {
   type FormatSpan,
   isTextualBlock,
   type Page,
-} from "@/deserializer/loadPage";
+} from "@/serlization/loadPage";
 
 /**
  * Create an empty page state.

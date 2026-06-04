@@ -3,8 +3,6 @@
  * Provides functions to detect and handle RTL languages like Arabic, Hebrew, Persian, etc.
  */
 
-import i18next from "i18next";
-
 /**
  * Unicode ranges for RTL scripts
  * Based on Unicode standard for strong RTL characters
@@ -48,7 +46,11 @@ export function isRTLChar(char: string): boolean {
  * Get the default text direction based on the current app language.
  */
 function getDefaultDirection(): "rtl" | "ltr" {
-  return (i18next.dir() as "rtl" | "ltr") || "ltr";
+  if (document.dir == "rtl") {
+    return "rtl";
+  } else {
+    return "ltr";
+  }
 }
 
 export function getTextDirection(text: string): "rtl" | "ltr" {

@@ -1,6 +1,6 @@
 import { invertOperations, refreshOps } from "../inverse";
 import { invalidateAffectedBlocks } from "../renderer";
-import type { EditorState, UndoGroup, UndoManagerState } from "../types";
+import type { EditorState, UndoGroup, UndoManagerState } from "../state-types";
 import {
   captureCRDTCursor,
   captureCRDTSelection,

@@ -37,8 +37,8 @@ import type {
   CharRun,
   Page,
   TextFormat,
-} from "@/deserializer/loadPage";
-import { isTextualBlock } from "@/deserializer/loadPage";
+} from "@/serlization/loadPage";
+import { isTextualBlock } from "@/serlization/loadPage";
 
 /**
  * Convert Char[] to CharRun[] (for inverse operations).

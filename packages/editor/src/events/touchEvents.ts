@@ -16,7 +16,7 @@ import {
   endScrollbarDrag,
   isPointInThumb,
   updateScrollFromThumbDrag,
-} from "../scrollbar";
+} from "../rendering/scrollbar";
 import {
   getCursorDocumentCoords,
   getTextPositionFromViewport,
@@ -29,14 +29,14 @@ import {
   setActiveMenu,
   updateContextMenuHover,
   updateMode,
-} from "../state";
+} from "../state-utils";
 import { moveCursorToPosition } from "@/selection";
 import { updateCursor } from "@/selection";
 import { clearSelection, startSelection } from "@/selection";
 import { getEditorStyles, getTextStyle } from "../styles";
 import type { Operation } from "../sync/sync";
 import { getClock, getPageId, nextId } from "../sync/sync";
-import type { EditorState, ViewportState } from "../types";
+import type { EditorState, ViewportState } from "../state-types";
 import {
   activateScroll,
   autoScrollState,
@@ -53,7 +53,7 @@ import {
   updateImageDrag,
 } from "./eventUtils";
 import { handleTodoCheckboxClick } from "./mouseEvents";
-import { type Block, isTextualBlock } from "@/deserializer/loadPage";
+import { type Block, isTextualBlock } from "@/serlization/loadPage";
 
 /** Get rendered line height (px) for the block at the given position. */
 function getLineHeightAtPosition(
