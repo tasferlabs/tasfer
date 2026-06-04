@@ -37,10 +37,10 @@
  * already provides ordering.
  */
 
-import type { OpLog, Operation, VersionVector } from "./types";
 import { compareHLC } from "./hlc";
-import { extractPeerId, extractCounter } from "./id";
+import { extractCounter, extractPeerId } from "./id";
 import { applyOp, createEmptyPageState, rebuildState } from "./reducer";
+import type { Operation, OpLog, VersionVector } from "./types";
 
 const IS_DEV = typeof import.meta !== "undefined" && !!import.meta.env?.DEV;
 
@@ -62,7 +62,7 @@ export function createOpLog(pageId: string): OpLog {
  */
 export function updateVersionVector(
   vv: VersionVector,
-  op: Operation
+  op: Operation,
 ): VersionVector {
   const peerId = extractPeerId(op.id);
   const counter = extractCounter(op.id);
@@ -179,7 +179,7 @@ export function mergeOps(log: OpLog, ops: Operation[]): OpLog {
       const rebuilt = rebuildState(log.pageId, allOps);
       if (JSON.stringify(state) !== JSON.stringify(rebuilt)) {
         console.error(
-          `[mergeOps] incremental state diverged from rebuilt state for page ${log.pageId}; new op ids: ${newOps.map((o) => o.id).join(", ")}`
+          `[mergeOps] incremental state diverged from rebuilt state for page ${log.pageId}; new op ids: ${newOps.map((o) => o.id).join(", ")}`,
         );
       }
     }
@@ -253,7 +253,7 @@ export function getOpsSince(log: OpLog, peerVV: VersionVector): Operation[] {
  */
 export function mergeVersionVectors(
   a: VersionVector,
-  b: VersionVector
+  b: VersionVector,
 ): VersionVector {
   const result = new Map(a);
 

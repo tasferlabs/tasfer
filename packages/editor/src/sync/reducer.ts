@@ -6,23 +6,29 @@
  */
 
 import {
-  isTextualBlock,
   type Block,
   type Char,
   type FormatSpan,
+  isTextualBlock,
   type Page,
 } from "@/deserializer/loadPage";
-import { resolveBlockOrder } from "./conflicts";
-import { compareHLC } from "./hlc";
+
+import {
+  canMorphTo,
+  createDefaultBlock,
+  validateBlockField,
+} from "./block-registry";
 import {
   charRunsToChars,
   deleteFromRuns,
-  getVisibleTextFromRuns,
   getCharIdAtVisiblePosition,
+  getVisibleTextFromRuns,
   insertIntoRuns,
   isCharIdInRange,
   iterateVisibleChars,
 } from "./char-runs";
+import { resolveBlockOrder } from "./conflicts";
+import { compareHLC } from "./hlc";
 import type {
   BlockDelete,
   BlockInsert,
@@ -33,11 +39,6 @@ import type {
   TextDelete,
   TextInsert,
 } from "./types";
-import {
-  canMorphTo,
-  createDefaultBlock,
-  validateBlockField,
-} from "./block-registry";
 
 /**
  * Create an empty page state.
@@ -53,7 +54,7 @@ export function createEmptyPageState(pageId: string): Page {
 export function createEmptyBlock(
   id: string,
   afterId: string | null,
-  type: BlockType
+  type: BlockType,
 ): Block {
   return createDefaultBlock(type, id, afterId);
 }
@@ -226,7 +227,12 @@ function applyFormatSet(state: Page, op: FormatSet): Page {
       }
 
       const overlaps = op.charIds.some((charId) =>
-        isCharIdInRange(block.charRuns, charId, span.startCharId, span.endCharId)
+        isCharIdInRange(
+          block.charRuns,
+          charId,
+          span.startCharId,
+          span.endCharId,
+        ),
       );
       if (!overlaps) {
         newFormats.push(span);
@@ -271,7 +277,7 @@ function applyFormatSet(state: Page, op: FormatSet): Page {
     const alreadyApplied = block.formats.some(
       (span) =>
         span.clock.counter === op.clock.counter &&
-        span.clock.peerId === op.clock.peerId
+        span.clock.peerId === op.clock.peerId,
     );
     if (alreadyApplied) {
       return state;
@@ -280,7 +286,12 @@ function applyFormatSet(state: Page, op: FormatSet): Page {
     const filtered = block.formats.filter((span) => {
       if (span.format.type !== op.format.type) return true;
       const overlaps = op.charIds.some((charId) =>
-        isCharIdInRange(block.charRuns, charId, span.startCharId, span.endCharId)
+        isCharIdInRange(
+          block.charRuns,
+          charId,
+          span.startCharId,
+          span.endCharId,
+        ),
       );
       return !overlaps;
     });
@@ -503,7 +514,10 @@ export function rebuildState(pageId: string, ops: Operation[]): Page {
     }
 
     // Defer text_delete if any referenced chars haven't been inserted yet
-    if (op.op === "text_delete" && !op.charIds.every((id) => insertedCharIds.has(id))) {
+    if (
+      op.op === "text_delete" &&
+      !op.charIds.every((id) => insertedCharIds.has(id))
+    ) {
       deferredOps.push(op);
       continue;
     }
@@ -536,7 +550,7 @@ export function getVisibleText(block: Block): string {
  * Each block includes its originalIndex in the full blocks array.
  */
 export function getVisibleBlocks(
-  state: Page
+  state: Page,
 ): (Block & { originalIndex: number })[] {
   return state.blocks
     .map((b, i) => Object.assign(b, { originalIndex: i }))
@@ -555,7 +569,7 @@ export function cleanSnapshotForSave(blocks: Block[]): Block[] {
 // Helper functions to find next/previous visible block
 export function findNextVisibleBlockIndex(
   blocks: Block[],
-  startIndex: number
+  startIndex: number,
 ): number | null {
   for (let i = startIndex + 1; i < blocks.length; i++) {
     if (!blocks[i].deleted) {
@@ -567,7 +581,7 @@ export function findNextVisibleBlockIndex(
 
 export function findPreviousVisibleBlockIndex(
   blocks: Block[],
-  startIndex: number
+  startIndex: number,
 ): number | null {
   for (let i = startIndex - 1; i >= 0; i--) {
     if (!blocks[i].deleted) {
@@ -583,7 +597,7 @@ export function findPreviousVisibleBlockIndex(
  */
 export function findCharByVisibleIndex(
   block: Block,
-  visibleIndex: number
+  visibleIndex: number,
 ): { char: Char; runIndex: number; offset: number } | null {
   // Image and Line blocks don't have text content
   if (!isTextualBlock(block)) {
@@ -593,7 +607,7 @@ export function findCharByVisibleIndex(
   let visibleCount = 0;
 
   for (const { id, char, runIndex, offset } of iterateVisibleChars(
-    block.charRuns
+    block.charRuns,
   )) {
     if (visibleCount === visibleIndex) {
       return {
@@ -614,7 +628,7 @@ export function findCharByVisibleIndex(
  */
 export function findCharIdAtPosition(
   block: Block,
-  position: number
+  position: number,
 ): string | null {
   if (!isTextualBlock(block)) {
     return null;
@@ -629,7 +643,7 @@ export function findCharIdAtPosition(
 export function getCharIdsInRange(
   block: Block,
   startIndex: number,
-  endIndex: number
+  endIndex: number,
 ): string[] {
   // Image and Line blocks don't have text content
   if (!isTextualBlock(block)) {

@@ -1,4 +1,3 @@
-
 export let autoScrollState: {
   isActive: boolean;
   startTime: number;
@@ -24,7 +23,7 @@ export let scrollbarPressState: {
 export function activateScroll(
   currentTime: number,
   canvasX: number,
-  canvasY: number
+  canvasY: number,
 ) {
   scrollbarPressState = {
     isPressingThumb: true,

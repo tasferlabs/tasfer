@@ -1,10 +1,10 @@
 /**
  * Canvas Layer Management
- * 
+ *
  * This module manages multiple stacked canvas layers for efficient rendering:
  * - Content Layer: Text, blocks, images, selection, scrollbar
  * - Cursor Layer: Just the blinking cursor
- * 
+ *
  * By separating the cursor into its own layer, we avoid expensive full-page
  * re-renders every time the cursor blinks (every 530ms).
  */
@@ -26,7 +26,7 @@ export interface CanvasLayers {
 export function createCanvasLayers(
   container: HTMLElement,
   width: number,
-  height: number
+  height: number,
 ): CanvasLayers {
   const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 
@@ -42,7 +42,9 @@ export function createCanvasLayers(
     canvas.style.pointerEvents = pointerEvents ? "auto" : "none";
     canvas.style.userSelect = "none";
     canvas.style.webkitUserSelect = "none";
-    (canvas.style as unknown as { webkitTouchCallout?: string }).webkitTouchCallout = "none";
+    (
+      canvas.style as unknown as { webkitTouchCallout?: string }
+    ).webkitTouchCallout = "none";
 
     // Set display size (CSS pixels)
     canvas.style.width = `${width}px`;
@@ -82,7 +84,7 @@ export function createCanvasLayers(
 export function resizeCanvasLayers(
   layers: CanvasLayers,
   width: number,
-  height: number
+  height: number,
 ) {
   const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 
@@ -108,7 +110,7 @@ export function resizeCanvasLayers(
 export function clearLayer(
   ctx: CanvasRenderingContext2D,
   width: number,
-  height: number
+  height: number,
 ) {
   // Clear using the canvas dimensions (not CSS dimensions)
   // The DPR scaling is already applied to the context
@@ -123,4 +125,3 @@ export function destroyCanvasLayers(layers: CanvasLayers) {
     canvas.remove();
   });
 }
-

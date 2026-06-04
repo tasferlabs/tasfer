@@ -1,6 +1,6 @@
-import type { HLC } from "../sync/sync";
 import { IMAGE_DEFAULT_HEIGHT } from "../constants";
 import { hasTextContent } from "../sync/block-registry";
+import type { HLC } from "../sync/sync";
 import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
 
@@ -123,7 +123,7 @@ export function areFormatsEqual(a: TextFormat, b: TextFormat): boolean {
 // Helper function to compare two arrays of TextFormat objects
 export function areFormatArraysEqual(
   a: TextFormat[] | undefined,
-  b: TextFormat[] | undefined
+  b: TextFormat[] | undefined,
 ): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -197,7 +197,10 @@ export interface Page {
  * Strip YAML frontmatter from markdown and parse metadata.
  * Returns the content without frontmatter and any parsed metadata.
  */
-export function parseFrontmatter(content: string): { content: string; metadata?: PageMetadata } {
+export function parseFrontmatter(content: string): {
+  content: string;
+  metadata?: PageMetadata;
+} {
   if (!content.startsWith("---\n")) return { content };
 
   const endIndex = content.indexOf("\n---\n", 4);
@@ -220,7 +223,12 @@ export function parseFrontmatter(content: string): { content: string; metadata?:
     else if (key === "color" && value) metadata.color = value;
   }
 
-  const hasValues = metadata.task || metadata.scheduledAt || metadata.duration != null || metadata.allDay != null || metadata.color;
+  const hasValues =
+    metadata.task ||
+    metadata.scheduledAt ||
+    metadata.duration != null ||
+    metadata.allDay != null ||
+    metadata.color;
   return { content: remaining, metadata: hasValues ? metadata : undefined };
 }
 

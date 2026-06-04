@@ -1,4 +1,5 @@
 import i18next from "i18next";
+
 import { getBlockHeight, getSearchHighlights } from "./renderer";
 import { getEditorStyles } from "./styles";
 import {
@@ -148,19 +149,19 @@ export function getScrollbarStyles(): ScrollbarStyles {
     padding: 4,
     thumbColor: getCSSVariable(
       "--editor-scrollbar-thumb",
-      "rgba(128, 128, 128, 0.5)"
+      "rgba(128, 128, 128, 0.5)",
     ),
     thumbHoverColor: getCSSVariable(
       "--editor-scrollbar-thumb-hover",
-      "rgba(128, 128, 128, 0.7)"
+      "rgba(128, 128, 128, 0.7)",
     ),
     thumbActiveColor: getCSSVariable(
       "--editor-scrollbar-thumb-active",
-      "rgba(128, 128, 128, 0.9)"
+      "rgba(128, 128, 128, 0.9)",
     ),
     trackColor: getCSSVariable(
       "--editor-scrollbar-track",
-      "rgba(0, 0, 0, 0.05)"
+      "rgba(0, 0, 0, 0.05)",
     ),
     borderRadius: 6,
     fadeDelay: 1000,
@@ -200,7 +201,7 @@ export function calculateScrollbarBounds(
   viewport: ViewportState,
   documentHeight: number,
   _state: ScrollbarState,
-  styles: ScrollbarStyles = getScrollbarStyles()
+  styles: ScrollbarStyles = getScrollbarStyles(),
 ): ScrollbarBounds {
   const trackWidth = styles.width;
   const safeAreaBottom = getSafeAreaBottom();
@@ -214,7 +215,7 @@ export function calculateScrollbarBounds(
   const viewportRatio = viewport.height / documentHeight;
   const thumbHeight = Math.max(
     styles.minThumbHeight,
-    trackHeight * viewportRatio
+    trackHeight * viewportRatio,
   );
 
   // Calculate thumb position
@@ -244,7 +245,7 @@ export function renderScrollbar(
   documentHeight: number,
   state: EditorState,
   remoteAwareness: Map<string, AwarenessState>,
-  styles = getScrollbarStyles()
+  styles = getScrollbarStyles(),
 ): void {
   // Don't render if document fits in viewport
   if (documentHeight <= viewport.height) {
@@ -277,7 +278,7 @@ export function renderScrollbar(
     viewport,
     documentHeight,
     scrollbarState,
-    styles
+    styles,
   );
 
   // iOS-style: Scale up when dragging (larger and more prominent)
@@ -302,7 +303,7 @@ export function renderScrollbar(
     bounds.trackY,
     scaledTrackWidth,
     bounds.trackHeight,
-    styles.borderRadius
+    styles.borderRadius,
   );
   ctx.fill();
 
@@ -321,7 +322,7 @@ export function renderScrollbar(
     bounds.thumbY,
     scaledWidth,
     bounds.thumbHeight,
-    styles.borderRadius
+    styles.borderRadius,
   );
   ctx.fill();
 
@@ -333,7 +334,7 @@ export function renderScrollbar(
       remoteAwareness,
       state,
       viewport,
-      documentHeight
+      documentHeight,
     );
     renderScrollbarPeerMarkers(
       ctx,
@@ -342,7 +343,7 @@ export function renderScrollbar(
       peerMarkers,
       styles,
       opacity,
-      scale
+      scale,
     );
   }
 
@@ -358,7 +359,7 @@ export function renderScrollbar(
       searchHighlights,
       activeSearchIndex,
       styles,
-      scale
+      scale,
     );
   }
 }
@@ -368,7 +369,7 @@ export function isPointInScrollbar(
   y: number,
   viewport: ViewportState,
   documentHeight: number,
-  styles: ScrollbarStyles = getScrollbarStyles()
+  styles: ScrollbarStyles = getScrollbarStyles(),
 ): boolean {
   if (documentHeight <= viewport.height) {
     return false;
@@ -399,10 +400,7 @@ export function isPointInScrollbar(
   }
 
   return (
-    x >= hitLeft &&
-    x <= hitRight &&
-    y >= trackY &&
-    y <= trackY + trackHeight
+    x >= hitLeft && x <= hitRight && y >= trackY && y <= trackY + trackHeight
   );
 }
 
@@ -413,7 +411,7 @@ export function isPointInThumb(
   documentHeight: number,
   scrollbarState: ScrollbarState,
   styles: ScrollbarStyles = getScrollbarStyles(),
-  buffer: number = 0
+  buffer: number = 0,
 ): boolean {
   if (documentHeight <= viewport.height) {
     return false;
@@ -423,7 +421,7 @@ export function isPointInThumb(
     viewport,
     documentHeight,
     scrollbarState,
-    styles
+    styles,
   );
 
   // Apply buffer to expand the hit area on all sides
@@ -437,7 +435,7 @@ export function isPointInThumb(
 
 export function updateScrollbarHover(
   scrollbarState: ScrollbarState,
-  isHovered: boolean
+  isHovered: boolean,
 ): ScrollbarState {
   if (scrollbarState.isHovered === isHovered) {
     return scrollbarState;
@@ -455,14 +453,14 @@ export function startScrollbarDrag(
   mouseY: number,
   viewport: ViewportState,
   documentHeight: number,
-  styles: ScrollbarStyles = getScrollbarStyles()
+  styles: ScrollbarStyles = getScrollbarStyles(),
 ): ScrollbarState {
   // Calculate current thumb position
   const bounds = calculateScrollbarBounds(
     viewport,
     documentHeight,
     scrollbarState,
-    styles
+    styles,
   );
 
   // Save the offset from the thumb's top to where the mouse clicked
@@ -477,7 +475,7 @@ export function startScrollbarDrag(
 }
 
 export function endScrollbarDrag(
-  scrollbarState: ScrollbarState
+  scrollbarState: ScrollbarState,
 ): ScrollbarState {
   return {
     ...scrollbarState,
@@ -492,7 +490,7 @@ export function updateScrollFromThumbDrag(
   viewport: ViewportState,
   documentHeight: number,
   scrollbarState: ScrollbarState,
-  styles: ScrollbarStyles = getScrollbarStyles()
+  styles: ScrollbarStyles = getScrollbarStyles(),
 ): number {
   const trackY = styles.padding;
   const safeAreaBottom = getSafeAreaBottom();
@@ -502,7 +500,7 @@ export function updateScrollFromThumbDrag(
   const viewportRatio = viewport.height / documentHeight;
   const thumbHeight = Math.max(
     styles.minThumbHeight,
-    trackHeight * viewportRatio
+    trackHeight * viewportRatio,
   );
 
   // Calculate max positions
@@ -526,13 +524,13 @@ export function updateScrollFromTrackClick(
   viewport: ViewportState,
   documentHeight: number,
   scrollbarState: ScrollbarState,
-  styles: ScrollbarStyles = getScrollbarStyles()
+  styles: ScrollbarStyles = getScrollbarStyles(),
 ): number {
   const bounds = calculateScrollbarBounds(
     viewport,
     documentHeight,
     scrollbarState,
-    styles
+    styles,
   );
 
   const maxScroll = documentHeight - viewport.height;
@@ -553,12 +551,12 @@ export function updateScrollFromWheel(
   deltaY: number,
   viewport: ViewportState,
   documentHeight: number,
-  scrollbarState: ScrollbarState
+  scrollbarState: ScrollbarState,
 ): { scrollY: number; scrollbarState: ScrollbarState } {
   const maxScroll = documentHeight - viewport.height;
   const newScrollY = Math.max(
     0,
-    Math.min(maxScroll, viewport.scrollY + deltaY)
+    Math.min(maxScroll, viewport.scrollY + deltaY),
   );
 
   return {
@@ -572,7 +570,7 @@ export function updateScrollFromWheel(
 
 export function updateScrollbarFadeOpacity(
   scrollbarState: ScrollbarState,
-  styles: ScrollbarStyles = getScrollbarStyles()
+  styles: ScrollbarStyles = getScrollbarStyles(),
 ): ScrollbarState {
   const timeSinceInteraction = Date.now() - scrollbarState.lastInteraction;
   let opacity = scrollbarState.fadeOpacity;
@@ -612,7 +610,7 @@ export function renderScrollbarPeerMarkers(
   markers: PeerMarker[],
   styles: ScrollbarStyles = getScrollbarStyles(),
   opacity: number = 1,
-  scale: number = 1
+  scale: number = 1,
 ): void {
   if (documentHeight <= viewport.height || markers.length === 0) {
     return;
@@ -657,7 +655,7 @@ function renderScrollbarSearchMarkers(
   highlights: { blockIndex: number; startIndex: number; endIndex: number }[],
   activeIndex: number,
   styles: ScrollbarStyles = getScrollbarStyles(),
-  scale: number = 1
+  scale: number = 1,
 ): void {
   if (documentHeight <= viewport.height || highlights.length === 0) {
     return;
@@ -734,7 +732,7 @@ export function applyMomentum(
   scrollY: number,
   momentumState: MomentumState,
   documentHeight: number,
-  viewportHeight: number
+  viewportHeight: number,
 ): { scrollY: number; momentumState: MomentumState; isActive: boolean } {
   if (!momentumState.isActive || Math.abs(momentumState.velocity) < 0.01) {
     return {
@@ -788,7 +786,7 @@ function calculatePeerMarkers(
   state: EditorState,
   viewport: ViewportState,
   documentHeight: number,
-  styles = getEditorStyles()
+  styles = getEditorStyles(),
 ): PeerMarker[] {
   const markers: PeerMarker[] = [];
   const maxWidth =
@@ -799,7 +797,7 @@ function calculatePeerMarkers(
 
     const position = awarenessCursorToPosition(
       awareness.cursor,
-      state.document.page
+      state.document.page,
     );
     if (!position) continue;
 

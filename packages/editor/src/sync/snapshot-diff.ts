@@ -5,17 +5,11 @@
  * operations to restore the page to a specific snapshot state.
  */
 
-import type {
-  Block,
-  CharRun,
-  FormatSpan,
-} from "@/deserializer/loadPage";
+import type { Block, CharRun, FormatSpan } from "@/deserializer/loadPage";
 import { isTextualBlock } from "@/deserializer/loadPage";
+
+import { getBlockDescriptor, getBlockFieldNames } from "./block-registry";
 import { getVisibleTextFromRuns, iterateVisibleChars } from "./char-runs";
-import {
-  getBlockDescriptor,
-  getBlockFieldNames,
-} from "./block-registry";
 import type {
   BlockDelete,
   BlockInsert,
@@ -69,7 +63,7 @@ export interface PageDiff {
  */
 export function diffPageWithSnapshot(
   currentBlocks: Block[],
-  snapshotBlocks: Block[]
+  snapshotBlocks: Block[],
 ): PageDiff {
   const currentMap = new Map<string, Block>();
   const snapshotMap = new Map<string, Block>();
@@ -172,10 +166,18 @@ function diffBlocks(current: Block, snapshot: Block): BlockChanges | null {
   if (current.type === snapshot.type) {
     for (const fieldName of getBlockFieldNames(current.type)) {
       if (fieldName === "type") continue;
-      const currentVal = (current as unknown as Record<string, unknown>)[fieldName];
-      const snapshotVal = (snapshot as unknown as Record<string, unknown>)[fieldName];
+      const currentVal = (current as unknown as Record<string, unknown>)[
+        fieldName
+      ];
+      const snapshotVal = (snapshot as unknown as Record<string, unknown>)[
+        fieldName
+      ];
       if (currentVal !== snapshotVal) {
-        propsChanged.push({ field: fieldName, from: snapshotVal, to: currentVal });
+        propsChanged.push({
+          field: fieldName,
+          from: snapshotVal,
+          to: currentVal,
+        });
       }
     }
   }
@@ -217,10 +219,7 @@ export interface OpsContext {
  * Convert blocks into CRDT insert operations.
  * Used by both import (writeBlocks) and snapshot restore flows.
  */
-export function blocksToOps(
-  blocks: Block[],
-  ctx: OpsContext,
-): Operation[] {
+export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
   const ops: Operation[] = [];
   const { pageId, peerId, nextId, getClock } = ctx;
 
@@ -233,7 +232,9 @@ export function blocksToOps(
     // For the first block, reuse the existing init block ID if provided so we
     // don't duplicate the block_insert that createPage() already persisted.
     const useExisting = isFirstBlock && !!ctx.existingFirstBlockId;
-    const newBlockId = useExisting ? ctx.existingFirstBlockId! : `b-${nextId()}`;
+    const newBlockId = useExisting
+      ? ctx.existingFirstBlockId!
+      : `b-${nextId()}`;
     isFirstBlock = false;
 
     // The existing init block was persisted as heading1. Morph its type when
@@ -317,7 +318,7 @@ export function blocksToOps(
 
       for (const format of newFormats) {
         const startIdx = newCharIds.findIndex(
-          (id) => id === format.startCharId
+          (id) => id === format.startCharId,
         );
         const endIdx = newCharIds.findIndex((id) => id === format.endCharId);
         if (startIdx !== -1 && endIdx !== -1) {
@@ -331,9 +332,7 @@ export function blocksToOps(
             charIds,
             format: format.format,
             value:
-              format.format.type === "link"
-                ? format.format.url || true
-                : true,
+              format.format.type === "link" ? format.format.url || true : true,
           };
           ops.push(formatOp);
         }
@@ -344,8 +343,12 @@ export function blocksToOps(
     const defaultBlock = descriptor.defaults(newBlockId, lastInsertedBlockId);
     for (const fieldName of getBlockFieldNames(block.type)) {
       if (fieldName === "type") continue;
-      const currentVal = (block as unknown as Record<string, unknown>)[fieldName];
-      const defaultVal = (defaultBlock as unknown as Record<string, unknown>)[fieldName];
+      const currentVal = (block as unknown as Record<string, unknown>)[
+        fieldName
+      ];
+      const defaultVal = (defaultBlock as unknown as Record<string, unknown>)[
+        fieldName
+      ];
       if (currentVal === defaultVal) continue;
       ops.push({
         op: "block_set",
@@ -410,7 +413,7 @@ export function generateRestoreOperations(ctx: RestoreContext): Operation[] {
  */
 export function arePagesEqual(
   currentBlocks: Block[],
-  snapshotBlocks: Block[]
+  snapshotBlocks: Block[],
 ): boolean {
   const diff = diffPageWithSnapshot(currentBlocks, snapshotBlocks);
   return (
@@ -456,7 +459,7 @@ export function getBlockDiffDescription(blockDiff: BlockDiff): string {
       const changes: string[] = [];
       if (blockDiff.changes?.typeChanged) {
         changes.push(
-          `type: ${blockDiff.changes.typeChanged.from} → ${blockDiff.changes.typeChanged.to}`
+          `type: ${blockDiff.changes.typeChanged.from} → ${blockDiff.changes.typeChanged.to}`,
         );
       }
       if (blockDiff.changes?.textChanged) {
@@ -465,7 +468,7 @@ export function getBlockDiffDescription(blockDiff: BlockDiff): string {
       if (blockDiff.changes?.propsChanged) {
         for (const prop of blockDiff.changes.propsChanged) {
           changes.push(
-            `${prop.field}: ${String(prop.from)} → ${String(prop.to)}`
+            `${prop.field}: ${String(prop.from)} → ${String(prop.to)}`,
           );
         }
       }

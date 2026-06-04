@@ -8,8 +8,14 @@
  * ID computation: Each character's ID = `${peerId}:${startCounter + offset}`
  */
 
-import type { Block, Char, CharRun, TextualBlock } from "@/deserializer/loadPage";
+import type {
+  Block,
+  Char,
+  CharRun,
+  TextualBlock,
+} from "@/deserializer/loadPage";
 import { isTextualBlock } from "@/deserializer/loadPage";
+
 import { compareIds, extractCounter, extractPeerId } from "./id";
 
 // =============================================================================
@@ -33,7 +39,6 @@ export function isCharDeleted(run: CharRun, offset: number): boolean {
   if (byteIndex >= run.deletedMask.length) return false;
   return (run.deletedMask[byteIndex] & (1 << bitIndex)) !== 0;
 }
-
 
 /**
  * Check if all characters in a run are deleted.
@@ -63,7 +68,7 @@ export interface CharLocation {
  */
 export function findCharInRuns(
   runs: CharRun[] | undefined,
-  charId: string
+  charId: string,
 ): CharLocation | null {
   if (!runs || !Array.isArray(runs)) return null;
 
@@ -95,7 +100,7 @@ export function findCharInRuns(
  */
 export function getCharIdAtVisiblePosition(
   runs: CharRun[] | undefined,
-  visiblePosition: number
+  visiblePosition: number,
 ): string | null {
   if (!runs || visiblePosition <= 0) return null;
 
@@ -120,7 +125,7 @@ export function getCharIdAtVisiblePosition(
  */
 export function getVisiblePositionOfChar(
   runs: CharRun[] | undefined,
-  charId: string
+  charId: string,
 ): number {
   if (!runs || !Array.isArray(runs)) return -1;
 
@@ -186,9 +191,13 @@ export function getVisibleLengthFromRuns(runs: CharRun[] | undefined): number {
 /**
  * Iterate over all characters (including deleted) with their metadata.
  */
-export function* iterateAllChars(
-  runs: CharRun[] | undefined
-): Generator<{ id: string; char: string; deleted: boolean; runIndex: number; offset: number }> {
+export function* iterateAllChars(runs: CharRun[] | undefined): Generator<{
+  id: string;
+  char: string;
+  deleted: boolean;
+  runIndex: number;
+  offset: number;
+}> {
   if (!runs || !Array.isArray(runs)) return;
 
   for (let runIndex = 0; runIndex < runs.length; runIndex++) {
@@ -209,7 +218,7 @@ export function* iterateAllChars(
  * Iterate over visible (non-deleted) characters.
  */
 export function* iterateVisibleChars(
-  runs: CharRun[] | undefined
+  runs: CharRun[] | undefined,
 ): Generator<{ id: string; char: string; runIndex: number; offset: number }> {
   if (!runs) return;
   for (let runIndex = 0; runIndex < runs.length; runIndex++) {
@@ -249,7 +258,7 @@ export function* iterateVisibleChars(
 export function insertIntoRuns(
   runs: CharRun[] | undefined,
   afterCharId: string | null,
-  newChars: Char[]
+  newChars: Char[],
 ): CharRun[] {
   if (!runs || !Array.isArray(runs)) {
     runs = [];
@@ -337,7 +346,7 @@ export function insertIntoRuns(
 function sliceDeletedMask(
   mask: number[],
   start: number,
-  end: number
+  end: number,
 ): number[] | undefined {
   const length = end - start;
   const requiredBytes = Math.ceil(length / 8);
@@ -347,7 +356,9 @@ function sliceDeletedMask(
   for (let i = 0; i < length; i++) {
     const srcByteIndex = Math.floor((start + i) / 8);
     const srcBitIndex = (start + i) % 8;
-    const isDeleted = srcByteIndex < mask.length && (mask[srcByteIndex] & (1 << srcBitIndex)) !== 0;
+    const isDeleted =
+      srcByteIndex < mask.length &&
+      (mask[srcByteIndex] & (1 << srcBitIndex)) !== 0;
 
     if (isDeleted) {
       hasAnyDeleted = true;
@@ -372,7 +383,7 @@ function sliceDeletedMask(
  */
 export function deleteFromRuns(
   runs: CharRun[] | undefined,
-  charIds: string[]
+  charIds: string[],
 ): CharRun[] {
   // Handle undefined or empty runs
   if (!runs || !Array.isArray(runs)) {
@@ -517,7 +528,7 @@ export function mergeAdjacentRuns(runs: CharRun[] | undefined): CharRun[] {
 export function getCharIdsInRange(
   runs: CharRun[] | undefined,
   startCharId: string,
-  endCharId: string
+  endCharId: string,
 ): string[] {
   if (!runs || !Array.isArray(runs)) return [];
 
@@ -548,7 +559,7 @@ export function isCharIdInRange(
   runs: CharRun[] | undefined,
   charId: string,
   startCharId: string,
-  endCharId: string
+  endCharId: string,
 ): boolean {
   if (!runs || !Array.isArray(runs)) return false;
 
@@ -618,7 +629,7 @@ const MAX_TITLE_LENGTH = 100;
  */
 export function extractTitleFromBlocks(
   blocks: Block[] | undefined,
-  maxLength: number = MAX_TITLE_LENGTH
+  maxLength: number = MAX_TITLE_LENGTH,
 ): string {
   if (!blocks || blocks.length === 0) return "";
 

@@ -22,17 +22,15 @@ import type {
   TextFormat,
 } from "@/deserializer/loadPage";
 import { isTextualBlock } from "@/deserializer/loadPage";
-import { getClock, nextId } from "./sync/sync";
+
+import { getBlockDescriptor, getBlockFieldNames } from "./sync/block-registry";
 import {
-  iterateAllChars,
   charRunsToChars,
   isCharIdInRange,
+  iterateAllChars,
 } from "./sync/char-runs";
-import { extractPeerId, extractCounter } from "./sync/id";
-import {
-  getBlockDescriptor,
-  getBlockFieldNames,
-} from "./sync/block-registry";
+import { extractCounter, extractPeerId } from "./sync/id";
+import { getClock, nextId } from "./sync/sync";
 import type {
   BlockDelete,
   BlockInsert,
@@ -76,8 +74,8 @@ function charsToCharRuns(chars: Char[]): CharRun[] {
             currentPeerId,
             currentStartCounter,
             currentText,
-            currentDeleted
-          )
+            currentDeleted,
+          ),
         );
       }
 
@@ -96,8 +94,8 @@ function charsToCharRuns(chars: Char[]): CharRun[] {
         currentPeerId,
         currentStartCounter,
         currentText,
-        currentDeleted
-      )
+        currentDeleted,
+      ),
     );
   }
 
@@ -111,7 +109,7 @@ function createCharRunFromDeleted(
   peerId: string,
   startCounter: number,
   text: string,
-  deleted: boolean[]
+  deleted: boolean[],
 ): CharRun {
   const hasDeleted = deleted.some((d) => d);
 
@@ -120,7 +118,9 @@ function createCharRunFromDeleted(
   }
 
   // Create deletedMask bitmap
-  const deletedMask: number[] = new Array(Math.ceil(deleted.length / 8)).fill(0);
+  const deletedMask: number[] = new Array(Math.ceil(deleted.length / 8)).fill(
+    0,
+  );
   deleted.forEach((isDeleted, i) => {
     if (isDeleted) {
       const byteIndex = Math.floor(i / 8);
@@ -345,7 +345,10 @@ function invertBlockInsert(op: BlockInsert): BlockDelete {
  * into `initialProps`, so adding a new field to a block type doesn't require
  * touching this function — the registry is the single source of truth.
  */
-function invertBlockDelete(op: BlockDelete, pageBefore: Page): BlockInsert | null {
+function invertBlockDelete(
+  op: BlockDelete,
+  pageBefore: Page,
+): BlockInsert | null {
   const block: Block | undefined = pageBefore.blocks.find(
     (b) => b.id === op.blockId,
   );
@@ -355,7 +358,8 @@ function invertBlockDelete(op: BlockDelete, pageBefore: Page): BlockInsert | nul
   const initialProps: Record<string, unknown> = {};
   for (const fieldName of getBlockFieldNames(block.type)) {
     if (fieldName === "type") continue;
-    initialProps[fieldName] = descriptor.fields[fieldName].extractForInverse(block);
+    initialProps[fieldName] =
+      descriptor.fields[fieldName].extractForInverse(block);
   }
 
   return {

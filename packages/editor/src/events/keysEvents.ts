@@ -1,86 +1,87 @@
 import {
-  isListBlock,
   type Block,
+  isListBlock,
   isTextualBlock,
 } from "@/deserializer/loadPage";
-import type { Operation } from "../sync/sync";
-import { getPageId, nextId, getClock } from "../sync/sync";
+
 import { copySelectionToClipboard } from "../actions/clipboard";
 import {
-  selectAll,
-  toggleBold,
-  outdentListItem,
-  indentListItem,
-  getSelectionRange,
-  deleteSelectedText,
   applySlashCommand,
+  deleteForward,
+  deleteSelectedText,
   deleteText,
-  insertText,
-  extendSelectionWordLeft,
-  moveToPreviousWord,
-  extendSelectionWordRight,
-  moveToNextWord,
-  extendSelectionHome,
-  moveToLineStart,
-  extendSelectionEnd,
-  moveToLineEnd,
   deleteWordBackward,
   deleteWordForward,
-  deleteForward,
+  extendSelectionEnd,
+  extendSelectionHome,
+  extendSelectionWordLeft,
+  extendSelectionWordRight,
+  getSelectionRange,
+  indentListItem,
+  insertText,
+  moveToLineEnd,
+  moveToLineStart,
+  moveToNextWord,
+  moveToPreviousWord,
+  outdentListItem,
+  selectAll,
   splitBlock,
+  toggleBold,
 } from "../actions/commands";
-import { deleteCharsInRange } from "../sync/crdt-helpers";
-import { ensureCursorVisible, isTouchDevice } from "./eventUtils";
 import { invalidateBlockCache } from "../renderer";
 import { getTextDirection } from "../rtl";
 import {
-  scrollToMakeCursorVisible,
-  getTextPositionFromViewport,
   getCursorDocumentCoords,
+  getTextPositionFromViewport,
+  scrollToMakeCursorVisible,
 } from "../selection";
 import { getSlashCommands } from "../SlashCommandMenu";
 import {
-  closeSlashCommand,
-  updateSlashCommandSelection,
-  moveCursorToPosition,
-  getBlockTextContent,
-  updateSlashCommandFilter,
-  updateFocus,
-  extendSelectionLeft,
-  clearSelection,
-  moveCursorLeft,
   clearAutoCreatedParagraph,
-  extendSelectionRight,
-  moveCursorRight,
-  extendSelectionUp,
-  moveCursorUp,
+  clearSelection,
+  closeSlashCommand,
   extendSelectionDown,
-  moveCursorDown,
-  extendSelectionPageUp,
-  moveCursorPageUp,
+  extendSelectionLeft,
   extendSelectionPageDown,
-  moveCursorPageDown,
+  extendSelectionPageUp,
+  extendSelectionRight,
+  extendSelectionUp,
+  getBlockTextContent,
   getBlockTextLength,
-  openSlashCommand,
-  updateCursor,
-  openContextMenu,
   getCrossedInlineMathSpan,
+  moveCursorDown,
+  moveCursorLeft,
+  moveCursorPageDown,
+  moveCursorPageUp,
+  moveCursorRight,
+  moveCursorToPosition,
+  moveCursorUp,
+  openContextMenu,
+  openSlashCommand,
   setActiveMenu,
+  updateCursor,
+  updateFocus,
+  updateSlashCommandFilter,
+  updateSlashCommandSelection,
 } from "../state";
+import { deleteCharsInRange } from "../sync/crdt-helpers";
+import type { Operation } from "../sync/sync";
+import { getClock, getPageId, nextId } from "../sync/sync";
 import type {
   EditorState,
-  ViewportState,
   KeyboardEvent,
   MouseEvent,
+  ViewportState,
 } from "../types";
-import { undoState, redoState } from "../undo";
+import { redoState, undoState } from "../undo";
+import { ensureCursorVisible, isTouchDevice } from "./eventUtils";
 
 // Open the inline-math editor popover when an arrow key crosses an inline
 // math chip (snap fired between opposite boundaries).
 function maybeOpenInlineMathOnArrowCross(
   prevState: EditorState,
   newState: EditorState,
-  viewport: ViewportState
+  viewport: ViewportState,
 ): EditorState {
   const prevCursor = prevState.document.cursor;
   const newCursor = newState.document.cursor;
@@ -89,18 +90,21 @@ function maybeOpenInlineMathOnArrowCross(
     return newState;
   }
 
-  const block =
-    newState.document.page.blocks[newCursor.position.blockIndex];
+  const block = newState.document.page.blocks[newCursor.position.blockIndex];
   if (!block || block.deleted) return newState;
 
   const span = getCrossedInlineMathSpan(
     block,
     prevCursor.position.textIndex,
-    newCursor.position.textIndex
+    newCursor.position.textIndex,
   );
   if (!span) return newState;
 
-  const coords = getCursorDocumentCoords(newCursor.position, newState, viewport);
+  const coords = getCursorDocumentCoords(
+    newCursor.position,
+    newState,
+    viewport,
+  );
   if (!coords) return newState;
 
   return setActiveMenu(newState, {
@@ -118,7 +122,7 @@ export function handleKeyDown(
   state: EditorState,
   viewport: ViewportState,
   event: Event,
-  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
   const keyEvent = event as unknown as KeyboardEvent;
@@ -236,7 +240,7 @@ export function handleKeyDown(
             newState,
             state,
             viewport,
-            updateViewportCallback
+            updateViewportCallback,
           );
           return { state: newState, ops };
         } else {
@@ -248,7 +252,7 @@ export function handleKeyDown(
             newState,
             state,
             viewport,
-            updateViewportCallback
+            updateViewportCallback,
           );
           return { state: newState, ops };
         }
@@ -297,8 +301,8 @@ export function handleKeyDown(
               .toLowerCase()
               .includes(slashMenu.filter.toLowerCase()) ||
             cmd.keywords?.some((keyword) =>
-              keyword.toLowerCase().startsWith(slashMenu.filter.toLowerCase())
-            )
+              keyword.toLowerCase().startsWith(slashMenu.filter.toLowerCase()),
+            ),
         )
       : getSlashCommands();
 
@@ -312,7 +316,7 @@ export function handleKeyDown(
         if (filteredCommands.length > 0) {
           const newIndex = Math.min(
             slashMenu.selectedIndex + 1,
-            filteredCommands.length - 1
+            filteredCommands.length - 1,
           );
           return { state: updateSlashCommandSelection(state, newIndex), ops };
         }
@@ -330,7 +334,7 @@ export function handleKeyDown(
             newState,
             state,
             viewport,
-            updateViewportCallback
+            updateViewportCallback,
           );
           return { state: newState, ops };
         }
@@ -369,7 +373,7 @@ export function handleKeyDown(
             newState,
             state,
             viewport,
-            updateViewportCallback
+            updateViewportCallback,
           );
           return { state: newState, ops };
         }
@@ -390,7 +394,7 @@ export function handleKeyDown(
             newState,
             state,
             viewport,
-            updateViewportCallback
+            updateViewportCallback,
           );
           return { state: newState, ops };
         }
@@ -409,14 +413,14 @@ export function handleKeyDown(
             const text = getBlockTextContent(block);
             const filter = text.slice(
               slashMenu.textIndex,
-              newState.document.cursor.position.textIndex
+              newState.document.cursor.position.textIndex,
             );
             const finalState = updateSlashCommandFilter(newState, filter);
             ensureCursorVisible(
               finalState,
               state,
               viewport,
-              updateViewportCallback
+              updateViewportCallback,
             );
             return { state: finalState, ops };
           }
@@ -442,14 +446,14 @@ export function handleKeyDown(
             const text = getBlockTextContent(block);
             const filter = text.slice(
               slashMenu.textIndex,
-              result.state.document.cursor.position.textIndex
+              result.state.document.cursor.position.textIndex,
             );
             const finalState = updateSlashCommandFilter(result.state, filter);
             ensureCursorVisible(
               finalState,
               state,
               viewport,
-              updateViewportCallback
+              updateViewportCallback,
             );
             return { state: finalState, ops };
           }
@@ -501,7 +505,7 @@ export function handleKeyDown(
           const isFirstBlock =
             firstVisibleBlock && currentBlock.id === firstVisibleBlock.id;
 
-          if (isFirstBlock && (currentBlock && !isTextualBlock(currentBlock))) {
+          if (isFirstBlock && currentBlock && !isTextualBlock(currentBlock)) {
             // Create a new paragraph above the visual block
             const newParagraphId = nextId();
             const newParagraph: Block = {
@@ -568,7 +572,7 @@ export function handleKeyDown(
             ops.push(blockDeleteOp);
 
             const newBlocks = state.document.page.blocks.filter(
-              (_, i) => i !== blockIndex
+              (_, i) => i !== blockIndex,
             );
             const newPage = { ...state.document.page, blocks: newBlocks };
 
@@ -616,7 +620,8 @@ export function handleKeyDown(
           : null;
         const isVisualBlockSelection =
           range &&
-          (startBlock && !isTextualBlock(startBlock)) &&
+          startBlock &&
+          !isTextualBlock(startBlock) &&
           range.start.blockIndex === range.end.blockIndex;
 
         if (range && !isVisualBlockSelection) {
@@ -633,14 +638,14 @@ export function handleKeyDown(
             newState = moveCursorToPosition(
               clearSelection(newState),
               range.end.blockIndex,
-              range.end.textIndex
+              range.end.textIndex,
             );
           } else {
             // LTR: ArrowLeft = move to start
             newState = moveCursorToPosition(
               clearSelection(newState),
               range.start.blockIndex,
-              range.start.textIndex
+              range.start.textIndex,
             );
           }
         } else if (isCtrl) {
@@ -655,10 +660,7 @@ export function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (
-            targetBlock &&
-            (!isTextualBlock(targetBlock))
-          ) {
+          if (targetBlock && !isTextualBlock(targetBlock)) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -711,16 +713,13 @@ export function handleKeyDown(
           const lastVisibleBlockIndex =
             visibleBlocks.length > 0
               ? state.document.page.blocks.findIndex(
-                  (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id
+                  (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id,
                 )
               : -1;
           const isLastBlock =
             state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
 
-          if (
-            isLastBlock &&
-            (currentBlock && !isTextualBlock(currentBlock))
-          ) {
+          if (isLastBlock && currentBlock && !isTextualBlock(currentBlock)) {
             // Create a new paragraph below the visual block
             const newParagraphId = nextId();
             const newParagraph: Block = {
@@ -787,7 +786,7 @@ export function handleKeyDown(
             ops.push(blockDeleteOp);
 
             const newBlocks = state.document.page.blocks.filter(
-              (_, i) => i !== blockIndex
+              (_, i) => i !== blockIndex,
             );
             const newPage = { ...state.document.page, blocks: newBlocks };
 
@@ -835,13 +834,13 @@ export function handleKeyDown(
           : null;
         const isVisualBlockSelection =
           range &&
-          (endBlock && !isTextualBlock(endBlock)) &&
+          endBlock &&
+          !isTextualBlock(endBlock) &&
           range.start.blockIndex === range.end.blockIndex;
 
         if (range && !isVisualBlockSelection) {
           // Regular text selection - determine direction for correct collapse behavior
-          const selEndBlock =
-            state.document.page.blocks[range.end.blockIndex];
+          const selEndBlock = state.document.page.blocks[range.end.blockIndex];
           const selectionIsRTL =
             selEndBlock &&
             isTextualBlock(selEndBlock) &&
@@ -852,14 +851,14 @@ export function handleKeyDown(
             newState = moveCursorToPosition(
               clearSelection(newState),
               range.start.blockIndex,
-              range.start.textIndex
+              range.start.textIndex,
             );
           } else {
             // LTR: ArrowRight = move to end
             newState = moveCursorToPosition(
               clearSelection(newState),
               range.end.blockIndex,
-              range.end.textIndex
+              range.end.textIndex,
             );
           }
         } else if (isCtrl) {
@@ -874,10 +873,7 @@ export function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (
-            targetBlock &&
-            (!isTextualBlock(targetBlock))
-          ) {
+          if (targetBlock && !isTextualBlock(targetBlock)) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -926,10 +922,7 @@ export function handleKeyDown(
             ];
           const isFirstBlock = state.document.cursor.position.blockIndex === 0;
 
-          if (
-            isFirstBlock &&
-            (currentBlock && !isTextualBlock(currentBlock))
-          ) {
+          if (isFirstBlock && currentBlock && !isTextualBlock(currentBlock)) {
             // Create a new paragraph above the visual block
             const newParagraphId = nextId();
             const newParagraph: Block = {
@@ -982,10 +975,7 @@ export function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (
-            targetBlock &&
-            (!isTextualBlock(targetBlock))
-          ) {
+          if (targetBlock && !isTextualBlock(targetBlock)) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -1053,7 +1043,7 @@ export function handleKeyDown(
             ops.push(blockDeleteOp);
 
             const newBlocks = state.document.page.blocks.filter(
-              (_, i) => i !== blockIndex
+              (_, i) => i !== blockIndex,
             );
             const newPage = { ...state.document.page, blocks: newBlocks };
 
@@ -1104,16 +1094,13 @@ export function handleKeyDown(
           const lastVisibleBlockIndex =
             visibleBlocks.length > 0
               ? state.document.page.blocks.findIndex(
-                  (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id
+                  (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id,
                 )
               : -1;
           const isLastBlock =
             state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
 
-          if (
-            isLastBlock &&
-            (currentBlock && !isTextualBlock(currentBlock))
-          ) {
+          if (isLastBlock && currentBlock && !isTextualBlock(currentBlock)) {
             // Create a new paragraph below the visual block
             const newParagraphId = nextId();
             const newParagraph: Block = {
@@ -1159,10 +1146,7 @@ export function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (
-            targetBlock &&
-            (!isTextualBlock(targetBlock))
-          ) {
+          if (targetBlock && !isTextualBlock(targetBlock)) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -1209,10 +1193,7 @@ export function handleKeyDown(
             ];
           const isFirstBlock = state.document.cursor.position.blockIndex === 0;
 
-          if (
-            isFirstBlock &&
-            (currentBlock && !isTextualBlock(currentBlock))
-          ) {
+          if (isFirstBlock && currentBlock && !isTextualBlock(currentBlock)) {
             // Create a new paragraph above the visual block
             const newParagraphId = nextId();
             const newParagraph: Block = {
@@ -1263,10 +1244,7 @@ export function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (
-            targetBlock &&
-            (!isTextualBlock(targetBlock))
-          ) {
+          if (targetBlock && !isTextualBlock(targetBlock)) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -1334,7 +1312,7 @@ export function handleKeyDown(
             ops.push(blockDeleteOp);
 
             const newBlocks = state.document.page.blocks.filter(
-              (_, i) => i !== blockIndex
+              (_, i) => i !== blockIndex,
             );
             const newPage = { ...state.document.page, blocks: newBlocks };
 
@@ -1383,16 +1361,13 @@ export function handleKeyDown(
           const lastVisibleBlockIndex =
             visibleBlocks.length > 0
               ? state.document.page.blocks.findIndex(
-                  (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id
+                  (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id,
                 )
               : -1;
           const isLastBlock =
             state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
 
-          if (
-            isLastBlock &&
-            (currentBlock && !isTextualBlock(currentBlock))
-          ) {
+          if (isLastBlock && currentBlock && !isTextualBlock(currentBlock)) {
             // Create a new paragraph below the visual block
             const newParagraphId = nextId();
             const newParagraph: Block = {
@@ -1436,10 +1411,7 @@ export function handleKeyDown(
             newState.document.page.blocks[
               newState.document.cursor.position.blockIndex
             ];
-          if (
-            targetBlock &&
-            (!isTextualBlock(targetBlock))
-          ) {
+          if (targetBlock && !isTextualBlock(targetBlock)) {
             const visualBlockPosition = {
               blockIndex: newState.document.cursor.position.blockIndex,
               textIndex: 0,
@@ -1501,13 +1473,13 @@ export function handleKeyDown(
             const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
             const allBlocks = state.document.page.blocks;
             const lastVisibleBlockIndex = allBlocks.findIndex(
-              (b) => b.id === lastVisibleBlock.id
+              (b) => b.id === lastVisibleBlock.id,
             );
             if (lastVisibleBlockIndex !== -1) {
               newState = moveCursorToPosition(
                 clearSelection(state),
                 lastVisibleBlockIndex,
-                getBlockTextLength(lastVisibleBlock)
+                getBlockTextLength(lastVisibleBlock),
               );
             } else {
               newState = clearSelection(state);
@@ -1581,13 +1553,13 @@ export function handleKeyDown(
           const finalState = openSlashCommand(
             newState,
             blockIndex,
-            newState.document.cursor.position.textIndex
+            newState.document.cursor.position.textIndex,
           );
           ensureCursorVisible(
             finalState,
             state,
             viewport,
-            updateViewportCallback
+            updateViewportCallback,
           );
           return { state: finalState, ops };
         }
@@ -1616,7 +1588,7 @@ export function handleKeyDown(
     const newScrollY = scrollToMakeCursorVisible(
       newState.document.cursor.position,
       newState,
-      viewport
+      viewport,
     );
     if (newScrollY !== null) {
       updateViewportCallback({ scrollY: newScrollY });
@@ -1629,7 +1601,7 @@ export function handleContextMenu(
   state: EditorState,
   viewport: ViewportState,
   event: MouseEvent,
-  containerRect: { left: number; top: number }
+  containerRect: { left: number; top: number },
 ): EditorState {
   event.preventDefault();
 
@@ -1645,7 +1617,7 @@ export function handleContextMenu(
     canvasX,
     canvasY,
     state,
-    viewport
+    viewport,
   );
 
   // Always open context menu at click position if we have a valid position

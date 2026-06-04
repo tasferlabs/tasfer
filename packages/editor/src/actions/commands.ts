@@ -1,3 +1,10 @@
+import {
+  crdtToPosition,
+  crdtToSelectionRange,
+  positionToCRDT,
+  selectionRangeToCRDT,
+} from "@/sync/crdt-utils";
+
 import type {
   Block,
   CharRun,
@@ -43,8 +50,8 @@ import type {
   BlockInsert,
   BlockSet,
   FormatSet,
-  TextDelete,
   Operation,
+  TextDelete,
 } from "../sync/types";
 import type {
   CommandResult,
@@ -52,12 +59,6 @@ import type {
   Position,
   SlashCommand,
 } from "../types";
-import {
-  crdtToPosition,
-  crdtToSelectionRange,
-  positionToCRDT,
-  selectionRangeToCRDT,
-} from "../undo";
 
 /**
  * URL regex pattern for auto-detection.
@@ -1451,7 +1452,8 @@ export function deleteText(state: EditorState): CommandResult {
       const survivingIdx = newPage.blocks.findIndex(
         (b) => b.id === blockToPreserve.id && !b.deleted,
       );
-      const survivingBlock = survivingIdx !== -1 ? newPage.blocks[survivingIdx] : null;
+      const survivingBlock =
+        survivingIdx !== -1 ? newPage.blocks[survivingIdx] : null;
       if (survivingBlock) invalidateBlockCache(survivingBlock);
 
       let newState: EditorState = {
@@ -1684,7 +1686,8 @@ export function deleteForward(state: EditorState): CommandResult {
       const survivingIdx = newPage.blocks.findIndex(
         (b) => b.id === blockToPreserve.id && !b.deleted,
       );
-      const survivingBlock = survivingIdx !== -1 ? newPage.blocks[survivingIdx] : null;
+      const survivingBlock =
+        survivingIdx !== -1 ? newPage.blocks[survivingIdx] : null;
       if (survivingBlock) invalidateBlockCache(survivingBlock);
 
       let newState: EditorState = {
@@ -2044,7 +2047,8 @@ export function deleteWordForward(state: EditorState): CommandResult {
       const survivingIdx = newPage.blocks.findIndex(
         (b) => b.id === blockToPreserve.id && !b.deleted,
       );
-      const survivingBlock = survivingIdx !== -1 ? newPage.blocks[survivingIdx] : null;
+      const survivingBlock =
+        survivingIdx !== -1 ? newPage.blocks[survivingIdx] : null;
       if (survivingBlock) invalidateBlockCache(survivingBlock);
 
       let newState: EditorState = {
@@ -2142,7 +2146,8 @@ export function deleteWordBackward(state: EditorState): CommandResult {
     const survivingIdx = newPage.blocks.findIndex(
       (b) => b.id === blockToPreserve.id && !b.deleted,
     );
-    const survivingBlock = survivingIdx !== -1 ? newPage.blocks[survivingIdx] : null;
+    const survivingBlock =
+      survivingIdx !== -1 ? newPage.blocks[survivingIdx] : null;
     if (survivingBlock) invalidateBlockCache(survivingBlock);
 
     let newState: EditorState = {

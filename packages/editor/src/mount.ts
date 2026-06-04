@@ -55,7 +55,9 @@ function createCanvasContainer(parentContainer: HTMLElement): HTMLDivElement {
   canvasContainer.style.overflow = "hidden";
   canvasContainer.style.userSelect = "none";
   canvasContainer.style.webkitUserSelect = "none";
-  (canvasContainer.style as unknown as { webkitTouchCallout?: string }).webkitTouchCallout = "none";
+  (
+    canvasContainer.style as unknown as { webkitTouchCallout?: string }
+  ).webkitTouchCallout = "none";
   parentContainer.appendChild(canvasContainer);
   return canvasContainer;
 }
@@ -80,7 +82,7 @@ export interface MountEditorOptions {
 export function mountEditor(
   container: HTMLElement,
   blocks: Block[],
-  options?: MountEditorOptions
+  options?: MountEditorOptions,
 ): MountedEditor {
   // Save previous overrides so they can be restored when this editor is destroyed
   // (prevents a secondary editor like SnapshotPreview from clobbering the main editor's settings)
@@ -110,7 +112,7 @@ export function mountEditor(
   const layers = createCanvasLayers(
     canvasContainer,
     initial.width,
-    initial.height
+    initial.height,
   );
 
   // Apply common canvas styles to content layer (which handles events)
@@ -179,7 +181,7 @@ export function mountEditor(
     layers,
     initialState,
     initialViewport,
-    hiddenInput
+    hiddenInput,
   );
 
   // Height reserved by the React keyboard toolbar when keyboard is open
@@ -191,8 +193,12 @@ export function mountEditor(
 
   const resizeCanvasForKeyboard = () => {
     const isKbOpen = keyboardHeight > 50;
-    const toolbarOffset = isKbOpen && isTouchDevice() ? KEYBOARD_TOOLBAR_HEIGHT : 0;
-    const availableHeight = Math.max(baseHeight - keyboardHeight - toolbarOffset, 100);
+    const toolbarOffset =
+      isKbOpen && isTouchDevice() ? KEYBOARD_TOOLBAR_HEIGHT : 0;
+    const availableHeight = Math.max(
+      baseHeight - keyboardHeight - toolbarOffset,
+      100,
+    );
     canvasContainer.style.width = `${baseWidth}px`;
     canvasContainer.style.height = `${availableHeight}px`;
     portalContainer.style.width = `${baseWidth}px`;
@@ -336,7 +342,11 @@ export function mountEditor(
     if (target === hiddenInput) return;
     if (canvasContainer.contains(target)) return;
     // Don't unfocus when focus moves into editor overlay UI (e.g. mobile keyboard toolbar)
-    if (target instanceof HTMLElement && target.closest("[data-editor-overlay]")) return;
+    if (
+      target instanceof HTMLElement &&
+      target.closest("[data-editor-overlay]")
+    )
+      return;
     if (editor.getState()?.view.isFocused) {
       editor.setFocus(false);
     }
@@ -420,5 +430,12 @@ export function mountEditor(
     canvasContainer.remove();
   };
 
-  return { editor, refocus, blurInput, setKeyboardHeight, destroy, portalContainer };
+  return {
+    editor,
+    refocus,
+    blurInput,
+    setKeyboardHeight,
+    destroy,
+    portalContainer,
+  };
 }

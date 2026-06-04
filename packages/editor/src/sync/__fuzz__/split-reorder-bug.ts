@@ -8,10 +8,11 @@
  * end of the page".
  */
 
-import { setCRDTContext, getClock, nextId, getPageId } from "../sync";
-import { applyOps } from "../reducer";
-import { isTextualBlock, type Block, type Page } from "@/deserializer/loadPage";
+import { type Block, isTextualBlock, type Page } from "@/deserializer/loadPage";
+
 import { iterateVisibleChars } from "../char-runs";
+import { applyOps } from "../reducer";
+import { getClock, getPageId, nextId, setCRDTContext } from "../sync";
 import type { BlockInsert, Operation } from "../types";
 
 setCRDTContext("split-reorder", "p001");
@@ -35,9 +36,27 @@ const loaded: Page = {
   id: pageId,
   title: "",
   blocks: [
-    { id: "block-10000", afterId: null,           type: "paragraph", charRuns: [{ peerId: "x", startCounter: 0,  text: "First"  }], formats: [] } as Block,
-    { id: "block-10001", afterId: "block-10000",  type: "paragraph", charRuns: [{ peerId: "x", startCounter: 10, text: "Second" }], formats: [] } as Block,
-    { id: "block-10002", afterId: "block-10001",  type: "paragraph", charRuns: [{ peerId: "x", startCounter: 20, text: "Third"  }], formats: [] } as Block,
+    {
+      id: "block-10000",
+      afterId: null,
+      type: "paragraph",
+      charRuns: [{ peerId: "x", startCounter: 0, text: "First" }],
+      formats: [],
+    } as Block,
+    {
+      id: "block-10001",
+      afterId: "block-10000",
+      type: "paragraph",
+      charRuns: [{ peerId: "x", startCounter: 10, text: "Second" }],
+      formats: [],
+    } as Block,
+    {
+      id: "block-10002",
+      afterId: "block-10001",
+      type: "paragraph",
+      charRuns: [{ peerId: "x", startCounter: 20, text: "Third" }],
+      formats: [],
+    } as Block,
   ],
 };
 console.log("As loaded (rendered without applyOps):");
@@ -58,5 +77,9 @@ const blockInsertOp: BlockInsert = {
 const afterInsert = applyOps(loaded, [blockInsertOp] as Operation[]);
 console.log("\nAfter splitting after block-10000:");
 console.log(" ", describe(afterInsert));
-console.log("\nEXPECTED order: block-10000  newBlock  block-10001  block-10002");
-console.log("BUG: loaded blocks get sorted by id (descending), and newBlock ends up wherever its fresh id falls.");
+console.log(
+  "\nEXPECTED order: block-10000  newBlock  block-10001  block-10002",
+);
+console.log(
+  "BUG: loaded blocks get sorted by id (descending), and newBlock ends up wherever its fresh id falls.",
+);

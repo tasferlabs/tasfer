@@ -1,25 +1,33 @@
 import type { Block, CharRun, FormatSpan, Page } from "./deserializer/loadPage";
 import { isListBlock, isTextualBlock } from "./deserializer/loadPage";
 import {
-  getCurrentFontFamily,
-  measureCtxText,
-  measureTextUpToIndex,
   type FontFamily,
+  getCurrentFontFamily,
+  measureTextUpToIndex,
+  wrapText,
 } from "./fonts";
-import { extractCounter, generatePeerId } from "./sync/id";
-import { advanceGlobalIdCounter, setCRDTContext } from "./sync/sync";
-import { isRTLChar } from "./rtl";
-import {
-  getVisibleTextFromRuns,
-  getVisibleLengthFromRuns,
-  charRunsToChars,
-  iterateVisibleChars,
-} from "./sync/char-runs";
+import { getCharsDirection } from "./rtl";
 import {
   createInitialMomentumState,
   createInitialScrollbarState,
 } from "./scrollbar";
 import { getEditorStyles, getTextStyle } from "./styles";
+import {
+  charRunsToChars,
+  getVisibleLengthFromRuns,
+  getVisibleTextFromRuns,
+  iterateVisibleChars,
+} from "./sync/char-runs";
+import { extractCounter, generatePeerId } from "./sync/id";
+import {
+  findNextVisibleBlockIndex,
+  findPreviousVisibleBlockIndex,
+} from "./sync/reducer";
+import {
+  advanceGlobalIdCounter,
+  getVisibleBlocks,
+  setCRDTContext,
+} from "./sync/sync";
 import type {
   CursorState,
   EditorMode,
@@ -30,175 +38,6 @@ import type {
   ViewportState,
 } from "./types";
 import { initialUndoManagerState } from "./undo";
-import { getVisibleBlocks } from "./sync/sync";
-import {
-  findNextVisibleBlockIndex,
-  findPreviousVisibleBlockIndex,
-} from "./sync/reducer";
-
-// =============================================================================
-// CRDT-Native Helper Functions
-// =============================================================================
-
-/**
- * Get text direction from CRDT charRuns
- */
-function getCharsDirection(charRuns: CharRun[] | undefined): "rtl" | "ltr" {
-  const visibleText = getVisibleTextFromRuns(charRuns);
-  if (visibleText.length === 0) return "ltr";
-
-  let totalRtl = 0;
-  let totalLtr = 0;
-
-  for (const char of visibleText) {
-    if (isRTLChar(char)) {
-      totalRtl++;
-    } else if (/[a-zA-Z]/.test(char)) {
-      totalLtr++;
-    }
-  }
-
-  const totalDirectional = totalRtl + totalLtr;
-  if (totalDirectional === 0) return "ltr";
-
-  return totalRtl / totalDirectional > 0.3 ? "rtl" : "ltr";
-}
-
-/**
- * Wrap text by measuring character widths directly from chars array
- */
-interface WrappedLine {
-  text: string;
-  consumedSpace: boolean;
-}
-
-function wrapChars(
-  charRuns: CharRun[],
-  formats: FormatSpan[],
-  maxWidth: number,
-  fontSize: number,
-  baseFontWeight: string,
-  fontFamily: FontFamily,
-  codePadding: number = 0,
-): WrappedLine[] {
-  // Convert charRuns to Char[] for compatibility with existing measurement code
-  const chars = charRunsToChars(charRuns);
-  const visibleChars = chars.filter((c) => !c.deleted);
-  if (visibleChars.length === 0) {
-    return [{ text: "", consumedSpace: false }];
-  }
-
-  // Build a map of char ID to formats
-  const charIdToFormats = new Map<string, Set<string>>();
-  for (const span of formats) {
-    const startIdx = visibleChars.findIndex((c) => c.id === span.startCharId);
-    const endIdx = visibleChars.findIndex((c) => c.id === span.endCharId);
-
-    if (startIdx === -1 || endIdx === -1) continue;
-
-    for (let i = startIdx; i <= endIdx; i++) {
-      const charId = visibleChars[i].id;
-      if (!charIdToFormats.has(charId)) {
-        charIdToFormats.set(charId, new Set());
-      }
-      charIdToFormats.get(charId)!.add(span.format.type);
-    }
-  }
-
-  const fullText = visibleChars.map((c) => c.char).join("");
-  const lines: WrappedLine[] = [];
-  const words = fullText.split(" ");
-  let currentLine = "";
-  let currentLineWidth = 0;
-  let currentCharIndex = 0;
-
-  const spaceWidth = measureCtxText(" ", fontSize, baseFontWeight, fontFamily);
-
-  // Measure a substring of visible chars
-  const measureSubstring = (start: number, end: number): number => {
-    let width = 0;
-    for (let i = start; i < end; i++) {
-      const char = visibleChars[i];
-      const formats = charIdToFormats.get(char.id);
-      const isBold = formats?.has("bold") || false;
-      const isCode = formats?.has("code") || false;
-      const fontWeight = isBold ? "bold" : baseFontWeight;
-      width += measureCtxText(char.char, fontSize, fontWeight, fontFamily);
-      if (isCode) width += codePadding * 2;
-    }
-    return width;
-  };
-
-  for (let i = 0; i < words.length; i++) {
-    const word = words[i];
-    const wordStart = currentCharIndex;
-    const wordEnd = currentCharIndex + word.length;
-    const wordWidth = measureSubstring(wordStart, wordEnd);
-
-    const spaceIfNeeded = currentLine ? spaceWidth : 0;
-
-    if (currentLineWidth + spaceIfNeeded + wordWidth <= maxWidth) {
-      currentLine = currentLine ? currentLine + " " + word : word;
-      currentLineWidth += spaceIfNeeded + wordWidth;
-      currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
-    } else {
-      if (currentLine) {
-        lines.push({ text: currentLine, consumedSpace: true });
-        currentLine = "";
-        currentLineWidth = 0;
-      }
-
-      if (wordWidth <= maxWidth) {
-        currentLine = word;
-        currentLineWidth = wordWidth;
-        currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
-      } else {
-        // Word too long, split by character
-        let remainingWordStart = wordStart;
-        while (remainingWordStart < wordEnd) {
-          let splitIndex = remainingWordStart;
-          let currentWidth = 0;
-
-          for (let j = remainingWordStart; j < wordEnd; j++) {
-            const char = visibleChars[j];
-            const formats = charIdToFormats.get(char.id);
-            const isBold = formats?.has("bold") || false;
-            const fontWeight = isBold ? "bold" : baseFontWeight;
-            const charWidth = measureCtxText(
-              char.char,
-              fontSize,
-              fontWeight,
-              fontFamily,
-            );
-
-            if (currentWidth + charWidth > maxWidth && j > remainingWordStart) {
-              splitIndex = j;
-              break;
-            }
-            currentWidth += charWidth;
-            splitIndex = j + 1;
-          }
-
-          if (splitIndex === remainingWordStart) splitIndex++;
-
-          const chunk = fullText.substring(remainingWordStart, splitIndex);
-          lines.push({ text: chunk, consumedSpace: false });
-          remainingWordStart = splitIndex;
-        }
-
-        currentLine = "";
-        currentLineWidth = 0;
-        currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
-      }
-    }
-  }
-
-  if (currentLine) {
-    lines.push({ text: currentLine, consumedSpace: false });
-  }
-
-  return lines.length > 0 ? lines : [{ text: "", consumedSpace: false }];
-}
 
 /**
  * Measure text width up to a specific index in the chars array
@@ -873,8 +712,8 @@ function getLineInfoAtPosition(
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
   }
 
-  const wrappedLines = wrapChars(
-    block.charRuns,
+  const wrappedLines = wrapText(
+    charRunsToChars(block.charRuns),
     block.formats,
     adjustedMaxWidth,
     textStyle.fontSize,
@@ -1112,8 +951,8 @@ export const moveCursorUp = (
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
 
-    const prevLines = wrapChars(
-      prevBlock.charRuns,
+    const prevLines = wrapText(
+      charRunsToChars(prevBlock.charRuns),
       prevBlock.formats,
       maxWidth,
       prevTextStyle.fontSize,
@@ -1295,8 +1134,8 @@ export const moveCursorDown = (
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
 
-    const nextLines = wrapChars(
-      nextBlock.charRuns,
+    const nextLines = wrapText(
+      charRunsToChars(nextBlock.charRuns),
       nextBlock.formats,
       maxWidth,
       nextTextStyle.fontSize,

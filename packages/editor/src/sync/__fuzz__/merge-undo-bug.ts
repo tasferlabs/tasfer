@@ -22,16 +22,13 @@
  * need to drive the canvas editor.
  */
 
-import {
-  applyOp,
-  applyOps,
-  createEmptyPageState,
-} from "../reducer";
-import { invertOperations, refreshOps } from "../../inverse";
-import { setCRDTContext, getClock, nextId, getPageId } from "../sync";
-import { insertCharsAtPosition } from "../crdt-helpers";
-import { iterateVisibleChars, getVisibleLengthFromRuns } from "../char-runs";
 import { isTextualBlock, type Page } from "@/deserializer/loadPage";
+
+import { invertOperations, refreshOps } from "../../inverse";
+import { getVisibleLengthFromRuns, iterateVisibleChars } from "../char-runs";
+import { insertCharsAtPosition } from "../crdt-helpers";
+import { applyOp, applyOps, createEmptyPageState } from "../reducer";
+import { getClock, getPageId, nextId, setCRDTContext } from "../sync";
 import type { BlockInsert, Operation, TextInsert } from "../types";
 
 setCRDTContext("merge-undo-repro", "p001");
@@ -50,7 +47,10 @@ function describeVisible(p: Page): string {
 
 // Build initial page A="hello", B="world" via real ops so all char IDs come
 // from a single id-gen stream.
-function makeBlockInsert(afterBlockId: string | null, blockId: string): BlockInsert {
+function makeBlockInsert(
+  afterBlockId: string | null,
+  blockId: string,
+): BlockInsert {
   return {
     op: "block_insert",
     id: nextId(),
@@ -61,7 +61,11 @@ function makeBlockInsert(afterBlockId: string | null, blockId: string): BlockIns
     blockType: "paragraph",
   };
 }
-function makeTextInsert(blockId: string, afterCharId: string | null, text: string): TextInsert {
+function makeTextInsert(
+  blockId: string,
+  afterCharId: string | null,
+  text: string,
+): TextInsert {
   const firstId = nextId();
   const peerId = firstId.split(":")[0];
   const startCounter = parseInt(firstId.split(":")[1], 10);
@@ -107,7 +111,11 @@ console.log("Initial:", describeVisible(initial));
   const buggyLocal: Page = {
     ...initial,
     blocks: [
-      { ...A, charRuns: [...A.charRuns, ...B.charRuns], formats: [...A.formats, ...B.formats] },
+      {
+        ...A,
+        charRuns: [...A.charRuns, ...B.charRuns],
+        formats: [...A.formats, ...B.formats],
+      },
       // B intentionally omitted
     ],
   };
@@ -131,9 +139,16 @@ console.log("Initial:", describeVisible(initial));
   const B = pageAcc.blocks.find((b) => b.id === bId)!;
   if (!isTextualBlock(A) || !isTextualBlock(B)) throw new Error("not textual");
 
-  const bText = [...iterateVisibleChars(B.charRuns)].map((c) => c.char).join("");
+  const bText = [...iterateVisibleChars(B.charRuns)]
+    .map((c) => c.char)
+    .join("");
   const aLen = getVisibleLengthFromRuns(A.charRuns);
-  const { newPage, op: insertOp } = insertCharsAtPosition(pageAcc, aId, aLen, bText);
+  const { newPage, op: insertOp } = insertCharsAtPosition(
+    pageAcc,
+    aId,
+    aLen,
+    bText,
+  );
   pageAcc = newPage;
   mergeOps.push(insertOp);
 
@@ -151,5 +166,9 @@ console.log("Initial:", describeVisible(initial));
   const inverses = invertOperations(mergeOps, initial, applyOp);
   const stamped = refreshOps(inverses);
   const afterUndo = applyOps(pageAcc, stamped);
-  console.log("NEW after undo:  ", describeVisible(afterUndo), "  <-- expected: \"hello\"  \"world\"");
+  console.log(
+    "NEW after undo:  ",
+    describeVisible(afterUndo),
+    '  <-- expected: "hello"  "world"',
+  );
 }

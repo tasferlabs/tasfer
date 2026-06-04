@@ -133,7 +133,7 @@ export default function tokenizePage(content: string) {
 // Returns true if horizontal rule was found and tokenized
 function tryTokenizeHorizontalRule(
   state: TokenizerState,
-  tokens: Token[]
+  tokens: Token[],
 ): boolean {
   const char = current(state);
 
@@ -172,10 +172,7 @@ function tryTokenizeHorizontalRule(
 }
 
 // Try to tokenize display math block ($$...$$) at start of line
-function tryTokenizeMathBlock(
-  state: TokenizerState,
-  tokens: Token[]
-): boolean {
+function tryTokenizeMathBlock(state: TokenizerState, tokens: Token[]): boolean {
   const char = current(state);
   if (char !== "$" || peek(state) !== "$") return false;
 
@@ -218,11 +215,7 @@ function tryTokenizeMathBlock(
   if (!isEnd(state) && current(state) === "\n") {
     tokens.push({ type: "newline" });
     next(state);
-  } else if (
-    !isEnd(state) &&
-    current(state) === "\r" &&
-    peek(state) === "\n"
-  ) {
+  } else if (!isEnd(state) && current(state) === "\r" && peek(state) === "\n") {
     tokens.push({ type: "newline" });
     next(state, 2);
   }
@@ -580,7 +573,7 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
     else if (char === "~") {
       if (peek(state) === "~") {
         const existingIndex = formatStack.findIndex(
-          (f) => f.type === "strikethrough"
+          (f) => f.type === "strikethrough",
         );
         if (existingIndex !== -1) {
           tokens.push({ type: STRIKETHROUGH_END, content: "~~" });

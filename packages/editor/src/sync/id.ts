@@ -50,7 +50,7 @@ export type IdGenerator = (() => string) & {
 
 export function createIdGenerator(
   peerId: string,
-  startCounter: number = 0
+  startCounter: number = 0,
 ): IdGenerator {
   let counter = startCounter;
 
@@ -135,7 +135,7 @@ export function generateBlockId(genId: () => string): string {
  */
 export function generateCharIds(
   genId: () => string,
-  text: string
+  text: string,
 ): Array<{ id: string; char: string }> {
   return Array.from(text).map((char) => ({
     id: genId(),

@@ -1,50 +1,50 @@
+import { extractCounter, extractPeerId } from "../sync/id";
 import type {
   Block,
-  Heading,
-  Page,
-  Paragraph,
-  Image,
-  Line,
-  Math,
-  TextFormat,
+  BulletListItem,
   Char,
   CharRun,
   FormatSpan,
-  BulletListItem,
+  Heading,
+  Image,
+  Line,
+  Math,
   NumberedListItem,
+  Page,
+  Paragraph,
+  TextFormat,
   TodoListItem,
 } from "./loadPage";
-import { extractPeerId, extractCounter } from "../sync/id";
 import {
   BOLD_END,
   BOLD_START,
+  BULLET_LIST,
   CODE_END,
   CODE_START,
   HEADING_1,
   HEADING_2,
   HEADING_3,
+  HORIZONTAL_RULE,
+  HTML_IMG,
+  IMAGE_ALT_END,
+  IMAGE_END,
+  IMAGE_START,
+  INDENT,
+  INLINE_MATH_END,
+  INLINE_MATH_START,
   ITALIC_END,
   ITALIC_START,
   LINK_END,
   LINK_START,
   LINK_TEXT_END,
-  IMAGE_START,
-  IMAGE_ALT_END,
-  IMAGE_END,
-  HTML_IMG,
-  HORIZONTAL_RULE,
   MATH_BLOCK,
-  INLINE_MATH_START,
-  INLINE_MATH_END,
   NEWLINE,
+  NUMBERED_LIST,
   STRIKETHROUGH_END,
   STRIKETHROUGH_START,
   TEXT,
-  BULLET_LIST,
-  NUMBERED_LIST,
-  TODO_LIST_UNCHECKED,
   TODO_LIST_CHECKED,
-  INDENT,
+  TODO_LIST_UNCHECKED,
   type Token,
   type TokenType,
   type VisibleToken,
@@ -155,7 +155,7 @@ function generateHeading(
   id: string,
   level: number,
   chars: Char[],
-  formats: FormatSpan[]
+  formats: FormatSpan[],
 ): Heading {
   return {
     id,
@@ -194,7 +194,7 @@ function isEnd(context: ParserContext) {
 }
 function parseBlock(context: ParserContext): Block {
   if (match(context, NEWLINE)) return emptyBlock(context);
-  
+
   // Check for indentation first
   let indent = 0;
   if (check(context, INDENT)) {
@@ -203,13 +203,16 @@ function parseBlock(context: ParserContext): Block {
     // Calculate indent level (2 spaces = 1 level)
     indent = Math.floor(indentToken.content.length / 2);
   }
-  
+
   // Check for list blocks
   if (check(context, BULLET_LIST)) return parseBulletListItem(context, indent);
-  if (check(context, NUMBERED_LIST)) return parseNumberedListItem(context, indent);
-  if (check(context, TODO_LIST_UNCHECKED)) return parseTodoListItem(context, indent, false);
-  if (check(context, TODO_LIST_CHECKED)) return parseTodoListItem(context, indent, true);
-  
+  if (check(context, NUMBERED_LIST))
+    return parseNumberedListItem(context, indent);
+  if (check(context, TODO_LIST_UNCHECKED))
+    return parseTodoListItem(context, indent, false);
+  if (check(context, TODO_LIST_CHECKED))
+    return parseTodoListItem(context, indent, true);
+
   // Check for other block types
   if (check(context, HORIZONTAL_RULE)) return parseHorizontalRule(context);
   if (check(context, MATH_BLOCK)) return parseMathBlock(context);
@@ -234,17 +237,23 @@ function parseHeading(context: ParserContext, level: number) {
     `block-${context.blockIdCounter++}`,
     level,
     chars,
-    formats
+    formats,
   );
   match(context, NEWLINE);
   return heading;
 }
 // Parse text into Char[] and FormatSpan[] (CRDT native format)
-function parseCharsAndFormats(context: ParserContext): { chars: Char[]; formats: FormatSpan[] } {
+function parseCharsAndFormats(context: ParserContext): {
+  chars: Char[];
+  formats: FormatSpan[];
+} {
   const chars: Char[] = [];
   const formats: FormatSpan[] = [];
   const formatStack: TextFormat[] = [];
-  const activeFormats: Map<string, { format: TextFormat; startCharId: string }> = new Map();
+  const activeFormats: Map<
+    string,
+    { format: TextFormat; startCharId: string }
+  > = new Map();
 
   while (!isEnd(context) && nomatch(context, NEWLINE)) {
     const node = previous(context) as VisibleToken;
@@ -300,7 +309,7 @@ function parseCharsAndFormats(context: ParserContext): { chars: Char[]; formats:
       for (const char of node.content) {
         const charId = generateCharId(context);
         chars.push({ id: charId, char, deleted: false });
-        
+
         // Create format spans for active formats
         for (const format of formatStack) {
           const formatKey = format.type + (format.url || "");
@@ -308,10 +317,12 @@ function parseCharsAndFormats(context: ParserContext): { chars: Char[]; formats:
             activeFormats.set(formatKey, { format, startCharId: charId });
           }
         }
-        
+
         // Close formats that are no longer active
         for (const [key, active] of activeFormats.entries()) {
-          const stillActive = formatStack.some(f => (f.type + (f.url || "")) === key);
+          const stillActive = formatStack.some(
+            (f) => f.type + (f.url || "") === key,
+          );
           if (!stillActive) {
             // This format ended - create a span
             formats.push({
@@ -353,7 +364,10 @@ function paresParagraph(context: ParserContext): Paragraph {
   };
 }
 
-function parseBulletListItem(context: ParserContext, indent: number): BulletListItem {
+function parseBulletListItem(
+  context: ParserContext,
+  indent: number,
+): BulletListItem {
   match(context, BULLET_LIST); // Consume the bullet marker
   const { chars, formats } = parseCharsAndFormats(context);
   return {
@@ -365,7 +379,10 @@ function parseBulletListItem(context: ParserContext, indent: number): BulletList
   };
 }
 
-function parseNumberedListItem(context: ParserContext, indent: number): NumberedListItem {
+function parseNumberedListItem(
+  context: ParserContext,
+  indent: number,
+): NumberedListItem {
   match(context, NUMBERED_LIST); // Consume the numbered marker
   const { chars, formats } = parseCharsAndFormats(context);
   return {
@@ -377,7 +394,11 @@ function parseNumberedListItem(context: ParserContext, indent: number): Numbered
   };
 }
 
-function parseTodoListItem(context: ParserContext, indent: number, checked: boolean): TodoListItem {
+function parseTodoListItem(
+  context: ParserContext,
+  indent: number,
+  checked: boolean,
+): TodoListItem {
   // Consume the todo marker (either TODO_LIST_UNCHECKED or TODO_LIST_CHECKED)
   if (checked) {
     match(context, TODO_LIST_CHECKED);

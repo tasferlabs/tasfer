@@ -1,8 +1,9 @@
 import i18next from "i18next";
-import { getCurrentFontFamily, getFontStack } from "./fonts";
-import type { EditorStyles, PlaceholderStyles, TextStyle } from "./types";
+
 import { IMAGE_DEFAULT_HEIGHT } from "./constants";
+import { getCurrentFontFamily, getFontStack } from "./fonts";
 import { isTouchDevice } from "./state";
+import type { EditorStyles, PlaceholderStyles, TextStyle } from "./types";
 
 /**
  * Track window focus state globally for editor styling
@@ -22,7 +23,8 @@ let paddingOverride: Partial<{
 /**
  * Optional per-block text style overrides set via setBlockStyleOverrides()
  */
-let blockStyleOverrides: Partial<Record<string, Partial<TextStyle>>> | null = null;
+let blockStyleOverrides: Partial<Record<string, Partial<TextStyle>>> | null =
+  null;
 let placeholderOverrides: Partial<PlaceholderStyles> | null = null;
 
 /**
@@ -190,7 +192,10 @@ export function getEditorStyles(): EditorStyles {
         error: {
           backgroundColor: getCSSVariable("--destructive"),
           textColor: getCSSVariable("--destructive-foreground"),
-          text: i18next.t("error.failedToUploadImage", "Failed to upload image"),
+          text: i18next.t(
+            "error.failedToUploadImage",
+            "Failed to upload image",
+          ),
           retryText: i18next.t("common.clickToRetry", "Click to retry"),
         },
         hover: {
@@ -227,7 +232,10 @@ export function getEditorStyles(): EditorStyles {
       blinkInterval: 530,
     },
     remoteCursor: {
-      labelTextColor: getCSSVariable("--editor-remote-cursor-label-text", "#FFFFFF"),
+      labelTextColor: getCSSVariable(
+        "--editor-remote-cursor-label-text",
+        "#FFFFFF",
+      ),
     },
     selection: {
       backgroundColor:
@@ -245,13 +253,19 @@ export function getEditorStyles(): EditorStyles {
     },
     placeholder: {
       heading1: {
-        text: placeholderOverrides?.heading1?.text ?? i18next.t("blocks.heading1", "Heading 1"),
+        text:
+          placeholderOverrides?.heading1?.text ??
+          i18next.t("blocks.heading1", "Heading 1"),
       },
       heading2: {
-        text: placeholderOverrides?.heading2?.text ?? i18next.t("blocks.heading2", "Heading 2"),
+        text:
+          placeholderOverrides?.heading2?.text ??
+          i18next.t("blocks.heading2", "Heading 2"),
       },
       heading3: {
-        text: placeholderOverrides?.heading3?.text ?? i18next.t("blocks.heading3", "Heading 3"),
+        text:
+          placeholderOverrides?.heading3?.text ??
+          i18next.t("blocks.heading3", "Heading 3"),
       },
       paragraph: {
         keyboardCompatibleText:
@@ -361,7 +375,7 @@ export const getTextStyle = (
     | "paragraph"
     | "bullet_list"
     | "numbered_list"
-    | "todo_list"
+    | "todo_list",
 ) => {
   if (blockType === "bullet_list") {
     return styles.blocks.bulletList;
@@ -375,7 +389,7 @@ export const getTextStyle = (
 
 export const applyTextStyle = (
   ctx: CanvasRenderingContext2D,
-  style: TextStyle
+  style: TextStyle,
 ) => {
   const fontStack = getFontStack(getCurrentFontFamily());
   ctx.font = `${style.fontWeight} ${style.fontSize}px ${fontStack}`;

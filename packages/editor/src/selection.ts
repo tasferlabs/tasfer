@@ -1,12 +1,12 @@
 import type { Block, Char } from "./deserializer/loadPage";
 import { isListBlock, isTextualBlock } from "./deserializer/loadPage";
 import {
+  type FontFamily,
   getCurrentFontFamily,
   getFontMetrics,
   measureCRDTPositions,
   measureTextUpToIndex,
   wrapText,
-  type FontFamily,
 } from "./fonts";
 import { getBlockHeight } from "./renderer";
 import { getTextDirection } from "./rtl";
@@ -40,7 +40,7 @@ export function getCursorDocumentCoords(
   position: Position,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): { x: number; y: number; height: number } | null {
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
@@ -76,7 +76,7 @@ export function getCursorDocumentCoords(
   const fontMetrics = getFontMetrics(
     textStyle.fontSize,
     textStyle.fontWeight,
-    fontFamily
+    fontFamily,
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
@@ -116,7 +116,7 @@ export function getCursorDocumentCoords(
     textStyle.fontSize,
     textStyle.fontWeight,
     fontFamily,
-    codePadding
+    codePadding,
   );
 
   let textIndex = 0;
@@ -139,7 +139,7 @@ export function getCursorDocumentCoords(
           textStyle.fontSize,
           textStyle.fontWeight,
           fontFamily,
-          codePadding
+          codePadding,
         );
 
         return {
@@ -158,7 +158,7 @@ export function getCursorDocumentCoords(
           textStyle.fontSize,
           textStyle.fontWeight,
           fontFamily,
-          codePadding
+          codePadding,
         );
 
         return {
@@ -200,7 +200,7 @@ export function getCursorDocumentCoords(
 export function getCursorCoordinatesWithComposition(
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): { x: number; y: number; height: number } | null {
   if (!state.document.cursor) return null;
 
@@ -229,7 +229,7 @@ export function getCursorCoordinatesWithComposition(
       id: `composition-${i}`,
       char,
       deleted: false,
-    })
+    }),
   );
 
   // Insert composition chars at cursor position (visible index)
@@ -283,7 +283,7 @@ export function getCursorCoordinatesWithComposition(
   const fontMetrics = getFontMetrics(
     textStyle.fontSize,
     textStyle.fontWeight,
-    fontFamily
+    fontFamily,
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
@@ -328,7 +328,7 @@ export function getCursorCoordinatesWithComposition(
     textStyle.fontWeight,
     fontFamily,
     codePadding,
-    compositionRange
+    compositionRange,
   );
 
   let textIndex = 0;
@@ -347,7 +347,7 @@ export function getCursorCoordinatesWithComposition(
           textStyle.fontSize,
           textStyle.fontWeight,
           fontFamily,
-          codePadding
+          codePadding,
         );
         return {
           x: baseX + adjustedMaxWidth - widthFromStart,
@@ -363,7 +363,7 @@ export function getCursorCoordinatesWithComposition(
           textStyle.fontSize,
           textStyle.fontWeight,
           fontFamily,
-          codePadding
+          codePadding,
         );
         return {
           x: baseX + textWidth,
@@ -400,7 +400,7 @@ export function getCursorYPosition(
   position: Position,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): { top: number; bottom: number } | null {
   const coords = getCursorDocumentCoords(position, state, viewport, styles);
   if (!coords) return null;
@@ -414,7 +414,7 @@ export function scrollToMakeCursorVisible(
   position: Position,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): number | null {
   const cursorPos = getCursorYPosition(position, state, viewport, styles);
   if (!cursorPos) return null;
@@ -446,7 +446,7 @@ function getPositionFromPaddingClick(
   state: EditorState,
   maxWidth: number,
   startY: number,
-  styles: EditorStyles
+  styles: EditorStyles,
 ): Position | null {
   let currentY = startY;
 
@@ -458,7 +458,7 @@ function getPositionFromPaddingClick(
       block,
       maxWidth,
       styles,
-      visibleIdx === 0
+      visibleIdx === 0,
     );
 
     // Check if click is within this block's Y bounds
@@ -493,14 +493,14 @@ function getPositionFromPaddingClick(
         textStyle.fontSize,
         textStyle.fontWeight,
         fontFamily,
-        codePadding
+        codePadding,
       );
 
       // Calculate line height
       const fontMetrics = getFontMetrics(
         textStyle.fontSize,
         textStyle.fontWeight,
-        fontFamily
+        fontFamily,
       );
       const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
@@ -571,7 +571,7 @@ function getPositionFromPaddingClick(
     const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
     const allBlocks = state.document.page.blocks;
     const lastBlockIndex = allBlocks.findIndex(
-      (b) => b.id === lastVisibleBlock.id
+      (b) => b.id === lastVisibleBlock.id,
     );
     if (lastBlockIndex === -1) return null;
     const lastBlock = allBlocks[lastBlockIndex];
@@ -591,7 +591,7 @@ export function getTextPositionFromViewport(
   y: number,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): Position | null {
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
@@ -610,7 +610,7 @@ export function getTextPositionFromViewport(
       state,
       maxWidth,
       currentY,
-      styles
+      styles,
     );
   }
 
@@ -625,7 +625,7 @@ export function getTextPositionFromViewport(
       block,
       maxWidth,
       styles,
-      visibleIdx === 0
+      visibleIdx === 0,
     );
 
     // Check if click is within this block's Y bounds
@@ -638,7 +638,7 @@ export function getTextPositionFromViewport(
         currentY,
         styles.canvas.paddingLeft,
         maxWidth,
-        styles
+        styles,
       );
     }
 
@@ -687,7 +687,7 @@ function getPositionWithinBlock(
   blockY: number,
   padding: number,
   maxWidth: number,
-  styles: EditorStyles
+  styles: EditorStyles,
 ): Position {
   if (!isTextualBlock(block)) {
     return {
@@ -732,7 +732,7 @@ function getPositionWithinBlock(
   const fontMetrics = getFontMetrics(
     textStyle.fontSize,
     textStyle.fontWeight,
-    fontFamily
+    fontFamily,
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
@@ -744,7 +744,7 @@ function getPositionWithinBlock(
     textStyle.fontSize,
     textStyle.fontWeight,
     fontFamily,
-    codePadding
+    codePadding,
   );
 
   let textIndex = 0;
@@ -768,7 +768,7 @@ function getPositionWithinBlock(
         block,
         codePadding,
         adjustedMaxWidth,
-        isRTL
+        isRTL,
       );
       return {
         blockIndex: blockIndex,
@@ -801,7 +801,7 @@ function getPositionWithinBlock(
       block,
       codePadding,
       adjustedMaxWidth,
-      isRTL
+      isRTL,
     );
     return {
       blockIndex: blockIndex,
@@ -829,7 +829,7 @@ function getPositionWithinLine(
   block: Block,
   _codePadding: number,
   maxWidth: number,
-  isRTL: boolean
+  isRTL: boolean,
 ): Position {
   if (!isTextualBlock(block)) {
     return {
@@ -850,7 +850,7 @@ function getPositionWithinLine(
     lineEndIndex,
     textStyle.fontSize,
     textStyle.fontWeight,
-    fontFamily
+    fontFamily,
   );
 
   const lineWidth = positionWidths[positionWidths.length - 1];
@@ -960,7 +960,7 @@ function getPositionWithinLine(
             spanEndLocal < positionWidths.length
           ) {
             const spanStartX = positionWidths[spanStartLocal];
-            const spanEndX = positionWidths[spanEndLocal];            // Only snap when the click falls outside the chip's x-range —
+            const spanEndX = positionWidths[spanEndLocal]; // Only snap when the click falls outside the chip's x-range —
             // clicks on the chip itself must stay inside the span so hover
             // and click handlers can detect them via getInlineMathAtPosition.
             if (relativeX < spanStartX) {
@@ -989,7 +989,7 @@ function getPositionWithinLine(
 export function getSelectionHandlePositions(
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): {
   anchor: { x: number; y: number; height: number; isTop: boolean } | null;
   focus: { x: number; y: number; height: number; isTop: boolean } | null;
@@ -1004,13 +1004,13 @@ export function getSelectionHandlePositions(
     selection.anchor,
     state,
     viewport,
-    styles
+    styles,
   );
   const focusCoords = getCursorDocumentCoords(
     selection.focus,
     state,
     viewport,
-    styles
+    styles,
   );
 
   if (!anchorCoords || !focusCoords) {
@@ -1050,7 +1050,7 @@ export function getSelectionHandlePositions(
  */
 export function getLinkAtPosition(
   position: Position,
-  state: EditorState
+  state: EditorState,
 ): {
   url: string;
   text: string;
@@ -1247,7 +1247,7 @@ export function isPointWithinSelectionRects(
   y: number,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): boolean {
   const selection = state.document.selection;
   if (!selection || selection.isCollapsed) {
@@ -1281,7 +1281,7 @@ export function isPointWithinSelectionRects(
       block,
       maxWidth,
       styles,
-      visibleIdx === 0
+      visibleIdx === 0,
     );
 
     // Skip blocks before selection
@@ -1305,7 +1305,7 @@ export function isPointWithinSelectionRects(
     const fontMetrics = getFontMetrics(
       textStyle.fontSize,
       textStyle.fontWeight,
-      fontFamily
+      fontFamily,
     );
     const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
@@ -1337,7 +1337,7 @@ export function isPointWithinSelectionRects(
       textStyle.fontSize,
       textStyle.fontWeight,
       fontFamily,
-      codePadding
+      codePadding,
     );
 
     const isRTL = getTextDirection(getVisibleText(block.charRuns)) === "rtl";
@@ -1360,7 +1360,7 @@ export function isPointWithinSelectionRects(
         textStyle.fontSize,
         textStyle.fontWeight,
         fontFamily,
-        codePadding
+        codePadding,
       );
 
       const lineTop = lineY;
@@ -1373,7 +1373,10 @@ export function isPointWithinSelectionRects(
         let selectionEndX = baseX + lineWidth;
         let hasSelection = false;
 
-        if (start.blockIndex === block.originalIndex && end.blockIndex === block.originalIndex) {
+        if (
+          start.blockIndex === block.originalIndex &&
+          end.blockIndex === block.originalIndex
+        ) {
           // Selection within same block
           if (
             start.textIndex <= lineEndIndex &&
@@ -1384,7 +1387,7 @@ export function isPointWithinSelectionRects(
             const selStartTextIndex = Math.max(lineStartIndex, start.textIndex);
             const selEndTextIndex = Math.min(
               lineStartIndex + lineText.length,
-              end.textIndex
+              end.textIndex,
             );
 
             if (isRTL) {
@@ -1396,7 +1399,7 @@ export function isPointWithinSelectionRects(
                 textStyle.fontSize,
                 textStyle.fontWeight,
                 fontFamily,
-                codePadding
+                codePadding,
               );
               const widthToSelEnd = measureTextUpToIndex(
                 charRunsToChars(block.charRuns),
@@ -1406,7 +1409,7 @@ export function isPointWithinSelectionRects(
                 textStyle.fontSize,
                 textStyle.fontWeight,
                 fontFamily,
-                codePadding
+                codePadding,
               );
               selectionEndX = baseX + adjustedMaxWidth - widthToSelStart;
               selectionStartX = baseX + adjustedMaxWidth - widthToSelEnd;
@@ -1420,7 +1423,7 @@ export function isPointWithinSelectionRects(
                   textStyle.fontSize,
                   textStyle.fontWeight,
                   fontFamily,
-                  codePadding
+                  codePadding,
                 );
               }
               if (end.textIndex < lineStartIndex + lineText.length) {
@@ -1432,7 +1435,7 @@ export function isPointWithinSelectionRects(
                   textStyle.fontSize,
                   textStyle.fontWeight,
                   fontFamily,
-                  codePadding
+                  codePadding,
                 );
                 selectionEndX = selectionStartX + selectedWidth;
               }
@@ -1465,7 +1468,7 @@ export function isPointWithinSelectionRects(
                 textStyle.fontSize,
                 textStyle.fontWeight,
                 fontFamily,
-                codePadding
+                codePadding,
               );
               selectionEndX = baseX + adjustedMaxWidth - widthToSelStart;
               const lineStartX = baseX + adjustedMaxWidth - lineWidth;
@@ -1480,7 +1483,7 @@ export function isPointWithinSelectionRects(
                   textStyle.fontSize,
                   textStyle.fontWeight,
                   fontFamily,
-                  codePadding
+                  codePadding,
                 );
               }
             }
@@ -1502,7 +1505,7 @@ export function isPointWithinSelectionRects(
                 textStyle.fontSize,
                 textStyle.fontWeight,
                 fontFamily,
-                codePadding
+                codePadding,
               );
               selectionStartX = baseX + adjustedMaxWidth - widthToSelEnd;
               selectionEndX = lineStartX + lineWidth;
@@ -1518,7 +1521,7 @@ export function isPointWithinSelectionRects(
                     textStyle.fontSize,
                     textStyle.fontWeight,
                     fontFamily,
-                    codePadding
+                    codePadding,
                   );
               }
             }

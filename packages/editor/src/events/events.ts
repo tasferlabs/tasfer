@@ -1,3 +1,5 @@
+import { isTextualBlock } from "@/deserializer/loadPage";
+
 import {
   CONTEXT_MENU_DURATION,
   CURSOR_DRAG_ACTIVATION_DELAY,
@@ -13,8 +15,10 @@ import {
   startScrollbarDrag,
   updateScrollbarFadeOpacity,
 } from "../scrollbar";
-import { isTextualBlock } from "@/deserializer/loadPage";
-import { getCursorDocumentCoords, getTextPositionFromViewport } from "../selection";
+import {
+  getCursorDocumentCoords,
+  getTextPositionFromViewport,
+} from "../selection";
 import {
   closeActiveMenu,
   openContextMenu,
@@ -23,8 +27,8 @@ import {
   updateMode,
   updateSelectionFocus,
 } from "../state";
-import type { Operation } from "../sync/types";
 import { getEditorStyles, getTextStyle } from "../styles";
+import type { Operation } from "../sync/types";
 import type { EditorState, MouseEvent, ViewportState } from "../types";
 import {
   handleCompositionEnd,
@@ -74,7 +78,7 @@ export function handleEvents(
   documentHeight: number,
   containerRect: { left: number; top: number },
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
-  clipboardData?: { html: string; text: string; imageFile: File | null } | null
+  clipboardData?: { html: string; text: string; imageFile: File | null } | null,
 ): { state: EditorState; ops: Operation[]; pastedImageBlockIndex?: number } {
   // Collect operations from commands
   let collectedOps: Operation[] = [];
@@ -100,7 +104,7 @@ export function handleEvents(
             state.view.scrollbar,
             scrollbarPressState.canvasY,
             viewport,
-            documentHeight
+            documentHeight,
           ),
         },
       };
@@ -145,7 +149,10 @@ export function handleEvents(
               ? cursorCoords.y - viewport.scrollY
               : touchState.currentTouchY,
             touchRadiusY: touchState.touchRadiusY,
-            lineHeight: getBlockLineHeight(state, state.document.cursor?.position?.blockIndex),
+            lineHeight: getBlockLineHeight(
+              state,
+              state.document.cursor?.position?.blockIndex,
+            ),
             lastPosition: state.document.cursor?.position ?? null,
           },
         },
@@ -171,7 +178,7 @@ export function handleEvents(
         touchState.currentTouchX,
         touchState.currentTouchY,
         state,
-        viewport
+        viewport,
       );
 
       // Long press behavior depends on whether touching selected text
@@ -195,7 +202,7 @@ export function handleEvents(
         state = openContextMenu(
           state,
           touchState.currentTouchX,
-          touchState.currentTouchY
+          touchState.currentTouchY,
         );
       } else {
         // On non-selected text: prepare for drag selection (don't show menu yet)
@@ -227,7 +234,7 @@ export function handleEvents(
     const elapsedTime = Date.now() - autoScrollState.startTime;
     const timeBasedMultiplier = Math.min(
       Math.pow(EDGE_SCROLL_ACCELERATION_RATE, elapsedTime / 1000),
-      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED
+      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED,
     );
     autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
 
@@ -257,7 +264,7 @@ export function handleEvents(
       const maxScroll = documentHeight - viewport.height;
       const newScrollY = Math.max(
         0,
-        Math.min(maxScroll, viewport.scrollY + autoScrollDelta)
+        Math.min(maxScroll, viewport.scrollY + autoScrollDelta),
       );
 
       if (newScrollY !== viewport.scrollY) {
@@ -269,7 +276,7 @@ export function handleEvents(
       touch.clientX,
       touch.clientY,
       state,
-      viewport
+      viewport,
     );
 
     if (position) {
@@ -298,7 +305,7 @@ export function handleEvents(
     const elapsedTime = Date.now() - autoScrollState.startTime;
     const timeBasedMultiplier = Math.min(
       Math.pow(EDGE_SCROLL_ACCELERATION_RATE, elapsedTime / 1000),
-      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED
+      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED,
     );
     autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
 
@@ -329,7 +336,7 @@ export function handleEvents(
       const maxScroll = documentHeight - viewport.height;
       const newScrollY = Math.max(
         0,
-        Math.min(maxScroll, viewport.scrollY + autoScrollDelta)
+        Math.min(maxScroll, viewport.scrollY + autoScrollDelta),
       );
 
       if (newScrollY !== viewport.scrollY) {
@@ -342,7 +349,7 @@ export function handleEvents(
       autoScrollState.lastMouseX,
       autoScrollState.lastMouseY,
       state,
-      viewport
+      viewport,
     );
 
     if (position) {
@@ -354,7 +361,7 @@ export function handleEvents(
     const elapsedTime = Date.now() - autoScrollState.startTime;
     const timeBasedMultiplier = Math.min(
       Math.pow(EDGE_SCROLL_ACCELERATION_RATE, elapsedTime / 1000),
-      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED
+      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED,
     );
     autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
 
@@ -385,7 +392,7 @@ export function handleEvents(
       const maxScroll = documentHeight - viewport.height;
       const newScrollY = Math.max(
         0,
-        Math.min(maxScroll, viewport.scrollY + autoScrollDelta)
+        Math.min(maxScroll, viewport.scrollY + autoScrollDelta),
       );
 
       if (newScrollY !== viewport.scrollY) {
@@ -398,7 +405,7 @@ export function handleEvents(
       autoScrollState.lastMouseX,
       autoScrollState.lastMouseY,
       state,
-      viewport
+      viewport,
     );
 
     if (position && state.document.selection) {
@@ -512,9 +519,7 @@ export function handleEvents(
             isActive: true,
             touchX: touchState.currentTouchX,
             touchY: touchState.currentTouchY,
-            cursorX: cursorCoords
-              ? cursorCoords.x
-              : touchState.currentTouchX,
+            cursorX: cursorCoords ? cursorCoords.x : touchState.currentTouchX,
             cursorY: cursorCoords
               ? cursorCoords.y - viewport.scrollY
               : touchState.currentTouchY,
@@ -535,7 +540,7 @@ export function handleEvents(
     // Check if we should block scrolling down (bottom handle + near bottom + at max height)
     let shouldBlockBottomScroll = false;
     const objectFit =
-      block.type === "image" ? block.objectFit ?? "cover" : "cover";
+      block.type === "image" ? (block.objectFit ?? "cover") : "cover";
     if (
       handle === "bottom" &&
       objectFit === "cover" &&
@@ -586,7 +591,7 @@ export function handleEvents(
         const maxScroll = documentHeight - viewport.height;
         const newScrollY = Math.max(
           0,
-          Math.min(maxScroll, viewport.scrollY + autoScrollDelta)
+          Math.min(maxScroll, viewport.scrollY + autoScrollDelta),
         );
 
         if (newScrollY !== viewport.scrollY) {
@@ -609,7 +614,7 @@ export function handleEvents(
             state,
             viewport,
             autoScrollState.lastMouseX,
-            autoScrollState.lastMouseY
+            autoScrollState.lastMouseY,
           );
         }
       }
@@ -623,7 +628,7 @@ export function handleEvents(
       viewport.scrollY,
       state.view.momentum,
       documentHeight,
-      viewport.height
+      viewport.height,
     );
 
     if (updateViewportCallback && momentumResult.scrollY !== viewport.scrollY) {
@@ -673,7 +678,7 @@ export function handleEvents(
           state,
           viewport,
           event as unknown as MouseEvent,
-          containerRect
+          containerRect,
         );
         break;
       case "mousedown":
@@ -686,7 +691,7 @@ export function handleEvents(
           event as unknown as MouseEvent,
           containerRect,
           documentHeight,
-          updateViewportCallback
+          updateViewportCallback,
         );
         state = mouseDownResult.state;
         collectedOps.push(...mouseDownResult.ops);
@@ -701,7 +706,7 @@ export function handleEvents(
           event as unknown as MouseEvent,
           containerRect,
           documentHeight,
-          updateViewportCallback
+          updateViewportCallback,
         );
         break;
       case "mouseup":
@@ -712,7 +717,7 @@ export function handleEvents(
           state,
           viewport,
           event as unknown as MouseEvent,
-          visibility
+          visibility,
         );
         state = mouseUpResult.state;
         collectedOps.push(...mouseUpResult.ops);
@@ -726,7 +731,7 @@ export function handleEvents(
           state,
           viewport,
           event,
-          updateViewportCallback
+          updateViewportCallback,
         );
         state = keyResult.state;
         collectedOps.push(...keyResult.ops);
@@ -737,7 +742,7 @@ export function handleEvents(
           event as ClipboardEvent,
           viewport,
           updateViewportCallback,
-          clipboardData
+          clipboardData,
         );
         state = pasteResult.state;
         collectedOps.push(...pasteResult.ops);
@@ -754,7 +759,7 @@ export function handleEvents(
           viewport,
           event as WheelEvent,
           documentHeight,
-          updateViewportCallback
+          updateViewportCallback,
         );
         break;
       case "touchstart":
@@ -763,7 +768,7 @@ export function handleEvents(
           viewport,
           event as TouchEvent,
           containerRect,
-          documentHeight
+          documentHeight,
         );
         break;
       case "touchmove":
@@ -773,7 +778,7 @@ export function handleEvents(
           event as TouchEvent,
           containerRect,
           documentHeight,
-          updateViewportCallback
+          updateViewportCallback,
         );
         break;
       case "touchend":
@@ -781,7 +786,7 @@ export function handleEvents(
           state,
           viewport,
           event as TouchEvent,
-          containerRect
+          containerRect,
         );
         state = touchEndResult.state;
         collectedOps.push(...touchEndResult.ops);
@@ -793,7 +798,7 @@ export function handleEvents(
       case "compositionstart":
         const compStartResult = handleCompositionStart(
           state,
-          event as CompositionEvent
+          event as CompositionEvent,
         );
         state = compStartResult.state;
         collectedOps.push(...compStartResult.ops);
@@ -801,7 +806,7 @@ export function handleEvents(
       case "compositionupdate":
         const compUpdateResult = handleCompositionUpdate(
           state,
-          event as CompositionEvent
+          event as CompositionEvent,
         );
         state = compUpdateResult.state;
         collectedOps.push(...compUpdateResult.ops);
@@ -811,7 +816,7 @@ export function handleEvents(
           state,
           event as CompositionEvent,
           viewport,
-          updateViewportCallback
+          updateViewportCallback,
         );
         state = compResult.state;
         collectedOps.push(...compResult.ops);

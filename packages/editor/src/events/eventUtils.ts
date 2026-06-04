@@ -1,4 +1,5 @@
 import type { Block } from "@/deserializer/loadPage";
+
 import {
   CLICK_DISTANCE_THRESHOLD,
   SELECTION_HANDLE_TOUCH_TARGET,
@@ -27,7 +28,7 @@ export function getImageBlockAtPoint(
   x: number,
   y: number,
   state: EditorState,
-  viewport: ViewportState
+  viewport: ViewportState,
 ): {
   blockIndex: number;
   x: number;
@@ -50,7 +51,7 @@ export function getImageBlockAtPoint(
       visibleBlock,
       maxWidth,
       styles,
-      visibleIdx === 0
+      visibleIdx === 0,
     );
 
     // Special handling for first block image covers that bleed into padding
@@ -58,7 +59,7 @@ export function getImageBlockAtPoint(
     const isImage = visibleBlock.type === "image";
 
     // Get image width early to determine if it should bleed
-    const imageWidth = isImage ? visibleBlock.width ?? "full" : "full";
+    const imageWidth = isImage ? (visibleBlock.width ?? "full") : "full";
     const shouldBleed = isFirstBlock && isImage && imageWidth === "full";
 
     // For first block image covers that bleed, check from the top of the viewport (adjusted for padding)
@@ -170,7 +171,7 @@ export function getLineBlockAtPoint(
   x: number,
   y: number,
   state: EditorState,
-  viewport: ViewportState
+  viewport: ViewportState,
 ): {
   blockIndex: number;
   x: number;
@@ -188,7 +189,12 @@ export function getLineBlockAtPoint(
 
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const visibleBlock = visibleBlocks[visibleIdx];
-    const blockHeight = getBlockHeight(visibleBlock, maxWidth, styles, visibleIdx === 0);
+    const blockHeight = getBlockHeight(
+      visibleBlock,
+      maxWidth,
+      styles,
+      visibleIdx === 0,
+    );
 
     // Check if y is within this block's bounds
     if (y >= currentY && y < currentY + blockHeight) {
@@ -231,7 +237,7 @@ export function getMathBlockAtPoint(
   x: number,
   y: number,
   state: EditorState,
-  viewport: ViewportState
+  viewport: ViewportState,
 ): {
   blockIndex: number;
   x: number;
@@ -248,7 +254,12 @@ export function getMathBlockAtPoint(
 
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const visibleBlock = visibleBlocks[visibleIdx];
-    const blockHeight = getBlockHeight(visibleBlock, maxWidth, styles, visibleIdx === 0);
+    const blockHeight = getBlockHeight(
+      visibleBlock,
+      maxWidth,
+      styles,
+      visibleIdx === 0,
+    );
 
     if (y >= currentY && y < currentY + blockHeight) {
       if (visibleBlock.type === "math") {
@@ -301,7 +312,7 @@ export function getDragHandleAtPoint(
   imageWidth: number,
   imageHeight: number,
   objectFit: "cover" | "contain" = "cover",
-  extraTolerance: number = 4
+  extraTolerance: number = 4,
 ): "left" | "right" | "bottom" | null {
   const styles = getEditorStyles();
   const { vertical, horizontal } = styles.imageResize.dragHandles;
@@ -381,7 +392,7 @@ export function startImageDrag(
   },
   canvasX: number,
   canvasY: number,
-  extraTolerance: number = 4
+  extraTolerance: number = 4,
 ): EditorState | null {
   const block = state.document.page.blocks[imageBlock.blockIndex];
   if (!block || block.deleted) return null;
@@ -398,7 +409,7 @@ export function startImageDrag(
     imageBlock.width,
     imageBlock.height,
     objectFit,
-    extraTolerance
+    extraTolerance,
   );
 
   if (clickedHandle && block.url) {
@@ -442,7 +453,7 @@ export function updateImageDrag(
   state: EditorState,
   viewport: ViewportState,
   canvasX: number,
-  canvasY: number
+  canvasY: number,
 ): EditorState {
   if (!state.ui.imageDrag) {
     return state;
@@ -505,7 +516,7 @@ export function updateImageDrag(
       // Already in custom width mode
       newWidth = Math.max(
         constraintMinWidth,
-        Math.min(viewport.width, (startWidth as number) + widthDelta)
+        Math.min(viewport.width, (startWidth as number) + widthDelta),
       );
 
       // Check if we should snap back to full width
@@ -554,7 +565,7 @@ export function updateImageDrag(
     const { minHeight: constraintMinHeight } = styles.imageResize.constraints;
     const calculatedHeight = Math.max(
       constraintMinHeight,
-      startHeight + deltaY
+      startHeight + deltaY,
     );
 
     // Cap height based on image aspect ratio to prevent over-resizing
@@ -708,7 +719,7 @@ export function ensureCursorVisible(
   newState: EditorState,
   oldState: EditorState,
   viewport: ViewportState,
-  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): void {
   if (
     newState !== oldState &&
@@ -718,7 +729,7 @@ export function ensureCursorVisible(
     const newScrollY = scrollToMakeCursorVisible(
       newState.document.cursor.position,
       newState,
-      viewport
+      viewport,
     );
     if (newScrollY !== null) {
       updateViewportCallback({ scrollY: newScrollY });
@@ -729,7 +740,7 @@ export function ensureCursorVisible(
 export function isWithinClickDistance(
   pos1: { x: number; y: number },
   pos2: { x: number; y: number },
-  threshold: number = CLICK_DISTANCE_THRESHOLD
+  threshold: number = CLICK_DISTANCE_THRESHOLD,
 ): boolean {
   const dx = pos1.x - pos2.x;
   const dy = pos1.y - pos2.y;
@@ -741,7 +752,7 @@ export function isWithinClickDistance(
  */
 function getSelectionHandlePositions(
   state: EditorState,
-  viewport: ViewportState
+  viewport: ViewportState,
 ): {
   anchor: { x: number; y: number; height: number; isTop: boolean } | null;
   focus: { x: number; y: number; height: number; isTop: boolean } | null;
@@ -754,7 +765,7 @@ function getSelectionHandlePositions(
   const anchorCoords = getCursorDocumentCoords(
     selection.anchor,
     state,
-    viewport
+    viewport,
   );
   const focusCoords = getCursorDocumentCoords(selection.focus, state, viewport);
 
@@ -788,7 +799,7 @@ export function getSelectionHandleAtPoint(
   touchX: number,
   touchY: number,
   state: EditorState,
-  viewport: ViewportState
+  viewport: ViewportState,
 ): "anchor" | "focus" | null {
   const handlePositions = getSelectionHandlePositions(state, viewport);
   if (!handlePositions) {
@@ -814,7 +825,7 @@ export function getSelectionHandleAtPoint(
     }
 
     const distance = Math.sqrt(
-      Math.pow(touchX - x, 2) + Math.pow(touchY - circleY, 2)
+      Math.pow(touchX - x, 2) + Math.pow(touchY - circleY, 2),
     );
     if (distance <= touchTargetRadius) {
       return "anchor";
@@ -835,7 +846,7 @@ export function getSelectionHandleAtPoint(
     }
 
     const distance = Math.sqrt(
-      Math.pow(touchX - x, 2) + Math.pow(touchY - circleY, 2)
+      Math.pow(touchX - x, 2) + Math.pow(touchY - circleY, 2),
     );
     if (distance <= touchTargetRadius) {
       return "focus";

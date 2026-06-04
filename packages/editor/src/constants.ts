@@ -19,4 +19,3 @@ export const MAGNIFIER_WIDTH = 168;
 export const MAGNIFIER_HEIGHT = 72;
 export const MAGNIFIER_POINTER_SIZE = 10; // triangle pointer at bottom
 export const MAGNIFIER_MIN_OFFSET_Y = 44; // minimum gap above touch point (fallback when no radius)
-

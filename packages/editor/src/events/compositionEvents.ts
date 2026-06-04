@@ -1,12 +1,17 @@
-import type { Operation } from "../sync/sync";
-import { getSelectionRange, deleteSelectedText, insertText } from "../actions/commands";
+import {
+  deleteSelectedText,
+  getSelectionRange,
+  insertText,
+} from "../actions/commands";
 import { scrollToMakeCursorVisible } from "../selection";
+import type { Operation } from "../sync/sync";
 import type { EditorState, ViewportState } from "../types";
 
 // Composition (IME) Event Handlers
 export function handleCompositionStart(
   state: EditorState,
-  event: CompositionEvent): { state: EditorState; ops: Operation[]; } {
+  event: CompositionEvent,
+): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
 
   // If editor is not focused, ignore composition
@@ -54,7 +59,8 @@ export function handleCompositionStart(
 }
 export function handleCompositionUpdate(
   state: EditorState,
-  event: CompositionEvent): { state: EditorState; ops: Operation[]; } {
+  event: CompositionEvent,
+): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
 
   // If editor is not focused, ignore composition
@@ -79,19 +85,22 @@ export function handleCompositionUpdate(
   const oldOffset = state.ui.composition.cursorOffset;
   // If cursor was at the end of the old text, keep it at the end of the new text
   // Otherwise preserve the user's explicit cursor position (from arrow keys), clamped to new length
-  const cursorOffset = oldOffset >= oldText.length
-    ? newText.length
-    : Math.min(oldOffset, newText.length);
+  const cursorOffset =
+    oldOffset >= oldText.length
+      ? newText.length
+      : Math.min(oldOffset, newText.length);
   return {
     state: {
       ...state,
       document: {
         ...state.document,
         // Keep cursor active (not blinking) during composition updates
-        cursor: state.document.cursor ? {
-          ...state.document.cursor,
-          lastUpdate: Date.now(),
-        } : null,
+        cursor: state.document.cursor
+          ? {
+              ...state.document.cursor,
+              lastUpdate: Date.now(),
+            }
+          : null,
       },
       ui: {
         ...state.ui,
@@ -109,7 +118,8 @@ export function handleCompositionEnd(
   state: EditorState,
   event: CompositionEvent,
   viewport: ViewportState,
-  updateViewportCallback?: (viewport: Partial<ViewportState>) => void): { state: EditorState; ops: Operation[]; } {
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
+): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
 
   // If editor is not focused, ignore composition
@@ -136,7 +146,7 @@ export function handleCompositionEnd(
       const newScrollY = scrollToMakeCursorVisible(
         state.document.cursor.position,
         state,
-        viewport
+        viewport,
       );
       if (newScrollY !== null) {
         updateViewportCallback({ scrollY: newScrollY });

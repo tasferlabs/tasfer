@@ -1,8 +1,8 @@
+import { IMAGE_DEFAULT_HEIGHT } from "../constants";
+import { renderToSVG } from "../mathjax";
+import { iterateVisibleChars } from "../sync/char-runs";
 import type { Block, CharRun, FormatSpan, TextFormat } from "./loadPage";
 import { isImageDefault, isListBlock, isTextualBlock } from "./loadPage";
-import { iterateVisibleChars } from "../sync/char-runs";
-import { renderToSVG } from "../mathjax";
-import { IMAGE_DEFAULT_HEIGHT } from "../constants";
 
 function escapeHtml(s: string): string {
   return s
@@ -32,7 +32,8 @@ function formatKeysToFormats(keys: Set<string>): TextFormat[] | undefined {
   if (keys.size === 0) return undefined;
   const formats: TextFormat[] = [];
   for (const key of keys) {
-    if (key.startsWith("link:")) formats.push({ type: "link", url: key.slice(5) });
+    if (key.startsWith("link:"))
+      formats.push({ type: "link", url: key.slice(5) });
     else formats.push({ type: key as TextFormat["type"] });
   }
   return formats.length > 0 ? formats : undefined;
@@ -53,7 +54,8 @@ function groupChars(charRuns: CharRun[], formats: FormatSpan[]): Segment[] {
     for (let i = startIdx; i <= endIdx; i++) {
       const charId = visibleChars[i].id;
       if (!formatMap.has(charId)) formatMap.set(charId, new Set());
-      const key = span.format.type + (span.format.url ? `:${span.format.url}` : "");
+      const key =
+        span.format.type + (span.format.url ? `:${span.format.url}` : "");
       formatMap.get(charId)!.add(key);
     }
   }
@@ -67,14 +69,20 @@ function groupChars(charRuns: CharRun[], formats: FormatSpan[]): Segment[] {
       currentChars.push(c.char);
     } else {
       if (currentChars.length > 0) {
-        segments.push({ text: currentChars.join(""), formats: formatKeysToFormats(currentFormatKeys) });
+        segments.push({
+          text: currentChars.join(""),
+          formats: formatKeysToFormats(currentFormatKeys),
+        });
       }
       currentChars = [c.char];
       currentFormatKeys = new Set(cf);
     }
   }
   if (currentChars.length > 0) {
-    segments.push({ text: currentChars.join(""), formats: formatKeysToFormats(currentFormatKeys) });
+    segments.push({
+      text: currentChars.join(""),
+      formats: formatKeysToFormats(currentFormatKeys),
+    });
   }
   return segments;
 }
@@ -101,16 +109,25 @@ function renderInline(charRuns: CharRun[], formats: FormatSpan[]): string {
       if (has("bold")) html = `<strong>${html}</strong>`;
       if (has("italic")) html = `<em>${html}</em>`;
       if (has("strikethrough")) html = `<s>${html}</s>`;
-      if (link && link.url) html = `<a href="${escapeAttr(link.url)}">${html}</a>`;
+      if (link && link.url)
+        html = `<a href="${escapeAttr(link.url)}">${html}</a>`;
       return html;
     })
     .join("");
 }
 
-function renderImageBlock(block: Extract<Block, { type: "image" }>, urlOverride?: string): string {
+function renderImageBlock(
+  block: Extract<Block, { type: "image" }>,
+  urlOverride?: string,
+): string {
   const src = urlOverride ?? block.url;
   const alt = block.alt ? escapeAttr(block.alt) : "";
-  const styles: string[] = ["max-width:100%", "height:auto", "display:block", "margin:1em auto"];
+  const styles: string[] = [
+    "max-width:100%",
+    "height:auto",
+    "display:block",
+    "margin:1em auto",
+  ];
 
   if (!isImageDefault(block)) {
     if (typeof block.width === "number") styles.push(`width:${block.width}px`);
@@ -186,7 +203,10 @@ function flushLists(stack: ListGroup[], target: number): string {
   return out;
 }
 
-export function serializeToHTML(blocks: Block[], options: RenderOptions = {}): string {
+export function serializeToHTML(
+  blocks: Block[],
+  options: RenderOptions = {},
+): string {
   const live = blocks.filter((b) => !b.deleted);
   const parts: string[] = [];
   const listStack: ListGroup[] = [];
@@ -198,14 +218,19 @@ export function serializeToHTML(blocks: Block[], options: RenderOptions = {}): s
   for (const block of live) {
     if (isListBlock(block)) {
       const kind: ListGroup["type"] =
-        block.type === "numbered_list" ? "numbered" : block.type === "todo_list" ? "todo" : "bullet";
+        block.type === "numbered_list"
+          ? "numbered"
+          : block.type === "todo_list"
+            ? "todo"
+            : "bullet";
       const indent = block.indent || 0;
 
       // Pop deeper or differently-typed groups at same level
       while (
         listStack.length > 0 &&
         (listStack[listStack.length - 1].indent > indent ||
-          (listStack[listStack.length - 1].indent === indent && listStack[listStack.length - 1].type !== kind))
+          (listStack[listStack.length - 1].indent === indent &&
+            listStack[listStack.length - 1].type !== kind))
       ) {
         const popped = flushLists(listStack, listStack.length - 1);
         if (popped) parts.push(popped);
@@ -224,7 +249,9 @@ export function serializeToHTML(blocks: Block[], options: RenderOptions = {}): s
       const group = listStack[listStack.length - 1];
       if (block.type === "todo_list") {
         const checked = block.checked ? " checked" : "";
-        group.html.push(`<li><input type="checkbox" disabled${checked} /><span>${inner}</span></li>`);
+        group.html.push(
+          `<li><input type="checkbox" disabled${checked} /><span>${inner}</span></li>`,
+        );
       } else {
         group.html.push(`<li>${inner}</li>`);
       }

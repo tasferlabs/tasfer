@@ -11,10 +11,11 @@
  * restored with full fidelity.
  */
 
-import { SyncEngine, setCRDTContext } from "../sync";
+import type { Math as MathBlock } from "@/deserializer/loadPage";
+
 import { invertOperation } from "../../inverse";
 import { applyOp } from "../reducer";
-import type { Math as MathBlock } from "@/deserializer/loadPage";
+import { setCRDTContext, SyncEngine } from "../sync";
 
 setCRDTContext("math-undo-page", "p001");
 
@@ -29,17 +30,23 @@ engine.emit([insertOp]);
 
 const blockId = insertOp.blockId;
 const state1 = engine.getState();
-const block1 = state1.blocks.find((b) => b.id === blockId) as MathBlock | undefined;
+const block1 = state1.blocks.find((b) => b.id === blockId) as
+  | MathBlock
+  | undefined;
 if (!block1 || block1.type !== "math") {
   console.log("FAIL: math block was not inserted");
   process.exit(1);
 }
 if (block1.latex !== "x^2") {
-  console.log(`FAIL: expected latex="x^2", got ${JSON.stringify(block1.latex)}`);
+  console.log(
+    `FAIL: expected latex="x^2", got ${JSON.stringify(block1.latex)}`,
+  );
   process.exit(1);
 }
 if (block1.displayMode !== true) {
-  console.log(`FAIL: expected displayMode=true, got ${JSON.stringify(block1.displayMode)}`);
+  console.log(
+    `FAIL: expected displayMode=true, got ${JSON.stringify(block1.displayMode)}`,
+  );
   process.exit(1);
 }
 
@@ -60,30 +67,41 @@ if (inverseOp.op !== "block_insert") {
   process.exit(1);
 }
 
-const initialProps = (inverseOp as { initialProps?: Record<string, unknown> }).initialProps;
+const initialProps = (inverseOp as { initialProps?: Record<string, unknown> })
+  .initialProps;
 console.log("inverse initialProps:", JSON.stringify(initialProps));
 if (!initialProps || initialProps.latex !== "x^2") {
-  console.log(`FAIL: inverse initialProps.latex expected "x^2", got ${JSON.stringify(initialProps?.latex)}`);
+  console.log(
+    `FAIL: inverse initialProps.latex expected "x^2", got ${JSON.stringify(initialProps?.latex)}`,
+  );
   process.exit(1);
 }
 if (initialProps.displayMode !== true) {
-  console.log(`FAIL: inverse initialProps.displayMode expected true, got ${JSON.stringify(initialProps.displayMode)}`);
+  console.log(
+    `FAIL: inverse initialProps.displayMode expected true, got ${JSON.stringify(initialProps.displayMode)}`,
+  );
   process.exit(1);
 }
 
 const stateAfterDelete = engine.getState();
 const restoredPage = applyOp(stateAfterDelete, inverseOp);
-const restoredBlock = restoredPage.blocks.find((b) => b.id === blockId) as MathBlock | undefined;
+const restoredBlock = restoredPage.blocks.find((b) => b.id === blockId) as
+  | MathBlock
+  | undefined;
 if (!restoredBlock || restoredBlock.type !== "math") {
   console.log("FAIL: restored block missing or wrong type");
   process.exit(1);
 }
 if (restoredBlock.latex !== "x^2") {
-  console.log(`FAIL: restored latex expected "x^2", got ${JSON.stringify(restoredBlock.latex)}`);
+  console.log(
+    `FAIL: restored latex expected "x^2", got ${JSON.stringify(restoredBlock.latex)}`,
+  );
   process.exit(1);
 }
 if (restoredBlock.displayMode !== true) {
-  console.log(`FAIL: restored displayMode expected true, got ${JSON.stringify(restoredBlock.displayMode)}`);
+  console.log(
+    `FAIL: restored displayMode expected true, got ${JSON.stringify(restoredBlock.displayMode)}`,
+  );
   process.exit(1);
 }
 if (restoredBlock.deleted) {

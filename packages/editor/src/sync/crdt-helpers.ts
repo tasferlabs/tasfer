@@ -6,23 +6,24 @@
  * algorithmically identical — see `applyOp` in `reducer.ts`.
  */
 
-import type { CharRun, FormatSpan, Page, TextFormat } from "../deserializer/loadPage";
-import { isTextualBlock } from "../deserializer/loadPage";
 import type {
-  FormatSet,
-  TextDelete,
-  TextInsert
-} from "../sync/types";
-import { getPageId, nextId, getClock } from "./sync";
-import { extractPeerId, extractCounter } from "./id";
+  CharRun,
+  FormatSpan,
+  Page,
+  TextFormat,
+} from "../deserializer/loadPage";
+import { isTextualBlock } from "../deserializer/loadPage";
+import type { FormatSet, TextDelete, TextInsert } from "../sync/types";
 import {
-  getVisibleTextFromRuns,
-  getVisibleLengthFromRuns,
   getCharIdAtVisiblePosition,
-  iterateVisibleChars,
+  getVisibleLengthFromRuns,
+  getVisibleTextFromRuns,
   isCharIdInRange,
+  iterateVisibleChars,
 } from "./char-runs";
+import { extractCounter, extractPeerId } from "./id";
 import { applyOp } from "./reducer";
+import { getClock, getPageId, nextId } from "./sync";
 
 export interface InsertCharsResult {
   newPage: Page;
@@ -46,7 +47,7 @@ export function insertCharsAtPosition(
   page: Page,
   blockId: string,
   position: number,
-  text: string
+  text: string,
 ): InsertCharsResult {
   if (text.length === 0) {
     throw new Error("Cannot insert empty text");
@@ -92,7 +93,7 @@ export function deleteCharsInRange(
   page: Page,
   blockId: string,
   startIndex: number,
-  endIndex: number
+  endIndex: number,
 ): DeleteCharsResult {
   const block = page.blocks.find((b) => b.id === blockId);
   const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
@@ -119,7 +120,7 @@ export function formatCharsInRange(
   startIndex: number,
   endIndex: number,
   format: TextFormat,
-  value: boolean | string
+  value: boolean | string,
 ): FormatCharsResult {
   const block = page.blocks.find((b) => b.id === blockId);
   const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
@@ -150,7 +151,7 @@ export function getVisibleLength(charRuns: CharRun[]): number {
 function getCharIdsInRangeFromRuns(
   charRuns: CharRun[] | undefined,
   startIndex: number,
-  endIndex: number
+  endIndex: number,
 ): string[] {
   if (!charRuns) return [];
 
@@ -168,7 +169,11 @@ function getCharIdsInRangeFromRuns(
   return ids;
 }
 
-function isCharIdInSpan(charId: string, span: FormatSpan, charRuns: CharRun[] | undefined): boolean {
+function isCharIdInSpan(
+  charId: string,
+  span: FormatSpan,
+  charRuns: CharRun[] | undefined,
+): boolean {
   if (!charRuns) return false;
   return isCharIdInRange(charRuns, charId, span.startCharId, span.endCharId);
 }
@@ -181,18 +186,19 @@ export function allCharsHaveFormat(
   formats: FormatSpan[],
   startIndex: number,
   endIndex: number,
-  formatType: TextFormat["type"]
+  formatType: TextFormat["type"],
 ): boolean {
   if (!charRuns) return false;
 
   const charIds = getCharIdsInRangeFromRuns(charRuns, startIndex, endIndex);
   if (charIds.length === 0) return false;
 
-  return charIds.every(charId =>
-    formats.some(span =>
-      span.format.type === formatType &&
-      isCharIdInSpan(charId, span, charRuns)
-    )
+  return charIds.every((charId) =>
+    formats.some(
+      (span) =>
+        span.format.type === formatType &&
+        isCharIdInSpan(charId, span, charRuns),
+    ),
   );
 }
 
@@ -202,7 +208,7 @@ export function allCharsHaveFormat(
 export function getFormatsAtCharPosition(
   charRuns: CharRun[],
   formats: FormatSpan[],
-  position: number
+  position: number,
 ): TextFormat[] {
   if (position === 0) return [];
 
@@ -218,4 +224,3 @@ export function getFormatsAtCharPosition(
 
   return activeFormats;
 }
-

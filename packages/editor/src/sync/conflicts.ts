@@ -13,6 +13,7 @@ import type {
   FormatSpan,
   TextFormat,
 } from "@/deserializer/loadPage";
+
 import { compareHLC } from "./hlc";
 import { compareIds } from "./id";
 
@@ -50,7 +51,7 @@ export function compareBlocks(a: Block, b: Block): number {
 export function findCharInsertIndex(
   chars: Char[],
   afterCharId: string | null,
-  newCharId: string
+  newCharId: string,
 ): number {
   if (afterCharId === null) {
     // Insert at beginning, but after any other chars also inserted at beginning
@@ -123,7 +124,7 @@ export function mergeFormatSpans(spans: FormatSpan[]): FormatSpan[] {
   for (const [, formatSpans] of byFormat) {
     // Sort by clock (oldest first)
     const sorted = [...formatSpans].sort((a, b) =>
-      compareHLC(a.clock, b.clock)
+      compareHLC(a.clock, b.clock),
     );
     result.push(...sorted);
   }

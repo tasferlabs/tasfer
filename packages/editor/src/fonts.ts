@@ -8,10 +8,6 @@ import "@fontsource/poppins/400.css";
 import "@fontsource/poppins/500.css";
 import "@fontsource/poppins/600.css";
 import "@fontsource/poppins/700.css";
-// Formatted text measurement - handles Char[] with FormatSpan[]
-import type { Char, FormatSpan, TextFormat } from "./deserializer/loadPage";
-import { getInlineMathDims } from "./inlineMath";
-
 // Import Libre Baskerville font (multiple weights)
 import "@fontsource/libre-baskerville/400.css";
 import "@fontsource/libre-baskerville/700.css";
@@ -20,8 +16,12 @@ import "@fontsource/space-grotesk/400.css";
 import "@fontsource/space-grotesk/500.css";
 import "@fontsource/space-grotesk/600.css";
 import "@fontsource/space-grotesk/700.css";
-import type { FontMetrics, CharacterMetrics } from "./types";
+
+// Formatted text measurement - handles Char[] with FormatSpan[]
+import type { Char, FormatSpan, TextFormat } from "./deserializer/loadPage";
+import { getInlineMathDims } from "./inlineMath";
 import type FontConfig from "./types";
+import type { CharacterMetrics, FontMetrics } from "./types";
 
 // Arabic font loading state
 let arabicFontsLoaded = false;

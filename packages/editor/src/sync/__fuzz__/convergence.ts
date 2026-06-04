@@ -1,23 +1,46 @@
-import { isTextualBlock, type Block, type Page, type TextFormat } from "@/deserializer/loadPage";
+import {
+  type Block,
+  isTextualBlock,
+  type Page,
+  type TextFormat,
+} from "@/deserializer/loadPage";
+
 import { getVisibleLengthFromRuns } from "../char-runs";
 import { rebuildState } from "../reducer";
 import { SyncEngine } from "../sync";
 import type { BlockType, Operation } from "../types";
 
 type TextualType = "paragraph" | "heading1" | "bullet_list" | "todo_list";
-const TEXTUAL_TYPES: TextualType[] = ["paragraph", "heading1", "bullet_list", "todo_list"];
-const FORMAT_TYPES: TextFormat["type"][] = ["bold", "italic", "strikethrough", "code"];
-const ASCII = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,!?";
+const TEXTUAL_TYPES: TextualType[] = [
+  "paragraph",
+  "heading1",
+  "bullet_list",
+  "todo_list",
+];
+const FORMAT_TYPES: TextFormat["type"][] = [
+  "bold",
+  "italic",
+  "strikethrough",
+  "code",
+];
+const ASCII =
+  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,!?";
 
-type OpKind = "text_insert" | "text_delete" | "format_set" | "block_insert" | "block_delete" | "block_set";
+type OpKind =
+  | "text_insert"
+  | "text_delete"
+  | "format_set"
+  | "block_insert"
+  | "block_delete"
+  | "block_set";
 
 const OP_WEIGHTS: Array<[OpKind, number]> = [
   ["text_insert", 0.35],
-  ["text_delete", 0.20],
+  ["text_delete", 0.2],
   ["format_set", 0.15],
   ["block_insert", 0.15],
   ["block_delete", 0.05],
-  ["block_set", 0.10],
+  ["block_set", 0.1],
 ];
 
 interface PendingOp {
@@ -33,7 +56,11 @@ interface Args {
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { peers: 3, ops: 200, seed: Math.floor(Math.random() * 1e9) };
+  const args: Args = {
+    peers: 3,
+    ops: 200,
+    seed: Math.floor(Math.random() * 1e9),
+  };
   for (const raw of argv) {
     const m = /^--([a-z]+)=(.+)$/.exec(raw);
     if (!m) continue;
@@ -42,9 +69,12 @@ function parseArgs(argv: string[]): Args {
     else if (key === "ops") args.ops = parseInt(val, 10);
     else if (key === "seed") args.seed = parseInt(val, 10);
   }
-  if (!Number.isFinite(args.peers) || args.peers < 1) throw new Error("--peers must be a positive integer");
-  if (!Number.isFinite(args.ops) || args.ops < 0) throw new Error("--ops must be a non-negative integer");
-  if (!Number.isFinite(args.seed)) throw new Error("--seed must be a finite integer");
+  if (!Number.isFinite(args.peers) || args.peers < 1)
+    throw new Error("--peers must be a positive integer");
+  if (!Number.isFinite(args.ops) || args.ops < 0)
+    throw new Error("--ops must be a non-negative integer");
+  if (!Number.isFinite(args.seed))
+    throw new Error("--seed must be a finite integer");
   return args;
 }
 
@@ -61,14 +91,26 @@ function mulberry32(seed: number): () => number {
 
 class Random {
   private rnd: () => number;
-  constructor(rnd: () => number) { this.rnd = rnd; }
-  next(): number { return this.rnd(); }
-  int(maxExclusive: number): number { return Math.floor(this.rnd() * maxExclusive); }
-  intRange(minInclusive: number, maxInclusive: number): number {
-    return minInclusive + Math.floor(this.rnd() * (maxInclusive - minInclusive + 1));
+  constructor(rnd: () => number) {
+    this.rnd = rnd;
   }
-  bool(): boolean { return this.rnd() < 0.5; }
-  pick<T>(arr: T[]): T { return arr[this.int(arr.length)]; }
+  next(): number {
+    return this.rnd();
+  }
+  int(maxExclusive: number): number {
+    return Math.floor(this.rnd() * maxExclusive);
+  }
+  intRange(minInclusive: number, maxInclusive: number): number {
+    return (
+      minInclusive + Math.floor(this.rnd() * (maxInclusive - minInclusive + 1))
+    );
+  }
+  bool(): boolean {
+    return this.rnd() < 0.5;
+  }
+  pick<T>(arr: T[]): T {
+    return arr[this.int(arr.length)];
+  }
   weightedKind(): OpKind {
     const r = this.rnd();
     let acc = 0;
@@ -98,8 +140,15 @@ function visibleLen(block: Block): number {
   return getVisibleLengthFromRuns(block.charRuns);
 }
 
-function pickTextualBlock(state: Page, rng: Random, requireChars: boolean): Block | null {
-  const candidates = state.blocks.filter((b) => !b.deleted && isTextualBlock(b) && (!requireChars || visibleLen(b) > 0));
+function pickTextualBlock(
+  state: Page,
+  rng: Random,
+  requireChars: boolean,
+): Block | null {
+  const candidates = state.blocks.filter(
+    (b) =>
+      !b.deleted && isTextualBlock(b) && (!requireChars || visibleLen(b) > 0),
+  );
   if (candidates.length === 0) return null;
   return rng.pick(candidates);
 }
@@ -126,7 +175,12 @@ function generateOp(engine: SyncEngine, rng: Random): Operation | null {
   return tryGenerateOp(engine, state, "block_insert", rng);
 }
 
-function tryGenerateOp(engine: SyncEngine, state: Page, kind: OpKind, rng: Random): Operation | null {
+function tryGenerateOp(
+  engine: SyncEngine,
+  state: Page,
+  kind: OpKind,
+  rng: Random,
+): Operation | null {
   switch (kind) {
     case "text_insert": {
       const block = pickTextualBlock(state, rng, false);
@@ -156,9 +210,10 @@ function tryGenerateOp(engine: SyncEngine, state: Page, kind: OpKind, rng: Rando
     }
     case "block_insert": {
       const blockType: BlockType = rng.pick(TEXTUAL_TYPES);
-      const after = state.blocks.length === 0 || rng.next() < 0.2
-        ? null
-        : pickAnyBlock(state, rng)?.id ?? null;
+      const after =
+        state.blocks.length === 0 || rng.next() < 0.2
+          ? null
+          : (pickAnyBlock(state, rng)?.id ?? null);
       return engine.createBlockInsert(after, blockType);
     }
     case "block_delete": {
@@ -169,15 +224,29 @@ function tryGenerateOp(engine: SyncEngine, state: Page, kind: OpKind, rng: Rando
     case "block_set": {
       const block = pickLiveBlock(state, rng);
       if (!block) return null;
-      if (block.type === "bullet_list" || block.type === "numbered_list" || block.type === "todo_list") {
+      if (
+        block.type === "bullet_list" ||
+        block.type === "numbered_list" ||
+        block.type === "todo_list"
+      ) {
         if (rng.bool() && block.type === "todo_list") {
           return engine.createBlockSet(block.id, "checked", rng.bool());
         }
         const indent = rng.intRange(0, 4);
         return engine.createBlockSet(block.id, "indent", indent);
       }
-      if (block.type === "paragraph" || block.type === "heading1" || block.type === "heading2" || block.type === "heading3") {
-        const newType = rng.pick(["paragraph", "heading1", "heading2", "heading3"] as const);
+      if (
+        block.type === "paragraph" ||
+        block.type === "heading1" ||
+        block.type === "heading2" ||
+        block.type === "heading3"
+      ) {
+        const newType = rng.pick([
+          "paragraph",
+          "heading1",
+          "heading2",
+          "heading3",
+        ] as const);
         return engine.createBlockSet(block.id, "type", newType);
       }
       return null;
@@ -189,7 +258,9 @@ function canonicalize(value: unknown): unknown {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value instanceof Map) {
-    const entries = Array.from(value.entries()).map(([k, v]) => [k, canonicalize(v)] as const);
+    const entries = Array.from(value.entries()).map(
+      ([k, v]) => [k, canonicalize(v)] as const,
+    );
     entries.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
     return { __map__: entries };
   }
@@ -226,12 +297,32 @@ function describeDiff(a: Page, b: Page, peerA: string, peerB: string): string {
     if (canonicalJSON(ba) === canonicalJSON(bb)) continue;
     lines.push(`  [${i}] block ${ba.id} vs ${bb.id} differs`);
     if (isTextualBlock(ba) && isTextualBlock(bb)) {
-      const ta = ba.charRuns.map((r) => `${r.peerId}@${r.startCounter}:"${r.text}"${r.deletedMask ? `(d=${r.deletedMask.join("/")})` : ""}`).join(" | ");
-      const tb = bb.charRuns.map((r) => `${r.peerId}@${r.startCounter}:"${r.text}"${r.deletedMask ? `(d=${r.deletedMask.join("/")})` : ""}`).join(" | ");
+      const ta = ba.charRuns
+        .map(
+          (r) =>
+            `${r.peerId}@${r.startCounter}:"${r.text}"${r.deletedMask ? `(d=${r.deletedMask.join("/")})` : ""}`,
+        )
+        .join(" | ");
+      const tb = bb.charRuns
+        .map(
+          (r) =>
+            `${r.peerId}@${r.startCounter}:"${r.text}"${r.deletedMask ? `(d=${r.deletedMask.join("/")})` : ""}`,
+        )
+        .join(" | ");
       lines.push(`     runs A: ${ta}`);
       lines.push(`     runs B: ${tb}`);
-      const fa = ba.formats.map((f) => `${f.format.type}[${f.startCharId}..${f.endCharId}]@${f.clock.counter}-${f.clock.peerId}`).join(" | ");
-      const fb = bb.formats.map((f) => `${f.format.type}[${f.startCharId}..${f.endCharId}]@${f.clock.counter}-${f.clock.peerId}`).join(" | ");
+      const fa = ba.formats
+        .map(
+          (f) =>
+            `${f.format.type}[${f.startCharId}..${f.endCharId}]@${f.clock.counter}-${f.clock.peerId}`,
+        )
+        .join(" | ");
+      const fb = bb.formats
+        .map(
+          (f) =>
+            `${f.format.type}[${f.startCharId}..${f.endCharId}]@${f.clock.counter}-${f.clock.peerId}`,
+        )
+        .join(" | ");
       if (fa !== fb) {
         lines.push(`     formats A: ${fa}`);
         lines.push(`     formats B: ${fb}`);
@@ -289,7 +380,11 @@ async function main(): Promise<void> {
 
     const delivered = new Set<string>();
     delivered.add(engine.getPeerId());
-    pending.push({ originPeerId: engine.getPeerId(), op, deliveredTo: delivered });
+    pending.push({
+      originPeerId: engine.getPeerId(),
+      op,
+      deliveredTo: delivered,
+    });
 
     nextFlush--;
     if (nextFlush <= 0) {
@@ -305,11 +400,15 @@ async function main(): Promise<void> {
   if (failure) {
     console.log(`FAIL: ${failure.reason}`);
     console.log(failure.detail);
-    console.log(`seed=${args.seed} peers=${engines.length} ops=${opsEmitted} opsPerPeer=${opsPerPeer.join(",")} interleavedFlushes=${interleavedFlushes} time=${elapsed}ms`);
+    console.log(
+      `seed=${args.seed} peers=${engines.length} ops=${opsEmitted} opsPerPeer=${opsPerPeer.join(",")} interleavedFlushes=${interleavedFlushes} time=${elapsed}ms`,
+    );
     process.exit(1);
   }
 
-  console.log(`PASS: ${engines.length} peers, ${opsEmitted} ops, ${interleavedFlushes} interleaved flushes, ${elapsed} ms`);
+  console.log(
+    `PASS: ${engines.length} peers, ${opsEmitted} ops, ${interleavedFlushes} interleaved flushes, ${elapsed} ms`,
+  );
   console.log(`opsPerPeer=${opsPerPeer.join(",")}`);
   process.exit(0);
 }
@@ -319,7 +418,11 @@ function counterOf(op: Operation): number {
   return colon === -1 ? 0 : parseInt(op.id.slice(colon + 1), 10);
 }
 
-function partialFlush(engines: SyncEngine[], pending: PendingOp[], rng: Random): number {
+function partialFlush(
+  engines: SyncEngine[],
+  pending: PendingOp[],
+  rng: Random,
+): number {
   if (pending.length === 0) return 0;
 
   // Pick a random subset of TARGET peers.
@@ -398,7 +501,10 @@ function fullFlush(engines: SyncEngine[], pending: PendingOp[]): void {
   }
 }
 
-interface FailureInfo { reason: string; detail: string; }
+interface FailureInfo {
+  reason: string;
+  detail: string;
+}
 
 function checkConvergence(engines: SyncEngine[]): FailureInfo | null {
   // 0) All peers should have received the same set of ops.
@@ -419,7 +525,12 @@ function checkConvergence(engines: SyncEngine[]): FailureInfo | null {
     if (stringified[0] !== stringified[i]) {
       return {
         reason: `peer ${engines[0].getPeerId()} state differs from peer ${engines[i].getPeerId()}`,
-        detail: describeDiff(states[0], states[i], engines[0].getPeerId(), engines[i].getPeerId()),
+        detail: describeDiff(
+          states[0],
+          states[i],
+          engines[0].getPeerId(),
+          engines[i].getPeerId(),
+        ),
       };
     }
   }
@@ -432,7 +543,12 @@ function checkConvergence(engines: SyncEngine[]): FailureInfo | null {
     if (canonicalJSON(incremental) !== canonicalJSON(rebuilt)) {
       return {
         reason: `peer ${engine.getPeerId()} incremental state diverges from rebuildState`,
-        detail: describeDiff(incremental, rebuilt, `${engine.getPeerId()}/incremental`, `${engine.getPeerId()}/rebuilt`),
+        detail: describeDiff(
+          incremental,
+          rebuilt,
+          `${engine.getPeerId()}/incremental`,
+          `${engine.getPeerId()}/rebuilt`,
+        ),
       };
     }
   }

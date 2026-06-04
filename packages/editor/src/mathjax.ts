@@ -1,7 +1,8 @@
 // @ts-expect-error - pre-built ESM bundle from mathjax-full CJS
 import mathjaxBundle from "./mathjax-bundle.mjs";
 
-const { mathjax, TeX, SVG, liteAdaptor, RegisterHTMLHandler, AllPackages } = mathjaxBundle;
+const { mathjax, TeX, SVG, liteAdaptor, RegisterHTMLHandler, AllPackages } =
+  mathjaxBundle;
 
 const adaptor = liteAdaptor();
 RegisterHTMLHandler(adaptor);

@@ -1,28 +1,25 @@
 import i18next from "i18next";
-import type {
-  Block,
-  Char,
-  CharRun,
-  FormatSpan,
-} from "./deserializer/loadPage";
+
+import { resolveAssetUrl } from "./adapters";
+import type { Block, Char, CharRun, FormatSpan } from "./deserializer/loadPage";
 import { isListBlock, isTextualBlock } from "./deserializer/loadPage";
 import {
   batchChars,
-  getFontStack,
+  type FontFamily,
   getCurrentFontFamily,
   getFontMetrics,
+  getFontStack,
   measureTextUpToIndex,
-  wrapText,
-  type FontFamily,
   type TextBatch,
+  wrapText,
 } from "./fonts";
-import { renderScrollbar } from "./scrollbar";
 import {
   getInlineMathDims,
   getInlineMathImage,
   setInlineMathRedrawCallback,
 } from "./inlineMath";
 import { getTextDirection } from "./rtl";
+import { renderScrollbar } from "./scrollbar";
 import { getBlockTextContent, isCursorBlinking, isTouchDevice } from "./state";
 import { getEditorStyles, getTextStyle } from "./styles";
 import type { AwarenessState } from "./sync/awareness";
@@ -36,7 +33,6 @@ import {
   isCharDeleted,
   iterateVisibleChars,
 } from "./sync/char-runs";
-import { resolveAssetUrl } from "./adapters";
 import type {
   BlockBounds,
   EditorState,

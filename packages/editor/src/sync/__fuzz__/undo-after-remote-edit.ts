@@ -19,12 +19,19 @@
  * step.
  */
 
-import { SyncEngine, setCRDTContext, getClock, nextId, getPageId } from "../sync";
-import { invertOperation, refreshOps } from "../../inverse";
-import { applyOps } from "../reducer";
-import { getVisibleLengthFromRuns, iterateVisibleChars } from "../char-runs";
 import type { Page, Paragraph } from "@/deserializer/loadPage";
 import { isTextualBlock } from "@/deserializer/loadPage";
+
+import { invertOperation, refreshOps } from "../../inverse";
+import { getVisibleLengthFromRuns, iterateVisibleChars } from "../char-runs";
+import { applyOps } from "../reducer";
+import {
+  getClock,
+  getPageId,
+  nextId,
+  setCRDTContext,
+  SyncEngine,
+} from "../sync";
 import type { FormatSet } from "../types";
 
 // Two peers. Production uses one global HLC (set via setCRDTContext)
@@ -59,7 +66,10 @@ const visibleText = (p: Page): string => {
   return result;
 };
 
-if (visibleText(peerA.getState()) !== "hello" || visibleText(peerB.getState()) !== "hello") {
+if (
+  visibleText(peerA.getState()) !== "hello" ||
+  visibleText(peerB.getState()) !== "hello"
+) {
   console.log(
     `FAIL: initial sync wrong. A="${visibleText(peerA.getState())}" B="${visibleText(peerB.getState())}"`,
   );
@@ -198,5 +208,7 @@ if (!reBlock) {
   process.exit(1);
 }
 
-console.log("PASS: captured-at-emit-time inverse undid bold after remote insert");
+console.log(
+  "PASS: captured-at-emit-time inverse undid bold after remote insert",
+);
 process.exit(0);

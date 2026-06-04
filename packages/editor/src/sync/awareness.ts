@@ -6,9 +6,10 @@
  */
 
 import type { Page } from "@/deserializer/loadPage";
+import { isTextualBlock } from "@/deserializer/loadPage";
+
 import type { Position, SelectionState } from "../types";
 import { getVisibleLengthFromRuns } from "./char-runs";
-import { isTextualBlock } from "@/deserializer/loadPage";
 
 // =============================================================================
 // Types
@@ -266,7 +267,7 @@ export class AwarenessManager {
  */
 export function positionToAwarenessCursor(
   position: Position,
-  page: Page
+  page: Page,
 ): AwarenessCursor | null {
   const block = page.blocks[position.blockIndex];
   if (!block || block.deleted) return null;
@@ -282,7 +283,7 @@ export function positionToAwarenessCursor(
  */
 export function selectionToAwarenessSelection(
   selection: SelectionState,
-  page: Page
+  page: Page,
 ): AwarenessSelection | null {
   const anchorCursor = positionToAwarenessCursor(selection.anchor, page);
   const focusCursor = positionToAwarenessCursor(selection.focus, page);
@@ -302,7 +303,7 @@ export function selectionToAwarenessSelection(
  */
 export function awarenessCursorToPosition(
   cursor: AwarenessCursor,
-  page: Page
+  page: Page,
 ): Position | null {
   const blockIndex = page.blocks.findIndex((b) => b.id === cursor.blockId);
   if (blockIndex === -1) return null;
@@ -332,7 +333,7 @@ export function awarenessCursorToPosition(
  */
 export function awarenessSelectionToSelection(
   awareness: AwarenessSelection,
-  page: Page
+  page: Page,
 ): SelectionState | null {
   const anchor = awarenessCursorToPosition(awareness.anchor, page);
   const focus = awarenessCursorToPosition(awareness.focus, page);
@@ -360,7 +361,7 @@ export function awarenessSelectionToSelection(
  */
 export function awarenessCursorsEqual(
   a: AwarenessCursor | null,
-  b: AwarenessCursor | null
+  b: AwarenessCursor | null,
 ): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
@@ -372,7 +373,7 @@ export function awarenessCursorsEqual(
  */
 export function awarenessSelectionsEqual(
   a: AwarenessSelection | null,
-  b: AwarenessSelection | null
+  b: AwarenessSelection | null,
 ): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
@@ -391,7 +392,7 @@ export function awarenessSelectionsEqual(
  * Create an AwarenessManager instance.
  */
 export function createAwarenessManager(
-  config: AwarenessConfig
+  config: AwarenessConfig,
 ): AwarenessManager {
   return new AwarenessManager(config);
 }

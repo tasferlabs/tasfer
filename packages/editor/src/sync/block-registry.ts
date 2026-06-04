@@ -10,6 +10,7 @@
  */
 
 import type { Block } from "@/deserializer/loadPage";
+
 import type { BlockType } from "./types";
 
 // =============================================================================
@@ -121,8 +122,7 @@ const altField: FieldDescriptor = {
 };
 
 const widthField: FieldDescriptor = {
-  validate: (value): boolean =>
-    value === "full" || typeof value === "number",
+  validate: (value): boolean => value === "full" || typeof value === "number",
   extractForInverse: (block) =>
     block.type === "image" ? block.width : undefined,
 };
@@ -372,7 +372,8 @@ export const BLOCK_REGISTRY = {
 // inferred types are only needed for the compile-time check in sync.ts;
 // callers want the homogeneous descriptor shape.
 
-const REGISTRY: Readonly<Record<BlockType, BlockTypeDescriptor>> = BLOCK_REGISTRY;
+const REGISTRY: Readonly<Record<BlockType, BlockTypeDescriptor>> =
+  BLOCK_REGISTRY;
 
 export function getBlockDescriptor(type: BlockType): BlockTypeDescriptor {
   return REGISTRY[type];

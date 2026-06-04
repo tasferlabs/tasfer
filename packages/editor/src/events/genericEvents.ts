@@ -1,7 +1,7 @@
-import type { Operation } from "../sync/sync";
-import { getVisibleBlocks } from "../sync/sync";
 import { pasteFromClipboardEvent } from "../actions/clipboard";
 import { scrollToMakeCursorVisible } from "../selection";
+import type { Operation } from "../sync/sync";
+import { getVisibleBlocks } from "../sync/sync";
 import type { EditorState, ViewportState } from "../types";
 
 export function handlePaste(
@@ -9,7 +9,8 @@ export function handlePaste(
   event: ClipboardEvent,
   viewport: ViewportState,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
-  clipboardData?: { html: string; text: string; imageFile: File | null } | null): { state: EditorState; ops: Operation[]; pastedImageBlockIndex?: number } {
+  clipboardData?: { html: string; text: string; imageFile: File | null } | null,
+): { state: EditorState; ops: Operation[]; pastedImageBlockIndex?: number } {
   // Prevent default paste behavior
   event.preventDefault();
 
@@ -30,11 +31,7 @@ export function handlePaste(
 
   // Use the tracked pasteAsPlainText flag (set during keydown)
   // Paste as plain text
-  const result = pasteFromClipboardEvent(
-    state,
-    event,
-    clipboardData
-  );
+  const result = pasteFromClipboardEvent(state, event, clipboardData);
   if (!result) {
     return { state, ops: [] };
   }
@@ -53,12 +50,16 @@ export function handlePaste(
     const newScrollY = scrollToMakeCursorVisible(
       newState.document.cursor.position,
       newState,
-      viewport
+      viewport,
     );
     if (newScrollY !== null) {
       updateViewportCallback({ scrollY: newScrollY });
     }
   }
 
-  return { state: newState, ops: result.ops, pastedImageBlockIndex: result.pastedImageBlockIndex };
+  return {
+    state: newState,
+    ops: result.ops,
+    pastedImageBlockIndex: result.pastedImageBlockIndex,
+  };
 }

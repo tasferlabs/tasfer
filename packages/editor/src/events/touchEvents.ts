@@ -1,6 +1,5 @@
-import { isTextualBlock, type Block } from "@/deserializer/loadPage";
-import type { Operation } from "../sync/sync";
-import { getPageId, nextId, getClock } from "../sync/sync";
+import { type Block, isTextualBlock } from "@/deserializer/loadPage";
+
 import {
   selectLineAtPosition,
   selectWordAtPosition,
@@ -14,22 +13,6 @@ import {
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
 } from "../constants";
-import {
-  activateScroll,
-  autoScrollState,
-  clearScrollPress,
-  scrollbarPressState,
-} from "./eventsState";
-import { handleTodoCheckboxClick } from "./mouseEvents";
-import {
-  endImageDrag,
-  getImageBlockAtPoint,
-  getLineBlockAtPoint,
-  getSelectionHandleAtPoint,
-  isWithinClickDistance,
-  startImageDrag,
-  updateImageDrag,
-} from "./eventUtils";
 import { imageCache } from "../renderer";
 import {
   endScrollbarDrag,
@@ -54,7 +37,25 @@ import {
   updateMode,
 } from "../state";
 import { getEditorStyles, getTextStyle } from "../styles";
+import type { Operation } from "../sync/sync";
+import { getClock, getPageId, nextId } from "../sync/sync";
 import type { EditorState, ViewportState } from "../types";
+import {
+  activateScroll,
+  autoScrollState,
+  clearScrollPress,
+  scrollbarPressState,
+} from "./eventsState";
+import {
+  endImageDrag,
+  getImageBlockAtPoint,
+  getLineBlockAtPoint,
+  getSelectionHandleAtPoint,
+  isWithinClickDistance,
+  startImageDrag,
+  updateImageDrag,
+} from "./eventUtils";
+import { handleTodoCheckboxClick } from "./mouseEvents";
 
 /** Get rendered line height (px) for the block at the given position. */
 function getLineHeightAtPosition(
@@ -105,7 +106,7 @@ export let touchTapTracker: {
  * Trigger haptic feedback through native bridges
  */
 export function triggerHapticFeedback(
-  style: "light" | "medium" | "heavy" = "heavy"
+  style: "light" | "medium" | "heavy" = "heavy",
 ): void {
   try {
     // Native bridge (iOS / Android)
@@ -145,7 +146,7 @@ export function handleTouchStart(
   viewport: ViewportState,
   event: TouchEvent,
   containerRect: { left: number; top: number },
-  documentHeight: number
+  documentHeight: number,
 ): EditorState {
   // In locked mode, block touch interactions that might lead to scrolling
   if (state.ui.mode === "locked") {
@@ -218,7 +219,7 @@ export function handleTouchStart(
       documentHeight,
       state.view.scrollbar,
       undefined, // Use default styles
-      SCROLLBAR_TOUCH_BUFFER
+      SCROLLBAR_TOUCH_BUFFER,
     );
 
     // Check if touching a selection handle for mobile selection dragging
@@ -283,7 +284,7 @@ export function handleTouchStart(
         imageBlock,
         canvasX,
         canvasY,
-        TOUCH_TOLERANCE
+        TOUCH_TOLERANCE,
       );
       if (dragState) {
         // Start image drag - initialize touch state but don't treat as scroll
@@ -330,7 +331,7 @@ export function handleTouchStart(
       canvasX,
       canvasY,
       state,
-      viewport
+      viewport,
     );
 
     // iOS-style: If touching scrollbar thumb, start hold timer (don't activate immediately)
@@ -436,7 +437,7 @@ export function handleTouchMove(
   event: TouchEvent,
   containerRect: { left: number; top: number },
   documentHeight: number,
-  updateViewportCallback?: (viewport: Partial<ViewportState>) => void
+  updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): EditorState {
   // In locked mode, block scrolling
   if (state.ui.mode === "locked") {
@@ -531,14 +532,14 @@ export function handleTouchMove(
 
     // Keep only last 150ms of velocity history
     touchState.velocityHistory = touchState.velocityHistory.filter(
-      (v) => currentTime - v.time < 150
+      (v) => currentTime - v.time < 150,
     );
 
     // Update velocity for momentum
     if (touchState.velocityHistory.length > 0) {
       const totalVelocity = touchState.velocityHistory.reduce(
         (sum, v) => sum + v.velocity,
-        0
+        0,
       );
       touchState.velocityY = totalVelocity / touchState.velocityHistory.length;
     }
@@ -551,7 +552,7 @@ export function handleTouchMove(
     const maxScroll = documentHeight - viewport.height;
     const newScrollY = Math.max(
       0,
-      Math.min(maxScroll, touchState.startScrollY + scrollDelta)
+      Math.min(maxScroll, touchState.startScrollY + scrollDelta),
     );
 
     if (updateViewportCallback) {
@@ -597,7 +598,7 @@ export function handleTouchMove(
         canvasY,
         viewport,
         documentHeight,
-        state.view.scrollbar
+        state.view.scrollbar,
       );
       if (updateViewportCallback) {
         updateViewportCallback({ scrollY: newScrollY });
@@ -629,7 +630,7 @@ export function handleTouchMove(
       // Only block scrolling down if: bottom handle + near bottom edge + image at max height
       let shouldBlockBottomScroll = false;
       const objectFit =
-        block.type === "image" ? block.objectFit ?? "cover" : "cover";
+        block.type === "image" ? (block.objectFit ?? "cover") : "cover";
       if (
         handle === "bottom" &&
         objectFit === "cover" &&
@@ -718,7 +719,7 @@ export function handleTouchMove(
         canvasX,
         canvasY,
         state,
-        viewport
+        viewport,
       );
 
       if (newPosition && state.document.selection) {
@@ -843,9 +844,14 @@ export function handleTouchMove(
               touchX: canvasX,
               touchY: canvasY,
               cursorX: cursorCoords ? cursorCoords.x : canvasX,
-              cursorY: cursorCoords ? cursorCoords.y - viewport.scrollY : canvasY,
+              cursorY: cursorCoords
+                ? cursorCoords.y - viewport.scrollY
+                : canvasY,
               touchRadiusY,
-              lineHeight: getLineHeightAtPosition(state, newPosition.blockIndex),
+              lineHeight: getLineHeightAtPosition(
+                state,
+                newPosition.blockIndex,
+              ),
               lastPosition: newPosition,
             },
           },
@@ -927,7 +933,7 @@ export function handleTouchMove(
             touchState.startX,
             touchState.startY,
             state,
-            viewport
+            viewport,
           );
 
           if (position) {
@@ -978,14 +984,14 @@ export function handleTouchMove(
 
     // Keep only last 150ms of velocity history (increased from 100ms to be more reliable)
     touchState.velocityHistory = touchState.velocityHistory.filter(
-      (v) => currentTime - v.time < 150
+      (v) => currentTime - v.time < 150,
     );
 
     // Always update velocity for momentum (use average if history exists)
     if (touchState.velocityHistory.length > 0) {
       const totalVelocity = touchState.velocityHistory.reduce(
         (sum, v) => sum + v.velocity,
-        0
+        0,
       );
       touchState.velocityY = totalVelocity / touchState.velocityHistory.length;
       // console.log("touchState.velocityY", touchState.velocityY);
@@ -999,7 +1005,7 @@ export function handleTouchMove(
     const maxScroll = documentHeight - viewport.height;
     const newScrollY = Math.max(
       0,
-      Math.min(maxScroll, touchState.startScrollY + scrollDelta)
+      Math.min(maxScroll, touchState.startScrollY + scrollDelta),
     );
 
     if (updateViewportCallback) {
@@ -1031,7 +1037,7 @@ export function handleTouchEnd(
   state: EditorState,
   viewport: ViewportState,
   _event: TouchEvent,
-  _containerRect: { left: number; top: number }
+  _containerRect: { left: number; top: number },
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
   stopAutoScroll();
@@ -1257,7 +1263,7 @@ export function handleTouchEnd(
       state = openContextMenu(
         state,
         touchState.currentTouchX,
-        touchState.currentTouchY
+        touchState.currentTouchY,
       );
       touchState = null;
       return {
@@ -1337,7 +1343,7 @@ export function handleTouchEnd(
         tapPosition.x,
         tapPosition.y,
         state,
-        viewport
+        viewport,
       );
 
       if (paddingPosition) {
@@ -1371,7 +1377,7 @@ export function handleTouchEnd(
       state,
       tapPosition.x,
       tapPosition.y,
-      viewport
+      viewport,
     );
     if (checkboxTapResult) {
       touchState = null;
@@ -1397,7 +1403,7 @@ export function handleTouchEnd(
       isWithinClickDistance(
         tapPosition,
         touchTapTracker.lastTapPosition,
-        TAP_DISTANCE_THRESHOLD
+        TAP_DISTANCE_THRESHOLD,
       )
     ) {
       touchTapTracker.count++;
@@ -1428,7 +1434,11 @@ export function handleTouchEnd(
 
         // If tapping below content and last block is an image, create a new paragraph
         // Block in readonly mode
-        if (isTapBelowContent && lastBlock.type === "image" && state.ui.mode !== "readonly") {
+        if (
+          isTapBelowContent &&
+          lastBlock.type === "image" &&
+          state.ui.mode !== "readonly"
+        ) {
           const newParagraphId = nextId();
           const newParagraph: Block = {
             id: newParagraphId,
@@ -1485,7 +1495,7 @@ export function handleTouchEnd(
           tapPosition.x,
           tapPosition.y,
           state,
-          viewport
+          viewport,
         );
         if (imageBlock) {
           // If it's a placeholder (no URL), open upload menu
@@ -1587,7 +1597,7 @@ export function handleTouchEnd(
           const lastVisibleBlockIndex =
             visibleBlocks.length > 0
               ? state.document.page.blocks.findIndex(
-                  (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id
+                  (b) => b.id === visibleBlocks[visibleBlocks.length - 1].id,
                 )
               : -1;
           const isLastBlock = position.blockIndex === lastVisibleBlockIndex;
@@ -1652,7 +1662,7 @@ export function handleTouchEnd(
           tapPosition.x,
           tapPosition.y,
           state,
-          viewport
+          viewport,
         );
         if (lineBlockResult) {
           // Select the line block (same behavior as image blocks)
@@ -1739,7 +1749,7 @@ export function handleTouchEnd(
           tapPosition.x,
           tapPosition.y,
           state,
-          viewport
+          viewport,
         )
       ) {
         // Keep selection but update cursor position

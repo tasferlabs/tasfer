@@ -4,7 +4,9 @@
  */
 
 import i18next from "i18next";
-import type { Char } from "./deserializer/loadPage";
+
+import type { CharRun } from "./deserializer/loadPage";
+import { getVisibleTextFromRuns } from "./sync/char-runs";
 
 /**
  * Unicode ranges for RTL scripts
@@ -75,16 +77,27 @@ export function getTextDirection(text: string): "rtl" | "ltr" {
 }
 
 /**
- * Get the direction of char array (CRDT-based)
- * Returns the direction based on the visible characters
+ * Get text direction from CRDT charRuns
  */
-export function getCharsDirection(chars: Char[]): "rtl" | "ltr" {
-  if (!chars || chars.length === 0) return getDefaultDirection();
+export function getCharsDirection(
+  charRuns: CharRun[] | undefined,
+): "rtl" | "ltr" {
+  const visibleText = getVisibleTextFromRuns(charRuns);
+  if (visibleText.length === 0) return "ltr";
 
-  // Get visible text from chars
-  const text = chars
-    .filter((c) => !c.deleted)
-    .map((c) => c.char)
-    .join("");
-  return getTextDirection(text);
+  let totalRtl = 0;
+  let totalLtr = 0;
+
+  for (const char of visibleText) {
+    if (isRTLChar(char)) {
+      totalRtl++;
+    } else if (/[a-zA-Z]/.test(char)) {
+      totalLtr++;
+    }
+  }
+
+  const totalDirectional = totalRtl + totalLtr;
+  if (totalDirectional === 0) return "ltr";
+
+  return totalRtl / totalDirectional > 0.3 ? "rtl" : "ltr";
 }

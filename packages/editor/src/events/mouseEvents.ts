@@ -1,4 +1,5 @@
 import { isTextualBlock } from "@/deserializer/loadPage";
+
 import {
   selectLineAtPosition,
   selectWordAtPosition,
@@ -17,10 +18,10 @@ import {
   isPointInScrollbar,
   isPointInThumb,
   startScrollbarDrag,
+  updateScrollbarHover,
   updateScrollFromThumbDrag,
   updateScrollFromTrackClick,
   updateScrollFromWheel,
-  updateScrollbarHover,
 } from "../scrollbar";
 import {
   getCursorDocumentCoords,
@@ -875,7 +876,6 @@ export function handleMouseMove(
       handle === "bottom" &&
       objectFit === "cover" &&
       block.type === "image" &&
-      
       block.url
     ) {
       const cachedImage = imageCache.get(block.url);

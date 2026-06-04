@@ -1,3 +1,5 @@
+import { deleteSelectedText, getSelectionRange } from "../actions/commands";
+import { IMAGE_DEFAULT_HEIGHT } from "../constants";
 import type {
   Block,
   Char,
@@ -12,8 +14,6 @@ import {
   loadPage,
 } from "../deserializer/loadPage";
 import { serializeToMarkdown } from "../deserializer/serializer";
-import { deleteSelectedText, getSelectionRange } from "../actions/commands";
-import { IMAGE_DEFAULT_HEIGHT } from "../constants";
 import { invalidateBlockCache } from "../renderer";
 import {
   clearSelection,
@@ -22,7 +22,7 @@ import {
   getBlockTextLength,
   moveCursorToPosition,
 } from "../state";
-import { iterateVisibleChars, charRunsToChars } from "../sync/char-runs";
+import { charRunsToChars, iterateVisibleChars } from "../sync/char-runs";
 import {
   deleteCharsInRange,
   formatCharsInRange,
@@ -45,8 +45,7 @@ import {} from "../undo";
 /**
  * URL regex for detecting links in pasted text.
  */
-const URL_REGEX_GLOBAL =
-  /https?:\/\/[^\s<>"']+|www\.[^\s<>"']+\.[^\s<>"']+/gi;
+const URL_REGEX_GLOBAL = /https?:\/\/[^\s<>"']+|www\.[^\s<>"']+\.[^\s<>"']+/gi;
 
 /**
  * Detect all URLs in a text range and apply link formatting.
@@ -119,7 +118,12 @@ function autoLinkInRange(
 
     if (!alreadyLinked) {
       const { newPage, op } = formatCharsInRange(
-        pageAcc, blockId, start, end, { type: "link", url }, url,
+        pageAcc,
+        blockId,
+        start,
+        end,
+        { type: "link", url },
+        url,
       );
       pageAcc = newPage;
       ops.push(op);
@@ -153,7 +157,7 @@ function charsToRuns(chars: Char[]): CharRun[] {
       if (char.deleted) {
         if (!currentDeletedMask) {
           currentDeletedMask = new Array(
-            Math.ceil(currentText.length / 8)
+            Math.ceil(currentText.length / 8),
           ).fill(0);
         }
         const offset = currentText.length - 1;
@@ -283,12 +287,12 @@ function getSelectedContent(state: EditorState): {
     const selectedChars = extractCharsInRange(
       block.charRuns,
       start.textIndex,
-      end.textIndex
+      end.textIndex,
     );
     const selectedFormats = extractFormatsForChars(
       block.formats,
       selectedChars,
-      block.charRuns
+      block.charRuns,
     );
 
     const partialBlock: Block = {
@@ -326,7 +330,7 @@ function getSelectedContent(state: EditorState): {
       const chars = extractCharsInRange(
         block.charRuns,
         start.textIndex,
-        textLength
+        textLength,
       );
       charRuns = charsToRuns(chars);
       formats = extractFormatsForChars(block.formats, chars, block.charRuns);
@@ -362,7 +366,7 @@ function getSelectedContent(state: EditorState): {
 function extractCharsInRange(
   charRuns: CharRun[],
   startIndex: number,
-  endIndex: number
+  endIndex: number,
 ): Char[] {
   const result: Char[] = [];
   let visibleCount = 0;
@@ -384,7 +388,7 @@ function extractCharsInRange(
 function extractFormatsForChars(
   formats: FormatSpan[],
   extractedChars: Char[],
-  originalCharRuns: CharRun[]
+  originalCharRuns: CharRun[],
 ): FormatSpan[] {
   if (extractedChars.length === 0) return [];
 
@@ -442,7 +446,9 @@ function blocksToPlainText(blocks: Block[]): string {
     .map((block) => {
       if (block.type === "math") {
         if (!block.latex) return "";
-        return block.displayMode ? `$$\n${block.latex}\n$$` : `$${block.latex}$`;
+        return block.displayMode
+          ? `$$\n${block.latex}\n$$`
+          : `$${block.latex}$`;
       }
       if (!isTextualBlock(block)) return getBlockTextContent(block);
 
@@ -632,7 +638,7 @@ function blocksToHTML(blocks: Block[]): string {
  * Returns true if successful, false otherwise
  */
 export async function copySelectionToClipboard(
-  state: EditorState
+  state: EditorState,
 ): Promise<boolean> {
   try {
     const selectedContent = getSelectedContent(state);
@@ -672,7 +678,7 @@ export async function copySelectionToClipboard(
 }
 
 export async function cutSelectionToClipboard(
-  state: EditorState
+  state: EditorState,
 ): Promise<{ success: boolean; result: CommandResult | null }> {
   try {
     const selectedContent = getSelectedContent(state);
@@ -729,7 +735,7 @@ function cleanGoogleDocsHTML(html: string): string {
  */
 function hasGoogleDocsFormat(
   element: Element,
-  format: "bold" | "italic"
+  format: "bold" | "italic",
 ): boolean {
   const style = element.getAttribute("style") || "";
 
@@ -760,7 +766,7 @@ function makeClipboardIdGen(): () => string {
  * Convert text segments with formatting to chars and format spans
  */
 function segmentsToCharsAndFormats(
-  segments: Array<{ content: string; formats?: TextFormat[] }>
+  segments: Array<{ content: string; formats?: TextFormat[] }>,
 ): { chars: Char[]; formats: FormatSpan[] } {
   const chars: Char[] = [];
   const formats: FormatSpan[] = [];
@@ -811,7 +817,7 @@ function parseHTMLToBlocks(html: string): Block[] {
   // Helper function to recursively extract text with formatting from DOM nodes
   function extractTextWithFormatting(
     node: Node,
-    currentFormats: any[] = []
+    currentFormats: any[] = [],
   ): any[] {
     const segments: any[] = [];
 
@@ -820,12 +826,13 @@ function parseHTMLToBlocks(html: string): Block[] {
       if (text) {
         // Don't split for inline math if already inside a code/math format
         const skipMath = currentFormats.some(
-          (f) => f.type === "code" || f.type === "math"
+          (f) => f.type === "code" || f.type === "math",
         );
         if (skipMath) {
           segments.push({
             content: text,
-            formats: currentFormats.length > 0 ? [...currentFormats] : undefined,
+            formats:
+              currentFormats.length > 0 ? [...currentFormats] : undefined,
           });
         } else {
           // Split out inline math `$...$` segments (single-line, non-empty content)
@@ -920,7 +927,7 @@ function parseHTMLToBlocks(html: string): Block[] {
       // Process child nodes
       for (let i = 0; i < node.childNodes.length; i++) {
         segments.push(
-          ...extractTextWithFormatting(node.childNodes[i], newFormats)
+          ...extractTextWithFormatting(node.childNodes[i], newFormats),
         );
       }
     }
@@ -964,7 +971,7 @@ function parseHTMLToBlocks(html: string): Block[] {
   // Recursively find all block-level elements, even if deeply nested
   // Also handles orphaned text nodes by wrapping them in synthetic paragraphs
   function findBlockElements(
-    element: Element
+    element: Element,
   ): Array<Element | { syntheticParagraph: true; content: any[] }> {
     const blockElements: Array<
       Element | { syntheticParagraph: true; content: any[] }
@@ -1060,7 +1067,7 @@ function parseHTMLToBlocks(html: string): Block[] {
     if ("syntheticParagraph" in element) {
       const content = element.content;
       const hasContent = content.some(
-        (seg: any) => seg.content.trim().length > 0
+        (seg: any) => seg.content.trim().length > 0,
       );
       if (hasContent) {
         const { chars, formats } = segmentsToCharsAndFormats(content);
@@ -1104,8 +1111,8 @@ function parseHTMLToBlocks(html: string): Block[] {
           widthAttr === "full"
             ? "full"
             : widthAttr
-            ? parseInt(widthAttr, 10)
-            : undefined;
+              ? parseInt(widthAttr, 10)
+              : undefined;
         const height = heightAttr ? parseInt(heightAttr, 10) : undefined;
         const objectFit = objectFitAttr as ("cover" | "contain") | undefined;
 
@@ -1139,7 +1146,7 @@ function parseHTMLToBlocks(html: string): Block[] {
         : 0;
 
       const { chars, formats } = segmentsToCharsAndFormats(
-        content.length > 0 ? content : [{ content: "" }]
+        content.length > 0 ? content : [{ content: "" }],
       );
 
       if (listType === "todo") {
@@ -1201,7 +1208,7 @@ function parseHTMLToBlocks(html: string): Block[] {
     }
 
     const { chars, formats } = segmentsToCharsAndFormats(
-      content.length > 0 ? content : [{ content: "" }]
+      content.length > 0 ? content : [{ content: "" }],
     );
 
     const block: Block = {
@@ -1248,7 +1255,7 @@ function parsePlainTextToBlocks(text: string): Block[] {
   } catch (error) {
     console.error(
       "Failed to parse markdown, falling back to plain text:",
-      error
+      error,
     );
 
     // Fallback: create simple blocks without formatting
@@ -1294,7 +1301,7 @@ function parsePlainTextToBlocks(text: string): Block[] {
  * Paste content from native clipboard (for mobile apps)
  */
 export async function pasteFromNativeClipboardAPI(
-  state: EditorState
+  state: EditorState,
 ): Promise<CommandResult | null> {
   try {
     const text = await pasteFromNativeClipboard();
@@ -1317,7 +1324,7 @@ export async function pasteFromNativeClipboardAPI(
  */
 function insertBlocksAtCursor(
   state: EditorState,
-  blocks: Block[]
+  blocks: Block[],
 ): CommandResult {
   if (blocks.length === 0) return { state, ops: [] };
 
@@ -1348,7 +1355,7 @@ function insertBlocksAtCursor(
       const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
       const allBlocks = newState.document.page.blocks;
       const lastVisibleBlockIndex = allBlocks.findIndex(
-        (b) => b.id === lastVisibleBlock.id
+        (b) => b.id === lastVisibleBlock.id,
       );
       blockIndex = lastVisibleBlockIndex !== -1 ? lastVisibleBlockIndex : 0;
       textIndex = getBlockTextLength(lastVisibleBlock);
@@ -1369,7 +1376,7 @@ function insertBlocksAtCursor(
       const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
       const allBlocks = newState.document.page.blocks;
       const lastVisibleBlockIndex = allBlocks.findIndex(
-        (b) => b.id === lastVisibleBlock.id
+        (b) => b.id === lastVisibleBlock.id,
       );
       blockIndex = lastVisibleBlockIndex !== -1 ? lastVisibleBlockIndex : 0;
       textIndex = getBlockTextLength(lastVisibleBlock);
@@ -1611,7 +1618,10 @@ function insertBlocksAtCursor(
 
     // Insert the pasted text at cursor position
     const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
-      newState.document.page, currentBlock.id, textIndex, pasteText,
+      newState.document.page,
+      currentBlock.id,
+      textIndex,
+      pasteText,
     );
     ops.push(insertOp);
 
@@ -1627,10 +1637,10 @@ function insertBlocksAtCursor(
     const insertedChars = charRunsToChars(insertOp.charRuns);
     for (const pasteFormat of pasteBlock.formats) {
       const pasteStartIdx = pasteChars.findIndex(
-        (c) => c.id === pasteFormat.startCharId
+        (c) => c.id === pasteFormat.startCharId,
       );
       const pasteEndIdx = pasteChars.findIndex(
-        (c) => c.id === pasteFormat.endCharId
+        (c) => c.id === pasteFormat.endCharId,
       );
 
       if (pasteStartIdx !== -1 && pasteEndIdx !== -1) {
@@ -1662,12 +1672,16 @@ function insertBlocksAtCursor(
 
     // Auto-detect URLs in pasted text (only for portions not already link-formatted)
     const insertedBlock = pageAcc.blocks.find((b) => b.id === currentBlock.id);
-    const fullText = insertedBlock && isTextualBlock(insertedBlock)
-      ? getVisibleText(insertedBlock.charRuns)
-      : "";
+    const fullText =
+      insertedBlock && isTextualBlock(insertedBlock)
+        ? getVisibleText(insertedBlock.charRuns)
+        : "";
     const autoLinkResult = autoLinkInRange(
-      pageAcc, currentBlock.id, fullText,
-      textIndex, textIndex + pasteText.length,
+      pageAcc,
+      currentBlock.id,
+      fullText,
+      textIndex,
+      textIndex + pasteText.length,
     );
     pageAcc = autoLinkResult.newPage;
     ops.push(...autoLinkResult.ops);
@@ -1683,7 +1697,7 @@ function insertBlocksAtCursor(
     newState = moveCursorToPosition(
       newState,
       blockIndex,
-      textIndex + pasteText.length
+      textIndex + pasteText.length,
     );
 
     return { state: clearSelection(newState), ops };
@@ -1699,29 +1713,32 @@ function insertBlocksAtCursor(
     const beforeChars = extractCharsInRange(
       currentBlock.charRuns,
       0,
-      textIndex
+      textIndex,
     );
     const afterChars = extractCharsInRange(
       currentBlock.charRuns,
       textIndex,
-      currentTextLength
+      currentTextLength,
     );
     const beforeFormats = extractFormatsForChars(
       currentBlock.formats,
       beforeChars,
-      currentBlock.charRuns
+      currentBlock.charRuns,
     );
     const afterFormats = extractFormatsForChars(
       currentBlock.formats,
       afterChars,
-      currentBlock.charRuns
+      currentBlock.charRuns,
     );
 
     // Delete text after cursor in current block
     let pasteWorkPage = newState.document.page;
     if (textIndex < currentTextLength) {
       const { newPage: p, op: deleteOp } = deleteCharsInRange(
-        pasteWorkPage, currentBlock.id, textIndex, currentTextLength,
+        pasteWorkPage,
+        currentBlock.id,
+        textIndex,
+        currentTextLength,
       );
       pasteWorkPage = p;
       ops.push(deleteOp);
@@ -1731,7 +1748,7 @@ function insertBlocksAtCursor(
     const createImageBlockOps = (
       imageBlock: Block & { type: "image" },
       newBlockId: string,
-      afterBlockId: string | null
+      afterBlockId: string | null,
     ) => {
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
@@ -1805,7 +1822,7 @@ function insertBlocksAtCursor(
     // Helper to create line block operations
     const createLineBlockOps = (
       newBlockId: string,
-      afterBlockId: string | null
+      afterBlockId: string | null,
     ) => {
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
@@ -1822,7 +1839,7 @@ function insertBlocksAtCursor(
     const createMathBlockOps = (
       mathBlock: Block & { type: "math" },
       newBlockId: string,
-      afterBlockId: string | null
+      afterBlockId: string | null,
     ) => {
       ops.push({
         op: "block_insert",
@@ -1865,12 +1882,19 @@ function insertBlocksAtCursor(
       const beforeLength = beforeChars.filter((c) => !c.deleted).length;
       const { newPage: pageAfterFirstInsert, op: firstInsertOp } =
         insertCharsAtPosition(
-          pasteWorkPage, currentBlock.id, beforeLength, firstPastedText,
+          pasteWorkPage,
+          currentBlock.id,
+          beforeLength,
+          firstPastedText,
         );
       pasteWorkPage = pageAfterFirstInsert;
-      const firstBlockInPage = pasteWorkPage.blocks.find((b) => b.id === currentBlock.id);
-      const firstBlockCharRuns = firstBlockInPage && isTextualBlock(firstBlockInPage)
-        ? firstBlockInPage.charRuns : [];
+      const firstBlockInPage = pasteWorkPage.blocks.find(
+        (b) => b.id === currentBlock.id,
+      );
+      const firstBlockCharRuns =
+        firstBlockInPage && isTextualBlock(firstBlockInPage)
+          ? firstBlockInPage.charRuns
+          : [];
       const firstBlockChars: Char[] = [];
       for (const { id, char } of iterateVisibleChars(firstBlockCharRuns)) {
         firstBlockChars.push({ id, char, deleted: false });
@@ -1882,16 +1906,16 @@ function insertBlocksAtCursor(
       // Convert firstPastedBlock.charRuns to Char[] for finding indices
       const firstPasteChars: Char[] = [];
       for (const { id, char } of iterateVisibleChars(
-        firstPastedBlock.charRuns
+        firstPastedBlock.charRuns,
       )) {
         firstPasteChars.push({ id, char, deleted: false });
       }
       for (const pasteFormat of firstPastedBlock.formats) {
         const pasteStartIdx = firstPasteChars.findIndex(
-          (c) => c.id === pasteFormat.startCharId
+          (c) => c.id === pasteFormat.startCharId,
         );
         const pasteEndIdx = firstPasteChars.findIndex(
-          (c) => c.id === pasteFormat.endCharId
+          (c) => c.id === pasteFormat.endCharId,
         );
 
         if (pasteStartIdx !== -1 && pasteEndIdx !== -1) {
@@ -1960,7 +1984,7 @@ function insertBlocksAtCursor(
       createImageBlockOps(
         firstPastedBlock as any,
         newImageBlockId,
-        currentBlock.id
+        currentBlock.id,
       );
       resultBlocks.push(newImageBlock);
       lastInsertedBlockId = newImageBlockId;
@@ -2000,7 +2024,11 @@ function insertBlocksAtCursor(
         displayMode: firstPastedBlock.displayMode,
       };
       invalidateBlockCache(newMathBlock);
-      createMathBlockOps(firstPastedBlock as any, newMathBlockId, currentBlock.id);
+      createMathBlockOps(
+        firstPastedBlock as any,
+        newMathBlockId,
+        currentBlock.id,
+      );
       resultBlocks.push(newMathBlock);
       lastInsertedBlockId = newMathBlockId;
     }
@@ -2117,7 +2145,7 @@ function insertBlocksAtCursor(
         // Add format_set operations for each format span
         for (const format of newFormats) {
           const startIdx = newChars.findIndex(
-            (c) => c.id === format.startCharId
+            (c) => c.id === format.startCharId,
           );
           const endIdx = newChars.findIndex((c) => c.id === format.endCharId);
           if (startIdx !== -1 && endIdx !== -1) {
@@ -2183,7 +2211,7 @@ function insertBlocksAtCursor(
         // Generate new chars with new IDs for pasted content
         const visiblePastedChars: Array<{ id: string; char: string }> = [];
         for (const { id, char } of iterateVisibleChars(
-          lastPastedBlock.charRuns
+          lastPastedBlock.charRuns,
         )) {
           visiblePastedChars.push({ id, char });
         }
@@ -2289,10 +2317,10 @@ function insertBlocksAtCursor(
         // Add format_set operations for each format span
         for (const format of allNewFormats) {
           const startIdx = allNewChars.findIndex(
-            (c) => c.id === format.startCharId
+            (c) => c.id === format.startCharId,
           );
           const endIdx = allNewChars.findIndex(
-            (c) => c.id === format.endCharId
+            (c) => c.id === format.endCharId,
           );
           if (startIdx !== -1 && endIdx !== -1) {
             const charIds = allNewChars
@@ -2361,7 +2389,7 @@ function insertBlocksAtCursor(
         createImageBlockOps(
           lastPastedBlock as any,
           newImageBlockId,
-          lastInsertedBlockId
+          lastInsertedBlockId,
         );
         resultBlocks.push(newImageBlock);
         lastInsertedBlockId = newImageBlockId;
@@ -2377,7 +2405,7 @@ function insertBlocksAtCursor(
               id: nextId(),
               char: c.char,
               deleted: false,
-            })
+            }),
           );
 
           // Build mapping from old after char IDs to new IDs
@@ -2440,10 +2468,10 @@ function insertBlocksAtCursor(
           // Add format_set operations
           for (const format of newAfterFormatsForImg) {
             const startIdx = newAfterCharsForImg.findIndex(
-              (c) => c.id === format.startCharId
+              (c) => c.id === format.startCharId,
             );
             const endIdx = newAfterCharsForImg.findIndex(
-              (c) => c.id === format.endCharId
+              (c) => c.id === format.endCharId,
             );
             if (startIdx !== -1 && endIdx !== -1) {
               const charIds = newAfterCharsForImg
@@ -2478,7 +2506,11 @@ function insertBlocksAtCursor(
           displayMode: lastPastedBlock.displayMode,
         };
         invalidateBlockCache(newMathBlock);
-        createMathBlockOps(lastPastedBlock as any, newMathBlockId, lastInsertedBlockId);
+        createMathBlockOps(
+          lastPastedBlock as any,
+          newMathBlockId,
+          lastInsertedBlockId,
+        );
         resultBlocks.push(newMathBlock);
         lastInsertedBlockId = newMathBlockId;
       } else if (lastPastedBlock.type === "line") {
@@ -2504,7 +2536,7 @@ function insertBlocksAtCursor(
               id: nextId(),
               char: c.char,
               deleted: false,
-            })
+            }),
           );
 
           // Build mapping from old after char IDs to new IDs
@@ -2512,7 +2544,7 @@ function insertBlocksAtCursor(
           visibleAfterCharsForLine.forEach((oldChar, idx) => {
             afterOldToNewMapForLine.set(
               oldChar.id,
-              newAfterCharsForLine[idx].id
+              newAfterCharsForLine[idx].id,
             );
           });
 
@@ -2570,10 +2602,10 @@ function insertBlocksAtCursor(
           // Add format_set operations
           for (const format of newAfterFormatsForLine) {
             const startIdx = newAfterCharsForLine.findIndex(
-              (c) => c.id === format.startCharId
+              (c) => c.id === format.startCharId,
             );
             const endIdx = newAfterCharsForLine.findIndex(
-              (c) => c.id === format.endCharId
+              (c) => c.id === format.endCharId,
             );
             if (startIdx !== -1 && endIdx !== -1) {
               const charIds = newAfterCharsForLine
@@ -2617,7 +2649,7 @@ function insertBlocksAtCursor(
             id: nextId(),
             char: c.char,
             deleted: false,
-          })
+          }),
         );
 
         // Build mapping from old after char IDs to new IDs
@@ -2680,10 +2712,10 @@ function insertBlocksAtCursor(
         // Add format_set operations
         for (const format of newAfterFormatsSingle) {
           const startIdx = newAfterCharsSingle.findIndex(
-            (c) => c.id === format.startCharId
+            (c) => c.id === format.startCharId,
           );
           const endIdx = newAfterCharsSingle.findIndex(
-            (c) => c.id === format.endCharId
+            (c) => c.id === format.endCharId,
           );
           if (startIdx !== -1 && endIdx !== -1) {
             const charIds = newAfterCharsSingle
@@ -2736,7 +2768,7 @@ function insertBlocksAtCursor(
       newState = moveCursorToPosition(
         newState,
         lastResultBlockIndex,
-        Math.max(0, cursorPosition)
+        Math.max(0, cursorPosition),
       );
     } else {
       // For non-textual last block, move cursor to the next block if it exists
@@ -2758,7 +2790,7 @@ function insertBlocksAtCursor(
 export function pasteFromClipboardEvent(
   state: EditorState,
   event: ClipboardEvent,
-  extractedData?: { html: string; text: string; imageFile: File | null } | null
+  extractedData?: { html: string; text: string; imageFile: File | null } | null,
 ): (CommandResult & { pastedImageBlockIndex?: number }) | null {
   // Use extracted data if provided (from immediate event handler)
   // Otherwise try to get from event (may be empty if not called synchronously)
@@ -2803,7 +2835,7 @@ export function pasteFromClipboardEvent(
       // Find the image block by its blob URL (more reliable than cursor math,
       // since the cursor gets clamped when the image is inserted at the end)
       const pastedImageBlockIndex = result.state.document.page.blocks.findIndex(
-        (b) => b.type === "image" && b.url === blobUrl
+        (b) => b.type === "image" && b.url === blobUrl,
       );
       return {
         ...result,
@@ -2831,7 +2863,7 @@ export function pasteFromClipboardEvent(
  */
 export function pasteFromClipboardEventAsPlainText(
   state: EditorState,
-  event: ClipboardEvent
+  event: ClipboardEvent,
 ): Promise<CommandResult | null> {
   return new Promise((resolve) => {
     try {
@@ -2839,7 +2871,7 @@ export function pasteFromClipboardEventAsPlainText(
       if (!clipboardData) {
         resolve(null);
         console.error(
-          "Failed to paste from clipboard event: no clipboard data"
+          "Failed to paste from clipboard event: no clipboard data",
         );
         return;
       }

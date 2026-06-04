@@ -31,7 +31,10 @@ function imageKey(latex: string, fontSize: number, dpr: number): string {
 
 // Synchronously compute inline math dimensions in CSS pixels for a given font size.
 // Returns null on parse error.
-export function getInlineMathDims(latex: string, fontSize: number): InlineMathDims | null {
+export function getInlineMathDims(
+  latex: string,
+  fontSize: number,
+): InlineMathDims | null {
   const key = dimsKey(latex, fontSize);
   if (dimsCache.has(key)) return dimsCache.get(key) ?? null;
 
@@ -134,7 +137,9 @@ export function getInlineMathImage(
       svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
 
       const finalSvg = new XMLSerializer().serializeToString(svgEl);
-      const blob = new Blob([finalSvg], { type: "image/svg+xml;charset=utf-8" });
+      const blob = new Blob([finalSvg], {
+        type: "image/svg+xml;charset=utf-8",
+      });
       const url = URL.createObjectURL(blob);
 
       const img = new Image();

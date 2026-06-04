@@ -1,6 +1,3 @@
-import type { Block, Page } from "./deserializer/loadPage";
-import { isTextualBlock } from "./deserializer/loadPage";
-import { serializeToMarkdown } from "./deserializer/serializer";
 import {
   copySelectionToClipboard,
   cutSelectionToClipboard,
@@ -18,23 +15,26 @@ import {
   toggleStrikethrough,
   updateLinkInBlock,
 } from "./actions/commands";
+import type { Block, Page } from "./deserializer/loadPage";
+import { isTextualBlock } from "./deserializer/loadPage";
+import { serializeToMarkdown } from "./deserializer/serializer";
 import { handleEvents } from "./events/events";
 import { isInLongPressMode } from "./events/touchEvents";
 import { onFontFamilyChange, onFontsReady } from "./fonts";
 import type { CanvasLayers } from "./layers";
 import {
   clearAllBlockCaches,
+  clearSearchHighlights as clearRendererSearchHighlights,
   getBlockHeight,
   invalidateBlockCache,
   renderCursorLayer,
   renderPage,
-  setSearchHighlights as setRendererSearchHighlights,
-  clearSearchHighlights as clearRendererSearchHighlights,
   setRequestRedraw,
+  setSearchHighlights as setRendererSearchHighlights,
 } from "./renderer";
 import {
-  getCursorDocumentCoords,
   getCursorCoordinatesWithComposition,
+  getCursorDocumentCoords,
   scrollToMakeCursorVisible,
 } from "./selection";
 import {
@@ -56,20 +56,17 @@ import {
   updateSelection,
 } from "./state";
 import { getEditorStyles } from "./styles";
+import type {
+  AwarenessCursor,
+  AwarenessSelection,
+  AwarenessState,
+  AwarenessUser,
+} from "./sync/awareness";
 import {
-  getVisibleBlocks,
-  getPeerId,
-  getPageId,
-  nextId,
-  getClock,
-  createBlockSet,
-} from "./sync/sync";
-import type { AwarenessCursor, AwarenessSelection, AwarenessState, AwarenessUser } from "./sync/awareness";
-import {
-  positionToAwarenessCursor,
-  selectionToAwarenessSelection,
   awarenessCursorsEqual,
   awarenessSelectionsEqual,
+  positionToAwarenessCursor,
+  selectionToAwarenessSelection,
 } from "./sync/awareness";
 import {
   deleteCharsInRange,
@@ -78,11 +75,15 @@ import {
 } from "./sync/crdt-helpers";
 import { applyOps } from "./sync/reducer";
 import { generateRestoreOperations } from "./sync/snapshot-diff";
-import type {
-  BlockDelete,
-  BlockInsert,
-  Operation,
-} from "./sync/types";
+import {
+  createBlockSet,
+  getClock,
+  getPageId,
+  getPeerId,
+  getVisibleBlocks,
+  nextId,
+} from "./sync/sync";
+import type { BlockDelete, BlockInsert, Operation } from "./sync/types";
 import type {
   CommandResult,
   EditorState,
@@ -122,7 +123,7 @@ export interface Editor {
     startIndex: number,
     endIndex: number,
     newUrl: string,
-    newText: string
+    newText: string,
   ) => void;
   clearLink: (blockIndex: number, startIndex: number, endIndex: number) => void;
   createLink: (url: string, text: string) => void;
@@ -130,7 +131,7 @@ export interface Editor {
   setMode: (mode: "edit" | "select" | "locked") => void;
   restoreCursorAndSelection: (
     cursor: EditorState["document"]["cursor"],
-    selection: EditorState["document"]["selection"]
+    selection: EditorState["document"]["selection"],
   ) => void;
   forceRender: () => void;
   updateImageBlock: (
@@ -139,7 +140,7 @@ export interface Editor {
       url?: string;
       alt?: string;
     },
-    uploadStatus?: "uploading" | "complete" | "error"
+    uploadStatus?: "uploading" | "complete" | "error",
   ) => void;
   deleteImageBlock: (blockIndex: number) => void;
   openImageUploadMenu: (
@@ -147,11 +148,11 @@ export interface Editor {
     x: number,
     y: number,
     existingUrl?: string,
-    existingAlt?: string
+    existingAlt?: string,
   ) => void;
   updateMathBlock: (
     blockIndex: number,
-    updates: { latex?: string; displayMode?: boolean }
+    updates: { latex?: string; displayMode?: boolean },
   ) => void;
   openMathEditMenu: (blockIndex: number, x: number, y: number) => void;
   openInlineMathEditMenu: (
@@ -160,18 +161,18 @@ export interface Editor {
     endIndex: number,
     latex: string,
     x: number,
-    y: number
+    y: number,
   ) => void;
   updateInlineMath: (
     blockIndex: number,
     startIndex: number,
     endIndex: number,
-    newLatex: string
+    newLatex: string,
   ) => void;
   deleteInlineMath: (
     blockIndex: number,
     startIndex: number,
-    endIndex: number
+    endIndex: number,
   ) => void;
   /** Close the inline-math edit popover and move the caret past the chip in the
    * given visual direction. Used when the user arrows out of the popover input. */
@@ -179,7 +180,7 @@ export interface Editor {
     blockIndex: number,
     startIndex: number,
     endIndex: number,
-    direction: "left" | "right"
+    direction: "left" | "right",
   ) => void;
   closeActiveMenu: () => void;
   /** Update page content from CRDT sync (remote operations) */
@@ -193,7 +194,7 @@ export interface Editor {
   /** Set callback for broadcasting awareness state changes */
   setAwarenessBroadcast: (
     fn: ((state: AwarenessState) => void) | null,
-    user?: AwarenessUser
+    user?: AwarenessUser,
   ) => void;
   /** Update a remote peer's awareness state */
   setRemoteAwareness: (peerId: string, state: AwarenessState | null) => void;
@@ -201,7 +202,7 @@ export interface Editor {
   getRemoteAwareness: () => Map<string, AwarenessState>;
   /** Set callback for when an image file is pasted from clipboard */
   onImagePaste: (
-    callback: ((file: File, blockIndex: number) => void) | null
+    callback: ((file: File, blockIndex: number) => void) | null,
   ) => void;
   /** Set callback for scroll position changes */
   onScroll: (callback: ((scrollY: number) => void) | null) => void;
@@ -210,19 +211,22 @@ export interface Editor {
   /** Set search highlights for find-in-document */
   setSearchHighlights: (
     highlights: { blockIndex: number; startIndex: number; endIndex: number }[],
-    activeIndex: number
+    activeIndex: number,
   ) => void;
   /** Clear all search highlights */
   clearSearchHighlights: () => void;
   /** Scroll viewport to make a position visible */
-  scrollToPosition: (position: { blockIndex: number; textIndex: number }) => void;
+  scrollToPosition: (position: {
+    blockIndex: number;
+    textIndex: number;
+  }) => void;
 }
 
 export default function createEditor(
   layers: CanvasLayers,
   initialState: EditorState,
   viewportProp: ViewportState,
-  hiddenInput?: HTMLInputElement
+  hiddenInput?: HTMLInputElement,
 ): Editor {
   // Extract contexts from layers
   const contentCtx = layers.content.ctx;
@@ -408,9 +412,8 @@ export default function createEditor(
   } | null = null;
 
   // Callback for when an image file is pasted (set by external code to handle async upload)
-  let onImagePasteCallback:
-    | ((file: File, blockIndex: number) => void)
-    | null = null;
+  let onImagePasteCallback: ((file: File, blockIndex: number) => void) | null =
+    null;
 
   // Callback for scroll position changes
   let onScrollCallback: ((scrollY: number) => void) | null = null;
@@ -433,7 +436,7 @@ export default function createEditor(
     dragHandleHover: "left" | "right" | "bottom" | null = null,
     isHoveringCheckbox: boolean = false,
     isHoveringPeerIndicator: boolean = false,
-    isHoveringMath: boolean = false
+    isHoveringMath: boolean = false,
   ) => {
     // Only update cursor on desktop (not touch devices)
     if (isTouchDevice()) {
@@ -505,7 +508,7 @@ export default function createEditor(
         documentHeight,
         cachedRect,
         updateViewport,
-        pendingClipboardData
+        pendingClipboardData,
       );
 
       // Update state with the result from events
@@ -521,7 +524,7 @@ export default function createEditor(
             prevState,
             state,
             handleEventsResult.ops,
-            getPeerId()
+            getPeerId(),
           );
         }
         // Broadcast ops to peers
@@ -650,7 +653,7 @@ export default function createEditor(
             viewport,
             visibility,
             undefined,
-            getActiveRemoteAwareness()
+            getActiveRemoteAwareness(),
           );
 
           // Update cursor style based on scrollbar hover and drag state
@@ -662,7 +665,7 @@ export default function createEditor(
             state.ui.isHoveringCheckbox,
             state.ui.isHoveringPeerIndicator,
             state.ui.inlineMathHover !== null ||
-              state.ui.hoveredMathBlockIndex !== null
+              state.ui.hoveredMathBlockIndex !== null,
           );
 
           dirtyLayers.content = false;
@@ -675,7 +678,7 @@ export default function createEditor(
             state,
             viewport,
             getEditorStyles(),
-            getActiveRemoteAwareness()
+            getActiveRemoteAwareness(),
           );
           dirtyLayers.cursor = false;
         }
@@ -684,7 +687,7 @@ export default function createEditor(
         if (hiddenInput && state.document.cursor && state.view.isFocused) {
           const cursorCoords = getCursorCoordinatesWithComposition(
             state,
-            viewport
+            viewport,
           );
           if (cursorCoords) {
             hiddenInput.style.left = `${cursorCoords.x}px`;
@@ -733,11 +736,7 @@ export default function createEditor(
       e.target !== hiddenInput
     ) {
       const tag = e.target.tagName;
-      if (
-        tag === "INPUT" ||
-        tag === "TEXTAREA" ||
-        e.target.isContentEditable
-      ) {
+      if (tag === "INPUT" || tag === "TEXTAREA" || e.target.isContentEditable) {
         return;
       }
     }
@@ -763,7 +762,7 @@ export default function createEditor(
     if (
       e instanceof KeyboardEvent &&
       ["Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(
-        e.key
+        e.key,
       )
     ) {
       e.preventDefault();
@@ -1029,15 +1028,19 @@ export default function createEditor(
       if (e.key === "Backspace") {
         const comp = state.ui.composition;
         if (comp.cursorOffset > 0) {
-          const newText = comp.text.slice(0, comp.cursorOffset - 1) + comp.text.slice(comp.cursorOffset);
+          const newText =
+            comp.text.slice(0, comp.cursorOffset - 1) +
+            comp.text.slice(comp.cursorOffset);
           state = {
             ...state,
             document: {
               ...state.document,
-              cursor: state.document.cursor ? {
-                ...state.document.cursor,
-                lastUpdate: Date.now(),
-              } : null,
+              cursor: state.document.cursor
+                ? {
+                    ...state.document.cursor,
+                    lastUpdate: Date.now(),
+                  }
+                : null,
             },
             ui: {
               ...state.ui,
@@ -1067,15 +1070,19 @@ export default function createEditor(
       if (e.key === "Delete") {
         const comp = state.ui.composition;
         if (comp.cursorOffset < comp.text.length) {
-          const newText = comp.text.slice(0, comp.cursorOffset) + comp.text.slice(comp.cursorOffset + 1);
+          const newText =
+            comp.text.slice(0, comp.cursorOffset) +
+            comp.text.slice(comp.cursorOffset + 1);
           state = {
             ...state,
             document: {
               ...state.document,
-              cursor: state.document.cursor ? {
-                ...state.document.cursor,
-                lastUpdate: Date.now(),
-              } : null,
+              cursor: state.document.cursor
+                ? {
+                    ...state.document.cursor,
+                    lastUpdate: Date.now(),
+                  }
+                : null,
             },
             ui: {
               ...state.ui,
@@ -1147,10 +1154,12 @@ export default function createEditor(
             ...state,
             document: {
               ...state.document,
-              cursor: state.document.cursor ? {
-                ...state.document.cursor,
-                lastUpdate: Date.now(),
-              } : null,
+              cursor: state.document.cursor
+                ? {
+                    ...state.document.cursor,
+                    lastUpdate: Date.now(),
+                  }
+                : null,
             },
             ui: {
               ...state.ui,
@@ -1201,10 +1210,16 @@ export default function createEditor(
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        const firstBlock = state.document.page.blocks.find(b => !b.deleted && isTextualBlock(b));
-        const firstBlockText = firstBlock && "charRuns" in firstBlock
-          ? firstBlock.charRuns.map(r => r.text).join("").trim()
-          : "";
+        const firstBlock = state.document.page.blocks.find(
+          (b) => !b.deleted && isTextualBlock(b),
+        );
+        const firstBlockText =
+          firstBlock && "charRuns" in firstBlock
+            ? firstBlock.charRuns
+                .map((r) => r.text)
+                .join("")
+                .trim()
+            : "";
         a.download = `${firstBlockText || "untitled"}.md`;
         document.body.appendChild(a);
         a.click();
@@ -1322,7 +1337,7 @@ export default function createEditor(
       hiddenInput.addEventListener("compositionstart", compositionStartHandler);
       hiddenInput.addEventListener(
         "compositionupdate",
-        compositionUpdateHandler
+        compositionUpdateHandler,
       );
       hiddenInput.addEventListener("compositionend", compositionEndHandler);
 
@@ -1400,11 +1415,11 @@ export default function createEditor(
       hiddenInput.removeEventListener("keydown", hiddenInputKeyDownHandler);
       hiddenInput.removeEventListener(
         "compositionstart",
-        compositionStartHandler
+        compositionStartHandler,
       );
       hiddenInput.removeEventListener(
         "compositionupdate",
-        compositionUpdateHandler
+        compositionUpdateHandler,
       );
       hiddenInput.removeEventListener("compositionend", compositionEndHandler);
     }
@@ -1447,7 +1462,7 @@ export default function createEditor(
         block,
         maxWidth,
         styles,
-        visibleIdx === 0
+        visibleIdx === 0,
       );
       totalHeight += blockHeight;
     }
@@ -1489,7 +1504,7 @@ export default function createEditor(
       state.document.cursor.position,
       state,
       viewport,
-      getEditorStyles()
+      getEditorStyles(),
     );
     if (!coords) return null;
 
@@ -1625,7 +1640,7 @@ export default function createEditor(
     startIndex: number,
     endIndex: number,
     newUrl: string,
-    newText: string
+    newText: string,
   ) {
     state = state;
     const result = updateLinkInBlock(
@@ -1634,7 +1649,7 @@ export default function createEditor(
       startIndex,
       endIndex,
       newUrl,
-      newText
+      newText,
     );
     executeCommand(result);
   }
@@ -1671,20 +1686,30 @@ export default function createEditor(
 
     // Delete the selected text first
     const { newPage: p1, op: deleteOp } = deleteCharsInRange(
-      state.document.page, block.id, start.textIndex, end.textIndex,
+      state.document.page,
+      block.id,
+      start.textIndex,
+      end.textIndex,
     );
     ops.push(deleteOp);
 
     // Insert the new link text
     const { newPage: p2, op: insertOp } = insertCharsAtPosition(
-      p1, block.id, start.textIndex, text,
+      p1,
+      block.id,
+      start.textIndex,
+      text,
     );
     ops.push(insertOp);
 
     // Apply link formatting to the inserted text
     const { newPage: p3, op: formatOp } = formatCharsInRange(
-      p2, block.id, start.textIndex, start.textIndex + text.length,
-      { type: "link", url }, url,
+      p2,
+      block.id,
+      start.textIndex,
+      start.textIndex + text.length,
+      { type: "link", url },
+      url,
     );
     ops.push(formatOp);
 
@@ -1700,7 +1725,7 @@ export default function createEditor(
     const finalState = moveCursorToPosition(
       stateWithClearedSelection,
       start.blockIndex,
-      start.textIndex + text.length
+      start.textIndex + text.length,
     );
 
     executeCommand({ state: finalState, ops });
@@ -1740,7 +1765,7 @@ export default function createEditor(
 
   function restoreCursorAndSelection(
     cursor: EditorState["document"]["cursor"],
-    selection: EditorState["document"]["selection"]
+    selection: EditorState["document"]["selection"],
   ) {
     state = updateMode(
       updateSelection(
@@ -1751,9 +1776,9 @@ export default function createEditor(
               focus: selection.focus,
               initialBoundary: selection.initialBoundary || null,
             }
-          : null
+          : null,
       ),
-      "edit"
+      "edit",
     );
     const currentState = state;
     scheduleRender();
@@ -1766,7 +1791,7 @@ export default function createEditor(
       url?: string;
       alt?: string;
     },
-    uploadStatus?: "uploading" | "complete" | "error"
+    uploadStatus?: "uploading" | "complete" | "error",
   ) {
     const block = state.document.page.blocks[blockIndex];
 
@@ -1843,7 +1868,11 @@ export default function createEditor(
   function deleteImageBlockMethod(blockIndex: number) {
     const block = state.document.page.blocks[blockIndex];
 
-    if (!block || block.deleted || (block.type !== "image" && block.type !== "math")) {
+    if (
+      !block ||
+      block.deleted ||
+      (block.type !== "image" && block.type !== "math")
+    ) {
       console.error("Attempted to delete non-visual block");
       return;
     }
@@ -1924,7 +1953,7 @@ export default function createEditor(
     x: number,
     y: number,
     _existingUrl?: string,
-    _existingAlt?: string
+    _existingAlt?: string,
   ) {
     state = setActiveMenu(state, {
       type: "imageUpload",
@@ -1940,7 +1969,7 @@ export default function createEditor(
 
   function updateMathBlock(
     blockIndex: number,
-    updates: { latex?: string; displayMode?: boolean }
+    updates: { latex?: string; displayMode?: boolean },
   ) {
     const block = state.document.page.blocks[blockIndex];
     if (!block || block.deleted || block.type !== "math") {
@@ -1962,7 +1991,9 @@ export default function createEditor(
     const blockId = block.id;
 
     if (updates.latex !== undefined) {
-      ops.push(createBlockSet<"math", "latex">(blockId, "latex", updates.latex));
+      ops.push(
+        createBlockSet<"math", "latex">(blockId, "latex", updates.latex),
+      );
     }
     if (updates.displayMode !== undefined) {
       ops.push(
@@ -2053,18 +2084,28 @@ export default function createEditor(
     // Replace the existing chars in [startIndex, endIndex) with the new LaTeX,
     // then re-apply the math format to the freshly inserted chars.
     const { newPage: p1, op: deleteOp } = deleteCharsInRange(
-      state.document.page, blockId, startIndex, endIndex,
+      state.document.page,
+      blockId,
+      startIndex,
+      endIndex,
     );
     ops.push(deleteOp);
 
     const { newPage: p2, op: insertOp } = insertCharsAtPosition(
-      p1, blockId, startIndex, newLatex,
+      p1,
+      blockId,
+      startIndex,
+      newLatex,
     );
     ops.push(insertOp);
 
     const { newPage: p3, op: formatOp } = formatCharsInRange(
-      p2, blockId, startIndex, startIndex + newLatex.length,
-      { type: "math" }, true,
+      p2,
+      blockId,
+      startIndex,
+      startIndex + newLatex.length,
+      { type: "math" },
+      true,
     );
     ops.push(formatOp);
 
@@ -2100,7 +2141,10 @@ export default function createEditor(
     const prevState = state;
     const blockId = block.id;
     const { newPage, op } = deleteCharsInRange(
-      state.document.page, blockId, startIndex, endIndex,
+      state.document.page,
+      blockId,
+      startIndex,
+      endIndex,
     );
     invalidateBlockCache(newPage.blocks[blockIndex]);
 
@@ -2127,7 +2171,7 @@ export default function createEditor(
     blockIndex: number,
     startIndex: number,
     endIndex: number,
-    direction: "left" | "right"
+    direction: "left" | "right",
   ) {
     state = closeActiveMenu(state);
 
@@ -2176,7 +2220,7 @@ export default function createEditor(
       // Find the last visible block's index in the full array
       const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
       const maxBlockIndex = page.blocks.findIndex(
-        (b) => b.id === lastVisibleBlock.id
+        (b) => b.id === lastVisibleBlock.id,
       );
 
       if (blockIndex > maxBlockIndex) {
@@ -2228,7 +2272,7 @@ export default function createEditor(
       const lastVisibleBlockForSelection =
         visibleBlocks[visibleBlocks.length - 1];
       const maxBlockIndex = page.blocks.findIndex(
-        (b) => b.id === lastVisibleBlockForSelection.id
+        (b) => b.id === lastVisibleBlockForSelection.id,
       );
       const { anchor, focus } = selection;
 
@@ -2326,7 +2370,10 @@ export default function createEditor(
         cursor:
           newVisibleBlocks.length > 0
             ? {
-                position: { blockIndex: newVisibleBlocks[0].originalIndex, textIndex: 0 },
+                position: {
+                  blockIndex: newVisibleBlocks[0].originalIndex,
+                  textIndex: 0,
+                },
                 lastUpdate: Date.now(),
               }
             : null,
@@ -2358,7 +2405,7 @@ export default function createEditor(
 
   function setAwarenessBroadcastMethod(
     fn: AwarenessBroadcastFn | null,
-    user?: AwarenessUser
+    user?: AwarenessUser,
   ) {
     awarenessBroadcastFn = fn;
     if (user) {
@@ -2372,7 +2419,7 @@ export default function createEditor(
 
   function setRemoteAwarenessMethod(
     peerId: string,
-    awarenessState: AwarenessState | null
+    awarenessState: AwarenessState | null,
   ) {
     if (awarenessState === null) {
       remoteAwareness.delete(peerId);
@@ -2408,7 +2455,7 @@ export default function createEditor(
       const lastVisibleBlockForOps =
         visibleBlocksForOps[visibleBlocksForOps.length - 1];
       const maxBlockIndex = newPage.blocks.findIndex(
-        (b) => b.id === lastVisibleBlockForOps.id
+        (b) => b.id === lastVisibleBlockForOps.id,
       );
 
       if (blockIndex > maxBlockIndex) {
@@ -2460,7 +2507,7 @@ export default function createEditor(
       const lastVisibleBlockForSelectionOps =
         visibleBlocksForOps[visibleBlocksForOps.length - 1];
       const maxBlockIndex = newPage.blocks.findIndex(
-        (b) => b.id === lastVisibleBlockForSelectionOps.id
+        (b) => b.id === lastVisibleBlockForSelectionOps.id,
       );
       const { anchor, focus } = selection;
 
@@ -2566,7 +2613,7 @@ export default function createEditor(
     setRemoteAwareness: setRemoteAwarenessMethod,
     getRemoteAwareness: getRemoteAwarenessMethod,
     onImagePaste: (
-      callback: ((file: File, blockIndex: number) => void) | null
+      callback: ((file: File, blockIndex: number) => void) | null,
     ) => {
       onImagePasteCallback = callback;
     },
@@ -2575,8 +2622,12 @@ export default function createEditor(
     },
     getScrollY: () => viewport.scrollY,
     setSearchHighlights: (
-      highlights: { blockIndex: number; startIndex: number; endIndex: number }[],
-      activeIndex: number
+      highlights: {
+        blockIndex: number;
+        startIndex: number;
+        endIndex: number;
+      }[],
+      activeIndex: number,
     ) => {
       setRendererSearchHighlights(highlights, activeIndex);
       scheduleRender();

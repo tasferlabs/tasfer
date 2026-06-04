@@ -7,25 +7,25 @@
  */
 
 // Mount / lifecycle
-export { mountEditor } from "./mount";
 export type { MountedEditor, MountEditorOptions } from "./mount";
+export { mountEditor } from "./mount";
 
 // Editor instance API
-export { default as createEditor } from "./editor";
 export type { Editor } from "./editor";
+export { default as createEditor } from "./editor";
 
 // Host adapters
-export { setAssetResolver, resolveAssetUrl } from "./adapters";
 export type { AssetResolver } from "./adapters";
+export { resolveAssetUrl, setAssetResolver } from "./adapters";
 
 // Core document model + CRDT operation types
 export type {
   Block,
-  Page,
-  TextFormat,
+  Char,
   CharRun,
   FormatSpan,
-  Char,
+  Page,
+  TextFormat,
 } from "./deserializer/loadPage";
-export type { Operation, HLC } from "./sync/types";
-export type { EditorState, ViewportState, SlashCommand } from "./types";
+export type { HLC, Operation } from "./sync/types";
+export type { EditorState, SlashCommand, ViewportState } from "./types";

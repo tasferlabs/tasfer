@@ -7,9 +7,17 @@
  */
 
 import type { Char, CharRun, Page, TextFormat } from "@/deserializer/loadPage";
+
 import { BLOCK_REGISTRY } from "./block-registry";
 import { compareHLC, createHLC, receiveHLC, tickHLC } from "./hlc";
-import { createIdGenerator, generateBlockId, generatePeerId, extractPeerId, extractCounter, type IdGenerator } from "./id";
+import {
+  createIdGenerator,
+  extractCounter,
+  extractPeerId,
+  generateBlockId,
+  generatePeerId,
+  type IdGenerator,
+} from "./id";
 import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
 import { findCharIdAtPosition, getCharIdsInRange } from "./reducer";
 import type {
@@ -59,7 +67,9 @@ export function setCRDTContext(pageId: string, peerId?: string): void {
  */
 export function getPageId(): string {
   if (globalPageId === null) {
-    throw new Error("CRDT context not initialized. Call setCRDTContext() first.");
+    throw new Error(
+      "CRDT context not initialized. Call setCRDTContext() first.",
+    );
   }
   return globalPageId;
 }
@@ -70,7 +80,9 @@ export function getPageId(): string {
  */
 export function nextId(): string {
   if (globalIdGen === null) {
-    throw new Error("CRDT context not initialized. Call setCRDTContext() first.");
+    throw new Error(
+      "CRDT context not initialized. Call setCRDTContext() first.",
+    );
   }
   return globalIdGen();
 }
@@ -82,7 +94,9 @@ export function nextId(): string {
  */
 export function getClock(): HLC {
   if (globalHLC === null) {
-    throw new Error("CRDT context not initialized. Call setCRDTContext() first.");
+    throw new Error(
+      "CRDT context not initialized. Call setCRDTContext() first.",
+    );
   }
   globalHLC = tickHLC(globalHLC);
   return { ...globalHLC };
@@ -94,7 +108,9 @@ export function getClock(): HLC {
  */
 export function getPeerId(): string {
   if (globalHLC === null) {
-    throw new Error("CRDT context not initialized. Call setCRDTContext() first.");
+    throw new Error(
+      "CRDT context not initialized. Call setCRDTContext() first.",
+    );
   }
   return globalHLC.peerId;
 }
@@ -263,8 +279,8 @@ export type BlockSetValue<
 > = F extends "type"
   ? BlockType
   : F extends keyof BlockFieldsOf[T]
-  ? BlockFieldsOf[T][F]
-  : never;
+    ? BlockFieldsOf[T][F]
+    : never;
 
 /**
  * Construct a typed BlockSet op.
@@ -280,10 +296,11 @@ export type BlockSetValue<
  * Use the untyped form on `BlockSet`'s wire shape when the type isn't known
  * statically (e.g. when forwarding ops from a peer).
  */
-export function createBlockSet<
-  T extends BlockType,
-  F extends BlockSetField<T>,
->(blockId: string, field: F, value: BlockSetValue<T, F>): BlockSet {
+export function createBlockSet<T extends BlockType, F extends BlockSetField<T>>(
+  blockId: string,
+  field: F,
+  value: BlockSetValue<T, F>,
+): BlockSet {
   return {
     op: "block_set",
     id: nextId(),
@@ -307,15 +324,6 @@ export {
 } from "./reducer";
 
 // Re-export awareness
-export {
-  AwarenessManager,
-  createAwarenessManager,
-  getColorForPeer,
-  positionToAwarenessCursor,
-  selectionToAwarenessSelection,
-  awarenessCursorToPosition,
-  awarenessSelectionToSelection,
-} from "./awareness";
 export type {
   AwarenessConfig,
   AwarenessCursor,
@@ -323,6 +331,15 @@ export type {
   AwarenessState,
   AwarenessUser,
   LocalAwarenessState,
+} from "./awareness";
+export {
+  awarenessCursorToPosition,
+  AwarenessManager,
+  awarenessSelectionToSelection,
+  createAwarenessManager,
+  getColorForPeer,
+  positionToAwarenessCursor,
+  selectionToAwarenessSelection,
 } from "./awareness";
 
 type StateChangeListener = (state: Page) => void;
@@ -479,7 +496,9 @@ export class SyncEngine {
       return this.opLog.operations;
     }
 
-    return this.opLog.operations.filter((op) => compareHLC(op.clock, clock) > 0);
+    return this.opLog.operations.filter(
+      (op) => compareHLC(op.clock, clock) > 0,
+    );
   }
 
   /**
@@ -517,13 +536,13 @@ export class SyncEngine {
 
     // Keep only operations after the snapshot clock (not yet saved)
     this.opLog.operations = this.opLog.operations.filter(
-      (op) => compareHLC(op.clock, snapshotClock) > 0
+      (op) => compareHLC(op.clock, snapshotClock) > 0,
     );
 
     const removed = beforeCount - this.opLog.operations.length;
     if (removed > 0) {
       console.log(
-        `[SyncEngine] Compacted ${removed} operations (${this.opLog.operations.length} remaining)`
+        `[SyncEngine] Compacted ${removed} operations (${this.opLog.operations.length} remaining)`,
       );
     }
     return removed;
@@ -585,7 +604,7 @@ export class SyncEngine {
   createTextInsert(
     blockId: string,
     afterCharId: string | null,
-    charRuns: CharRun[]
+    charRuns: CharRun[],
   ): TextInsert {
     return {
       ...this.createBaseOp(),
@@ -623,7 +642,7 @@ export class SyncEngine {
     blockId: string,
     charIds: string[],
     format: TextFormat,
-    value: boolean | string
+    value: boolean | string,
   ): FormatSet {
     return {
       ...this.createBaseOp(),
@@ -646,7 +665,7 @@ export class SyncEngine {
   createBlockInsert(
     afterBlockId: string | null,
     blockType: BlockType,
-    initialProps?: BlockProps
+    initialProps?: BlockProps,
   ): BlockInsert {
     return {
       ...this.createBaseOp(),
@@ -725,8 +744,8 @@ export class SyncEngine {
               currentPeerId,
               currentStartCounter,
               currentText,
-              currentDeleted
-            )
+              currentDeleted,
+            ),
           );
         }
 
@@ -745,8 +764,8 @@ export class SyncEngine {
           currentPeerId,
           currentStartCounter,
           currentText,
-          currentDeleted
-        )
+          currentDeleted,
+        ),
       );
     }
 
@@ -760,7 +779,7 @@ export class SyncEngine {
     peerId: string,
     startCounter: number,
     text: string,
-    deleted: boolean[]
+    deleted: boolean[],
   ): CharRun {
     const hasDeleted = deleted.some((d) => d);
 
@@ -769,7 +788,9 @@ export class SyncEngine {
     }
 
     // Create deletedMask bitmap
-    const deletedMask: number[] = new Array(Math.ceil(deleted.length / 8)).fill(0);
+    const deletedMask: number[] = new Array(Math.ceil(deleted.length / 8)).fill(
+      0,
+    );
     deleted.forEach((isDeleted, i) => {
       if (isDeleted) {
         const byteIndex = Math.floor(i / 8);
@@ -814,7 +835,7 @@ export class SyncEngine {
   deleteText(
     blockId: string,
     startIndex: number,
-    endIndex: number
+    endIndex: number,
   ): TextDelete {
     const block = this.getState().blocks.find((b) => b.id === blockId);
     const charIds = block ? getCharIdsInRange(block, startIndex, endIndex) : [];
@@ -837,7 +858,7 @@ export class SyncEngine {
     startIndex: number,
     endIndex: number,
     format: TextFormat,
-    value: boolean | string
+    value: boolean | string,
   ): FormatSet {
     const block = this.getState().blocks.find((b) => b.id === blockId);
     const charIds = block ? getCharIdsInRange(block, startIndex, endIndex) : [];

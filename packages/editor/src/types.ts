@@ -8,7 +8,7 @@ export interface SlashCommand {
   type: Block["type"];
   label: string;
   description: string;
-  icon: string | React.ReactElement;
+  icon: string | React.ReactElement; //NOTE -  add perdeps, but the project should be headless no opninion about ui.
   keywords?: string[];
 }
 
