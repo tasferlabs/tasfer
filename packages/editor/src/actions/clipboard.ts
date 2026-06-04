@@ -28,7 +28,7 @@ import {
 import {
   deleteCharsInRange,
   formatCharsInRange,
-  getVisibleText,
+  getVisibleTextFromRuns,
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
 import {} from "../sync/crdt-undo";
@@ -1542,7 +1542,7 @@ function insertBlocksAtCursor(
     }
 
     const pasteBlock = blocks[0];
-    const pasteText = getVisibleText(pasteBlock.charRuns);
+    const pasteText = getVisibleTextFromRuns(pasteBlock.charRuns);
 
     // Insert the pasted text at cursor position
     const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
@@ -1602,7 +1602,7 @@ function insertBlocksAtCursor(
     const insertedBlock = pageAcc.blocks.find((b) => b.id === currentBlock.id);
     const fullText =
       insertedBlock && isTextualBlock(insertedBlock)
-        ? getVisibleText(insertedBlock.charRuns)
+        ? getVisibleTextFromRuns(insertedBlock.charRuns)
         : "";
     const autoLinkResult = autoLinkInRange(
       pageAcc,
@@ -1806,7 +1806,7 @@ function insertBlocksAtCursor(
     // Handle first block
     if (isTextualBlock(firstPastedBlock)) {
       // Merge first pasted block's content with current block
-      const firstPastedText = getVisibleText(firstPastedBlock.charRuns);
+      const firstPastedText = getVisibleTextFromRuns(firstPastedBlock.charRuns);
       const beforeLength = beforeChars.filter((c) => !c.deleted).length;
       const { newPage: pageAfterFirstInsert, op: firstInsertOp } =
         insertCharsAtPosition(
@@ -2689,7 +2689,7 @@ function insertBlocksAtCursor(
     const lastResultBlockIndex = blockIndex + resultBlocks.length - 1;
     const lastResultBlock = resultBlocks[resultBlocks.length - 1];
     if (isTextualBlock(lastResultBlock)) {
-      const lastBlockText = getVisibleText(lastResultBlock.charRuns);
+      const lastBlockText = getVisibleTextFromRuns(lastResultBlock.charRuns);
       // If the last block has after-cursor content, position cursor at the start of it
       const afterTextLength = afterChars.filter((c) => !c.deleted).length;
       const cursorPosition = lastBlockText.length - afterTextLength;

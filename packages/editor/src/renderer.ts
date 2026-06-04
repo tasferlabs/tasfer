@@ -28,8 +28,8 @@ import {
 } from "./sync/awareness";
 import {
   getCharIdFromRun,
-  getVisibleTextFromChars,
-  getVisibleTextFromRuns,
+  getVisibleTextFromRunsFromChars,
+  getVisibleTextFromRunsFromRuns,
   isCharDeleted,
   iterateVisibleChars,
 } from "./sync/char-runs";
@@ -681,7 +681,7 @@ export function renderBlock(
   } = getContentWithComposition(block, state, blockIndex);
 
   // Detect text direction
-  const visibleText = getVisibleTextFromRuns(block.charRuns);
+  const visibleText = getVisibleTextFromRunsFromRuns(block.charRuns);
   const direction = getTextDirection(visibleText);
   const isRTL = direction === "rtl";
 
@@ -1211,7 +1211,7 @@ function renderSelectionCore(
   let end = selection.isForward ? selection.focus : selection.anchor;
 
   // Detect if this is an RTL block
-  const blockVisibleText = getVisibleTextFromRuns(block.charRuns);
+  const blockVisibleText = getVisibleTextFromRunsFromRuns(block.charRuns);
   const isRTL = getTextDirection(blockVisibleText) === "rtl";
 
   if (
@@ -2539,7 +2539,7 @@ function calculateCursorPosition(
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
   // Calculate cursor position
-  const visibleText = getVisibleTextFromChars(chars);
+  const visibleText = getVisibleTextFromRunsFromChars(chars);
   const isRTL = getTextDirection(visibleText) === "rtl";
 
   let baseX: number;
@@ -2837,7 +2837,7 @@ function renderRemoteCursors(
 
       // Detect RTL to position label on the correct side of cursor
       const blockChars = charRunsToChars(block.charRuns);
-      const blockText = getVisibleTextFromChars(blockChars);
+      const blockText = getVisibleTextFromRunsFromChars(blockChars);
       const isCursorRTL = getTextDirection(blockText) === "rtl";
 
       // In RTL, label extends to the left of cursor; in LTR, to the right
@@ -3195,7 +3195,7 @@ function getPositionCoordinates(
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
-  const blockVisibleText = getVisibleTextFromRuns(block.charRuns);
+  const blockVisibleText = getVisibleTextFromRunsFromRuns(block.charRuns);
 
   // Detect RTL
   const isRTL = getTextDirection(blockVisibleText) === "rtl";

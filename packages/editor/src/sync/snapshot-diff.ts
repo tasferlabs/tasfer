@@ -6,7 +6,10 @@
  */
 
 import { getBlockDescriptor, getBlockFieldNames } from "./block-registry";
-import { getVisibleTextFromRuns, iterateVisibleChars } from "./char-runs";
+import {
+  getVisibleTextFromRunsFromRuns,
+  iterateVisibleChars,
+} from "./char-runs";
 import type {
   BlockDelete,
   BlockInsert,
@@ -151,8 +154,8 @@ function diffBlocks(current: Block, snapshot: Block): BlockChanges | null {
   }
 
   if (isTextualBlock(current) && isTextualBlock(snapshot)) {
-    const currentText = getVisibleTextFromRuns(current.charRuns);
-    const snapshotText = getVisibleTextFromRuns(snapshot.charRuns);
+    const currentText = getVisibleTextFromRunsFromRuns(current.charRuns);
+    const snapshotText = getVisibleTextFromRunsFromRuns(snapshot.charRuns);
 
     if (currentText !== snapshotText) {
       changes.textChanged = { from: snapshotText, to: currentText };

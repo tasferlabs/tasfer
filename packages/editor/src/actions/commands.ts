@@ -15,8 +15,6 @@ import {
   getBlockTextLength,
   updateMode,
 } from "../state";
-import { moveCursorToPosition } from "@/selection";
-import { clearSelection, startSelection, updateSelectionFocus } from "@/selection";
 import {
   deleteFromRuns,
   isCharIdInRange,
@@ -28,7 +26,7 @@ import {
   formatCharsInRange,
   getFormatsAtCharPosition,
   getVisibleLength,
-  getVisibleText,
+  getVisibleTextFromRuns,
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
 import {
@@ -50,6 +48,12 @@ import type {
   Position,
   SlashCommand,
 } from "../types";
+import { moveCursorToPosition } from "@/selection";
+import {
+  clearSelection,
+  startSelection,
+  updateSelectionFocus,
+} from "@/selection";
 import {
   crdtToPosition,
   crdtToSelectionRange,
@@ -210,7 +214,7 @@ function detectAndApplyInlineMarkdown(
 } | null {
   const block = page.blocks.find((b) => b.id === blockId);
   if (!block || !isTextualBlock(block)) return null;
-  const fullText = getVisibleText(block.charRuns);
+  const fullText = getVisibleTextFromRuns(block.charRuns);
 
   const patterns: Array<{
     regex: RegExp;
@@ -285,7 +289,7 @@ function applyMarkdownPrefix(
   if (!isTextualBlock(block)) {
     return { block, ops: [] };
   }
-  const text = getVisibleText(block.charRuns);
+  const text = getVisibleTextFromRuns(block.charRuns);
   const ops: Operation[] = [];
   const oldType = block.type;
 
@@ -480,7 +484,7 @@ function mergeBlocksOps(
     return { newPage: pageAcc, ops };
   }
 
-  const sourceText = getVisibleText(source.charRuns);
+  const sourceText = getVisibleTextFromRuns(source.charRuns);
 
   if (sourceText.length > 0) {
     const targetLen = getVisibleLength(target.charRuns);
@@ -1044,7 +1048,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
   if (input === " ") {
     const currentBlock = pageAcc.blocks[blockIndex];
     if (isTextualBlock(currentBlock)) {
-      const text = getVisibleText(currentBlock.charRuns);
+      const text = getVisibleTextFromRuns(currentBlock.charRuns);
       const linkResult = autoLinkAtCursor(
         pageAcc,
         oldBlock.id,
@@ -2518,7 +2522,7 @@ export function splitBlock(state: EditorState): CommandResult {
   // Auto-detect URLs before splitting (Enter acts as a word boundary)
   let currentBlock = oldBlock;
   {
-    const text = getVisibleText(currentBlock.charRuns);
+    const text = getVisibleTextFromRuns(currentBlock.charRuns);
     const linkResult = autoLinkAtCursor(
       state.document.page,
       currentBlock.id,
@@ -2540,7 +2544,7 @@ export function splitBlock(state: EditorState): CommandResult {
     }
   }
 
-  const oldText = getVisibleText(currentBlock.charRuns);
+  const oldText = getVisibleTextFromRuns(currentBlock.charRuns);
 
   // Preserve the original block type for both blocks
   const originalType = currentBlock.type;
@@ -4158,7 +4162,10 @@ export function updateLinkInBlock(
     return { state, ops: [] };
   }
 
-  const oldText = getVisibleText(block.charRuns).slice(startIndex, endIndex);
+  const oldText = getVisibleTextFromRuns(block.charRuns).slice(
+    startIndex,
+    endIndex,
+  );
   let pageAcc = state.document.page;
 
   if (oldText !== newText) {

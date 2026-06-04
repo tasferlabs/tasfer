@@ -1,4 +1,7 @@
-import { getVisibleTextFromRuns, iterateVisibleChars } from "../sync/char-runs";
+import {
+  getVisibleTextFromRunsFromRuns,
+  iterateVisibleChars,
+} from "../sync/char-runs";
 import type { Block, CharRun, FormatSpan, TextFormat } from "./loadPage";
 import { isImageDefault, isListBlock, isTextualBlock } from "./loadPage";
 import { IMAGE_DEFAULT_HEIGHT } from "@/constants";
@@ -291,7 +294,7 @@ export function serializeToMarkdown(
       lastBlock.type === "paragraph";
     if (hasContent && isTextualBlock(lastBlock)) {
       const lastBlockIsEmpty =
-        getVisibleTextFromRuns(lastBlock.charRuns).length === 0;
+        getVisibleTextFromRunsFromRuns(lastBlock.charRuns).length === 0;
 
       if (lastBlockIsEmpty && blocks.length > 1) {
         return frontmatter + result + "\n";

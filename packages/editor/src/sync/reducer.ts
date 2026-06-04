@@ -14,7 +14,7 @@ import {
   charRunsToChars,
   deleteFromRuns,
   getCharIdAtVisiblePosition,
-  getVisibleTextFromRuns,
+  getVisibleTextFromRunsFromRuns,
   insertIntoRuns,
   isCharIdInRange,
   iterateVisibleChars,
@@ -535,13 +535,13 @@ export function rebuildState(pageId: string, ops: Operation[]): Page {
 /**
  * Get visible text content from a block (excluding deleted chars).
  */
-export function getVisibleText(block: Block): string {
+export function getVisibleTextFromRuns(block: Block): string {
   // Image and Line blocks don't have text content
   if (!isTextualBlock(block)) {
     return "";
   }
 
-  return getVisibleTextFromRuns(block.charRuns);
+  return getVisibleTextFromRunsFromRuns(block.charRuns);
 }
 
 /**

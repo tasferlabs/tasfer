@@ -319,7 +319,7 @@ export {
   findCharIdAtPosition,
   getCharIdsInRange,
   getVisibleBlocks,
-  getVisibleText,
+  getVisibleTextFromRuns,
 } from "./reducer";
 
 // Re-export awareness

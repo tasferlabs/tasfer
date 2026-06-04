@@ -6,7 +6,7 @@ import { getEditorStyles, getTextStyle } from "./styles";
 import {
   charRunsToChars,
   getVisibleLengthFromRuns,
-  getVisibleTextFromRuns,
+  getVisibleTextFromRunsFromRuns,
   iterateVisibleChars,
 } from "./sync/char-runs";
 import type { EditorMode, EditorState, EditorStyles, Position } from "./types";
@@ -94,7 +94,7 @@ export function getBlockTextContent(block: Block): string {
   if (!isTextualBlock(block)) return "";
 
   // Get visible text from charRuns
-  return getVisibleTextFromRuns(block.charRuns);
+  return getVisibleTextFromRunsFromRuns(block.charRuns);
 }
 
 /**
@@ -275,7 +275,7 @@ export function getTextIndexAtRelativePosition(
 
   // Check if this is RTL text
   const isRTL =
-    getTextDirection(getVisibleTextFromRuns(block.charRuns)) === "rtl";
+    getTextDirection(getVisibleTextFromRunsFromRuns(block.charRuns)) === "rtl";
 
   if (!isRTL) {
     // LTR: simple logical positioning
