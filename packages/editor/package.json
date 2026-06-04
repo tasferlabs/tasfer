@@ -27,6 +27,7 @@
     "typescript": "^5.9.3"
   },
   "devDependencies": {
+    "@types/react": "^19.2.16",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.6",
