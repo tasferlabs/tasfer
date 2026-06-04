@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, type SVGProps } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/app/hooks/useTheme";
-import { loadArabicFonts } from "@/editor/fonts";
+import { loadArabicFonts } from "@cypherkit/editor/fonts";
 import "./HomePage.css";
 
 const REPO_URL = "https://github.com/hamza512b/cypher";

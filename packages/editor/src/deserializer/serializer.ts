@@ -1,10 +1,10 @@
-import { IMAGE_DEFAULT_HEIGHT } from "@/editor/constants";
+import { IMAGE_DEFAULT_HEIGHT } from "@/constants";
 import type { Block, CharRun, FormatSpan, TextFormat } from "./loadPage";
 import { isImageDefault, isListBlock, isTextualBlock } from "./loadPage";
 import {
   getVisibleTextFromRuns,
   iterateVisibleChars,
-} from "../editor/sync/char-runs";
+} from "../sync/char-runs";
 
 // Helper to group chars with same formatting for serialization
 function groupCharsForSerialization(charRuns: CharRun[], formats: FormatSpan[]): { text: string; formats?: TextFormat[] }[] {

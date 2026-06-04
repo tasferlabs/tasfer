@@ -6,13 +6,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 import { Direction } from "radix-ui";
 import { registerSW } from "virtual:pwa-register";
-import { initPlatform } from "./platform";
+import { initPlatform, getPlatform } from "./platform";
+import { setAssetResolver } from "@cypherkit/editor/adapters";
 import { AuthProvider } from "./app/contexts/AuthContext";
 import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
 import { router } from "./app/routes/Router";
 import LoadingScreen from "./components/ui/loading-screen";
-import { loadFonts, loadArabicFonts } from "./editor/fonts";
+import { loadFonts, loadArabicFonts } from "@cypherkit/editor/fonts";
 import "./i18n";
 import i18next from "i18next";
 import { serviceWorkerBridge } from "./serviceWorkerBridge";
@@ -274,6 +275,8 @@ if (platformReady) {
     // Must await — the worker-backed SQLite needs time to spin up.
     initPlatform()
       .then(() => {
+        // Wire the editor package's asset resolver to the host platform layer
+        setAssetResolver((url) => getPlatform().assets.getUrl(url));
         platformReady = true;
         (window as any).__CYPHER_PLATFORM_READY__ = true;
         renderApp();

@@ -1,4 +1,4 @@
-import type { Block, Page, TextFormat } from "../deserializer/loadPage";
+import type { Block, Page, TextFormat } from "./deserializer/loadPage";
 import type { FontFamily } from "./fonts";
 import type { MomentumState, ScrollbarState } from "./scrollbar";
 import type { Operation } from "./sync/types";

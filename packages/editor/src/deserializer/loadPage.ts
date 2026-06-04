@@ -1,6 +1,6 @@
-import type { HLC } from "../editor/sync/sync";
-import { IMAGE_DEFAULT_HEIGHT } from "../editor/constants";
-import { hasTextContent } from "../editor/sync/block-registry";
+import type { HLC } from "../sync/sync";
+import { IMAGE_DEFAULT_HEIGHT } from "../constants";
+import { hasTextContent } from "../sync/block-registry";
 import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
 

@@ -27,7 +27,7 @@ import type {
   PairCallbacks,
 } from "./types";
 import type { Driver, CryptoDriver } from "./driver";
-import type { HLC } from "@/editor/sync/types";
+import type { HLC } from "@cypherkit/editor/sync/types";
 import type { ReplicatorHost } from "./sync";
 import { nanoid } from "nanoid";
 
@@ -37,7 +37,7 @@ interface EngineReplicator {
   pushPageOps(
     spaceId: string,
     pageId: string,
-    ops: import("@/editor/sync/types").Operation[],
+    ops: import("@cypherkit/editor/sync/types").Operation[],
   ): void;
   requestAsset(hash: string): Promise<boolean>;
   addPeer(publicKey: string): Promise<void>;
@@ -868,7 +868,7 @@ export class Engine implements Platform {
         [id],
       );
       const cached = await this.loadSnapshot(id);
-      let blocks: import("@/deserializer/loadPage").Block[] | null = null;
+      let blocks: import("@cypherkit/editor/deserializer/loadPage").Block[] | null = null;
       if (cached && cached.opCount === opCount && cached.blocks.length > 0) {
         blocks = cached.blocks;
       } else {
@@ -1251,7 +1251,7 @@ export class Engine implements Platform {
       if (rows.length === 0) return [];
 
       type ParsedRow = {
-        op: import("@/editor/sync/types").Operation;
+        op: import("@cypherkit/editor/sync/types").Operation;
         timestamp: number;
       };
       const parsed: ParsedRow[] = [];
@@ -1279,12 +1279,12 @@ export class Engine implements Platform {
       // Defers text_delete ops whose referenced chars haven't been inserted
       // yet (HLC order ≠ causal order).
       const { applyOp, createEmptyPageState } =
-        await import("@/editor/sync/reducer");
-      const { resolveBlockOrder } = await import("@/editor/sync/conflicts");
+        await import("@cypherkit/editor/sync/reducer");
+      const { resolveBlockOrder } = await import("@cypherkit/editor/sync/conflicts");
 
       let state = createEmptyPageState(pageId);
       const insertedCharIds = new Set<string>();
-      const deferredOps: import("@/editor/sync/types").Operation[] = [];
+      const deferredOps: import("@cypherkit/editor/sync/types").Operation[] = [];
       const results: PageSnapshot[] = [];
 
       for (let i = 0; i < total; i++) {
@@ -1485,7 +1485,7 @@ export class Engine implements Platform {
   /** Batch-insert ops using multi-row INSERT to minimise IPC round-trips on iOS. */
   private async insertOpsBatch(
     pageId: string,
-    operations: import("@/editor/sync/types").Operation[],
+    operations: import("@cypherkit/editor/sync/types").Operation[],
     now: number,
   ): Promise<void> {
     if (operations.length === 0) return;
@@ -1516,7 +1516,7 @@ export class Engine implements Platform {
   ops = {
     persist: async (
       pageId: string,
-      operations: import("@/editor/sync/types").Operation[],
+      operations: import("@cypherkit/editor/sync/types").Operation[],
     ): Promise<void> => {
       await this.insertOpsBatch(pageId, operations, Date.now());
     },
@@ -1524,12 +1524,12 @@ export class Engine implements Platform {
     /** Convert blocks to CRDT ops and persist them (used by import) */
     writeBlocks: async (
       pageId: string,
-      blocks: import("@/deserializer/loadPage").Block[],
+      blocks: import("@cypherkit/editor/deserializer/loadPage").Block[],
     ): Promise<void> => {
-      const { blocksToOps } = await import("@/editor/sync/snapshot-diff");
+      const { blocksToOps } = await import("@cypherkit/editor/sync/snapshot-diff");
       const { createIdGenerator, generatePeerId } =
-        await import("@/editor/sync/id");
-      const { createHLC, tickHLC } = await import("@/editor/sync/hlc");
+        await import("@cypherkit/editor/sync/id");
+      const { createHLC, tickHLC } = await import("@cypherkit/editor/sync/hlc");
 
       const peerId = generatePeerId();
       const nextId = createIdGenerator(peerId);
@@ -1559,12 +1559,12 @@ export class Engine implements Platform {
 
     load: async (
       pageId: string,
-    ): Promise<import("@/editor/sync/types").Operation[]> => {
+    ): Promise<import("@cypherkit/editor/sync/types").Operation[]> => {
       const rows = await this.driver.db.execute<{ data: Uint8Array }>(
         "SELECT data FROM ops WHERE scope_id = ? ORDER BY clock, peer_id",
         [pageId],
       );
-      const ops: import("@/editor/sync/types").Operation[] = [];
+      const ops: import("@cypherkit/editor/sync/types").Operation[] = [];
       for (const r of rows) {
         try {
           ops.push(JSON.parse(new TextDecoder().decode(r.data as Uint8Array)));
@@ -1587,7 +1587,7 @@ export class Engine implements Platform {
   snapshots = {
     save: async (
       pageId: string,
-      blocks: import("@/deserializer/loadPage").Block[],
+      blocks: import("@cypherkit/editor/deserializer/loadPage").Block[],
     ): Promise<void> => {
       try {
         const [{ cnt }] = await this.driver.db.execute<{ cnt: number }>(
@@ -1611,7 +1611,7 @@ export class Engine implements Platform {
 
   private async loadSnapshot(pageId: string): Promise<{
     opCount: number;
-    blocks: import("@/deserializer/loadPage").Block[];
+    blocks: import("@cypherkit/editor/deserializer/loadPage").Block[];
   } | null> {
     try {
       const data = await this.driver.fs.read(this.snapshotPath(pageId));
@@ -1650,7 +1650,7 @@ export class Engine implements Platform {
   /** Apply remote page content operations received from a peer */
   async handleRemotePageOps(
     pageId: string,
-    ops: import("@/editor/sync/types").Operation[],
+    ops: import("@cypherkit/editor/sync/types").Operation[],
   ): Promise<void> {
     await this.insertOpsBatch(pageId, ops, Date.now());
   }
@@ -1662,7 +1662,7 @@ export class Engine implements Platform {
     remotePageVVs: Record<string, Record<string, number>>,
   ): Promise<{
     spaceOps: SpaceOperation[];
-    pageOps: Record<string, import("@/editor/sync/types").Operation[]>;
+    pageOps: Record<string, import("@cypherkit/editor/sync/types").Operation[]>;
   }> {
     // Get missing space ops
     const allSpaceOps = await this.getSpaceOps(spaceId);
@@ -1692,7 +1692,7 @@ export class Engine implements Platform {
       localPageVVs[row.page_id][row.peer_id] = row.max_clock;
     }
 
-    const pageOps: Record<string, import("@/editor/sync/types").Operation[]> =
+    const pageOps: Record<string, import("@cypherkit/editor/sync/types").Operation[]> =
       {};
     for (const [pageId, localVV] of Object.entries(localPageVVs)) {
       const remoteVV = remotePageVVs[pageId] ?? {};
@@ -1712,7 +1712,7 @@ export class Engine implements Platform {
         [pageId],
       );
 
-      const missing: import("@/editor/sync/types").Operation[] = [];
+      const missing: import("@cypherkit/editor/sync/types").Operation[] = [];
       for (const row of rows) {
         const known = remoteVV[row.peer_id] ?? -1;
         if (row.clock > known) {
@@ -1738,7 +1738,7 @@ export class Engine implements Platform {
     pageId: string,
     remoteVV: Record<string, number>,
   ): Promise<{
-    ops: import("@/editor/sync/types").Operation[];
+    ops: import("@cypherkit/editor/sync/types").Operation[];
     versionVector: Record<string, number>;
   }> {
     const rows = await this.driver.db.execute<{
@@ -1750,7 +1750,7 @@ export class Engine implements Platform {
       [pageId],
     );
 
-    const missing: import("@/editor/sync/types").Operation[] = [];
+    const missing: import("@cypherkit/editor/sync/types").Operation[] = [];
     const localVV: Record<string, number> = {};
     for (const row of rows) {
       // Build local VV
@@ -2125,12 +2125,12 @@ export class Engine implements Platform {
   /** Load all ops for a page as parsed Operation objects */
   private async loadPageOps(
     pageId: string,
-  ): Promise<import("@/editor/sync/types").Operation[]> {
+  ): Promise<import("@cypherkit/editor/sync/types").Operation[]> {
     const rows = await this.driver.db.execute<{ data: Uint8Array }>(
       "SELECT data FROM ops WHERE scope_id = ? ORDER BY clock, peer_id",
       [pageId],
     );
-    const ops: import("@/editor/sync/types").Operation[] = [];
+    const ops: import("@cypherkit/editor/sync/types").Operation[] = [];
     for (const r of rows) {
       try {
         ops.push(JSON.parse(new TextDecoder().decode(r.data as Uint8Array)));
@@ -2144,11 +2144,11 @@ export class Engine implements Platform {
   /** Rebuild a page's Block[] from persisted CRDT ops */
   private async rebuildBlocksFromOps(
     pageId: string,
-  ): Promise<import("@/deserializer/loadPage").Block[] | null> {
+  ): Promise<import("@cypherkit/editor/deserializer/loadPage").Block[] | null> {
     const ops = await this.loadPageOps(pageId);
     if (ops.length === 0) return null;
 
-    const { rebuildState } = await import("@/editor/sync/reducer");
+    const { rebuildState } = await import("@cypherkit/editor/sync/reducer");
     const page = rebuildState(pageId, ops);
 
     return page.blocks.length > 0 ? page.blocks : null;

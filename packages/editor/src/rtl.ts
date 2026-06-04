@@ -4,7 +4,7 @@
  */
 
 import i18next from "i18next";
-import type { Char } from "../deserializer/loadPage";
+import type { Char } from "./deserializer/loadPage";
 
 /**
  * Unicode ranges for RTL scripts

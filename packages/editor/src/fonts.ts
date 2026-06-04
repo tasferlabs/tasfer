@@ -9,7 +9,7 @@ import "@fontsource/poppins/500.css";
 import "@fontsource/poppins/600.css";
 import "@fontsource/poppins/700.css";
 // Formatted text measurement - handles Char[] with FormatSpan[]
-import type { Char, FormatSpan, TextFormat } from "../deserializer/loadPage";
+import type { Char, FormatSpan, TextFormat } from "./deserializer/loadPage";
 import { getInlineMathDims } from "./inlineMath";
 
 // Import Libre Baskerville font (multiple weights)

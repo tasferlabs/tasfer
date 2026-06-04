@@ -3,8 +3,8 @@ import type {
   CharRun,
   Page,
   TextFormat,
-} from "../../deserializer/loadPage";
-import { isListBlock, isTextualBlock } from "../../deserializer/loadPage";
+} from "../deserializer/loadPage";
+import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
 import { isCJKCharacter } from "../fonts";
 import { invalidateBlockCache } from "../renderer";
 import { isRTLChar } from "../rtl";

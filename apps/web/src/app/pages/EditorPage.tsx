@@ -20,12 +20,12 @@ import {
   isTextualBlock,
   type Block,
   type TextualBlock,
-} from "@/deserializer/loadPage";
-import type { AwarenessUser } from "@/editor/sync/awareness";
+} from "@cypherkit/editor/deserializer/loadPage";
+import type { AwarenessUser } from "@cypherkit/editor/sync/awareness";
 import {
   extractTitleFromBlocks,
   getVisibleTextFromRuns,
-} from "@/editor/sync/char-runs";
+} from "@cypherkit/editor/sync/char-runs";
 import {
   formatDatePreferred,
   formatTimePreferred,

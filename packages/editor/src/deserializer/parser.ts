@@ -14,7 +14,7 @@ import type {
   NumberedListItem,
   TodoListItem,
 } from "./loadPage";
-import { extractPeerId, extractCounter } from "../editor/sync/id";
+import { extractPeerId, extractCounter } from "../sync/id";
 import {
   BOLD_END,
   BOLD_START,

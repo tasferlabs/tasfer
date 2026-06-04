@@ -4,8 +4,8 @@ import type {
   Char,
   CharRun,
   FormatSpan,
-} from "../deserializer/loadPage";
-import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
+} from "./deserializer/loadPage";
+import { isListBlock, isTextualBlock } from "./deserializer/loadPage";
 import {
   batchChars,
   getFontStack,
@@ -36,7 +36,7 @@ import {
   isCharDeleted,
   iterateVisibleChars,
 } from "./sync/char-runs";
-import { getPlatform } from "@/platform";
+import { resolveAssetUrl } from "./adapters";
 import type {
   BlockBounds,
   EditorState,
@@ -1569,7 +1569,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     let resolvedUrl = url;
     if (!isAlreadyUrl) {
       try {
-        resolvedUrl = await getPlatform().assets.getUrl(url);
+        resolvedUrl = await resolveAssetUrl(url);
       } catch {
         // Asset not found — use as-is
       }

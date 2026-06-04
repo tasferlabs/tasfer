@@ -1,10 +1,5 @@
-import type {
-  Block,
-  CharRun,
-  FormatSpan,
-  Page,
-} from "../deserializer/loadPage";
-import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
+import type { Block, CharRun, FormatSpan, Page } from "./deserializer/loadPage";
+import { isListBlock, isTextualBlock } from "./deserializer/loadPage";
 import {
   getCurrentFontFamily,
   measureCtxText,
@@ -77,14 +72,14 @@ interface WrappedLine {
   consumedSpace: boolean;
 }
 
-function wrapCharsDetailed(
+function wrapChars(
   charRuns: CharRun[],
   formats: FormatSpan[],
   maxWidth: number,
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
-  codePadding: number = 0
+  codePadding: number = 0,
 ): WrappedLine[] {
   // Convert charRuns to Char[] for compatibility with existing measurement code
   const chars = charRunsToChars(charRuns);
@@ -173,7 +168,7 @@ function wrapCharsDetailed(
               char.char,
               fontSize,
               fontWeight,
-              fontFamily
+              fontFamily,
             );
 
             if (currentWidth + charWidth > maxWidth && j > remainingWordStart) {
@@ -217,7 +212,7 @@ function measureCharsUpToIndex(
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
-  codePadding: number = 0
+  codePadding: number = 0,
 ): number {
   // Convert charRuns to Char[] for compatibility with existing measurement code
   const chars = charRunsToChars(charRuns);
@@ -231,7 +226,7 @@ function measureCharsUpToIndex(
     fontSize,
     baseFontWeight,
     fontFamily,
-    codePadding
+    codePadding,
   );
 }
 
@@ -254,7 +249,7 @@ export function generateBlockId(): string {
 // State Creation Functions
 export const createInitialState = (
   page: Page,
-  options?: { mode?: EditorMode }
+  options?: { mode?: EditorMode },
 ): EditorState => {
   const peerId = generatePeerId();
 
@@ -328,7 +323,7 @@ export const createInitialState = (
 // State Update Functions (Pure Functions)
 export const updateCursor = (
   state: EditorState,
-  position: Position | null
+  position: Position | null,
 ): EditorState => ({
   ...state,
   document: {
@@ -344,7 +339,7 @@ export const updateCursor = (
 
 export const updateSelection = (
   state: EditorState,
-  updates: PartialSelectionState | null
+  updates: PartialSelectionState | null,
 ): EditorState => ({
   ...state,
   document: {
@@ -368,7 +363,7 @@ export const updateSelection = (
 
 export const updateMode = (
   state: EditorState,
-  mode: EditorMode
+  mode: EditorMode,
 ): EditorState => {
   // If editor was initialized as readonly, enforce readonly behavior
   if (state.ui.isReadonlyBase) {
@@ -396,7 +391,7 @@ export const updateMode = (
 
 export const updateFocus = (
   state: EditorState,
-  isFocused: boolean
+  isFocused: boolean,
 ): EditorState => {
   const newState: EditorState = {
     ...state,
@@ -419,7 +414,7 @@ export const updateFocus = (
 
 export const updatePhysicalKeyboardState = (
   state: EditorState,
-  hasPhysicalKeyboard: boolean
+  hasPhysicalKeyboard: boolean,
 ): EditorState => ({
   ...state,
   view: { ...state.view, hasPhysicalKeyboard },
@@ -461,7 +456,7 @@ export const getBlockTextContent = (block: Block): string => {
 };
 
 export const isForwardSelection = (
-  selection: PartialSelectionState
+  selection: PartialSelectionState,
 ): boolean => {
   return (
     selection.anchor.blockIndex < selection.focus.blockIndex ||
@@ -471,7 +466,7 @@ export const isForwardSelection = (
 };
 
 export const isCollapsedSelection = (
-  selection: PartialSelectionState
+  selection: PartialSelectionState,
 ): boolean => {
   return (
     selection.anchor.blockIndex === selection.focus.blockIndex &&
@@ -508,7 +503,7 @@ export function isCursorBlinking(cursor: CursorState, styles: EditorStyles) {
 export function getCrossedInlineMathSpan(
   block: Block,
   prevTextIndex: number,
-  newTextIndex: number
+  newTextIndex: number,
 ): { startIndex: number; endIndex: number; latex: string } | null {
   if (!isTextualBlock(block)) return null;
 
@@ -546,7 +541,7 @@ export function getCrossedInlineMathSpan(
 function snapInlineMathPosition(
   block: Block,
   textIndex: number,
-  direction: "left" | "right"
+  direction: "left" | "right",
 ): number {
   if (!isTextualBlock(block)) return textIndex;
 
@@ -577,14 +572,14 @@ export const moveCursorToPosition = (
   state: EditorState,
   blockIndex: number,
   textIndex: number,
-  preserveActiveFormats: boolean = false
+  preserveActiveFormats: boolean = false,
 ): EditorState => {
   const allBlocks = state.document.page.blocks;
   if (allBlocks.length === 0) return state;
 
   const clampedBlockIndex = Math.max(
     0,
-    Math.min(blockIndex, allBlocks.length - 1)
+    Math.min(blockIndex, allBlocks.length - 1),
   );
   const block = allBlocks[clampedBlockIndex];
 
@@ -627,7 +622,7 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
   if (!isTextualBlock(currentBlock)) {
     const prevBlockIndex = findPreviousVisibleBlockIndex(
       state.document.page.blocks,
-      blockIndex
+      blockIndex,
     );
     if (prevBlockIndex !== null) {
       const prevBlock = state.document.page.blocks[prevBlockIndex];
@@ -656,14 +651,14 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
       const snapped = snapInlineMathPosition(
         currentBlock,
         textIndex + 1,
-        "right"
+        "right",
       );
       return moveCursorToPosition(state, blockIndex, snapped);
     } else {
       // Moving to next visible block
       const nextBlockIndex = findNextVisibleBlockIndex(
         state.document.page.blocks,
-        blockIndex
+        blockIndex,
       );
       if (nextBlockIndex !== null) {
         const nextBlock = state.document.page.blocks[nextBlockIndex];
@@ -693,14 +688,14 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
       const snapped = snapInlineMathPosition(
         currentBlock,
         textIndex - 1,
-        "left"
+        "left",
       );
       return moveCursorToPosition(state, blockIndex, snapped);
     } else {
       // Moving to previous visible block
       const prevBlockIndex = findPreviousVisibleBlockIndex(
         state.document.page.blocks,
-        blockIndex
+        blockIndex,
       );
       if (prevBlockIndex !== null) {
         const prevBlock = state.document.page.blocks[prevBlockIndex];
@@ -742,7 +737,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   if (!isTextualBlock(currentBlock)) {
     const nextBlockIndex = findNextVisibleBlockIndex(
       state.document.page.blocks,
-      blockIndex
+      blockIndex,
     );
     if (nextBlockIndex !== null) {
       const nextBlock = state.document.page.blocks[nextBlockIndex];
@@ -770,14 +765,14 @@ export const moveCursorRight = (state: EditorState): EditorState => {
       const snapped = snapInlineMathPosition(
         currentBlock,
         textIndex - 1,
-        "left"
+        "left",
       );
       return moveCursorToPosition(state, blockIndex, snapped);
     } else {
       // Moving to previous visible block
       const prevBlockIndex = findPreviousVisibleBlockIndex(
         state.document.page.blocks,
-        blockIndex
+        blockIndex,
       );
       if (prevBlockIndex !== null) {
         const prevBlock = state.document.page.blocks[prevBlockIndex];
@@ -808,14 +803,14 @@ export const moveCursorRight = (state: EditorState): EditorState => {
       const snapped = snapInlineMathPosition(
         currentBlock,
         textIndex + 1,
-        "right"
+        "right",
       );
       return moveCursorToPosition(state, blockIndex, snapped);
     } else {
       // Moving to next visible block
       const nextBlockIndex = findNextVisibleBlockIndex(
         state.document.page.blocks,
-        blockIndex
+        blockIndex,
       );
       if (nextBlockIndex !== null) {
         const nextBlock = state.document.page.blocks[nextBlockIndex];
@@ -852,7 +847,7 @@ function getLineInfoAtPosition(
   block: Block,
   textIndex: number,
   maxWidth: number,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): {
   lineIndex: number;
   lineStartIndex: number;
@@ -878,14 +873,14 @@ function getLineInfoAtPosition(
     adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
   }
 
-  const wrappedLines = wrapCharsDetailed(
+  const wrappedLines = wrapChars(
     block.charRuns,
     block.formats,
     adjustedMaxWidth,
     textStyle.fontSize,
     textStyle.fontWeight,
     fontFamily,
-    codePadding
+    codePadding,
   );
 
   let currentTextIndex = 0;
@@ -925,7 +920,7 @@ function getTextIndexAtRelativePosition(
   relativePosition: number,
   block?: Block,
   maxWidth?: number,
-  styles?: EditorStyles
+  styles?: EditorStyles,
 ): number {
   // If no block info provided, use simple logical positioning
   if (!block || !maxWidth || !styles) {
@@ -973,7 +968,7 @@ function getTextIndexAtRelativePosition(
       textStyle.fontSize,
       textStyle.fontWeight,
       fontFamily,
-      codePadding
+      codePadding,
     );
 
     const distance = Math.abs(widthFromStart - relativePosition);
@@ -994,7 +989,7 @@ function getTextIndexAtRelativePosition(
 export const moveCursorUp = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): EditorState => {
   if (!state.document.cursor) return createInitialCursorState(state);
 
@@ -1007,7 +1002,7 @@ export const moveCursorUp = (
   if (!isTextualBlock(currentBlock)) {
     const prevBlockIndex = findPreviousVisibleBlockIndex(
       state.document.page.blocks,
-      blockIndex
+      blockIndex,
     );
     if (prevBlockIndex !== null) {
       const prevBlock = state.document.page.blocks[prevBlockIndex];
@@ -1032,7 +1027,7 @@ export const moveCursorUp = (
     currentBlock,
     textIndex,
     maxWidth,
-    styles
+    styles,
   );
 
   if (!lineInfo) return state;
@@ -1061,7 +1056,7 @@ export const moveCursorUp = (
       textStyle.fontSize,
       textStyle.fontWeight,
       fontFamily,
-      codePadding
+      codePadding,
     );
 
     // Visual position from left edge: further from start logically = further LEFT visually
@@ -1091,7 +1086,7 @@ export const moveCursorUp = (
       relativePosition,
       currentBlock,
       maxWidth,
-      styles
+      styles,
     );
 
     return moveCursorToPosition(state, blockIndex, targetTextIndex);
@@ -1100,7 +1095,7 @@ export const moveCursorUp = (
   // On the first line of the block, move to the previous block's last line
   const prevBlockIndex = findPreviousVisibleBlockIndex(
     state.document.page.blocks,
-    blockIndex
+    blockIndex,
   );
   if (prevBlockIndex !== null) {
     const prevBlock = state.document.page.blocks[prevBlockIndex];
@@ -1117,14 +1112,14 @@ export const moveCursorUp = (
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
 
-    const prevLines = wrapCharsDetailed(
+    const prevLines = wrapChars(
       prevBlock.charRuns,
       prevBlock.formats,
       maxWidth,
       prevTextStyle.fontSize,
       prevTextStyle.fontWeight,
       fontFamily,
-      codePadding
+      codePadding,
     );
 
     if (prevLines.length > 0) {
@@ -1146,7 +1141,7 @@ export const moveCursorUp = (
         relativePosition,
         prevBlock,
         maxWidth,
-        styles
+        styles,
       );
 
       return moveCursorToPosition(state, prevBlockIndex, targetTextIndex);
@@ -1167,7 +1162,7 @@ export const moveCursorUp = (
 export const moveCursorDown = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): EditorState => {
   if (!state.document.cursor) return createInitialCursorState(state);
 
@@ -1180,7 +1175,7 @@ export const moveCursorDown = (
   if (!isTextualBlock(currentBlock)) {
     const nextBlockIndex = findNextVisibleBlockIndex(
       state.document.page.blocks,
-      blockIndex
+      blockIndex,
     );
     if (nextBlockIndex !== null) {
       const nextBlock = state.document.page.blocks[nextBlockIndex];
@@ -1204,7 +1199,7 @@ export const moveCursorDown = (
     currentBlock,
     textIndex,
     maxWidth,
-    styles
+    styles,
   );
 
   if (!lineInfo) return state;
@@ -1233,7 +1228,7 @@ export const moveCursorDown = (
       textStyle.fontSize,
       textStyle.fontWeight,
       fontFamily,
-      codePadding
+      codePadding,
     );
 
     // Visual position from left edge: further from start logically = further LEFT visually
@@ -1274,7 +1269,7 @@ export const moveCursorDown = (
       relativePosition,
       currentBlock,
       maxWidth,
-      styles
+      styles,
     );
 
     return moveCursorToPosition(state, blockIndex, targetTextIndex);
@@ -1283,7 +1278,7 @@ export const moveCursorDown = (
   // On the last line of the block, move to the next block's first line
   const nextBlockIndex = findNextVisibleBlockIndex(
     state.document.page.blocks,
-    blockIndex
+    blockIndex,
   );
   if (nextBlockIndex !== null) {
     const nextBlock = state.document.page.blocks[nextBlockIndex];
@@ -1300,14 +1295,14 @@ export const moveCursorDown = (
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
 
-    const nextLines = wrapCharsDetailed(
+    const nextLines = wrapChars(
       nextBlock.charRuns,
       nextBlock.formats,
       maxWidth,
       nextTextStyle.fontSize,
       nextTextStyle.fontWeight,
       fontFamily,
-      codePadding
+      codePadding,
     );
 
     if (nextLines.length > 0) {
@@ -1319,7 +1314,7 @@ export const moveCursorDown = (
         relativePosition,
         nextBlock,
         maxWidth,
-        styles
+        styles,
       );
 
       return moveCursorToPosition(state, nextBlockIndex, targetTextIndex);
@@ -1341,7 +1336,7 @@ export const moveCursorDown = (
 export const moveCursorPageUp = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): EditorState => {
   if (!state.document.cursor || !viewport) return state;
 
@@ -1364,7 +1359,7 @@ export const moveCursorPageUp = (
 export const moveCursorPageDown = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): EditorState => {
   if (!state.document.cursor || !viewport) return state;
 
@@ -1383,7 +1378,7 @@ export const moveCursorPageDown = (
 // Selection Functions
 export const startSelection = (
   state: EditorState,
-  position: Position
+  position: Position,
 ): EditorState => {
   // Clear active formats when starting a selection
   let newState = state;
@@ -1407,7 +1402,7 @@ export const startSelection = (
 
 export const updateSelectionFocus = (
   state: EditorState,
-  position: Position
+  position: Position,
 ): EditorState => {
   if (!state.document.selection) {
     return startSelection(state, position);
@@ -1515,7 +1510,7 @@ export const extendSelectionLeft = (state: EditorState): EditorState => {
     if (leftState.document.cursor) {
       return updateSelectionFocus(
         leftState,
-        leftState.document.cursor.position
+        leftState.document.cursor.position,
       );
     }
     return newState;
@@ -1539,7 +1534,7 @@ export const extendSelectionRight = (state: EditorState): EditorState => {
     if (rightState.document.cursor) {
       return updateSelectionFocus(
         rightState,
-        rightState.document.cursor.position
+        rightState.document.cursor.position,
       );
     }
     return newState;
@@ -1550,7 +1545,7 @@ export const extendSelectionRight = (state: EditorState): EditorState => {
   if (rightState.document.cursor) {
     return updateSelectionFocus(
       rightState,
-      rightState.document.cursor.position
+      rightState.document.cursor.position,
     );
   }
   return state;
@@ -1559,7 +1554,7 @@ export const extendSelectionRight = (state: EditorState): EditorState => {
 export const extendSelectionUp = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): EditorState => {
   if (!state.document.cursor) return state;
 
@@ -1584,7 +1579,7 @@ export const extendSelectionUp = (
 export const extendSelectionDown = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): EditorState => {
   if (!state.document.cursor) return state;
 
@@ -1595,7 +1590,7 @@ export const extendSelectionDown = (
     if (downState.document.cursor) {
       return updateSelectionFocus(
         downState,
-        downState.document.cursor.position
+        downState.document.cursor.position,
       );
     }
     return newState;
@@ -1612,7 +1607,7 @@ export const extendSelectionDown = (
 export const extendSelectionPageUp = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): EditorState => {
   if (!state.document.cursor) return state;
 
@@ -1623,7 +1618,7 @@ export const extendSelectionPageUp = (
     if (pageUpState.document.cursor) {
       return updateSelectionFocus(
         pageUpState,
-        pageUpState.document.cursor.position
+        pageUpState.document.cursor.position,
       );
     }
     return newState;
@@ -1634,7 +1629,7 @@ export const extendSelectionPageUp = (
   if (pageUpState.document.cursor) {
     return updateSelectionFocus(
       pageUpState,
-      pageUpState.document.cursor.position
+      pageUpState.document.cursor.position,
     );
   }
   return state;
@@ -1643,7 +1638,7 @@ export const extendSelectionPageUp = (
 export const extendSelectionPageDown = (
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles()
+  styles: EditorStyles = getEditorStyles(),
 ): EditorState => {
   if (!state.document.cursor) return state;
 
@@ -1654,7 +1649,7 @@ export const extendSelectionPageDown = (
     if (pageDownState.document.cursor) {
       return updateSelectionFocus(
         pageDownState,
-        pageDownState.document.cursor.position
+        pageDownState.document.cursor.position,
       );
     }
     return newState;
@@ -1665,7 +1660,7 @@ export const extendSelectionPageDown = (
   if (pageDownState.document.cursor) {
     return updateSelectionFocus(
       pageDownState,
-      pageDownState.document.cursor.position
+      pageDownState.document.cursor.position,
     );
   }
   return state;
@@ -1675,7 +1670,7 @@ export const extendSelectionPageDown = (
 export const openSlashCommand = (
   state: EditorState,
   blockIndex: number,
-  textIndex: number
+  textIndex: number,
 ): EditorState =>
   setActiveMenu(state, {
     type: "slashCommand",
@@ -1687,7 +1682,7 @@ export const openSlashCommand = (
 
 export const updateSlashCommandFilter = (
   state: EditorState,
-  filter: string
+  filter: string,
 ): EditorState => {
   if (state.ui.activeMenu.type !== "slashCommand") return state;
   return setActiveMenu(state, {
@@ -1699,7 +1694,7 @@ export const updateSlashCommandFilter = (
 
 export const updateSlashCommandSelection = (
   state: EditorState,
-  selectedIndex: number
+  selectedIndex: number,
 ): EditorState => {
   if (state.ui.activeMenu.type !== "slashCommand") return state;
   return setActiveMenu(state, {
@@ -1716,7 +1711,7 @@ export const openContextMenu = (
   state: EditorState,
   x: number,
   y: number,
-  hoveredItemId?: string | null
+  hoveredItemId?: string | null,
 ): EditorState =>
   setActiveMenu(state, { type: "contextMenu", x, y, hoveredItemId });
 
@@ -1725,7 +1720,7 @@ export const closeContextMenu = (state: EditorState): EditorState =>
 
 export const updateContextMenuHover = (
   state: EditorState,
-  hoveredItemId: string | null
+  hoveredItemId: string | null,
 ): EditorState => {
   if (state.ui.activeMenu.type !== "contextMenu") return state;
   return {
@@ -1742,7 +1737,7 @@ export const updateContextMenuHover = (
 
 export const selectContextMenuItem = (
   state: EditorState,
-  selectedItemId: string
+  selectedItemId: string,
 ): EditorState => {
   if (state.ui.activeMenu.type !== "contextMenu") return state;
   return {
@@ -1768,7 +1763,7 @@ export const setLinkHover = (
     y: number;
     startIndex: number;
     endIndex: number;
-  } | null
+  } | null,
 ): EditorState =>
   linkHover
     ? setActiveMenu(state, {
@@ -1786,7 +1781,7 @@ export const setLinkHover = (
 // Unified Menu Management
 export const setActiveMenu = (
   state: EditorState,
-  menu: EditorState["ui"]["activeMenu"]
+  menu: EditorState["ui"]["activeMenu"],
 ): EditorState => ({
   ...state,
   ui: {
@@ -1815,7 +1810,7 @@ export const clearAutoCreatedParagraph = (state: EditorState): EditorState => {
 export const startComposition = (
   state: EditorState,
   text: string,
-  startPosition: Position
+  startPosition: Position,
 ): EditorState => ({
   ...state,
   ui: {
@@ -1831,7 +1826,7 @@ export const startComposition = (
 
 export const updateComposition = (
   state: EditorState,
-  text: string
+  text: string,
 ): EditorState => {
   if (!state.ui.composition) return state;
   return {

@@ -6,8 +6,8 @@
  * algorithmically identical — see `applyOp` in `reducer.ts`.
  */
 
-import type { CharRun, FormatSpan, Page, TextFormat } from "../../deserializer/loadPage";
-import { isTextualBlock } from "../../deserializer/loadPage";
+import type { CharRun, FormatSpan, Page, TextFormat } from "../deserializer/loadPage";
+import { isTextualBlock } from "../deserializer/loadPage";
 import type {
   FormatSet,
   TextDelete,

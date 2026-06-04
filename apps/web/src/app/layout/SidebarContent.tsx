@@ -1,5 +1,5 @@
 import { useP2PPageEventsWithQueryClient } from "@/app/hooks/useP2PPageEvents";
-import { triggerHapticFeedback } from "@/editor/events/touchEvents";
+import { triggerHapticFeedback } from "@cypherkit/editor/events/touchEvents";
 import {
   closestCenter,
   DndContext,

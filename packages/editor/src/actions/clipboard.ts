@@ -5,13 +5,13 @@ import type {
   FormatSpan,
   Page,
   TextFormat,
-} from "../../deserializer/loadPage";
+} from "../deserializer/loadPage";
 import {
   isListBlock,
   isTextualBlock,
   loadPage,
-} from "../../deserializer/loadPage";
-import { serializeToMarkdown } from "../../deserializer/serializer";
+} from "../deserializer/loadPage";
+import { serializeToMarkdown } from "../deserializer/serializer";
 import { deleteSelectedText, getSelectionRange } from "../actions/commands";
 import { IMAGE_DEFAULT_HEIGHT } from "../constants";
 import { invalidateBlockCache } from "../renderer";

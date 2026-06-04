@@ -1,8 +1,8 @@
 import type { Block, CharRun, FormatSpan, TextFormat } from "./loadPage";
 import { isImageDefault, isListBlock, isTextualBlock } from "./loadPage";
-import { iterateVisibleChars } from "../editor/sync/char-runs";
-import { renderToSVG } from "../editor/mathjax";
-import { IMAGE_DEFAULT_HEIGHT } from "../editor/constants";
+import { iterateVisibleChars } from "../sync/char-runs";
+import { renderToSVG } from "../mathjax";
+import { IMAGE_DEFAULT_HEIGHT } from "../constants";
 
 function escapeHtml(s: string): string {
   return s

@@ -1,5 +1,5 @@
-import type { Block, Char } from "../deserializer/loadPage";
-import { isListBlock, isTextualBlock } from "../deserializer/loadPage";
+import type { Block, Char } from "./deserializer/loadPage";
+import { isListBlock, isTextualBlock } from "./deserializer/loadPage";
 import {
   getCurrentFontFamily,
   getFontMetrics,

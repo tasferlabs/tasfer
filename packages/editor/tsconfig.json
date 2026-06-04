@@ -13,6 +13,7 @@
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,
+    "allowJs": true,
 
     /* Linting */
     "strict": true,
@@ -23,10 +24,7 @@
     "noUncheckedSideEffectImports": true,
     "baseUrl": ".",
     "paths": {
-      "@cypherkit/editor": ["../../packages/editor/src/index.ts"],
-      "@cypherkit/editor/*": ["../../packages/editor/src/*"],
-      "@/*": ["./src/*"],
-      "@shared/*": ["../../shared/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src"]

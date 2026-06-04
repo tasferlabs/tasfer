@@ -1,4 +1,4 @@
-import { isTextualBlock, type Page } from "../deserializer/loadPage";
+import { isTextualBlock, type Page } from "./deserializer/loadPage";
 import { invertOperations, refreshOps } from "./inverse";
 import { invalidateBlockCache } from "./renderer";
 import { updateCursor, updateSelection } from "./state";
@@ -24,6 +24,7 @@ export const initialUndoManagerState: UndoManagerState = {
   redoStack: [],
 };
 
+//NOTE - we should move the crdt to crdt folder
 /**
  * Convert a Position (index-based) to a CRDTPosition (ID-based).
  * Returns null if the position cannot be converted (e.g., block doesn't exist).

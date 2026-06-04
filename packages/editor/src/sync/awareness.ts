@@ -6,7 +6,7 @@
  */
 
 import type { Page } from "@/deserializer/loadPage";
-import type { Position, SelectionState } from "../../editor/types";
+import type { Position, SelectionState } from "../types";
 import { getVisibleLengthFromRuns } from "./char-runs";
 import { isTextualBlock } from "@/deserializer/loadPage";
 

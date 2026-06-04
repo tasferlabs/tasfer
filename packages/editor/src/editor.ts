@@ -1,6 +1,6 @@
-import type { Block, Page } from "../deserializer/loadPage";
-import { isTextualBlock } from "../deserializer/loadPage";
-import { serializeToMarkdown } from "../deserializer/serializer";
+import type { Block, Page } from "./deserializer/loadPage";
+import { isTextualBlock } from "./deserializer/loadPage";
+import { serializeToMarkdown } from "./deserializer/serializer";
 import {
   copySelectionToClipboard,
   cutSelectionToClipboard,

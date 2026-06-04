@@ -63,8 +63,8 @@ import type {
   Identity,
   Peer,
 } from "./types";
-import type { AwarenessState } from "@/editor/sync/awareness";
-import type { Operation } from "@/editor/sync/types";
+import type { AwarenessState } from "@cypherkit/editor/sync/awareness";
+import type { Operation } from "@cypherkit/editor/sync/types";
 import {
   BINARY_ASSET_TAG,
   hexToBytes,

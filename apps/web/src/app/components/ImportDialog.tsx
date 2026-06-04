@@ -17,18 +17,18 @@ import { Upload, FileUp, FilePlus, Replace } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
-import tokenizePage from "@/deserializer/tokenizer";
+import tokenizePage from "@cypherkit/editor/deserializer/tokenizer";
 import { getPlatform } from "@/platform";
-import parsePage from "@/deserializer/parser";
-import { parseFrontmatter, type PageMetadata } from "@/deserializer/loadPage";
+import parsePage from "@cypherkit/editor/deserializer/parser";
+import { parseFrontmatter, type PageMetadata } from "@cypherkit/editor/deserializer/loadPage";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCreatePage, updatePage } from "../api/pages.api";
 import { uploadImage } from "../api/images.api";
 import { useSpaces } from "../contexts/SpaceContext";
-import { extractTitleFromBlocks, getVisibleTextFromRuns } from "@/editor/sync/char-runs";
-import { isTextualBlock, type Block } from "@/deserializer/loadPage";
+import { extractTitleFromBlocks, getVisibleTextFromRuns } from "@cypherkit/editor/sync/char-runs";
+import { isTextualBlock, type Block } from "@cypherkit/editor/deserializer/loadPage";
 
 interface ImportDialogProps {
   open: boolean;

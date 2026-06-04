@@ -1,4 +1,4 @@
-import { type Block, type Page } from "../deserializer/loadPage";
+import { type Block, type Page } from "./deserializer/loadPage";
 import createEditor, { type Editor } from "./editor";
 import {
   createCanvasLayers,

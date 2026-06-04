@@ -1,0 +1,21 @@
+{
+  "name": "@cypherkit/editor",
+  "version": "0.0.0",
+  "description": "Canvas-based, CRDT-powered block editor engine (headless core).",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "@fontsource/libre-baskerville": "^5.2.10",
+    "@fontsource/poppins": "^5.2.6",
+    "@fontsource/space-grotesk": "^5.2.10",
+    "i18next": "^25.0.0",
+    "nanoid": "^5.1.7"
+  },
+  "peerDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
