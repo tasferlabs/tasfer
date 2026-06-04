@@ -39,15 +39,15 @@ export interface ScrollbarStyles {
 }
 
 // Detect if device has touch support
-const isTouchDevice = (): boolean => {
+function isTouchDevice(): boolean {
   return (
     typeof window !== "undefined" &&
     ("ontouchstart" in window || navigator.maxTouchPoints > 0)
   );
-};
+}
 
 // Get safe area inset bottom value
-const getSafeAreaInsetBottom = (): number => {
+function getSafeAreaInsetBottom(): number {
   if (typeof window === "undefined" || typeof document === "undefined") {
     return 0;
   }
@@ -80,7 +80,7 @@ const getSafeAreaInsetBottom = (): number => {
   document.body.removeChild(testEl);
 
   return inset;
-};
+}
 
 // Cache the safe area inset value with window dimensions for invalidation
 let cachedSafeAreaInsetBottom: number | null = null;

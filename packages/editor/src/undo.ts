@@ -16,8 +16,6 @@ export const initialUndoManagerState: UndoManagerState = {
   redoStack: [],
 };
 
-//NOTE - up to here these has nothing with undo/redo
-
 /**
  * Record operations to the undo stack.
  *

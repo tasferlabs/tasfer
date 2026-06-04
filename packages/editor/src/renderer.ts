@@ -154,12 +154,12 @@ function getContentWithComposition(
 }
 
 // Helper to get or calculate block height, storing it on the block
-export const getBlockHeight = (
+export function getBlockHeight(
   block: Block,
   maxWidth: number,
   styles: EditorStyles,
   first: boolean,
-): number => {
+): number {
   // Calculate the base height (with caching)
   let height: number;
   if (block.cachedHeight !== undefined && block.cachedWidth === maxWidth) {
@@ -182,18 +182,18 @@ export const getBlockHeight = (
   }
 
   return height;
-};
+}
 
 // Invalidate cache for specific block (when content changes)
-export const invalidateBlockCache = (block: Block) => {
+export function invalidateBlockCache(block: Block) {
   block.cachedHeight = undefined;
   block.cachedWidth = undefined;
-};
+}
 
 // Clear all block caches in a page (for window resize)
-export const clearAllBlockCaches = (blocks: Block[]) => {
+export function clearAllBlockCaches(blocks: Block[]) {
   blocks.forEach((block) => invalidateBlockCache(block));
-};
+}
 
 // Rendering Functions
 // Helper function to measure the width of a portion of CRDT text
@@ -497,14 +497,14 @@ function renderLine(
   ctx.direction = "ltr";
 }
 
-export const renderPage = (
+export function renderPage(
   ctx: CanvasRenderingContext2D,
   state: EditorState,
   viewport: ViewportState,
   visibility: { start: number; end: number },
   styles: EditorStyles = getEditorStyles(),
   remoteAwareness: Map<string, AwarenessState>,
-) => {
+) {
   // Save context state
   ctx.save();
 
@@ -578,9 +578,9 @@ export const renderPage = (
 
   return documentHeight;
   // console.log(viewport.visibleBlocksStartIndex, viewport.visibleBlocksEndIndex);
-};
+}
 
-export const renderBlock = (
+export function renderBlock(
   ctx: CanvasRenderingContext2D,
   state: EditorState,
   block: Block,
@@ -590,7 +590,7 @@ export const renderBlock = (
   maxWidth: number,
   styles: EditorStyles = getEditorStyles(),
   remoteAwareness?: Map<string, AwarenessState>,
-): RenderedBlock => {
+): RenderedBlock {
   // Handle image cover blocks
   if (block.type === "image") {
     return renderImageBlock(
@@ -943,7 +943,7 @@ export const renderBlock = (
     bounds: blockBounds,
     lines: renderedLines,
   };
-}; // Calculate position from mouse coordinates dynamically
+} // Calculate position from mouse coordinates dynamically
 
 // Helper function to calculate the item number for a numbered list
 function calculateListItemNumber(
@@ -2313,11 +2313,11 @@ function renderLineBlock(
 }
 
 // Calculate block height dynamically based on content and max width
-export const calculateBlockHeight = (
+export function calculateBlockHeight(
   block: Block,
   maxWidth: number,
   styles: EditorStyles,
-): number => {
+): number {
   // Handle image cover blocks
   if (block.type === "image") {
     const {
@@ -2419,14 +2419,14 @@ export const calculateBlockHeight = (
     lines.length * fontMetrics.fontSize * textStyle.lineHeight +
     textStyle.paddingBottom
   );
-};
+}
 
 // Check if a block is visible in the viewport
-const isBlockVisible = (
+function isBlockVisible(
   blockY: number,
   blockHeight: number,
   viewport: { scrollY: number; height: number },
-): boolean => {
+): boolean {
   const blockTop = blockY;
   const blockBottom = blockY + blockHeight;
   // Buffer not needed anymore because we use canvas based scrolling
@@ -2435,7 +2435,7 @@ const isBlockVisible = (
     // blockY is relative to canvas (already offset by scrollY), so viewport top is 0
     blockBottom >= -buffer && blockTop <= viewport.height + buffer
   );
-};
+}
 
 /**
  * Core cursor position calculation logic shared between local and remote cursors.

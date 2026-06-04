@@ -56,7 +56,7 @@ const insertHelloOp = peerA.insertText(blockId, 0, "hello");
 peerA.emit([insertHelloOp]);
 peerB.apply([insertHelloOp]);
 
-const visibleText = (p: Page): string => {
+function visibleText(p: Page): string {
   const block = p.blocks.find((b) => b.id === blockId);
   if (!block || !isTextualBlock(block)) return "";
   let result = "";
@@ -64,7 +64,7 @@ const visibleText = (p: Page): string => {
     result += char;
   }
   return result;
-};
+}
 
 if (
   visibleText(peerA.getState()) !== "hello" ||

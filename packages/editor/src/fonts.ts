@@ -243,13 +243,13 @@ export async function loadArabicFonts(): Promise<void> {
 let metricsCache: ReadonlyMap<string, FontMetrics> = new Map();
 
 // Helper function to create cache key
-const createCacheKey = (
+function createCacheKey(
   fontFamily: FontFamily,
   fontSize: number,
   fontWeight: string,
-): string => {
+): string {
   return `${fontFamily}-${fontSize}-${fontWeight}`;
-};
+}
 
 // Canvas context for measurements (created once)
 const measurementCanvas = (() => {
@@ -259,21 +259,21 @@ const measurementCanvas = (() => {
   return canvas.getContext("2d")!;
 })();
 // Pure function to apply font to context
-const applyFont = (
+function applyFont(
   ctx: CanvasRenderingContext2D,
   fontSize: number,
   fontWeight: string,
   fontFamily: FontFamily,
-): void => {
+): void {
   const fontStack = getFontStack(fontFamily);
   ctx.font = `${fontWeight} ${fontSize}px ${fontStack}`;
-};
+}
 // Pure function to calculate font metrics
-const calculateFontMetrics = (
+function calculateFontMetrics(
   fontFamily: FontFamily,
   fontSize: number,
   fontWeight: string,
-): FontMetrics => {
+): FontMetrics {
   const ctx = measurementCanvas;
   applyFont(ctx, fontSize, fontWeight, fontFamily);
   const textMetrics = ctx.measureText("Mg");
@@ -298,15 +298,15 @@ const calculateFontMetrics = (
     descent: textMetrics.fontBoundingBoxDescent,
     characters: characters,
   };
-};
+}
 // Get font metrics with lazy per-key caching.
 // Metrics are computed on first access for each font/size/weight combo,
 // avoiding the upfront cost of pre-computing all 80 combinations.
-export const getFontMetrics = (
+export function getFontMetrics(
   fontSize: number,
   fontWeight: string,
   fontFamily: FontFamily,
-): FontMetrics => {
+): FontMetrics {
   const cacheKey = createCacheKey(fontFamily, fontSize, fontWeight);
   const cached = metricsCache.get(cacheKey);
 
@@ -321,20 +321,20 @@ export const getFontMetrics = (
   metricsCache = new Map(metricsCache).set(cacheKey, metrics);
 
   return metrics;
-};
+}
 
 // Measure character
-export const measureCtxText = (
+export function measureCtxText(
   text: string,
   fontSize: number,
   fontWeight: string,
   fontFamily: FontFamily,
-): number => {
+): number {
   // Fallback to canvas measurement
   const ctx = measurementCanvas;
   applyFont(ctx, fontSize, fontWeight, fontFamily);
   return ctx.measureText(text).width;
-};
+}
 
 // Helper: Check if a char is within a format span
 function isCharInSpan(
@@ -543,7 +543,7 @@ export function measureCRDTPositions(
 
 // Measure width of CRDT text (Char[] with FormatSpan[]) up to a specific character position
 // Uses batching to preserve Arabic ligature widths
-export const measureTextUpToIndex = (
+export function measureTextUpToIndex(
   chars: Char[],
   formats: FormatSpan[],
   startIndex: number,
@@ -552,7 +552,7 @@ export const measureTextUpToIndex = (
   baseFontWeight: string,
   fontFamily: FontFamily,
   _codePadding: number = 0,
-): number => {
+): number {
   // Use batched measurement to preserve Arabic ligatures
   const batches = batchChars(chars, formats, startIndex, endIndex);
 
@@ -618,17 +618,17 @@ export const measureTextUpToIndex = (
   }
 
   return measureBatchedText(batches, fontSize, baseFontWeight, fontFamily);
-};
+}
 
 // Measure total width of CRDT text
-export const measureCRDTText = (
+export function measureCRDTText(
   chars: Char[],
   formats: FormatSpan[],
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
   codePadding: number = 0,
-): number => {
+): number {
   const visibleLength = chars.filter((c) => !c.deleted).length;
   return measureTextUpToIndex(
     chars,
@@ -640,18 +640,18 @@ export const measureCRDTText = (
     fontFamily,
     codePadding,
   );
-};
+}
 
 // Legacy functions for backward compatibility with TextSegment[]
 
 // Measure a single text segment with its formats
-export const measureTextSegment = (
+export function measureTextSegment(
   textSegment: TextSegment,
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
   codePadding: number = 0,
-): number => {
+): number {
   // Determine effective font weight (bold overrides base weight)
   const effectiveFontWeight = textSegment.formats?.some(
     (f) => f.type === "bold",
@@ -672,16 +672,16 @@ export const measureTextSegment = (
   }
 
   return width;
-};
+}
 
 // Measure total width of formatted text segments
-export const measureFormattedText = (
+export function measureFormattedText(
   segments: TextSegment[],
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
   codePadding: number = 0,
-): number => {
+): number {
   let totalWidth = 0;
   for (const segment of segments) {
     totalWidth += measureTextSegment(
@@ -693,11 +693,11 @@ export const measureFormattedText = (
     );
   }
   return totalWidth;
-};
+}
 
 // Measure width of formatted text up to a specific character position
 // This is used for cursor positioning
-export const measureFormattedTextUpToIndex = (
+export function measureFormattedTextUpToIndex(
   segments: TextSegment[],
   startIndex: number,
   endIndex: number,
@@ -705,7 +705,7 @@ export const measureFormattedTextUpToIndex = (
   baseFontWeight: string,
   fontFamily: FontFamily,
   codePadding: number = 0,
-): number => {
+): number {
   let width = 0;
   let currentIndex = 0;
 
@@ -761,11 +761,11 @@ export const measureFormattedTextUpToIndex = (
   }
 
   return width;
-};
+}
 
 // Helper function to check if a character is CJK (Chinese, Japanese, Korean)
 // Exported for use in word boundary detection
-export const isCJKCharacter = (char: string): boolean => {
+export function isCJKCharacter(char: string): boolean {
   const code = char.charCodeAt(0);
   return (
     // CJK Unified Ideographs
@@ -783,21 +783,21 @@ export const isCJKCharacter = (char: string): boolean => {
     // Hangul Syllables
     (code >= 0xac00 && code <= 0xd7af)
   );
-};
+}
 
 // Helper function to check if text contains CJK characters
-export const containsCJK = (text: string): boolean => {
+export function containsCJK(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
     if (isCJKCharacter(text[i])) {
       return true;
     }
   }
   return false;
-};
+}
 
 // Wrap CRDT text (Char[] with FormatSpan[]) for rendering
 // Uses incremental character measurement for O(n) complexity
-export const wrapText = (
+export function wrapText(
   chars: Char[],
   formats: FormatSpan[],
   maxWidth: number,
@@ -806,7 +806,7 @@ export const wrapText = (
   fontFamily: FontFamily,
   _codePadding: number = 0,
   _compositionRange: { start: number; end: number } | null = null,
-): WrappedLine[] => {
+): WrappedLine[] {
   // Get visible text
   const visibleChars = chars.filter((c) => !c.deleted);
   const fullText = visibleChars.map((c) => c.char).join("");
@@ -953,10 +953,10 @@ export const wrapText = (
   }
 
   return lines.length > 0 ? lines : [{ text: "", consumedSpace: false }];
-};
+}
 
 // Character-based wrapping for CJK text (allows breaks at any character)
-const wrapFormattedTextCJK = (
+function wrapFormattedTextCJK(
   segments: TextSegment[],
   fullText: string,
   charToSegment: number[],
@@ -966,7 +966,7 @@ const wrapFormattedTextCJK = (
   fontFamily: FontFamily,
   codePadding: number,
   compositionRange: { start: number; end: number } | null = null,
-): WrappedLine[] => {
+): WrappedLine[] {
   const lines: WrappedLine[] = [];
   let currentLine = "";
   let currentLineWidth = 0;
@@ -1086,7 +1086,7 @@ const wrapFormattedTextCJK = (
   }
 
   return lines.length > 0 ? lines : [{ text: "", consumedSpace: false }];
-};
+}
 
 // Line wrapping result with information about consumed characters
 export interface WrappedLine {
@@ -1095,14 +1095,14 @@ export interface WrappedLine {
 }
 
 // Wrap formatted text (TextSegment[]) to lines with information about consumed spaces
-export const wrapFormattedText = (
+export function wrapFormattedText(
   segments: TextSegment[],
   maxWidth: number,
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
   codePadding: number = 0,
-): string[] => {
+): string[] {
   const result = wrapFormattedTextDetailed(
     segments,
     maxWidth,
@@ -1112,10 +1112,10 @@ export const wrapFormattedText = (
     codePadding,
   );
   return result.map((line) => line.text);
-};
+}
 
 // Internal function that returns detailed line information
-export const wrapFormattedTextDetailed = (
+export function wrapFormattedTextDetailed(
   segments: TextSegment[],
   maxWidth: number,
   fontSize: number,
@@ -1123,7 +1123,7 @@ export const wrapFormattedTextDetailed = (
   fontFamily: FontFamily,
   codePadding: number = 0,
   compositionRange: { start: number; end: number } | null = null,
-): WrappedLine[] => {
+): WrappedLine[] {
   // Convert segments to plain text for wrapping
   const fullText = segments.map((s) => s.content).join("");
 
@@ -1339,7 +1339,7 @@ export const wrapFormattedTextDetailed = (
   }
 
   return lines.length > 0 ? lines : [{ text: "", consumedSpace: false }];
-};
+}
 
 // Global font configuration - can be changed at runtime
 let globalFontConfig: FontConfig = {
@@ -1350,16 +1350,17 @@ let globalFontConfig: FontConfig = {
 let fontChangeCallback: (() => void) | null = null;
 
 // Register a callback to be called when font family changes
-export const onFontFamilyChange = (callback: () => void): void => {
+export function onFontFamilyChange(callback: () => void): void {
   fontChangeCallback = callback;
-};
+}
 
 // Get the current font family
-export const getCurrentFontFamily = (): FontFamily =>
-  globalFontConfig.fontFamily;
+export function getCurrentFontFamily(): FontFamily {
+  return globalFontConfig.fontFamily;
+}
 
 // Set the current font family
-export const setCurrentFontFamily = (fontFamily: FontFamily): void => {
+export function setCurrentFontFamily(fontFamily: FontFamily): void {
   const previousFontFamily = globalFontConfig.fontFamily;
 
   globalFontConfig = {
@@ -1370,4 +1371,4 @@ export const setCurrentFontFamily = (fontFamily: FontFamily): void => {
   if (previousFontFamily !== fontFamily && fontChangeCallback) {
     fontChangeCallback();
   }
-};
+}

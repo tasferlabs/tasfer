@@ -366,7 +366,7 @@ export function getEditorStyles(): EditorStyles {
 // Export default styles for backwards compatibility
 export const defaultStyles: EditorStyles = getEditorStyles();
 
-export const getTextStyle = (
+export function getTextStyle(
   styles: EditorStyles,
   blockType:
     | "heading1"
@@ -376,7 +376,7 @@ export const getTextStyle = (
     | "bullet_list"
     | "numbered_list"
     | "todo_list",
-) => {
+) {
   if (blockType === "bullet_list") {
     return styles.blocks.bulletList;
   } else if (blockType === "numbered_list") {
@@ -385,14 +385,14 @@ export const getTextStyle = (
     return styles.blocks.todoList;
   }
   return styles.blocks[blockType];
-};
+}
 
-export const applyTextStyle = (
+export function applyTextStyle(
   ctx: CanvasRenderingContext2D,
   style: TextStyle,
-) => {
+) {
   const fontStack = getFontStack(getCurrentFontFamily());
   ctx.font = `${style.fontWeight} ${style.fontSize}px ${fontStack}`;
   ctx.fillStyle = style.color;
   ctx.textBaseline = "alphabetic";
-};
+}

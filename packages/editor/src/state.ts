@@ -86,10 +86,10 @@ export function generateBlockId(): string {
 }
 
 // State Creation Functions
-export const createInitialState = (
+export function createInitialState(
   page: Page,
   options?: { mode?: EditorMode },
-): EditorState => {
+): EditorState {
   const peerId = generatePeerId();
 
   // Only initialize the global CRDT context for editable editors.
@@ -157,53 +157,54 @@ export const createInitialState = (
     },
     undoManager: initialUndoManagerState,
   };
-};
+}
 
 // State Update Functions (Pure Functions)
-export const updateCursor = (
+export function updateCursor(
   state: EditorState,
   position: Position | null,
-): EditorState => ({
-  ...state,
-  document: {
-    ...state.document,
-    cursor: position
-      ? {
-          position,
-          lastUpdate: Date.now(),
-        }
-      : null,
-  },
-});
+): EditorState {
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      cursor: position
+        ? {
+            position,
+            lastUpdate: Date.now(),
+          }
+        : null,
+    },
+  };
+}
 
-export const updateSelection = (
+export function updateSelection(
   state: EditorState,
   updates: PartialSelectionState | null,
-): EditorState => ({
-  ...state,
-  document: {
-    ...state.document,
-    selection: !!updates
-      ? {
-          anchor: updates.anchor,
-          focus: updates.focus,
-          isForward: isForwardSelection(updates),
-          isCollapsed: isCollapsedSelection(updates),
-          lastUpdate: Date.now(),
-          // Only preserve initialBoundary if explicitly provided in updates
-          // This prevents unintentional preservation of gesture boundaries in programmatic selections
-          ...("initialBoundary" in updates && updates.initialBoundary !== null
-            ? { initialBoundary: updates.initialBoundary }
-            : {}),
-        }
-      : null,
-  },
-});
+): EditorState {
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      selection: !!updates
+        ? {
+            anchor: updates.anchor,
+            focus: updates.focus,
+            isForward: isForwardSelection(updates),
+            isCollapsed: isCollapsedSelection(updates),
+            lastUpdate: Date.now(),
+            // Only preserve initialBoundary if explicitly provided in updates
+            // This prevents unintentional preservation of gesture boundaries in programmatic selections
+            ...("initialBoundary" in updates && updates.initialBoundary !== null
+              ? { initialBoundary: updates.initialBoundary }
+              : {}),
+          }
+        : null,
+    },
+  };
+}
 
-export const updateMode = (
-  state: EditorState,
-  mode: EditorMode,
-): EditorState => {
+export function updateMode(state: EditorState, mode: EditorMode): EditorState {
   // If editor was initialized as readonly, enforce readonly behavior
   if (state.ui.isReadonlyBase) {
     // Allow switching to "select" for drag selection, or "locked"
@@ -226,12 +227,12 @@ export const updateMode = (
     ...state,
     ui: { ...state.ui, mode },
   };
-};
+}
 
-export const updateFocus = (
+export function updateFocus(
   state: EditorState,
   isFocused: boolean,
-): EditorState => {
+): EditorState {
   const newState: EditorState = {
     ...state,
     view: { ...state.view, isFocused },
@@ -249,19 +250,21 @@ export const updateFocus = (
   }
 
   return newState;
-};
+}
 
-export const updatePhysicalKeyboardState = (
+export function updatePhysicalKeyboardState(
   state: EditorState,
   hasPhysicalKeyboard: boolean,
-): EditorState => ({
-  ...state,
-  view: { ...state.view, hasPhysicalKeyboard },
-});
+): EditorState {
+  return {
+    ...state,
+    view: { ...state.view, hasPhysicalKeyboard },
+  };
+}
 
 // Helper Functions
 
-export const createInitialCursorState = (state: EditorState): EditorState => {
+export function createInitialCursorState(state: EditorState): EditorState {
   return {
     ...state,
     document: {
@@ -275,43 +278,41 @@ export const createInitialCursorState = (state: EditorState): EditorState => {
       },
     },
   };
-};
+}
 
-export const getBlockTextLength = (block: Block): number => {
+export function getBlockTextLength(block: Block): number {
   if (!block) return 0;
 
   if (!isTextualBlock(block)) return 0;
 
   return getVisibleLengthFromRuns(block.charRuns);
-};
+}
 
-export const getBlockTextContent = (block: Block): string => {
+export function getBlockTextContent(block: Block): string {
   if (!block) return "";
 
   if (!isTextualBlock(block)) return "";
 
   // Get visible text from charRuns
   return getVisibleTextFromRuns(block.charRuns);
-};
+}
 
-export const isForwardSelection = (
-  selection: PartialSelectionState,
-): boolean => {
+export function isForwardSelection(selection: PartialSelectionState): boolean {
   return (
     selection.anchor.blockIndex < selection.focus.blockIndex ||
     (selection.anchor.blockIndex === selection.focus.blockIndex &&
       selection.anchor.textIndex <= selection.focus.textIndex)
   );
-};
+}
 
-export const isCollapsedSelection = (
+export function isCollapsedSelection(
   selection: PartialSelectionState,
-): boolean => {
+): boolean {
   return (
     selection.anchor.blockIndex === selection.focus.blockIndex &&
     selection.anchor.textIndex === selection.focus.textIndex
   );
-};
+}
 
 export function isCursorBlinking(cursor: CursorState, styles: EditorStyles) {
   const now = Date.now();
@@ -407,12 +408,12 @@ function snapInlineMathPosition(
 }
 
 // Cursor Movement Functions
-export const moveCursorToPosition = (
+export function moveCursorToPosition(
   state: EditorState,
   blockIndex: number,
   textIndex: number,
   preserveActiveFormats: boolean = false,
-): EditorState => {
+): EditorState {
   const allBlocks = state.document.page.blocks;
   if (allBlocks.length === 0) return state;
 
@@ -447,9 +448,9 @@ export const moveCursorToPosition = (
   }
 
   return newState;
-};
+}
 
-export const moveCursorLeft = (state: EditorState): EditorState => {
+export function moveCursorLeft(state: EditorState): EditorState {
   if (!state.document.cursor) return createInitialCursorState(state);
 
   const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
@@ -562,9 +563,9 @@ export const moveCursorLeft = (state: EditorState): EditorState => {
   }
 
   return state;
-};
+}
 
-export const moveCursorRight = (state: EditorState): EditorState => {
+export function moveCursorRight(state: EditorState): EditorState {
   if (!state.document.cursor) return createInitialCursorState(state);
 
   const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
@@ -676,7 +677,7 @@ export const moveCursorRight = (state: EditorState): EditorState => {
   }
 
   return state;
-};
+}
 
 /**
  * Get line information for a given position within a block
@@ -825,11 +826,11 @@ function getTextIndexAtRelativePosition(
  * Move cursor up by one line (not block)
  * If on the first line of a block, moves to the last line of the previous block
  */
-export const moveCursorUp = (
+export function moveCursorUp(
   state: EditorState,
   viewport?: ViewportState,
   styles: EditorStyles = getEditorStyles(),
-): EditorState => {
+): EditorState {
   if (!state.document.cursor) return createInitialCursorState(state);
 
   const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
@@ -992,17 +993,17 @@ export const moveCursorUp = (
 
   // Already at the first line of the first block, move to start
   return moveCursorToPosition(state, blockIndex, 0);
-};
+}
 
 /**
  * Move cursor down by one line (not block)
  * If on the last line of a block, moves to the first line of the next block
  */
-export const moveCursorDown = (
+export function moveCursorDown(
   state: EditorState,
   viewport?: ViewportState,
   styles: EditorStyles = getEditorStyles(),
-): EditorState => {
+): EditorState {
   if (!state.document.cursor) return createInitialCursorState(state);
 
   const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
@@ -1166,17 +1167,17 @@ export const moveCursorDown = (
   // Already at the last line of the last block, move to end
   const currentBlockLength = getBlockTextLength(currentBlock);
   return moveCursorToPosition(state, blockIndex, currentBlockLength);
-};
+}
 
 /**
  * Move cursor up by one page
  * Moves the cursor up by approximately one viewport height
  */
-export const moveCursorPageUp = (
+export function moveCursorPageUp(
   state: EditorState,
   viewport?: ViewportState,
   styles: EditorStyles = getEditorStyles(),
-): EditorState => {
+): EditorState {
   if (!state.document.cursor || !viewport) return state;
 
   // Move up by viewport height worth of lines
@@ -1189,17 +1190,17 @@ export const moveCursorPageUp = (
   }
 
   return newState;
-};
+}
 
 /**
  * Move cursor down by one page
  * Moves the cursor down by approximately one viewport height
  */
-export const moveCursorPageDown = (
+export function moveCursorPageDown(
   state: EditorState,
   viewport?: ViewportState,
   styles: EditorStyles = getEditorStyles(),
-): EditorState => {
+): EditorState {
   if (!state.document.cursor || !viewport) return state;
 
   // Move down by viewport height worth of lines
@@ -1212,13 +1213,13 @@ export const moveCursorPageDown = (
   }
 
   return newState;
-};
+}
 
 // Selection Functions
-export const startSelection = (
+export function startSelection(
   state: EditorState,
   position: Position,
-): EditorState => {
+): EditorState {
   // Clear active formats when starting a selection
   let newState = state;
   if (state.ui.activeFormatsMode.type === "explicit") {
@@ -1237,12 +1238,12 @@ export const startSelection = (
     isForward: true,
     isCollapsed: true,
   });
-};
+}
 
-export const updateSelectionFocus = (
+export function updateSelectionFocus(
   state: EditorState,
   position: Position,
-): EditorState => {
+): EditorState {
   if (!state.document.selection) {
     return startSelection(state, position);
   }
@@ -1328,18 +1329,20 @@ export const updateSelectionFocus = (
       focus: position,
     }),
   });
-};
+}
 
-export const clearSelection = (state: EditorState): EditorState => ({
-  ...state,
-  document: {
-    ...state.document,
-    selection: null,
-  },
-});
+export function clearSelection(state: EditorState): EditorState {
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      selection: null,
+    },
+  };
+}
 
 // Selection Extension Functions (for Shift+Arrow keys)
-export const extendSelectionLeft = (state: EditorState): EditorState => {
+export function extendSelectionLeft(state: EditorState): EditorState {
   if (!state.document.cursor) return state;
 
   // If no selection exists, start one at current cursor position
@@ -1361,9 +1364,9 @@ export const extendSelectionLeft = (state: EditorState): EditorState => {
     return updateSelectionFocus(leftState, leftState.document.cursor.position);
   }
   return state;
-};
+}
 
-export const extendSelectionRight = (state: EditorState): EditorState => {
+export function extendSelectionRight(state: EditorState): EditorState {
   if (!state.document.cursor) return state;
 
   // If no selection exists, start one at current cursor position
@@ -1388,13 +1391,13 @@ export const extendSelectionRight = (state: EditorState): EditorState => {
     );
   }
   return state;
-};
+}
 
-export const extendSelectionUp = (
+export function extendSelectionUp(
   state: EditorState,
   viewport?: ViewportState,
   styles: EditorStyles = getEditorStyles(),
-): EditorState => {
+): EditorState {
   if (!state.document.cursor) return state;
 
   // If no selection exists, start one at current cursor position
@@ -1413,13 +1416,13 @@ export const extendSelectionUp = (
     return updateSelectionFocus(upState, upState.document.cursor.position);
   }
   return state;
-};
+}
 
-export const extendSelectionDown = (
+export function extendSelectionDown(
   state: EditorState,
   viewport?: ViewportState,
   styles: EditorStyles = getEditorStyles(),
-): EditorState => {
+): EditorState {
   if (!state.document.cursor) return state;
 
   // If no selection exists, start one at current cursor position
@@ -1441,13 +1444,13 @@ export const extendSelectionDown = (
     return updateSelectionFocus(downState, downState.document.cursor.position);
   }
   return state;
-};
+}
 
-export const extendSelectionPageUp = (
+export function extendSelectionPageUp(
   state: EditorState,
   viewport?: ViewportState,
   styles: EditorStyles = getEditorStyles(),
-): EditorState => {
+): EditorState {
   if (!state.document.cursor) return state;
 
   // If no selection exists, start one at current cursor position
@@ -1472,13 +1475,13 @@ export const extendSelectionPageUp = (
     );
   }
   return state;
-};
+}
 
-export const extendSelectionPageDown = (
+export function extendSelectionPageDown(
   state: EditorState,
   viewport?: ViewportState,
   styles: EditorStyles = getEditorStyles(),
-): EditorState => {
+): EditorState {
   if (!state.document.cursor) return state;
 
   // If no selection exists, start one at current cursor position
@@ -1503,64 +1506,68 @@ export const extendSelectionPageDown = (
     );
   }
   return state;
-};
+}
 
 // Slash Command State Management
-export const openSlashCommand = (
+export function openSlashCommand(
   state: EditorState,
   blockIndex: number,
   textIndex: number,
-): EditorState =>
-  setActiveMenu(state, {
+): EditorState {
+  return setActiveMenu(state, {
     type: "slashCommand",
     blockIndex,
     textIndex,
     filter: "",
     selectedIndex: 0,
   });
+}
 
-export const updateSlashCommandFilter = (
+export function updateSlashCommandFilter(
   state: EditorState,
   filter: string,
-): EditorState => {
+): EditorState {
   if (state.ui.activeMenu.type !== "slashCommand") return state;
   return setActiveMenu(state, {
     ...state.ui.activeMenu,
     filter,
     selectedIndex: 0, // Reset selection when filter changes
   });
-};
+}
 
-export const updateSlashCommandSelection = (
+export function updateSlashCommandSelection(
   state: EditorState,
   selectedIndex: number,
-): EditorState => {
+): EditorState {
   if (state.ui.activeMenu.type !== "slashCommand") return state;
   return setActiveMenu(state, {
     ...state.ui.activeMenu,
     selectedIndex,
   });
-};
+}
 
-export const closeSlashCommand = (state: EditorState): EditorState =>
-  closeActiveMenu(state);
+export function closeSlashCommand(state: EditorState): EditorState {
+  return closeActiveMenu(state);
+}
 
 // Context Menu State Management
-export const openContextMenu = (
+export function openContextMenu(
   state: EditorState,
   x: number,
   y: number,
   hoveredItemId?: string | null,
-): EditorState =>
-  setActiveMenu(state, { type: "contextMenu", x, y, hoveredItemId });
+): EditorState {
+  return setActiveMenu(state, { type: "contextMenu", x, y, hoveredItemId });
+}
 
-export const closeContextMenu = (state: EditorState): EditorState =>
-  closeActiveMenu(state);
+export function closeContextMenu(state: EditorState): EditorState {
+  return closeActiveMenu(state);
+}
 
-export const updateContextMenuHover = (
+export function updateContextMenuHover(
   state: EditorState,
   hoveredItemId: string | null,
-): EditorState => {
+): EditorState {
   if (state.ui.activeMenu.type !== "contextMenu") return state;
   return {
     ...state,
@@ -1572,12 +1579,12 @@ export const updateContextMenuHover = (
       },
     },
   };
-};
+}
 
-export const selectContextMenuItem = (
+export function selectContextMenuItem(
   state: EditorState,
   selectedItemId: string,
-): EditorState => {
+): EditorState {
   if (state.ui.activeMenu.type !== "contextMenu") return state;
   return {
     ...state,
@@ -1589,10 +1596,10 @@ export const selectContextMenuItem = (
       },
     },
   };
-};
+}
 
 // Link Hover State Management
-export const setLinkHover = (
+export function setLinkHover(
   state: EditorState,
   linkHover: {
     position: Position;
@@ -1603,8 +1610,8 @@ export const setLinkHover = (
     startIndex: number;
     endIndex: number;
   } | null,
-): EditorState =>
-  linkHover
+): EditorState {
+  return linkHover
     ? setActiveMenu(state, {
         type: "linkHover",
         position: linkHover.position,
@@ -1616,25 +1623,28 @@ export const setLinkHover = (
         endIndex: linkHover.endIndex,
       })
     : closeActiveMenu(state);
+}
 
 // Unified Menu Management
-export const setActiveMenu = (
+export function setActiveMenu(
   state: EditorState,
   menu: EditorState["ui"]["activeMenu"],
-): EditorState => ({
-  ...state,
-  ui: {
-    ...state.ui,
-    activeMenu: menu,
-  },
-});
+): EditorState {
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      activeMenu: menu,
+    },
+  };
+}
 
-export const closeActiveMenu = (state: EditorState): EditorState => {
+export function closeActiveMenu(state: EditorState): EditorState {
   return setActiveMenu(state, { type: "none" });
-};
+}
 
 // Clear auto-created paragraph tracking
-export const clearAutoCreatedParagraph = (state: EditorState): EditorState => {
+export function clearAutoCreatedParagraph(state: EditorState): EditorState {
   if (!state.ui.autoCreatedParagraph) return state;
   return {
     ...state,
@@ -1643,30 +1653,32 @@ export const clearAutoCreatedParagraph = (state: EditorState): EditorState => {
       autoCreatedParagraph: null,
     },
   };
-};
+}
 
 // Composition (IME) State Management
-export const startComposition = (
+export function startComposition(
   state: EditorState,
   text: string,
   startPosition: Position,
-): EditorState => ({
-  ...state,
-  ui: {
-    ...state.ui,
-    composition: {
-      isComposing: true,
-      text,
-      startPosition,
-      cursorOffset: text.length,
+): EditorState {
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      composition: {
+        isComposing: true,
+        text,
+        startPosition,
+        cursorOffset: text.length,
+      },
     },
-  },
-});
+  };
+}
 
-export const updateComposition = (
+export function updateComposition(
   state: EditorState,
   text: string,
-): EditorState => {
+): EditorState {
   if (!state.ui.composition) return state;
   return {
     ...state,
@@ -1679,29 +1691,31 @@ export const updateComposition = (
       },
     },
   };
-};
+}
 
-export const endComposition = (state: EditorState): EditorState => ({
-  ...state,
-  ui: {
-    ...state.ui,
-    composition: null,
-  },
-});
+export function endComposition(state: EditorState): EditorState {
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      composition: null,
+    },
+  };
+}
 
 // Detect if device has touch support
-export const isTouchDevice = (): boolean => {
+export function isTouchDevice(): boolean {
   return (
     typeof window !== "undefined" &&
     ("ontouchstart" in window || navigator.maxTouchPoints > 0)
   );
-};
+}
 
 /**
  * Heuristic detection for physical keyboard (used as fallback)
  * This is not 100% reliable but works in most cases
  */
-export const detectPhysicalKeyboardHeuristic = (): boolean => {
+export function detectPhysicalKeyboardHeuristic(): boolean {
   if (typeof window === "undefined") return false;
 
   // Check if this is a touch device first
@@ -1724,4 +1738,4 @@ export const detectPhysicalKeyboardHeuristic = (): boolean => {
   const hasKeyboardHeuristic = hasFinePointer || (isLandscape && isLargeScreen);
 
   return hasKeyboardHeuristic;
-};
+}

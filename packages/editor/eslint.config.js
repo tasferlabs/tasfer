@@ -2,21 +2,7 @@ import prettierRecommended from "eslint-plugin-prettier/recommended";
 import simpleImportSort from "eslint-plugin-simple-import-sort";
 import tseslint from "typescript-eslint";
 
-// Top-level (module-scoped) function values, in every form they can appear:
-//   const f = () => {}          | export const f = () => {}
-//   const f = function () {}    | export const f = function () {}
-// These must instead be declared with the `function` keyword:
-//   function f() {}             | export function f() {}
-const TOP_LEVEL_FN_SELECTORS = [
-  "VariableDeclaration",
-  "ExportNamedDeclaration > VariableDeclaration",
-]
-  .flatMap((decl) =>
-    ["ArrowFunctionExpression", "FunctionExpression"].map(
-      (fn) => `Program > ${decl} > VariableDeclarator > ${fn}`,
-    ),
-  )
-  .join(", ");
+import preferFunctionDeclaration from "./eslint-rules/prefer-function-declaration.js";
 
 export default tseslint.config(
   {
@@ -26,16 +12,17 @@ export default tseslint.config(
     },
     plugins: {
       "simple-import-sort": simpleImportSort,
+      // Local rules live in ./eslint-rules.
+      local: {
+        rules: {
+          "prefer-function-declaration": preferFunctionDeclaration,
+        },
+      },
     },
     rules: {
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector: TOP_LEVEL_FN_SELECTORS,
-          message:
-            "Module-level functions must be declared with the `function` keyword (e.g. `export function foo() {}`), not assigned to a `const` as an arrow/function expression.",
-        },
-      ],
+      // Module-level functions must use the `function` keyword. Autofixable:
+      // rewrites top-level `const f = () => {}` into `function f() {}`.
+      "local/prefer-function-declaration": "error",
       "simple-import-sort/imports": "error",
       "simple-import-sort/exports": "error",
     },
