@@ -23,17 +23,16 @@ import {
   isPointWithinSelectionRects,
 } from "../selection";
 import {
-  clearSelection,
   closeActiveMenu,
-  moveCursorToPosition,
   openContextMenu,
   selectContextMenuItem,
   setActiveMenu,
-  startSelection,
   updateContextMenuHover,
-  updateCursor,
   updateMode,
 } from "../state";
+import { moveCursorToPosition } from "@/selection";
+import { updateCursor } from "@/selection";
+import { clearSelection, startSelection } from "@/selection";
 import { getEditorStyles, getTextStyle } from "../styles";
 import type { Operation } from "../sync/sync";
 import { getClock, getPageId, nextId } from "../sync/sync";

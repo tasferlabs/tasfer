@@ -30,17 +30,15 @@ import {
 } from "../selection";
 import {
   clearAutoCreatedParagraph,
-  clearSelection,
   closeActiveMenu,
   closeSlashCommand,
   getBlockTextContent,
   setActiveMenu,
-  startSelection,
-  updateCursor,
-  updateFocus,
   updateMode,
-  updateSelectionFocus,
 } from "../state";
+import { updateFocus } from "@/selection";
+import { updateCursor } from "@/selection";
+import { clearSelection, startSelection, updateSelectionFocus } from "@/selection";
 import { getEditorStyles, getTextStyle } from "../styles";
 import type { Operation } from "../sync/sync";
 import type { EditorState, MouseEvent, ViewportState } from "../types";

@@ -38,23 +38,25 @@ import {
   scrollToMakeCursorVisible,
 } from "./selection";
 import {
-  clearSelection,
   closeActiveMenu,
   closeContextMenu,
   createInitialCursorState,
   getBlockTextContent,
-  isCursorBlinking,
   isTouchDevice,
-  moveCursorLeft,
-  moveCursorRight,
-  moveCursorToPosition,
   setActiveMenu,
-  updateCursor,
-  updateFocus,
   updateMode,
   updatePhysicalKeyboardState,
-  updateSelection,
 } from "./state";
+import {
+  moveCursorLeft,
+  moveCursorRight,
+  moveCursorToPosition
+} from "./selection";
+import { isCursorBlinking } from "./selection";
+import { updateFocus } from "./selection";
+import { updateSelection } from "./updateSelection";
+import { updateCursor } from "./selection";
+import { clearSelection } from "./selection";
 import { getEditorStyles } from "./styles";
 import type {
   AwarenessCursor,

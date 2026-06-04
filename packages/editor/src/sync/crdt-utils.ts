@@ -1,5 +1,6 @@
 import { isTextualBlock, type Page } from "../deserializer/loadPage";
-import { updateCursor, updateSelection } from "../state";
+import { updateSelection } from "@/updateSelection";
+import { updateCursor } from "@/selection";
 import type {
   CRDTCursorState,
   CRDTPosition,

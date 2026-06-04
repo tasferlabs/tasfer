@@ -3,8 +3,6 @@
  * Provides functions to detect and handle RTL languages like Arabic, Hebrew, Persian, etc.
  */
 
-import type { CharRun } from "./deserializer/loadPage";
-import { getVisibleTextFromRuns } from "./sync/char-runs";
 import i18next from "i18next";
 
 /**
@@ -73,30 +71,4 @@ export function getTextDirection(text: string): "rtl" | "ltr" {
   if (totalDirectional === 0) return getDefaultDirection();
 
   return rtlCount / totalDirectional > 0.3 ? "rtl" : "ltr";
-}
-
-/**
- * Get text direction from CRDT charRuns
- */
-export function getCharsDirection(
-  charRuns: CharRun[] | undefined,
-): "rtl" | "ltr" {
-  const visibleText = getVisibleTextFromRuns(charRuns);
-  if (visibleText.length === 0) return "ltr";
-
-  let totalRtl = 0;
-  let totalLtr = 0;
-
-  for (const char of visibleText) {
-    if (isRTLChar(char)) {
-      totalRtl++;
-    } else if (/[a-zA-Z]/.test(char)) {
-      totalLtr++;
-    }
-  }
-
-  const totalDirectional = totalRtl + totalLtr;
-  if (totalDirectional === 0) return "ltr";
-
-  return totalRtl / totalDirectional > 0.3 ? "rtl" : "ltr";
 }

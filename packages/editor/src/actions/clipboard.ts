@@ -16,13 +16,15 @@ import {
 import { serializeToMarkdown } from "../deserializer/serializer";
 import { invalidateBlockCache } from "../renderer";
 import {
-  clearSelection,
   generateBlockId,
   getBlockTextContent,
   getBlockTextLength,
-  moveCursorToPosition,
 } from "../state";
-import { charRunsToChars, iterateVisibleChars } from "../sync/char-runs";
+import {
+  charRunsToChars,
+  charsToRuns,
+  iterateVisibleChars,
+} from "../sync/char-runs";
 import {
   deleteCharsInRange,
   formatCharsInRange,
@@ -30,7 +32,6 @@ import {
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
 import {} from "../sync/crdt-undo";
-import { extractCounter, extractPeerId } from "../sync/id";
 import { applyOps } from "../sync/reducer";
 import { getClock, getPageId, nextId } from "../sync/sync";
 import type {
@@ -41,6 +42,7 @@ import type {
   TextInsert,
 } from "../sync/types";
 import type { CommandResult, EditorState, Position } from "../types";
+import { clearSelection, moveCursorToPosition } from "@/selection";
 
 /**
  * URL regex for detecting links in pasted text.
@@ -132,80 +134,6 @@ function autoLinkInRange(
   }
 
   return { newPage: pageAcc, ops };
-}
-
-/**
- * Convert Char[] to CharRun[] for storage
- */
-function charsToRuns(chars: Char[]): CharRun[] {
-  if (chars.length === 0) return [];
-  const runs: CharRun[] = [];
-  let currentPeerId = extractPeerId(chars[0].id);
-  let currentStartCounter = extractCounter(chars[0].id);
-  let currentText = "";
-  let currentDeletedMask: number[] | undefined = undefined;
-
-  for (let i = 0; i < chars.length; i++) {
-    const char = chars[i];
-    const peerId = extractPeerId(char.id);
-    const counter = extractCounter(char.id);
-    const expectedCounter = currentStartCounter + currentText.length;
-
-    // Check if this char continues the current run
-    if (peerId === currentPeerId && counter === expectedCounter) {
-      currentText += char.char;
-      if (char.deleted) {
-        if (!currentDeletedMask) {
-          currentDeletedMask = new Array(
-            Math.ceil(currentText.length / 8),
-          ).fill(0);
-        }
-        const offset = currentText.length - 1;
-        const byteIndex = Math.floor(offset / 8);
-        const bitIndex = offset % 8;
-        if (byteIndex >= currentDeletedMask.length) {
-          // Expand mask if needed
-          const newMask = new Array(Math.ceil(currentText.length / 8)).fill(0);
-          for (let j = 0; j < currentDeletedMask.length; j++) {
-            newMask[j] = currentDeletedMask[j];
-          }
-          currentDeletedMask = newMask;
-        }
-        currentDeletedMask[byteIndex] |= 1 << bitIndex;
-      }
-    } else {
-      // Save current run if non-empty
-      if (currentText.length > 0) {
-        runs.push({
-          peerId: currentPeerId,
-          startCounter: currentStartCounter,
-          text: currentText,
-          deletedMask: currentDeletedMask,
-        });
-      }
-      // Start new run
-      currentPeerId = peerId;
-      currentStartCounter = counter;
-      currentText = char.char;
-      if (char.deleted) {
-        currentDeletedMask = [1];
-      } else {
-        currentDeletedMask = undefined;
-      }
-    }
-  }
-
-  // Save final run
-  if (currentText.length > 0) {
-    runs.push({
-      peerId: currentPeerId,
-      startCounter: currentStartCounter,
-      text: currentText,
-      deletedMask: currentDeletedMask,
-    });
-  }
-
-  return runs;
 }
 
 export function hasNativeBridge(): boolean {

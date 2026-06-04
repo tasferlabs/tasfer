@@ -10,15 +10,13 @@ import { invalidateBlockCache } from "../renderer";
 import { isRTLChar } from "../rtl";
 import {
   clearAutoCreatedParagraph,
-  clearSelection,
   closeSlashCommand,
   getBlockTextContent,
   getBlockTextLength,
-  moveCursorToPosition,
-  startSelection,
   updateMode,
-  updateSelectionFocus,
 } from "../state";
+import { moveCursorToPosition } from "@/selection";
+import { clearSelection, startSelection, updateSelectionFocus } from "@/selection";
 import {
   deleteFromRuns,
   isCharIdInRange,

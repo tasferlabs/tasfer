@@ -18,7 +18,8 @@ import {
 } from "./inlineMath";
 import { getTextDirection } from "./rtl";
 import { renderScrollbar } from "./scrollbar";
-import { getBlockTextContent, isCursorBlinking, isTouchDevice } from "./state";
+import { isCursorBlinking } from "./selection";
+import { getBlockTextContent, isTouchDevice } from "./state";
 import { getEditorStyles, getTextStyle } from "./styles";
 import type { AwarenessState } from "./sync/awareness";
 import {
@@ -27,6 +28,7 @@ import {
 } from "./sync/awareness";
 import {
   getCharIdFromRun,
+  getVisibleTextFromChars,
   getVisibleTextFromRuns,
   isCharDeleted,
   iterateVisibleChars,
@@ -61,16 +63,6 @@ function charRunsToChars(charRuns: CharRun[] | undefined): Char[] {
     }
   }
   return chars;
-}
-
-/**
- * Get visible text from Char[] array (filters out deleted chars)
- */
-function getVisibleTextFromChars(chars: Char[]): string {
-  return chars
-    .filter((c) => !c.deleted)
-    .map((c) => c.char)
-    .join("");
 }
 
 // Helper to inject composition text into block for rendering

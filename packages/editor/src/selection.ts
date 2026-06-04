@@ -4,37 +4,43 @@ import {
   type FontFamily,
   getCurrentFontFamily,
   getFontMetrics,
+  measureCharsUpToIndex,
   measureCRDTPositions,
   measureTextUpToIndex,
   wrapText,
 } from "./fonts";
 import { getBlockHeight } from "./renderer";
 import { getTextDirection } from "./rtl";
-import { getBlockTextContent } from "./state";
+import {
+  createInitialCursorState,
+  getBlockTextContent,
+  getBlockTextLength,
+  getLineInfoAtPosition,
+  getTextIndexAtRelativePosition,
+  snapInlineMathPosition,
+} from "./state";
 import { getEditorStyles, getTextStyle } from "./styles";
 import {
   charRunsToChars,
   findCharInRuns,
+  getVisibleTextFromChars,
+  getVisibleTextFromRuns,
   iterateVisibleChars,
 } from "./sync/char-runs";
 import { getVisibleText } from "./sync/crdt-helpers";
+import {
+  findNextVisibleBlockIndex,
+  findPreviousVisibleBlockIndex,
+} from "./sync/reducer";
 import type {
+  CursorState,
   EditorState,
   EditorStyles,
+  PartialSelectionState,
   Position,
   TextStyle,
   ViewportState,
 } from "./types";
-
-/**
- * Get visible text from Char[] array (filters out deleted chars)
- */
-function getVisibleTextFromChars(chars: Char[]): string {
-  return chars
-    .filter((c) => !c.deleted)
-    .map((c) => c.char)
-    .join("");
-}
 
 export function getCursorDocumentCoords(
   position: Position,
@@ -1542,4 +1548,1065 @@ export function isPointWithinSelectionRects(
   }
 
   return false;
+}
+/**
+ * Move cursor up by one line (not block)
+ * If on the first line of a block, moves to the last line of the previous block
+ */
+
+export function moveCursorUp(
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = getEditorStyles(),
+): EditorState {
+  if (!state.document.cursor) return createInitialCursorState(state);
+
+  const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
+  const currentBlock = state.document.page.blocks[blockIndex];
+
+  if (!currentBlock || currentBlock.deleted) return state;
+
+  // Handle visual blocks (image/line) - move to previous block
+  if (!isTextualBlock(currentBlock)) {
+    const prevBlockIndex = findPreviousVisibleBlockIndex(
+      state.document.page.blocks,
+      blockIndex,
+    );
+    if (prevBlockIndex !== null) {
+      const prevBlock = state.document.page.blocks[prevBlockIndex];
+      if (!isTextualBlock(prevBlock)) {
+        // Move to previous visual block
+        return moveCursorToPosition(state, prevBlockIndex, 0);
+      } else if (isTextualBlock(prevBlock)) {
+        // Move to end of previous text block
+        const prevBlockLength = getBlockTextLength(prevBlock);
+        return moveCursorToPosition(state, prevBlockIndex, prevBlockLength);
+      }
+    }
+    return state;
+  }
+
+  // Calculate maxWidth from viewport or use a default
+  const maxWidth = viewport
+    ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
+    : 800; // Default fallback
+
+  const lineInfo = getLineInfoAtPosition(
+    currentBlock,
+    textIndex,
+    maxWidth,
+    styles,
+  );
+
+  if (!lineInfo) return state;
+
+  if (!isTextualBlock(currentBlock)) {
+    return state;
+  }
+
+  // For RTL text, calculate visual position instead of logical position
+  const isRTL =
+    getTextDirection(getVisibleTextFromRuns(currentBlock.charRuns)) === "rtl";
+  let relativePosition: number;
+
+  if (isRTL) {
+    // Calculate visual position from the left edge of the line
+    // For RTL: cursor at logical index 0 appears at RIGHT, cursor at index N appears at LEFT
+    const textStyle = getTextStyle(styles, currentBlock.type);
+    const fontFamily = getCurrentFontFamily();
+    const codePadding = styles.textFormats.code.padding;
+
+    // Measure from line start to cursor position
+    const widthFromStart = measureCharsUpToIndex(
+      currentBlock.charRuns,
+      currentBlock.formats,
+      lineInfo.lineStartIndex,
+      textIndex,
+      textStyle.fontSize,
+      textStyle.fontWeight,
+      fontFamily,
+      codePadding,
+    );
+
+    // Visual position from left edge: further from start logically = further LEFT visually
+    // Since RTL text is right-aligned and grows leftward, we use widthFromStart directly
+    relativePosition = widthFromStart;
+  } else {
+    relativePosition = textIndex - lineInfo.lineStartIndex;
+  }
+
+  // If not on the first line of the block, move to the previous line within the same block
+  if (lineInfo.lineIndex > 0) {
+    const prevLine = lineInfo.lines[lineInfo.lineIndex - 1];
+    let prevLineStartIndex = 0;
+
+    // Calculate the start index of the previous line
+    for (let i = 0; i < lineInfo.lineIndex - 1; i++) {
+      prevLineStartIndex += lineInfo.lines[i].length;
+      if (i < lineInfo.totalLines - 1) {
+        prevLineStartIndex += 1; // Account for space
+      }
+    }
+
+    const prevLineEndIndex = prevLineStartIndex + prevLine.length;
+    const targetTextIndex = getTextIndexAtRelativePosition(
+      prevLineStartIndex,
+      prevLineEndIndex,
+      relativePosition,
+      currentBlock,
+      maxWidth,
+      styles,
+    );
+
+    return moveCursorToPosition(state, blockIndex, targetTextIndex);
+  }
+
+  // On the first line of the block, move to the previous block's last line
+  const prevBlockIndex = findPreviousVisibleBlockIndex(
+    state.document.page.blocks,
+    blockIndex,
+  );
+  if (prevBlockIndex !== null) {
+    const prevBlock = state.document.page.blocks[prevBlockIndex];
+
+    // Handle visual blocks (image/line) - position cursor at start of the block
+    if (!isTextualBlock(prevBlock)) {
+      return moveCursorToPosition(state, prevBlockIndex, 0);
+    }
+
+    if (!isTextualBlock(prevBlock)) {
+      return state;
+    }
+    const prevTextStyle = getTextStyle(styles, prevBlock.type);
+    const fontFamily = getCurrentFontFamily();
+    const codePadding = styles.textFormats.code.padding;
+
+    const prevLines = wrapText(
+      charRunsToChars(prevBlock.charRuns),
+      prevBlock.formats,
+      maxWidth,
+      prevTextStyle.fontSize,
+      prevTextStyle.fontWeight,
+      fontFamily,
+      codePadding,
+    );
+
+    if (prevLines.length > 0) {
+      // Calculate the start index of the last line in the previous block
+      let lastLineStartIndex = 0;
+      for (let i = 0; i < prevLines.length - 1; i++) {
+        lastLineStartIndex += prevLines[i].text.length;
+        if (prevLines[i].consumedSpace) {
+          lastLineStartIndex += 1; // Account for consumed space
+        }
+      }
+
+      const lastWrappedLine = prevLines[prevLines.length - 1];
+      const lastLine = lastWrappedLine.text;
+      const lastLineEndIndex = lastLineStartIndex + lastLine.length;
+      const targetTextIndex = getTextIndexAtRelativePosition(
+        lastLineStartIndex,
+        lastLineEndIndex,
+        relativePosition,
+        prevBlock,
+        maxWidth,
+        styles,
+      );
+
+      return moveCursorToPosition(state, prevBlockIndex, targetTextIndex);
+    }
+
+    // If previous block is empty, just go to its start
+    return moveCursorToPosition(state, prevBlockIndex, 0);
+  }
+
+  // Already at the first line of the first block, move to start
+  return moveCursorToPosition(state, blockIndex, 0);
+}
+/**
+ * Move cursor down by one line (not block)
+ * If on the last line of a block, moves to the first line of the next block
+ */
+
+export function moveCursorDown(
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = getEditorStyles(),
+): EditorState {
+  if (!state.document.cursor) return createInitialCursorState(state);
+
+  const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
+  const currentBlock = state.document.page.blocks[blockIndex];
+
+  if (!currentBlock || currentBlock.deleted) return state;
+
+  // Handle visual blocks (image/line) - move to next block
+  if (!isTextualBlock(currentBlock)) {
+    const nextBlockIndex = findNextVisibleBlockIndex(
+      state.document.page.blocks,
+      blockIndex,
+    );
+    if (nextBlockIndex !== null) {
+      const nextBlock = state.document.page.blocks[nextBlockIndex];
+      if (!isTextualBlock(nextBlock)) {
+        // Move to next visual block
+        return moveCursorToPosition(state, nextBlockIndex, 0);
+      } else if (isTextualBlock(nextBlock)) {
+        // Move to start of next text block
+        return moveCursorToPosition(state, nextBlockIndex, 0);
+      }
+    }
+    return state;
+  }
+
+  // Calculate maxWidth from viewport or use a default
+  const maxWidth = viewport
+    ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
+    : 800; // Default fallback
+
+  const lineInfo = getLineInfoAtPosition(
+    currentBlock,
+    textIndex,
+    maxWidth,
+    styles,
+  );
+
+  if (!lineInfo) return state;
+
+  if (!isTextualBlock(currentBlock)) {
+    return state;
+  }
+
+  // For RTL text, calculate visual position instead of logical position
+  const isRTL =
+    getTextDirection(getVisibleTextFromRuns(currentBlock.charRuns)) === "rtl";
+  let relativePosition: number;
+
+  if (isRTL) {
+    // Calculate visual position from the left edge of the line
+    // For RTL: cursor at logical index 0 appears at RIGHT, cursor at index N appears at LEFT
+    const textStyle = getTextStyle(styles, currentBlock.type);
+    const fontFamily = getCurrentFontFamily();
+    const codePadding = styles.textFormats.code.padding;
+
+    // Measure from line start to cursor position
+    const widthFromStart = measureCharsUpToIndex(
+      currentBlock.charRuns,
+      currentBlock.formats,
+      lineInfo.lineStartIndex,
+      textIndex,
+      textStyle.fontSize,
+      textStyle.fontWeight,
+      fontFamily,
+      codePadding,
+    );
+
+    // Visual position from left edge: further from start logically = further LEFT visually
+    // Since RTL text is right-aligned and grows leftward, we use widthFromStart directly
+    relativePosition = widthFromStart;
+  } else {
+    relativePosition = textIndex - lineInfo.lineStartIndex;
+  }
+
+  // If not on the last line of the block, move to the next line within the same block
+  if (lineInfo.lineIndex < lineInfo.totalLines - 1) {
+    const nextLine = lineInfo.lines[lineInfo.lineIndex + 1];
+    let nextLineStartIndex = 0;
+
+    // Calculate the start index of the next line
+    for (let i = 0; i <= lineInfo.lineIndex; i++) {
+      if (i > 0) {
+        nextLineStartIndex += lineInfo.lines[i - 1].length;
+        if (i < lineInfo.totalLines) {
+          nextLineStartIndex += 1; // Account for space
+        }
+      }
+    }
+
+    // Adjust calculation - iterate properly
+    nextLineStartIndex = 0;
+    for (let i = 0; i < lineInfo.lineIndex + 1; i++) {
+      nextLineStartIndex += lineInfo.lines[i].length;
+      if (i < lineInfo.totalLines - 1) {
+        nextLineStartIndex += 1; // Account for space
+      }
+    }
+
+    const nextLineEndIndex = nextLineStartIndex + nextLine.length;
+    const targetTextIndex = getTextIndexAtRelativePosition(
+      nextLineStartIndex,
+      nextLineEndIndex,
+      relativePosition,
+      currentBlock,
+      maxWidth,
+      styles,
+    );
+
+    return moveCursorToPosition(state, blockIndex, targetTextIndex);
+  }
+
+  // On the last line of the block, move to the next block's first line
+  const nextBlockIndex = findNextVisibleBlockIndex(
+    state.document.page.blocks,
+    blockIndex,
+  );
+  if (nextBlockIndex !== null) {
+    const nextBlock = state.document.page.blocks[nextBlockIndex];
+
+    // Handle visual blocks (image/line) - position cursor at start of the block
+    if (!isTextualBlock(nextBlock)) {
+      return moveCursorToPosition(state, nextBlockIndex, 0);
+    }
+
+    if (!isTextualBlock(nextBlock)) {
+      return state;
+    }
+    const nextTextStyle = getTextStyle(styles, nextBlock.type);
+    const fontFamily = getCurrentFontFamily();
+    const codePadding = styles.textFormats.code.padding;
+
+    const nextLines = wrapText(
+      charRunsToChars(nextBlock.charRuns),
+      nextBlock.formats,
+      maxWidth,
+      nextTextStyle.fontSize,
+      nextTextStyle.fontWeight,
+      fontFamily,
+      codePadding,
+    );
+
+    if (nextLines.length > 0) {
+      const firstWrappedLine = nextLines[0];
+      const firstLine = firstWrappedLine.text;
+      const targetTextIndex = getTextIndexAtRelativePosition(
+        0,
+        firstLine.length,
+        relativePosition,
+        nextBlock,
+        maxWidth,
+        styles,
+      );
+
+      return moveCursorToPosition(state, nextBlockIndex, targetTextIndex);
+    }
+
+    // If next block is empty, just go to its start
+    return moveCursorToPosition(state, nextBlockIndex, 0);
+  }
+
+  // Already at the last line of the last block, move to end
+  const currentBlockLength = getBlockTextLength(currentBlock);
+  return moveCursorToPosition(state, blockIndex, currentBlockLength);
+}
+/**
+ * Move cursor up by one page
+ * Moves the cursor up by approximately one viewport height
+ */
+
+export function moveCursorPageUp(
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = getEditorStyles(),
+): EditorState {
+  if (!state.document.cursor || !viewport) return state;
+
+  // Move up by viewport height worth of lines
+  // Estimate ~10-20 lines per page depending on font size
+  const linesToMove = Math.floor(viewport.height / 30); // Approximate line height
+
+  let newState = state;
+  for (let i = 0; i < linesToMove && newState.document.cursor; i++) {
+    newState = moveCursorUp(newState, viewport, styles);
+  }
+
+  return newState;
+}
+/**
+ * Move cursor down by one page
+ * Moves the cursor down by approximately one viewport height
+ */
+
+export function moveCursorPageDown(
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = getEditorStyles(),
+): EditorState {
+  if (!state.document.cursor || !viewport) return state;
+
+  // Move down by viewport height worth of lines
+  // Estimate ~10-20 lines per page depending on font size
+  const linesToMove = Math.floor(viewport.height / 30); // Approximate line height
+
+  let newState = state;
+  for (let i = 0; i < linesToMove && newState.document.cursor; i++) {
+    newState = moveCursorDown(newState, viewport, styles);
+  }
+
+  return newState;
+}
+// Selection Functions
+
+export function startSelection(
+  state: EditorState,
+  position: Position,
+): EditorState {
+  // Clear active formats when starting a selection
+  let newState = state;
+  if (state.ui.activeFormatsMode.type === "explicit") {
+    newState = {
+      ...state,
+      ui: {
+        ...state.ui,
+        activeFormatsMode: { type: "inherit" },
+      },
+    };
+  }
+
+  return updateSelection(newState, {
+    anchor: position,
+    focus: position,
+    isForward: true,
+    isCollapsed: true,
+  });
+}
+
+export function updateSelectionFocus(
+  state: EditorState,
+  position: Position,
+): EditorState {
+  if (!state.document.selection) {
+    return startSelection(state, position);
+  }
+
+  // If we have an initial boundary (from double/triple-click), adjust anchor based on drag direction
+  if (state.document.selection.initialBoundary) {
+    const { start, end } = state.document.selection.initialBoundary;
+
+    // Determine if the new focus is before start or after end
+    const isFocusBeforeStart =
+      position.blockIndex < start.blockIndex ||
+      (position.blockIndex === start.blockIndex &&
+        position.textIndex < start.textIndex);
+
+    const isFocusAfterEnd =
+      position.blockIndex > end.blockIndex ||
+      (position.blockIndex === end.blockIndex &&
+        position.textIndex > end.textIndex);
+
+    let newAnchor: Position;
+    let newFocus: Position;
+
+    if (isFocusBeforeStart) {
+      // Dragging backward (before start): anchor at end, focus at new position
+      newAnchor = end;
+      newFocus = position;
+    } else if (isFocusAfterEnd) {
+      // Dragging forward (after end): anchor at start, focus at new position
+      newAnchor = start;
+      newFocus = position;
+    } else {
+      // Focus is within the initial boundary: keep the entire word/block selected
+      // Determine which boundary is closer to position to decide which end to anchor
+      const distanceToStart =
+        Math.abs(position.blockIndex - start.blockIndex) * 10000 +
+        Math.abs(position.textIndex - start.textIndex);
+      const distanceToEnd =
+        Math.abs(position.blockIndex - end.blockIndex) * 10000 +
+        Math.abs(position.textIndex - end.textIndex);
+
+      // Keep full selection: if closer to start, set focus at start and anchor at end (and vice versa)
+      if (distanceToStart < distanceToEnd) {
+        newAnchor = end;
+        newFocus = start;
+      } else {
+        newAnchor = start;
+        newFocus = end;
+      }
+    }
+
+    return {
+      ...state,
+      document: {
+        ...state.document,
+        selection: {
+          anchor: newAnchor,
+          focus: newFocus,
+          isForward: isForwardSelection({
+            anchor: newAnchor,
+            focus: newFocus,
+          }),
+          isCollapsed: isCollapsedSelection({
+            anchor: newAnchor,
+            focus: newFocus,
+          }),
+          lastUpdate: Date.now(),
+          initialBoundary: state.document.selection.initialBoundary,
+        },
+      },
+    };
+  }
+
+  return updateSelection(state, {
+    focus: position,
+    anchor: state.document.selection.anchor,
+    lastUpdate: Date.now(),
+    isForward: isForwardSelection({
+      anchor: state.document.selection.anchor,
+      focus: position,
+    }),
+    isCollapsed: isCollapsedSelection({
+      anchor: state.document.selection.anchor,
+      focus: position,
+    }),
+  });
+}
+
+export function clearSelection(state: EditorState): EditorState {
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      selection: null,
+    },
+  };
+}
+// Selection Extension Functions (for Shift+Arrow keys)
+
+export function extendSelectionLeft(state: EditorState): EditorState {
+  if (!state.document.cursor) return state;
+
+  // If no selection exists, start one at current cursor position
+  if (!state.document.selection) {
+    const newState = startSelection(state, state.document.cursor.position);
+    const leftState = moveCursorLeft(newState);
+    if (leftState.document.cursor) {
+      return updateSelectionFocus(
+        leftState,
+        leftState.document.cursor.position,
+      );
+    }
+    return newState;
+  }
+
+  // Extend existing selection
+  const leftState = moveCursorLeft(state);
+  if (leftState.document.cursor) {
+    return updateSelectionFocus(leftState, leftState.document.cursor.position);
+  }
+  return state;
+}
+
+export function extendSelectionRight(state: EditorState): EditorState {
+  if (!state.document.cursor) return state;
+
+  // If no selection exists, start one at current cursor position
+  if (!state.document.selection) {
+    const newState = startSelection(state, state.document.cursor.position);
+    const rightState = moveCursorRight(newState);
+    if (rightState.document.cursor) {
+      return updateSelectionFocus(
+        rightState,
+        rightState.document.cursor.position,
+      );
+    }
+    return newState;
+  }
+
+  // Extend existing selection
+  const rightState = moveCursorRight(state);
+  if (rightState.document.cursor) {
+    return updateSelectionFocus(
+      rightState,
+      rightState.document.cursor.position,
+    );
+  }
+  return state;
+}
+
+export function extendSelectionUp(
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = getEditorStyles(),
+): EditorState {
+  if (!state.document.cursor) return state;
+
+  // If no selection exists, start one at current cursor position
+  if (!state.document.selection) {
+    const newState = startSelection(state, state.document.cursor.position);
+    const upState = moveCursorUp(newState, viewport, styles);
+    if (upState.document.cursor) {
+      return updateSelectionFocus(upState, upState.document.cursor.position);
+    }
+    return newState;
+  }
+
+  // Extend existing selection
+  const upState = moveCursorUp(state, viewport, styles);
+  if (upState.document.cursor) {
+    return updateSelectionFocus(upState, upState.document.cursor.position);
+  }
+  return state;
+}
+
+export function extendSelectionDown(
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = getEditorStyles(),
+): EditorState {
+  if (!state.document.cursor) return state;
+
+  // If no selection exists, start one at current cursor position
+  if (!state.document.selection) {
+    const newState = startSelection(state, state.document.cursor.position);
+    const downState = moveCursorDown(newState, viewport, styles);
+    if (downState.document.cursor) {
+      return updateSelectionFocus(
+        downState,
+        downState.document.cursor.position,
+      );
+    }
+    return newState;
+  }
+
+  // Extend existing selection
+  const downState = moveCursorDown(state, viewport, styles);
+  if (downState.document.cursor) {
+    return updateSelectionFocus(downState, downState.document.cursor.position);
+  }
+  return state;
+}
+
+export function extendSelectionPageUp(
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = getEditorStyles(),
+): EditorState {
+  if (!state.document.cursor) return state;
+
+  // If no selection exists, start one at current cursor position
+  if (!state.document.selection) {
+    const newState = startSelection(state, state.document.cursor.position);
+    const pageUpState = moveCursorPageUp(newState, viewport, styles);
+    if (pageUpState.document.cursor) {
+      return updateSelectionFocus(
+        pageUpState,
+        pageUpState.document.cursor.position,
+      );
+    }
+    return newState;
+  }
+
+  // Extend existing selection
+  const pageUpState = moveCursorPageUp(state, viewport, styles);
+  if (pageUpState.document.cursor) {
+    return updateSelectionFocus(
+      pageUpState,
+      pageUpState.document.cursor.position,
+    );
+  }
+  return state;
+}
+
+export function extendSelectionPageDown(
+  state: EditorState,
+  viewport?: ViewportState,
+  styles: EditorStyles = getEditorStyles(),
+): EditorState {
+  if (!state.document.cursor) return state;
+
+  // If no selection exists, start one at current cursor position
+  if (!state.document.selection) {
+    const newState = startSelection(state, state.document.cursor.position);
+    const pageDownState = moveCursorPageDown(newState, viewport, styles);
+    if (pageDownState.document.cursor) {
+      return updateSelectionFocus(
+        pageDownState,
+        pageDownState.document.cursor.position,
+      );
+    }
+    return newState;
+  }
+
+  // Extend existing selection
+  const pageDownState = moveCursorPageDown(state, viewport, styles);
+  if (pageDownState.document.cursor) {
+    return updateSelectionFocus(
+      pageDownState,
+      pageDownState.document.cursor.position,
+    );
+  }
+  return state;
+} // State Update Functions (Pure Functions)
+
+export function updateCursor(
+  state: EditorState,
+  position: Position | null,
+): EditorState {
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      cursor: position
+        ? {
+            position,
+            lastUpdate: Date.now(),
+          }
+        : null,
+    },
+  };
+}
+export function updateSelection(
+  state: EditorState,
+  updates: PartialSelectionState | null,
+): EditorState {
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      selection: !!updates
+        ? {
+            anchor: updates.anchor,
+            focus: updates.focus,
+            isForward: isForwardSelection(updates),
+            isCollapsed: isCollapsedSelection(updates),
+            lastUpdate: Date.now(),
+            // Only preserve initialBoundary if explicitly provided in updates
+            // This prevents unintentional preservation of gesture boundaries in programmatic selections
+            ...("initialBoundary" in updates && updates.initialBoundary !== null
+              ? { initialBoundary: updates.initialBoundary }
+              : {}),
+          }
+        : null,
+    },
+  };
+}
+export function isForwardSelection(selection: PartialSelectionState): boolean {
+  return (
+    selection.anchor.blockIndex < selection.focus.blockIndex ||
+    (selection.anchor.blockIndex === selection.focus.blockIndex &&
+      selection.anchor.textIndex <= selection.focus.textIndex)
+  );
+}
+
+export function isCollapsedSelection(
+  selection: PartialSelectionState,
+): boolean {
+  return (
+    selection.anchor.blockIndex === selection.focus.blockIndex &&
+    selection.anchor.textIndex === selection.focus.textIndex
+  );
+}
+export function updateFocus(
+  state: EditorState,
+  isFocused: boolean,
+): EditorState {
+  const newState: EditorState = {
+    ...state,
+    view: { ...state.view, isFocused },
+  };
+
+  // When losing focus, cancel any active composition
+  if (!isFocused && state.ui.composition) {
+    return {
+      ...newState,
+      ui: {
+        ...newState.ui,
+        composition: null,
+      },
+    };
+  }
+
+  return newState;
+}
+export function isCursorBlinking(cursor: CursorState, styles: EditorStyles) {
+  const now = Date.now();
+
+  // If the cursor was recently updated (within one blink interval), always show it
+  if (now - cursor.lastUpdate < styles.cursor.blinkInterval) {
+    return false;
+  }
+
+  // Otherwise, blink based on time (alternating every blinkInterval)
+  return Math.floor(now / styles.cursor.blinkInterval) % 2 !== 0;
+} // Cursor Movement Functions
+
+export function moveCursorToPosition(
+  state: EditorState,
+  blockIndex: number,
+  textIndex: number,
+  preserveActiveFormats: boolean = false,
+): EditorState {
+  const allBlocks = state.document.page.blocks;
+  if (allBlocks.length === 0) return state;
+
+  const clampedBlockIndex = Math.max(
+    0,
+    Math.min(blockIndex, allBlocks.length - 1),
+  );
+  const block = allBlocks[clampedBlockIndex];
+
+  if (!block || block.deleted) return state;
+
+  const maxTextIndex = getBlockTextLength(block);
+  const clampedTextIndex = Math.max(0, Math.min(textIndex, maxTextIndex));
+
+  let newState = updateCursor(state, {
+    blockIndex: clampedBlockIndex,
+    textIndex: clampedTextIndex,
+  });
+
+  // Clear active formats when cursor moves (unless explicitly preserving them, e.g., during typing)
+  if (
+    !preserveActiveFormats &&
+    newState.ui.activeFormatsMode.type === "explicit"
+  ) {
+    newState = {
+      ...newState,
+      ui: {
+        ...newState.ui,
+        activeFormatsMode: { type: "inherit" },
+      },
+    };
+  }
+
+  return newState;
+}
+
+export function moveCursorLeft(state: EditorState): EditorState {
+  if (!state.document.cursor) return createInitialCursorState(state);
+
+  const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
+  const currentBlock = state.document.page.blocks[blockIndex];
+
+  if (!currentBlock || currentBlock.deleted) return state;
+
+  // Handle visual blocks (image/line) - move to previous block
+  if (!isTextualBlock(currentBlock)) {
+    const prevBlockIndex = findPreviousVisibleBlockIndex(
+      state.document.page.blocks,
+      blockIndex,
+    );
+    if (prevBlockIndex !== null) {
+      const prevBlock = state.document.page.blocks[prevBlockIndex];
+      if (!isTextualBlock(prevBlock)) {
+        return moveCursorToPosition(state, prevBlockIndex, 0);
+      } else if (isTextualBlock(prevBlock)) {
+        const prevBlockLength = getBlockTextLength(prevBlock);
+        return moveCursorToPosition(state, prevBlockIndex, prevBlockLength);
+      }
+    }
+    return state;
+  }
+
+  if (!isTextualBlock(currentBlock)) {
+    return state;
+  }
+
+  // Check if current block is RTL
+  const isRTL =
+    getTextDirection(getVisibleTextFromRuns(currentBlock.charRuns)) === "rtl";
+
+  if (isRTL) {
+    // In RTL text, visual left is logical forward (increment)
+    const currentBlockLength = getBlockTextLength(currentBlock);
+
+    if (textIndex < currentBlockLength) {
+      const snapped = snapInlineMathPosition(
+        currentBlock,
+        textIndex + 1,
+        "right",
+      );
+      return moveCursorToPosition(state, blockIndex, snapped);
+    } else {
+      // Moving to next visible block
+      const nextBlockIndex = findNextVisibleBlockIndex(
+        state.document.page.blocks,
+        blockIndex,
+      );
+      if (nextBlockIndex !== null) {
+        const nextBlock = state.document.page.blocks[nextBlockIndex];
+
+        // Handle visual blocks (image/line) - move to the block
+        if (!isTextualBlock(nextBlock)) {
+          return moveCursorToPosition(state, nextBlockIndex, 0);
+        }
+
+        if (!isTextualBlock(nextBlock)) {
+          return state;
+        }
+        const nextIsRTL =
+          getTextDirection(getVisibleTextFromRuns(nextBlock.charRuns)) ===
+          "rtl";
+
+        if (nextIsRTL) {
+          // Next block is RTL, position at start (visual right edge)
+          return moveCursorToPosition(state, nextBlockIndex, 0);
+        } else {
+          // Next block is LTR, position at start (visual left edge)
+          return moveCursorToPosition(state, nextBlockIndex, 0);
+        }
+      }
+    }
+  } else {
+    // LTR text: visual left is logical backward (decrement)
+    if (textIndex > 0) {
+      const snapped = snapInlineMathPosition(
+        currentBlock,
+        textIndex - 1,
+        "left",
+      );
+      return moveCursorToPosition(state, blockIndex, snapped);
+    } else {
+      // Moving to previous visible block
+      const prevBlockIndex = findPreviousVisibleBlockIndex(
+        state.document.page.blocks,
+        blockIndex,
+      );
+      if (prevBlockIndex !== null) {
+        const prevBlock = state.document.page.blocks[prevBlockIndex];
+
+        // Handle visual blocks (image/line) - move to the block
+        if (!isTextualBlock(prevBlock)) {
+          return moveCursorToPosition(state, prevBlockIndex, 0);
+        }
+
+        if (!isTextualBlock(prevBlock)) {
+          return state;
+        }
+        const prevBlockLength = getBlockTextLength(prevBlock);
+        const prevIsRTL =
+          getTextDirection(getVisibleTextFromRuns(prevBlock.charRuns)) ===
+          "rtl";
+
+        if (prevIsRTL) {
+          // Previous block is RTL, position at end (visual left edge)
+          return moveCursorToPosition(state, prevBlockIndex, prevBlockLength);
+        } else {
+          // Previous block is LTR, position at end (visual right edge)
+          return moveCursorToPosition(state, prevBlockIndex, prevBlockLength);
+        }
+      }
+    }
+  }
+
+  return state;
+}
+
+export function moveCursorRight(state: EditorState): EditorState {
+  if (!state.document.cursor) return createInitialCursorState(state);
+
+  const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
+  const currentBlock = state.document.page.blocks[blockIndex];
+
+  if (!currentBlock || currentBlock.deleted) return state;
+
+  // Handle visual blocks (image/line) - move to next block
+  if (!isTextualBlock(currentBlock)) {
+    const nextBlockIndex = findNextVisibleBlockIndex(
+      state.document.page.blocks,
+      blockIndex,
+    );
+    if (nextBlockIndex !== null) {
+      const nextBlock = state.document.page.blocks[nextBlockIndex];
+      if (!isTextualBlock(nextBlock)) {
+        return moveCursorToPosition(state, nextBlockIndex, 0);
+      } else if (isTextualBlock(nextBlock)) {
+        return moveCursorToPosition(state, nextBlockIndex, 0);
+      }
+    }
+    return state;
+  }
+
+  if (!isTextualBlock(currentBlock)) {
+    return state;
+  }
+
+  const currentBlockLength = getBlockTextLength(currentBlock);
+
+  // Check if current block is RTL
+  const isRTL =
+    getTextDirection(getVisibleTextFromRuns(currentBlock.charRuns)) === "rtl";
+
+  if (isRTL) {
+    // In RTL text, visual right is logical backward (decrement)
+    if (textIndex > 0) {
+      const snapped = snapInlineMathPosition(
+        currentBlock,
+        textIndex - 1,
+        "left",
+      );
+      return moveCursorToPosition(state, blockIndex, snapped);
+    } else {
+      // Moving to previous visible block
+      const prevBlockIndex = findPreviousVisibleBlockIndex(
+        state.document.page.blocks,
+        blockIndex,
+      );
+      if (prevBlockIndex !== null) {
+        const prevBlock = state.document.page.blocks[prevBlockIndex];
+
+        // Handle visual blocks (image/line) - move to the block
+        if (!isTextualBlock(prevBlock)) {
+          return moveCursorToPosition(state, prevBlockIndex, 0);
+        }
+
+        if (!isTextualBlock(prevBlock)) {
+          return state;
+        }
+        const prevBlockLength = getBlockTextLength(prevBlock);
+        const prevIsRTL =
+          getTextDirection(getVisibleTextFromRuns(prevBlock.charRuns)) ===
+          "rtl";
+
+        if (prevIsRTL) {
+          // Previous block is RTL, position at end (visual left edge)
+          return moveCursorToPosition(state, prevBlockIndex, prevBlockLength);
+        } else {
+          // Previous block is LTR, position at end (visual right edge)
+          return moveCursorToPosition(state, prevBlockIndex, prevBlockLength);
+        }
+      }
+    }
+  } else {
+    // LTR text: visual right is logical forward (increment)
+    if (textIndex < currentBlockLength) {
+      const snapped = snapInlineMathPosition(
+        currentBlock,
+        textIndex + 1,
+        "right",
+      );
+      return moveCursorToPosition(state, blockIndex, snapped);
+    } else {
+      // Moving to next visible block
+      const nextBlockIndex = findNextVisibleBlockIndex(
+        state.document.page.blocks,
+        blockIndex,
+      );
+      if (nextBlockIndex !== null) {
+        const nextBlock = state.document.page.blocks[nextBlockIndex];
+
+        // Handle visual blocks (image/line) - move to the block
+        if (!isTextualBlock(nextBlock)) {
+          return moveCursorToPosition(state, nextBlockIndex, 0);
+        }
+
+        if (!isTextualBlock(nextBlock)) {
+          return state;
+        }
+        const nextIsRTL =
+          getTextDirection(getVisibleTextFromRuns(nextBlock.charRuns)) ===
+          "rtl";
+
+        if (nextIsRTL) {
+          // Next block is RTL, position at start (visual right edge)
+          return moveCursorToPosition(state, nextBlockIndex, 0);
+        } else {
+          // Next block is LTR, position at start (visual left edge)
+          return moveCursorToPosition(state, nextBlockIndex, 0);
+        }
+      }
+    }
+  }
+
+  return state;
 }

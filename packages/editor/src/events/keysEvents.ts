@@ -32,32 +32,32 @@ import {
 import { getSlashCommands } from "../SlashCommandMenu";
 import {
   clearAutoCreatedParagraph,
-  clearSelection,
   closeSlashCommand,
-  extendSelectionDown,
+  getBlockTextContent,
+  getBlockTextLength,
+  getCrossedInlineMathSpan,
+  openContextMenu,
+  openSlashCommand,
+  setActiveMenu,
+  updateSlashCommandFilter,
+  updateSlashCommandSelection,
+} from "../state";
+import {
+  moveCursorLeft,
+  moveCursorRight,
+  moveCursorToPosition
+} from "@/selection";
+import { updateFocus } from "@/selection";
+import { updateCursor } from "@/selection";
+import {
+  clearSelection, extendSelectionDown,
   extendSelectionLeft,
   extendSelectionPageDown,
   extendSelectionPageUp,
   extendSelectionRight,
-  extendSelectionUp,
-  getBlockTextContent,
-  getBlockTextLength,
-  getCrossedInlineMathSpan,
-  moveCursorDown,
-  moveCursorLeft,
-  moveCursorPageDown,
-  moveCursorPageUp,
-  moveCursorRight,
-  moveCursorToPosition,
-  moveCursorUp,
-  openContextMenu,
-  openSlashCommand,
-  setActiveMenu,
-  updateCursor,
-  updateFocus,
-  updateSlashCommandFilter,
-  updateSlashCommandSelection,
-} from "../state";
+  extendSelectionUp, moveCursorDown, moveCursorPageDown,
+  moveCursorPageUp, moveCursorUp
+} from "@/selection";
 import { deleteCharsInRange } from "../sync/crdt-helpers";
 import { redoState, undoState } from "../sync/crdt-undo";
 import type { Operation } from "../sync/sync";

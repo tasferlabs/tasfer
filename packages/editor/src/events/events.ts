@@ -20,11 +20,10 @@ import {
 import {
   closeActiveMenu,
   openContextMenu,
-  startSelection,
-  updateCursor,
   updateMode,
-  updateSelectionFocus,
 } from "../state";
+import { updateCursor } from "@/selection";
+import { startSelection, updateSelectionFocus } from "@/selection";
 import { getEditorStyles, getTextStyle } from "../styles";
 import type { Operation } from "../sync/types";
 import type { EditorState, MouseEvent, ViewportState } from "../types";
