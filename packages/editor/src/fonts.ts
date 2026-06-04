@@ -16,10 +16,15 @@ import "@fontsource/space-grotesk/400.css";
 import "@fontsource/space-grotesk/500.css";
 import "@fontsource/space-grotesk/600.css";
 import "@fontsource/space-grotesk/700.css";
-
 // Formatted text measurement - handles Char[] with FormatSpan[]
-import type { Char, FormatSpan, TextFormat } from "./deserializer/loadPage";
+import type {
+  Char,
+  CharRun,
+  FormatSpan,
+  TextFormat,
+} from "./deserializer/loadPage";
 import { getInlineMathDims } from "./inlineMath";
+import { charRunsToChars } from "./sync/char-runs";
 import type FontConfig from "./types";
 import type { CharacterMetrics, FontMetrics } from "./types";
 
@@ -618,6 +623,36 @@ export function measureTextUpToIndex(
   }
 
   return measureBatchedText(batches, fontSize, baseFontWeight, fontFamily);
+}
+
+/**
+ * Measure text width up to a specific index in the chars array
+ * Uses batched measurement to preserve Arabic ligatures
+ */
+export function measureCharsUpToIndex(
+  charRuns: CharRun[],
+  formats: FormatSpan[],
+  startIndex: number,
+  endIndex: number,
+  fontSize: number,
+  baseFontWeight: string,
+  fontFamily: FontFamily,
+  codePadding: number = 0,
+): number {
+  // Convert charRuns to Char[] for compatibility with existing measurement code
+  const chars = charRunsToChars(charRuns);
+  // Use the batched measurement function from fonts.ts
+  // This preserves Arabic ligatures by measuring text in batches with the same formatting
+  return measureTextUpToIndex(
+    chars,
+    formats,
+    startIndex,
+    endIndex,
+    fontSize,
+    baseFontWeight,
+    fontFamily,
+    codePadding,
+  );
 }
 
 // Measure total width of CRDT text

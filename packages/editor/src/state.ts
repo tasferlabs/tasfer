@@ -1,11 +1,6 @@
-import type { Block, CharRun, FormatSpan, Page } from "./deserializer/loadPage";
+import type { Block, Page } from "./deserializer/loadPage";
 import { isListBlock, isTextualBlock } from "./deserializer/loadPage";
-import {
-  type FontFamily,
-  getCurrentFontFamily,
-  measureTextUpToIndex,
-  wrapText,
-} from "./fonts";
+import { getCurrentFontFamily, measureCharsUpToIndex, wrapText } from "./fonts";
 import { getCharsDirection } from "./rtl";
 import {
   createInitialMomentumState,
@@ -38,36 +33,6 @@ import type {
   Position,
   ViewportState,
 } from "./types";
-
-/**
- * Measure text width up to a specific index in the chars array
- * Uses batched measurement to preserve Arabic ligatures
- */
-function measureCharsUpToIndex(
-  charRuns: CharRun[],
-  formats: FormatSpan[],
-  startIndex: number,
-  endIndex: number,
-  fontSize: number,
-  baseFontWeight: string,
-  fontFamily: FontFamily,
-  codePadding: number = 0,
-): number {
-  // Convert charRuns to Char[] for compatibility with existing measurement code
-  const chars = charRunsToChars(charRuns);
-  // Use the batched measurement function from fonts.ts
-  // This preserves Arabic ligatures by measuring text in batches with the same formatting
-  return measureTextUpToIndex(
-    chars,
-    formats,
-    startIndex,
-    endIndex,
-    fontSize,
-    baseFontWeight,
-    fontFamily,
-    codePadding,
-  );
-}
 
 // =============================================================================
 // Block ID Generation

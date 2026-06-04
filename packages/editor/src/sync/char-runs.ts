@@ -8,6 +8,7 @@
  * ID computation: Each character's ID = `${peerId}:${startCounter + offset}`
  */
 
+import { compareIds, extractCounter, extractPeerId } from "./id";
 import type {
   Block,
   Char,
@@ -15,8 +16,6 @@ import type {
   TextualBlock,
 } from "@/deserializer/loadPage";
 import { isTextualBlock } from "@/deserializer/loadPage";
-
-import { compareIds, extractCounter, extractPeerId } from "./id";
 
 // =============================================================================
 // ID and Deletion Helpers

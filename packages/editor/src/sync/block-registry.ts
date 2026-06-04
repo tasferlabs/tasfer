@@ -9,9 +9,8 @@
  * registry.
  */
 
-import type { Block } from "@/deserializer/loadPage";
-
 import type { BlockType } from "./types";
+import type { Block } from "@/deserializer/loadPage";
 
 // =============================================================================
 // Field descriptors

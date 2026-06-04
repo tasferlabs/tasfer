@@ -1,5 +1,3 @@
-import { isTextualBlock } from "@/deserializer/loadPage";
-
 import {
   selectLineAtPosition,
   selectWordAtPosition,
@@ -64,6 +62,7 @@ import {
   updateImageDrag,
 } from "./eventUtils";
 import { startAutoScroll, stopAutoScroll } from "./touchEvents";
+import { isTextualBlock } from "@/deserializer/loadPage";
 
 // Helper function to detect and handle checkbox clicks for todo list items
 

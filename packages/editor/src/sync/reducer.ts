@@ -6,14 +6,6 @@
  */
 
 import {
-  type Block,
-  type Char,
-  type FormatSpan,
-  isTextualBlock,
-  type Page,
-} from "@/deserializer/loadPage";
-
-import {
   canMorphTo,
   createDefaultBlock,
   validateBlockField,
@@ -39,6 +31,13 @@ import type {
   TextDelete,
   TextInsert,
 } from "./types";
+import {
+  type Block,
+  type Char,
+  type FormatSpan,
+  isTextualBlock,
+  type Page,
+} from "@/deserializer/loadPage";
 
 /**
  * Create an empty page state.

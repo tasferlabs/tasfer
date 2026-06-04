@@ -6,8 +6,6 @@
  * and subscribing to state changes.
  */
 
-import type { Char, CharRun, Page, TextFormat } from "@/deserializer/loadPage";
-
 import { BLOCK_REGISTRY } from "./block-registry";
 import { compareHLC, createHLC, receiveHLC, tickHLC } from "./hlc";
 import {
@@ -34,6 +32,7 @@ import type {
   TextInsert,
   VersionVector,
 } from "./types";
+import type { Char, CharRun, Page, TextFormat } from "@/deserializer/loadPage";
 
 // ==========================================================================
 // Global CRDT Context Functions

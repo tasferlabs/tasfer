@@ -14,15 +14,6 @@
  * folds `applyOp` through the batch to materialise these intermediate
  * states; callers pass `applyOp` in to avoid a circular import.
  */
-import type {
-  Block,
-  Char,
-  CharRun,
-  Page,
-  TextFormat,
-} from "@/deserializer/loadPage";
-import { isTextualBlock } from "@/deserializer/loadPage";
-
 import { getBlockDescriptor, getBlockFieldNames } from "./sync/block-registry";
 import {
   charRunsToChars,
@@ -40,6 +31,14 @@ import type {
   TextDelete,
   TextInsert,
 } from "./sync/types";
+import type {
+  Block,
+  Char,
+  CharRun,
+  Page,
+  TextFormat,
+} from "@/deserializer/loadPage";
+import { isTextualBlock } from "@/deserializer/loadPage";
 
 /**
  * Convert Char[] to CharRun[] (for inverse operations).

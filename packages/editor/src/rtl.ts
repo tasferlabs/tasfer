@@ -3,10 +3,9 @@
  * Provides functions to detect and handle RTL languages like Arabic, Hebrew, Persian, etc.
  */
 
-import i18next from "i18next";
-
 import type { CharRun } from "./deserializer/loadPage";
 import { getVisibleTextFromRuns } from "./sync/char-runs";
+import i18next from "i18next";
 
 /**
  * Unicode ranges for RTL scripts

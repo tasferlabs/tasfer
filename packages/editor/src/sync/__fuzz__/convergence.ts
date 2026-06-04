@@ -1,14 +1,13 @@
+import { getVisibleLengthFromRuns } from "../char-runs";
+import { rebuildState } from "../reducer";
+import { SyncEngine } from "../sync";
+import type { BlockType, Operation } from "../types";
 import {
   type Block,
   isTextualBlock,
   type Page,
   type TextFormat,
 } from "@/deserializer/loadPage";
-
-import { getVisibleLengthFromRuns } from "../char-runs";
-import { rebuildState } from "../reducer";
-import { SyncEngine } from "../sync";
-import type { BlockType, Operation } from "../types";
 
 type TextualType = "paragraph" | "heading1" | "bullet_list" | "todo_list";
 const TEXTUAL_TYPES: TextualType[] = [

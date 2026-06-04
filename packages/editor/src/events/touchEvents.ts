@@ -1,5 +1,3 @@
-import { type Block, isTextualBlock } from "@/deserializer/loadPage";
-
 import {
   selectLineAtPosition,
   selectWordAtPosition,
@@ -56,6 +54,7 @@ import {
   updateImageDrag,
 } from "./eventUtils";
 import { handleTodoCheckboxClick } from "./mouseEvents";
+import { type Block, isTextualBlock } from "@/deserializer/loadPage";
 
 /** Get rendered line height (px) for the block at the given position. */
 function getLineHeightAtPosition(

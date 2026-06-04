@@ -1,14 +1,13 @@
-import i18next from "i18next";
-
 import { IMAGE_DEFAULT_HEIGHT } from "./constants";
 import { getCurrentFontFamily, getFontStack } from "./fonts";
 import { isTouchDevice } from "./state";
 import type { EditorStyles, PlaceholderStyles, TextStyle } from "./types";
+import i18next from "i18next";
 
 /**
  * Track window focus state globally for editor styling
  */
-let isWindowFocused = true;
+let isWindowFocused = true; //NOTE -  We should handle efocus ourself we should relay on browser focus mechanism.
 
 /**
  * Optional padding overrides set via setEditorPadding()
@@ -18,7 +17,7 @@ let paddingOverride: Partial<{
   paddingBottom: number;
   paddingLeft: number;
   paddingRight: number;
-}> | null = null;
+}> | null = null; //NOTE -  Not globals since people would like to use multiple instances.
 
 /**
  * Optional per-block text style overrides set via setBlockStyleOverrides()

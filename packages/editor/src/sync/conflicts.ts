@@ -7,15 +7,14 @@
  * - Format merging with Last-Writer-Wins (LWW)
  */
 
+import { compareHLC } from "./hlc";
+import { compareIds } from "./id";
 import type {
   Block,
   Char,
   FormatSpan,
   TextFormat,
 } from "@/deserializer/loadPage";
-
-import { compareHLC } from "./hlc";
-import { compareIds } from "./id";
 
 /**
  * Compare two characters for ordering.

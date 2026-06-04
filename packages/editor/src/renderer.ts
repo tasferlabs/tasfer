@@ -1,5 +1,3 @@
-import i18next from "i18next";
-
 import { resolveAssetUrl } from "./adapters";
 import type { Block, Char, CharRun, FormatSpan } from "./deserializer/loadPage";
 import { isListBlock, isTextualBlock } from "./deserializer/loadPage";
@@ -45,6 +43,7 @@ import type {
   TextStyle,
   ViewportState,
 } from "./types";
+import i18next from "i18next";
 
 /**
  * Convert charRuns to Char[] for compatibility with measurement functions

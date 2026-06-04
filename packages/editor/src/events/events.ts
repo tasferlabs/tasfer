@@ -1,5 +1,3 @@
-import { isTextualBlock } from "@/deserializer/loadPage";
-
 import {
   CONTEXT_MENU_DURATION,
   CURSOR_DRAG_ACTIVATION_DELAY,
@@ -55,6 +53,7 @@ import {
   touchState,
   triggerHapticFeedback,
 } from "./touchEvents";
+import { isTextualBlock } from "@/deserializer/loadPage";
 
 /** Get rendered line height (px) for the block at the given index. */
 function getBlockLineHeight(

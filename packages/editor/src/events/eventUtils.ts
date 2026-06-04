@@ -1,5 +1,3 @@
-import type { Block } from "@/deserializer/loadPage";
-
 import {
   CLICK_DISTANCE_THRESHOLD,
   SELECTION_HANDLE_TOUCH_TARGET,
@@ -13,6 +11,7 @@ import { getEditorStyles } from "../styles";
 import type { Operation } from "../sync/sync";
 import { getClock, getPageId, nextId } from "../sync/sync";
 import type { EditorState, ViewportState } from "../types";
+import type { Block } from "@/deserializer/loadPage";
 
 export function isTouchDevice(): boolean {
   return (

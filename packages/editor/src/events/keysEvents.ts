@@ -1,9 +1,3 @@
-import {
-  type Block,
-  isListBlock,
-  isTextualBlock,
-} from "@/deserializer/loadPage";
-
 import { copySelectionToClipboard } from "../actions/clipboard";
 import {
   applySlashCommand,
@@ -75,6 +69,11 @@ import type {
   ViewportState,
 } from "../types";
 import { ensureCursorVisible, isTouchDevice } from "./eventUtils";
+import {
+  type Block,
+  isListBlock,
+  isTextualBlock,
+} from "@/deserializer/loadPage";
 
 // Open the inline-math editor popover when an arrow key crosses an inline
 // math chip (snap fired between opposite boundaries).

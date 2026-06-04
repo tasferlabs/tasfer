@@ -1,4 +1,3 @@
-import { IMAGE_DEFAULT_HEIGHT } from "../constants";
 import { renderToSVG } from "../mathjax";
 import { iterateVisibleChars } from "../sync/char-runs";
 import type { Block, CharRun, FormatSpan, TextFormat } from "./loadPage";

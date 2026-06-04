@@ -1,10 +1,3 @@
-import {
-  crdtToPosition,
-  crdtToSelectionRange,
-  positionToCRDT,
-  selectionRangeToCRDT,
-} from "@/sync/crdt-utils";
-
 import type {
   Block,
   CharRun,
@@ -59,6 +52,12 @@ import type {
   Position,
   SlashCommand,
 } from "../types";
+import {
+  crdtToPosition,
+  crdtToSelectionRange,
+  positionToCRDT,
+  selectionRangeToCRDT,
+} from "@/sync/crdt-utils";
 
 /**
  * URL regex pattern for auto-detection.

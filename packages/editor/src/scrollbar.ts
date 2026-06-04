@@ -1,5 +1,3 @@
-import i18next from "i18next";
-
 import { getBlockHeight, getSearchHighlights } from "./renderer";
 import { getEditorStyles } from "./styles";
 import {
@@ -7,6 +5,7 @@ import {
   type AwarenessState,
 } from "./sync/awareness";
 import type { EditorState, ViewportState } from "./types";
+import i18next from "i18next";
 
 /** Whether the app UI is currently RTL */
 function isAppRTL(): boolean {

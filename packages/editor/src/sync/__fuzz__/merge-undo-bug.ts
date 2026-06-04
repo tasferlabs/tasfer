@@ -22,14 +22,13 @@
  * need to drive the canvas editor.
  */
 
-import { isTextualBlock, type Page } from "@/deserializer/loadPage";
-
 import { invertOperations, refreshOps } from "../../inverse";
 import { getVisibleLengthFromRuns, iterateVisibleChars } from "../char-runs";
 import { insertCharsAtPosition } from "../crdt-helpers";
 import { applyOp, applyOps, createEmptyPageState } from "../reducer";
 import { getClock, getPageId, nextId, setCRDTContext } from "../sync";
 import type { BlockInsert, Operation, TextInsert } from "../types";
+import { isTextualBlock, type Page } from "@/deserializer/loadPage";
 
 setCRDTContext("merge-undo-repro", "p001");
 const pageId = getPageId();

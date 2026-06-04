@@ -8,12 +8,11 @@
  * end of the page".
  */
 
-import { type Block, isTextualBlock, type Page } from "@/deserializer/loadPage";
-
 import { iterateVisibleChars } from "../char-runs";
 import { applyOps } from "../reducer";
 import { getClock, getPageId, nextId, setCRDTContext } from "../sync";
 import type { BlockInsert, Operation } from "../types";
+import { type Block, isTextualBlock, type Page } from "@/deserializer/loadPage";
 
 setCRDTContext("split-reorder", "p001");
 const pageId = getPageId();

@@ -2,13 +2,13 @@ import type { Block, Page, TextFormat } from "./deserializer/loadPage";
 import type { FontFamily } from "./fonts";
 import type { MomentumState, ScrollbarState } from "./scrollbar";
 import type { Operation } from "./sync/types";
-
+import type { ReactElement } from "react";
 export interface SlashCommand {
   id: string;
   type: Block["type"];
   label: string;
   description: string;
-  icon: string | React.ReactElement; //NOTE -  add perdeps, but the project should be headless no opninion about ui.
+  icon: string | ReactElement; //NOTE -  add perdeps, but the project should be headless no opninion about ui.
   keywords?: string[];
 }
 // Editor State Types
@@ -200,7 +200,7 @@ export interface ViewState {
 export interface UndoGroup {
   readonly operations: readonly Operation[]; // Original operations performed (used for redo broadcast)
   readonly inverses: readonly Operation[]; // Captured at emit time; replayed verbatim on undo
-  readonly peerId: string; // User who performed these operations
+  readonly peerId?: string; // User who performed these operations
   readonly cursorBefore: CRDTCursorState | null; // Cursor state before operations (restored on undo)
   readonly selectionBefore: CRDTSelectionState | null; // Selection state before operations (restored on undo)
   readonly cursorAfter: CRDTCursorState | null; // Cursor state after operations (restored on redo)

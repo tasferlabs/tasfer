@@ -5,11 +5,10 @@
  * Tracks remote users' cursor positions, selections, and user information.
  */
 
-import type { Page } from "@/deserializer/loadPage";
-import { isTextualBlock } from "@/deserializer/loadPage";
-
 import type { Position, SelectionState } from "../types";
 import { getVisibleLengthFromRuns } from "./char-runs";
+import type { Page } from "@/deserializer/loadPage";
+import { isTextualBlock } from "@/deserializer/loadPage";
 
 // =============================================================================
 // Types

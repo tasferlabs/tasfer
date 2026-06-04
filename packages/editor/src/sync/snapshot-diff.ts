@@ -5,9 +5,6 @@
  * operations to restore the page to a specific snapshot state.
  */
 
-import type { Block, CharRun, FormatSpan } from "@/deserializer/loadPage";
-import { isTextualBlock } from "@/deserializer/loadPage";
-
 import { getBlockDescriptor, getBlockFieldNames } from "./block-registry";
 import { getVisibleTextFromRuns, iterateVisibleChars } from "./char-runs";
 import type {
@@ -19,6 +16,8 @@ import type {
   Operation,
   TextInsert,
 } from "./types";
+import type { Block, CharRun, FormatSpan } from "@/deserializer/loadPage";
+import { isTextualBlock } from "@/deserializer/loadPage";
 
 // =============================================================================
 // Types
