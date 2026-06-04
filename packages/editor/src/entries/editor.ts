@@ -2,7 +2,7 @@ import {
   copySelectionToClipboard,
   cutSelectionToClipboard,
   pasteFromNativeClipboardAPI,
-} from "./actions/clipboard";
+} from "../actions/clipboard";
 import {
   applySlashCommand,
   clearLinkInBlock,
@@ -14,14 +14,10 @@ import {
   toggleItalic,
   toggleStrikethrough,
   updateLinkInBlock,
-} from "./actions/commands";
-import type { Block, Page } from "./serlization/loadPage";
-import { isTextualBlock } from "./serlization/loadPage";
-import { serializeToMarkdown } from "./serlization/serializer";
-import { handleEvents } from "./events/events";
-import { isInLongPressMode } from "./events/touchEvents";
-import { onFontFamilyChange, onFontsReady } from "./fonts";
-import type { CanvasLayers } from "./layers";
+} from "../actions/commands";
+import { handleEvents } from "../events/events";
+import { isInLongPressMode } from "../events/touchEvents";
+import { onFontFamilyChange, onFontsReady } from "../fonts";
 import {
   clearAllBlockCaches,
   clearSearchHighlights as clearRendererSearchHighlights,
@@ -31,12 +27,30 @@ import {
   renderPage,
   setRequestRedraw,
   setSearchHighlights as setRendererSearchHighlights,
-} from "./renderer";
+} from "../rendering/renderer";
 import {
   getCursorCoordinatesWithComposition,
   getCursorDocumentCoords,
   scrollToMakeCursorVisible,
-} from "./selection";
+} from "../selection";
+import {
+  moveCursorLeft,
+  moveCursorRight,
+  moveCursorToPosition,
+} from "../selection";
+import { isCursorBlinking } from "../selection";
+import { updateFocus } from "../selection";
+import { updateCursor } from "../selection";
+import { clearSelection } from "../selection";
+import type { Block, Page } from "../serlization/loadPage";
+import { isTextualBlock } from "../serlization/loadPage";
+import { serializeToMarkdown } from "../serlization/serializer";
+import type {
+  CommandResult,
+  EditorState,
+  SlashCommand,
+  ViewportState,
+} from "../state-types";
 import {
   closeActiveMenu,
   closeContextMenu,
@@ -46,38 +60,28 @@ import {
   setActiveMenu,
   updateMode,
   updatePhysicalKeyboardState,
-} from "./state-utils";
-import {
-  moveCursorLeft,
-  moveCursorRight,
-  moveCursorToPosition
-} from "./selection";
-import { isCursorBlinking } from "./selection";
-import { updateFocus } from "./selection";
-import { updateSelection } from "./updateSelection";
-import { updateCursor } from "./selection";
-import { clearSelection } from "./selection";
-import { getEditorStyles } from "./styles";
+} from "../state-utils";
+import { getEditorStyles } from "../styles";
 import type {
   AwarenessCursor,
   AwarenessSelection,
   AwarenessState,
   AwarenessUser,
-} from "./sync/awareness";
+} from "../sync/awareness";
 import {
   awarenessCursorsEqual,
   awarenessSelectionsEqual,
   positionToAwarenessCursor,
   selectionToAwarenessSelection,
-} from "./sync/awareness";
+} from "../sync/awareness";
 import {
   deleteCharsInRange,
   formatCharsInRange,
   insertCharsAtPosition,
-} from "./sync/crdt-helpers";
-import { recordUndoOps, redoState, undoState } from "./sync/crdt-undo";
-import { applyOps } from "./sync/reducer";
-import { generateRestoreOperations } from "./sync/snapshot-diff";
+} from "../sync/crdt-helpers";
+import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
+import { applyOps } from "../sync/reducer";
+import { generateRestoreOperations } from "../sync/snapshot-diff";
 import {
   createBlockSet,
   getClock,
@@ -85,14 +89,10 @@ import {
   getPeerId,
   getVisibleBlocks,
   nextId,
-} from "./sync/sync";
-import type { BlockDelete, BlockInsert, Operation } from "./sync/types";
-import type {
-  CommandResult,
-  EditorState,
-  SlashCommand,
-  ViewportState,
-} from "./state-types";
+} from "../sync/sync";
+import type { BlockDelete, BlockInsert, Operation } from "../sync/types";
+import { updateSelection } from "../updateSelection";
+import type { CanvasLayers } from "./layers";
 
 export interface Editor {
   getState: () => EditorState | null;
@@ -224,6 +224,7 @@ export interface Editor {
   }) => void;
 }
 
+//NOTE - maybe we should make this as class instead.
 export default function createEditor(
   layers: CanvasLayers,
   initialState: EditorState,

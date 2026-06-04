@@ -17,10 +17,10 @@
 import { getBlockDescriptor, getBlockFieldNames } from "./sync/block-registry";
 import {
   charRunsToChars,
+  charsToRuns,
   isCharIdInRange,
   iterateAllChars,
 } from "./sync/char-runs";
-import { extractCounter, extractPeerId } from "./sync/id";
 import { getClock, nextId } from "./sync/sync";
 import type {
   BlockDelete,
@@ -31,105 +31,8 @@ import type {
   TextDelete,
   TextInsert,
 } from "./sync/types";
-import type {
-  Block,
-  Char,
-  CharRun,
-  Page,
-  TextFormat,
-} from "@/serlization/loadPage";
+import type { Block, Char, Page, TextFormat } from "@/serlization/loadPage";
 import { isTextualBlock } from "@/serlization/loadPage";
-
-/**
- * Convert Char[] to CharRun[] (for inverse operations).
- * Handles chars from multiple peers by splitting into separate runs.
- */
-function charsToCharRuns(chars: Char[]): CharRun[] {
-  if (chars.length === 0) return [];
-
-  const runs: CharRun[] = [];
-  let currentPeerId = extractPeerId(chars[0].id);
-  let currentStartCounter = extractCounter(chars[0].id);
-  let currentText = "";
-  let currentDeleted: boolean[] = [];
-
-  for (let i = 0; i < chars.length; i++) {
-    const char = chars[i];
-    const peerId = extractPeerId(char.id);
-    const counter = extractCounter(char.id);
-
-    // Check if continues current run (same peer, consecutive counter)
-    if (
-      peerId === currentPeerId &&
-      counter === currentStartCounter + currentText.length
-    ) {
-      currentText += char.char;
-      currentDeleted.push(char.deleted ?? false);
-    } else {
-      // Finish current run
-      if (currentText.length > 0) {
-        runs.push(
-          createCharRunFromDeleted(
-            currentPeerId,
-            currentStartCounter,
-            currentText,
-            currentDeleted,
-          ),
-        );
-      }
-
-      // Start new run
-      currentPeerId = peerId;
-      currentStartCounter = counter;
-      currentText = char.char;
-      currentDeleted = [char.deleted ?? false];
-    }
-  }
-
-  // Finish last run
-  if (currentText.length > 0) {
-    runs.push(
-      createCharRunFromDeleted(
-        currentPeerId,
-        currentStartCounter,
-        currentText,
-        currentDeleted,
-      ),
-    );
-  }
-
-  return runs;
-}
-
-/**
- * Helper to create CharRun with optional deletedMask
- */
-function createCharRunFromDeleted(
-  peerId: string,
-  startCounter: number,
-  text: string,
-  deleted: boolean[],
-): CharRun {
-  const hasDeleted = deleted.some((d) => d);
-
-  if (!hasDeleted) {
-    return { peerId, startCounter, text };
-  }
-
-  // Create deletedMask bitmap
-  const deletedMask: number[] = new Array(Math.ceil(deleted.length / 8)).fill(
-    0,
-  );
-  deleted.forEach((isDeleted, i) => {
-    if (isDeleted) {
-      const byteIndex = Math.floor(i / 8);
-      const bitIndex = i % 8;
-      deletedMask[byteIndex] |= 1 << bitIndex;
-    }
-  });
-
-  return { peerId, startCounter, text, deletedMask };
-}
 
 // =============================================================================
 // Per-op inversion
@@ -208,7 +111,7 @@ function invertTextDelete(op: TextDelete, pageBefore: Page): TextInsert | null {
     afterCharId = sequenceIds[firstDeletedIndex - 1];
   }
 
-  const charRuns = charsToCharRuns(charsToReinsert);
+  const charRuns = charsToRuns(charsToReinsert);
 
   return {
     op: "text_insert",
@@ -491,14 +394,14 @@ export function invertOperations(
  * The semantic effect of the replayed op is identical because the payload
  * (charIds, blockId, format, value, afterCharId, etc.) is unchanged.
  */
-export function refreshOp(op: Operation): Operation {
+export function refreshOps(ops: readonly Operation[]): Operation[] {
+  return ops.map(refreshOp);
+}
+
+function refreshOp(op: Operation): Operation {
   return {
     ...op,
     id: nextId(),
     clock: getClock(),
   };
-}
-
-export function refreshOps(ops: readonly Operation[]): Operation[] {
-  return ops.map(refreshOp);
 }

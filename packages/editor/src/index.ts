@@ -7,12 +7,12 @@
  */
 
 // Mount / lifecycle
-export type { MountedEditor, MountEditorOptions } from "./mount";
-export { mountEditor } from "./mount";
+export type { MountedEditor, MountEditorOptions } from "./entries/mount";
+export { mountEditor } from "./entries/mount";
 
 // Editor instance API
-export type { Editor } from "./editor";
-export { default as createEditor } from "./editor";
+export type { Editor } from "./entries/editor";
+export { default as createEditor } from "./entries/editor";
 
 // Host adapters
 export type { AssetResolver } from "./adapters";
@@ -27,5 +27,5 @@ export type {
   Page,
   TextFormat,
 } from "./serlization/loadPage";
-export type { HLC, Operation } from "./sync/types";
 export type { EditorState, SlashCommand, ViewportState } from "./state-types";
+export type { HLC, Operation } from "./sync/types";

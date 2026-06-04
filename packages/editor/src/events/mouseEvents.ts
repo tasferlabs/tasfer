@@ -9,8 +9,7 @@ import {
   getBlockHeight,
   getOutOfViewIndicatorAtPoint,
   imageCache,
-} from "../renderer";
-import { getTextDirection } from "../rtl";
+} from "../rendering/renderer";
 import {
   endScrollbarDrag,
   isPointInScrollbar,
@@ -21,6 +20,7 @@ import {
   updateScrollFromTrackClick,
   updateScrollFromWheel,
 } from "../rendering/scrollbar";
+import { getTextDirection } from "../rtl";
 import {
   getCursorDocumentCoords,
   getInlineMathAtPosition,
@@ -28,6 +28,7 @@ import {
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
 } from "../selection";
+import type { EditorState, MouseEvent, ViewportState } from "../state-types";
 import {
   clearAutoCreatedParagraph,
   closeActiveMenu,
@@ -36,12 +37,8 @@ import {
   setActiveMenu,
   updateMode,
 } from "../state-utils";
-import { updateFocus } from "@/selection";
-import { updateCursor } from "@/selection";
-import { clearSelection, startSelection, updateSelectionFocus } from "@/selection";
 import { getEditorStyles, getTextStyle } from "../styles";
 import type { Operation } from "../sync/sync";
-import type { EditorState, MouseEvent, ViewportState } from "../state-types";
 import {
   autoScrollState,
   clearScrollPress,
@@ -60,6 +57,13 @@ import {
   updateImageDrag,
 } from "./eventUtils";
 import { startAutoScroll, stopAutoScroll } from "./touchEvents";
+import { updateFocus } from "@/selection";
+import { updateCursor } from "@/selection";
+import {
+  clearSelection,
+  startSelection,
+  updateSelectionFocus,
+} from "@/selection";
 import { isTextualBlock } from "@/serlization/loadPage";
 
 // Helper function to detect and handle checkbox clicks for todo list items

@@ -608,7 +608,6 @@ export interface FontMetrics {
   readonly fontFamily: FontFamily;
   readonly ascent: number;
   readonly descent: number;
-  readonly characters: ReadonlyMap<string, CharacterMetrics>;
 }
 
 export default interface FontConfig {

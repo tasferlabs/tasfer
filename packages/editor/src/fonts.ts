@@ -16,6 +16,7 @@ import "@fontsource/space-grotesk/400.css";
 import "@fontsource/space-grotesk/500.css";
 import "@fontsource/space-grotesk/600.css";
 import "@fontsource/space-grotesk/700.css";
+import { getInlineMathDims } from "./math";
 // Formatted text measurement - handles Char[] with FormatSpan[]
 import type {
   Char,
@@ -23,10 +24,9 @@ import type {
   FormatSpan,
   TextFormat,
 } from "./serlization/loadPage";
-import { getInlineMathDims } from "./inlineMath";
-import { charRunsToChars } from "./sync/char-runs";
 import type FontConfig from "./state-types";
-import type { CharacterMetrics, FontMetrics } from "./state-types";
+import type { FontMetrics } from "./state-types";
+import { charRunsToChars } from "./sync/char-runs";
 
 // Arabic font loading state
 let arabicFontsLoaded = false;
@@ -64,14 +64,6 @@ export function getFontStack(fontFamily: FontFamily): string {
   }
   return FONT_STACKS[fontFamily];
 }
-
-// Latin character set (ASCII 32-126 + common extended Latin)
-const LATIN_CHARS =
-  " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~" +
-  "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ";
-// Common font sizes for pre-calculation
-// const FONT_SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 48];
-// const FONT_WEIGHTS = ["400", "500", "600", "700"];
 
 // Font loading configuration
 const FONT_CONFIGS = [
@@ -283,17 +275,6 @@ function calculateFontMetrics(
   applyFont(ctx, fontSize, fontWeight, fontFamily);
   const textMetrics = ctx.measureText("Mg");
 
-  // Calculate character widths for Latin characters
-  const characters = new Map<string, CharacterMetrics>();
-
-  for (const char of LATIN_CHARS) {
-    const charMetrics = ctx.measureText(char);
-    characters.set(char, {
-      width: charMetrics.width,
-      height: fontSize,
-    });
-  }
-
   // Use font bounding box metrics for consistent line height across all characters
   return {
     fontSize,
@@ -301,7 +282,6 @@ function calculateFontMetrics(
     fontFamily,
     ascent: textMetrics.fontBoundingBoxAscent,
     descent: textMetrics.fontBoundingBoxDescent,
-    characters: characters,
   };
 }
 // Get font metrics with lazy per-key caching.
@@ -654,30 +634,6 @@ export function measureCharsUpToIndex(
     codePadding,
   );
 }
-
-// Measure total width of CRDT text
-export function measureCRDTText(
-  chars: Char[],
-  formats: FormatSpan[],
-  fontSize: number,
-  baseFontWeight: string,
-  fontFamily: FontFamily,
-  codePadding: number = 0,
-): number {
-  const visibleLength = chars.filter((c) => !c.deleted).length;
-  return measureTextUpToIndex(
-    chars,
-    formats,
-    0,
-    visibleLength,
-    fontSize,
-    baseFontWeight,
-    fontFamily,
-    codePadding,
-  );
-}
-
-// Legacy functions for backward compatibility with TextSegment[]
 
 // Measure a single text segment with its formats
 export function measureTextSegment(

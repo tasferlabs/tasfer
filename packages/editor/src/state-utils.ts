@@ -1,6 +1,10 @@
 import { getCurrentFontFamily, measureCharsUpToIndex, wrapText } from "./fonts";
+import {
+  createInitialMomentumState,
+  createInitialScrollbarState,
+} from "./rendering/scrollbar";
 import { getTextDirection } from "./rtl";
-import type { Block } from "./serlization/loadPage";
+import type { Block, Page } from "./serlization/loadPage";
 import { isListBlock, isTextualBlock } from "./serlization/loadPage";
 import type {
   EditorMode,
@@ -15,7 +19,64 @@ import {
   getVisibleTextFromRunsFromRuns,
   iterateVisibleChars,
 } from "./sync/char-runs";
+import { initialUndoManagerState } from "./sync/crdt-undo";
+import { generatePeerId } from "./sync/id";
+import { getVisibleBlocks, setCRDTContext } from "./sync/sync";
 
+// State Creation Functions
+export function createInitialState(
+  page: Page,
+  options?: { mode?: EditorMode },
+): EditorState {
+  const peerId = generatePeerId();
+
+  // Only initialize the global CRDT context for editable editors.
+  // Readonly editors (e.g. snapshot previews) never generate operations,
+  // and calling setCRDTContext here would overwrite the main editor's
+  // context — causing restore operations to get wrong pageId, peerId,
+  // and HLC clocks near zero, which breaks op ordering and convergence.
+  if (options?.mode !== "readonly") {
+    setCRDTContext(page.id, peerId);
+  }
+
+  return {
+    document: {
+      page,
+      cursor: null,
+      selection: null,
+    },
+    ui: {
+      mode: (options?.mode ?? "edit") as EditorMode,
+      isReadonlyBase: options?.mode === "readonly",
+      activeMenu: { type: "none" },
+      isHoveringLinkWithModifier: false,
+      isHoveringCheckbox: false,
+      isHoveringPeerIndicator: false,
+      composition: null,
+      activeFormatsMode: { type: "inherit" },
+      imageHover: null,
+      imageDrag: null,
+      selectionHandleDrag: null,
+      cursorDrag: null,
+      autoCreatedParagraph: null,
+      inlineMathHover: null,
+      hoveredMathBlockIndex: null,
+    },
+    view: {
+      isFocused: false,
+      clickTracker: {
+        count: 0,
+        lastClickTime: 0,
+        lastClickPosition: null,
+      },
+      scrollbar: createInitialScrollbarState(),
+      momentum: createInitialMomentumState(),
+      hasPhysicalKeyboard: false, // Default to false, will be updated by native
+      visibleBlocks: getVisibleBlocks(page),
+    },
+    undoManager: initialUndoManagerState,
+  };
+}
 export function updateMode(state: EditorState, mode: EditorMode): EditorState {
   // If editor was initialized as readonly, enforce readonly behavior
   if (state.ui.isReadonlyBase) {

@@ -1,4 +1,4 @@
-import { renderToSVG } from "../mathjax";
+import { renderToSVG } from "../math";
 import { iterateVisibleChars } from "../sync/char-runs";
 import type { Block, CharRun, FormatSpan, TextFormat } from "./loadPage";
 import { isImageDefault, isListBlock, isTextualBlock } from "./loadPage";

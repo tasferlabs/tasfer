@@ -4,15 +4,15 @@ import {
   destroyCanvasLayers,
   resizeCanvasLayers,
 } from "./layers";
-import { setKeyboardOpen } from "./rendering/scrollbar";
-import { type Block, type Page } from "./serlization/loadPage";
-import type { PlaceholderStyles, TextStyle } from "./state-types";
-import type { ViewportState } from "./state-types";
+import { setKeyboardOpen } from "../rendering/scrollbar";
+import { type Block, type Page } from "../serlization/loadPage";
+import type { PlaceholderStyles, TextStyle } from "../state-types";
+import type { ViewportState } from "../state-types";
 import {
   createInitialState,
   detectPhysicalKeyboardHeuristic,
   isTouchDevice,
-} from "./state-utils";
+} from "../state-utils";
 import {
   getBlockStyleOverrides,
   getEditorPadding,
@@ -21,7 +21,7 @@ import {
   setEditorPadding,
   setPlaceholderOverrides,
   setWindowFocused,
-} from "./styles";
+} from "../styles";
 
 export interface MountedEditor {
   readonly editor: Editor;
@@ -36,7 +36,10 @@ export interface MountedEditor {
   destroy: () => void;
 }
 
-function measure(container: HTMLElement): { width: number; height: number } {
+function measureCanvasSize(container: HTMLElement): {
+  width: number;
+  height: number;
+} {
   const rect = container.getBoundingClientRect();
   return {
     width: Math.max(rect.width, 1),
@@ -106,7 +109,7 @@ export function mountEditor(
   const canvasContainer = createCanvasContainer(container);
 
   // Get initial dimensions
-  const initial = measure(container);
+  const initial = measureCanvasSize(container);
 
   // Create layered canvases (content + cursor)
   const layers = createCanvasLayers(
