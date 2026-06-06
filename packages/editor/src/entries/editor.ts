@@ -77,8 +77,8 @@ import {
 import {
   deleteCharsInRange,
   formatCharsInRange,
-  insertCharsAtPosition,
-} from "../sync/crdt-helpers";
+  insertCharsAtPosition
+} from "@/sync/crdt-utils";
 import type {
   BlockDelete,
   BlockInsert,

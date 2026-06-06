@@ -73,7 +73,7 @@ import {
   updateSlashCommandFilter,
   updateSlashCommandSelection,
 } from "../state-utils";
-import { deleteCharsInRange } from "../sync/crdt-helpers";
+import { deleteCharsInRange } from "@/sync/crdt-utils";
 import { redoState, undoState } from "../sync/crdt-undo";
 import type { Operation } from "../sync/sync";
 import { ensureCursorVisible, isTouchDevice } from "./eventUtils";

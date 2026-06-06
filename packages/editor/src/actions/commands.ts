@@ -25,18 +25,10 @@ import {
 } from "../state-utils";
 import {
   deleteFromRuns,
+  getVisibleTextFromRuns,
   isCharIdInRange,
   iterateVisibleChars,
 } from "../sync/char-runs";
-import {
-  allCharsHaveFormat,
-  deleteCharsInRange,
-  formatCharsInRange,
-  getFormatsAtCharPosition,
-  getVisibleLength,
-  getVisibleTextFromRuns,
-  insertCharsAtPosition,
-} from "../sync/crdt-helpers";
 import type {
   BlockInsert,
   BlockSet,
@@ -55,6 +47,14 @@ import {
   findNextVisibleBlockIndex,
   findPreviousVisibleBlockIndex,
 } from "../sync/reducer";
+import {
+  allCharsHaveFormat,
+  deleteCharsInRange,
+  formatCharsInRange,
+  getFormatsAtCharPosition,
+  getVisibleLength,
+  insertCharsAtPosition,
+} from "@/sync/crdt-utils";
 
 /**
  * URL regex pattern for auto-detection.

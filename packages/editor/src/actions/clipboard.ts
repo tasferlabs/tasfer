@@ -22,14 +22,9 @@ import { getBlockTextContent, getBlockTextLength } from "../state-utils";
 import {
   charRunsToChars,
   charsToRuns,
+  getVisibleTextFromRuns,
   iterateVisibleChars,
 } from "../sync/char-runs";
-import {
-  deleteCharsInRange,
-  formatCharsInRange,
-  getVisibleTextFromRuns,
-  insertCharsAtPosition,
-} from "../sync/crdt-helpers";
 import type {
   BlockInsert,
   BlockSet,
@@ -40,6 +35,11 @@ import type {
 import {} from "../sync/crdt-undo";
 import { generateBlockId } from "../sync/id";
 import { applyOps } from "../sync/reducer";
+import {
+  deleteCharsInRange,
+  formatCharsInRange,
+  insertCharsAtPosition,
+} from "@/sync/crdt-utils";
 
 function globalGenerateBlockId(binding: CRDTbinding): string {
   return generateBlockId(binding.nextId);

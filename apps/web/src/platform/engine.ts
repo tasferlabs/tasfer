@@ -30,6 +30,7 @@ import type { Driver, CryptoDriver } from "./driver";
 import type { HLC } from "@cypherkit/editor/sync/crdt-types";
 import type { ReplicatorHost } from "./sync";
 import { nanoid } from "nanoid";
+import { resolveBlockOrder } from "@cypherkit/editor/sync/crdt-utils";
 
 /** Minimal interface the engine uses to push ops — avoids circular imports */
 interface EngineReplicator {
@@ -1280,7 +1281,6 @@ export class Engine implements Platform {
       // yet (HLC order ≠ causal order).
       const { applyOp, createEmptyPageState } =
         await import("@cypherkit/editor/sync/reducer");
-      const { resolveBlockOrder } = await import("@cypherkit/editor/sync/conflicts");
 
       let state = createEmptyPageState(pageId);
       const insertedCharIds = new Set<string>();

@@ -1,6 +1,7 @@
 import { updateCursor } from "../selection";
-import { type Block, isTextualBlock, type Page } from "../serlization/loadPage";
+import { type Block, type CharRun, type FormatSpan, isTextualBlock, type Page, type TextFormat } from "../serlization/loadPage";
 import type {
+  CRDTbinding,
   CRDTCursorState,
   CRDTPosition,
   CRDTSelectionState,
@@ -8,8 +9,10 @@ import type {
   Position,
 } from "../state-types";
 import { updateSelection } from "../updateSelection";
-import { findCharInRuns, iterateVisibleChars } from "./char-runs";
-import { compareBlocks } from "./id";
+import { findCharInRuns, getCharIdAtVisiblePosition, getCharIdsInRangeFromRuns, getVisibleLengthFromRuns, isCharIdInRange, iterateVisibleChars } from "./char-runs";
+import type { TextInsert, TextDelete, FormatSet } from "./crdt-types";
+import { compareBlocks, extractCounter, extractPeerId } from "./id";
+import { applyOp } from "./reducer";
 
 /**
  * Convert a Position (index-based) to a CRDTPosition (ID-based).
@@ -309,4 +312,178 @@ export function resolveBlockOrder(blocks: Block[]): Block[] {
   }
 
   return ordered;
+}export interface InsertCharsResult {
+  newPage: Page;
+  op: TextInsert;
 }
+
+export interface DeleteCharsResult {
+  newPage: Page;
+  op: TextDelete;
+}
+
+export interface FormatCharsResult {
+  newPage: Page;
+  op: FormatSet;
+}
+/**
+ * Insert text at a position in a block's visible content.
+ */
+
+export function insertCharsAtPosition(
+  page: Page,
+  blockId: string,
+  position: number,
+  text: string,
+  binding: CRDTbinding
+): InsertCharsResult {
+  if (text.length === 0) {
+    throw new Error("Cannot insert empty text");
+  }
+
+  const block = page.blocks.find((b) => b.id === blockId);
+  const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
+  const afterCharId = getCharIdAtVisiblePosition(charRuns, position);
+
+  // Pre-allocate consecutive IDs for the inserted chars so they form a
+  // single CharRun. The op id is allocated after the char IDs so its
+  // counter never collides with the chars it references.
+  const firstId = binding.nextId();
+  const peerId = extractPeerId(firstId);
+  const startCounter = extractCounter(firstId);
+  for (let i = 1; i < text.length; i++) {
+    binding.nextId();
+  }
+
+  const newCharRun: CharRun = {
+    peerId,
+    startCounter,
+    text,
+  };
+
+  const op: TextInsert = {
+    op: "text_insert",
+    id: binding.nextId(),
+    clock: binding.getClock(),
+    pageId: binding.pageId,
+    blockId,
+    afterCharId,
+    charRuns: [newCharRun],
+  };
+
+  return { newPage: applyOp(page, op), op };
+}
+/**
+ * Delete a range of visible characters from a block.
+ */
+
+export function deleteCharsInRange(
+  page: Page,
+  blockId: string,
+  startIndex: number,
+  endIndex: number,
+  binding: CRDTbinding
+): DeleteCharsResult {
+  const block = page.blocks.find((b) => b.id === blockId);
+  const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
+  const charIds = getCharIdsInRangeFromRuns(charRuns, startIndex, endIndex);
+
+  const op: TextDelete = {
+    op: "text_delete",
+    id: binding.nextId(),
+    clock: binding.getClock(),
+    pageId: binding.pageId,
+    blockId,
+    charIds,
+  };
+
+  return { newPage: applyOp(page, op), op };
+}
+/**
+ * Apply (or remove, when `value === false`) a format to a visible range.
+ */
+
+export function formatCharsInRange(
+  page: Page,
+  blockId: string,
+  startIndex: number,
+  endIndex: number,
+  format: TextFormat,
+  value: boolean | string,
+  binding: CRDTbinding
+): FormatCharsResult {
+  const block = page.blocks.find((b) => b.id === blockId);
+  const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
+  const charIds = getCharIdsInRangeFromRuns(charRuns, startIndex, endIndex);
+
+  const op: FormatSet = {
+    op: "format_set",
+    id: binding.nextId(),
+    clock: binding.getClock(),
+    pageId: binding.pageId,
+    blockId,
+    charIds,
+    format,
+    value,
+  };
+
+  return { newPage: applyOp(page, op), op };
+}
+
+export function getVisibleLength(charRuns: CharRun[]): number {
+  return getVisibleLengthFromRuns(charRuns);
+}
+function isCharIdInSpan(
+  charId: string,
+  span: FormatSpan,
+  charRuns: CharRun[] | undefined
+): boolean {
+  if (!charRuns) return false;
+  return isCharIdInRange(charRuns, charId, span.startCharId, span.endCharId);
+}
+/**
+ * Check if all characters in a range have a specific format
+ */
+
+export function allCharsHaveFormat(
+  charRuns: CharRun[] | undefined,
+  formats: FormatSpan[],
+  startIndex: number,
+  endIndex: number,
+  formatType: TextFormat["type"]
+): boolean {
+  if (!charRuns) return false;
+
+  const charIds = getCharIdsInRangeFromRuns(charRuns, startIndex, endIndex);
+  if (charIds.length === 0) return false;
+
+  return charIds.every((charId) => formats.some(
+    (span) => span.format.type === formatType &&
+      isCharIdInSpan(charId, span, charRuns)
+  )
+  );
+}
+/**
+ * Get formats at a specific position (for cursor)
+ */
+
+export function getFormatsAtCharPosition(
+  charRuns: CharRun[],
+  formats: FormatSpan[],
+  position: number
+): TextFormat[] {
+  if (position === 0) return [];
+
+  const charId = getCharIdAtVisiblePosition(charRuns, position);
+  if (!charId) return [];
+
+  const activeFormats: TextFormat[] = [];
+  for (const span of formats) {
+    if (isCharIdInSpan(charId, span, charRuns)) {
+      activeFormats.push(span.format);
+    }
+  }
+
+  return activeFormats;
+}
+
