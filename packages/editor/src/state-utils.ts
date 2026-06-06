@@ -59,6 +59,7 @@ export function createInitialState(
       autoCreatedParagraph: null,
       inlineMathHover: null,
       hoveredMathBlockIndex: null,
+      search: { highlights: [], activeIndex: -1 },
     },
     view: {
       isFocused: false,

@@ -151,6 +151,25 @@ export interface CursorDragState {
   readonly lastPosition: Position | null; // Last cursor position (for haptic on change)
 }
 
+/**
+ * A single find-in-document match range. Set by the host's FindBar via
+ * `editor.setSearchHighlights`, consumed at paint time by the text block view
+ * and the scrollbar markers. Lives on per-instance UI state (not a module
+ * global) so multiple editors on one page don't clobber each other's find
+ * results, and is deliberately NOT part of DocumentState (never enters
+ * undo/redo).
+ */
+export interface SearchHighlight {
+  readonly blockIndex: number;
+  readonly startIndex: number;
+  readonly endIndex: number;
+}
+
+export interface SearchState {
+  readonly highlights: readonly SearchHighlight[];
+  readonly activeIndex: number; // -1 when no match is active
+}
+
 // Image Hover State - Not a menu, just visual feedback
 export interface ImageHoverState {
   readonly blockIndex: number;
@@ -182,6 +201,7 @@ export interface UIState {
   readonly selectionHandleDrag: SelectionHandleDragState | null; // Active selection handle drag (mobile)
   readonly cursorDrag: CursorDragState | null; // Active cursor drag for repositioning (mobile)
   readonly autoCreatedParagraph: { blockIndex: number; blockId: string } | null; // Track auto-created paragraphs from arrow up/down on images
+  readonly search: SearchState; // Find-in-document highlights (set by host FindBar, painted by text view + scrollbar)
 }
 
 // View State - Ephemeral view properties

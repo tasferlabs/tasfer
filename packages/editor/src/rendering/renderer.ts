@@ -1,35 +1,23 @@
-import { resolveAssetUrl } from "../adapters";
 import {
-  batchChars,
   type FontFamily,
   getCurrentFontFamily,
   getFontMetrics,
   getFontStack,
   measureTextUpToIndex,
-  type TextBatch,
   wrapText,
 } from "../fonts";
-import {
-  getInlineMathDims,
-  getInlineMathImage,
-  setInlineMathRedrawCallback,
-} from "../math";
 import { getTextDirection } from "../rtl";
 import { isCursorBlinking } from "../selection";
 import type { Block, Char, CharRun, FormatSpan } from "../serlization/loadPage";
 import { isListBlock, isTextualBlock } from "../serlization/loadPage";
 import type {
-  BlockBounds,
   EditorState,
   EditorStyles,
-  FontMetrics,
   RenderedBlock,
-  RenderedLine,
-  SelectionState,
   TextStyle,
   ViewportState,
 } from "../state-types";
-import { getBlockTextContent, isTouchDevice } from "../state-utils";
+import { isTouchDevice } from "../state-utils";
 import { getEditorStyles, getTextStyle } from "../styles";
 import type { AwarenessState } from "../sync/awareness";
 import {
@@ -41,11 +29,17 @@ import {
   getVisibleTextFromChars,
   getVisibleTextFromRuns,
   isCharDeleted,
-  iterateVisibleChars,
 } from "../sync/char-runs";
 import type { Operation } from "../sync/sync";
+import {
+  getBlockView,
+  getContentWithComposition,
+  registerBuiltinBlockViews,
+} from "./blocks";
 import { renderScrollbar } from "./scrollbar";
-import i18next from "i18next";
+
+// Register built-in block views at module load so dispatch can find them.
+registerBuiltinBlockViews();
 
 /**
  * Convert charRuns to Char[] for compatibility with measurement functions
@@ -65,86 +59,6 @@ function charRunsToChars(charRuns: CharRun[] | undefined): Char[] {
   return chars;
 }
 
-// Helper to inject composition text into block for rendering
-function getContentWithComposition(
-  block: Block,
-  state: EditorState,
-  blockIndex: number,
-): {
-  chars: Char[];
-  formats: FormatSpan[];
-  compositionRange: { start: number; end: number } | null;
-} {
-  if (!isTextualBlock(block)) {
-    return { chars: [], formats: [], compositionRange: null };
-  }
-
-  // Check if composition is active and cursor is in this block
-  if (
-    !state.ui.composition ||
-    !state.ui.composition.isComposing ||
-    !state.document.cursor ||
-    state.document.cursor.position.blockIndex !== blockIndex
-  ) {
-    return {
-      chars: charRunsToChars(block.charRuns),
-      formats: block.formats,
-      compositionRange: null,
-    };
-  }
-
-  const compositionText = state.ui.composition.text;
-  if (!compositionText) {
-    return {
-      chars: charRunsToChars(block.charRuns),
-      formats: block.formats,
-      compositionRange: null,
-    };
-  }
-
-  const cursorTextIndex = state.document.cursor.position.textIndex;
-
-  // Create temporary composition chars (without IDs since they're not persisted)
-  const compositionChars: Char[] = Array.from(compositionText).map(
-    (char, i) => ({
-      id: `composition-${i}`,
-      char,
-      deleted: false,
-    }),
-  );
-
-  // Insert composition chars at cursor position (visible index)
-  const modifiedChars: Char[] = [];
-  let visibleIndex = 0;
-  let insertionDone = false;
-
-  // Convert charRuns to chars and insert composition
-  for (const { id, char } of iterateVisibleChars(block.charRuns)) {
-    if (visibleIndex === cursorTextIndex && !insertionDone) {
-      // Insert composition chars here
-      modifiedChars.push(...compositionChars);
-      insertionDone = true;
-    }
-
-    modifiedChars.push({ id, char, deleted: false });
-    visibleIndex++;
-  }
-
-  // If cursor is at the end, append composition
-  if (!insertionDone) {
-    modifiedChars.push(...compositionChars);
-  }
-
-  return {
-    chars: modifiedChars,
-    formats: block.formats, // Keep formats as-is
-    compositionRange: {
-      start: cursorTextIndex,
-      end: cursorTextIndex + compositionText.length,
-    },
-  };
-}
-
 // Helper to get or calculate block height, storing it on the block
 export function getBlockHeight(
   block: Block,
@@ -162,15 +76,18 @@ export function getBlockHeight(
     block.cachedWidth = maxWidth;
   }
 
-  // Special handling for first block image covers that bleed into top padding
-  // They use up the padding space, so we subtract it from the effective height
-  // Only apply this for full-width images that actually bleed
-  if (first && block.type === "image") {
-    const imageWidth = block.width ?? "full";
-    const shouldBleed = imageWidth === "full";
-    if (shouldBleed) {
-      return height - styles.canvas.paddingTop;
-    }
+  // Some blocks (e.g. a first full-width image) bleed into the top padding and
+  // therefore advance the flow by less than their drawn height. The per-type
+  // rule lives on the block view rather than in a type switch here.
+  const view = getBlockView(block.type);
+  if (view?.adjustFlowHeight) {
+    return view.adjustFlowHeight(height, {
+      block,
+      blockIndex: 0,
+      maxWidth,
+      isFirst: first,
+      styles,
+    });
   }
 
   return height;
@@ -247,282 +164,6 @@ function measureLineWidth(
   );
 }
 
-// Helper to render underline decoration for composition text
-function renderCompositionUnderline(
-  ctx: CanvasRenderingContext2D,
-  chars: Char[],
-  formats: FormatSpan[],
-  lineStartIndex: number,
-  lineEndIndex: number,
-  compositionStart: number,
-  compositionEnd: number,
-  x: number,
-  y: number,
-  textStyle: TextStyle,
-  fontFamily: FontFamily,
-  fontMetrics: FontMetrics,
-  codePadding: number,
-  isRTL: boolean,
-  _maxWidth: number,
-) {
-  // Calculate the overlap between this line and the composition range
-  const underlineStart = Math.max(lineStartIndex, compositionStart);
-  const underlineEnd = Math.min(lineEndIndex, compositionEnd);
-
-  if (underlineStart >= underlineEnd) return;
-
-  // Measure width from line start to underline start
-  const offsetToStart = measureLineWidth(
-    chars,
-    formats,
-    lineStartIndex,
-    underlineStart,
-    textStyle,
-    fontFamily,
-    codePadding,
-  );
-
-  // Measure width of the underlined portion
-  const underlineWidth = measureLineWidth(
-    chars,
-    formats,
-    underlineStart,
-    underlineEnd,
-    textStyle,
-    fontFamily,
-    codePadding,
-  );
-
-  // Calculate underline position
-  const underlineY = y + fontMetrics.ascent + 2;
-  const underlineThickness = 1.5;
-
-  ctx.save();
-  ctx.strokeStyle = textStyle.color;
-  ctx.lineWidth = underlineThickness;
-  ctx.beginPath();
-
-  if (isRTL) {
-    // For RTL, x is already adjusted to right edge (x + maxWidth), so just subtract offset
-    const startX = x - offsetToStart;
-    ctx.moveTo(startX, underlineY);
-    ctx.lineTo(startX - underlineWidth, underlineY);
-  } else {
-    // For LTR, measure from the left edge
-    const startX = x + offsetToStart;
-    ctx.moveTo(startX, underlineY);
-    ctx.lineTo(startX + underlineWidth, underlineY);
-  }
-
-  ctx.stroke();
-  ctx.restore();
-}
-
-// Note: getFormatKey is now imported from fonts.ts
-
-// Helper function to render a line with CRDT formatting
-// Batches consecutive characters with same formatting to preserve Arabic ligatures
-function renderLine(
-  ctx: CanvasRenderingContext2D,
-  chars: Char[],
-  formats: FormatSpan[],
-  lineStartIndex: number,
-  lineEndIndex: number,
-  x: number,
-  y: number,
-  textStyle: TextStyle,
-  fontFamily: FontFamily,
-  styles: EditorStyles,
-  isRTL: boolean,
-  hoveredInlineMath: { startIndex: number; endIndex: number } | null = null,
-) {
-  // Set canvas direction
-  ctx.direction = isRTL ? "rtl" : "ltr";
-
-  // Batch characters by formatting to preserve Arabic ligatures
-  const batches: TextBatch[] = batchChars(
-    chars,
-    formats,
-    lineStartIndex,
-    lineEndIndex,
-  );
-
-  // Render each batch
-  let currentX = x;
-  // Track the visible-index of the start of the current batch within the
-  // block. Used to detect whether the hovered inline-math span overlaps it.
-  let batchVisibleStart = lineStartIndex;
-
-  for (const batch of batches) {
-    const effectiveFontWeight = batch.isBold ? "bold" : textStyle.fontWeight;
-    const fontStyle = batch.isItalic ? "italic" : "normal";
-
-    ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily)}`;
-    ctx.textBaseline = "alphabetic";
-
-    const batchVisibleEnd = batchVisibleStart + batch.text.length;
-    const isBatchHovered =
-      batch.isMath &&
-      hoveredInlineMath !== null &&
-      batchVisibleStart >= hoveredInlineMath.startIndex &&
-      batchVisibleEnd <= hoveredInlineMath.endIndex;
-
-    // Inline math: draw the rendered MathJax SVG at its natural width.
-    if (batch.isMath) {
-      const dpr = window.devicePixelRatio || 1;
-      const dims = getInlineMathDims(batch.text, textStyle.fontSize);
-      const mathStyle = styles.textFormats.inlineMath;
-
-      if (dims) {
-        const mathWidth = dims.width;
-        const visualX = currentX;
-        const drawX = isRTL ? visualX - mathWidth : visualX;
-
-        // Background chip behind the math, sized to SVG dimensions.
-        // Only drawn on hover — otherwise the math sits flush in the text.
-        if (isBatchHovered) {
-          const padding = mathStyle.padding;
-          ctx.save();
-          ctx.fillStyle = mathStyle.hoverBackgroundColor;
-          const rectX = drawX - padding;
-          const rectY = y - dims.height + dims.depthBelowBaseline - padding;
-          const rectWidth = mathWidth + padding * 2;
-          const rectHeight = dims.height + padding * 2;
-          ctx.beginPath();
-          ctx.roundRect(
-            rectX,
-            rectY,
-            rectWidth,
-            rectHeight,
-            mathStyle.borderRadius,
-          );
-          ctx.fill();
-          ctx.restore();
-        }
-
-        const image = getInlineMathImage(batch.text, textStyle.fontSize, dpr);
-        if (image) {
-          const imgY = y - dims.height + dims.depthBelowBaseline;
-          ctx.drawImage(image.bitmap, drawX, imgY, mathWidth, dims.height);
-        }
-        // While image is decoding the chip alone is shown; once decode lands
-        // the redraw callback re-renders and the SVG appears.
-
-        if (isRTL) {
-          currentX -= mathWidth;
-        } else {
-          currentX += mathWidth;
-        }
-        batchVisibleStart = batchVisibleEnd;
-        continue;
-      }
-      // Dimension lookup failed (invalid LaTeX) — fall through to render as
-      // a regular code-style chip with the source text visible.
-    }
-
-    // Measure the entire batch text width
-    const textWidth = ctx.measureText(batch.text).width;
-    const visualX = currentX;
-
-    // Handle code / inline math background (math reuses the code-style chip).
-    if (batch.isCode || batch.isMath) {
-      const chipStyle = batch.isMath
-        ? styles.textFormats.inlineMath
-        : styles.textFormats.code;
-      const padding = chipStyle.padding;
-
-      // Math: only show the background chip on hover. Code: always.
-      const drawChip = batch.isCode || isBatchHovered;
-      if (drawChip) {
-        ctx.save();
-        ctx.fillStyle =
-          batch.isMath && isBatchHovered
-            ? styles.textFormats.inlineMath.hoverBackgroundColor
-            : chipStyle.backgroundColor;
-
-        let rectX: number;
-        if (isRTL) {
-          rectX = visualX - textWidth - padding;
-        } else {
-          rectX = visualX - padding;
-        }
-
-        const rectY = y - textStyle.fontSize - padding;
-        const rectWidth = textWidth + padding * 2;
-        const rectHeight = textStyle.fontSize * textStyle.lineHeight;
-
-        ctx.beginPath();
-        ctx.roundRect(
-          rectX,
-          rectY,
-          rectWidth,
-          rectHeight,
-          chipStyle.borderRadius,
-        );
-        ctx.fill();
-        ctx.restore();
-      }
-
-      ctx.fillStyle = chipStyle.color;
-    } else if (batch.isLink) {
-      ctx.fillStyle = styles.textFormats.link.color;
-    } else {
-      ctx.fillStyle = textStyle.color;
-    }
-
-    // Render the entire batch text at once (preserves Arabic ligatures)
-    ctx.fillText(batch.text, visualX, y);
-
-    // Handle underline for links
-    if (batch.isLink) {
-      const linkStyle = styles.textFormats.link;
-      ctx.save();
-      ctx.strokeStyle = linkStyle.color;
-      ctx.lineWidth = linkStyle.underlineThickness;
-      ctx.beginPath();
-
-      if (isRTL) {
-        ctx.moveTo(visualX - textWidth, y + textStyle.fontSize * 0.1);
-        ctx.lineTo(visualX, y + textStyle.fontSize * 0.1);
-      } else {
-        ctx.moveTo(visualX, y + textStyle.fontSize * 0.1);
-        ctx.lineTo(visualX + textWidth, y + textStyle.fontSize * 0.1);
-      }
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Handle strikethrough
-    if (batch.isStrikethrough) {
-      ctx.save();
-      ctx.strokeStyle = ctx.fillStyle;
-      ctx.lineWidth = Math.max(1, textStyle.fontSize / 16);
-      ctx.beginPath();
-
-      if (isRTL) {
-        ctx.moveTo(visualX - textWidth, y - textStyle.fontSize * 0.3);
-        ctx.lineTo(visualX, y - textStyle.fontSize * 0.3);
-      } else {
-        ctx.moveTo(visualX, y - textStyle.fontSize * 0.3);
-        ctx.lineTo(visualX + textWidth, y - textStyle.fontSize * 0.3);
-      }
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Advance position
-    if (isRTL) {
-      currentX -= textWidth;
-    } else {
-      currentX += textWidth;
-    }
-    batchVisibleStart = batchVisibleEnd;
-  }
-
-  // Reset direction
-  ctx.direction = "ltr";
-}
-
 export function renderPage(
   ctx: CanvasRenderingContext2D,
   state: EditorState,
@@ -530,6 +171,7 @@ export function renderPage(
   visibility: { start: number; end: number },
   styles: EditorStyles = getEditorStyles(),
   remoteAwareness: Map<string, AwarenessState>,
+  requestRedraw: () => void,
 ) {
   // Save context state
   ctx.save();
@@ -581,6 +223,7 @@ export function renderPage(
         maxWidth,
         styles,
         remoteAwareness,
+        requestRedraw,
       );
       renderedBlocks.push(renderedBlock);
     } else if (foundVisibleBlock) {
@@ -616,35 +259,29 @@ export function renderBlock(
   maxWidth: number,
   styles: EditorStyles = getEditorStyles(),
   remoteAwareness?: Map<string, AwarenessState>,
+  requestRedraw: () => void = () => {},
 ): RenderedBlock {
-  // Handle image cover blocks
-  if (block.type === "image") {
-    return renderImageBlock(
-      ctx,
-      state,
-      block,
-      blockIndex,
-      x,
-      y,
-      maxWidth,
-      styles,
-      remoteAwareness,
-    );
-  }
-
-  // Handle line/divider blocks
-  if (block.type === "line") {
-    return renderLineBlock(
-      ctx,
-      state,
-      block,
-      blockIndex,
-      x,
-      y,
-      maxWidth,
-      styles,
-      remoteAwareness,
-    );
+  // Blocks ported to the BlockView registry (image, line, …) dispatch here.
+  {
+    const view = getBlockView(block.type);
+    if (view) {
+      const layoutCtx = {
+        block,
+        blockIndex,
+        maxWidth,
+        isFirst: blockIndex === 0,
+        styles,
+      };
+      const layout = view.layout(layoutCtx);
+      return view.paint(layout, {
+        ...layoutCtx,
+        ctx,
+        state,
+        origin: { x, y },
+        awareness: remoteAwareness,
+        requestRedraw,
+      });
+    }
   }
 
   // Handle math blocks
@@ -659,979 +296,19 @@ export function renderBlock(
       maxWidth,
       styles,
       remoteAwareness,
+      requestRedraw,
     );
   }
 
-  const textStyle = getTextStyle(styles, block.type);
-  const fontFamily = getCurrentFontFamily();
-  const codePadding = styles.textFormats.code.padding;
-
-  // Calculate indent and marker space for list blocks
-  let indentOffset = 0;
-  let markerWidth = 0;
-  let adjustedX = x;
-  let adjustedMaxWidth = maxWidth;
-  let markerX = x; // X position where marker should be rendered
-
-  // Get content early to detect RTL for proper layout
-  const {
-    chars: renderChars,
-    formats: renderFormats,
-    compositionRange,
-  } = getContentWithComposition(block, state, blockIndex);
-
-  // Detect text direction
-  const visibleText = getVisibleTextFromRuns(block.charRuns);
-  const direction = getTextDirection(visibleText);
-  const isRTL = direction === "rtl";
-
-  if (isListBlock(block)) {
-    const indent = block.indent || 0;
-    indentOffset = indent * styles.list.indent.size;
-
-    // Use consistent marker width for all list types to ensure text alignment
-    // All list types reserve the same space (minWidth + textGap)
-    markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
-
-    adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-
-    if (isRTL) {
-      // RTL: [TEXT_AREA][MARKER][INDENT]
-      // Text area starts at left, marker after text, indent space on the right
-      adjustedX = x;
-      markerX = x + adjustedMaxWidth;
-    } else {
-      // LTR: [MARKER][TEXT_AREA]
-      // Marker on left, text area on the right
-      markerX = x + indentOffset;
-      adjustedX = x + indentOffset + markerWidth;
-    }
-  }
-
-  // Calculate line wrapping using CRDT data
-  // Use adjusted max width for list blocks to account for indent and marker
-  // Convert charRuns to chars for measurement functions
-  const charsForWrapping = renderChars || charRunsToChars(block.charRuns);
-  const lines = wrapText(
-    charsForWrapping,
-    renderFormats || block.formats,
-    adjustedMaxWidth,
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
-    codePadding,
-    compositionRange,
-  );
-
-  const fontMetrics = getFontMetrics(
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
-  );
-  const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
-
-  const renderedLines: RenderedLine[] = [];
-  let textIndex = 0;
-  let currentY = y;
-
-  // Get full content for backward compatibility
-  const fullContent = getBlockTextContent(block);
-
-  // Render each line
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const wrappedLine = lines[lineIndex];
-    const line = wrappedLine.text;
-    const lineStartIndex = textIndex;
-    const lineEndIndex = textIndex + line.length;
-
-    // Adjust x position for RTL text rendering
-    const renderX = isRTL ? adjustedX + adjustedMaxWidth : adjustedX;
-
-    // Render list marker only on the first line
-    if (lineIndex === 0 && isListBlock(block)) {
-      renderListMarker(
-        ctx,
-        block,
-        markerX,
-        currentY,
-        fontMetrics,
-        textStyle,
-        styles,
-        state,
-        blockIndex,
-        markerWidth,
-      );
-    }
-
-    // Render the line with formatting (using CRDT data with composition).
-    // The active inline-math edit popover also styles its chip as hovered.
-    const activeInlineMathEdit =
-      state.ui.activeMenu.type === "inlineMathEdit" &&
-      state.ui.activeMenu.blockIndex === blockIndex
-        ? {
-            startIndex: state.ui.activeMenu.startIndex,
-            endIndex: state.ui.activeMenu.endIndex,
-          }
-        : null;
-    const hoveredInlineMath =
-      activeInlineMathEdit ??
-      (state.ui.inlineMathHover &&
-      state.ui.inlineMathHover.blockIndex === blockIndex
-        ? {
-            startIndex: state.ui.inlineMathHover.startIndex,
-            endIndex: state.ui.inlineMathHover.endIndex,
-          }
-        : null);
-    renderLine(
-      ctx,
-      renderChars,
-      renderFormats,
-      lineStartIndex,
-      lineEndIndex,
-      renderX,
-      currentY + fontMetrics.ascent,
-      textStyle,
-      fontFamily,
-      styles,
-      isRTL,
-      hoveredInlineMath,
-    );
-
-    // Render composition underline if this line contains composition text
-    if (compositionRange) {
-      const lineContainsComposition =
-        lineStartIndex < compositionRange.end &&
-        lineEndIndex > compositionRange.start;
-
-      if (lineContainsComposition) {
-        renderCompositionUnderline(
-          ctx,
-          renderChars,
-          renderFormats,
-          lineStartIndex,
-          lineEndIndex,
-          compositionRange.start,
-          compositionRange.end,
-          renderX,
-          currentY,
-          textStyle,
-          fontFamily,
-          fontMetrics,
-          codePadding,
-          isRTL,
-          maxWidth,
-        );
-      }
-    }
-
-    // Use font metrics for consistent positioning
-    const textHeight = fontMetrics.ascent + fontMetrics.descent;
-
-    // Measure the line width (need to account for formatting)
-    const lineWidth = measureLineWidth(
-      renderChars,
-      renderFormats,
-      lineStartIndex,
-      lineEndIndex,
-      textStyle,
-      fontFamily,
-      codePadding,
-    );
-
-    // Store rendered line
-    const renderedLine: RenderedLine = {
-      text: line,
-      x: adjustedX,
-      y: currentY,
-      width: lineWidth,
-      height: textHeight,
-      startIndex: lineStartIndex,
-      endIndex: lineEndIndex,
-    };
-    renderedLines.push(renderedLine);
-
-    textIndex += line.length;
-    // Account for the space character consumed during text wrapping
-    if (wrappedLine.consumedSpace) {
-      textIndex += 1;
-    }
-    currentY += lineHeight;
-  }
-
-  // Render search highlights (behind selections)
-  if (searchHighlights.length > 0) {
-    const blockHighlights = searchHighlights.filter(
-      (h) => h.blockIndex === blockIndex,
-    );
-    for (let hi = 0; hi < blockHighlights.length; hi++) {
-      const h = blockHighlights[hi];
-      const isActive = searchHighlights.indexOf(h) === activeSearchIndex;
-      const fakeSelection = {
-        anchor: { blockIndex, textIndex: h.startIndex },
-        focus: { blockIndex, textIndex: h.endIndex },
-        isForward: true,
-      };
-      renderSelectionCore(
-        blockIndex,
-        ctx,
-        styles,
-        renderedLines,
-        adjustedX,
-        y,
-        fullContent,
-        textStyle,
-        fontFamily,
-        block,
-        adjustedMaxWidth,
-        fakeSelection,
-        isActive ? "#f97316" : "#facc15",
-        isActive ? 0.5 : 0.35,
-      );
-    }
-  }
-
-  // Render remote selections first (so they appear behind local selection)
-  if (remoteAwareness && remoteAwareness.size > 0) {
-    renderRemoteSelections(
-      state,
-      blockIndex,
-      ctx,
-      styles,
-      renderedLines,
-      adjustedX,
-      y,
-      fullContent,
-      textStyle,
-      fontFamily,
-      block,
-      adjustedMaxWidth,
-      remoteAwareness,
-    );
-  }
-
-  // Handle local selection rendering
-  if (state.document.selection && !state.document.selection.isCollapsed) {
-    renderSelection(
-      state,
-      blockIndex,
-      ctx,
-      styles,
-      renderedLines,
-      adjustedX,
-      y,
-      fullContent,
-      textStyle,
-      fontFamily,
-      block,
-      adjustedMaxWidth,
-    );
-  }
-
-  // Don't show placeholder or cursor when there's an active selection
-  const hasActiveSelection =
-    state.document.selection && !state.document.selection.isCollapsed;
-
-  // Handle placeholder rendering (not in readonly mode)
-  if (
-    state.document.cursor &&
-    state.document.cursor.position.blockIndex === blockIndex &&
-    fullContent.length === 0 &&
-    !state.ui.composition &&
-    !hasActiveSelection &&
-    state.ui.mode === "edit"
-  ) {
-    renderPlaceholder(
-      ctx,
-      adjustedX,
-      y + fontMetrics.ascent,
-      styles,
-      textStyle,
-      block.type,
-      state,
-      isRTL,
-      adjustedMaxWidth,
-    );
-  }
-
-  // NOTE: Cursor rendering is now handled by the separate cursor layer
-  // This prevents double-rendering of the cursor during composition (IME input)
-
-  // Create block bounds
-  const blockBounds: BlockBounds = {
-    x: adjustedX,
-    y,
-    width: adjustedMaxWidth,
-    height: lines.length * lineHeight,
-  };
-
-  return {
-    block,
-    bounds: blockBounds,
-    lines: renderedLines,
-  };
+  // No registered view and not a math block: nothing to draw (all block
+  // types are currently registered or handled above — this is a safety net).
+  return { block, bounds: { x, y, width: maxWidth, height: 0 }, lines: [] };
 } // Calculate position from mouse coordinates dynamically
 
-// Helper function to calculate the item number for a numbered list
-function calculateListItemNumber(
-  state: EditorState,
-  blockIndex: number,
-): number {
-  const currentBlock = state.document.page.blocks[blockIndex];
-  if (!currentBlock || currentBlock.deleted) return 0;
-  if (!isListBlock(currentBlock) || currentBlock.type !== "numbered_list") {
-    return 1;
-  }
-
-  const currentIndent = currentBlock.indent;
-  let number = 1;
-
-  // Count backwards to find previous numbered list items at the same indent level
-  // Only consider visible blocks
-  const visibleBlocks = state.view.visibleBlocks;
-  const allBlocks = state.document.page.blocks;
-
-  // Find visible blocks before the current block
-  for (let i = visibleBlocks.length - 1; i >= 0; i--) {
-    const visibleBlock = visibleBlocks[i];
-    const visibleBlockIndex = allBlocks.findIndex(
-      (b) => b.id === visibleBlock.id,
-    );
-
-    // Only consider blocks before the current block
-    if (visibleBlockIndex >= blockIndex) continue;
-
-    const prevBlock = visibleBlock;
-
-    // Stop if we hit a non-list block or different list type
-    if (!isListBlock(prevBlock) || prevBlock.type !== "numbered_list") {
-      break;
-    }
-
-    // Skip nested items (higher indent = children of current level)
-    if ((prevBlock.indent ?? 0) > (currentIndent ?? 0)) {
-      continue;
-    }
-
-    // Stop if we hit a lower indent level (left the current list scope)
-    if ((prevBlock.indent ?? 0) < (currentIndent ?? 0)) {
-      break;
-    }
-
-    // Increment number for each item at same indent
-    number++;
-  }
-
-  return number;
-}
-
-// Render list marker (bullet, number, or checkbox)
-function renderListMarker(
-  ctx: CanvasRenderingContext2D,
-  block: Block,
-  x: number,
-  y: number,
-  fontMetrics: FontMetrics,
-  textStyle: TextStyle,
-  styles: EditorStyles,
-  state: EditorState,
-  blockIndex: number,
-  _markerWidth: number,
-) {
-  if (!isListBlock(block)) return;
-
-  const fontFamily = getCurrentFontFamily();
-
-  if (block.type === "bullet_list") {
-    // Render bullet character
-    ctx.save();
-    ctx.fillStyle = styles.list.bullet.color;
-    ctx.font = `${textStyle.fontWeight} ${styles.list.bullet.size}px ${getFontStack(fontFamily)}`;
-    ctx.textBaseline = "alphabetic";
-
-    // Position bullet - x is already the correct position (left for LTR, right for RTL)
-    const bulletX = x + 6;
-
-    ctx.fillText(styles.list.bullet.character, bulletX, y + fontMetrics.ascent);
-    ctx.restore();
-  } else if (block.type === "numbered_list") {
-    // Calculate and render number
-    const number = calculateListItemNumber(state, blockIndex);
-    const numberText = `${number}.`;
-
-    ctx.save();
-    ctx.fillStyle = styles.list.numbered.color;
-    ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily)}`;
-    ctx.textBaseline = "alphabetic";
-    ctx.textAlign = "right";
-
-    // Position number - x is already the correct position, right-align within marker space
-    ctx.fillText(numberText, x + 18, y + fontMetrics.ascent);
-
-    ctx.textAlign = "left"; // Reset
-    ctx.restore();
-  } else if (block.type === "todo_list") {
-    // Render checkbox
-    const checkboxSize = styles.list.todo.checkboxSize;
-    const checkboxY = y + fontMetrics.ascent - checkboxSize + 2; // Align with text baseline
-
-    // Position checkbox - x is already the correct position
-    const checkboxX = x + 2;
-
-    ctx.save();
-
-    // Draw checkbox background and border
-    ctx.strokeStyle = styles.list.todo.checkboxBorderColor;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(
-      checkboxX,
-      checkboxY,
-      checkboxSize,
-      checkboxSize,
-      styles.list.todo.checkboxBorderRadius,
-    );
-    ctx.stroke();
-
-    // Fill checkbox if checked
-    if (block.checked) {
-      ctx.fillStyle = styles.list.todo.checkboxCheckedColor;
-      ctx.fill();
-
-      // Draw checkmark
-      ctx.strokeStyle = styles.list.todo.checkmarkColor;
-      ctx.lineWidth = 2;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-
-      const checkmarkPadding = 3;
-      const checkX = checkboxX + checkmarkPadding;
-      const checkY = checkboxY + checkmarkPadding;
-      const checkWidth = checkboxSize - checkmarkPadding * 2;
-      const checkHeight = checkboxSize - checkmarkPadding * 2;
-
-      ctx.beginPath();
-      ctx.moveTo(checkX, checkY + checkHeight / 2);
-      ctx.lineTo(checkX + checkWidth / 3, checkY + checkHeight - 1);
-      ctx.lineTo(checkX + checkWidth, checkY + 1);
-      ctx.stroke();
-    }
-
-    ctx.restore();
-  }
-}
-
-function renderPlaceholder(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  styles: EditorStyles,
-  textStyle: TextStyle,
-  blockType:
-    | "heading1"
-    | "heading2"
-    | "heading3"
-    | "paragraph"
-    | "bullet_list"
-    | "numbered_list"
-    | "todo_list",
-  state: EditorState,
-  isRTL: boolean,
-  maxWidth: number,
-) {
-  ctx.save();
-  ctx.fillStyle = styles.placeholder.color;
-  ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${getFontStack(
-    getCurrentFontFamily(),
-  )}`;
-  ctx.textBaseline = "alphabetic";
-  ctx.direction = isRTL ? "rtl" : "ltr";
-
-  let placeholderText = "";
-
-  // Handle list block placeholders
-  if (blockType === "bullet_list") {
-    placeholderText = i18next.t("blocks.listItem", "List item");
-  } else if (blockType === "numbered_list") {
-    placeholderText = i18next.t("blocks.listItem", "List item");
-  } else if (blockType === "todo_list") {
-    placeholderText = i18next.t("blocks.todoItem", "To-do item");
-  } else {
-    // Handle text block placeholders
-    const placeholderConfig = styles.placeholder[blockType];
-
-    // Determine if we should show touch-optimized text
-    // Show touch text only if device has touch AND no physical keyboard
-    const isTouch = isTouchDevice();
-    const hasPhysicalKeyboard = state.view.hasPhysicalKeyboard;
-    const isTouchOnly = isTouch && !hasPhysicalKeyboard;
-
-    if (blockType === "paragraph") {
-      if (isTouchOnly) {
-        placeholderText = styles.placeholder.paragraph.touchCompatiableText;
-      } else {
-        placeholderText = styles.placeholder.paragraph.keyboardCompatibleText;
-      }
-    } else if ("text" in placeholderConfig) {
-      placeholderText = placeholderConfig.text;
-    }
-  }
-
-  const textX = isRTL ? x + maxWidth : x;
-  ctx.fillText(placeholderText, textX, y);
-  ctx.restore();
-}
-
-/**
- * Core selection rendering logic shared between local and remote selections.
- * This function handles all the complexity of calculating selection bounds
- * including RTL support, multi-block selections, and empty blocks.
- */
-function renderSelectionCore(
-  blockIndex: number,
-  ctx: CanvasRenderingContext2D,
-  styles: EditorStyles,
-  renderedLines: RenderedLine[],
-  x: number,
-  y: number,
-  content: string,
-  textStyle: TextStyle,
-  fontFamily: FontFamily,
-  block: Block,
-  maxWidth: number,
-  selection: { anchor: any; focus: any; isForward: boolean },
-  fillStyle: string,
-  opacity: number,
-) {
-  if (!isTextualBlock(block)) {
-    return;
-  }
-
-  // Sort anchor and focus to ensure start is always before end
-  let start = selection.isForward ? selection.anchor : selection.focus;
-  let end = selection.isForward ? selection.focus : selection.anchor;
-
-  // Detect if this is an RTL block
-  const blockVisibleText = getVisibleTextFromRuns(block.charRuns);
-  const isRTL = getTextDirection(blockVisibleText) === "rtl";
-
-  if (
-    (start.blockIndex === blockIndex && end.blockIndex === blockIndex) ||
-    (start.blockIndex <= blockIndex && end.blockIndex >= blockIndex)
-  ) {
-    ctx.save();
-    ctx.fillStyle = fillStyle;
-    ctx.globalAlpha = opacity;
-
-    const lineHeight = textStyle.fontSize * textStyle.lineHeight;
-    const codePadding = styles.textFormats.code.padding;
-
-    // Handle empty blocks
-    if (content.length === 0 && renderedLines.length === 1) {
-      const fontMetrics = getFontMetrics(
-        textStyle.fontSize,
-        textStyle.fontWeight,
-        fontFamily,
-      );
-      const emptyBlockHeight = fontMetrics.fontSize * textStyle.lineHeight;
-      const minSelectionWidth = textStyle.fontSize * 0.5;
-
-      ctx.fillRect(x, y, minSelectionWidth, emptyBlockHeight);
-      ctx.restore();
-      return;
-    }
-
-    for (const line of renderedLines) {
-      let selectionStartX = x;
-      let selectionEndX = x + line.width;
-      let shouldRender = false;
-
-      // Determine selection bounds for this line
-      if (start.blockIndex === blockIndex && end.blockIndex === blockIndex) {
-        // Selection within same block
-        if (
-          start.textIndex <= line.endIndex &&
-          end.textIndex >= line.startIndex
-        ) {
-          shouldRender = true;
-
-          if (isRTL) {
-            const selStartTextIndex = Math.max(
-              line.startIndex,
-              start.textIndex,
-            );
-            const selEndTextIndex = Math.min(line.endIndex, end.textIndex);
-
-            const blockChars = charRunsToChars(block.charRuns);
-            const widthToSelStart = measureLineWidth(
-              blockChars,
-              block.formats,
-              line.startIndex,
-              selStartTextIndex,
-              textStyle,
-              fontFamily,
-              codePadding,
-            );
-
-            const widthToSelEnd = measureLineWidth(
-              blockChars,
-              block.formats,
-              line.startIndex,
-              selEndTextIndex,
-              textStyle,
-              fontFamily,
-              codePadding,
-            );
-
-            selectionEndX = x + maxWidth - widthToSelStart;
-            selectionStartX = x + maxWidth - widthToSelEnd;
-          } else {
-            // LTR logic
-            const blockChars = charRunsToChars(block.charRuns);
-            if (start.textIndex > line.startIndex) {
-              selectionStartX += measureLineWidth(
-                blockChars,
-                block.formats,
-                line.startIndex,
-                start.textIndex,
-                textStyle,
-                fontFamily,
-                codePadding,
-              );
-            }
-            if (end.textIndex < line.endIndex) {
-              const selectedWidth = measureLineWidth(
-                blockChars,
-                block.formats,
-                Math.max(line.startIndex, start.textIndex),
-                Math.min(line.endIndex, end.textIndex),
-                textStyle,
-                fontFamily,
-                codePadding,
-              );
-              selectionEndX = selectionStartX + selectedWidth;
-            }
-          }
-        }
-      } else if (start.blockIndex < blockIndex && end.blockIndex > blockIndex) {
-        // Entire block is selected
-        shouldRender = true;
-        if (isRTL) {
-          const lineStartX = x + maxWidth - line.width;
-          selectionStartX = lineStartX;
-          selectionEndX = lineStartX + line.width;
-        }
-      } else if (
-        start.blockIndex === blockIndex &&
-        end.blockIndex > blockIndex
-      ) {
-        // Selection starts in this block
-        if (start.textIndex <= line.endIndex) {
-          shouldRender = true;
-
-          if (isRTL) {
-            const selStartTextIndex = Math.max(
-              line.startIndex,
-              start.textIndex,
-            );
-
-            const blockChars = charRunsToChars(block.charRuns);
-            const widthToSelStart = measureLineWidth(
-              blockChars,
-              block.formats,
-              line.startIndex,
-              selStartTextIndex,
-              textStyle,
-              fontFamily,
-              codePadding,
-            );
-
-            selectionEndX = x + maxWidth - widthToSelStart;
-            selectionStartX = x + maxWidth - line.width;
-          } else {
-            const blockChars = charRunsToChars(block.charRuns);
-            if (start.textIndex > line.startIndex) {
-              selectionStartX += measureLineWidth(
-                blockChars,
-                block.formats,
-                line.startIndex,
-                start.textIndex,
-                textStyle,
-                fontFamily,
-                codePadding,
-              );
-            }
-          }
-        }
-      } else if (
-        start.blockIndex < blockIndex &&
-        end.blockIndex === blockIndex
-      ) {
-        // Selection ends in this block
-        if (end.textIndex >= line.startIndex) {
-          shouldRender = true;
-
-          if (isRTL) {
-            const selEndTextIndex = Math.min(line.endIndex, end.textIndex);
-
-            const blockChars = charRunsToChars(block.charRuns);
-            const widthToSelEnd = measureLineWidth(
-              blockChars,
-              block.formats,
-              line.startIndex,
-              selEndTextIndex,
-              textStyle,
-              fontFamily,
-              codePadding,
-            );
-
-            selectionEndX = x + maxWidth;
-            selectionStartX = x + maxWidth - widthToSelEnd;
-          } else {
-            const blockChars = charRunsToChars(block.charRuns);
-            if (end.textIndex < line.endIndex) {
-              selectionEndX =
-                x +
-                measureLineWidth(
-                  blockChars,
-                  block.formats,
-                  line.startIndex,
-                  end.textIndex,
-                  textStyle,
-                  fontFamily,
-                  codePadding,
-                );
-            }
-          }
-        }
-      }
-
-      if (shouldRender) {
-        ctx.fillRect(
-          selectionStartX,
-          line.y,
-          selectionEndX - selectionStartX,
-          lineHeight,
-        );
-      }
-    }
-
-    ctx.restore();
-  }
-}
-
-function renderSelection(
-  state: EditorState,
-  blockIndex: number,
-  ctx: CanvasRenderingContext2D,
-  styles: EditorStyles,
-  renderedLines: RenderedLine[],
-  x: number,
-  y: number,
-  content: string,
-  textStyle: TextStyle,
-  fontFamily: FontFamily,
-  block: Block,
-  maxWidth: number,
-) {
-  if (!state.document.selection) return;
-
-  renderSelectionCore(
-    blockIndex,
-    ctx,
-    styles,
-    renderedLines,
-    x,
-    y,
-    content,
-    textStyle,
-    fontFamily,
-    block,
-    maxWidth,
-    state.document.selection,
-    styles.selection.backgroundColor,
-    styles.selection.opacity,
-  );
-}
-
-/**
- * Render a single remote user's selection with their assigned color.
- */
-function renderRemoteSelection(
-  blockIndex: number,
-  ctx: CanvasRenderingContext2D,
-  styles: EditorStyles,
-  renderedLines: RenderedLine[],
-  x: number,
-  y: number,
-  content: string,
-  textStyle: TextStyle,
-  fontFamily: FontFamily,
-  block: Block,
-  maxWidth: number,
-  selection: SelectionState,
-  color: string,
-) {
-  renderSelectionCore(
-    blockIndex,
-    ctx,
-    styles,
-    renderedLines,
-    x,
-    y,
-    content,
-    textStyle,
-    fontFamily,
-    block,
-    maxWidth,
-    selection,
-    color,
-    0.2, // More transparent for remote selections
-  );
-}
-
-/**
- * Render all remote selections for the current block.
- */
-function renderRemoteSelections(
-  state: EditorState,
-  blockIndex: number,
-  ctx: CanvasRenderingContext2D,
-  styles: EditorStyles,
-  renderedLines: RenderedLine[],
-  x: number,
-  y: number,
-  content: string,
-  textStyle: TextStyle,
-  fontFamily: FontFamily,
-  block: Block,
-  maxWidth: number,
-  remoteAwareness: Map<string, AwarenessState>,
-) {
-  for (const [_peerId, awareness] of remoteAwareness) {
-    if (!awareness.selection) continue;
-
-    // Convert awareness selection to editor selection
-    const selection = awarenessSelectionToSelection(
-      awareness.selection,
-      state.document.page,
-    );
-    if (!selection) continue;
-
-    // Check if the selection is collapsed (shouldn't render)
-    if (selection.isCollapsed) continue;
-
-    renderRemoteSelection(
-      blockIndex,
-      ctx,
-      styles,
-      renderedLines,
-      x,
-      y,
-      content,
-      textStyle,
-      fontFamily,
-      block,
-      maxWidth,
-      selection,
-      awareness.user.color,
-    );
-  }
-}
-
-// Redraw callback — set by the editor so the renderer can request a re-render
-// after async work (image decode, math typeset) populates a cache.
-let requestRedrawFn: (() => void) | null = null;
-export function setRequestRedraw(fn: (() => void) | null) {
-  requestRedrawFn = fn;
-  setInlineMathRedrawCallback(fn);
-}
-
-// Image cache to avoid reloading images
-export const imageCache = new Map<string, HTMLImageElement>();
-// Cache for failed image loads to prevent repeated requests
-const failedImageCache = new Set<string>();
-// Track in-flight loads to prevent duplicate requests
-const pendingLoads = new Map<string, Promise<HTMLImageElement>>();
-
-// Clear failed image from cache (useful for retry scenarios)
-export function clearFailedImageCache(url?: string) {
-  if (url) {
-    failedImageCache.delete(url);
-  } else {
-    failedImageCache.clear();
-  }
-}
-
-// Load image and cache it
-function loadImage(url: string): Promise<HTMLImageElement> {
-  // Check if this image previously failed to load
-  if (failedImageCache.has(url)) {
-    return Promise.reject(new Error(`Image previously failed to load: ${url}`));
-  }
-
-  // Check cache first
-  if (imageCache.has(url)) {
-    const cached = imageCache.get(url)!;
-    if (cached.complete) {
-      return Promise.resolve(cached);
-    }
-  }
-
-  // Deduplicate concurrent loads for the same URL
-  if (pendingLoads.has(url)) {
-    return pendingLoads.get(url)!;
-  }
-
-  const promise = (async () => {
-    const isAlreadyUrl =
-      url.startsWith("blob:") ||
-      url.startsWith("data:") ||
-      url.startsWith("http://") ||
-      url.startsWith("https://");
-    let resolvedUrl = url;
-    if (!isAlreadyUrl) {
-      try {
-        resolvedUrl = await resolveAssetUrl(url);
-      } catch {
-        // Asset not found — use as-is
-      }
-    }
-    return new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      if (isAlreadyUrl) {
-        img.crossOrigin = "anonymous";
-      }
-
-      img.onload = () => {
-        imageCache.set(url, img);
-        pendingLoads.delete(url);
-        requestRedrawFn?.();
-        resolve(img);
-      };
-
-      img.onerror = () => {
-        // Cache the failed URL to prevent repeated requests
-        failedImageCache.add(url);
-        pendingLoads.delete(url);
-        requestRedrawFn?.();
-        reject(new Error(`Failed to load image: ${url}`));
-      };
-
-      img.src = resolvedUrl;
-
-      // If already complete (from browser cache), resolve immediately
-      if (img.complete) {
-        imageCache.set(url, img);
-        pendingLoads.delete(url);
-        requestRedrawFn?.();
-        resolve(img);
-      }
-    });
-  })();
-
-  pendingLoads.set(url, promise);
-  return promise;
-}
+// The image cache lives with the image block (./blocks/ImageBlockView).
+// Re-exported here so existing deep imports from
+// `@cypherkit/editor/rendering/renderer` keep resolving.
+export { clearFailedImageCache, imageCache } from "./blocks/ImageBlockView";
 
 // ── Math block rendering ──
 
@@ -1654,6 +331,7 @@ function renderMathToImage(
   latex: string,
   displayMode: boolean,
   _maxWidth: number,
+  onReady: () => void,
 ): void {
   const dpr = window.devicePixelRatio || 1;
   const cacheKey = getMathCacheKey(latex, displayMode, dpr);
@@ -1750,7 +428,7 @@ function renderMathToImage(
             // Store both the physical-pixel bitmap size and the logical CSS size
             mathImageCache.set(cacheKey, { img: bitmap, width: w, height: h });
             pendingMathRenders.delete(cacheKey);
-            requestRedrawFn?.();
+            onReady();
           })
           .catch(() => {
             pendingMathRenders.delete(cacheKey);
@@ -1778,7 +456,8 @@ function renderMathBlock(
   y: number,
   maxWidth: number,
   styles: EditorStyles,
-  remoteAwareness?: Map<string, AwarenessState>,
+  remoteAwareness: Map<string, AwarenessState> | undefined,
+  requestRedraw: () => void,
 ): RenderedBlock {
   if (block.type !== "math") {
     throw new Error("renderMathBlock called on non-math block");
@@ -1822,7 +501,12 @@ function renderMathBlock(
       ctx.drawImage(cached.img, drawX, drawY, drawW, drawH);
     } else {
       // Trigger rendering and show placeholder
-      renderMathToImage(block.latex, block.displayMode, maxWidth);
+      renderMathToImage(
+        block.latex,
+        block.displayMode,
+        maxWidth,
+        requestRedraw,
+      );
 
       // Draw loading placeholder
       ctx.save();
@@ -1919,424 +603,8 @@ function renderMathBlock(
   };
 }
 
-// Render image cover block
-function renderImageBlock(
-  ctx: CanvasRenderingContext2D,
-  state: EditorState,
-  block: Block,
-  blockIndex: number,
-  _x: number,
-  y: number,
-  _maxWidth: number,
-  styles: EditorStyles,
-  remoteAwareness?: Map<string, AwarenessState>,
-): RenderedBlock {
-  if (block.type !== "image") {
-    throw new Error("renderImageBlock called on non-image block");
-  }
-
-  const {
-    paddingBottom: padding,
-    height: defaultImageHeight,
-    placeholderHeight,
-  } = styles.blocks.image.dimensions;
-
-  // Get image properties (with defaults)
-  const imageWidth = block.width ?? "full";
-  const imageHeight = block.height ?? defaultImageHeight;
-  const objectFit = block.objectFit ?? "cover";
-
-  // Calculate dimensions based on width setting
-  let displayWidth: number;
-  let displayHeight: number;
-  let displayX: number;
-
-  if (imageWidth === "full") {
-    // Full width: edge-to-edge (ignoring padding)
-    displayWidth =
-      _maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
-    displayX = 0;
-    displayHeight = block.url ? imageHeight : placeholderHeight;
-  } else {
-    // Custom width: respect padding and constrain to container
-    const requestedWidth = imageWidth;
-    displayWidth = Math.min(requestedWidth, _maxWidth);
-    displayX = styles.canvas.paddingLeft + (_maxWidth - displayWidth) / 2; // Center the image
-
-    // Adjust height proportionally if width was constrained
-    // This ensures images resized on desktop don't get distorted on mobile
-    if (block.url && displayWidth < requestedWidth) {
-      // Width was constrained - adjust height proportionally
-      const widthRatio = displayWidth / requestedWidth;
-      displayHeight = imageHeight * widthRatio;
-    } else {
-      displayHeight = block.url ? imageHeight : placeholderHeight;
-    }
-  }
-
-  // First block images in cover mode (full width) bleed into the top padding for edge-to-edge experience
-  // They start higher but maintain their proper dimensions
-  const isFirstBlock = blockIndex === 0;
-  const shouldBleedIntoTopPadding = isFirstBlock && imageWidth === "full";
-  const adjustedY = shouldBleedIntoTopPadding
-    ? y - styles.canvas.paddingTop
-    : y;
-  const adjustedHeight = displayHeight; // Always use actual dimensions
-
-  ctx.save();
-
-  // Get upload status from UI state (transient state)
-  const uploadStatus =
-    state.ui.activeMenu.type === "imageUpload" &&
-    state.ui.activeMenu.blockIndex === blockIndex
-      ? state.ui.activeMenu.uploadStatus
-      : undefined;
-
-  // Draw placeholder or image
-  if (uploadStatus === "uploading") {
-    // Uploading state
-    ctx.fillStyle = styles.blocks.image.uploading.backgroundColor;
-    ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
-
-    ctx.fillStyle = styles.blocks.image.uploading.textColor;
-    ctx.font = "14px system-ui, -apple-system, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(
-      styles.blocks.image.uploading.text,
-      displayX + displayWidth / 2,
-      adjustedY + adjustedHeight / 2,
-    );
-  } else if (uploadStatus === "error") {
-    // Error state
-    ctx.fillStyle = styles.blocks.image.error.backgroundColor;
-    ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
-
-    ctx.fillStyle = styles.blocks.image.error.textColor;
-    ctx.font = "14px system-ui, -apple-system, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(
-      styles.blocks.image.error.text,
-      displayX + displayWidth / 2,
-      adjustedY + adjustedHeight / 2,
-    );
-    ctx.fillText(
-      styles.blocks.image.error.retryText,
-      displayX + displayWidth / 2,
-      adjustedY + adjustedHeight / 2 + 20,
-    );
-  } else if (block.url) {
-    // Check if this image previously failed to load
-    if (failedImageCache.has(block.url)) {
-      // Show error state for failed images
-      ctx.fillStyle = styles.blocks.image.error.backgroundColor;
-      ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
-
-      ctx.fillStyle = styles.blocks.image.error.textColor;
-      ctx.font = "14px system-ui, -apple-system, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(
-        styles.blocks.image.error.text,
-        displayX + displayWidth / 2,
-        adjustedY + adjustedHeight / 2,
-      );
-      ctx.fillText(
-        styles.blocks.image.error.retryText,
-        displayX + displayWidth / 2,
-        adjustedY + adjustedHeight / 2 + 20,
-      );
-    } else {
-      // Try to load and draw the actual image
-      const cachedImage = imageCache.get(block.url);
-
-      if (cachedImage && cachedImage.complete) {
-        const imgAspectRatio =
-          cachedImage.naturalWidth / cachedImage.naturalHeight;
-        const containerAspectRatio = displayWidth / adjustedHeight;
-
-        let sourceX = 0;
-        let sourceY = 0;
-        let sourceWidth = cachedImage.naturalWidth;
-        let sourceHeight = cachedImage.naturalHeight;
-        let destX = displayX;
-        let destY = adjustedY;
-        let destWidth = displayWidth;
-        let destHeight = adjustedHeight;
-
-        if (objectFit === "cover") {
-          // Cover algorithm: crop the image to fill the container
-          if (imgAspectRatio > containerAspectRatio) {
-            // Image is wider than container - crop width
-            sourceWidth = cachedImage.naturalHeight * containerAspectRatio;
-            sourceX = (cachedImage.naturalWidth - sourceWidth) / 2;
-          } else {
-            // Image is taller than container - crop height
-            sourceHeight = cachedImage.naturalWidth / containerAspectRatio;
-            sourceY = (cachedImage.naturalHeight - sourceHeight) / 2;
-          }
-        } else {
-          // Contain algorithm: fit the entire image while maintaining aspect ratio
-          if (imgAspectRatio > containerAspectRatio) {
-            // Image is wider than container - fit to width
-            destHeight = displayWidth / imgAspectRatio;
-            destY = adjustedY + (adjustedHeight - destHeight) / 2;
-          } else {
-            // Image is taller than container - fit to height
-            destWidth = adjustedHeight * imgAspectRatio;
-            destX = displayX + (displayWidth - destWidth) / 2;
-          }
-        }
-
-        // Draw background (for any transparency or contain mode)
-        ctx.fillStyle = styles.blocks.image.loading.backgroundColor;
-        ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
-
-        // Draw the image
-        ctx.drawImage(
-          cachedImage,
-          sourceX,
-          sourceY,
-          sourceWidth,
-          sourceHeight, // Source rectangle
-          destX,
-          destY,
-          destWidth,
-          destHeight, // Destination rectangle
-        );
-      } else {
-        // Show loading placeholder while image loads
-        ctx.fillStyle = styles.blocks.image.loading.backgroundColor;
-        ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
-
-        ctx.fillStyle = styles.blocks.image.loading.textColor;
-        ctx.font = "14px system-ui, -apple-system, sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText(
-          styles.blocks.image.loading.text,
-          displayX + displayWidth / 2,
-          adjustedY + adjustedHeight / 2,
-        );
-
-        // Start loading the image
-        loadImage(block.url)
-          .then(() => {
-            invalidateBlockCache(block);
-          })
-          .catch((error) => {
-            console.error("Failed to load image:", error);
-          });
-      }
-    }
-  } else {
-    ctx.fillStyle = styles.blocks.image.placeholder.backgroundColor;
-    ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
-    // No image - show upload prompt
-    ctx.strokeStyle = styles.blocks.image.placeholder.borderColor;
-    ctx.setLineDash([5, 5]);
-    ctx.lineWidth = 2;
-    ctx.strokeRect(displayX, adjustedY, displayWidth, adjustedHeight);
-
-    ctx.fillStyle = styles.blocks.image.placeholder.textColor;
-    ctx.font = "14px system-ui, -apple-system, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(
-      styles.blocks.image.placeholder.text,
-      displayX + displayWidth / 2,
-      adjustedY + adjustedHeight / 2,
-    );
-  }
-
-  // Render remote selection overlays first (so they appear behind local selection)
-  if (remoteAwareness && remoteAwareness.size > 0) {
-    for (const [_peerId, awareness] of remoteAwareness) {
-      if (!awareness.selection) continue;
-
-      const selection = awarenessSelectionToSelection(
-        awareness.selection,
-        state.document.page,
-      );
-      if (!selection) continue;
-
-      // For visual blocks, check if this specific block is selected
-      // (visual block selections have anchor === focus on the block)
-      const isVisualBlockSelected =
-        selection.anchor.blockIndex === blockIndex &&
-        selection.focus.blockIndex === blockIndex;
-
-      // For multi-block selections that include this block
-      const { anchor, focus } = selection;
-      const start = anchor.blockIndex <= focus.blockIndex ? anchor : focus;
-      const end = anchor.blockIndex <= focus.blockIndex ? focus : anchor;
-      const isInMultiBlockSelection =
-        !selection.isCollapsed &&
-        blockIndex >= start.blockIndex &&
-        blockIndex <= end.blockIndex;
-
-      if (isVisualBlockSelected || isInMultiBlockSelection) {
-        ctx.save();
-        ctx.fillStyle = awareness.user.color;
-        ctx.globalAlpha = 0.2; // More transparent for remote selections
-        ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
-        ctx.restore();
-      }
-    }
-  }
-
-  // Render selection overlay if this image block is selected (local)
-  if (state.document.selection && !state.document.selection.isCollapsed) {
-    const { anchor, focus } = state.document.selection;
-    const start = anchor.blockIndex <= focus.blockIndex ? anchor : focus;
-    const end = anchor.blockIndex <= focus.blockIndex ? focus : anchor;
-
-    // Check if this image block is within the selection
-    const isSelected =
-      blockIndex >= start.blockIndex && blockIndex <= end.blockIndex;
-
-    if (isSelected) {
-      ctx.fillStyle = styles.selection.backgroundColor;
-      ctx.globalAlpha = styles.selection.opacity;
-      ctx.fillRect(displayX, adjustedY, displayWidth, adjustedHeight);
-      ctx.globalAlpha = 1.0;
-    }
-  }
-
-  // Render drag handles if hovering or dragging this image
-  // This ensures drag handles are rendered with the exact same dimensions as the image
-  const shouldRenderDragHandles =
-    ((state.ui.imageHover && state.ui.imageHover.blockIndex === blockIndex) ||
-      (state.ui.imageDrag && state.ui.imageDrag.blockIndex === blockIndex)) &&
-    !!block.url;
-
-  if (shouldRenderDragHandles) {
-    let hoveredHandle: "left" | "right" | "bottom" | null = null;
-
-    if (state.ui.imageDrag && state.ui.imageDrag.blockIndex === blockIndex) {
-      hoveredHandle = state.ui.imageDrag.handle;
-    } else if (
-      state.ui.imageHover &&
-      state.ui.imageHover.blockIndex === blockIndex
-    ) {
-      hoveredHandle = state.ui.imageHover.hoveredHandle;
-    }
-
-    renderImageDragHandlesForBlock(
-      ctx,
-      displayX,
-      adjustedY,
-      displayWidth,
-      adjustedHeight,
-      objectFit,
-      hoveredHandle,
-      styles,
-    );
-  }
-
-  ctx.restore();
-
-  const blockBounds: BlockBounds = {
-    x: displayX,
-    y: adjustedY,
-    width: displayWidth,
-    height: adjustedHeight + padding,
-  };
-
-  return {
-    block,
-    bounds: blockBounds,
-    lines: [], // Image cover blocks don't have text lines
-  };
-}
-
-// Render line/divider block
-function renderLineBlock(
-  ctx: CanvasRenderingContext2D,
-  state: EditorState,
-  block: Block,
-  blockIndex: number,
-  x: number,
-  y: number,
-  maxWidth: number,
-  styles: EditorStyles,
-  remoteAwareness?: Map<string, AwarenessState>,
-): RenderedBlock {
-  if (block.type !== "line") {
-    throw new Error("renderLineBlock called on non-line block");
-  }
-
-  const lineStyles = styles.blocks.line;
-  const lineY = y + lineStyles.paddingTop;
-
-  ctx.save();
-  ctx.fillStyle = lineStyles.color;
-  ctx.fillRect(x, lineY, maxWidth, lineStyles.lineHeight);
-  ctx.restore();
-
-  // Render remote selection overlays first (so they appear behind local selection)
-  if (remoteAwareness && remoteAwareness.size > 0) {
-    for (const [_peerId, awareness] of remoteAwareness) {
-      if (!awareness.selection) continue;
-
-      const selection = awarenessSelectionToSelection(
-        awareness.selection,
-        state.document.page,
-      );
-      if (!selection) continue;
-
-      // For visual blocks, check if this specific block is selected
-      // (visual block selections have anchor === focus on the block)
-      const isVisualBlockSelected =
-        selection.anchor.blockIndex === blockIndex &&
-        selection.focus.blockIndex === blockIndex;
-
-      // For multi-block selections that include this block
-      const { anchor, focus } = selection;
-      const start = anchor.blockIndex <= focus.blockIndex ? anchor : focus;
-      const end = anchor.blockIndex <= focus.blockIndex ? focus : anchor;
-      const isInMultiBlockSelection =
-        !selection.isCollapsed &&
-        blockIndex >= start.blockIndex &&
-        blockIndex <= end.blockIndex;
-
-      if (isVisualBlockSelected || isInMultiBlockSelection) {
-        ctx.save();
-        ctx.fillStyle = awareness.user.color;
-        ctx.globalAlpha = 0.2; // More transparent for remote selections
-        ctx.fillRect(x, y, maxWidth, lineStyles.height);
-        ctx.restore();
-      }
-    }
-  }
-
-  // Render selection overlay if this line block is selected
-  if (state.document.selection && !state.document.selection.isCollapsed) {
-    const { anchor, focus } = state.document.selection;
-    const start = anchor.blockIndex <= focus.blockIndex ? anchor : focus;
-    const end = anchor.blockIndex <= focus.blockIndex ? focus : anchor;
-
-    const isSelected =
-      blockIndex >= start.blockIndex && blockIndex <= end.blockIndex;
-
-    if (isSelected) {
-      ctx.save();
-      ctx.fillStyle = styles.selection.backgroundColor;
-      ctx.globalAlpha = styles.selection.opacity;
-      ctx.fillRect(x, y, maxWidth, lineStyles.height);
-      ctx.restore();
-    }
-  }
-
-  const blockBounds: BlockBounds = {
-    x,
-    y,
-    width: maxWidth,
-    height: lineStyles.height,
-  };
-
-  return {
-    block,
-    bounds: blockBounds,
-    lines: [], // Line blocks don't have text lines
-  };
-}
+// renderLineBlock was removed: the `line` block now lives in
+// rendering/blocks/LineBlockView.ts and renders via the BlockView registry.
 
 // Calculate block height dynamically based on content and max width
 export function calculateBlockHeight(
@@ -2344,42 +612,19 @@ export function calculateBlockHeight(
   maxWidth: number,
   styles: EditorStyles,
 ): number {
-  // Handle image cover blocks
-  if (block.type === "image") {
-    const {
-      height: defaultHeight,
-      placeholderHeight,
-      paddingBottom: padding,
-    } = styles.blocks.image.dimensions;
-
-    const imageWidth = block.width ?? "full";
-    const imageHeight = block.height ?? defaultHeight;
-    let displayHeight: number;
-
-    if (imageWidth === "full") {
-      // Full width images use their configured height
-      displayHeight = block.url ? imageHeight : placeholderHeight;
-    } else {
-      // Custom width: adjust height proportionally if width was constrained
-      const requestedWidth = imageWidth;
-      const displayWidth = Math.min(requestedWidth, maxWidth);
-
-      if (block.url && displayWidth < requestedWidth) {
-        // Width was constrained - adjust height proportionally
-        const widthRatio = displayWidth / requestedWidth;
-        displayHeight = imageHeight * widthRatio;
-      } else {
-        displayHeight = block.url ? imageHeight : placeholderHeight;
-      }
+  // Blocks ported to the BlockView registry (image, line, …). The height pass
+  // reuses the same layout() the painter uses, so wrapping/sizing never drifts.
+  {
+    const view = getBlockView(block.type);
+    if (view) {
+      return view.layout({
+        block,
+        blockIndex: 0,
+        maxWidth,
+        isFirst: false,
+        styles,
+      }).height;
     }
-
-    // Always add padding after image blocks for visual spacing
-    return displayHeight + padding;
-  }
-
-  // Handle line/divider blocks
-  if (block.type === "line") {
-    return styles.blocks.line.height;
   }
 
   // Handle math blocks
@@ -2402,49 +647,7 @@ export function calculateBlockHeight(
     );
   }
 
-  if (!isTextualBlock(block)) {
-    return 0;
-  }
-
-  const textStyle = getTextStyle(styles, block.type);
-  const fontFamily = getCurrentFontFamily();
-  const codePadding = styles.textFormats.code.padding;
-
-  // Calculate adjusted width for list blocks
-  let adjustedMaxWidth = maxWidth;
-  if (isListBlock(block)) {
-    const indent = block.indent || 0;
-    const indentOffset = indent * styles.list.indent.size;
-
-    // Use consistent marker width for all list types to ensure text alignment
-    const markerWidth =
-      styles.list.numbered.minWidth + styles.list.marker.textGap;
-
-    adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-  }
-
-  // Use CRDT wrapping
-  const blockChars = charRunsToChars(block.charRuns);
-  const lines = wrapText(
-    blockChars,
-    block.formats,
-    adjustedMaxWidth,
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
-    codePadding,
-  );
-
-  const fontMetrics = getFontMetrics(
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
-  );
-
-  return (
-    lines.length * fontMetrics.fontSize * textStyle.lineHeight +
-    textStyle.paddingBottom
-  );
+  return 0;
 }
 
 // Check if a block is visible in the viewport
@@ -3048,108 +1251,6 @@ export function renderCursorLayer(
 }
 
 /**
- * Render drag handles for a specific image block using exact dimensions
- * This is called from within renderImageBlock to ensure consistency
- */
-function renderImageDragHandlesForBlock(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  objectFit: "cover" | "contain",
-  hoveredHandle: "left" | "right" | "bottom" | null,
-  styles: EditorStyles,
-) {
-  const { vertical, horizontal } = styles.imageResize.dragHandles;
-  const {
-    color: outlineColor,
-    width: outlineWidth,
-    hoverOpacity: outlineHoverOpacity,
-    dashPattern,
-  } = styles.imageResize.outline;
-
-  const showBottomHandle = objectFit === "cover"; // Only show bottom handle in cover mode
-
-  ctx.save();
-
-  // Helper to render a single drag bar
-  const renderBar = (
-    barX: number,
-    barY: number,
-    barWidth: number,
-    barHeight: number,
-    isHovered: boolean,
-  ) => {
-    ctx.save();
-
-    // Set opacity based on hover state
-    const opacity = isHovered ? vertical.hoverOpacity : vertical.opacity;
-    ctx.globalAlpha = opacity;
-
-    // Draw bar background
-    ctx.fillStyle = isHovered
-      ? vertical.hoverBackgroundColor
-      : vertical.backgroundColor;
-
-    if (vertical.borderRadius > 0) {
-      // Draw rounded rectangle
-      ctx.beginPath();
-      ctx.roundRect(barX, barY, barWidth, barHeight, vertical.borderRadius);
-      ctx.fill();
-    } else {
-      ctx.fillRect(barX, barY, barWidth, barHeight);
-    }
-
-    ctx.restore();
-  };
-
-  // Left vertical bar (centered vertically with specified length)
-  renderBar(
-    x + vertical.inset,
-    y + (height - vertical.length) / 2,
-    vertical.thickness,
-    vertical.length,
-    hoveredHandle === "left",
-  );
-
-  // Right vertical bar (centered vertically with specified length)
-  renderBar(
-    x + width - vertical.inset - vertical.thickness,
-    y + (height - vertical.length) / 2,
-    vertical.thickness,
-    vertical.length,
-    hoveredHandle === "right",
-  );
-
-  // Bottom horizontal bar (centered horizontally with specified length)
-  // Only render in cover mode
-  if (showBottomHandle) {
-    renderBar(
-      x + (width - horizontal.length) / 2,
-      y + height - horizontal.inset - horizontal.thickness,
-      horizontal.length,
-      horizontal.thickness,
-      hoveredHandle === "bottom",
-    );
-  }
-
-  // Render a subtle dashed outline around the image when hovering any handle
-  if (hoveredHandle !== null) {
-    ctx.save();
-    ctx.globalAlpha = outlineHoverOpacity;
-    ctx.strokeStyle = outlineColor;
-    ctx.lineWidth = outlineWidth;
-    ctx.setLineDash(dashPattern as number[]);
-    ctx.strokeRect(x, y, width, height);
-    ctx.setLineDash([]); // Reset dash pattern
-    ctx.restore();
-  }
-
-  ctx.restore();
-}
-
-/**
  * Get position coordinates for a text position (for selection handles).
  * This is a simplified version of getCursorCoordinates to avoid circular imports.
  */
@@ -3453,37 +1554,4 @@ function renderSelectionHandle(
   }
 
   ctx.restore();
-}
-
-// =============================================================================
-// Search Highlights
-// =============================================================================
-
-export interface SearchHighlight {
-  readonly blockIndex: number;
-  readonly startIndex: number;
-  readonly endIndex: number;
-}
-
-let searchHighlights: SearchHighlight[] = [];
-let activeSearchIndex = -1;
-
-export function setSearchHighlights(
-  highlights: SearchHighlight[],
-  activeIndex: number,
-) {
-  searchHighlights = highlights;
-  activeSearchIndex = activeIndex;
-}
-
-export function clearSearchHighlights() {
-  searchHighlights = [];
-  activeSearchIndex = -1;
-}
-
-export function getSearchHighlights(): {
-  highlights: SearchHighlight[];
-  activeIndex: number;
-} {
-  return { highlights: searchHighlights, activeIndex: activeSearchIndex };
 }

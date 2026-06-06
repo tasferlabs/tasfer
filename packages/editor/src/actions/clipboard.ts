@@ -33,13 +33,13 @@ import type {
   TextInsert,
 } from "../sync/crdt-types";
 import {} from "../sync/crdt-undo";
-import { generateBlockId } from "../sync/id";
-import { applyOps } from "../sync/reducer";
 import {
   deleteCharsInRange,
   formatCharsInRange,
   insertCharsAtPosition,
 } from "../sync/crdt-utils";
+import { generateBlockId } from "../sync/id";
+import { applyOps } from "../sync/reducer";
 
 function globalGenerateBlockId(binding: CRDTbinding): string {
   return generateBlockId(binding.nextId);

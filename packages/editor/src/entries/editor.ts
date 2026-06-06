@@ -20,13 +20,10 @@ import { isInLongPressMode } from "../events/touchEvents";
 import { onFontFamilyChange, onFontsReady } from "../fonts";
 import {
   clearAllBlockCaches,
-  clearSearchHighlights as clearRendererSearchHighlights,
   getBlockHeight,
   invalidateBlockCache,
   renderCursorLayer,
   renderPage,
-  setRequestRedraw,
-  setSearchHighlights as setRendererSearchHighlights,
 } from "../rendering/renderer";
 import {
   getCursorCoordinatesWithComposition,
@@ -74,11 +71,6 @@ import {
   positionToAwarenessCursor,
   selectionToAwarenessSelection,
 } from "../sync/awareness";
-import {
-  deleteCharsInRange,
-  formatCharsInRange,
-  insertCharsAtPosition,
-} from "../sync/crdt-utils";
 import type {
   BlockDelete,
   BlockInsert,
@@ -86,6 +78,11 @@ import type {
   Operation,
 } from "../sync/crdt-types";
 import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
+import {
+  deleteCharsInRange,
+  formatCharsInRange,
+  insertCharsAtPosition,
+} from "../sync/crdt-utils";
 import { applyOps } from "../sync/reducer";
 import { generateRestoreOperations } from "../sync/snapshot-diff";
 import { createBlockSet, getVisibleBlocks } from "../sync/sync";
@@ -440,6 +437,14 @@ export default function createEditor(
     dirtyLayers.cursor = true; // Cursor position may have changed too
   };
 
+  // Passed into the renderer so async work (image decode, math typeset) can
+  // request a repaint when its cache populates. Guarded so a promise that
+  // settles after destroy() is a no-op instead of poking a torn-down loop.
+  let destroyed = false;
+  const requestRedraw = () => {
+    if (!destroyed) scheduleRender();
+  };
+
   // Update canvas cursor style based on scrollbar hover and drag state
   const updateCursorStyle = (
     isHoveringScrollbar: boolean,
@@ -666,6 +671,7 @@ export default function createEditor(
             visibility,
             undefined,
             getActiveRemoteAwareness(),
+            requestRedraw,
           );
 
           // Update cursor style based on scrollbar hover and drag state
@@ -1290,7 +1296,6 @@ export default function createEditor(
 
   // Initialize the editor and start the render loop
   (() => {
-    setRequestRedraw(scheduleRender);
     scheduleRender(); // Schedule initial render
     renderLoop();
 
@@ -1379,11 +1384,11 @@ export default function createEditor(
   }
 
   function destroy() {
+    destroyed = true;
+
     if (animationFrameId) {
       cancelAnimationFrame(animationFrameId);
     }
-
-    setRequestRedraw(null);
 
     if (canvasClickHandler) {
       contentCanvas.removeEventListener("click", canvasClickHandler);
@@ -2703,11 +2708,17 @@ export default function createEditor(
       }[],
       activeIndex: number,
     ) => {
-      setRendererSearchHighlights(highlights, activeIndex);
+      state = {
+        ...state,
+        ui: { ...state.ui, search: { highlights, activeIndex } },
+      };
       scheduleRender();
     },
     clearSearchHighlights: () => {
-      clearRendererSearchHighlights();
+      state = {
+        ...state,
+        ui: { ...state.ui, search: { highlights: [], activeIndex: -1 } },
+      };
       scheduleRender();
     },
     scrollToPosition: (position: { blockIndex: number; textIndex: number }) => {

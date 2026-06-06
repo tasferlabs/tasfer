@@ -1,10 +1,14 @@
-import type { EditorState, ViewportState } from "../state-types";
+import type {
+  EditorState,
+  SearchHighlight,
+  ViewportState,
+} from "../state-types";
 import { getEditorStyles } from "../styles";
 import {
   awarenessCursorToPosition,
   type AwarenessState,
 } from "../sync/awareness";
-import { getBlockHeight, getSearchHighlights } from "./renderer";
+import { getBlockHeight } from "./renderer";
 import i18next from "i18next";
 
 /** Whether the app UI is currently RTL */
@@ -348,7 +352,7 @@ export function renderScrollbar(
 
   // Render search match markers on scrollbar
   const { highlights: searchHighlights, activeIndex: activeSearchIndex } =
-    getSearchHighlights();
+    state.ui.search;
   if (searchHighlights.length > 0) {
     renderScrollbarSearchMarkers(
       ctx,
@@ -651,7 +655,7 @@ function renderScrollbarSearchMarkers(
   state: EditorState,
   viewport: ViewportState,
   documentHeight: number,
-  highlights: { blockIndex: number; startIndex: number; endIndex: number }[],
+  highlights: readonly SearchHighlight[],
   activeIndex: number,
   styles: ScrollbarStyles = getScrollbarStyles(),
   scale: number = 1,

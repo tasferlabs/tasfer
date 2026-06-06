@@ -12,6 +12,10 @@ Do NOT jump to the first solution that comes to mind. Before implementing a fix 
 
 Think through the problem more broadly before writing code. The first idea is often a band-aid — dig deeper.
 
+## Important: No Global Variables
+
+Do NOT use global variables (module-level mutable state, singletons holding mutable data, globals on `window`/`globalThis`, etc.). The key reason: the editor must support **multiple editor instances on the same page**, and global state is shared across all of them — so any two editors would clobber each other's state and break. Keep all state per-instance: pass it explicitly through function arguments, instance fields, or scoped context objects.
+
 ## Project Overview
 
 Cypher is a canvas-based markdown text editor combining Google Docs-like editing with Notion-style block architecture. Text is rendered directly on HTML5 canvas (not DOM-based). Fully peer-to-peer and local-first — no central server, no accounts, no cloud dependency. Data lives on your device, collaboration happens directly between peers over WebRTC, and everything works offline.

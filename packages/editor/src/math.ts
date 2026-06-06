@@ -48,11 +48,6 @@ export interface InlineMathImage extends InlineMathDims {
 const dimsCache = new Map<string, InlineMathDims | null>();
 const imageCache = new Map<string, InlineMathImage>();
 const pendingImageRenders = new Set<string>();
-let redrawCallback: (() => void) | null = null;
-
-export function setInlineMathRedrawCallback(cb: (() => void) | null): void {
-  redrawCallback = cb;
-}
 function dimsKey(latex: string, fontSize: number): string {
   return `${fontSize}:${latex}`;
 }
@@ -121,6 +116,7 @@ export function getInlineMathImage(
   latex: string,
   fontSize: number,
   dpr: number,
+  onReady?: () => void,
 ): InlineMathImage | null {
   const key = imageKey(latex, fontSize, dpr);
   const cached = imageCache.get(key);
@@ -194,7 +190,7 @@ export function getInlineMathImage(
           .then((bitmap) => {
             imageCache.set(key, { ...dims, bitmap });
             pendingImageRenders.delete(key);
-            redrawCallback?.();
+            onReady?.();
           })
           .catch(() => {
             pendingImageRenders.delete(key);
