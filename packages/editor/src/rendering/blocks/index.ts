@@ -1,15 +1,22 @@
 /**
- * Block view registry wiring (proof-of-concept).
+ * Block view registry wiring.
  *
- * Registers the built-in block views. As more blocks are ported (image, math,
- * then the text/list family via a TextBlockView base), they get added here and
- * their `block.type ===` branches in renderer.ts / selection.ts / event-utils
- * collapse into `getBlockView(type)` lookups.
+ * A `BlockViewRegistry` is per-editor-instance (created at mount, stored on
+ * `EditorState.blockViews`) — not a module global. Hosts compose the set of
+ * block views they want: pass a custom `blockViews` list to `mountEditor` to
+ * opt in/out of block types, or use `createDefaultBlockViewRegistry()` for the
+ * built-in set.
+ *
+ * As more blocks are ported (math, then the text/list family splits apart via a
+ * TextBlockView base), they get added to the default set here and their
+ * `block.type ===` branches in renderer.ts / selection.ts / event-utils
+ * collapse into `registry.get(type)` lookups.
  */
 
-import { registerBlockView } from "./BlockView";
+import { BlockView, BlockViewRegistry } from "./BlockView";
 import { ImageBlockView } from "./ImageBlockView";
 import { LineBlockView } from "./LineBlockView";
+import { listBlockView } from "./ListBlockView";
 import { textBlockView } from "./TextBlockView";
 
 export { AtomicBlockView } from "./AtomicBlockView";
@@ -18,12 +25,16 @@ export {
   type BlockLayoutCtx,
   type BlockPaintCtx,
   BlockView,
-  getBlockView,
+  BlockViewRegistry,
   type Point,
-  registerBlockView,
 } from "./BlockView";
 export { ImageBlockView } from "./ImageBlockView";
 export { LineBlockView } from "./LineBlockView";
+export {
+  LIST_BLOCK_TYPES,
+  ListBlockView,
+  listBlockView,
+} from "./ListBlockView";
 export {
   getContentWithComposition,
   TEXT_BLOCK_TYPES,
@@ -32,13 +43,40 @@ export {
   textBlockView,
 } from "./TextBlockView";
 
-let registered = false;
+/**
+ * Shared singleton instances of the stateless built-in views, so hosts can
+ * compose a custom `blockViews` list without constructing them by hand. (Views
+ * hold no per-editor state — only layout/paint logic — so sharing instances
+ * across editors is safe.)
+ */
+export const lineBlockView = new LineBlockView();
+export const imageBlockView = new ImageBlockView();
 
-/** Idempotently register the built-in block views. */
-export function registerBuiltinBlockViews(): void {
-  if (registered) return;
-  registered = true;
-  registerBlockView(new LineBlockView());
-  registerBlockView(new ImageBlockView());
-  registerBlockView(textBlockView);
+/**
+ * The built-in block views. Constructed lazily (inside the factory) so importing
+ * this module has no side effects and no module-init ordering hazards.
+ *
+ * `textBlockView` backs headings + paragraph; `listBlockView` (a subclass) backs
+ * the bullet/numbered/todo family. They register under disjoint type keys, so a
+ * host can drop list support entirely by omitting `listBlockView` from a custom
+ * `blockViews` list passed to `mountEditor`.
+ */
+function defaultBlockViews(): BlockView[] {
+  return [lineBlockView, imageBlockView, textBlockView, listBlockView];
+}
+
+/** Build a registry from an explicit list of views (host opt-in). */
+export function createBlockViewRegistry(
+  views: readonly BlockView[],
+): BlockViewRegistry {
+  const registry = new BlockViewRegistry();
+  for (const view of views) {
+    registry.register(view);
+  }
+  return registry;
+}
+
+/** Build a registry pre-populated with the built-in block views. */
+export function createDefaultBlockViewRegistry(): BlockViewRegistry {
+  return createBlockViewRegistry(defaultBlockViews());
 }

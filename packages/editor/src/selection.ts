@@ -9,8 +9,8 @@ import {
 } from "./fonts";
 import { getBlockHeight } from "./rendering/renderer";
 import { getTextDirection } from "./rtl";
-import type { Block, Char } from "./serlization/loadPage";
-import { isListBlock, isTextualBlock } from "./serlization/loadPage";
+import { type Block, type Char } from "./serlization/loadPage";
+import { isListBlock } from "./serlization/loadPage";
 import type {
   CursorState,
   EditorState,
@@ -29,6 +29,7 @@ import {
   snapInlineMathPosition,
 } from "./state-utils";
 import { getEditorStyles, getTextStyle } from "./styles";
+import { isTextualBlock } from "./sync/block-registry";
 import {
   charRunsToChars,
   findCharInRuns,
@@ -45,7 +46,7 @@ export function getCursorDocumentCoords(
   position: Position,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): { x: number; y: number; height: number } | null {
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
@@ -64,7 +65,13 @@ export function getCursorDocumentCoords(
     const block = visibleBlocks[visibleIdx];
     if (block.originalIndex >= position.blockIndex) break;
 
-    currentY += getBlockHeight(block, maxWidth, styles, visibleIdx === 0);
+    currentY += getBlockHeight(
+      state.blockViews,
+      block,
+      maxWidth,
+      styles,
+      visibleIdx === 0,
+    );
   }
 
   const block = targetBlock;
@@ -206,7 +213,7 @@ export function getCursorDocumentCoords(
 export function getCursorCoordinatesWithComposition(
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): { x: number; y: number; height: number } | null {
   if (!state.document.cursor) return null;
 
@@ -280,7 +287,13 @@ export function getCursorCoordinatesWithComposition(
     const block = visibleBlocks[visibleIdx];
     if (block.originalIndex >= position.blockIndex) break;
 
-    currentY += getBlockHeight(block, maxWidth, styles, visibleIdx === 0);
+    currentY += getBlockHeight(
+      state.blockViews,
+      block,
+      maxWidth,
+      styles,
+      visibleIdx === 0,
+    );
   }
 
   const textStyle = getTextStyle(styles, block.type);
@@ -406,7 +419,7 @@ export function getCursorYPosition(
   position: Position,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): { top: number; bottom: number } | null {
   const coords = getCursorDocumentCoords(position, state, viewport, styles);
   if (!coords) return null;
@@ -420,7 +433,7 @@ export function scrollToMakeCursorVisible(
   position: Position,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): number | null {
   const cursorPos = getCursorYPosition(position, state, viewport, styles);
   if (!cursorPos) return null;
@@ -461,6 +474,7 @@ function getPositionFromPaddingClick(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
+      state.blockViews,
       block,
       maxWidth,
       styles,
@@ -598,7 +612,7 @@ export function getTextPositionFromViewport(
   y: number,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): Position | null {
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
@@ -629,6 +643,7 @@ export function getTextPositionFromViewport(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
+      state.blockViews,
       block,
       maxWidth,
       styles,
@@ -997,7 +1012,7 @@ function getPositionWithinLine(
 export function getSelectionHandlePositions(
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): {
   anchor: { x: number; y: number; height: number; isTop: boolean } | null;
   focus: { x: number; y: number; height: number; isTop: boolean } | null;
@@ -1255,7 +1270,7 @@ export function isPointWithinSelectionRects(
   y: number,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): boolean {
   const selection = state.document.selection;
   if (!selection || selection.isCollapsed) {
@@ -1286,6 +1301,7 @@ export function isPointWithinSelectionRects(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
+      state.blockViews,
       block,
       maxWidth,
       styles,
@@ -1561,7 +1577,7 @@ export function isPointWithinSelectionRects(
 export function moveCursorUp(
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): EditorState {
   if (!state.document.cursor) return createInitialCursorState(state);
 
@@ -1735,7 +1751,7 @@ export function moveCursorUp(
 export function moveCursorDown(
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): EditorState {
   if (!state.document.cursor) return createInitialCursorState(state);
 
@@ -1910,7 +1926,7 @@ export function moveCursorDown(
 export function moveCursorPageUp(
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): EditorState {
   if (!state.document.cursor || !viewport) return state;
 
@@ -1933,7 +1949,7 @@ export function moveCursorPageUp(
 export function moveCursorPageDown(
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): EditorState {
   if (!state.document.cursor || !viewport) return state;
 
@@ -2130,7 +2146,7 @@ export function extendSelectionRight(state: EditorState): EditorState {
 export function extendSelectionUp(
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): EditorState {
   if (!state.document.cursor) return state;
 
@@ -2155,7 +2171,7 @@ export function extendSelectionUp(
 export function extendSelectionDown(
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): EditorState {
   if (!state.document.cursor) return state;
 
@@ -2183,7 +2199,7 @@ export function extendSelectionDown(
 export function extendSelectionPageUp(
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): EditorState {
   if (!state.document.cursor) return state;
 
@@ -2214,7 +2230,7 @@ export function extendSelectionPageUp(
 export function extendSelectionPageDown(
   state: EditorState,
   viewport?: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ): EditorState {
   if (!state.document.cursor) return state;
 

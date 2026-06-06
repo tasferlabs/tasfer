@@ -10,7 +10,8 @@ import type {
   Page,
   TextFormat,
 } from "../serlization/loadPage";
-import { isListBlock, isTextualBlock, loadPage } from "../serlization/loadPage";
+import { isListBlock } from "../serlization/loadPage";
+import { loadPage } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
 import type {
   CommandResult,
@@ -19,6 +20,7 @@ import type {
   Position,
 } from "../state-types";
 import { getBlockTextContent, getBlockTextLength } from "../state-utils";
+import { isTextualBlock } from "../sync/block-registry";
 import {
   charRunsToChars,
   charsToRuns,
@@ -32,7 +34,6 @@ import type {
   Operation,
   TextInsert,
 } from "../sync/crdt-types";
-import {} from "../sync/crdt-undo";
 import {
   deleteCharsInRange,
   formatCharsInRange,

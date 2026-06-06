@@ -45,7 +45,7 @@ export function isRTLChar(char: string): boolean {
 /**
  * Get the default text direction based on the current app language.
  */
-function getDefaultDirection(): "rtl" | "ltr" {
+export function getDefaultDirection(): "rtl" | "ltr" {
   if (document.dir == "rtl") {
     return "rtl";
   } else {

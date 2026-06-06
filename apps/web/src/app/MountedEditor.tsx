@@ -37,7 +37,6 @@ import { useKeyboardOpen } from "./hooks/useKeyboardOpen";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { Block } from "@cypherkit/editor/serlization/loadPage";
-import { isTextualBlock } from "@cypherkit/editor/serlization/loadPage";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { FindBar } from "../editor/FindBar";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
@@ -73,6 +72,7 @@ import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { usePageSettings } from "./contexts/PageSettingsContext";
 import { EditorLoadingState } from "./pages/EditorPage";
+import { isTextualBlock } from "@cypherkit/editor/sync/block-registry";
 
 async function downloadImage(url: string, alt?: string): Promise<void> {
   const isAlreadyUrl =

@@ -10,6 +10,19 @@
 export type { MountedEditor, MountEditorOptions } from "./entries/mount";
 export { mountEditor } from "./entries/mount";
 
+// Block views — per-instance registry + built-in views for opt-in block sets
+export {
+  BlockView,
+  BlockViewRegistry,
+  createBlockViewRegistry,
+  createDefaultBlockViewRegistry,
+  imageBlockView,
+  lineBlockView,
+  ListBlockView,
+  listBlockView,
+  textBlockView,
+} from "./rendering/blocks";
+
 // Editor instance API
 export type { Editor } from "./entries/editor";
 export { default as createEditor } from "./entries/editor";

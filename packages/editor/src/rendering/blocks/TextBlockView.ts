@@ -45,7 +45,6 @@ import type {
   FormatSpan,
   TextualBlock,
 } from "../../serlization/loadPage";
-import { isListBlock, isTextualBlock } from "../../serlization/loadPage";
 import type {
   BlockBounds,
   EditorState,
@@ -60,6 +59,7 @@ import type {
 import { getBlockTextContent, isTouchDevice } from "../../state-utils";
 import { getTextStyle } from "../../styles";
 import { awarenessSelectionToSelection } from "../../sync/awareness";
+import { isTextualBlock } from "../../sync/block-registry";
 import {
   charRunsToChars,
   getVisibleTextFromChars,
@@ -72,17 +72,20 @@ import {
   type BlockPaintCtx,
   BlockView,
 } from "./BlockView";
-import i18next from "i18next";
 
-/** The block types handled by TextBlockView. */
+/**
+ * The block types handled by TextBlockView itself: headings + paragraph.
+ *
+ * The bullet/numbered/todo list family is handled by `ListBlockView`, a subclass
+ * registered separately so a host can opt out of lists. ListBlockView inherits
+ * all the text geometry here and only overrides the leading-inset, marker, and
+ * placeholder hooks (see the `protected` methods at the bottom of the class).
+ */
 export const TEXT_BLOCK_TYPES = [
   "heading1",
   "heading2",
   "heading3",
   "paragraph",
-  "bullet_list",
-  "numbered_list",
-  "todo_list",
 ] as const;
 
 /**
@@ -230,149 +233,20 @@ function measureLineWidth(
   );
 }
 
-// Item number for a numbered list item (counts preceding same-indent siblings).
-function calculateListItemNumber(
-  state: EditorState,
-  blockIndex: number,
-): number {
-  const currentBlock = state.document.page.blocks[blockIndex];
-  if (!currentBlock || currentBlock.deleted) return 0;
-  if (!isListBlock(currentBlock) || currentBlock.type !== "numbered_list") {
-    return 1;
-  }
-
-  const currentIndent = currentBlock.indent;
-  let number = 1;
-
-  const visibleBlocks = state.view.visibleBlocks;
-  const allBlocks = state.document.page.blocks;
-
-  for (let i = visibleBlocks.length - 1; i >= 0; i--) {
-    const visibleBlock = visibleBlocks[i];
-    const visibleBlockIndex = allBlocks.findIndex(
-      (b) => b.id === visibleBlock.id,
-    );
-
-    if (visibleBlockIndex >= blockIndex) continue;
-
-    const prevBlock = visibleBlock;
-
-    if (!isListBlock(prevBlock) || prevBlock.type !== "numbered_list") {
-      break;
-    }
-
-    if ((prevBlock.indent ?? 0) > (currentIndent ?? 0)) {
-      continue;
-    }
-
-    if ((prevBlock.indent ?? 0) < (currentIndent ?? 0)) {
-      break;
-    }
-
-    number++;
-  }
-
-  return number;
-}
-
-// Render a list marker (bullet, number, or checkbox) on the first line.
-function renderListMarker(
-  ctx: CanvasRenderingContext2D,
-  block: Block,
-  x: number,
-  y: number,
-  fontMetrics: FontMetrics,
-  textStyle: TextStyle,
-  styles: EditorStyles,
-  state: EditorState,
-  blockIndex: number,
-  _markerWidth: number,
-) {
-  if (!isListBlock(block)) return;
-
-  const fontFamily = getCurrentFontFamily();
-
-  if (block.type === "bullet_list") {
-    ctx.save();
-    ctx.fillStyle = styles.list.bullet.color;
-    ctx.font = `${textStyle.fontWeight} ${styles.list.bullet.size}px ${getFontStack(fontFamily)}`;
-    ctx.textBaseline = "alphabetic";
-
-    const bulletX = x + 6;
-
-    ctx.fillText(styles.list.bullet.character, bulletX, y + fontMetrics.ascent);
-    ctx.restore();
-  } else if (block.type === "numbered_list") {
-    const number = calculateListItemNumber(state, blockIndex);
-    const numberText = `${number}.`;
-
-    ctx.save();
-    ctx.fillStyle = styles.list.numbered.color;
-    ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily)}`;
-    ctx.textBaseline = "alphabetic";
-    ctx.textAlign = "right";
-
-    ctx.fillText(numberText, x + 18, y + fontMetrics.ascent);
-
-    ctx.textAlign = "left"; // Reset
-    ctx.restore();
-  } else if (block.type === "todo_list") {
-    const checkboxSize = styles.list.todo.checkboxSize;
-    const checkboxY = y + fontMetrics.ascent - checkboxSize + 2;
-
-    const checkboxX = x + 2;
-
-    ctx.save();
-
-    ctx.strokeStyle = styles.list.todo.checkboxBorderColor;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(
-      checkboxX,
-      checkboxY,
-      checkboxSize,
-      checkboxSize,
-      styles.list.todo.checkboxBorderRadius,
-    );
-    ctx.stroke();
-
-    if (block.checked) {
-      ctx.fillStyle = styles.list.todo.checkboxCheckedColor;
-      ctx.fill();
-
-      ctx.strokeStyle = styles.list.todo.checkmarkColor;
-      ctx.lineWidth = 2;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-
-      const checkmarkPadding = 3;
-      const checkX = checkboxX + checkmarkPadding;
-      const checkY = checkboxY + checkmarkPadding;
-      const checkWidth = checkboxSize - checkmarkPadding * 2;
-      const checkHeight = checkboxSize - checkmarkPadding * 2;
-
-      ctx.beginPath();
-      ctx.moveTo(checkX, checkY + checkHeight / 2);
-      ctx.lineTo(checkX + checkWidth / 3, checkY + checkHeight - 1);
-      ctx.lineTo(checkX + checkWidth, checkY + 1);
-      ctx.stroke();
-    }
-
-    ctx.restore();
-  }
-}
-
+// Draw already-resolved placeholder text. The text itself is resolved by the
+// view's `placeholderText` hook (paragraph/heading in the base class, list/todo
+// in ListBlockView), so this helper stays type-agnostic.
 function renderPlaceholder(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   styles: EditorStyles,
   textStyle: TextStyle,
-  blockType: TextualBlock["type"],
-  state: EditorState,
+  text: string,
   isRTL: boolean,
   maxWidth: number,
 ) {
+  if (!text) return;
   ctx.save();
   ctx.fillStyle = styles.placeholder.color;
   ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${getFontStack(
@@ -381,34 +255,8 @@ function renderPlaceholder(
   ctx.textBaseline = "alphabetic";
   ctx.direction = isRTL ? "rtl" : "ltr";
 
-  let placeholderText = "";
-
-  if (blockType === "bullet_list") {
-    placeholderText = i18next.t("blocks.listItem", "List item");
-  } else if (blockType === "numbered_list") {
-    placeholderText = i18next.t("blocks.listItem", "List item");
-  } else if (blockType === "todo_list") {
-    placeholderText = i18next.t("blocks.todoItem", "To-do item");
-  } else {
-    const placeholderConfig = styles.placeholder[blockType];
-
-    const isTouch = isTouchDevice();
-    const hasPhysicalKeyboard = state.view.hasPhysicalKeyboard;
-    const isTouchOnly = isTouch && !hasPhysicalKeyboard;
-
-    if (blockType === "paragraph") {
-      if (isTouchOnly) {
-        placeholderText = styles.placeholder.paragraph.touchCompatiableText;
-      } else {
-        placeholderText = styles.placeholder.paragraph.keyboardCompatibleText;
-      }
-    } else if ("text" in placeholderConfig) {
-      placeholderText = placeholderConfig.text;
-    }
-  }
-
   const textX = isRTL ? x + maxWidth : x;
-  ctx.fillText(placeholderText, textX, y);
+  ctx.fillText(text, textX, y);
   ctx.restore();
 }
 
@@ -885,9 +733,10 @@ function computeSelectionRects(
 // ---------------------------------------------------------------------------
 
 export class TextBlockView extends BlockView<TextualBlock> {
-  // Representative type; the view is registered under every TEXT_BLOCK_TYPES key.
-  readonly type = "paragraph" as const;
-  readonly types = TEXT_BLOCK_TYPES;
+  // Representative type; the view is registered under every `types` key. Typed
+  // wide (not the "paragraph" literal) so ListBlockView can override both.
+  readonly type: TextualBlock["type"] = "paragraph";
+  readonly types: readonly string[] = TEXT_BLOCK_TYPES;
 
   /**
    * The canonical text layout. Plain block content (no composition) — that is
@@ -919,15 +768,12 @@ export class TextBlockView extends BlockView<TextualBlock> {
     const isRTL =
       getTextDirection(getVisibleTextFromRuns(block.charRuns)) === "rtl";
 
-    let indentOffset = 0;
-    let markerWidth = 0;
-    let adjustedMaxWidth = maxWidth;
-    if (isListBlock(block)) {
-      const indent = block.indent || 0;
-      indentOffset = indent * styles.list.indent.size;
-      markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
-      adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-    }
+    // Leading inset (list indent + marker gutter) is a per-type hook: zero for
+    // headings/paragraph, computed from `indent` for list blocks. Baking it into
+    // the layout here means every downstream pass (caret, selection, hit-test)
+    // gets correct geometry without re-checking the block type.
+    const { indentOffset, markerWidth } = this.leadingInset(block, styles);
+    const adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
 
     const chars = content?.chars ?? charRunsToChars(block.charRuns);
     const formats = content?.formats ?? block.formats;
@@ -1271,17 +1117,17 @@ export class TextBlockView extends BlockView<TextualBlock> {
       compositionRange,
     } = layout;
 
-    // Marker / text-area x positions.
-    let adjustedX = x;
-    let markerX = x;
-    if (isListBlock(block)) {
-      if (isRTL) {
-        adjustedX = x;
-        markerX = x + adjustedMaxWidth;
-      } else {
-        markerX = x + indentOffset;
-        adjustedX = x + indentOffset + markerWidth;
-      }
+    // Marker / text-area x positions. For non-list blocks indentOffset and
+    // markerWidth are 0, so adjustedX === x and markerX is unused (no marker is
+    // painted) — the same result the old isListBlock branch produced.
+    let adjustedX: number;
+    let markerX: number;
+    if (isRTL) {
+      adjustedX = x;
+      markerX = x + adjustedMaxWidth;
+    } else {
+      markerX = x + indentOffset;
+      adjustedX = x + indentOffset + markerWidth;
     }
 
     const renderedLines: RenderedLine[] = [];
@@ -1312,18 +1158,18 @@ export class TextBlockView extends BlockView<TextualBlock> {
       const currentY = y + lineIndex * lineHeight;
       const renderX = isRTL ? adjustedX + adjustedMaxWidth : adjustedX;
 
-      if (lineIndex === 0 && isListBlock(block)) {
-        renderListMarker(
+      if (lineIndex === 0) {
+        // Per-type marker hook: no-op for headings/paragraph, draws the
+        // bullet/number/checkbox for list blocks (ListBlockView).
+        this.paintMarker(
           ctx,
           block,
           markerX,
           currentY,
-          fontMetrics,
-          textStyle,
+          layout,
           styles,
           state,
           blockIndex,
-          markerWidth,
         );
       }
 
@@ -1455,8 +1301,7 @@ export class TextBlockView extends BlockView<TextualBlock> {
         y + fontMetrics.ascent,
         styles,
         textStyle,
-        block.type,
-        state,
+        this.placeholderText(block, styles, state),
         isRTL,
         adjustedMaxWidth,
       );
@@ -1492,6 +1337,66 @@ export class TextBlockView extends BlockView<TextualBlock> {
    * renderer/selection call positionFromPoint directly with the y coordinate). */
   hitTest(): Position {
     return { blockIndex: 0, textIndex: 0 };
+  }
+
+  // -------------------------------------------------------------------------
+  // Per-type hooks. The base (headings/paragraph) adds nothing; ListBlockView
+  // overrides these to layer list behavior on top of the shared text geometry.
+  // Keeping them here — rather than `isListBlock` branches inline — is what lets
+  // a host drop list support entirely by not registering ListBlockView.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Horizontal space reserved before the text area: a list indent plus a marker
+   * gutter. Zero for headings/paragraph. Consumed by `computeLayout`, so the
+   * value flows into every downstream geometry pass (caret, selection, hit-test)
+   * without any of them re-checking the block type.
+   */
+  protected leadingInset(
+    _block: TextualBlock,
+    _styles: EditorStyles,
+  ): { indentOffset: number; markerWidth: number } {
+    return { indentOffset: 0, markerWidth: 0 };
+  }
+
+  /**
+   * Paint the block's marker on its first line (bullet / number / checkbox).
+   * No-op for headings/paragraph; ListBlockView draws the list marker.
+   */
+  protected paintMarker(
+    _ctx: CanvasRenderingContext2D,
+    _block: TextualBlock,
+    _markerX: number,
+    _lineTopY: number,
+    _layout: TextBlockLayout,
+    _styles: EditorStyles,
+    _state: EditorState,
+    _blockIndex: number,
+  ): void {}
+
+  /** Placeholder text shown when the block is empty and focused. */
+  protected placeholderText(
+    block: TextualBlock,
+    styles: EditorStyles,
+    state: EditorState,
+  ): string {
+    if (block.type === "paragraph") {
+      const isTouchOnly = isTouchDevice() && !state.view.hasPhysicalKeyboard;
+      return isTouchOnly
+        ? styles.placeholder.paragraph.touchCompatiableText
+        : styles.placeholder.paragraph.keyboardCompatibleText;
+    }
+    // Narrow to heading types before indexing PlaceholderStyles (the list family
+    // is handled by ListBlockView, never reaching this base implementation).
+    if (
+      block.type === "heading1" ||
+      block.type === "heading2" ||
+      block.type === "heading3"
+    ) {
+      const config = styles.placeholder[block.type];
+      return "text" in config ? config.text : "";
+    }
+    return "";
   }
 }
 

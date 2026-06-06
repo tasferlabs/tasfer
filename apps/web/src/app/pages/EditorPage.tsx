@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  isTextualBlock,
   type Block,
   type TextualBlock,
 } from "@cypherkit/editor/serlization/loadPage";
@@ -38,7 +37,13 @@ import {
 import * as Popover from "@radix-ui/react-popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { debounce } from "lodash-es";
-import { Calendar, ChevronDown, ChevronRight, History, Trash } from "lucide-react";
+import {
+  Calendar,
+  ChevronDown,
+  ChevronRight,
+  History,
+  Trash,
+} from "lucide-react";
 import { DateTime } from "luxon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -74,6 +79,7 @@ import useLocalStorage from "../hooks/useLocalStorage";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useResponsive from "../hooks/useResponsive";
 import style from "./EditorPage.module.css";
+import { isTextualBlock } from "@cypherkit/editor/sync/block-registry";
 
 // Helper function to count words from blocks
 function countWordsFromBlocks(blocks: Block[]): number {
@@ -335,13 +341,7 @@ export default function EditorPage() {
   // Remote peer updates are NOT persisted by this user; peers handle saving their own changes
   // IMPORTANT: pageId is passed with the data to avoid race conditions when switching pages
   const handleSave = useCallback(
-    async ({
-      pageId,
-      blocks,
-    }: {
-      pageId: string;
-      blocks: Block[];
-    }) => {
+    async ({ pageId, blocks }: { pageId: string; blocks: Block[] }) => {
       if (!pageId) return;
 
       try {
@@ -509,7 +509,9 @@ export default function EditorPage() {
   // Snapshot is loaded once on mount, editor manages state from there
   return (
     <div className="flex flex-col w-full h-full">
-      <TopActionBarPortal><PageActionBar pageId={id} /></TopActionBarPortal>
+      <TopActionBarPortal>
+        <PageActionBar pageId={id} />
+      </TopActionBarPortal>
       <div className="relative flex-1 min-h-0 overflow-hidden">
         {/* Schedule tag overlaid on editor, scrolls with canvas content */}
         <div
@@ -960,7 +962,7 @@ function PageActionBar({ pageId }: { pageId: string }) {
   );
 }
 
-export function EditorLoadingState({padding = true}: {padding?: boolean}) {
+export function EditorLoadingState({ padding = true }: { padding?: boolean }) {
   return (
     <div className={clsx("w-full h-full", padding && "p-6 md:p-10")}>
       <Skeleton className="h-12 w-3/4 mb-8" />

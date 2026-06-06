@@ -24,13 +24,15 @@ import {
   getVisibleTextFromRuns,
   extractTitleFromBlocks,
 } from "@cypherkit/editor/sync/char-runs";
-import { isTextualBlock, isListBlock, type Block, type Image } from "@cypherkit/editor/serlization/loadPage";
+import { type Block, type Image } from "@cypherkit/editor/serlization/loadPage";
 import { imageCache } from "@cypherkit/editor/rendering/renderer";
 import { getPlatform } from "@/platform";
 import { getPage } from "../api/pages.api";
 import type { PageMetadata } from "@cypherkit/editor/serlization/serializer";
 import { downloadFile } from "@/downloadFile";
 import { getBridge } from "@/platform/bridge";
+import { isTextualBlock } from "@cypherkit/editor/sync/block-registry";
+import { isListBlock } from "@cypherkit/editor/serlization/loadPage";
 
 interface ElectronWindow {
   cypher?: { invoke(channel: string, ...args: unknown[]): Promise<unknown> };
@@ -82,7 +84,10 @@ function imageElementToBlob(img: HTMLImageElement): Promise<Blob | null> {
     canvas.width = img.naturalWidth;
     canvas.height = img.naturalHeight;
     const ctx = canvas.getContext("2d");
-    if (!ctx) { resolve(null); return; }
+    if (!ctx) {
+      resolve(null);
+      return;
+    }
     ctx.drawImage(img, 0, 0);
     canvas.toBlob((blob) => resolve(blob), "image/png");
   });
@@ -146,7 +151,11 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     return sanitized || "document";
   };
 
-  const downloadTextFile = async (content: string, extension: string, mimeType: string) => {
+  const downloadTextFile = async (
+    content: string,
+    extension: string,
+    mimeType: string,
+  ) => {
     const blob = new Blob([content], { type: mimeType });
     await downloadFile(blob, `${getBaseName()}.${extension}`, mimeType);
     onOpenChange(false);
@@ -200,7 +209,10 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
         }
       }
     }
-    return serializeToHTML(currentBlocks, { title: getBaseName(), imageUrlMap });
+    return serializeToHTML(currentBlocks, {
+      title: getBaseName(),
+      imageUrlMap,
+    });
   };
 
   const printViaWindow = async (html: string) => {
@@ -252,7 +264,10 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       // Electron: silent printToPDF in main process, then download via existing flow
       const electron = (window as unknown as ElectronWindow).cypher;
       if (electron?.invoke) {
-        const buf = (await electron.invoke("pdf:generate", html)) as ArrayBuffer;
+        const buf = (await electron.invoke(
+          "pdf:generate",
+          html,
+        )) as ArrayBuffer;
         const blob = new Blob([buf], { type: "application/pdf" });
         await downloadFile(blob, `${baseName}.pdf`, "application/pdf");
         onOpenChange(false);
@@ -310,7 +325,10 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       for (const [originalUrl, fileName] of urlToFileName) {
         // Escape special regex chars in the URL
         const escaped = originalUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        rewritten = rewritten.replace(new RegExp(escaped, "g"), `./images/${fileName}`);
+        rewritten = rewritten.replace(
+          new RegExp(escaped, "g"),
+          `./images/${fileName}`,
+        );
       }
 
       zip.file(`${baseName}.md`, rewritten);
@@ -329,7 +347,9 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
-              <DrawerTitle>{t("export.document", "Export document")}</DrawerTitle>
+              <DrawerTitle>
+                {t("export.document", "Export document")}
+              </DrawerTitle>
             </DrawerHeader>
             <div className="px-4 space-y-2">
               <Button
@@ -339,7 +359,9 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
               >
                 <FileText className="h-5 w-5 text-muted-foreground" />
                 <div className="flex flex-col items-start">
-                  <span className="font-medium">{t("export.plainText", "Plain Text")}</span>
+                  <span className="font-medium">
+                    {t("export.plainText", "Plain Text")}
+                  </span>
                   <span className="text-xs text-muted-foreground">.txt</span>
                 </div>
               </Button>
@@ -371,7 +393,11 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
                   <FileCode className="h-5 w-5 text-muted-foreground" />
                 )}
                 <div className="flex flex-col items-start">
-                  <span className="font-medium">{isExporting ? t("export.exporting", "Exporting...") : t("common.markdown", "Markdown")}</span>
+                  <span className="font-medium">
+                    {isExporting
+                      ? t("export.exporting", "Exporting...")
+                      : t("common.markdown", "Markdown")}
+                  </span>
                   <span className="text-xs text-muted-foreground">.md</span>
                 </div>
               </Button>
@@ -388,7 +414,10 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
         <DialogHeader>
           <DialogTitle>{t("export.document", "Export document")}</DialogTitle>
           <DialogDescription>
-            {t("export.chooseFormat", "Choose a format to export your document")}
+            {t(
+              "export.chooseFormat",
+              "Choose a format to export your document",
+            )}
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-3 gap-3">
@@ -397,7 +426,9 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer"
           >
             <FileText className="h-8 w-8 mb-2 text-muted-foreground" />
-            <span className="font-medium">{t("export.plainText", "Plain Text")}</span>
+            <span className="font-medium">
+              {t("export.plainText", "Plain Text")}
+            </span>
             <span className="text-xs text-muted-foreground">.txt</span>
           </button>
           <button
@@ -423,7 +454,11 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             ) : (
               <FileCode className="h-8 w-8 mb-2 text-muted-foreground" />
             )}
-            <span className="font-medium">{isExporting ? t("export.exporting", "Exporting...") : t("common.markdown", "Markdown")}</span>
+            <span className="font-medium">
+              {isExporting
+                ? t("export.exporting", "Exporting...")
+                : t("common.markdown", "Markdown")}
+            </span>
             <span className="text-xs text-muted-foreground">.md</span>
           </button>
         </div>

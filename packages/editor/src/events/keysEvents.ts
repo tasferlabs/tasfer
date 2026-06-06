@@ -50,11 +50,8 @@ import {
   moveCursorPageUp,
   moveCursorUp,
 } from "../selection";
-import {
-  type Block,
-  isListBlock,
-  isTextualBlock,
-} from "../serlization/loadPage";
+import { type Block } from "../serlization/loadPage";
+import { isListBlock } from "../serlization/loadPage";
 import type {
   EditorState,
   KeyboardEvent,
@@ -73,8 +70,9 @@ import {
   updateSlashCommandFilter,
   updateSlashCommandSelection,
 } from "../state-utils";
-import { deleteCharsInRange } from "../sync/crdt-utils";
+import { isTextualBlock } from "../sync/block-registry";
 import { redoState, undoState } from "../sync/crdt-undo";
+import { deleteCharsInRange } from "../sync/crdt-utils";
 import type { Operation } from "../sync/sync";
 import { ensureCursorVisible, isTouchDevice } from "./eventUtils";
 

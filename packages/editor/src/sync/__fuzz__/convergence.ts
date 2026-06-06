@@ -1,9 +1,9 @@
 import {
   type Block,
-  isTextualBlock,
   type Page,
   type TextFormat,
 } from "../../serlization/loadPage";
+import { isTextualBlock } from "../block-registry";
 import { getVisibleLengthFromRuns } from "../char-runs";
 import type { BlockType, Operation } from "../crdt-types";
 import { rebuildState } from "../reducer";

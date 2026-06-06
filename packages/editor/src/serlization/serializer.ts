@@ -1,7 +1,9 @@
 import { IMAGE_DEFAULT_HEIGHT } from "../constants";
+import { isImageDefault } from "../rendering/blocks/ImageBlockView";
+import { isTextualBlock } from "../sync/block-registry";
 import { getVisibleTextFromRuns, iterateVisibleChars } from "../sync/char-runs";
 import type { Block, CharRun, FormatSpan, TextFormat } from "./loadPage";
-import { isImageDefault, isListBlock, isTextualBlock } from "./loadPage";
+import { isListBlock } from "./loadPage";
 
 // Helper to group chars with same formatting for serialization
 function groupCharsForSerialization(

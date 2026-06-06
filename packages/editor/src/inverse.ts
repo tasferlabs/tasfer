@@ -15,9 +15,12 @@
  * states; callers pass `applyOp` in to avoid a circular import.
  */
 import type { Block, Char, Page, TextFormat } from "./serlization/loadPage";
-import { isTextualBlock } from "./serlization/loadPage";
 import type { CRDTbinding } from "./state-types";
-import { getBlockDescriptor, getBlockFieldNames } from "./sync/block-registry";
+import {
+  getBlockDescriptor,
+  getBlockFieldNames,
+  isTextualBlock,
+} from "./sync/block-registry";
 import {
   charRunsToChars,
   charsToRuns,

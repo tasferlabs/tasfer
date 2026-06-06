@@ -21,7 +21,7 @@
 
 import { invertOperation, refreshOps } from "../../inverse";
 import type { Page, Paragraph } from "../../serlization/loadPage";
-import { isTextualBlock } from "../../serlization/loadPage";
+import { isTextualBlock } from "../block-registry";
 import { getVisibleLengthFromRuns, iterateVisibleChars } from "../char-runs";
 import type { FormatSet } from "../crdt-types";
 import { applyOps } from "../reducer";

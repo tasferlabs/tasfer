@@ -17,6 +17,7 @@
  */
 
 import { resolveAssetUrl } from "../../adapters";
+import { IMAGE_DEFAULT_HEIGHT } from "../../constants";
 import type { Image } from "../../serlization/loadPage";
 import type { BlockBounds, EditorStyles } from "../../state-types";
 import { AtomicBlockView } from "./AtomicBlockView";
@@ -485,4 +486,12 @@ function renderImageDragHandles(
   }
 
   ctx.restore();
+} // Check if an image block is in default state (cover mode, full width, 300px height)
+
+export function isImageDefault(block: Image): boolean {
+  const width = block.width ?? "full";
+  const height = block.height ?? IMAGE_DEFAULT_HEIGHT;
+  const objectFit = block.objectFit ?? "cover";
+
+  return width === "full" && height === 300 && objectFit === "cover";
 }

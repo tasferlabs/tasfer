@@ -9,12 +9,12 @@ import {
   type Block,
   type Char,
   type FormatSpan,
-  isTextualBlock,
   type Page,
 } from "../serlization/loadPage";
 import {
   canMorphTo,
   createDefaultBlock,
+  isTextualBlock,
   validateBlockField,
 } from "./block-registry";
 import {

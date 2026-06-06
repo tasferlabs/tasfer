@@ -3,7 +3,6 @@ import {
   type Block,
   type CharRun,
   type FormatSpan,
-  isTextualBlock,
   type Page,
   type TextFormat,
 } from "../serlization/loadPage";
@@ -16,6 +15,7 @@ import type {
   Position,
 } from "../state-types";
 import { updateSelection } from "../updateSelection";
+import { isTextualBlock } from "./block-registry";
 import {
   findCharInRuns,
   getCharIdAtVisiblePosition,

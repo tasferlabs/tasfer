@@ -35,7 +35,6 @@ import {
   startSelection,
   updateSelectionFocus,
 } from "../selection";
-import { isTextualBlock } from "../serlization/loadPage";
 import type { EditorState, MouseEvent, ViewportState } from "../state-types";
 import {
   clearAutoCreatedParagraph,
@@ -46,6 +45,7 @@ import {
   updateMode,
 } from "../state-utils";
 import { getEditorStyles, getTextStyle } from "../styles";
+import { isTextualBlock } from "../sync/block-registry";
 import type { Operation } from "../sync/sync";
 import {
   autoScrollState,
@@ -79,7 +79,7 @@ export function handleTodoCheckboxClick(
     return null;
   }
 
-  const styles = getEditorStyles();
+  const styles = getEditorStyles(state);
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
@@ -91,6 +91,7 @@ export function handleTodoCheckboxClick(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const visibleBlock = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
+      state.blockViews,
       visibleBlock,
       maxWidth,
       styles,
@@ -174,7 +175,7 @@ export function isPointOverCheckbox(
   canvasY: number,
   viewport: ViewportState,
 ): boolean {
-  const styles = getEditorStyles();
+  const styles = getEditorStyles(state);
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
@@ -184,6 +185,7 @@ export function isPointOverCheckbox(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const visibleBlock = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
+      state.blockViews,
       visibleBlock,
       maxWidth,
       styles,
@@ -601,7 +603,7 @@ export function handleMouseDown(
   }
 
   // Check if clicking in top padding area
-  const styles = getEditorStyles();
+  const styles = getEditorStyles(state);
   const isClickInTopPadding =
     canvasY < styles.canvas.paddingTop - viewport.scrollY;
 

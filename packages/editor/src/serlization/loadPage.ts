@@ -1,5 +1,3 @@
-import { IMAGE_DEFAULT_HEIGHT } from "../constants";
-import { hasTextContent } from "../sync/block-registry";
 import type { HLC } from "../sync/sync";
 import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
@@ -156,28 +154,6 @@ export type VisualBlock = Image | Line | Math;
 // Block is a union of all block types
 export type Block = TextBlock | VisualBlock | ListBlock;
 
-// Type guards
-export function isTextualBlock(block: Block): block is TextualBlock {
-  return hasTextContent(block.type);
-}
-
-export function isListBlock(block: Block): block is ListBlock {
-  return (
-    block.type === "bullet_list" ||
-    block.type === "numbered_list" ||
-    block.type === "todo_list"
-  );
-}
-
-// Check if an image block is in default state (cover mode, full width, 300px height)
-export function isImageDefault(block: Image): boolean {
-  const width = block.width ?? "full";
-  const height = block.height ?? IMAGE_DEFAULT_HEIGHT;
-  const objectFit = block.objectFit ?? "cover";
-
-  return width === "full" && height === 300 && objectFit === "cover";
-}
-
 export interface PageMetadata {
   color?: string | null;
   scheduledAt?: string | null;
@@ -238,4 +214,19 @@ export function loadPage(content: string): Page {
   const page = parsePage(tokens);
   if (metadata) page.metadata = metadata;
   return page;
+}
+/**
+ * Type guard for the bullet/numbered/todo list family. Lives here, next to the
+ * `Block`/`ListBlock` types it guards, rather than in `ListBlockView` — the view
+ * extends `TextBlockView`, so co-locating the predicate there made every
+ * lightweight consumer (state-utils, selection, serializers, …) pull in the
+ * whole inheritance chain and created an init-time import cycle.
+ */
+
+export function isListBlock(block: Block): block is ListBlock {
+  return (
+    block.type === "bullet_list" ||
+    block.type === "numbered_list" ||
+    block.type === "todo_list"
+  );
 }

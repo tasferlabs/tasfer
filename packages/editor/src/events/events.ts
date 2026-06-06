@@ -19,10 +19,10 @@ import {
 } from "../selection";
 import { updateCursor } from "../selection";
 import { startSelection, updateSelectionFocus } from "../selection";
-import { isTextualBlock } from "../serlization/loadPage";
 import type { EditorState, MouseEvent, ViewportState } from "../state-types";
 import { closeActiveMenu, openContextMenu, updateMode } from "../state-utils";
 import { getEditorStyles, getTextStyle } from "../styles";
+import { isTextualBlock } from "../sync/block-registry";
 import type { Operation } from "../sync/crdt-types";
 import {
   handleCompositionEnd,
@@ -59,7 +59,7 @@ function getBlockLineHeight(
   const block = state.document.page.blocks[blockIndex];
   if (!block) return 16 * 1.6;
   if (!isTextualBlock(block)) return 16 * 1.6;
-  const styles = getEditorStyles();
+  const styles = getEditorStyles(state);
   const textStyle = getTextStyle(styles, block.type);
   return textStyle.fontSize * textStyle.lineHeight;
 }

@@ -1,3 +1,4 @@
+import { getDefaultDirection } from "../rtl";
 import type {
   EditorState,
   SearchHighlight,
@@ -9,12 +10,6 @@ import {
   type AwarenessState,
 } from "../sync/awareness";
 import { getBlockHeight } from "./renderer";
-import i18next from "i18next";
-
-/** Whether the app UI is currently RTL */
-function isAppRTL(): boolean {
-  return i18next.dir() === "rtl";
-}
 
 export interface ScrollbarState {
   readonly isDragging: boolean;
@@ -209,7 +204,7 @@ export function calculateScrollbarBounds(
   const trackWidth = styles.width;
   const safeAreaBottom = getSafeAreaBottom();
   const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
-  const trackX = isAppRTL()
+  const trackX = getDefaultDirection()
     ? styles.padding
     : viewport.width - trackWidth - styles.padding;
   const trackY = styles.padding;
@@ -291,7 +286,7 @@ export function renderScrollbar(
   const widthDiff = scaledWidth - bounds.thumbWidth;
   const trackWidthDiff = scaledTrackWidth - bounds.trackWidth;
   // Expand towards content: left in LTR, right in RTL (RTL scrollbar is on the left)
-  const rtl = isAppRTL();
+  const rtl = getDefaultDirection();
   const thumbX = rtl ? bounds.thumbX : bounds.thumbX - widthDiff;
   const trackX = rtl ? bounds.trackX : bounds.trackX - trackWidthDiff;
 
@@ -384,7 +379,7 @@ export function isPointInScrollbar(
     ? Math.max(visualWidth, styles.touchTargetWidth)
     : visualWidth;
 
-  const rtl = isAppRTL();
+  const rtl = getDefaultDirection();
   const trackY = styles.padding;
   const safeAreaBottom = getSafeAreaBottom();
   const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
@@ -623,7 +618,7 @@ export function renderScrollbarPeerMarkers(
   const safeAreaBottom = getSafeAreaBottom();
   const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
   const trackWidthDiff = trackWidth - styles.width;
-  const rtl = isAppRTL();
+  const rtl = getDefaultDirection();
   const trackX = rtl
     ? styles.padding
     : viewport.width - styles.width - styles.padding - trackWidthDiff;
@@ -664,7 +659,7 @@ function renderScrollbarSearchMarkers(
     return;
   }
 
-  const editorStyles = getEditorStyles();
+  const editorStyles = getEditorStyles(state);
   const maxWidth =
     viewport.width -
     (editorStyles.canvas.paddingLeft + editorStyles.canvas.paddingRight);
@@ -677,14 +672,20 @@ function renderScrollbarSearchMarkers(
   for (let i = 0; i < visibleBlocks.length; i++) {
     const block = visibleBlocks[i];
     blockYMap.set(block.originalIndex, currentY);
-    currentY += getBlockHeight(block, maxWidth, editorStyles, i === 0);
+    currentY += getBlockHeight(
+      state.blockViews,
+      block,
+      maxWidth,
+      editorStyles,
+      i === 0,
+    );
   }
 
   const trackWidth = styles.width * scale;
   const safeAreaBottom = getSafeAreaBottom();
   const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
   const trackWidthDiff = trackWidth - styles.width;
-  const rtl = isAppRTL();
+  const rtl = getDefaultDirection();
   const trackX = rtl
     ? styles.padding
     : viewport.width - styles.width - styles.padding - trackWidthDiff;
@@ -789,7 +790,7 @@ function calculatePeerMarkers(
   state: EditorState,
   viewport: ViewportState,
   documentHeight: number,
-  styles = getEditorStyles(),
+  styles = getEditorStyles(state),
 ): PeerMarker[] {
   const markers: PeerMarker[] = [];
   const maxWidth =
@@ -814,7 +815,13 @@ function calculatePeerMarkers(
     for (let i = 0; i < visibleBlocks.length; i++) {
       const visibleBlock = visibleBlocks[i];
       if (visibleBlock.originalIndex >= position.blockIndex) break;
-      documentY += getBlockHeight(visibleBlock, maxWidth, styles, i === 0);
+      documentY += getBlockHeight(
+        state.blockViews,
+        visibleBlock,
+        maxWidth,
+        styles,
+        i === 0,
+      );
     }
 
     // Calculate ratio

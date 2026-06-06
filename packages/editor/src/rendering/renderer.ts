@@ -9,7 +9,7 @@ import {
 import { getTextDirection } from "../rtl";
 import { isCursorBlinking } from "../selection";
 import type { Block, Char, CharRun, FormatSpan } from "../serlization/loadPage";
-import { isListBlock, isTextualBlock } from "../serlization/loadPage";
+import { isListBlock } from "../serlization/loadPage";
 import type {
   EditorState,
   EditorStyles,
@@ -24,6 +24,7 @@ import {
   awarenessCursorToPosition,
   awarenessSelectionToSelection,
 } from "../sync/awareness";
+import { isTextualBlock } from "../sync/block-registry";
 import {
   getCharIdFromRun,
   getVisibleTextFromChars,
@@ -31,15 +32,9 @@ import {
   isCharDeleted,
 } from "../sync/char-runs";
 import type { Operation } from "../sync/sync";
-import {
-  getBlockView,
-  getContentWithComposition,
-  registerBuiltinBlockViews,
-} from "./blocks";
+import type { BlockViewRegistry } from "./blocks";
+import { getContentWithComposition } from "./blocks";
 import { renderScrollbar } from "./scrollbar";
-
-// Register built-in block views at module load so dispatch can find them.
-registerBuiltinBlockViews();
 
 /**
  * Convert charRuns to Char[] for compatibility with measurement functions
@@ -59,8 +54,10 @@ function charRunsToChars(charRuns: CharRun[] | undefined): Char[] {
   return chars;
 }
 
-// Helper to get or calculate block height, storing it on the block
+// Helper to get or calculate block height, storing it on the block.
+// `views` is the per-instance block view registry (from EditorState.blockViews).
 export function getBlockHeight(
+  views: BlockViewRegistry,
   block: Block,
   maxWidth: number,
   styles: EditorStyles,
@@ -71,7 +68,7 @@ export function getBlockHeight(
   if (block.cachedHeight !== undefined && block.cachedWidth === maxWidth) {
     height = block.cachedHeight;
   } else {
-    height = calculateBlockHeight(block, maxWidth, styles);
+    height = calculateBlockHeight(views, block, maxWidth, styles);
     block.cachedHeight = height;
     block.cachedWidth = maxWidth;
   }
@@ -79,7 +76,7 @@ export function getBlockHeight(
   // Some blocks (e.g. a first full-width image) bleed into the top padding and
   // therefore advance the flow by less than their drawn height. The per-type
   // rule lives on the block view rather than in a type switch here.
-  const view = getBlockView(block.type);
+  const view = views.get(block.type);
   if (view?.adjustFlowHeight) {
     return view.adjustFlowHeight(height, {
       block,
@@ -169,7 +166,7 @@ export function renderPage(
   state: EditorState,
   viewport: ViewportState,
   visibility: { start: number; end: number },
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
   remoteAwareness: Map<string, AwarenessState>,
   requestRedraw: () => void,
 ) {
@@ -199,6 +196,7 @@ export function renderPage(
 
     // Get or calculate block height (cached on the block itself)
     const blockHeight = getBlockHeight(
+      state.blockViews,
       block,
       maxWidth,
       styles,
@@ -257,13 +255,13 @@ export function renderBlock(
   x: number,
   y: number,
   maxWidth: number,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
   remoteAwareness?: Map<string, AwarenessState>,
   requestRedraw: () => void = () => {},
 ): RenderedBlock {
   // Blocks ported to the BlockView registry (image, line, …) dispatch here.
   {
-    const view = getBlockView(block.type);
+    const view = state.blockViews.get(block.type);
     if (view) {
       const layoutCtx = {
         block,
@@ -577,7 +575,13 @@ function renderMathBlock(
   }
 
   // Recalculate the actual layout height to ensure highlight matches layout
-  const layoutHeight = getBlockHeight(block, maxWidth, styles, false);
+  const layoutHeight = getBlockHeight(
+    state.blockViews,
+    block,
+    maxWidth,
+    styles,
+    false,
+  );
 
   // Render local selection overlay
   if (state.document.selection && !state.document.selection.isCollapsed) {
@@ -608,6 +612,7 @@ function renderMathBlock(
 
 // Calculate block height dynamically based on content and max width
 export function calculateBlockHeight(
+  views: BlockViewRegistry,
   block: Block,
   maxWidth: number,
   styles: EditorStyles,
@@ -615,7 +620,7 @@ export function calculateBlockHeight(
   // Blocks ported to the BlockView registry (image, line, …). The height pass
   // reuses the same layout() the painter uses, so wrapping/sizing never drifts.
   {
-    const view = getBlockView(block.type);
+    const view = views.get(block.type);
     if (view) {
       return view.layout({
         block,
@@ -694,6 +699,7 @@ function calculateCursorPosition(
     if (visibleBlock.originalIndex >= position.blockIndex) break;
 
     const blockHeight = getBlockHeight(
+      state.blockViews,
       visibleBlock,
       maxWidth,
       styles,
@@ -1103,7 +1109,7 @@ export function renderCursorLayer(
   ctx: CanvasRenderingContext2D,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
   remoteAwareness?: Map<string, AwarenessState>,
 ) {
   // Save context state
@@ -1158,6 +1164,7 @@ export function renderCursorLayer(
     if (visibleBlock.originalIndex >= cursorBlockIndex) break;
 
     const blockHeight = getBlockHeight(
+      state.blockViews,
       visibleBlock,
       maxWidth,
       styles,
@@ -1167,6 +1174,7 @@ export function renderCursorLayer(
   }
 
   const blockHeight = getBlockHeight(
+    state.blockViews,
     block,
     maxWidth,
     styles,
@@ -1273,6 +1281,7 @@ function getPositionCoordinates(
     if (visibleBlock.originalIndex >= position.blockIndex) break;
 
     currentY += getBlockHeight(
+      state.blockViews,
       visibleBlock,
       maxWidth,
       styles,
@@ -1450,7 +1459,7 @@ export function renderSelectionHandles(
   ctx: CanvasRenderingContext2D,
   state: EditorState,
   viewport: ViewportState,
-  styles: EditorStyles = getEditorStyles(),
+  styles: EditorStyles = getEditorStyles(state),
 ) {
   // Only render handles on touch devices
   if (!isTouchDevice()) {

@@ -1,3 +1,8 @@
+import {
+  type BlockView,
+  createBlockViewRegistry,
+  createDefaultBlockViewRegistry,
+} from "../rendering/blocks";
 import { setKeyboardOpen } from "../rendering/scrollbar";
 import { type Block, type Page } from "../serlization/loadPage";
 import type { FontStyles, PlaceholderStyles, TextStyle } from "../state-types";
@@ -7,17 +12,7 @@ import {
   detectPhysicalKeyboardHeuristic,
   isTouchDevice,
 } from "../state-utils";
-import {
-  getBlockStyleOverrides,
-  getEditorPadding,
-  getFontStyles,
-  getPlaceholderOverrides,
-  setBlockStyleOverrides,
-  setEditorPadding,
-  setFontStyles,
-  setPlaceholderOverrides,
-  setWindowFocused,
-} from "../styles";
+import { getFontStyles, setFontStyles } from "../styles";
 import createEditor, { type Editor } from "./editor";
 import {
   createCanvasLayers,
@@ -84,6 +79,16 @@ export interface MountEditorOptions {
    * globally-configured registry untouched; the editor defaults to system fonts.
    */
   fonts?: Partial<FontStyles> | null;
+  /**
+   * The set of block views this editor instance supports. Each editor owns its
+   * own registry, so different editors can opt into different block types.
+   * Omit to use the built-in set (`createDefaultBlockViewRegistry`).
+   *
+   * Example — an editor without the image block:
+   *   import { lineBlockView, textBlockView } from "@cypherkit/editor";
+   *   mountEditor(el, blocks, { blockViews: [lineBlockView, textBlockView] });
+   */
+  blockViews?: readonly BlockView[];
 }
 
 /**
@@ -92,22 +97,17 @@ export interface MountEditorOptions {
  */
 export function mountEditor(
   container: HTMLElement,
-  blocks: Block[],
+  blocks: Block[], //NOTE - Should be called state
   options?: MountEditorOptions,
 ): MountedEditor {
-  // Save previous overrides so they can be restored when this editor is destroyed
-  // (prevents a secondary editor like SnapshotPreview from clobbering the main editor's settings)
-  const prevPadding = getEditorPadding();
-  const prevBlockStyles = getBlockStyleOverrides();
-  const prevPlaceholders = getPlaceholderOverrides();
+  // Padding, block-style, and placeholder overrides are now per-instance state
+  // (see createInitialState below) — no module globals to save/restore.
+  //
+  // The font registry is still a module global pending Phase 2, so it keeps the
+  // save/restore dance. Fonts are opt-in: only override when explicitly provided
+  // so an app that configures its registry globally isn't reset by editors that
+  // don't.
   const prevFonts = getFontStyles();
-
-  // Apply padding and block style overrides before creating editor
-  setEditorPadding(options?.padding ?? null);
-  setBlockStyleOverrides(options?.blockStyleOverrides ?? null);
-  setPlaceholderOverrides(options?.placeholderOverrides ?? null);
-  // Fonts are opt-in: only override when explicitly provided so an app that
-  // configures its registry globally isn't reset by editors that don't.
   if (options?.fonts !== undefined) {
     setFontStyles(options.fonts);
   }
@@ -188,9 +188,22 @@ export function mountEditor(
     documentHeight: 0,
   };
 
-  // Create initial state from the page (blocks already loaded)
+  // Build this editor's per-instance block view registry (opt-in block set).
+  const blockViews = options?.blockViews
+    ? createBlockViewRegistry(options.blockViews)
+    : createDefaultBlockViewRegistry();
+
+  // Create initial state from the page (blocks already loaded). Per-instance
+  // style overrides live on the state (no module globals), so two editors on a
+  // page don't clobber each other's padding/block/placeholder styling.
   const initialState = createInitialState(page, {
     mode: options?.readonly ? "readonly" : "edit",
+    blockViews,
+    styleConfig: {
+      padding: options?.padding ?? null,
+      blockStyleOverrides: options?.blockStyleOverrides ?? null,
+      placeholderOverrides: options?.placeholderOverrides ?? null,
+    },
   });
 
   // Create editor with initial state and layered canvases
@@ -379,13 +392,11 @@ export function mountEditor(
   hiddenInput.addEventListener("blur", handleInputBlur);
 
   const handleWindowFocus = () => {
-    setWindowFocused(true);
-    editor.forceRender();
+    editor.setWindowFocused(true);
   };
 
   const handleWindowBlur = () => {
-    setWindowFocused(false);
-    editor.forceRender();
+    editor.setWindowFocused(false);
   };
 
   window.addEventListener("focus", handleWindowFocus);
@@ -417,10 +428,8 @@ export function mountEditor(
 
   const destroy = () => {
     destroyed = true;
-    // Restore previous style overrides so the main editor isn't affected
-    setEditorPadding(prevPadding);
-    setBlockStyleOverrides(prevBlockStyles);
-    setPlaceholderOverrides(prevPlaceholders);
+    // Restore previous font registry so the main editor isn't affected (the
+    // other style overrides are per-instance state and need no restore).
     if (options?.fonts !== undefined) {
       setFontStyles(prevFonts);
     }

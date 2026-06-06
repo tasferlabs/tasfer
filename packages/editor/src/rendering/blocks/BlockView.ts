@@ -118,17 +118,37 @@ export abstract class BlockView<B extends Block = Block> {
 // ---------------------------------------------------------------------------
 // View registry — the single dispatch point that replaces ~69 `block.type ===`
 // switches across renderer / selection / event-utils.
+//
+// IMPORTANT: this is a per-editor-instance object, NOT a module global. Each
+// editor owns its own registry (stored on EditorState.blockViews), so two
+// editors on the same page can register different block sets — e.g. one with
+// list blocks and one without. This is also what makes block types opt-in: a
+// host composes the registry it wants at mount time. A module-level Map would
+// be shared across every editor and break both of those properties.
 // ---------------------------------------------------------------------------
 
-const VIEW_REGISTRY = new Map<string, BlockView>(); //NOTE - no globals so we can have multiple editors
+export class BlockViewRegistry {
+  private readonly views = new Map<string, BlockView>();
 
-export function registerBlockView(view: BlockView): void {
-  const keys = view.types ?? [view.type];
-  for (const key of keys) {
-    VIEW_REGISTRY.set(key, view);
+  /**
+   * Register a view under its `type` (or every key in `types` for views that
+   * back a family of block types). Returns `this` for fluent chaining.
+   */
+  register(view: BlockView): this {
+    const keys = view.types ?? [view.type];
+    for (const key of keys) {
+      this.views.set(key, view);
+    }
+    return this;
   }
-}
 
-export function getBlockView(type: string): BlockView | undefined {
-  return VIEW_REGISTRY.get(type);
+  /** Look up the view for a block type, or `undefined` if none is registered. */
+  get(type: string): BlockView | undefined {
+    return this.views.get(type);
+  }
+
+  /** Whether a view is registered for this block type. */
+  has(type: string): boolean {
+    return this.views.has(type);
+  }
 }

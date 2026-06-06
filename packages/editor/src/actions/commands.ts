@@ -7,8 +7,13 @@ import {
   startSelection,
   updateSelectionFocus,
 } from "../selection";
-import type { Block, CharRun, Page, TextFormat } from "../serlization/loadPage";
-import { isListBlock, isTextualBlock } from "../serlization/loadPage";
+import {
+  type Block,
+  type CharRun,
+  type Page,
+  type TextFormat,
+} from "../serlization/loadPage";
+import { isListBlock } from "../serlization/loadPage";
 import type {
   CommandResult,
   CRDTbinding,
@@ -23,6 +28,7 @@ import {
   getBlockTextLength,
   updateMode,
 } from "../state-utils";
+import { isTextualBlock } from "../sync/block-registry";
 import {
   deleteFromRuns,
   getVisibleTextFromRuns,

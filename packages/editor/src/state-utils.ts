@@ -1,18 +1,21 @@
 import { getCurrentFontFamily, measureCharsUpToIndex, wrapText } from "./fonts";
+import type { BlockViewRegistry } from "./rendering/blocks";
+import { createDefaultBlockViewRegistry } from "./rendering/blocks";
 import {
   createInitialMomentumState,
   createInitialScrollbarState,
 } from "./rendering/scrollbar";
 import { getTextDirection } from "./rtl";
-import type { Block, Page } from "./serlization/loadPage";
-import { isListBlock, isTextualBlock } from "./serlization/loadPage";
+import { type Block, isListBlock, type Page } from "./serlization/loadPage";
 import type {
   EditorMode,
   EditorState,
   EditorStyles,
   Position,
+  StyleConfig,
 } from "./state-types";
 import { getEditorStyles, getTextStyle } from "./styles";
+import { isTextualBlock } from "./sync/block-registry";
 import {
   charRunsToChars,
   getVisibleLengthFromRuns,
@@ -26,7 +29,11 @@ import { createCRDTbinding, getVisibleBlocks } from "./sync/sync";
 // State Creation Functions
 export function createInitialState(
   page: Page,
-  options?: { mode?: EditorMode },
+  options?: {
+    mode?: EditorMode;
+    blockViews?: BlockViewRegistry;
+    styleConfig?: Partial<StyleConfig>;
+  },
 ): EditorState {
   const peerId = generatePeerId();
 
@@ -36,8 +43,20 @@ export function createInitialState(
   // id/clock state — so we always create one, readonly or not.
   const CRDTbinding = createCRDTbinding(page.id, peerId);
 
+  // Block view registry is likewise per-instance. The host composes it at mount
+  // (opt-in block set); default to the built-in views when not provided.
+  const blockViews = options?.blockViews ?? createDefaultBlockViewRegistry();
+
+  const styleConfig: StyleConfig = {
+    padding: options?.styleConfig?.padding ?? null,
+    blockStyleOverrides: options?.styleConfig?.blockStyleOverrides ?? null,
+    placeholderOverrides: options?.styleConfig?.placeholderOverrides ?? null,
+  };
+
   return {
     CRDTbinding,
+    blockViews,
+    styleConfig,
     document: {
       page,
       cursor: null,
@@ -63,6 +82,7 @@ export function createInitialState(
     },
     view: {
       isFocused: false,
+      isWindowFocused: true,
       clickTracker: {
         count: 0,
         lastClickTime: 0,
@@ -108,6 +128,16 @@ export function updatePhysicalKeyboardState(
   return {
     ...state,
     view: { ...state.view, hasPhysicalKeyboard },
+  };
+}
+
+export function updateWindowFocused(
+  state: EditorState,
+  isWindowFocused: boolean,
+): EditorState {
+  return {
+    ...state,
+    view: { ...state.view, isWindowFocused },
   };
 }
 

@@ -1,9 +1,9 @@
 import { IMAGE_DEFAULT_HEIGHT } from "./constants";
 import { getCurrentFontFamily, getFontStack } from "./fonts";
 import type {
+  EditorState,
   EditorStyles,
   FontStyles,
-  PlaceholderStyles,
   TextStyle,
 } from "./state-types";
 import { isTouchDevice } from "./state-utils";
@@ -24,82 +24,14 @@ const DEFAULT_FONT_STYLES: FontStyles = {
 };
 
 /**
- * Track window focus state globally for editor styling
- */
-let isWindowFocused = true; //NOTE -  We should handle efocus ourself we should relay on browser focus mechanism.
-
-/**
- * Optional padding overrides set via setEditorPadding()
- */
-let paddingOverride: Partial<{
-  paddingTop: number;
-  paddingBottom: number;
-  paddingLeft: number;
-  paddingRight: number;
-}> | null = null; //NOTE -  No globals since people would like to use multiple instances.
-
-/**
- * Optional per-block text style overrides set via setBlockStyleOverrides()
- */
-let blockStyleOverrides: Partial<Record<string, Partial<TextStyle>>> | null =
-  null;
-let placeholderOverrides: Partial<PlaceholderStyles> | null = null;
-
-/**
  * Host-supplied font registry set via setFontStyles(). When null the editor
  * uses the neutral system-font default (DEFAULT_FONT_STYLES).
+ *
+ * NOTE: still a module global pending Phase 2 of the styles de-globalization
+ * (the font registry threads deep into the measurement path). Padding, block,
+ * placeholder, and window-focus state now live on `EditorState`.
  */
 let fontStylesOverride: Partial<FontStyles> | null = null;
-
-/**
- * Override the default canvas padding for the editor.
- * Pass null to reset to defaults.
- */
-export function setEditorPadding(
-  padding: Partial<{
-    paddingTop: number;
-    paddingBottom: number;
-    paddingLeft: number;
-    paddingRight: number;
-  }> | null,
-): void {
-  paddingOverride = padding;
-}
-
-/** Return the current padding override (for save/restore across editor instances). */
-export function getEditorPadding() {
-  return paddingOverride;
-}
-
-/**
- * Override block text styles (e.g. heading font sizes).
- * Pass null to reset to defaults.
- */
-export function setBlockStyleOverrides(
-  overrides: Partial<Record<string, Partial<TextStyle>>> | null,
-): void {
-  blockStyleOverrides = overrides;
-}
-
-/** Return the current block style overrides (for save/restore across editor instances). */
-export function getBlockStyleOverrides() {
-  return blockStyleOverrides;
-}
-
-/**
- * Override placeholder copy for a mounted editor.
- * Pass null to reset to defaults.
- */
-export function setPlaceholderOverrides(
-  overrides: Partial<PlaceholderStyles> | null,
-): void {
-  placeholderOverrides = overrides;
-}
-
-/** Return the current placeholder overrides (for save/restore across editor instances). */
-export function getPlaceholderOverrides() {
-  return placeholderOverrides;
-}
 
 /**
  * Register the host application's font families (key → CSS font-stack) and the
@@ -119,14 +51,6 @@ export function getFontStyles() {
 }
 
 /**
- * Set the window focus state
- * @internal This is called from mount.ts when window focus changes
- */
-export function setWindowFocused(focused: boolean): void {
-  isWindowFocused = focused;
-}
-
-/**
  * Get CSS custom property value from the document root
  */
 function getCSSVariable(name: string, fallback?: string): string {
@@ -139,10 +63,21 @@ function getCSSVariable(name: string, fallback?: string): string {
 
 //NOTE -  We make as customizable as possible, but as well make sure that we offload customization to the consumers.
 /**
- * Get editor styles from CSS variables
- * Falls back to default values if CSS variables are not available
+ * Get editor styles from CSS variables, layered with this instance's overrides.
+ *
+ * Per-instance overrides (padding, block styles, placeholders, window focus)
+ * are read from `state` when provided. Omitting `state` yields the unstyled
+ * defaults — used only by fallback default-params and the `defaultStyles`
+ * snapshot; every real render/layout/hit-test path passes `state`.
  */
-export function getEditorStyles(): EditorStyles {
+export function getEditorStyles(state?: EditorState): EditorStyles {
+  const paddingOverride = state?.styleConfig.padding ?? null;
+  const blockStyleOverrides = state?.styleConfig.blockStyleOverrides ?? null;
+  const placeholderOverrides = state?.styleConfig.placeholderOverrides ?? null;
+  // Window focus defaults to true when unknown (no state) so selection renders
+  // in its focused color rather than the dimmed unfocused variant.
+  const isWindowFocused = state?.view.isWindowFocused ?? true;
+
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
   const horizontalPadding = isMobile ? 16 : 40;
 

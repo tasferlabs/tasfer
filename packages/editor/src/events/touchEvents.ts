@@ -25,7 +25,7 @@ import {
 import { moveCursorToPosition } from "../selection";
 import { updateCursor } from "../selection";
 import { clearSelection, startSelection } from "../selection";
-import { type Block, isTextualBlock } from "../serlization/loadPage";
+import { type Block } from "../serlization/loadPage";
 import type { EditorState, ViewportState } from "../state-types";
 import {
   closeActiveMenu,
@@ -36,6 +36,7 @@ import {
   updateMode,
 } from "../state-utils";
 import { getEditorStyles, getTextStyle } from "../styles";
+import { isTextualBlock } from "../sync/block-registry";
 import type { Operation } from "../sync/sync";
 import {
   activateScroll,
@@ -62,7 +63,7 @@ function getLineHeightAtPosition(
   const block = state.document.page.blocks[blockIndex];
   if (!block) return 16 * 1.6;
   if (!isTextualBlock(block)) return 16 * 1.6;
-  const styles = getEditorStyles();
+  const styles = getEditorStyles(state);
   const textStyle = getTextStyle(styles, block.type);
   return textStyle.fontSize * textStyle.lineHeight;
 }
@@ -1298,7 +1299,7 @@ export function handleTouchEnd(
         : undefined;
 
     // Check if tapping in top padding area
-    const styles = getEditorStyles();
+    const styles = getEditorStyles(state);
     const isTapInTopPadding =
       tapPosition.y < styles.canvas.paddingTop - viewport.scrollY;
 

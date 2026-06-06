@@ -40,7 +40,6 @@ import { updateFocus } from "../selection";
 import { updateCursor } from "../selection";
 import { clearSelection } from "../selection";
 import type { Block, Page } from "../serlization/loadPage";
-import { isTextualBlock } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
 import type {
   CommandResult,
@@ -57,6 +56,7 @@ import {
   setActiveMenu,
   updateMode,
   updatePhysicalKeyboardState,
+  updateWindowFocused,
 } from "../state-utils";
 import { getEditorStyles } from "../styles";
 import type {
@@ -71,6 +71,7 @@ import {
   positionToAwarenessCursor,
   selectionToAwarenessSelection,
 } from "../sync/awareness";
+import { isTextualBlock } from "../sync/block-registry";
 import type {
   BlockDelete,
   BlockInsert,
@@ -97,6 +98,8 @@ export interface Editor {
   setFocus: (focused: boolean, shouldClearSelection?: boolean) => void;
   setInitialCursor: () => void;
   setPhysicalKeyboard: (hasPhysicalKeyboard: boolean) => void;
+  /** Update browser-window focus (affects selection color); re-renders. */
+  setWindowFocused: (focused: boolean) => void;
   getCursorScreenPosition: () => {
     x: number;
     y: number;
@@ -633,7 +636,7 @@ export default function createEditor(
 
       // Check if cursor blink state changed (for cursor animation)
       const currentCursorBlinkState = state.document.cursor
-        ? isCursorBlinking(state.document.cursor, getEditorStyles())
+        ? isCursorBlinking(state.document.cursor, getEditorStyles(state))
         : false;
       const cursorBlinkChanged =
         lastCursorBlinkState !== currentCursorBlinkState;
@@ -695,7 +698,7 @@ export default function createEditor(
             cursorCtx,
             state,
             viewport,
-            getEditorStyles(),
+            getEditorStyles(state),
             getActiveRemoteAwareness(),
           );
           dirtyLayers.cursor = false;
@@ -1466,7 +1469,7 @@ export default function createEditor(
 
   function calculateDocumentHeight(): number {
     // Calculate total document height based on all blocks
-    const styles = getEditorStyles();
+    const styles = getEditorStyles(state);
     const maxWidth = viewport.width - 2 * styles.canvas.paddingLeft;
     let totalHeight = styles.canvas.paddingTop;
 
@@ -1476,6 +1479,7 @@ export default function createEditor(
 
       // Use getBlockHeight to leverage caching for performance
       const blockHeight = getBlockHeight(
+        state.blockViews,
         block,
         maxWidth,
         styles,
@@ -1521,7 +1525,7 @@ export default function createEditor(
       state.document.cursor.position,
       state,
       viewport,
-      getEditorStyles(),
+      getEditorStyles(state),
     );
     if (!coords) return null;
 
@@ -2271,6 +2275,14 @@ export default function createEditor(
     scheduleRender();
   }
 
+  function setWindowFocused(focused: boolean) {
+    if (state.view.isWindowFocused === focused) return;
+    state = updateWindowFocused(state, focused);
+    // Selection color depends on window focus; scheduleRender marks the content
+    // layer dirty so it repaints with the focused/unfocused selection style.
+    scheduleRender();
+  }
+
   function updatePageFromSync(page: Page) {
     // Update the page from CRDT sync while preserving cursor/selection
     // This is called when remote operations are applied
@@ -2682,6 +2694,7 @@ export default function createEditor(
     exitInlineMath: exitInlineMathMethod,
     closeActiveMenu: closeActiveMenuMethod,
     setPhysicalKeyboard,
+    setWindowFocused,
     updatePageFromSync,
     restoreFromSnapshot: restoreFromSnapshotMethod,
     applyRemoteOperations: applyRemoteOperationsMethod,

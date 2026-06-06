@@ -6,8 +6,11 @@
  */
 
 import type { Block, CharRun, FormatSpan } from "../serlization/loadPage";
-import { isTextualBlock } from "../serlization/loadPage";
-import { getBlockDescriptor, getBlockFieldNames } from "./block-registry";
+import {
+  getBlockDescriptor,
+  getBlockFieldNames,
+  isTextualBlock,
+} from "./block-registry";
 import { getVisibleTextFromRuns, iterateVisibleChars } from "./char-runs";
 import type {
   BlockDelete,

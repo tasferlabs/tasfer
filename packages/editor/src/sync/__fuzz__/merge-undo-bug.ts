@@ -23,10 +23,11 @@
  */
 
 import { invertOperations, refreshOps } from "../../inverse";
-import { isTextualBlock, type Page } from "../../serlization/loadPage";
+import { type Page } from "../../serlization/loadPage";
+import { isTextualBlock } from "../block-registry";
 import { getVisibleLengthFromRuns, iterateVisibleChars } from "../char-runs";
-import { insertCharsAtPosition } from "../crdt-utils";
 import type { BlockInsert, Operation, TextInsert } from "../crdt-types";
+import { insertCharsAtPosition } from "../crdt-utils";
 import { applyOp, applyOps, createEmptyPageState } from "../reducer";
 import { createCRDTbinding } from "../sync";
 

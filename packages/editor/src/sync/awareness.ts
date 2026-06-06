@@ -6,8 +6,8 @@
  */
 
 import type { Page } from "../serlization/loadPage";
-import { isTextualBlock } from "../serlization/loadPage";
 import type { Position, SelectionState } from "../state-types";
+import { isTextualBlock } from "./block-registry";
 import { getVisibleLengthFromRuns } from "./char-runs";
 
 // =============================================================================

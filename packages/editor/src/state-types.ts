@@ -1,3 +1,4 @@
+import type { BlockViewRegistry } from "./rendering/blocks/BlockView";
 import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
 import type { Block, Page, TextFormat } from "./serlization/loadPage";
 import type { HLC, Operation } from "./sync/crdt-types";
@@ -207,12 +208,37 @@ export interface UIState {
 // View State - Ephemeral view properties
 export interface ViewState {
   readonly isFocused: boolean;
+  readonly isWindowFocused: boolean; // Whether the browser window has focus (affects selection color); set by mount focus/blur handlers
   readonly clickTracker: ClickTracker;
   readonly scrollbar: ScrollbarState;
   readonly momentum: MomentumState;
   readonly hasPhysicalKeyboard: boolean; // Set by native side when hardware keyboard is connected
   visibleBlocks: (Block & { originalIndex: number })[];
 }
+
+/**
+ * Per-editor-instance style overrides supplied by the host at mount.
+ *
+ * These were previously module-level globals in styles.ts, which meant two
+ * editors on one page shared (and clobbered) one another's styling. They now
+ * live on `EditorState` so each instance resolves its own styles. `null` for a
+ * field means "use the built-in default". Consumed by `getEditorStyles(state)`.
+ */
+export interface StyleConfig {
+  readonly padding: Partial<{
+    paddingTop: number;
+    paddingBottom: number;
+    paddingLeft: number;
+    paddingRight: number;
+  }> | null;
+  readonly blockStyleOverrides: Partial<
+    Record<string, Partial<TextStyle>>
+  > | null;
+  readonly placeholderOverrides: Partial<PlaceholderStyles> | null;
+}
+// NOTE: the host font registry and selected font family are still module-level
+// globals in fonts.ts/styles.ts (they thread deep into the measurement path).
+// If de-globalized later, they belong on this StyleConfig too.
 
 // Undo tracks operations per user for independent undo/redo.
 //
@@ -245,6 +271,18 @@ export interface EditorState {
   readonly view: ViewState;
   readonly undoManager: UndoManagerState;
   readonly CRDTbinding: CRDTbinding;
+  /**
+   * Per-instance registry of block views (layout/paint/hit-test per block type).
+   * Owned by this editor — NOT a module global — so multiple editors on the same
+   * page can register different block sets and so block types are opt-in at mount.
+   */
+  readonly blockViews: BlockViewRegistry;
+  /**
+   * Per-instance style overrides (padding, block styles, placeholders, fonts,
+   * selected font family). Replaces the former module-level globals in styles.ts
+   * so editors don't clobber each other's styling. Read by `getEditorStyles`.
+   */
+  readonly styleConfig: StyleConfig;
 }
 
 // Command result - all commands return state + operations

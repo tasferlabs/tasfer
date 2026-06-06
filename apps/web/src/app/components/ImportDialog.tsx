@@ -20,15 +20,22 @@ import useResponsive from "../hooks/useResponsive";
 import tokenizePage from "@cypherkit/editor/serlization/tokenizer";
 import { getPlatform } from "@/platform";
 import parsePage from "@cypherkit/editor/serlization/parser";
-import { parseFrontmatter, type PageMetadata } from "@cypherkit/editor/serlization/loadPage";
+import {
+  parseFrontmatter,
+  type PageMetadata,
+} from "@cypherkit/editor/serlization/loadPage";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCreatePage, updatePage } from "../api/pages.api";
 import { uploadImage } from "../api/images.api";
 import { useSpaces } from "../contexts/SpaceContext";
-import { extractTitleFromBlocks, getVisibleTextFromRuns } from "@cypherkit/editor/sync/char-runs";
-import { isTextualBlock, type Block } from "@cypherkit/editor/serlization/loadPage";
+import {
+  extractTitleFromBlocks,
+  getVisibleTextFromRuns,
+} from "@cypherkit/editor/sync/char-runs";
+import { type Block } from "@cypherkit/editor/serlization/loadPage";
+import { isTextualBlock } from "@cypherkit/editor/sync/block-registry";
 
 interface ImportDialogProps {
   open: boolean;
@@ -77,7 +84,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingBlocks, setPendingBlocks] = useState<Block[] | null>(null);
-  const [pendingMetadata, setPendingMetadata] = useState<PageMetadata | undefined>(undefined);
+  const [pendingMetadata, setPendingMetadata] = useState<
+    PageMetadata | undefined
+  >(undefined);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -94,9 +103,15 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
           id: newPage.id,
           ...(pendingMetadata?.task && { task: true }),
           ...(pendingMetadata?.color && { color: pendingMetadata.color }),
-          ...(pendingMetadata?.scheduledAt && { scheduledAt: pendingMetadata.scheduledAt }),
-          ...(pendingMetadata?.duration != null && { duration: pendingMetadata.duration }),
-          ...(pendingMetadata?.allDay != null && { allDay: pendingMetadata.allDay }),
+          ...(pendingMetadata?.scheduledAt && {
+            scheduledAt: pendingMetadata.scheduledAt,
+          }),
+          ...(pendingMetadata?.duration != null && {
+            duration: pendingMetadata.duration,
+          }),
+          ...(pendingMetadata?.allDay != null && {
+            allDay: pendingMetadata.allDay,
+          }),
         });
         queryClient.invalidateQueries({
           queryKey: ["pages", { parentId: null }],
@@ -134,7 +149,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
       }
       onOpenChange(open);
     },
-    [onOpenChange, resetState]
+    [onOpenChange, resetState],
   );
 
   const processFile = useCallback(
@@ -145,7 +160,12 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
       const isMd = file.name.endsWith(".md") || file.name.endsWith(".txt");
 
       if (!isZip && !isMd) {
-        setError(t("import.pleaseSelectFile", "Please select a .md, .txt, or .zip file"));
+        setError(
+          t(
+            "import.pleaseSelectFile",
+            "Please select a .md, .txt, or .zip file",
+          ),
+        );
         return;
       }
 
@@ -158,7 +178,10 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
           const zip = await JSZip.loadAsync(zipData);
 
           // Find image files in images/ folder
-          const imageEntries: Array<{ fileName: string; entry: JSZip.JSZipObject }> = [];
+          const imageEntries: Array<{
+            fileName: string;
+            entry: JSZip.JSZipObject;
+          }> = [];
           zip.forEach((relativePath, entry) => {
             if (!entry.dir && relativePath.startsWith("images/")) {
               const fileName = relativePath.split("/").pop()!;
@@ -189,7 +212,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
           });
 
           if (mdFiles.length === 0) {
-            setError(t("import.noMarkdownInZip", "No markdown file found in the ZIP"));
+            setError(
+              t("import.noMarkdownInZip", "No markdown file found in the ZIP"),
+            );
             return;
           }
 
@@ -197,7 +222,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
           mdFiles.sort((a, b) => a.split("/").length - b.split("/").length);
           const mdEntry = zip.file(mdFiles[0]);
           if (!mdEntry) {
-            setError(t("import.noMarkdownInZip", "No markdown file found in the ZIP"));
+            setError(
+              t("import.noMarkdownInZip", "No markdown file found in the ZIP"),
+            );
             return;
           }
 
@@ -235,7 +262,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         setError(t("error.failedToParseFile", "Failed to parse the file"));
       }
     },
-    [onRestoreSnapshot, onOpenChange, currentBlocks, t]
+    [onRestoreSnapshot, onOpenChange, currentBlocks, t],
   );
 
   const handleReplaceCurrent = useCallback(() => {
@@ -263,7 +290,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         processFile(file);
       }
     },
-    [processFile]
+    [processFile],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -285,7 +312,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
       // Reset input so the same file can be selected again
       e.target.value = "";
     },
-    [processFile]
+    [processFile],
   );
 
   const handleButtonClick = useCallback(() => {
@@ -306,7 +333,10 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const confirmationContent = (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        {t("import.contentExistsWhat", "This page already has content. What would you like to do?")}
+        {t(
+          "import.contentExistsWhat",
+          "This page already has content. What would you like to do?",
+        )}
       </p>
       {error && <p className="text-sm text-destructive">{error}</p>}
       <div className="grid gap-2">
@@ -318,7 +348,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         >
           <FilePlus className="h-5 w-5 text-muted-foreground" />
           <div className="flex flex-col items-start">
-            <span className="font-medium">{t("page.createNewPage", "Create new page")}</span>
+            <span className="font-medium">
+              {t("page.createNewPage", "Create new page")}
+            </span>
             <span className="text-xs text-muted-foreground">
               {t("import.intoNewPage", "Import into a new page")}
             </span>
@@ -331,7 +363,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         >
           <Replace className="h-5 w-5 text-muted-foreground" />
           <div className="flex flex-col items-start">
-            <span className="font-medium">{t("import.replaceCurrent", "Replace current")}</span>
+            <span className="font-medium">
+              {t("import.replaceCurrent", "Replace current")}
+            </span>
             <span className="text-xs text-muted-foreground">
               {t("import.replaceContent", "Replace this page's content")}
             </span>
@@ -355,7 +389,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
       >
         <FileUp className="h-5 w-5 text-muted-foreground" />
         <div className="flex flex-col items-start">
-          <span className="font-medium">{t("import.selectFile", "Select file")}</span>
+          <span className="font-medium">
+            {t("import.selectFile", "Select file")}
+          </span>
           <span className="text-xs text-muted-foreground">.md, .txt, .zip</span>
         </div>
       </Button>
@@ -369,7 +405,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
               <DrawerTitle>
-                {showConfirmation ? t("import.options", "Import options") : t("import.document", "Import document")}
+                {showConfirmation
+                  ? t("import.options", "Import options")
+                  : t("import.document", "Import document")}
               </DrawerTitle>
             </DrawerHeader>
             <div className="px-4">
@@ -387,11 +425,16 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {showConfirmation ? t("import.options", "Import options") : t("import.document", "Import document")}
+            {showConfirmation
+              ? t("import.options", "Import options")
+              : t("import.document", "Import document")}
           </DialogTitle>
           <DialogDescription>
             {showConfirmation
-              ? t("import.contentExistsChoose", "This page already has content. Choose how to proceed.")
+              ? t(
+                  "import.contentExistsChoose",
+                  "This page already has content. Choose how to proceed.",
+                )
               : t("import.fileTypes", "Import a markdown, text, or zip file.")}
           </DialogDescription>
         </DialogHeader>
@@ -406,7 +449,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
                 className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <FilePlus className="h-8 w-8 mb-2 text-muted-foreground" />
-                <span className="font-medium">{t("page.newPage", "New page")}</span>
+                <span className="font-medium">
+                  {t("page.newPage", "New page")}
+                </span>
                 <span className="text-xs text-muted-foreground text-center">
                   {t("common.createNew", "Create new")}
                 </span>
@@ -416,7 +461,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
                 className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer"
               >
                 <Replace className="h-8 w-8 mb-2 text-muted-foreground" />
-                <span className="font-medium">{t("common.replace", "Replace")}</span>
+                <span className="font-medium">
+                  {t("common.replace", "Replace")}
+                </span>
                 <span className="text-xs text-muted-foreground text-center">
                   {t("page.currentPage", "Current page")}
                 </span>
@@ -446,7 +493,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
                 }`}
               />
               <span className="font-medium text-center">
-                {isDragging ? t("import.dropFile", "Drop file here") : t("import.dragAndDropFile", "Drag and drop a file here")}
+                {isDragging
+                  ? t("import.dropFile", "Drop file here")
+                  : t("import.dragAndDropFile", "Drag and drop a file here")}
               </span>
               <span className="text-sm text-muted-foreground mt-1">
                 {t("import.orClickToSelect", "or click to select")}

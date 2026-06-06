@@ -38,7 +38,7 @@ export function getImageBlockAtPoint(
   width: number;
   height: number;
 } | null {
-  const styles = getEditorStyles();
+  const styles = getEditorStyles(state);
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
@@ -50,6 +50,7 @@ export function getImageBlockAtPoint(
     const visibleBlock = visibleBlocks[visibleIdx];
 
     const blockHeight = getBlockHeight(
+      state.blockViews,
       visibleBlock,
       maxWidth,
       styles,
@@ -181,7 +182,7 @@ export function getLineBlockAtPoint(
   width: number;
   height: number;
 } | null {
-  const styles = getEditorStyles();
+  const styles = getEditorStyles(state);
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
@@ -192,6 +193,7 @@ export function getLineBlockAtPoint(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const visibleBlock = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
+      state.blockViews,
       visibleBlock,
       maxWidth,
       styles,
@@ -247,7 +249,7 @@ export function getMathBlockAtPoint(
   width: number;
   height: number;
 } | null {
-  const styles = getEditorStyles();
+  const styles = getEditorStyles(state);
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
@@ -257,6 +259,7 @@ export function getMathBlockAtPoint(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const visibleBlock = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
+      state.blockViews,
       visibleBlock,
       maxWidth,
       styles,
@@ -316,6 +319,8 @@ export function getDragHandleAtPoint(
   objectFit: "cover" | "contain" = "cover",
   extraTolerance: number = 4,
 ): "left" | "right" | "bottom" | null {
+  // No `state` in scope here; imageResize styles have no per-instance overrides,
+  // so the default-resolved styles are equivalent.
   const styles = getEditorStyles();
   const { vertical, horizontal } = styles.imageResize.dragHandles;
 
@@ -477,7 +482,7 @@ export function updateImageDrag(
     return state;
   }
 
-  const styles = getEditorStyles();
+  const styles = getEditorStyles(state);
   const deltaX = canvasX - startX;
   const deltaY = canvasY - startY;
   const maxWidth =
@@ -808,7 +813,7 @@ export function getSelectionHandleAtPoint(
     return null;
   }
 
-  const styles = getEditorStyles();
+  const styles = getEditorStyles(state);
   const handleSize = styles.selection.handles.size;
   const stemHeight = styles.selection.handles.stemHeight;
   const touchTargetRadius = SELECTION_HANDLE_TOUCH_TARGET / 2;

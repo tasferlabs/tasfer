@@ -14,7 +14,7 @@ import type {
   CharRun,
   TextualBlock,
 } from "../serlization/loadPage";
-import { isTextualBlock } from "../serlization/loadPage";
+import { isTextualBlock } from "./block-registry";
 import { compareIds, extractCounter, extractPeerId } from "./id";
 
 // =============================================================================

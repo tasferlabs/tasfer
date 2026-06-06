@@ -1,7 +1,14 @@
 import { renderToSVG } from "../math";
+import { isImageDefault } from "../rendering/blocks/ImageBlockView";
+import { isTextualBlock } from "../sync/block-registry";
 import { iterateVisibleChars } from "../sync/char-runs";
-import type { Block, CharRun, FormatSpan, TextFormat } from "./loadPage";
-import { isImageDefault, isListBlock, isTextualBlock } from "./loadPage";
+import { isListBlock } from "./loadPage";
+import {
+  type Block,
+  type CharRun,
+  type FormatSpan,
+  type TextFormat,
+} from "./loadPage";
 
 function escapeHtml(s: string): string {
   return s

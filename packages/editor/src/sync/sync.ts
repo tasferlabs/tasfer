@@ -7,9 +7,8 @@
  */
 
 import type { Char, CharRun, Page, TextFormat } from "../serlization/loadPage";
-import { isTextualBlock } from "../serlization/loadPage";
 import type { CRDTbinding } from "../state-types";
-import { BLOCK_REGISTRY } from "./block-registry";
+import { BLOCK_REGISTRY, isTextualBlock } from "./block-registry";
 import { getCharIdsInRangeFromRuns } from "./char-runs";
 import type {
   BlockDelete,

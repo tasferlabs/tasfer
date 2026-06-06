@@ -8,11 +8,8 @@
  * end of the page".
  */
 
-import {
-  type Block,
-  isTextualBlock,
-  type Page,
-} from "../../serlization/loadPage";
+import { type Block, type Page } from "../../serlization/loadPage";
+import { isTextualBlock } from "../block-registry";
 import { iterateVisibleChars } from "../char-runs";
 import type { BlockInsert, Operation } from "../crdt-types";
 import { applyOps } from "../reducer";
