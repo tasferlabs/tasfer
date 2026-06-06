@@ -22,6 +22,7 @@ import {
   splitBlock,
   toggleBold,
 } from "../actions/commands";
+import { getSlashCommands } from "../adapters";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { getTextDirection } from "../rtl";
 import {
@@ -54,7 +55,6 @@ import {
   isListBlock,
   isTextualBlock,
 } from "../serlization/loadPage";
-import { getSlashCommands } from "../SlashCommandMenu";
 import type {
   EditorState,
   KeyboardEvent,

@@ -25,6 +25,11 @@ export default defineConfig({
       filename: "sw.ts",
       registerType: "prompt",
       manifest: false,
+      injectManifest: {
+        // The main bundle (~3.5 MB, includes the prebuilt MathJax bundle)
+        // exceeds Workbox's 2 MiB default precache limit.
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+      },
       devOptions: {
         enabled: false,
         type: "module",

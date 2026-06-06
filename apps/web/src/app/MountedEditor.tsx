@@ -14,7 +14,7 @@ import {
   maxOpIdCounter,
   serializeVV,
 } from "@cypherkit/editor/sync/sync";
-import type { Operation } from "@cypherkit/editor/sync/types";
+import type { Operation } from "@cypherkit/editor/sync/crdt-types";
 import { getPlatform } from "@/platform";
 import {
   Bold,

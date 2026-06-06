@@ -7,7 +7,11 @@ import { RouterProvider } from "react-router-dom";
 import { Direction } from "radix-ui";
 import { registerSW } from "virtual:pwa-register";
 import { initPlatform, getPlatform } from "./platform";
-import { setAssetResolver } from "@cypherkit/editor/adapters";
+import {
+  setAssetResolver,
+  setSlashCommandProvider,
+} from "@cypherkit/editor/adapters";
+import { getSlashCommands } from "./editor/SlashCommandMenu";
 import { AuthProvider } from "./app/contexts/AuthContext";
 import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
@@ -277,6 +281,8 @@ if (platformReady) {
       .then(() => {
         // Wire the editor package's asset resolver to the host platform layer
         setAssetResolver((url) => getPlatform().assets.getUrl(url));
+        // Provide the host's (translated, UI-decorated) slash command list
+        setSlashCommandProvider(getSlashCommands);
         platformReady = true;
         (window as any).__CYPHER_PLATFORM_READY__ = true;
         renderApp();

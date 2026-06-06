@@ -10,6 +10,8 @@
  * the editor works standalone without any host wiring.
  */
 
+import type { SlashCommand } from "./state-types";
+
 /** Resolve a (possibly content-addressed) asset URL to a loadable URL. */
 export type AssetResolver = (url: string) => Promise<string>;
 
@@ -23,6 +25,21 @@ export function setAssetResolver(resolver: AssetResolver): void {
 /** Resolve an asset URL via the host-provided resolver (identity by default). */
 export function resolveAssetUrl(url: string): Promise<string> {
   return assetResolver(url);
+}
+
+/** Provide the list of slash commands (labels/keywords/etc.) for the menu. */
+export type SlashCommandProvider = () => SlashCommand[];
+
+let slashCommandProvider: SlashCommandProvider = () => [];
+
+/** Inject the host's slash command list provider (UI metadata, translations). */
+export function setSlashCommandProvider(provider: SlashCommandProvider): void {
+  slashCommandProvider = provider;
+}
+
+/** Get the slash commands via the host-provided provider (empty by default). */
+export function getSlashCommands(): SlashCommand[] {
+  return slashCommandProvider();
 }
 
 //NOTE - URL and images logic be up to the consumer by making the block extensible and allowing them to define their own blocks.

@@ -15,8 +15,13 @@ export type { Editor } from "./entries/editor";
 export { default as createEditor } from "./entries/editor";
 
 // Host adapters
-export type { AssetResolver } from "./adapters";
-export { resolveAssetUrl, setAssetResolver } from "./adapters";
+export type { AssetResolver, SlashCommandProvider } from "./adapters";
+export {
+  getSlashCommands,
+  resolveAssetUrl,
+  setAssetResolver,
+  setSlashCommandProvider,
+} from "./adapters";
 
 // Core document model + CRDT operation types
 export type {
