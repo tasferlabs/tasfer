@@ -1,5 +1,12 @@
 import { updateCursor } from "../selection";
-import { type Block, type CharRun, type FormatSpan, isTextualBlock, type Page, type TextFormat } from "../serlization/loadPage";
+import {
+  type Block,
+  type CharRun,
+  type FormatSpan,
+  isTextualBlock,
+  type Page,
+  type TextFormat,
+} from "../serlization/loadPage";
 import type {
   CRDTbinding,
   CRDTCursorState,
@@ -9,8 +16,15 @@ import type {
   Position,
 } from "../state-types";
 import { updateSelection } from "../updateSelection";
-import { findCharInRuns, getCharIdAtVisiblePosition, getCharIdsInRangeFromRuns, getVisibleLengthFromRuns, isCharIdInRange, iterateVisibleChars } from "./char-runs";
-import type { TextInsert, TextDelete, FormatSet } from "./crdt-types";
+import {
+  findCharInRuns,
+  getCharIdAtVisiblePosition,
+  getCharIdsInRangeFromRuns,
+  getVisibleLengthFromRuns,
+  isCharIdInRange,
+  iterateVisibleChars,
+} from "./char-runs";
+import type { FormatSet, TextDelete, TextInsert } from "./crdt-types";
 import { compareBlocks, extractCounter, extractPeerId } from "./id";
 import { applyOp } from "./reducer";
 
@@ -312,7 +326,8 @@ export function resolveBlockOrder(blocks: Block[]): Block[] {
   }
 
   return ordered;
-}export interface InsertCharsResult {
+}
+export interface InsertCharsResult {
   newPage: Page;
   op: TextInsert;
 }
@@ -335,7 +350,7 @@ export function insertCharsAtPosition(
   blockId: string,
   position: number,
   text: string,
-  binding: CRDTbinding
+  binding: CRDTbinding,
 ): InsertCharsResult {
   if (text.length === 0) {
     throw new Error("Cannot insert empty text");
@@ -382,7 +397,7 @@ export function deleteCharsInRange(
   blockId: string,
   startIndex: number,
   endIndex: number,
-  binding: CRDTbinding
+  binding: CRDTbinding,
 ): DeleteCharsResult {
   const block = page.blocks.find((b) => b.id === blockId);
   const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
@@ -410,7 +425,7 @@ export function formatCharsInRange(
   endIndex: number,
   format: TextFormat,
   value: boolean | string,
-  binding: CRDTbinding
+  binding: CRDTbinding,
 ): FormatCharsResult {
   const block = page.blocks.find((b) => b.id === blockId);
   const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
@@ -436,7 +451,7 @@ export function getVisibleLength(charRuns: CharRun[]): number {
 function isCharIdInSpan(
   charId: string,
   span: FormatSpan,
-  charRuns: CharRun[] | undefined
+  charRuns: CharRun[] | undefined,
 ): boolean {
   if (!charRuns) return false;
   return isCharIdInRange(charRuns, charId, span.startCharId, span.endCharId);
@@ -450,17 +465,19 @@ export function allCharsHaveFormat(
   formats: FormatSpan[],
   startIndex: number,
   endIndex: number,
-  formatType: TextFormat["type"]
+  formatType: TextFormat["type"],
 ): boolean {
   if (!charRuns) return false;
 
   const charIds = getCharIdsInRangeFromRuns(charRuns, startIndex, endIndex);
   if (charIds.length === 0) return false;
 
-  return charIds.every((charId) => formats.some(
-    (span) => span.format.type === formatType &&
-      isCharIdInSpan(charId, span, charRuns)
-  )
+  return charIds.every((charId) =>
+    formats.some(
+      (span) =>
+        span.format.type === formatType &&
+        isCharIdInSpan(charId, span, charRuns),
+    ),
   );
 }
 /**
@@ -470,7 +487,7 @@ export function allCharsHaveFormat(
 export function getFormatsAtCharPosition(
   charRuns: CharRun[],
   formats: FormatSpan[],
-  position: number
+  position: number,
 ): TextFormat[] {
   if (position === 0) return [];
 
@@ -486,4 +503,3 @@ export function getFormatsAtCharPosition(
 
   return activeFormats;
 }
-

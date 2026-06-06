@@ -61,7 +61,7 @@ import {
   getBlockTextLength,
   isTouchDevice,
 } from "@cypherkit/editor/state-utils";
-import { allCharsHaveFormat } from "@cypherkit/editor/sync/crdt-helpers";
+import { allCharsHaveFormat } from "@cypherkit/editor/sync/crdt-utils";
 import type {
   CursorDragState,
   EditorState,

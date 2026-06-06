@@ -11,7 +11,7 @@
  * when peerId is unique.
  */
 
-import type { Block } from "@/serlization/loadPage";
+import type { Block } from "../serlization/loadPage";
 import { nanoid } from "nanoid";
 
 /**

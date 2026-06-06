@@ -39,7 +39,7 @@ import {
   deleteCharsInRange,
   formatCharsInRange,
   insertCharsAtPosition,
-} from "@/sync/crdt-utils";
+} from "../sync/crdt-utils";
 
 function globalGenerateBlockId(binding: CRDTbinding): string {
   return generateBlockId(binding.nextId);
@@ -1603,7 +1603,9 @@ function insertBlocksAtCursor(
     }
 
     // Auto-detect URLs in pasted text (only for portions not already link-formatted)
-    const insertedBlock = pageAcc.blocks.find((b) => b.id === currentBlock.id);
+    const insertedBlock = pageAcc.blocks.find(
+      (b: Block) => b.id === currentBlock.id,
+    );
     const fullText =
       insertedBlock && isTextualBlock(insertedBlock)
         ? getVisibleTextFromRuns(insertedBlock.charRuns)

@@ -37,8 +37,14 @@ import type {
   TextDelete,
 } from "../sync/crdt-types";
 import {
+  allCharsHaveFormat,
   crdtToPosition,
   crdtToSelectionRange,
+  deleteCharsInRange,
+  formatCharsInRange,
+  getFormatsAtCharPosition,
+  getVisibleLength,
+  insertCharsAtPosition,
   positionToCRDT,
   selectionRangeToCRDT,
 } from "../sync/crdt-utils";
@@ -47,14 +53,6 @@ import {
   findNextVisibleBlockIndex,
   findPreviousVisibleBlockIndex,
 } from "../sync/reducer";
-import {
-  allCharsHaveFormat,
-  deleteCharsInRange,
-  formatCharsInRange,
-  getFormatsAtCharPosition,
-  getVisibleLength,
-  insertCharsAtPosition,
-} from "@/sync/crdt-utils";
 
 /**
  * URL regex pattern for auto-detection.
