@@ -636,31 +636,3 @@ export function findCharIdAtPosition(
   return getCharIdAtVisiblePosition(block.charRuns, position);
 }
 
-/**
- * Get character IDs for a range of visible text.
- */
-export function getCharIdsInRange(
-  block: Block,
-  startIndex: number,
-  endIndex: number,
-): string[] {
-  // Image and Line blocks don't have text content
-  if (!isTextualBlock(block)) {
-    return [];
-  }
-
-  const ids: string[] = [];
-  let visibleCount = 0;
-
-  for (const { id } of iterateVisibleChars(block.charRuns)) {
-    if (visibleCount >= startIndex && visibleCount < endIndex) {
-      ids.push(id);
-    }
-    visibleCount++;
-    if (visibleCount >= endIndex) {
-      break;
-    }
-  }
-
-  return ids;
-}

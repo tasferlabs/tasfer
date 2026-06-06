@@ -11,6 +11,7 @@
  * when peerId is unique.
  */
 
+import type { Block } from "@/serlization/loadPage";
 import { nanoid } from "nanoid";
 
 /**
@@ -141,4 +142,15 @@ export function generateCharIds(
     id: genId(),
     char,
   }));
+}
+/**
+ * Compare two blocks for ordering.
+ * Used to resolve concurrent inserts after the same block.
+ * Orders by block ID for deterministic results.
+ *
+ * @returns negative if a < b, positive if a > b, 0 if equal
+ */
+
+export function compareBlocks(a: Block, b: Block): number {
+  return compareIds(a.id, b.id);
 }

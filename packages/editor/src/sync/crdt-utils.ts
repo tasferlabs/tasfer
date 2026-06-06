@@ -1,5 +1,5 @@
 import { updateCursor } from "../selection";
-import { isTextualBlock, type Page } from "../serlization/loadPage";
+import { type Block, isTextualBlock, type Page } from "../serlization/loadPage";
 import type {
   CRDTCursorState,
   CRDTPosition,
@@ -9,8 +9,8 @@ import type {
 } from "../state-types";
 import { updateSelection } from "../updateSelection";
 import { findCharInRuns, iterateVisibleChars } from "./char-runs";
+import { compareBlocks } from "./id";
 
-//NOTE - we should move the crdt to crdt folder
 /**
  * Convert a Position (index-based) to a CRDTPosition (ID-based).
  * Returns null if the position cannot be converted (e.g., block doesn't exist).
@@ -238,4 +238,75 @@ export function restoreSelection(
   }
 
   return updateSelection(state, { anchor, focus });
+} /**
+ * Resolve block ordering from linked list representation.
+ * Handles concurrent inserts and deleted blocks.
+ *
+ * Orphan blocks — those whose `afterId` references a block not present in
+ * the input (typically because a `block_insert` for the parent has yet to
+ * arrive) — are emitted at the end in deterministic ID order so that all
+ * peers agree on placement even before the missing parent has been
+ * received. They migrate into the correct position once the parent block
+ * is applied.
+ *
+ * @param blocks - All blocks (unordered, may include deleted)
+ * @returns Ordered array of all blocks (including tombstones)
+ */
+
+export function resolveBlockOrder(blocks: Block[]): Block[] {
+  if (blocks.length === 0) return [];
+
+  // Build adjacency map: afterId -> blocks that come after it
+  const afterMap = new Map<string | null, Block[]>();
+
+  for (const block of blocks) {
+    const key = block.afterId || null;
+    const existing = afterMap.get(key) || [];
+    existing.push(block);
+    afterMap.set(key, existing);
+  }
+
+  // RGA sibling rule: among blocks sharing the same `afterId`, the one with
+  // the HIGHER id (the later/newer insert) lands closer to the anchor. This
+  // matches the char-level rule in `insertIntoRuns` (skip-greater-ids), and
+  // makes it so that pressing Enter in the middle of a document — which
+  // emits a block_insert with `afterBlockId = currentBlock.id` — places the
+  // new block immediately after the current one, ahead of any pre-existing
+  // sibling that also targets the same anchor.
+  //
+  // The orphan walk below intentionally keeps ascending order: orphans
+  // need deterministic placement but have no anchor-relative semantics.
+  for (const [key, blocksAtPosition] of afterMap) {
+    blocksAtPosition.sort((a, b) => -compareBlocks(a, b));
+    afterMap.set(key, blocksAtPosition);
+  }
+
+  // Walk the linked list starting from null (beginning)
+  const ordered: Block[] = [];
+  const visited = new Set<string>();
+
+  function visit(afterId: string | null) {
+    const blocksHere = afterMap.get(afterId) || [];
+
+    for (const block of blocksHere) {
+      if (visited.has(block.id)) continue;
+      visited.add(block.id);
+
+      ordered.push(block);
+      visit(block.id);
+    }
+  }
+
+  visit(null);
+
+  // Emit orphans (afterId points at a block not in the input) at the end
+  // in deterministic ID order so peers don't silently lose them.
+  if (visited.size < blocks.length) {
+    const orphans = blocks
+      .filter((b) => !visited.has(b.id))
+      .sort(compareBlocks);
+    ordered.push(...orphans);
+  }
+
+  return ordered;
 }

@@ -15,9 +15,9 @@ import type {
 import { isTextualBlock } from "../serlization/loadPage";
 import {
   getCharIdAtVisiblePosition,
+  getCharIdsInRangeFromRuns,
   getVisibleLengthFromRuns,
   isCharIdInRange,
-  iterateVisibleChars,
 } from "./char-runs";
 import type { FormatSet, TextDelete, TextInsert } from "./crdt-types";
 import { extractCounter, extractPeerId } from "./id";
@@ -145,27 +145,6 @@ export function getVisibleTextFromRuns(charRuns: CharRun[]): string {
 
 export function getVisibleLength(charRuns: CharRun[]): number {
   return getVisibleLengthFromRuns(charRuns);
-}
-
-function getCharIdsInRangeFromRuns(
-  charRuns: CharRun[] | undefined,
-  startIndex: number,
-  endIndex: number,
-): string[] {
-  if (!charRuns) return [];
-
-  const ids: string[] = [];
-  let visibleCount = 0;
-
-  for (const { id } of iterateVisibleChars(charRuns)) {
-    if (visibleCount >= startIndex && visibleCount < endIndex) {
-      ids.push(id);
-    }
-    visibleCount++;
-    if (visibleCount >= endIndex) break;
-  }
-
-  return ids;
 }
 
 function isCharIdInSpan(

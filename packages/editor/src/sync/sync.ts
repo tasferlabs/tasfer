@@ -7,7 +7,9 @@
  */
 
 import type { Char, CharRun, Page, TextFormat } from "../serlization/loadPage";
+import { isTextualBlock } from "../serlization/loadPage";
 import { BLOCK_REGISTRY } from "./block-registry";
+import { getCharIdsInRangeFromRuns } from "./char-runs";
 import type {
   BlockDelete,
   BlockInsert,
@@ -32,7 +34,7 @@ import {
   type IdGenerator,
 } from "./id";
 import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
-import { findCharIdAtPosition, getCharIdsInRange } from "./reducer";
+import { findCharIdAtPosition } from "./reducer";
 
 // ==========================================================================
 // Global CRDT Context Functions
@@ -317,7 +319,6 @@ export { deserializeVV, serializeVV } from "./oplog";
 export {
   cleanSnapshotForSave,
   findCharIdAtPosition,
-  getCharIdsInRange,
   getVisibleBlocks,
   getVisibleTextFromBlock,
 } from "./reducer";
@@ -837,7 +838,10 @@ export class SyncEngine {
     endIndex: number,
   ): TextDelete {
     const block = this.getState().blocks.find((b) => b.id === blockId);
-    const charIds = block ? getCharIdsInRange(block, startIndex, endIndex) : [];
+    const charIds =
+      block && isTextualBlock(block)
+        ? getCharIdsInRangeFromRuns(block.charRuns, startIndex, endIndex)
+        : [];
 
     return this.createTextDelete(blockId, charIds);
   }
@@ -860,7 +864,10 @@ export class SyncEngine {
     value: boolean | string,
   ): FormatSet {
     const block = this.getState().blocks.find((b) => b.id === blockId);
-    const charIds = block ? getCharIdsInRange(block, startIndex, endIndex) : [];
+    const charIds =
+      block && isTextualBlock(block)
+        ? getCharIdsInRangeFromRuns(block.charRuns, startIndex, endIndex)
+        : [];
 
     return this.createFormatSet(blockId, charIds, format, value);
   }

@@ -522,33 +522,28 @@ export function mergeAdjacentRuns(runs: CharRun[] | undefined): CharRun[] {
 // =============================================================================
 
 /**
- * Get all character IDs in a range (inclusive, for visible chars only).
+ * Get the visible character IDs in a range, addressed by visible index
+ * (startIndex inclusive, endIndex exclusive).
  */
-export function getCharIdsInRange(
+export function getCharIdsInRangeFromRuns(
   runs: CharRun[] | undefined,
-  startCharId: string,
-  endCharId: string,
+  startIndex: number,
+  endIndex: number,
 ): string[] {
-  if (!runs || !Array.isArray(runs)) return [];
+  if (!runs) return [];
 
-  const result: string[] = [];
-  let inRange = false;
+  const ids: string[] = [];
+  let visibleCount = 0;
 
-  for (const { id, deleted } of iterateAllChars(runs)) {
-    if (id === startCharId) {
-      inRange = true;
+  for (const { id } of iterateVisibleChars(runs)) {
+    if (visibleCount >= startIndex && visibleCount < endIndex) {
+      ids.push(id);
     }
-
-    if (inRange && !deleted) {
-      result.push(id);
-    }
-
-    if (id === endCharId) {
-      break;
-    }
+    visibleCount++;
+    if (visibleCount >= endIndex) break;
   }
 
-  return result;
+  return ids;
 }
 
 /**
