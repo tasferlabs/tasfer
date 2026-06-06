@@ -204,9 +204,10 @@ export function calculateScrollbarBounds(
   const trackWidth = styles.width;
   const safeAreaBottom = getSafeAreaBottom();
   const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
-  const trackX = getDefaultDirection()
-    ? styles.padding
-    : viewport.width - trackWidth - styles.padding;
+  const trackX =
+    getDefaultDirection() === "rtl"
+      ? styles.padding
+      : viewport.width - trackWidth - styles.padding;
   const trackY = styles.padding;
 
   // Calculate thumb size based on viewport/document ratio
@@ -286,7 +287,7 @@ export function renderScrollbar(
   const widthDiff = scaledWidth - bounds.thumbWidth;
   const trackWidthDiff = scaledTrackWidth - bounds.trackWidth;
   // Expand towards content: left in LTR, right in RTL (RTL scrollbar is on the left)
-  const rtl = getDefaultDirection();
+  const rtl = getDefaultDirection() === "rtl";
   const thumbX = rtl ? bounds.thumbX : bounds.thumbX - widthDiff;
   const trackX = rtl ? bounds.trackX : bounds.trackX - trackWidthDiff;
 
@@ -379,7 +380,7 @@ export function isPointInScrollbar(
     ? Math.max(visualWidth, styles.touchTargetWidth)
     : visualWidth;
 
-  const rtl = getDefaultDirection();
+  const rtl = getDefaultDirection() === "rtl";
   const trackY = styles.padding;
   const safeAreaBottom = getSafeAreaBottom();
   const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
@@ -618,7 +619,7 @@ export function renderScrollbarPeerMarkers(
   const safeAreaBottom = getSafeAreaBottom();
   const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
   const trackWidthDiff = trackWidth - styles.width;
-  const rtl = getDefaultDirection();
+  const rtl = getDefaultDirection() === "rtl";
   const trackX = rtl
     ? styles.padding
     : viewport.width - styles.width - styles.padding - trackWidthDiff;
@@ -685,7 +686,7 @@ function renderScrollbarSearchMarkers(
   const safeAreaBottom = getSafeAreaBottom();
   const trackHeight = viewport.height - styles.padding * 2 - safeAreaBottom;
   const trackWidthDiff = trackWidth - styles.width;
-  const rtl = getDefaultDirection();
+  const rtl = getDefaultDirection() === "rtl";
   const trackX = rtl
     ? styles.padding
     : viewport.width - styles.width - styles.padding - trackWidthDiff;
