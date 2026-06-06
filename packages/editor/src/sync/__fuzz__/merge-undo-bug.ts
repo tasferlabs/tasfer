@@ -26,9 +26,9 @@ import { invertOperations, refreshOps } from "../../inverse";
 import { isTextualBlock, type Page } from "../../serlization/loadPage";
 import { getVisibleLengthFromRuns, iterateVisibleChars } from "../char-runs";
 import { insertCharsAtPosition } from "../crdt-helpers";
+import type { BlockInsert, Operation, TextInsert } from "../crdt-types";
 import { applyOp, applyOps, createEmptyPageState } from "../reducer";
 import { getClock, getPageId, nextId, setCRDTContext } from "../sync";
-import type { BlockInsert, Operation, TextInsert } from "../types";
 
 setCRDTContext("merge-undo-repro", "p001");
 const pageId = getPageId();

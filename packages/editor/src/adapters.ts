@@ -24,3 +24,5 @@ export function setAssetResolver(resolver: AssetResolver): void {
 export function resolveAssetUrl(url: string): Promise<string> {
   return assetResolver(url);
 }
+
+//NOTE - URL and images logic be up to the consumer by making the block extensible and allowing them to define their own blocks.

@@ -25,17 +25,17 @@ import {
   getVisibleTextFromRuns,
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
-import {} from "../sync/crdt-undo";
-import { generateBlockId } from "../sync/id";
-import { applyOps } from "../sync/reducer";
-import { getClock, getPageId, nextId } from "../sync/sync";
 import type {
   BlockInsert,
   BlockSet,
   FormatSet,
   Operation,
   TextInsert,
-} from "../sync/types";
+} from "../sync/crdt-types";
+import {} from "../sync/crdt-undo";
+import { generateBlockId } from "../sync/id";
+import { applyOps } from "../sync/reducer";
+import { getClock, getPageId, nextId } from "../sync/sync";
 
 function globalGenerateBlockId(): string {
   return generateBlockId(nextId);

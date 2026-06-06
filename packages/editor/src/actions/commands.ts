@@ -36,6 +36,13 @@ import {
   getVisibleTextFromRuns,
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
+import type {
+  BlockInsert,
+  BlockSet,
+  FormatSet,
+  Operation,
+  TextDelete,
+} from "../sync/crdt-types";
 import {
   crdtToPosition,
   crdtToSelectionRange,
@@ -48,13 +55,6 @@ import {
   findPreviousVisibleBlockIndex,
 } from "../sync/reducer";
 import { getClock, getPageId, nextId } from "../sync/sync";
-import type {
-  BlockInsert,
-  BlockSet,
-  FormatSet,
-  Operation,
-  TextDelete,
-} from "../sync/types";
 
 /**
  * URL regex pattern for auto-detection.

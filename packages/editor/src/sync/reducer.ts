@@ -27,7 +27,6 @@ import {
   iterateVisibleChars,
 } from "./char-runs";
 import { resolveBlockOrder } from "./conflicts";
-import { compareHLC } from "./hlc";
 import type {
   BlockDelete,
   BlockInsert,
@@ -37,7 +36,8 @@ import type {
   Operation,
   TextDelete,
   TextInsert,
-} from "./types";
+} from "./crdt-types";
+import { compareHLC } from "./hlc";
 
 /**
  * Create an empty page state.

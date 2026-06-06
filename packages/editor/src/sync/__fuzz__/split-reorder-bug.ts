@@ -14,9 +14,9 @@ import {
   type Page,
 } from "../../serlization/loadPage";
 import { iterateVisibleChars } from "../char-runs";
+import type { BlockInsert, Operation } from "../crdt-types";
 import { applyOps } from "../reducer";
 import { getClock, getPageId, nextId, setCRDTContext } from "../sync";
-import type { BlockInsert, Operation } from "../types";
 
 setCRDTContext("split-reorder", "p001");
 const pageId = getPageId();

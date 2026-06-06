@@ -23,7 +23,7 @@ import { isTextualBlock } from "../serlization/loadPage";
 import type { EditorState, MouseEvent, ViewportState } from "../state-types";
 import { closeActiveMenu, openContextMenu, updateMode } from "../state-utils";
 import { getEditorStyles, getTextStyle } from "../styles";
-import type { Operation } from "../sync/types";
+import type { Operation } from "../sync/crdt-types";
 import {
   handleCompositionEnd,
   handleCompositionStart,

@@ -10,7 +10,7 @@
  */
 
 import type { Block } from "../serlization/loadPage";
-import type { BlockType } from "./types";
+import type { BlockType } from "./crdt-types";
 
 // =============================================================================
 // Field descriptors

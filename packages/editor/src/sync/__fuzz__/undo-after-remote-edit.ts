@@ -23,6 +23,7 @@ import { invertOperation, refreshOps } from "../../inverse";
 import type { Page, Paragraph } from "../../serlization/loadPage";
 import { isTextualBlock } from "../../serlization/loadPage";
 import { getVisibleLengthFromRuns, iterateVisibleChars } from "../char-runs";
+import type { FormatSet } from "../crdt-types";
 import { applyOps } from "../reducer";
 import {
   getClock,
@@ -31,7 +32,6 @@ import {
   setCRDTContext,
   SyncEngine,
 } from "../sync";
-import type { FormatSet } from "../types";
 
 // Two peers. Production uses one global HLC (set via setCRDTContext)
 // which the per-op helpers (crdt-helpers, inverse) consume via

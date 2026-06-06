@@ -1,6 +1,6 @@
 import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
 import type { Block, Page, TextFormat } from "./serlization/loadPage";
-import type { Operation } from "./sync/types";
+import type { Operation } from "./sync/crdt-types";
 import type { ReactElement } from "react";
 
 /**

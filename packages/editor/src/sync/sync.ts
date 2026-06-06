@@ -8,17 +8,6 @@
 
 import type { Char, CharRun, Page, TextFormat } from "../serlization/loadPage";
 import { BLOCK_REGISTRY } from "./block-registry";
-import { compareHLC, createHLC, receiveHLC, tickHLC } from "./hlc";
-import {
-  createIdGenerator,
-  extractCounter,
-  extractPeerId,
-  generateBlockId,
-  generatePeerId,
-  type IdGenerator,
-} from "./id";
-import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
-import { findCharIdAtPosition, getCharIdsInRange } from "./reducer";
 import type {
   BlockDelete,
   BlockInsert,
@@ -32,7 +21,18 @@ import type {
   TextDelete,
   TextInsert,
   VersionVector,
-} from "./types";
+} from "./crdt-types";
+import { compareHLC, createHLC, receiveHLC, tickHLC } from "./hlc";
+import {
+  createIdGenerator,
+  extractCounter,
+  extractPeerId,
+  generateBlockId,
+  generatePeerId,
+  type IdGenerator,
+} from "./id";
+import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
+import { findCharIdAtPosition, getCharIdsInRange } from "./reducer";
 
 // ==========================================================================
 // Global CRDT Context Functions
@@ -172,7 +172,7 @@ export type {
   TextDelete,
   TextInsert,
   VersionVector,
-} from "./types";
+} from "./crdt-types";
 
 // =============================================================================
 // Typed BlockSet builder

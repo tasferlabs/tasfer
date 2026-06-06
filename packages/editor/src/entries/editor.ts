@@ -79,6 +79,7 @@ import {
   formatCharsInRange,
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
+import type { BlockDelete, BlockInsert, Operation } from "../sync/crdt-types";
 import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
 import { applyOps } from "../sync/reducer";
 import { generateRestoreOperations } from "../sync/snapshot-diff";
@@ -90,7 +91,6 @@ import {
   getVisibleBlocks,
   nextId,
 } from "../sync/sync";
-import type { BlockDelete, BlockInsert, Operation } from "../sync/types";
 import { updateSelection } from "../updateSelection";
 import type { CanvasLayers } from "./layers";
 

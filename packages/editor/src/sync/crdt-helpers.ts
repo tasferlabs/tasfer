@@ -13,13 +13,13 @@ import type {
   TextFormat,
 } from "../serlization/loadPage";
 import { isTextualBlock } from "../serlization/loadPage";
-import type { FormatSet, TextDelete, TextInsert } from "../sync/types";
 import {
   getCharIdAtVisiblePosition,
   getVisibleLengthFromRuns,
   isCharIdInRange,
   iterateVisibleChars,
 } from "./char-runs";
+import type { FormatSet, TextDelete, TextInsert } from "./crdt-types";
 import { extractCounter, extractPeerId } from "./id";
 import { applyOp } from "./reducer";
 import { getClock, getPageId, nextId } from "./sync";

@@ -7,10 +7,6 @@
 
 import type { CharRun, Page, TextFormat } from "../serlization/loadPage";
 
-// =============================================================================
-// Hybrid Logical Clock (HLC)
-// =============================================================================
-
 /**
  * Hybrid Logical Clock for total ordering of operations.
  * Pure Lamport clock: counter + peerId for causality tracking.
@@ -22,18 +18,6 @@ export interface HLC {
   /** Peer ID - tie-breaker for concurrent operations */
   peerId: string;
 }
-
-// =============================================================================
-// Character-Level CRDT (RGA-style)
-// =============================================================================
-
-// =============================================================================
-// Formatting
-// =============================================================================
-
-// =============================================================================
-// Block Types
-// =============================================================================
 
 /** Supported block types matching the editor */
 export type BlockType =
@@ -71,14 +55,6 @@ export interface BlockProps {
   /** Math block display mode (true = display/block, false = inline) */
   displayMode?: boolean;
 }
-
-// =============================================================================
-// Page State
-// =============================================================================
-
-// =============================================================================
-// Operations
-// =============================================================================
 
 /**
  * Base operation fields shared by all operation types.

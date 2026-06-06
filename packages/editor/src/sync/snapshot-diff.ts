@@ -17,7 +17,7 @@ import type {
   HLC,
   Operation,
   TextInsert,
-} from "./types";
+} from "./crdt-types";
 
 // =============================================================================
 // Types

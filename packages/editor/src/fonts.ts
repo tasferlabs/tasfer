@@ -32,14 +32,23 @@ interface TextSegment {
   formats?: TextFormat[];
 }
 
-/**
- * Resolve the CSS font-stack for a family key from the host-configured font
- * registry (`EditorStyles.fonts`). Unknown keys fall back to the configured
- * default family, then to a generic system stack.
- */
-export function getFontStack(fontFamily: FontFamily): string {
-  const { families, defaultFamily } = getEditorStyles().fonts;
-  return families[fontFamily] ?? families[defaultFamily] ?? "sans-serif";
+// A batch of consecutive characters with the same formatting
+export interface TextBatch {
+  text: string;
+  formats: TextFormat[];
+  isBold: boolean;
+  isItalic: boolean;
+  isCode: boolean;
+  isStrikethrough: boolean;
+  isLink: boolean;
+  isMath: boolean;
+  linkUrl?: string;
+}
+
+// Line wrapping result with information about consumed characters
+export interface WrappedLine {
+  text: string;
+  consumedSpace: boolean; // True if this line consumed a trailing space character
 }
 
 // Whether the host has reported that the base font faces are loaded.
@@ -65,6 +74,16 @@ const measurementCanvas = (() => {
   canvas.height = 1;
   return canvas.getContext("2d")!;
 })();
+
+/**
+ * Resolve the CSS font-stack for a family key from the host-configured font
+ * registry (`EditorStyles.fonts`). Unknown keys fall back to the configured
+ * default family, then to a generic system stack.
+ */
+export function getFontStack(fontFamily: FontFamily): string {
+  const { families, defaultFamily } = getEditorStyles().fonts;
+  return families[fontFamily] ?? families[defaultFamily] ?? "sans-serif";
+}
 
 /** Register a one-shot callback for when fonts are ready. Fires immediately if already loaded. Returns unsubscribe fn. */
 export function onFontsReady(cb: () => void): () => void {
@@ -233,19 +252,6 @@ export function getFormatKey(formats: TextFormat[]): string {
     }
   }
   return keys.sort().join("|");
-}
-
-// A batch of consecutive characters with the same formatting
-export interface TextBatch {
-  text: string;
-  formats: TextFormat[];
-  isBold: boolean;
-  isItalic: boolean;
-  isCode: boolean;
-  isStrikethrough: boolean;
-  isLink: boolean;
-  isMath: boolean;
-  linkUrl?: string;
 }
 
 // Batch CRDT characters by formatting within a visible index range
@@ -778,12 +784,6 @@ export function wrapText(
   }
 
   return lines.length > 0 ? lines : [{ text: "", consumedSpace: false }];
-}
-
-// Line wrapping result with information about consumed characters
-export interface WrappedLine {
-  text: string;
-  consumedSpace: boolean; // True if this line consumed a trailing space character
 }
 
 // Register a callback to be called when font family changes

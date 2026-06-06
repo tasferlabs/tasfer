@@ -35,7 +35,7 @@ export type {
   SlashCommand,
   ViewportState,
 } from "./state-types";
-export type { HLC, Operation } from "./sync/types";
+export type { HLC, Operation } from "./sync/crdt-types";
 
 // Fonts — the host registers font families/stacks and loads the faces, then
 // notifies the editor. The editor itself ships no bundled fonts.

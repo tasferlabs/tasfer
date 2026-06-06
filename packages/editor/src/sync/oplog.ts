@@ -37,10 +37,10 @@
  * already provides ordering.
  */
 
+import type { Operation, OpLog, VersionVector } from "./crdt-types";
 import { compareHLC } from "./hlc";
 import { extractCounter, extractPeerId } from "./id";
 import { applyOp, createEmptyPageState, rebuildState } from "./reducer";
-import type { Operation, OpLog, VersionVector } from "./types";
 
 const IS_DEV = typeof import.meta !== "undefined" && !!import.meta.env?.DEV;
 

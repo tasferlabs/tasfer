@@ -1,6 +1,7 @@
 import { invertOperations, refreshOps } from "../inverse";
 import { invalidateAffectedBlocks } from "../rendering/renderer";
 import type { EditorState, UndoGroup, UndoManagerState } from "../state-types";
+import type { Operation } from "./crdt-types";
 import {
   captureCRDTCursor,
   captureCRDTSelection,
@@ -9,7 +10,6 @@ import {
 } from "./crdt-utils";
 import { applyOp, applyOps } from "./reducer";
 import { getPeerId } from "./sync";
-import type { Operation } from "./types";
 
 export const initialUndoManagerState: UndoManagerState = {
   undoStack: [],

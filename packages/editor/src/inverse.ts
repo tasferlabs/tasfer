@@ -23,7 +23,6 @@ import {
   isCharIdInRange,
   iterateAllChars,
 } from "./sync/char-runs";
-import { getClock, nextId } from "./sync/sync";
 import type {
   BlockDelete,
   BlockInsert,
@@ -32,7 +31,8 @@ import type {
   Operation,
   TextDelete,
   TextInsert,
-} from "./sync/types";
+} from "./sync/crdt-types";
+import { getClock, nextId } from "./sync/sync";
 
 // =============================================================================
 // Per-op inversion
