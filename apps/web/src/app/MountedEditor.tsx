@@ -9,8 +9,6 @@ import {
 } from "@cypherkit/editor/sync/awareness";
 import {
   SyncEngine,
-  advanceGlobalClock,
-  advanceGlobalIdCounter,
   maxOpIdCounter,
   serializeVV,
 } from "@cypherkit/editor/sync/sync";
@@ -595,12 +593,12 @@ export function MountedEditor({
         // historical ops, breaking causality (e.g. deletes before inserts).
         const lastOp = persistedOps[persistedOps.length - 1];
         if (lastOp) {
-          advanceGlobalClock(lastOp.clock);
+          mounted.editor.advanceClock(lastOp.clock);
         }
         // Same monotonicity requirement applies to the id-counter: future
         // local ids must out-counter every persisted id so RGA sibling
         // sorts place new blocks/chars after pre-existing siblings.
-        advanceGlobalIdCounter(maxOpIdCounter(persistedOps));
+        mounted.editor.advanceIdCounter(maxOpIdCounter(persistedOps));
       }
       // Local storage confirmed — we have whatever we have. Reveal the canvas.
       if (!snapshotHasContent) {
@@ -640,10 +638,10 @@ export function MountedEditor({
       // than the remote inserts it depends on, breaking convergence during
       // rebuildState (which sorts by HLC).
       for (const op of ops) {
-        advanceGlobalClock(op.clock);
+        mounted.editor.advanceClock(op.clock);
       }
       // And bump the id-counter past any remote ids — same reason as above.
-      advanceGlobalIdCounter(maxOpIdCounter(ops));
+      mounted.editor.advanceIdCounter(maxOpIdCounter(ops));
       mounted.editor.updatePageFromSync(syncEngine.getState());
       saveSnapshot(syncEngine.getState().blocks);
       isApplyingRemoteOpsRef.current = false;

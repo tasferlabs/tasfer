@@ -76,7 +76,6 @@ import {
 import { deleteCharsInRange } from "../sync/crdt-helpers";
 import { redoState, undoState } from "../sync/crdt-undo";
 import type { Operation } from "../sync/sync";
-import { getClock, getPageId, nextId } from "../sync/sync";
 import { ensureCursorVisible, isTouchDevice } from "./eventUtils";
 
 // Open the inline-math editor popover when an arrow key crosses an inline
@@ -359,7 +358,8 @@ export function handleKeyDown(
             state.document.page,
             block.id,
             textIndex - 1, // Remove the "/"
-            state.document.cursor.position.textIndex, // Remove up to cursor (the filter text)
+            state.document.cursor.position.textIndex, // Remove up to cursor (the filter text),
+            state.CRDTbinding,
           );
 
           const newBlock = newPage.blocks[blockIndex];
@@ -510,7 +510,7 @@ export function handleKeyDown(
 
           if (isFirstBlock && currentBlock && !isTextualBlock(currentBlock)) {
             // Create a new paragraph above the visual block
-            const newParagraphId = nextId();
+            const newParagraphId = state.CRDTbinding.nextId();
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
@@ -520,9 +520,9 @@ export function handleKeyDown(
 
             const blockInsertOp: Operation = {
               op: "block_insert",
-              id: nextId(),
-              clock: getClock(),
-              pageId: getPageId(),
+              id: state.CRDTbinding.nextId(),
+              clock: state.CRDTbinding.getClock(),
+              pageId: state.CRDTbinding.pageId,
               afterBlockId: null,
               blockId: newParagraphId,
               blockType: "paragraph",
@@ -567,9 +567,9 @@ export function handleKeyDown(
 
             const blockDeleteOp: Operation = {
               op: "block_delete",
-              id: nextId(),
-              clock: getClock(),
-              pageId: getPageId(),
+              id: state.CRDTbinding.nextId(),
+              clock: state.CRDTbinding.getClock(),
+              pageId: state.CRDTbinding.pageId,
               blockId: blockToDelete.id,
             };
             ops.push(blockDeleteOp);
@@ -724,7 +724,7 @@ export function handleKeyDown(
 
           if (isLastBlock && currentBlock && !isTextualBlock(currentBlock)) {
             // Create a new paragraph below the visual block
-            const newParagraphId = nextId();
+            const newParagraphId = state.CRDTbinding.nextId();
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
@@ -734,9 +734,9 @@ export function handleKeyDown(
 
             const blockInsertOp: Operation = {
               op: "block_insert",
-              id: nextId(),
-              clock: getClock(),
-              pageId: getPageId(),
+              id: state.CRDTbinding.nextId(),
+              clock: state.CRDTbinding.getClock(),
+              pageId: state.CRDTbinding.pageId,
               afterBlockId: currentBlock.id,
               blockId: newParagraphId,
               blockType: "paragraph",
@@ -781,9 +781,9 @@ export function handleKeyDown(
 
             const blockDeleteOp: Operation = {
               op: "block_delete",
-              id: nextId(),
-              clock: getClock(),
-              pageId: getPageId(),
+              id: state.CRDTbinding.nextId(),
+              clock: state.CRDTbinding.getClock(),
+              pageId: state.CRDTbinding.pageId,
               blockId: blockToDelete.id,
             };
             ops.push(blockDeleteOp);
@@ -927,7 +927,7 @@ export function handleKeyDown(
 
           if (isFirstBlock && currentBlock && !isTextualBlock(currentBlock)) {
             // Create a new paragraph above the visual block
-            const newParagraphId = nextId();
+            const newParagraphId = state.CRDTbinding.nextId();
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
@@ -937,9 +937,9 @@ export function handleKeyDown(
 
             const blockInsertOp: Operation = {
               op: "block_insert",
-              id: nextId(),
-              clock: getClock(),
-              pageId: getPageId(),
+              id: state.CRDTbinding.nextId(),
+              clock: state.CRDTbinding.getClock(),
+              pageId: state.CRDTbinding.pageId,
               afterBlockId: null,
               blockId: newParagraphId,
               blockType: "paragraph",
@@ -1038,9 +1038,9 @@ export function handleKeyDown(
 
             const blockDeleteOp: Operation = {
               op: "block_delete",
-              id: nextId(),
-              clock: getClock(),
-              pageId: getPageId(),
+              id: state.CRDTbinding.nextId(),
+              clock: state.CRDTbinding.getClock(),
+              pageId: state.CRDTbinding.pageId,
               blockId: blockToDelete.id,
             };
             ops.push(blockDeleteOp);
@@ -1105,7 +1105,7 @@ export function handleKeyDown(
 
           if (isLastBlock && currentBlock && !isTextualBlock(currentBlock)) {
             // Create a new paragraph below the visual block
-            const newParagraphId = nextId();
+            const newParagraphId = state.CRDTbinding.nextId();
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
@@ -1115,9 +1115,9 @@ export function handleKeyDown(
 
             const blockInsertOp: Operation = {
               op: "block_insert",
-              id: nextId(),
-              clock: getClock(),
-              pageId: getPageId(),
+              id: state.CRDTbinding.nextId(),
+              clock: state.CRDTbinding.getClock(),
+              pageId: state.CRDTbinding.pageId,
               afterBlockId: currentBlock.id,
               blockId: newParagraphId,
               blockType: "paragraph",
@@ -1198,7 +1198,7 @@ export function handleKeyDown(
 
           if (isFirstBlock && currentBlock && !isTextualBlock(currentBlock)) {
             // Create a new paragraph above the visual block
-            const newParagraphId = nextId();
+            const newParagraphId = state.CRDTbinding.nextId();
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
@@ -1208,9 +1208,9 @@ export function handleKeyDown(
 
             const blockInsertOp: Operation = {
               op: "block_insert",
-              id: nextId(),
-              clock: getClock(),
-              pageId: getPageId(),
+              id: state.CRDTbinding.nextId(),
+              clock: state.CRDTbinding.getClock(),
+              pageId: state.CRDTbinding.pageId,
               afterBlockId: null,
               blockId: newParagraphId,
               blockType: "paragraph",
@@ -1307,9 +1307,9 @@ export function handleKeyDown(
 
             const blockDeleteOp: Operation = {
               op: "block_delete",
-              id: nextId(),
-              clock: getClock(),
-              pageId: getPageId(),
+              id: state.CRDTbinding.nextId(),
+              clock: state.CRDTbinding.getClock(),
+              pageId: state.CRDTbinding.pageId,
               blockId: blockToDelete.id,
             };
             ops.push(blockDeleteOp);
@@ -1372,7 +1372,7 @@ export function handleKeyDown(
 
           if (isLastBlock && currentBlock && !isTextualBlock(currentBlock)) {
             // Create a new paragraph below the visual block
-            const newParagraphId = nextId();
+            const newParagraphId = state.CRDTbinding.nextId();
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
@@ -1382,9 +1382,9 @@ export function handleKeyDown(
 
             const blockInsertOp: Operation = {
               op: "block_insert",
-              id: nextId(),
-              clock: getClock(),
-              pageId: getPageId(),
+              id: state.CRDTbinding.nextId(),
+              clock: state.CRDTbinding.getClock(),
+              pageId: state.CRDTbinding.pageId,
               afterBlockId: currentBlock.id,
               blockId: newParagraphId,
               blockType: "paragraph",

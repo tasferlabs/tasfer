@@ -25,20 +25,14 @@ import { isTextualBlock } from "../../serlization/loadPage";
 import { getVisibleLengthFromRuns, iterateVisibleChars } from "../char-runs";
 import type { FormatSet } from "../crdt-types";
 import { applyOps } from "../reducer";
-import {
-  getClock,
-  getPageId,
-  nextId,
-  setCRDTContext,
-  SyncEngine,
-} from "../sync";
+import { createCRDTbinding, SyncEngine } from "../sync";
 
-// Two peers. Production uses one global HLC (set via setCRDTContext)
-// which the per-op helpers (crdt-helpers, inverse) consume via
-// nextId()/getClock(). To make this test exercise the same HLC the
-// inverses use, we build peer A's ops through that global context.
-setCRDTContext("undo-trace", "p001");
-const pageId = getPageId();
+// Two peers. The per-editor CRDT binding holds the HLC + id-gen that the
+// per-op helpers (crdt-helpers, inverse) consume via
+// binding.nextId()/binding.getClock(). To make this test exercise the same HLC
+// the inverses use, we build peer A's ops through this binding.
+const binding = createCRDTbinding("undo-trace", "p001");
+const pageId = binding.pageId;
 
 const peerA = new SyncEngine(pageId, "p001");
 const peerB = new SyncEngine(pageId, "p002");
@@ -97,8 +91,8 @@ for (const { id } of iterateVisibleChars(blockOnA.charRuns)) {
 
 const boldOp: FormatSet = {
   op: "format_set",
-  id: nextId(),
-  clock: getClock(),
+  id: binding.nextId(),
+  clock: binding.getClock(),
   pageId,
   blockId,
   charIds: charIdsToBold,
@@ -109,7 +103,7 @@ peerA.apply([boldOp]);
 
 // CAPTURE the inverse against pageBeforeBold — same as recordUndoOps does
 // in production.
-const capturedInverses = invertOperation(boldOp, pageBeforeBold);
+const capturedInverses = invertOperation(boldOp, pageBeforeBold, binding);
 if (capturedInverses.length !== 1) {
   console.log(`FAIL: expected 1 inverse, got ${capturedInverses.length}`);
   process.exit(1);
@@ -152,7 +146,7 @@ if (visibleText(peerA.getState()) !== "hello world") {
 //    and apply it. (In production this lives inside undoState; we replay
 //    the same primitives here without spinning up an EditorState.)
 // ---------------------------------------------------------------------------
-const undoOps = refreshOps(capturedInverses);
+const undoOps = refreshOps(capturedInverses, binding);
 peerA.apply(undoOps);
 
 // ---------------------------------------------------------------------------
@@ -200,7 +194,7 @@ if (visibleText(finalA) !== "hello world") {
 
 // And the inverse should be idempotent — applying it again should be a
 // no-op (the bold span is already gone).
-const reapplied = applyOps(finalA, refreshOps(capturedInverses));
+const reapplied = applyOps(finalA, refreshOps(capturedInverses, binding));
 const reBlock = reapplied.blocks.find((b) => b.id === blockId);
 if (!reBlock) {
   console.log("FAIL: rebuild lost the block");

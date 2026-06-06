@@ -26,7 +26,6 @@ import {
   isCharIdInRange,
   iterateVisibleChars,
 } from "./char-runs";
-import { resolveBlockOrder } from "./conflicts";
 import type {
   BlockDelete,
   BlockInsert,
@@ -37,6 +36,7 @@ import type {
   TextDelete,
   TextInsert,
 } from "./crdt-types";
+import { resolveBlockOrder } from "./crdt-utils";
 import { compareHLC } from "./hlc";
 
 /**
@@ -635,4 +635,3 @@ export function findCharIdAtPosition(
 
   return getCharIdAtVisiblePosition(block.charRuns, position);
 }
-

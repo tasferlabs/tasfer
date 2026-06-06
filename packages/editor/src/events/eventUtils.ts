@@ -15,7 +15,6 @@ import type { Block } from "../serlization/loadPage";
 import type { EditorState, ViewportState } from "../state-types";
 import { getEditorStyles } from "../styles";
 import type { Operation } from "../sync/sync";
-import { getClock, getPageId, nextId } from "../sync/sync";
 
 export function isTouchDevice(): boolean {
   return (
@@ -649,9 +648,9 @@ export function endImageDrag(state: EditorState): {
     if (block.width !== startWidth) {
       ops.push({
         op: "block_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         blockId,
         field: "width",
         value: block.width,
@@ -661,9 +660,9 @@ export function endImageDrag(state: EditorState): {
     if (block.height !== startHeight) {
       ops.push({
         op: "block_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         blockId,
         field: "height",
         value: block.height,
@@ -673,9 +672,9 @@ export function endImageDrag(state: EditorState): {
     if (block.objectFit !== startObjectFit) {
       ops.push({
         op: "block_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         blockId,
         field: "objectFit",
         value: block.objectFit,

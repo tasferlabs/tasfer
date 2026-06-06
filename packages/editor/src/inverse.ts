@@ -16,6 +16,7 @@
  */
 import type { Block, Char, Page, TextFormat } from "./serlization/loadPage";
 import { isTextualBlock } from "./serlization/loadPage";
+import type { CRDTbinding } from "./state-types";
 import { getBlockDescriptor, getBlockFieldNames } from "./sync/block-registry";
 import {
   charRunsToChars,
@@ -32,7 +33,6 @@ import type {
   TextDelete,
   TextInsert,
 } from "./sync/crdt-types";
-import { getClock, nextId } from "./sync/sync";
 
 // =============================================================================
 // Per-op inversion
@@ -52,7 +52,10 @@ import { getClock, nextId } from "./sync/sync";
  * Doesn't depend on the pre-state — the inserted char IDs come directly from
  * the op's charRuns.
  */
-function invertTextInsert(op: TextInsert): TextDelete | null {
+function invertTextInsert(
+  op: TextInsert,
+  binding: CRDTbinding,
+): TextDelete | null {
   const chars = charRunsToChars(op.charRuns);
   const charIds = chars.map((c) => c.id);
 
@@ -62,8 +65,8 @@ function invertTextInsert(op: TextInsert): TextDelete | null {
 
   return {
     op: "text_delete",
-    id: nextId(),
-    clock: getClock(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
     pageId: op.pageId,
     blockId: op.blockId,
     charIds,
@@ -79,7 +82,11 @@ function invertTextInsert(op: TextInsert): TextDelete | null {
  * directly. After this we don't need pageBefore again — the inverse carries
  * everything it needs.
  */
-function invertTextDelete(op: TextDelete, pageBefore: Page): TextInsert | null {
+function invertTextDelete(
+  op: TextDelete,
+  pageBefore: Page,
+  binding: CRDTbinding,
+): TextInsert | null {
   const block = pageBefore.blocks.find((b) => b.id === op.blockId);
 
   if (!block) return null;
@@ -115,8 +122,8 @@ function invertTextDelete(op: TextDelete, pageBefore: Page): TextInsert | null {
 
   return {
     op: "text_insert",
-    id: nextId(),
-    clock: getClock(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
     pageId: op.pageId,
     blockId: op.blockId,
     afterCharId,
@@ -136,7 +143,11 @@ function invertTextDelete(op: TextDelete, pageBefore: Page): TextInsert | null {
  * this returns an empty array — there's no safe fallback if we don't know
  * the prior value, and undo failing loud is better than corrupting state.
  */
-function invertFormatSet(op: FormatSet, pageBefore: Page): FormatSet[] {
+function invertFormatSet(
+  op: FormatSet,
+  pageBefore: Page,
+  binding: CRDTbinding,
+): FormatSet[] {
   const block = pageBefore.blocks.find((b) => b.id === op.blockId);
   if (!block || block.deleted || !isTextualBlock(block)) return [];
 
@@ -198,8 +209,8 @@ function invertFormatSet(op: FormatSet, pageBefore: Page): FormatSet[] {
       // No prior format of this type on these chars — undo by removing.
       inverses.push({
         op: "format_set",
-        id: nextId(),
-        clock: getClock(),
+        id: binding.nextId(),
+        clock: binding.getClock(),
         pageId: op.pageId,
         blockId: op.blockId,
         charIds,
@@ -211,8 +222,8 @@ function invertFormatSet(op: FormatSet, pageBefore: Page): FormatSet[] {
       // re-apply it so the original span is restored.
       inverses.push({
         op: "format_set",
-        id: nextId(),
-        clock: getClock(),
+        id: binding.nextId(),
+        clock: binding.getClock(),
         pageId: op.pageId,
         blockId: op.blockId,
         charIds,
@@ -229,11 +240,11 @@ function invertFormatSet(op: FormatSet, pageBefore: Page): FormatSet[] {
  * Compute the inverse of a block insert operation.
  * Inverse: Delete the inserted block.
  */
-function invertBlockInsert(op: BlockInsert): BlockDelete {
+function invertBlockInsert(op: BlockInsert, binding: CRDTbinding): BlockDelete {
   return {
     op: "block_delete",
-    id: nextId(),
-    clock: getClock(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
     pageId: op.pageId,
     blockId: op.blockId,
   };
@@ -250,6 +261,7 @@ function invertBlockInsert(op: BlockInsert): BlockDelete {
 function invertBlockDelete(
   op: BlockDelete,
   pageBefore: Page,
+  binding: CRDTbinding,
 ): BlockInsert | null {
   const block: Block | undefined = pageBefore.blocks.find(
     (b) => b.id === op.blockId,
@@ -266,8 +278,8 @@ function invertBlockDelete(
 
   return {
     op: "block_insert",
-    id: nextId(),
-    clock: getClock(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
     pageId: op.pageId,
     afterBlockId: block.afterId ?? null,
     blockId: op.blockId,
@@ -282,7 +294,11 @@ function invertBlockDelete(
  * Reads the prior value of the field from `pageBefore`. Uses the registry's
  * `extractForInverse` so type-specific extraction lives in one place.
  */
-function invertBlockSet(op: BlockSet, pageBefore: Page): BlockSet | null {
+function invertBlockSet(
+  op: BlockSet,
+  pageBefore: Page,
+  binding: CRDTbinding,
+): BlockSet | null {
   const block = pageBefore.blocks.find((b) => b.id === op.blockId);
   if (!block || block.deleted) return null;
 
@@ -297,8 +313,8 @@ function invertBlockSet(op: BlockSet, pageBefore: Page): BlockSet | null {
 
   return {
     op: "block_set",
-    id: nextId(),
-    clock: getClock(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
     pageId: op.pageId,
     blockId: op.blockId,
     field: op.field,
@@ -314,26 +330,30 @@ function invertBlockSet(op: BlockSet, pageBefore: Page): BlockSet | null {
  * Some op kinds invert into multiple ops — format_set crossing pre-existing
  * formatting boundaries inverts into one op per prior segment.
  */
-export function invertOperation(op: Operation, pageBefore: Page): Operation[] {
+export function invertOperation(
+  op: Operation,
+  pageBefore: Page,
+  binding: CRDTbinding,
+): Operation[] {
   switch (op.op) {
     case "text_insert": {
-      const inv = invertTextInsert(op);
+      const inv = invertTextInsert(op, binding);
       return inv ? [inv] : [];
     }
     case "text_delete": {
-      const inv = invertTextDelete(op, pageBefore);
+      const inv = invertTextDelete(op, pageBefore, binding);
       return inv ? [inv] : [];
     }
     case "format_set":
-      return invertFormatSet(op, pageBefore);
+      return invertFormatSet(op, pageBefore, binding);
     case "block_insert":
-      return [invertBlockInsert(op)];
+      return [invertBlockInsert(op, binding)];
     case "block_delete": {
-      const inv = invertBlockDelete(op, pageBefore);
+      const inv = invertBlockDelete(op, pageBefore, binding);
       return inv ? [inv] : [];
     }
     case "block_set": {
-      const inv = invertBlockSet(op, pageBefore);
+      const inv = invertBlockSet(op, pageBefore, binding);
       return inv ? [inv] : [];
     }
     default:
@@ -357,6 +377,7 @@ export function invertOperations(
   ops: readonly Operation[],
   pageBefore: Page,
   applyOp: (page: Page, op: Operation) => Page,
+  binding: CRDTbinding,
 ): Operation[] {
   // Materialise the per-op pre-state.
   const preStates: Page[] = new Array(ops.length);
@@ -369,7 +390,7 @@ export function invertOperations(
   // Invert each op against its own pre-state, in reverse order.
   const inverses: Operation[] = [];
   for (let i = ops.length - 1; i >= 0; i--) {
-    for (const inv of invertOperation(ops[i], preStates[i])) {
+    for (const inv of invertOperation(ops[i], preStates[i], binding)) {
       inverses.push(inv);
     }
   }
@@ -394,14 +415,17 @@ export function invertOperations(
  * The semantic effect of the replayed op is identical because the payload
  * (charIds, blockId, format, value, afterCharId, etc.) is unchanged.
  */
-export function refreshOps(ops: readonly Operation[]): Operation[] {
-  return ops.map(refreshOp);
+export function refreshOps(
+  ops: readonly Operation[],
+  binding: CRDTbinding,
+): Operation[] {
+  return ops.map((op) => refreshOp(op, binding));
 }
 
-function refreshOp(op: Operation): Operation {
+function refreshOp(op: Operation, binding: CRDTbinding): Operation {
   return {
     ...op,
-    id: nextId(),
-    clock: getClock(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
   };
 }

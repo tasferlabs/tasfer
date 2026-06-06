@@ -8,6 +8,7 @@
 
 import type { Char, CharRun, Page, TextFormat } from "../serlization/loadPage";
 import { isTextualBlock } from "../serlization/loadPage";
+import type { CRDTbinding } from "../state-types";
 import { BLOCK_REGISTRY } from "./block-registry";
 import { getCharIdsInRangeFromRuns } from "./char-runs";
 import type {
@@ -37,104 +38,51 @@ import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
 import { findCharIdAtPosition } from "./reducer";
 
 // ==========================================================================
-// Global CRDT Context Functions
+// CRDT Context (per editor instance)
 // ==========================================================================
 
 /**
- * Global state for CRDT context.
- * These are initialized per-page and used throughout the editor.
- */
-let globalPageId: string | null = null;
-let globalIdGen: IdGenerator | null = null;
-let globalHLC: HLC | null = null;
-
-/**
- * Initialize the global CRDT context.
- * Call this when creating/loading a page to set up the global functions.
+ * Create a CRDT context for a single editor instance.
+ *
+ * Encapsulates the id generator + Hybrid Logical Clock + page id that used to
+ * live in module-level globals. Each editor instance owns its own binding, so
+ * multiple editors (e.g. a readonly snapshot preview alongside the main editor)
+ * can coexist on the same page without clobbering each other's id/clock state.
+ *
+ * The returned object holds its `hlc`/`idGen` in a closure and mutates them in
+ * place — the methods are not bound to `this`, so they can be passed as bare
+ * references (e.g. into snapshot-diff's `OpsContext`).
  *
  * @param pageId - The page ID
  * @param peerId - Optional peer ID (generated if not provided)
  */
-export function setCRDTContext(pageId: string, peerId?: string): void {
+export function createCRDTbinding(
+  pageId: string,
+  peerId?: string,
+): CRDTbinding {
   const actualPeerId = peerId ?? generatePeerId();
-  globalPageId = pageId;
-  globalIdGen = createIdGenerator(actualPeerId);
-  globalHLC = createHLC(actualPeerId);
-}
+  const idGen = createIdGenerator(actualPeerId);
+  let hlc = createHLC(actualPeerId);
 
-/**
- * Get the current page ID.
- * @throws Error if context is not initialized
- */
-export function getPageId(): string {
-  if (globalPageId === null) {
-    throw new Error(
-      "CRDT context not initialized. Call setCRDTContext() first.",
-    );
-  }
-  return globalPageId;
-}
-
-/**
- * Generate the next unique ID.
- * @throws Error if context is not initialized
- */
-export function nextId(): string {
-  if (globalIdGen === null) {
-    throw new Error(
-      "CRDT context not initialized. Call setCRDTContext() first.",
-    );
-  }
-  return globalIdGen();
-}
-
-/**
- * Get the current clock and tick it forward.
- * Returns a new HLC that is guaranteed to be greater than the current one.
- * @throws Error if context is not initialized
- */
-export function getClock(): HLC {
-  if (globalHLC === null) {
-    throw new Error(
-      "CRDT context not initialized. Call setCRDTContext() first.",
-    );
-  }
-  globalHLC = tickHLC(globalHLC);
-  return { ...globalHLC };
-}
-
-/**
- * Get the current peer ID from the HLC.
- * @throws Error if context is not initialized
- */
-export function getPeerId(): string {
-  if (globalHLC === null) {
-    throw new Error(
-      "CRDT context not initialized. Call setCRDTContext() first.",
-    );
-  }
-  return globalHLC.peerId;
-}
-
-/**
- * Advance the global HLC to be at least as recent as a remote clock.
- * Call this after loading persisted operations so that new operations
- * get HLC values higher than all historical ops. Without this,
- * mergeOps (full rebuild) would sort session ops before historical ops,
- * breaking causality.
- */
-export function advanceGlobalClock(remoteClock: HLC): void {
-  if (globalHLC === null) return;
-  globalHLC = receiveHLC(globalHLC, remoteClock);
-}
-
-/**
- * Bump the global id-counter so the next id we generate has counter > `n`.
- * Required for RGA sibling tie-breaks across sessions — see IdGenerator.advance.
- */
-export function advanceGlobalIdCounter(n: number): void {
-  if (globalIdGen === null) return;
-  globalIdGen.advance(n);
+  return {
+    pageId,
+    nextId(): string {
+      return idGen();
+    },
+    getClock(): HLC {
+      hlc = tickHLC(hlc);
+      return { ...hlc };
+    },
+    getPeerId(): string {
+      return hlc.peerId;
+    },
+    advanceClock(remoteClock: HLC): void {
+      hlc = receiveHLC(hlc, remoteClock);
+    },
+    advanceIdCounter(n: number): void {
+      idGen.advance(n);
+    },
+  };
 }
 
 /**
@@ -301,12 +249,13 @@ export function createBlockSet<T extends BlockType, F extends BlockSetField<T>>(
   blockId: string,
   field: F,
   value: BlockSetValue<T, F>,
+  binding: CRDTbinding,
 ): BlockSet {
   return {
     op: "block_set",
-    id: nextId(),
-    clock: getClock(),
-    pageId: getPageId(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
+    pageId: binding.pageId,
     blockId,
     field,
     value,

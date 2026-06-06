@@ -13,6 +13,7 @@ import type {
   TextFormat,
 } from "../serlization/loadPage";
 import { isTextualBlock } from "../serlization/loadPage";
+import type { CRDTbinding } from "../state-types";
 import {
   getCharIdAtVisiblePosition,
   getCharIdsInRangeFromRuns,
@@ -22,7 +23,6 @@ import {
 import type { FormatSet, TextDelete, TextInsert } from "./crdt-types";
 import { extractCounter, extractPeerId } from "./id";
 import { applyOp } from "./reducer";
-import { getClock, getPageId, nextId } from "./sync";
 
 export interface InsertCharsResult {
   newPage: Page;
@@ -47,6 +47,7 @@ export function insertCharsAtPosition(
   blockId: string,
   position: number,
   text: string,
+  binding: CRDTbinding,
 ): InsertCharsResult {
   if (text.length === 0) {
     throw new Error("Cannot insert empty text");
@@ -59,11 +60,11 @@ export function insertCharsAtPosition(
   // Pre-allocate consecutive IDs for the inserted chars so they form a
   // single CharRun. The op id is allocated after the char IDs so its
   // counter never collides with the chars it references.
-  const firstId = nextId();
+  const firstId = binding.nextId();
   const peerId = extractPeerId(firstId);
   const startCounter = extractCounter(firstId);
   for (let i = 1; i < text.length; i++) {
-    nextId();
+    binding.nextId();
   }
 
   const newCharRun: CharRun = {
@@ -74,9 +75,9 @@ export function insertCharsAtPosition(
 
   const op: TextInsert = {
     op: "text_insert",
-    id: nextId(),
-    clock: getClock(),
-    pageId: getPageId(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
+    pageId: binding.pageId,
     blockId,
     afterCharId,
     charRuns: [newCharRun],
@@ -93,6 +94,7 @@ export function deleteCharsInRange(
   blockId: string,
   startIndex: number,
   endIndex: number,
+  binding: CRDTbinding,
 ): DeleteCharsResult {
   const block = page.blocks.find((b) => b.id === blockId);
   const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
@@ -100,9 +102,9 @@ export function deleteCharsInRange(
 
   const op: TextDelete = {
     op: "text_delete",
-    id: nextId(),
-    clock: getClock(),
-    pageId: getPageId(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
+    pageId: binding.pageId,
     blockId,
     charIds,
   };
@@ -120,6 +122,7 @@ export function formatCharsInRange(
   endIndex: number,
   format: TextFormat,
   value: boolean | string,
+  binding: CRDTbinding,
 ): FormatCharsResult {
   const block = page.blocks.find((b) => b.id === blockId);
   const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
@@ -127,9 +130,9 @@ export function formatCharsInRange(
 
   const op: FormatSet = {
     op: "format_set",
-    id: nextId(),
-    clock: getClock(),
-    pageId: getPageId(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
+    pageId: binding.pageId,
     blockId,
     charIds,
     format,

@@ -9,7 +9,6 @@ import {
   restoreSelection,
 } from "./crdt-utils";
 import { applyOp, applyOps } from "./reducer";
-import { getPeerId } from "./sync";
 
 export const initialUndoManagerState: UndoManagerState = {
   undoStack: [],
@@ -48,7 +47,12 @@ export function recordUndoOps(
   // Capture inverses now, against stateBefore. invertOperations folds
   // applyOp through `ops` so each op's inverse is computed against the
   // state immediately before that specific op was applied.
-  const inverses = invertOperations(ops, stateBefore.document.page, applyOp);
+  const inverses = invertOperations(
+    ops,
+    stateBefore.document.page,
+    applyOp,
+    stateAfter.CRDTbinding,
+  );
 
   const undoGroup: UndoGroup = {
     operations: ops,
@@ -85,7 +89,7 @@ export function undoState(state: EditorState): {
   ops: Operation[];
 } {
   const { undoStack, redoStack } = state.undoManager;
-  const currentPeerId = getPeerId();
+  const currentPeerId = state.CRDTbinding.getPeerId();
 
   // Find the last undo group from this user
   let lastUserGroupIndex = -1;
@@ -118,7 +122,7 @@ export function undoState(state: EditorState): {
 
   // Re-stamp the captured inverses with fresh id/clock so peers (and the
   // local oplog) see them as new events. Payload is unchanged.
-  const inverseOps = refreshOps(undoGroup.inverses);
+  const inverseOps = refreshOps(undoGroup.inverses, state.CRDTbinding);
 
   // Apply inverse operations to the page
   const newPage = applyOps(state.document.page, inverseOps);
@@ -182,7 +186,7 @@ export function redoState(state: EditorState): {
   ops: Operation[];
 } {
   const { undoStack, redoStack } = state.undoManager;
-  const currentPeerId = getPeerId();
+  const currentPeerId = state.CRDTbinding.getPeerId();
 
   // Find the last redo group from this user
   let lastUserGroupIndex = -1;
@@ -204,7 +208,7 @@ export function redoState(state: EditorState): {
   // already in every peer's version vector from the first broadcast, so
   // re-sending them would be a no-op; the re-stamped copies propagate
   // normally. Semantic effect is identical because the payload is unchanged.
-  const redoOps = refreshOps(redoGroupData.operations);
+  const redoOps = refreshOps(redoGroupData.operations, state.CRDTbinding);
 
   // Apply redo operations to the page
   const newPage = applyOps(state.document.page, redoOps);

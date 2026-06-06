@@ -14,9 +14,9 @@
 import { invertOperation } from "../../inverse";
 import type { Math as MathBlock } from "../../serlization/loadPage";
 import { applyOp } from "../reducer";
-import { setCRDTContext, SyncEngine } from "../sync";
+import { createCRDTbinding, SyncEngine } from "../sync";
 
-setCRDTContext("math-undo-page", "p001");
+const binding = createCRDTbinding("math-undo-page", "p001");
 
 const pageId = "math-undo-page";
 const engine = new SyncEngine(pageId, "p001");
@@ -55,7 +55,7 @@ const pageBeforeDelete = engine.getState();
 const deleteOp = engine.createBlockDelete(blockId);
 engine.emit([deleteOp]);
 
-const inverses = invertOperation(deleteOp, pageBeforeDelete);
+const inverses = invertOperation(deleteOp, pageBeforeDelete, binding);
 if (inverses.length === 0) {
   console.log("FAIL: invertOperation returned no ops");
   process.exit(1);

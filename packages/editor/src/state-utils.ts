@@ -21,7 +21,7 @@ import {
 } from "./sync/char-runs";
 import { initialUndoManagerState } from "./sync/crdt-undo";
 import { generatePeerId } from "./sync/id";
-import { getVisibleBlocks, setCRDTContext } from "./sync/sync";
+import { createCRDTbinding, getVisibleBlocks } from "./sync/sync";
 
 // State Creation Functions
 export function createInitialState(
@@ -30,16 +30,14 @@ export function createInitialState(
 ): EditorState {
   const peerId = generatePeerId();
 
-  // Only initialize the global CRDT context for editable editors.
-  // Readonly editors (e.g. snapshot previews) never generate operations,
-  // and calling setCRDTContext here would overwrite the main editor's
-  // context — causing restore operations to get wrong pageId, peerId,
-  // and HLC clocks near zero, which breaks op ordering and convergence.
-  if (options?.mode !== "readonly") {
-    setCRDTContext(page.id, peerId);
-  }
+  // Each editor instance owns its own CRDT context. Because the binding is
+  // per-instance (not a module global), a readonly snapshot-preview editor can
+  // coexist with the main editor on the same page without clobbering its
+  // id/clock state — so we always create one, readonly or not.
+  const CRDTbinding = createCRDTbinding(page.id, peerId);
 
   return {
+    CRDTbinding,
     document: {
       page,
       cursor: null,

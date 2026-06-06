@@ -28,10 +28,10 @@ import { getVisibleLengthFromRuns, iterateVisibleChars } from "../char-runs";
 import { insertCharsAtPosition } from "../crdt-helpers";
 import type { BlockInsert, Operation, TextInsert } from "../crdt-types";
 import { applyOp, applyOps, createEmptyPageState } from "../reducer";
-import { getClock, getPageId, nextId, setCRDTContext } from "../sync";
+import { createCRDTbinding } from "../sync";
 
-setCRDTContext("merge-undo-repro", "p001");
-const pageId = getPageId();
+const binding = createCRDTbinding("merge-undo-repro", "p001");
+const pageId = binding.pageId;
 
 function describeVisible(p: Page): string {
   return p.blocks
@@ -52,8 +52,8 @@ function makeBlockInsert(
 ): BlockInsert {
   return {
     op: "block_insert",
-    id: nextId(),
-    clock: getClock(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
     pageId,
     afterBlockId,
     blockId,
@@ -65,14 +65,14 @@ function makeTextInsert(
   afterCharId: string | null,
   text: string,
 ): TextInsert {
-  const firstId = nextId();
+  const firstId = binding.nextId();
   const peerId = firstId.split(":")[0];
   const startCounter = parseInt(firstId.split(":")[1], 10);
-  for (let i = 1; i < text.length; i++) nextId();
+  for (let i = 1; i < text.length; i++) binding.nextId();
   return {
     op: "text_insert",
-    id: nextId(),
-    clock: getClock(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
     pageId,
     blockId,
     afterCharId,
@@ -80,8 +80,8 @@ function makeTextInsert(
   };
 }
 
-const aId = nextId();
-const bId = nextId();
+const aId = binding.nextId();
+const bId = binding.nextId();
 const initOps: Operation[] = [
   makeBlockInsert(null, aId),
   makeTextInsert(aId, null, "hello"),
@@ -101,8 +101,8 @@ console.log("Initial:", describeVisible(initial));
 
   const blockDelOp: Operation = {
     op: "block_delete",
-    id: nextId(),
-    clock: getClock(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
     pageId,
     blockId: bId,
   };
@@ -121,8 +121,8 @@ console.log("Initial:", describeVisible(initial));
   console.log("OLD merge result:", describeVisible(buggyLocal));
 
   // Capture inverses against the true pre-state.
-  const inverses = invertOperations([blockDelOp], initial, applyOp);
-  const stamped = refreshOps(inverses);
+  const inverses = invertOperations([blockDelOp], initial, applyOp, binding);
+  const stamped = refreshOps(inverses, binding);
   const afterUndo = applyOps(buggyLocal, stamped);
   console.log("OLD after undo:  ", describeVisible(afterUndo), "  <-- BUG");
 }
@@ -147,14 +147,15 @@ console.log("Initial:", describeVisible(initial));
     aId,
     aLen,
     bText,
+    binding,
   );
   pageAcc = newPage;
   mergeOps.push(insertOp);
 
   const blockDelOp: Operation = {
     op: "block_delete",
-    id: nextId(),
-    clock: getClock(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
     pageId,
     blockId: bId,
   };
@@ -162,8 +163,8 @@ console.log("Initial:", describeVisible(initial));
   pageAcc = applyOps(pageAcc, [blockDelOp]);
   console.log("NEW merge result:", describeVisible(pageAcc));
 
-  const inverses = invertOperations(mergeOps, initial, applyOp);
-  const stamped = refreshOps(inverses);
+  const inverses = invertOperations(mergeOps, initial, applyOp, binding);
+  const stamped = refreshOps(inverses, binding);
   const afterUndo = applyOps(pageAcc, stamped);
   console.log(
     "NEW after undo:  ",

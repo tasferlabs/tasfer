@@ -37,7 +37,6 @@ import {
 } from "../state-utils";
 import { getEditorStyles, getTextStyle } from "../styles";
 import type { Operation } from "../sync/sync";
-import { getClock, getPageId, nextId } from "../sync/sync";
 import {
   activateScroll,
   autoScrollState,
@@ -1437,7 +1436,7 @@ export function handleTouchEnd(
           lastBlock.type === "image" &&
           state.ui.mode !== "readonly"
         ) {
-          const newParagraphId = nextId();
+          const newParagraphId = state.CRDTbinding.nextId();
           const newParagraph: Block = {
             id: newParagraphId,
             type: "paragraph",
@@ -1447,9 +1446,9 @@ export function handleTouchEnd(
 
           const blockInsertOp: Operation = {
             op: "block_insert",
-            id: nextId(),
-            clock: getClock(),
-            pageId: getPageId(),
+            id: state.CRDTbinding.nextId(),
+            clock: state.CRDTbinding.getClock(),
+            pageId: state.CRDTbinding.pageId,
             afterBlockId: lastBlock.id,
             blockId: newParagraphId,
             blockType: "paragraph",
@@ -1603,7 +1602,7 @@ export function handleTouchEnd(
           if (isLastBlock && state.ui.mode !== "readonly") {
             const currentBlock =
               state.document.page.blocks[position.blockIndex];
-            const newParagraphId = nextId();
+            const newParagraphId = state.CRDTbinding.nextId();
             const newParagraph: Block = {
               id: newParagraphId,
               type: "paragraph",
@@ -1613,9 +1612,9 @@ export function handleTouchEnd(
 
             const blockInsertOp: Operation = {
               op: "block_insert",
-              id: nextId(),
-              clock: getClock(),
-              pageId: getPageId(),
+              id: state.CRDTbinding.nextId(),
+              clock: state.CRDTbinding.getClock(),
+              pageId: state.CRDTbinding.pageId,
               afterBlockId: currentBlock.id,
               blockId: newParagraphId,
               blockType: "paragraph",

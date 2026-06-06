@@ -16,10 +16,10 @@ import {
 import { iterateVisibleChars } from "../char-runs";
 import type { BlockInsert, Operation } from "../crdt-types";
 import { applyOps } from "../reducer";
-import { getClock, getPageId, nextId, setCRDTContext } from "../sync";
+import { createCRDTbinding } from "../sync";
 
-setCRDTContext("split-reorder", "p001");
-const pageId = getPageId();
+const binding = createCRDTbinding("split-reorder", "p001");
+const pageId = binding.pageId;
 
 function describe(p: Page): string {
   return p.blocks
@@ -67,11 +67,11 @@ console.log(" ", describe(loaded));
 
 // User presses Enter at end of "First" (block-10000). splitBlock builds a
 // block_insert with afterBlockId = "block-10000", then applies via applyOps.
-const newBlockId = nextId();
+const newBlockId = binding.nextId();
 const blockInsertOp: BlockInsert = {
   op: "block_insert",
-  id: nextId(),
-  clock: getClock(),
+  id: binding.nextId(),
+  clock: binding.getClock(),
   pageId,
   afterBlockId: "block-10000",
   blockId: newBlockId,

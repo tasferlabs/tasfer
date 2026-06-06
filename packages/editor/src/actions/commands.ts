@@ -11,6 +11,7 @@ import type { Block, CharRun, Page, TextFormat } from "../serlization/loadPage";
 import { isListBlock, isTextualBlock } from "../serlization/loadPage";
 import type {
   CommandResult,
+  CRDTbinding,
   EditorState,
   Position,
   SlashCommand,
@@ -54,7 +55,6 @@ import {
   findNextVisibleBlockIndex,
   findPreviousVisibleBlockIndex,
 } from "../sync/reducer";
-import { getClock, getPageId, nextId } from "../sync/sync";
 
 /**
  * URL regex pattern for auto-detection.
@@ -111,6 +111,7 @@ function autoLinkAtCursor(
   blockId: string,
   text: string,
   cursorIndex: number,
+  binding: CRDTbinding,
 ): { newPage: Page; ops: Operation[] } | null {
   const detected = detectUrlBeforeCursor(text, cursorIndex);
   if (!detected) return null;
@@ -152,6 +153,7 @@ function autoLinkAtCursor(
     detected.end,
     { type: "link", url: detected.url },
     detected.url,
+    binding,
   );
 
   return { newPage, ops: [op] };
@@ -202,6 +204,7 @@ function detectAndApplyInlineMarkdown(
   page: Page,
   blockId: string,
   textIndex: number,
+  binding: CRDTbinding,
 ): {
   newPage: Page;
   newTextIndex: number;
@@ -238,6 +241,7 @@ function detectAndApplyInlineMarkdown(
       blockId,
       matchEnd - markerLen,
       matchEnd,
+      binding,
     );
     pageAcc = p1;
     ops.push(deleteOp1);
@@ -247,6 +251,7 @@ function detectAndApplyInlineMarkdown(
       blockId,
       matchStart,
       matchStart + markerLen,
+      binding,
     );
     pageAcc = p2;
     ops.push(deleteOp2);
@@ -258,6 +263,7 @@ function detectAndApplyInlineMarkdown(
       matchStart + innerLen,
       format,
       true,
+      binding,
     );
     pageAcc = p3;
     ops.push(formatOp);
@@ -279,6 +285,7 @@ function detectAndApplyInlineMarkdown(
  */
 function applyMarkdownPrefix(
   block: Block,
+  binding: CRDTbinding,
   preserveType: boolean = false,
 ): { block: Block; ops: Operation[] } {
   if (!isTextualBlock(block)) {
@@ -308,9 +315,9 @@ function applyMarkdownPrefix(
       block.charRuns = deleteFromRuns(block.charRuns, charIds);
       const deleteOp: TextDelete = {
         op: "text_delete",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: binding.nextId(),
+        clock: binding.getClock(),
+        pageId: binding.pageId,
         blockId: block.id,
         charIds,
       };
@@ -322,9 +329,9 @@ function applyMarkdownPrefix(
   const setBlockField = (field: string, value: any) => {
     const setOp: BlockSet = {
       op: "block_set",
-      id: nextId(),
-      clock: getClock(),
-      pageId: getPageId(),
+      id: binding.nextId(),
+      clock: binding.getClock(),
+      pageId: binding.pageId,
       blockId: block.id,
       field,
       value,
@@ -394,9 +401,9 @@ function applyMarkdownPrefix(
       block.charRuns = deleteFromRuns(block.charRuns, allCharIds);
       const deleteOp: TextDelete = {
         op: "text_delete",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: binding.nextId(),
+        clock: binding.getClock(),
+        pageId: binding.pageId,
         blockId: block.id,
         charIds: allCharIds,
       };
@@ -415,9 +422,9 @@ function applyMarkdownPrefix(
       block.charRuns = deleteFromRuns(block.charRuns, allCharIds);
       const deleteOp: TextDelete = {
         op: "text_delete",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: binding.nextId(),
+        clock: binding.getClock(),
+        pageId: binding.pageId,
         blockId: block.id,
         charIds: allCharIds,
       };
@@ -461,6 +468,7 @@ function mergeBlocksOps(
   page: Page,
   source: Block,
   target: Block,
+  binding: CRDTbinding,
 ): { newPage: Page; ops: Operation[] } {
   const ops: Operation[] = [];
   let pageAcc = page;
@@ -469,9 +477,9 @@ function mergeBlocksOps(
   if (!isTextualBlock(source) || !isTextualBlock(target)) {
     const delOp: Operation = {
       op: "block_delete",
-      id: nextId(),
-      clock: getClock(),
-      pageId: getPageId(),
+      id: binding.nextId(),
+      clock: binding.getClock(),
+      pageId: binding.pageId,
       blockId: source.id,
     };
     ops.push(delOp);
@@ -488,6 +496,7 @@ function mergeBlocksOps(
       target.id,
       targetLen,
       sourceText,
+      binding,
     );
     pageAcc = pageAfterInsert;
     ops.push(insertOp);
@@ -534,9 +543,9 @@ function mergeBlocksOps(
           if (coveredNewIds.length > 0) {
             formatOps.push({
               op: "format_set",
-              id: nextId(),
-              clock: getClock(),
-              pageId: getPageId(),
+              id: binding.nextId(),
+              clock: binding.getClock(),
+              pageId: binding.pageId,
               blockId: target.id,
               charIds: coveredNewIds,
               format: span.format,
@@ -555,9 +564,9 @@ function mergeBlocksOps(
 
   const delOp: Operation = {
     op: "block_delete",
-    id: nextId(),
-    clock: getClock(),
-    pageId: getPageId(),
+    id: binding.nextId(),
+    clock: binding.getClock(),
+    pageId: binding.pageId,
     blockId: source.id,
   };
   ops.push(delOp);
@@ -576,7 +585,7 @@ function mergeBlocksOps(
     isTextualBlock(targetAfterMerge)
   ) {
     const clone = { ...targetAfterMerge } as Block;
-    const { ops: prefixOps } = applyMarkdownPrefix(clone);
+    const { ops: prefixOps } = applyMarkdownPrefix(clone, binding);
     if (prefixOps.length > 0) {
       ops.push(...prefixOps);
       pageAcc = applyOps(pageAcc, prefixOps);
@@ -639,9 +648,9 @@ export function deleteSelectedText(state: EditorState): CommandResult {
       // Delete the visual block — tombstone (don't splice) so undo can find it
       const blockDeleteOp: Operation = {
         op: "block_delete",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         blockId: block.id,
       };
       ops.push(blockDeleteOp);
@@ -658,7 +667,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
 
       if (wasOnlyVisibleBlock) {
         // Append a new empty paragraph (the tombstone stays in place)
-        const emptyParagraphId = nextId();
+        const emptyParagraphId = state.CRDTbinding.nextId();
         const emptyParagraph: Block = {
           id: emptyParagraphId,
           type: "paragraph",
@@ -668,9 +677,9 @@ export function deleteSelectedText(state: EditorState): CommandResult {
 
         const blockInsertOp: Operation = {
           op: "block_insert",
-          id: nextId(),
-          clock: getClock(),
-          pageId: getPageId(),
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
           afterBlockId: null,
           blockId: emptyParagraphId,
           blockType: "paragraph",
@@ -716,13 +725,14 @@ export function deleteSelectedText(state: EditorState): CommandResult {
       block.id,
       start.textIndex,
       end.textIndex,
+      state.CRDTbinding,
     );
     ops.push(op);
 
     const blockCopy = pageAfterDelete.blocks[start.blockIndex];
 
     if (block.type === "paragraph") {
-      ops.push(...applyMarkdownPrefix(blockCopy).ops);
+      ops.push(...applyMarkdownPrefix(blockCopy, state.CRDTbinding).ops);
     }
 
     invalidateBlockCache(blockCopy);
@@ -759,9 +769,9 @@ export function deleteSelectedText(state: EditorState): CommandResult {
         if (!blockToDelete || blockToDelete.deleted) continue;
         const blockDeleteOp: Operation = {
           op: "block_delete",
-          id: nextId(),
-          clock: getClock(),
-          pageId: getPageId(),
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
           blockId: blockToDelete.id,
         };
         ops.push(blockDeleteOp);
@@ -773,13 +783,13 @@ export function deleteSelectedText(state: EditorState): CommandResult {
         end.blockIndex - start.blockIndex + 1 >= visibleBlocksCount;
 
       if (deletingAllBlocks) {
-        const emptyParagraphId = nextId();
+        const emptyParagraphId = state.CRDTbinding.nextId();
 
         const blockInsertOp: Operation = {
           op: "block_insert",
-          id: nextId(),
-          clock: getClock(),
-          pageId: getPageId(),
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
           afterBlockId: null,
           blockId: emptyParagraphId,
           blockType: "paragraph",
@@ -839,6 +849,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
         startBlock.id,
         start.textIndex,
         startBlockLen,
+        state.CRDTbinding,
       );
     ops.push(startDeleteOp);
 
@@ -853,6 +864,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
         startBlock.id,
         start.textIndex,
         textToKeep,
+        state.CRDTbinding,
       );
       pageAfterMerge = pageAfterInsert;
       ops.push(insertOp);
@@ -866,9 +878,9 @@ export function deleteSelectedText(state: EditorState): CommandResult {
       if (!blockToDelete || blockToDelete.deleted) continue;
       blockDeleteOps.push({
         op: "block_delete",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         blockId: blockToDelete.id,
       });
     }
@@ -883,7 +895,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
     if (startBlockIndex !== -1) {
       const blockCopy = newPage.blocks[startBlockIndex];
       if (startBlock.type === "paragraph") {
-        ops.push(...applyMarkdownPrefix(blockCopy).ops);
+        ops.push(...applyMarkdownPrefix(blockCopy, state.CRDTbinding).ops);
       }
       invalidateBlockCache(blockCopy);
     }
@@ -973,6 +985,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
     oldBlock.id,
     textIndex,
     input,
+    state.CRDTbinding,
   );
   ops.push(op);
 
@@ -989,6 +1002,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
         newTextIndex,
         format,
         true,
+        state.CRDTbinding,
       );
       pageAcc = pageAfterFormat;
       ops.push(formatOp);
@@ -1005,6 +1019,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
       pageAcc,
       oldBlock.id,
       newTextIndex,
+      state.CRDTbinding,
     );
     if (markdownResult) {
       // Save history BEFORE applying markdown (with raw markdown text).
@@ -1014,6 +1029,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
       ops.push(
         ...applyMarkdownPrefix(
           blockBeforeMarkdown,
+          state.CRDTbinding,
           oldBlock.type !== "paragraph",
         ).ops,
       );
@@ -1049,6 +1065,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
         oldBlock.id,
         text,
         finalTextIndex,
+        state.CRDTbinding,
       );
       if (linkResult) {
         pageAcc = linkResult.newPage;
@@ -1061,7 +1078,11 @@ export function insertText(state: EditorState, input: string): CommandResult {
   // block in place; pageAcc.blocks[blockIndex] already holds the latest copy.
   const blockCopy = pageAcc.blocks[blockIndex];
   ops.push(
-    ...applyMarkdownPrefix(blockCopy, oldBlock.type !== "paragraph").ops,
+    ...applyMarkdownPrefix(
+      blockCopy,
+      state.CRDTbinding,
+      oldBlock.type !== "paragraph",
+    ).ops,
   );
   invalidateBlockCache(blockCopy);
 
@@ -1075,7 +1096,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
   // are non-textual, so the caret can't sit inside them.
   if ((blockCopy.type as string) === "math") {
     if (blockIndex + 1 >= pageAcc.blocks.length) {
-      const newParagraphId = nextId();
+      const newParagraphId = state.CRDTbinding.nextId();
       const newParagraph: Block = {
         id: newParagraphId,
         type: "paragraph",
@@ -1084,9 +1105,9 @@ export function insertText(state: EditorState, input: string): CommandResult {
       };
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         afterBlockId: blockCopy.id,
         blockId: newParagraphId,
         blockType: "paragraph",
@@ -1206,6 +1227,7 @@ export function deleteText(state: EditorState): CommandResult {
         oldBlock.id,
         mathSpan.startIndex,
         mathSpan.endIndex,
+        state.CRDTbinding,
       );
       ops.push(op);
       invalidateBlockCache(newPage.blocks[blockIndex]);
@@ -1230,12 +1252,13 @@ export function deleteText(state: EditorState): CommandResult {
       oldBlock.id,
       textIndex - 1,
       textIndex,
+      state.CRDTbinding,
     );
     ops.push(op);
 
     const blockCopy = newPage.blocks[blockIndex];
     if (oldBlock.type === "paragraph") {
-      ops.push(...applyMarkdownPrefix(blockCopy).ops);
+      ops.push(...applyMarkdownPrefix(blockCopy, state.CRDTbinding).ops);
     }
     invalidateBlockCache(blockCopy);
     let newState: EditorState = {
@@ -1266,9 +1289,9 @@ export function deleteText(state: EditorState): CommandResult {
           // Delete the empty list block
           const blockDeleteOp: Operation = {
             op: "block_delete",
-            id: nextId(),
-            clock: getClock(),
-            pageId: getPageId(),
+            id: state.CRDTbinding.nextId(),
+            clock: state.CRDTbinding.getClock(),
+            pageId: state.CRDTbinding.pageId,
             blockId: oldBlock.id,
           };
           ops.push(blockDeleteOp);
@@ -1349,9 +1372,9 @@ export function deleteText(state: EditorState): CommandResult {
           // Delete the empty text block
           const blockDeleteOp: Operation = {
             op: "block_delete",
-            id: nextId(),
-            clock: getClock(),
-            pageId: getPageId(),
+            id: state.CRDTbinding.nextId(),
+            clock: state.CRDTbinding.getClock(),
+            pageId: state.CRDTbinding.pageId,
             blockId: oldBlock.id,
           };
           ops.push(blockDeleteOp);
@@ -1363,7 +1386,7 @@ export function deleteText(state: EditorState): CommandResult {
 
           // If we deleted the last block, add an empty paragraph
           if (newBlocks.length === 0) {
-            const emptyParagraphId = nextId();
+            const emptyParagraphId = state.CRDTbinding.nextId();
             const emptyParagraph: Block = {
               id: emptyParagraphId,
               type: "paragraph",
@@ -1373,9 +1396,9 @@ export function deleteText(state: EditorState): CommandResult {
 
             const blockInsertOp: Operation = {
               op: "block_insert",
-              id: nextId(),
-              clock: getClock(),
-              pageId: getPageId(),
+              id: state.CRDTbinding.nextId(),
+              clock: state.CRDTbinding.getClock(),
+              pageId: state.CRDTbinding.pageId,
               afterBlockId: null,
               blockId: emptyParagraphId,
               blockType: "paragraph",
@@ -1442,6 +1465,7 @@ export function deleteText(state: EditorState): CommandResult {
         state.document.page,
         blockToDelete,
         blockToPreserve,
+        state.CRDTbinding,
       );
       ops.push(...mergeOps);
 
@@ -1551,6 +1575,7 @@ export function deleteForward(state: EditorState): CommandResult {
         oldBlock.id,
         mathSpan.startIndex,
         mathSpan.endIndex,
+        state.CRDTbinding,
       );
       ops.push(op);
       invalidateBlockCache(newPage.blocks[blockIndex]);
@@ -1575,12 +1600,13 @@ export function deleteForward(state: EditorState): CommandResult {
       oldBlock.id,
       textIndex,
       textIndex + 1,
+      state.CRDTbinding,
     );
     ops.push(op);
 
     const blockCopy = newPage.blocks[blockIndex];
     if (oldBlock.type === "paragraph") {
-      ops.push(...applyMarkdownPrefix(blockCopy).ops);
+      ops.push(...applyMarkdownPrefix(blockCopy, state.CRDTbinding).ops);
     }
     invalidateBlockCache(blockCopy);
     let newState: EditorState = {
@@ -1605,9 +1631,9 @@ export function deleteForward(state: EditorState): CommandResult {
         // Delete the current text block
         const blockDeleteOp: Operation = {
           op: "block_delete",
-          id: nextId(),
-          clock: getClock(),
-          pageId: getPageId(),
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
           blockId: oldBlock.id,
         };
         ops.push(blockDeleteOp);
@@ -1619,7 +1645,7 @@ export function deleteForward(state: EditorState): CommandResult {
 
         // If we deleted the last block, add an empty paragraph
         if (newBlocks.length === 0) {
-          const emptyParagraphId = nextId();
+          const emptyParagraphId = state.CRDTbinding.nextId();
           const emptyParagraph: Block = {
             id: emptyParagraphId,
             type: "paragraph",
@@ -1629,9 +1655,9 @@ export function deleteForward(state: EditorState): CommandResult {
 
           const blockInsertOp: Operation = {
             op: "block_insert",
-            id: nextId(),
-            clock: getClock(),
-            pageId: getPageId(),
+            id: state.CRDTbinding.nextId(),
+            clock: state.CRDTbinding.getClock(),
+            pageId: state.CRDTbinding.pageId,
             afterBlockId: null,
             blockId: emptyParagraphId,
             blockType: "paragraph",
@@ -1676,6 +1702,7 @@ export function deleteForward(state: EditorState): CommandResult {
         state.document.page,
         blockToDelete,
         blockToPreserve,
+        state.CRDTbinding,
       );
       ops.push(...mergeOps);
 
@@ -1996,12 +2023,13 @@ export function deleteWordForward(state: EditorState): CommandResult {
       oldBlock.id,
       textIndex,
       endIndex,
+      state.CRDTbinding,
     );
     ops.push(op);
 
     const blockCopy = newPage.blocks[blockIndex];
     if (oldBlock.type === "paragraph") {
-      ops.push(...applyMarkdownPrefix(blockCopy).ops);
+      ops.push(...applyMarkdownPrefix(blockCopy, state.CRDTbinding).ops);
     }
     invalidateBlockCache(blockCopy);
     let newState: EditorState = {
@@ -2037,6 +2065,7 @@ export function deleteWordForward(state: EditorState): CommandResult {
         state.document.page,
         blockToDelete,
         blockToPreserve,
+        state.CRDTbinding,
       );
       ops.push(...mergeOps);
 
@@ -2100,12 +2129,13 @@ export function deleteWordBackward(state: EditorState): CommandResult {
       oldBlock.id,
       startIndex,
       textIndex,
+      state.CRDTbinding,
     );
     ops.push(op);
 
     const blockCopy = newPage.blocks[blockIndex];
     if (oldBlock.type === "paragraph") {
-      ops.push(...applyMarkdownPrefix(blockCopy).ops);
+      ops.push(...applyMarkdownPrefix(blockCopy, state.CRDTbinding).ops);
     }
     invalidateBlockCache(blockCopy);
     let newState: EditorState = {
@@ -2136,6 +2166,7 @@ export function deleteWordBackward(state: EditorState): CommandResult {
       state.document.page,
       blockToDelete,
       blockToPreserve,
+      state.CRDTbinding,
     );
     ops.push(...mergeOps);
 
@@ -2472,7 +2503,7 @@ export function splitBlock(state: EditorState): CommandResult {
       const block = state.document.page.blocks[anchor.blockIndex];
       if (block && !block.deleted && !isTextualBlock(block)) {
         // Create a new paragraph below the image
-        const newParagraphId = nextId();
+        const newParagraphId = state.CRDTbinding.nextId();
         const newParagraph: Block = {
           id: newParagraphId,
           type: "paragraph",
@@ -2490,9 +2521,9 @@ export function splitBlock(state: EditorState): CommandResult {
         // Create CRDT operation for new paragraph after image
         const blockInsertOp: BlockInsert = {
           op: "block_insert",
-          id: nextId(),
-          clock: getClock(),
-          pageId: getPageId(),
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
           afterBlockId: oldBlock.id,
           blockId: newParagraphId,
           blockType: "paragraph",
@@ -2523,6 +2554,7 @@ export function splitBlock(state: EditorState): CommandResult {
       currentBlock.id,
       text,
       textIndex,
+      state.CRDTbinding,
     );
     if (linkResult) {
       const linkedBlock = linkResult.newPage.blocks[blockIndex];
@@ -2564,9 +2596,9 @@ export function splitBlock(state: EditorState): CommandResult {
 
         const blockSetOp: BlockSet = {
           op: "block_set",
-          id: nextId(),
-          clock: getClock(),
-          pageId: getPageId(),
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
           blockId: oldBlock.id,
           field: "type",
           value: "paragraph",
@@ -2596,9 +2628,9 @@ export function splitBlock(state: EditorState): CommandResult {
 
         const blockSetOp: BlockSet = {
           op: "block_set",
-          id: nextId(),
-          clock: getClock(),
-          pageId: getPageId(),
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
           blockId: oldBlock.id,
           field: "indent",
           value: oldBlock.indent - 1,
@@ -2627,12 +2659,13 @@ export function splitBlock(state: EditorState): CommandResult {
         oldBlock.id,
         textIndex,
         oldText.length,
+        state.CRDTbinding,
       );
       pageAcc = pageAfterDelete;
       ops.push(deleteOp);
     }
 
-    const newBlockId = nextId();
+    const newBlockId = state.CRDTbinding.nextId();
     const newBlockType: "bullet_list" | "numbered_list" | "todo_list" =
       oldBlock.type === "bullet_list" || oldBlock.type === "numbered_list"
         ? oldBlock.type
@@ -2640,9 +2673,9 @@ export function splitBlock(state: EditorState): CommandResult {
 
     const blockInsertOp: BlockInsert = {
       op: "block_insert",
-      id: nextId(),
-      clock: getClock(),
-      pageId: getPageId(),
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
       afterBlockId: oldBlock.id,
       blockId: newBlockId,
       blockType: newBlockType,
@@ -2660,6 +2693,7 @@ export function splitBlock(state: EditorState): CommandResult {
         newBlockId,
         0,
         afterCharsText,
+        state.CRDTbinding,
       );
       pageAcc = pageAfterInsert;
       ops.push(insertOp);
@@ -2727,6 +2761,7 @@ export function splitBlock(state: EditorState): CommandResult {
       oldBlock.id,
       textIndex,
       oldText.length,
+      state.CRDTbinding,
     );
     pageAcc = pageAfterDelete;
     ops.push(deleteOp);
@@ -2743,7 +2778,10 @@ export function splitBlock(state: EditorState): CommandResult {
     const currentBlock1 = pageAcc.blocks.find((b) => b.id === oldBlock.id);
     if (currentBlock1 && isTextualBlock(currentBlock1)) {
       const mutableClone = { ...currentBlock1, type: blockCopy1Type } as Block;
-      const { ops: prefixOps } = applyMarkdownPrefix(mutableClone);
+      const { ops: prefixOps } = applyMarkdownPrefix(
+        mutableClone,
+        state.CRDTbinding,
+      );
       if (prefixOps.length > 0) {
         ops.push(...prefixOps);
         pageAcc = applyOps(pageAcc, prefixOps);
@@ -2761,9 +2799,9 @@ export function splitBlock(state: EditorState): CommandResult {
   ) {
     const blockSetOp: BlockSet = {
       op: "block_set",
-      id: nextId(),
-      clock: getClock(),
-      pageId: getPageId(),
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
       blockId: oldBlock.id,
       field: "type",
       value: blockCopy1Type,
@@ -2774,12 +2812,12 @@ export function splitBlock(state: EditorState): CommandResult {
 
   // 4. Insert block 2 (before its text so remote peers have the block when
   //    text ops for it arrive).
-  const newBlockId = nextId();
+  const newBlockId = state.CRDTbinding.nextId();
   const blockInsertOp: BlockInsert = {
     op: "block_insert",
-    id: nextId(),
-    clock: getClock(),
-    pageId: getPageId(),
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
     afterBlockId: oldBlock.id,
     blockId: newBlockId,
     blockType: blockCopy2Type,
@@ -2794,6 +2832,7 @@ export function splitBlock(state: EditorState): CommandResult {
       newBlockId,
       0,
       afterCharsText,
+      state.CRDTbinding,
     );
     pageAcc = pageAfterInsert;
     ops.push(insertOp);
@@ -2846,9 +2885,9 @@ export function splitBlock(state: EditorState): CommandResult {
         if (coveredNewIds.length > 0) {
           formatOps.push({
             op: "format_set",
-            id: nextId(),
-            clock: getClock(),
-            pageId: getPageId(),
+            id: state.CRDTbinding.nextId(),
+            clock: state.CRDTbinding.getClock(),
+            pageId: state.CRDTbinding.pageId,
             blockId: newBlockId,
             charIds: coveredNewIds,
             format: span.format,
@@ -3076,6 +3115,7 @@ export function toggleFormat(
       end.textIndex,
       { type: formatType },
       !hasFormat, // Toggle: if has format, remove it (false); otherwise add it (true)
+      state.CRDTbinding,
     );
 
     invalidateBlockCache(newPage.blocks[start.blockIndex]);
@@ -3160,6 +3200,7 @@ export function toggleFormat(
           formatEnd,
           { type: formatType },
           !hasFormat,
+          state.CRDTbinding,
         );
         invalidateBlockCache(newPage.blocks[i]);
         pageAcc = newPage;
@@ -3302,9 +3343,9 @@ export function convertBlockType(
   if (typeChanged) {
     const blockSetOp: BlockSet = {
       op: "block_set",
-      id: nextId(),
-      clock: getClock(),
-      pageId: getPageId(),
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
       blockId: oldBlock.id,
       field: "type",
       value: blockType,
@@ -3326,9 +3367,9 @@ export function convertBlockType(
     ) {
       const indentSetOp: BlockSet = {
         op: "block_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         blockId: oldBlock.id,
         field: "indent",
         value: newIndent,
@@ -3343,9 +3384,9 @@ export function convertBlockType(
           : false;
       const checkedSetOp: BlockSet = {
         op: "block_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         blockId: oldBlock.id,
         field: "checked",
         value: newChecked,
@@ -3373,7 +3414,7 @@ export function convertBlockType(
       newState = moveCursorToPosition(newState, blockIndex + 1, 0);
     } else {
       // Create a new paragraph block after the image/line
-      const newParagraphId = nextId();
+      const newParagraphId = state.CRDTbinding.nextId();
       const newParagraph: Block = {
         id: newParagraphId,
         type: "paragraph",
@@ -3383,9 +3424,9 @@ export function convertBlockType(
 
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         afterBlockId: oldBlock.id,
         blockId: newParagraphId,
         blockType: "paragraph",
@@ -3447,15 +3488,16 @@ export function applySlashCommand(
           block.id,
           0,
           textLength,
+          state.CRDTbinding,
         );
         ops.push(deleteOp);
       }
 
       const blockSetOp: BlockSet = {
         op: "block_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         blockId: block.id,
         field: "type",
         value: "image",
@@ -3475,7 +3517,7 @@ export function applySlashCommand(
       newState = moveCursorToPosition(newState, blockIndex + 1, 0);
     } else {
       // Create a new paragraph block after the image
-      const newParagraphId = nextId();
+      const newParagraphId = state.CRDTbinding.nextId();
       const newParagraph: Block = {
         id: newParagraphId,
         type: "paragraph",
@@ -3485,9 +3527,9 @@ export function applySlashCommand(
 
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         afterBlockId: block.id,
         blockId: newParagraphId,
         blockType: "paragraph",
@@ -3533,15 +3575,16 @@ export function applySlashCommand(
           block.id,
           0,
           textLength,
+          state.CRDTbinding,
         );
         ops.push(deleteOp);
       }
 
       const blockSetOp: BlockSet = {
         op: "block_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         blockId: block.id,
         field: "type",
         value: "math",
@@ -3560,7 +3603,7 @@ export function applySlashCommand(
     if (blockIndex + 1 < newBlocks.length) {
       newState = moveCursorToPosition(newState, blockIndex + 1, 0);
     } else {
-      const newParagraphId = nextId();
+      const newParagraphId = state.CRDTbinding.nextId();
       const newParagraph: Block = {
         id: newParagraphId,
         type: "paragraph",
@@ -3570,9 +3613,9 @@ export function applySlashCommand(
 
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         afterBlockId: block.id,
         blockId: newParagraphId,
         blockType: "paragraph",
@@ -3618,15 +3661,16 @@ export function applySlashCommand(
           block.id,
           0,
           textLength,
+          state.CRDTbinding,
         );
         ops.push(deleteOp);
       }
 
       const blockSetOp: BlockSet = {
         op: "block_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         blockId: block.id,
         field: "type",
         value: "line",
@@ -3646,7 +3690,7 @@ export function applySlashCommand(
       newState = moveCursorToPosition(newState, blockIndex + 1, 0);
     } else {
       // Create a new paragraph block after the line
-      const newParagraphId = nextId();
+      const newParagraphId = state.CRDTbinding.nextId();
       const newParagraph: Block = {
         id: newParagraphId,
         type: "paragraph",
@@ -3656,9 +3700,9 @@ export function applySlashCommand(
 
       const blockInsertOp: BlockInsert = {
         op: "block_insert",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         afterBlockId: block.id,
         blockId: newParagraphId,
         blockType: "paragraph",
@@ -3702,6 +3746,7 @@ export function applySlashCommand(
       block.id,
       deleteStart,
       deleteEnd,
+      state.CRDTbinding,
     );
     const updatedBlock = pageAfterDelete.blocks[blockIndex];
     if (isTextualBlock(updatedBlock)) {
@@ -3757,9 +3802,9 @@ export function applySlashCommand(
   // Emit CRDT operation for block type change
   const blockSetOp: BlockSet = {
     op: "block_set",
-    id: nextId(),
-    clock: getClock(),
-    pageId: getPageId(),
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
     blockId: block.id,
     field: "type",
     value: command.type,
@@ -3774,9 +3819,9 @@ export function applySlashCommand(
   ) {
     const indentSetOp: BlockSet = {
       op: "block_set",
-      id: nextId(),
-      clock: getClock(),
-      pageId: getPageId(),
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
       blockId: block.id,
       field: "indent",
       value: 0,
@@ -3786,9 +3831,9 @@ export function applySlashCommand(
     if (command.type === "todo_list") {
       const checkedSetOp: BlockSet = {
         op: "block_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         blockId: block.id,
         field: "checked",
         value: false,
@@ -3854,9 +3899,9 @@ export function indentListItem(state: EditorState): CommandResult {
   // Emit CRDT operation for indent change
   const blockSetOp: BlockSet = {
     op: "block_set",
-    id: nextId(),
-    clock: getClock(),
-    pageId: getPageId(),
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
     blockId: block.id,
     field: "indent",
     value: newIndent,
@@ -3915,9 +3960,9 @@ export function outdentListItem(state: EditorState): CommandResult {
     // Emit CRDT operation for block type change
     const blockSetOp: BlockSet = {
       op: "block_set",
-      id: nextId(),
-      clock: getClock(),
-      pageId: getPageId(),
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
       blockId: block.id,
       field: "type",
       value: "paragraph",
@@ -3950,9 +3995,9 @@ export function outdentListItem(state: EditorState): CommandResult {
   // Emit CRDT operation for indent change
   const blockSetOp: BlockSet = {
     op: "block_set",
-    id: nextId(),
-    clock: getClock(),
-    pageId: getPageId(),
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
     blockId: block.id,
     field: "indent",
     value: newIndent,
@@ -4001,9 +4046,9 @@ export function toggleTodoChecked(
   // Emit CRDT operation for todo toggle
   const blockSetOp: BlockSet = {
     op: "block_set",
-    id: nextId(),
-    clock: getClock(),
-    pageId: getPageId(),
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
     blockId: block.id,
     field: "checked",
     value: !block.checked,
@@ -4083,9 +4128,9 @@ export function convertToList(
   // Emit CRDT operation for block type change
   const blockSetOp: BlockSet = {
     op: "block_set",
-    id: nextId(),
-    clock: getClock(),
-    pageId: getPageId(),
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
     blockId: oldBlock.id,
     field: "type",
     value: listType,
@@ -4095,9 +4140,9 @@ export function convertToList(
   // Emit indent property
   const indentSetOp: BlockSet = {
     op: "block_set",
-    id: nextId(),
-    clock: getClock(),
-    pageId: getPageId(),
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
     blockId: oldBlock.id,
     field: "indent",
     value: 0,
@@ -4108,9 +4153,9 @@ export function convertToList(
   if (listType === "todo_list") {
     const checkedSetOp: BlockSet = {
       op: "block_set",
-      id: nextId(),
-      clock: getClock(),
-      pageId: getPageId(),
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
       blockId: oldBlock.id,
       field: "checked",
       value: false,
@@ -4169,6 +4214,7 @@ export function updateLinkInBlock(
       block.id,
       startIndex,
       endIndex,
+      state.CRDTbinding,
     );
     pageAcc = pageAfterDelete;
     ops.push(deleteOp);
@@ -4178,6 +4224,7 @@ export function updateLinkInBlock(
       block.id,
       startIndex,
       newText,
+      state.CRDTbinding,
     );
     pageAcc = pageAfterInsert;
     ops.push(insertOp);
@@ -4190,6 +4237,7 @@ export function updateLinkInBlock(
     startIndex + newText.length,
     { type: "link", url: newUrl },
     newUrl,
+    state.CRDTbinding,
   );
   pageAcc = pageAfterFormat;
   ops.push(formatOp);
@@ -4234,6 +4282,7 @@ export function clearLinkInBlock(
     endIndex,
     { type: "link" },
     false,
+    state.CRDTbinding,
   );
   ops.push(op);
 

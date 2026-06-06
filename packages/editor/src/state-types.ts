@@ -1,6 +1,6 @@
 import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
 import type { Block, Page, TextFormat } from "./serlization/loadPage";
-import type { Operation } from "./sync/crdt-types";
+import type { HLC, Operation } from "./sync/crdt-types";
 import type { ReactElement } from "react";
 
 /**
@@ -224,7 +224,7 @@ export interface EditorState {
   readonly ui: UIState;
   readonly view: ViewState;
   readonly undoManager: UndoManagerState;
-  readonly CRDTbinding?: CRDTbinding;
+  readonly CRDTbinding: CRDTbinding;
 }
 
 // Command result - all commands return state + operations
@@ -629,4 +629,30 @@ export interface FontMetrics {
   readonly descent: number;
 }
 
-interface CRDTbinding {}
+/**
+ * Per-editor-instance CRDT context. Replaces the former module-level globals
+ * (id generator + Hybrid Logical Clock + page id) so two editor instances can
+ * coexist on the same page (e.g. a readonly snapshot preview alongside the main
+ * editor) without clobbering each other's id/clock state.
+ *
+ * Carried by reference on `EditorState`; its internal HLC and id-counter mutate
+ * in place. It is intentionally NOT part of any undo/redo snapshot — it is
+ * ambient instance context, not immutable document state.
+ */
+export interface CRDTbinding {
+  /** The page this binding generates operations for. */
+  readonly pageId: string;
+  /** Generate the next unique id. Advances the internal id counter. */
+  nextId(): string;
+  /** Get the current clock, ticking it forward. Returns a fresh copy. */
+  getClock(): HLC;
+  /** This instance's peer id. */
+  getPeerId(): string;
+  /**
+   * Advance the clock to be at least as recent as a remote clock. Call after
+   * loading/receiving operations so new local ops out-order historical ones.
+   */
+  advanceClock(remote: HLC): void;
+  /** Bump the id counter so the next generated id has counter > n. */
+  advanceIdCounter(n: number): void;
+}

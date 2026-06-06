@@ -79,18 +79,16 @@ import {
   formatCharsInRange,
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
-import type { BlockDelete, BlockInsert, Operation } from "../sync/crdt-types";
+import type {
+  BlockDelete,
+  BlockInsert,
+  HLC,
+  Operation,
+} from "../sync/crdt-types";
 import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
 import { applyOps } from "../sync/reducer";
 import { generateRestoreOperations } from "../sync/snapshot-diff";
-import {
-  createBlockSet,
-  getClock,
-  getPageId,
-  getPeerId,
-  getVisibleBlocks,
-  nextId,
-} from "../sync/sync";
+import { createBlockSet, getVisibleBlocks } from "../sync/sync";
 import { updateSelection } from "../updateSelection";
 import type { CanvasLayers } from "./layers";
 
@@ -191,6 +189,17 @@ export interface Editor {
   restoreFromSnapshot: (blocks: Block[]) => void;
   /** Apply remote operations to the current page state */
   applyRemoteOperations: (ops: Operation[]) => void;
+  /**
+   * Advance this editor's CRDT clock to be at least as recent as `clock`.
+   * Call after loading persisted ops or applying remote ops so subsequent
+   * local operations get HLC values that respect causality.
+   */
+  advanceClock: (clock: HLC) => void;
+  /**
+   * Bump this editor's CRDT id counter so the next generated id has
+   * counter > n. Keeps RGA sibling ordering correct across sessions/peers.
+   */
+  advanceIdCounter: (n: number) => void;
   /** Set broadcast function for sending operations to peers */
   setBroadcast: (fn: ((ops: Operation[]) => void) | null) => void;
   /** Set callback for broadcasting awareness state changes */
@@ -363,7 +372,7 @@ export default function createEditor(
     // Update local state and record to undo stack (pass both before/after states for cursor restoration)
     state =
       ops.length > 0
-        ? recordUndoOps(prevState, newState, ops, getPeerId())
+        ? recordUndoOps(prevState, newState, ops, state.CRDTbinding.getPeerId())
         : newState;
 
     // Broadcast ops to peers (if any)
@@ -527,7 +536,7 @@ export default function createEditor(
             prevState,
             state,
             handleEventsResult.ops,
-            getPeerId(),
+            state.CRDTbinding.getPeerId(),
           );
         }
         // Broadcast ops to peers
@@ -1693,6 +1702,7 @@ export default function createEditor(
       block.id,
       start.textIndex,
       end.textIndex,
+      state.CRDTbinding,
     );
     ops.push(deleteOp);
 
@@ -1702,6 +1712,7 @@ export default function createEditor(
       block.id,
       start.textIndex,
       text,
+      state.CRDTbinding,
     );
     ops.push(insertOp);
 
@@ -1713,6 +1724,7 @@ export default function createEditor(
       start.textIndex + text.length,
       { type: "link", url },
       url,
+      state.CRDTbinding,
     );
     ops.push(formatOp);
 
@@ -1836,10 +1848,24 @@ export default function createEditor(
     const blockId = block.id;
 
     if (updates.url !== undefined) {
-      ops.push(createBlockSet<"image", "url">(blockId, "url", updates.url));
+      ops.push(
+        createBlockSet<"image", "url">(
+          blockId,
+          "url",
+          updates.url,
+          state.CRDTbinding,
+        ),
+      );
     }
     if (updates.alt !== undefined) {
-      ops.push(createBlockSet<"image", "alt">(blockId, "alt", updates.alt));
+      ops.push(
+        createBlockSet<"image", "alt">(
+          blockId,
+          "alt",
+          updates.alt,
+          state.CRDTbinding,
+        ),
+      );
     }
 
     const prevState = state;
@@ -1855,7 +1881,12 @@ export default function createEditor(
 
     // Record to undo stack
     if (ops.length > 0) {
-      state = recordUndoOps(prevState, state, ops, getPeerId());
+      state = recordUndoOps(
+        prevState,
+        state,
+        ops,
+        state.CRDTbinding.getPeerId(),
+      );
     }
 
     // Broadcast operations
@@ -1896,9 +1927,9 @@ export default function createEditor(
     // Delete the image block
     const deleteOp: BlockDelete = {
       op: "block_delete",
-      id: nextId(),
-      clock: getClock(),
-      pageId: getPageId(),
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
       blockId,
     };
     ops.push(deleteOp);
@@ -1907,7 +1938,7 @@ export default function createEditor(
     const visibleCount = newBlocks.filter((b) => !b.deleted).length;
     let newParagraphBlockId: string | null = null;
     if (visibleCount === 0) {
-      newParagraphBlockId = `b-${nextId()}`;
+      newParagraphBlockId = `b-${state.CRDTbinding.nextId()}`;
       newBlocks.push({
         id: newParagraphBlockId,
         type: "paragraph",
@@ -1918,9 +1949,9 @@ export default function createEditor(
       // Insert new paragraph block
       const insertOp: BlockInsert = {
         op: "block_insert",
-        id: nextId(),
-        clock: getClock(),
-        pageId: getPageId(),
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
         afterBlockId: null,
         blockId: newParagraphBlockId,
         blockType: "paragraph",
@@ -1938,7 +1969,12 @@ export default function createEditor(
 
     // Record to undo stack
     if (ops.length > 0) {
-      state = recordUndoOps(prevState, state, ops, getPeerId());
+      state = recordUndoOps(
+        prevState,
+        state,
+        ops,
+        state.CRDTbinding.getPeerId(),
+      );
     }
 
     // Broadcast operations
@@ -1995,7 +2031,12 @@ export default function createEditor(
 
     if (updates.latex !== undefined) {
       ops.push(
-        createBlockSet<"math", "latex">(blockId, "latex", updates.latex),
+        createBlockSet<"math", "latex">(
+          blockId,
+          "latex",
+          updates.latex,
+          state.CRDTbinding,
+        ),
       );
     }
     if (updates.displayMode !== undefined) {
@@ -2004,6 +2045,7 @@ export default function createEditor(
           blockId,
           "displayMode",
           updates.displayMode,
+          state.CRDTbinding,
         ),
       );
     }
@@ -2018,7 +2060,12 @@ export default function createEditor(
 
     // Record to undo stack
     if (ops.length > 0) {
-      state = recordUndoOps(prevState, state, ops, getPeerId());
+      state = recordUndoOps(
+        prevState,
+        state,
+        ops,
+        state.CRDTbinding.getPeerId(),
+      );
     }
 
     if (ops.length > 0 && broadcastFn) {
@@ -2091,6 +2138,7 @@ export default function createEditor(
       blockId,
       startIndex,
       endIndex,
+      state.CRDTbinding,
     );
     ops.push(deleteOp);
 
@@ -2099,6 +2147,7 @@ export default function createEditor(
       blockId,
       startIndex,
       newLatex,
+      state.CRDTbinding,
     );
     ops.push(insertOp);
 
@@ -2109,6 +2158,7 @@ export default function createEditor(
       startIndex + newLatex.length,
       { type: "math" },
       true,
+      state.CRDTbinding,
     );
     ops.push(formatOp);
 
@@ -2120,7 +2170,12 @@ export default function createEditor(
     };
 
     if (ops.length > 0) {
-      state = recordUndoOps(prevState, state, ops, getPeerId());
+      state = recordUndoOps(
+        prevState,
+        state,
+        ops,
+        state.CRDTbinding.getPeerId(),
+      );
     }
 
     if (ops.length > 0 && broadcastFn) {
@@ -2148,6 +2203,7 @@ export default function createEditor(
       blockId,
       startIndex,
       endIndex,
+      state.CRDTbinding,
     );
     invalidateBlockCache(newPage.blocks[blockIndex]);
 
@@ -2156,7 +2212,12 @@ export default function createEditor(
       document: { ...state.document, page: newPage },
     };
 
-    state = recordUndoOps(prevState, state, [op], getPeerId());
+    state = recordUndoOps(
+      prevState,
+      state,
+      [op],
+      state.CRDTbinding.getPeerId(),
+    );
 
     // Place caret where the chip used to be
     state = moveCursorToPosition(state, blockIndex, startIndex);
@@ -2346,10 +2407,10 @@ export default function createEditor(
     const ops = generateRestoreOperations({
       currentBlocks: state.view.visibleBlocks,
       newBlocks,
-      pageId: getPageId(),
-      peerId: getPeerId(),
-      nextId,
-      getClock,
+      pageId: state.CRDTbinding.pageId,
+      peerId: state.CRDTbinding.getPeerId(),
+      nextId: state.CRDTbinding.nextId,
+      getClock: state.CRDTbinding.getClock,
     });
 
     if (ops.length === 0) return;
@@ -2385,7 +2446,7 @@ export default function createEditor(
     };
 
     // Record to undo stack
-    state = recordUndoOps(prevState, state, ops, getPeerId());
+    state = recordUndoOps(prevState, state, ops, state.CRDTbinding.getPeerId());
 
     // Broadcast operations to peers
     if (broadcastFn) {
@@ -2435,6 +2496,14 @@ export default function createEditor(
 
   function getRemoteAwarenessMethod(): Map<string, AwarenessState> {
     return getActiveRemoteAwareness();
+  }
+
+  function advanceClockMethod(clock: HLC) {
+    state.CRDTbinding.advanceClock(clock);
+  }
+
+  function advanceIdCounterMethod(n: number) {
+    state.CRDTbinding.advanceIdCounter(n);
   }
 
   function applyRemoteOperationsMethod(ops: Operation[]) {
@@ -2611,6 +2680,8 @@ export default function createEditor(
     updatePageFromSync,
     restoreFromSnapshot: restoreFromSnapshotMethod,
     applyRemoteOperations: applyRemoteOperationsMethod,
+    advanceClock: advanceClockMethod,
+    advanceIdCounter: advanceIdCounterMethod,
     setBroadcast: setBroadcastMethod,
     setAwarenessBroadcast: setAwarenessBroadcastMethod,
     setRemoteAwareness: setRemoteAwarenessMethod,
