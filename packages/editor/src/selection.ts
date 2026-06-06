@@ -32,11 +32,10 @@ import { getEditorStyles, getTextStyle } from "./styles";
 import {
   charRunsToChars,
   findCharInRuns,
-  getVisibleTextFromRunsFromChars,
-  getVisibleTextFromRunsFromRuns,
+  getVisibleTextFromChars,
+  getVisibleTextFromRuns,
   iterateVisibleChars,
 } from "./sync/char-runs";
-import { getVisibleTextFromRuns } from "./sync/crdt-helpers";
 import {
   findNextVisibleBlockIndex,
   findPreviousVisibleBlockIndex,
@@ -295,7 +294,7 @@ export function getCursorCoordinatesWithComposition(
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
   const isRTL =
-    getTextDirection(getVisibleTextFromRunsFromChars(modifiedChars)) === "rtl";
+    getTextDirection(getVisibleTextFromChars(modifiedChars)) === "rtl";
 
   // Calculate indent and marker space for list blocks
   let indentOffset = 0;
@@ -1611,8 +1610,7 @@ export function moveCursorUp(
 
   // For RTL text, calculate visual position instead of logical position
   const isRTL =
-    getTextDirection(getVisibleTextFromRunsFromRuns(currentBlock.charRuns)) ===
-    "rtl";
+    getTextDirection(getVisibleTextFromRuns(currentBlock.charRuns)) === "rtl";
   let relativePosition: number;
 
   if (isRTL) {
@@ -1785,8 +1783,7 @@ export function moveCursorDown(
 
   // For RTL text, calculate visual position instead of logical position
   const isRTL =
-    getTextDirection(getVisibleTextFromRunsFromRuns(currentBlock.charRuns)) ===
-    "rtl";
+    getTextDirection(getVisibleTextFromRuns(currentBlock.charRuns)) === "rtl";
   let relativePosition: number;
 
   if (isRTL) {
@@ -2411,8 +2408,7 @@ export function moveCursorLeft(state: EditorState): EditorState {
 
   // Check if current block is RTL
   const isRTL =
-    getTextDirection(getVisibleTextFromRunsFromRuns(currentBlock.charRuns)) ===
-    "rtl";
+    getTextDirection(getVisibleTextFromRuns(currentBlock.charRuns)) === "rtl";
 
   if (isRTL) {
     // In RTL text, visual left is logical forward (increment)
@@ -2443,9 +2439,8 @@ export function moveCursorLeft(state: EditorState): EditorState {
           return state;
         }
         const nextIsRTL =
-          getTextDirection(
-            getVisibleTextFromRunsFromRuns(nextBlock.charRuns),
-          ) === "rtl";
+          getTextDirection(getVisibleTextFromRuns(nextBlock.charRuns)) ===
+          "rtl";
 
         if (nextIsRTL) {
           // Next block is RTL, position at start (visual right edge)
@@ -2484,9 +2479,8 @@ export function moveCursorLeft(state: EditorState): EditorState {
         }
         const prevBlockLength = getBlockTextLength(prevBlock);
         const prevIsRTL =
-          getTextDirection(
-            getVisibleTextFromRunsFromRuns(prevBlock.charRuns),
-          ) === "rtl";
+          getTextDirection(getVisibleTextFromRuns(prevBlock.charRuns)) ===
+          "rtl";
 
         if (prevIsRTL) {
           // Previous block is RTL, position at end (visual left edge)
@@ -2535,8 +2529,7 @@ export function moveCursorRight(state: EditorState): EditorState {
 
   // Check if current block is RTL
   const isRTL =
-    getTextDirection(getVisibleTextFromRunsFromRuns(currentBlock.charRuns)) ===
-    "rtl";
+    getTextDirection(getVisibleTextFromRuns(currentBlock.charRuns)) === "rtl";
 
   if (isRTL) {
     // In RTL text, visual right is logical backward (decrement)
@@ -2566,9 +2559,8 @@ export function moveCursorRight(state: EditorState): EditorState {
         }
         const prevBlockLength = getBlockTextLength(prevBlock);
         const prevIsRTL =
-          getTextDirection(
-            getVisibleTextFromRunsFromRuns(prevBlock.charRuns),
-          ) === "rtl";
+          getTextDirection(getVisibleTextFromRuns(prevBlock.charRuns)) ===
+          "rtl";
 
         if (prevIsRTL) {
           // Previous block is RTL, position at end (visual left edge)
@@ -2606,9 +2598,8 @@ export function moveCursorRight(state: EditorState): EditorState {
           return state;
         }
         const nextIsRTL =
-          getTextDirection(
-            getVisibleTextFromRunsFromRuns(nextBlock.charRuns),
-          ) === "rtl";
+          getTextDirection(getVisibleTextFromRuns(nextBlock.charRuns)) ===
+          "rtl";
 
         if (nextIsRTL) {
           // Next block is RTL, position at start (visual right edge)

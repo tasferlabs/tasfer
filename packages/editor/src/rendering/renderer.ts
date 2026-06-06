@@ -1,6 +1,4 @@
-import { resolveAssetUrl } from "./adapters";
-import type { Block, Char, CharRun, FormatSpan } from "./serlization/loadPage";
-import { isListBlock, isTextualBlock } from "./serlization/loadPage";
+import { resolveAssetUrl } from "../adapters";
 import {
   batchChars,
   type FontFamily,
@@ -10,30 +8,16 @@ import {
   measureTextUpToIndex,
   type TextBatch,
   wrapText,
-} from "./fonts";
+} from "../fonts";
 import {
   getInlineMathDims,
   getInlineMathImage,
   setInlineMathRedrawCallback,
-} from "./inlineMath";
-import { getTextDirection } from "./rtl";
-import { renderScrollbar } from "./scrollbar";
-import { isCursorBlinking } from "./selection";
-import { getBlockTextContent, isTouchDevice } from "./state-utils";
-import { getEditorStyles, getTextStyle } from "./styles";
-import type { AwarenessState } from "./sync/awareness";
-import {
-  awarenessCursorToPosition,
-  awarenessSelectionToSelection,
-} from "./sync/awareness";
-import {
-  getCharIdFromRun,
-  getVisibleTextFromRunsFromChars,
-  getVisibleTextFromRunsFromRuns,
-  isCharDeleted,
-  iterateVisibleChars,
-} from "./sync/char-runs";
-import type { Operation } from "./sync/sync";
+} from "../math";
+import { getTextDirection } from "../rtl";
+import { isCursorBlinking } from "../selection";
+import type { Block, Char, CharRun, FormatSpan } from "../serlization/loadPage";
+import { isListBlock, isTextualBlock } from "../serlization/loadPage";
 import type {
   BlockBounds,
   EditorState,
@@ -44,7 +28,23 @@ import type {
   SelectionState,
   TextStyle,
   ViewportState,
-} from "./state-types";
+} from "../state-types";
+import { getBlockTextContent, isTouchDevice } from "../state-utils";
+import { getEditorStyles, getTextStyle } from "../styles";
+import type { AwarenessState } from "../sync/awareness";
+import {
+  awarenessCursorToPosition,
+  awarenessSelectionToSelection,
+} from "../sync/awareness";
+import {
+  getCharIdFromRun,
+  getVisibleTextFromChars,
+  getVisibleTextFromRuns,
+  isCharDeleted,
+  iterateVisibleChars,
+} from "../sync/char-runs";
+import type { Operation } from "../sync/sync";
+import { renderScrollbar } from "./scrollbar";
 import i18next from "i18next";
 
 /**
@@ -681,7 +681,7 @@ export function renderBlock(
   } = getContentWithComposition(block, state, blockIndex);
 
   // Detect text direction
-  const visibleText = getVisibleTextFromRunsFromRuns(block.charRuns);
+  const visibleText = getVisibleTextFromRuns(block.charRuns);
   const direction = getTextDirection(visibleText);
   const isRTL = direction === "rtl";
 
@@ -1211,7 +1211,7 @@ function renderSelectionCore(
   let end = selection.isForward ? selection.focus : selection.anchor;
 
   // Detect if this is an RTL block
-  const blockVisibleText = getVisibleTextFromRunsFromRuns(block.charRuns);
+  const blockVisibleText = getVisibleTextFromRuns(block.charRuns);
   const isRTL = getTextDirection(blockVisibleText) === "rtl";
 
   if (
@@ -1662,7 +1662,7 @@ function renderMathToImage(
   pendingMathRenders.add(cacheKey);
 
   // Lazy import MathJax renderer
-  import("./mathjax").then(({ renderToSVG }) => {
+  import("../math").then(({ renderToSVG }) => {
     try {
       const svgString = renderToSVG(latex, displayMode);
       const color = getEditorStyles().blocks.paragraph.color;
@@ -2539,7 +2539,7 @@ function calculateCursorPosition(
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
   // Calculate cursor position
-  const visibleText = getVisibleTextFromRunsFromChars(chars);
+  const visibleText = getVisibleTextFromChars(chars);
   const isRTL = getTextDirection(visibleText) === "rtl";
 
   let baseX: number;
@@ -2669,7 +2669,7 @@ function renderOutOfViewIndicators(
   // Clear previous hit areas
   outOfViewIndicatorHitAreas = [];
 
-  ctx.font = `600 ${fontSize}px ${getFontStack("poppins")}`;
+  ctx.font = `600 ${fontSize}px ${getFontStack(getCurrentFontFamily())}`;
 
   // Render indicators for peers above viewport
   abovePeers.forEach((peer, i) => {
@@ -2830,14 +2830,14 @@ function renderRemoteCursors(
     if (awareness.user.name) {
       const labelPadding = 2;
       const labelFontSize = 10;
-      ctx.font = `${labelFontSize}px ${getFontStack("poppins")}`;
+      ctx.font = `${labelFontSize}px ${getFontStack(getCurrentFontFamily())}`;
       const labelWidth =
         ctx.measureText(awareness.user.name).width + labelPadding * 2;
       const labelHeight = labelFontSize + labelPadding * 2;
 
       // Detect RTL to position label on the correct side of cursor
       const blockChars = charRunsToChars(block.charRuns);
-      const blockText = getVisibleTextFromRunsFromChars(blockChars);
+      const blockText = getVisibleTextFromChars(blockChars);
       const isCursorRTL = getTextDirection(blockText) === "rtl";
 
       // In RTL, label extends to the left of cursor; in LTR, to the right
@@ -3195,7 +3195,7 @@ function getPositionCoordinates(
   );
   const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
 
-  const blockVisibleText = getVisibleTextFromRunsFromRuns(block.charRuns);
+  const blockVisibleText = getVisibleTextFromRuns(block.charRuns);
 
   // Detect RTL
   const isRTL = getTextDirection(blockVisibleText) === "rtl";

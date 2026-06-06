@@ -1,8 +1,27 @@
 import { IMAGE_DEFAULT_HEIGHT } from "./constants";
 import { getCurrentFontFamily, getFontStack } from "./fonts";
+import type {
+  EditorStyles,
+  FontStyles,
+  PlaceholderStyles,
+  TextStyle,
+} from "./state-types";
 import { isTouchDevice } from "./state-utils";
-import type { EditorStyles, PlaceholderStyles, TextStyle } from "./state-types";
 import i18next from "i18next";
+
+/**
+ * Neutral, opinion-free default font registry. The editor ships no bundled
+ * fonts — a consuming app registers its own faces via `setFontStyles()` (or
+ * mount options) and is responsible for loading them. This system-font default
+ * just guarantees text renders before any custom fonts are configured.
+ */
+const DEFAULT_FONT_STYLES: FontStyles = {
+  families: {
+    default:
+      'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  },
+  defaultFamily: "default",
+};
 
 /**
  * Track window focus state globally for editor styling
@@ -17,7 +36,7 @@ let paddingOverride: Partial<{
   paddingBottom: number;
   paddingLeft: number;
   paddingRight: number;
-}> | null = null; //NOTE -  Not globals since people would like to use multiple instances.
+}> | null = null; //NOTE -  No globals since people would like to use multiple instances.
 
 /**
  * Optional per-block text style overrides set via setBlockStyleOverrides()
@@ -25,6 +44,12 @@ let paddingOverride: Partial<{
 let blockStyleOverrides: Partial<Record<string, Partial<TextStyle>>> | null =
   null;
 let placeholderOverrides: Partial<PlaceholderStyles> | null = null;
+
+/**
+ * Host-supplied font registry set via setFontStyles(). When null the editor
+ * uses the neutral system-font default (DEFAULT_FONT_STYLES).
+ */
+let fontStylesOverride: Partial<FontStyles> | null = null;
 
 /**
  * Override the default canvas padding for the editor.
@@ -77,6 +102,23 @@ export function getPlaceholderOverrides() {
 }
 
 /**
+ * Register the host application's font families (key → CSS font-stack) and the
+ * default family. The host owns loading the corresponding font faces. Pass null
+ * to reset to the neutral system-font default.
+ *
+ * Update this (e.g. to prepend a newly-loaded script font) and then call
+ * `notifyFontsChanged()` so the editor flushes its metrics cache and re-renders.
+ */
+export function setFontStyles(fonts: Partial<FontStyles> | null): void {
+  fontStylesOverride = fonts;
+}
+
+/** Return the current font registry override (for save/restore across editor instances). */
+export function getFontStyles() {
+  return fontStylesOverride;
+}
+
+/**
  * Set the window focus state
  * @internal This is called from mount.ts when window focus changes
  */
@@ -111,6 +153,11 @@ export function getEditorStyles(): EditorStyles {
       paddingLeft: paddingOverride?.paddingLeft ?? horizontalPadding,
       paddingRight: paddingOverride?.paddingRight ?? horizontalPadding,
       lineHeight: 1.6,
+    },
+    fonts: {
+      families: fontStylesOverride?.families ?? DEFAULT_FONT_STYLES.families,
+      defaultFamily:
+        fontStylesOverride?.defaultFamily ?? DEFAULT_FONT_STYLES.defaultFamily,
     },
     blocks: {
       heading1: {

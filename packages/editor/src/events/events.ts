@@ -7,7 +7,7 @@ import {
   EDGE_SCROLL_THRESHOLD,
   SCROLLBAR_HOLD_DURATION,
 } from "../constants";
-import { imageCache } from "../renderer";
+import { imageCache } from "../rendering/renderer";
 import {
   applyMomentum,
   startScrollbarDrag,
@@ -17,16 +17,13 @@ import {
   getCursorDocumentCoords,
   getTextPositionFromViewport,
 } from "../selection";
-import {
-  closeActiveMenu,
-  openContextMenu,
-  updateMode,
-} from "../state-utils";
-import { updateCursor } from "@/selection";
-import { startSelection, updateSelectionFocus } from "@/selection";
+import { updateCursor } from "../selection";
+import { startSelection, updateSelectionFocus } from "../selection";
+import { isTextualBlock } from "../serlization/loadPage";
+import type { EditorState, MouseEvent, ViewportState } from "../state-types";
+import { closeActiveMenu, openContextMenu, updateMode } from "../state-utils";
 import { getEditorStyles, getTextStyle } from "../styles";
 import type { Operation } from "../sync/types";
-import type { EditorState, MouseEvent, ViewportState } from "../state-types";
 import {
   handleCompositionEnd,
   handleCompositionStart,
@@ -52,7 +49,6 @@ import {
   touchState,
   triggerHapticFeedback,
 } from "./touchEvents";
-import { isTextualBlock } from "@/serlization/loadPage";
 
 /** Get rendered line height (px) for the block at the given index. */
 function getBlockLineHeight(

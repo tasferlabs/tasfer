@@ -1291,7 +1291,7 @@ export default function createEditor(
       if (hiddenInput && !state.ui.isReadonlyBase) {
         try {
           hiddenInput.focus({ preventScroll: true });
-        } catch (err) {
+        } catch {
           // Ignore
         }
       }

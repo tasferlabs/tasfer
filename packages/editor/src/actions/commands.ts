@@ -1,13 +1,20 @@
-import type {
-  Block,
-  CharRun,
-  Page,
-  TextFormat,
-} from "../serlization/loadPage";
-import { isListBlock, isTextualBlock } from "../serlization/loadPage";
-import { isCJKCharacter } from "../fonts";
-import { invalidateBlockCache } from "../renderer";
+import { isCJKCharacter } from "../cjk";
+import { invalidateBlockCache } from "../rendering/renderer";
 import { isRTLChar } from "../rtl";
+import { moveCursorToPosition } from "../selection";
+import {
+  clearSelection,
+  startSelection,
+  updateSelectionFocus,
+} from "../selection";
+import type { Block, CharRun, Page, TextFormat } from "../serlization/loadPage";
+import { isListBlock, isTextualBlock } from "../serlization/loadPage";
+import type {
+  CommandResult,
+  EditorState,
+  Position,
+  SlashCommand,
+} from "../state-types";
 import {
   clearAutoCreatedParagraph,
   closeSlashCommand,
@@ -30,6 +37,12 @@ import {
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
 import {
+  crdtToPosition,
+  crdtToSelectionRange,
+  positionToCRDT,
+  selectionRangeToCRDT,
+} from "../sync/crdt-utils";
+import {
   applyOps,
   findNextVisibleBlockIndex,
   findPreviousVisibleBlockIndex,
@@ -42,24 +55,6 @@ import type {
   Operation,
   TextDelete,
 } from "../sync/types";
-import type {
-  CommandResult,
-  EditorState,
-  Position,
-  SlashCommand,
-} from "../state-types";
-import { moveCursorToPosition } from "@/selection";
-import {
-  clearSelection,
-  startSelection,
-  updateSelectionFocus,
-} from "@/selection";
-import {
-  crdtToPosition,
-  crdtToSelectionRange,
-  positionToCRDT,
-  selectionRangeToCRDT,
-} from "@/sync/crdt-utils";
 
 /**
  * URL regex pattern for auto-detection.

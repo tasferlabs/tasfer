@@ -5,10 +5,10 @@
  * Tracks remote users' cursor positions, selections, and user information.
  */
 
+import type { Page } from "../serlization/loadPage";
+import { isTextualBlock } from "../serlization/loadPage";
 import type { Position, SelectionState } from "../state-types";
 import { getVisibleLengthFromRuns } from "./char-runs";
-import type { Page } from "@/serlization/loadPage";
-import { isTextualBlock } from "@/serlization/loadPage";
 
 // =============================================================================
 // Types

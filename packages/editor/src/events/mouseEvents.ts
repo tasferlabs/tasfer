@@ -28,6 +28,14 @@ import {
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
 } from "../selection";
+import { updateFocus } from "../selection";
+import { updateCursor } from "../selection";
+import {
+  clearSelection,
+  startSelection,
+  updateSelectionFocus,
+} from "../selection";
+import { isTextualBlock } from "../serlization/loadPage";
 import type { EditorState, MouseEvent, ViewportState } from "../state-types";
 import {
   clearAutoCreatedParagraph,
@@ -57,14 +65,6 @@ import {
   updateImageDrag,
 } from "./eventUtils";
 import { startAutoScroll, stopAutoScroll } from "./touchEvents";
-import { updateFocus } from "@/selection";
-import { updateCursor } from "@/selection";
-import {
-  clearSelection,
-  startSelection,
-  updateSelectionFocus,
-} from "@/selection";
-import { isTextualBlock } from "@/serlization/loadPage";
 
 // Helper function to detect and handle checkbox clicks for todo list items
 

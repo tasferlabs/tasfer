@@ -868,7 +868,7 @@ export class Engine implements Platform {
         [id],
       );
       const cached = await this.loadSnapshot(id);
-      let blocks: import("@cypherkit/editor/deserializer/loadPage").Block[] | null = null;
+      let blocks: import("@cypherkit/editor/serlization/loadPage").Block[] | null = null;
       if (cached && cached.opCount === opCount && cached.blocks.length > 0) {
         blocks = cached.blocks;
       } else {
@@ -1524,7 +1524,7 @@ export class Engine implements Platform {
     /** Convert blocks to CRDT ops and persist them (used by import) */
     writeBlocks: async (
       pageId: string,
-      blocks: import("@cypherkit/editor/deserializer/loadPage").Block[],
+      blocks: import("@cypherkit/editor/serlization/loadPage").Block[],
     ): Promise<void> => {
       const { blocksToOps } = await import("@cypherkit/editor/sync/snapshot-diff");
       const { createIdGenerator, generatePeerId } =
@@ -1587,7 +1587,7 @@ export class Engine implements Platform {
   snapshots = {
     save: async (
       pageId: string,
-      blocks: import("@cypherkit/editor/deserializer/loadPage").Block[],
+      blocks: import("@cypherkit/editor/serlization/loadPage").Block[],
     ): Promise<void> => {
       try {
         const [{ cnt }] = await this.driver.db.execute<{ cnt: number }>(
@@ -1611,7 +1611,7 @@ export class Engine implements Platform {
 
   private async loadSnapshot(pageId: string): Promise<{
     opCount: number;
-    blocks: import("@cypherkit/editor/deserializer/loadPage").Block[];
+    blocks: import("@cypherkit/editor/serlization/loadPage").Block[];
   } | null> {
     try {
       const data = await this.driver.fs.read(this.snapshotPath(pageId));
@@ -2144,7 +2144,7 @@ export class Engine implements Platform {
   /** Rebuild a page's Block[] from persisted CRDT ops */
   private async rebuildBlocksFromOps(
     pageId: string,
-  ): Promise<import("@cypherkit/editor/deserializer/loadPage").Block[] | null> {
+  ): Promise<import("@cypherkit/editor/serlization/loadPage").Block[] | null> {
     const ops = await this.loadPageOps(pageId);
     if (ops.length === 0) return null;
 

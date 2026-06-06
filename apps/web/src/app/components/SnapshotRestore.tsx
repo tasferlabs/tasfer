@@ -30,7 +30,7 @@ import useResponsive from "../hooks/useResponsive";
 import { useConfirmation } from "./ConfirmationDialog";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useGetPageSnapshots } from "../api/pages.api";
-import type { Block } from "@cypherkit/editor/deserializer/loadPage";
+import type { Block } from "@cypherkit/editor/serlization/loadPage";
 import { SnapshotPreview } from "./SnapshotPreview";
 
 // Version data type (derived from ops, not stored snapshots)

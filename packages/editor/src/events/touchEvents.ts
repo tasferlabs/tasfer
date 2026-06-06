@@ -11,7 +11,7 @@ import {
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
 } from "../constants";
-import { imageCache } from "../renderer";
+import { imageCache } from "../rendering/renderer";
 import {
   endScrollbarDrag,
   isPointInThumb,
@@ -22,6 +22,11 @@ import {
   getTextPositionFromViewport,
   isPointWithinSelectionRects,
 } from "../selection";
+import { moveCursorToPosition } from "../selection";
+import { updateCursor } from "../selection";
+import { clearSelection, startSelection } from "../selection";
+import { type Block, isTextualBlock } from "../serlization/loadPage";
+import type { EditorState, ViewportState } from "../state-types";
 import {
   closeActiveMenu,
   openContextMenu,
@@ -30,13 +35,9 @@ import {
   updateContextMenuHover,
   updateMode,
 } from "../state-utils";
-import { moveCursorToPosition } from "@/selection";
-import { updateCursor } from "@/selection";
-import { clearSelection, startSelection } from "@/selection";
 import { getEditorStyles, getTextStyle } from "../styles";
 import type { Operation } from "../sync/sync";
 import { getClock, getPageId, nextId } from "../sync/sync";
-import type { EditorState, ViewportState } from "../state-types";
 import {
   activateScroll,
   autoScrollState,
@@ -53,7 +54,6 @@ import {
   updateImageDrag,
 } from "./eventUtils";
 import { handleTodoCheckboxClick } from "./mouseEvents";
-import { type Block, isTextualBlock } from "@/serlization/loadPage";
 
 /** Get rendered line height (px) for the block at the given position. */
 function getLineHeightAtPosition(

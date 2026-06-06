@@ -5,7 +5,7 @@
  * optimized for block-based editors.
  */
 
-import type { CharRun, Page, TextFormat } from "@/serlization/loadPage";
+import type { CharRun, Page, TextFormat } from "../serlization/loadPage";
 
 // =============================================================================
 // Hybrid Logical Clock (HLC)

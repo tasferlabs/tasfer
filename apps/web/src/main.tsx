@@ -13,7 +13,7 @@ import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
 import { router } from "./app/routes/Router";
 import LoadingScreen from "./components/ui/loading-screen";
-import { loadFonts, loadArabicFonts } from "@cypherkit/editor/fonts";
+import { loadFonts, loadArabicFonts } from "./fonts";
 import "./i18n";
 import i18next from "i18next";
 import { serviceWorkerBridge } from "./serviceWorkerBridge";

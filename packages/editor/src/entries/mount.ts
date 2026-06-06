@@ -1,12 +1,6 @@
-import createEditor, { type Editor } from "./editor";
-import {
-  createCanvasLayers,
-  destroyCanvasLayers,
-  resizeCanvasLayers,
-} from "./layers";
 import { setKeyboardOpen } from "../rendering/scrollbar";
 import { type Block, type Page } from "../serlization/loadPage";
-import type { PlaceholderStyles, TextStyle } from "../state-types";
+import type { FontStyles, PlaceholderStyles, TextStyle } from "../state-types";
 import type { ViewportState } from "../state-types";
 import {
   createInitialState,
@@ -16,12 +10,20 @@ import {
 import {
   getBlockStyleOverrides,
   getEditorPadding,
+  getFontStyles,
   getPlaceholderOverrides,
   setBlockStyleOverrides,
   setEditorPadding,
+  setFontStyles,
   setPlaceholderOverrides,
   setWindowFocused,
 } from "../styles";
+import createEditor, { type Editor } from "./editor";
+import {
+  createCanvasLayers,
+  destroyCanvasLayers,
+  resizeCanvasLayers,
+} from "./layers";
 
 export interface MountedEditor {
   readonly editor: Editor;
@@ -76,6 +78,12 @@ export interface MountEditorOptions {
   }>;
   blockStyleOverrides?: Partial<Record<string, Partial<TextStyle>>> | null;
   placeholderOverrides?: Partial<PlaceholderStyles> | null;
+  /**
+   * Host font registry (family key → CSS font-stack + default family). The host
+   * is responsible for loading the corresponding font faces. Omit to leave any
+   * globally-configured registry untouched; the editor defaults to system fonts.
+   */
+  fonts?: Partial<FontStyles> | null;
 }
 
 /**
@@ -92,11 +100,17 @@ export function mountEditor(
   const prevPadding = getEditorPadding();
   const prevBlockStyles = getBlockStyleOverrides();
   const prevPlaceholders = getPlaceholderOverrides();
+  const prevFonts = getFontStyles();
 
   // Apply padding and block style overrides before creating editor
   setEditorPadding(options?.padding ?? null);
   setBlockStyleOverrides(options?.blockStyleOverrides ?? null);
   setPlaceholderOverrides(options?.placeholderOverrides ?? null);
+  // Fonts are opt-in: only override when explicitly provided so an app that
+  // configures its registry globally isn't reset by editors that don't.
+  if (options?.fonts !== undefined) {
+    setFontStyles(options.fonts);
+  }
 
   // Create a Page object from the blocks
   const page: Page = {
@@ -407,6 +421,9 @@ export function mountEditor(
     setEditorPadding(prevPadding);
     setBlockStyleOverrides(prevBlockStyles);
     setPlaceholderOverrides(prevPlaceholders);
+    if (options?.fonts !== undefined) {
+      setFontStyles(prevFonts);
+    }
     resizeObserver.disconnect();
     editor.destroy();
     if (blurTimeoutId !== null) {

@@ -22,9 +22,9 @@ import { createPage, updatePage } from "../api/pages.api";
 import { uploadImage } from "../api/images.api";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useQueryClient } from "@tanstack/react-query";
-import tokenizePage from "@cypherkit/editor/deserializer/tokenizer";
-import parsePage from "@cypherkit/editor/deserializer/parser";
-import { parseFrontmatter } from "@cypherkit/editor/deserializer/loadPage";
+import tokenizePage from "@cypherkit/editor/serlization/tokenizer";
+import parsePage from "@cypherkit/editor/serlization/parser";
+import { parseFrontmatter } from "@cypherkit/editor/serlization/loadPage";
 import { extractTitleFromBlocks } from "@cypherkit/editor/sync/char-runs";
 import { useTranslation } from "react-i18next";
 

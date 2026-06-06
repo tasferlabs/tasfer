@@ -18,17 +18,17 @@ import { FileText, FileCode, FileType, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
-import { serializeToMarkdown } from "@cypherkit/editor/deserializer/serializer";
-import { serializeToHTML } from "@cypherkit/editor/deserializer/htmlSerializer";
+import { serializeToMarkdown } from "@cypherkit/editor/serlization/serializer";
+import { serializeToHTML } from "@cypherkit/editor/serlization/htmlSerializer";
 import {
   getVisibleTextFromRuns,
   extractTitleFromBlocks,
 } from "@cypherkit/editor/sync/char-runs";
-import { isTextualBlock, isListBlock, type Block, type Image } from "@cypherkit/editor/deserializer/loadPage";
-import { imageCache } from "@cypherkit/editor/renderer";
+import { isTextualBlock, isListBlock, type Block, type Image } from "@cypherkit/editor/serlization/loadPage";
+import { imageCache } from "@cypherkit/editor/rendering/renderer";
 import { getPlatform } from "@/platform";
 import { getPage } from "../api/pages.api";
-import type { PageMetadata } from "@cypherkit/editor/deserializer/serializer";
+import type { PageMetadata } from "@cypherkit/editor/serlization/serializer";
 import { downloadFile } from "@/downloadFile";
 import { getBridge } from "@/platform/bridge";
 

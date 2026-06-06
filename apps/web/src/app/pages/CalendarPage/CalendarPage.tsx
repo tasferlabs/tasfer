@@ -16,7 +16,7 @@ import { useTranslation } from "react-i18next";
 import i18next from "i18next";
 import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
-import type { Block } from "@cypherkit/editor/deserializer/loadPage";
+import type { Block } from "@cypherkit/editor/serlization/loadPage";
 import { extractTitleFromBlocks } from "@cypherkit/editor/sync/char-runs";
 import { getPlatform } from "@/platform";
 import {

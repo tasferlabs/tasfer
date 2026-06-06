@@ -20,7 +20,7 @@ import {
   isTextualBlock,
   type Block,
   type TextualBlock,
-} from "@cypherkit/editor/deserializer/loadPage";
+} from "@cypherkit/editor/serlization/loadPage";
 import type { AwarenessUser } from "@cypherkit/editor/sync/awareness";
 import {
   extractTitleFromBlocks,

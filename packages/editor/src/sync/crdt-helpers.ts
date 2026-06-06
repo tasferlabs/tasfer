@@ -17,7 +17,6 @@ import type { FormatSet, TextDelete, TextInsert } from "../sync/types";
 import {
   getCharIdAtVisiblePosition,
   getVisibleLengthFromRuns,
-  getVisibleTextFromRunsFromRuns,
   isCharIdInRange,
   iterateVisibleChars,
 } from "./char-runs";
@@ -141,7 +140,7 @@ export function formatCharsInRange(
 }
 
 export function getVisibleTextFromRuns(charRuns: CharRun[]): string {
-  return getVisibleTextFromRunsFromRuns(charRuns);
+  return getVisibleTextFromRuns(charRuns);
 }
 
 export function getVisibleLength(charRuns: CharRun[]): number {

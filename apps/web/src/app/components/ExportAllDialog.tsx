@@ -12,9 +12,12 @@ import { Button } from "../../components/ui/button";
 import { getPages, getPage, type IListPage } from "../api/pages.api";
 import { getPlatform } from "@/platform";
 import { useSpaces } from "../contexts/SpaceContext";
-import { serializeToMarkdown, type PageMetadata } from "@cypherkit/editor/deserializer/serializer";
+import {
+  serializeToMarkdown,
+  type PageMetadata,
+} from "@cypherkit/editor/serlization/serializer";
 import { downloadFile } from "@/downloadFile";
-import type { Image } from "@cypherkit/editor/deserializer/loadPage";
+import type { Image } from "@cypherkit/editor/serlization/loadPage";
 import type { IPage } from "../api/pages.api";
 import { useTranslation } from "react-i18next";
 
@@ -30,7 +33,10 @@ interface SpaceOption {
 
 /** Sanitize a string for use as a filesystem name */
 function sanitizeName(name: string): string {
-  return (name || "Untitled").replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim() || "Untitled";
+  return (
+    (name || "Untitled").replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim() ||
+    "Untitled"
+  );
 }
 
 /** Extract image ID from a URL like /api/images/{id} */
@@ -117,7 +123,9 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
 
       for (const space of spacesToExport) {
         if (abortRef.current) return;
-        const rootPages = await getPages(space.id, null, { includeTasks: true });
+        const rootPages = await getPages(space.id, null, {
+          includeTasks: true,
+        });
         spacePageTrees.push({ space, pages: rootPages });
         totalPages += rootPages.length;
       }
@@ -186,9 +194,19 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
           pendingFiles.push({ zipPath, markdown });
 
           if (listPage.hasChildren) {
-            const children = await getPages(spaceId, listPage.id, { includeTasks: true });
-            setProgress((prev) => ({ ...prev, total: prev.total + children.length }));
-            await exportPages(spaceId, children, `${parentPath}${pageName}/`, pageName);
+            const children = await getPages(spaceId, listPage.id, {
+              includeTasks: true,
+            });
+            setProgress((prev) => ({
+              ...prev,
+              total: prev.total + children.length,
+            }));
+            await exportPages(
+              spaceId,
+              children,
+              `${parentPath}${pageName}/`,
+              pageName,
+            );
           }
 
           done++;
@@ -220,7 +238,8 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
           const response = await fetch(imgUrl);
           if (response.ok) {
             const blob = await response.blob();
-            const contentType = response.headers.get("content-type") || "image/png";
+            const contentType =
+              response.headers.get("content-type") || "image/png";
             const ext = extFromMime(contentType);
             const fileName = `${imgId}.${ext}`;
             imageExtMap.set(imgId, fileName);
@@ -254,7 +273,11 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
       onOpenChange(false);
     } catch (err) {
       if (!abortRef.current) {
-        setError(err instanceof Error ? err.message : t("export.failed", "Export failed"));
+        setError(
+          err instanceof Error
+            ? err.message
+            : t("export.failed", "Export failed"),
+        );
         setPhase("select");
       }
     }
@@ -274,7 +297,10 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
           <DialogTitle>{t("export.all", "Export all")}</DialogTitle>
           <DialogDescription>
             {phase === "select"
-              ? t("export.selectSpaces", "Select spaces to export as a ZIP file.")
+              ? t(
+                  "export.selectSpaces",
+                  "Select spaces to export as a ZIP file.",
+                )
               : t("export.exportingPages", "Exporting your pages...")}
           </DialogDescription>
         </DialogHeader>
@@ -293,7 +319,9 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
                     onChange={() => toggleSpace(space.id)}
                     className="size-4 rounded border-border accent-primary"
                   />
-                  <span className="text-sm font-medium">{space.name || t("common.untitled", "Untitled")}</span>
+                  <span className="text-sm font-medium">
+                    {space.name || t("common.untitled", "Untitled")}
+                  </span>
                   <span className="text-xs text-muted-foreground ms-auto">
                     {t("space.space", "Space")}
                   </span>
@@ -306,18 +334,13 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
               )}
             </div>
 
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
+            {error && <p className="text-sm text-destructive">{error}</p>}
 
             <DialogFooter>
               <Button variant="outline" onClick={handleCancel}>
                 {t("common.cancel", "Cancel")}
               </Button>
-              <Button
-                onClick={handleExport}
-                disabled={selected.size === 0}
-              >
+              <Button onClick={handleExport} disabled={selected.size === 0}>
                 {t("export.title", "Export")}
               </Button>
             </DialogFooter>
@@ -330,16 +353,18 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
               <div className="flex items-center gap-3">
                 <div className="size-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 <span className="text-sm text-muted-foreground">
-                  {t("export.exporting", "Exporting...")} {progress.done}/{progress.total}
+                  {t("export.exporting", "Exporting...")} {progress.done}/
+                  {progress.total}
                 </span>
               </div>
               <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                 <div
                   className="h-full bg-primary transition-all duration-300 rounded-full"
                   style={{
-                    width: progress.total > 0
-                      ? `${Math.round((progress.done / progress.total) * 100)}%`
-                      : "0%",
+                    width:
+                      progress.total > 0
+                        ? `${Math.round((progress.done / progress.total) * 100)}%`
+                        : "0%",
                   }}
                 />
               </div>

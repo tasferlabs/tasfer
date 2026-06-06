@@ -2,16 +2,20 @@ import {
   CLICK_DISTANCE_THRESHOLD,
   SELECTION_HANDLE_TOUCH_TARGET,
 } from "../constants";
-import { getBlockHeight, imageCache, invalidateBlockCache } from "../renderer";
+import {
+  getBlockHeight,
+  imageCache,
+  invalidateBlockCache,
+} from "../rendering/renderer";
 import {
   getCursorDocumentCoords,
   scrollToMakeCursorVisible,
 } from "../selection";
+import type { Block } from "../serlization/loadPage";
+import type { EditorState, ViewportState } from "../state-types";
 import { getEditorStyles } from "../styles";
 import type { Operation } from "../sync/sync";
 import { getClock, getPageId, nextId } from "../sync/sync";
-import type { EditorState, ViewportState } from "../state-types";
-import type { Block } from "@/serlization/loadPage";
 
 export function isTouchDevice(): boolean {
   return (

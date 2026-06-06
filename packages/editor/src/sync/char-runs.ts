@@ -8,14 +8,14 @@
  * ID computation: Each character's ID = `${peerId}:${startCounter + offset}`
  */
 
-import { compareIds, extractCounter, extractPeerId } from "./id";
 import type {
   Block,
   Char,
   CharRun,
   TextualBlock,
-} from "@/serlization/loadPage";
-import { isTextualBlock } from "@/serlization/loadPage";
+} from "../serlization/loadPage";
+import { isTextualBlock } from "../serlization/loadPage";
+import { compareIds, extractCounter, extractPeerId } from "./id";
 
 // =============================================================================
 // ID and Deletion Helpers
@@ -158,9 +158,7 @@ export function getVisiblePositionOfChar(
 /**
  * Get the visible (non-deleted) text from runs.
  */
-export function getVisibleTextFromRunsFromRuns(
-  runs: CharRun[] | undefined,
-): string {
+export function getVisibleTextFromRuns(runs: CharRun[] | undefined): string {
   if (!runs) return "";
   let result = "";
   for (const run of runs) {
@@ -642,9 +640,7 @@ export function extractTitleFromBlocks(
       block.type === "heading2" ||
       block.type === "heading3"
     ) {
-      const text = getVisibleTextFromRunsFromRuns(
-        (block as TextualBlock).charRuns,
-      );
+      const text = getVisibleTextFromRuns((block as TextualBlock).charRuns);
       const trimmed = text.trim();
       if (trimmed.length > 0) {
         return truncateTitle(trimmed, maxLength);
@@ -656,9 +652,7 @@ export function extractTitleFromBlocks(
   for (const block of blocks) {
     if (block.deleted) continue;
     if (isTextualBlock(block)) {
-      const text = getVisibleTextFromRunsFromRuns(
-        (block as TextualBlock).charRuns,
-      );
+      const text = getVisibleTextFromRuns((block as TextualBlock).charRuns);
       const trimmed = text.trim();
       if (trimmed.length > 0) {
         return truncateTitle(trimmed, maxLength);
@@ -690,8 +684,8 @@ function truncateTitle(title: string, maxLength: number): string {
 /**
  * Get visible text from Char[] array (filters out deleted chars)
  */
-export function getVisibleTextFromRunsFromChars(chars: Char[]): string {
-  return getVisibleTextFromRunsFromRuns(charsToRuns(chars));
+export function getVisibleTextFromChars(chars: Char[]): string {
+  return getVisibleTextFromRuns(charsToRuns(chars));
 }
 
 /**

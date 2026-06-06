@@ -1,6 +1,5 @@
+import { updateCursor } from "../selection";
 import { isTextualBlock, type Page } from "../serlization/loadPage";
-import { updateSelection } from "@/updateSelection";
-import { updateCursor } from "@/selection";
 import type {
   CRDTCursorState,
   CRDTPosition,
@@ -8,6 +7,7 @@ import type {
   EditorState,
   Position,
 } from "../state-types";
+import { updateSelection } from "../updateSelection";
 import { findCharInRuns, iterateVisibleChars } from "./char-runs";
 
 //NOTE - we should move the crdt to crdt folder

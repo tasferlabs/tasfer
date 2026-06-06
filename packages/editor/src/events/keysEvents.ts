@@ -22,14 +22,45 @@ import {
   splitBlock,
   toggleBold,
 } from "../actions/commands";
-import { invalidateBlockCache } from "../renderer";
+import { invalidateBlockCache } from "../rendering/renderer";
 import { getTextDirection } from "../rtl";
 import {
   getCursorDocumentCoords,
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
 } from "../selection";
+import {
+  moveCursorLeft,
+  moveCursorRight,
+  moveCursorToPosition,
+} from "../selection";
+import { updateFocus } from "../selection";
+import { updateCursor } from "../selection";
+import {
+  clearSelection,
+  extendSelectionDown,
+  extendSelectionLeft,
+  extendSelectionPageDown,
+  extendSelectionPageUp,
+  extendSelectionRight,
+  extendSelectionUp,
+  moveCursorDown,
+  moveCursorPageDown,
+  moveCursorPageUp,
+  moveCursorUp,
+} from "../selection";
+import {
+  type Block,
+  isListBlock,
+  isTextualBlock,
+} from "../serlization/loadPage";
 import { getSlashCommands } from "../SlashCommandMenu";
+import type {
+  EditorState,
+  KeyboardEvent,
+  MouseEvent,
+  ViewportState,
+} from "../state-types";
 import {
   clearAutoCreatedParagraph,
   closeSlashCommand,
@@ -42,38 +73,11 @@ import {
   updateSlashCommandFilter,
   updateSlashCommandSelection,
 } from "../state-utils";
-import {
-  moveCursorLeft,
-  moveCursorRight,
-  moveCursorToPosition
-} from "@/selection";
-import { updateFocus } from "@/selection";
-import { updateCursor } from "@/selection";
-import {
-  clearSelection, extendSelectionDown,
-  extendSelectionLeft,
-  extendSelectionPageDown,
-  extendSelectionPageUp,
-  extendSelectionRight,
-  extendSelectionUp, moveCursorDown, moveCursorPageDown,
-  moveCursorPageUp, moveCursorUp
-} from "@/selection";
 import { deleteCharsInRange } from "../sync/crdt-helpers";
 import { redoState, undoState } from "../sync/crdt-undo";
 import type { Operation } from "../sync/sync";
 import { getClock, getPageId, nextId } from "../sync/sync";
-import type {
-  EditorState,
-  KeyboardEvent,
-  MouseEvent,
-  ViewportState,
-} from "../state-types";
 import { ensureCursorVisible, isTouchDevice } from "./eventUtils";
-import {
-  type Block,
-  isListBlock,
-  isTextualBlock,
-} from "@/serlization/loadPage";
 
 // Open the inline-math editor popover when an arrow key crosses an inline
 // math chip (snap fired between opposite boundaries).

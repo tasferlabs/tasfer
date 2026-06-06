@@ -15,9 +15,6 @@
     "./*": "./src/*"
   },
   "dependencies": {
-    "@fontsource/libre-baskerville": "^5.2.10",
-    "@fontsource/poppins": "^5.2.6",
-    "@fontsource/space-grotesk": "^5.2.10",
     "i18next": "^25.0.0",
     "nanoid": "^5.1.7"
   },

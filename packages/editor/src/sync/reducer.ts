@@ -6,6 +6,13 @@
  */
 
 import {
+  type Block,
+  type Char,
+  type FormatSpan,
+  isTextualBlock,
+  type Page,
+} from "../serlization/loadPage";
+import {
   canMorphTo,
   createDefaultBlock,
   validateBlockField,
@@ -14,7 +21,7 @@ import {
   charRunsToChars,
   deleteFromRuns,
   getCharIdAtVisiblePosition,
-  getVisibleTextFromRunsFromRuns,
+  getVisibleTextFromRuns,
   insertIntoRuns,
   isCharIdInRange,
   iterateVisibleChars,
@@ -31,13 +38,6 @@ import type {
   TextDelete,
   TextInsert,
 } from "./types";
-import {
-  type Block,
-  type Char,
-  type FormatSpan,
-  isTextualBlock,
-  type Page,
-} from "@/serlization/loadPage";
 
 /**
  * Create an empty page state.
@@ -535,13 +535,13 @@ export function rebuildState(pageId: string, ops: Operation[]): Page {
 /**
  * Get visible text content from a block (excluding deleted chars).
  */
-export function getVisibleTextFromRuns(block: Block): string {
+export function getVisibleTextFromBlock(block: Block): string {
   // Image and Line blocks don't have text content
   if (!isTextualBlock(block)) {
     return "";
   }
 
-  return getVisibleTextFromRunsFromRuns(block.charRuns);
+  return getVisibleTextFromRuns(block.charRuns);
 }
 
 /**

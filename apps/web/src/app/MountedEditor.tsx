@@ -38,8 +38,8 @@ import {
 import { useKeyboardOpen } from "./hooks/useKeyboardOpen";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import type { Block } from "@cypherkit/editor/deserializer/loadPage";
-import { isTextualBlock } from "@cypherkit/editor/deserializer/loadPage";
+import type { Block } from "@cypherkit/editor/serlization/loadPage";
+import { isTextualBlock } from "@cypherkit/editor/serlization/loadPage";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { FindBar } from "../editor/FindBar";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
@@ -55,14 +55,14 @@ import {
 import {
   mountEditor,
   type MountedEditor as MountedEditorInstance,
-} from "@cypherkit/editor/mount";
-import { clearFailedImageCache } from "@cypherkit/editor/renderer";
+} from "@cypherkit/editor/entries/mount";
+import { clearFailedImageCache } from "@cypherkit/editor/rendering/renderer";
 import { getLinkAtPosition } from "@cypherkit/editor/selection";
 import {
   getBlockTextContent,
   getBlockTextLength,
   isTouchDevice,
-} from "@cypherkit/editor/state";
+} from "@cypherkit/editor/state-utils";
 import { allCharsHaveFormat } from "@cypherkit/editor/sync/crdt-helpers";
 import type {
   CursorDragState,
@@ -70,7 +70,7 @@ import type {
   PlaceholderStyles,
   SlashCommand,
   TextStyle,
-} from "@cypherkit/editor/types";
+} from "@cypherkit/editor/state-types";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { usePageSettings } from "./contexts/PageSettingsContext";

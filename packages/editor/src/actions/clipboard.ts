@@ -1,5 +1,7 @@
 import { deleteSelectedText, getSelectionRange } from "../actions/commands";
 import { IMAGE_DEFAULT_HEIGHT } from "../constants";
+import { invalidateBlockCache } from "../rendering/renderer";
+import { clearSelection, moveCursorToPosition } from "../selection";
 import type {
   Block,
   Char,
@@ -8,13 +10,9 @@ import type {
   Page,
   TextFormat,
 } from "../serlization/loadPage";
-import {
-  isListBlock,
-  isTextualBlock,
-  loadPage,
-} from "../serlization/loadPage";
+import { isListBlock, isTextualBlock, loadPage } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
-import { invalidateBlockCache } from "../renderer";
+import type { CommandResult, EditorState, Position } from "../state-types";
 import { getBlockTextContent, getBlockTextLength } from "../state-utils";
 import {
   charRunsToChars,
@@ -28,6 +26,7 @@ import {
   insertCharsAtPosition,
 } from "../sync/crdt-helpers";
 import {} from "../sync/crdt-undo";
+import { generateBlockId } from "../sync/id";
 import { applyOps } from "../sync/reducer";
 import { getClock, getPageId, nextId } from "../sync/sync";
 import type {
@@ -37,9 +36,6 @@ import type {
   Operation,
   TextInsert,
 } from "../sync/types";
-import type { CommandResult, EditorState, Position } from "../state-types";
-import { clearSelection, moveCursorToPosition } from "@/selection";
-import { generateBlockId } from "@/sync/id";
 
 function globalGenerateBlockId(): string {
   return generateBlockId(nextId);

@@ -27,5 +27,23 @@ export type {
   Page,
   TextFormat,
 } from "./serlization/loadPage";
-export type { EditorState, SlashCommand, ViewportState } from "./state-types";
+export type {
+  EditorState,
+  EditorStyles,
+  FontFamily,
+  FontStyles,
+  SlashCommand,
+  ViewportState,
+} from "./state-types";
 export type { HLC, Operation } from "./sync/types";
+
+// Fonts — the host registers font families/stacks and loads the faces, then
+// notifies the editor. The editor itself ships no bundled fonts.
+export {
+  getCurrentFontFamily,
+  notifyFontsChanged,
+  notifyFontsLoaded,
+  onFontsReady,
+  setCurrentFontFamily,
+} from "./fonts";
+export { getFontStyles, setFontStyles } from "./styles";

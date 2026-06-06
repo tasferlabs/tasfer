@@ -14,6 +14,8 @@
  * folds `applyOp` through the batch to materialise these intermediate
  * states; callers pass `applyOp` in to avoid a circular import.
  */
+import type { Block, Char, Page, TextFormat } from "./serlization/loadPage";
+import { isTextualBlock } from "./serlization/loadPage";
 import { getBlockDescriptor, getBlockFieldNames } from "./sync/block-registry";
 import {
   charRunsToChars,
@@ -31,8 +33,6 @@ import type {
   TextDelete,
   TextInsert,
 } from "./sync/types";
-import type { Block, Char, Page, TextFormat } from "@/serlization/loadPage";
-import { isTextualBlock } from "@/serlization/loadPage";
 
 // =============================================================================
 // Per-op inversion

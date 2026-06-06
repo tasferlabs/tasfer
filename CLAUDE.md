@@ -25,31 +25,53 @@ apps/
 ├── live/     # Stateless WebRTC signaling relay (port 8080)
 ├── ios/      # iOS native WebView wrapper (Capacitor)
 └── android/  # Android native WebView wrapper (Capacitor)
-shared/       # Shared TypeScript types and utilities
+packages/
+└── editor/   # @cypherkit/editor — headless canvas+CRDT editor engine (extracted core)
 ```
+
+There is **no root `package.json`** and no workspace tool — each app/package manages its own
+dependencies and is built/run from its own directory. The `@cypherkit/editor` package is consumed
+by `apps/web` as raw TypeScript source via path aliases (see below), not as a built artifact.
+
+> Note: the `@shared/*` path alias is still configured in `apps/web` but the `shared/` directory
+> does not currently exist; treat shared types as living inside the relevant package.
 
 ## Development Commands
 
-### Web App (root or `apps/web`) — uses npm
+All commands run from the relevant directory — there is no root `package.json`.
+
+### Web App (`apps/web`) — uses npm
 ```bash
 npm run dev          # Start Vite dev server (port 4000)
 npm run dev:host     # Dev server accessible from network (for mobile testing)
-npm run build        # TypeScript check + production build
+npm run build        # TypeScript check (tsc) + production build (vite build)
 ```
+The `build` script is the canonical typecheck. It compiles both `apps/web/src` and the aliased
+`@cypherkit/editor` source, so type errors in `packages/editor` will fail the web build.
+
+### Editor Package (`packages/editor`)
+```bash
+npm run lint         # eslint (incl. custom rules in eslint-rules/)
+npm run lint:fix     # eslint --fix
+npm run format       # prettier --write
+npm run format:check # prettier --check
+```
+No standalone build step — the package ships TS source consumed directly by `apps/web`.
 
 ### Signaling Server (`apps/live`) — uses Bun
 ```bash
 npm run dev          # Watch mode with tsx
 ```
 
-### Mobile (Capacitor)
+### Mobile (Capacitor) — from `apps/web`
 ```bash
 npm run cap:sync           # Sync web build to native projects
 npm run cap:open:ios       # Open iOS project in Xcode
 npm run cap:open:android   # Open Android project in Android Studio
 ```
 
-No linting, formatting, or test tooling is configured.
+`apps/web` has no test runner configured. `packages/editor` has eslint + prettier (but no test
+runner); manual CRDT fuzz/regression scripts live in `packages/editor/src/sync/__fuzz__/`.
 
 ## Architecture
 
@@ -69,14 +91,23 @@ Cross-platform abstraction — one implementation, three runtimes (Web, Electron
 - `capacitor.ts` — Mobile: native SQLite plugin + Capacitor filesystem + TweetNaCl.js for Ed25519
 - `webrtc.ts` — Shared WebRTC network driver (all platforms): signaling via WebSocket to `apps/live`, then direct P2P DataChannels
 
-### Canvas Rendering Engine (`apps/web/src/editor/`)
-- Custom text rendering directly on HTML5 Canvas — not DOM-based
-- Manual event handling for keyboard (`keysEvents.ts`), mouse (`mouseEvents.ts`), touch (`touchEvents.ts`), and IME composition (`compositionEvents.ts`)
-- Key files: `editor.ts` (orchestration), `renderer.ts` (canvas rendering), `fonts.ts` (font loading/measurement), `selection.ts` (cursor/selection), `layers.ts` (canvas layers)
-- RTL text (Arabic, Hebrew) supported via `rtl.ts`
-- Undo/redo is CRDT-aware: converts between index-based positions and CRDT ID-based positions (`undo.ts`, `inverse.ts`)
+### Canvas Rendering Engine (`packages/editor/src/` — `@cypherkit/editor`)
+The headless editor core was extracted from the web app into the `@cypherkit/editor` package.
+It is framework-agnostic (canvas + CRDT + DOM events); the host app supplies fonts, asset
+resolution, and React UI chrome. Public surface is `packages/editor/src/index.ts`; deep subpath
+imports (e.g. `@cypherkit/editor/sync/awareness`) are also currently allowed.
 
-### CRDT System (`apps/web/src/editor/sync/`)
+- Custom text rendering directly on HTML5 Canvas — not DOM-based
+- `entries/` — lifecycle/orchestration: `mount.ts` (`mountEditor`), `editor.ts` (`createEditor` instance API), `layers.ts` (canvas layers)
+- `rendering/` — `renderer.ts` (canvas rendering), `scrollbar.ts`
+- `events/` — manual input handling: keyboard (`keysEvents.ts`), mouse (`mouseEvents.ts`), touch (`touchEvents.ts`), IME composition (`compositionEvents.ts`), plus `events.ts`/`genericEvents.ts`/`eventsState.ts`
+- `actions/` — `commands.ts` (editor commands), `clipboard.ts`
+- `fonts.ts` — font loading/measurement (host registers/loads faces, then notifies via `notifyFontsLoaded`); `selection.ts` — cursor/selection; `styles.ts` — style config
+- RTL text (Arabic, Hebrew) supported via `rtl.ts`
+- Undo/redo is CRDT-aware: converts between index-based positions and CRDT ID-based positions (`inverse.ts`, `sync/crdt-undo.ts`)
+- `adapters.ts` — host integration points (e.g. `setAssetResolver`/`resolveAssetUrl`)
+
+### CRDT System (`packages/editor/src/sync/`)
 Operation-log CRDT for offline-first collaborative editing:
 - `types.ts` — Operation types: `text_insert`, `text_delete`, `format_set`, `block_insert`, `block_delete`, `block_set`
 - `hlc.ts` — Hybrid Logical Clock (pure Lamport clock: counter + peerId, no wall clock). Ordering: counter → peerId (lexicographic)
@@ -86,20 +117,23 @@ Operation-log CRDT for offline-first collaborative editing:
 - `reducer.ts` — Applies operations to document state
 - `sync.ts` — Public CRDT API + version vector tracking
 - `awareness.ts` — Peer cursors/selections/presence
+- `crdt-undo.ts` — CRDT-aware undo/redo; `snapshot-diff.ts`, `block-registry.ts`, `id.ts`, `crdt-helpers.ts`/`crdt-utils.ts` — supporting utilities
+- `__fuzz__/` — convergence + regression fuzz scripts (run manually)
 - Character IDs use `${peerId}:${counter}` format
 
-### State Management (`apps/web/src/editor/state.ts`)
+### State Management (`packages/editor/src/state-types.ts`, `state-utils.ts`)
 Three-layer state architecture:
 1. **DocumentState** — Content (page, cursor, selection) — persisted in undo/redo
 2. **UIState** — UI interactions (menus, composition modes)
 3. **ViewState** — Ephemeral viewport info (scroll position)
 
 ### Web App (`apps/web/src/`)
-- Entry point: `main.tsx` — calls `initPlatform()` to set up Engine + Replicator, starts P2P sync before rendering
-- Path aliases: `@/*` → `./src/*`, `@shared/*` → `../../shared/*`
-- `app/MountedEditor.tsx` — Main editor mount component, uses `useP2PRoom` hook for real-time sync
+- Entry point: `main.tsx` — calls `initPlatform()` to set up Engine + Replicator, registers fonts and the editor's asset resolver, starts P2P sync before rendering
+- Path aliases (`apps/web/tsconfig.json` + `vite.config.ts`): `@/*` → `./src/*`, `@cypherkit/editor` → `../../packages/editor/src`, `@shared/*` → `../../shared/*` (shared dir currently absent)
+- `app/MountedEditor.tsx` — Main editor mount component (calls `mountEditor` from `@cypherkit/editor`), uses `useP2PRoom` hook for real-time sync
 - `app/hooks/useP2PRoom.ts` — Page-level P2P room subscription (operations, awareness, peer presence)
-- `deserializer/` — Page loading (`loadPage.ts`), markdown parsing (`parser.ts`, `tokenizer.ts`), serialization (`serializer.ts`)
+- `editor/` — **React UI chrome only** (no engine code): `ContextMenu.tsx`, `SlashCommandMenu.tsx`, `FindBar.tsx`, link/image popovers, `MathBlockEditor.tsx`
+- `fonts.ts` — host-side font registration; the engine's markdown parsing/serialization lives in the editor package (`packages/editor/src/serlization/`: `loadPage.ts`, `parser.ts`, `tokenizer.ts`, `serializer.ts`, `htmlSerializer.ts`)
 - `sw.ts` / `sw-router.ts` — Service Worker (PWA via workbox/VitePWA injectManifest)
 - i18n via i18next
 

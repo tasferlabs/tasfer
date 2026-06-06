@@ -4,8 +4,8 @@ import {
   insertText,
 } from "../actions/commands";
 import { scrollToMakeCursorVisible } from "../selection";
-import type { Operation } from "../sync/sync";
 import type { EditorState, ViewportState } from "../state-types";
+import type { Operation } from "../sync/sync";
 
 // Composition (IME) Event Handlers
 export function handleCompositionStart(

@@ -1,21 +1,16 @@
 /**
- * Font loading system for the editor
- * Ensures fonts are properly loaded before text measurement
+ * Font measurement, metrics, and text wrapping for the editor.
+ *
+ * The editor is font-agnostic: the host application defines which font families
+ * exist and their CSS font-stacks via the editor styles (`EditorStyles.fonts`,
+ * configured through `setFontStyles` / mount options). The host also loads the
+ * font faces, then calls `notifyFontsLoaded` (and `notifyFontsChanged` whenever
+ * the available faces or stacks change — e.g. a script-specific font becomes
+ * available) so the editor can flush its metrics cache and re-measure with the
+ * real fonts.
  */
 
-// Import Poppins font (multiple weights)
-import "@fontsource/poppins/400.css";
-import "@fontsource/poppins/500.css";
-import "@fontsource/poppins/600.css";
-import "@fontsource/poppins/700.css";
-// Import Libre Baskerville font (multiple weights)
-import "@fontsource/libre-baskerville/400.css";
-import "@fontsource/libre-baskerville/700.css";
-// Import Space Grotesk - display face reserved for the "Cypher" wordmark
-import "@fontsource/space-grotesk/400.css";
-import "@fontsource/space-grotesk/500.css";
-import "@fontsource/space-grotesk/600.css";
-import "@fontsource/space-grotesk/700.css";
+import { containsCJK, isCJKCharacter } from "./cjk";
 import { getInlineMathDims } from "./math";
 // Formatted text measurement - handles Char[] with FormatSpan[]
 import type {
@@ -24,13 +19,12 @@ import type {
   FormatSpan,
   TextFormat,
 } from "./serlization/loadPage";
-import type FontConfig from "./state-types";
-import type { FontMetrics } from "./state-types";
+import type { FontFamily, FontMetrics } from "./state-types";
+import { getEditorStyles } from "./styles";
 import { charRunsToChars } from "./sync/char-runs";
 
-// Arabic font loading state
-let arabicFontsLoaded = false;
-let arabicFontLoadingPromise: Promise<void> | null = null;
+// Re-exported for back-compat with `@cypherkit/editor/fonts` consumers.
+export type { FontFamily };
 
 // Legacy text segment type (for backward compatibility)
 interface TextSegment {
@@ -38,58 +32,39 @@ interface TextSegment {
   formats?: TextFormat[];
 }
 
-export type FontFamily = "poppins" | "libre-baskerville";
-
-export const FONT_STACKS: Record<FontFamily, string> = {
-  poppins:
-    'Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-  "libre-baskerville":
-    'Libre Baskerville, Georgia, "Times New Roman", Times, serif',
-};
-
-// Font stacks with Arabic fonts prepended (used when Arabic fonts are loaded)
-const FONT_STACKS_ARABIC: Record<FontFamily, string> = {
-  poppins:
-    '"Noto Sans Arabic", Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-  "libre-baskerville":
-    'Amiri, Libre Baskerville, Georgia, "Times New Roman", Times, serif',
-};
-
 /**
- * Get the appropriate font stack, considering whether Arabic fonts are loaded
+ * Resolve the CSS font-stack for a family key from the host-configured font
+ * registry (`EditorStyles.fonts`). Unknown keys fall back to the configured
+ * default family, then to a generic system stack.
  */
 export function getFontStack(fontFamily: FontFamily): string {
-  if (arabicFontsLoaded) {
-    return FONT_STACKS_ARABIC[fontFamily];
-  }
-  return FONT_STACKS[fontFamily];
+  const { families, defaultFamily } = getEditorStyles().fonts;
+  return families[fontFamily] ?? families[defaultFamily] ?? "sans-serif";
 }
 
-// Font loading configuration
-const FONT_CONFIGS = [
-  { family: "Poppins", weight: "400" },
-  { family: "Poppins", weight: "500" },
-  { family: "Poppins", weight: "600" },
-  { family: "Poppins", weight: "700" },
-  { family: "Libre Baskerville", weight: "400" },
-  { family: "Libre Baskerville", weight: "700" },
-];
-
-const ARABIC_FONT_CONFIGS = [
-  { family: "Noto Sans Arabic", weight: "400" },
-  { family: "Noto Sans Arabic", weight: "500" },
-  { family: "Noto Sans Arabic", weight: "600" },
-  { family: "Noto Sans Arabic", weight: "700" },
-  { family: "Amiri", weight: "400" },
-  { family: "Amiri", weight: "700" },
-];
-
-// Font loading state
+// Whether the host has reported that the base font faces are loaded.
 let fontsLoaded = false;
-let fontLoadingPromise: Promise<void> | null = null;
 
 // Callbacks fired once when fonts finish loading
 const fontReadyCallbacks: Array<() => void> = [];
+
+// Currently selected font family key. `null` means "use the default family
+// configured in the editor styles" (EditorStyles.fonts.defaultFamily).
+let selectedFontFamily: FontFamily | null = null;
+
+// Callback for font family changes (used to invalidate caches)
+let fontChangeCallback: (() => void) | null = null;
+
+// Global metrics cache (immutable) - keyed by "fontFamily-fontSize-fontWeight"
+let metricsCache: ReadonlyMap<string, FontMetrics> = new Map();
+
+// Canvas context for measurements (created once)
+const measurementCanvas = (() => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  return canvas.getContext("2d")!;
+})();
 
 /** Register a one-shot callback for when fonts are ready. Fires immediately if already loaded. Returns unsubscribe fn. */
 export function onFontsReady(cb: () => void): () => void {
@@ -105,139 +80,37 @@ export function onFontsReady(cb: () => void): () => void {
 }
 
 /**
- * Check if a specific font is loaded
+ * Notify the editor that the base font faces have finished loading.
+ * Flushes cached metrics so text is re-measured with the real fonts and fires
+ * any `onFontsReady` listeners (e.g. to trigger a re-render).
+ *
+ * Loading the fonts themselves is the host application's responsibility — the
+ * editor only needs to know when they're ready.
  */
-function isFontLoaded(family: string, weight: string): boolean {
-  if (!document.fonts || !document.fonts.check) {
-    // Fallback for browsers without FontFace API
-    return true;
-  }
-
-  try {
-    return document.fonts.check(`${weight} 1rem ${family}`);
-  } catch (error) {
-    console.warn(`Error checking font ${family} ${weight}:`, error);
-    return true; // Assume loaded to prevent blocking
-  }
+export function notifyFontsLoaded(): void {
+  if (fontsLoaded) return;
+  fontsLoaded = true;
+  // Flush cached metrics so they're re-measured with the real fonts
+  metricsCache = new Map();
+  // Notify listeners (editor re-render)
+  const cbs = fontReadyCallbacks.splice(0);
+  for (const cb of cbs) cb();
 }
 
 /**
- * Load a single font with timeout
+ * Notify the editor that the set of available font faces or their stacks has
+ * changed after the initial load — e.g. a script-specific font (Arabic, CJK…)
+ * finished loading and the host updated `EditorStyles.fonts` to reference it.
+ * Flushes cached metrics so measurements use the new stacks and fires
+ * `onFontsReady` listeners so the editor re-renders.
  */
-function loadSingleFont(family: string, weight: string): Promise<void> {
-  return new Promise((resolve) => {
-    // Check if already loaded
-    if (isFontLoaded(family, weight)) {
-      resolve();
-      return;
-    }
-
-    if (document.fonts && document.fonts.load) {
-      // Use FontFace API
-      document.fonts
-        .load(`${weight} 1rem ${family}`)
-        .then(() => {
-          resolve();
-        })
-        .catch((error) => {
-          console.warn(`Error loading font ${family} ${weight}:`, error);
-          resolve(); // Resolve anyway to prevent blocking
-        });
-    } else {
-      // Fallback: create invisible text element and wait for font to load
-      const testElement = document.createElement("div");
-      testElement.style.cssText = `
-        position: absolute;
-        left: -9999px;
-        top: -9999px;
-        font-family: ${family};
-        font-weight: ${weight};
-        font-size: 16px;
-        visibility: hidden;
-      `;
-      testElement.textContent = "Test";
-      document.body.appendChild(testElement);
-
-      // Poll for font loading
-      const checkInterval = setInterval(() => {
-        if (isFontLoaded(family, weight)) {
-          clearInterval(checkInterval);
-          document.body.removeChild(testElement);
-          resolve();
-        }
-      }, 100);
-    }
-  });
+export function notifyFontsChanged(): void {
+  // Flush metrics cache so measurements use the (possibly new) font stacks
+  metricsCache = new Map();
+  // Notify listeners so the editor re-renders
+  const cbs = fontReadyCallbacks.splice(0);
+  for (const cb of cbs) cb();
 }
-
-/**
- * Load all fonts. Metrics are computed lazily on first use per combo.
- */
-export async function loadFonts(): Promise<void> {
-  if (fontsLoaded) {
-    return;
-  }
-
-  if (fontLoadingPromise) {
-    return fontLoadingPromise;
-  }
-
-  fontLoadingPromise = Promise.all(
-    FONT_CONFIGS.map(({ family, weight }) => loadSingleFont(family, weight)),
-  ).then(() => {
-    fontsLoaded = true;
-    // Flush cached metrics so they're re-measured with the real fonts
-    metricsCache = new Map();
-    // Notify listeners (editor re-render)
-    const cbs = fontReadyCallbacks.splice(0);
-    for (const cb of cbs) cb();
-  });
-
-  return fontLoadingPromise;
-}
-
-/**
- * Dynamically load Arabic fonts (Noto Sans Arabic + Amiri).
- * Called when the language is set to Arabic. CSS is loaded via dynamic import
- * so the font files are only fetched when needed.
- */
-export async function loadArabicFonts(): Promise<void> {
-  if (arabicFontsLoaded) return;
-  if (arabicFontLoadingPromise) return arabicFontLoadingPromise;
-
-  arabicFontLoadingPromise = (async () => {
-    // Dynamically import the CSS files so they're only fetched for Arabic
-    await Promise.all([
-      import("@fontsource/noto-sans-arabic/400.css"),
-      import("@fontsource/noto-sans-arabic/500.css"),
-      import("@fontsource/noto-sans-arabic/600.css"),
-      import("@fontsource/noto-sans-arabic/700.css"),
-      import("@fontsource/amiri/400.css"),
-      import("@fontsource/amiri/700.css"),
-    ]);
-
-    // Wait for the browser to actually load the font faces
-    await Promise.all(
-      ARABIC_FONT_CONFIGS.map(({ family, weight }) =>
-        loadSingleFont(family, weight),
-      ),
-    );
-
-    arabicFontsLoaded = true;
-
-    // Flush metrics cache so measurements use the new font stacks
-    metricsCache = new Map();
-
-    // Notify listeners so editor re-renders with Arabic fonts
-    const cbs = fontReadyCallbacks.splice(0);
-    for (const cb of cbs) cb();
-  })();
-
-  return arabicFontLoadingPromise;
-}
-
-// Global metrics cache (immutable) - keyed by "fontFamily-fontSize-fontWeight"
-let metricsCache: ReadonlyMap<string, FontMetrics> = new Map();
 
 // Helper function to create cache key
 function createCacheKey(
@@ -248,13 +121,6 @@ function createCacheKey(
   return `${fontFamily}-${fontSize}-${fontWeight}`;
 }
 
-// Canvas context for measurements (created once)
-const measurementCanvas = (() => {
-  const canvas = document.createElement("canvas");
-  canvas.width = 1;
-  canvas.height = 1;
-  return canvas.getContext("2d")!;
-})();
 // Pure function to apply font to context
 function applyFont(
   ctx: CanvasRenderingContext2D,
@@ -754,38 +620,6 @@ export function measureFormattedTextUpToIndex(
   return width;
 }
 
-// Helper function to check if a character is CJK (Chinese, Japanese, Korean)
-// Exported for use in word boundary detection
-export function isCJKCharacter(char: string): boolean {
-  const code = char.charCodeAt(0);
-  return (
-    // CJK Unified Ideographs
-    (code >= 0x4e00 && code <= 0x9fff) ||
-    // CJK Unified Ideographs Extension A
-    (code >= 0x3400 && code <= 0x4dbf) ||
-    // CJK Unified Ideographs Extension B-F
-    (code >= 0x20000 && code <= 0x2a6df) ||
-    // CJK Compatibility Ideographs
-    (code >= 0xf900 && code <= 0xfaff) ||
-    // Hiragana
-    (code >= 0x3040 && code <= 0x309f) ||
-    // Katakana
-    (code >= 0x30a0 && code <= 0x30ff) ||
-    // Hangul Syllables
-    (code >= 0xac00 && code <= 0xd7af)
-  );
-}
-
-// Helper function to check if text contains CJK characters
-export function containsCJK(text: string): boolean {
-  for (let i = 0; i < text.length; i++) {
-    if (isCJKCharacter(text[i])) {
-      return true;
-    }
-  }
-  return false;
-}
-
 // Wrap CRDT text (Char[] with FormatSpan[]) for rendering
 // Uses incremental character measurement for O(n) complexity
 export function wrapText(
@@ -946,417 +780,27 @@ export function wrapText(
   return lines.length > 0 ? lines : [{ text: "", consumedSpace: false }];
 }
 
-// Character-based wrapping for CJK text (allows breaks at any character)
-function wrapFormattedTextCJK(
-  segments: TextSegment[],
-  fullText: string,
-  charToSegment: number[],
-  maxWidth: number,
-  fontSize: number,
-  baseFontWeight: string,
-  fontFamily: FontFamily,
-  codePadding: number,
-  compositionRange: { start: number; end: number } | null = null,
-): WrappedLine[] {
-  const lines: WrappedLine[] = [];
-  let currentLine = "";
-  let currentLineWidth = 0;
-  let lineStartIndex = 0;
-
-  // Helper to measure a substring with its formatting
-  const measureSubstring = (start: number, end: number): number => {
-    return measureFormattedTextUpToIndex(
-      segments,
-      start,
-      end,
-      fontSize,
-      baseFontWeight,
-      fontFamily,
-      codePadding,
-    );
-  };
-
-  for (let i = 0; i < fullText.length; i++) {
-    const char = fullText[i];
-    const isCJK = isCJKCharacter(char);
-    const isSpace = char === " ";
-    const isCompositionStart = compositionRange && i === compositionRange.start;
-    const isInComposition =
-      compositionRange &&
-      i >= compositionRange.start &&
-      i < compositionRange.end;
-
-    // Measure the character
-    const segIdx = charToSegment[i];
-    const segment = segments[segIdx];
-    const fontWeight = segment.formats?.some((f) => f.type === "bold")
-      ? "bold"
-      : baseFontWeight;
-    const charWidth = measureCtxText(char, fontSize, fontWeight, fontFamily);
-
-    // If this is the start of composition text, check if entire composition fits on current line
-    if (isCompositionStart && currentLine.length > 0 && compositionRange) {
-      const compositionWidth = measureSubstring(
-        compositionRange.start,
-        compositionRange.end,
-      );
-
-      // If composition would overflow, break to new line before starting composition
-      // But only if the composition itself fits on one line
-      if (
-        currentLineWidth + compositionWidth > maxWidth &&
-        compositionWidth <= maxWidth
-      ) {
-        lines.push({ text: currentLine, consumedSpace: false });
-        currentLine = char;
-        currentLineWidth = charWidth;
-        lineStartIndex = i;
-        continue;
-      }
-    }
-
-    // Check if adding this character would exceed max width
-    if (currentLineWidth + charWidth > maxWidth && currentLine.length > 0) {
-      // Don't break within composition text UNLESS the composition itself is too long
-      if (isInComposition && compositionRange) {
-        const compositionWidth = measureSubstring(
-          compositionRange.start,
-          compositionRange.end,
-        );
-
-        // Only keep composition together if it fits on one line by itself
-        if (compositionWidth <= maxWidth) {
-          // Skip wrapping within composition - keep adding to current line
-          currentLine += char;
-          currentLineWidth += charWidth;
-          continue;
-        }
-        // Otherwise, allow normal wrapping to happen (fall through)
-      }
-
-      // Line is full, need to wrap
-      // For CJK characters, we can break immediately
-      // For Latin text, try to break at the previous space if possible
-      if (isCJK || isSpace) {
-        // Break here
-        lines.push({ text: currentLine, consumedSpace: isSpace });
-        currentLine = isSpace ? "" : char;
-        currentLineWidth = isSpace ? 0 : charWidth;
-        lineStartIndex = isSpace ? i + 1 : i;
-      } else {
-        // Latin character - try to find last space in current line
-        const lastSpaceIndex = currentLine.lastIndexOf(" ");
-        if (lastSpaceIndex > 0) {
-          // Break at the space
-          const lineToAdd = currentLine.substring(0, lastSpaceIndex);
-          lines.push({ text: lineToAdd, consumedSpace: true });
-
-          // Start new line with text after the space
-          currentLine = currentLine.substring(lastSpaceIndex + 1) + char;
-          const newLineStart = lineStartIndex + lastSpaceIndex + 1;
-          currentLineWidth = measureSubstring(newLineStart, i + 1);
-          lineStartIndex = newLineStart;
-        } else {
-          // No space found, force break
-          lines.push({ text: currentLine, consumedSpace: false });
-          currentLine = char;
-          currentLineWidth = charWidth;
-          lineStartIndex = i;
-        }
-      }
-    } else {
-      // Character fits on current line
-      currentLine += char;
-      currentLineWidth += charWidth;
-    }
-  }
-
-  // Add remaining text
-  if (currentLine) {
-    lines.push({ text: currentLine, consumedSpace: false });
-  }
-
-  return lines.length > 0 ? lines : [{ text: "", consumedSpace: false }];
-}
-
 // Line wrapping result with information about consumed characters
 export interface WrappedLine {
   text: string;
   consumedSpace: boolean; // True if this line consumed a trailing space character
 }
 
-// Wrap formatted text (TextSegment[]) to lines with information about consumed spaces
-export function wrapFormattedText(
-  segments: TextSegment[],
-  maxWidth: number,
-  fontSize: number,
-  baseFontWeight: string,
-  fontFamily: FontFamily,
-  codePadding: number = 0,
-): string[] {
-  const result = wrapFormattedTextDetailed(
-    segments,
-    maxWidth,
-    fontSize,
-    baseFontWeight,
-    fontFamily,
-    codePadding,
-  );
-  return result.map((line) => line.text);
-}
-
-// Internal function that returns detailed line information
-export function wrapFormattedTextDetailed(
-  segments: TextSegment[],
-  maxWidth: number,
-  fontSize: number,
-  baseFontWeight: string,
-  fontFamily: FontFamily,
-  codePadding: number = 0,
-  compositionRange: { start: number; end: number } | null = null,
-): WrappedLine[] {
-  // Convert segments to plain text for wrapping
-  const fullText = segments.map((s) => s.content).join("");
-
-  // Build a character-to-segment map for accurate measurement
-  const charToSegment: number[] = [];
-  for (let segIdx = 0; segIdx < segments.length; segIdx++) {
-    for (let i = 0; i < segments[segIdx].content.length; i++) {
-      charToSegment.push(segIdx);
-    }
-  }
-
-  // Check if text contains CJK characters
-  const hasCJK = containsCJK(fullText);
-
-  // If text contains CJK, use character-based wrapping
-  if (hasCJK) {
-    return wrapFormattedTextCJK(
-      segments,
-      fullText,
-      charToSegment,
-      maxWidth,
-      fontSize,
-      baseFontWeight,
-      fontFamily,
-      codePadding,
-      compositionRange,
-    );
-  }
-
-  // Otherwise use word-based wrapping (original logic)
-  const lines: WrappedLine[] = [];
-  const words = fullText.split(" ");
-  let currentLine = "";
-  let currentLineWidth = 0;
-  let currentCharIndex = 0;
-
-  // Helper to measure a substring with its formatting using measureFormattedTextUpToIndex
-  const measureSubstring = (start: number, end: number): number => {
-    return measureFormattedTextUpToIndex(
-      segments,
-      start,
-      end,
-      fontSize,
-      baseFontWeight,
-      fontFamily,
-      codePadding,
-    );
-  };
-
-  // Measure space with base weight
-  const spaceWidth = measureCtxText(" ", fontSize, baseFontWeight, fontFamily);
-
-  for (let i = 0; i < words.length; i++) {
-    const word = words[i];
-    const wordStart = currentCharIndex;
-    const wordEnd = currentCharIndex + word.length;
-    const wordWidth = measureSubstring(wordStart, wordEnd);
-
-    // Check if this word contains composition start
-    const wordContainsCompositionStart =
-      compositionRange &&
-      compositionRange.start >= wordStart &&
-      compositionRange.start < wordEnd;
-
-    // Calculate space needed for this word including preceding space if line not empty
-    const spaceIfNeeded = currentLine ? spaceWidth : 0;
-
-    // If word contains composition start and would overflow, force new line
-    if (
-      wordContainsCompositionStart &&
-      currentLine &&
-      currentLineWidth + spaceIfNeeded + wordWidth > maxWidth
-    ) {
-      // Break to new line before composition
-      lines.push({ text: currentLine, consumedSpace: false });
-      currentLine = word;
-      currentLineWidth = wordWidth;
-      currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
-    } else if (currentLineWidth + spaceIfNeeded + wordWidth <= maxWidth) {
-      // Fits on current line
-      currentLine = currentLine ? currentLine + " " + word : word;
-      currentLineWidth += spaceIfNeeded + wordWidth;
-      currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0); // +1 for space
-    } else {
-      // Does not fit. Push current line if it has content.
-      if (currentLine) {
-        lines.push({ text: currentLine, consumedSpace: true });
-        currentLine = "";
-        currentLineWidth = 0;
-      }
-
-      // Now check if the word itself fits on a new line
-      if (wordWidth <= maxWidth) {
-        currentLine = word;
-        currentLineWidth = wordWidth;
-        currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
-      } else {
-        // Word is too long, must split by character
-        // But don't split if word contains composition text - keep it together
-        // UNLESS the composition itself is too long to fit on one line
-        const wordContainsComposition =
-          compositionRange &&
-          compositionRange.start < wordEnd &&
-          compositionRange.end > wordStart;
-
-        if (wordContainsComposition) {
-          const compositionWidth = measureSubstring(
-            compositionRange.start,
-            compositionRange.end,
-          );
-
-          // Only keep composition together if it fits on one line by itself
-          if (compositionWidth <= maxWidth) {
-            // Don't split composition text - just add the whole word even if it overflows
-            currentLine = word;
-            currentLineWidth = wordWidth;
-            currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
-          } else {
-            // Composition is too long, allow it to be split
-            let remainingWordStart = wordStart;
-
-            while (remainingWordStart < wordEnd) {
-              let splitIndex = remainingWordStart;
-              let currentWidth = 0;
-
-              for (let j = remainingWordStart; j < wordEnd; j++) {
-                const segIdx = charToSegment[j];
-                const segment = segments[segIdx];
-                const fontWeight = segment.formats?.some(
-                  (f) => f.type === "bold",
-                )
-                  ? "bold"
-                  : baseFontWeight;
-                const charWidth = measureCtxText(
-                  fullText[j],
-                  fontSize,
-                  fontWeight,
-                  fontFamily,
-                );
-
-                if (
-                  currentWidth + charWidth > maxWidth &&
-                  j > remainingWordStart
-                ) {
-                  splitIndex = j;
-                  break;
-                }
-                currentWidth += charWidth;
-                splitIndex = j + 1;
-              }
-
-              if (splitIndex === remainingWordStart) splitIndex++;
-
-              const chunk = fullText.substring(remainingWordStart, splitIndex);
-              lines.push({ text: chunk, consumedSpace: false });
-              remainingWordStart = splitIndex;
-            }
-
-            currentLine = "";
-            currentLineWidth = 0;
-            currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
-          }
-        } else {
-          // Word is too long, must split by character
-          let remainingWordStart = wordStart;
-
-          while (remainingWordStart < wordEnd) {
-            let splitIndex = remainingWordStart;
-            let currentWidth = 0;
-
-            for (let j = remainingWordStart; j < wordEnd; j++) {
-              const segIdx = charToSegment[j];
-              const segment = segments[segIdx];
-              const fontWeight = segment.formats?.some((f) => f.type === "bold")
-                ? "bold"
-                : baseFontWeight;
-              const charWidth = measureCtxText(
-                fullText[j],
-                fontSize,
-                fontWeight,
-                fontFamily,
-              );
-
-              if (
-                currentWidth + charWidth > maxWidth &&
-                j > remainingWordStart
-              ) {
-                splitIndex = j;
-                break;
-              }
-              currentWidth += charWidth;
-              splitIndex = j + 1;
-            }
-
-            if (splitIndex === remainingWordStart) splitIndex++;
-
-            const chunk = fullText.substring(remainingWordStart, splitIndex);
-            // Word is being split mid-word, no space consumed
-            lines.push({ text: chunk, consumedSpace: false });
-            remainingWordStart = splitIndex;
-          }
-
-          currentLine = "";
-          currentLineWidth = 0;
-          currentCharIndex = wordEnd + (i < words.length - 1 ? 1 : 0);
-        }
-      }
-    }
-  }
-
-  if (currentLine) {
-    lines.push({ text: currentLine, consumedSpace: false });
-  }
-
-  return lines.length > 0 ? lines : [{ text: "", consumedSpace: false }];
-}
-
-// Global font configuration - can be changed at runtime
-let globalFontConfig: FontConfig = {
-  fontFamily: "poppins",
-};
-
-// Callback for font family changes (used to invalidate caches)
-let fontChangeCallback: (() => void) | null = null;
-
 // Register a callback to be called when font family changes
 export function onFontFamilyChange(callback: () => void): void {
   fontChangeCallback = callback;
 }
 
-// Get the current font family
+// Get the current font family (falls back to the styles' default family)
 export function getCurrentFontFamily(): FontFamily {
-  return globalFontConfig.fontFamily;
+  return selectedFontFamily ?? getEditorStyles().fonts.defaultFamily;
 }
 
 // Set the current font family
 export function setCurrentFontFamily(fontFamily: FontFamily): void {
-  const previousFontFamily = globalFontConfig.fontFamily;
+  const previousFontFamily = getCurrentFontFamily();
 
-  globalFontConfig = {
-    fontFamily,
-  };
+  selectedFontFamily = fontFamily;
 
   // If font family actually changed, notify callback to invalidate caches
   if (previousFontFamily !== fontFamily && fontChangeCallback) {

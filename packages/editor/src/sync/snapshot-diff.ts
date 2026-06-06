@@ -5,11 +5,10 @@
  * operations to restore the page to a specific snapshot state.
  */
 
+import type { Block, CharRun, FormatSpan } from "../serlization/loadPage";
+import { isTextualBlock } from "../serlization/loadPage";
 import { getBlockDescriptor, getBlockFieldNames } from "./block-registry";
-import {
-  getVisibleTextFromRunsFromRuns,
-  iterateVisibleChars,
-} from "./char-runs";
+import { getVisibleTextFromRuns, iterateVisibleChars } from "./char-runs";
 import type {
   BlockDelete,
   BlockInsert,
@@ -19,8 +18,6 @@ import type {
   Operation,
   TextInsert,
 } from "./types";
-import type { Block, CharRun, FormatSpan } from "@/serlization/loadPage";
-import { isTextualBlock } from "@/serlization/loadPage";
 
 // =============================================================================
 // Types
@@ -154,8 +151,8 @@ function diffBlocks(current: Block, snapshot: Block): BlockChanges | null {
   }
 
   if (isTextualBlock(current) && isTextualBlock(snapshot)) {
-    const currentText = getVisibleTextFromRunsFromRuns(current.charRuns);
-    const snapshotText = getVisibleTextFromRunsFromRuns(snapshot.charRuns);
+    const currentText = getVisibleTextFromRuns(current.charRuns);
+    const snapshotText = getVisibleTextFromRuns(snapshot.charRuns);
 
     if (currentText !== snapshotText) {
       changes.textChanged = { from: snapshotText, to: currentText };

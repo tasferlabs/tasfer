@@ -1,8 +1,14 @@
-import type { FontFamily } from "./fonts";
 import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
 import type { Block, Page, TextFormat } from "./serlization/loadPage";
 import type { Operation } from "./sync/types";
 import type { ReactElement } from "react";
+
+/**
+ * A font family key. Opaque string chosen by the host application — the editor
+ * does not assume any particular fonts exist. Keys are mapped to CSS
+ * font-stacks via `EditorStyles.fonts.families`.
+ */
+export type FontFamily = string;
 export interface SlashCommand {
   id: string;
   type: Block["type"];
@@ -353,6 +359,7 @@ export interface RemoteCursorStyles {
 
 export interface EditorStyles {
   readonly canvas: CanvasStyles;
+  readonly fonts: FontStyles;
   readonly blocks: BlockStyles;
   readonly selection: SelectionStyles;
   readonly cursor: CursorStyles;
@@ -361,6 +368,18 @@ export interface EditorStyles {
   readonly textFormats: TextFormatStyles;
   readonly imageResize: ImageResizeStyles;
   readonly list: ListStyles;
+}
+
+/**
+ * Host-defined font registry. The editor renders/measures text using these
+ * CSS font-stacks; it ships only a neutral system-font default and expects the
+ * consumer to register their own faces (and to load them).
+ */
+export interface FontStyles {
+  /** Map of family key → CSS font-stack (e.g. `{ sans: "Inter, sans-serif" }`). */
+  readonly families: Readonly<Record<string, string>>;
+  /** Family key used when none is explicitly selected. Must exist in `families`. */
+  readonly defaultFamily: FontFamily;
 }
 
 export interface CanvasStyles {
@@ -608,10 +627,6 @@ export interface FontMetrics {
   readonly fontFamily: FontFamily;
   readonly ascent: number;
   readonly descent: number;
-}
-
-export default interface FontConfig {
-  readonly fontFamily: FontFamily;
 }
 
 interface CRDTbinding {}

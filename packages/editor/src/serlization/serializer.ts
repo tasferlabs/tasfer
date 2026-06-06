@@ -1,10 +1,7 @@
-import {
-  getVisibleTextFromRunsFromRuns,
-  iterateVisibleChars,
-} from "../sync/char-runs";
+import { IMAGE_DEFAULT_HEIGHT } from "../constants";
+import { getVisibleTextFromRuns, iterateVisibleChars } from "../sync/char-runs";
 import type { Block, CharRun, FormatSpan, TextFormat } from "./loadPage";
 import { isImageDefault, isListBlock, isTextualBlock } from "./loadPage";
-import { IMAGE_DEFAULT_HEIGHT } from "@/constants";
 
 // Helper to group chars with same formatting for serialization
 function groupCharsForSerialization(
@@ -294,7 +291,7 @@ export function serializeToMarkdown(
       lastBlock.type === "paragraph";
     if (hasContent && isTextualBlock(lastBlock)) {
       const lastBlockIsEmpty =
-        getVisibleTextFromRunsFromRuns(lastBlock.charRuns).length === 0;
+        getVisibleTextFromRuns(lastBlock.charRuns).length === 0;
 
       if (lastBlockIsEmpty && blocks.length > 1) {
         return frontmatter + result + "\n";
