@@ -3,9 +3,9 @@ import { defineConfig } from "vite";
 
 // The @cypherkit/editor package ships raw TypeScript source — there is no build
 // step. We consume it by aliasing the bare import to the package's `src` folder,
-// exactly like apps/web does. From docs/examples/minimal, the package source is
-// three levels up.
-const EDITOR_SRC = resolve(__dirname, "../../../src");
+// exactly like apps/web does. From examples/minimal, the package source is two
+// levels up.
+const EDITOR_SRC = resolve(__dirname, "../../src");
 
 export default defineConfig({
   resolve: {

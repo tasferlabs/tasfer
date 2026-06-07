@@ -39,7 +39,7 @@ import { isCursorBlinking } from "../selection";
 import { updateFocus } from "../selection";
 import { updateCursor } from "../selection";
 import { clearSelection } from "../selection";
-import type { Block, Page } from "../serlization/loadPage";
+import { type Block, loadPage, type Page } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
 import type {
   CommandResult,
@@ -90,6 +90,14 @@ import { createBlockSet, getVisibleBlocks } from "../sync/sync";
 import { updateSelection } from "../updateSelection";
 import type { CanvasLayers } from "./layers";
 
+/**
+ * Events for the convenience {@link Editor.on} subscription:
+ *   - "change"          — the document content changed
+ *   - "selectionchange" — the caret/selection moved (no content change)
+ *   - "focus" / "blur"  — the editor gained or lost focus
+ */
+export type EditorEvent = "change" | "selectionchange" | "focus" | "blur";
+
 export interface Editor {
   getState: () => EditorState | null;
   destroy: () => void;
@@ -106,6 +114,24 @@ export interface Editor {
     height: number;
   } | null;
   subscribe: (listener: (state: EditorState) => void) => () => void;
+  /**
+   * Convenience event subscription — a thin, self-describing filter over
+   * {@link Editor.subscribe} (see {@link EditorEvent}). Returns an unsubscribe
+   * function.
+   */
+  on: (
+    event: EditorEvent,
+    callback: (state: EditorState) => void,
+  ) => () => void;
+  /** Serialize the current document to a Markdown string. */
+  getMarkdown: () => string;
+  /**
+   * Replace the whole document with the given Markdown. Parsed via `loadPage`,
+   * then applied as CRDT operations (the current blocks are deleted and the new
+   * ones inserted) — so it is a single undoable step and is broadcast to peers,
+   * exactly like any other edit. A no-op when the result is identical.
+   */
+  setMarkdown: (markdown: string) => void;
   executeSlashCommand: (command: SlashCommand) => void;
   copy: () => Promise<boolean>;
   cut: () => Promise<boolean>;
@@ -1503,11 +1529,20 @@ export default function createEditor(
   }
 
   function setFocus(focused: boolean, shouldClearSelection: boolean = false) {
+    const wasFocused = state.view.isFocused;
     state = updateFocus(state, focused);
     if (shouldClearSelection) {
       state = clearSelection(state);
     }
     scheduleRender(); // Schedule render when focus changes
+    // Focus is applied here, outside the render-frame diff, so the render loop
+    // won't notify subscribers about it. Emit directly on an actual transition
+    // — this is what makes editor.on("focus"/"blur") fire (and follows the same
+    // direct-notify pattern as undo/selectAll/setMode).
+    if (state.view.isFocused !== wasFocused) {
+      const currentState = state;
+      listeners.forEach((listener) => listener(currentState));
+    }
   }
 
   function setInitialCursor() {
@@ -1544,6 +1579,53 @@ export default function createEditor(
         listeners.splice(index, 1);
       }
     };
+  }
+
+  function on(
+    event: EditorEvent,
+    callback: (state: EditorState) => void,
+  ): () => void {
+    // Capture the snapshot at subscription time, then diff against it on each
+    // notification to classify what kind of change occurred.
+    let prev = state;
+    return subscribe((next) => {
+      const pageChanged = prev.document.page !== next.document.page;
+      const selectionChanged =
+        prev.document.cursor?.position !== next.document.cursor?.position ||
+        prev.document.selection !== next.document.selection;
+      const focusGained = !prev.view.isFocused && next.view.isFocused;
+      const focusLost = prev.view.isFocused && !next.view.isFocused;
+      prev = next;
+
+      switch (event) {
+        case "change":
+          if (pageChanged) callback(next);
+          break;
+        case "selectionchange":
+          if (selectionChanged && !pageChanged) callback(next);
+          break;
+        case "focus":
+          if (focusGained) callback(next);
+          break;
+        case "blur":
+          if (focusLost) callback(next);
+          break;
+      }
+    });
+  }
+
+  function getMarkdown(): string {
+    return serializeToMarkdown(state.document.page.blocks);
+  }
+
+  function setMarkdown(markdown: string): void {
+    // Replace the document by diffing current → parsed blocks and emitting CRDT
+    // operations (delete the current blocks, insert the new ones). Reuses the
+    // snapshot-restore path, so the replace is a single undoable step and is
+    // broadcast to peers — not a silent state swap. loadPage always yields a
+    // fresh Page (≥1 block), so empty input is handled safely; an identical
+    // result produces no ops and is a no-op.
+    restoreFromSnapshotMethod(loadPage(markdown).blocks);
   }
 
   function executeSlashCommand(command: SlashCommand) {
@@ -2664,6 +2746,9 @@ export default function createEditor(
     setInitialCursor,
     getCursorScreenPosition,
     subscribe,
+    on,
+    getMarkdown,
+    setMarkdown,
     executeSlashCommand,
     copy,
     cut,

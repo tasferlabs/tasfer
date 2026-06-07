@@ -19,8 +19,8 @@
     // for everything else).
     "baseUrl": ".",
     "paths": {
-      "@cypherkit/editor": ["../../../src/index.ts"],
-      "@cypherkit/editor/*": ["../../../src/*"]
+      "@cypherkit/editor": ["../../src/index.ts"],
+      "@cypherkit/editor/*": ["../../src/*"]
     }
   },
   "include": ["src", "vite.config.ts"]

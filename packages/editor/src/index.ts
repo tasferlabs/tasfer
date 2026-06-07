@@ -24,8 +24,15 @@ export {
 } from "./rendering/blocks";
 
 // Editor instance API
-export type { Editor } from "./entries/editor";
-export { default as createEditor } from "./entries/editor";
+export type { Editor, EditorEvent } from "./entries/editor";
+
+// Convenience constructor — parse Markdown + mount in a single call, returning
+// one handle that merges the editor command API with the mount lifecycle. The
+// lower-level `mountEditor` (above) stays available for hosts that want the
+// split. (The raw `entries/editor` constructor remains reachable via the
+// `@cypherkit/editor/entries/editor` subpath for advanced use.)
+export type { CreateEditorOptions, CypherEditor } from "./entries/create";
+export { createEditor } from "./entries/create";
 
 // Host adapters
 export type { AssetResolver, SlashCommandProvider } from "./adapters";

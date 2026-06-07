@@ -42,14 +42,14 @@ pnpm dev          # opens the app at http://localhost:4000
 
       <h2 id="first-doc">Your first document</h2>
       <Steps>
-        <Step title="Pick a vault folder">
-          <p>On first launch, Cypher asks where to keep your files. Choose any folder — your notes are written there as plain <code>.md</code> files you can open in any editor, today or in twenty years.</p>
+        <Step title="Pick a folder">
+          <p>On first launch, Cypher asks for a folder. It mirrors every page into it as plain <code>.md</code> files — a <strong>one-way</strong> copy you can open in any editor, today or in twenty years. The app keeps the source of truth; the folder is always yours.</p>
         </Step>
         <Step title="Write">
-          <p>Markdown shortcuts work as you type: <code>#</code> for headings, <code>**bold**</code>, <code>&gt;</code> for quotes, <code>- [ ]</code> for tasks. Everything saves to disk instantly — there is no "save" button and no spinner reporting to a server.</p>
+          <p>Markdown shortcuts work as you type: <code>#</code> for headings, <code>**bold**</code>, <code>&gt;</code> for quotes, <code>- [ ]</code> for tasks. Everything is saved locally the instant you type — there is no "save" button and no spinner reporting to a server.</p>
         </Step>
         <Step title="Back it up like any folder">
-          <p>Because your vault is just files, your existing backup tools already cover it. Copy it, zip it, put it in a git repo, sync it with rsync. Cypher does not own a single byte you write.</p>
+          <p>Because the mirror is just files, your existing backup tools already cover it. Copy it, zip it, put it in a git repo, sync it with rsync. The mirror is one-way — Cypher writes to the folder, it never reads your edits back from it.</p>
         </Step>
       </Steps>
 
@@ -102,7 +102,7 @@ export function AppSyncRelay() {
           <p>On device A choose <strong>Pair a device</strong> to show a one-time code (and a QR). Enter it on device B. The two exchange public keys directly; the code is never sent to the relay.</p>
         </Step>
         <Step title="Pick what syncs">
-          <p>Sync the whole vault, or select folders. Each synced document converges across every paired device — edit offline on one and they merge cleanly when both are online.</p>
+          <p>Sync an entire space, or pick individual pages. Each synced document converges across every paired device — edit offline on one and they merge cleanly when both are online.</p>
         </Step>
       </Steps>
 
@@ -222,7 +222,7 @@ export function AppPrivacy() {
 
       <h2 id="where">Where your work actually lives</h2>
       <ul>
-        <li><strong>On your device.</strong> Every keystroke lands in your vault folder as plain markdown. No round-trip, no server copy.</li>
+        <li><strong>On your device.</strong> Every keystroke lands in your space, stored locally on your device. No round-trip, no server copy.</li>
         <li><strong>Between your devices.</strong> If you enable sync, documents are encrypted on-device before they cross any wire. Only your paired devices hold the keys.</li>
         <li><strong>Through a relay — only when needed.</strong> When a direct connection can't be made, an encrypted blob passes through a relay that cannot decrypt it and keeps no record of it.</li>
       </ul>
@@ -240,8 +240,8 @@ export function AppPrivacy() {
         system's keychain. They never leave your hardware and are never escrowed
         with anyone. There is no key-recovery service — which also means there is no
         master key for anyone to compel. If you lose every paired device, your
-        encrypted sync data is unrecoverable by design; your plain-markdown vault on
-        disk is, of course, still right there.
+        encrypted sync data is unrecoverable by design; your local space on this
+        device — and any markdown you've exported — is, of course, still right there.
       </p>
     </>
   );
@@ -250,11 +250,11 @@ export function AppPrivacy() {
 export function AppTroubleshooting() {
   const faqs: [string, string][] = [
     ["Is there an account or login?", "No. Cypher has no account system at all. There is nothing to sign up for, nothing to log into, and nothing to delete when you leave — you walk away by closing the app."],
-    ["Where are my files stored?", "In the vault folder you chose on first launch, as plain .md files. Open them in any editor, move them, back them up, or put them in git — Cypher reads and writes that folder and nothing else."],
+    ["Where is my work stored?", "Locally on your device. On first launch you pick a folder, and Cypher mirrors every page into it as plain .md files — a one-way copy you can open in any editor, back up, or put in git."],
     ["Do I need the internet?", "No. Cypher is local-first: it works fully offline. The network is only ever used for optional sync, and even then only to reach your own other devices."],
     ["Can the relay read my notes?", "No. Documents are encrypted end-to-end on your device before anything leaves it. The relay forwards opaque bytes and keeps no log — it is structurally unable to decrypt your work, not merely promising not to."],
     ["What happens if the Cypher project disappears?", "Your files are plain markdown on your disk, untouched. The app is GPL-3.0, so the source can be built and maintained by anyone. Nothing about your data depends on us existing."],
-    ["How do I move to a new computer?", "Copy your vault folder over — that's your data. Then install Cypher and point it at the folder. If you use sync, pair the new device from an existing one."],
+    ["How do I move to a new computer?", "Install Cypher on the new machine and pair it with an existing device — your work syncs over directly, peer to peer. Your markdown folder is a portable backup you can carry along too."],
   ];
   return (
     <>
@@ -279,16 +279,17 @@ export function AppTroubleshooting() {
 
       <h2 id="reset">Common fixes</h2>
       <PropsTable cols={["Problem", "Cause", "Fix"]} rows={[
-        { name: "App won't open my vault", type: "Folder permissions", desc: "Grant Cypher access to the folder in your OS privacy settings, or re-pick the vault in Settings → Vault." },
+        { name: "Markdown export isn't writing files", type: "Folder permissions", desc: "Grant Cypher access to the export folder in your OS privacy settings, or pick a different folder in Settings → Export." },
         { name: "Sync stuck 'introducing'", type: "Relay unreachable", desc: "Verify the relay URL and that outbound WSS (443) isn't blocked. Try your own relay." },
         { name: "Edits not appearing on device B", type: "Device B offline", desc: "Both devices must be online to converge. They'll merge automatically once B reconnects." },
         { name: "Markdown shortcut didn't fire", type: "Caret mid-line", desc: "Block shortcuts (#, >, -) only trigger at the start of a line." },
       ]} />
 
       <Callout kind="warn" title="Before you reset anything.">
-        Your vault is plain files — resetting the app never touches them. But if you
-        use sync and unpair every device, encrypted sync state held only on those
-        devices can't be recovered. Your on-disk markdown is always safe.
+        Resetting the app clears the spaces stored on this device. Your markdown
+        mirror is plain files on disk and stays untouched — it's your safety net. And
+        if you use sync, unpairing every device can leave encrypted sync state held
+        only on those devices unrecoverable.
       </Callout>
     </>
   );

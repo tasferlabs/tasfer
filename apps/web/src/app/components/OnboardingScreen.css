@@ -1,0 +1,761 @@
+/* OnboardingScreen.css — Cypher first-run flow.
+ *
+ * Ported from the Claude Design handoff bundle (onboarding/Onboarding.css +
+ * extra.css). The prototype referenced its own `--cy-*` token mirror; here the
+ * `ob-*` classes are rewired onto the app's real design tokens (--background,
+ * --foreground, --primary, --muted, --border, --radius, …) so the flow themes
+ * with the app's light/dark switch automatically.
+ */
+
+.ob-wrap {
+  /* tokens the prototype pulled from its DS mirror, inlined onto real values */
+  --ob-dur-fast: 0.15s;
+  --ob-dur-base: 0.28s;
+  --ob-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --ob-shadow-xs: 0 1px 2px oklch(0 0 0 / 0.04);
+  --ob-shadow-sm: 0 1px 3px oklch(0 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.04);
+  --ob-shadow-popover:
+    0 0 0 0.5px oklch(0 0 0 / 0.04),
+    0 2px 6px oklch(0 0 0 / 0.04),
+    0 12px 32px oklch(0 0 0 / 0.10),
+    0 28px 56px oklch(0 0 0 / 0.06);
+  --ob-font-sans:
+    "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--ob-font-sans);
+  overflow-y: auto;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── progress dots ─────────────────────────────────────────────────────── */
+.ob-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 28px;
+}
+.ob-dot {
+  height: 6px;
+  width: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  transition: width var(--ob-dur-base) var(--ob-ease), background var(--ob-dur-fast);
+}
+.ob-dot-active {
+  width: 24px;
+  background: var(--primary);
+}
+.ob-dot-done {
+  background: oklch(from var(--primary) l c h / 0.4);
+}
+
+/* ── card ──────────────────────────────────────────────────────────────── */
+.ob-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: var(--ob-shadow-sm);
+}
+
+.ob-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
+  background: oklch(from var(--primary) l c h / 0.10);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.ob-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--foreground);
+  letter-spacing: -0.01em;
+}
+
+.ob-sub {
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+
+.ob-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground);
+  margin: 10px 0 6px;
+}
+
+/* ── inputs ────────────────────────────────────────────────────────────── */
+.ob-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--ob-font-sans);
+  font-size: 14px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  padding: 0 12px;
+  height: 36px;
+  outline: none;
+  transition: box-shadow var(--ob-dur-fast), border-color var(--ob-dur-fast);
+}
+.ob-input::placeholder {
+  color: var(--muted-foreground);
+}
+.ob-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+.ob-textarea {
+  padding: 8px 12px;
+  height: auto;
+  min-height: 70px;
+  resize: vertical;
+  line-height: 1.6;
+}
+.ob-mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+/* ── action row + buttons ──────────────────────────────────────────────── */
+.ob-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+.ob-actions .ob-btn-primary {
+  margin-inline-start: auto;
+}
+
+.ob-btn {
+  height: 36px;
+  padding: 0 14px;
+  font-family: var(--ob-font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity var(--ob-dur-fast), background var(--ob-dur-fast), border-color var(--ob-dur-fast);
+}
+.ob-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ob-btn-primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.ob-btn-primary:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+.ob-btn-ghost {
+  background: transparent;
+  color: var(--muted-foreground);
+}
+.ob-btn-ghost:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.ob-btn-outline {
+  background: var(--background);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+.ob-btn-outline:hover {
+  background: var(--muted);
+}
+
+/* ── identity key block + bullets ──────────────────────────────────────── */
+.ob-key-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-top: 4px;
+}
+.ob-key-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.ob-key-block code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--foreground);
+  word-break: break-all;
+}
+
+.ob-bullets {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ob-bullets li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.ob-bullets li svg {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+/* ── option rows (space pick) ──────────────────────────────────────────── */
+.ob-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-top: 8px;
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+  color: var(--foreground);
+  transition: border-color var(--ob-dur-fast), background var(--ob-dur-fast);
+}
+.ob-row:hover {
+  border-color: var(--primary);
+  background: oklch(from var(--primary) l c h / 0.04);
+}
+.ob-row > svg:first-child {
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+}
+.ob-row > svg:last-child {
+  color: var(--muted-foreground);
+  margin-inline-start: auto;
+  flex-shrink: 0;
+}
+[dir="rtl"] .ob-row > svg:last-child {
+  transform: scaleX(-1);
+}
+.ob-row > div {
+  flex: 1;
+  min-width: 0;
+}
+.ob-row-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.ob-row-sub {
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  margin-top: 2px;
+}
+
+/* ── theme toggle (top-right) ──────────────────────────────────────────── */
+.ob-theme-toggle {
+  position: fixed;
+  top: 16px;
+  inset-inline-end: 16px;
+  z-index: 55;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  box-shadow: var(--ob-shadow-xs);
+  transition: color var(--ob-dur-fast), background var(--ob-dur-fast), border-color var(--ob-dur-fast);
+}
+.ob-theme-toggle:hover {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+/* ── sync folder picker ────────────────────────────────────────────────── */
+.ob-pick-btn {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  margin-top: 6px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--foreground);
+  font: 500 14px var(--ob-font-sans);
+  cursor: pointer;
+  transition: border-color var(--ob-dur-fast), background var(--ob-dur-fast), color var(--ob-dur-fast);
+}
+.ob-pick-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.ob-pick-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: oklch(from var(--primary) l c h / 0.04);
+}
+.ob-pick-btn svg {
+  color: var(--muted-foreground);
+}
+.ob-pick-btn:hover:not(:disabled) svg {
+  color: var(--primary);
+}
+
+.ob-folder-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  padding: 12px 14px;
+  background: oklch(from var(--primary) l c h / 0.06);
+  border: 1px solid oklch(from var(--primary) l c h / 0.35);
+  border-radius: var(--radius);
+}
+.ob-folder-card .ob-folder-ico {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: oklch(from var(--primary) l c h / 0.14);
+  color: var(--primary);
+}
+.ob-folder-card > .ob-folder-text {
+  flex: 1;
+  min-width: 0;
+}
+.ob-folder-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ob-folder-path {
+  font-size: 11.5px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ob-link-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: 500 12.5px var(--ob-font-sans);
+  color: var(--primary);
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+.ob-link-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.ob-link-btn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.ob-note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+.ob-note svg {
+  color: var(--primary);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ── collapsible (optional profile) ────────────────────────────────────── */
+.ob-collapse {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-top: 6px;
+  overflow: hidden;
+}
+.ob-collapse-head {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--background);
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+  color: var(--foreground);
+  transition: background var(--ob-dur-fast);
+}
+.ob-collapse-head:hover {
+  background: var(--muted);
+}
+.ob-collapse-head > svg:first-child {
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+}
+.ob-collapse-head > div {
+  flex: 1;
+  min-width: 0;
+}
+.ob-collapse-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+.ob-collapse-sub {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  margin-top: 1px;
+}
+.ob-chev {
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+  transition: transform var(--ob-dur-base) var(--ob-ease);
+}
+.ob-chev.open {
+  transform: rotate(180deg);
+}
+.ob-collapse-body {
+  padding: 4px 14px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--background);
+}
+
+/* ── avatar ────────────────────────────────────────────────────────────── */
+.ob-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+.ob-avatar {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--primary-foreground);
+  background: var(--primary);
+  position: relative;
+  user-select: none;
+}
+.ob-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ob-avatar.empty {
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+.ob-avatar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ob-avatar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font: 500 13px var(--ob-font-sans);
+  color: var(--primary);
+}
+.ob-avatar-btn:hover {
+  text-decoration: underline;
+}
+.ob-avatar-hint {
+  font-size: 11.5px;
+  color: var(--muted-foreground);
+}
+
+/* ── join: segmented method switch ─────────────────────────────────────── */
+.ob-seg {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  background: var(--muted);
+  border-radius: var(--radius);
+  padding: 4px;
+}
+.ob-seg button {
+  flex: 1;
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 6px;
+  border-radius: var(--radius-md);
+  font: 500 12.5px var(--ob-font-sans);
+  color: var(--muted-foreground);
+  background: transparent;
+  transition: background var(--ob-dur-fast), color var(--ob-dur-fast);
+}
+.ob-seg button[aria-current="true"] {
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: var(--ob-shadow-xs);
+}
+.ob-seg button:hover:not([aria-current="true"]) {
+  color: var(--foreground);
+}
+
+/* ── join: import file ─────────────────────────────────────────────────── */
+.ob-import {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px 16px;
+  margin-top: 4px;
+  background: var(--background);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font: inherit;
+  transition: border-color var(--ob-dur-fast), background var(--ob-dur-fast);
+}
+.ob-import:hover {
+  border-color: var(--primary);
+  background: oklch(from var(--primary) l c h / 0.04);
+}
+.ob-import svg {
+  color: var(--muted-foreground);
+}
+.ob-import:hover svg {
+  color: var(--primary);
+}
+.ob-import-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.ob-import-sub {
+  font-size: 12px;
+}
+.ob-import.has-file {
+  border-style: solid;
+  border-color: oklch(from var(--primary) l c h / 0.35);
+  background: oklch(from var(--primary) l c h / 0.06);
+}
+.ob-import.has-file svg,
+.ob-import.has-file .ob-import-sub {
+  color: var(--primary);
+}
+
+/* ── join: scan tab ────────────────────────────────────────────────────── */
+.ob-scan {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 2px;
+  margin-top: 4px;
+  text-align: center;
+}
+.ob-scan-frame {
+  width: 132px;
+  height: 132px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  border-radius: var(--radius-xl);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  transition: color var(--ob-dur-fast), background var(--ob-dur-fast);
+}
+.ob-scan-frame:hover {
+  color: var(--primary);
+  background: oklch(from var(--primary) l c h / 0.06);
+}
+.ob-scan-text {
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+  max-width: 240px;
+}
+
+/* ── join: connecting / done / error states ────────────────────────────── */
+.ob-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 28px 0 18px;
+  text-align: center;
+}
+.ob-status-ico {
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: oklch(from var(--primary) l c h / 0.10);
+  color: var(--primary);
+}
+.ob-status-ico.spin svg,
+.ob-spin-icon {
+  animation: ob-spin 1s linear infinite;
+}
+@keyframes ob-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.ob-status-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.ob-status-sub {
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  margin-top: -8px;
+}
+.ob-status-error {
+  font-size: 13px;
+  color: var(--destructive);
+}
+
+/* ── camera drawer (bottom sheet hosting the QR scanner) ───────────────── */
+.ob-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: oklch(0 0 0 / 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.ob-drawer {
+  width: 100%;
+  max-width: 460px;
+  box-sizing: border-box;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  padding: 14px 20px 24px;
+  box-shadow: var(--ob-shadow-popover);
+}
+.ob-drawer-grip {
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  margin: 0 auto 14px;
+}
+.ob-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.ob-drawer-head h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--foreground);
+  margin: 0;
+}
+.ob-drawer-sub {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  line-height: 1.55;
+  margin: 0 0 16px;
+}
+.ob-icon-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: background var(--ob-dur-fast), color var(--ob-dur-fast);
+}
+.ob-icon-btn:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.ob-drawer-foot {
+  margin-top: 16px;
+  display: flex;
+}
+.ob-drawer-foot .ob-btn {
+  flex: 1;
+  justify-content: center;
+}
