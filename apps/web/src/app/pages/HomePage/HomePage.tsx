@@ -17,12 +17,28 @@ interface BeforeInstallPromptEvent extends Event {
 
 const Icons = {
   Arrow: (p: SVGProps<SVGSVGElement>) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...p}
+    >
       <path d="M5 12h14M13 5l7 7-7 7" />
     </svg>
   ),
   Download: (p: SVGProps<SVGSVGElement>) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...p}
+    >
       <path d="M12 3v12M7 11l5 5 5-5M4 20h16" />
     </svg>
   ),
@@ -32,30 +48,70 @@ const Icons = {
     </svg>
   ),
   Sun: (p: SVGProps<SVGSVGElement>) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...p}
+    >
       <circle cx="12" cy="12" r="4" />
       <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
     </svg>
   ),
   Moon: (p: SVGProps<SVGSVGElement>) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...p}
+    >
       <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z" />
     </svg>
   ),
   Lock: (p: SVGProps<SVGSVGElement>) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}>
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...p}
+    >
       <rect x="4" y="11" width="16" height="10" rx="1.5" />
       <path d="M8 11V7a4 4 0 0 1 8 0v4" />
     </svg>
   ),
   Home: (p: SVGProps<SVGSVGElement>) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}>
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...p}
+    >
       <path d="M3 11l9-8 9 8" />
       <path d="M5 10v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V10" />
     </svg>
   ),
   Link: (p: SVGProps<SVGSVGElement>) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}>
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...p}
+    >
       <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07L11.5 4.5" />
       <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07L12.5 19.5" />
     </svg>
@@ -143,20 +199,38 @@ function RelayDiagram() {
   return (
     <div className="lp-relay-wrap">
       <div className="lp-relay-stage">
-        <svg className="lp-relay-svg" viewBox="0 0 800 340" preserveAspectRatio="xMidYMid meet">
+        <svg
+          className="lp-relay-svg"
+          viewBox="0 0 800 340"
+          preserveAspectRatio="xMidYMid meet"
+        >
           <defs>
             <linearGradient id="relay-flow" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor="var(--primary)" stopOpacity="0" />
               <stop offset="50%" stopColor="var(--primary)" stopOpacity="1" />
               <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
             </linearGradient>
-            <marker id="relay-tip" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <marker
+              id="relay-tip"
+              viewBox="0 0 10 10"
+              refX="8"
+              refY="5"
+              markerWidth="6"
+              markerHeight="6"
+              orient="auto"
+            >
               <path d="M0 0 L10 5 L0 10 z" fill="var(--primary)" />
             </marker>
           </defs>
 
           {/* Background dashed paths — both possible routes, faint */}
-          <path d={pathThroughRelay} stroke="var(--border)" strokeWidth="1.5" strokeDasharray="3 5" fill="none" />
+          <path
+            d={pathThroughRelay}
+            stroke="var(--border)"
+            strokeWidth="1.5"
+            strokeDasharray="3 5"
+            fill="none"
+          />
           <path
             d={pathDirect}
             stroke="var(--border)"
@@ -193,8 +267,20 @@ function RelayDiagram() {
           )}
 
           {/* Relay node — dimmed when peers talk directly (step 1) */}
-          <g style={{ opacity: step === 1 ? 0.35 : 1, transition: "opacity 0.5s ease" }}>
-            <circle cx={R.x} cy={R.y} r="36" fill="var(--bg)" stroke="var(--fg)" strokeWidth="1.4" />
+          <g
+            style={{
+              opacity: step === 1 ? 0.35 : 1,
+              transition: "opacity 0.5s ease",
+            }}
+          >
+            <circle
+              cx={R.x}
+              cy={R.y}
+              r="36"
+              fill="var(--bg)"
+              stroke="var(--fg)"
+              strokeWidth="1.4"
+            />
             <circle
               cx={R.x}
               cy={R.y}
@@ -205,52 +291,162 @@ function RelayDiagram() {
               strokeWidth="1"
               style={{ transition: "all 0.5s ease" }}
             />
-            <g transform={`translate(${R.x - 9}, ${R.y - 10})`} stroke="var(--fg)" strokeWidth="1.4" fill="none" strokeLinecap="round">
+            <g
+              transform={`translate(${R.x - 9}, ${R.y - 10})`}
+              stroke="var(--fg)"
+              strokeWidth="1.4"
+              fill="none"
+              strokeLinecap="round"
+            >
               <path d="M3 4 L9 4 L13 16 L-1 16 Z" fill="none" />
-              <path d="M-3 0 Q 6 -4 15 0" strokeOpacity={step === 0 ? 1 : 0.3} />
-              <path d="M-5 -4 Q 6 -10 17 -4" strokeOpacity={step === 0 ? 0.6 : 0.15} />
+              <path
+                d="M-3 0 Q 6 -4 15 0"
+                strokeOpacity={step === 0 ? 1 : 0.3}
+              />
+              <path
+                d="M-5 -4 Q 6 -10 17 -4"
+                strokeOpacity={step === 0 ? 0.6 : 0.15}
+              />
             </g>
             {step === 2 && (
               <g transform={`translate(${R.x + 22}, ${R.y - 30})`}>
                 <circle r="11" fill="var(--primary)" />
-                <g transform="translate(-5,-5)" stroke="var(--bg)" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="1.5" y="5" width="7" height="5" rx="0.8" fill="var(--bg)" />
+                <g
+                  transform="translate(-5,-5)"
+                  stroke="var(--bg)"
+                  strokeWidth="1.4"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect
+                    x="1.5"
+                    y="5"
+                    width="7"
+                    height="5"
+                    rx="0.8"
+                    fill="var(--bg)"
+                  />
                   <path d="M3 5 V3.5 a2 2 0 0 1 4 0 V5" />
                 </g>
               </g>
             )}
-            <text x={R.x} y={R.y + 60} textAnchor="middle" className="lp-relay-node">
+            <text
+              x={R.x}
+              y={R.y + 60}
+              textAnchor="middle"
+              className="lp-relay-node"
+            >
               {t("home.lp.relay.node.relay", "relay")}
             </text>
-            <text x={R.x} y={R.y + 78} textAnchor="middle" className="lp-relay-sub">
+            <text
+              x={R.x}
+              y={R.y + 78}
+              textAnchor="middle"
+              className="lp-relay-sub"
+            >
               {t("home.lp.relay.node.memory", "memory:")} {cur.memory}
             </text>
           </g>
 
           {/* Alice */}
           <g>
-            <circle cx={A.x} cy={A.y} r="34" fill="var(--surface-raised)" stroke="var(--fg)" strokeWidth="1.4" />
-            <text x={A.x} y={A.y + 5} textAnchor="middle" className="lp-relay-node" style={{ fontFamily: "var(--font-editorial)", fontStyle: "italic", fontSize: 16 }}>A</text>
-            <text x={A.x} y={A.y + 60} textAnchor="middle" className="lp-relay-node">{t("home.lp.relay.node.alice", "alice")}</text>
-            <text x={A.x} y={A.y + 78} textAnchor="middle" className="lp-relay-sub">{t("home.lp.relay.node.herDevice", "her device")}</text>
+            <circle
+              cx={A.x}
+              cy={A.y}
+              r="34"
+              fill="var(--surface-raised)"
+              stroke="var(--fg)"
+              strokeWidth="1.4"
+            />
+            <text
+              x={A.x}
+              y={A.y + 5}
+              textAnchor="middle"
+              className="lp-relay-node"
+              style={{
+                fontFamily: "var(--font-editorial)",
+                fontStyle: "italic",
+                fontSize: 16,
+              }}
+            >
+              A
+            </text>
+            <text
+              x={A.x}
+              y={A.y + 60}
+              textAnchor="middle"
+              className="lp-relay-node"
+            >
+              {t("home.lp.relay.node.alice", "alice")}
+            </text>
+            <text
+              x={A.x}
+              y={A.y + 78}
+              textAnchor="middle"
+              className="lp-relay-sub"
+            >
+              {t("home.lp.relay.node.herDevice", "her device")}
+            </text>
           </g>
 
           {/* Bob */}
           <g>
-            <circle cx={B.x} cy={B.y} r="34" fill="var(--surface-raised)" stroke="var(--fg)" strokeWidth="1.4" />
-            <text x={B.x} y={B.y + 5} textAnchor="middle" className="lp-relay-node" style={{ fontFamily: "var(--font-editorial)", fontStyle: "italic", fontSize: 16 }}>B</text>
-            <text x={B.x} y={B.y + 60} textAnchor="middle" className="lp-relay-node">{t("home.lp.relay.node.bob", "bob")}</text>
-            <text x={B.x} y={B.y + 78} textAnchor="middle" className="lp-relay-sub">{t("home.lp.relay.node.hisDevice", "his device")}</text>
+            <circle
+              cx={B.x}
+              cy={B.y}
+              r="34"
+              fill="var(--surface-raised)"
+              stroke="var(--fg)"
+              strokeWidth="1.4"
+            />
+            <text
+              x={B.x}
+              y={B.y + 5}
+              textAnchor="middle"
+              className="lp-relay-node"
+              style={{
+                fontFamily: "var(--font-editorial)",
+                fontStyle: "italic",
+                fontSize: 16,
+              }}
+            >
+              B
+            </text>
+            <text
+              x={B.x}
+              y={B.y + 60}
+              textAnchor="middle"
+              className="lp-relay-node"
+            >
+              {t("home.lp.relay.node.bob", "bob")}
+            </text>
+            <text
+              x={B.x}
+              y={B.y + 78}
+              textAnchor="middle"
+              className="lp-relay-sub"
+            >
+              {t("home.lp.relay.node.hisDevice", "his device")}
+            </text>
           </g>
 
           {step === 1 && (
             <circle r="5" fill="var(--primary)">
-              <animateMotion dur="2.2s" repeatCount="indefinite" path={pathDirect} />
+              <animateMotion
+                dur="2.2s"
+                repeatCount="indefinite"
+                path={pathDirect}
+              />
             </circle>
           )}
           {step === 2 && (
             <circle r="5" fill="var(--primary)">
-              <animateMotion dur="2.4s" repeatCount="indefinite" path={pathThroughRelay} />
+              <animateMotion
+                dur="2.4s"
+                repeatCount="indefinite"
+                path={pathThroughRelay}
+              />
             </circle>
           )}
         </svg>
@@ -265,7 +461,10 @@ function RelayDiagram() {
 
       <div className="lp-relay-controls">
         <p className="lp-relay-caption">
-          <strong>{step + 1}/3 — {cur.label}.</strong> {cur.caption}
+          <strong>
+            {step + 1}/3 — {cur.label}.
+          </strong>{" "}
+          {cur.caption}
         </p>
         <div className="lp-relay-steps" role="tablist">
           {steps.map((s, i) => (
@@ -342,7 +541,9 @@ export default function HomePage() {
 
   const scrollTo = (id: string) => (e: React.MouseEvent) => {
     e.preventDefault();
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    document
+      .getElementById(id)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const pillars = [
@@ -373,22 +574,89 @@ export default function HomePage() {
   ];
 
   const refusals: [string, string, string][] = [
-    ["i.", t("home.lp.refusal.files.name", "your files"), t("home.lp.refusal.files.detail", "Plain markdown. On your disk. In folders you arranged. Openable in any editor, today and in twenty years — long after we, and our company, are gone.")],
-    ["ii.", t("home.lp.refusal.keys.name", "your keys"), t("home.lp.refusal.keys.detail", "End-to-end encryption with keys generated on your device. They never leave it. We could not read your notes if a court ordered us to.")],
-    ["iii.", t("home.lp.refusal.sync.name", "your sync"), t("home.lp.refusal.sync.detail", "Direct, peer-to-peer, on your timing. Off by default. With the people you pick — and no one else in the room.")],
-    ["iv.", t("home.lp.refusal.backups.name", "your backups"), t("home.lp.refusal.backups.detail", "Copy the folder. Email it to yourself. Print it. Bury it in a tin. Cypher does not own a single byte you write.")],
-    ["v.", t("home.lp.refusal.fork.name", "your fork"), t("home.lp.refusal.fork.detail", "GPL-3.0. Take the code. Swap the relay for your own. Ship your own build. The copyleft is the point: every fork inherits the same refusal.")],
-    ["vi.", t("home.lp.refusal.leave.name", "your right to leave"), t("home.lp.refusal.leave.detail", "There is no account to delete because there was never one to begin with. You walk away by closing the tab.")],
-    ["vii.", t("home.lp.refusal.attention.name", "your attention"), t("home.lp.refusal.attention.detail", "No ads. No analytics. No engagement loops. The page you are reading is the last one we will ever ask you to sit through.")],
+    [
+      "i.",
+      t("home.lp.refusal.files.name", "your files"),
+      t(
+        "home.lp.refusal.files.detail",
+        "Plain markdown. On your disk. In folders you arranged. Openable in any editor, today and in twenty years — long after we, and our company, are gone.",
+      ),
+    ],
+    [
+      "ii.",
+      t("home.lp.refusal.keys.name", "your keys"),
+      t(
+        "home.lp.refusal.keys.detail",
+        "End-to-end encryption with keys generated on your device. They never leave it. We could not read your notes if a court ordered us to.",
+      ),
+    ],
+    [
+      "iii.",
+      t("home.lp.refusal.sync.name", "your sync"),
+      t(
+        "home.lp.refusal.sync.detail",
+        "Direct, peer-to-peer, on your timing. Off by default. With the people you pick — and no one else in the room.",
+      ),
+    ],
+    [
+      "iv.",
+      t("home.lp.refusal.backups.name", "your backups"),
+      t(
+        "home.lp.refusal.backups.detail",
+        "Copy the folder. Email it to yourself. Print it. Bury it in a tin. Cypher does not own a single byte you write.",
+      ),
+    ],
+    [
+      "v.",
+      t("home.lp.refusal.fork.name", "your fork"),
+      t(
+        "home.lp.refusal.fork.detail",
+        "GPL-3.0. Take the code. Swap the relay for your own. Ship your own build. The copyleft is the point: every fork inherits the same refusal.",
+      ),
+    ],
+    [
+      "vi.",
+      t("home.lp.refusal.leave.name", "your right to leave"),
+      t(
+        "home.lp.refusal.leave.detail",
+        "There is no account to delete because there was never one to begin with. You walk away by closing the tab.",
+      ),
+    ],
+    [
+      "vii.",
+      t("home.lp.refusal.attention.name", "your attention"),
+      t(
+        "home.lp.refusal.attention.detail",
+        "No ads. No analytics. No engagement loops. The page you are reading is the last one we will ever ask you to sit through.",
+      ),
+    ],
   ];
 
   const knows: [string, string][] = [
-    [t("home.lp.knows.email.key", "your email address"), t("home.lp.knows.email.val", "never asked")],
-    [t("home.lp.knows.name.key", "your name"), t("home.lp.knows.name.val", "never asked")],
-    [t("home.lp.knows.docs.key", "your documents"), t("home.lp.knows.docs.val", "never uploaded")],
-    [t("home.lp.knows.sync.key", "who you sync with"), t("home.lp.knows.sync.val", "never logged")],
-    [t("home.lp.knows.habits.key", "your editing habits"), t("home.lp.knows.habits.val", "never tracked")],
-    [t("home.lp.knows.fingerprint.key", "device fingerprint"), t("home.lp.knows.fingerprint.val", "never collected")],
+    [
+      t("home.lp.knows.email.key", "your email address"),
+      t("home.lp.knows.email.val", "never asked"),
+    ],
+    [
+      t("home.lp.knows.name.key", "your name"),
+      t("home.lp.knows.name.val", "never asked"),
+    ],
+    [
+      t("home.lp.knows.docs.key", "your documents"),
+      t("home.lp.knows.docs.val", "never uploaded"),
+    ],
+    [
+      t("home.lp.knows.sync.key", "who you sync with"),
+      t("home.lp.knows.sync.val", "never logged"),
+    ],
+    [
+      t("home.lp.knows.habits.key", "your editing habits"),
+      t("home.lp.knows.habits.val", "never tracked"),
+    ],
+    [
+      t("home.lp.knows.fingerprint.key", "device fingerprint"),
+      t("home.lp.knows.fingerprint.val", "never collected"),
+    ],
   ];
 
   return (
@@ -400,12 +668,14 @@ export default function HomePage() {
             Cypher
           </Link>
           <nav className="lp-nav">
-            <a href="#premise" onClick={scrollTo("premise")}>{t("home.lp.nav.premise", "premise")}</a>
-            <a href="#mechanism" onClick={scrollTo("mechanism")}>{t("home.lp.nav.how", "how it works")}</a>
-            <a href="#refusal" onClick={scrollTo("refusal")}>{t("home.lp.nav.yours", "what is yours")}</a>
-            <a href="#repo" onClick={scrollTo("repo")}>{t("home.lp.nav.source", "source")}</a>
+            <Link to="/docs">{t("home.lp.nav.docs", "docs")}</Link>
+            <a href="#repo" onClick={scrollTo("repo")}>
+              {t("home.lp.nav.source", "source")}
+            </a>
             <ThemeToggle />
-            <Link className="lp-nav-cta" to="/page">{t("home.lp.nav.open", "open cypher")}</Link>
+            <Link className="lp-nav-cta" to="/page">
+              {t("home.lp.nav.open", "open cypher")}
+            </Link>
           </nav>
         </div>
       </header>
@@ -415,19 +685,32 @@ export default function HomePage() {
         <section className="lp-hero">
           <div className="lp-hero-grid" aria-hidden="true" />
           <div className="column-wide" style={{ position: "relative" }}>
-            <div className="lp-eyebrow">{t("home.lp.eyebrow", "a markdown editor that refuses to read your notes")}</div>
             <h1 className="lp-hero-title">
-              {t("home.lp.hero.titleA", "You hand your thoughts")}<br />
-              {t("home.lp.hero.titleB", "to strangers.")}<br />
+              {t("home.lp.hero.titleA", "You hand your thoughts")}
+              <br />
+              {t("home.lp.hero.titleB", "to strangers.")}
+              <br />
               <em>{t("home.lp.hero.titleEm", "Every day.")}</em>
             </h1>
             <p className="lp-hero-lede">
-              {t("home.lp.hero.lede1", "Open a tab. Open a notes app. Type a half-formed idea, a draft email, a thing you would not say out loud. It lands on a server you do not own, in a city you have never been to, governed by a fourteen-page agreement you did not read. ")}
-              <strong>{t("home.lp.hero.ledeStrong", "Cypher refuses the trade.")}</strong>
-              {t("home.lp.hero.lede2", " Your files stay on your disk. Your keys never leave it. Sync is peer-to-peer and forgets you the moment it is done.")}
+              {t(
+                "home.lp.hero.lede1",
+                "Open a tab. Open a notes app. Type a half-formed idea, a draft email, a thing you would not say out loud. It lands on a server you do not own, in a city you have never been to, governed by a fourteen-page agreement you did not read. ",
+              )}
+              <strong>
+                {t("home.lp.hero.ledeStrong", "Cypher refuses the trade.")}
+              </strong>
+              {t(
+                "home.lp.hero.lede2",
+                " Your files stay on your disk. Your keys never leave it. Sync is peer-to-peer and forgets you the moment it is done.",
+              )}
             </p>
             <div className="lp-hero-actions">
-              <a className="lp-btn lp-btn-primary" href="#premise" onClick={scrollTo("premise")}>
+              <a
+                className="lp-btn lp-btn-primary"
+                href="#premise"
+                onClick={scrollTo("premise")}
+              >
                 {t("home.lp.hero.readCase", "read the case")}
                 <Icons.Arrow />
               </a>
@@ -437,7 +720,12 @@ export default function HomePage() {
                   {t("home.lp.hero.install", "install app")}
                 </button>
               )}
-              <a className="lp-btn lp-btn-ghost" href={REPO_URL} target="_blank" rel="noreferrer">
+              <a
+                className="lp-btn lp-btn-ghost"
+                href={REPO_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
                 <Icons.GitHub />
                 {t("home.lp.hero.readSource", "read the source")}
               </a>
@@ -445,8 +733,13 @@ export default function HomePage() {
             <div className="lp-hero-meta">
               <span className="dot" aria-hidden="true" />
               <span>
-                <strong style={{ color: "var(--fg)", fontWeight: 500 }}>{APP_VERSION}</strong>{" "}
-                {t("home.lp.hero.metaTail", "· GPL-3.0 · 0 accounts · 0 trackers · 0 servers that own anything about you")}
+                <strong style={{ color: "var(--fg)", fontWeight: 500 }}>
+                  {APP_VERSION}
+                </strong>{" "}
+                {t(
+                  "home.lp.hero.metaTail",
+                  "· GPL-3.0 · 0 accounts · 0 trackers · 0 servers that own anything about you",
+                )}
               </span>
             </div>
           </div>
@@ -457,22 +750,43 @@ export default function HomePage() {
           <div className="column-wide">
             <div className="lp-premise-grid">
               <aside className="lp-margin-note">
-                <span className="num">{t("home.lp.premise.numLabel", "I — The premise")}</span>
-                {t("home.lp.premise.note", "You would not mail your diary to a stranger. You type it into one, every morning, for free.")}
+                {t(
+                  "home.lp.premise.note",
+                  "You would not mail your diary to a stranger. You type it into one, every morning, for free.",
+                )}
               </aside>
               <div className="lp-prose">
                 <h2 className="lp-section-title">
-                  {t("home.lp.premise.titleA", "You wouldn't mail it.")}<br />
+                  {t("home.lp.premise.titleA", "You wouldn't mail it.")}
+                  <br />
                   <em>{t("home.lp.premise.titleEm", "You type it.")}</em>
                 </h2>
-                <p>{t("home.lp.premise.p1", "You would not hand a notebook to someone in the street. You would not read your medical history into a stranger's phone. You would not shout your half-drafted resignation letter into a crowd.")}</p>
-                <p>{t("home.lp.premise.p2", "And yet — every free notes app, every free document, every free AI assistant is a trade. Your thoughts, in plain text, on a machine you will never see, indexed by software you will never read, owned by a company that will outlive you or be outlived by you. The bargain is so quiet you forget you took it.")}</p>
+                <p>
+                  {t(
+                    "home.lp.premise.p1",
+                    "You would not hand a notebook to someone in the street. You would not read your medical history into a stranger's phone. You would not shout your half-drafted resignation letter into a crowd.",
+                  )}
+                </p>
+                <p>
+                  {t(
+                    "home.lp.premise.p2",
+                    "And yet — every free notes app, every free document, every free AI assistant is a trade. Your thoughts, in plain text, on a machine you will never see, indexed by software you will never read, owned by a company that will outlive you or be outlived by you. The bargain is so quiet you forget you took it.",
+                  )}
+                </p>
                 <blockquote className="lp-pullquote">
-                  {t("home.lp.premise.pull", "A grocery list deserves the same dignity as a manifesto.")}
+                  {t(
+                    "home.lp.premise.pull",
+                    "A grocery list deserves the same dignity as a manifesto.",
+                  )}
                 </blockquote>
                 <p>
                   {t("home.lp.premise.p3a", "Cypher does not take the trade. ")}
-                  <strong>{t("home.lp.premise.p3strong", "Not the storage. Not the keys. Not the protocol. Not the permission to leave.")}</strong>
+                  <strong>
+                    {t(
+                      "home.lp.premise.p3strong",
+                      "Not the storage. Not the keys. Not the protocol. Not the permission to leave.",
+                    )}
+                  </strong>
                 </p>
               </div>
             </div>
@@ -482,22 +796,40 @@ export default function HomePage() {
         {/* ── II — Mechanism ── */}
         <section id="mechanism" className="lp-section">
           <div className="column">
-            <div className="lp-section-num">{t("home.lp.mechanism.num", "II — Where your work actually goes")}</div>
             <h2 className="lp-section-title">
-              {t("home.lp.mechanism.titleA", "Three places.")} <em>{t("home.lp.mechanism.titleEm", "None of them ours.")}</em>
+              {t("home.lp.mechanism.titleA", "Three places.")}{" "}
+              <em>{t("home.lp.mechanism.titleEm", "None of them ours.")}</em>
             </h2>
             <div className="lp-prose">
               <p>
-                <strong>{t("home.lp.mechanism.p1strong", "On your device.")}</strong>
-                {t("home.lp.mechanism.p1", " Every keystroke lands in your own storage, instantly — no round-trip, no \"saving\" spinner reporting back to a server somewhere. Cypher works on a plane, in a basement, in a Faraday cage.")}
+                <strong>
+                  {t("home.lp.mechanism.p1strong", "On your device.")}
+                </strong>
+                {t(
+                  "home.lp.mechanism.p1",
+                  ' Every keystroke lands in your own storage, instantly — no round-trip, no "saving" spinner reporting back to a server somewhere. Cypher works on a plane, in a basement, in a Faraday cage.',
+                )}
               </p>
               <p>
-                <strong>{t("home.lp.mechanism.p2strong", "Between your devices.")}</strong>
-                {t("home.lp.mechanism.p2", " When you sync, traffic flows peer-to-peer, encrypted with keys that never leave your hardware. Your laptop talks to your phone the way two friends meet — in person, with no third party in the room.")}
+                <strong>
+                  {t("home.lp.mechanism.p2strong", "Between your devices.")}
+                </strong>
+                {t(
+                  "home.lp.mechanism.p2",
+                  " When you sync, traffic flows peer-to-peer, encrypted with keys that never leave your hardware. Your laptop talks to your phone the way two friends meet — in person, with no third party in the room.",
+                )}
               </p>
               <p>
-                <strong>{t("home.lp.mechanism.p3strong", "Through a stateless relay — only when a direct path can't be made.")}</strong>
-                {t("home.lp.mechanism.p3", " It forwards bytes it cannot decrypt. No accounts. No logs. No memory of who connected to whom. It introduces, then forgets. And if you don't trust ours, point Cypher at your own — it's a config field.")}
+                <strong>
+                  {t(
+                    "home.lp.mechanism.p3strong",
+                    "Through a stateless relay — only when a direct path can't be made.",
+                  )}
+                </strong>
+                {t(
+                  "home.lp.mechanism.p3",
+                  " It forwards bytes it cannot decrypt. No accounts. No logs. No memory of who connected to whom. It introduces, then forgets. And if you don't trust ours, point Cypher at your own — it's a config field.",
+                )}
               </p>
             </div>
           </div>
@@ -509,7 +841,8 @@ export default function HomePage() {
           <div className="column-wide">
             <div className="lp-knows">
               <h3 className="lp-knows-q">
-                {t("home.lp.knows.qA", "Our file on you.")} <em>{t("home.lp.knows.qEm", "Read it.")}</em>
+                {t("home.lp.knows.qA", "Our file on you.")}{" "}
+                <em>{t("home.lp.knows.qEm", "Read it.")}</em>
               </h3>
               <div className="lp-knows-table">
                 {knows.map(([k, v]) => (
@@ -539,9 +872,9 @@ export default function HomePage() {
         {/* ── III — What is yours ── */}
         <section id="refusal" className="lp-section lp-refusal">
           <div className="column">
-            <div className="lp-section-num">{t("home.lp.refusal.num", "III — What is yours")}</div>
             <h2 className="lp-section-title">
-              {t("home.lp.refusal.titleA", "A short inventory of ")}<em>{t("home.lp.refusal.titleEm", "what stays yours.")}</em>
+              {t("home.lp.refusal.titleA", "A short inventory of ")}
+              <em>{t("home.lp.refusal.titleEm", "what stays yours.")}</em>
             </h2>
             <ul className="lp-refusal-list">
               {refusals.map(([n, name, detail]) => (
@@ -558,34 +891,76 @@ export default function HomePage() {
         {/* ── IV — In the open ── */}
         <section id="repo" className="lp-section">
           <div className="column">
-            <div className="lp-section-num">{t("home.lp.repo.num", "IV — In the open")}</div>
             <h2 className="lp-section-title">
-              {t("home.lp.repo.titleA", "Don't trust us.")} <em>{t("home.lp.repo.titleEm", "Read the code.")}</em>
+              {t("home.lp.repo.titleA", "Don't trust us.")}{" "}
+              <em>{t("home.lp.repo.titleEm", "Read the code.")}</em>
             </h2>
             <div className="lp-prose">
-              <p>{t("home.lp.repo.p", "Every privacy promise on the internet is a sentence on a webpage. Ours is a directory of source files. The encryption is in the repo. The relay is in the repo. The protocol is in the repo. Every line that runs between you and the words you wrote is something you can audit, fork, or replace with a build of your own.")}</p>
+              <p>
+                {t(
+                  "home.lp.repo.p",
+                  "Every privacy promise on the internet is a sentence on a webpage. Ours is a directory of source files. The encryption is in the repo. The relay is in the repo. The protocol is in the repo. Every line that runs between you and the words you wrote is something you can audit, fork, or replace with a build of your own.",
+                )}
+              </p>
             </div>
 
             <div className="lp-repo">
               <div>
                 <h3 className="lp-repo-title">github.com/hamza512b/cypher</h3>
-                <p className="lp-repo-sub">{t("home.lp.repo.repoSub", "Every commit. Every dependency. Yours to read, yours to change, yours to keep.")}</p>
+                <p className="lp-repo-sub">
+                  {t(
+                    "home.lp.repo.repoSub",
+                    "Every commit. Every dependency. Yours to read, yours to change, yours to keep.",
+                  )}
+                </p>
                 <div className="lp-repo-actions">
-                  <a className="lp-btn lp-btn-primary" href={REPO_URL} target="_blank" rel="noreferrer">
+                  <a
+                    className="lp-btn lp-btn-primary"
+                    href={REPO_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
                     <Icons.GitHub />
                     {t("home.lp.repo.browse", "browse the source")}
                   </a>
-                  <a className="lp-btn lp-btn-ghost" href={`${REPO_URL}#readme`} target="_blank" rel="noreferrer">
+                  <a
+                    className="lp-btn lp-btn-ghost"
+                    href={`${REPO_URL}#readme`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
                     {t("home.lp.repo.spec", "read the protocol spec")}
                     <Icons.Arrow />
                   </a>
                 </div>
               </div>
               <div className="lp-repo-stats">
-                <div className="lp-repo-stat"><span className="v">GPL-3.0</span><span className="k">{t("home.lp.repo.stat.copyleft", "copyleft")}</span></div>
-                <div className="lp-repo-stat"><span className="v">0</span><span className="k">{t("home.lp.repo.stat.trackers", "trackers")}</span></div>
-                <div className="lp-repo-stat"><span className="v">0</span><span className="k">{t("home.lp.repo.stat.accounts", "accounts")}</span></div>
-                <div className="lp-repo-stat"><span className="v">{t("home.lp.repo.stat.swapV", "swap")}</span><span className="k">{t("home.lp.repo.stat.swapK", "the relay")}</span></div>
+                <div className="lp-repo-stat">
+                  <span className="v">GPL-3.0</span>
+                  <span className="k">
+                    {t("home.lp.repo.stat.copyleft", "copyleft")}
+                  </span>
+                </div>
+                <div className="lp-repo-stat">
+                  <span className="v">0</span>
+                  <span className="k">
+                    {t("home.lp.repo.stat.trackers", "trackers")}
+                  </span>
+                </div>
+                <div className="lp-repo-stat">
+                  <span className="v">0</span>
+                  <span className="k">
+                    {t("home.lp.repo.stat.accounts", "accounts")}
+                  </span>
+                </div>
+                <div className="lp-repo-stat">
+                  <span className="v">
+                    {t("home.lp.repo.stat.swapV", "swap")}
+                  </span>
+                  <span className="k">
+                    {t("home.lp.repo.stat.swapK", "the relay")}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -593,16 +968,24 @@ export default function HomePage() {
 
         {/* ── V — Begin ── */}
         <section className="lp-finale">
-          <div className="lp-hero-grid" aria-hidden="true" style={{ opacity: 0.35 }} />
+          <div
+            className="lp-hero-grid"
+            aria-hidden="true"
+            style={{ opacity: 0.35 }}
+          />
           <div className="column" style={{ position: "relative" }}>
-            <div className="lp-section-num" style={{ textAlign: "center" }}>{t("home.lp.finale.num", "V — Begin")}</div>
             <h2 className="lp-finale-title">
-              {t("home.lp.finale.titleA", "Your words.")}<br />
-              {t("home.lp.finale.titleB", "Your machine.")}<br />
+              {t("home.lp.finale.titleA", "Your words.")}
+              <br />
+              {t("home.lp.finale.titleB", "Your machine.")}
+              <br />
               <em>{t("home.lp.finale.titleEm", "Your rules.")}</em>
             </h2>
             <p className="lp-finale-sub">
-              {t("home.lp.finale.sub", "Install it. Fork it. Swap the relay. Take it offline for a year. Hand it to a friend. Bury it. Walk away. The choice was always supposed to be yours — Cypher is the editor that finally agrees.")}
+              {t(
+                "home.lp.finale.sub",
+                "Install it. Fork it. Swap the relay. Take it offline for a year. Hand it to a friend. Bury it. Walk away. The choice was always supposed to be yours — Cypher is the editor that finally agrees.",
+              )}
             </p>
             <div className="lp-finale-actions">
               <Link className="lp-btn lp-btn-primary" to="/page">
@@ -615,7 +998,12 @@ export default function HomePage() {
                   {t("home.lp.hero.install", "install app")}
                 </button>
               )}
-              <a className="lp-btn lp-btn-ghost" href={REPO_URL} target="_blank" rel="noreferrer">
+              <a
+                className="lp-btn lp-btn-ghost"
+                href={REPO_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
                 <Icons.GitHub />
                 {t("home.lp.finale.github", "github")}
               </a>
@@ -629,12 +1017,28 @@ export default function HomePage() {
           <div className="lp-footer-brand">
             <img src="/logo.png" alt="" style={{ width: 18, height: 18 }} />
             <span className="lp-footer-word">Cypher</span>
-            <span style={{ marginLeft: 12 }}>{t("home.lp.footer.tagline", "— decentralized by design, built in the open.")}</span>
+            <span style={{ marginLeft: 12 }}>
+              {t(
+                "home.lp.footer.tagline",
+                "— decentralized by design, built in the open.",
+              )}
+            </span>
           </div>
           <div className="lp-footer-links">
-            <a href="#premise" onClick={scrollTo("premise")}>{t("home.lp.footer.manifesto", "manifesto")}</a>
-            <a href={REPO_URL} target="_blank" rel="noreferrer">{t("home.lp.footer.source", "source")}</a>
-            <a href={`${REPO_URL}/blob/main/LICENSE`} target="_blank" rel="noreferrer">{t("home.lp.footer.license", "license")}</a>
+            <a href="#premise" onClick={scrollTo("premise")}>
+              {t("home.lp.footer.manifesto", "manifesto")}
+            </a>
+            <Link to="/docs">{t("home.lp.footer.docs", "docs")}</Link>
+            <a href={REPO_URL} target="_blank" rel="noreferrer">
+              {t("home.lp.footer.source", "source")}
+            </a>
+            <a
+              href={`${REPO_URL}/blob/main/LICENSE`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {t("home.lp.footer.license", "license")}
+            </a>
             <Link to="/privacy">{t("home.lp.footer.privacy", "privacy")}</Link>
           </div>
         </div>
