@@ -78,8 +78,13 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
 
   return {
     // Spread the core editor command surface (toggleBold, undo, on,
-    // getMarkdown, sync methods, …) onto the returned handle.
+    // getMarkdown, commands, chain, sync methods, …) onto the returned handle.
     ...editor,
+    // Re-expose `state` as a live getter: object spread above evaluates the
+    // core getter once and would otherwise freeze it to a stale snapshot.
+    get state() {
+      return editor.state;
+    },
     portalContainer: mounted.portalContainer,
     refocus: mounted.refocus,
     setKeyboardHeight: mounted.setKeyboardHeight,

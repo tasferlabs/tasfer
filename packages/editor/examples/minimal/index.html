@@ -28,9 +28,17 @@
       #toolbar {
         display: flex;
         gap: 8px;
+        align-items: center;
         padding: 8px 12px;
         border-bottom: 1px solid rgba(128, 128, 128, 0.25);
         flex: 0 0 auto;
+        flex-wrap: wrap;
+      }
+      #toolbar .sep {
+        width: 1px;
+        align-self: stretch;
+        background: rgba(128, 128, 128, 0.3);
+        margin: 2px 2px;
       }
       #toolbar button {
         font: inherit;
@@ -42,6 +50,11 @@
         cursor: pointer;
       }
       #toolbar button:hover { background: rgba(128, 128, 128, 0.12); }
+      /* Active format state, painted from editor.getActiveFormats(). */
+      #toolbar button.is-active {
+        background: var(--editor-selection);
+        border-color: rgba(64, 120, 255, 0.55);
+      }
 
       /* The editor fills whatever box you give it and observes its size. */
       #editor {
@@ -52,19 +65,47 @@
         width: 100%;
         margin: 0 auto;
       }
+
+      /* Live read-model: word count + selection state + active formats. */
+      #status {
+        flex: 0 0 auto;
+        display: flex;
+        gap: 10px;
+        padding: 6px 14px;
+        border-top: 1px solid rgba(128, 128, 128, 0.25);
+        font-size: 13px;
+        opacity: 0.75;
+        font-variant-numeric: tabular-nums;
+      }
+      #status .spacer { flex: 1 1 auto; }
     </style>
   </head>
   <body>
     <!-- data-editor-overlay tells the editor's focus tracking not to steal
-         focus away when you click these buttons (see step 5 of the tutorial). -->
+         focus away when you click these buttons (see the README walkthrough). -->
     <div id="toolbar" data-editor-overlay>
-      <button id="undo" title="Undo (⌘Z / Ctrl+Z)">Undo</button>
-      <button id="redo" title="Redo (⌘⇧Z / Ctrl+Y)">Redo</button>
+      <!-- Tier-B commands namespace -->
+      <button id="bold" title="Toggle bold — editor.commands.toggleMark('bold')"><strong>B</strong></button>
+      <button id="h1" title="Heading 1 — editor.commands.setBlock('heading1')">H1</button>
+      <button id="bullet" title="Bullet list — editor.commands.setBlock('bullet_list')">• List</button>
+      <span class="sep"></span>
+      <button id="undo" title="Undo — editor.commands.undo()">Undo</button>
+      <button id="redo" title="Redo — editor.commands.redo()">Redo</button>
+      <span class="sep"></span>
+      <!-- chain(): several commands committed as ONE undoable step -->
+      <button id="section" title="Insert a section heading + text in one undoable step — editor.chain()…run()">+ Section</button>
       <button id="clear" title="Replace the document via setMarkdown('') — undoable">Clear</button>
       <button id="save" title="Serialize to Markdown (getMarkdown) → console">Save&nbsp;.md</button>
     </div>
 
     <div id="editor"></div>
+
+    <div id="status" data-editor-overlay>
+      <span id="status-words">0 words</span>
+      <span id="status-selection">caret</span>
+      <span class="spacer"></span>
+      <span id="status-formats"></span>
+    </div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

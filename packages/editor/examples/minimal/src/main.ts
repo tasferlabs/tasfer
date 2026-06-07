@@ -3,12 +3,12 @@
  *
  * Framework-agnostic — no React. Built on the convenience `createEditor()`
  * facade, which parses Markdown and mounts the canvas editor in a single call.
- * We then:
- *   1. wire a tiny toolbar to the editor's imperative commands,
- *   2. round-trip to Markdown with getMarkdown() / setMarkdown(),
- *   3. auto-save a draft with on("change") + getMarkdown().
+ * It exercises the real public API:
+ *   - Tier A: getMarkdown() / setMarkdown(), on("change"/"selectionchange")
+ *   - Tier B: editor.commands.*, editor.chain()…run(), and the read-model
+ *             helpers getActiveFormats() / isSelectionEmpty() / getWordCount()
  *
- * See the README for a short walkthrough of each step.
+ * See the README for a short walkthrough.
  */
 import { createEditor } from "@cypherkit/editor";
 
@@ -52,10 +52,11 @@ async function main() {
     autofocus: true,
   });
 
-  // 3. Toolbar. Each button maps to one imperative command. We preventDefault on
-  //    mousedown so clicking a button doesn't blur the canvas and collapse the
-  //    current text selection.
-  const keepFocus = (el: HTMLElement, run: () => void) => {
+  // 3. Toolbar. Each button maps to one command. We preventDefault on mousedown
+  //    so clicking a button doesn't blur the canvas and collapse the selection
+  //    (so e.g. Bold applies to the text you have selected).
+  const keepFocus = (id: string, run: () => void) => {
+    const el = byId(id);
     el.addEventListener("mousedown", (e) => e.preventDefault());
     el.addEventListener("click", () => {
       run();
@@ -63,17 +64,48 @@ async function main() {
     });
   };
 
-  keepFocus(byId("undo"), () => editor.undo());
-  keepFocus(byId("redo"), () => editor.redo());
+  // Tier B — the commands namespace. Each returns whether it changed anything.
+  keepFocus("bold", () => editor.commands.toggleMark("bold"));
+  keepFocus("h1", () => editor.commands.setBlock("heading1"));
+  keepFocus("bullet", () => editor.commands.setBlock("bullet_list"));
+  keepFocus("undo", () => editor.commands.undo());
+  keepFocus("redo", () => editor.commands.redo());
+
+  // Tier B — chain(): set the block to a heading AND type its text as a single
+  // undoable step (one ⌘Z reverts the whole thing, not just the text).
+  keepFocus("section", () =>
+    editor.chain().setBlock("heading2").insertText("New section").run(),
+  );
+
   // setMarkdown() replaces the whole document — and it's a single undoable step,
   // so ⌘Z / the Undo button brings the content right back.
-  keepFocus(byId("clear"), () => editor.setMarkdown(""));
+  keepFocus("clear", () => editor.setMarkdown(""));
   // getMarkdown() serializes the live document back to Markdown.
-  keepFocus(byId("save"), () => {
+  keepFocus("save", () => {
     console.log("--- serialized markdown ---\n" + editor.getMarkdown());
   });
 
-  // 4. Auto-save a draft on every content change — the canonical createEditor
+  // 4. Live read-model. Reflect word count, selection state, and the active
+  //    inline formats in the status bar + light up the Bold button. These are
+  //    pure functions of editor state — recompute on every change / caret move.
+  const wordsEl = byId("status-words");
+  const selectionEl = byId("status-selection");
+  const formatsEl = byId("status-formats");
+  const boldBtn = byId("bold");
+
+  const paintStatus = () => {
+    const words = editor.getWordCount();
+    const formats = [...editor.getActiveFormats()];
+    wordsEl.textContent = `${words} word${words === 1 ? "" : "s"}`;
+    selectionEl.textContent = editor.isSelectionEmpty() ? "caret" : "selection";
+    formatsEl.textContent = formats.length ? `formats: ${formats.join(", ")}` : "";
+    boldBtn.classList.toggle("is-active", editor.getActiveFormats().has("bold"));
+  };
+  editor.on("change", paintStatus);
+  editor.on("selectionchange", paintStatus);
+  paintStatus();
+
+  // 5. Auto-save a draft on every content change — the canonical createEditor
   //    pattern: on("change") + getMarkdown().
   editor.on("change", () => {
     localStorage.setItem(DRAFT_KEY, editor.getMarkdown());

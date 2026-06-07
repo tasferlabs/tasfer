@@ -7,7 +7,9 @@ import {
   applySlashCommand,
   clearLinkInBlock,
   convertBlockType,
+  getFormatsAtPosition,
   getSelectionRange,
+  insertText,
   selectAll,
   toggleBold,
   toggleCode,
@@ -39,7 +41,12 @@ import { isCursorBlinking } from "../selection";
 import { updateFocus } from "../selection";
 import { updateCursor } from "../selection";
 import { clearSelection } from "../selection";
-import { type Block, loadPage, type Page } from "../serlization/loadPage";
+import {
+  type Block,
+  loadPage,
+  type Page,
+  type TextFormat,
+} from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
 import type {
   CommandResult,
@@ -98,8 +105,48 @@ import type { CanvasLayers } from "./layers";
  */
 export type EditorEvent = "change" | "selectionchange" | "focus" | "blur";
 
+/** Inline mark names accepted by {@link EditorCommands.toggleMark}. */
+export type MarkName = "bold" | "italic" | "code" | "strikethrough";
+
+/**
+ * Imperative command namespace (see {@link Editor.commands}). Each command
+ * applies immediately as its own undoable step and returns whether it changed
+ * the document/selection. Group several into one step with {@link Editor.chain}.
+ */
+export interface EditorCommands {
+  /** Toggle an inline mark across the selection (or the pending caret format). */
+  toggleMark: (name: MarkName) => boolean;
+  /** Convert the current block to a textual block type (paragraph/heading/list). */
+  setBlock: (type: Block["type"]) => boolean;
+  /** Insert text at the caret, replacing any selection. */
+  insertText: (text: string) => boolean;
+  /** Select the whole document. */
+  selectAll: () => boolean;
+  /** Step local history backward / forward. */
+  undo: () => boolean;
+  redo: () => boolean;
+}
+
+/**
+ * A batch of commands committed together as a single undoable step (see
+ * {@link Editor.chain}). Builder methods are chainable; `run()` commits the
+ * batch (one undo entry, one broadcast), `canRun()` dry-runs it.
+ */
+export interface EditorCommandChain {
+  toggleMark: (name: MarkName) => EditorCommandChain;
+  setBlock: (type: Block["type"]) => EditorCommandChain;
+  insertText: (text: string) => EditorCommandChain;
+  selectAll: () => EditorCommandChain;
+  /** Commit every queued command as one undoable step; returns whether anything changed. */
+  run: () => boolean;
+  /** Dry-run: would the queued commands change anything right now? */
+  canRun: () => boolean;
+}
+
 export interface Editor {
   getState: () => EditorState | null;
+  /** Live snapshot of editor state, as a property (same value as getState()). */
+  readonly state: EditorState;
   destroy: () => void;
   updateViewport: (viewport: Partial<ViewportState>) => void;
   getDocumentHeight: () => number;
@@ -132,6 +179,23 @@ export interface Editor {
    * exactly like any other edit. A no-op when the result is identical.
    */
   setMarkdown: (markdown: string) => void;
+  /**
+   * Imperative command namespace — each command applies immediately as its own
+   * undoable step and returns whether it changed anything.
+   */
+  commands: EditorCommands;
+  /** Begin a chain of commands committed together as a single undoable step. */
+  chain: () => EditorCommandChain;
+  /**
+   * The inline formats that will apply to text typed at the caret — explicit
+   * toggled formats, or those inherited from the character before it. Handy for
+   * lighting up a toolbar.
+   */
+  getActiveFormats: () => Set<TextFormat["type"]>;
+  /** True when there is no selection (just a caret, or nothing). */
+  isSelectionEmpty: () => boolean;
+  /** Number of whitespace-separated words across all text blocks. */
+  getWordCount: () => number;
   executeSlashCommand: (command: SlashCommand) => void;
   copy: () => Promise<boolean>;
   cut: () => Promise<boolean>;
@@ -1628,6 +1692,140 @@ export default function createEditor(
     restoreFromSnapshotMethod(loadPage(markdown).blocks);
   }
 
+  // ── Commands & chaining (Tier B) ────────────────────────────────────────
+  // Every command is a pure (state) => CommandResult transform built on the
+  // same action functions the keyboard/menu paths use. `commands.X` runs one
+  // immediately (its own undo step, broadcast, notify, via executeCommand);
+  // `chain()` threads state through several and commits them as ONE undo step.
+  type Command = (s: EditorState) => CommandResult;
+
+  const MARK_COMMANDS: Partial<Record<MarkName, Command>> = {
+    bold: toggleBold,
+    italic: toggleItalic,
+    code: toggleCode,
+    strikethrough: toggleStrikethrough,
+  };
+
+  const blockCommand =
+    (type: Block["type"]): Command =>
+    (s) =>
+      convertBlockType(s, type);
+  const insertTextCommand =
+    (text: string): Command =>
+    (s) =>
+      insertText(s, text);
+  const selectAllCommand: Command = (s) => ({ state: selectAll(s), ops: [] });
+
+  /** Run a single command immediately; returns whether it changed anything. */
+  function runCommand(cmd: Command): boolean {
+    const prev = state;
+    const result = cmd(prev);
+    if (result.state === prev && result.ops.length === 0) return false;
+    executeCommand(result);
+    return true;
+  }
+
+  const commands: EditorCommands = {
+    toggleMark: (name) => {
+      const cmd = MARK_COMMANDS[name];
+      return cmd ? runCommand(cmd) : false;
+    },
+    setBlock: (type) => runCommand(blockCommand(type)),
+    insertText: (text) => runCommand(insertTextCommand(text)),
+    selectAll: () => runCommand(selectAllCommand),
+    undo: () => {
+      const before = state;
+      undo();
+      return state !== before;
+    },
+    redo: () => {
+      const before = state;
+      redo();
+      return state !== before;
+    },
+  };
+
+  function chain(): EditorCommandChain {
+    const steps: Command[] = [];
+    // Apply queued steps to a working copy; commit (record ONE undo step,
+    // broadcast once, notify) only when `commit` is true. canRun() passes false.
+    const apply = (commit: boolean): boolean => {
+      const prev = state;
+      let cur = prev;
+      const allOps: Operation[] = [];
+      for (const step of steps) {
+        const r = step(cur);
+        cur = r.state;
+        allOps.push(...r.ops);
+      }
+      const changed = cur !== prev || allOps.length > 0;
+      if (!commit || !changed) return changed;
+      state =
+        allOps.length > 0
+          ? recordUndoOps(prev, cur, allOps, state.CRDTbinding.getPeerId())
+          : cur;
+      if (allOps.length > 0 && broadcastFn) broadcastFn(allOps);
+      scheduleRender();
+      const currentState = state;
+      listeners.forEach((listener) => listener(currentState));
+      return true;
+    };
+    const builder: EditorCommandChain = {
+      toggleMark: (name) => {
+        const cmd = MARK_COMMANDS[name];
+        if (cmd) steps.push(cmd);
+        return builder;
+      },
+      setBlock: (type) => {
+        steps.push(blockCommand(type));
+        return builder;
+      },
+      insertText: (text) => {
+        steps.push(insertTextCommand(text));
+        return builder;
+      },
+      selectAll: () => {
+        steps.push(selectAllCommand);
+        return builder;
+      },
+      run: () => apply(true),
+      canRun: () => apply(false),
+    };
+    return builder;
+  }
+
+  function getActiveFormats(): Set<TextFormat["type"]> {
+    const result = new Set<TextFormat["type"]>();
+    const mode = state.ui.activeFormatsMode;
+    if (mode.type === "explicit") {
+      for (const f of mode.formats) result.add(f.type);
+      return result;
+    }
+    // "inherit" mode: reflect the formats on the character before the caret.
+    const cursor = state.document.cursor;
+    if (!cursor) return result;
+    const block = state.document.page.blocks[cursor.position.blockIndex];
+    if (!block || block.deleted) return result;
+    const formats = getFormatsAtPosition(block, cursor.position.textIndex);
+    if (formats) for (const f of formats) result.add(f.type);
+    return result;
+  }
+
+  function isSelectionEmpty(): boolean {
+    const sel = state.document.selection;
+    return !sel || sel.isCollapsed;
+  }
+
+  function getWordCount(): number {
+    let count = 0;
+    for (const block of state.document.page.blocks) {
+      if (block.deleted || !isTextualBlock(block)) continue;
+      const text = getBlockTextContent(block).trim();
+      if (text.length > 0) count += text.split(/\s+/).length;
+    }
+    return count;
+  }
+
   function executeSlashCommand(command: SlashCommand) {
     if (state.ui.activeMenu.type === "slashCommand" && state.document.cursor) {
       state = state;
@@ -2745,10 +2943,18 @@ export default function createEditor(
     setFocus,
     setInitialCursor,
     getCursorScreenPosition,
+    get state() {
+      return state;
+    },
     subscribe,
     on,
     getMarkdown,
     setMarkdown,
+    commands,
+    chain,
+    getActiveFormats,
+    isSelectionEmpty,
+    getWordCount,
     executeSlashCommand,
     copy,
     cut,

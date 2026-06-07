@@ -24,7 +24,13 @@ export {
 } from "./rendering/blocks";
 
 // Editor instance API
-export type { Editor, EditorEvent } from "./entries/editor";
+export type {
+  Editor,
+  EditorCommandChain,
+  EditorCommands,
+  EditorEvent,
+  MarkName,
+} from "./entries/editor";
 
 // Convenience constructor — parse Markdown + mount in a single call, returning
 // one handle that merges the editor command API with the mount lifecycle. The
