@@ -1,0 +1,19 @@
+{
+  "name": "cypher-editor-minimal-example",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "i18next": "^25.0.0",
+    "nanoid": "^5.1.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.0.4"
+  }
+}

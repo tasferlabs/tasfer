@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>@cypherkit/editor — minimal example</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        /* The renderer reads a handful of CSS variables off :root so the host
+           controls theming. These are the ones the default styles look for. */
+        --editor-text: #1a1a1a;
+        --editor-bg: #ffffff;
+        --editor-selection: rgba(64, 120, 255, 0.25);
+        --editor-cursor: #1a1a1a;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: var(--editor-bg);
+        color: var(--editor-text);
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+
+      #toolbar {
+        display: flex;
+        gap: 8px;
+        padding: 8px 12px;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+        flex: 0 0 auto;
+      }
+      #toolbar button {
+        font: inherit;
+        padding: 6px 12px;
+        border: 1px solid rgba(128, 128, 128, 0.35);
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      #toolbar button:hover { background: rgba(128, 128, 128, 0.12); }
+
+      /* The editor fills whatever box you give it and observes its size. */
+      #editor {
+        flex: 1 1 auto;
+        min-height: 0;
+        position: relative;
+        max-width: 740px;
+        width: 100%;
+        margin: 0 auto;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- data-editor-overlay tells the editor's focus tracking not to steal
+         focus away when you click these buttons (see step 5 of the tutorial). -->
+    <div id="toolbar" data-editor-overlay>
+      <button id="bold" title="Toggle bold (also ⌘B / Ctrl+B)"><strong>B</strong></button>
+      <button id="undo" title="Undo (⌘Z / Ctrl+Z)">Undo</button>
+      <button id="redo" title="Redo (⌘⇧Z / Ctrl+Y)">Redo</button>
+      <button id="save" title="Serialize to Markdown → console">Save&nbsp;.md</button>
+    </div>
+
+    <div id="editor"></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

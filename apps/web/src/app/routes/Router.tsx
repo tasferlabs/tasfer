@@ -22,6 +22,7 @@ const HomePage = React.lazy(() => import("../pages/HomePage/HomePage"));
 const PrivacyPage = React.lazy(
   () => import("../pages/PrivacyPage/PrivacyPage"),
 );
+const DocsPage = React.lazy(() => import("../pages/DocsPage/DocsPage"));
 
 const createRouter =
   getClientPlatform() === "web" ? createBrowserRouter : createHashRouter;
@@ -73,6 +74,14 @@ export const router = createRouter([
     element: (
       <WebOnlyGuard>
         <PrivacyPage />
+      </WebOnlyGuard>
+    ),
+  },
+  {
+    path: "/docs",
+    element: (
+      <WebOnlyGuard>
+        <DocsPage />
       </WebOnlyGuard>
     ),
   },

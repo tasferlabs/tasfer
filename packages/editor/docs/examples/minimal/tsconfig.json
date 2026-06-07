@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    // Mirror the Vite alias so `tsc` resolves the editor source too. The exact
+    // same mapping apps/web uses (index for the bare specifier, deep subpaths
+    // for everything else).
+    "baseUrl": ".",
+    "paths": {
+      "@cypherkit/editor": ["../../../src/index.ts"],
+      "@cypherkit/editor/*": ["../../../src/*"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}
