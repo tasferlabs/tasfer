@@ -17,7 +17,7 @@ import {
   type PageMetadata,
 } from "@cypherkit/editor/serlization/serializer";
 import { downloadFile } from "@/downloadFile";
-import type { Image } from "@cypherkit/editor/serlization/loadPage";
+import type { Image } from "@cypherkit/editor/rendering/blocks/ImageBlockView";
 import type { IPage } from "../api/pages.api";
 import { useTranslation } from "react-i18next";
 

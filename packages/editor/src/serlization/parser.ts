@@ -1,19 +1,20 @@
+import type { Image } from "../rendering/blocks/ImageBlockView";
+import type { Line } from "../rendering/blocks/LineBlockView";
+import type {
+  BulletListItem,
+  NumberedListItem,
+  TodoListItem,
+} from "../rendering/blocks/ListBlockView";
+import type { MathBlock } from "../rendering/blocks/MathBlockView";
+import type { Heading, Paragraph } from "../rendering/blocks/TextBlockView";
 import { extractCounter, extractPeerId } from "../sync/id";
 import type {
   Block,
-  BulletListItem,
   Char,
   CharRun,
   FormatSpan,
-  Heading,
-  Image,
-  Line,
-  Math,
-  NumberedListItem,
   Page,
-  Paragraph,
   TextFormat,
-  TodoListItem,
 } from "./loadPage";
 import {
   BOLD_END,
@@ -426,7 +427,7 @@ function parseHorizontalRule(context: ParserContext): Line {
   };
 }
 
-function parseMathBlock(context: ParserContext): Math {
+function parseMathBlock(context: ParserContext): MathBlock {
   match(context, MATH_BLOCK);
   const latex = (previous(context) as VisibleToken).content;
   match(context, NEWLINE);

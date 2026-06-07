@@ -21,6 +21,13 @@ import {
   type BlockPaintCtx,
   BlockView,
 } from "./BlockView";
+import type { Image } from "./ImageBlockView";
+import type { Line } from "./LineBlockView";
+import type { MathBlock } from "./MathBlockView";
+
+// Visual blocks contain visual content (images, lines, math, etc.). Each concrete
+// type lives next to its own view; this is just the union over them.
+export type VisualBlock = Image | Line | MathBlock;
 
 export abstract class AtomicBlockView<
   B extends Block = Block,

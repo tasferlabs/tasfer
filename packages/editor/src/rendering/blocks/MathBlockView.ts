@@ -1,0 +1,288 @@
+/**
+ * MathBlockView — the `math` (block-level LaTeX equation) block ported onto
+ * AtomicBlockView.
+ *
+ * Like ImageBlockView, the on-canvas size depends on an async-decoded asset:
+ * MathJax renders the LaTeX to an SVG which we rasterize to an ImageBitmap, and
+ * the decoded height drives the block's flow height. So — exactly as with images
+ * — when a render lands we drop the cached height and request a repaint, letting
+ * the layout reflow to the real equation size. (The pre-port renderer.ts path
+ * skipped that invalidation, leaving tall equations stuck at minHeight until an
+ * unrelated edit happened to clear the cache.)
+ *
+ * The math render cache lives here as module singletons — one MathJax render
+ * serves every block referencing the same equation — mirroring the image cache
+ * co-located in ImageBlockView.
+ *
+ * Out of scope (event layer): click-to-edit hit-testing and hover tracking live
+ * in events/mouseEvents + eventUtils, the same split used for image resize
+ * handles. The shared selection-overlay machinery is inherited from
+ * AtomicBlockView.
+ */
+
+import type { BlockBounds } from "../../state-types";
+import { AtomicBlockView } from "./AtomicBlockView";
+import type {
+  BlockLayoutCtx,
+  BlockPaintCtx,
+  BlockRuntimeState,
+} from "./BlockView";
+
+// Math block - rendered LaTeX equation. Named `MathBlock` (not `Math`) to avoid
+// shadowing the global `Math` object, which this module uses heavily.
+export interface MathBlock extends BlockRuntimeState {
+  type: "math";
+  latex: string;
+  displayMode: boolean; // true = display/block mode, false = inline mode
+}
+
+// ── Math render cache ───────────────────────────────────────────────────────
+// Rasterized equations keyed by displayMode + dpr + latex. Shared as module
+// singletons because one MathJax render must serve every block referencing the
+// same equation (mirrors the image cache in ImageBlockView).
+
+interface RenderedMath {
+  readonly img: HTMLImageElement | ImageBitmap;
+  /** Logical (CSS-pixel) size of the rasterized equation. */
+  readonly width: number;
+  readonly height: number;
+}
+
+const mathImageCache = new Map<string, RenderedMath>();
+const pendingMathRenders = new Set<string>();
+
+function mathCacheKey(
+  latex: string,
+  displayMode: boolean,
+  dpr: number,
+): string {
+  return `${displayMode ? "D" : "I"}:${dpr}:${latex}`;
+}
+
+/**
+ * Render `latex` to an ImageBitmap via MathJax (lazy-imported) and cache it.
+ * Returns nothing — the caller drives the repaint through `onReady` once the
+ * decode completes.
+ */
+function renderMathToImage(
+  latex: string,
+  displayMode: boolean,
+  color: string,
+  onReady: () => void,
+): void {
+  const dpr = window.devicePixelRatio || 1;
+  const cacheKey = mathCacheKey(latex, displayMode, dpr);
+  if (mathImageCache.has(cacheKey) || pendingMathRenders.has(cacheKey)) return;
+
+  pendingMathRenders.add(cacheKey);
+
+  // Lazy import MathJax renderer
+  import("../../math").then(({ renderToSVG }) => {
+    try {
+      const svgString = renderToSVG(latex, displayMode);
+
+      // Strip the mjx-container wrapper so we can manipulate the inner <svg>
+      const coloredSvg = svgString.replace(
+        /^<mjx-container[^>]*>([\s\S]*)<\/mjx-container>$/,
+        "$1",
+      );
+
+      // Parse SVG to get its intrinsic dimensions
+      const parser = new DOMParser();
+      const svgDoc = parser.parseFromString(coloredSvg, "image/svg+xml");
+      const svgEl = svgDoc.querySelector("svg");
+      if (!svgEl) {
+        pendingMathRenders.delete(cacheKey);
+        return;
+      }
+
+      // Set fill color on the SVG root
+      svgEl.setAttribute("color", color);
+      svgEl.style.color = color;
+
+      // Fix MathJax error background rects: they inherit fill="currentColor"
+      // from the parent <g>, making error backgrounds the same color as text.
+      // Set them to a semi-transparent color instead.
+      for (const rect of svgEl.querySelectorAll("rect[data-background]")) {
+        rect.setAttribute("fill", "rgba(128,128,128,0.15)");
+      }
+
+      // Scale up: MathJax uses ex units, we want ~20px font equivalent
+      const scaleFactor = 2.2;
+      const viewBox = svgEl.getAttribute("viewBox");
+      const widthAttr = svgEl.getAttribute("width");
+      const heightAttr = svgEl.getAttribute("height");
+
+      // Logical (CSS-pixel) dimensions
+      let w: number;
+      let h: number;
+
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(Number);
+        // viewBox is in MathJax internal units (1000 units per ex)
+        w = Math.ceil((parts[2] / 1000) * 8.5 * scaleFactor) + 4;
+        h = Math.ceil((parts[3] / 1000) * 8.5 * scaleFactor) + 4;
+      } else {
+        w = Math.ceil(parseFloat(widthAttr || "100") * scaleFactor);
+        h = Math.ceil(parseFloat(heightAttr || "40") * scaleFactor);
+      }
+
+      // Physical-pixel dimensions for rasterization. Render at 2x the screen
+      // DPR so glyph edges stay sharp even after downscale, and to compensate
+      // for browsers that rasterize SVG <img> at lower-than-requested density.
+      const renderScale = dpr * 2;
+      const pxW = Math.max(1, Math.ceil(w * renderScale));
+      const pxH = Math.max(1, Math.ceil(h * renderScale));
+
+      // Set SVG natural size to integer physical pixels
+      svgEl.setAttribute("width", String(pxW));
+      svgEl.setAttribute("height", String(pxH));
+      svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
+
+      const finalSvg = new XMLSerializer().serializeToString(svgEl);
+      const svgBlob = new Blob([finalSvg], {
+        type: "image/svg+xml;charset=utf-8",
+      });
+      const url = URL.createObjectURL(svgBlob);
+
+      const img = new Image();
+      img.decoding = "sync";
+      img.width = pxW;
+      img.height = pxH;
+      const finalize = () => {
+        const offscreen = document.createElement("canvas");
+        offscreen.width = pxW;
+        offscreen.height = pxH;
+        const offCtx = offscreen.getContext("2d")!;
+        offCtx.imageSmoothingEnabled = true;
+        offCtx.imageSmoothingQuality = "high";
+        offCtx.drawImage(img, 0, 0, pxW, pxH);
+        URL.revokeObjectURL(url);
+
+        createImageBitmap(offscreen)
+          .then((bitmap) => {
+            // Store both the physical-pixel bitmap and the logical CSS size
+            mathImageCache.set(cacheKey, { img: bitmap, width: w, height: h });
+            pendingMathRenders.delete(cacheKey);
+            onReady();
+          })
+          .catch(() => {
+            pendingMathRenders.delete(cacheKey);
+          });
+      };
+      img.onload = finalize;
+      img.onerror = () => {
+        pendingMathRenders.delete(cacheKey);
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    } catch {
+      pendingMathRenders.delete(cacheKey);
+    }
+  });
+}
+
+export class MathBlockView extends AtomicBlockView<MathBlock> {
+  readonly type = "math" as const;
+
+  /**
+   * Drawn equation height, excluding the block's own top/bottom flow padding.
+   * Falls back to minHeight until the equation has been rendered + cached.
+   * Depends only on layout context, so the height pass and paint agree on size.
+   */
+  private contentHeight(c: BlockLayoutCtx): number {
+    const block = c.block as MathBlock;
+    const m = c.styles.blocks.math;
+    if (block.latex) {
+      const dpr = window.devicePixelRatio || 1;
+      const cached = mathImageCache.get(
+        mathCacheKey(block.latex, block.displayMode, dpr),
+      );
+      if (cached) return Math.max(m.minHeight, cached.height);
+    }
+    return m.minHeight;
+  }
+
+  protected intrinsicHeight(c: BlockLayoutCtx): number {
+    const m = c.styles.blocks.math;
+    return this.contentHeight(c) + m.paddingTop + m.paddingBottom;
+  }
+
+  protected draw(box: BlockBounds, c: BlockPaintCtx): void {
+    const block = c.block as MathBlock;
+    const { ctx, state, styles, blockIndex } = c;
+    const m = styles.blocks.math;
+    const { x, y, width } = box;
+    const contentHeight = this.contentHeight(c);
+    const contentY = y + m.paddingTop;
+
+    // Hover backdrop over the whole block — signals it is clickable.
+    if (state.ui.hoveredMathBlockIndex === blockIndex && block.latex) {
+      ctx.fillStyle = m.hoverBackgroundColor;
+      ctx.beginPath();
+      ctx.roundRect(x, y, width, box.height, m.hoverBorderRadius);
+      ctx.fill();
+    }
+
+    if (block.latex) {
+      const dpr = window.devicePixelRatio || 1;
+      const cached = mathImageCache.get(
+        mathCacheKey(block.latex, block.displayMode, dpr),
+      );
+
+      if (cached) {
+        // Draw the rendered equation centered, snapping to the physical pixel
+        // grid to avoid bilinear-interpolation blur on high-DPI canvases.
+        const rawX = x + Math.max(0, (width - cached.width) / 2);
+        const rawY =
+          contentY + Math.max(0, (contentHeight - cached.height) / 2);
+        const drawX = Math.round(rawX * dpr) / dpr;
+        const drawY = Math.round(rawY * dpr) / dpr;
+        const drawW = Math.round(cached.width * dpr) / dpr;
+        const drawH = Math.round(cached.height * dpr) / dpr;
+        ctx.drawImage(cached.img, drawX, drawY, drawW, drawH);
+      } else {
+        // Kick off the async render. When it lands, drop the cached height so
+        // the block reflows to the real equation size, then repaint.
+        renderMathToImage(
+          block.latex,
+          block.displayMode,
+          styles.blocks.paragraph.color,
+          () => {
+            block.cachedHeight = undefined;
+            block.cachedWidth = undefined;
+            c.requestRedraw();
+          },
+        );
+
+        // Draw loading placeholder
+        ctx.fillStyle = m.placeholder.textColor;
+        ctx.font = "14px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.globalAlpha = 0.5;
+        ctx.fillText(
+          "Rendering...",
+          x + width / 2,
+          contentY + contentHeight / 2,
+        );
+      }
+    } else {
+      // Empty math block — draw the click-to-edit placeholder.
+      ctx.fillStyle = m.placeholder.backgroundColor;
+      ctx.beginPath();
+      ctx.roundRect(x, contentY, width, contentHeight, 6);
+      ctx.fill();
+
+      ctx.fillStyle = m.placeholder.textColor;
+      ctx.font = "14px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(
+        m.placeholder.text,
+        x + width / 2,
+        contentY + contentHeight / 2,
+      );
+    }
+  }
+}

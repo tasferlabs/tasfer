@@ -24,7 +24,8 @@ import {
   getVisibleTextFromRuns,
   extractTitleFromBlocks,
 } from "@cypherkit/editor/sync/char-runs";
-import { type Block, type Image } from "@cypherkit/editor/serlization/loadPage";
+import { type Block } from "@cypherkit/editor/serlization/loadPage";
+import type { Image } from "@cypherkit/editor/rendering/blocks/ImageBlockView";
 import { imageCache } from "@cypherkit/editor/rendering/renderer";
 import { getPlatform } from "@/platform";
 import { getPage } from "../api/pages.api";

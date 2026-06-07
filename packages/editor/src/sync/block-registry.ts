@@ -9,7 +9,8 @@
  * registry.
  */
 
-import type { Block, TextualBlock } from "../serlization/loadPage";
+import type { TextualBlock } from "../rendering/blocks/TextBlockView";
+import type { Block } from "../serlization/loadPage";
 import type { BlockType } from "./crdt-types";
 
 // =============================================================================

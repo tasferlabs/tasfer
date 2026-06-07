@@ -42,8 +42,8 @@ import { getTextDirection } from "../../rtl";
 import type {
   Block,
   Char,
+  CharRun,
   FormatSpan,
-  TextualBlock,
 } from "../../serlization/loadPage";
 import type {
   BlockBounds,
@@ -70,8 +70,10 @@ import {
   type BlockLayout,
   type BlockLayoutCtx,
   type BlockPaintCtx,
+  type BlockRuntimeState,
   BlockView,
 } from "./BlockView";
+import type { ListBlock } from "./ListBlockView";
 
 /**
  * The block types handled by TextBlockView itself: headings + paragraph.
@@ -115,6 +117,20 @@ export interface TextBlockLayout extends BlockLayout {
   /** Raw wrap result, retained for consumers that need consumedSpace. */
   readonly wrapped: WrappedLine[];
 }
+
+export interface Heading extends BlockRuntimeState {
+  type: "heading1" | "heading2" | "heading3";
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
+  formats: FormatSpan[]; // Format spans reference char IDs
+}
+export interface Paragraph extends BlockRuntimeState {
+  type: "paragraph";
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
+  formats: FormatSpan[]; // Format spans reference char IDs
+}
+
+export type TextBlock = Heading | Paragraph;
+export type TextualBlock = TextBlock | ListBlock;
 
 // ---------------------------------------------------------------------------
 // Composition injection (shared with the renderer's cursor layer)

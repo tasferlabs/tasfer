@@ -7,10 +7,18 @@
  * rule" — the genuinely line-specific 4 lines.
  */
 
-import type { Line } from "../../serlization/loadPage";
 import type { BlockBounds } from "../../state-types";
 import { AtomicBlockView } from "./AtomicBlockView";
-import type { BlockLayoutCtx, BlockPaintCtx } from "./BlockView";
+import type {
+  BlockLayoutCtx,
+  BlockPaintCtx,
+  BlockRuntimeState,
+} from "./BlockView";
+
+// Line block - horizontal divider/separator
+export interface Line extends BlockRuntimeState {
+  type: "line";
+}
 
 export class LineBlockView extends AtomicBlockView<Line> {
   readonly type = "line" as const;

@@ -18,10 +18,26 @@
 
 import { resolveAssetUrl } from "../../adapters";
 import { IMAGE_DEFAULT_HEIGHT } from "../../constants";
-import type { Image } from "../../serlization/loadPage";
 import type { BlockBounds, EditorStyles } from "../../state-types";
 import { AtomicBlockView } from "./AtomicBlockView";
-import type { BlockLayoutCtx, BlockPaintCtx } from "./BlockView";
+import type {
+  BlockLayoutCtx,
+  BlockPaintCtx,
+  BlockRuntimeState,
+} from "./BlockView";
+
+// Image block — an embedded image.
+// Note: cachedHeight/cachedWidth (from BlockRuntimeState) are transient runtime
+// state, not persisted.
+export interface Image extends BlockRuntimeState {
+  type: "image";
+  url: string;
+  alt?: string;
+  // Image dimensions - if not specified, defaults to cover mode with full width and default height
+  width?: number | "full"; // Width in pixels or 'full' for edge-to-edge
+  height?: number; // Height in pixels (only used in cover mode)
+  objectFit?: "cover" | "contain"; // How image should be fitted
+}
 
 // ── Image asset cache ──────────────────────────────────────────────────────
 // Co-located with the image block: this is image-only state. Shared as module

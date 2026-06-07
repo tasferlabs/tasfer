@@ -7,16 +7,17 @@
  * opt in/out of block types, or use `createDefaultBlockViewRegistry()` for the
  * built-in set.
  *
- * As more blocks are ported (math, then the text/list family splits apart via a
- * TextBlockView base), they get added to the default set here and their
+ * As blocks are ported they get added to the default set here and their
  * `block.type ===` branches in renderer.ts / selection.ts / event-utils
- * collapse into `registry.get(type)` lookups.
+ * collapse into `registry.get(type)` lookups. The built-in set now covers every
+ * block type (line, image, math, and the text/list family).
  */
 
 import { BlockView, BlockViewRegistry } from "./BlockView";
 import { ImageBlockView } from "./ImageBlockView";
 import { LineBlockView } from "./LineBlockView";
 import { listBlockView } from "./ListBlockView";
+import { MathBlockView } from "./MathBlockView";
 import { textBlockView } from "./TextBlockView";
 
 export { AtomicBlockView } from "./AtomicBlockView";
@@ -35,6 +36,7 @@ export {
   ListBlockView,
   listBlockView,
 } from "./ListBlockView";
+export { MathBlockView } from "./MathBlockView";
 export {
   getContentWithComposition,
   TEXT_BLOCK_TYPES,
@@ -51,6 +53,7 @@ export {
  */
 export const lineBlockView = new LineBlockView();
 export const imageBlockView = new ImageBlockView();
+export const mathBlockView = new MathBlockView();
 
 /**
  * The built-in block views. Constructed lazily (inside the factory) so importing
@@ -62,7 +65,13 @@ export const imageBlockView = new ImageBlockView();
  * `blockViews` list passed to `mountEditor`.
  */
 function defaultBlockViews(): BlockView[] {
-  return [lineBlockView, imageBlockView, textBlockView, listBlockView];
+  return [
+    lineBlockView,
+    imageBlockView,
+    mathBlockView,
+    textBlockView,
+    listBlockView,
+  ];
 }
 
 /** Build a registry from an explicit list of views (host opt-in). */

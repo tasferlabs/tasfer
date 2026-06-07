@@ -1,81 +1,9 @@
+import type { VisualBlock } from "../rendering/blocks/AtomicBlockView";
+import type { ListBlock } from "../rendering/blocks/ListBlockView";
+import type { TextBlock } from "../rendering/blocks/TextBlockView";
 import type { HLC } from "../sync/sync";
 import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
-
-export interface BlockRuntimeState {
-  id: string;
-  cachedHeight?: number; // Cached rendered height
-  cachedWidth?: number; // Width at which height was cached
-  deleted?: boolean;
-  afterId?: string | null;
-}
-export interface Heading extends BlockRuntimeState {
-  type: "heading1" | "heading2" | "heading3";
-  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
-  formats: FormatSpan[]; // Format spans reference char IDs
-}
-export interface Paragraph extends BlockRuntimeState {
-  type: "paragraph";
-  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
-  formats: FormatSpan[]; // Format spans reference char IDs
-}
-
-// List item blocks - support bullet, numbered, and todo lists with nesting
-export interface BulletListItem extends BlockRuntimeState {
-  type: "bullet_list";
-  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
-  formats: FormatSpan[]; // Format spans reference char IDs
-  indent: number; // 0-based indent level (0 = no indent)
-}
-
-export interface NumberedListItem extends BlockRuntimeState {
-  type: "numbered_list";
-  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
-  formats: FormatSpan[]; // Format spans reference char IDs
-  indent: number; // 0-based indent level (0 = no indent)
-}
-
-export interface TodoListItem extends BlockRuntimeState {
-  type: "todo_list";
-  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
-  formats: FormatSpan[]; // Format spans reference char IDs
-  checked: boolean;
-  indent: number; // 0-based indent level (0 = no indent)
-}
-
-// Image block - full-width image that spans the entire canvas
-// Note: cachedHeight/cachedWidth are transient runtime state, not persisted
-export interface Image extends BlockRuntimeState {
-  type: "image";
-  url: string;
-  alt?: string;
-  // Image dimensions - if not specified, defaults to cover mode with full width and default height
-  width?: number | "full"; // Width in pixels or 'full' for edge-to-edge
-  height?: number; // Height in pixels (only used in cover mode)
-  objectFit?: "cover" | "contain"; // How image should be fitted
-}
-
-// Line block - horizontal divider/separator
-export interface Line extends BlockRuntimeState {
-  type: "line";
-}
-
-// Math block - rendered LaTeX equation
-export interface Math extends BlockRuntimeState {
-  type: "math";
-  latex: string;
-  displayMode: boolean; // true = display/block mode, false = inline mode
-}
-
-// TODO: Normal inline image block (future implementation)
-// export interface Image {
-//   id: string;
-//   type: "image";
-//   url: string;
-//   alt?: string;
-//   cachedHeight?: number;
-//   cachedWidth?: number;
-// }
 
 export interface TextFormat {
   type: "bold" | "italic" | "strikethrough" | "code" | "link" | "math";
@@ -139,17 +67,6 @@ export function areFormatArraysEqual(
 
   return true;
 }
-
-// Text blocks contain text content
-export type TextBlock = Heading | Paragraph;
-
-// List blocks contain list items with text content
-export type ListBlock = BulletListItem | NumberedListItem | TodoListItem;
-
-export type TextualBlock = TextBlock | ListBlock;
-
-// Visual blocks contain visual content (images, lines, math, etc.)
-export type VisualBlock = Image | Line | Math;
 
 // Block is a union of all block types
 export type Block = TextBlock | VisualBlock | ListBlock;

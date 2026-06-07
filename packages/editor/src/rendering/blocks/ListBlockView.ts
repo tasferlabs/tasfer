@@ -11,9 +11,18 @@
  */
 
 import { getCurrentFontFamily, getFontStack } from "../../fonts";
-import { isListBlock, type TextualBlock } from "../../serlization/loadPage";
+import {
+  type CharRun,
+  type FormatSpan,
+  isListBlock,
+} from "../../serlization/loadPage";
 import type { EditorState, EditorStyles } from "../../state-types";
-import { type TextBlockLayout, TextBlockView } from "./TextBlockView";
+import type { BlockRuntimeState } from "./BlockView";
+import {
+  type TextBlockLayout,
+  TextBlockView,
+  type TextualBlock,
+} from "./TextBlockView";
 import i18next from "i18next";
 
 /** The block types handled by ListBlockView. */
@@ -22,6 +31,31 @@ export const LIST_BLOCK_TYPES = [
   "numbered_list",
   "todo_list",
 ] as const;
+
+// List item blocks - support bullet, numbered, and todo lists with nesting
+export interface BulletListItem extends BlockRuntimeState {
+  type: "bullet_list";
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
+  formats: FormatSpan[]; // Format spans reference char IDs
+  indent: number; // 0-based indent level (0 = no indent)
+}
+
+export interface NumberedListItem extends BlockRuntimeState {
+  type: "numbered_list";
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
+  formats: FormatSpan[]; // Format spans reference char IDs
+  indent: number; // 0-based indent level (0 = no indent)
+}
+
+export interface TodoListItem extends BlockRuntimeState {
+  type: "todo_list";
+  charRuns: CharRun[]; // Character runs (squashed CRDT storage)
+  formats: FormatSpan[]; // Format spans reference char IDs
+  checked: boolean;
+  indent: number; // 0-based indent level (0 = no indent)
+}
+// List blocks contain list items with text content
+export type ListBlock = BulletListItem | NumberedListItem | TodoListItem;
 
 /**
  * Item number for a numbered list item — counts preceding same-indent siblings.

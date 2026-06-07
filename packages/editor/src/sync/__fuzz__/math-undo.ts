@@ -12,7 +12,7 @@
  */
 
 import { invertOperation } from "../../inverse";
-import type { Math as MathBlock } from "../../serlization/loadPage";
+import type { MathBlock } from "../../rendering/blocks/MathBlockView";
 import { applyOp } from "../reducer";
 import { createCRDTbinding, SyncEngine } from "../sync";
 

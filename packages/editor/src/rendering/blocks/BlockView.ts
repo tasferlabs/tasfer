@@ -35,6 +35,14 @@ export interface BlockLayout {
   readonly lines: readonly RenderedLine[];
 }
 
+export interface BlockRuntimeState {
+  id: string;
+  cachedHeight?: number; // Cached rendered height
+  cachedWidth?: number; // Width at which height was cached
+  deleted?: boolean;
+  afterId?: string | null;
+}
+
 /** Geometry + styles available without a canvas (measurement, height passes). */
 export interface BlockLayoutCtx {
   readonly block: Block;
