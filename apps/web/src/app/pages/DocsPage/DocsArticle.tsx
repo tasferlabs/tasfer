@@ -6,6 +6,7 @@ import { DocsHeader } from "./DocsHeader";
 import { Sidebar } from "./Sidebar";
 import { Toc } from "./Toc";
 import { Pager } from "./Pager";
+import { PkgMgrProvider } from "./docsComponents";
 import { PAGE, type PageMeta } from "./docsNav";
 import "./DocsPage.css";
 
@@ -82,20 +83,22 @@ export default function DocsArticle() {
   const activeSection = meta.sectionId as "app" | "editor";
 
   return (
-    <div className="dx-page">
-      <DocsHeader activeSection={activeSection} onMenu={() => setDrawer(true)} />
-      <div className="dx-shell">
-        <Sidebar current={route} open={drawer} onNavigate={() => setDrawer(false)} />
-        <main className="dx-main">
-          <article className="dx-article">
-            <Breadcrumb meta={meta} />
-            <PageComp />
-            <Pager route={route} />
-          </article>
-        </main>
-        <Toc route={route} />
+    <PkgMgrProvider>
+      <div className="dx-page">
+        <DocsHeader activeSection={activeSection} onMenu={() => setDrawer(true)} />
+        <div className="dx-shell">
+          <Sidebar current={route} open={drawer} onNavigate={() => setDrawer(false)} />
+          <main className="dx-main">
+            <article className="dx-article">
+              <Breadcrumb meta={meta} />
+              <PageComp />
+              <Pager route={route} />
+            </article>
+          </main>
+          <Toc route={route} />
+        </div>
+        <div className={"dx-scrim" + (drawer ? " is-open" : "")} onClick={() => setDrawer(false)} />
       </div>
-      <div className={"dx-scrim" + (drawer ? " is-open" : "")} onClick={() => setDrawer(false)} />
-    </div>
+    </PkgMgrProvider>
   );
 }

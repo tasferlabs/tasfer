@@ -12,16 +12,38 @@ knows nothing about React, your fonts, your asset storage, or your network. The
 through.
 
 > **Runnable companion code.** Every step below maps to the boilerplate in
-> [`examples/minimal/`](./examples/minimal). To run it:
->
-> ```bash
-> cd packages/editor/docs/examples/minimal
-> npm install
-> npm run dev          # http://localhost:4100
-> ```
->
-> The example aliases `@cypherkit/editor` straight to the package's TypeScript
-> source — there is no build step (see Step 1).
+> [`examples/minimal/`](./examples/minimal). The example aliases
+> `@cypherkit/editor` straight to the package's TypeScript source — there is no
+> build step (see Step 1).
+
+To run it:
+
+:::tabs key:pm
+== pnpm
+```bash
+cd packages/editor/docs/examples/minimal
+pnpm install
+pnpm dev          # http://localhost:4100
+```
+== npm
+```bash
+cd packages/editor/docs/examples/minimal
+npm install
+npm run dev          # http://localhost:4100
+```
+== yarn
+```bash
+cd packages/editor/docs/examples/minimal
+yarn
+yarn dev          # http://localhost:4100
+```
+== bun
+```bash
+cd packages/editor/docs/examples/minimal
+bun install
+bun dev          # http://localhost:4100
+```
+:::
 
 ---
 

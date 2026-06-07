@@ -4,10 +4,28 @@ A zero-framework (plain TypeScript + Vite) host for the canvas editor. It's the
 runnable companion to [`../../getting-started.md`](../../getting-started.md) —
 the code maps 1:1 to Steps 1–7 of that tutorial.
 
+:::tabs key:pm
+== pnpm
+```bash
+pnpm install
+pnpm dev      # http://localhost:4100
+```
+== npm
 ```bash
 npm install
 npm run dev      # http://localhost:4100
 ```
+== yarn
+```bash
+yarn
+yarn dev      # http://localhost:4100
+```
+== bun
+```bash
+bun install
+bun dev      # http://localhost:4100
+```
+:::
 
 What it shows:
 
@@ -23,6 +41,6 @@ What it shows:
 For the collaboration concept (Step 8 — two editors converging via the CRDT),
 see the tutorial; it's a short extension of this same setup.
 
-> No `package-lock.json` is committed here — run `npm install` to generate one.
+> No lockfile is committed here — run the install command above to generate one.
 > The example depends only on `vite`, `typescript`, and the editor's runtime deps
 > (`i18next`, `nanoid`).

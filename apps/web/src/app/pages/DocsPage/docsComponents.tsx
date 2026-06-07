@@ -1,5 +1,8 @@
 import {
+  createContext,
+  useContext,
   useId,
+  useMemo,
   useState,
   type ReactNode,
   type AnchorHTMLAttributes,
@@ -178,23 +181,78 @@ export function Code({
   );
 }
 
-/* ── install tabs (npm / pnpm / yarn / bun) ── */
+/* ── install tabs (npm / pnpm / yarn / bun) ──
+   Every install block that shares a `group` stays in sync: picking a manager in
+   one block switches all other blocks in the same group, live. The selection is
+   also persisted to localStorage so it survives reloads and navigation. The
+   shared state lives in React context (no module-level globals) and is supplied
+   by <PkgMgrProvider> wrapped around the docs article. */
 type Mgr = "npm" | "pnpm" | "yarn" | "bun";
-export function InstallTabs({ pkg, dev = false }: { pkg: string; dev?: boolean }) {
+const MGRS: Mgr[] = ["npm", "pnpm", "yarn", "bun"];
+
+/* Keep the original key for the default group so existing prefs carry over. */
+function pkgMgrLsKey(group: string) {
+  return group === "pkg" ? "cy-pkg-mgr" : `cy-pkg-mgr:${group}`;
+}
+function readPkgMgr(group: string): Mgr {
+  try {
+    const v = localStorage.getItem(pkgMgrLsKey(group)) as Mgr | null;
+    return v && MGRS.includes(v) ? v : "npm";
+  } catch {
+    return "npm";
+  }
+}
+function writePkgMgr(group: string, mgr: Mgr) {
+  try {
+    localStorage.setItem(pkgMgrLsKey(group), mgr);
+  } catch {
+    /* ignore */
+  }
+}
+
+interface PkgMgrStore {
+  get(group: string): Mgr;
+  set(group: string, mgr: Mgr): void;
+}
+const PkgMgrContext = createContext<PkgMgrStore | null>(null);
+
+/** Shares the selected package manager (per `group`) across every InstallTabs
+ *  rendered beneath it, so blocks with the same key switch together. */
+export function PkgMgrProvider({ children }: { children: ReactNode }) {
+  const [byGroup, setByGroup] = useState<Record<string, Mgr>>({});
+  const store = useMemo<PkgMgrStore>(
+    () => ({
+      get: (group) => byGroup[group] ?? readPkgMgr(group),
+      set: (group, mgr) => {
+        setByGroup((prev) => ({ ...prev, [group]: mgr }));
+        writePkgMgr(group, mgr);
+      },
+    }),
+    [byGroup],
+  );
+  return <PkgMgrContext.Provider value={store}>{children}</PkgMgrContext.Provider>;
+}
+
+export function InstallTabs({
+  pkg,
+  dev = false,
+  group = "pkg",
+}: {
+  pkg: string;
+  dev?: boolean;
+  group?: string;
+}) {
   const id = useId();
-  const [mgr, setMgr] = useState<Mgr>(() => {
-    try {
-      return (localStorage.getItem("cy-pkg-mgr") as Mgr) || "npm";
-    } catch {
-      return "npm";
-    }
-  });
+  const ctx = useContext(PkgMgrContext);
+  // Fallback for any InstallTabs rendered outside a PkgMgrProvider: behaves like
+  // the old per-block state, still persisted to localStorage.
+  const [localMgr, setLocalMgr] = useState<Mgr>(() => readPkgMgr(group));
+  const mgr = ctx ? ctx.get(group) : localMgr;
   function pick(m: Mgr) {
-    setMgr(m);
-    try {
-      localStorage.setItem("cy-pkg-mgr", m);
-    } catch {
-      /* ignore */
+    if (ctx) ctx.set(group, m);
+    else {
+      setLocalMgr(m);
+      writePkgMgr(group, m);
     }
   }
   const D = dev ? " -D" : "";
@@ -208,7 +266,7 @@ export function InstallTabs({ pkg, dev = false }: { pkg: string; dev?: boolean }
     <div className="dx-code is-terminal">
       <div className="dx-code-head">
         <div className="dx-code-tabs">
-          {(["npm", "pnpm", "yarn", "bun"] as Mgr[]).map((m) => (
+          {MGRS.map((m) => (
             <button
               key={m}
               className={"dx-code-tab" + (m === mgr ? " is-active" : "")}
