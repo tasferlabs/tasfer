@@ -9,7 +9,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { getPlatform } from "@/platform";
 import type { ConnectionState, SyncEvents } from "@/platform/types";
-import type { Operation } from "@cypherkit/editor/sync/crdt-types";
+import type { Operation } from "@cypherkit/editor/state-types";
 import type { AwarenessState, AwarenessUser } from "@cypherkit/editor/sync/awareness";
 import { getColorForPeer } from "@cypherkit/editor/sync/awareness";
 

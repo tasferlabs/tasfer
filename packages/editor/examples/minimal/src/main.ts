@@ -48,7 +48,12 @@ async function main() {
     element: byId<HTMLDivElement>("editor"),
     value: localStorage.getItem(DRAFT_KEY) ?? INITIAL_MARKDOWN,
     pageId: "minimal-demo",
-    padding: { paddingTop: 32, paddingBottom: 120, paddingLeft: 8, paddingRight: 8 },
+    padding: {
+      paddingTop: 32,
+      paddingBottom: 120,
+      paddingLeft: 8,
+      paddingRight: 8,
+    },
     autofocus: true,
   });
 
@@ -98,8 +103,13 @@ async function main() {
     const formats = [...editor.getActiveFormats()];
     wordsEl.textContent = `${words} word${words === 1 ? "" : "s"}`;
     selectionEl.textContent = editor.isSelectionEmpty() ? "caret" : "selection";
-    formatsEl.textContent = formats.length ? `formats: ${formats.join(", ")}` : "";
-    boldBtn.classList.toggle("is-active", editor.getActiveFormats().has("bold"));
+    formatsEl.textContent = formats.length
+      ? `formats: ${formats.join(", ")}`
+      : "";
+    boldBtn.classList.toggle(
+      "is-active",
+      editor.getActiveFormats().has("bold"),
+    );
   };
   editor.on("change", paintStatus);
   editor.on("selectionchange", paintStatus);
@@ -107,7 +117,7 @@ async function main() {
 
   // 5. Auto-save a draft on every content change — the canonical createEditor
   //    pattern: on("change") + getMarkdown().
-  editor.on("change", () => {
+  editor.on("change", (state) => {
     localStorage.setItem(DRAFT_KEY, editor.getMarkdown());
   });
 

@@ -8,11 +8,12 @@ import {
   type AwarenessUser,
 } from "@cypherkit/editor/sync/awareness";
 import {
-  SyncEngine,
-  maxOpIdCounter,
+  createCRDTbinding,
+  createSyncEngine,
   serializeVV,
+  type SyncEngine,
 } from "@cypherkit/editor/sync/sync";
-import type { Operation } from "@cypherkit/editor/sync/crdt-types";
+import type { Operation } from "@cypherkit/editor/state-types";
 import { getPlatform } from "@/platform";
 import {
   Bold,
@@ -64,15 +65,43 @@ import { allCharsHaveFormat } from "@cypherkit/editor/sync/crdt-utils";
 import type {
   CursorDragState,
   EditorState,
+  EditorStrings,
   PlaceholderStyles,
   SlashCommand,
   TextStyle,
 } from "@cypherkit/editor/state-types";
+import i18next from "i18next";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
 import { usePageSettings } from "./contexts/PageSettingsContext";
 import { EditorLoadingState } from "./pages/EditorPage";
 import { isTextualBlock } from "@cypherkit/editor/sync/block-registry";
+
+/**
+ * Localized strings for everything the editor paints onto the canvas. The
+ * @cypherkit/editor package ships English defaults and no i18n library, so the
+ * host passes translations at mount. Evaluated at mount time — fine, since
+ * changing the language happens on the Settings page where no editor is
+ * mounted; the next mount picks up the new language.
+ */
+function editorStrings(): EditorStrings {
+  return {
+    imageClickToUpload: i18next.t("image.clickToUpload"),
+    imageLoading: i18next.t("image.loading"),
+    imageUploading: i18next.t("image.uploading"),
+    imageUploadFailed: i18next.t("error.failedToUploadImage"),
+    imageClickToRetry: i18next.t("common.clickToRetry"),
+    imageChangeImage: i18next.t("image.changeImage"),
+    mathClickToEdit: i18next.t("math.clickToEdit"),
+    placeholderHeading1: i18next.t("blocks.heading1"),
+    placeholderHeading2: i18next.t("blocks.heading2"),
+    placeholderHeading3: i18next.t("blocks.heading3"),
+    placeholderParagraph: i18next.t("editor.typeForCommands"),
+    placeholderParagraphTouch: i18next.t("editor.typeSomething"),
+    placeholderListItem: i18next.t("blocks.listItem"),
+    placeholderTodoItem: i18next.t("blocks.todoItem"),
+  };
+}
 
 async function downloadImage(url: string, alt?: string): Promise<void> {
   const isAlreadyUrl =
@@ -340,8 +369,14 @@ export function MountedEditor({
   );
   // Track when applying remote operations to prevent triggering saves for non-local changes
   const isApplyingRemoteOpsRef = useRef(false);
-  // Spinner overlay: hidden once we've confirmed local storage state (ops loaded or snapshot has content)
-  const [isContentReady, setIsContentReady] = useState(false);
+  // Spinner overlay: hidden once we've confirmed local storage state (ops
+  // loaded or snapshot has content). Keyed by pageId rather than a boolean so
+  // a page switch hides the canvas on the very first render (a boolean reset
+  // in the mount effect lands one render too late, flashing the previous
+  // page's content) and so a stale reveal from a previous page's pending
+  // rAF/ops-load can't dismiss the new page's overlay.
+  const [readyPageId, setReadyPageId] = useState<string | null>(null);
+  const isContentReady = readyPageId === pageId;
 
   // Mobile keyboard toolbar state (updated on every editor state change)
   const [mobileToolbar, setMobileToolbar] = useState({
@@ -481,8 +516,6 @@ export function MountedEditor({
     lastSerializedBlocksRef.current = null;
     editorInitializedRef.current = false;
 
-    setIsContentReady(false);
-
     // Use live editor content if available (HMR re-mount for same page), otherwise use snapshot prop
     const initialBlocks =
       liveBlocksRef.current?.pageId === pageId
@@ -490,12 +523,21 @@ export function MountedEditor({
         : snapshot;
     liveBlocksRef.current = null;
 
+    // One CRDT binding per page mount — the single id/clock/peer-identity
+    // source shared by the editor (which stamps local ops with it) and the
+    // sync engine (which advances it past loaded/remote ops). Sharing it means
+    // no manual clock/id-counter mirroring between the two, and local ops are
+    // stamped with our persistent peer id instead of a random per-mount one.
+    const crdtBinding = createCRDTbinding(pageId, peerIdRef.current);
+
     const mounted = mountEditor(el, initialBlocks, {
       readonly,
       pageId,
       padding,
       blockStyleOverrides,
       placeholderOverrides,
+      strings: editorStrings(),
+      crdtBinding,
     });
     mountedRef.current = mounted;
 
@@ -508,7 +550,7 @@ export function MountedEditor({
 
     if (snapshotHasContent) {
       // Content is already in the snapshot — reveal after the canvas renders its first frame.
-      requestAnimationFrame(() => setIsContentReady(true));
+      requestAnimationFrame(() => setReadyPageId(pageId));
     }
 
     // Wire up scroll callback
@@ -565,7 +607,7 @@ export function MountedEditor({
 
       // Readonly mode never receives sync updates, so reveal immediately if not already done.
       if (!snapshotHasContent) {
-        setIsContentReady(true);
+        setReadyPageId(pageId);
       }
 
       return () => {
@@ -586,23 +628,14 @@ export function MountedEditor({
     const platform = getPlatform();
     const opsLoadedPromise = platform.ops.load(pageId).then((persistedOps) => {
       if (persistedOps.length > 0 && syncEngineRef.current) {
+        // loadOperations also advances the shared CRDT binding's clock and
+        // id-counter past every loaded op, so new local operations (typing,
+        // restore, etc.) out-order and out-counter historical ones.
         syncEngineRef.current.loadOperations(persistedOps);
-        // Advance the global HLC past all loaded ops so that new operations
-        // (typing, restore, etc.) get HLC values higher than historical ops.
-        // Without this, mergeOps full-rebuild would sort session ops before
-        // historical ops, breaking causality (e.g. deletes before inserts).
-        const lastOp = persistedOps[persistedOps.length - 1];
-        if (lastOp) {
-          mounted.editor.advanceClock(lastOp.clock);
-        }
-        // Same monotonicity requirement applies to the id-counter: future
-        // local ids must out-counter every persisted id so RGA sibling
-        // sorts place new blocks/chars after pre-existing siblings.
-        mounted.editor.advanceIdCounter(maxOpIdCounter(persistedOps));
       }
       // Local storage confirmed — we have whatever we have. Reveal the canvas.
       if (!snapshotHasContent) {
-        requestAnimationFrame(() => setIsContentReady(true));
+        requestAnimationFrame(() => setReadyPageId(pageId));
       }
     });
 
@@ -613,8 +646,9 @@ export function MountedEditor({
       });
     }
 
-    // Initialize sync engine for CRDT (use same peerId as WebSocket)
-    const syncEngine = new SyncEngine(pageId, peerIdRef.current);
+    // Initialize sync engine for CRDT on the same binding as the editor
+    // (same peerId as WebSocket, single shared clock/id source).
+    const syncEngine = createSyncEngine(crdtBinding);
     syncEngineRef.current = syncEngine;
 
     // Debounced snapshot writer — keeps the FS snapshot in sync after edits.
@@ -631,17 +665,10 @@ export function MountedEditor({
     // Persistence is handled by the Replicator before ops reach these callbacks.
     const applyRemoteOps = (ops: Operation[]) => {
       isApplyingRemoteOpsRef.current = true;
+      // apply() advances the shared CRDT binding's clock and id-counter past
+      // all received ops, so subsequent local operations (typing, deleting)
+      // respect causality with no extra bookkeeping here.
       syncEngine.apply(ops);
-      // Advance the global HLC past all received ops so that subsequent
-      // local operations (typing, deleting) get HLC values that respect
-      // causality. Without this, a local delete could get a lower counter
-      // than the remote inserts it depends on, breaking convergence during
-      // rebuildState (which sorts by HLC).
-      for (const op of ops) {
-        mounted.editor.advanceClock(op.clock);
-      }
-      // And bump the id-counter past any remote ids — same reason as above.
-      mounted.editor.advanceIdCounter(maxOpIdCounter(ops));
       mounted.editor.updatePageFromSync(syncEngine.getState());
       saveSnapshot(syncEngine.getState().blocks);
       isApplyingRemoteOpsRef.current = false;
@@ -1846,9 +1873,12 @@ export function MountedEditor({
       {/* Spinner overlay — visible until local storage state is confirmed.
           Absolutely positioned so it overlays the canvas regardless of DOM order,
           preventing the skeleton from pushing the canvas below the viewport
-          (which would block mousedown events from reaching the canvas). */}
+          (which would block mousedown events from reaching the canvas).
+          Opaque background: the canvas mounts and paints underneath while this
+          is still up (the reveal intentionally waits for the first canvas
+          frame), so a transparent overlay would show both at once. */}
       {!isContentReady && (
-        <div className="absolute inset-0 z-10">
+        <div className="absolute inset-0 z-10 bg-background">
           <EditorLoadingState />
         </div>
       )}

@@ -12,13 +12,25 @@
  */
 
 import type { Block } from "../serlization/loadPage";
-import { nanoid } from "nanoid";
+
+/**
+ * URL-safe alphabet for peer ids. 64 chars so a random byte masked to 6 bits
+ * maps uniformly onto it. Must never contain ":" — compound ids are
+ * `${peerId}:${counter}` and are split on the first colon.
+ */
+const PEER_ID_ALPHABET =
+  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_";
 
 /**
  * Generate a unique peer ID (6 URL-safe chars, 36 bits of entropy).
  */
 export function generatePeerId(): string {
-  return nanoid(6);
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  let id = "";
+  for (const byte of bytes) {
+    id += PEER_ID_ALPHABET[byte & 63];
+  }
+  return id;
 }
 
 /**

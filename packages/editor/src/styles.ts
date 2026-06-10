@@ -2,12 +2,34 @@ import { IMAGE_DEFAULT_HEIGHT } from "./constants";
 import { getCurrentFontFamily, getFontStack } from "./fonts";
 import type {
   EditorState,
+  EditorStrings,
   EditorStyles,
   FontStyles,
   TextStyle,
 } from "./state-types";
 import { isTouchDevice } from "./state-utils";
-import i18next from "i18next";
+
+/**
+ * English defaults for every canvas-painted string. The editor ships no i18n
+ * library — a localized host overrides these per instance via the `strings`
+ * mount option (see {@link EditorStrings}).
+ */
+const DEFAULT_STRINGS: EditorStrings = {
+  imageClickToUpload: "Click to upload image",
+  imageLoading: "Loading image...",
+  imageUploading: "Uploading image...",
+  imageUploadFailed: "Failed to upload image",
+  imageClickToRetry: "Click to retry",
+  imageChangeImage: "Change Image",
+  mathClickToEdit: "Click to add equation",
+  placeholderHeading1: "Heading 1",
+  placeholderHeading2: "Heading 2",
+  placeholderHeading3: "Heading 3",
+  placeholderParagraph: "Type '/' for commands.",
+  placeholderParagraphTouch: "Type something awesome...",
+  placeholderListItem: "List item",
+  placeholderTodoItem: "To-do item",
+};
 
 /**
  * Neutral, opinion-free default font registry. The editor ships no bundled
@@ -51,6 +73,21 @@ export function getFontStyles() {
 }
 
 /**
+ * Resolved font registry (host override layered over the system-font default).
+ *
+ * This is the accessor for the text-measurement hot path (`getFontStack` runs
+ * once per character during wrapping) — it must stay free of the
+ * `getComputedStyle` calls that building a full `EditorStyles` incurs.
+ */
+export function getResolvedFontStyles(): FontStyles {
+  return {
+    families: fontStylesOverride?.families ?? DEFAULT_FONT_STYLES.families,
+    defaultFamily:
+      fontStylesOverride?.defaultFamily ?? DEFAULT_FONT_STYLES.defaultFamily,
+  };
+}
+
+/**
  * Get CSS custom property value from the document root
  */
 function getCSSVariable(name: string, fallback?: string): string {
@@ -74,6 +111,10 @@ export function getEditorStyles(state?: EditorState): EditorStyles {
   const paddingOverride = state?.styleConfig.padding ?? null;
   const blockStyleOverrides = state?.styleConfig.blockStyleOverrides ?? null;
   const placeholderOverrides = state?.styleConfig.placeholderOverrides ?? null;
+  const strings: EditorStrings = {
+    ...DEFAULT_STRINGS,
+    ...state?.styleConfig.strings,
+  };
   // Window focus defaults to true when unknown (no state) so selection renders
   // in its focused color rather than the dimmed unfocused variant.
   const isWindowFocused = state?.view.isWindowFocused ?? true;
@@ -89,11 +130,7 @@ export function getEditorStyles(state?: EditorState): EditorStyles {
       paddingRight: paddingOverride?.paddingRight ?? horizontalPadding,
       lineHeight: 1.6,
     },
-    fonts: {
-      families: fontStylesOverride?.families ?? DEFAULT_FONT_STYLES.families,
-      defaultFamily:
-        fontStylesOverride?.defaultFamily ?? DEFAULT_FONT_STYLES.defaultFamily,
-    },
+    fonts: getResolvedFontStyles(),
     blocks: {
       heading1: {
         fontSize: 32,
@@ -159,32 +196,29 @@ export function getEditorStyles(state?: EditorState): EditorStyles {
           backgroundColor: getCSSVariable("--muted"),
           textColor: getCSSVariable("--muted-foreground"),
           borderColor: getCSSVariable("--border"),
-          text: i18next.t("image.clickToUpload", "Click to upload image"),
+          text: strings.imageClickToUpload,
         },
         loading: {
           backgroundColor: getCSSVariable("--muted"),
           textColor: getCSSVariable("--muted-foreground"),
-          text: i18next.t("image.loading", "Loading image..."),
+          text: strings.imageLoading,
         },
         uploading: {
           backgroundColor: getCSSVariable("--muted"),
           textColor: getCSSVariable("--muted-foreground"),
-          text: i18next.t("image.uploading", "Uploading image..."),
+          text: strings.imageUploading,
         },
         error: {
           backgroundColor: getCSSVariable("--destructive"),
           textColor: getCSSVariable("--destructive-foreground"),
-          text: i18next.t(
-            "error.failedToUploadImage",
-            "Failed to upload image",
-          ),
-          retryText: i18next.t("common.clickToRetry", "Click to retry"),
+          text: strings.imageUploadFailed,
+          retryText: strings.imageClickToRetry,
         },
         hover: {
           overlayColor: getCSSVariable("--editor-cover-image-overlay"),
           buttonBackgroundColor: getCSSVariable("--background"),
           buttonTextColor: getCSSVariable("--foreground"),
-          buttonText: i18next.t("image.changeImage", "Change Image"),
+          buttonText: strings.imageChangeImage,
         },
         dimensions: {
           height: IMAGE_DEFAULT_HEIGHT,
@@ -204,7 +238,7 @@ export function getEditorStyles(state?: EditorState): EditorStyles {
         placeholder: {
           backgroundColor: getCSSVariable("--muted"),
           textColor: getCSSVariable("--muted-foreground"),
-          text: i18next.t("math.clickToEdit", "Click to add equation"),
+          text: strings.mathClickToEdit,
         },
       },
     },
@@ -236,26 +270,31 @@ export function getEditorStyles(state?: EditorState): EditorStyles {
     placeholder: {
       heading1: {
         text:
-          placeholderOverrides?.heading1?.text ??
-          i18next.t("blocks.heading1", "Heading 1"),
+          placeholderOverrides?.heading1?.text ?? strings.placeholderHeading1,
       },
       heading2: {
         text:
-          placeholderOverrides?.heading2?.text ??
-          i18next.t("blocks.heading2", "Heading 2"),
+          placeholderOverrides?.heading2?.text ?? strings.placeholderHeading2,
       },
       heading3: {
         text:
-          placeholderOverrides?.heading3?.text ??
-          i18next.t("blocks.heading3", "Heading 3"),
+          placeholderOverrides?.heading3?.text ?? strings.placeholderHeading3,
       },
       paragraph: {
         keyboardCompatibleText:
           placeholderOverrides?.paragraph?.keyboardCompatibleText ??
-          i18next.t("editor.typeForCommands", "Type '/' for commands."),
+          strings.placeholderParagraph,
         touchCompatiableText:
           placeholderOverrides?.paragraph?.touchCompatiableText ??
-          i18next.t("editor.typeSomething", "Type something awesome..."),
+          strings.placeholderParagraphTouch,
+      },
+      listItem: {
+        text:
+          placeholderOverrides?.listItem?.text ?? strings.placeholderListItem,
+      },
+      todoItem: {
+        text:
+          placeholderOverrides?.todoItem?.text ?? strings.placeholderTodoItem,
       },
       color: getCSSVariable("--editor-placeholder"),
     },

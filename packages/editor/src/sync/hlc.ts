@@ -10,7 +10,7 @@
  * Comparison order: counter → peerId (lexicographic)
  */
 
-import type { HLC } from "./crdt-types";
+import type { HLC } from "../state-types";
 
 /**
  * Create a new HLC initialized to zero.

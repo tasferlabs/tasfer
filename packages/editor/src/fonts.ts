@@ -20,7 +20,7 @@ import type {
   TextFormat,
 } from "./serlization/loadPage";
 import type { FontFamily, FontMetrics } from "./state-types";
-import { getEditorStyles } from "./styles";
+import { getResolvedFontStyles } from "./styles";
 import { charRunsToChars } from "./sync/char-runs";
 
 // Re-exported for back-compat with `@cypherkit/editor/fonts` consumers.
@@ -81,7 +81,7 @@ const measurementCanvas = (() => {
  * default family, then to a generic system stack.
  */
 export function getFontStack(fontFamily: FontFamily): string {
-  const { families, defaultFamily } = getEditorStyles().fonts;
+  const { families, defaultFamily } = getResolvedFontStyles();
   return families[fontFamily] ?? families[defaultFamily] ?? "sans-serif";
 }
 
@@ -109,8 +109,11 @@ export function onFontsReady(cb: () => void): () => void {
 export function notifyFontsLoaded(): void {
   if (fontsLoaded) return;
   fontsLoaded = true;
-  // Flush cached metrics so they're re-measured with the real fonts
+  // Flush cached metrics/widths so they're re-measured with the real fonts,
+  // and force ctx.font re-assignment so canvases resolve the loaded faces
   metricsCache = new Map();
+  charWidthCache = new Map();
+  fontEpoch++;
   // Notify listeners (editor re-render)
   const cbs = fontReadyCallbacks.splice(0);
   for (const cb of cbs) cb();
@@ -124,8 +127,11 @@ export function notifyFontsLoaded(): void {
  * `onFontsReady` listeners so the editor re-renders.
  */
 export function notifyFontsChanged(): void {
-  // Flush metrics cache so measurements use the (possibly new) font stacks
+  // Flush metrics/width caches so measurements use the (possibly new) font
+  // stacks, and force ctx.font re-assignment on measurement canvases
   metricsCache = new Map();
+  charWidthCache = new Map();
+  fontEpoch++;
   // Notify listeners so the editor re-renders
   const cbs = fontReadyCallbacks.splice(0);
   for (const cb of cbs) cb();
@@ -140,6 +146,16 @@ function createCacheKey(
   return `${fontFamily}-${fontSize}-${fontWeight}`;
 }
 
+// Last font string applied to each measurement context. Assigning `ctx.font`
+// makes the browser re-parse the font string even when it's unchanged, which
+// dominates per-character measurement — so skip redundant assignments. Keyed
+// by context, so independent editor instances can't clobber each other.
+// `fontEpoch` is bumped when font faces load/change: a canvas only resolves
+// newly loaded faces after `ctx.font` is re-assigned, so the epoch forces one
+// fresh assignment per context after every font event.
+const lastAppliedFont = new WeakMap<CanvasRenderingContext2D, string>();
+let fontEpoch = 0;
+
 // Pure function to apply font to context
 function applyFont(
   ctx: CanvasRenderingContext2D,
@@ -148,7 +164,12 @@ function applyFont(
   fontFamily: FontFamily,
 ): void {
   const fontStack = getFontStack(fontFamily);
-  ctx.font = `${fontWeight} ${fontSize}px ${fontStack}`;
+  const font = `${fontWeight} ${fontSize}px ${fontStack}`;
+  const cacheKey = `${fontEpoch}|${font}`;
+  if (lastAppliedFont.get(ctx) !== cacheKey) {
+    ctx.font = font;
+    lastAppliedFont.set(ctx, cacheKey);
+  }
 }
 // Pure function to calculate font metrics
 function calculateFontMetrics(
@@ -193,6 +214,13 @@ export function getFontMetrics(
   return metrics;
 }
 
+// Width cache for short strings — wrapText measures one character at a time,
+// so per-char widths are re-requested constantly across frames. Like
+// metricsCache this memoizes pure measurements (instance-independent), and is
+// flushed by notifyFontsLoaded/notifyFontsChanged. Longer strings (batched
+// ligature measurement) are arbitrary and unbounded, so they stay uncached.
+let charWidthCache = new Map<string, number>();
+
 // Measure character
 export function measureCtxText(
   text: string,
@@ -200,8 +228,19 @@ export function measureCtxText(
   fontWeight: string,
   fontFamily: FontFamily,
 ): number {
-  // Fallback to canvas measurement
   const ctx = measurementCanvas;
+  // <= 2 covers surrogate pairs while keeping the cache bounded
+  if (text.length <= 2) {
+    const cacheKey = `${fontFamily}|${fontWeight}|${fontSize}|${text}`;
+    let width = charWidthCache.get(cacheKey);
+    if (width === undefined) {
+      applyFont(ctx, fontSize, fontWeight, fontFamily);
+      width = ctx.measureText(text).width;
+      charWidthCache.set(cacheKey, width);
+    }
+    return width;
+  }
+
   applyFont(ctx, fontSize, fontWeight, fontFamily);
   return ctx.measureText(text).width;
 }
@@ -793,7 +832,7 @@ export function onFontFamilyChange(callback: () => void): void {
 
 // Get the current font family (falls back to the styles' default family)
 export function getCurrentFontFamily(): FontFamily {
-  return selectedFontFamily ?? getEditorStyles().fonts.defaultFamily;
+  return selectedFontFamily ?? getResolvedFontStyles().defaultFamily;
 }
 
 // Set the current font family

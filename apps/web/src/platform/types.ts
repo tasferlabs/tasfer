@@ -7,7 +7,7 @@
  */
 
 import type { Block } from "@cypherkit/editor/serlization/loadPage";
-import type { HLC, Operation } from "@cypherkit/editor/sync/crdt-types";
+import type { HLC, Operation } from "@cypherkit/editor/state-types";
 import type { AwarenessState } from "@cypherkit/editor/sync/awareness";
 
 // =============================================================================

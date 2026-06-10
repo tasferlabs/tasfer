@@ -188,6 +188,16 @@ export default function parsePage(tokens: Token[]): Page {
     tree.blocks.push(emptyBlock(context));
   }
 
+  // Chain blocks via afterId so the CRDT linked-list order matches parse
+  // order. resolveBlockOrder reconstructs the block array from these links on
+  // every block_insert; without them all loaded blocks anchor at null and get
+  // re-sorted by id, scrambling the document on the first split/insert.
+  let prevBlockId: string | null = null;
+  for (const block of tree.blocks) {
+    block.afterId = prevBlockId;
+    prevBlockId = block.id;
+  }
+
   return tree;
 }
 function isEnd(context: ParserContext) {

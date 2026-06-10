@@ -8,6 +8,7 @@ import {
 import { getTextDirection } from "./rtl";
 import { type Block, isListBlock, type Page } from "./serlization/loadPage";
 import type {
+  CRDTbinding as CRDTbindingType,
   EditorMode,
   EditorState,
   EditorStyles,
@@ -24,7 +25,11 @@ import {
 } from "./sync/char-runs";
 import { initialUndoManagerState } from "./sync/crdt-undo";
 import { generatePeerId } from "./sync/id";
-import { createCRDTbinding, getVisibleBlocks } from "./sync/sync";
+import {
+  createCRDTbinding,
+  getVisibleBlocks,
+  maxPageIdCounter,
+} from "./sync/sync";
 
 // State Creation Functions
 export function createInitialState(
@@ -33,15 +38,27 @@ export function createInitialState(
     mode?: EditorMode;
     blockViews?: BlockViewRegistry;
     styleConfig?: Partial<StyleConfig>;
+    crdtBinding?: CRDTbindingType;
   },
 ): EditorState {
-  const peerId = generatePeerId();
-
   // Each editor instance owns its own CRDT context. Because the binding is
   // per-instance (not a module global), a readonly snapshot-preview editor can
   // coexist with the main editor on the same page without clobbering its
-  // id/clock state — so we always create one, readonly or not.
-  const CRDTbinding = createCRDTbinding(page.id, peerId);
+  // id/clock state — so we always have one, readonly or not.
+  //
+  // Hosts that sync should pass their own binding (created with the device's
+  // persistent peer id) and share it with `createSyncEngine` — one id/clock
+  // source for the editor and the sync engine, and ops stamped with the real
+  // peer identity instead of a random per-mount one.
+  const CRDTbinding =
+    options?.crdtBinding ?? createCRDTbinding(page.id, generatePeerId());
+
+  // Advance the id counter past every counter already present in the loaded
+  // document (block ids, char-run counters). New local ids must out-counter
+  // existing ones or the RGA sibling tie-break (counter-first) places newly
+  // split blocks / newly typed chars AFTER pre-existing siblings — i.e. at
+  // the end of the page instead of at the cursor.
+  CRDTbinding.advanceIdCounter(maxPageIdCounter(page.blocks));
 
   // Block view registry is likewise per-instance. The host composes it at mount
   // (opt-in block set); default to the built-in views when not provided.
@@ -51,6 +68,7 @@ export function createInitialState(
     padding: options?.styleConfig?.padding ?? null,
     blockStyleOverrides: options?.styleConfig?.blockStyleOverrides ?? null,
     placeholderOverrides: options?.styleConfig?.placeholderOverrides ?? null,
+    strings: options?.styleConfig?.strings ?? null,
   };
 
   return {

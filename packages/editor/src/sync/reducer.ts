@@ -11,6 +11,16 @@ import {
   type FormatSpan,
   type Page,
 } from "../serlization/loadPage";
+import type {
+  BlockDelete,
+  BlockInsert,
+  BlockSet,
+  BlockType,
+  FormatSet,
+  Operation,
+  TextDelete,
+  TextInsert,
+} from "../state-types";
 import {
   canMorphTo,
   createDefaultBlock,
@@ -26,16 +36,6 @@ import {
   isCharIdInRange,
   iterateVisibleChars,
 } from "./char-runs";
-import type {
-  BlockDelete,
-  BlockInsert,
-  BlockSet,
-  BlockType,
-  FormatSet,
-  Operation,
-  TextDelete,
-  TextInsert,
-} from "./crdt-types";
 import { resolveBlockOrder } from "./crdt-utils";
 import { compareHLC } from "./hlc";
 

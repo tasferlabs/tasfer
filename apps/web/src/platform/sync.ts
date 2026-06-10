@@ -64,7 +64,7 @@ import type {
   Peer,
 } from "./types";
 import type { AwarenessState } from "@cypherkit/editor/sync/awareness";
-import type { Operation } from "@cypherkit/editor/sync/crdt-types";
+import type { Operation } from "@cypherkit/editor/state-types";
 import {
   BINARY_ASSET_TAG,
   hexToBytes,

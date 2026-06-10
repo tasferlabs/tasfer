@@ -21,6 +21,13 @@ import type {
   Position,
   SlashCommand,
 } from "../state-types";
+import type {
+  BlockInsert,
+  BlockSet,
+  FormatSet,
+  Operation,
+  TextDelete,
+} from "../state-types";
 import {
   clearAutoCreatedParagraph,
   closeSlashCommand,
@@ -35,13 +42,6 @@ import {
   isCharIdInRange,
   iterateVisibleChars,
 } from "../sync/char-runs";
-import type {
-  BlockInsert,
-  BlockSet,
-  FormatSet,
-  Operation,
-  TextDelete,
-} from "../sync/crdt-types";
 import {
   allCharsHaveFormat,
   crdtToPosition,
@@ -674,6 +674,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
         const emptyParagraphId = state.CRDTbinding.nextId();
         const emptyParagraph: Block = {
           id: emptyParagraphId,
+          afterId: null,
           type: "paragraph",
           charRuns: [],
           formats: [],
@@ -1103,6 +1104,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
       const newParagraphId = state.CRDTbinding.nextId();
       const newParagraph: Block = {
         id: newParagraphId,
+        afterId: blockCopy.id,
         type: "paragraph",
         charRuns: [],
         formats: [],
@@ -1342,6 +1344,7 @@ export function deleteText(state: EditorState): CommandResult {
           // At indent 0: convert to paragraph
           const paragraphBlock: Block = {
             id: oldBlock.id,
+            afterId: oldBlock.afterId ?? null,
             type: "paragraph",
             charRuns: oldBlock.charRuns,
             formats: oldBlock.formats,
@@ -1393,6 +1396,7 @@ export function deleteText(state: EditorState): CommandResult {
             const emptyParagraphId = state.CRDTbinding.nextId();
             const emptyParagraph: Block = {
               id: emptyParagraphId,
+              afterId: null,
               type: "paragraph",
               charRuns: [],
               formats: [],
@@ -1501,6 +1505,7 @@ export function deleteText(state: EditorState): CommandResult {
         if (currentText.length === 0) {
           const paragraphBlock: Block = {
             id: oldBlock.id,
+            afterId: oldBlock.afterId ?? null,
             type: "paragraph",
             charRuns: oldBlock.charRuns,
             formats: oldBlock.formats,
@@ -1652,6 +1657,7 @@ export function deleteForward(state: EditorState): CommandResult {
           const emptyParagraphId = state.CRDTbinding.nextId();
           const emptyParagraph: Block = {
             id: emptyParagraphId,
+            afterId: null,
             type: "paragraph",
             charRuns: [],
             formats: [],
@@ -2510,6 +2516,7 @@ export function splitBlock(state: EditorState): CommandResult {
         const newParagraphId = state.CRDTbinding.nextId();
         const newParagraph: Block = {
           id: newParagraphId,
+          afterId: oldBlock.id,
           type: "paragraph",
           charRuns: [],
           formats: [],
@@ -2593,6 +2600,7 @@ export function splitBlock(state: EditorState): CommandResult {
         // Convert to paragraph if at base indent
         const newParagraph: Block = {
           id: oldBlock.id,
+          afterId: oldBlock.afterId ?? null,
           type: "paragraph",
           charRuns: [],
           formats: [],
@@ -3284,9 +3292,13 @@ export function convertBlockType(
   let newBlock: Block;
   const typeChanged = oldBlock.type !== blockType;
 
+  // Replacement blocks must keep the old block's afterId — it anchors the
+  // block in resolveBlockOrder's linked list; dropping it re-anchors the
+  // block at the top of the document on the next block_insert.
   if (blockType === "bullet_list") {
     newBlock = {
       id: oldBlock.id,
+      afterId: oldBlock.afterId ?? null,
       type: "bullet_list",
       charRuns: oldBlock.charRuns,
       formats: oldBlock.formats,
@@ -3295,6 +3307,7 @@ export function convertBlockType(
   } else if (blockType === "numbered_list") {
     newBlock = {
       id: oldBlock.id,
+      afterId: oldBlock.afterId ?? null,
       type: "numbered_list",
       charRuns: oldBlock.charRuns,
       formats: oldBlock.formats,
@@ -3303,6 +3316,7 @@ export function convertBlockType(
   } else if (blockType === "todo_list") {
     newBlock = {
       id: oldBlock.id,
+      afterId: oldBlock.afterId ?? null,
       type: "todo_list",
       charRuns: oldBlock.charRuns,
       formats: oldBlock.formats,
@@ -3320,6 +3334,7 @@ export function convertBlockType(
   ) {
     newBlock = {
       id: oldBlock.id,
+      afterId: oldBlock.afterId ?? null,
       type: blockType,
       charRuns: oldBlock.charRuns,
       formats: oldBlock.formats,
@@ -3328,6 +3343,7 @@ export function convertBlockType(
     // Convert text block to image block
     newBlock = {
       id: oldBlock.id,
+      afterId: oldBlock.afterId ?? null,
       type: "image",
       url: "", // Will be filled when image is uploaded
       alt: "",
@@ -3336,6 +3352,7 @@ export function convertBlockType(
     // Convert text block to line block (divider)
     newBlock = {
       id: oldBlock.id,
+      afterId: oldBlock.afterId ?? null,
       type: "line",
     };
   } else {
@@ -3421,6 +3438,7 @@ export function convertBlockType(
       const newParagraphId = state.CRDTbinding.nextId();
       const newParagraph: Block = {
         id: newParagraphId,
+        afterId: oldBlock.id,
         type: "paragraph",
         charRuns: [],
         formats: [],
@@ -3471,6 +3489,7 @@ export function applySlashCommand(
     // For image cover blocks, we replace the current block with an empty image cover block
     const newBlock: Block = {
       id: block.id,
+      afterId: block.afterId ?? null,
       type: "image",
       url: "", // Will be filled when image is uploaded
       alt: "",
@@ -3524,6 +3543,7 @@ export function applySlashCommand(
       const newParagraphId = state.CRDTbinding.nextId();
       const newParagraph: Block = {
         id: newParagraphId,
+        afterId: block.id,
         type: "paragraph",
         charRuns: [],
         formats: [],
@@ -3559,6 +3579,7 @@ export function applySlashCommand(
   if (command.type === "math") {
     const newBlock: Block = {
       id: block.id,
+      afterId: block.afterId ?? null,
       type: "math",
       latex: "",
       displayMode: true,
@@ -3610,6 +3631,7 @@ export function applySlashCommand(
       const newParagraphId = state.CRDTbinding.nextId();
       const newParagraph: Block = {
         id: newParagraphId,
+        afterId: block.id,
         type: "paragraph",
         charRuns: [],
         formats: [],
@@ -3646,6 +3668,7 @@ export function applySlashCommand(
     // For line blocks, we replace the current block with a line block
     const newBlock: Block = {
       id: block.id,
+      afterId: block.afterId ?? null,
       type: "line",
     };
 
@@ -3697,6 +3720,7 @@ export function applySlashCommand(
       const newParagraphId = state.CRDTbinding.nextId();
       const newParagraph: Block = {
         id: newParagraphId,
+        afterId: block.id,
         type: "paragraph",
         charRuns: [],
         formats: [],
@@ -3950,6 +3974,7 @@ export function outdentListItem(state: EditorState): CommandResult {
     // At base indent - convert to paragraph
     const newBlock: Block = {
       id: block.id,
+      afterId: block.afterId ?? null,
       type: "paragraph",
       charRuns: block.charRuns,
       formats: block.formats,

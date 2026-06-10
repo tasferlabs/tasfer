@@ -37,7 +37,7 @@
  * already provides ordering.
  */
 
-import type { Operation, OpLog, VersionVector } from "./crdt-types";
+import type { Operation, OpLog, VersionVector } from "../state-types";
 import { compareHLC } from "./hlc";
 import { extractCounter, extractPeerId } from "./id";
 import { applyOp, createEmptyPageState, rebuildState } from "./reducer";

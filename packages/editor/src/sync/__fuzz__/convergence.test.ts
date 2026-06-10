@@ -1,13 +1,30 @@
+/**
+ * Randomized multi-peer convergence fuzz.
+ *
+ * Spins up N peers sharing one page, generates weighted random ops on each,
+ * delivers them in randomized partial flushes (per-origin causal order is
+ * preserved, cross-origin order is shuffled — matching the real sync
+ * protocol's guarantees), then asserts:
+ *   0) all peers ended up with the same op set,
+ *   1) all peer states are byte-identical (canonical JSON),
+ *   2) each peer's incremental state matches rebuildState() from its oplog.
+ *
+ * Runs a handful of fixed seeds (deterministic in CI) plus one random seed
+ * per run — the seed is printed so any failure is reproducible via
+ * FUZZ_SEED. Override the workload with FUZZ_SEED / FUZZ_PEERS / FUZZ_OPS.
+ */
+
 import {
   type Block,
   type Page,
   type TextFormat,
 } from "../../serlization/loadPage";
+import type { BlockType, Operation } from "../../state-types";
 import { isTextualBlock } from "../block-registry";
 import { getVisibleLengthFromRuns } from "../char-runs";
-import type { BlockType, Operation } from "../crdt-types";
 import { rebuildState } from "../reducer";
-import { SyncEngine } from "../sync";
+import { createCRDTbinding, createSyncEngine, type SyncEngine } from "../sync";
+import { describe, expect, it } from "vitest";
 
 type TextualType = "paragraph" | "heading1" | "bullet_list" | "todo_list";
 const TEXTUAL_TYPES: TextualType[] = [
@@ -48,33 +65,10 @@ interface PendingOp {
   deliveredTo: Set<string>;
 }
 
-interface Args {
+interface FuzzArgs {
   peers: number;
   ops: number;
   seed: number;
-}
-
-function parseArgs(argv: string[]): Args {
-  const args: Args = {
-    peers: 3,
-    ops: 200,
-    seed: Math.floor(Math.random() * 1e9),
-  };
-  for (const raw of argv) {
-    const m = /^--([a-z]+)=(.+)$/.exec(raw);
-    if (!m) continue;
-    const [, key, val] = m;
-    if (key === "peers") args.peers = parseInt(val, 10);
-    else if (key === "ops") args.ops = parseInt(val, 10);
-    else if (key === "seed") args.seed = parseInt(val, 10);
-  }
-  if (!Number.isFinite(args.peers) || args.peers < 1)
-    throw new Error("--peers must be a positive integer");
-  if (!Number.isFinite(args.ops) || args.ops < 0)
-    throw new Error("--ops must be a non-negative integer");
-  if (!Number.isFinite(args.seed))
-    throw new Error("--seed must be a finite integer");
-  return args;
 }
 
 function mulberry32(seed: number): () => number {
@@ -339,79 +333,6 @@ function ensureMonotonic(peerId: string): string {
   return `p${peerId.padStart(3, "0")}`;
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
-  console.log(`seed=${args.seed} peers=${args.peers} ops=${args.ops}`);
-  const start = Date.now();
-  const rng = new Random(mulberry32(args.seed));
-
-  const pageId = "fuzz-page";
-  const engines: SyncEngine[] = [];
-  for (let i = 0; i < args.peers; i++) {
-    const peerId = ensureMonotonic(String(i));
-    engines.push(new SyncEngine(pageId, peerId));
-  }
-
-  // Peer 0 creates the initial paragraph block. Everyone else applies it
-  // before any random ops are generated, so all peers share an identical
-  // starting state.
-  const initialOp = engines[0].createBlockInsert(null, "paragraph");
-  engines[0].emit([initialOp]);
-  for (let i = 1; i < engines.length; i++) {
-    engines[i].apply([initialOp]);
-  }
-
-  const pending: PendingOp[] = [];
-  let opsEmitted = 0;
-  let interleavedFlushes = 0;
-  let opsPerPeer = new Array(engines.length).fill(0);
-
-  let nextFlush = rng.intRange(1, 5);
-
-  for (let step = 0; step < args.ops; step++) {
-    const peerIdx = step % engines.length;
-    const engine = engines[peerIdx];
-    const op = generateOp(engine, rng);
-    if (!op) continue;
-    engine.emit([op]);
-    opsEmitted++;
-    opsPerPeer[peerIdx]++;
-
-    const delivered = new Set<string>();
-    delivered.add(engine.getPeerId());
-    pending.push({
-      originPeerId: engine.getPeerId(),
-      op,
-      deliveredTo: delivered,
-    });
-
-    nextFlush--;
-    if (nextFlush <= 0) {
-      interleavedFlushes += partialFlush(engines, pending, rng);
-      nextFlush = rng.intRange(1, 5);
-    }
-  }
-
-  fullFlush(engines, pending);
-
-  const elapsed = Date.now() - start;
-  const failure = checkConvergence(engines);
-  if (failure) {
-    console.log(`FAIL: ${failure.reason}`);
-    console.log(failure.detail);
-    console.log(
-      `seed=${args.seed} peers=${engines.length} ops=${opsEmitted} opsPerPeer=${opsPerPeer.join(",")} interleavedFlushes=${interleavedFlushes} time=${elapsed}ms`,
-    );
-    process.exit(1);
-  }
-
-  console.log(
-    `PASS: ${engines.length} peers, ${opsEmitted} ops, ${interleavedFlushes} interleaved flushes, ${elapsed} ms`,
-  );
-  console.log(`opsPerPeer=${opsPerPeer.join(",")}`);
-  process.exit(0);
-}
-
 function counterOf(op: Operation): number {
   const colon = op.id.indexOf(":");
   return colon === -1 ? 0 : parseInt(op.id.slice(colon + 1), 10);
@@ -555,8 +476,89 @@ function checkConvergence(engines: SyncEngine[]): FailureInfo | null {
   return null;
 }
 
-main().catch((err) => {
-  console.error("FAIL: harness error");
-  console.error(err);
-  process.exit(1);
+function runFuzz(args: FuzzArgs): FailureInfo | null {
+  const rng = new Random(mulberry32(args.seed));
+
+  const pageId = "fuzz-page";
+  const engines: SyncEngine[] = [];
+  for (let i = 0; i < args.peers; i++) {
+    const peerId = ensureMonotonic(String(i));
+    engines.push(createSyncEngine(createCRDTbinding(pageId, peerId)));
+  }
+
+  // Peer 0 creates the initial paragraph block. Everyone else applies it
+  // before any random ops are generated, so all peers share an identical
+  // starting state.
+  const initialOp = engines[0].createBlockInsert(null, "paragraph");
+  engines[0].emit([initialOp]);
+  for (let i = 1; i < engines.length; i++) {
+    engines[i].apply([initialOp]);
+  }
+
+  const pending: PendingOp[] = [];
+  let nextFlush = rng.intRange(1, 5);
+
+  for (let step = 0; step < args.ops; step++) {
+    const peerIdx = step % engines.length;
+    const engine = engines[peerIdx];
+    const op = generateOp(engine, rng);
+    if (!op) continue;
+    engine.emit([op]);
+
+    const delivered = new Set<string>();
+    delivered.add(engine.getPeerId());
+    pending.push({
+      originPeerId: engine.getPeerId(),
+      op,
+      deliveredTo: delivered,
+    });
+
+    nextFlush--;
+    if (nextFlush <= 0) {
+      partialFlush(engines, pending, rng);
+      nextFlush = rng.intRange(1, 5);
+    }
+  }
+
+  fullFlush(engines, pending);
+
+  return checkConvergence(engines);
+}
+
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+describe("multi-peer convergence fuzz", () => {
+  const peers = envInt("FUZZ_PEERS", 3);
+  const ops = envInt("FUZZ_OPS", 200);
+
+  // Deterministic seeds keep CI stable; failures on the random seed below
+  // are reproducible by re-running with FUZZ_SEED=<printed seed>.
+  const fixedSeeds = [12345, 67890, 424242];
+
+  for (const seed of fixedSeeds) {
+    it(`converges (seed=${seed}, peers=${peers}, ops=${ops})`, () => {
+      const failure = runFuzz({ peers, ops, seed });
+      expect(
+        failure,
+        failure ? `${failure.reason}\n${failure.detail}` : undefined,
+      ).toBeNull();
+    });
+  }
+
+  it("converges (random or FUZZ_SEED seed)", () => {
+    const seed = envInt("FUZZ_SEED", Math.floor(Math.random() * 1e9));
+    console.log(`fuzz seed=${seed} (re-run with FUZZ_SEED=${seed})`);
+    const failure = runFuzz({ peers, ops, seed });
+    expect(
+      failure,
+      failure
+        ? `seed=${seed}\n${failure.reason}\n${failure.detail}`
+        : undefined,
+    ).toBeNull();
+  });
 });

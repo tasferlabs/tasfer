@@ -16,6 +16,15 @@
  */
 import type { Block, Char, Page, TextFormat } from "./serlization/loadPage";
 import type { CRDTbinding } from "./state-types";
+import type {
+  BlockDelete,
+  BlockInsert,
+  BlockSet,
+  FormatSet,
+  Operation,
+  TextDelete,
+  TextInsert,
+} from "./state-types";
 import {
   getBlockDescriptor,
   getBlockFieldNames,
@@ -27,15 +36,6 @@ import {
   isCharIdInRange,
   iterateAllChars,
 } from "./sync/char-runs";
-import type {
-  BlockDelete,
-  BlockInsert,
-  BlockSet,
-  FormatSet,
-  Operation,
-  TextDelete,
-  TextInsert,
-} from "./sync/crdt-types";
 
 // =============================================================================
 // Per-op inversion

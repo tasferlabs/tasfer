@@ -14,6 +14,7 @@ import type {
   EditorState,
   Position,
 } from "../state-types";
+import type { FormatSet, TextDelete, TextInsert } from "../state-types";
 import { updateSelection } from "../updateSelection";
 import { isTextualBlock } from "./block-registry";
 import {
@@ -24,7 +25,6 @@ import {
   isCharIdInRange,
   iterateVisibleChars,
 } from "./char-runs";
-import type { FormatSet, TextDelete, TextInsert } from "./crdt-types";
 import { compareBlocks, extractCounter, extractPeerId } from "./id";
 import { applyOp } from "./reducer";
 

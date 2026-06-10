@@ -23,7 +23,6 @@ import {
   TextBlockView,
   type TextualBlock,
 } from "./TextBlockView";
-import i18next from "i18next";
 
 /** The block types handled by ListBlockView. */
 export const LIST_BLOCK_TYPES = [
@@ -220,10 +219,10 @@ export class ListBlockView extends TextBlockView {
     state: EditorState,
   ): string {
     if (block.type === "todo_list") {
-      return i18next.t("blocks.todoItem", "To-do item");
+      return styles.placeholder.todoItem.text;
     }
     if (block.type === "bullet_list" || block.type === "numbered_list") {
-      return i18next.t("blocks.listItem", "List item");
+      return styles.placeholder.listItem.text;
     }
     return super.placeholderText(block, styles, state);
   }

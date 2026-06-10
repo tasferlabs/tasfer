@@ -54,6 +54,7 @@ import type {
   SlashCommand,
   ViewportState,
 } from "../state-types";
+import type { BlockDelete, BlockInsert, HLC, Operation } from "../state-types";
 import {
   closeActiveMenu,
   closeContextMenu,
@@ -79,12 +80,6 @@ import {
   selectionToAwarenessSelection,
 } from "../sync/awareness";
 import { isTextualBlock } from "../sync/block-registry";
-import type {
-  BlockDelete,
-  BlockInsert,
-  HLC,
-  Operation,
-} from "../sync/crdt-types";
 import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
 import {
   deleteCharsInRange,

@@ -55,12 +55,16 @@ The `build` script is the canonical typecheck. It compiles both `apps/web/src` a
 
 ### Editor Package (`packages/editor`)
 ```bash
+npm test             # vitest run — CRDT fuzz/regression tests in src/sync/__fuzz__/*.test.ts
+npm run test:watch   # vitest watch mode
 npm run lint         # eslint (incl. custom rules in eslint-rules/)
 npm run lint:fix     # eslint --fix
 npm run format       # prettier --write
 npm run format:check # prettier --check
 ```
 No standalone build step — the package ships TS source consumed directly by `apps/web`.
+The convergence fuzz accepts `FUZZ_SEED` / `FUZZ_PEERS` / `FUZZ_OPS` env vars to reproduce
+or scale a run (failing random seeds are printed).
 
 ### Signaling Server (`apps/live`) — uses Bun
 ```bash
@@ -74,8 +78,8 @@ npm run cap:open:ios       # Open iOS project in Xcode
 npm run cap:open:android   # Open Android project in Android Studio
 ```
 
-`apps/web` has no test runner configured. `packages/editor` has eslint + prettier (but no test
-runner); manual CRDT fuzz/regression scripts live in `packages/editor/src/sync/__fuzz__/`.
+`apps/web` has no test runner configured. `packages/editor` uses vitest (`npm test`); the CRDT
+fuzz/regression tests live in `packages/editor/src/sync/__fuzz__/*.test.ts`.
 
 ## Architecture
 
@@ -122,7 +126,7 @@ Operation-log CRDT for offline-first collaborative editing:
 - `sync.ts` — Public CRDT API + version vector tracking
 - `awareness.ts` — Peer cursors/selections/presence
 - `crdt-undo.ts` — CRDT-aware undo/redo; `snapshot-diff.ts`, `block-registry.ts`, `id.ts`, `crdt-helpers.ts`/`crdt-utils.ts` — supporting utilities
-- `__fuzz__/` — convergence + regression fuzz scripts (run manually)
+- `__fuzz__/` — convergence + regression fuzz tests (vitest; `npm test` from `packages/editor`)
 - Character IDs use `${peerId}:${counter}` format
 
 ### State Management (`packages/editor/src/state-types.ts`, `state-utils.ts`)

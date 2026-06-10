@@ -1440,6 +1440,7 @@ export function handleTouchEnd(
           const newParagraphId = state.CRDTbinding.nextId();
           const newParagraph: Block = {
             id: newParagraphId,
+            afterId: lastBlock.id,
             type: "paragraph",
             charRuns: [],
             formats: [],
@@ -1606,6 +1607,7 @@ export function handleTouchEnd(
             const newParagraphId = state.CRDTbinding.nextId();
             const newParagraph: Block = {
               id: newParagraphId,
+              afterId: currentBlock.id,
               type: "paragraph",
               charRuns: [],
               formats: [],

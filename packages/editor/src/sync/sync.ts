@@ -6,10 +6,14 @@
  * and subscribing to state changes.
  */
 
-import type { Char, CharRun, Page, TextFormat } from "../serlization/loadPage";
+import type {
+  Block,
+  Char,
+  CharRun,
+  Page,
+  TextFormat,
+} from "../serlization/loadPage";
 import type { CRDTbinding } from "../state-types";
-import { BLOCK_REGISTRY, isTextualBlock } from "./block-registry";
-import { getCharIdsInRangeFromRuns } from "./char-runs";
 import type {
   BlockDelete,
   BlockInsert,
@@ -23,7 +27,9 @@ import type {
   TextDelete,
   TextInsert,
   VersionVector,
-} from "./crdt-types";
+} from "../state-types";
+import { BLOCK_REGISTRY, isTextualBlock } from "./block-registry";
+import { getCharIdsInRangeFromRuns } from "./char-runs";
 import { compareHLC, createHLC, receiveHLC, tickHLC } from "./hlc";
 import {
   createIdGenerator,
@@ -31,7 +37,6 @@ import {
   extractPeerId,
   generateBlockId,
   generatePeerId,
-  type IdGenerator,
 } from "./id";
 import { appendOp, createOpLog, getOpsSince, mergeOps } from "./oplog";
 import { findCharIdAtPosition } from "./reducer";
@@ -85,6 +90,31 @@ export function createCRDTbinding(
 }
 
 /**
+ * Scan a page's blocks for the highest id-counter value present anywhere —
+ * block ids and char-run counters. The page-level counterpart of
+ * `maxOpIdCounter`, for documents loaded as blocks (parsed markdown,
+ * snapshots) rather than as an op log. Used to advance the local idGen past
+ * every counter in the loaded document so the RGA sibling tie-break
+ * (counter-first, see `compareIds`) deterministically places new local
+ * blocks/chars adjacent to their anchor instead of after pre-existing
+ * siblings.
+ */
+export function maxPageIdCounter(blocks: readonly Block[]): number {
+  let max = 0;
+  for (const block of blocks) {
+    const bc = extractCounter(block.id);
+    if (bc > max) max = bc;
+    if (isTextualBlock(block)) {
+      for (const run of block.charRuns ?? []) {
+        const lastCounter = run.startCounter + run.text.length - 1;
+        if (lastCounter > max) max = lastCounter;
+      }
+    }
+  }
+  return max;
+}
+
+/**
  * Scan ops for the highest id-counter value present anywhere — op ids,
  * inserted-block ids, inserted-char starting counters (and their full run
  * length). Used to advance our local idGen past every counter we've seen
@@ -121,7 +151,7 @@ export type {
   TextDelete,
   TextInsert,
   VersionVector,
-} from "./crdt-types";
+} from "../state-types";
 
 // =============================================================================
 // Typed BlockSet builder
@@ -293,10 +323,119 @@ export {
 type StateChangeListener = (state: Page) => void;
 
 /**
- * SyncEngine manages the CRDT state for a single page.
+ * Sync engine for a single page's operation log.
+ *
+ * Created with `createSyncEngine(binding)`. The engine owns the op log and
+ * version vector, but NOT the clock/id state — that lives on the
+ * `CRDTbinding` it is given, which is the single per-instance source of
+ * ids, HLC and peer identity, shared with the editor that emits operations.
+ */
+export interface SyncEngine {
+  /** The peer ID stamped on operations (from the shared binding). */
+  getPeerId(): string;
+  /** The page ID this engine logs operations for. */
+  getPageId(): string;
+  /** Generate the next unique ID (delegates to the shared binding). */
+  nextId(): string;
+  /**
+   * Load saved operations into the engine.
+   * Initializes the opLog and version vector from persisted state, and
+   * advances the shared binding's clock/id-counter past everything loaded so
+   * new local ops out-order and out-counter historical ones.
+   */
+  loadOperations(ops: Operation[]): void;
+  /**
+   * Emit local operations. Operations are added to the log. Listeners are
+   * NOT notified because local operations are applied directly to
+   * EditorState for immediate feedback. Use apply() for remote operations.
+   */
+  emit(ops: Operation[]): void;
+  /**
+   * Apply remote operations. Operations are merged into the log, the shared
+   * binding's clock/id-counter are advanced past them, and listeners are
+   * notified.
+   */
+  apply(ops: Operation[]): void;
+  /** Get the current computed state. */
+  getState(): Page;
+  /** Get all operations in the log. */
+  getOperations(): Operation[];
+  /** Get operations that a peer (identified by its version vector) is missing. */
+  getOpsSince(peerVV: VersionVector): Operation[];
+  /**
+   * Get operations after a specific HLC clock (null returns all operations).
+   * Used for delta sync - only send operations not yet in the snapshot.
+   */
+  getOperationsAfterClock(clock: HLC | null): Operation[];
+  /** Get the latest HLC clock from operations, or null if no operations. */
+  getLatestClock(): HLC | null;
+  /**
+   * Compact the operation log by removing operations <= snapshotClock
+   * (already saved in a snapshot). Returns the number of operations removed.
+   */
+  compactOperations(snapshotClock: HLC): number;
+  /** Get the current version vector. */
+  getVersionVector(): VersionVector;
+  /** Subscribe to state changes. Returns an unsubscribe function. */
+  onStateChange(callback: StateChangeListener): () => void;
+
+  // Operation creators — id/clock/pageId are stamped from the shared binding.
+  createTextInsert(
+    blockId: string,
+    afterCharId: string | null,
+    charRuns: CharRun[],
+  ): TextInsert;
+  createTextDelete(blockId: string, charIds: string[]): TextDelete;
+  createFormatSet(
+    blockId: string,
+    charIds: string[],
+    format: TextFormat,
+    value: boolean | string,
+  ): FormatSet;
+  createBlockInsert(
+    afterBlockId: string | null,
+    blockType: BlockType,
+    initialProps?: BlockProps,
+  ): BlockInsert;
+  createBlockDelete(blockId: string): BlockDelete;
+  createBlockSet(blockId: string, field: string, value: unknown): BlockSet;
+
+  // Convenience methods (position/range based).
+  /** Insert text at a visible position in a block (char IDs auto-generated). */
+  insertText(blockId: string, position: number, text: string): TextInsert;
+  /** Delete text in a visible range [startIndex, endIndex) within a block. */
+  deleteText(blockId: string, startIndex: number, endIndex: number): TextDelete;
+  /** Format text in a visible range [startIndex, endIndex) within a block. */
+  formatText(
+    blockId: string,
+    startIndex: number,
+    endIndex: number,
+    format: TextFormat,
+    value: boolean | string,
+  ): FormatSet;
+  /** Insert a new paragraph block after the given block (null = beginning). */
+  insertParagraph(afterBlockId: string | null): BlockInsert;
+  /** Change a block's type. */
+  changeBlockType(blockId: string, newType: BlockType): BlockSet;
+  /** Toggle a todo item's checked state. */
+  toggleTodo(blockId: string): BlockSet;
+  /** Set a list item's indent level (clamped to >= 0). */
+  setIndent(blockId: string, indent: number): BlockSet;
+}
+
+/**
+ * Create a sync engine that manages the CRDT op log for a single page.
+ *
+ * The engine does not own any clock/id/peer state of its own — it stamps and
+ * advances the `CRDTbinding` it is given. Pass the SAME binding the editor
+ * instance uses (see `mountEditor`'s `crdtBinding` option) so the editor and
+ * the sync engine share one id/clock source: applying remote ops here
+ * automatically keeps locally-emitted editor ops causally ahead, with no
+ * manual clock mirroring by the host.
  *
  * @example
- * const engine = new SyncEngine("page-123");
+ * const binding = createCRDTbinding("page-123", peerId);
+ * const engine = createSyncEngine(binding);
  *
  * // Subscribe to state changes
  * engine.onStateChange((state) => {
@@ -305,365 +444,54 @@ type StateChangeListener = (state: Page) => void;
  *
  * // Emit local operations
  * const blockInsert = engine.createBlockInsert(null, "paragraph");
- * const textInsert = engine.createTextInsert(blockInsert.blockId, null, [
- *   { id: engine.nextId(), char: "H" },
- *   { id: engine.nextId(), char: "i" },
- * ]);
- * engine.emit([blockInsert, textInsert]);
+ * engine.emit([blockInsert]);
  *
  * // Apply remote operations
  * engine.apply(remoteOps);
  */
-export class SyncEngine {
-  private opLog: OpLog;
-  private hlc: ReturnType<typeof createHLC>;
-  private peerId: string;
-  private idGen: IdGenerator;
-  private listeners: Set<StateChangeListener> = new Set();
+export function createSyncEngine(binding: CRDTbinding): SyncEngine {
+  let opLog: OpLog = createOpLog(binding.pageId);
+  const listeners = new Set<StateChangeListener>();
 
-  /**
-   * Create a new SyncEngine for a page.
-   *
-   * @param pageId - Unique identifier for the page
-   * @param peerId - Optional peer ID (generated if not provided)
-   */
-  constructor(pageId: string, peerId?: string) {
-    this.peerId = peerId ?? generatePeerId();
-    this.hlc = createHLC(this.peerId);
-    this.idGen = createIdGenerator(this.peerId);
-    this.opLog = createOpLog(pageId);
+  function getState(): Page {
+    return opLog.state;
   }
 
-  /**
-   * Get the peer ID for this engine.
-   */
-  getPeerId(): string {
-    return this.peerId;
-  }
-
-  /**
-   * Get the page ID.
-   */
-  getPageId(): string {
-    return this.opLog.pageId;
-  }
-
-  /**
-   * Generate the next unique ID.
-   */
-  nextId(): string {
-    return this.idGen();
-  }
-
-  /**
-   * Load saved operations into the engine.
-   * This initializes the opLog and version vector from persisted state.
-   * Use this when loading a page that was previously edited.
-   *
-   * @param ops - Previously saved operations to load
-   */
-  loadOperations(ops: Operation[]): void {
-    for (const op of ops) {
-      this.opLog = appendOp(this.opLog, op);
-      // Update HLC to be at least as recent as loaded operations
-      this.hlc = receiveHLC(this.hlc, op.clock);
-    }
-    // Advance idGen past every id-counter seen in the loaded ops so the
-    // next block/char we emit out-counters every pre-existing sibling
-    // (RGA sibling sort compares by counter — see maxOpIdCounter).
-    this.idGen.advance(maxOpIdCounter(ops));
-  }
-
-  /**
-   * Emit local operations.
-   * Operations are added to the log. Listeners are NOT notified because
-   * local operations are applied directly to EditorState for immediate feedback.
-   * Use apply() for remote operations which need to update the UI.
-   *
-   * @param ops - Operations to emit
-   */
-  emit(ops: Operation[]): void {
-    for (const op of ops) {
-      this.opLog = appendOp(this.opLog, op);
-    }
-    // Don't notify listeners for local ops - EditorState is already updated
-  }
-
-  /**
-   * Apply remote operations.
-   * Operations are merged into the log and listeners are notified.
-   *
-   * @param ops - Remote operations to apply
-   */
-  apply(ops: Operation[]): void {
-    // Update local HLC based on received operations
-    for (const op of ops) {
-      this.hlc = receiveHLC(this.hlc, op.clock);
-    }
-    // Mirror the HLC bump for the id-counter so future local ops out-counter
-    // every remote id we've now seen (RGA sibling tie-break invariant).
-    this.idGen.advance(maxOpIdCounter(ops));
-
-    this.opLog = mergeOps(this.opLog, ops);
-    this.notifyListeners();
-  }
-
-  /**
-   * Get the current computed state.
-   */
-  getState(): Page {
-    return this.opLog.state;
-  }
-
-  /**
-   * Get all operations in the log.
-   */
-  getOperations(): Operation[] {
-    return this.opLog.operations;
-  }
-
-  /**
-   * Get operations that a peer is missing.
-   *
-   * @param peerVV - Peer's version vector
-   * @returns Operations the peer needs
-   */
-  getOpsSince(peerVV: VersionVector): Operation[] {
-    return getOpsSince(this.opLog, peerVV);
-  }
-
-  /**
-   * Get operations after a specific HLC clock.
-   * Used for delta sync - only send operations not yet in the snapshot.
-   *
-   * @param clock - HLC clock to compare against (null returns all operations)
-   * @returns Operations with clock greater than the given clock
-   */
-  getOperationsAfterClock(clock: HLC | null): Operation[] {
-    if (!clock) {
-      return this.opLog.operations;
-    }
-
-    return this.opLog.operations.filter(
-      (op) => compareHLC(op.clock, clock) > 0,
-    );
-  }
-
-  /**
-   * Get the latest HLC clock from operations.
-   * Used to update snapshotClock after saving.
-   *
-   * @returns The latest HLC clock or null if no operations
-   */
-  getLatestClock(): HLC | null {
-    if (this.opLog.operations.length === 0) {
-      return null;
-    }
-
-    let latest = this.opLog.operations[0].clock;
-    for (const op of this.opLog.operations) {
-      if (compareHLC(op.clock, latest) > 0) {
-        latest = op.clock;
-      }
-    }
-    return { ...latest };
-  }
-
-  /**
-   * Compact the operation log by removing operations that are already saved.
-   * Call this after successfully saving to the server to free memory.
-   *
-   * Operations are removed if they are <= snapshotClock (already saved in snapshot).
-   * Late-joining peers will load from the snapshot, so they don't need these ops.
-   *
-   * @param snapshotClock - Clock of the saved snapshot. Operations <= this clock will be removed.
-   * @returns Number of operations removed
-   */
-  compactOperations(snapshotClock: HLC): number {
-    const beforeCount = this.opLog.operations.length;
-
-    // Keep only operations after the snapshot clock (not yet saved)
-    this.opLog.operations = this.opLog.operations.filter(
-      (op) => compareHLC(op.clock, snapshotClock) > 0,
-    );
-
-    const removed = beforeCount - this.opLog.operations.length;
-    if (removed > 0) {
-      console.log(
-        `[SyncEngine] Compacted ${removed} operations (${this.opLog.operations.length} remaining)`,
-      );
-    }
-    return removed;
-  }
-
-  /**
-   * Get the current version vector.
-   */
-  getVersionVector(): VersionVector {
-    return this.opLog.versionVector;
-  }
-
-  /**
-   * Subscribe to state changes.
-   *
-   * @param callback - Function called when state changes
-   * @returns Unsubscribe function
-   */
-  onStateChange(callback: StateChangeListener): () => void {
-    this.listeners.add(callback);
-    return () => {
-      this.listeners.delete(callback);
-    };
-  }
-
-  /**
-   * Notify all listeners of state change.
-   */
-  private notifyListeners(): void {
-    const state = this.getState();
-    for (const listener of this.listeners) {
+  function notifyListeners(): void {
+    const state = getState();
+    for (const listener of listeners) {
       listener(state);
     }
   }
 
-  /**
-   * Create the base operation fields.
-   */
-  private createBaseOp(): { id: string; clock: HLC; pageId: string } {
-    this.hlc = tickHLC(this.hlc);
+  /** Create the base operation fields, stamped from the shared binding. */
+  function createBaseOp(): { id: string; clock: HLC; pageId: string } {
     return {
-      id: this.idGen(),
-      clock: { ...this.hlc },
-      pageId: this.opLog.pageId,
-    };
-  }
-
-  // ==========================================================================
-  // Operation Creators
-  // ==========================================================================
-
-  /**
-   * Create a text insert operation.
-   *
-   * @param blockId - Block to insert into
-   * @param afterCharId - Insert after this char ID (null = beginning)
-   * @param charRuns - Character runs to insert
-   */
-  createTextInsert(
-    blockId: string,
-    afterCharId: string | null,
-    charRuns: CharRun[],
-  ): TextInsert {
-    return {
-      ...this.createBaseOp(),
-      op: "text_insert",
-      blockId,
-      afterCharId,
-      charRuns,
+      id: binding.nextId(),
+      clock: binding.getClock(),
+      pageId: binding.pageId,
     };
   }
 
   /**
-   * Create a text delete operation.
-   *
-   * @param blockId - Block to delete from
-   * @param charIds - Character IDs to delete
+   * Advance the shared binding past a batch of loaded/remote ops so future
+   * local ops respect causality: the HLC must out-order every op we've seen
+   * (mergeOps full-rebuild sorts by HLC) and the id-counter must out-counter
+   * every id we've seen (RGA sibling sort compares by counter — see
+   * maxOpIdCounter).
    */
-  createTextDelete(blockId: string, charIds: string[]): TextDelete {
-    return {
-      ...this.createBaseOp(),
-      op: "text_delete",
-      blockId,
-      charIds,
-    };
+  function advanceBindingPast(ops: Operation[]): void {
+    for (const op of ops) {
+      binding.advanceClock(op.clock);
+    }
+    binding.advanceIdCounter(maxOpIdCounter(ops));
   }
-
-  /**
-   * Create a format set operation.
-   *
-   * @param blockId - Block containing the characters
-   * @param charIds - Character IDs to format
-   * @param format - Format type
-   * @param value - Format value
-   */
-  createFormatSet(
-    blockId: string,
-    charIds: string[],
-    format: TextFormat,
-    value: boolean | string,
-  ): FormatSet {
-    return {
-      ...this.createBaseOp(),
-      op: "format_set",
-      blockId,
-      charIds,
-      format,
-      value,
-    };
-  }
-
-  /**
-   * Create a block insert operation.
-   *
-   * @param afterBlockId - Insert after this block (null = beginning)
-   * @param blockType - Type of block to create
-   * @param initialProps - Optional initial properties
-   * @returns The operation (blockId is available on the returned object)
-   */
-  createBlockInsert(
-    afterBlockId: string | null,
-    blockType: BlockType,
-    initialProps?: BlockProps,
-  ): BlockInsert {
-    return {
-      ...this.createBaseOp(),
-      op: "block_insert",
-      afterBlockId,
-      blockId: generateBlockId(this.idGen),
-      blockType,
-      initialProps,
-    };
-  }
-
-  /**
-   * Create a block delete operation.
-   *
-   * @param blockId - Block to delete
-   */
-  createBlockDelete(blockId: string): BlockDelete {
-    return {
-      ...this.createBaseOp(),
-      op: "block_delete",
-      blockId,
-    };
-  }
-
-  /**
-   * Create a block set operation.
-   *
-   * @param blockId - Block to update
-   * @param field - Property field name
-   * @param value - New value
-   */
-  createBlockSet(blockId: string, field: string, value: unknown): BlockSet {
-    return {
-      ...this.createBaseOp(),
-      op: "block_set",
-      blockId,
-      field,
-      value,
-    };
-  }
-
-  // ==========================================================================
-  // Convenience Methods
-  // ==========================================================================
 
   /**
    * Convert Char[] to CharRun[] for storage.
    * Handles chars from multiple peers by splitting into separate runs.
    */
-  private charsToCharRuns(chars: Char[]): CharRun[] {
+  function charsToCharRuns(chars: Char[]): CharRun[] {
     if (chars.length === 0) return [];
 
     const runs: CharRun[] = [];
@@ -688,7 +516,7 @@ export class SyncEngine {
         // Finish current run
         if (currentText.length > 0) {
           runs.push(
-            this.createCharRunFromDeleted(
+            createCharRunFromDeleted(
               currentPeerId,
               currentStartCounter,
               currentText,
@@ -708,7 +536,7 @@ export class SyncEngine {
     // Finish last run
     if (currentText.length > 0) {
       runs.push(
-        this.createCharRunFromDeleted(
+        createCharRunFromDeleted(
           currentPeerId,
           currentStartCounter,
           currentText,
@@ -720,10 +548,8 @@ export class SyncEngine {
     return runs;
   }
 
-  /**
-   * Helper to create CharRun with optional deletedMask
-   */
-  private createCharRunFromDeleted(
+  /** Helper to create CharRun with optional deletedMask */
+  function createCharRunFromDeleted(
     peerId: string,
     startCounter: number,
     text: string,
@@ -750,118 +576,243 @@ export class SyncEngine {
     return { peerId, startCounter, text, deletedMask };
   }
 
-  /**
-   * Insert text at a position in a block.
-   * Convenience method that creates char IDs automatically.
-   *
-   * @param blockId - Block to insert into
-   * @param position - Visible text position (0-based)
-   * @param text - Text to insert
-   * @returns The text insert operation
-   */
-  insertText(blockId: string, position: number, text: string): TextInsert {
-    const block = this.getState().blocks.find((b) => b.id === blockId);
-    const afterCharId = block ? findCharIdAtPosition(block, position) : null;
-
-    const chars: Char[] = Array.from(text).map((char) => ({
-      id: this.nextId(),
-      char,
-    }));
-
-    const charRuns = this.charsToCharRuns(chars);
-    return this.createTextInsert(blockId, afterCharId, charRuns);
+  function createTextInsert(
+    blockId: string,
+    afterCharId: string | null,
+    charRuns: CharRun[],
+  ): TextInsert {
+    return {
+      ...createBaseOp(),
+      op: "text_insert",
+      blockId,
+      afterCharId,
+      charRuns,
+    };
   }
 
-  /**
-   * Delete text in a range within a block.
-   *
-   * @param blockId - Block to delete from
-   * @param startIndex - Start of range (inclusive)
-   * @param endIndex - End of range (exclusive)
-   * @returns The text delete operation
-   */
-  deleteText(
-    blockId: string,
-    startIndex: number,
-    endIndex: number,
-  ): TextDelete {
-    const block = this.getState().blocks.find((b) => b.id === blockId);
-    const charIds =
-      block && isTextualBlock(block)
-        ? getCharIdsInRangeFromRuns(block.charRuns, startIndex, endIndex)
-        : [];
-
-    return this.createTextDelete(blockId, charIds);
+  function createTextDelete(blockId: string, charIds: string[]): TextDelete {
+    return {
+      ...createBaseOp(),
+      op: "text_delete",
+      blockId,
+      charIds,
+    };
   }
 
-  /**
-   * Format text in a range within a block.
-   *
-   * @param blockId - Block containing the text
-   * @param startIndex - Start of range (inclusive)
-   * @param endIndex - End of range (exclusive)
-   * @param format - Format type
-   * @param value - Format value
-   * @returns The format set operation
-   */
-  formatText(
+  function createFormatSet(
     blockId: string,
-    startIndex: number,
-    endIndex: number,
+    charIds: string[],
     format: TextFormat,
     value: boolean | string,
   ): FormatSet {
-    const block = this.getState().blocks.find((b) => b.id === blockId);
-    const charIds =
-      block && isTextualBlock(block)
-        ? getCharIdsInRangeFromRuns(block.charRuns, startIndex, endIndex)
-        : [];
-
-    return this.createFormatSet(blockId, charIds, format, value);
+    return {
+      ...createBaseOp(),
+      op: "format_set",
+      blockId,
+      charIds,
+      format,
+      value,
+    };
   }
 
-  /**
-   * Insert a new paragraph block.
-   *
-   * @param afterBlockId - Insert after this block (null = beginning)
-   * @returns The block insert operation
-   */
-  insertParagraph(afterBlockId: string | null): BlockInsert {
-    return this.createBlockInsert(afterBlockId, "paragraph");
+  function createBlockInsert(
+    afterBlockId: string | null,
+    blockType: BlockType,
+    initialProps?: BlockProps,
+  ): BlockInsert {
+    return {
+      ...createBaseOp(),
+      op: "block_insert",
+      afterBlockId,
+      blockId: generateBlockId(binding.nextId),
+      blockType,
+      initialProps,
+    };
   }
 
-  /**
-   * Change a block's type.
-   *
-   * @param blockId - Block to change
-   * @param newType - New block type
-   * @returns The block set operation
-   */
-  changeBlockType(blockId: string, newType: BlockType): BlockSet {
-    return this.createBlockSet(blockId, "type", newType);
+  function createBlockDelete(blockId: string): BlockDelete {
+    return {
+      ...createBaseOp(),
+      op: "block_delete",
+      blockId,
+    };
   }
 
-  /**
-   * Toggle a todo item's checked state.
-   *
-   * @param blockId - Todo block to toggle
-   * @returns The block set operation
-   */
-  toggleTodo(blockId: string): BlockSet {
-    const block = this.getState().blocks.find((b) => b.id === blockId);
-    const currentChecked = block && "checked" in block ? block.checked : false;
-
-    return this.createBlockSet(blockId, "checked", !currentChecked);
+  function createBlockSetOp(
+    blockId: string,
+    field: string,
+    value: unknown,
+  ): BlockSet {
+    return {
+      ...createBaseOp(),
+      op: "block_set",
+      blockId,
+      field,
+      value,
+    };
   }
 
-  /**
-   * Set a list item's indent level.
-   *
-   * @param blockId - List block to indent
-   * @param indent - New indent level
-   * @returns The block set operation
-   */
-  setIndent(blockId: string, indent: number): BlockSet {
-    return this.createBlockSet(blockId, "indent", Math.max(0, indent));
-  }
+  return {
+    getPeerId(): string {
+      return binding.getPeerId();
+    },
+
+    getPageId(): string {
+      return binding.pageId;
+    },
+
+    nextId(): string {
+      return binding.nextId();
+    },
+
+    loadOperations(ops: Operation[]): void {
+      for (const op of ops) {
+        opLog = appendOp(opLog, op);
+      }
+      advanceBindingPast(ops);
+    },
+
+    emit(ops: Operation[]): void {
+      for (const op of ops) {
+        opLog = appendOp(opLog, op);
+      }
+      // Don't notify listeners for local ops - EditorState is already updated
+    },
+
+    apply(ops: Operation[]): void {
+      advanceBindingPast(ops);
+      opLog = mergeOps(opLog, ops);
+      notifyListeners();
+    },
+
+    getState,
+
+    getOperations(): Operation[] {
+      return opLog.operations;
+    },
+
+    getOpsSince(peerVV: VersionVector): Operation[] {
+      return getOpsSince(opLog, peerVV);
+    },
+
+    getOperationsAfterClock(clock: HLC | null): Operation[] {
+      if (!clock) {
+        return opLog.operations;
+      }
+
+      return opLog.operations.filter((op) => compareHLC(op.clock, clock) > 0);
+    },
+
+    getLatestClock(): HLC | null {
+      if (opLog.operations.length === 0) {
+        return null;
+      }
+
+      let latest = opLog.operations[0].clock;
+      for (const op of opLog.operations) {
+        if (compareHLC(op.clock, latest) > 0) {
+          latest = op.clock;
+        }
+      }
+      return { ...latest };
+    },
+
+    compactOperations(snapshotClock: HLC): number {
+      const beforeCount = opLog.operations.length;
+
+      // Keep only operations after the snapshot clock (not yet saved)
+      opLog.operations = opLog.operations.filter(
+        (op) => compareHLC(op.clock, snapshotClock) > 0,
+      );
+
+      const removed = beforeCount - opLog.operations.length;
+      if (removed > 0) {
+        console.log(
+          `[SyncEngine] Compacted ${removed} operations (${opLog.operations.length} remaining)`,
+        );
+      }
+      return removed;
+    },
+
+    getVersionVector(): VersionVector {
+      return opLog.versionVector;
+    },
+
+    onStateChange(callback: StateChangeListener): () => void {
+      listeners.add(callback);
+      return () => {
+        listeners.delete(callback);
+      };
+    },
+
+    createTextInsert,
+    createTextDelete,
+    createFormatSet,
+    createBlockInsert,
+    createBlockDelete,
+    createBlockSet: createBlockSetOp,
+
+    insertText(blockId: string, position: number, text: string): TextInsert {
+      const block = getState().blocks.find((b) => b.id === blockId);
+      const afterCharId = block ? findCharIdAtPosition(block, position) : null;
+
+      const chars: Char[] = Array.from(text).map((char) => ({
+        id: binding.nextId(),
+        char,
+      }));
+
+      const charRuns = charsToCharRuns(chars);
+      return createTextInsert(blockId, afterCharId, charRuns);
+    },
+
+    deleteText(
+      blockId: string,
+      startIndex: number,
+      endIndex: number,
+    ): TextDelete {
+      const block = getState().blocks.find((b) => b.id === blockId);
+      const charIds =
+        block && isTextualBlock(block)
+          ? getCharIdsInRangeFromRuns(block.charRuns, startIndex, endIndex)
+          : [];
+
+      return createTextDelete(blockId, charIds);
+    },
+
+    formatText(
+      blockId: string,
+      startIndex: number,
+      endIndex: number,
+      format: TextFormat,
+      value: boolean | string,
+    ): FormatSet {
+      const block = getState().blocks.find((b) => b.id === blockId);
+      const charIds =
+        block && isTextualBlock(block)
+          ? getCharIdsInRangeFromRuns(block.charRuns, startIndex, endIndex)
+          : [];
+
+      return createFormatSet(blockId, charIds, format, value);
+    },
+
+    insertParagraph(afterBlockId: string | null): BlockInsert {
+      return createBlockInsert(afterBlockId, "paragraph");
+    },
+
+    changeBlockType(blockId: string, newType: BlockType): BlockSet {
+      return createBlockSetOp(blockId, "type", newType);
+    },
+
+    toggleTodo(blockId: string): BlockSet {
+      const block = getState().blocks.find((b) => b.id === blockId);
+      const currentChecked =
+        block && "checked" in block ? block.checked : false;
+
+      return createBlockSetOp(blockId, "checked", !currentChecked);
+    },
+
+    setIndent(blockId: string, indent: number): BlockSet {
+      return createBlockSetOp(blockId, "indent", Math.max(0, indent));
+    },
+  };
 }

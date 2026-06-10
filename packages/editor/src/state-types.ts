@@ -1,8 +1,184 @@
 import type { BlockViewRegistry } from "./rendering/blocks/BlockView";
 import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
-import type { Block, Page, TextFormat } from "./serlization/loadPage";
-import type { HLC, Operation } from "./sync/crdt-types";
+import type { Block, CharRun, Page, TextFormat } from "./serlization/loadPage";
 import type { ReactElement } from "react";
+
+// =============================================================================
+// CRDT Types — P2P Offline-Tolerant Live Updates
+//
+// The CRDT is a first-class part of the editor state model: every edit is an
+// `Operation`, `EditorState` carries the `CRDTbinding` that stamps them, and
+// undo/redo stores operations rather than snapshots. These types therefore
+// live here, alongside the rest of the state model, rather than in sync/.
+// =============================================================================
+
+/**
+ * Hybrid Logical Clock for total ordering of operations.
+ * Pure Lamport clock: counter + peerId for causality tracking.
+ * No wall clock dependency - immune to system clock skew.
+ */
+export interface HLC {
+  /** Logical counter - increments on each operation */
+  counter: number;
+  /** Peer ID - tie-breaker for concurrent operations */
+  peerId: string;
+}
+
+/** Supported block types matching the editor */
+export type BlockType =
+  | "paragraph"
+  | "heading1"
+  | "heading2"
+  | "heading3"
+  | "bullet_list"
+  | "numbered_list"
+  | "todo_list"
+  | "image"
+  | "line"
+  | "math";
+
+/**
+ * Block properties that can be set via BlockSet operation.
+ */
+export interface BlockProps {
+  /** List item indentation level */
+  indent?: number;
+  /** Todo item checked state */
+  checked?: boolean;
+  /** Image URL */
+  url?: string;
+  /** Image alt text */
+  alt?: string;
+  /** Image width */
+  width?: number | "full";
+  /** Image height */
+  height?: number;
+  /** Image object fit */
+  objectFit?: "cover" | "contain";
+  /** Math block LaTeX source */
+  latex?: string;
+  /** Math block display mode (true = display/block, false = inline) */
+  displayMode?: boolean;
+}
+
+/**
+ * Base operation fields shared by all operation types.
+ */
+export interface BaseOp {
+  /** Unique operation ID: `${peerId}:${counter}` */
+  id: string;
+  /** Hybrid logical clock timestamp */
+  clock: HLC;
+  /** Page this operation belongs to */
+  pageId: string;
+}
+
+/**
+ * Insert characters into a block's text content.
+ */
+export interface TextInsert extends BaseOp {
+  op: "text_insert";
+  /** Block to insert into */
+  blockId: string;
+  /** Insert after this character ID (null = beginning) */
+  afterCharId: string | null;
+  /** Character runs to insert (compressed format) */
+  charRuns: CharRun[];
+}
+
+/**
+ * Delete characters from a block (tombstone).
+ */
+export interface TextDelete extends BaseOp {
+  op: "text_delete";
+  /** Block to delete from */
+  blockId: string;
+  /** Character IDs to mark as deleted */
+  charIds: string[];
+}
+
+/**
+ * Set formatting on a range of characters.
+ */
+export interface FormatSet extends BaseOp {
+  op: "format_set";
+  /** Block containing the characters */
+  blockId: string;
+  /** Character IDs to format */
+  charIds: string[];
+  /** Format to apply */
+  format: TextFormat;
+  /** Format value (true/false for toggles, URL for links) */
+  value: boolean | string;
+}
+
+/**
+ * Insert a new block into the document.
+ */
+export interface BlockInsert extends BaseOp {
+  op: "block_insert";
+  /** Insert after this block ID (null = beginning) */
+  afterBlockId: string | null;
+  /** New block's unique ID */
+  blockId: string;
+  /** Block type */
+  blockType: BlockType;
+  /** Initial block properties */
+  initialProps?: BlockProps;
+}
+
+/**
+ * Delete a block (tombstone).
+ */
+export interface BlockDelete extends BaseOp {
+  op: "block_delete";
+  /** Block ID to mark as deleted */
+  blockId: string;
+}
+
+/**
+ * Set a block property (type, indent, checked, etc.).
+ */
+export interface BlockSet extends BaseOp {
+  op: "block_set";
+  /** Block to update */
+  blockId: string;
+  /** Property field name */
+  field: string;
+  /** New property value */
+  value: unknown;
+}
+
+/**
+ * Union of all operation types.
+ */
+export type Operation =
+  | TextInsert
+  | TextDelete
+  | FormatSet
+  | BlockInsert
+  | BlockDelete
+  | BlockSet;
+
+/**
+ * Version vector tracking seen operations per peer.
+ * Maps peer ID to highest operation counter seen from that peer.
+ */
+export type VersionVector = Map<string, number>;
+
+/**
+ * Operation log for a page.
+ */
+export interface OpLog {
+  /** Page ID */
+  pageId: string;
+  /** All operations ordered by HLC */
+  operations: Operation[];
+  /** Version vector of seen operations */
+  versionVector: VersionVector;
+  /** Computed state from operations */
+  state: Page;
+}
 
 /**
  * A font family key. Opaque string chosen by the host application — the editor
@@ -235,6 +411,33 @@ export interface StyleConfig {
     Record<string, Partial<TextStyle>>
   > | null;
   readonly placeholderOverrides: Partial<PlaceholderStyles> | null;
+  readonly strings: Partial<EditorStrings> | null;
+}
+
+/**
+ * Every user-facing string the editor paints onto the canvas. The package
+ * ships English defaults and no i18n library; a localized host overrides
+ * these at mount (e.g. from its own i18next instance) via
+ * `MountEditorOptions.strings`. For the block placeholders,
+ * `placeholderOverrides` (more specific) wins over `strings`.
+ */
+export interface EditorStrings {
+  readonly imageClickToUpload: string;
+  readonly imageLoading: string;
+  readonly imageUploading: string;
+  readonly imageUploadFailed: string;
+  readonly imageClickToRetry: string;
+  readonly imageChangeImage: string;
+  readonly mathClickToEdit: string;
+  readonly placeholderHeading1: string;
+  readonly placeholderHeading2: string;
+  readonly placeholderHeading3: string;
+  /** Paragraph placeholder on devices with a physical keyboard. */
+  readonly placeholderParagraph: string;
+  /** Paragraph placeholder on touch devices (no "/" key to advertise). */
+  readonly placeholderParagraphTouch: string;
+  readonly placeholderListItem: string;
+  readonly placeholderTodoItem: string;
 }
 // NOTE: the host font registry and selected font family are still module-level
 // globals in fonts.ts/styles.ts (they thread deep into the measurement path).
@@ -523,6 +726,12 @@ export interface PlaceholderStyles {
   readonly paragraph: {
     readonly keyboardCompatibleText: string;
     readonly touchCompatiableText: string;
+  };
+  readonly listItem: {
+    readonly text: string;
+  };
+  readonly todoItem: {
+    readonly text: string;
   };
   readonly color: string;
 }

@@ -20,10 +20,10 @@ import {
 import { updateCursor } from "../selection";
 import { startSelection, updateSelectionFocus } from "../selection";
 import type { EditorState, MouseEvent, ViewportState } from "../state-types";
+import type { Operation } from "../state-types";
 import { closeActiveMenu, openContextMenu, updateMode } from "../state-utils";
 import { getEditorStyles, getTextStyle } from "../styles";
 import { isTextualBlock } from "../sync/block-registry";
-import type { Operation } from "../sync/crdt-types";
 import {
   handleCompositionEnd,
   handleCompositionStart,

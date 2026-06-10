@@ -511,6 +511,7 @@ export function handleKeyDown(
             const newParagraphId = state.CRDTbinding.nextId();
             const newParagraph: Block = {
               id: newParagraphId,
+              afterId: null,
               type: "paragraph",
               charRuns: [],
               formats: [],
@@ -725,6 +726,7 @@ export function handleKeyDown(
             const newParagraphId = state.CRDTbinding.nextId();
             const newParagraph: Block = {
               id: newParagraphId,
+              afterId: currentBlock.id,
               type: "paragraph",
               charRuns: [],
               formats: [],
@@ -928,6 +930,7 @@ export function handleKeyDown(
             const newParagraphId = state.CRDTbinding.nextId();
             const newParagraph: Block = {
               id: newParagraphId,
+              afterId: null,
               type: "paragraph",
               charRuns: [],
               formats: [],
@@ -1106,6 +1109,7 @@ export function handleKeyDown(
             const newParagraphId = state.CRDTbinding.nextId();
             const newParagraph: Block = {
               id: newParagraphId,
+              afterId: currentBlock.id,
               type: "paragraph",
               charRuns: [],
               formats: [],
@@ -1199,6 +1203,7 @@ export function handleKeyDown(
             const newParagraphId = state.CRDTbinding.nextId();
             const newParagraph: Block = {
               id: newParagraphId,
+              afterId: null,
               type: "paragraph",
               charRuns: [],
               formats: [],
@@ -1373,6 +1378,7 @@ export function handleKeyDown(
             const newParagraphId = state.CRDTbinding.nextId();
             const newParagraph: Block = {
               id: newParagraphId,
+              afterId: currentBlock.id,
               type: "paragraph",
               charRuns: [],
               formats: [],

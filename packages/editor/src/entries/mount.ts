@@ -5,8 +5,14 @@ import {
 } from "../rendering/blocks";
 import { setKeyboardOpen } from "../rendering/scrollbar";
 import { type Block, type Page } from "../serlization/loadPage";
-import type { FontStyles, PlaceholderStyles, TextStyle } from "../state-types";
-import type { ViewportState } from "../state-types";
+import type {
+  CRDTbinding,
+  EditorStrings,
+  FontStyles,
+  PlaceholderStyles,
+  TextStyle,
+  ViewportState,
+} from "../state-types";
 import {
   createInitialState,
   detectPhysicalKeyboardHeuristic,
@@ -74,6 +80,12 @@ export interface MountEditorOptions {
   blockStyleOverrides?: Partial<Record<string, Partial<TextStyle>>> | null;
   placeholderOverrides?: Partial<PlaceholderStyles> | null;
   /**
+   * Localized canvas strings (placeholders, image/math states). The editor
+   * ships English defaults and no i18n library — pass your app's translations
+   * here. For block placeholders, `placeholderOverrides` wins over `strings`.
+   */
+  strings?: Partial<EditorStrings> | null;
+  /**
    * Host font registry (family key → CSS font-stack + default family). The host
    * is responsible for loading the corresponding font faces. Omit to leave any
    * globally-configured registry untouched; the editor defaults to system fonts.
@@ -89,6 +101,14 @@ export interface MountEditorOptions {
    *   mountEditor(el, blocks, { blockViews: [lineBlockView, textBlockView] });
    */
   blockViews?: readonly BlockView[];
+  /**
+   * Per-instance CRDT context (peer id + clock + id generator). Hosts that
+   * sync should create one with `createCRDTbinding(pageId, peerId)` and pass
+   * the SAME binding to `createSyncEngine`, making it the single id/clock
+   * source shared by the editor and the sync engine. Omit for standalone
+   * editors — a binding with a random peer id is created internally.
+   */
+  crdtBinding?: CRDTbinding;
 }
 
 /**
@@ -199,10 +219,12 @@ export function mountEditor(
   const initialState = createInitialState(page, {
     mode: options?.readonly ? "readonly" : "edit",
     blockViews,
+    crdtBinding: options?.crdtBinding,
     styleConfig: {
       padding: options?.padding ?? null,
       blockStyleOverrides: options?.blockStyleOverrides ?? null,
       placeholderOverrides: options?.placeholderOverrides ?? null,
+      strings: options?.strings ?? null,
     },
   });
 

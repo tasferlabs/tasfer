@@ -19,6 +19,13 @@ import type {
   EditorState,
   Position,
 } from "../state-types";
+import type {
+  BlockInsert,
+  BlockSet,
+  FormatSet,
+  Operation,
+  TextInsert,
+} from "../state-types";
 import { getBlockTextContent, getBlockTextLength } from "../state-utils";
 import { isTextualBlock } from "../sync/block-registry";
 import {
@@ -27,13 +34,6 @@ import {
   getVisibleTextFromRuns,
   iterateVisibleChars,
 } from "../sync/char-runs";
-import type {
-  BlockInsert,
-  BlockSet,
-  FormatSet,
-  Operation,
-  TextInsert,
-} from "../sync/crdt-types";
 import {
   deleteCharsInRange,
   formatCharsInRange,
@@ -1326,6 +1326,7 @@ function insertBlocksAtCursor(
       // Create the image block
       const newImageBlock: Block = {
         id: newBlockId,
+        afterId: currentBlock.id,
         type: "image",
         url: imageBlock.url,
         alt: imageBlock.alt,
@@ -1437,6 +1438,7 @@ function insertBlocksAtCursor(
 
       const newMathBlock: Block = {
         id: newBlockId,
+        afterId: currentBlock.id,
         type: "math",
         latex: mathBlock.latex,
         displayMode: mathBlock.displayMode,
@@ -1501,6 +1503,7 @@ function insertBlocksAtCursor(
 
       const newLineBlock: Block = {
         id: newBlockId,
+        afterId: currentBlock.id,
         type: "line",
       };
       invalidateBlockCache(newLineBlock);
@@ -1911,6 +1914,7 @@ function insertBlocksAtCursor(
       const newImageBlockId = globalGenerateBlockId(state.CRDTbinding);
       const newImageBlock: Block = {
         id: newImageBlockId,
+        afterId: currentBlock.id,
         type: "image",
         url: firstPastedBlock.url,
         alt: firstPastedBlock.alt,
@@ -1939,6 +1943,7 @@ function insertBlocksAtCursor(
       const newLineBlockId = globalGenerateBlockId(state.CRDTbinding);
       const newLineBlock: Block = {
         id: newLineBlockId,
+        afterId: currentBlock.id,
         type: "line",
       };
       invalidateBlockCache(newLineBlock);
@@ -1957,6 +1962,7 @@ function insertBlocksAtCursor(
       const newMathBlockId = globalGenerateBlockId(state.CRDTbinding);
       const newMathBlock: Block = {
         id: newMathBlockId,
+        afterId: currentBlock.id,
         type: "math",
         latex: firstPastedBlock.latex,
         displayMode: firstPastedBlock.displayMode,
@@ -1979,6 +1985,7 @@ function insertBlocksAtCursor(
       if (block.type === "image") {
         const newImageBlock: Block = {
           id: newBlockId,
+          afterId: lastInsertedBlockId,
           type: "image",
           url: block.url,
           alt: block.alt,
@@ -1993,6 +2000,7 @@ function insertBlocksAtCursor(
       } else if (block.type === "line") {
         const newLineBlock: Block = {
           id: newBlockId,
+          afterId: lastInsertedBlockId,
           type: "line",
         };
         invalidateBlockCache(newLineBlock);
@@ -2002,6 +2010,7 @@ function insertBlocksAtCursor(
       } else if (block.type === "math") {
         const newMathBlock: Block = {
           id: newBlockId,
+          afterId: lastInsertedBlockId,
           type: "math",
           latex: block.latex,
           displayMode: block.displayMode,
@@ -2049,6 +2058,9 @@ function insertBlocksAtCursor(
         const newBlock: Block = {
           ...block,
           id: newBlockId,
+          // `block` is parsed from the clipboard — its afterId points at a
+          // parser-namespace id that doesn't exist in this document.
+          afterId: lastInsertedBlockId,
           charRuns: charsToRuns(newChars),
           formats: newFormats,
         };
@@ -2221,6 +2233,9 @@ function insertBlocksAtCursor(
         const lastBlock: Block = {
           ...lastPastedBlock,
           id: lastBlockId,
+          // `lastPastedBlock` is parsed from the clipboard — its afterId
+          // points at a parser-namespace id that doesn't exist here.
+          afterId: lastInsertedBlockId,
           charRuns: charsToRuns(allNewChars),
           formats: allNewFormats,
         };
@@ -2316,6 +2331,7 @@ function insertBlocksAtCursor(
         const newImageBlockId = globalGenerateBlockId(state.CRDTbinding);
         const newImageBlock: Block = {
           id: newImageBlockId,
+          afterId: lastInsertedBlockId,
           type: "image",
           url: lastPastedBlock.url,
           alt: lastPastedBlock.alt,
@@ -2371,6 +2387,7 @@ function insertBlocksAtCursor(
 
           const afterBlock: Block = {
             id: afterBlockId,
+            afterId: newImageBlockId,
             type: "paragraph",
             charRuns: charsToRuns(newAfterCharsForImg),
             formats: newAfterFormatsForImg,
@@ -2439,6 +2456,7 @@ function insertBlocksAtCursor(
         const newMathBlockId = globalGenerateBlockId(state.CRDTbinding);
         const newMathBlock: Block = {
           id: newMathBlockId,
+          afterId: lastInsertedBlockId,
           type: "math",
           latex: lastPastedBlock.latex,
           displayMode: lastPastedBlock.displayMode,
@@ -2456,6 +2474,7 @@ function insertBlocksAtCursor(
         const newLineBlockId = globalGenerateBlockId(state.CRDTbinding);
         const newLineBlock: Block = {
           id: newLineBlockId,
+          afterId: lastInsertedBlockId,
           type: "line",
         };
         invalidateBlockCache(newLineBlock);
@@ -2505,6 +2524,7 @@ function insertBlocksAtCursor(
 
           const afterBlock: Block = {
             id: afterBlockId,
+            afterId: newLineBlockId,
             type: "paragraph",
             charRuns: charsToRuns(newAfterCharsForLine),
             formats: newAfterFormatsForLine,
@@ -2615,6 +2635,7 @@ function insertBlocksAtCursor(
 
         const afterBlock: Block = {
           id: afterBlockId,
+          afterId: lastInsertedBlockId,
           type: "paragraph",
           charRuns: charsToRuns(newAfterCharsSingle),
           formats: newAfterFormatsSingle,

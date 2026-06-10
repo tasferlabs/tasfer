@@ -59,14 +59,28 @@ export type {
   TextFormat,
 } from "./serlization/loadPage";
 export type {
+  CRDTbinding,
   EditorState,
+  EditorStrings,
   EditorStyles,
   FontFamily,
   FontStyles,
+  HLC,
+  Operation,
   SlashCommand,
+  VersionVector,
   ViewportState,
 } from "./state-types";
-export type { HLC, Operation } from "./sync/crdt-types";
+
+// CRDT sync — the binding is the per-instance id/clock/peer-identity source;
+// share one binding between `mountEditor` and `createSyncEngine`.
+export type { SyncEngine } from "./sync/sync";
+export {
+  createCRDTbinding,
+  createSyncEngine,
+  maxOpIdCounter,
+  maxPageIdCounter,
+} from "./sync/sync";
 
 // Fonts — the host registers font families/stacks and loads the faces, then
 // notifies the editor. The editor itself ships no bundled fonts.

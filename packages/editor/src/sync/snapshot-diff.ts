@@ -6,12 +6,6 @@
  */
 
 import type { Block, CharRun, FormatSpan } from "../serlization/loadPage";
-import {
-  getBlockDescriptor,
-  getBlockFieldNames,
-  isTextualBlock,
-} from "./block-registry";
-import { getVisibleTextFromRuns, iterateVisibleChars } from "./char-runs";
 import type {
   BlockDelete,
   BlockInsert,
@@ -20,7 +14,13 @@ import type {
   HLC,
   Operation,
   TextInsert,
-} from "./crdt-types";
+} from "../state-types";
+import {
+  getBlockDescriptor,
+  getBlockFieldNames,
+  isTextualBlock,
+} from "./block-registry";
+import { getVisibleTextFromRuns, iterateVisibleChars } from "./char-runs";
 
 // =============================================================================
 // Types
