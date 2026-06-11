@@ -1,6 +1,6 @@
 import { getCurrentFontFamily, measureCharsUpToIndex, wrapText } from "./fonts";
-import type { BlockViewRegistry } from "./rendering/blocks";
-import { createDefaultBlockViewRegistry } from "./rendering/blocks";
+import type { NodeRegistry } from "./rendering/nodes";
+import { createDefaultNodeRegistry } from "./rendering/nodes";
 import {
   createInitialMomentumState,
   createInitialScrollbarState,
@@ -36,7 +36,7 @@ export function createInitialState(
   page: Page,
   options?: {
     mode?: EditorMode;
-    blockViews?: BlockViewRegistry;
+    nodes?: NodeRegistry;
     styleConfig?: Partial<StyleConfig>;
     crdtBinding?: CRDTbindingType;
   },
@@ -62,7 +62,7 @@ export function createInitialState(
 
   // Block view registry is likewise per-instance. The host composes it at mount
   // (opt-in block set); default to the built-in views when not provided.
-  const blockViews = options?.blockViews ?? createDefaultBlockViewRegistry();
+  const nodes = options?.nodes ?? createDefaultNodeRegistry();
 
   const styleConfig: StyleConfig = {
     padding: options?.styleConfig?.padding ?? null,
@@ -73,7 +73,7 @@ export function createInitialState(
 
   return {
     CRDTbinding,
-    blockViews,
+    nodes,
     styleConfig,
     document: {
       page,

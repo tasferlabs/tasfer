@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type Block } from "@cypherkit/editor/serlization/loadPage";
-import type { TextualBlock } from "@cypherkit/editor/rendering/blocks/TextBlockView";
+import type { TextualBlock } from "@cypherkit/editor/rendering/nodes/TextNode";
 import type { AwarenessUser } from "@cypherkit/editor/sync/awareness";
 import {
   extractTitleFromBlocks,

@@ -2,6 +2,7 @@ import {
   CLICK_DISTANCE_THRESHOLD,
   SELECTION_HANDLE_TOUCH_TARGET,
 } from "../constants";
+import { AtomicNode } from "../rendering/nodes";
 import {
   getBlockHeight,
   imageCache,
@@ -23,225 +24,17 @@ export function isTouchDevice(): boolean {
   );
 }
 /**
- * Helper function to detect if mouse is hovering over an image block
+ * Find the atomic (void/embed) block under a viewport point, dispatched through
+ * the node registry: each AtomicNode reports its own interactive box via
+ * `hitTestBox`, so new atomic block types are hit-testable without touching the
+ * event layer. Pass `type` to only match a specific block type (e.g. "image").
  */
-
-export function getImageBlockAtPoint(
+export function getAtomicBlockAtPoint(
   x: number,
   y: number,
   state: EditorState,
   viewport: ViewportState,
-): {
-  blockIndex: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-} | null {
-  const styles = getEditorStyles(state);
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
-  const maxWidth =
-    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-
-  // Iterate through visible blocks to find which one we're over
-  const visibleBlocks = state.view.visibleBlocks;
-
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
-    const visibleBlock = visibleBlocks[visibleIdx];
-
-    const blockHeight = getBlockHeight(
-      state.blockViews,
-      visibleBlock,
-      maxWidth,
-      styles,
-      visibleIdx === 0,
-    );
-
-    // Special handling for first block image covers that bleed into padding
-    const isFirstBlock = visibleIdx === 0;
-    const isImage = visibleBlock.type === "image";
-
-    // Get image width early to determine if it should bleed
-    const imageWidth = isImage ? (visibleBlock.width ?? "full") : "full";
-    const shouldBleed = isFirstBlock && isImage && imageWidth === "full";
-
-    // For first block image covers that bleed, check from the top of the viewport (adjusted for padding)
-    const checkStartY = shouldBleed
-      ? currentY - styles.canvas.paddingTop
-      : currentY;
-
-    // Check if y is within this block's bounds (accounting for padding bleed)
-    if (y >= checkStartY && y < currentY + blockHeight) {
-      // Check if this is an image cover block
-      if (isImage) {
-        const { height: defaultImageHeight, placeholderHeight } =
-          styles.blocks.image.dimensions;
-
-        // Image properties already calculated above
-        const imageHeight = visibleBlock.height ?? defaultImageHeight;
-        const objectFit = visibleBlock.objectFit ?? "cover";
-
-        // Calculate container dimensions based on width setting
-        let displayWidth: number;
-        let displayHeight: number;
-        let displayX: number;
-
-        if (imageWidth === "full") {
-          // Full width: edge-to-edge (ignoring padding)
-          displayWidth =
-            maxWidth + styles.canvas.paddingLeft + styles.canvas.paddingRight;
-          displayX = 0;
-          displayHeight = visibleBlock.url ? imageHeight : placeholderHeight;
-        } else {
-          // Custom width: respect padding and constrain to container
-          const requestedWidth = imageWidth;
-          displayWidth = Math.min(requestedWidth, maxWidth);
-          displayX = styles.canvas.paddingLeft + (maxWidth - displayWidth) / 2; // Center the image
-
-          // Adjust height proportionally if width was constrained
-          // This ensures images resized on desktop don't get distorted on mobile
-          if (visibleBlock.url && displayWidth < requestedWidth) {
-            // Width was constrained - adjust height proportionally
-            const widthRatio = displayWidth / requestedWidth;
-            displayHeight = imageHeight * widthRatio;
-          } else {
-            displayHeight = visibleBlock.url ? imageHeight : placeholderHeight;
-          }
-        }
-
-        // Use the shouldBleed flag calculated earlier
-        const adjustedY = shouldBleed
-          ? currentY - styles.canvas.paddingTop
-          : currentY;
-        const adjustedHeight = displayHeight;
-
-        // Check if mouse is within the container area
-        if (
-          x >= displayX &&
-          x < displayX + displayWidth &&
-          y >= adjustedY &&
-          y < adjustedY + adjustedHeight
-        ) {
-          // For contain mode, we need to calculate the actual image bounds
-          let finalX = displayX;
-          let finalY = adjustedY;
-          let finalWidth = displayWidth;
-          let finalHeight = adjustedHeight;
-
-          if (objectFit === "contain" && visibleBlock.url) {
-            // Try to get the cached image to calculate actual bounds
-            const cachedImage = imageCache.get(visibleBlock.url);
-            if (cachedImage && cachedImage.complete) {
-              const imgAspectRatio =
-                cachedImage.naturalWidth / cachedImage.naturalHeight;
-              const containerAspectRatio = displayWidth / adjustedHeight;
-
-              if (imgAspectRatio > containerAspectRatio) {
-                // Image is wider than container - fit to width
-                finalHeight = displayWidth / imgAspectRatio;
-                finalY = adjustedY + (adjustedHeight - finalHeight) / 2;
-              } else {
-                // Image is taller than container - fit to height
-                finalWidth = adjustedHeight * imgAspectRatio;
-                finalX = displayX + (displayWidth - finalWidth) / 2;
-              }
-            }
-          }
-
-          return {
-            blockIndex: visibleBlock.originalIndex,
-            x: finalX,
-            y: finalY,
-            width: finalWidth,
-            height: finalHeight,
-          };
-        }
-      }
-      // If we found the block but it's not an image or not over the image area, return null
-      return null;
-    }
-
-    currentY += blockHeight;
-  }
-
-  return null;
-}
-/**
- * Helper function to detect if mouse/touch is over a line block
- */
-
-export function getLineBlockAtPoint(
-  x: number,
-  y: number,
-  state: EditorState,
-  viewport: ViewportState,
-): {
-  blockIndex: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-} | null {
-  const styles = getEditorStyles(state);
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
-  const maxWidth =
-    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-
-  // Iterate through visible blocks to find which one we're over
-  const visibleBlocks = state.view.visibleBlocks;
-
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
-    const visibleBlock = visibleBlocks[visibleIdx];
-    const blockHeight = getBlockHeight(
-      state.blockViews,
-      visibleBlock,
-      maxWidth,
-      styles,
-      visibleIdx === 0,
-    );
-
-    // Check if y is within this block's bounds
-    if (y >= currentY && y < currentY + blockHeight) {
-      // Check if this is a line block
-      if (visibleBlock.type === "line") {
-        const lineStyles = styles.blocks.line;
-
-        // Line block spans the full content width
-        const displayX = styles.canvas.paddingLeft;
-        const displayWidth = maxWidth;
-        const displayY = currentY;
-        const displayHeight = lineStyles.height;
-
-        // Check if mouse is within the line block area
-        if (
-          x >= displayX &&
-          x < displayX + displayWidth &&
-          y >= displayY &&
-          y < displayY + displayHeight
-        ) {
-          return {
-            blockIndex: visibleBlock.originalIndex,
-            x: displayX,
-            y: displayY,
-            width: displayWidth,
-            height: displayHeight,
-          };
-        }
-      }
-      // If we found the block but it's not a line block or not over the line area, return null
-      return null;
-    }
-
-    currentY += blockHeight;
-  }
-
-  return null;
-}
-export function getMathBlockAtPoint(
-  x: number,
-  y: number,
-  state: EditorState,
-  viewport: ViewportState,
+  type?: string,
 ): {
   blockIndex: number;
   x: number;
@@ -257,37 +50,39 @@ export function getMathBlockAtPoint(
   const visibleBlocks = state.view.visibleBlocks;
 
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
-    const visibleBlock = visibleBlocks[visibleIdx];
+    const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
-      state.blockViews,
-      visibleBlock,
+      state.nodes,
+      block,
       maxWidth,
       styles,
       visibleIdx === 0,
     );
 
-    if (y >= currentY && y < currentY + blockHeight) {
-      if (visibleBlock.type === "math") {
-        const displayX = styles.canvas.paddingLeft;
-        const displayWidth = maxWidth;
-        const displayY = currentY;
-        const displayHeight = blockHeight;
+    const node = state.nodes.get(block.type);
+    const hit =
+      node instanceof AtomicNode
+        ? node.hitTestBox(
+            {
+              block,
+              blockIndex: block.originalIndex,
+              maxWidth,
+              isFirst: visibleIdx === 0,
+              styles,
+            },
+            { x: styles.canvas.paddingLeft, y: currentY },
+            { x, y },
+          )
+        : null;
 
-        if (
-          x >= displayX &&
-          x < displayX + displayWidth &&
-          y >= displayY &&
-          y < displayY + displayHeight
-        ) {
-          return {
-            blockIndex: visibleBlock.originalIndex,
-            x: displayX,
-            y: displayY,
-            width: displayWidth,
-            height: displayHeight,
-          };
-        }
+    // The interactive box may bleed above the flow box (first full-width
+    // image), so the y-range check starts at whichever is higher.
+    const top = hit ? Math.min(currentY, hit.y) : currentY;
+    if (y >= top && y < currentY + blockHeight) {
+      if (hit && (!type || block.type === type)) {
+        return { blockIndex: block.originalIndex, ...hit };
       }
+      // Found the block under the point, but it is not a matching atomic hit.
       return null;
     }
 

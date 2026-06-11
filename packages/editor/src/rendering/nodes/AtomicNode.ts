@@ -1,5 +1,5 @@
 /**
- * AtomicBlockView — convenience base for void/embed blocks (line, image, math,
+ * AtomicNode — convenience base for void/embed blocks (line, image, math,
  * video, …). These have no text caret: just an intrinsic-sized box with custom
  * drawing. Subclasses override two methods:
  *
@@ -15,52 +15,80 @@
 import type { Block } from "../../serlization/loadPage";
 import type { BlockBounds, RenderedBlock } from "../../state-types";
 import { awarenessSelectionToSelection } from "../../sync/awareness";
+import type { Image } from "./ImageNode";
+import type { Line } from "./LineNode";
+import type { MathBlock } from "./MathNode";
 import {
-  type BlockLayout,
-  type BlockLayoutCtx,
-  type BlockPaintCtx,
-  BlockView,
-} from "./BlockView";
-import type { Image } from "./ImageBlockView";
-import type { Line } from "./LineBlockView";
-import type { MathBlock } from "./MathBlockView";
+  Node,
+  type NodeLayout,
+  type NodeLayoutCtx,
+  type NodePaintCtx,
+  type Point,
+} from "./Node";
 
 // Visual blocks contain visual content (images, lines, math, etc.). Each concrete
 // type lives next to its own view; this is just the union over them.
 export type VisualBlock = Image | Line | MathBlock;
 
-export abstract class AtomicBlockView<
-  B extends Block = Block,
-> extends BlockView<B> {
+export abstract class AtomicNode<B extends Block = Block> extends Node<B> {
   /**
    * Vertical flow the block consumes, including its own trailing padding.
    * This is what the height pass returns and the document layout advances by.
    */
-  protected abstract intrinsicHeight(c: BlockLayoutCtx): number;
+  protected abstract intrinsicHeight(c: NodeLayoutCtx): number;
 
   /** Draw the visual content into `box` (the painted rect). */
-  protected abstract draw(box: BlockBounds, c: BlockPaintCtx): void;
+  protected abstract draw(box: BlockBounds, c: NodePaintCtx): void;
 
   /**
    * Optional on-top chrome drawn AFTER the selection overlay (e.g. image resize
    * handles, which must stay visible over a selection tint). Default no-op.
    */
-  protected drawChrome(_box: BlockBounds, _c: BlockPaintCtx): void {}
+  protected drawChrome(_box: BlockBounds, _c: NodePaintCtx): void {}
 
   /**
    * The rectangle actually painted + selected, which may differ from the flow
    * box: narrower/centered (constrained image), wider (full-bleed), or shorter
    * (height excludes trailing padding). Default: the full flow box.
    */
-  protected paintBox(c: BlockPaintCtx): BlockBounds {
+  protected paintBox(c: NodePaintCtx): BlockBounds {
     return this.bounds(c, this.intrinsicHeight(c));
   }
 
-  layout(c: BlockLayoutCtx): BlockLayout {
+  /**
+   * Hit-test the block's interactive box without a canvas. `origin` is the
+   * block's content origin in the caller's coordinate space; `point` the
+   * pointer position in the same space. Returns the interactive box when the
+   * point is inside it, else null. Subclasses override when the interactive
+   * box differs from the flow box (e.g. a centered/contained image).
+   *
+   * This is the single dispatch point the event layer uses to map a pointer
+   * to an atomic block — new node types are hit-testable automatically.
+   */
+  hitTestBox(
+    c: NodeLayoutCtx,
+    origin: Point,
+    point: Point,
+  ): BlockBounds | null {
+    const box: BlockBounds = {
+      x: origin.x,
+      y: origin.y,
+      width: c.maxWidth,
+      height: this.intrinsicHeight(c),
+    };
+    const inside =
+      point.x >= box.x &&
+      point.x < box.x + box.width &&
+      point.y >= box.y &&
+      point.y < box.y + box.height;
+    return inside ? box : null;
+  }
+
+  layout(c: NodeLayoutCtx): NodeLayout {
     return { height: this.intrinsicHeight(c), lines: [] };
   }
 
-  paint(layout: BlockLayout, c: BlockPaintCtx): RenderedBlock {
+  paint(layout: NodeLayout, c: NodePaintCtx): RenderedBlock {
     const box = this.paintBox(c);
 
     // Order matches the original visual blocks: content, then selection tint
@@ -84,7 +112,7 @@ export abstract class AtomicBlockView<
 
   // -- shared selection-overlay machinery (was duplicated per visual block) --
 
-  private paintRemoteSelections(box: BlockBounds, c: BlockPaintCtx): void {
+  private paintRemoteSelections(box: BlockBounds, c: NodePaintCtx): void {
     const { awareness, state, ctx, blockIndex } = c;
     if (!awareness || awareness.size === 0) return;
 
@@ -106,7 +134,7 @@ export abstract class AtomicBlockView<
     }
   }
 
-  private paintLocalSelection(box: BlockBounds, c: BlockPaintCtx): void {
+  private paintLocalSelection(box: BlockBounds, c: NodePaintCtx): void {
     const { state, ctx, styles, blockIndex } = c;
     const selection = state.document.selection;
     if (!selection || selection.isCollapsed) return;

@@ -1,5 +1,5 @@
 import { IMAGE_DEFAULT_HEIGHT } from "../constants";
-import { isImageDefault } from "../rendering/blocks/ImageBlockView";
+import { isImageDefault } from "../rendering/nodes/ImageNode";
 import { isTextualBlock } from "../sync/block-registry";
 import { getVisibleTextFromRuns, iterateVisibleChars } from "../sync/char-runs";
 import type { Block, CharRun, FormatSpan, TextFormat } from "./loadPage";

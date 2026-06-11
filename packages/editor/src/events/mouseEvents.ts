@@ -55,10 +55,8 @@ import {
 import {
   cancelImageDrag,
   endImageDrag,
+  getAtomicBlockAtPoint,
   getDragHandleAtPoint,
-  getImageBlockAtPoint,
-  getLineBlockAtPoint,
-  getMathBlockAtPoint,
   isTouchDevice,
   isWithinClickDistance,
   startImageDrag,
@@ -91,7 +89,7 @@ export function handleTodoCheckboxClick(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const visibleBlock = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
-      state.blockViews,
+      state.nodes,
       visibleBlock,
       maxWidth,
       styles,
@@ -185,7 +183,7 @@ export function isPointOverCheckbox(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const visibleBlock = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
-      state.blockViews,
+      state.nodes,
       visibleBlock,
       maxWidth,
       styles,
@@ -424,7 +422,13 @@ export function handleMouseDown(
   }
 
   // Check if clicking on an image cover block (including placeholders)
-  const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
+  const imageBlock = getAtomicBlockAtPoint(
+    canvasX,
+    canvasY,
+    state,
+    viewport,
+    "image",
+  );
   if (imageBlock) {
     const block = state.document.page.blocks[imageBlock.blockIndex];
     if (!block || block.deleted) return { state: state, ops };
@@ -493,7 +497,13 @@ export function handleMouseDown(
   }
 
   // Check if clicking on a line block
-  const lineBlock = getLineBlockAtPoint(canvasX, canvasY, state, viewport);
+  const lineBlock = getAtomicBlockAtPoint(
+    canvasX,
+    canvasY,
+    state,
+    viewport,
+    "line",
+  );
   if (lineBlock) {
     const block = state.document.page.blocks[lineBlock.blockIndex];
     if (!block || block.deleted || block.type !== "line") {
@@ -531,7 +541,13 @@ export function handleMouseDown(
   }
 
   // Check if clicking on a math block
-  const mathBlock = getMathBlockAtPoint(canvasX, canvasY, state, viewport);
+  const mathBlock = getAtomicBlockAtPoint(
+    canvasX,
+    canvasY,
+    state,
+    viewport,
+    "math",
+  );
   if (mathBlock) {
     const block = state.document.page.blocks[mathBlock.blockIndex];
     if (!block || block.deleted || block.type !== "math") {
@@ -925,7 +941,13 @@ export function handleMouseMove(
 
   // Check for image hover (desktop only, not in select mode, and not during image drag)
   if (!isTouchDevice() && state.ui.mode !== "select") {
-    const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
+    const imageBlock = getAtomicBlockAtPoint(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      "image",
+    );
 
     if (imageBlock) {
       // Get the block to check its object-fit mode
@@ -973,7 +995,13 @@ export function handleMouseMove(
     }
 
     // Math block hover (full block backdrop)
-    const mathBlock = getMathBlockAtPoint(canvasX, canvasY, state, viewport);
+    const mathBlock = getAtomicBlockAtPoint(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      "math",
+    );
     const newMathBlockHover = mathBlock ? mathBlock.blockIndex : null;
     if (newMathBlockHover !== state.ui.hoveredMathBlockIndex) {
       state = {

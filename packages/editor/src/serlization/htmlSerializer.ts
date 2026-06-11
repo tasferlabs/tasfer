@@ -1,5 +1,5 @@
 import { renderToSVG } from "../math";
-import { isImageDefault } from "../rendering/blocks/ImageBlockView";
+import { isImageDefault } from "../rendering/nodes/ImageNode";
 import { isTextualBlock } from "../sync/block-registry";
 import { iterateVisibleChars } from "../sync/char-runs";
 import { isListBlock } from "./loadPage";

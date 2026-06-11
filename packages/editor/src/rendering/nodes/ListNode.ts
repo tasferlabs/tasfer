@@ -1,13 +1,13 @@
 /**
- * ListBlockView — the on-canvas behavior for the bullet/numbered/todo list
- * family. It is a thin extension of {@link TextBlockView}: lists ARE text blocks
+ * ListNode — the on-canvas behavior for the bullet/numbered/todo list
+ * family. It is a thin extension of {@link TextNode}: lists ARE text blocks
  * (same wrap, caret, selection, hit-test geometry), they just reserve a leading
  * gutter for an indent + marker and draw a marker on the first line.
  *
  * Everything list-specific lives here, behind the three `protected` hooks
- * TextBlockView exposes (`leadingInset`, `paintMarker`, `placeholderText`). That
- * keeps lists fully opt-in: a host that doesn't register `listBlockView` gets an
- * editor with no list blocks, and TextBlockView never references list types.
+ * TextNode exposes (`leadingInset`, `paintMarker`, `placeholderText`). That
+ * keeps lists fully opt-in: a host that doesn't register `listNode` gets an
+ * editor with no list blocks, and TextNode never references list types.
  */
 
 import { getCurrentFontFamily, getFontStack } from "../../fonts";
@@ -17,14 +17,10 @@ import {
   isListBlock,
 } from "../../serlization/loadPage";
 import type { EditorState, EditorStyles } from "../../state-types";
-import type { BlockRuntimeState } from "./BlockView";
-import {
-  type TextBlockLayout,
-  TextBlockView,
-  type TextualBlock,
-} from "./TextBlockView";
+import type { BlockRuntimeState } from "./Node";
+import { TextNode, type TextNodeLayout, type TextualBlock } from "./TextNode";
 
-/** The block types handled by ListBlockView. */
+/** The block types handled by ListNode. */
 export const LIST_BLOCK_TYPES = [
   "bullet_list",
   "numbered_list",
@@ -58,7 +54,7 @@ export type ListBlock = BulletListItem | NumberedListItem | TodoListItem;
 
 /**
  * Item number for a numbered list item — counts preceding same-indent siblings.
- * Moved verbatim from TextBlockView so behavior is preserved.
+ * Moved verbatim from TextNode so behavior is preserved.
  */
 function calculateListItemNumber(
   state: EditorState,
@@ -104,7 +100,7 @@ function calculateListItemNumber(
   return number;
 }
 
-export class ListBlockView extends TextBlockView {
+export class ListNode extends TextNode {
   // Representative type; registered under every LIST_BLOCK_TYPES key.
   readonly type: TextualBlock["type"] = "bullet_list";
   readonly types: readonly string[] = LIST_BLOCK_TYPES;
@@ -128,7 +124,7 @@ export class ListBlockView extends TextBlockView {
     block: TextualBlock,
     markerX: number,
     lineTopY: number,
-    layout: TextBlockLayout,
+    layout: TextNodeLayout,
     styles: EditorStyles,
     state: EditorState,
     blockIndex: number,
@@ -229,4 +225,4 @@ export class ListBlockView extends TextBlockView {
 }
 
 /** Singleton list view, shared across editors (holds no per-editor state). */
-export const listBlockView = new ListBlockView();
+export const listNode = new ListNode();

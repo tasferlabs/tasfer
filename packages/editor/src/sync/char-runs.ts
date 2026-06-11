@@ -8,7 +8,7 @@
  * ID computation: Each character's ID = `${peerId}:${startCounter + offset}`
  */
 
-import type { TextualBlock } from "../rendering/blocks/TextBlockView";
+import type { TextualBlock } from "../rendering/nodes/TextNode";
 import type { Block, Char, CharRun } from "../serlization/loadPage";
 import { isTextualBlock } from "./block-registry";
 import { compareIds, extractCounter, extractPeerId } from "./id";

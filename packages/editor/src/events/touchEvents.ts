@@ -46,8 +46,7 @@ import {
 } from "./eventsState";
 import {
   endImageDrag,
-  getImageBlockAtPoint,
-  getLineBlockAtPoint,
+  getAtomicBlockAtPoint,
   getSelectionHandleAtPoint,
   isWithinClickDistance,
   startImageDrag,
@@ -274,7 +273,13 @@ export function handleTouchStart(
 
     // Check if touching an image drag handle (with larger tolerance for touch)
     // Block image drag in readonly mode
-    const imageBlock = getImageBlockAtPoint(canvasX, canvasY, state, viewport);
+    const imageBlock = getAtomicBlockAtPoint(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      "image",
+    );
     const TOUCH_TOLERANCE = 12; // Larger tolerance for touch devices
     if (imageBlock && !isScrollbarThumbTouch && !isReadonly) {
       const dragState = startImageDrag(
@@ -1490,11 +1495,12 @@ export function handleTouchEnd(
       if (!tappedBlock || tappedBlock.deleted) return { state, ops };
       if (tappedBlock && tappedBlock.type === "image") {
         // Verify the tap is actually within the image bounds, not just in the block
-        const imageBlock = getImageBlockAtPoint(
+        const imageBlock = getAtomicBlockAtPoint(
           tapPosition.x,
           tapPosition.y,
           state,
           viewport,
+          "image",
         );
         if (imageBlock) {
           // If it's a placeholder (no URL), open upload menu
@@ -1658,11 +1664,12 @@ export function handleTouchEnd(
       // Check if tapped on a line block
       if (tappedBlock && tappedBlock.type === "line") {
         // Verify the tap is actually within the line block bounds
-        const lineBlockResult = getLineBlockAtPoint(
+        const lineBlockResult = getAtomicBlockAtPoint(
           tapPosition.x,
           tapPosition.y,
           state,
           viewport,
+          "line",
         );
         if (lineBlockResult) {
           // Select the line block (same behavior as image blocks)

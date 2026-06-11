@@ -12,16 +12,16 @@ export { mountEditor } from "./entries/mount";
 
 // Block views — per-instance registry + built-in views for opt-in block sets
 export {
-  BlockView,
-  BlockViewRegistry,
-  createBlockViewRegistry,
-  createDefaultBlockViewRegistry,
-  imageBlockView,
-  lineBlockView,
-  ListBlockView,
-  listBlockView,
-  textBlockView,
-} from "./rendering/blocks";
+  createDefaultNodeRegistry,
+  createNodeRegistry,
+  imageNode,
+  lineNode,
+  ListNode,
+  listNode,
+  Node,
+  NodeRegistry,
+  textNode,
+} from "./rendering/nodes";
 
 // Editor instance API
 export type {

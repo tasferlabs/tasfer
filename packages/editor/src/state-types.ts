@@ -1,4 +1,4 @@
-import type { BlockViewRegistry } from "./rendering/blocks/BlockView";
+import type { NodeRegistry } from "./rendering/nodes/Node";
 import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
 import type { Block, CharRun, Page, TextFormat } from "./serlization/loadPage";
 import type { ReactElement } from "react";
@@ -479,7 +479,7 @@ export interface EditorState {
    * Owned by this editor — NOT a module global — so multiple editors on the same
    * page can register different block sets and so block types are opt-in at mount.
    */
-  readonly blockViews: BlockViewRegistry;
+  readonly nodes: NodeRegistry;
   /**
    * Per-instance style overrides (padding, block styles, placeholders, fonts,
    * selected font family). Replaces the former module-level globals in styles.ts

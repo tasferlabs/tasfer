@@ -1564,7 +1564,7 @@ export default function createEditor(
 
       // Use getBlockHeight to leverage caching for performance
       const blockHeight = getBlockHeight(
-        state.blockViews,
+        state.nodes,
         block,
         maxWidth,
         styles,

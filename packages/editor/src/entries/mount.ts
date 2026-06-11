@@ -1,8 +1,8 @@
 import {
-  type BlockView,
-  createBlockViewRegistry,
-  createDefaultBlockViewRegistry,
-} from "../rendering/blocks";
+  createDefaultNodeRegistry,
+  createNodeRegistry,
+  type Node,
+} from "../rendering/nodes";
 import { setKeyboardOpen } from "../rendering/scrollbar";
 import { type Block, type Page } from "../serlization/loadPage";
 import type {
@@ -94,13 +94,13 @@ export interface MountEditorOptions {
   /**
    * The set of block views this editor instance supports. Each editor owns its
    * own registry, so different editors can opt into different block types.
-   * Omit to use the built-in set (`createDefaultBlockViewRegistry`).
+   * Omit to use the built-in set (`createDefaultNodeRegistry`).
    *
    * Example — an editor without the image block:
-   *   import { lineBlockView, textBlockView } from "@cypherkit/editor";
-   *   mountEditor(el, blocks, { blockViews: [lineBlockView, textBlockView] });
+   *   import { lineNode, textNode } from "@cypherkit/editor";
+   *   mountEditor(el, blocks, { nodes: [lineNode, textNode] });
    */
-  blockViews?: readonly BlockView[];
+  nodes?: readonly Node[];
   /**
    * Per-instance CRDT context (peer id + clock + id generator). Hosts that
    * sync should create one with `createCRDTbinding(pageId, peerId)` and pass
@@ -209,16 +209,16 @@ export function mountEditor(
   };
 
   // Build this editor's per-instance block view registry (opt-in block set).
-  const blockViews = options?.blockViews
-    ? createBlockViewRegistry(options.blockViews)
-    : createDefaultBlockViewRegistry();
+  const nodes = options?.nodes
+    ? createNodeRegistry(options.nodes)
+    : createDefaultNodeRegistry();
 
   // Create initial state from the page (blocks already loaded). Per-instance
   // style overrides live on the state (no module globals), so two editors on a
   // page don't clobber each other's padding/block/placeholder styling.
   const initialState = createInitialState(page, {
     mode: options?.readonly ? "readonly" : "edit",
-    blockViews,
+    nodes,
     crdtBinding: options?.crdtBinding,
     styleConfig: {
       padding: options?.padding ?? null,
@@ -297,7 +297,7 @@ export function mountEditor(
   resizeObserver.observe(container);
 
   const handleDocumentClick = (e: MouseEvent | TouchEvent) => {
-    const target = e.target as Node;
+    const target = e.target as globalThis.Node;
     if (!target) return;
     if (canvasContainer.contains(target) || hiddenInput.contains(target)) {
       return;
@@ -337,7 +337,7 @@ export function mountEditor(
     ) {
       return;
     }
-    const relatedTarget = e.relatedTarget as Node | null;
+    const relatedTarget = e.relatedTarget as globalThis.Node | null;
     if (
       window.CypherBridge &&
       relatedTarget &&
@@ -389,7 +389,7 @@ export function mountEditor(
   // When focus moves to an element outside the editor (e.g., a dialog input),
   // unfocus the editor so keystrokes don't get processed by it
   const handleDocumentFocusIn = (e: FocusEvent) => {
-    const target = e.target as Node;
+    const target = e.target as globalThis.Node;
     if (!target) return;
     if (target === hiddenInput) return;
     if (canvasContainer.contains(target)) return;

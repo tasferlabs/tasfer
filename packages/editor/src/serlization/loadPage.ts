@@ -1,6 +1,6 @@
-import type { VisualBlock } from "../rendering/blocks/AtomicBlockView";
-import type { ListBlock } from "../rendering/blocks/ListBlockView";
-import type { TextBlock } from "../rendering/blocks/TextBlockView";
+import type { VisualBlock } from "../rendering/nodes/AtomicNode";
+import type { ListBlock } from "../rendering/nodes/ListNode";
+import type { TextBlock } from "../rendering/nodes/TextNode";
 import type { HLC } from "../sync/sync";
 import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
@@ -134,8 +134,8 @@ export function loadPage(content: string): Page {
 }
 /**
  * Type guard for the bullet/numbered/todo list family. Lives here, next to the
- * `Block`/`ListBlock` types it guards, rather than in `ListBlockView` — the view
- * extends `TextBlockView`, so co-locating the predicate there made every
+ * `Block`/`ListBlock` types it guards, rather than in `ListNode` — the view
+ * extends `TextNode`, so co-locating the predicate there made every
  * lightweight consumer (state-utils, selection, serializers, …) pull in the
  * whole inheritance chain and created an init-time import cycle.
  */

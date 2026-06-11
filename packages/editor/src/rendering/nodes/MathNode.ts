@@ -1,8 +1,8 @@
 /**
- * MathBlockView — the `math` (block-level LaTeX equation) block ported onto
- * AtomicBlockView.
+ * MathNode — the `math` (block-level LaTeX equation) block ported onto
+ * AtomicNode.
  *
- * Like ImageBlockView, the on-canvas size depends on an async-decoded asset:
+ * Like ImageNode, the on-canvas size depends on an async-decoded asset:
  * MathJax renders the LaTeX to an SVG which we rasterize to an ImageBitmap, and
  * the decoded height drives the block's flow height. So — exactly as with images
  * — when a render lands we drop the cached height and request a repaint, letting
@@ -12,21 +12,17 @@
  *
  * The math render cache lives here as module singletons — one MathJax render
  * serves every block referencing the same equation — mirroring the image cache
- * co-located in ImageBlockView.
+ * co-located in ImageNode.
  *
  * Out of scope (event layer): click-to-edit hit-testing and hover tracking live
  * in events/mouseEvents + eventUtils, the same split used for image resize
  * handles. The shared selection-overlay machinery is inherited from
- * AtomicBlockView.
+ * AtomicNode.
  */
 
 import type { BlockBounds } from "../../state-types";
-import { AtomicBlockView } from "./AtomicBlockView";
-import type {
-  BlockLayoutCtx,
-  BlockPaintCtx,
-  BlockRuntimeState,
-} from "./BlockView";
+import { AtomicNode } from "./AtomicNode";
+import type { BlockRuntimeState, NodeLayoutCtx, NodePaintCtx } from "./Node";
 
 // Math block - rendered LaTeX equation. Named `MathBlock` (not `Math`) to avoid
 // shadowing the global `Math` object, which this module uses heavily.
@@ -39,7 +35,7 @@ export interface MathBlock extends BlockRuntimeState {
 // ── Math render cache ───────────────────────────────────────────────────────
 // Rasterized equations keyed by displayMode + dpr + latex. Shared as module
 // singletons because one MathJax render must serve every block referencing the
-// same equation (mirrors the image cache in ImageBlockView).
+// same equation (mirrors the image cache in ImageNode).
 
 interface RenderedMath {
   readonly img: HTMLImageElement | ImageBitmap;
@@ -182,7 +178,7 @@ function renderMathToImage(
   });
 }
 
-export class MathBlockView extends AtomicBlockView<MathBlock> {
+export class MathNode extends AtomicNode<MathBlock> {
   readonly type = "math" as const;
 
   /**
@@ -190,7 +186,7 @@ export class MathBlockView extends AtomicBlockView<MathBlock> {
    * Falls back to minHeight until the equation has been rendered + cached.
    * Depends only on layout context, so the height pass and paint agree on size.
    */
-  private contentHeight(c: BlockLayoutCtx): number {
+  private contentHeight(c: NodeLayoutCtx): number {
     const block = c.block as MathBlock;
     const m = c.styles.blocks.math;
     if (block.latex) {
@@ -203,12 +199,12 @@ export class MathBlockView extends AtomicBlockView<MathBlock> {
     return m.minHeight;
   }
 
-  protected intrinsicHeight(c: BlockLayoutCtx): number {
+  protected intrinsicHeight(c: NodeLayoutCtx): number {
     const m = c.styles.blocks.math;
     return this.contentHeight(c) + m.paddingTop + m.paddingBottom;
   }
 
-  protected draw(box: BlockBounds, c: BlockPaintCtx): void {
+  protected draw(box: BlockBounds, c: NodePaintCtx): void {
     const block = c.block as MathBlock;
     const { ctx, state, styles, blockIndex } = c;
     const m = styles.blocks.math;

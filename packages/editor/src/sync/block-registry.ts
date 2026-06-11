@@ -9,7 +9,7 @@
  * registry.
  */
 
-import type { TextualBlock } from "../rendering/blocks/TextBlockView";
+import type { TextualBlock } from "../rendering/nodes/TextNode";
 import type { Block } from "../serlization/loadPage";
 import type { BlockType } from "../state-types";
 
@@ -386,12 +386,12 @@ export function hasTextContent(type: BlockType): boolean {
 /**
  * Type guard for textual blocks (headings, paragraph, and the list family).
  *
- * Lives here — with the registry it queries — rather than in `TextBlockView`,
+ * Lives here — with the registry it queries — rather than in `TextNode`,
  * for the same reason `isListBlock` lives in `loadPage`: the view extends
- * `TextBlockView`, so co-locating the predicate there made every lightweight
+ * `TextNode`, so co-locating the predicate there made every lightweight
  * consumer (state-utils, sync/*, serializers, events, …) pull in the whole
  * view inheritance chain and created an init-time import cycle
- * (TextBlockView → state-utils → blocks barrel → ListBlockView → TextBlockView).
+ * (TextNode → state-utils → blocks barrel → ListNode → TextNode).
  * `block-registry` is a runtime leaf (only `import type`), so importing the
  * guard from here can never form such a cycle.
  */

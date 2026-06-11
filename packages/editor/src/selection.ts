@@ -1,39 +1,31 @@
+import { measureCharsUpToIndex } from "./fonts";
 import {
-  type FontFamily,
-  getCurrentFontFamily,
-  getFontMetrics,
-  measureCharsUpToIndex,
-  measureCRDTPositions,
-  measureTextUpToIndex,
-  wrapText,
-} from "./fonts";
+  getContentWithComposition,
+  TextNode,
+  type TextNodeLayout,
+} from "./rendering/nodes/TextNode";
 import { getBlockHeight } from "./rendering/renderer";
 import { getTextDirection } from "./rtl";
-import { type Block, type Char } from "./serlization/loadPage";
-import { isListBlock } from "./serlization/loadPage";
+import type { Block, CharRun, FormatSpan } from "./serlization/loadPage";
 import type {
   CursorState,
   EditorState,
   EditorStyles,
   PartialSelectionState,
   Position,
-  TextStyle,
   ViewportState,
 } from "./state-types";
 import {
   createInitialCursorState,
   getBlockTextContent,
   getBlockTextLength,
-  getLineInfoAtPosition,
   getTextIndexAtRelativePosition,
   snapInlineMathPosition,
 } from "./state-utils";
-import { getEditorStyles, getTextStyle } from "./styles";
+import { getEditorStyles } from "./styles";
 import { isTextualBlock } from "./sync/block-registry";
 import {
-  charRunsToChars,
   findCharInRuns,
-  getVisibleTextFromChars,
   getVisibleTextFromRuns,
   iterateVisibleChars,
 } from "./sync/char-runs";
@@ -41,6 +33,84 @@ import {
   findNextVisibleBlockIndex,
   findPreviousVisibleBlockIndex,
 } from "./sync/reducer";
+
+// ---------------------------------------------------------------------------
+// Geometry coordinator
+//
+// This module owns NO text geometry of its own. It walks the document to find
+// a block's top Y, then delegates caret/selection/hit-test math to the TextNode
+// registered for the block (state.nodes), so every pass — paint, caret,
+// hit-test, selection — consumes the same canonical layout().
+// ---------------------------------------------------------------------------
+
+/** The TextNode registered for this block, or null for non-text blocks. */
+function textNodeFor(state: EditorState, block: Block): TextNode | null {
+  if (!isTextualBlock(block)) return null;
+  const node = state.nodes.get(block.type);
+  return node instanceof TextNode ? node : null;
+}
+
+/** Canonical layout for a textual block at the current content width. */
+function layoutFor(
+  node: TextNode,
+  block: Block,
+  blockIndex: number,
+  maxWidth: number,
+  styles: EditorStyles,
+): TextNodeLayout {
+  return node.layout({ block, blockIndex, maxWidth, isFirst: false, styles });
+}
+
+/** Top Y of a block in document space (origin at canvas paddingTop). */
+function getBlockTopDocument(
+  state: EditorState,
+  blockIndex: number,
+  maxWidth: number,
+  styles: EditorStyles,
+): number {
+  let y = styles.canvas.paddingTop;
+  const visibleBlocks = state.view.visibleBlocks;
+  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+    const block = visibleBlocks[visibleIdx];
+    if (block.originalIndex >= blockIndex) break;
+    y += getBlockHeight(state.nodes, block, maxWidth, styles, visibleIdx === 0);
+  }
+  return y;
+}
+
+/** Index of the layout line containing `textIndex` (first match), or -1. */
+function lineIndexAt(layout: TextNodeLayout, textIndex: number): number {
+  for (let i = 0; i < layout.lines.length; i++) {
+    const line = layout.lines[i];
+    if (textIndex >= line.startIndex && textIndex <= line.endIndex) return i;
+  }
+  return -1;
+}
+
+/**
+ * The "column" to preserve when moving the caret between lines. For LTR text
+ * this is the logical offset within the line; for RTL it is the measured x
+ * offset from the line start (visual column), matching
+ * getTextIndexAtRelativePosition's RTL handling.
+ */
+function relativeColumn(
+  block: { charRuns: CharRun[]; formats: FormatSpan[] },
+  layout: TextNodeLayout,
+  lineStartIndex: number,
+  textIndex: number,
+): number {
+  if (!layout.isRTL) return textIndex - lineStartIndex;
+  return measureCharsUpToIndex(
+    block.charRuns,
+    block.formats,
+    lineStartIndex,
+    textIndex,
+    layout.textStyle.fontSize,
+    layout.textStyle.fontWeight,
+    layout.fontFamily,
+    layout.codePadding,
+  );
+}
 
 export function getCursorDocumentCoords(
   position: Position,
@@ -51,164 +121,31 @@ export function getCursorDocumentCoords(
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
 
-  let currentY = styles.canvas.paddingTop;
-
-  // Iterate through visible blocks up to the target block
-  const visibleBlocks = state.view.visibleBlocks;
-  const allBlocks = state.document.page.blocks;
-  const targetBlock = allBlocks[position.blockIndex];
-
-  if (!targetBlock) return null;
-
-  // Find visible blocks before the target block
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
-    const block = visibleBlocks[visibleIdx];
-    if (block.originalIndex >= position.blockIndex) break;
-
-    currentY += getBlockHeight(
-      state.blockViews,
-      block,
-      maxWidth,
-      styles,
-      visibleIdx === 0,
-    );
-  }
-
-  const block = targetBlock;
+  const block = state.document.page.blocks[position.blockIndex];
   if (!block) return null;
 
-  if (!isTextualBlock(block)) {
-    return null;
-  }
+  const node = textNodeFor(state, block);
+  if (!node) return null;
 
-  const textStyle = getTextStyle(styles, block.type);
-  const fontFamily = getCurrentFontFamily();
-  const codePadding = styles.textFormats.code.padding;
-
-  const fontMetrics = getFontMetrics(
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
+  const layout = layoutFor(node, block, position.blockIndex, maxWidth, styles);
+  const blockTop = getBlockTopDocument(
+    state,
+    position.blockIndex,
+    maxWidth,
+    styles,
   );
-  const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
-
-  // Detect if this is an RTL block
-  const isRTL =
-    getTextDirection(getVisibleTextFromRuns(block.charRuns)) === "rtl";
-
-  // Calculate indent and marker space for list blocks
-  let indentOffset = 0;
-  let markerWidth = 0;
-  let adjustedMaxWidth = maxWidth;
-  let baseX = styles.canvas.paddingLeft;
-
-  if (isListBlock(block)) {
-    const indent = block.indent || 0;
-    indentOffset = indent * styles.list.indent.size;
-
-    // Use consistent marker width for all list types to ensure text alignment
-    markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
-
-    adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-
-    // Adjust baseX based on text direction
-    if (isRTL) {
-      // RTL: text area starts at left (no marker space on left)
-      baseX = styles.canvas.paddingLeft + indentOffset;
-    } else {
-      // LTR: text area starts after marker
-      baseX = styles.canvas.paddingLeft + indentOffset + markerWidth;
-    }
-  }
-
-  // Use CRDT text wrapping
-  const lines = wrapText(
-    charRunsToChars(block.charRuns),
-    block.formats,
-    adjustedMaxWidth,
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
-    codePadding,
+  return node.caretRect(
+    layout,
+    position.textIndex,
+    styles.canvas.paddingLeft,
+    blockTop,
   );
-
-  let textIndex = 0;
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const wrappedLine = lines[lineIndex];
-    const line = wrappedLine.text;
-    const lineEndIndex = textIndex + line.length;
-
-    if (position.textIndex >= textIndex && position.textIndex <= lineEndIndex) {
-      if (isRTL) {
-        // For RTL text rendered with canvas direction="rtl":
-        // - Cursor at logical index 0 (lineStartIndex) appears at the RIGHT (baseX + adjustedMaxWidth)
-        // - Cursor at logical index N appears at the LEFT
-        // Measure from line start to cursor position
-        const widthFromStart = measureTextUpToIndex(
-          charRunsToChars(block.charRuns),
-          block.formats,
-          textIndex,
-          position.textIndex,
-          textStyle.fontSize,
-          textStyle.fontWeight,
-          fontFamily,
-          codePadding,
-        );
-
-        return {
-          x: baseX + adjustedMaxWidth - widthFromStart,
-          y: currentY,
-          height: lineHeight,
-        };
-      } else {
-        // LTR: Calculate X using format-aware measurement
-        // Measure from the line start to the cursor position
-        const textWidth = measureTextUpToIndex(
-          charRunsToChars(block.charRuns),
-          block.formats,
-          textIndex,
-          position.textIndex,
-          textStyle.fontSize,
-          textStyle.fontWeight,
-          fontFamily,
-          codePadding,
-        );
-
-        return {
-          x: baseX + textWidth,
-          y: currentY,
-          height: lineHeight,
-        };
-      }
-    }
-
-    textIndex += line.length;
-    if (wrappedLine.consumedSpace) {
-      textIndex += 1;
-    }
-    currentY += lineHeight;
-  }
-
-  // For empty blocks or cursor at the very end
-  if (isRTL) {
-    return {
-      x: baseX + adjustedMaxWidth,
-      y: currentY,
-      height: lineHeight,
-    };
-  }
-
-  return {
-    x: baseX,
-    y: currentY,
-    height: lineHeight,
-  };
 }
 
 /**
- * Get cursor coordinates accounting for composition text
+ * Get cursor coordinates accounting for composition text.
  * When composing, this returns the position at the END of the composition text
- * which may be on a different line if the text wrapped
+ * which may be on a different line if the text wrapped.
  */
 export function getCursorCoordinatesWithComposition(
   state: EditorState,
@@ -220,199 +157,35 @@ export function getCursorCoordinatesWithComposition(
   const position = state.document.cursor.position;
   const block = state.document.page.blocks[position.blockIndex];
   if (!block || block.deleted) return null;
-  if (!block) return null;
+  if (!isTextualBlock(block)) return null;
 
-  if (!isTextualBlock(block)) {
-    return null;
-  }
+  const node = textNodeFor(state, block);
+  if (!node) return null;
 
   // If not composing, use regular cursor coordinates
   if (!state.ui.composition?.isComposing || !state.ui.composition.text) {
     return getCursorDocumentCoords(position, state, viewport, styles);
   }
 
-  // When composing, we need to account for the composition text
-  // Create modified chars with composition text injected (similar to renderer)
-  const compositionText = state.ui.composition.text;
-  const cursorTextIndex = position.textIndex;
-
-  // Create temporary composition chars (without IDs since they're not persisted)
-  const compositionChars: Char[] = Array.from(compositionText).map(
-    (char, i) => ({
-      id: `composition-${i}`,
-      char,
-      deleted: false,
-    }),
-  );
-
-  // Insert composition chars at cursor position (visible index)
-  const modifiedChars: Char[] = [];
-  let visibleIndex = 0;
-  let insertionDone = false;
-
-  // Convert charRuns to chars for composition insertion
-  const blockChars = charRunsToChars(block.charRuns);
-  for (const char of blockChars) {
-    if (char.deleted) {
-      modifiedChars.push(char);
-      continue;
-    }
-
-    if (visibleIndex === cursorTextIndex && !insertionDone) {
-      // Insert composition chars here
-      modifiedChars.push(...compositionChars);
-      insertionDone = true;
-    }
-
-    modifiedChars.push(char);
-    visibleIndex++;
-  }
-
-  // If cursor is at the end, append composition
-  if (!insertionDone) {
-    modifiedChars.push(...compositionChars);
-  }
-
-  // Now calculate coordinates at the END of the composition text
-  const targetTextIndex = cursorTextIndex + compositionText.length;
-
-  // Calculate position using modified content
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-  let currentY = styles.canvas.paddingTop;
 
-  // Add heights of blocks before this one (only visible blocks)
-  const visibleBlocks = state.view.visibleBlocks;
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
-    const block = visibleBlocks[visibleIdx];
-    if (block.originalIndex >= position.blockIndex) break;
-
-    currentY += getBlockHeight(
-      state.blockViews,
-      block,
-      maxWidth,
-      styles,
-      visibleIdx === 0,
-    );
-  }
-
-  const textStyle = getTextStyle(styles, block.type);
-  const fontFamily = getCurrentFontFamily();
-  const codePadding = styles.textFormats.code.padding;
-  const fontMetrics = getFontMetrics(
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
+  // Fold the active composition into the layout exactly as paint() does, then
+  // place the caret at the end of the composition text.
+  const content = getContentWithComposition(block, state, position.blockIndex);
+  const layout = node.computeLayout(block, maxWidth, styles, content);
+  const blockTop = getBlockTopDocument(
+    state,
+    position.blockIndex,
+    maxWidth,
+    styles,
   );
-  const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
-
-  const isRTL =
-    getTextDirection(getVisibleTextFromChars(modifiedChars)) === "rtl";
-
-  // Calculate indent and marker space for list blocks
-  let indentOffset = 0;
-  let markerWidth = 0;
-  let adjustedMaxWidth = maxWidth;
-  let baseX = styles.canvas.paddingLeft;
-
-  if (isListBlock(block)) {
-    const indent = block.indent || 0;
-    indentOffset = indent * styles.list.indent.size;
-
-    // Use consistent marker width for all list types to ensure text alignment
-    markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
-
-    adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-
-    // Adjust baseX based on text direction
-    if (isRTL) {
-      // RTL: text area starts at left (no marker space on left)
-      baseX = styles.canvas.paddingLeft + indentOffset;
-    } else {
-      // LTR: text area starts after marker
-      baseX = styles.canvas.paddingLeft + indentOffset + markerWidth;
-    }
-  }
-
-  // Wrap the MODIFIED chars (with composition)
-  const compositionRange = {
-    start: cursorTextIndex,
-    end: cursorTextIndex + compositionText.length,
-  };
-  const lines = wrapText(
-    modifiedChars,
-    block.formats,
-    adjustedMaxWidth,
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
-    codePadding,
-    compositionRange,
+  return node.caretRect(
+    layout,
+    position.textIndex + state.ui.composition.text.length,
+    styles.canvas.paddingLeft,
+    blockTop,
   );
-
-  let textIndex = 0;
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const wrappedLine = lines[lineIndex];
-    const line = wrappedLine.text;
-    const lineEndIndex = textIndex + line.length;
-
-    if (targetTextIndex >= textIndex && targetTextIndex <= lineEndIndex) {
-      if (isRTL) {
-        const widthFromStart = measureTextUpToIndex(
-          modifiedChars,
-          block.formats,
-          textIndex,
-          targetTextIndex,
-          textStyle.fontSize,
-          textStyle.fontWeight,
-          fontFamily,
-          codePadding,
-        );
-        return {
-          x: baseX + adjustedMaxWidth - widthFromStart,
-          y: currentY,
-          height: lineHeight,
-        };
-      } else {
-        const textWidth = measureTextUpToIndex(
-          modifiedChars,
-          block.formats,
-          textIndex,
-          targetTextIndex,
-          textStyle.fontSize,
-          textStyle.fontWeight,
-          fontFamily,
-          codePadding,
-        );
-        return {
-          x: baseX + textWidth,
-          y: currentY,
-          height: lineHeight,
-        };
-      }
-    }
-
-    textIndex += line.length;
-    if (wrappedLine.consumedSpace) {
-      textIndex += 1;
-    }
-    currentY += lineHeight;
-  }
-
-  // Fallback to end position
-  if (isRTL) {
-    return {
-      x: baseX + adjustedMaxWidth,
-      y: currentY,
-      height: lineHeight,
-    };
-  }
-
-  return {
-    x: baseX,
-    y: currentY,
-    height: lineHeight,
-  };
 }
 
 export function getCursorYPosition(
@@ -474,7 +247,7 @@ function getPositionFromPaddingClick(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
-      state.blockViews,
+      state.nodes,
       block,
       maxWidth,
       styles,
@@ -483,102 +256,35 @@ function getPositionFromPaddingClick(
 
     // Check if click is within this block's Y bounds
     if (y >= currentY && y < currentY + blockHeight) {
-      if (!isTextualBlock(block)) {
+      const node = textNodeFor(state, block);
+      if (!node) {
         return { blockIndex: block.originalIndex, textIndex: 0 };
       }
 
-      // Detect text direction
-      const isRTL =
-        getTextDirection(getVisibleTextFromRuns(block.charRuns)) === "rtl";
-
-      // Get text style for line height calculation
-      const textStyle = getTextStyle(styles, block.type);
-      const fontFamily = getCurrentFontFamily();
-      const codePadding = styles.textFormats.code.padding;
-
-      // Calculate adjusted max width for list blocks
-      let adjustedMaxWidth = maxWidth;
-      if (isListBlock(block)) {
-        const indent = block.indent || 0;
-        const indentOffset = indent * styles.list.indent.size;
-        const markerWidth =
-          styles.list.numbered.minWidth + styles.list.marker.textGap;
-        adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-      }
-
-      // Wrap text to get lines
-      const lines = wrapText(
-        charRunsToChars(block.charRuns),
-        block.formats,
-        adjustedMaxWidth,
-        textStyle.fontSize,
-        textStyle.fontWeight,
-        fontFamily,
-        codePadding,
+      const layout = layoutFor(
+        node,
+        block,
+        block.originalIndex,
+        maxWidth,
+        styles,
       );
 
-      // Calculate line height
-      const fontMetrics = getFontMetrics(
-        textStyle.fontSize,
-        textStyle.fontWeight,
-        fontFamily,
-      );
-      const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
+      // LTR: left → start, right → end. RTL: left → end, right → start.
+      const pick = (line: { startIndex: number; endIndex: number }): number =>
+        isLeftPadding === layout.isRTL ? line.endIndex : line.startIndex;
 
-      // Find which line was clicked
-      let textIndex = 0;
       let lineY = currentY;
-
-      for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-        const wrappedLine = lines[lineIndex];
-        const line = wrappedLine.text;
-        const lineBottom = lineY + lineHeight;
-
-        if (y >= lineY && y < lineBottom) {
-          // Found the line - determine start or end based on direction
-          const lineStartIndex = textIndex;
-          const lineEndIndex = textIndex + line.length;
-
-          // LTR: left → start, right → end
-          // RTL: left → end, right → start
-          if (isLeftPadding) {
-            return {
-              blockIndex: block.originalIndex,
-              textIndex: isRTL ? lineEndIndex : lineStartIndex,
-            };
-          } else {
-            return {
-              blockIndex: block.originalIndex,
-              textIndex: isRTL ? lineStartIndex : lineEndIndex,
-            };
-          }
+      for (const line of layout.lines) {
+        if (y >= lineY && y < lineY + layout.lineHeight) {
+          return { blockIndex: block.originalIndex, textIndex: pick(line) };
         }
-
-        textIndex += line.length;
-        if (wrappedLine.consumedSpace) {
-          textIndex += 1;
-        }
-        lineY += lineHeight;
+        lineY += layout.lineHeight;
       }
 
-      // Click is in block padding - use last line
-      if (lines.length > 0) {
-        const lastLine = lines[lines.length - 1];
-        const lastLineStartIndex =
-          textIndex - lastLine.text.length - (lastLine.consumedSpace ? 1 : 0);
-        const lastLineEndIndex = lastLineStartIndex + lastLine.text.length;
-
-        if (isLeftPadding) {
-          return {
-            blockIndex: block.originalIndex,
-            textIndex: isRTL ? lastLineEndIndex : lastLineStartIndex,
-          };
-        } else {
-          return {
-            blockIndex: block.originalIndex,
-            textIndex: isRTL ? lastLineStartIndex : lastLineEndIndex,
-          };
-        }
+      // Click is in the block's bottom padding — use the last line.
+      if (layout.lines.length > 0) {
+        const last = layout.lines[layout.lines.length - 1];
+        return { blockIndex: block.originalIndex, textIndex: pick(last) };
       }
 
       return { blockIndex: block.originalIndex, textIndex: 0 };
@@ -643,7 +349,7 @@ export function getTextPositionFromViewport(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
-      state.blockViews,
+      state.nodes,
       block,
       maxWidth,
       styles,
@@ -652,16 +358,27 @@ export function getTextPositionFromViewport(
 
     // Check if click is within this block's Y bounds
     if (y >= currentY && y < currentY + blockHeight) {
-      return getPositionWithinBlock(
-        x,
-        y,
-        block.originalIndex,
+      const node = textNodeFor(state, block);
+      if (!node || !isTextualBlock(block)) {
+        return { blockIndex: block.originalIndex, textIndex: 0 };
+      }
+
+      const layout = layoutFor(
+        node,
         block,
-        currentY,
-        styles.canvas.paddingLeft,
+        block.originalIndex,
         maxWidth,
         styles,
       );
+      const textIndex = node.positionFromPoint(
+        block,
+        layout,
+        x,
+        y,
+        styles.canvas.paddingLeft,
+        currentY,
+      );
+      return { blockIndex: block.originalIndex, textIndex };
     }
 
     // Break early if we've passed the visible area (click can only be in visible area)
@@ -696,312 +413,6 @@ export function getTextPositionFromViewport(
   }
 
   return null;
-}
-/**
- * Find the exact position within a block based on click coordinates
- * Follows browser standard behavior for text cursor positioning
- */
-function getPositionWithinBlock(
-  x: number,
-  y: number,
-  blockIndex: number,
-  block: Block,
-  blockY: number,
-  padding: number,
-  maxWidth: number,
-  styles: EditorStyles,
-): Position {
-  if (!isTextualBlock(block)) {
-    return {
-      blockIndex: blockIndex,
-      textIndex: 0,
-    };
-  }
-
-  const textStyle = getTextStyle(styles, block.type);
-  const fontFamily = getCurrentFontFamily();
-  const codePadding = styles.textFormats.code.padding;
-
-  // Detect if this is an RTL block
-  const isRTL =
-    getTextDirection(getVisibleTextFromRuns(block.charRuns)) === "rtl";
-
-  // Calculate indent and marker space for list blocks
-  let indentOffset = 0;
-  let markerWidth = 0;
-  let adjustedMaxWidth = maxWidth;
-  let adjustedPaddingLeft = padding;
-
-  if (isListBlock(block)) {
-    const indent = block.indent || 0;
-    indentOffset = indent * styles.list.indent.size;
-
-    // Use consistent marker width for all list types to ensure text alignment
-    markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
-
-    adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-
-    // Adjust padding based on text direction
-    if (isRTL) {
-      // RTL: text area starts at left (no marker space on left)
-      adjustedPaddingLeft = padding + indentOffset;
-    } else {
-      // LTR: text area starts after marker
-      adjustedPaddingLeft = padding + indentOffset + markerWidth;
-    }
-  }
-
-  // Get font metrics for line height calculation
-  const fontMetrics = getFontMetrics(
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
-  );
-  const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
-
-  // Wrap text to get lines using CRDT text wrapping
-  const lines = wrapText(
-    charRunsToChars(block.charRuns),
-    block.formats,
-    adjustedMaxWidth,
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
-    codePadding,
-  );
-
-  let textIndex = 0;
-  let currentLineY = blockY;
-
-  // Find the target line based on Y coordinate
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const wrappedLine = lines[lineIndex];
-    const line = wrappedLine.text;
-    const lineBottom = currentLineY + lineHeight;
-
-    // Check if click is within this line's Y bounds
-    if (y >= currentLineY && y < lineBottom) {
-      const position = getPositionWithinLine(
-        x,
-        line,
-        textIndex,
-        adjustedPaddingLeft,
-        textStyle,
-        fontFamily,
-        block,
-        codePadding,
-        adjustedMaxWidth,
-        isRTL,
-      );
-      return {
-        blockIndex: blockIndex,
-        textIndex: position.textIndex,
-      };
-    }
-
-    textIndex += line.length;
-    // Account for the space character consumed during text wrapping
-    if (wrappedLine.consumedSpace) {
-      textIndex += 1;
-    }
-    currentLineY += lineHeight;
-  }
-
-  // Click is in padding bottom area - find closest position on last line
-  if (lines.length > 0) {
-    const lastWrappedLine = lines[lines.length - 1];
-    const lastLine = lastWrappedLine.text;
-    const lastLineStartIndex =
-      textIndex - lastLine.length - (lastWrappedLine.consumedSpace ? 1 : 0);
-
-    const position = getPositionWithinLine(
-      x,
-      lastLine,
-      lastLineStartIndex,
-      adjustedPaddingLeft,
-      textStyle,
-      fontFamily,
-      block,
-      codePadding,
-      adjustedMaxWidth,
-      isRTL,
-    );
-    return {
-      blockIndex: blockIndex,
-      textIndex: position.textIndex,
-    };
-  }
-
-  // Empty block - position at start
-  return {
-    blockIndex: blockIndex,
-    textIndex: 0,
-  };
-}
-/**
- * Find the exact character position within a line based on X coordinate
- * Uses character-by-character measurement for precise positioning with format awareness
- */
-function getPositionWithinLine(
-  x: number,
-  line: string,
-  lineStartIndex: number,
-  paddingLeft: number,
-  textStyle: TextStyle,
-  fontFamily: FontFamily,
-  block: Block,
-  _codePadding: number,
-  maxWidth: number,
-  isRTL: boolean,
-): Position {
-  if (!isTextualBlock(block)) {
-    return {
-      blockIndex: 0,
-      textIndex: lineStartIndex,
-    };
-  }
-
-  const relativeX = x - paddingLeft;
-  const lineEndIndex = lineStartIndex + line.length;
-
-  // Pre-calculate widths for all positions using batched measurement
-  // This is more efficient and preserves Arabic ligatures consistently
-  const positionWidths = measureCRDTPositions(
-    charRunsToChars(block.charRuns),
-    block.formats,
-    lineStartIndex,
-    lineEndIndex,
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
-  );
-
-  const lineWidth = positionWidths[positionWidths.length - 1];
-
-  if (isRTL) {
-    // For RTL text rendered with canvas direction="rtl":
-    // - Browser renders from right edge (maxWidth) going leftward
-    // - First character (index 0) appears at the RIGHT
-    // - Last character appears at the LEFT
-    // - Line occupies space from (maxWidth - lineWidth) to maxWidth
-
-    const lineVisualStart = maxWidth - lineWidth; // Left edge of RTL text visually
-    const lineVisualEnd = maxWidth; // Right edge of RTL text visually
-
-    // If click is to the left of the text (before visual start), position at end of text (last character logically)
-    if (relativeX < lineVisualStart) {
-      return {
-        blockIndex: 0, // Placeholder - will be overridden by caller
-        textIndex: lineEndIndex,
-      };
-    }
-
-    // If click is to the right of the text (after visual end), position at start of text (first character logically)
-    if (relativeX > lineVisualEnd) {
-      return {
-        blockIndex: 0,
-        textIndex: lineStartIndex,
-      };
-    }
-
-    // Find closest position using pre-calculated widths
-    // For RTL: logical index 0 is at the RIGHT, logical index N is at the LEFT
-    let bestPosition = lineStartIndex;
-    let minDistance = Infinity;
-
-    for (let i = 0; i <= line.length; i++) {
-      // Use pre-calculated width from positionWidths array
-      const widthFromStart = positionWidths[i];
-
-      // For RTL, cursor at charIndex appears at: maxWidth - widthFromStart
-      // (further we are from start logically, further LEFT we are visually)
-      const charVisualX = maxWidth - widthFromStart;
-      const distance = Math.abs(relativeX - charVisualX);
-
-      if (distance < minDistance) {
-        minDistance = distance;
-        bestPosition = lineStartIndex + i;
-      }
-    }
-
-    return {
-      blockIndex: 0,
-      textIndex: bestPosition,
-    };
-  } else {
-    // LTR logic
-    // If click is before the line start, position at line start
-    if (relativeX <= 0) {
-      return {
-        blockIndex: 0, // Placeholder - will be overridden by caller
-        textIndex: lineStartIndex,
-      };
-    }
-
-    let bestPosition = lineStartIndex;
-    let minDistance = Math.abs(relativeX);
-
-    // Find closest position using pre-calculated widths
-    for (let i = 0; i <= line.length; i++) {
-      // Use pre-calculated width from positionWidths array
-      const currentX = positionWidths[i];
-
-      const distance = Math.abs(relativeX - currentX);
-
-      if (distance < minDistance) {
-        minDistance = distance;
-        bestPosition = lineStartIndex + i;
-      }
-    }
-
-    // Inline-math chips occupy multiple visible indices but render as one
-    // atomic unit. measureCRDTPositions assigns the chip's full width to
-    // positions[startIdx+1] and zero to positions[startIdx+2..endIdx+1], so
-    // the closest-position scan can land *inside* the span (especially when
-    // the chip is at end-of-line: clicks past it tie at the chip's right edge
-    // and the earliest-tying index wins, dropping the cursor mid-LaTeX).
-    // Snap to whichever span boundary is closer to relativeX.
-    {
-      const visIdxOfId = new Map<string, number>();
-      let v = 0;
-      for (const { id } of iterateVisibleChars(block.charRuns)) {
-        visIdxOfId.set(id, v);
-        v++;
-      }
-      for (const f of block.formats) {
-        if (f.format.type !== "math") continue;
-        const s = visIdxOfId.get(f.startCharId);
-        const e = visIdxOfId.get(f.endCharId);
-        if (s === undefined || e === undefined) continue;
-        if (bestPosition > s && bestPosition < e + 1) {
-          const spanStartLocal = s - lineStartIndex;
-          const spanEndLocal = e + 1 - lineStartIndex;
-          if (
-            spanStartLocal >= 0 &&
-            spanEndLocal <= line.length &&
-            spanStartLocal < positionWidths.length &&
-            spanEndLocal < positionWidths.length
-          ) {
-            const spanStartX = positionWidths[spanStartLocal];
-            const spanEndX = positionWidths[spanEndLocal]; // Only snap when the click falls outside the chip's x-range —
-            // clicks on the chip itself must stay inside the span so hover
-            // and click handlers can detect them via getInlineMathAtPosition.
-            if (relativeX < spanStartX) {
-              bestPosition = s;
-            } else if (relativeX > spanEndX) {
-              bestPosition = e + 1;
-            }
-          }
-          break;
-        }
-      }
-    }
-
-    return {
-      blockIndex: 0, // Placeholder - will be overridden by caller
-      textIndex: bestPosition,
-    };
-  }
 }
 
 /**
@@ -1292,8 +703,6 @@ export function isPointWithinSelectionRects(
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
   let currentY = styles.canvas.paddingTop - viewport.scrollY;
-  const fontFamily = getCurrentFontFamily();
-  const codePadding = styles.textFormats.code.padding;
 
   // Iterate through blocks that are part of the selection (only visible blocks)
   const visibleBlocks = state.view.visibleBlocks;
@@ -1301,7 +710,7 @@ export function isPointWithinSelectionRects(
   for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
     const block = visibleBlocks[visibleIdx];
     const blockHeight = getBlockHeight(
-      state.blockViews,
+      state.nodes,
       block,
       maxWidth,
       styles,
@@ -1319,249 +728,27 @@ export function isPointWithinSelectionRects(
       break;
     }
 
-    // Skip image and line blocks (they don't have text content)
-    if (!isTextualBlock(block)) {
-      currentY += blockHeight;
-      continue;
-    }
-
-    const textStyle = getTextStyle(styles, block.type);
-    const fontMetrics = getFontMetrics(
-      textStyle.fontSize,
-      textStyle.fontWeight,
-      fontFamily,
-    );
-    const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
-
-    // Calculate indent and marker space for list blocks
-    let indentOffset = 0;
-    let markerWidth = 0;
-    let adjustedMaxWidth = maxWidth;
-    let baseX = styles.canvas.paddingLeft;
-
-    if (isListBlock(block)) {
-      const indent = block.indent || 0;
-      indentOffset = indent * styles.list.indent.size;
-      markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
-      adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-
-      const isRTL =
-        getTextDirection(getVisibleTextFromRuns(block.charRuns)) === "rtl";
-      if (isRTL) {
-        baseX = styles.canvas.paddingLeft + indentOffset;
-      } else {
-        baseX = styles.canvas.paddingLeft + indentOffset + markerWidth;
-      }
-    }
-
-    // Get wrapped lines for this block
-    const wrappedLines = wrapText(
-      charRunsToChars(block.charRuns),
-      block.formats,
-      adjustedMaxWidth,
-      textStyle.fontSize,
-      textStyle.fontWeight,
-      fontFamily,
-      codePadding,
-    );
-
-    const isRTL =
-      getTextDirection(getVisibleTextFromRuns(block.charRuns)) === "rtl";
-    let lineY = currentY;
-    let textIndex = 0;
-
-    for (const wrappedLine of wrappedLines) {
-      const lineText = wrappedLine.text;
-      const lineStartIndex = textIndex;
-      // Account for consumed space in endIndex calculation
-      const lineEndIndex =
-        textIndex + lineText.length + (wrappedLine.consumedSpace ? 1 : 0);
-
-      // Measure the line width
-      const lineWidth = measureTextUpToIndex(
-        charRunsToChars(block.charRuns),
-        block.formats,
-        lineStartIndex,
-        lineStartIndex + lineText.length,
-        textStyle.fontSize,
-        textStyle.fontWeight,
-        fontFamily,
-        codePadding,
+    const node = textNodeFor(state, block);
+    if (node) {
+      const layout = layoutFor(
+        node,
+        block,
+        block.originalIndex,
+        maxWidth,
+        styles,
       );
-
-      const lineTop = lineY;
-      const lineBottom = lineY + lineHeight;
-
-      // Check if y is within this line's vertical bounds
-      if (y >= lineTop && y < lineBottom) {
-        // Determine selection bounds for this line
-        let selectionStartX = baseX;
-        let selectionEndX = baseX + lineWidth;
-        let hasSelection = false;
-
-        if (
-          start.blockIndex === block.originalIndex &&
-          end.blockIndex === block.originalIndex
-        ) {
-          // Selection within same block
-          if (
-            start.textIndex <= lineEndIndex &&
-            end.textIndex >= lineStartIndex
-          ) {
-            hasSelection = true;
-
-            const selStartTextIndex = Math.max(lineStartIndex, start.textIndex);
-            const selEndTextIndex = Math.min(
-              lineStartIndex + lineText.length,
-              end.textIndex,
-            );
-
-            if (isRTL) {
-              const widthToSelStart = measureTextUpToIndex(
-                charRunsToChars(block.charRuns),
-                block.formats,
-                lineStartIndex,
-                selStartTextIndex,
-                textStyle.fontSize,
-                textStyle.fontWeight,
-                fontFamily,
-                codePadding,
-              );
-              const widthToSelEnd = measureTextUpToIndex(
-                charRunsToChars(block.charRuns),
-                block.formats,
-                lineStartIndex,
-                selEndTextIndex,
-                textStyle.fontSize,
-                textStyle.fontWeight,
-                fontFamily,
-                codePadding,
-              );
-              selectionEndX = baseX + adjustedMaxWidth - widthToSelStart;
-              selectionStartX = baseX + adjustedMaxWidth - widthToSelEnd;
-            } else {
-              if (start.textIndex > lineStartIndex) {
-                selectionStartX += measureTextUpToIndex(
-                  charRunsToChars(block.charRuns),
-                  block.formats,
-                  lineStartIndex,
-                  start.textIndex,
-                  textStyle.fontSize,
-                  textStyle.fontWeight,
-                  fontFamily,
-                  codePadding,
-                );
-              }
-              if (end.textIndex < lineStartIndex + lineText.length) {
-                const selectedWidth = measureTextUpToIndex(
-                  charRunsToChars(block.charRuns),
-                  block.formats,
-                  Math.max(lineStartIndex, start.textIndex),
-                  Math.min(lineStartIndex + lineText.length, end.textIndex),
-                  textStyle.fontSize,
-                  textStyle.fontWeight,
-                  fontFamily,
-                  codePadding,
-                );
-                selectionEndX = selectionStartX + selectedWidth;
-              }
-            }
-          }
-        } else if (
-          start.blockIndex < block.originalIndex &&
-          end.blockIndex > block.originalIndex
-        ) {
-          // Entire block is selected
-          hasSelection = true;
-          if (isRTL) {
-            const lineStartX = baseX + adjustedMaxWidth - lineWidth;
-            selectionStartX = lineStartX;
-            selectionEndX = lineStartX + lineWidth;
-          }
-        } else if (
-          start.blockIndex === block.originalIndex &&
-          end.blockIndex > block.originalIndex
-        ) {
-          // Selection starts in this block
-          if (start.textIndex <= lineEndIndex) {
-            hasSelection = true;
-            if (isRTL) {
-              const widthToSelStart = measureTextUpToIndex(
-                charRunsToChars(block.charRuns),
-                block.formats,
-                lineStartIndex,
-                Math.max(lineStartIndex, start.textIndex),
-                textStyle.fontSize,
-                textStyle.fontWeight,
-                fontFamily,
-                codePadding,
-              );
-              selectionEndX = baseX + adjustedMaxWidth - widthToSelStart;
-              const lineStartX = baseX + adjustedMaxWidth - lineWidth;
-              selectionStartX = lineStartX;
-            } else {
-              if (start.textIndex > lineStartIndex) {
-                selectionStartX += measureTextUpToIndex(
-                  charRunsToChars(block.charRuns),
-                  block.formats,
-                  lineStartIndex,
-                  start.textIndex,
-                  textStyle.fontSize,
-                  textStyle.fontWeight,
-                  fontFamily,
-                  codePadding,
-                );
-              }
-            }
-          }
-        } else if (
-          start.blockIndex < block.originalIndex &&
-          end.blockIndex === block.originalIndex
-        ) {
-          // Selection ends in this block
-          if (end.textIndex >= lineStartIndex) {
-            hasSelection = true;
-            if (isRTL) {
-              const lineStartX = baseX + adjustedMaxWidth - lineWidth;
-              const widthToSelEnd = measureTextUpToIndex(
-                charRunsToChars(block.charRuns),
-                block.formats,
-                lineStartIndex,
-                Math.min(lineStartIndex + lineText.length, end.textIndex),
-                textStyle.fontSize,
-                textStyle.fontWeight,
-                fontFamily,
-                codePadding,
-              );
-              selectionStartX = baseX + adjustedMaxWidth - widthToSelEnd;
-              selectionEndX = lineStartX + lineWidth;
-            } else {
-              if (end.textIndex < lineStartIndex + lineText.length) {
-                selectionEndX =
-                  baseX +
-                  measureTextUpToIndex(
-                    charRunsToChars(block.charRuns),
-                    block.formats,
-                    lineStartIndex,
-                    end.textIndex,
-                    textStyle.fontSize,
-                    textStyle.fontWeight,
-                    fontFamily,
-                    codePadding,
-                  );
-              }
-            }
-          }
-        }
-
-        // Check if point is within the selection rectangle
-        if (hasSelection && x >= selectionStartX && x <= selectionEndX) {
+      const rects = node.selectionRects(
+        layout,
+        selection,
+        block.originalIndex,
+        styles.canvas.paddingLeft,
+        currentY,
+      );
+      for (const r of rects) {
+        if (x >= r.x && x <= r.x + r.width && y >= r.y && y < r.y + r.height) {
           return true;
         }
       }
-
-      lineY += lineHeight;
-      textIndex = lineEndIndex;
     }
 
     currentY += blockHeight;
@@ -1597,87 +784,48 @@ export function moveCursorUp(
       if (!isTextualBlock(prevBlock)) {
         // Move to previous visual block
         return moveCursorToPosition(state, prevBlockIndex, 0);
-      } else if (isTextualBlock(prevBlock)) {
-        // Move to end of previous text block
-        const prevBlockLength = getBlockTextLength(prevBlock);
-        return moveCursorToPosition(state, prevBlockIndex, prevBlockLength);
       }
+      // Move to end of previous text block
+      return moveCursorToPosition(
+        state,
+        prevBlockIndex,
+        getBlockTextLength(prevBlock),
+      );
     }
     return state;
   }
+
+  const node = textNodeFor(state, currentBlock);
+  if (!node) return state;
 
   // Calculate maxWidth from viewport or use a default
   const maxWidth = viewport
     ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
     : 800; // Default fallback
 
-  const lineInfo = getLineInfoAtPosition(
+  const layout = layoutFor(node, currentBlock, blockIndex, maxWidth, styles);
+  const lineIdx = lineIndexAt(layout, textIndex);
+  if (lineIdx === -1) return state;
+
+  const line = layout.lines[lineIdx];
+  const relativePosition = relativeColumn(
     currentBlock,
+    layout,
+    line.startIndex,
     textIndex,
-    maxWidth,
-    styles,
   );
 
-  if (!lineInfo) return state;
-
-  if (!isTextualBlock(currentBlock)) {
-    return state;
-  }
-
-  // For RTL text, calculate visual position instead of logical position
-  const isRTL =
-    getTextDirection(getVisibleTextFromRuns(currentBlock.charRuns)) === "rtl";
-  let relativePosition: number;
-
-  if (isRTL) {
-    // Calculate visual position from the left edge of the line
-    // For RTL: cursor at logical index 0 appears at RIGHT, cursor at index N appears at LEFT
-    const textStyle = getTextStyle(styles, currentBlock.type);
-    const fontFamily = getCurrentFontFamily();
-    const codePadding = styles.textFormats.code.padding;
-
-    // Measure from line start to cursor position
-    const widthFromStart = measureCharsUpToIndex(
-      currentBlock.charRuns,
-      currentBlock.formats,
-      lineInfo.lineStartIndex,
-      textIndex,
-      textStyle.fontSize,
-      textStyle.fontWeight,
-      fontFamily,
-      codePadding,
-    );
-
-    // Visual position from left edge: further from start logically = further LEFT visually
-    // Since RTL text is right-aligned and grows leftward, we use widthFromStart directly
-    relativePosition = widthFromStart;
-  } else {
-    relativePosition = textIndex - lineInfo.lineStartIndex;
-  }
-
   // If not on the first line of the block, move to the previous line within the same block
-  if (lineInfo.lineIndex > 0) {
-    const prevLine = lineInfo.lines[lineInfo.lineIndex - 1];
-    let prevLineStartIndex = 0;
-
-    // Calculate the start index of the previous line
-    for (let i = 0; i < lineInfo.lineIndex - 1; i++) {
-      prevLineStartIndex += lineInfo.lines[i].length;
-      if (i < lineInfo.totalLines - 1) {
-        prevLineStartIndex += 1; // Account for space
-      }
-    }
-
-    const prevLineEndIndex = prevLineStartIndex + prevLine.length;
+  if (lineIdx > 0) {
+    const prevLine = layout.lines[lineIdx - 1];
     const targetTextIndex = getTextIndexAtRelativePosition(
-      prevLineStartIndex,
-      prevLineEndIndex,
+      prevLine.startIndex,
+      prevLine.endIndex,
       relativePosition,
       currentBlock,
       maxWidth,
       styles,
     );
-
     return moveCursorToPosition(state, blockIndex, targetTextIndex);
   }
 
@@ -1694,45 +842,28 @@ export function moveCursorUp(
       return moveCursorToPosition(state, prevBlockIndex, 0);
     }
 
-    if (!isTextualBlock(prevBlock)) {
-      return state;
+    const prevNode = textNodeFor(state, prevBlock);
+    if (!prevNode) {
+      return moveCursorToPosition(state, prevBlockIndex, 0);
     }
-    const prevTextStyle = getTextStyle(styles, prevBlock.type);
-    const fontFamily = getCurrentFontFamily();
-    const codePadding = styles.textFormats.code.padding;
 
-    const prevLines = wrapText(
-      charRunsToChars(prevBlock.charRuns),
-      prevBlock.formats,
+    const prevLayout = layoutFor(
+      prevNode,
+      prevBlock,
+      prevBlockIndex,
       maxWidth,
-      prevTextStyle.fontSize,
-      prevTextStyle.fontWeight,
-      fontFamily,
-      codePadding,
+      styles,
     );
-
-    if (prevLines.length > 0) {
-      // Calculate the start index of the last line in the previous block
-      let lastLineStartIndex = 0;
-      for (let i = 0; i < prevLines.length - 1; i++) {
-        lastLineStartIndex += prevLines[i].text.length;
-        if (prevLines[i].consumedSpace) {
-          lastLineStartIndex += 1; // Account for consumed space
-        }
-      }
-
-      const lastWrappedLine = prevLines[prevLines.length - 1];
-      const lastLine = lastWrappedLine.text;
-      const lastLineEndIndex = lastLineStartIndex + lastLine.length;
+    if (prevLayout.lines.length > 0) {
+      const lastLine = prevLayout.lines[prevLayout.lines.length - 1];
       const targetTextIndex = getTextIndexAtRelativePosition(
-        lastLineStartIndex,
-        lastLineEndIndex,
+        lastLine.startIndex,
+        lastLine.endIndex,
         relativePosition,
         prevBlock,
         maxWidth,
         styles,
       );
-
       return moveCursorToPosition(state, prevBlockIndex, targetTextIndex);
     }
 
@@ -1767,101 +898,43 @@ export function moveCursorDown(
       blockIndex,
     );
     if (nextBlockIndex !== null) {
-      const nextBlock = state.document.page.blocks[nextBlockIndex];
-      if (!isTextualBlock(nextBlock)) {
-        // Move to next visual block
-        return moveCursorToPosition(state, nextBlockIndex, 0);
-      } else if (isTextualBlock(nextBlock)) {
-        // Move to start of next text block
-        return moveCursorToPosition(state, nextBlockIndex, 0);
-      }
+      // Visual or text block alike: move to its start
+      return moveCursorToPosition(state, nextBlockIndex, 0);
     }
     return state;
   }
+
+  const node = textNodeFor(state, currentBlock);
+  if (!node) return state;
 
   // Calculate maxWidth from viewport or use a default
   const maxWidth = viewport
     ? viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight)
     : 800; // Default fallback
 
-  const lineInfo = getLineInfoAtPosition(
+  const layout = layoutFor(node, currentBlock, blockIndex, maxWidth, styles);
+  const lineIdx = lineIndexAt(layout, textIndex);
+  if (lineIdx === -1) return state;
+
+  const line = layout.lines[lineIdx];
+  const relativePosition = relativeColumn(
     currentBlock,
+    layout,
+    line.startIndex,
     textIndex,
-    maxWidth,
-    styles,
   );
 
-  if (!lineInfo) return state;
-
-  if (!isTextualBlock(currentBlock)) {
-    return state;
-  }
-
-  // For RTL text, calculate visual position instead of logical position
-  const isRTL =
-    getTextDirection(getVisibleTextFromRuns(currentBlock.charRuns)) === "rtl";
-  let relativePosition: number;
-
-  if (isRTL) {
-    // Calculate visual position from the left edge of the line
-    // For RTL: cursor at logical index 0 appears at RIGHT, cursor at index N appears at LEFT
-    const textStyle = getTextStyle(styles, currentBlock.type);
-    const fontFamily = getCurrentFontFamily();
-    const codePadding = styles.textFormats.code.padding;
-
-    // Measure from line start to cursor position
-    const widthFromStart = measureCharsUpToIndex(
-      currentBlock.charRuns,
-      currentBlock.formats,
-      lineInfo.lineStartIndex,
-      textIndex,
-      textStyle.fontSize,
-      textStyle.fontWeight,
-      fontFamily,
-      codePadding,
-    );
-
-    // Visual position from left edge: further from start logically = further LEFT visually
-    // Since RTL text is right-aligned and grows leftward, we use widthFromStart directly
-    relativePosition = widthFromStart;
-  } else {
-    relativePosition = textIndex - lineInfo.lineStartIndex;
-  }
-
   // If not on the last line of the block, move to the next line within the same block
-  if (lineInfo.lineIndex < lineInfo.totalLines - 1) {
-    const nextLine = lineInfo.lines[lineInfo.lineIndex + 1];
-    let nextLineStartIndex = 0;
-
-    // Calculate the start index of the next line
-    for (let i = 0; i <= lineInfo.lineIndex; i++) {
-      if (i > 0) {
-        nextLineStartIndex += lineInfo.lines[i - 1].length;
-        if (i < lineInfo.totalLines) {
-          nextLineStartIndex += 1; // Account for space
-        }
-      }
-    }
-
-    // Adjust calculation - iterate properly
-    nextLineStartIndex = 0;
-    for (let i = 0; i < lineInfo.lineIndex + 1; i++) {
-      nextLineStartIndex += lineInfo.lines[i].length;
-      if (i < lineInfo.totalLines - 1) {
-        nextLineStartIndex += 1; // Account for space
-      }
-    }
-
-    const nextLineEndIndex = nextLineStartIndex + nextLine.length;
+  if (lineIdx < layout.lines.length - 1) {
+    const nextLine = layout.lines[lineIdx + 1];
     const targetTextIndex = getTextIndexAtRelativePosition(
-      nextLineStartIndex,
-      nextLineEndIndex,
+      nextLine.startIndex,
+      nextLine.endIndex,
       relativePosition,
       currentBlock,
       maxWidth,
       styles,
     );
-
     return moveCursorToPosition(state, blockIndex, targetTextIndex);
   }
 
@@ -1878,35 +951,28 @@ export function moveCursorDown(
       return moveCursorToPosition(state, nextBlockIndex, 0);
     }
 
-    if (!isTextualBlock(nextBlock)) {
-      return state;
+    const nextNode = textNodeFor(state, nextBlock);
+    if (!nextNode) {
+      return moveCursorToPosition(state, nextBlockIndex, 0);
     }
-    const nextTextStyle = getTextStyle(styles, nextBlock.type);
-    const fontFamily = getCurrentFontFamily();
-    const codePadding = styles.textFormats.code.padding;
 
-    const nextLines = wrapText(
-      charRunsToChars(nextBlock.charRuns),
-      nextBlock.formats,
+    const nextLayout = layoutFor(
+      nextNode,
+      nextBlock,
+      nextBlockIndex,
       maxWidth,
-      nextTextStyle.fontSize,
-      nextTextStyle.fontWeight,
-      fontFamily,
-      codePadding,
+      styles,
     );
-
-    if (nextLines.length > 0) {
-      const firstWrappedLine = nextLines[0];
-      const firstLine = firstWrappedLine.text;
+    if (nextLayout.lines.length > 0) {
+      const firstLine = nextLayout.lines[0];
       const targetTextIndex = getTextIndexAtRelativePosition(
-        0,
-        firstLine.length,
+        firstLine.startIndex,
+        firstLine.endIndex,
         relativePosition,
         nextBlock,
         maxWidth,
         styles,
       );
-
       return moveCursorToPosition(state, nextBlockIndex, targetTextIndex);
     }
 
@@ -1915,8 +981,11 @@ export function moveCursorDown(
   }
 
   // Already at the last line of the last block, move to end
-  const currentBlockLength = getBlockTextLength(currentBlock);
-  return moveCursorToPosition(state, blockIndex, currentBlockLength);
+  return moveCursorToPosition(
+    state,
+    blockIndex,
+    getBlockTextLength(currentBlock),
+  );
 }
 /**
  * Move cursor up by one page

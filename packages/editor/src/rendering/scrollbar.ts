@@ -674,7 +674,7 @@ function renderScrollbarSearchMarkers(
     const block = visibleBlocks[i];
     blockYMap.set(block.originalIndex, currentY);
     currentY += getBlockHeight(
-      state.blockViews,
+      state.nodes,
       block,
       maxWidth,
       editorStyles,
@@ -817,7 +817,7 @@ function calculatePeerMarkers(
       const visibleBlock = visibleBlocks[i];
       if (visibleBlock.originalIndex >= position.blockIndex) break;
       documentY += getBlockHeight(
-        state.blockViews,
+        state.nodes,
         visibleBlock,
         maxWidth,
         styles,

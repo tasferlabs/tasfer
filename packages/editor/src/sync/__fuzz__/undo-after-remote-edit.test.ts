@@ -20,7 +20,7 @@
  */
 
 import { invertOperation, refreshOps } from "../../inverse";
-import type { Paragraph } from "../../rendering/blocks/TextBlockView";
+import type { Paragraph } from "../../rendering/nodes/TextNode";
 import type { Page } from "../../serlization/loadPage";
 import type { FormatSet } from "../../state-types";
 import { isTextualBlock } from "../block-registry";

@@ -1,5 +1,5 @@
 /**
- * TextBlockView — the on-canvas behavior for every textual block (headings,
+ * TextNode — the on-canvas behavior for every textual block (headings,
  * paragraph, and the bullet/numbered/todo list family).
  *
  * This is the heart of the "geometry on the view" design. Historically the text
@@ -13,7 +13,7 @@
  *
  * The fix is a single canonical `layout()` that every pass consumes:
  *
- *   layout()       — wrap + measure once → TextBlockLayout (height + line boxes
+ *   layout()       — wrap + measure once → TextNodeLayout (height + line boxes
  *                    + the indent/marker/RTL geometry needed downstream)
  *   paint()        — draw from a layout (never re-wraps)
  *   caretRect()    — caret screen rect from a layout (used by selection.ts)
@@ -66,20 +66,20 @@ import {
   getVisibleTextFromRuns,
   iterateVisibleChars,
 } from "../../sync/char-runs";
+import type { ListBlock } from "./ListNode";
 import {
-  type BlockLayout,
-  type BlockLayoutCtx,
-  type BlockPaintCtx,
   type BlockRuntimeState,
-  BlockView,
-} from "./BlockView";
-import type { ListBlock } from "./ListBlockView";
+  Node,
+  type NodeLayout,
+  type NodeLayoutCtx,
+  type NodePaintCtx,
+} from "./Node";
 
 /**
- * The block types handled by TextBlockView itself: headings + paragraph.
+ * The block types handled by TextNode itself: headings + paragraph.
  *
- * The bullet/numbered/todo list family is handled by `ListBlockView`, a subclass
- * registered separately so a host can opt out of lists. ListBlockView inherits
+ * The bullet/numbered/todo list family is handled by `ListNode`, a subclass
+ * registered separately so a host can opt out of lists. ListNode inherits
  * all the text geometry here and only overrides the leading-inset, marker, and
  * placeholder hooks (see the `protected` methods at the bottom of the class).
  */
@@ -91,7 +91,7 @@ export const TEXT_BLOCK_TYPES = [
 ] as const;
 
 /**
- * The canonical text layout. Extends BlockLayout (height + line boxes) with the
+ * The canonical text layout. Extends NodeLayout (height + line boxes) with the
  * derived geometry every text pass needs, so no pass re-derives it.
  *
  * `lines` boxes carry x/y RELATIVE to the block's content origin is intentional:
@@ -99,7 +99,7 @@ export const TEXT_BLOCK_TYPES = [
  * document-space caret pass, so callers add their own origin. The line boxes do
  * carry absolute-independent fields: width, height, startIndex, endIndex.
  */
-export interface TextBlockLayout extends BlockLayout {
+export interface TextNodeLayout extends NodeLayout {
   readonly isRTL: boolean;
   readonly textStyle: TextStyle;
   readonly fontFamily: FontFamily;
@@ -251,7 +251,7 @@ function measureLineWidth(
 
 // Draw already-resolved placeholder text. The text itself is resolved by the
 // view's `placeholderText` hook (paragraph/heading in the base class, list/todo
-// in ListBlockView), so this helper stays type-agnostic.
+// in ListNode), so this helper stays type-agnostic.
 function renderPlaceholder(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -546,7 +546,7 @@ interface Rect {
  * so both the painter and the hit-test (isPointWithinSelectionRects) share it.
  */
 function computeSelectionRects(
-  layout: TextBlockLayout,
+  layout: TextNodeLayout,
   baseX: number,
   blockTopY: number,
   maxWidth: number,
@@ -745,12 +745,12 @@ function computeSelectionRects(
 }
 
 // ---------------------------------------------------------------------------
-// TextBlockView
+// TextNode
 // ---------------------------------------------------------------------------
 
-export class TextBlockView extends BlockView<TextualBlock> {
+export class TextNode extends Node<TextualBlock> {
   // Representative type; the view is registered under every `types` key. Typed
-  // wide (not the "paragraph" literal) so ListBlockView can override both.
+  // wide (not the "paragraph" literal) so ListNode can override both.
   readonly type: TextualBlock["type"] = "paragraph";
   readonly types: readonly string[] = TEXT_BLOCK_TYPES;
 
@@ -758,7 +758,7 @@ export class TextBlockView extends BlockView<TextualBlock> {
    * The canonical text layout. Plain block content (no composition) — that is
    * what the height/caret/hit-test/selection passes use.
    */
-  layout(c: BlockLayoutCtx): TextBlockLayout {
+  layout(c: NodeLayoutCtx): TextNodeLayout {
     return this.computeLayout(c.block as TextualBlock, c.maxWidth, c.styles);
   }
 
@@ -776,7 +776,7 @@ export class TextBlockView extends BlockView<TextualBlock> {
       formats: FormatSpan[];
       compositionRange: { start: number; end: number } | null;
     },
-  ): TextBlockLayout {
+  ): TextNodeLayout {
     const textStyle = getTextStyle(styles, block.type);
     const fontFamily = getCurrentFontFamily();
     const codePadding = styles.textFormats.code.padding;
@@ -869,7 +869,7 @@ export class TextBlockView extends BlockView<TextualBlock> {
   }
 
   /** Base text x (left edge of the text area) given the block's left origin. */
-  private baseX(layout: TextBlockLayout, originX: number): number {
+  private baseX(layout: TextNodeLayout, originX: number): number {
     if (layout.indentOffset === 0 && layout.markerWidth === 0) return originX;
     return layout.isRTL
       ? originX + layout.indentOffset
@@ -882,7 +882,7 @@ export class TextBlockView extends BlockView<TextualBlock> {
    * Ported verbatim from getCursorDocumentCoords.
    */
   caretRect(
-    layout: TextBlockLayout,
+    layout: TextNodeLayout,
     textIndex: number,
     originX: number,
     blockTopY: number,
@@ -938,7 +938,7 @@ export class TextBlockView extends BlockView<TextualBlock> {
    */
   positionFromPoint(
     block: TextualBlock,
-    layout: TextBlockLayout,
+    layout: TextNodeLayout,
     x: number,
     y: number,
     originX: number,
@@ -968,7 +968,7 @@ export class TextBlockView extends BlockView<TextualBlock> {
   // Ported verbatim from getPositionWithinLine (incl. inline-math snapping).
   private positionWithinLine(
     block: TextualBlock,
-    layout: TextBlockLayout,
+    layout: TextNodeLayout,
     x: number,
     line: RenderedLine,
     baseX: number,
@@ -1081,7 +1081,7 @@ export class TextBlockView extends BlockView<TextualBlock> {
    * edge, `blockTopY` the block top in the caller's space.
    */
   selectionRects(
-    layout: TextBlockLayout,
+    layout: TextNodeLayout,
     selection: { anchor: Position; focus: Position; isForward: boolean },
     blockIndex: number,
     originX: number,
@@ -1102,7 +1102,7 @@ export class TextBlockView extends BlockView<TextualBlock> {
    * (with composition underline), search highlights, remote + local selection
    * overlays, and the placeholder. Returns absolute line boxes.
    */
-  paint(passedLayout: BlockLayout, c: BlockPaintCtx): RenderedBlock {
+  paint(passedLayout: NodeLayout, c: NodePaintCtx): RenderedBlock {
     const block = c.block as TextualBlock;
     const { ctx, state, styles, blockIndex, maxWidth } = c;
     const x = c.origin.x;
@@ -1116,7 +1116,7 @@ export class TextBlockView extends BlockView<TextualBlock> {
     const content = getContentWithComposition(block, state, blockIndex);
     const layout =
       content.compositionRange === null
-        ? (passedLayout as TextBlockLayout)
+        ? (passedLayout as TextNodeLayout)
         : this.computeLayout(block, maxWidth, styles, content);
     const {
       isRTL,
@@ -1176,7 +1176,7 @@ export class TextBlockView extends BlockView<TextualBlock> {
 
       if (lineIndex === 0) {
         // Per-type marker hook: no-op for headings/paragraph, draws the
-        // bullet/number/checkbox for list blocks (ListBlockView).
+        // bullet/number/checkbox for list blocks (ListNode).
         this.paintMarker(
           ctx,
           block,
@@ -1349,17 +1349,17 @@ export class TextBlockView extends BlockView<TextualBlock> {
     ctx.restore();
   }
 
-  /** Map a click to a caret position (BlockView contract; unused for text — the
+  /** Map a click to a caret position (Node contract; unused for text — the
    * renderer/selection call positionFromPoint directly with the y coordinate). */
   hitTest(): Position {
     return { blockIndex: 0, textIndex: 0 };
   }
 
   // -------------------------------------------------------------------------
-  // Per-type hooks. The base (headings/paragraph) adds nothing; ListBlockView
+  // Per-type hooks. The base (headings/paragraph) adds nothing; ListNode
   // overrides these to layer list behavior on top of the shared text geometry.
   // Keeping them here — rather than `isListBlock` branches inline — is what lets
-  // a host drop list support entirely by not registering ListBlockView.
+  // a host drop list support entirely by not registering ListNode.
   // -------------------------------------------------------------------------
 
   /**
@@ -1377,14 +1377,14 @@ export class TextBlockView extends BlockView<TextualBlock> {
 
   /**
    * Paint the block's marker on its first line (bullet / number / checkbox).
-   * No-op for headings/paragraph; ListBlockView draws the list marker.
+   * No-op for headings/paragraph; ListNode draws the list marker.
    */
   protected paintMarker(
     _ctx: CanvasRenderingContext2D,
     _block: TextualBlock,
     _markerX: number,
     _lineTopY: number,
-    _layout: TextBlockLayout,
+    _layout: TextNodeLayout,
     _styles: EditorStyles,
     _state: EditorState,
     _blockIndex: number,
@@ -1403,7 +1403,7 @@ export class TextBlockView extends BlockView<TextualBlock> {
         : styles.placeholder.paragraph.keyboardCompatibleText;
     }
     // Narrow to heading types before indexing PlaceholderStyles (the list family
-    // is handled by ListBlockView, never reaching this base implementation).
+    // is handled by ListNode, never reaching this base implementation).
     if (
       block.type === "heading1" ||
       block.type === "heading2" ||
@@ -1417,4 +1417,4 @@ export class TextBlockView extends BlockView<TextualBlock> {
 }
 
 /** Singleton text view, shared by the renderer and selection geometry. */
-export const textBlockView = new TextBlockView();
+export const textNode = new TextNode();

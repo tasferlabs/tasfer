@@ -1,36 +1,26 @@
-import {
-  type FontFamily,
-  getCurrentFontFamily,
-  getFontMetrics,
-  getFontStack,
-  measureTextUpToIndex,
-  wrapText,
-} from "../fonts";
+import { getCurrentFontFamily, getFontStack } from "../fonts";
 import { getTextDirection } from "../rtl";
 import { isCursorBlinking } from "../selection";
 import type { Block, Char, CharRun, FormatSpan } from "../serlization/loadPage";
-import { isListBlock } from "../serlization/loadPage";
 import type {
   EditorState,
   EditorStyles,
   RenderedBlock,
-  TextStyle,
   ViewportState,
 } from "../state-types";
 import { isTouchDevice } from "../state-utils";
-import { getEditorStyles, getTextStyle } from "../styles";
+import { getEditorStyles } from "../styles";
 import type { AwarenessState } from "../sync/awareness";
 import { awarenessCursorToPosition } from "../sync/awareness";
 import { isTextualBlock } from "../sync/block-registry";
 import {
   getCharIdFromRun,
   getVisibleTextFromChars,
-  getVisibleTextFromRuns,
   isCharDeleted,
 } from "../sync/char-runs";
 import type { Operation } from "../sync/sync";
-import type { BlockViewRegistry } from "./blocks";
-import { getContentWithComposition } from "./blocks";
+import type { NodeRegistry } from "./nodes";
+import { getContentWithComposition, TextNode } from "./nodes";
 import { renderScrollbar } from "./scrollbar";
 
 /**
@@ -52,9 +42,9 @@ function charRunsToChars(charRuns: CharRun[] | undefined): Char[] {
 }
 
 // Helper to get or calculate block height, storing it on the block.
-// `views` is the per-instance block view registry (from EditorState.blockViews).
+// `views` is the per-instance block view registry (from EditorState.nodes).
 export function getBlockHeight(
-  views: BlockViewRegistry,
+  views: NodeRegistry,
   block: Block,
   maxWidth: number,
   styles: EditorStyles,
@@ -133,30 +123,6 @@ export function clearAllBlockCaches(blocks: Block[]) {
 }
 
 // Rendering Functions
-// Helper function to measure the width of a portion of CRDT text
-// Uses batched measurement to preserve Arabic ligatures
-function measureLineWidth(
-  chars: Char[],
-  formats: FormatSpan[],
-  lineStartIndex: number,
-  lineEndIndex: number,
-  textStyle: TextStyle,
-  fontFamily: FontFamily,
-  codePadding: number,
-): number {
-  // Delegate to the shared math-aware measurement so cursor x stays aligned
-  // with both wrap and render (atomic inline-math span widths).
-  return measureTextUpToIndex(
-    chars,
-    formats,
-    lineStartIndex,
-    lineEndIndex,
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
-    codePadding,
-  );
-}
 
 export function renderPage(
   ctx: CanvasRenderingContext2D,
@@ -193,7 +159,7 @@ export function renderPage(
 
     // Get or calculate block height (cached on the block itself)
     const blockHeight = getBlockHeight(
-      state.blockViews,
+      state.nodes,
       block,
       maxWidth,
       styles,
@@ -256,10 +222,10 @@ export function renderBlock(
   remoteAwareness?: Map<string, AwarenessState>,
   requestRedraw: () => void = () => {},
 ): RenderedBlock {
-  // Blocks ported to the BlockView registry (image, line, math, text, …)
+  // Blocks ported to the Node registry (image, line, math, text, …)
   // dispatch here.
   {
-    const view = state.blockViews.get(block.type);
+    const view = state.nodes.get(block.type);
     if (view) {
       const layoutCtx = {
         block,
@@ -285,23 +251,23 @@ export function renderBlock(
   return { block, bounds: { x, y, width: maxWidth, height: 0 }, lines: [] };
 } // Calculate position from mouse coordinates dynamically
 
-// The image cache lives with the image block (./blocks/ImageBlockView).
+// The image cache lives with the image block (./blocks/ImageNode).
 // Re-exported here so existing deep imports from
 // `@cypherkit/editor/rendering/renderer` keep resolving.
-export { clearFailedImageCache, imageCache } from "./blocks/ImageBlockView";
+export { clearFailedImageCache, imageCache } from "./nodes/ImageNode";
 
 // renderLineBlock / renderMathBlock were removed: the `line` and `math` blocks
-// now live in rendering/blocks/{LineBlockView,MathBlockView}.ts and render via
-// the BlockView registry.
+// now live in rendering/nodes/{LineNode,MathNode}.ts and render via
+// the Node registry.
 
 // Calculate block height dynamically based on content and max width
 export function calculateBlockHeight(
-  views: BlockViewRegistry,
+  views: NodeRegistry,
   block: Block,
   maxWidth: number,
   styles: EditorStyles,
 ): number {
-  // Blocks ported to the BlockView registry (image, line, …). The height pass
+  // Blocks ported to the Node registry (image, line, …). The height pass
   // reuses the same layout() the painter uses, so wrapping/sizing never drifts.
   {
     const view = views.get(block.type);
@@ -336,8 +302,36 @@ function isBlockVisible(
 }
 
 /**
- * Core cursor position calculation logic shared between local and remote cursors.
- * Returns the x, y coordinates and height of the cursor.
+ * Top Y of a block in viewport space (canvas paddingTop minus scroll).
+ * Shared by the cursor layer and the selection-handle pass.
+ */
+function getBlockTopViewport(
+  state: EditorState,
+  blockIndex: number,
+  maxWidth: number,
+  viewport: ViewportState,
+  styles: EditorStyles,
+): number {
+  let y = styles.canvas.paddingTop - viewport.scrollY;
+  const visibleBlocks = state.view.visibleBlocks;
+  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
+    const visibleBlock = visibleBlocks[visibleIdx];
+    if (visibleBlock.originalIndex >= blockIndex) break;
+    y += getBlockHeight(
+      state.nodes,
+      visibleBlock,
+      maxWidth,
+      styles,
+      visibleIdx === 0,
+    );
+  }
+  return y;
+}
+
+/**
+ * Core cursor position calculation logic shared between local and remote
+ * cursors. Delegates all text geometry to the block's registered TextNode so
+ * the caret can never drift from the painted text.
  */
 function calculateCursorPosition(
   position: { blockIndex: number; textIndex: number },
@@ -350,136 +344,52 @@ function calculateCursorPosition(
   renderFormats?: FormatSpan[],
 ): { x: number; y: number; height: number } | null {
   if (!isTextualBlock(block)) return null;
+  const node = state.nodes.get(block.type);
+  if (!(node instanceof TextNode)) return null;
 
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-
-  // Calculate block position
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
-  const visibleBlocks = state.view.visibleBlocks;
-
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
-    const visibleBlock = visibleBlocks[visibleIdx];
-    if (visibleBlock.originalIndex >= position.blockIndex) break;
-
-    const blockHeight = getBlockHeight(
-      state.blockViews,
-      visibleBlock,
-      maxWidth,
-      styles,
-      visibleIdx === 0,
-    );
-    currentY += blockHeight;
-  }
-
-  // Get text style
-  const textStyle = getTextStyle(styles, block.type);
-  const fontFamily = getCurrentFontFamily();
-  const codePadding = styles.textFormats.code.padding;
-
-  // Calculate indent and marker space for list blocks
-  let indentOffset = 0;
-  let markerWidth = 0;
-  let adjustedMaxWidth = maxWidth;
-
-  if (isListBlock(block)) {
-    const indent = block.indent || 0;
-    indentOffset = indent * styles.list.indent.size;
-    markerWidth = styles.list.numbered.minWidth + styles.list.marker.textGap;
-    adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-  }
-
-  // Use provided chars/formats or default to block's
-  const chars = renderChars ?? charRunsToChars(block.charRuns);
-  const formats = renderFormats ?? block.formats;
-
-  const lines = wrapText(
-    chars,
-    formats,
-    adjustedMaxWidth,
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
-    codePadding,
-    compositionRange,
+  const blockTop = getBlockTopViewport(
+    state,
+    position.blockIndex,
+    maxWidth,
+    viewport,
+    styles,
   );
 
-  const fontMetrics = getFontMetrics(
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
+  // With composition content the layout is recomputed from the injected chars
+  // (exactly as paint() does); otherwise the canonical layout is used.
+  const layout = renderChars
+    ? node.computeLayout(block, maxWidth, styles, {
+        chars: renderChars,
+        formats: renderFormats ?? block.formats,
+        compositionRange,
+      })
+    : node.layout({
+        block,
+        blockIndex: position.blockIndex,
+        maxWidth,
+        isFirst: false,
+        styles,
+      });
+
+  const targetCursorIndex = Math.min(
+    position.textIndex,
+    getVisibleTextFromChars(layout.chars).length,
   );
-  const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
+  const rect = node.caretRect(
+    layout,
+    targetCursorIndex,
+    styles.canvas.paddingLeft,
+    blockTop,
+  );
 
-  // Calculate cursor position
-  const visibleText = getVisibleTextFromChars(chars);
-  const isRTL = getTextDirection(visibleText) === "rtl";
-
-  let baseX: number;
-  if (isListBlock(block)) {
-    if (isRTL) {
-      // RTL: indent is on the right side, text starts at left
-      baseX = styles.canvas.paddingLeft;
-    } else {
-      baseX = styles.canvas.paddingLeft + indentOffset + markerWidth;
-    }
-  } else {
-    baseX = styles.canvas.paddingLeft;
-  }
-
-  let cursorX = baseX;
-  let cursorY = currentY;
-  let cursorHeight = fontMetrics.fontSize * textStyle.lineHeight;
-
-  const targetCursorIndex = Math.min(position.textIndex, visibleText.length);
-
-  let textIndex = 0;
-  for (const wrappedLine of lines) {
-    const lineStartIndex = textIndex;
-    const lineEndIndex = textIndex + wrappedLine.text.length;
-
-    if (
-      targetCursorIndex >= lineStartIndex &&
-      targetCursorIndex <= lineEndIndex
-    ) {
-      cursorY = currentY;
-      cursorHeight = fontMetrics.ascent + fontMetrics.descent;
-
-      if (isRTL) {
-        const widthFromStart = measureLineWidth(
-          chars,
-          formats,
-          lineStartIndex,
-          targetCursorIndex,
-          textStyle,
-          fontFamily,
-          codePadding,
-        );
-        cursorX = baseX + adjustedMaxWidth - widthFromStart;
-      } else {
-        cursorX =
-          baseX +
-          measureLineWidth(
-            chars,
-            formats,
-            lineStartIndex,
-            targetCursorIndex,
-            textStyle,
-            fontFamily,
-            codePadding,
-          );
-      }
-      break;
-    }
-
-    textIndex += wrappedLine.text.length;
-    if (wrappedLine.consumedSpace) {
-      textIndex += 1;
-    }
-    currentY += lineHeight;
-  }
-
-  return { x: cursorX, y: cursorY, height: cursorHeight };
+  // The drawn caret is ascent+descent tall (text height), not full line height.
+  return {
+    x: rect.x,
+    y: rect.y,
+    height: layout.fontMetrics.ascent + layout.fontMetrics.descent,
+  };
 }
 
 /**
@@ -828,7 +738,7 @@ export function renderCursorLayer(
     if (visibleBlock.originalIndex >= cursorBlockIndex) break;
 
     const blockHeight = getBlockHeight(
-      state.blockViews,
+      state.nodes,
       visibleBlock,
       maxWidth,
       styles,
@@ -838,7 +748,7 @@ export function renderCursorLayer(
   }
 
   const blockHeight = getBlockHeight(
-    state.blockViews,
+    state.nodes,
     block,
     maxWidth,
     styles,
@@ -924,7 +834,7 @@ export function renderCursorLayer(
 
 /**
  * Get position coordinates for a text position (for selection handles).
- * This is a simplified version of getCursorCoordinates to avoid circular imports.
+ * Delegates to the block's TextNode (same geometry as the caret + selection).
  */
 function getPositionCoordinates(
   position: { blockIndex: number; textIndex: number },
@@ -932,134 +842,34 @@ function getPositionCoordinates(
   viewport: ViewportState,
   styles: EditorStyles,
 ): { x: number; y: number; height: number } | null {
+  const block = state.document.page.blocks[position.blockIndex];
+  if (!block || block.deleted) return null;
+  if (!isTextualBlock(block)) return null;
+  const node = state.nodes.get(block.type);
+  if (!(node instanceof TextNode)) return null;
+
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
-
-  // Calculate Y position by summing heights of previous blocks
-  const visibleBlocks = state.view.visibleBlocks;
-
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
-    const visibleBlock = visibleBlocks[visibleIdx];
-    if (visibleBlock.originalIndex >= position.blockIndex) break;
-
-    currentY += getBlockHeight(
-      state.blockViews,
-      visibleBlock,
-      maxWidth,
-      styles,
-      visibleIdx === 0,
-    );
-  }
-
-  const block = state.document.page.blocks[position.blockIndex];
-  if (!block) return null;
-  if (block.deleted) return null;
-  if (!isTextualBlock(block)) return null;
-
-  const textStyle = getTextStyle(styles, block.type);
-  const fontFamily = getCurrentFontFamily();
-  const codePadding = styles.textFormats.code.padding;
-
-  const fontMetrics = getFontMetrics(
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
+  const blockTop = getBlockTopViewport(
+    state,
+    position.blockIndex,
+    maxWidth,
+    viewport,
+    styles,
   );
-  const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
-
-  const blockVisibleText = getVisibleTextFromRuns(block.charRuns);
-
-  // Detect RTL
-  const isRTL = getTextDirection(blockVisibleText) === "rtl";
-
-  // Calculate indent and marker space for list blocks
-  let adjustedMaxWidth = maxWidth;
-  let baseX = styles.canvas.paddingLeft;
-
-  if (isListBlock(block)) {
-    const indent = block.indent || 0;
-    const indentOffset = indent * styles.list.indent.size;
-    const markerWidth =
-      styles.list.numbered.minWidth + styles.list.marker.textGap;
-
-    adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-
-    if (isRTL) {
-      // RTL: indent is on the right side, text starts at left
-      baseX = styles.canvas.paddingLeft;
-    } else {
-      baseX = styles.canvas.paddingLeft + indentOffset + markerWidth;
-    }
-  }
-
-  // Calculate line wrapping
-  const blockChars = charRunsToChars(block.charRuns);
-  const lines = wrapText(
-    blockChars,
-    block.formats,
-    adjustedMaxWidth,
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
-    codePadding,
+  const layout = node.layout({
+    block,
+    blockIndex: position.blockIndex,
+    maxWidth,
+    isFirst: false,
+    styles,
+  });
+  return node.caretRect(
+    layout,
+    position.textIndex,
+    styles.canvas.paddingLeft,
+    blockTop,
   );
-
-  let textIndex = 0;
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const wrappedLine = lines[lineIndex];
-    const line = wrappedLine.text;
-    const lineEndIndex = textIndex + line.length;
-
-    if (position.textIndex >= textIndex && position.textIndex <= lineEndIndex) {
-      // Calculate X position
-      const blockChars = charRunsToChars(block.charRuns);
-      const widthFromStart = measureLineWidth(
-        blockChars,
-        block.formats,
-        textIndex,
-        position.textIndex,
-        textStyle,
-        fontFamily,
-        codePadding,
-      );
-
-      let x: number;
-      if (isRTL) {
-        x = baseX + adjustedMaxWidth - widthFromStart;
-      } else {
-        x = baseX + widthFromStart;
-      }
-
-      return {
-        x,
-        y: currentY,
-        height: lineHeight,
-      };
-    }
-
-    textIndex += line.length;
-    if (wrappedLine.consumedSpace) {
-      textIndex += 1;
-    }
-    currentY += lineHeight;
-  }
-
-  // Fallback for end of block
-  if (isRTL) {
-    return {
-      x: baseX + adjustedMaxWidth,
-      y: currentY,
-      height: lineHeight,
-    };
-  }
-
-  return {
-    x: baseX,
-    y: currentY,
-    height: lineHeight,
-  };
 }
 
 /**

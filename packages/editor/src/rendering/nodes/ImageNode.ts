@@ -1,7 +1,7 @@
 /**
- * ImageBlockView — the `image` block ported onto AtomicBlockView.
+ * ImageNode — the `image` block ported onto AtomicNode.
  *
- * What the port demonstrates beyond LineBlockView:
+ * What the port demonstrates beyond LineNode:
  *  - Non-trivial geometry (centering, full-width bleed, drawn rect ≠ flow box),
  *    computed ONCE in `geometry()` and shared by the height pass and paint —
  *    the layout/paint split removes the duplication that previously existed
@@ -13,18 +13,19 @@
  *
  * Still out of scope (event layer): hit-testing the resize handles and driving
  * the drag lives in events/eventUtils + mouseEvents. Those would migrate onto
- * the optional BlockView.onPointerDown hook in a later pass.
+ * the optional Node.onPointerDown hook in a later pass.
  */
 
 import { resolveAssetUrl } from "../../adapters";
 import { IMAGE_DEFAULT_HEIGHT } from "../../constants";
 import type { BlockBounds, EditorStyles } from "../../state-types";
-import { AtomicBlockView } from "./AtomicBlockView";
+import { AtomicNode } from "./AtomicNode";
 import type {
-  BlockLayoutCtx,
-  BlockPaintCtx,
   BlockRuntimeState,
-} from "./BlockView";
+  NodeLayoutCtx,
+  NodePaintCtx,
+  Point,
+} from "./Node";
 
 // Image block — an embedded image.
 // Note: cachedHeight/cachedWidth (from BlockRuntimeState) are transient runtime
@@ -130,14 +131,14 @@ interface ImageGeometry {
   readonly displayHeight: number;
 }
 
-export class ImageBlockView extends AtomicBlockView<Image> {
+export class ImageNode extends AtomicNode<Image> {
   readonly type = "image" as const;
 
   /**
    * Resolve the on-canvas geometry from block props + container width. Depends
    * only on layout context (no origin), so both the height pass and paint use it.
    */
-  private geometry(c: BlockLayoutCtx): ImageGeometry {
+  private geometry(c: NodeLayoutCtx): ImageGeometry {
     const block = c.block as Image;
     const styles = c.styles;
     const { height: defaultImageHeight, placeholderHeight } =
@@ -174,7 +175,7 @@ export class ImageBlockView extends AtomicBlockView<Image> {
     return { displayX, displayWidth, displayHeight };
   }
 
-  protected intrinsicHeight(c: BlockLayoutCtx): number {
+  protected intrinsicHeight(c: NodeLayoutCtx): number {
     // Always add padding after image blocks for visual spacing.
     return (
       this.geometry(c).displayHeight +
@@ -182,7 +183,7 @@ export class ImageBlockView extends AtomicBlockView<Image> {
     );
   }
 
-  protected paintBox(c: BlockPaintCtx): BlockBounds {
+  protected paintBox(c: NodePaintCtx): BlockBounds {
     const { displayX, displayWidth, displayHeight } = this.geometry(c);
     const block = c.block as Image;
     const imageWidth = block.width ?? "full";
@@ -197,7 +198,7 @@ export class ImageBlockView extends AtomicBlockView<Image> {
     return { x: displayX, y, width: displayWidth, height: displayHeight };
   }
 
-  adjustFlowHeight(height: number, c: BlockLayoutCtx): number {
+  adjustFlowHeight(height: number, c: NodeLayoutCtx): number {
     const imageWidth = (c.block as Image).width ?? "full";
     if (c.isFirst && imageWidth === "full") {
       return height - c.styles.canvas.paddingTop;
@@ -205,7 +206,58 @@ export class ImageBlockView extends AtomicBlockView<Image> {
     return height;
   }
 
-  protected draw(box: BlockBounds, c: BlockPaintCtx): void {
+  /**
+   * The pointer hits the image when it is anywhere inside the container box
+   * (including a first full-width image's bleed into the top padding). The
+   * returned box is the actually-drawn image rect: in contain mode it shrinks
+   * to the decoded aspect ratio so resize handles align with the visible image.
+   */
+  hitTestBox(
+    c: NodeLayoutCtx,
+    origin: Point,
+    point: Point,
+  ): BlockBounds | null {
+    const block = c.block as Image;
+    const { displayX, displayWidth, displayHeight } = this.geometry(c);
+
+    const shouldBleed = c.isFirst && (block.width ?? "full") === "full";
+    const boxY = shouldBleed ? origin.y - c.styles.canvas.paddingTop : origin.y;
+
+    const inside =
+      point.x >= displayX &&
+      point.x < displayX + displayWidth &&
+      point.y >= boxY &&
+      point.y < boxY + displayHeight;
+    if (!inside) return null;
+
+    let finalX = displayX;
+    let finalY = boxY;
+    let finalWidth = displayWidth;
+    let finalHeight = displayHeight;
+
+    if ((block.objectFit ?? "cover") === "contain" && block.url) {
+      const cachedImage = imageCache.get(block.url);
+      if (cachedImage && cachedImage.complete) {
+        const imgAspectRatio =
+          cachedImage.naturalWidth / cachedImage.naturalHeight;
+        const containerAspectRatio = displayWidth / displayHeight;
+
+        if (imgAspectRatio > containerAspectRatio) {
+          // Image is wider than container - fit to width
+          finalHeight = displayWidth / imgAspectRatio;
+          finalY = boxY + (displayHeight - finalHeight) / 2;
+        } else {
+          // Image is taller than container - fit to height
+          finalWidth = displayHeight * imgAspectRatio;
+          finalX = displayX + (displayWidth - finalWidth) / 2;
+        }
+      }
+    }
+
+    return { x: finalX, y: finalY, width: finalWidth, height: finalHeight };
+  }
+
+  protected draw(box: BlockBounds, c: NodePaintCtx): void {
     const block = c.block as Image;
     const { ctx, state, styles, blockIndex } = c;
     const objectFit = block.objectFit ?? "cover";
@@ -296,13 +348,13 @@ export class ImageBlockView extends AtomicBlockView<Image> {
     }
   }
 
-  protected drawChrome(box: BlockBounds, c: BlockPaintCtx): void {
+  protected drawChrome(box: BlockBounds, c: NodePaintCtx): void {
     const objectFit = (c.block as Image).objectFit ?? "cover";
     this.drawDragHandles(c, box, objectFit);
   }
 
   private drawStatus(
-    c: BlockPaintCtx,
+    c: NodePaintCtx,
     box: BlockBounds,
     bg: string,
     lines: ReadonlyArray<{ text: string; dy: number }>,
@@ -321,7 +373,7 @@ export class ImageBlockView extends AtomicBlockView<Image> {
   }
 
   private drawImage(
-    c: BlockPaintCtx,
+    c: NodePaintCtx,
     box: BlockBounds,
     img: HTMLImageElement,
     objectFit: "cover" | "contain",
@@ -376,7 +428,7 @@ export class ImageBlockView extends AtomicBlockView<Image> {
   }
 
   private drawDragHandles(
-    c: BlockPaintCtx,
+    c: NodePaintCtx,
     box: BlockBounds,
     objectFit: "cover" | "contain",
   ): void {

@@ -1,12 +1,12 @@
-import type { Image } from "../rendering/blocks/ImageBlockView";
-import type { Line } from "../rendering/blocks/LineBlockView";
+import type { Image } from "../rendering/nodes/ImageNode";
+import type { Line } from "../rendering/nodes/LineNode";
 import type {
   BulletListItem,
   NumberedListItem,
   TodoListItem,
-} from "../rendering/blocks/ListBlockView";
-import type { MathBlock } from "../rendering/blocks/MathBlockView";
-import type { Heading, Paragraph } from "../rendering/blocks/TextBlockView";
+} from "../rendering/nodes/ListNode";
+import type { MathBlock } from "../rendering/nodes/MathNode";
+import type { Heading, Paragraph } from "../rendering/nodes/TextNode";
 import { extractCounter, extractPeerId } from "../sync/id";
 import type {
   Block,
