@@ -10,14 +10,21 @@
  * editor with no list blocks, and TextNode never references list types.
  */
 
-import { getCurrentFontFamily, getFontStack } from "../../fonts";
+import {
+  getCurrentFontFamily,
+  getFontMetrics,
+  getFontStack,
+} from "../../fonts";
+import { getTextDirection } from "../../rtl";
 import {
   type CharRun,
   type FormatSpan,
   isListBlock,
 } from "../../serlization/loadPage";
 import type { EditorState, EditorStyles } from "../../state-types";
-import type { BlockRuntimeState } from "./Node";
+import { getBlockTextContent } from "../../state-utils";
+import { getTextStyle } from "../../styles";
+import type { BlockRuntimeState, NodeHitRegion, NodeRegionCtx } from "./Node";
 import { TextNode, type TextNodeLayout, type TextualBlock } from "./TextNode";
 
 /** The block types handled by ListNode. */
@@ -206,6 +213,53 @@ export class ListNode extends TextNode {
 
       ctx.restore();
     }
+  }
+
+  /**
+   * The todo checkbox is an interactive sub-region. Geometry mirrors
+   * paintMarker (marker gutter + 2, ascent-aligned, RTL-aware) with a small
+   * padding for easier clicking; the toggle behavior is bound to the
+   * "todo-checkbox" id in the event layer.
+   */
+  regions(c: NodeRegionCtx): readonly NodeHitRegion[] {
+    const block = c.block;
+    if (block.type !== "todo_list" || !isListBlock(block)) return [];
+    return [
+      {
+        id: "todo-checkbox",
+        hitTest: (p) => {
+          const styles = c.styles;
+          const { indentOffset, markerWidth } = this.leadingInset(
+            block,
+            styles,
+          );
+          const checkboxSize = styles.list.todo.checkboxSize;
+
+          // RTL puts the marker gutter on the right side
+          const isRTL = getTextDirection(getBlockTextContent(block)) === "rtl";
+          const adjustedMaxWidth = c.maxWidth - indentOffset - markerWidth;
+          const checkboxX = isRTL
+            ? c.origin.x + indentOffset + adjustedMaxWidth + 2
+            : c.origin.x + indentOffset + 2;
+
+          const textStyle = getTextStyle(styles, block.type);
+          const fontMetrics = getFontMetrics(
+            textStyle.fontSize,
+            textStyle.fontWeight,
+            getCurrentFontFamily(),
+          );
+          const checkboxY = c.origin.y + fontMetrics.ascent - checkboxSize + 2;
+
+          const pad = 4; // click/tap tolerance beyond the drawn box
+          const inside =
+            p.x >= checkboxX - pad &&
+            p.x <= checkboxX + checkboxSize + pad &&
+            p.y >= checkboxY - pad &&
+            p.y <= checkboxY + checkboxSize + pad;
+          return inside ? { blockIndex: c.blockIndex } : null;
+        },
+      },
+    ];
   }
 
   /** List/todo placeholder text; falls back to the base for anything else. */

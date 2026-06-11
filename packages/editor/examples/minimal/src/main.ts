@@ -70,7 +70,7 @@ async function main() {
   };
 
   // Tier B — the commands namespace. Each returns whether it changed anything.
-  keepFocus("bold", () => editor.commands.toggleMark("bold"));
+  keepFocus("bold", () => editor.commands.toggleMark("strong"));
   keepFocus("h1", () => editor.commands.setBlock("heading1"));
   keepFocus("bullet", () => editor.commands.setBlock("bullet_list"));
   keepFocus("undo", () => editor.commands.undo());

@@ -1,13 +1,17 @@
-import type { Image } from "../rendering/nodes/ImageNode";
-import type { Line } from "../rendering/nodes/LineNode";
-import type {
-  BulletListItem,
-  NumberedListItem,
-  TodoListItem,
-} from "../rendering/nodes/ListNode";
-import type { MathBlock } from "../rendering/nodes/MathNode";
-import type { Heading, Paragraph } from "../rendering/nodes/TextNode";
+/**
+ * Markdown parser — orchestrator only.
+ *
+ * Per-block-type parsing lives in the block codecs (./codecs): each codec
+ * declares which block-start tokens (and HTML tag names) it claims, and this
+ * file dispatches to it with an `InputCtx` token-cursor view. The parser owns
+ * what is genuinely cross-block: tokenization order, indent consumption,
+ * empty-line blocks, id generation, inline text → CRDT runs, and afterId
+ * chaining.
+ */
+
 import { extractCounter, extractPeerId } from "../sync/id";
+import { baseDataSchema, type DataSchema } from "../sync/schema";
+import type { InputCtx, ParsedTag } from "./codecs";
 import type {
   Block,
   Char,
@@ -19,17 +23,9 @@ import type {
 import {
   BOLD_END,
   BOLD_START,
-  BULLET_LIST,
   CODE_END,
   CODE_START,
-  HEADING_1,
-  HEADING_2,
-  HEADING_3,
-  HORIZONTAL_RULE,
-  HTML_IMG,
-  IMAGE_ALT_END,
-  IMAGE_END,
-  IMAGE_START,
+  HTML_TAG,
   INDENT,
   INLINE_MATH_END,
   INLINE_MATH_START,
@@ -38,14 +34,9 @@ import {
   LINK_END,
   LINK_START,
   LINK_TEXT_END,
-  MATH_BLOCK,
   NEWLINE,
-  NUMBERED_LIST,
   STRIKETHROUGH_END,
   STRIKETHROUGH_START,
-  TEXT,
-  TODO_LIST_CHECKED,
-  TODO_LIST_UNCHECKED,
   type Token,
   type TokenType,
   type VisibleToken,
@@ -56,6 +47,7 @@ interface ParserContext {
   current: number;
   blockIdCounter: number; // Counter for generating unique block IDs
   charIdCounter: number; // Counter for generating unique char IDs
+  schema: DataSchema; // Block/mark types in play (codec dispatch source)
 }
 
 // Generate a unique char ID.
@@ -152,21 +144,11 @@ function generateEmptyTree(): Page {
     blocks: [],
   };
 }
-function generateHeading(
-  id: string,
-  level: number,
-  chars: Char[],
-  formats: FormatSpan[],
-): Heading {
-  return {
-    id,
-    type: ("heading" + level) as "heading1" | "heading2" | "heading3",
-    charRuns: charsToRuns(chars),
-    formats,
-  };
-}
 
-export default function parsePage(tokens: Token[]): Page {
+export default function parsePage(
+  tokens: Token[],
+  schema: DataSchema = baseDataSchema,
+): Page {
   const tree = generateEmptyTree();
 
   const context: ParserContext = {
@@ -174,9 +156,8 @@ export default function parsePage(tokens: Token[]): Page {
     current: 0,
     blockIdCounter: 0,
     charIdCounter: 0,
+    schema,
   };
-
-  // paresTitle(context);
 
   while (!isEnd(context)) {
     const block = parseBlock(context);
@@ -200,9 +181,44 @@ export default function parsePage(tokens: Token[]): Page {
 
   return tree;
 }
+
 function isEnd(context: ParserContext) {
   return context.tokens.length <= context.current;
 }
+
+/** Token-cursor view of this parser handed to codec input functions. */
+function makeInputCtx(context: ParserContext, indent: number): InputCtx {
+  return {
+    indent,
+    nextBlockId: () => `block-${context.blockIdCounter++}`,
+    inlineText: () => {
+      const { chars, formats } = parseCharsAndFormats(context);
+      return { charRuns: charsToRuns(chars), formats };
+    },
+    match: (...types: TokenType[]) => match(context, ...types),
+    check: (type: TokenType) => check(context, type),
+    advance: () => advance(context),
+    previous: () => previous(context),
+    peek: () => peek(context),
+    isEnd: () => isEnd(context),
+  };
+}
+
+/** Parse `<tag attr="value" ... />` into name + attribute map. */
+function parseHtmlTag(raw: string): ParsedTag {
+  const nameMatch = /^<\s*([a-zA-Z][a-zA-Z0-9-]*)/.exec(raw);
+  const name = nameMatch ? nameMatch[1].toLowerCase() : "";
+
+  const attrs: Record<string, string> = {};
+  const attrRegex = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)="([^"]*)"/g;
+  let attrMatch;
+  while ((attrMatch = attrRegex.exec(raw)) !== null) {
+    attrs[attrMatch[1].toLowerCase()] = attrMatch[2];
+  }
+
+  return { name, attrs, raw };
+}
+
 function parseBlock(context: ParserContext): Block {
   if (match(context, NEWLINE)) return emptyBlock(context);
 
@@ -215,25 +231,32 @@ function parseBlock(context: ParserContext): Block {
     indent = Math.floor(indentToken.content.length / 2);
   }
 
-  // Check for list blocks
-  if (check(context, BULLET_LIST)) return parseBulletListItem(context, indent);
-  if (check(context, NUMBERED_LIST))
-    return parseNumberedListItem(context, indent);
-  if (check(context, TODO_LIST_UNCHECKED))
-    return parseTodoListItem(context, indent, false);
-  if (check(context, TODO_LIST_CHECKED))
-    return parseTodoListItem(context, indent, true);
+  const ctx = makeInputCtx(context, indent);
 
-  // Check for other block types
-  if (check(context, HORIZONTAL_RULE)) return parseHorizontalRule(context);
-  if (check(context, MATH_BLOCK)) return parseMathBlock(context);
-  if (check(context, HTML_IMG)) return parseHTMLImage(context);
-  if (check(context, IMAGE_START)) return parseImage(context);
-  if (match(context, HEADING_1)) return parseHeading(context, 1);
-  if (match(context, HEADING_2)) return parseHeading(context, 2);
-  if (match(context, HEADING_3)) return parseHeading(context, 3);
-  return paresParagraph(context);
+  // HTML tags at block start: dispatch by tag name; unknown tags fall
+  // through to the paragraph fallback, which keeps them as literal text.
+  if (check(context, HTML_TAG)) {
+    const tag = parseHtmlTag((peek(context) as VisibleToken).content);
+    const codec = context.schema.htmlTagDispatch.get(tag.name);
+    if (codec?.markdown.inputTag) {
+      advance(context); // Consume the tag token; inputTag gets the parsed form
+      return codec.markdown.inputTag(tag, ctx);
+    }
+  }
+
+  // Block-start tokens: dispatch to the codec that claims them. Codecs
+  // consume their own trigger token.
+  if (!isEnd(context)) {
+    const codec = context.schema.tokenDispatch.get(peek(context).type);
+    if (codec?.markdown.input) {
+      return codec.markdown.input(ctx);
+    }
+  }
+
+  // Everything else parses as paragraph text.
+  return context.schema.getFallbackCodec()!.markdown.input!(ctx);
 }
+
 function emptyBlock(context: ParserContext): Block {
   return {
     id: `block-${context.blockIdCounter++}`,
@@ -242,17 +265,7 @@ function emptyBlock(context: ParserContext): Block {
     formats: [],
   };
 }
-function parseHeading(context: ParserContext, level: number) {
-  const { chars, formats } = parseCharsAndFormats(context);
-  const heading = generateHeading(
-    `block-${context.blockIdCounter++}`,
-    level,
-    chars,
-    formats,
-  );
-  match(context, NEWLINE);
-  return heading;
-}
+
 // Parse text into Char[] and FormatSpan[] (CRDT native format)
 function parseCharsAndFormats(context: ParserContext): {
   chars: Char[];
@@ -265,6 +278,10 @@ function parseCharsAndFormats(context: ParserContext): {
     string,
     { format: TextFormat; startCharId: string }
   > = new Map();
+  // Links can't ride the formatStack: their text chars are created before the
+  // url token arrives (at LINK_TEXT_END), so the span is emitted directly at
+  // LINK_END over the chars created since LINK_START.
+  let pendingLink: { startCharIndex: number; url: string } | null = null;
 
   while (!isEnd(context) && nomatch(context, NEWLINE)) {
     const node = previous(context) as VisibleToken;
@@ -284,22 +301,33 @@ function parseCharsAndFormats(context: ParserContext): {
       const index = formatStack.findIndex((f) => f.type === "math");
       if (index !== -1) formatStack.splice(index, 1);
     } else if (node.type === LINK_START) {
-      // Start collecting link text
+      // Link text chars start here; the url arrives at LINK_TEXT_END
+      pendingLink = { startCharIndex: chars.length, url: "" };
     } else if (node.type === LINK_TEXT_END) {
       // Collect URL from next TEXT token
-      let linkUrl = "";
       if (!isEnd(context)) {
         const nextToken = peek(context);
         if (nextToken.type === "text") {
           advance(context);
-          linkUrl = (previous(context) as VisibleToken).content;
+          const linkUrl = (previous(context) as VisibleToken).content;
+          if (pendingLink) pendingLink.url = linkUrl;
         }
       }
-      formatStack.push({ type: "link", url: linkUrl });
     } else if (node.type === LINK_END) {
-      // Link has ended - the format will be removed when we see the next format end or text end
-      const index = formatStack.findIndex((f) => f.type === "link");
-      if (index !== -1) formatStack.splice(index, 1);
+      // Emit the span over the link-text chars
+      if (
+        pendingLink &&
+        pendingLink.url &&
+        chars.length > pendingLink.startCharIndex
+      ) {
+        formats.push({
+          startCharId: chars[pendingLink.startCharIndex].id,
+          endCharId: chars[chars.length - 1].id,
+          format: { type: "link", url: pendingLink.url },
+          clock: { counter: 0, peerId: "parser" },
+        });
+      }
+      pendingLink = null;
     }
     // Handle format end tokens
     else if (node.type === BOLD_END) {
@@ -365,166 +393,6 @@ function parseCharsAndFormats(context: ParserContext): {
   return { chars, formats };
 }
 
-function paresParagraph(context: ParserContext): Paragraph {
-  const { chars, formats } = parseCharsAndFormats(context);
-  return {
-    id: `block-${context.blockIdCounter++}`,
-    type: "paragraph",
-    charRuns: charsToRuns(chars),
-    formats,
-  };
-}
-
-function parseBulletListItem(
-  context: ParserContext,
-  indent: number,
-): BulletListItem {
-  match(context, BULLET_LIST); // Consume the bullet marker
-  const { chars, formats } = parseCharsAndFormats(context);
-  return {
-    id: `block-${context.blockIdCounter++}`,
-    type: "bullet_list",
-    charRuns: charsToRuns(chars),
-    formats,
-    indent,
-  };
-}
-
-function parseNumberedListItem(
-  context: ParserContext,
-  indent: number,
-): NumberedListItem {
-  match(context, NUMBERED_LIST); // Consume the numbered marker
-  const { chars, formats } = parseCharsAndFormats(context);
-  return {
-    id: `block-${context.blockIdCounter++}`,
-    type: "numbered_list",
-    charRuns: charsToRuns(chars),
-    formats,
-    indent,
-  };
-}
-
-function parseTodoListItem(
-  context: ParserContext,
-  indent: number,
-  checked: boolean,
-): TodoListItem {
-  // Consume the todo marker (either TODO_LIST_UNCHECKED or TODO_LIST_CHECKED)
-  if (checked) {
-    match(context, TODO_LIST_CHECKED);
-  } else {
-    match(context, TODO_LIST_UNCHECKED);
-  }
-  const { chars, formats } = parseCharsAndFormats(context);
-  return {
-    id: `block-${context.blockIdCounter++}`,
-    type: "todo_list",
-    charRuns: charsToRuns(chars),
-    formats,
-    checked,
-    indent,
-  };
-}
-
-function parseHorizontalRule(context: ParserContext): Line {
-  match(context, HORIZONTAL_RULE); // Consume the horizontal rule token
-  match(context, NEWLINE); // Consume optional newline
-
-  return {
-    id: `block-${context.blockIdCounter++}`,
-    type: "line",
-  };
-}
-
-function parseMathBlock(context: ParserContext): MathBlock {
-  match(context, MATH_BLOCK);
-  const latex = (previous(context) as VisibleToken).content;
-  match(context, NEWLINE);
-
-  return {
-    id: `block-${context.blockIdCounter++}`,
-    type: "math",
-    latex,
-    displayMode: true,
-  };
-}
-
-function parseImage(context: ParserContext): Image {
-  // ![alt](url)
-  match(context, IMAGE_START); // Consume ![
-
-  let altText = "";
-  let imageUrl = "";
-
-  // Get alt text
-  if (!isEnd(context) && check(context, TEXT)) {
-    advance(context);
-    altText = (previous(context) as VisibleToken).content;
-  }
-
-  // Consume ](
-  match(context, IMAGE_ALT_END);
-
-  // Get URL
-  if (!isEnd(context) && check(context, TEXT)) {
-    advance(context);
-    imageUrl = (previous(context) as VisibleToken).content;
-  }
-
-  // Consume )
-  match(context, IMAGE_END);
-
-  // Consume optional newline
-  match(context, NEWLINE);
-
-  return {
-    id: `block-${context.blockIdCounter++}`,
-    type: "image",
-    url: imageUrl,
-    alt: altText,
-    // Default properties - not specified in markdown
-  };
-}
-
-function parseHTMLImage(context: ParserContext): Image {
-  // <img src="url" alt="alt" width="..." height="..." data-object-fit="..." />
-  match(context, HTML_IMG);
-  const htmlTag = (previous(context) as VisibleToken).content;
-
-  // Parse attributes from HTML tag
-  const srcMatch = /src="([^"]+)"/.exec(htmlTag);
-  const altMatch = /alt="([^"]*)"/.exec(htmlTag);
-  const widthMatch = /(?:width|data-width)="([^"]+)"/.exec(htmlTag);
-  const heightMatch = /height="([^"]+)"/.exec(htmlTag);
-  const objectFitMatch = /data-object-fit="([^"]+)"/.exec(htmlTag);
-
-  const imageUrl = srcMatch ? srcMatch[1] : "";
-  const altText = altMatch ? altMatch[1] : "";
-  const width = widthMatch
-    ? widthMatch[1] === "full"
-      ? "full"
-      : parseInt(widthMatch[1], 10)
-    : undefined;
-  const height = heightMatch ? parseInt(heightMatch[1], 10) : undefined;
-  const objectFit = objectFitMatch
-    ? (objectFitMatch[1] as "cover" | "contain")
-    : undefined;
-
-  // Consume optional newline
-  match(context, NEWLINE);
-
-  return {
-    id: `block-${context.blockIdCounter++}`,
-    type: "image",
-    url: imageUrl,
-    alt: altText,
-    width,
-    height,
-    objectFit,
-  };
-}
-
 function match(context: ParserContext, ...types: TokenType[]): boolean {
   for (const type of types) {
     if (check(context, type)) {
@@ -535,6 +403,7 @@ function match(context: ParserContext, ...types: TokenType[]): boolean {
 
   return false;
 }
+
 function nomatch(context: ParserContext, ...types: TokenType[]): boolean {
   for (const type of types) {
     if (!check(context, type)) {
@@ -554,10 +423,12 @@ function advance(context: ParserContext): Token {
 function previous(context: ParserContext): Token {
   return context.tokens[context.current - 1];
 }
+
 function check(context: ParserContext, type: string) {
   if (isEnd(context)) return false;
   return peek(context).type == type;
 }
+
 function peek(context: ParserContext) {
   return context.tokens[context.current];
 }

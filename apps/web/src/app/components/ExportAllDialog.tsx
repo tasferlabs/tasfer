@@ -17,7 +17,7 @@ import {
   type PageMetadata,
 } from "@cypherkit/editor/serlization/serializer";
 import { downloadFile } from "@/downloadFile";
-import type { Image } from "@cypherkit/editor/rendering/nodes/ImageNode";
+import { collectAssetRefs } from "@cypherkit/editor/serlization/codecs";
 import type { IPage } from "../api/pages.api";
 import { useTranslation } from "react-i18next";
 
@@ -171,13 +171,10 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
           const metadata = extractPageMetadata(fullPage);
           const markdown = serializeToMarkdown(blocks, metadata);
 
-          // Collect image IDs from blocks
-          for (const block of blocks) {
-            if (block.type === "image") {
-              const imgBlock = block as Image;
-              const imgId = extractImageId(imgBlock.url);
-              if (imgId) imageIds.add(imgId);
-            }
+          // Collect image IDs from block asset references
+          for (const ref of collectAssetRefs(blocks)) {
+            const imgId = extractImageId(ref);
+            if (imgId) imageIds.add(imgId);
           }
 
           // Also collect image IDs from markdown text (inline images)

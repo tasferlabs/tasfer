@@ -272,6 +272,7 @@ function invertBlockDelete(
   if (!block || block.deleted) return null;
 
   const descriptor = getBlockDescriptor(block.type);
+  if (!descriptor) return null;
   const initialProps: Record<string, unknown> = {};
   for (const fieldName of getBlockFieldNames(block.type)) {
     if (fieldName === "type") continue;
@@ -310,7 +311,7 @@ function invertBlockSet(
   if (op.field === "type") {
     previousValue = block.type;
   } else {
-    const fieldDesc = descriptor.fields[op.field];
+    const fieldDesc = descriptor?.fields[op.field];
     previousValue = fieldDesc ? fieldDesc.extractForInverse(block) : undefined;
   }
 

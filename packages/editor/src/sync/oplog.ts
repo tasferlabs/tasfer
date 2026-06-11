@@ -41,6 +41,7 @@ import type { Operation, OpLog, VersionVector } from "../state-types";
 import { compareHLC } from "./hlc";
 import { extractCounter, extractPeerId } from "./id";
 import { applyOp, createEmptyPageState, rebuildState } from "./reducer";
+import { baseDataSchema, type DataSchema } from "./schema";
 
 const IS_DEV = typeof import.meta !== "undefined" && !!import.meta.env?.DEV;
 
@@ -92,7 +93,11 @@ export function isOpKnown(vv: VersionVector, op: Operation): boolean {
  * Append a local operation to the log.
  * Updates version vector and state.
  */
-export function appendOp(log: OpLog, op: Operation): OpLog {
+export function appendOp(
+  log: OpLog,
+  op: Operation,
+  schema: DataSchema = baseDataSchema,
+): OpLog {
   // Check if operation already exists
   if (isOpKnown(log.versionVector, op)) {
     return log;
@@ -117,7 +122,7 @@ export function appendOp(log: OpLog, op: Operation): OpLog {
   const newVV = updateVersionVector(log.versionVector, op);
 
   // Apply operation to state
-  const newState = applyOp(log.state, op);
+  const newState = applyOp(log.state, op, schema);
 
   return {
     ...log,
@@ -144,7 +149,11 @@ export function appendOp(log: OpLog, op: Operation): OpLog {
  * @param ops - Remote operations to merge
  * @returns Updated operation log
  */
-export function mergeOps(log: OpLog, ops: Operation[]): OpLog {
+export function mergeOps(
+  log: OpLog,
+  ops: Operation[],
+  schema: DataSchema = baseDataSchema,
+): OpLog {
   if (IS_DEV) assertPerOriginOrder(ops);
 
   const newOps = ops.filter((op) => !isOpKnown(log.versionVector, op));
@@ -170,13 +179,13 @@ export function mergeOps(log: OpLog, ops: Operation[]): OpLog {
   if (canApplyIncrementally) {
     let state = log.state;
     for (const op of newOps) {
-      state = applyOp(state, op);
+      state = applyOp(state, op, schema);
     }
 
     const allOps = mergeSortedOps(log.operations, newOps);
 
     if (IS_DEV) {
-      const rebuilt = rebuildState(log.pageId, allOps);
+      const rebuilt = rebuildState(log.pageId, allOps, schema);
       if (JSON.stringify(state) !== JSON.stringify(rebuilt)) {
         console.error(
           `[mergeOps] incremental state diverged from rebuilt state for page ${log.pageId}; new op ids: ${newOps.map((o) => o.id).join(", ")}`,
@@ -188,7 +197,7 @@ export function mergeOps(log: OpLog, ops: Operation[]): OpLog {
   }
 
   const allOps = mergeSortedOps(log.operations, newOps);
-  const state = rebuildState(log.pageId, allOps);
+  const state = rebuildState(log.pageId, allOps, schema);
   return { ...log, operations: allOps, versionVector: newVV, state };
 }
 

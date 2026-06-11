@@ -19,7 +19,7 @@ const editor = createEditor(options: EditorOptions): Editor;
         { name: "element", type: "HTMLElement", required: true, desc: "The host element the canvas mounts into. Sized to fill it." },
         { name: "value", type: "string", desc: "Initial document as markdown. Ignored if doc is provided." },
         { name: "doc", type: "Doc", desc: "An existing CRDT document to edit. Takes precedence over value." },
-        { name: "schema", type: "Schema", desc: "Allowed nodes & marks. Defaults to baseSchema (CommonMark + GFM)." },
+        { name: "schema", type: "Schema", desc: "Allowed nodes & marks. Defaults to baseSchema." },
         { name: "plugins", type: "Plugin[]", desc: "Keymaps, input rules, decorations. See the Plugins reference." },
         { name: "theme", type: "Theme", desc: "Canvas colors, fonts, metrics. Defaults to the inherit theme." },
         { name: "editable", type: "boolean", desc: "Set false for a read-only renderer. Default true." },
@@ -134,7 +134,9 @@ export function EditorApiSchema() {
       <p className="dx-lede">
         A <code>Schema</code> is the grammar of a document: which nodes and marks
         exist, and how they may nest. The default <code>baseSchema</code> covers
-        CommonMark plus GFM tables, task lists, and strikethrough.
+        the built-in block and mark types — paragraphs, headings, lists, task
+        lists, and images, plus inline marks including bold, code, links, and
+        strikethrough.
       </p>
 
       <h2 id="base">baseSchema</h2>

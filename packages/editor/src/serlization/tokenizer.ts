@@ -21,7 +21,7 @@ export const LINK_END = "link_end";
 export const IMAGE_START = "image_start";
 export const IMAGE_ALT_END = "image_alt_end";
 export const IMAGE_END = "image_end";
-export const HTML_IMG = "html_img";
+export const HTML_TAG = "html_tag";
 export const BULLET_LIST = "bullet_list";
 export const NUMBERED_LIST = "numbered_list";
 export const TODO_LIST_UNCHECKED = "todo_unchecked";
@@ -48,7 +48,7 @@ type FormatTokenType =
   | "image_start"
   | "image_alt_end"
   | "image_end"
-  | "html_img"
+  | "html_tag"
   | "inline_math_start"
   | "inline_math_end";
 type ListTokenType =
@@ -334,14 +334,9 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
   while (!isEnd(state) && current(state) !== "\n" && current(state) !== "\r") {
     const char = current(state);
 
-    // Check for HTML img tags <img ... />
-    if (
-      char === "<" &&
-      peek(state) === "i" &&
-      peek(state, 2) === "m" &&
-      peek(state, 3) === "g" &&
-      (peek(state, 4) === " " || peek(state, 4) === ">")
-    ) {
+    // Check for HTML tags <tag ... /> — captured generically; the parser
+    // dispatches known tag names to block codecs and treats the rest as text.
+    if (char === "<" && isHtmlTagAt(state)) {
       const start = state.index;
 
       // Find the end of the tag (either /> or >)
@@ -362,7 +357,7 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
       if (foundEnd) {
         // Extract the full HTML tag
         const htmlTag = state.content.slice(start, state.index);
-        tokens.push({ type: HTML_IMG, content: htmlTag });
+        tokens.push({ type: HTML_TAG, content: htmlTag });
         continue;
       } else {
         // Not a valid HTML tag, treat as regular text
@@ -618,6 +613,23 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
       tokenizeRegularText(state, tokens);
     }
   }
+}
+
+/**
+ * Whether the `<` at the current index opens an HTML tag: a letter-initial
+ * tag name followed by a space, `/`, or `>`. Keeps `a < b` and `<3` literal.
+ */
+function isHtmlTagAt(state: TokenizerState): boolean {
+  const first = peek(state);
+  if (first == null || !/[a-zA-Z]/.test(first)) return false;
+
+  let i = 2;
+  let c = peek(state, i);
+  while (c != null && /[a-zA-Z0-9-]/.test(c)) {
+    i++;
+    c = peek(state, i);
+  }
+  return c === " " || c === "/" || c === ">";
 }
 
 function tokenizeRegularText(state: TokenizerState, tokens: Token[]) {

@@ -1,6 +1,8 @@
 import type { VisualBlock } from "../rendering/nodes/AtomicNode";
 import type { ListBlock } from "../rendering/nodes/ListNode";
+import type { BlockRuntimeState } from "../rendering/nodes/Node";
 import type { TextBlock } from "../rendering/nodes/TextNode";
+import type { DataSchema } from "../sync/schema";
 import type { HLC } from "../sync/sync";
 import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
@@ -68,8 +70,39 @@ export function areFormatArraysEqual(
   return true;
 }
 
-// Block is a union of all block types
+// Block is a union of the built-in block types. It is deliberately CLOSED: an
+// open member with a non-literal `type` would de-discriminate the union and
+// break every `block.type === "…"` narrow across the engine.
+//
+// Custom (schema-registered) block types are represented at runtime as
+// Block-shaped objects whose `type` is a custom name and whose extra fields are
+// top-level keys. They reach the closed `Block` type via a cast at the
+// `defineNode` boundary (`asBlock`); the generic engine code only ever touches
+// the shared `BlockRuntimeState` fields and dispatches the rest to the type's
+// codec/descriptor/node, which narrow back to their own `CustomBlock` view.
 export type Block = TextBlock | VisualBlock | ListBlock;
+
+/**
+ * The author-facing view of a custom block (see `defineNode`). Carries the
+ * shared runtime fields, optional text (`charRuns`/`formats` for text-bearing
+ * custom nodes), and an index signature for the node's declared attrs. A
+ * custom type's codec/descriptor/node casts the incoming `Block` to this shape.
+ */
+export interface CustomBlock extends BlockRuntimeState {
+  type: string;
+  charRuns?: CharRun[];
+  formats?: FormatSpan[];
+  [key: string]: unknown;
+}
+
+/**
+ * Treat a custom (CustomBlock-shaped) object as a `Block` at the extension
+ * boundary. The runtime object is unchanged; this only crosses the type
+ * boundary the closed `Block` union otherwise forbids.
+ */
+export function asBlock(block: CustomBlock): Block {
+  return block as unknown as Block;
+}
 
 export interface PageMetadata {
   color?: string | null;
@@ -125,10 +158,10 @@ export function parseFrontmatter(content: string): {
   return { content: remaining, metadata: hasValues ? metadata : undefined };
 }
 
-export function loadPage(content: string): Page {
+export function loadPage(content: string, schema?: DataSchema): Page {
   const { content: body, metadata } = parseFrontmatter(content);
   const tokens = tokenizePage(body);
-  const page = parsePage(tokens);
+  const page = parsePage(tokens, schema);
   if (metadata) page.metadata = metadata;
   return page;
 }

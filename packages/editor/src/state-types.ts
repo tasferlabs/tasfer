@@ -24,7 +24,17 @@ export interface HLC {
   peerId: string;
 }
 
-/** Supported block types matching the editor */
+/**
+ * The block types built into the engine. Kept a closed union: the built-in
+ * registries (BLOCK_REGISTRY, the codec tables) key on it for exhaustiveness,
+ * and the compile-time field check in sync.ts indexes it.
+ *
+ * Custom (schema-registered) block types are NOT in this union — they flow as
+ * plain strings at the op/registry boundary (`BlockInsert.blockType` is a
+ * `string`, the registry helpers take `string`, and `CustomBlock.type` is a
+ * `string`). So `Block["type"]` is `string`, while internal code that needs
+ * exhaustiveness narrows against these literals.
+ */
 export type BlockType =
   | "paragraph"
   | "heading1"
@@ -121,8 +131,8 @@ export interface BlockInsert extends BaseOp {
   afterBlockId: string | null;
   /** New block's unique ID */
   blockId: string;
-  /** Block type */
-  blockType: BlockType;
+  /** Block type — a built-in `BlockType` or a custom schema-registered name. */
+  blockType: BlockType | (string & {});
   /** Initial block properties */
   initialProps?: BlockProps;
 }

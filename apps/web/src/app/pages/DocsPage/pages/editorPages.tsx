@@ -47,7 +47,7 @@ export function EditorInstall() {
       <ul>
         <li><strong>A browser with <code>OffscreenCanvas</code> and <code>ResizeObserver</code></strong> — every evergreen browser since 2021. There is no DOM-contenteditable fallback by design; the canvas <em>is</em> the editor.</li>
         <li><strong>ES2020 or a bundler that targets it.</strong> The package ships ESM with a CommonJS interop entry. Types are bundled — no <code>@types</code> install.</li>
-        <li><strong>No build step required for the CRDT.</strong> WASM is inlined and lazy-decoded; nothing to copy into your <code>public/</code> folder.</li>
+        <li><strong>No build step required for the CRDT.</strong> It's pure JavaScript — there's nothing to copy into your <code>public/</code> folder.</li>
       </ul>
 
       <h2 id="first">A thirty-second editor</h2>
@@ -58,7 +58,6 @@ export function EditorInstall() {
       </p>
       <Code file="main.ts" lang="ts" code={`
 import { createEditor } from "@cypherkit/editor";
-import "@cypherkit/editor/theme.css";
 
 const editor = createEditor({
   element: document.querySelector("#editor")!,
@@ -267,7 +266,6 @@ export function EditorFirstEditor() {
           <p>Import the engine and its base theme, then create the editor.</p>
           <Code file="main.ts" lang="ts" code={`
 import { createEditor } from "@cypherkit/editor";
-import "@cypherkit/editor/theme.css";
 
 const editor = createEditor({
   element: document.querySelector("#editor")!,
@@ -440,59 +438,75 @@ export function EditorCustomNodes() {
         callout block, an @-mention, a highlight.
       </p>
 
-      <h2 id="mark">Define a mark</h2>
-      <p>A mark is inline formatting that wraps a span of text. Here's a highlight:</p>
-      <Code lang="ts" code={`
-import { defineMark } from "@cypherkit/editor";
-
-const highlight = defineMark("highlight", {
-  // how it serialises to / from markdown
-  toMarkdown: (text) => \`==\${text}==\`,
-  parseMarkdown: /==([^=]+)==/,
-  // how the canvas paints it
-  render: { background: "rgba(29,185,132,0.22)" },
-});
-`} />
+      <Callout kind="note" title="What's shippable today.">
+        The extension API below is real and tested for <strong>leaf block
+        nodes</strong> — a styled box that carries attributes (a callout, an
+        embed, a divider variant). Text-bearing and block-containing custom
+        nodes (<code>content: "text" | "block+"</code>) and custom-mark
+        rendering are on the roadmap; the shapes here are forward-compatible
+        with them.
+      </Callout>
 
       <h2 id="node">Define a node</h2>
       <p>
-        A node is a block. It declares whether it holds text, other blocks, or
-        nothing, and how it draws. A callout that contains paragraphs:
+        A node is a block type. It declares its attributes (replicated CRDT
+        fields), how it serializes, and how it draws. A callout box:
       </p>
       <Code lang="ts" code={`
 import { defineNode } from "@cypherkit/editor";
 
 const callout = defineNode("callout", {
-  group: "block",
-  content: "block+",            // contains one or more blocks
+  // Replicated attributes — each becomes a CRDT-settable field with a default.
   attrs: { tone: { default: "note" } },
-  toMarkdown: (node, inner) => \`> [!\${node.attrs.tone}]\\n\` + inner,
+  // Declarative paint for the built-in box renderer (or pass \`node\` for a
+  // custom canvas Node). Round-trips through a generic <x-callout tone="…" />
+  // tag, so no tokenizer changes are needed.
   render: {
-    padding: 16,
-    borderLeft: { width: 2, color: "var(--accent)" },
+    background: "rgba(29,185,132,0.10)",
+    borderLeft: { width: 3, color: "#1db984" },
+    label: (block) => \`Callout (\${block.tone})\`,
   },
 });
 `} />
 
+      <h2 id="mark">Define a mark</h2>
+      <p>
+        A mark is inline formatting. Declaring one registers it as a valid
+        format name on the schema (full custom markdown delimiters and canvas
+        paint for marks are the next step):
+      </p>
+      <Code lang="ts" code={`
+import { defineMark } from "@cypherkit/editor";
+
+const highlight = defineMark("highlight");
+`} />
+
       <h2 id="register">Register them</h2>
+      <p>
+        <code>extend</code> returns a <em>new</em> immutable schema — the base is
+        never mutated, so two editors on one page can run different schemas.
+      </p>
       <Code lang="ts" code={`
 import { createEditor, baseSchema } from "@cypherkit/editor";
 
 const schema = baseSchema.extend({
-  marks: { highlight },
-  nodes: { callout },
+  nodes: [callout],
+  marks: [highlight],
 });
 
 const editor = createEditor({ element, schema });
 
-// now commands exist for them:
-editor.commands.toggleMark("highlight");
-editor.commands.wrapIn("callout", { tone: "warn" });
+// The doc carries the data half of the schema, so persistence and markdown
+// round-trip the custom block losslessly:
+editor.getMarkdown(); // …  <x-callout tone="warn" />  …
 `} />
       <Callout kind="tip" title="Schema changes are CRDT-safe.">
-        Nodes and marks are addressed by name in the replicated structure, so a peer
-        running the same schema merges your callouts cleanly. Ship schema changes to
-        all peers together, the way you'd ship a database migration.
+        Blocks are addressed by type <em>name</em> in the replicated log, so a
+        peer running the same schema merges your callouts cleanly. A peer that
+        <em>doesn't</em> have the type doesn't crash or lose data — it keeps the
+        ops and renders an "unsupported block" placeholder until it's upgraded.
+        Ship schema changes to all peers together, the way you'd ship a database
+        migration.
       </Callout>
     </>
   );
@@ -504,8 +518,7 @@ export function EditorTheming() {
       <p className="dx-lede">
         Because the editor paints its own pixels, theming is done through a token
         object — colors, fonts, and metrics — not CSS selectors into a DOM you
-        don't control. The base <code>theme.css</code> wires those tokens to CSS
-        custom properties so light/dark just works.
+        don't control.
       </p>
 
       <h2 id="tokens">The theme object</h2>

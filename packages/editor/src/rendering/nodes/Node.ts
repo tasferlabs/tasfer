@@ -26,6 +26,7 @@ import type {
   Position,
   RenderedBlock,
   RenderedLine,
+  ViewportState,
 } from "../../state-types";
 import type { AwarenessState } from "../../sync/awareness";
 
@@ -77,6 +78,33 @@ export interface Point {
   readonly y: number;
 }
 
+/** Pointer type for node hit regions (mirrors events/regions PointerType). */
+export type NodePointerType = "mouse" | "touch";
+
+/** Everything a node needs to compute its interactive sub-region geometry. */
+export interface NodeRegionCtx extends NodeLayoutCtx {
+  readonly state: EditorState;
+  readonly viewport: ViewportState;
+  /** Top-left of the block's content box in canvas coordinates. */
+  readonly origin: Point;
+}
+
+/**
+ * A named interactive sub-region of a block (todo checkbox, image resize
+ * handle, …). Nodes declare only identity + geometry; the event layer binds
+ * behavior to the `id` (events/blockRegions.ts), so nodes stay the
+ * presentation facet and never touch CRDT ops or editor commands.
+ */
+export interface NodeHitRegion {
+  /** Stable id the event layer binds behavior to (e.g. "todo-checkbox"). */
+  id: string;
+  /**
+   * Hit data (forwarded to the bound behavior) or null. The point is in
+   * canvas coordinates; apply pointer-type hit slop here.
+   */
+  hitTest(p: Point, pointerType: NodePointerType): unknown | null;
+}
+
 /**
  * Base class for a block type's on-canvas behavior. One instance per type,
  * registered in the node registry. Generic over the concrete block shape so
@@ -118,6 +146,13 @@ export abstract class Node<B extends Block = Block> {
    * draws). When unset, flow height === drawn height.
    */
   adjustFlowHeight?(height: number, c: NodeLayoutCtx): number;
+
+  /**
+   * Optional: the block's interactive sub-regions at its current layout
+   * (checkbox, resize handles, …). Geometry + identity only — behavior is
+   * bound by id in the event layer, keeping nodes presentation-only.
+   */
+  regions?(c: NodeRegionCtx): readonly NodeHitRegion[];
 
   /** Convenience for subclasses building their RenderedBlock result. */
   protected bounds(c: NodePaintCtx, height: number): BlockBounds {

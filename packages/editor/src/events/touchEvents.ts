@@ -7,16 +7,10 @@ import {
   DOUBLE_CLICK_TIME,
   EDGE_SCROLL_THRESHOLD,
   MOVEMENT_THRESHOLD,
-  SCROLLBAR_TOUCH_BUFFER,
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
 } from "../constants";
-import { imageCache } from "../rendering/renderer";
-import {
-  endScrollbarDrag,
-  isPointInThumb,
-  updateScrollFromThumbDrag,
-} from "../rendering/scrollbar";
+import { endScrollbarDrag } from "../rendering/scrollbar";
 import {
   getCursorDocumentCoords,
   getTextPositionFromViewport,
@@ -38,21 +32,24 @@ import {
 import { getEditorStyles, getTextStyle } from "../styles";
 import { isTextualBlock } from "../sync/block-registry";
 import type { Operation } from "../sync/sync";
+import { hitTestAllRegions } from "./blockRegions";
+import { getAtomicBlockAtPoint, isWithinClickDistance } from "./eventUtils";
+import { triggerHapticFeedback } from "./haptics";
 import {
-  activateScroll,
-  autoScrollState,
-  clearScrollPress,
-  scrollbarPressState,
-} from "./eventsState";
+  beginRegionInteraction,
+  type RegionCtx,
+  routeCapturedCancel,
+  routeCapturedEnd,
+  routeCapturedMove,
+} from "./regions";
 import {
-  endImageDrag,
-  getAtomicBlockAtPoint,
-  getSelectionHandleAtPoint,
-  isWithinClickDistance,
-  startImageDrag,
-  updateImageDrag,
-} from "./eventUtils";
-import { handleTodoCheckboxClick } from "./mouseEvents";
+  type InteractionSession,
+  startAutoScroll,
+  stopAutoScroll,
+} from "./session";
+
+// Re-export for hosts that deep-import from this module (apps/web does).
+export { triggerHapticFeedback } from "./haptics";
 
 /** Get rendered line height (px) for the block at the given position. */
 function getLineHeightAtPosition(
@@ -67,91 +64,18 @@ function getLineHeightAtPosition(
   return textStyle.fontSize * textStyle.lineHeight;
 }
 
-// Touch state storage (needs to be outside functions to persist between events)
-export let touchState: {
-  startY: number;
-  startScrollY: number;
-  lastY: number;
-  lastTime: number;
-  velocityY: number;
-  velocityHistory: Array<{ velocity: number; time: number }>;
-  isScrollbarDrag: boolean;
-  startX: number;
-  startTime: number;
-  isLongPress: boolean;
-  hasMoved: boolean;
-  currentTouchX: number;
-  currentTouchY: number;
-  isTouchingSelection: boolean;
-  isTouchingCursor: boolean;
-  isCursorDrag: boolean;
-  touchRadiusY: number;
-  isTwoFingerScroll?: boolean;
-} | null = null;
-// Touch tap tracking for double/triple tap detection (similar to clickTracker)
-export let touchTapTracker: {
-  lastTapTime: number;
-  lastTapPosition: { x: number; y: number } | null;
-  count: number;
-} = {
-  lastTapTime: 0,
-  lastTapPosition: null,
-  count: 0,
-};
-
-/**
- * Trigger haptic feedback through native bridges
- */
-export function triggerHapticFeedback(
-  style: "light" | "medium" | "heavy" = "heavy",
-): void {
-  try {
-    // Native bridge (iOS / Android)
-    if (window.CypherBridge) {
-      window.CypherBridge.haptic.trigger(style);
-      return;
-    }
-
-    // Fallback: Standard Vibration API (works on Android Chrome web, not in WebView usually)
-    if ("vibrate" in navigator) {
-      const duration = style === "light" ? 10 : style === "medium" ? 20 : 50;
-      navigator.vibrate(duration);
-    }
-  } catch (e) {
-    // Silently fail if haptics not supported
-    console.debug("Haptic feedback not supported:", e);
-  }
-}
-export function startAutoScroll() {
-  if (!autoScrollState.isActive) {
-    autoScrollState.isActive = true;
-    autoScrollState.startTime = Date.now();
-    autoScrollState.currentSpeedMultiplier = 1;
-  }
-}
-export function stopAutoScroll() {
-  autoScrollState.isActive = false;
-  autoScrollState.startTime = 0;
-  autoScrollState.currentSpeedMultiplier = 1;
-}
-
-export function isInLongPressMode(): boolean {
-  return touchState?.isLongPress === true;
-}
 export function handleTouchStart(
   state: EditorState,
   viewport: ViewportState,
   event: TouchEvent,
   containerRect: { left: number; top: number },
   documentHeight: number,
+  session: InteractionSession,
 ): EditorState {
   // In locked mode, block touch interactions that might lead to scrolling
   if (state.ui.mode === "locked") {
     return state;
   }
-
-  // In readonly mode, only allow scrolling (no selection handle drag or image drag)
-  const isReadonly = state.ui.mode === "readonly";
 
   // Handle two-finger scroll
   if (event.touches.length === 2) {
@@ -162,14 +86,13 @@ export function handleTouchStart(
     // Calculate average position of both fingers
     const avgY = (touch1.clientY + touch2.clientY) / 2 - containerRect.top;
 
-    touchState = {
+    session.touch = {
       startY: avgY,
       startScrollY: viewport.scrollY,
       lastY: avgY,
       lastTime: currentTime,
       velocityY: 0,
       velocityHistory: [],
-      isScrollbarDrag: false,
       startX: (touch1.clientX + touch2.clientX) / 2 - containerRect.left,
       startTime: currentTime,
       isLongPress: false,
@@ -207,125 +130,20 @@ export function handleTouchStart(
     const canvasX = touch.clientX - containerRect.left;
     const canvasY = touch.clientY - containerRect.top;
 
-    // iOS-style: Check if touching scrollbar thumb (requires hold to activate)
-    // Use a larger buffer area for easier touch detection on mobile
-    const isScrollbarThumbTouch = isPointInThumb(
-      canvasX,
-      canvasY,
-      viewport,
-      documentHeight,
-      state.view.scrollbar,
-      undefined, // Use default styles
-      SCROLLBAR_TOUCH_BUFFER,
-    );
-
-    // Check if touching a selection handle for mobile selection dragging
-    // Block selection handle drag in readonly mode
-    const selectionHandle = !isReadonly
-      ? getSelectionHandleAtPoint(canvasX, canvasY, state, viewport)
-      : null;
-    if (selectionHandle && !isScrollbarThumbTouch) {
-      // Start selection handle drag
-      touchState = {
-        startY: canvasY,
-        startScrollY: viewport.scrollY,
-        lastY: canvasY,
-        lastTime: currentTime,
-        velocityY: 0,
-        velocityHistory: [],
-        isScrollbarDrag: false,
-        startX: canvasX,
-        startTime: currentTime,
-        isLongPress: false,
-        hasMoved: false,
-        currentTouchX: canvasX,
-        currentTouchY: canvasY,
-        isTouchingSelection: true, // We're on a selection
-        isTouchingCursor: false,
-        isCursorDrag: false,
-        touchRadiusY: touch.radiusY ?? 0,
-      };
-
-      return {
-        ...state,
-        ui: {
-          ...state.ui,
-          selectionHandleDrag: {
-            handleType: selectionHandle,
-            startX: canvasX,
-            startY: canvasY,
-          },
-        },
-        view: {
-          ...state.view,
-          scrollbar: {
-            ...state.view.scrollbar,
-            lastInteraction: Date.now(),
-          },
-          momentum: {
-            velocity: 0,
-            lastTime: Date.now(),
-            isActive: false,
-          },
-        },
-      };
-    }
-
-    // Check if touching an image drag handle (with larger tolerance for touch)
-    // Block image drag in readonly mode
-    const imageBlock = getAtomicBlockAtPoint(
-      canvasX,
-      canvasY,
-      state,
-      viewport,
-      "image",
-    );
-    const TOUCH_TOLERANCE = 12; // Larger tolerance for touch devices
-    if (imageBlock && !isScrollbarThumbTouch && !isReadonly) {
-      const dragState = startImageDrag(
-        state,
-        imageBlock,
-        canvasX,
-        canvasY,
-        TOUCH_TOLERANCE,
-      );
-      if (dragState) {
-        // Start image drag - initialize touch state but don't treat as scroll
-        touchState = {
-          startY: canvasY,
-          startScrollY: viewport.scrollY,
-          lastY: canvasY,
-          lastTime: currentTime,
-          velocityY: 0,
-          velocityHistory: [],
-          isScrollbarDrag: false,
-          startX: canvasX,
-          startTime: currentTime,
-          isLongPress: false,
-          hasMoved: false,
-          currentTouchX: canvasX,
-          currentTouchY: canvasY,
-          isTouchingSelection: false,
-          isTouchingCursor: false,
-          isCursorDrag: false,
-          touchRadiusY: touch.radiusY ?? 0,
-        };
-
-        return {
-          ...dragState,
-          view: {
-            ...dragState.view,
-            scrollbar: {
-              ...dragState.view.scrollbar,
-              lastInteraction: Date.now(),
-            },
-            momentum: {
-              velocity: 0,
-              lastTime: Date.now(),
-              isActive: false,
-            },
-          },
-        };
+    // Interactive regions (scrollbar thumb, selection handles, image resize
+    // handles) — highest-priority hit wins. A hold-gated drag (scrollbar
+    // thumb) returns "pending": the touch keeps behaving as a normal
+    // scroll/tap until tickPendingCapture promotes it after the hold delay.
+    const regionCtx: RegionCtx = { state, viewport, documentHeight, session };
+    const point = { x: canvasX, y: canvasY };
+    const claim = hitTestAllRegions(point, "touch", regionCtx);
+    let holdPending = false;
+    if (claim) {
+      const begin = beginRegionInteraction(claim, point, "touch", regionCtx);
+      if (begin === "pending") {
+        holdPending = true;
+      } else if (begin) {
+        return begin.state;
       }
     }
 
@@ -337,19 +155,17 @@ export function handleTouchStart(
       viewport,
     );
 
-    // iOS-style: If touching scrollbar thumb, start hold timer (don't activate immediately)
-    if (isScrollbarThumbTouch) {
-      activateScroll(currentTime, canvasX, canvasY);
-
-      // Set up minimal touch state for scrollbar interaction
-      touchState = {
+    // While a hold-gated chrome drag is pending, the touch still scrolls and
+    // taps normally — but must not engage cursor drag on top of the hold.
+    if (holdPending) {
+      // Set up minimal touch state while the hold timer runs
+      session.touch = {
         startY: canvasY,
         startScrollY: viewport.scrollY,
         lastY: canvasY,
         lastTime: currentTime,
         velocityY: 0,
         velocityHistory: [],
-        isScrollbarDrag: false, // Not dragging yet, waiting for hold
         startX: canvasX,
         startTime: currentTime,
         isLongPress: false,
@@ -387,14 +203,13 @@ export function handleTouchStart(
         }
       }
 
-      touchState = {
+      session.touch = {
         startY: canvasY,
         startScrollY: viewport.scrollY,
         lastY: canvasY,
         lastTime: currentTime,
         velocityY: 0,
         velocityHistory: [],
-        isScrollbarDrag: false,
         startX: canvasX,
         startTime: currentTime,
         isLongPress: false,
@@ -440,6 +255,7 @@ export function handleTouchMove(
   event: TouchEvent,
   containerRect: { left: number; top: number },
   documentHeight: number,
+  session: InteractionSession,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): EditorState {
   // In locked mode, block scrolling
@@ -447,10 +263,31 @@ export function handleTouchMove(
     return state;
   }
 
+  // A captured region drag (scrollbar thumb, selection handle) owns the
+  // pointer — route every move to it until release.
+  if (session.captured && event.touches.length > 0) {
+    event.preventDefault();
+    const touch = event.touches[0];
+    const result = routeCapturedMove(
+      {
+        x: touch.clientX - containerRect.left,
+        y: touch.clientY - containerRect.top,
+      },
+      {
+        state,
+        viewport,
+        documentHeight,
+        session,
+        updateViewport: updateViewportCallback,
+      },
+    );
+    return result ? result.state : state;
+  }
+
   // Handle transition from two-finger to single-finger (user lifted one finger)
-  if (event.touches.length === 1 && touchState?.isTwoFingerScroll) {
+  if (event.touches.length === 1 && session.touch?.isTwoFingerScroll) {
     // User lifted one finger during two-finger scroll - end the scroll with momentum
-    const avgVelocity = touchState.velocityY;
+    const avgVelocity = session.touch.velocityY;
     const minMomentumVelocity = 0.1; // pixels per ms
 
     // Apply momentum if velocity is significant
@@ -473,15 +310,15 @@ export function handleTouchMove(
       };
     }
 
-    touchState = null;
+    session.touch = null;
     return state;
   }
 
   // Handle transition from single to two-finger scroll
   if (
     event.touches.length === 2 &&
-    touchState &&
-    !touchState.isTwoFingerScroll
+    session.touch &&
+    !session.touch.isTwoFingerScroll
   ) {
     // User added a second finger - switch to two-finger scroll mode
     const touch1 = event.touches[0];
@@ -489,8 +326,8 @@ export function handleTouchMove(
     const currentTime = Date.now();
     const avgY = (touch1.clientY + touch2.clientY) / 2 - containerRect.top;
 
-    touchState = {
-      ...touchState,
+    session.touch = {
+      ...session.touch,
       isTwoFingerScroll: true,
       startY: avgY,
       startScrollY: viewport.scrollY,
@@ -502,16 +339,16 @@ export function handleTouchMove(
     };
 
     // Stop any auto-scroll
-    stopAutoScroll();
+    stopAutoScroll(session);
   }
 
   // Handle two-finger scroll
-  if (event.touches.length === 2 && touchState?.isTwoFingerScroll) {
+  if (event.touches.length === 2 && session.touch?.isTwoFingerScroll) {
     event.preventDefault();
     const touch1 = event.touches[0];
     const touch2 = event.touches[1];
     const currentTime = Date.now();
-    const deltaTime = currentTime - touchState.lastTime;
+    const deltaTime = currentTime - session.touch.lastTime;
 
     // Skip if no time has passed
     if (deltaTime === 0) return state;
@@ -520,50 +357,51 @@ export function handleTouchMove(
     const avgY = (touch1.clientY + touch2.clientY) / 2 - containerRect.top;
 
     // Calculate scroll delta
-    const scrollDeltaY = touchState.lastY - avgY;
+    const scrollDeltaY = session.touch.lastY - avgY;
 
     // Calculate instantaneous velocity (pixels per millisecond)
     const instantVelocity = scrollDeltaY / deltaTime;
 
     // Track velocity for momentum
     if (Math.abs(instantVelocity) > 0.01) {
-      touchState.velocityHistory.push({
+      session.touch.velocityHistory.push({
         velocity: instantVelocity,
         time: currentTime,
       });
     }
 
     // Keep only last 150ms of velocity history
-    touchState.velocityHistory = touchState.velocityHistory.filter(
+    session.touch.velocityHistory = session.touch.velocityHistory.filter(
       (v) => currentTime - v.time < 150,
     );
 
     // Update velocity for momentum
-    if (touchState.velocityHistory.length > 0) {
-      const totalVelocity = touchState.velocityHistory.reduce(
+    if (session.touch.velocityHistory.length > 0) {
+      const totalVelocity = session.touch.velocityHistory.reduce(
         (sum, v) => sum + v.velocity,
         0,
       );
-      touchState.velocityY = totalVelocity / touchState.velocityHistory.length;
+      session.touch.velocityY =
+        totalVelocity / session.touch.velocityHistory.length;
     }
 
     // Apply scroll with multiplier for responsive feel
     const touchScrollMultiplier = 1.5;
-    const scrollDelta = (touchState.startY - avgY) * touchScrollMultiplier;
+    const scrollDelta = (session.touch.startY - avgY) * touchScrollMultiplier;
 
     // Update scroll position with boundaries
     const maxScroll = documentHeight - viewport.height;
     const newScrollY = Math.max(
       0,
-      Math.min(maxScroll, touchState.startScrollY + scrollDelta),
+      Math.min(maxScroll, session.touch.startScrollY + scrollDelta),
     );
 
     if (updateViewportCallback) {
       updateViewportCallback({ scrollY: newScrollY });
     }
 
-    touchState.lastY = avgY;
-    touchState.lastTime = currentTime;
+    session.touch.lastY = avgY;
+    session.touch.lastTime = currentTime;
 
     // Clear any menus when scrolling
     return {
@@ -584,211 +422,24 @@ export function handleTouchMove(
     };
   }
 
-  if (event.touches.length === 1 && touchState) {
+  if (event.touches.length === 1 && session.touch) {
     event.preventDefault();
     const touch = event.touches[0];
     const currentTime = Date.now();
-    const deltaTime = currentTime - touchState.lastTime;
+    const deltaTime = currentTime - session.touch.lastTime;
     const canvasX = touch.clientX - containerRect.left;
     const canvasY = touch.clientY - containerRect.top;
 
     // Skip if no time has passed
     if (deltaTime === 0) return state;
 
-    // Handle scrollbar drag
-    if (touchState.isScrollbarDrag && state.view.scrollbar.isDragging) {
-      const newScrollY = updateScrollFromThumbDrag(
-        canvasY,
-        viewport,
-        documentHeight,
-        state.view.scrollbar,
-      );
-      if (updateViewportCallback) {
-        updateViewportCallback({ scrollY: newScrollY });
-      }
-      // Clear link hover overlay when scrolling via scrollbar
-      return {
-        ...state,
-        ui: {
-          ...state.ui,
-          activeMenu: { type: "none" },
-          isHoveringLinkWithModifier: false,
-          imageHover: null,
-        },
-      };
-    }
-
-    // Handle image drag resize
-    if (state.ui.imageDrag) {
-      touchState.lastY = canvasY;
-      touchState.lastTime = currentTime;
-      touchState.currentTouchX = canvasX;
-      touchState.currentTouchY = canvasY;
-
-      const { blockIndex, handle } = state.ui.imageDrag;
-      const block = state.document.page.blocks[blockIndex];
-      if (!block || block.deleted) return state;
-
-      // Check if we should allow auto-scroll for bottom edge
-      // Only block scrolling down if: bottom handle + near bottom edge + image at max height
-      let shouldBlockBottomScroll = false;
-      const objectFit =
-        block.type === "image" ? (block.objectFit ?? "cover") : "cover";
-      if (
-        handle === "bottom" &&
-        objectFit === "cover" &&
-        block.type === "image" &&
-        block.url
-      ) {
-        const cachedImage = imageCache.get(block.url);
-        if (cachedImage && cachedImage.complete) {
-          const imgAspectRatio =
-            cachedImage.naturalWidth / cachedImage.naturalHeight;
-          const containerWidth =
-            typeof block.width === "number" ? block.width : viewport.width;
-          const maxHeightForRatio = containerWidth / imgAspectRatio;
-          // Use startHeight + delta to get current effective height
-          const currentHeight =
-            state.ui.imageDrag.startHeight +
-            (canvasY - state.ui.imageDrag.startY);
-          const isAtMaxHeight = currentHeight >= maxHeightForRatio - 1;
-          const isNearBottomEdge =
-            canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
-            canvasY > viewport.height;
-          shouldBlockBottomScroll = isAtMaxHeight && isNearBottomEdge;
-        }
-      }
-
-      // Check for edge scrolling during image drag
-      const isNearTopEdge = canvasY < EDGE_SCROLL_THRESHOLD || canvasY < 0;
-      const isNearBottomEdge =
-        canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
-        canvasY > viewport.height;
-      const isNearEdge = isNearTopEdge || isNearBottomEdge;
-
-      // Allow scroll if near edge, but block bottom scroll if image is at max
-      if (isNearEdge && !(shouldBlockBottomScroll && isNearBottomEdge)) {
-        if (!autoScrollState.isActive) {
-          startAutoScroll();
-        }
-        autoScrollState.lastMouseX = canvasX;
-        autoScrollState.lastMouseY = canvasY;
-      } else {
-        if (autoScrollState.isActive) {
-          stopAutoScroll();
-        }
-      }
-
-      return {
-        ...updateImageDrag(state, viewport, canvasX, canvasY),
-        view: {
-          ...state.view,
-          scrollbar: {
-            ...state.view.scrollbar,
-            lastInteraction: Date.now(),
-          },
-        },
-      };
-    }
-
-    // Handle selection handle drag
-    if (state.ui.selectionHandleDrag) {
-      touchState.lastY = canvasY;
-      touchState.lastTime = currentTime;
-      touchState.currentTouchX = canvasX;
-      touchState.currentTouchY = canvasY;
-
-      // Check for edge scrolling during selection handle drag
-      const isNearEdge =
-        canvasY < EDGE_SCROLL_THRESHOLD ||
-        canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
-        canvasY < 0 ||
-        canvasY > viewport.height;
-
-      if (isNearEdge) {
-        if (!autoScrollState.isActive) {
-          startAutoScroll();
-        }
-        autoScrollState.lastMouseX = canvasX;
-        autoScrollState.lastMouseY = canvasY;
-      } else {
-        if (autoScrollState.isActive) {
-          stopAutoScroll();
-        }
-      }
-
-      // Get the new position based on touch location
-      const newPosition = getTextPositionFromViewport(
-        canvasX,
-        canvasY,
-        state,
-        viewport,
-      );
-
-      if (newPosition && state.document.selection) {
-        const { handleType } = state.ui.selectionHandleDrag;
-        const { anchor, focus } = state.document.selection;
-
-        let newAnchor = anchor;
-        let newFocus = focus;
-
-        if (handleType === "anchor") {
-          // Dragging anchor - update anchor position, keep focus
-          newAnchor = newPosition;
-        } else {
-          // Dragging focus - update focus position, keep anchor
-          newFocus = newPosition;
-        }
-
-        // Determine if selection is now forward or backward
-        const isForward =
-          newAnchor.blockIndex < newFocus.blockIndex ||
-          (newAnchor.blockIndex === newFocus.blockIndex &&
-            newAnchor.textIndex <= newFocus.textIndex);
-
-        // Check if selection is collapsed
-        const isCollapsed =
-          newAnchor.blockIndex === newFocus.blockIndex &&
-          newAnchor.textIndex === newFocus.textIndex;
-
-        state = {
-          ...state,
-          document: {
-            ...state.document,
-            selection: {
-              anchor: newAnchor,
-              focus: newFocus,
-              isForward,
-              isCollapsed,
-              lastUpdate: Date.now(),
-            },
-            cursor: {
-              position: handleType === "anchor" ? newAnchor : newFocus,
-              lastUpdate: Date.now(),
-            },
-          },
-        };
-      }
-
-      return {
-        ...state,
-        view: {
-          ...state.view,
-          scrollbar: {
-            ...state.view.scrollbar,
-            lastInteraction: Date.now(),
-          },
-        },
-      };
-    }
-
     // Handle cursor drag mode (mobile cursor repositioning with magnifier)
-    if (touchState.isCursorDrag) {
-      touchState.lastY = canvasY;
-      touchState.lastTime = currentTime;
-      touchState.currentTouchX = canvasX;
-      touchState.currentTouchY = canvasY;
-      touchState.touchRadiusY = touch.radiusY ?? touchState.touchRadiusY;
+    if (session.touch.isCursorDrag) {
+      session.touch.lastY = canvasY;
+      session.touch.lastTime = currentTime;
+      session.touch.currentTouchX = canvasX;
+      session.touch.currentTouchY = canvasY;
+      session.touch.touchRadiusY = touch.radiusY ?? session.touch.touchRadiusY;
 
       // Check for edge scrolling during cursor drag
       const isNearEdge =
@@ -798,14 +449,14 @@ export function handleTouchMove(
         canvasY > viewport.height;
 
       if (isNearEdge) {
-        if (!autoScrollState.isActive) {
-          startAutoScroll();
+        if (!session.autoScroll.isActive) {
+          startAutoScroll(session);
         }
-        autoScrollState.lastMouseX = canvasX;
-        autoScrollState.lastMouseY = canvasY;
+        session.autoScroll.lastPointerX = canvasX;
+        session.autoScroll.lastPointerY = canvasY;
       } else {
-        if (autoScrollState.isActive) {
-          stopAutoScroll();
+        if (session.autoScroll.isActive) {
+          stopAutoScroll(session);
         }
       }
 
@@ -874,38 +525,39 @@ export function handleTouchMove(
     }
 
     // Check if we've moved significantly from start position
-    const deltaX = Math.abs(canvasX - touchState.startX);
-    const deltaY = Math.abs(canvasY - touchState.startY);
+    const deltaX = Math.abs(canvasX - session.touch.startX);
+    const deltaY = Math.abs(canvasY - session.touch.startY);
     const totalMovement = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
     // Update current touch position for auto-scroll
-    touchState.currentTouchX = canvasX;
-    touchState.currentTouchY = canvasY;
+    session.touch.currentTouchX = canvasX;
+    session.touch.currentTouchY = canvasY;
 
     // If moved beyond threshold, mark as moved (cancels potential long press)
-    if (!touchState.hasMoved && totalMovement > MOVEMENT_THRESHOLD) {
-      touchState.hasMoved = true;
+    if (!session.touch.hasMoved && totalMovement > MOVEMENT_THRESHOLD) {
+      session.touch.hasMoved = true;
 
-      // Cancel scrollbar press state if user moves (they're not trying to hold it)
-      if (scrollbarPressState) {
-        clearScrollPress();
-      }
+      // Cancel any pending hold-to-drag capture (user is scrolling, not holding)
+      session.pendingCapture = null;
 
       // Close all menus on movement - scrolling has priority
       // But don't close menus if we're about to enter cursor drag mode
-      if (state.ui.activeMenu.type !== "none" && !touchState.isTouchingCursor) {
+      if (
+        state.ui.activeMenu.type !== "none" &&
+        !session.touch.isTouchingCursor
+      ) {
         state = closeActiveMenu(state);
       }
     }
 
     // Handle long press text selection mode
     // Block long-press text selection in readonly mode
-    if (touchState.isLongPress && state.ui.mode !== "readonly") {
+    if (session.touch.isLongPress && state.ui.mode !== "readonly") {
       // If context menu is open, allow drag-and-release interaction
       // Don't start text selection - user might be dragging to menu item
       if (state.ui.activeMenu.type === "contextMenu") {
-        touchState.lastY = canvasY;
-        touchState.lastTime = currentTime;
+        session.touch.lastY = canvasY;
+        session.touch.lastTime = currentTime;
 
         // Update hover state based on touch position
         const touch = event.touches[0];
@@ -929,12 +581,12 @@ export function handleTouchMove(
       }
 
       // Long pressed on non-selected text: enable drag selection
-      if (!touchState.isTouchingSelection) {
+      if (!session.touch.isTouchingSelection) {
         // Start selection mode if not already in it
         if (state.ui.mode !== "select") {
           const position = getTextPositionFromViewport(
-            touchState.startX,
-            touchState.startY,
+            session.touch.startX,
+            session.touch.startY,
             state,
             viewport,
           );
@@ -945,12 +597,12 @@ export function handleTouchMove(
           }
         }
 
-        if (!autoScrollState.isActive) {
-          startAutoScroll();
+        if (!session.autoScroll.isActive) {
+          startAutoScroll(session);
         }
 
-        touchState.lastY = canvasY;
-        touchState.lastTime = currentTime;
+        session.touch.lastY = canvasY;
+        session.touch.lastTime = currentTime;
 
         return {
           ...state,
@@ -964,14 +616,14 @@ export function handleTouchMove(
         };
       } else {
         // Long pressing on selection - don't start auto-scroll, just wait for touchend
-        touchState.lastY = canvasY;
-        touchState.lastTime = currentTime;
+        session.touch.lastY = canvasY;
+        session.touch.lastTime = currentTime;
         return state;
       }
     }
 
     // Default: Handle scrolling
-    const scrollDeltaY = touchState.lastY - canvasY;
+    const scrollDeltaY = session.touch.lastY - canvasY;
 
     // Calculate instantaneous velocity (pixels per millisecond)
     const instantVelocity = scrollDeltaY / deltaTime;
@@ -979,44 +631,46 @@ export function handleTouchMove(
     // Only track velocity if there's actual movement (avoid diluting with zeros)
     // This prevents touchmove events with no vertical movement from adding 0-velocity entries
     if (Math.abs(instantVelocity) > 0.01) {
-      touchState.velocityHistory.push({
+      session.touch.velocityHistory.push({
         velocity: instantVelocity,
         time: currentTime,
       });
     }
 
     // Keep only last 150ms of velocity history (increased from 100ms to be more reliable)
-    touchState.velocityHistory = touchState.velocityHistory.filter(
+    session.touch.velocityHistory = session.touch.velocityHistory.filter(
       (v) => currentTime - v.time < 150,
     );
 
     // Always update velocity for momentum (use average if history exists)
-    if (touchState.velocityHistory.length > 0) {
-      const totalVelocity = touchState.velocityHistory.reduce(
+    if (session.touch.velocityHistory.length > 0) {
+      const totalVelocity = session.touch.velocityHistory.reduce(
         (sum, v) => sum + v.velocity,
         0,
       );
-      touchState.velocityY = totalVelocity / touchState.velocityHistory.length;
-      // console.log("touchState.velocityY", touchState.velocityY);
+      session.touch.velocityY =
+        totalVelocity / session.touch.velocityHistory.length;
+      // console.log("session.touch.velocityY", session.touch.velocityY);
     }
     // Apply scroll speed multiplier for more responsive feel on mobile
     // 1.5x makes scrolling feel more direct and responsive
     const touchScrollMultiplier = 1.5;
-    const scrollDelta = (touchState.startY - canvasY) * touchScrollMultiplier;
+    const scrollDelta =
+      (session.touch.startY - canvasY) * touchScrollMultiplier;
 
     // Update scroll position with hard boundaries
     const maxScroll = documentHeight - viewport.height;
     const newScrollY = Math.max(
       0,
-      Math.min(maxScroll, touchState.startScrollY + scrollDelta),
+      Math.min(maxScroll, session.touch.startScrollY + scrollDelta),
     );
 
     if (updateViewportCallback) {
       updateViewportCallback({ scrollY: newScrollY });
     }
 
-    touchState.lastY = canvasY;
-    touchState.lastTime = currentTime;
+    session.touch.lastY = canvasY;
+    session.touch.lastTime = currentTime;
   }
 
   // Clear link hover overlay when scrolling
@@ -1041,13 +695,33 @@ export function handleTouchEnd(
   viewport: ViewportState,
   _event: TouchEvent,
   _containerRect: { left: number; top: number },
+  documentHeight: number,
+  session: InteractionSession,
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
-  stopAutoScroll();
+  stopAutoScroll(session);
+
+  // A pending hold that never activated is just a tap/scroll — drop it.
+  session.pendingCapture = null;
+
+  // Release a captured region drag (scrollbar thumb, selection handle).
+  if (session.captured) {
+    session.touch = null;
+    const endResult = routeCapturedEnd(null, {
+      state,
+      viewport,
+      documentHeight,
+      session,
+    });
+    return {
+      state: endResult ? endResult.state : state,
+      ops: endResult?.ops ?? [],
+    };
+  }
 
   // Handle two-finger scroll end with momentum
-  if (touchState?.isTwoFingerScroll) {
-    const avgVelocity = touchState.velocityY;
+  if (session.touch?.isTwoFingerScroll) {
+    const avgVelocity = session.touch.velocityY;
     const minMomentumVelocity = 0.1; // pixels per ms
 
     // Apply momentum if velocity is significant
@@ -1070,55 +744,17 @@ export function handleTouchEnd(
       };
     }
 
-    touchState = null;
+    session.touch = null;
     return { state, ops };
   }
 
-  // Clean up scrollbar press state (iOS-style hold)
-  if (scrollbarPressState) {
-    clearScrollPress();
-  }
-
-  // End scrollbar drag if active
-  if (state.view.scrollbar.isDragging) {
-    state = {
-      ...state,
-      view: {
-        ...state.view,
-        scrollbar: endScrollbarDrag(state.view.scrollbar),
-      },
-    };
-  }
-
-  // End selection handle drag if active
-  if (state.ui.selectionHandleDrag) {
-    touchState = null;
-    return {
-      state: {
-        ...state,
-        ui: {
-          ...state.ui,
-          selectionHandleDrag: null,
-        },
-        view: {
-          ...state.view,
-          scrollbar: {
-            ...state.view.scrollbar,
-            lastInteraction: Date.now(),
-          },
-        },
-      },
-      ops,
-    };
-  }
-
   // End cursor drag if active
-  if (touchState?.isCursorDrag) {
-    const didNotMove = !touchState.hasMoved;
-    const touchX = touchState.currentTouchX;
-    const touchY = touchState.currentTouchY;
+  if (session.touch?.isCursorDrag) {
+    const didNotMove = !session.touch.hasMoved;
+    const touchX = session.touch.currentTouchX;
+    const touchY = session.touch.currentTouchY;
     triggerHapticFeedback("medium");
-    touchState = null;
+    session.touch = null;
 
     let newState: EditorState = {
       ...state,
@@ -1147,28 +783,12 @@ export function handleTouchEnd(
     };
   }
 
-  // End image drag if active
-  if (state.ui.imageDrag) {
-    touchState = null;
-    const endDragResult = endImageDrag(state);
-    return {
-      state: {
-        ...endDragResult.state,
-        view: {
-          ...endDragResult.state.view,
-          scrollbar: {
-            ...endDragResult.state.view.scrollbar,
-            lastInteraction: Date.now(),
-          },
-        },
-      },
-      ops: endDragResult.ops,
-    };
-  }
-
   // Handle drag-and-release for context menu (power user feature)
   // Check if context menu is open and user is releasing (possibly over a menu item)
-  if (state.ui.activeMenu.type === "contextMenu" && touchState?.isLongPress) {
+  if (
+    state.ui.activeMenu.type === "contextMenu" &&
+    session.touch?.isLongPress
+  ) {
     // Use the hoveredItemId from the state (already tracked during touchmove)
     const hoveredItemId = state.ui.activeMenu.hoveredItemId;
 
@@ -1176,7 +796,7 @@ export function handleTouchEnd(
       // User released on a menu item - mark it as selected
       // MountedEditor will detect this and execute the action
       state = selectContextMenuItem(state, hoveredItemId);
-      touchState = null;
+      session.touch = null;
       return {
         state: {
           ...state,
@@ -1193,7 +813,7 @@ export function handleTouchEnd(
     } else {
       // User released but not on a menu item - keep menu open for tapping
       // Just clean up touch state and return
-      touchState = null;
+      session.touch = null;
       return {
         state: {
           ...state,
@@ -1211,10 +831,10 @@ export function handleTouchEnd(
   }
 
   // If we were in long press mode
-  if (touchState?.isLongPress) {
-    if (touchState.isTouchingSelection) {
+  if (session.touch?.isLongPress) {
+    if (session.touch.isTouchingSelection) {
       // Long pressed on existing selection - context menu already shown, just cleanup
-      touchState = null;
+      session.touch = null;
       return {
         state: {
           ...state,
@@ -1246,7 +866,7 @@ export function handleTouchEnd(
         };
       }
       state = updateMode(state, "edit");
-      touchState = null;
+      session.touch = null;
 
       return {
         state: {
@@ -1265,10 +885,10 @@ export function handleTouchEnd(
       // Long press on non-selected text but user didn't drag - show context menu now
       state = openContextMenu(
         state,
-        touchState.currentTouchX,
-        touchState.currentTouchY,
+        session.touch.currentTouchX,
+        session.touch.currentTouchY,
       );
-      touchState = null;
+      session.touch = null;
       return {
         state: {
           ...state,
@@ -1288,13 +908,12 @@ export function handleTouchEnd(
   // Detect tap: short duration and minimal movement
   const currentTime = Date.now();
   const isTap =
-    touchState &&
-    !touchState.isScrollbarDrag &&
-    !touchState.hasMoved &&
-    currentTime - touchState.startTime < TAP_MAX_DURATION;
+    session.touch &&
+    !session.touch.hasMoved &&
+    currentTime - session.touch.startTime < TAP_MAX_DURATION;
 
-  if (isTap && touchState) {
-    const tapPosition = { x: touchState.startX, y: touchState.startY };
+  if (isTap && session.touch) {
+    const tapPosition = { x: session.touch.startX, y: session.touch.startY };
 
     // Track if image upload was open (we'll use this to prevent reopening on same tap)
     const wasImageUploadOpen = state.ui.activeMenu.type === "imageUpload";
@@ -1317,7 +936,7 @@ export function handleTouchEnd(
         state = closeActiveMenu(state);
       }
 
-      touchState = null;
+      session.touch = null;
       return {
         state: {
           ...state,
@@ -1358,7 +977,7 @@ export function handleTouchEnd(
           state = closeActiveMenu(state);
         }
 
-        touchState = null;
+        session.touch = null;
         return {
           state: {
             ...state,
@@ -1375,19 +994,24 @@ export function handleTouchEnd(
       }
     }
 
-    // Check for tap on todo checkbox
-    const checkboxTapResult = handleTodoCheckboxClick(
-      state,
-      tapPosition.x,
-      tapPosition.y,
-      viewport,
+    // Tap on an interactive region (todo checkbox, …)
+    const tapCtx: RegionCtx = { state, viewport, documentHeight, session };
+    const tapClaim = hitTestAllRegions(
+      { x: tapPosition.x, y: tapPosition.y },
+      "touch",
+      tapCtx,
     );
-    if (checkboxTapResult) {
-      touchState = null;
-      return {
-        state: checkboxTapResult.state,
-        ops: checkboxTapResult.ops,
-      };
+    if (tapClaim?.region.onTap) {
+      const tapResult = tapClaim.region.onTap(
+        tapClaim.hit,
+        { x: tapPosition.x, y: tapPosition.y },
+        1,
+        tapCtx,
+      );
+      if (tapResult) {
+        session.touch = null;
+        return { state: tapResult.state, ops: tapResult.ops ?? [] };
+      }
     }
 
     // Get text position for cursor/selection
@@ -1401,22 +1025,22 @@ export function handleTouchEnd(
     // Check for multi-tap (double/triple) - use larger threshold for touch
     let isMultiTap = false;
     if (
-      touchTapTracker.lastTapPosition &&
-      currentTime - touchTapTracker.lastTapTime <= DOUBLE_CLICK_TIME &&
+      session.tapTracker.lastTapPosition &&
+      currentTime - session.tapTracker.lastTapTime <= DOUBLE_CLICK_TIME &&
       isWithinClickDistance(
         tapPosition,
-        touchTapTracker.lastTapPosition,
+        session.tapTracker.lastTapPosition,
         TAP_DISTANCE_THRESHOLD,
       )
     ) {
-      touchTapTracker.count++;
+      session.tapTracker.count++;
       isMultiTap = true;
     } else {
-      touchTapTracker.count = 1;
+      session.tapTracker.count = 1;
     }
 
-    touchTapTracker.lastTapTime = currentTime;
-    touchTapTracker.lastTapPosition = tapPosition;
+    session.tapTracker.lastTapTime = currentTime;
+    session.tapTracker.lastTapPosition = tapPosition;
 
     if (position) {
       // If tapping below all blocks, check if last block is an image and select it
@@ -1471,7 +1095,7 @@ export function handleTouchEnd(
           state = clearSelection(state);
           state = moveCursorToPosition(state, lastVisibleBlockIndex + 1, 0);
 
-          touchState = null;
+          session.touch = null;
           const finalState = updateMode(state, "edit");
           ops.push(blockInsertOp);
           return {
@@ -1513,7 +1137,7 @@ export function handleTouchEnd(
               wasImageUploadBlockIndex === position.blockIndex
             ) {
               // Close image upload popover and keep it closed
-              touchState = null;
+              session.touch = null;
               const closedState = closeActiveMenu(state);
               return {
                 state: {
@@ -1531,7 +1155,7 @@ export function handleTouchEnd(
             }
 
             // Open image upload popover
-            touchState = null;
+            session.touch = null;
             const menuState = setActiveMenu(state, {
               type: "imageUpload",
               blockIndex: position.blockIndex,
@@ -1581,7 +1205,7 @@ export function handleTouchEnd(
           };
           state = updateMode(state, "edit");
 
-          touchState = null;
+          session.touch = null;
           return {
             state: {
               ...state,
@@ -1642,7 +1266,7 @@ export function handleTouchEnd(
             // Broadcast the operation
             ops.push(blockInsertOp);
 
-            touchState = null;
+            session.touch = null;
             const finalState = updateMode(state, "edit");
             return {
               state: {
@@ -1700,7 +1324,7 @@ export function handleTouchEnd(
           };
           state = updateMode(state, "edit");
 
-          touchState = null;
+          session.touch = null;
           return {
             state: {
               ...state,
@@ -1745,7 +1369,7 @@ export function handleTouchEnd(
       }
 
       // Handle triple-tap: always select line (even inside selection)
-      if (isMultiTap && touchTapTracker.count >= 3) {
+      if (isMultiTap && session.tapTracker.count >= 3) {
         state = selectLineAtPosition(state, position);
       }
 
@@ -1768,7 +1392,7 @@ export function handleTouchEnd(
       }
 
       // Handle double-tap: select word
-      else if (isMultiTap && touchTapTracker.count === 2) {
+      else if (isMultiTap && session.tapTracker.count === 2) {
         state = selectWordAtPosition(state, position);
         // Close any active menu when making new selection
         if (state.ui.activeMenu.type === "contextMenu") {
@@ -1795,7 +1419,7 @@ export function handleTouchEnd(
       }
     }
 
-    touchState = null;
+    session.touch = null;
     return {
       state: {
         ...state,
@@ -1813,9 +1437,9 @@ export function handleTouchEnd(
 
   // Implement momentum scrolling with the tracked velocity
   // Only apply momentum if NOT dragging scrollbar and NOT in long press mode
-  if (touchState && !touchState.isScrollbarDrag && !touchState.isLongPress) {
+  if (session.touch && !session.touch.isLongPress) {
     // Use the average velocity from recent history
-    const avgVelocity = touchState.velocityY;
+    const avgVelocity = session.touch.velocityY;
 
     // Only apply momentum if velocity is significant
     const minMomentumVelocity = 0.1; // pixels per ms
@@ -1837,7 +1461,7 @@ export function handleTouchEnd(
     }
   }
 
-  touchState = null;
+  session.touch = null;
 
   return {
     state: {
@@ -1853,8 +1477,25 @@ export function handleTouchEnd(
     ops,
   };
 }
-export function handleTouchCancel(state: EditorState): EditorState {
-  stopAutoScroll();
+export function handleTouchCancel(
+  state: EditorState,
+  viewport: ViewportState,
+  documentHeight: number,
+  session: InteractionSession,
+): EditorState {
+  stopAutoScroll(session);
+  session.pendingCapture = null;
+
+  // Cancel a captured region drag (scrollbar thumb, selection handle)
+  const cancelled = routeCapturedCancel({
+    state,
+    viewport,
+    documentHeight,
+    session,
+  });
+  if (cancelled) {
+    state = cancelled;
+  }
 
   // End scrollbar drag if active
   if (state.view.scrollbar.isDragging) {
@@ -1890,12 +1531,12 @@ export function handleTouchCancel(state: EditorState): EditorState {
   }
 
   // If we were in long press text selection mode, exit select mode
-  if (touchState?.isLongPress && state.ui.mode === "select") {
+  if (session.touch?.isLongPress && state.ui.mode === "select") {
     state = updateMode(state, "edit");
   }
 
   // Clear touch state
-  touchState = null;
+  session.touch = null;
 
   return {
     ...state,

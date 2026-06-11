@@ -17,13 +17,15 @@
  */
 
 import { resolveAssetUrl } from "../../adapters";
-import { IMAGE_DEFAULT_HEIGHT } from "../../constants";
 import type { BlockBounds, EditorStyles } from "../../state-types";
+import { getEditorStyles } from "../../styles";
 import { AtomicNode } from "./AtomicNode";
 import type {
   BlockRuntimeState,
+  NodeHitRegion,
   NodeLayoutCtx,
   NodePaintCtx,
+  NodeRegionCtx,
   Point,
 } from "./Node";
 
@@ -131,6 +133,81 @@ interface ImageGeometry {
   readonly displayHeight: number;
 }
 
+/**
+ * Which resize drag handle (if any) is under the pointer, given the drawn
+ * image rect. `extraTolerance` widens the hit area beyond the visible bar
+ * (mouse: 4px, touch: 12px).
+ */
+export function getDragHandleAtPoint(
+  x: number,
+  y: number,
+  imageX: number,
+  imageY: number,
+  imageWidth: number,
+  imageHeight: number,
+  objectFit: "cover" | "contain" = "cover",
+  extraTolerance: number = 4,
+): "left" | "right" | "bottom" | null {
+  // No `state` in scope here; imageResize styles have no per-instance overrides,
+  // so the default-resolved styles are equivalent.
+  const styles = getEditorStyles();
+  const { vertical, horizontal } = styles.imageResize.dragHandles;
+
+  // Extra tolerance for easier hovering/tapping (pixels beyond the visible bar)
+  const tolerance = extraTolerance;
+
+  // Left vertical bar (centered vertically with specified length)
+  const leftBarX = imageX + vertical.inset;
+  const leftBarWidth = vertical.thickness;
+  const leftBarY = imageY + (imageHeight - vertical.length) / 2; // Center vertically
+  const leftBarHeight = vertical.length;
+
+  if (
+    x >= leftBarX - tolerance &&
+    x <= leftBarX + leftBarWidth + tolerance &&
+    y >= leftBarY &&
+    y <= leftBarY + leftBarHeight
+  ) {
+    return "left";
+  }
+
+  // Right vertical bar (centered vertically with specified length)
+  const rightBarX = imageX + imageWidth - vertical.inset - vertical.thickness;
+  const rightBarWidth = vertical.thickness;
+  const rightBarY = imageY + (imageHeight - vertical.length) / 2; // Center vertically
+  const rightBarHeight = vertical.length;
+
+  if (
+    x >= rightBarX - tolerance &&
+    x <= rightBarX + rightBarWidth + tolerance &&
+    y >= rightBarY &&
+    y <= rightBarY + rightBarHeight
+  ) {
+    return "right";
+  }
+
+  // Bottom horizontal bar (centered horizontally with specified length)
+  // Only active in cover mode
+  if (objectFit === "cover") {
+    const bottomBarX = imageX + (imageWidth - horizontal.length) / 2; // Center horizontally
+    const bottomBarWidth = horizontal.length;
+    const bottomBarY =
+      imageY + imageHeight - horizontal.inset - horizontal.thickness;
+    const bottomBarHeight = horizontal.thickness;
+
+    if (
+      x >= bottomBarX &&
+      x <= bottomBarX + bottomBarWidth &&
+      y >= bottomBarY - tolerance &&
+      y <= bottomBarY + bottomBarHeight + tolerance
+    ) {
+      return "bottom";
+    }
+  }
+
+  return null;
+}
+
 export class ImageNode extends AtomicNode<Image> {
   readonly type = "image" as const;
 
@@ -204,6 +281,35 @@ export class ImageNode extends AtomicNode<Image> {
       return height - c.styles.canvas.paddingTop;
     }
     return height;
+  }
+
+  /**
+   * The resize drag handles are an interactive sub-region. Geometry only —
+   * the drag behavior is bound to the "image-resize" id in the event layer.
+   */
+  regions(c: NodeRegionCtx): readonly NodeHitRegion[] {
+    return [
+      {
+        id: "image-resize",
+        hitTest: (p, pointerType) => {
+          const block = c.block as Image;
+          if (!block.url) return null;
+          const box = this.hitTestBox(c, c.origin, p);
+          if (!box) return null;
+          const handle = getDragHandleAtPoint(
+            p.x,
+            p.y,
+            box.x,
+            box.y,
+            box.width,
+            box.height,
+            block.objectFit ?? "cover",
+            pointerType === "touch" ? 12 : 4,
+          );
+          return handle ? { blockIndex: c.blockIndex, box, handle } : null;
+        },
+      },
+    ];
   }
 
   /**
@@ -554,12 +660,4 @@ function renderImageDragHandles(
   }
 
   ctx.restore();
-} // Check if an image block is in default state (cover mode, full width, 300px height)
-
-export function isImageDefault(block: Image): boolean {
-  const width = block.width ?? "full";
-  const height = block.height ?? IMAGE_DEFAULT_HEIGHT;
-  const objectFit = block.objectFit ?? "cover";
-
-  return width === "full" && height === 300 && objectFit === "cover";
 }

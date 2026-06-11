@@ -17,8 +17,10 @@ import {
   toggleStrikethrough,
   updateLinkInBlock,
 } from "../actions/commands";
+import { createChromeRegionRegistry } from "../events/chromeRegions";
 import { handleEvents } from "../events/events";
-import { isInLongPressMode } from "../events/touchEvents";
+import type { Region } from "../events/regions";
+import { createInteractionSession, isInLongPressMode } from "../events/session";
 import { onFontFamilyChange, onFontsReady } from "../fonts";
 import {
   clearAllBlockCaches,
@@ -100,8 +102,18 @@ import type { CanvasLayers } from "./layers";
  */
 export type EditorEvent = "change" | "selectionchange" | "focus" | "blur";
 
-/** Inline mark names accepted by {@link EditorCommands.toggleMark}. */
-export type MarkName = "bold" | "italic" | "code" | "strikethrough";
+/**
+ * Inline mark names accepted by {@link EditorCommands.toggleMark}.
+ *
+ * These are the public, HTML-semantic mark names used throughout the docs
+ * (`strong`/`emphasis`/`strike`). They are deliberately decoupled from the
+ * internal {@link TextFormat} `type` vocabulary (`bold`/`italic`/`strikethrough`)
+ * that is persisted in the CRDT op log, serialized, and consumed by the
+ * renderer — renaming that storage vocabulary would break existing documents
+ * and sync with peers on older builds. {@link EditorCommands.toggleMark} maps
+ * these public names to the internal format types at the API boundary.
+ */
+export type MarkName = "strong" | "emphasis" | "strike" | "code";
 
 /**
  * Imperative command namespace (see {@link Editor.commands}). Each command
@@ -324,6 +336,7 @@ export default function createEditor(
   initialState: EditorState,
   viewportProp: ViewportState,
   hiddenInput?: HTMLInputElement,
+  extraRegions?: readonly Region[],
 ): Editor {
   // Extract contexts from layers
   const contentCtx = layers.content.ctx;
@@ -332,6 +345,15 @@ export default function createEditor(
 
   let state: EditorState = initialState;
   let viewport = viewportProp;
+  // Per-instance pointer interaction state (in-flight gestures, auto-scroll,
+  // tap tracking) and this editor's interactive regions — threaded into
+  // handleEvents so two mounted editors never share gesture state. Hosts can
+  // extend the built-in chrome set with custom regions.
+  const regionRegistry = createChromeRegionRegistry();
+  for (const region of extraRegions ?? []) {
+    regionRegistry.register(region);
+  }
+  const session = createInteractionSession(regionRegistry);
   let animationFrameId: number | null = null;
   let documentHeight = 0;
   let visibility = {
@@ -612,6 +634,7 @@ export default function createEditor(
         eventsQueue,
         documentHeight,
         cachedRect,
+        session,
         updateViewport,
         pendingClipboardData,
       );
@@ -950,7 +973,7 @@ export default function createEditor(
   function touchEndHandler(e: TouchEvent) {
     // Check if we're ending a long press selection BEFORE processing the event
     // This allows us to focus the input synchronously with the user gesture
-    const wasLongPress = isInLongPressMode();
+    const wasLongPress = isInLongPressMode(session);
 
     // Process the touch event first
     eventsHandler(e);
@@ -1694,11 +1717,15 @@ export default function createEditor(
   // `chain()` threads state through several and commits them as ONE undo step.
   type Command = (s: EditorState) => CommandResult;
 
+  // Public mark name (docs vocabulary) → the toggle command that applies the
+  // corresponding internal TextFormat type. The translation lives here, at the
+  // API boundary, so the persisted/serialized/rendered format vocabulary
+  // (bold/italic/strikethrough) stays untouched.
   const MARK_COMMANDS: Partial<Record<MarkName, Command>> = {
-    bold: toggleBold,
-    italic: toggleItalic,
+    strong: toggleBold,
+    emphasis: toggleItalic,
     code: toggleCode,
-    strikethrough: toggleStrikethrough,
+    strike: toggleStrikethrough,
   };
 
   const blockCommand =

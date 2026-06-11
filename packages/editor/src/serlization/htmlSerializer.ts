@@ -1,163 +1,20 @@
+/**
+ * HTML serializer — orchestrator only.
+ *
+ * Per-block-type markup lives in the block codecs (./codecs). This file owns
+ * the cross-block concerns: <ul>/<ol> group wrapping (adjacent list items
+ * share one parent element), edge trimming of empty blocks, and the document
+ * shell. It is also where the MathJax renderer is injected into the codec
+ * context — keeping the heavy ../math import out of the parser/codec chain.
+ */
+
 import { renderToSVG } from "../math";
-import { isImageDefault } from "../rendering/nodes/ImageNode";
 import { isTextualBlock } from "../sync/block-registry";
 import { iterateVisibleChars } from "../sync/char-runs";
-import { isListBlock } from "./loadPage";
-import {
-  type Block,
-  type CharRun,
-  type FormatSpan,
-  type TextFormat,
-} from "./loadPage";
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function escapeAttr(s: string): string {
-  return escapeHtml(s);
-}
-
-interface Segment {
-  text: string;
-  formats?: TextFormat[];
-}
-
-function setsEqual(a: Set<string>, b: Set<string>): boolean {
-  if (a.size !== b.size) return false;
-  for (const item of a) if (!b.has(item)) return false;
-  return true;
-}
-
-function formatKeysToFormats(keys: Set<string>): TextFormat[] | undefined {
-  if (keys.size === 0) return undefined;
-  const formats: TextFormat[] = [];
-  for (const key of keys) {
-    if (key.startsWith("link:"))
-      formats.push({ type: "link", url: key.slice(5) });
-    else formats.push({ type: key as TextFormat["type"] });
-  }
-  return formats.length > 0 ? formats : undefined;
-}
-
-function groupChars(charRuns: CharRun[], formats: FormatSpan[]): Segment[] {
-  const visibleChars: Array<{ id: string; char: string }> = [];
-  for (const { id, char } of iterateVisibleChars(charRuns)) {
-    visibleChars.push({ id, char });
-  }
-  if (visibleChars.length === 0) return [];
-
-  const formatMap = new Map<string, Set<string>>();
-  for (const span of formats) {
-    const startIdx = visibleChars.findIndex((c) => c.id === span.startCharId);
-    const endIdx = visibleChars.findIndex((c) => c.id === span.endCharId);
-    if (startIdx === -1 || endIdx === -1) continue;
-    for (let i = startIdx; i <= endIdx; i++) {
-      const charId = visibleChars[i].id;
-      if (!formatMap.has(charId)) formatMap.set(charId, new Set());
-      const key =
-        span.format.type + (span.format.url ? `:${span.format.url}` : "");
-      formatMap.get(charId)!.add(key);
-    }
-  }
-
-  const segments: Segment[] = [];
-  let currentChars: string[] = [];
-  let currentFormatKeys = new Set<string>();
-  for (const c of visibleChars) {
-    const cf = formatMap.get(c.id) || new Set();
-    if (setsEqual(currentFormatKeys, cf)) {
-      currentChars.push(c.char);
-    } else {
-      if (currentChars.length > 0) {
-        segments.push({
-          text: currentChars.join(""),
-          formats: formatKeysToFormats(currentFormatKeys),
-        });
-      }
-      currentChars = [c.char];
-      currentFormatKeys = new Set(cf);
-    }
-  }
-  if (currentChars.length > 0) {
-    segments.push({
-      text: currentChars.join(""),
-      formats: formatKeysToFormats(currentFormatKeys),
-    });
-  }
-  return segments;
-}
-
-function renderInline(charRuns: CharRun[], formats: FormatSpan[]): string {
-  const segments = groupChars(charRuns, formats);
-  return segments
-    .map((seg) => {
-      let html = escapeHtml(seg.text);
-      if (!seg.formats) return html;
-      // Wrap in a deterministic order so nesting is consistent
-      const has = (t: string) => seg.formats!.some((f) => f.type === t);
-      const link = seg.formats.find((f) => f.type === "link");
-      if (has("math")) {
-        // Replace text content with MathJax SVG; if rendering fails, fall back to $...$ source
-        try {
-          html = renderToSVG(seg.text, false);
-        } catch {
-          html = `<code>$${escapeHtml(seg.text)}$</code>`;
-        }
-        return html;
-      }
-      if (has("code")) html = `<code>${html}</code>`;
-      if (has("bold")) html = `<strong>${html}</strong>`;
-      if (has("italic")) html = `<em>${html}</em>`;
-      if (has("strikethrough")) html = `<s>${html}</s>`;
-      if (link && link.url)
-        html = `<a href="${escapeAttr(link.url)}">${html}</a>`;
-      return html;
-    })
-    .join("");
-}
-
-function renderImageBlock(
-  block: Extract<Block, { type: "image" }>,
-  urlOverride?: string,
-): string {
-  const src = urlOverride ?? block.url;
-  const alt = block.alt ? escapeAttr(block.alt) : "";
-  const styles: string[] = [
-    "max-width:100%",
-    "height:auto",
-    "display:block",
-    "margin:1em auto",
-  ];
-
-  if (!isImageDefault(block)) {
-    if (typeof block.width === "number") styles.push(`width:${block.width}px`);
-    // if (block.height) styles.push(`height:${block.height}px`);
-    const fit = block.objectFit ?? "cover";
-    styles.push(`object-fit:${fit}`);
-    // if (!block.height) styles.push(`height:${IMAGE_DEFAULT_HEIGHT}px`);
-  }
-
-  return `<img src="${escapeAttr(src)}" alt="${alt}" style="${styles.join(";")}" />`;
-}
-
-function renderMathBlock(block: Extract<Block, { type: "math" }>): string {
-  if (!block.latex) return "";
-  try {
-    const svg = renderToSVG(block.latex, block.displayMode);
-    if (block.displayMode) {
-      return `<div style="text-align:center;margin:1em 0;">${svg}</div>`;
-    }
-    return `<span style="display:inline-block;vertical-align:middle;">${svg}</span>`;
-  } catch {
-    return `<code>${escapeHtml(block.latex)}</code>`;
-  }
-}
+import { baseDataSchema, type DataSchema } from "../sync/schema";
+import type { OutputCtx } from "./codecs";
+import { escapeHtml, inlineToHtml } from "./codecs/inline";
+import type { Block } from "./loadPage";
 
 const STYLES = `
   body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 720px; margin: 2em auto; padding: 0 1em; color: #111; line-height: 1.6; font-size: 11pt; }
@@ -180,7 +37,10 @@ const STYLES = `
 
 interface RenderOptions {
   title?: string;
+  /** Asset url → replacement url (e.g. data URIs for self-contained export). */
   imageUrlMap?: Map<string, string>;
+  /** Block/mark types in play. Defaults to the built-in set. */
+  schema?: DataSchema;
 }
 
 interface ListGroup {
@@ -220,10 +80,19 @@ export function serializeToHTML(
   blocks: Block[],
   options: RenderOptions = {},
 ): string {
+  const schema = options.schema ?? baseDataSchema;
   const live = blocks.filter((b) => !b.deleted);
   while (live.length > 0 && isEmptyTextualBlock(live[0])) live.shift();
   while (live.length > 0 && isEmptyTextualBlock(live[live.length - 1]))
     live.pop();
+
+  const ctx: OutputCtx = {
+    format: "html",
+    inline: (charRuns, formats) => inlineToHtml(charRuns, formats, renderToSVG),
+    mapAssetUrl: (url) => options.imageUrlMap?.get(url) ?? url,
+    renderMathSVG: renderToSVG,
+  };
+
   const parts: string[] = [];
   const listStack: ListGroup[] = [];
 
@@ -232,14 +101,12 @@ export function serializeToHTML(
   };
 
   for (const block of live) {
-    if (isListBlock(block)) {
-      const kind: ListGroup["type"] =
-        block.type === "numbered_list"
-          ? "numbered"
-          : block.type === "todo_list"
-            ? "todo"
-            : "bullet";
-      const indent = block.indent || 0;
+    const codec = schema.getCodec(block.type);
+    if (!codec) continue;
+
+    const kind = schema.listKind(block.type);
+    if (kind) {
+      const indent = "indent" in block ? block.indent || 0 : 0;
 
       // Pop deeper or differently-typed groups at same level
       while (
@@ -261,35 +128,13 @@ export function serializeToHTML(
         listStack.push({ type: kind, indent, html: [] });
       }
 
-      const inner = renderInline(block.charRuns, block.formats);
-      const group = listStack[listStack.length - 1];
-      if (block.type === "todo_list") {
-        const checked = block.checked ? " checked" : "";
-        group.html.push(
-          `<li><input type="checkbox" disabled${checked} /><span>${inner}</span></li>`,
-        );
-      } else {
-        group.html.push(`<li>${inner}</li>`);
-      }
+      // The codec emits the <li> element; the group owns the <ul>/<ol>.
+      listStack[listStack.length - 1].html.push(codec.html.output(block, ctx));
       continue;
     }
 
     closeAllLists();
-
-    if (block.type === "line") {
-      parts.push("<hr />");
-    } else if (block.type === "image") {
-      const override = options.imageUrlMap?.get(block.url);
-      parts.push(renderImageBlock(block, override));
-    } else if (block.type === "math") {
-      parts.push(renderMathBlock(block));
-    } else if (isTextualBlock(block)) {
-      const inner = renderInline(block.charRuns, block.formats);
-      if (block.type === "heading1") parts.push(`<h1>${inner}</h1>`);
-      else if (block.type === "heading2") parts.push(`<h2>${inner}</h2>`);
-      else if (block.type === "heading3") parts.push(`<h3>${inner}</h3>`);
-      else parts.push(`<p>${inner}</p>`);
-    }
+    parts.push(codec.html.output(block, ctx));
   }
 
   closeAllLists();

@@ -10,7 +10,7 @@
 
 import type { TextualBlock } from "../rendering/nodes/TextNode";
 import type { Block, Char, CharRun } from "../serlization/loadPage";
-import { isTextualBlock } from "./block-registry";
+import { isHeadingType, isTextualBlock } from "./block-registry";
 import { compareIds, extractCounter, extractPeerId } from "./id";
 
 // =============================================================================
@@ -626,11 +626,7 @@ export function extractTitleFromBlocks(
   // First pass: look for first non-empty heading
   for (const block of blocks) {
     if (block.deleted) continue;
-    if (
-      block.type === "heading1" ||
-      block.type === "heading2" ||
-      block.type === "heading3"
-    ) {
+    if (isHeadingType(block.type)) {
       const text = getVisibleTextFromRuns((block as TextualBlock).charRuns);
       const trimmed = text.trim();
       if (trimmed.length > 0) {

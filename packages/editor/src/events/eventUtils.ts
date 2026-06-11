@@ -2,7 +2,7 @@ import {
   CLICK_DISTANCE_THRESHOLD,
   SELECTION_HANDLE_TOUCH_TARGET,
 } from "../constants";
-import { AtomicNode } from "../rendering/nodes";
+import { AtomicNode, getDragHandleAtPoint } from "../rendering/nodes";
 import {
   getBlockHeight,
   imageCache,
@@ -92,87 +92,6 @@ export function getAtomicBlockAtPoint(
   return null;
 }
 
-/**
- * Helper function to detect which drag handle (if any) is being hovered
- * @param x Mouse/touch x position relative to canvas
- * @param y Mouse/touch y position relative to canvas
- * @param imageX Image x position
- * @param imageY Image y position
- * @param imageWidth Image width
- * @param imageHeight Image height
- * @param objectFit The object-fit mode of the image
- * @param extraTolerance Additional tolerance for touch devices (default: 4 for mouse)
- * @returns The position of the hovered drag handle, or null if none
- */
-export function getDragHandleAtPoint(
-  x: number,
-  y: number,
-  imageX: number,
-  imageY: number,
-  imageWidth: number,
-  imageHeight: number,
-  objectFit: "cover" | "contain" = "cover",
-  extraTolerance: number = 4,
-): "left" | "right" | "bottom" | null {
-  // No `state` in scope here; imageResize styles have no per-instance overrides,
-  // so the default-resolved styles are equivalent.
-  const styles = getEditorStyles();
-  const { vertical, horizontal } = styles.imageResize.dragHandles;
-
-  // Extra tolerance for easier hovering/tapping (pixels beyond the visible bar)
-  const tolerance = extraTolerance;
-
-  // Left vertical bar (centered vertically with specified length)
-  const leftBarX = imageX + vertical.inset;
-  const leftBarWidth = vertical.thickness;
-  const leftBarY = imageY + (imageHeight - vertical.length) / 2; // Center vertically
-  const leftBarHeight = vertical.length;
-
-  if (
-    x >= leftBarX - tolerance &&
-    x <= leftBarX + leftBarWidth + tolerance &&
-    y >= leftBarY &&
-    y <= leftBarY + leftBarHeight
-  ) {
-    return "left";
-  }
-
-  // Right vertical bar (centered vertically with specified length)
-  const rightBarX = imageX + imageWidth - vertical.inset - vertical.thickness;
-  const rightBarWidth = vertical.thickness;
-  const rightBarY = imageY + (imageHeight - vertical.length) / 2; // Center vertically
-  const rightBarHeight = vertical.length;
-
-  if (
-    x >= rightBarX - tolerance &&
-    x <= rightBarX + rightBarWidth + tolerance &&
-    y >= rightBarY &&
-    y <= rightBarY + rightBarHeight
-  ) {
-    return "right";
-  }
-
-  // Bottom horizontal bar (centered horizontally with specified length)
-  // Only active in cover mode
-  if (objectFit === "cover") {
-    const bottomBarX = imageX + (imageWidth - horizontal.length) / 2; // Center horizontally
-    const bottomBarWidth = horizontal.length;
-    const bottomBarY =
-      imageY + imageHeight - horizontal.inset - horizontal.thickness;
-    const bottomBarHeight = horizontal.thickness;
-
-    if (
-      x >= bottomBarX &&
-      x <= bottomBarX + bottomBarWidth &&
-      y >= bottomBarY - tolerance &&
-      y <= bottomBarY + bottomBarHeight + tolerance
-    ) {
-      return "bottom";
-    }
-  }
-
-  return null;
-}
 /**
  * Start an image drag resize operation
  * @param state Current editor state

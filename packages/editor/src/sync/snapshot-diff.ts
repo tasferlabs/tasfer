@@ -341,26 +341,32 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
       }
     }
 
+    // Unknown (custom) block type: the built-in registry can't supply field
+    // defaults to diff against, so emit only the block_insert (done above) and
+    // skip prop ops. A schema-aware diff path would handle these; until then,
+    // custom blocks degrade rather than crash.
     const descriptor = getBlockDescriptor(block.type);
-    const defaultBlock = descriptor.defaults(newBlockId, lastInsertedBlockId);
-    for (const fieldName of getBlockFieldNames(block.type)) {
-      if (fieldName === "type") continue;
-      const currentVal = (block as unknown as Record<string, unknown>)[
-        fieldName
-      ];
-      const defaultVal = (defaultBlock as unknown as Record<string, unknown>)[
-        fieldName
-      ];
-      if (currentVal === defaultVal) continue;
-      ops.push({
-        op: "block_set",
-        id: nextId(),
-        clock: getClock(),
-        pageId,
-        blockId: newBlockId,
-        field: fieldName,
-        value: currentVal,
-      } as BlockSet);
+    const defaultBlock = descriptor?.defaults(newBlockId, lastInsertedBlockId);
+    if (defaultBlock) {
+      for (const fieldName of getBlockFieldNames(block.type)) {
+        if (fieldName === "type") continue;
+        const currentVal = (block as unknown as Record<string, unknown>)[
+          fieldName
+        ];
+        const defaultVal = (defaultBlock as unknown as Record<string, unknown>)[
+          fieldName
+        ];
+        if (currentVal === defaultVal) continue;
+        ops.push({
+          op: "block_set",
+          id: nextId(),
+          clock: getClock(),
+          pageId,
+          blockId: newBlockId,
+          field: fieldName,
+          value: currentVal,
+        } as BlockSet);
+      }
     }
 
     lastInsertedBlockId = newBlockId;

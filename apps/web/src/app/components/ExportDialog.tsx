@@ -20,20 +20,15 @@ import { usePageSettings } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
 import { serializeToMarkdown } from "@cypherkit/editor/serlization/serializer";
 import { serializeToHTML } from "@cypherkit/editor/serlization/htmlSerializer";
-import {
-  getVisibleTextFromRuns,
-  extractTitleFromBlocks,
-} from "@cypherkit/editor/sync/char-runs";
-import { type Block } from "@cypherkit/editor/serlization/loadPage";
-import type { Image } from "@cypherkit/editor/rendering/nodes/ImageNode";
+import { serializeToText } from "@cypherkit/editor/serlization/textSerializer";
+import { collectAssetRefs } from "@cypherkit/editor/serlization/codecs";
+import { extractTitleFromBlocks } from "@cypherkit/editor/sync/char-runs";
 import { imageCache } from "@cypherkit/editor/rendering/renderer";
 import { getPlatform } from "@/platform";
 import { getPage } from "../api/pages.api";
 import type { PageMetadata } from "@cypherkit/editor/serlization/serializer";
 import { downloadFile } from "@/downloadFile";
 import { getBridge } from "@/platform/bridge";
-import { isTextualBlock } from "@cypherkit/editor/sync/block-registry";
-import { isListBlock } from "@cypherkit/editor/serlization/loadPage";
 
 interface ElectronWindow {
   cypher?: { invoke(channel: string, ...args: unknown[]): Promise<unknown> };
@@ -44,25 +39,6 @@ function base64ToBlob(base64: string, mimeType: string): Blob {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return new Blob([bytes], { type: mimeType });
-}
-
-function serializeToText(blocks: Block[]): string {
-  return blocks
-    .filter((block) => !block.deleted)
-    .map((block) => {
-      if (block.type === "line") return "---";
-      if (block.type === "image") return block.alt || "";
-      if (isTextualBlock(block) || isListBlock(block)) {
-        const text = getVisibleTextFromRuns(block.charRuns);
-        if (block.type === "todo_list") {
-          const checkbox = block.checked ? "[x]" : "[ ]";
-          return `${checkbox} ${text}`;
-        }
-        return text;
-      }
-      return "";
-    })
-    .join("\n");
 }
 
 /** Guess file extension from mime type */
@@ -194,19 +170,13 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   const buildExportHtml = async (): Promise<string> => {
     // Resolve image URLs to data URLs so they survive across windows / native renderers
     const imageUrlMap = new Map<string, string>();
-    const seen = new Set<string>();
-    for (const block of currentBlocks) {
-      if (block.type === "image" && (block as Image).url) {
-        const url = (block as Image).url;
-        if (seen.has(url)) continue;
-        seen.add(url);
-        const blob = await fetchImageBlob(url);
-        if (blob) {
-          try {
-            imageUrlMap.set(url, await blobToDataUrl(blob));
-          } catch {
-            // ignore — the image just won't render
-          }
+    for (const url of collectAssetRefs(currentBlocks)) {
+      const blob = await fetchImageBlob(url);
+      if (blob) {
+        try {
+          imageUrlMap.set(url, await blobToDataUrl(blob));
+        } catch {
+          // ignore — the image just won't render
         }
       }
     }
@@ -285,19 +255,17 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
 
   const handleExportMarkdown = async () => {
     const metadata = await fetchMetadata();
-    const markdown = serializeToMarkdown(currentBlocks, metadata);
 
-    // Collect all image URLs from image blocks (handles blob:, /api/images/, etc.)
-    const imageUrls = new Set<string>();
-    for (const block of currentBlocks) {
-      if (block.type === "image" && (block as Image).url) {
-        imageUrls.add((block as Image).url);
-      }
-    }
+    // All asset references owned by the blocks (handles blob:, /api/images/, etc.)
+    const assetUrls = collectAssetRefs(currentBlocks);
 
     // No images → plain .md download
-    if (imageUrls.size === 0) {
-      downloadTextFile(markdown, "md", "text/markdown");
+    if (assetUrls.length === 0) {
+      downloadTextFile(
+        serializeToMarkdown(currentBlocks, metadata),
+        "md",
+        "text/markdown",
+      );
       return;
     }
 
@@ -310,7 +278,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       const urlToFileName = new Map<string, string>();
       let imgIndex = 0;
 
-      for (const url of imageUrls) {
+      for (const url of assetUrls) {
         const blob = await fetchImageBlob(url);
         if (blob) {
           const ext = extFromMime(blob.type);
@@ -321,18 +289,16 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
         }
       }
 
-      // Rewrite image URLs in markdown — replace each original URL with relative path
-      let rewritten = markdown;
-      for (const [originalUrl, fileName] of urlToFileName) {
-        // Escape special regex chars in the URL
-        const escaped = originalUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        rewritten = rewritten.replace(
-          new RegExp(escaped, "g"),
-          `./images/${fileName}`,
-        );
-      }
+      // Asset urls become bundle-relative paths via the serializer itself —
+      // no post-hoc rewriting of the markdown string.
+      const markdown = serializeToMarkdown(currentBlocks, metadata, {
+        mapAssetUrl: (url) => {
+          const fileName = urlToFileName.get(url);
+          return fileName ? `./images/${fileName}` : url;
+        },
+      });
 
-      zip.file(`${baseName}.md`, rewritten);
+      zip.file(`${baseName}.md`, markdown);
 
       const blob = await zip.generateAsync({ type: "blob" });
       await downloadFile(blob, `${baseName}.zip`, "application/zip");

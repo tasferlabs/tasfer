@@ -20,7 +20,7 @@ import {
 } from "../sync/char-runs";
 import type { Operation } from "../sync/sync";
 import type { NodeRegistry } from "./nodes";
-import { getContentWithComposition, TextNode } from "./nodes";
+import { getContentWithComposition, TextNode, unknownNode } from "./nodes";
 import { renderScrollbar } from "./scrollbar";
 
 /**
@@ -222,33 +222,29 @@ export function renderBlock(
   remoteAwareness?: Map<string, AwarenessState>,
   requestRedraw: () => void = () => {},
 ): RenderedBlock {
-  // Blocks ported to the Node registry (image, line, math, text, …)
-  // dispatch here.
+  // Blocks dispatch to their registered node. A block type with no registered
+  // node (a custom/newer type this build doesn't know) falls back to
+  // `unknownNode`, which paints a labeled placeholder so the content is
+  // visible and keeps its place rather than silently vanishing.
   {
-    const view = state.nodes.get(block.type);
-    if (view) {
-      const layoutCtx = {
-        block,
-        blockIndex,
-        maxWidth,
-        isFirst: blockIndex === 0,
-        styles,
-      };
-      const layout = view.layout(layoutCtx);
-      return view.paint(layout, {
-        ...layoutCtx,
-        ctx,
-        state,
-        origin: { x, y },
-        awareness: remoteAwareness,
-        requestRedraw,
-      });
-    }
+    const view = state.nodes.get(block.type) ?? unknownNode;
+    const layoutCtx = {
+      block,
+      blockIndex,
+      maxWidth,
+      isFirst: blockIndex === 0,
+      styles,
+    };
+    const layout = view.layout(layoutCtx);
+    return view.paint(layout, {
+      ...layoutCtx,
+      ctx,
+      state,
+      origin: { x, y },
+      awareness: remoteAwareness,
+      requestRedraw,
+    });
   }
-
-  // No registered view: nothing to draw (all block types are currently
-  // registered above — this is a safety net).
-  return { block, bounds: { x, y, width: maxWidth, height: 0 }, lines: [] };
 } // Calculate position from mouse coordinates dynamically
 
 // The image cache lives with the image block (./blocks/ImageNode).
@@ -267,22 +263,17 @@ export function calculateBlockHeight(
   maxWidth: number,
   styles: EditorStyles,
 ): number {
-  // Blocks ported to the Node registry (image, line, …). The height pass
-  // reuses the same layout() the painter uses, so wrapping/sizing never drifts.
-  {
-    const view = views.get(block.type);
-    if (view) {
-      return view.layout({
-        block,
-        blockIndex: 0,
-        maxWidth,
-        isFirst: false,
-        styles,
-      }).height;
-    }
-  }
-
-  return 0;
+  // The height pass reuses the same layout() the painter uses, so
+  // wrapping/sizing never drifts. Unknown types fall back to the placeholder
+  // node so they reserve their on-screen space in the document flow.
+  const view = views.get(block.type) ?? unknownNode;
+  return view.layout({
+    block,
+    blockIndex: 0,
+    maxWidth,
+    isFirst: false,
+    styles,
+  }).height;
 }
 
 // Check if a block is visible in the viewport

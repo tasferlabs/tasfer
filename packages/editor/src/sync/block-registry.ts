@@ -1,12 +1,13 @@
 /**
- * Block Type Registry
+ * Block Type Registry — the built-in block-type metadata: defaults,
+ * capabilities, settable fields (with validators), and safe type-morph targets.
  *
- * Single source of truth for per-block-type metadata: defaults, capabilities,
- * settable fields (with validators), and safe type-morph targets.
- *
- * This file is additive — consumers (reducer, inverse, snapshot-diff, etc.)
- * have not yet been migrated. See follow-up task for routing through the
- * registry.
+ * This is the BUILT-IN data the default schema is assembled from
+ * (`baseDataSchema` in ./schema wraps `BLOCK_REGISTRY` + the codecs). The
+ * reducer/serializers dispatch through a per-instance `DataSchema` so custom
+ * types work; the free helpers here read the built-in table directly and are
+ * null-safe for unknown types (the not-yet-schema-threaded paths — inverse,
+ * snapshot-diff — degrade rather than throw when they meet a custom block).
  */
 
 import type { TextualBlock } from "../rendering/nodes/TextNode";
@@ -36,6 +37,13 @@ export interface BlockCapabilities {
   readonly hasFormats: boolean;
   readonly indentable: boolean;
   readonly togglable: boolean;
+  /**
+   * Which list family the block belongs to, if any. Drives serializer
+   * numbering and HTML <ul>/<ol> grouping without per-type switches.
+   */
+  readonly listKind?: "bullet" | "numbered" | "todo";
+  /** Heading-role block: preferred source when extracting a page title. */
+  readonly isHeading?: boolean;
 }
 
 // =============================================================================
@@ -176,11 +184,22 @@ const TEXTUAL_CAPS: BlockCapabilities = {
   togglable: false,
 };
 
-const LIST_CAPS: BlockCapabilities = {
+const HEADING_CAPS: BlockCapabilities = {
+  ...TEXTUAL_CAPS,
+  isHeading: true,
+};
+
+const BULLET_CAPS: BlockCapabilities = {
   hasText: true,
   hasFormats: true,
   indentable: true,
   togglable: false,
+  listKind: "bullet",
+};
+
+const NUMBERED_CAPS: BlockCapabilities = {
+  ...BULLET_CAPS,
+  listKind: "numbered",
 };
 
 const TODO_CAPS: BlockCapabilities = {
@@ -188,6 +207,7 @@ const TODO_CAPS: BlockCapabilities = {
   hasFormats: true,
   indentable: true,
   togglable: true,
+  listKind: "todo",
 };
 
 const VISUAL_CAPS: BlockCapabilities = {
@@ -217,7 +237,7 @@ const paragraphDescriptor = {
 
 const heading1Descriptor = {
   type: "heading1",
-  capabilities: TEXTUAL_CAPS,
+  capabilities: HEADING_CAPS,
   defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "heading1",
@@ -230,7 +250,7 @@ const heading1Descriptor = {
 
 const heading2Descriptor = {
   type: "heading2",
-  capabilities: TEXTUAL_CAPS,
+  capabilities: HEADING_CAPS,
   defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "heading2",
@@ -243,7 +263,7 @@ const heading2Descriptor = {
 
 const heading3Descriptor = {
   type: "heading3",
-  capabilities: TEXTUAL_CAPS,
+  capabilities: HEADING_CAPS,
   defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "heading3",
@@ -256,7 +276,7 @@ const heading3Descriptor = {
 
 const bulletListDescriptor = {
   type: "bullet_list",
-  capabilities: LIST_CAPS,
+  capabilities: BULLET_CAPS,
   defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "bullet_list",
@@ -270,7 +290,7 @@ const bulletListDescriptor = {
 
 const numberedListDescriptor = {
   type: "numbered_list",
-  capabilities: LIST_CAPS,
+  capabilities: NUMBERED_CAPS,
   defaults: (id: string, afterId: string | null): Block => ({
     ...makeBase(id, afterId),
     type: "numbered_list",
@@ -372,15 +392,23 @@ export const BLOCK_REGISTRY = {
 // inferred types are only needed for the compile-time check in sync.ts;
 // callers want the homogeneous descriptor shape.
 
-const REGISTRY: Readonly<Record<BlockType, BlockTypeDescriptor>> =
-  BLOCK_REGISTRY;
+const REGISTRY: Readonly<Record<string, BlockTypeDescriptor>> = BLOCK_REGISTRY;
 
-export function getBlockDescriptor(type: BlockType): BlockTypeDescriptor {
+/**
+ * The descriptor for a built-in block type, or `undefined` for any type not
+ * in the built-in registry (a custom type registered only on an instance
+ * schema). Callers in the not-yet-schema-threaded paths (inverse, snapshot
+ * diff) treat `undefined` as "can't model this here" and degrade rather than
+ * throw — custom blocks are simply skipped by those paths.
+ */
+export function getBlockDescriptor(
+  type: string,
+): BlockTypeDescriptor | undefined {
   return REGISTRY[type];
 }
 
-export function hasTextContent(type: BlockType): boolean {
-  return REGISTRY[type].capabilities.hasText;
+export function hasTextContent(type: string): boolean {
+  return REGISTRY[type]?.capabilities.hasText ?? false;
 }
 
 /**
@@ -399,42 +427,67 @@ export function isTextualBlock(block: Block): block is TextualBlock {
   return hasTextContent(block.type);
 }
 
-export function canHaveFormats(type: BlockType): boolean {
-  return REGISTRY[type].capabilities.hasFormats;
+export function canHaveFormats(type: string): boolean {
+  return REGISTRY[type]?.capabilities.hasFormats ?? false;
 }
 
-export function isIndentable(type: BlockType): boolean {
-  return REGISTRY[type].capabilities.indentable;
+export function isIndentable(type: string): boolean {
+  return REGISTRY[type]?.capabilities.indentable ?? false;
 }
 
-export function isTogglable(type: BlockType): boolean {
-  return REGISTRY[type].capabilities.togglable;
+export function isTogglable(type: string): boolean {
+  return REGISTRY[type]?.capabilities.togglable ?? false;
+}
+
+/**
+ * The list family a block type belongs to ("bullet" | "numbered" | "todo"),
+ * or undefined for non-list blocks. Replaces the per-type comparisons that
+ * drove serializer numbering and HTML <ul>/<ol> grouping.
+ */
+export function getListKind(
+  type: string,
+): "bullet" | "numbered" | "todo" | undefined {
+  return REGISTRY[type]?.capabilities.listKind;
+}
+
+/** Whether a block type renders as any kind of list item. */
+export function isListType(type: string): boolean {
+  return REGISTRY[type]?.capabilities.listKind !== undefined;
+}
+
+/** Whether a block type is a heading (the preferred page-title source). */
+export function isHeadingType(type: string): boolean {
+  return REGISTRY[type]?.capabilities.isHeading === true;
 }
 
 export function createDefaultBlock(
-  type: BlockType,
+  type: string,
   id: string,
   afterId: string | null,
-): Block {
-  return REGISTRY[type].defaults(id, afterId);
+): Block | undefined {
+  return REGISTRY[type]?.defaults(id, afterId);
 }
 
 export function validateBlockField(
-  type: BlockType,
+  type: string,
   field: string,
   value: unknown,
 ): boolean {
-  const descriptor = REGISTRY[type].fields[field];
+  const descriptor = REGISTRY[type]?.fields[field];
   if (!descriptor) return false;
   return descriptor.validate(value);
 }
 
-export function getBlockFieldNames(type: BlockType): readonly string[] {
-  return Object.keys(REGISTRY[type].fields);
+export function getBlockFieldNames(type: string): readonly string[] {
+  const descriptor = REGISTRY[type];
+  return descriptor ? Object.keys(descriptor.fields) : [];
 }
 
-export function canMorphTo(from: BlockType, to: BlockType): boolean {
-  return REGISTRY[from].textPreservingMorphs.includes(to);
+export function canMorphTo(from: string, to: string): boolean {
+  const morphs = REGISTRY[from]?.textPreservingMorphs as
+    | readonly string[]
+    | undefined;
+  return morphs?.includes(to) ?? false;
 }
 
 export function isValidBlockType(value: unknown): value is BlockType {

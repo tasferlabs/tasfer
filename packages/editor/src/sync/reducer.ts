@@ -21,12 +21,7 @@ import type {
   TextDelete,
   TextInsert,
 } from "../state-types";
-import {
-  canMorphTo,
-  createDefaultBlock,
-  isTextualBlock,
-  validateBlockField,
-} from "./block-registry";
+import { isTextualBlock } from "./block-registry";
 import {
   charRunsToChars,
   deleteFromRuns,
@@ -38,6 +33,7 @@ import {
 } from "./char-runs";
 import { resolveBlockOrder } from "./crdt-utils";
 import { compareHLC } from "./hlc";
+import { baseDataSchema, type DataSchema } from "./schema";
 
 /**
  * Create an empty page state.
@@ -53,9 +49,10 @@ export function createEmptyPageState(pageId: string): Page {
 export function createEmptyBlock(
   id: string,
   afterId: string | null,
-  type: BlockType,
-): Block {
-  return createDefaultBlock(type, id, afterId);
+  type: string,
+  schema: DataSchema = baseDataSchema,
+): Block | undefined {
+  return schema.createDefaultBlock(type, id, afterId);
 }
 
 /**
@@ -330,7 +327,11 @@ function applyFormatSet(state: Page, op: FormatSet): Page {
  * insert through the same canonical order ensures local-emit and remote
  * apply (and rebuild) all converge on the same block array.
  */
-function applyBlockInsert(state: Page, op: BlockInsert): Page {
+function applyBlockInsert(
+  state: Page,
+  op: BlockInsert,
+  schema: DataSchema,
+): Page {
   const existingBlock = findBlock(state, op.blockId);
   if (existingBlock) {
     if (existingBlock.deleted) {
@@ -343,7 +344,17 @@ function applyBlockInsert(state: Page, op: BlockInsert): Page {
     return state;
   }
 
-  const baseBlock = createEmptyBlock(op.blockId, op.afterBlockId, op.blockType);
+  const baseBlock = createEmptyBlock(
+    op.blockId,
+    op.afterBlockId,
+    op.blockType,
+    schema,
+  );
+  // Unknown block type (a peer registered a type we haven't): keep the op in
+  // the log (it stays known via the version vector) but don't materialize a
+  // block we can't model. A later schema upgrade re-deriving from the log will
+  // pick it up.
+  if (!baseBlock) return state;
   const newBlock = op.initialProps
     ? { ...baseBlock, ...op.initialProps }
     : baseBlock;
@@ -391,7 +402,7 @@ function applyBlockDelete(state: Page, op: BlockDelete): Page {
  * Apply a block set operation.
  * Updates a block property using Last-Writer-Wins.
  */
-function applyBlockSet(state: Page, op: BlockSet): Page {
+function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
   const blockIndex = findBlockIndex(state, op.blockId);
 
   if (blockIndex === -1) {
@@ -403,16 +414,22 @@ function applyBlockSet(state: Page, op: BlockSet): Page {
     return state;
   }
 
-  if (!validateBlockField(block.type, op.field, op.value)) {
+  if (!schema.validateField(block.type, op.field, op.value)) {
     return state;
   }
 
   if (op.field === "type") {
     const newType = op.value as BlockType;
-    const newBlock = createEmptyBlock(block.id, block.afterId ?? null, newType);
+    const newBlock = createEmptyBlock(
+      block.id,
+      block.afterId ?? null,
+      newType,
+      schema,
+    );
+    if (!newBlock) return state;
 
     const updatedBlock: Block =
-      canMorphTo(block.type, newType) &&
+      schema.canMorphTo(block.type, newType) &&
       isTextualBlock(block) &&
       isTextualBlock(newBlock)
         ? {
@@ -450,7 +467,11 @@ function applyBlockSet(state: Page, op: BlockSet): Page {
 /**
  * Apply a single operation to the state.
  */
-export function applyOp(state: Page, op: Operation): Page {
+export function applyOp(
+  state: Page,
+  op: Operation,
+  schema: DataSchema = baseDataSchema,
+): Page {
   switch (op.op) {
     case "text_insert":
       return applyTextInsert(state, op);
@@ -459,11 +480,11 @@ export function applyOp(state: Page, op: Operation): Page {
     case "format_set":
       return applyFormatSet(state, op);
     case "block_insert":
-      return applyBlockInsert(state, op);
+      return applyBlockInsert(state, op, schema);
     case "block_delete":
       return applyBlockDelete(state, op);
     case "block_set":
-      return applyBlockSet(state, op);
+      return applyBlockSet(state, op, schema);
     default:
       // Unknown operation type
       return state;
@@ -471,12 +492,19 @@ export function applyOp(state: Page, op: Operation): Page {
 }
 
 /**
- * Apply a batch of operations sequentially.
+ * Apply a batch of operations sequentially. `schema` controls how unknown
+ * block types and field validations are handled; it defaults to the built-in
+ * set so the many internal callers that only ever touch built-ins are
+ * unaffected.
  */
-export function applyOps(state: Page, ops: Operation[]): Page {
+export function applyOps(
+  state: Page,
+  ops: Operation[],
+  schema: DataSchema = baseDataSchema,
+): Page {
   let result = state;
   for (const op of ops) {
-    result = applyOp(result, op);
+    result = applyOp(result, op, schema);
   }
   return result;
 }
@@ -489,7 +517,11 @@ export function applyOps(state: Page, ops: Operation[]): Page {
  * @param ops - All operations to apply
  * @returns Computed page state
  */
-export function rebuildState(pageId: string, ops: Operation[]): Page {
+export function rebuildState(
+  pageId: string,
+  ops: Operation[],
+  schema: DataSchema = baseDataSchema,
+): Page {
   // Sort operations by HLC
   const sorted = [...ops].sort((a, b) => compareHLC(a.clock, b.clock));
 
@@ -521,12 +553,12 @@ export function rebuildState(pageId: string, ops: Operation[]): Page {
       continue;
     }
 
-    state = applyOp(state, op);
+    state = applyOp(state, op, schema);
   }
 
   // Apply deferred deletes — the chars they reference should now exist
   for (const op of deferredOps) {
-    state = applyOp(state, op);
+    state = applyOp(state, op, schema);
   }
 
   return state;

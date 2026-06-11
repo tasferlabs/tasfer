@@ -21,15 +21,18 @@ import { Node, NodeRegistry } from "./Node";
 import { textNode } from "./TextNode";
 
 export { AtomicNode } from "./AtomicNode";
-export { ImageNode } from "./ImageNode";
+export { getDragHandleAtPoint, ImageNode } from "./ImageNode";
 export { LineNode } from "./LineNode";
 export { LIST_BLOCK_TYPES, ListNode, listNode } from "./ListNode";
 export { MathNode } from "./MathNode";
 export {
   Node,
+  type NodeHitRegion,
   type NodeLayout,
   type NodeLayoutCtx,
   type NodePaintCtx,
+  type NodePointerType,
+  type NodeRegionCtx,
   NodeRegistry,
   type Point,
 } from "./Node";
@@ -40,6 +43,7 @@ export {
   textNode,
   type TextNodeLayout,
 } from "./TextNode";
+export { UnknownNode, unknownNode } from "./UnknownNode";
 
 /**
  * Shared singleton instances of the stateless built-in nodes, so hosts can

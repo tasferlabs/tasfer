@@ -1,32 +1,19 @@
 import {
   selectLineAtPosition,
   selectWordAtPosition,
-  toggleTodoChecked,
 } from "../actions/commands";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
-import { getCurrentFontFamily, getFontMetrics } from "../fonts";
+import { getDragHandleAtPoint } from "../rendering/nodes";
 import {
-  getBlockHeight,
-  getOutOfViewIndicatorAtPoint,
-  imageCache,
-} from "../rendering/renderer";
-import {
-  endScrollbarDrag,
-  isPointInScrollbar,
   isPointInThumb,
-  startScrollbarDrag,
   updateScrollbarHover,
-  updateScrollFromThumbDrag,
-  updateScrollFromTrackClick,
   updateScrollFromWheel,
 } from "../rendering/scrollbar";
-import { getTextDirection } from "../rtl";
 import {
   getCursorDocumentCoords,
   getInlineMathAtPosition,
   getLinkAtPosition,
   getTextPositionFromViewport,
-  scrollToMakeCursorVisible,
 } from "../selection";
 import { updateFocus } from "../selection";
 import { updateCursor } from "../selection";
@@ -40,210 +27,30 @@ import {
   clearAutoCreatedParagraph,
   closeActiveMenu,
   closeSlashCommand,
-  getBlockTextContent,
   setActiveMenu,
   updateMode,
 } from "../state-utils";
-import { getEditorStyles, getTextStyle } from "../styles";
+import { getEditorStyles } from "../styles";
 import { isTextualBlock } from "../sync/block-registry";
 import type { Operation } from "../sync/sync";
+import { hitTestAllRegions } from "./blockRegions";
 import {
-  autoScrollState,
-  clearScrollPress,
-  scrollbarPressState,
-} from "./eventsState";
-import {
-  cancelImageDrag,
-  endImageDrag,
   getAtomicBlockAtPoint,
-  getDragHandleAtPoint,
   isTouchDevice,
   isWithinClickDistance,
-  startImageDrag,
-  updateImageDrag,
 } from "./eventUtils";
-import { startAutoScroll, stopAutoScroll } from "./touchEvents";
-
-// Helper function to detect and handle checkbox clicks for todo list items
-
-export function handleTodoCheckboxClick(
-  state: EditorState,
-  canvasX: number,
-  canvasY: number,
-  viewport: ViewportState,
-): { state: EditorState; ops: Operation[] } | null {
-  // Block checkbox toggle in readonly mode
-  if (state.ui.mode === "readonly") {
-    return null;
-  }
-
-  const styles = getEditorStyles(state);
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
-  const maxWidth =
-    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-
-  // Iterate through visible blocks to find which one was clicked
-  // Break early once we pass the visible area
-  const visibleBlocks = state.view.visibleBlocks;
-
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
-    const visibleBlock = visibleBlocks[visibleIdx];
-    const blockHeight = getBlockHeight(
-      state.nodes,
-      visibleBlock,
-      maxWidth,
-      styles,
-      visibleIdx === 0,
-    );
-    // Check if click is within this block's Y bounds
-    if (canvasY >= currentY && canvasY < currentY + blockHeight) {
-      // Check if this is a todo list item
-      if (visibleBlock.type === "todo_list") {
-        const indent = visibleBlock.indent || 0;
-        const indentOffset = indent * styles.list.indent.size;
-        const checkboxSize = styles.list.todo.checkboxSize;
-
-        // Detect if this is RTL text
-        const blockText = isTextualBlock(visibleBlock)
-          ? getBlockTextContent(visibleBlock)
-          : "";
-        const isRTL = getTextDirection(blockText) === "rtl";
-
-        // Calculate marker width to match rendering logic
-        const markerWidth =
-          styles.list.numbered.minWidth + styles.list.marker.textGap;
-        const adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-
-        // Position checkbox based on text direction
-        let checkboxX: number;
-        if (isRTL) {
-          // RTL: checkbox is in marker area on the right side
-          // markerX = paddingLeft + indentOffset + adjustedMaxWidth
-          checkboxX =
-            styles.canvas.paddingLeft + indentOffset + adjustedMaxWidth + 2;
-        } else {
-          // LTR: checkbox is in marker area on the left side
-          // markerX = paddingLeft + indentOffset
-          checkboxX = styles.canvas.paddingLeft + indentOffset + 2;
-        }
-
-        // Get font metrics for proper vertical alignment
-        const textStyle = getTextStyle(styles, visibleBlock.type);
-        const fontFamily = getCurrentFontFamily();
-        const fontMetrics = getFontMetrics(
-          textStyle.fontSize,
-          textStyle.fontWeight,
-          fontFamily,
-        );
-        const checkboxY = currentY + fontMetrics.ascent - checkboxSize + 2;
-
-        // Check if click is within checkbox bounds (add some padding for easier clicking)
-        const clickPadding = 4;
-        if (
-          canvasX >= checkboxX - clickPadding &&
-          canvasX <= checkboxX + checkboxSize + clickPadding &&
-          canvasY >= checkboxY - clickPadding &&
-          canvasY <= checkboxY + checkboxSize + clickPadding
-        ) {
-          // Toggle the checkbox - use originalIndex since visibleBlocks filters deleted blocks
-          const result = toggleTodoChecked(state, visibleBlock.originalIndex);
-          return { state: result.state, ops: result.ops };
-        }
-      }
-
-      // Not a checkbox click, return null to continue normal processing
-      return null;
-    }
-
-    // Break early if we've passed the visible area
-    if (currentY > viewport.height) {
-      break;
-    }
-
-    currentY += blockHeight;
-  }
-
-  return null;
-}
-
-// Helper to detect if a point is over a todo checkbox (for hover cursor)
-export function isPointOverCheckbox(
-  state: EditorState,
-  canvasX: number,
-  canvasY: number,
-  viewport: ViewportState,
-): boolean {
-  const styles = getEditorStyles(state);
-  let currentY = styles.canvas.paddingTop - viewport.scrollY;
-  const maxWidth =
-    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-
-  const visibleBlocks = state.view.visibleBlocks;
-
-  for (let visibleIdx = 0; visibleIdx < visibleBlocks.length; visibleIdx++) {
-    const visibleBlock = visibleBlocks[visibleIdx];
-    const blockHeight = getBlockHeight(
-      state.nodes,
-      visibleBlock,
-      maxWidth,
-      styles,
-      visibleIdx === 0,
-    );
-
-    if (canvasY >= currentY && canvasY < currentY + blockHeight) {
-      if (visibleBlock.type === "todo_list") {
-        const indent = visibleBlock.indent || 0;
-        const indentOffset = indent * styles.list.indent.size;
-        const checkboxSize = styles.list.todo.checkboxSize;
-
-        const blockText = isTextualBlock(visibleBlock)
-          ? getBlockTextContent(visibleBlock)
-          : "";
-        const isRTL = getTextDirection(blockText) === "rtl";
-
-        const markerWidth =
-          styles.list.numbered.minWidth + styles.list.marker.textGap;
-        const adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-
-        let checkboxX: number;
-        if (isRTL) {
-          checkboxX =
-            styles.canvas.paddingLeft + indentOffset + adjustedMaxWidth + 2;
-        } else {
-          checkboxX = styles.canvas.paddingLeft + indentOffset + 2;
-        }
-
-        const textStyle = getTextStyle(styles, visibleBlock.type);
-        const fontFamily = getCurrentFontFamily();
-        const fontMetrics = getFontMetrics(
-          textStyle.fontSize,
-          textStyle.fontWeight,
-          fontFamily,
-        );
-        const checkboxY = currentY + fontMetrics.ascent - checkboxSize + 2;
-
-        const hoverPadding = 4;
-        if (
-          canvasX >= checkboxX - hoverPadding &&
-          canvasX <= checkboxX + checkboxSize + hoverPadding &&
-          canvasY >= checkboxY - hoverPadding &&
-          canvasY <= checkboxY + checkboxSize + hoverPadding
-        ) {
-          return true;
-        }
-      }
-      return false;
-    }
-
-    if (currentY > viewport.height) {
-      break;
-    }
-
-    currentY += blockHeight;
-  }
-
-  return false;
-}
+import {
+  beginRegionInteraction,
+  type RegionCtx,
+  routeCapturedCancel,
+  routeCapturedEnd,
+  routeCapturedMove,
+} from "./regions";
+import {
+  type InteractionSession,
+  startAutoScroll,
+  stopAutoScroll,
+} from "./session";
 
 export function handleMouseDown(
   state: EditorState,
@@ -251,10 +58,11 @@ export function handleMouseDown(
   event: MouseEvent,
   containerRect: { left: number; top: number },
   documentHeight: number,
+  session: InteractionSession,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
-  stopAutoScroll();
+  stopAutoScroll(session);
 
   // Ignore right-click - it will be handled by contextmenu event
   // This prevents clearing selection when right-clicking
@@ -296,41 +104,23 @@ export function handleMouseDown(
   const canvasX = event.x - containerRect.left;
   const canvasY = event.y - containerRect.top;
 
-  // Check for click on todo checkbox
-  const checkboxClickResult = handleTodoCheckboxClick(
+  // Interactive regions (scrollbar, peer indicators, checkbox, image resize
+  // handles) — highest-priority hit wins. Drags capture the pointer; taps
+  // act immediately on mouse-down.
+  const regionCtx: RegionCtx = {
     state,
-    canvasX,
-    canvasY,
     viewport,
-  );
-  if (checkboxClickResult) {
-    return checkboxClickResult;
-  }
-
-  // Check for click on out-of-view peer indicator
-  const indicatorTarget = getOutOfViewIndicatorAtPoint(canvasX, canvasY);
-  if (indicatorTarget) {
-    const newScrollY = scrollToMakeCursorVisible(
-      indicatorTarget,
-      state,
-      viewport,
-    );
-    if (newScrollY !== null && updateViewportCallback) {
-      updateViewportCallback({ scrollY: newScrollY });
+    documentHeight,
+    session,
+    updateViewport: updateViewportCallback,
+  };
+  const point = { x: canvasX, y: canvasY };
+  const claim = hitTestAllRegions(point, "mouse", regionCtx);
+  if (claim) {
+    const begin = beginRegionInteraction(claim, point, "mouse", regionCtx);
+    if (begin && begin !== "pending") {
+      return { state: begin.state, ops: begin.ops ?? [] };
     }
-    return {
-      state: {
-        ...state,
-        view: {
-          ...state.view,
-          scrollbar: {
-            ...state.view.scrollbar,
-            lastInteraction: Date.now(),
-          },
-        },
-      },
-      ops,
-    };
   }
 
   // Check for Ctrl/Command+Click on link to open it
@@ -367,60 +157,6 @@ export function handleMouseDown(
     }
   }
 
-  // Check if clicking on scrollbar
-  if (isPointInScrollbar(canvasX, canvasY, viewport, documentHeight)) {
-    // Check if clicking on thumb
-    if (
-      isPointInThumb(
-        canvasX,
-        canvasY,
-        viewport,
-        documentHeight,
-        state.view.scrollbar,
-      )
-    ) {
-      return {
-        state: {
-          ...state,
-          view: {
-            ...state.view,
-            scrollbar: startScrollbarDrag(
-              state.view.scrollbar,
-              canvasY,
-              viewport,
-              documentHeight,
-            ),
-          },
-        },
-        ops,
-      };
-    } else {
-      // Clicking on track - page scroll
-      const newScrollY = updateScrollFromTrackClick(
-        canvasY,
-        viewport,
-        documentHeight,
-        state.view.scrollbar,
-      );
-      if (updateViewportCallback) {
-        updateViewportCallback({ scrollY: newScrollY });
-      }
-      return {
-        state: {
-          ...state,
-          view: {
-            ...state.view,
-            scrollbar: {
-              ...state.view.scrollbar,
-              lastInteraction: Date.now(),
-            },
-          },
-        },
-        ops,
-      };
-    }
-  }
-
   // Check if clicking on an image cover block (including placeholders)
   const imageBlock = getAtomicBlockAtPoint(
     canvasX,
@@ -433,14 +169,9 @@ export function handleMouseDown(
     const block = state.document.page.blocks[imageBlock.blockIndex];
     if (!block || block.deleted) return { state: state, ops };
     if (block.type === "image") {
-      // In readonly mode, don't allow image drag/resize or placeholder clicks
+      // In readonly mode, don't allow placeholder clicks
+      // (resize handle drags are claimed by the image-resize region above)
       if (state.ui.mode !== "readonly") {
-        // Check if clicking on a drag handle and start drag if applicable
-        const dragState = startImageDrag(state, imageBlock, canvasX, canvasY);
-        if (dragState) {
-          return { state: dragState, ops };
-        }
-
         // If it's a placeholder (no URL), open the upload menu immediately
         if (!block.url) {
           // Don't reopen if we just closed the menu for this same block
@@ -810,30 +541,25 @@ export function handleMouseMove(
   event: MouseEvent,
   containerRect: { left: number; top: number },
   documentHeight: number,
+  session: InteractionSession,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): EditorState {
   const canvasX = event.x - containerRect.left;
   const canvasY = event.y - containerRect.top;
 
-  if (state.view.scrollbar.isDragging) {
-    const newScrollY = updateScrollFromThumbDrag(
-      canvasY,
-      viewport,
-      documentHeight,
-      state.view.scrollbar,
-    );
-    if (updateViewportCallback) {
-      updateViewportCallback({ scrollY: newScrollY });
-    }
-    // Clear link hover overlay when scrolling via scrollbar
-    return {
-      ...state,
-      ui: {
-        ...state.ui,
-        isHoveringLinkWithModifier: false,
-        imageHover: null,
+  // A captured region drag (scrollbar thumb) owns the pointer.
+  if (session.captured) {
+    const result = routeCapturedMove(
+      { x: canvasX, y: canvasY },
+      {
+        state,
+        viewport,
+        documentHeight,
+        session,
+        updateViewport: updateViewportCallback,
       },
-    };
+    );
+    return result ? result.state : state;
   }
 
   // iOS-style: Only show hover when over the thumb itself
@@ -855,8 +581,15 @@ export function handleMouseMove(
     },
   };
 
-  // Check for checkbox hover (for pointer cursor)
-  const isOverCheckbox = isPointOverCheckbox(state, canvasX, canvasY, viewport);
+  // Region hover — pointer cursor for checkbox / peer indicator
+  const hoverClaim = hitTestAllRegions({ x: canvasX, y: canvasY }, "mouse", {
+    state,
+    viewport,
+    documentHeight,
+    session,
+    updateViewport: updateViewportCallback,
+  });
+  const isOverCheckbox = hoverClaim?.region.id === "todo-checkbox";
   if (isOverCheckbox !== state.ui.isHoveringCheckbox) {
     state = {
       ...state,
@@ -867,9 +600,7 @@ export function handleMouseMove(
     };
   }
 
-  // Check for out-of-view peer indicator hover (for pointer cursor)
-  const isOverPeerIndicator =
-    getOutOfViewIndicatorAtPoint(canvasX, canvasY) !== null;
+  const isOverPeerIndicator = hoverClaim?.region.id === "peer-indicator";
   if (isOverPeerIndicator !== state.ui.isHoveringPeerIndicator) {
     state = {
       ...state,
@@ -878,65 +609,6 @@ export function handleMouseMove(
         isHoveringPeerIndicator: isOverPeerIndicator,
       },
     };
-  }
-
-  // Handle image drag resize
-  if (state.ui.imageDrag) {
-    const { blockIndex, handle } = state.ui.imageDrag;
-    const block = state.document.page.blocks[blockIndex];
-    if (!block || block.deleted) return state;
-
-    // Check if we should allow auto-scroll for bottom edge
-    // Only block scrolling down if: bottom handle + near bottom edge + image at max height
-    let shouldBlockBottomScroll = false;
-    const objectFit =
-      block.type === "image" ? (block.objectFit ?? "cover") : "cover";
-    if (
-      handle === "bottom" &&
-      objectFit === "cover" &&
-      block.type === "image" &&
-      block.url
-    ) {
-      const cachedImage = imageCache.get(block.url);
-      if (cachedImage && cachedImage.complete) {
-        const imgAspectRatio =
-          cachedImage.naturalWidth / cachedImage.naturalHeight;
-        const containerWidth =
-          typeof block.width === "number" ? block.width : viewport.width;
-        const maxHeightForRatio = containerWidth / imgAspectRatio;
-        // Use startHeight + delta to get current effective height
-        const currentHeight =
-          state.ui.imageDrag.startHeight +
-          (canvasY - state.ui.imageDrag.startY);
-        const isAtMaxHeight = currentHeight >= maxHeightForRatio - 1;
-        const isNearBottomEdge =
-          canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
-          canvasY > viewport.height;
-        shouldBlockBottomScroll = isAtMaxHeight && isNearBottomEdge;
-      }
-    }
-
-    // Check for edge scrolling during image drag
-    const isNearTopEdge = canvasY < EDGE_SCROLL_THRESHOLD || canvasY < 0;
-    const isNearBottomEdge =
-      canvasY > viewport.height - EDGE_SCROLL_THRESHOLD ||
-      canvasY > viewport.height;
-    const isNearEdge = isNearTopEdge || isNearBottomEdge;
-
-    // Allow scroll if near edge, but block bottom scroll if image is at max
-    if (isNearEdge && !(shouldBlockBottomScroll && isNearBottomEdge)) {
-      if (!autoScrollState.isActive) {
-        startAutoScroll();
-      }
-      autoScrollState.lastMouseX = canvasX;
-      autoScrollState.lastMouseY = canvasY;
-    } else {
-      if (autoScrollState.isActive) {
-        stopAutoScroll();
-      }
-    }
-
-    return updateImageDrag(state, viewport, canvasX, canvasY);
   }
 
   // Check for image hover (desktop only, not in select mode, and not during image drag)
@@ -1203,19 +875,19 @@ export function handleMouseMove(
     canvasY > viewport.height;
 
   if (isNearEdge) {
-    if (!autoScrollState.isActive) {
-      startAutoScroll();
+    if (!session.autoScroll.isActive) {
+      startAutoScroll(session);
     }
 
     // Update stored mouse position for auto-scroll loop
-    autoScrollState.lastMouseX = canvasX;
-    autoScrollState.lastMouseY = canvasY;
+    session.autoScroll.lastPointerX = canvasX;
+    session.autoScroll.lastPointerY = canvasY;
 
     // We let handleEvents loop handle the actual scrolling to support
     // scrolling while the mouse is stationary at the edge.
   } else {
-    if (autoScrollState.isActive) {
-      stopAutoScroll();
+    if (session.autoScroll.isActive) {
+      stopAutoScroll(session);
     }
   }
 
@@ -1223,35 +895,28 @@ export function handleMouseMove(
 }
 export function handleMouseUp(
   state: EditorState,
-  _viewport: ViewportState,
+  viewport: ViewportState,
   _event: MouseEvent,
   _visibility: { start: number; end: number },
+  documentHeight: number,
+  session: InteractionSession,
 ): { state: EditorState; ops: Operation[] } {
   const ops: Operation[] = [];
-  stopAutoScroll();
+  stopAutoScroll(session);
+  session.pendingCapture = null;
 
-  // Clean up scrollbar press state
-  if (scrollbarPressState) {
-    clearScrollPress();
-  }
-
-  if (state.view.scrollbar.isDragging) {
+  // Release a captured region drag (scrollbar thumb)
+  if (session.captured) {
+    const endResult = routeCapturedEnd(null, {
+      state,
+      viewport,
+      documentHeight,
+      session,
+    });
     return {
-      state: {
-        ...state,
-        view: {
-          ...state.view,
-          scrollbar: endScrollbarDrag(state.view.scrollbar),
-        },
-      },
-      ops,
+      state: endResult ? endResult.state : state,
+      ops: endResult?.ops ?? [],
     };
-  }
-
-  // End image drag if active
-  if (state.ui.imageDrag) {
-    const result = endImageDrag(state);
-    return result;
   }
 
   if (state.ui.mode === "select") {
@@ -1276,27 +941,24 @@ export function handleMouseUp(
 
   return { state, ops };
 }
-export function handlePointerCancel(state: EditorState): EditorState {
-  stopAutoScroll();
+export function handlePointerCancel(
+  state: EditorState,
+  viewport: ViewportState,
+  documentHeight: number,
+  session: InteractionSession,
+): EditorState {
+  stopAutoScroll(session);
+  session.pendingCapture = null;
 
-  // Clean up scrollbar press state
-  if (scrollbarPressState) {
-    clearScrollPress();
-  }
-
-  if (state.view.scrollbar.isDragging) {
-    state = {
-      ...state,
-      view: {
-        ...state.view,
-        scrollbar: endScrollbarDrag(state.view.scrollbar),
-      },
-    };
-  }
-
-  // Cancel image drag if active
-  if (state.ui.imageDrag) {
-    state = cancelImageDrag(state);
+  // Cancel a captured region drag (scrollbar thumb)
+  const cancelled = routeCapturedCancel({
+    state,
+    viewport,
+    documentHeight,
+    session,
+  });
+  if (cancelled) {
+    state = cancelled;
   }
 
   if (state.ui.mode === "select") {

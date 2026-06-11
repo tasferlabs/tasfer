@@ -1,16 +1,11 @@
 import {
   CONTEXT_MENU_DURATION,
   CURSOR_DRAG_ACTIVATION_DELAY,
-  EDGE_SCROLL_ACCELERATION_RATE,
-  EDGE_SCROLL_MAX_SPEED,
-  EDGE_SCROLL_SPEED,
   EDGE_SCROLL_THRESHOLD,
-  SCROLLBAR_HOLD_DURATION,
 } from "../constants";
 import { imageCache } from "../rendering/renderer";
 import {
   applyMomentum,
-  startScrollbarDrag,
   updateScrollbarFadeOpacity,
 } from "../rendering/scrollbar";
 import {
@@ -24,14 +19,15 @@ import type { Operation } from "../state-types";
 import { closeActiveMenu, openContextMenu, updateMode } from "../state-utils";
 import { getEditorStyles, getTextStyle } from "../styles";
 import { isTextualBlock } from "../sync/block-registry";
+import { applyEdgeScroll } from "./autoScroll";
 import {
   handleCompositionEnd,
   handleCompositionStart,
   handleCompositionUpdate,
 } from "./compositionEvents";
-import { autoScrollState, scrollbarPressState } from "./eventsState";
 import { isTouchDevice, updateImageDrag } from "./eventUtils";
 import { handlePaste } from "./genericEvents";
+import { triggerHapticFeedback } from "./haptics";
 import { handleContextMenu, handleKeyDown } from "./keysEvents";
 import {
   handleMouseDown,
@@ -40,14 +36,13 @@ import {
   handlePointerCancel,
   handleWheel,
 } from "./mouseEvents";
+import { tickPendingCapture } from "./regions";
+import { type InteractionSession, stopAutoScroll } from "./session";
 import {
   handleTouchCancel,
   handleTouchEnd,
   handleTouchMove,
   handleTouchStart,
-  stopAutoScroll,
-  touchState,
-  triggerHapticFeedback,
 } from "./touchEvents";
 
 /** Get rendered line height (px) for the block at the given index. */
@@ -71,54 +66,41 @@ export function handleEvents(
   events: Event[],
   documentHeight: number,
   containerRect: { left: number; top: number },
+  session: InteractionSession,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
   clipboardData?: { html: string; text: string; imageFile: File | null } | null,
 ): { state: EditorState; ops: Operation[]; pastedImageBlockIndex?: number } {
   // Collect operations from commands
   let collectedOps: Operation[] = [];
   let pastedImageBlockIndex: number | undefined;
-  // Check for scrollbar long-press (iOS-style: hold to activate)
-  if (scrollbarPressState && !state.view.scrollbar.isDragging) {
-    const timeSinceStart = Date.now() - scrollbarPressState.startTime;
-
-    if (timeSinceStart >= SCROLLBAR_HOLD_DURATION) {
-      // Activate scrollbar drag after holding
-      if (touchState) {
-        touchState.isScrollbarDrag = true;
-      }
-
-      // Haptic feedback when scrollbar activates (iOS-style)
-      triggerHapticFeedback();
-
-      state = {
-        ...state,
-        view: {
-          ...state.view,
-          scrollbar: startScrollbarDrag(
-            state.view.scrollbar,
-            scrollbarPressState.canvasY,
-            viewport,
-            documentHeight,
-          ),
-        },
-      };
-    }
+  // Promote a pending hold-to-drag capture once its hold time has elapsed
+  // (e.g. iOS-style scrollbar hold). Runs every frame, independent of events.
+  const promoted = tickPendingCapture({
+    state,
+    viewport,
+    documentHeight,
+    session,
+    updateViewport: updateViewportCallback,
+  });
+  if (promoted) {
+    state = promoted;
   }
 
   // Check for cursor drag activation (200ms, before the 600ms long-press)
   if (
-    touchState &&
-    touchState.isTouchingCursor &&
-    !touchState.isCursorDrag &&
-    !touchState.isLongPress &&
-    !touchState.hasMoved &&
-    !touchState.isScrollbarDrag &&
+    session.touch &&
+    session.touch.isTouchingCursor &&
+    !session.touch.isCursorDrag &&
+    !session.touch.isLongPress &&
+    !session.touch.hasMoved &&
+    !session.captured &&
+    !session.pendingCapture &&
     !state.ui.imageDrag &&
     !state.ui.selectionHandleDrag
   ) {
-    const timeSinceStart = Date.now() - touchState.startTime;
+    const timeSinceStart = Date.now() - session.touch.startTime;
     if (timeSinceStart >= CURSOR_DRAG_ACTIVATION_DELAY) {
-      touchState.isCursorDrag = true;
+      session.touch.isCursorDrag = true;
       triggerHapticFeedback("light");
 
       // Get cursor coordinates for initial magnifier position
@@ -136,13 +118,15 @@ export function handleEvents(
           ...state.ui,
           cursorDrag: {
             isActive: true,
-            touchX: touchState.currentTouchX,
-            touchY: touchState.currentTouchY,
-            cursorX: cursorCoords ? cursorCoords.x : touchState.currentTouchX,
+            touchX: session.touch.currentTouchX,
+            touchY: session.touch.currentTouchY,
+            cursorX: cursorCoords
+              ? cursorCoords.x
+              : session.touch.currentTouchX,
             cursorY: cursorCoords
               ? cursorCoords.y - viewport.scrollY
-              : touchState.currentTouchY,
-            touchRadiusY: touchState.touchRadiusY,
+              : session.touch.currentTouchY,
+            touchRadiusY: session.touch.touchRadiusY,
             lineHeight: getBlockLineHeight(
               state,
               state.document.cursor?.position?.blockIndex,
@@ -156,27 +140,28 @@ export function handleEvents(
 
   // Check for long press trigger (independent of touchmove events)
   if (
-    touchState &&
-    !touchState.isLongPress &&
-    !touchState.isCursorDrag && // Don't trigger long press if we're in cursor drag mode
-    !touchState.hasMoved &&
-    !touchState.isScrollbarDrag &&
+    session.touch &&
+    !session.touch.isLongPress &&
+    !session.touch.isCursorDrag && // Don't trigger long press if we're in cursor drag mode
+    !session.touch.hasMoved &&
+    !session.captured && // Not while a region drag owns the pointer
+    !session.pendingCapture && // ... or is waiting on its hold timer
     !state.ui.imageDrag && // Don't open context menu if we're dragging an image
     !state.ui.selectionHandleDrag // Don't open context menu if we're dragging a selection handle
   ) {
-    const timeSinceStart = Date.now() - touchState.startTime;
+    const timeSinceStart = Date.now() - session.touch.startTime;
     if (timeSinceStart >= CONTEXT_MENU_DURATION) {
-      touchState.isLongPress = true;
+      session.touch.isLongPress = true;
 
       const position = getTextPositionFromViewport(
-        touchState.currentTouchX,
-        touchState.currentTouchY,
+        session.touch.currentTouchX,
+        session.touch.currentTouchY,
         state,
         viewport,
       );
 
       // Long press behavior depends on whether touching selected text
-      if (touchState.isTouchingSelection) {
+      if (session.touch.isTouchingSelection) {
         // On selected text: show context menu immediately
         if (position) {
           if (!state.document.selection) {
@@ -195,8 +180,8 @@ export function handleEvents(
 
         state = openContextMenu(
           state,
-          touchState.currentTouchX,
-          touchState.currentTouchY,
+          session.touch.currentTouchX,
+          session.touch.currentTouchY,
         );
       } else {
         // On non-selected text: prepare for drag selection (don't show menu yet)
@@ -218,53 +203,21 @@ export function handleEvents(
   }
 
   // Apply auto-scroll and selection update during long press
-  if (autoScrollState.isActive && touchState?.isLongPress) {
+  if (session.autoScroll.isActive && session.touch?.isLongPress) {
     // Current touch coordinates are already adjusted relative to container in handleTouchMove
     const touch = {
-      clientY: touchState.currentTouchY,
-      clientX: touchState.currentTouchX,
+      clientY: session.touch.currentTouchY,
+      clientX: session.touch.currentTouchX,
     };
 
-    const elapsedTime = Date.now() - autoScrollState.startTime;
-    const timeBasedMultiplier = Math.min(
-      Math.pow(EDGE_SCROLL_ACCELERATION_RATE, elapsedTime / 1000),
-      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED,
+    applyEdgeScroll(
+      touch.clientY,
+      session,
+      viewport,
+      documentHeight,
+      true,
+      updateViewportCallback,
     );
-    autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
-
-    let autoScrollDelta = 0;
-
-    if (touch.clientY < 0) {
-      const distance = Math.abs(touch.clientY);
-      const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta =
-        -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
-    } else if (touch.clientY < EDGE_SCROLL_THRESHOLD) {
-      const proximity = 1 - touch.clientY / EDGE_SCROLL_THRESHOLD;
-      autoScrollDelta = -EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
-    } else if (touch.clientY > viewport.height) {
-      const distance = touch.clientY - viewport.height;
-      const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta =
-        EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
-    } else if (touch.clientY > viewport.height - EDGE_SCROLL_THRESHOLD) {
-      const proximity =
-        (touch.clientY - (viewport.height - EDGE_SCROLL_THRESHOLD)) /
-        EDGE_SCROLL_THRESHOLD;
-      autoScrollDelta = EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
-    }
-
-    if (autoScrollDelta !== 0 && updateViewportCallback) {
-      const maxScroll = documentHeight - viewport.height;
-      const newScrollY = Math.max(
-        0,
-        Math.min(maxScroll, viewport.scrollY + autoScrollDelta),
-      );
-
-      if (newScrollY !== viewport.scrollY) {
-        updateViewportCallback({ scrollY: newScrollY });
-      }
-    }
 
     const position = getTextPositionFromViewport(
       touch.clientX,
@@ -294,54 +247,21 @@ export function handleEvents(
         },
       },
     };
-  } else if (autoScrollState.isActive && state.ui.mode === "select") {
+  } else if (session.autoScroll.isActive && state.ui.mode === "select") {
     // Apply auto-scroll for mouse selection
-    const elapsedTime = Date.now() - autoScrollState.startTime;
-    const timeBasedMultiplier = Math.min(
-      Math.pow(EDGE_SCROLL_ACCELERATION_RATE, elapsedTime / 1000),
-      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED,
+    applyEdgeScroll(
+      session.autoScroll.lastPointerY,
+      session,
+      viewport,
+      documentHeight,
+      true,
+      updateViewportCallback,
     );
-    autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
-
-    let autoScrollDelta = 0;
-    const mouseY = autoScrollState.lastMouseY;
-
-    if (mouseY < 0) {
-      const distance = Math.abs(mouseY);
-      const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta =
-        -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
-    } else if (mouseY < EDGE_SCROLL_THRESHOLD) {
-      const proximity = 1 - mouseY / EDGE_SCROLL_THRESHOLD;
-      autoScrollDelta = -EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
-    } else if (mouseY > viewport.height) {
-      const distance = mouseY - viewport.height;
-      const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta =
-        EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
-    } else if (mouseY > viewport.height - EDGE_SCROLL_THRESHOLD) {
-      const proximity =
-        (mouseY - (viewport.height - EDGE_SCROLL_THRESHOLD)) /
-        EDGE_SCROLL_THRESHOLD;
-      autoScrollDelta = EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
-    }
-
-    if (autoScrollDelta !== 0 && updateViewportCallback) {
-      const maxScroll = documentHeight - viewport.height;
-      const newScrollY = Math.max(
-        0,
-        Math.min(maxScroll, viewport.scrollY + autoScrollDelta),
-      );
-
-      if (newScrollY !== viewport.scrollY) {
-        updateViewportCallback({ scrollY: newScrollY });
-      }
-    }
 
     // Update selection based on new scroll position
     const position = getTextPositionFromViewport(
-      autoScrollState.lastMouseX,
-      autoScrollState.lastMouseY,
+      session.autoScroll.lastPointerX,
+      session.autoScroll.lastPointerY,
       state,
       viewport,
     );
@@ -350,54 +270,21 @@ export function handleEvents(
       state = updateSelectionFocus(state, position);
       state = updateCursor(state, position);
     }
-  } else if (autoScrollState.isActive && state.ui.selectionHandleDrag) {
+  } else if (session.autoScroll.isActive && state.ui.selectionHandleDrag) {
     // Apply auto-scroll for selection handle drag (touch)
-    const elapsedTime = Date.now() - autoScrollState.startTime;
-    const timeBasedMultiplier = Math.min(
-      Math.pow(EDGE_SCROLL_ACCELERATION_RATE, elapsedTime / 1000),
-      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED,
+    applyEdgeScroll(
+      session.autoScroll.lastPointerY,
+      session,
+      viewport,
+      documentHeight,
+      true,
+      updateViewportCallback,
     );
-    autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
-
-    let autoScrollDelta = 0;
-    const touchY = autoScrollState.lastMouseY;
-
-    if (touchY < 0) {
-      const distance = Math.abs(touchY);
-      const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta =
-        -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
-    } else if (touchY < EDGE_SCROLL_THRESHOLD) {
-      const proximity = 1 - touchY / EDGE_SCROLL_THRESHOLD;
-      autoScrollDelta = -EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
-    } else if (touchY > viewport.height) {
-      const distance = touchY - viewport.height;
-      const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta =
-        EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
-    } else if (touchY > viewport.height - EDGE_SCROLL_THRESHOLD) {
-      const proximity =
-        (touchY - (viewport.height - EDGE_SCROLL_THRESHOLD)) /
-        EDGE_SCROLL_THRESHOLD;
-      autoScrollDelta = EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
-    }
-
-    if (autoScrollDelta !== 0 && updateViewportCallback) {
-      const maxScroll = documentHeight - viewport.height;
-      const newScrollY = Math.max(
-        0,
-        Math.min(maxScroll, viewport.scrollY + autoScrollDelta),
-      );
-
-      if (newScrollY !== viewport.scrollY) {
-        updateViewportCallback({ scrollY: newScrollY });
-      }
-    }
 
     // Update selection based on new scroll position
     const position = getTextPositionFromViewport(
-      autoScrollState.lastMouseX,
-      autoScrollState.lastMouseY,
+      session.autoScroll.lastPointerX,
+      session.autoScroll.lastPointerY,
       state,
       viewport,
     );
@@ -449,54 +336,21 @@ export function handleEvents(
         },
       };
     }
-  } else if (autoScrollState.isActive && touchState?.isCursorDrag) {
+  } else if (session.autoScroll.isActive && session.touch?.isCursorDrag) {
     // Apply auto-scroll for cursor drag (touch)
-    const elapsedTime = Date.now() - autoScrollState.startTime;
-    const timeBasedMultiplier = Math.min(
-      Math.pow(EDGE_SCROLL_ACCELERATION_RATE, elapsedTime / 1000),
-      EDGE_SCROLL_MAX_SPEED / EDGE_SCROLL_SPEED,
+    applyEdgeScroll(
+      session.autoScroll.lastPointerY,
+      session,
+      viewport,
+      documentHeight,
+      true,
+      updateViewportCallback,
     );
-    autoScrollState.currentSpeedMultiplier = timeBasedMultiplier;
-
-    let autoScrollDelta = 0;
-    const touchY = autoScrollState.lastMouseY;
-
-    if (touchY < 0) {
-      const distance = Math.abs(touchY);
-      const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta =
-        -EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
-    } else if (touchY < EDGE_SCROLL_THRESHOLD) {
-      const proximity = 1 - touchY / EDGE_SCROLL_THRESHOLD;
-      autoScrollDelta = -EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
-    } else if (touchY > viewport.height) {
-      const distance = touchY - viewport.height;
-      const speedMultiplier = Math.min(distance / 100, 3);
-      autoScrollDelta =
-        EDGE_SCROLL_SPEED * (1 + speedMultiplier) * timeBasedMultiplier;
-    } else if (touchY > viewport.height - EDGE_SCROLL_THRESHOLD) {
-      const proximity =
-        (touchY - (viewport.height - EDGE_SCROLL_THRESHOLD)) /
-        EDGE_SCROLL_THRESHOLD;
-      autoScrollDelta = EDGE_SCROLL_SPEED * proximity * timeBasedMultiplier;
-    }
-
-    if (autoScrollDelta !== 0 && updateViewportCallback) {
-      const maxScroll = documentHeight - viewport.height;
-      const newScrollY = Math.max(
-        0,
-        Math.min(maxScroll, viewport.scrollY + autoScrollDelta),
-      );
-
-      if (newScrollY !== viewport.scrollY) {
-        updateViewportCallback({ scrollY: newScrollY });
-      }
-    }
 
     // Update cursor position based on new scroll position
     const position = getTextPositionFromViewport(
-      autoScrollState.lastMouseX,
-      autoScrollState.lastMouseY,
+      session.autoScroll.lastPointerX,
+      session.autoScroll.lastPointerY,
       state,
       viewport,
     );
@@ -511,25 +365,27 @@ export function handleEvents(
           ...state.ui,
           cursorDrag: {
             isActive: true,
-            touchX: touchState.currentTouchX,
-            touchY: touchState.currentTouchY,
-            cursorX: cursorCoords ? cursorCoords.x : touchState.currentTouchX,
+            touchX: session.touch.currentTouchX,
+            touchY: session.touch.currentTouchY,
+            cursorX: cursorCoords
+              ? cursorCoords.x
+              : session.touch.currentTouchX,
             cursorY: cursorCoords
               ? cursorCoords.y - viewport.scrollY
-              : touchState.currentTouchY,
-            touchRadiusY: touchState.touchRadiusY,
+              : session.touch.currentTouchY,
+            touchRadiusY: session.touch.touchRadiusY,
             lineHeight: getBlockLineHeight(state, position.blockIndex),
             lastPosition: position,
           },
         },
       };
     }
-  } else if (autoScrollState.isActive && state.ui.imageDrag) {
+  } else if (session.autoScroll.isActive && state.ui.imageDrag) {
     // Apply auto-scroll for image drag (constant speed, no acceleration)
     const { blockIndex, handle } = state.ui.imageDrag;
     const block = state.document.page.blocks[blockIndex];
     if (!block || block.deleted) return { state, ops: [] };
-    const cursorY = autoScrollState.lastMouseY;
+    const cursorY = session.autoScroll.lastPointerY;
 
     // Check if we should block scrolling down (bottom handle + near bottom + at max height)
     let shouldBlockBottomScroll = false;
@@ -562,55 +418,38 @@ export function handleEvents(
 
     // Stop auto-scroll if we should block bottom scroll
     if (shouldBlockBottomScroll) {
-      stopAutoScroll();
+      stopAutoScroll(session);
     } else {
-      let autoScrollDelta = 0;
+      // Constant speed (no acceleration for image drag)
+      const newScrollY = applyEdgeScroll(
+        cursorY,
+        session,
+        viewport,
+        documentHeight,
+        false,
+        updateViewportCallback,
+      );
 
-      // Use constant speed (no acceleration for image drag)
-      if (cursorY < 0) {
-        autoScrollDelta = -EDGE_SCROLL_SPEED;
-      } else if (cursorY < EDGE_SCROLL_THRESHOLD) {
-        const proximity = 1 - cursorY / EDGE_SCROLL_THRESHOLD;
-        autoScrollDelta = -EDGE_SCROLL_SPEED * proximity;
-      } else if (cursorY > viewport.height) {
-        autoScrollDelta = EDGE_SCROLL_SPEED;
-      } else if (cursorY > viewport.height - EDGE_SCROLL_THRESHOLD) {
-        const proximity =
-          (cursorY - (viewport.height - EDGE_SCROLL_THRESHOLD)) /
-          EDGE_SCROLL_THRESHOLD;
-        autoScrollDelta = EDGE_SCROLL_SPEED * proximity;
-      }
-
-      if (autoScrollDelta !== 0 && updateViewportCallback) {
-        const maxScroll = documentHeight - viewport.height;
-        const newScrollY = Math.max(
-          0,
-          Math.min(maxScroll, viewport.scrollY + autoScrollDelta),
-        );
-
-        if (newScrollY !== viewport.scrollY) {
-          updateViewportCallback({ scrollY: newScrollY });
-
-          // Continue updating image drag as we scroll
-          // Adjust startY to account for the scroll so the image continues to resize
-          const scrollAdjustment = newScrollY - viewport.scrollY;
-          state = {
-            ...state,
-            ui: {
-              ...state.ui,
-              imageDrag: {
-                ...state.ui.imageDrag!,
-                startY: state.ui.imageDrag!.startY - scrollAdjustment,
-              },
+      if (newScrollY !== null) {
+        // Continue updating image drag as we scroll
+        // Adjust startY to account for the scroll so the image continues to resize
+        const scrollAdjustment = newScrollY - viewport.scrollY;
+        state = {
+          ...state,
+          ui: {
+            ...state.ui,
+            imageDrag: {
+              ...state.ui.imageDrag!,
+              startY: state.ui.imageDrag!.startY - scrollAdjustment,
             },
-          };
-          state = updateImageDrag(
-            state,
-            viewport,
-            autoScrollState.lastMouseX,
-            autoScrollState.lastMouseY,
-          );
-        }
+          },
+        };
+        state = updateImageDrag(
+          state,
+          viewport,
+          session.autoScroll.lastPointerX,
+          session.autoScroll.lastPointerY,
+        );
       }
     }
   }
@@ -685,6 +524,7 @@ export function handleEvents(
           event as unknown as MouseEvent,
           containerRect,
           documentHeight,
+          session,
           updateViewportCallback,
         );
         state = mouseDownResult.state;
@@ -700,6 +540,7 @@ export function handleEvents(
           event as unknown as MouseEvent,
           containerRect,
           documentHeight,
+          session,
           updateViewportCallback,
         );
         break;
@@ -712,13 +553,15 @@ export function handleEvents(
           viewport,
           event as unknown as MouseEvent,
           visibility,
+          documentHeight,
+          session,
         );
         state = mouseUpResult.state;
         collectedOps.push(...mouseUpResult.ops);
         break;
       case "pointercancel":
         // Only cancel on pointercancel (not on leave)
-        state = handlePointerCancel(state);
+        state = handlePointerCancel(state, viewport, documentHeight, session);
         break;
       case "keydown":
         const keyResult = handleKeyDown(
@@ -763,6 +606,7 @@ export function handleEvents(
           event as TouchEvent,
           containerRect,
           documentHeight,
+          session,
         );
         break;
       case "touchmove":
@@ -772,6 +616,7 @@ export function handleEvents(
           event as TouchEvent,
           containerRect,
           documentHeight,
+          session,
           updateViewportCallback,
         );
         break;
@@ -781,13 +626,15 @@ export function handleEvents(
           viewport,
           event as TouchEvent,
           containerRect,
+          documentHeight,
+          session,
         );
         state = touchEndResult.state;
         collectedOps.push(...touchEndResult.ops);
         break;
       case "touchcancel":
         // Cancel touch interaction
-        state = handleTouchCancel(state);
+        state = handleTouchCancel(state, viewport, documentHeight, session);
         break;
       case "compositionstart":
         const compStartResult = handleCompositionStart(
