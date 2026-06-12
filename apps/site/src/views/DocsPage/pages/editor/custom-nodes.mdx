@@ -1,0 +1,133 @@
+{/* @cypherkit/editor docs — Custom nodes & marks. */}
+
+import { Callout, Code } from "../../docsComponents";
+
+<p className="dx-lede">The schema declares what your document is made of. Extend it to add new block types (*nodes*) and inline formatting (*marks*) — a callout block, an @-mention, a highlight.</p>
+
+<Callout kind="note" title="What's shippable today.">The extension API below is real and tested for **leaf block nodes** — a styled box that carries attributes (a callout, an embed, a divider variant). Text-bearing and block-containing custom nodes (`content: "text" | "block+"`) and custom-mark rendering are on the roadmap; the shapes here are forward-compatible with them.</Callout>
+
+<h2 id="node">Define a node</h2>
+
+A node is a block type. It declares its attributes (replicated CRDT fields), how it serializes, and how it draws. A callout box:
+
+<Code lang="ts" code={`
+import { defineNode } from "@cypherkit/editor";
+
+const callout = defineNode("callout", {
+  // Replicated attributes — each becomes a CRDT-settable field with a default.
+  attrs: { tone: { default: "note" } },
+  // Declarative paint for the built-in box renderer (or pass \`node\` for a
+  // custom canvas Node). Round-trips through a generic <x-callout tone="…" />
+  // tag, so no tokenizer changes are needed.
+  render: {
+    background: "rgba(29,185,132,0.10)",
+    borderLeft: { width: 3, color: "#1db984" },
+    label: (block) => \`Callout (\${block.tone})\`,
+  },
+});
+`} />
+
+Prefer a class? Subclass a node and register the instance directly. The class owns its drawing, strings, and UI; a `static nodeConfig` supplies the same attrs/serialization `defineNode` takes. Both styles produce identical data, so they're interchangeable:
+
+<Code lang="ts" code={`
+import { AtomicNode, baseSchema } from "@cypherkit/editor";
+
+class CalloutNode extends AtomicNode {
+  readonly type = "callout";
+  // Attrs + serialization, read when the class is registered directly.
+  static nodeConfig = { attrs: { tone: { default: "note" } } };
+
+  protected intrinsicHeight() { return 48; }
+  protected draw(box, c) {
+    c.ctx.fillStyle = "rgba(29,185,132,0.10)";
+    c.ctx.fillRect(box.x, box.y, box.width, 48);
+  }
+}
+
+const schema = baseSchema.extend({ nodes: [new CalloutNode()] });
+`} />
+
+<h2 id="strings">Localized strings live on the node</h2>
+
+A node owns the canvas strings it paints — status labels, prompts — as a `strings` catalog of English defaults. The editor ships no i18n library; a localized host overrides per type via `theme.nodeStrings`. Read them inside `draw` with the protected `str(state, key)` helper. (The built-in image and math nodes own their labels exactly this way — they're no longer in a global string table.)
+
+<Code lang="ts" code={`
+class CalloutNode extends AtomicNode {
+  readonly type = "callout";
+  readonly strings = { hint: "Add a note…" };
+
+  protected draw(box, c) {
+    c.ctx.fillText(this.str(c.state, "hint"), box.x + 12, box.y + 24);
+  }
+}
+
+// Host overrides, keyed by block type then the node's local string key:
+createEditor({
+  element,
+  schema,
+  theme: { nodeStrings: { callout: { hint: "ملاحظة…" } } },
+});
+`} />
+
+<h2 id="overlays">Node-owned UI (overlay slots)</h2>
+
+A node can ask the host to float real UI — a popover, an inline editor — over one of its blocks, without the engine ever importing your UI framework. `overlays()` returns renderer-agnostic *descriptors* (identity + geometry, derived from the block's data and the current UI state); the host maps each `key` to a component and mounts it at the descriptor's `rect`.
+
+<Code lang="ts" code={`
+class CalloutNode extends AtomicNode {
+  readonly type = "callout";
+  overlays(c) {
+    // Show an editor overlay while this block holds the caret.
+    if (c.state.document.cursor?.position.blockIndex !== c.blockIndex) return [];
+    return [{
+      key: "callout-editor",
+      blockIndex: c.blockIndex,
+      rect: { x: c.origin.x, y: c.origin.y, width: c.maxWidth, height: 48 },
+    }];
+  }
+}
+`} />
+
+The host drives them through one registry — no per-type `if` ladder. Recompute each frame and mount the registered keys at their rect:
+
+<Code lang="tsx" code={`
+const OVERLAYS = { "callout-editor": CalloutEditor };
+
+editor.collectOverlays().forEach((o) => {
+  const Comp = OVERLAYS[o.key];
+  if (Comp) mountAt(o.rect, <Comp overlay={o} editor={editor} />);
+});
+`} />
+
+<Callout kind="note" title="The engine stays headless.">`overlays()` returns data, never JSX — so the same node works in a React host, a vanilla-DOM host, or none at all. It's the seam the built-in image and math popovers are migrating onto.</Callout>
+
+<h2 id="mark">Define a mark</h2>
+
+A mark is inline formatting. Declaring one registers it as a valid format name on the schema (full custom markdown delimiters and canvas paint for marks are the next step):
+
+<Code lang="ts" code={`
+import { defineMark } from "@cypherkit/editor";
+
+const highlight = defineMark("highlight");
+`} />
+
+<h2 id="register">Register them</h2>
+
+`extend` returns a *new* immutable schema — the base is never mutated, so two editors on one page can run different schemas.
+
+<Code lang="ts" code={`
+import { createEditor, baseSchema } from "@cypherkit/editor";
+
+const schema = baseSchema.extend({
+  nodes: [callout],
+  marks: [highlight],
+});
+
+const editor = createEditor({ element, schema });
+
+// The doc carries the data half of the schema, so persistence and markdown
+// round-trip the custom block losslessly:
+editor.getMarkdown(); // …  <x-callout tone="warn" />  …
+`} />
+
+<Callout kind="tip" title="Schema changes are CRDT-safe.">Blocks are addressed by type *name* in the replicated log, so a peer running the same schema merges your callouts cleanly. A peer that *doesn't* have the type doesn't crash or lose data — it keeps the ops and renders an "unsupported block" placeholder until it's upgraded. Ship schema changes to all peers together, the way you'd ship a database migration.</Callout>

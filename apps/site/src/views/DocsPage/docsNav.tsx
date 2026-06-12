@@ -1,31 +1,26 @@
 import { type ComponentType, type ReactElement } from "react";
 import { Icons } from "./docsIcons";
-import {
-  AppGettingStarted,
-  AppSyncRelay,
-  AppSelfHosting,
-  AppPrivacy,
-  AppTroubleshooting,
-} from "./pages/appPages";
-import {
-  EditorInstall,
-  EditorQuickstart,
-  EditorConcepts,
-  EditorFirstEditor,
-  EditorCollaboration,
-  EditorCustomNodes,
-  EditorTheming,
-} from "./pages/editorPages";
-import {
-  EditorApiEditor,
-  EditorApiCommands,
-  EditorApiSchema,
-} from "./pages/editorApiPages";
+import AppGettingStarted from "./pages/app/getting-started.mdx";
+import AppSyncRelay from "./pages/app/sync-relay.mdx";
+import AppSelfHosting from "./pages/app/self-hosting.mdx";
+import AppPrivacy from "./pages/app/privacy.mdx";
+import AppTroubleshooting from "./pages/app/troubleshooting.mdx";
+import EditorInstall from "./pages/editor/install.mdx";
+import EditorQuickstart from "./pages/editor/quickstart.mdx";
+import EditorConcepts from "./pages/editor/concepts.mdx";
+import EditorFirstEditor from "./pages/editor/first-editor.mdx";
+import EditorCollaboration from "./pages/editor/collaboration.mdx";
+import EditorCustomNodes from "./pages/editor/custom-nodes.mdx";
+import EditorTheming from "./pages/editor/theming.mdx";
+import EditorApiEditor from "./pages/editor/api-editor.mdx";
+import EditorApiCommands from "./pages/editor/api-commands.mdx";
+import EditorApiSchema from "./pages/editor/api-schema.mdx";
 
 /* ============================================================
    Documentation navigation model — ported from docs-shell.jsx.
    `route` is the path under /docs (e.g. "app/getting-started").
-   Components are referenced directly (no global lookup).
+   Each article is an MDX file under ./pages/<section>/<slug>.mdx,
+   imported directly as a component (no global lookup).
    ============================================================ */
 
 export interface NavItem {

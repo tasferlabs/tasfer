@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import createMDX from "@next/mdx";
 
 /**
  * Cypher site (marketing home + docs + privacy).
@@ -21,4 +22,8 @@ const nextConfig: NextConfig = {
   // automatically via the NEXT_PUBLIC_ prefix.
 };
 
-export default nextConfig;
+// The docs articles (src/views/DocsPage/pages/**/*.mdx) are MDX imported as
+// components; routes themselves stay .tsx, so pageExtensions is untouched.
+const withMDX = createMDX({});
+
+export default withMDX(nextConfig);

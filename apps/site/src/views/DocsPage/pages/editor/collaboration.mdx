@@ -1,0 +1,42 @@
+{/* @cypherkit/editor docs — Realtime collaboration. */}
+
+import { Callout, Code, PropsTable } from "../../docsComponents";
+
+<p className="dx-lede">A provider connects your editor's CRDT to other replicas. Swap providers to change *how* peers reach each other — the document model and your UI stay identical.</p>
+
+<h2 id="providers">Choosing a provider</h2>
+
+<PropsTable cols={["Provider", "Transport", "Use it when"]} rows={[
+  { name: "provider-relay", type: "WebSocket relay", desc: "Peers behind NATs/firewalls. The relay introduces peers and forwards encrypted updates it cannot read." },
+  { name: "provider-webrtc", type: "Peer-to-peer", desc: "Direct browser-to-browser once introduced. Lowest latency; needs a small signaling step." },
+  { name: "provider-indexeddb", type: "Local disk", desc: "Not a network provider — persists the CRDT to IndexedDB so reloads are instant and offline-complete." },
+  { name: "custom", type: "Anything", desc: "Implement the Provider interface over your own backend, BroadcastChannel, or a file watcher." },
+]} />
+
+<h2 id="stack">Stack them</h2>
+
+Providers compose. A typical setup persists locally *and* syncs over the network — the editor merges all of them into one converging document:
+
+<Code lang="ts" code={`
+import { createIndexedDBProvider } from "@cypherkit/provider-indexeddb";
+import { createRelayProvider } from "@cypherkit/provider-relay";
+
+createIndexedDBProvider({ doc: editor.doc, name: "notes/today" });
+const net = createRelayProvider({ doc: editor.doc, room: "team-notes" });
+`} />
+
+<h2 id="presence">Presence & remote cursors</h2>
+
+Presence is ephemeral state that travels alongside the document but is never persisted — who is here, where their cursor is, what color to draw them. The editor renders remote carets on the canvas for you once you publish presence.
+
+<Code lang="ts" code={`
+net.presence.set({ name: "Ada", color: "#1db984" });
+
+// the editor draws remote carets automatically; subscribe for a UI list.
+// each entry is { peerId, state } — the state is what that peer published:
+net.presence.on("change", (peers) => {
+  avatars.render(peers.map((p) => p.state.name));
+});
+`} />
+
+<Callout kind="note" title="Offline is not a special case.">Disconnect, edit for an hour on a plane, reconnect — the CRDT merges your changes with everyone else's deterministically. There is no "resolve conflicts" dialog because there are no conflicts to resolve.</Callout>

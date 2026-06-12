@@ -1,0 +1,39 @@
+{/* Cypher app docs — Self-hosting the relay. */}
+
+import { Callout, Code, PropsTable } from "../../docsComponents";
+
+<p className="dx-lede">The relay is a small, stateless service: it introduces peers and forwards encrypted bytes it cannot read. **It has no database, no accounts, and nothing worth subpoenaing.** Running your own takes one container.</p>
+
+<h2 id="run">Run it</h2>
+
+The relay ships as a container image and a single static binary. Either works:
+
+<Code lang="bash" code={`
+# container
+docker run -p 443:8443 \\
+  -v $PWD/certs:/certs \\
+  ghcr.io/hamza512b/cypher-relay:latest
+
+# or the static binary
+cypher-relay --listen :8443 --tls-cert ./fullchain.pem --tls-key ./key.pem
+`} />
+
+Then point your app at it: `Settings → Sync → Relay → wss://relay.example.org`.
+
+<h2 id="config">Configuration</h2>
+
+<PropsTable cols={["Flag", "Default", "Description"]} rows={[
+  { name: "--listen", type: ":8443", desc: "Address and port to bind the WebSocket listener." },
+  { name: "--tls-cert / --tls-key", type: "—", desc: "PEM files for WSS. Terminate TLS here or at a proxy in front." },
+  { name: "--max-room-size", type: "32", desc: "Peers allowed in one room before new joins are refused." },
+  { name: "--idle-timeout", type: "60s", desc: "Drop a peer connection after this long with no traffic." },
+  { name: "--metrics", type: "off", desc: "Expose Prometheus counters (connections, bytes forwarded) — no peer identities." },
+]} />
+
+<Callout kind="note" title="What it never stores.">There is no on-disk state. Restart it and nothing is lost because there was nothing to lose — no message history, no peer directory, no account table. Memory holds only the live set of currently-connected rooms.</Callout>
+
+<h2 id="harden">Hardening notes</h2>
+
+- **Put it behind a reverse proxy** (Caddy, nginx) for automatic TLS and to keep the binary off port 443 directly.
+- **It forwards opaque ciphertext** — there is no decryption key on the server to protect, which is the whole point. Logs, even at debug level, contain no plaintext.
+- **Scale horizontally** by running several behind a load balancer with sticky sessions per room; peers in one room must land on one instance.

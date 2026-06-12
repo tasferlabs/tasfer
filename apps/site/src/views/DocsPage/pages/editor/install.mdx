@@ -1,0 +1,74 @@
+{/* @cypherkit/editor docs — Installation. */}
+
+import { Icons } from "../../docsIcons";
+import { Callout, Card, CardGrid, Code, InstallTabs, LicenseCard } from "../../docsComponents";
+
+<p className="dx-lede">`@cypherkit/editor` is a CRDT-first canvas editor for the web — the same engine that powers the Cypher app, extracted as a standalone, framework-agnostic package. **It renders to a canvas, models your document as a conflict-free replicated data type, and never assumes a server exists.**</p>
+
+<LicenseCard>Released under the **MIT license**. Use it in commercial and closed-source products, fork it, rebrand it — no copyleft, no attribution clause beyond keeping the license file. (The Cypher *app* is AGPL-3.0; the editor package is deliberately permissive.)</LicenseCard>
+
+<h2 id="install">Install</h2>
+
+Add the package with your package manager of choice:
+
+<InstallTabs pkg="@cypherkit/editor" />
+
+The core package has **zero runtime dependencies**. The CRDT, the canvas renderer, and the markdown serializer all ship inside it. You only add more packages when you want a framework binding or a network provider:
+
+<InstallTabs pkg="@cypherkit/react @cypherkit/provider-relay" />
+
+<h2 id="requirements">Requirements</h2>
+
+- **A browser with `ResizeObserver` and a 2D `<canvas>` context** — every evergreen browser since ~2020. There is no DOM-contenteditable fallback by design; the canvas *is* the editor.
+- **ES2020 or a bundler that targets it.** The package ships ESM with a CommonJS interop entry. Types are bundled — no `@types` install.
+- **No build step required for the CRDT.** It's pure JavaScript — there's nothing to copy into your `public/` folder.
+
+<h2 id="first">A thirty-second editor</h2>
+
+Mount an editor into any element. This is the smallest thing that works — an editable document with markdown shortcuts, history, and a blinking cursor:
+
+<Code file="main.ts" lang="ts" code={`
+import { createEditor } from "@cypherkit/editor";
+
+const editor = createEditor({
+  element: document.querySelector("#editor")!,
+  value: "# Hello\\n\\nStart typing — *markdown* shortcuts just work.",
+  autofocus: true,
+});
+
+// Read it back at any time, as plain markdown:
+editor.on("change", () => {
+  localStorage.setItem("draft", editor.getMarkdown());
+});
+`} />
+
+<Callout kind="tip" title="That document is already a CRDT.">Even with no provider attached, the editor's value is backed by a replicated data structure. Wiring up sync later is additive — you never rewrite your document model to "make it collaborative."</Callout>
+
+<h2 id="next">Where to go next</h2>
+
+<CardGrid>
+  <Card
+    to="editor/quickstart"
+    icon={<Icons.Bolt />}
+    title="Quick start"
+    desc="The full mental model in five minutes — value, state, commands, and events."
+  />
+  <Card
+    to="editor/concepts"
+    icon={<Icons.Layers />}
+    title="Core concepts"
+    desc="Why CRDT-first changes how you think about an editor's document."
+  />
+  <Card
+    to="editor/first-editor"
+    icon={<Icons.Compass />}
+    title="Your first editor"
+    desc="A guided tutorial: toolbar, persistence, and live collaboration."
+  />
+  <Card
+    to="editor/api-editor"
+    icon={<Icons.Braces />}
+    title="Editor API"
+    desc="Every option, method, and event on the Editor instance."
+  />
+</CardGrid>

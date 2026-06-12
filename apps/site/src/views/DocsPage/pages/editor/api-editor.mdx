@@ -1,0 +1,58 @@
+{/* @cypherkit/editor API reference — Editor. */}
+
+import { Callout, Code, PropsTable } from "../../docsComponents";
+
+<p className="dx-lede">`createEditor(options)` returns a `CypherEditor` — the view, command dispatcher, and selection owner over a CRDT document (the full `Editor` command surface plus the mount lifecycle). This is the object you'll hold onto for the lifetime of the editing surface.</p>
+
+<h2 id="create">createEditor(options)</h2>
+
+<Code lang="ts" code={`
+import { createEditor } from "@cypherkit/editor";
+const editor = createEditor(options: CreateEditorOptions): CypherEditor;
+`} />
+
+<PropsTable rows={[
+  { name: "element", type: "HTMLElement", required: true, desc: "The host element the canvas mounts into. Sized to fill it." },
+  { name: "value", type: "string", desc: "Initial document as markdown. Ignored when doc or blocks is provided." },
+  { name: "blocks", type: "Block[]", desc: "Pre-parsed blocks to mount (e.g. restored from a snapshot). Takes precedence over value." },
+  { name: "doc", type: "Doc", desc: "An existing CRDT document to edit. Takes precedence over value." },
+  { name: "schema", type: "Schema", desc: "Allowed nodes & marks. Defaults to baseSchema." },
+  { name: "theme", type: "EditorTheme", desc: "Canvas color tokens, styles, and fonts. Defaults to the neutral palette." },
+  { name: "editable", type: "boolean", desc: "Set false for a read-only renderer. Default true." },
+  { name: "placeholder", type: "string", desc: "Ghost text shown when the document is empty." },
+  { name: "autofocus", type: "boolean", desc: "Focus the editor on mount. Default false." },
+]} />
+
+<h2 id="methods">Instance methods</h2>
+
+<PropsTable cols={["Method", "Signature", "Description"]} rows={[
+  { name: "getMarkdown", type: "() => string", desc: "Serialise the current document to markdown." },
+  { name: "setMarkdown", type: "(md: string) => void", desc: "Replace the document. Recorded as one undoable transaction." },
+  { name: "focus", type: "(at?: 'start'|'end') => void", desc: "Move focus to the canvas, optionally placing the caret." },
+  { name: "blur", type: "() => void", desc: "Remove focus from the editor." },
+  { name: "on", type: "(event, cb) => () => void", desc: "Subscribe to an event. Returns an unsubscribe function." },
+  { name: "chain", type: "() => CommandChain", desc: "Begin a chain of commands committed as a single undo step." },
+  { name: "destroy", type: "() => void", desc: "Tear down listeners, canvas, and providers attached via the editor." },
+]} />
+
+<h2 id="props">Instance properties</h2>
+
+<PropsTable cols={["Property", "Type", "Description"]} rows={[
+  { name: "state", type: "EditorStateSnapshot", desc: "Immutable snapshot { selection, activeMarks, doc }, rebuilt every edit. The raw internal EditorState is available via getState()." },
+  { name: "commands", type: "Commands", desc: "The command registry — call e.g. editor.commands.toggleMark('strong')." },
+  { name: "doc", type: "Doc", desc: "The underlying CRDT document. Pass this to providers to sync." },
+]} />
+
+<Callout kind="note" title="state is a value, not a store.">`editor.state` is replaced — never mutated — on each transaction. Capture it in a variable only for the duration of one read; for live UI, recompute inside a `change` / `selectionchange` handler.</Callout>
+
+<h2 id="lifecycle">Lifecycle</h2>
+
+<Code lang="ts" code={`
+const editor = createEditor({ element });
+
+// ... use it ...
+
+// always destroy when the surface unmounts, or you'll leak
+// the canvas, the ResizeObserver, and any attached providers.
+editor.destroy();
+`} />

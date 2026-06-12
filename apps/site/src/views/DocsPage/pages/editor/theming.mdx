@@ -1,0 +1,90 @@
+{/* @cypherkit/editor docs — Theming the canvas. */}
+
+import { Callout, Code, PropsTable } from "../../docsComponents";
+
+<p className="dx-lede">Because the editor paints its own pixels, theming is done through a plain `EditorTheme` object — semantic color **tokens**, a deep-partial **styles** override, and a **fonts** registry — not CSS selectors into a DOM you don't control.</p>
+
+<h2 id="tokens">The theme object</h2>
+
+Pass a `theme` to `createEditor`. Colors live under `tokens`; every field is optional and merges over the built-in `DEFAULT_TOKENS` palette, so you only set what you change.
+
+<Code lang="ts" code={`
+import { createEditor } from "@cypherkit/editor";
+
+const editor = createEditor({
+  element,
+  theme: {
+    // Semantic color tokens — merged over DEFAULT_TOKENS.
+    tokens: {
+      text: "#1c1c1f",
+      heading: "#09090b",
+      cursor: "#1db984",
+      selection: "rgba(29,185,132,0.30)",
+      link: "#1db984",
+      codeBackground: "#f4f4f5",
+    },
+    // The selected font family key + the CSS stacks it can resolve to.
+    // (The host is responsible for actually loading the faces.)
+    fontFamily: "serif",
+    fonts: { families: { serif: '"Libre Baskerville", Georgia, serif' } },
+  },
+});
+`} />
+
+<Callout kind="note" title="tokens vs styles.">`tokens` are the semantic colors (text, heading, cursor, selection, link, `codeBackground`, …). For finer control — per-block font sizes, canvas padding, scrollbar geometry — pass a deep-partial `styles` object that overrides any individual leaf of the resolved style tree. `resolveTheme`, `mergeTheme`, and `DEFAULT_TOKENS` are exported for hosts that want to precompute or inspect the result.</Callout>
+
+<h2 id="live">Updating the theme live</h2>
+
+`editor.setTheme(patch)` deep-merges a patch onto the current theme and repaints — the one path for a runtime theme change, e.g. a dark-mode toggle:
+
+<Code lang="ts" code={`
+editor.setTheme({
+  tokens: { text: "#e6e6e6", heading: "#ffffff", background: "#0b0b0c" },
+});
+`} />
+
+<h2 id="css-vars">Driving it from CSS variables</h2>
+
+The engine **never reads the DOM** — there is no `"inherit"` token. To follow CSS custom properties, the host reads them and forwards the values as `tokens`: once at mount, and again whenever your theme class flips.
+
+<Code lang="ts" code={`
+function tokensFromCss(el: HTMLElement) {
+  const v = getComputedStyle(el);
+  return {
+    text: v.getPropertyValue("--cy-editor-text").trim(),
+    cursor: v.getPropertyValue("--cy-editor-cursor").trim(),
+    selection: v.getPropertyValue("--cy-editor-selection").trim(),
+  };
+}
+
+const editor = createEditor({ element, theme: { tokens: tokensFromCss(element) } });
+
+// Re-read on a dark-mode class flip on <html> and push the new tokens in.
+new MutationObserver(() => editor.setTheme({ tokens: tokensFromCss(element) }))
+  .observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+`} />
+
+<Callout kind="note" title="Matching the Cypher look.">Cypher's host feeds its `--cy-editor-*` design tokens straight into `tokens` exactly this way, so dropping the editor into a Cypher surface needs no palette of its own — it gets the same variables the rest of the UI uses.</Callout>
+
+<h2 id="metrics">Metrics live in `styles`</h2>
+
+Sizes and spacing aren't tokens — they're leaves of the `styles` tree, each overridable per instance:
+
+<PropsTable cols={["Path", "Default", "Description"]} rows={[
+  { name: "styles.blocks.paragraph.fontSize", type: "16", desc: "Base paragraph size in px. Each heading level carries its own fontSize (32 / 24 / 20)." },
+  { name: "styles.blocks.paragraph.lineHeight", type: "1.6", desc: "Unitless line-height multiple for the block." },
+  { name: "styles.canvas.paddingTop / paddingBottom", type: "4 / 80", desc: "Vertical canvas padding in px." },
+  { name: "styles.canvas.paddingLeft / paddingRight", type: "40 / 40", desc: "Horizontal canvas padding. The text column is the container width minus these — there is no fixed max-width token." },
+]} />
+
+<Code lang="ts" code={`
+createEditor({
+  element,
+  theme: {
+    styles: {
+      blocks: { paragraph: { fontSize: 17 } },
+      canvas: { paddingLeft: 64, paddingRight: 64 },
+    },
+  },
+});
+`} />

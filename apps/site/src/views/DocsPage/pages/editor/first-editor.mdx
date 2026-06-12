@@ -1,0 +1,128 @@
+{/* @cypherkit/editor docs — Your first editor (guided tutorial). */}
+
+import { Icons } from "../../docsIcons";
+import { Callout, Card, CardGrid, Code, Step, Steps } from "../../docsComponents";
+
+<p className="dx-lede">We'll build a real editor from scratch: a writing surface, a formatting toolbar wired to live state, local persistence, and — in the last step — two browser tabs editing the same document in real time. No framework required; plain TypeScript.</p>
+
+<Callout kind="note" title="Following along.">Every snippet below is cumulative. By the end you'll have one `main.ts` file under ~70 lines that does everything described.</Callout>
+
+<h2 id="mount">Step 1 — Mount the editor</h2>
+
+<Steps>
+  <Step title="Create a host element">
+    The editor needs a block-level element to own. Give it a height — the canvas fills its container.
+
+    <Code file="index.html" lang="html" code={`
+<div id="editor" style="height: 70vh"></div>
+<div id="toolbar"></div>
+`} />
+  </Step>
+  <Step title="Instantiate">
+    Import the engine and its base theme, then create the editor.
+
+    <Code file="main.ts" lang="ts" code={`
+import { createEditor } from "@cypherkit/editor";
+
+const editor = createEditor({
+  element: document.querySelector("#editor")!,
+  value: "# My notes\\n\\nWrite something.",
+  placeholder: "Start writing…",
+  autofocus: true,
+});
+`} />
+  </Step>
+</Steps>
+
+<h2 id="toolbar">Step 2 — A toolbar that reflects state</h2>
+
+The key idea: the toolbar is a *function of editor state*, never a place where you track formatting yourself. Read `activeMarks` to light up buttons, dispatch a command on click.
+
+<Code file="main.ts" lang="ts" code={`
+const toolbar = document.querySelector("#toolbar")!;
+
+const buttons = [
+  { label: "B", mark: "strong" },
+  { label: "i", mark: "emphasis" },
+  { label: "</>", mark: "code" },
+];
+
+for (const b of buttons) {
+  const el = document.createElement("button");
+  el.textContent = b.label;
+  el.onclick = () => editor.commands.toggleMark(b.mark);
+  toolbar.append(el);
+  b.el = el;
+}
+
+// keep the active states in sync — runs on every edit & caret move
+function paint() {
+  const active = editor.state.activeMarks;
+  for (const b of buttons) {
+    b.el.classList.toggle("is-active", active.has(b.mark));
+  }
+}
+editor.on("change", paint);
+editor.on("selectionchange", paint);
+paint();
+`} />
+
+<Callout kind="tip" title="Markdown shortcuts are already on.">Type `**bold**`, `## ` at the start of a line, or `- ` for a bullet — the built-in input rules transform them as you type. Your toolbar and the shortcuts edit the same state.</Callout>
+
+<h2 id="persist">Step 3 — Persist locally</h2>
+
+Save on change. Because the document is a CRDT, the most robust thing to persist is its binary update — but for a single device, markdown is fine and human-readable:
+
+<Code file="main.ts" lang="ts" code={`
+// restore on load
+const saved = localStorage.getItem("draft");
+if (saved) editor.setMarkdown(saved);
+
+// save on change (debounced by the engine to once per animation frame)
+editor.on("change", (tx) => {
+  if (tx.isRemote) return;
+  localStorage.setItem("draft", editor.getMarkdown());
+});
+`} />
+
+<h2 id="collab">Step 4 — Make it collaborative</h2>
+
+Here's the payoff for being CRDT-first. To sync two replicas, you attach a provider — a transport that ships CRDT updates between peers. Nothing about the steps above changes. Open the page in two tabs and watch:
+
+<Code file="main.ts" lang="ts" code={`
+import { createRelayProvider } from "@cypherkit/provider-relay";
+
+const provider = createRelayProvider({
+  doc: editor.doc,                 // sync THIS editor's document
+  room: "my-notes-demo",           // peers in the same room converge
+  relay: "wss://relay.cypher.md",  // swap for your own; it forwards, can't read
+});
+
+// Connection status comes from the provider, not the editor — the provider
+// owns the transport. (To route it through editor.on("sync") instead, forward
+// it once: provider.on("sync", editor.setSyncState).)
+provider.on("sync", (s) => {
+  status.textContent = s.connected ? \`live · \${s.peers} peer(s)\` : "offline";
+});
+`} />
+
+<Callout kind="warn" title="The relay can't read your document.">Updates are encrypted end-to-end before they leave the tab; the relay forwards opaque bytes and keeps no log. This is the same relay model the Cypher app uses — see [Sync & relay setup](/docs/app/sync-relay).</Callout>
+
+<h2 id="done">What you built</h2>
+
+A canvas editor with markdown shortcuts, a state-driven toolbar, local persistence, and real-time collaboration — and step 4 was purely additive. That's the whole point of starting from a CRDT.
+
+<CardGrid>
+  <Card
+    to="editor/collaboration"
+    icon={<Icons.Users />}
+    title="Realtime collaboration"
+    desc="Providers, presence, remote cursors, and offline merge in depth."
+  />
+  <Card
+    to="editor/custom-nodes"
+    icon={<Icons.Puzzle />}
+    title="Custom nodes & marks"
+    desc="Teach the schema new block types — callouts, mentions, embeds."
+  />
+</CardGrid>
