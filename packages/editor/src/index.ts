@@ -43,7 +43,6 @@ export type {
   EditorEvent,
   EditorStateSnapshot,
   MarkName,
-  SyncState,
 } from "./entries/editor";
 
 // Convenience constructor — parse Markdown + mount in a single call, returning
@@ -120,8 +119,14 @@ export type {
   ViewportState,
 } from "./state-types";
 
-// CRDT sync — the binding is the per-instance id/clock/peer-identity source;
-// share one binding between `mountEditor` and `createSyncEngine`.
+// CRDT sync. For document sync + persistence prefer the high-level `Doc`
+// (`createDoc` above): attach it via `createEditor({ doc })` or
+// `mountEditor(el, blocks, { doc })`, then drive it with `applyUpdate` /
+// `on("update")` / `load`. `createSyncEngine` is the lower-level op-log engine
+// (op creators, version vector, merge) that sits underneath — reach for it
+// directly only for advanced uses such as headless CRDT tooling and the
+// convergence fuzz tests. The binding is the per-instance id/clock/peer-identity
+// source; share one binding across whichever of these you combine.
 export type { SyncEngine } from "./sync/sync";
 export {
   createCRDTbinding,

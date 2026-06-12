@@ -50,10 +50,17 @@ export interface CypherEditor extends Editor {
    * `CreateEditorOptions.doc`, or a private one created on mount. Sync and
    * persistence go through it: `doc.applyUpdate(ops)` for inbound ops,
    * `doc.on("update", …)` for outbound, `doc.encodeState()` to persist.
-   * (The editor-level `setBroadcast`/`applyRemoteOperations` still work but
-   * are routed through the doc; prefer the doc API in new code.)
+   * (The legacy `setBroadcast`/`applyRemoteOperations` shims below still work
+   * but are routed through the doc; prefer the doc API in new code.)
    */
   readonly doc: Doc;
+  /**
+   * Apply remote operations to the document.
+   * @deprecated Use the doc directly: `editor.doc.applyUpdate(ops)`. Kept as a
+   * thin alias that routes through the doc so the log/version vector stay
+   * consistent and the editor re-renders.
+   */
+  applyRemoteOperations: (ops: Operation[]) => void;
   /**
    * Read-only state snapshot for UI binding: `{ selection, activeMarks, doc }`.
    * The raw internal {@link EditorState} stays available via {@link getState}.
@@ -126,15 +133,13 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
     // Render with the schema's nodes (built-ins + any custom), unless the host
     // passed an explicit `nodes` list (which then wins).
     nodes: mountOptions.nodes ?? schema.nodes,
-    pageId: doc.pageId,
-    // Share the doc's id/clock/peer-identity source with the editor so local
-    // ops are stamped causally ahead of everything the doc has seen.
-    crdtBinding: doc._binding,
+    // Attach the doc: mountEditor mounts from its blocks, shares its binding,
+    // and owns the doc↔editor wiring (local edits → doc, doc updates → editor).
+    doc,
   });
   const { editor } = mounted;
 
-  // Unsubscribers for the doc↔editor wiring below.
-  let offDocUpdate: (() => void) | null = null;
+  // Unsubscriber for the host-facing legacy `setBroadcast` shim below.
   let offHostBroadcast: (() => void) | null = null;
 
   const focus = (at?: "start" | "end") => {
@@ -144,10 +149,9 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
   };
 
   const destroy = () => {
-    offDocUpdate?.();
-    offDocUpdate = null;
     offHostBroadcast?.();
     offHostBroadcast = null;
+    // mounted.destroy() detaches the doc↔editor wiring it installed.
     mounted.destroy();
     // A doc passed in by the host outlives the editor; a private one doesn't.
     if (ownsDoc) doc.destroy();
@@ -174,15 +178,16 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
     // spread copies a reference, it isn't reassigned, so there's no recursion.)
     destroy,
     // ── Legacy sync surface, rerouted through the doc ─────────────────────
-    // The core editor's single broadcast slot is occupied by the doc wiring
-    // below; reinstalling a host callback there would silently disconnect the
-    // doc. Instead, a host `setBroadcast` becomes a doc subscription filtered
-    // to this editor's own local batches — same observable behavior as before.
+    // mountEditor owns the editor's broadcast slot (the doc↔editor wiring);
+    // a host must not reinstall it there or the doc would disconnect. So a host
+    // `setBroadcast` becomes a doc subscription over this editor's own local
+    // batches — same observable behavior as before. Prefer the doc API
+    // (`editor.doc.on("update", …)`) in new code.
     setBroadcast: (fn) => {
       offHostBroadcast?.();
       offHostBroadcast = fn
         ? doc.on("update", (u) => {
-            if (u.local && u.origin === handle) fn(u.ops);
+            if (u.local) fn(u.ops);
           })
         : null;
     },
@@ -192,20 +197,6 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
       doc.applyUpdate(ops, "applyRemoteOperations");
     },
   };
-
-  // ── Doc ↔ editor wiring ──────────────────────────────────────────────────
-  // Local edits → doc: the editor has already applied them to its own state;
-  // the doc logs them and notifies other listeners (providers, other views).
-  editor.setBroadcast((ops) => doc._ingestLocal(ops, handle));
-  // Doc updates from any other origin → editor. Adopt the doc's fully-merged
-  // page rather than replaying the ops incrementally: the doc's merge has the
-  // slow rebuild path (e.g. a text_insert whose anchor arrived in a later
-  // batch), which a per-op fold in the editor would drop.
-  offDocUpdate = doc.on("update", (u) => {
-    if (u.origin === handle) return;
-    // Pass the applied ops so `editor.on("change")` fires with isRemote: true.
-    editor.updatePageFromSync(doc._getPage(), u.ops);
-  });
 
   if (autofocus) focus();
 

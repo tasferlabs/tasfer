@@ -7,12 +7,8 @@ import {
   type AwarenessState,
   type AwarenessUser,
 } from "@cypherkit/editor/sync/awareness";
-import {
-  createCRDTbinding,
-  createSyncEngine,
-  serializeVV,
-  type SyncEngine,
-} from "@cypherkit/editor/sync/sync";
+import { createDoc, type Doc } from "@cypherkit/editor/doc";
+import { serializeVV } from "@cypherkit/editor/sync/sync";
 import type { Operation } from "@cypherkit/editor/state-types";
 import { getPlatform } from "@/platform";
 import {
@@ -322,7 +318,7 @@ export function MountedEditor({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { t } = useTranslation();
   const mountedRef = useRef<MountedEditorInstance | null>(null);
-  const syncEngineRef = useRef<SyncEngine | null>(null);
+  const docRef = useRef<Doc | null>(null);
   const onScrollRef = useRef(onScroll);
   // Latest selected font family, read at mount time without making it a mount
   // dependency (changing it re-themes via setTheme below, not a full re-mount).
@@ -587,9 +583,10 @@ export function MountedEditor({
       mountedRef.current = null;
     }
 
-    // Clean up previous sync engine
-    if (syncEngineRef.current) {
-      syncEngineRef.current = null;
+    // Clean up previous doc
+    if (docRef.current) {
+      docRef.current.destroy();
+      docRef.current = null;
     }
 
     // Reset serialization tracking and initialization flag when snapshot changes
@@ -603,14 +600,20 @@ export function MountedEditor({
         : snapshot;
     liveBlocksRef.current = null;
 
-    // One CRDT binding per page mount — the single id/clock/peer-identity
-    // source shared by the editor (which stamps local ops with it) and the
-    // sync engine (which advances it past loaded/remote ops). Sharing it means
-    // no manual clock/id-counter mirroring between the two, and local ops are
-    // stamped with our persistent peer id instead of a random per-mount one.
-    const crdtBinding = createCRDTbinding(pageId, peerIdRef.current);
+    // One CRDT Doc per page mount — the single source of truth for the document.
+    // It owns the op log, version vector, and the id/clock/peer-identity binding
+    // shared with the editor (so local ops are stamped with our persistent peer
+    // id and stay causally ahead of everything loaded/received). The editor
+    // renders/edits this doc; persistence and P2P sync hang off doc.on("update")
+    // and doc.applyUpdate below — no second op-log fold to keep in step.
+    const doc = createDoc({
+      blocks: initialBlocks,
+      pageId,
+      peerId: peerIdRef.current,
+    });
+    docRef.current = doc;
 
-    const mounted = mountEditor(el, initialBlocks, {
+    const mounted = mountEditor(el, doc.getBlocks(), {
       editable: !readonly,
       pageId,
       padding,
@@ -628,7 +631,10 @@ export function MountedEditor({
         fontFamily: fontStyleToFamily(fontStyleRef.current),
         nodeStrings: editorNodeStrings(),
       },
-      crdtBinding,
+      // Attach the doc: the editor mounts from its blocks, shares its binding,
+      // and the doc↔editor wiring (local edits → doc, doc updates → editor) is
+      // owned by mountEditor.
+      doc,
     });
     mountedRef.current = mounted;
 
@@ -730,25 +736,23 @@ export function MountedEditor({
         themeObserver.disconnect();
         offFontRegistry();
         mounted.destroy();
+        docRef.current?.destroy();
+        docRef.current = null;
         if (mountedRef.current === mounted) {
           mountedRef.current = null;
         }
       };
     }
 
-    // Load persisted operations from SQLite (if any)
-    // This restores the sync engine's VV and applies any ops that arrived
-    // while the page was closed (e.g. from bulk P2P sync while offline).
-    // Load persisted ops into SyncEngine for VV tracking.
-    // Page content is already rebuilt from ops by the engine, so no need
-    // to apply them to the editor — just feed the SyncEngine.
+    // Load persisted operations from SQLite (if any) and register them on the
+    // doc. This catches the doc's version vector + clock/id counter up to what
+    // the snapshot blocks already represent (the blocks were rebuilt from these
+    // ops by the engine), without re-rendering — see Doc.load. New local ops
+    // then out-order and out-counter historical ones.
     const platform = getPlatform();
     const opsLoadedPromise = platform.ops.load(pageId).then((persistedOps) => {
-      if (persistedOps.length > 0 && syncEngineRef.current) {
-        // loadOperations also advances the shared CRDT binding's clock and
-        // id-counter past every loaded op, so new local operations (typing,
-        // restore, etc.) out-order and out-counter historical ones.
-        syncEngineRef.current.loadOperations(persistedOps);
+      if (persistedOps.length > 0 && docRef.current) {
+        docRef.current.load(persistedOps);
       }
       // Local storage confirmed — we have whatever we have. Reveal the canvas.
       if (!snapshotHasContent) {
@@ -763,11 +767,6 @@ export function MountedEditor({
       });
     }
 
-    // Initialize sync engine for CRDT on the same binding as the editor
-    // (same peerId as WebSocket, single shared clock/id source).
-    const syncEngine = createSyncEngine(crdtBinding);
-    syncEngineRef.current = syncEngine;
-
     // Debounced snapshot writer — keeps the FS snapshot in sync after edits.
     // 2s delay avoids writing on every keystroke.
     let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
@@ -778,16 +777,27 @@ export function MountedEditor({
       }, 2000);
     };
 
-    // Apply remote ops to the in-memory sync engine and update the editor.
-    // Persistence is handled by the Replicator before ops reach these callbacks.
+    // Single fan-out for every document change. Local edits (u.local) are
+    // broadcast to peers and persisted to SQLite here; remote ops are persisted
+    // by the Replicator before they reach applyRemoteOps, so we only refresh the
+    // FS snapshot for those. The doc's update event also drives the editor
+    // re-render (via the mountEditor wiring), so there's no second op-log fold.
+    const offDocUpdate = doc.on("update", (u) => {
+      if (u.local) {
+        roomBroadcast(u.ops);
+        platform.ops.persist(pageId, u.ops);
+      }
+      saveSnapshot(doc.getBlocks());
+    });
+
+    // Apply remote ops through the doc. applyUpdate dedups via the version
+    // vector, advances the shared binding past everything received (so local
+    // ops stay causally ahead), drives the editor, and fires offDocUpdate — all
+    // synchronously, so the isApplyingRemoteOps guard still brackets the
+    // editor's state-change notification and suppresses the local save path.
     const applyRemoteOps = (ops: Operation[]) => {
       isApplyingRemoteOpsRef.current = true;
-      // apply() advances the shared CRDT binding's clock and id-counter past
-      // all received ops, so subsequent local operations (typing, deleting)
-      // respect causality with no extra bookkeeping here.
-      syncEngine.apply(ops);
-      mounted.editor.updatePageFromSync(syncEngine.getState());
-      saveSnapshot(syncEngine.getState().blocks);
+      doc.applyUpdate(ops, "remote");
       isApplyingRemoteOpsRef.current = false;
     };
 
@@ -851,7 +861,7 @@ export function MountedEditor({
       if (hasOtherPeers) {
         // Wait for persisted ops to load so the VV is accurate
         opsLoadedPromise.then(() => {
-          const localVV = serializeVV(syncEngine.getVersionVector());
+          const localVV = serializeVV(doc.getVersionVector());
           roomSendSyncRequest(localVV);
         });
 
@@ -874,17 +884,9 @@ export function MountedEditor({
       }
     };
 
-    // Connect editor's broadcast to room
-    mounted.editor.setBroadcast((ops) => {
-      // Add to sync engine's log
-      syncEngine.emit(ops);
-      // Broadcast to peers
-      roomBroadcast(ops);
-      // Persist to SQLite
-      platform.ops.persist(pageId, ops);
-      // Keep FS snapshot in sync so next page-open skips the op-log rebuild
-      saveSnapshot(syncEngine.getState().blocks);
-    });
+    // Local-edit broadcast/persistence is handled by the doc.on("update")
+    // subscription above — the editor feeds its local ops into the doc, and the
+    // doc fans them out to peers + SQLite + the snapshot.
 
     // Connect editor's awareness broadcast to room
     // Guard: don't broadcast before P2P identity loads (localUserRef starts as { peerId: "", color: "" })
@@ -1415,6 +1417,7 @@ export function MountedEditor({
 
     return () => {
       unsubscribe();
+      offDocUpdate();
       themeObserver.disconnect();
       offFontRegistry();
 
@@ -1450,12 +1453,10 @@ export function MountedEditor({
       // Cancel pending snapshot write
       if (snapshotTimer) clearTimeout(snapshotTimer);
 
-      // Clean up sync engine
-      if (syncEngineRef.current) {
-        syncEngineRef.current = null;
-      }
-
+      // Tear down the editor (detaches the doc↔editor wiring), then the doc.
       mounted.destroy();
+      docRef.current?.destroy();
+      docRef.current = null;
 
       delete window.CypherEditorCallbacks;
       if (mountedRef.current === mounted) {

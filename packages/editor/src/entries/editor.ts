@@ -59,7 +59,7 @@ import type {
   SlashCommand,
   ViewportState,
 } from "../state-types";
-import type { BlockDelete, BlockInsert, HLC, Operation } from "../state-types";
+import type { BlockDelete, BlockInsert, Operation } from "../state-types";
 import {
   closeActiveMenu,
   closeContextMenu,
@@ -106,16 +106,8 @@ import type { CanvasLayers } from "./layers";
  *   - "change"          — the document content changed
  *   - "selectionchange" — the caret/selection moved (no content change)
  *   - "focus" / "blur"  — the editor gained or lost focus
- *   - "sync"            — transport connection / peer status changed (see
- *                         {@link SyncState}); driven by a provider through
- *                         {@link Editor.setSyncState}
  */
-export type EditorEvent =
-  | "change"
-  | "selectionchange"
-  | "focus"
-  | "blur"
-  | "sync";
+export type EditorEvent = "change" | "selectionchange" | "focus" | "blur";
 
 /**
  * Payload delivered to `on("change", …)` listeners: the batch of CRDT
@@ -128,24 +120,6 @@ export interface ChangeTransaction {
   readonly isRemote: boolean;
   /** The CRDT operations that produced this change, in apply order. */
   readonly ops: readonly Operation[];
-}
-
-/**
- * Connection/sync status delivered to `on("sync", …)` listeners.
- *
- * This is transport-reported state, not something the editor measures itself:
- * a provider (relay / WebRTC / a custom backend) calls
- * {@link Editor.setSyncState} as its connection opens or closes and the room
- * roster changes, and the editor fans that out to every `sync` listener. With
- * no provider attached it stays `{ connected: false, peers: 0 }`. A freshly
- * subscribed listener is invoked once immediately with the current status, so
- * UI bound to it paints correctly without waiting for the next transition.
- */
-export interface SyncState {
-  /** True while a transport is connected and replicating this editor's doc. */
-  readonly connected: boolean;
-  /** Number of other replicas currently sharing the document. */
-  readonly peers: number;
 }
 
 /**
@@ -221,7 +195,6 @@ export interface Editor {
   readonly state: EditorStateSnapshot;
   destroy: () => void;
   updateViewport: (viewport: Partial<ViewportState>) => void;
-  getDocumentHeight: () => number;
   setFocus: (focused: boolean, shouldClearSelection?: boolean) => void;
   setInitialCursor: () => void;
   /** Place the caret at the document start or end (forces a new caret). */
@@ -242,7 +215,6 @@ export interface Editor {
    * (`{ isRemote, ops }`); the others receive the {@link EditorState}.
    */
   on(event: "change", callback: (tx: ChangeTransaction) => void): () => void;
-  on(event: "sync", callback: (status: SyncState) => void): () => void;
   on(
     event: "selectionchange" | "focus" | "blur",
     callback: (state: EditorState) => void,
@@ -290,7 +262,6 @@ export interface Editor {
     cursor: EditorState["document"]["cursor"],
     selection: EditorState["document"]["selection"],
   ) => void;
-  forceRender: () => void;
   /**
    * Collect the node-declared overlay descriptors for the on-screen blocks
    * (see {@link NodeOverlay}). The host maps each `key` to a component and
@@ -355,28 +326,23 @@ export interface Editor {
     direction: "left" | "right",
   ) => void;
   closeActiveMenu: () => void;
-  /** Update page content from CRDT sync (remote operations) */
   /**
-   * Apply a remotely-merged page. Pass the merged `remoteOps` so `on("change")`
-   * listeners fire with `isRemote: true` and the applied ops.
+   * Adopt a remotely-merged page (the doc→editor channel). Pass the merged
+   * `remoteOps` so `on("change")` listeners fire with `isRemote: true` and the
+   * applied ops.
+   * @internal — wiring detail driven by an attached `Doc` (see `mountEditor`'s
+   * `doc` option). Hosts apply remote ops via `doc.applyUpdate` and never call
+   * this directly.
    */
   updatePageFromSync: (page: Page, remoteOps?: readonly Operation[]) => void;
   /** Restore from snapshot - generates and broadcasts operations */
   restoreFromSnapshot: (blocks: Block[]) => void;
-  /** Apply remote operations to the current page state */
-  applyRemoteOperations: (ops: Operation[]) => void;
   /**
-   * Advance this editor's CRDT clock to be at least as recent as `clock`.
-   * Call after loading persisted ops or applying remote ops so subsequent
-   * local operations get HLC values that respect causality.
+   * Set the function that receives this editor's locally-produced ops.
+   * @internal — wiring detail set by `mountEditor` to feed an attached `Doc`
+   * (`doc._ingestLocal`). Hosts observe local ops via `doc.on("update")`, not
+   * by installing a callback here.
    */
-  advanceClock: (clock: HLC) => void;
-  /**
-   * Bump this editor's CRDT id counter so the next generated id has
-   * counter > n. Keeps RGA sibling ordering correct across sessions/peers.
-   */
-  advanceIdCounter: (n: number) => void;
-  /** Set broadcast function for sending operations to peers */
   setBroadcast: (fn: ((ops: Operation[]) => void) | null) => void;
   /** Set callback for broadcasting awareness state changes */
   setAwarenessBroadcast: (
@@ -387,14 +353,6 @@ export interface Editor {
   setRemoteAwareness: (peerId: string, state: AwarenessState | null) => void;
   /** Get all remote awareness states */
   getRemoteAwareness: () => Map<string, AwarenessState>;
-  /**
-   * Report transport connection / peer status (see {@link SyncState}). Called
-   * by a provider as its connection opens or closes and the peer roster
-   * changes; the editor stores it and notifies `on("sync")` listeners only when
-   * it actually changes. Accepts a partial patch, so `connected` and `peers`
-   * can be updated independently.
-   */
-  setSyncState: (status: Partial<SyncState>) => void;
   /** Set callback for when an image file is pasted from clipboard */
   onImagePaste: (
     callback: ((file: File, blockIndex: number) => void) | null,
@@ -465,19 +423,6 @@ export default function createEditor(
     if (ops.length === 0) return;
     broadcastFn?.(ops);
     emitChange(ops, false);
-  };
-
-  // Sync-status channel. `on("sync")` listeners receive a SyncState
-  // ({ connected, peers }) — transport-reported connection status, distinct
-  // from the document `change` channel and the state-diff subscribe() path. The
-  // editor never measures connectivity itself; a provider drives it through
-  // setSyncState. Closed over per instance, so two mounted editors keep
-  // independent status.
-  let syncState: SyncState = { connected: false, peers: 0 };
-  const syncListeners: ((status: SyncState) => void)[] = [];
-  const emitSync = (): void => {
-    const current = syncState;
-    for (const listener of syncListeners) listener(current);
   };
 
   // Awareness state for remote peers
@@ -1706,15 +1651,6 @@ export default function createEditor(
     return documentHeight;
   }
 
-  function getDocumentHeight(): number {
-    // Return cached height, recalculating only if dirty
-    if (documentHeightDirty) {
-      cachedDocumentHeight = calculateDocumentHeight();
-      documentHeightDirty = false;
-    }
-    return cachedDocumentHeight;
-  }
-
   function setFocus(focused: boolean, shouldClearSelection: boolean = false) {
     const wasFocused = state.view.isFocused;
     state = updateFocus(state, focused);
@@ -1793,7 +1729,6 @@ export default function createEditor(
     event: EditorEvent,
     callback:
       | ((tx: ChangeTransaction) => void)
-      | ((status: SyncState) => void)
       | ((state: EditorState) => void),
   ): () => void {
     // "change" rides the dedicated op channel (emitChange) so it can carry the
@@ -1804,19 +1739,6 @@ export default function createEditor(
       return () => {
         const i = changeListeners.indexOf(cb);
         if (i > -1) changeListeners.splice(i, 1);
-      };
-    }
-
-    // "sync" rides its own status channel (emitSync). Replay the current status
-    // to the new listener immediately so status-bound UI paints correctly
-    // without waiting for the next transition.
-    if (event === "sync") {
-      const cb = callback as (status: SyncState) => void;
-      syncListeners.push(cb);
-      cb(syncState);
-      return () => {
-        const i = syncListeners.indexOf(cb);
-        if (i > -1) syncListeners.splice(i, 1);
       };
     }
 
@@ -2932,165 +2854,6 @@ export default function createEditor(
     return getActiveRemoteAwareness();
   }
 
-  function setSyncStateMethod(patch: Partial<SyncState>): void {
-    // Nullish-coalesce so an explicit `false`/`0` in the patch is honored and
-    // only the omitted fields fall through to the current value.
-    const next: SyncState = {
-      connected: patch.connected ?? syncState.connected,
-      peers: patch.peers ?? syncState.peers,
-    };
-    // Skip redundant notifications when nothing actually changed (mirrors the
-    // awareness-broadcast and window-focus early-returns).
-    if (
-      next.connected === syncState.connected &&
-      next.peers === syncState.peers
-    ) {
-      return;
-    }
-    syncState = next;
-    emitSync();
-  }
-
-  function advanceClockMethod(clock: HLC) {
-    state.CRDTbinding.advanceClock(clock);
-  }
-
-  function advanceIdCounterMethod(n: number) {
-    state.CRDTbinding.advanceIdCounter(n);
-  }
-
-  function applyRemoteOperationsMethod(ops: Operation[]) {
-    if (ops.length === 0) return;
-
-    // Apply remote operations to current page state
-    const newPage = applyOps(state.document.page, ops);
-
-    // Clear all block caches since page structure may have changed
-    clearAllBlockCaches(newPage.blocks);
-
-    // Compute visible blocks from the NEW page, not the stale view state
-    const visibleBlocksForOps = getVisibleBlocks(newPage);
-    state.view.visibleBlocks = visibleBlocksForOps;
-
-    // Validate and adjust cursor position if needed
-    let cursor = state.document.cursor;
-    if (cursor && visibleBlocksForOps.length > 0) {
-      const { blockIndex: blockIndex, textIndex } = cursor.position;
-      // Find the last visible block's index in the full array
-      const lastVisibleBlockForOps =
-        visibleBlocksForOps[visibleBlocksForOps.length - 1];
-      const maxBlockIndex = newPage.blocks.findIndex(
-        (b) => b.id === lastVisibleBlockForOps.id,
-      );
-
-      if (blockIndex > maxBlockIndex) {
-        // Cursor points to a block that no longer exists, move to end of last visible block
-        const lastBlock = lastVisibleBlockForOps;
-        const lastBlockText = getBlockTextContent(lastBlock);
-        cursor = {
-          ...cursor,
-          position: {
-            blockIndex: maxBlockIndex,
-            textIndex: lastBlockText.length,
-          },
-        };
-      } else {
-        // Validate textIndex for the block
-        const block = newPage.blocks[blockIndex];
-        if (!block || block.deleted) {
-          // Cursor's block was deleted, move to end of last visible block
-          const lastBlockText = getBlockTextContent(lastVisibleBlockForOps);
-          cursor = {
-            ...cursor,
-            position: {
-              blockIndex: maxBlockIndex,
-              textIndex: lastBlockText.length,
-            },
-          };
-        } else {
-          const blockText = getBlockTextContent(block);
-          if (textIndex > blockText.length) {
-            cursor = {
-              ...cursor,
-              position: {
-                blockIndex: blockIndex,
-                textIndex: blockText.length,
-              },
-            };
-          }
-        }
-      }
-    } else if (cursor && visibleBlocksForOps.length === 0) {
-      // No visible blocks, clear cursor
-      cursor = null;
-    }
-
-    // Validate selection as well
-    let selection = state.document.selection;
-    if (selection && visibleBlocksForOps.length > 0) {
-      // Find the last visible block's index in the full array
-      const lastVisibleBlockForSelectionOps =
-        visibleBlocksForOps[visibleBlocksForOps.length - 1];
-      const maxBlockIndex = newPage.blocks.findIndex(
-        (b) => b.id === lastVisibleBlockForSelectionOps.id,
-      );
-      const { anchor, focus } = selection;
-
-      let newAnchor = anchor;
-      let newFocus = focus;
-
-      if (anchor.blockIndex > maxBlockIndex) {
-        const lastBlock = newPage.blocks[maxBlockIndex];
-        const lastBlockText = getBlockTextContent(lastBlock);
-        newAnchor = {
-          blockIndex: maxBlockIndex,
-          textIndex: lastBlockText.length,
-        };
-      }
-
-      if (focus.blockIndex > maxBlockIndex) {
-        const lastBlock = newPage.blocks[maxBlockIndex];
-        const lastBlockText = getBlockTextContent(lastBlock);
-        newFocus = {
-          blockIndex: maxBlockIndex,
-          textIndex: lastBlockText.length,
-        };
-      }
-
-      if (newAnchor !== anchor || newFocus !== focus) {
-        selection = {
-          ...selection,
-          anchor: newAnchor,
-          focus: newFocus,
-          isCollapsed:
-            newAnchor.blockIndex === newFocus.blockIndex &&
-            newAnchor.textIndex === newFocus.textIndex,
-        };
-      }
-    } else if (selection && visibleBlocksForOps.length === 0) {
-      selection = null;
-    }
-
-    // Update the page in state
-    state = {
-      ...state,
-      document: {
-        ...state.document,
-        page: newPage,
-        cursor,
-        selection,
-      },
-    };
-
-    // Mark document height as dirty since remote ops may have added/removed content
-    documentHeightDirty = true;
-
-    // Re-render
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
-  }
-
   function setTheme(patch: EditorTheme) {
     const nextTheme = mergeTheme(state.theme, patch);
     state = {
@@ -3111,7 +2874,6 @@ export default function createEditor(
     getState,
     destroy,
     updateViewport,
-    getDocumentHeight,
     setFocus,
     setInitialCursor,
     setCaret,
@@ -3140,7 +2902,6 @@ export default function createEditor(
     clearSelection: clearSelectionMethod,
     setMode,
     restoreCursorAndSelection,
-    forceRender: scheduleRender,
     collectOverlays: () =>
       collectOverlays(state, viewport, getEditorStyles(state)),
     setTheme,
@@ -3158,14 +2919,10 @@ export default function createEditor(
     setWindowFocused,
     updatePageFromSync,
     restoreFromSnapshot: restoreFromSnapshotMethod,
-    applyRemoteOperations: applyRemoteOperationsMethod,
-    advanceClock: advanceClockMethod,
-    advanceIdCounter: advanceIdCounterMethod,
     setBroadcast: setBroadcastMethod,
     setAwarenessBroadcast: setAwarenessBroadcastMethod,
     setRemoteAwareness: setRemoteAwarenessMethod,
     getRemoteAwareness: getRemoteAwarenessMethod,
-    setSyncState: setSyncStateMethod,
     onImagePaste: (
       callback: ((file: File, blockIndex: number) => void) | null,
     ) => {

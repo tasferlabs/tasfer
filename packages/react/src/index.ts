@@ -39,5 +39,4 @@ export type {
   CypherEditor,
   Doc,
   EditorStateSnapshot,
-  SyncState,
 } from "@cypherkit/editor";

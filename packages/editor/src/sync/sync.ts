@@ -297,18 +297,14 @@ export {
 
 // Re-export awareness
 export type {
-  AwarenessConfig,
   AwarenessCursor,
   AwarenessSelection,
   AwarenessState,
   AwarenessUser,
-  LocalAwarenessState,
 } from "./awareness";
 export {
   awarenessCursorToPosition,
-  AwarenessManager,
   awarenessSelectionToSelection,
-  createAwarenessManager,
   getColorForPeer,
   positionToAwarenessCursor,
   selectionToAwarenessSelection,

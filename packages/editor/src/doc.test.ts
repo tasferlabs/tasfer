@@ -232,4 +232,73 @@ describe("createDoc", () => {
     expect(doc.getMarkdown()).toContain("snapshotted!");
     expect(doc.getOperations()).toHaveLength(1);
   });
+
+  it("load() registers persisted ops without emitting or changing content", () => {
+    // The async "snapshot + persisted ops" shape the app uses: a doc is created
+    // from persisted snapshot blocks, then the op log that produced those blocks
+    // is loaded afterwards to catch the version vector / clock up to the blocks.
+    const binding = createCRDTbinding("page-1", "p-load");
+    const engine = createSyncEngine(binding);
+    const blockInsert = engine.createBlockInsert(null, "paragraph");
+    engine.emit([blockInsert]);
+    const textInsert = engine.insertText(
+      blockInsert.blockId,
+      0,
+      "persisted body",
+    );
+    engine.emit([textInsert]);
+    const ops = [blockInsert, textInsert];
+
+    // Canonical fold of those ops == the "snapshot" the app would have persisted.
+    const folded = createDoc({ pageId: "page-1", ops });
+    const snapshotBlocks = structuredClone(folded.getBlocks());
+
+    // Seed a fresh doc from the snapshot (empty log/VV), then load the ops.
+    const doc = createDoc({ pageId: "page-1", blocks: snapshotBlocks });
+    const events: DocUpdate[] = [];
+    doc.on("update", (u) => events.push(u));
+
+    doc.load(ops);
+
+    // No emit — an attached editor already renders these blocks.
+    expect(events).toHaveLength(0);
+    // Re-folding already-applied ops is idempotent: content is unchanged.
+    expect(doc.getBlocks()).toEqual(snapshotBlocks);
+    expect(doc.getMarkdown()).toContain("persisted body");
+    // The op log + version vector now reflect every loaded op …
+    expect(doc.getOperations()).toHaveLength(2);
+    expect(serializeVV(doc.getVersionVector())).toEqual(
+      serializeVV(folded.getVersionVector()),
+    );
+    // … so re-delivering them from a peer is recognized as known (no-op, no emit).
+    doc.applyUpdate(ops, "remote");
+    expect(events).toHaveLength(0);
+    expect(doc.getOperations()).toHaveLength(2);
+  });
+
+  it("load() advances the binding so later local ops stay causally ahead", () => {
+    // After loading persisted ops, a NEW local op from the same doc must
+    // out-order (HLC) and out-counter (id) everything loaded — otherwise RGA
+    // ordering and the version vector break for subsequent edits.
+    const binding = createCRDTbinding("page-1", "p-ahead");
+    const engine = createSyncEngine(binding);
+    const blockInsert = engine.createBlockInsert(null, "paragraph");
+    engine.emit([blockInsert]);
+    const textInsert = engine.insertText(blockInsert.blockId, 0, "base");
+    engine.emit([textInsert]);
+    const ops = [blockInsert, textInsert];
+
+    const folded = createDoc({ pageId: "page-1", ops });
+    const doc = createDoc({
+      pageId: "page-1",
+      blocks: structuredClone(folded.getBlocks()),
+    });
+    doc.load(ops);
+
+    // A fresh id stamped by the doc's binding must out-counter everything
+    // loaded (its counter exceeds the max loaded counter).
+    const afterCounter = Number(doc._binding.nextId().split(":")[1]);
+    const loadedMax = Math.max(...ops.map((o) => Number(o.id.split(":")[1])));
+    expect(afterCounter).toBeGreaterThan(loadedMax);
+  });
 });

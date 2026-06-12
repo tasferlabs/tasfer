@@ -116,6 +116,27 @@ export interface Doc {
    * listeners with the fresh ops and the given `origin`.
    */
   applyUpdate(ops: Operation[], origin?: unknown): void;
+
+  /**
+   * Register operations that are ALREADY reflected in the doc's current blocks
+   * — the async tail of the "snapshot + ops" restore shape: a doc is created
+   * from persisted snapshot blocks, then the persisted op log (which produced
+   * those blocks) is loaded afterwards so the version vector, op log, and
+   * clock/id counter catch up to what the blocks represent.
+   *
+   * Unlike {@link applyUpdate}, this emits NO update and does not re-render any
+   * attached editor (the editor already shows these blocks). The ops are
+   * appended to the log, the version vector advances, and the binding's
+   * clock/id counter advance past them so subsequent local ops stay causally
+   * ahead.
+   *
+   * Only safe for ops already folded into the seeded blocks. It uses the
+   * incremental `appendOp` path, which lacks the dependency-reordering rebuild
+   * that {@link applyUpdate}'s `mergeOps` provides — so do NOT route peer ops
+   * through `load`; use {@link applyUpdate} for anything arriving from sync.
+   */
+  load(ops: Operation[]): void;
+
   /** Subscribe to applied updates (local and remote). Returns unsubscribe. */
   on(event: "update", callback: (update: DocUpdate) => void): () => void;
 
@@ -303,6 +324,20 @@ export function createDoc(input?: CreateDocOptions | Uint8Array): Doc {
       page = opLog.state;
 
       emit({ ops: fresh, origin, local: false });
+    },
+
+    load(ops: Operation[]): void {
+      if (ops.length === 0) return;
+      // Append in HLC order. appendOp dedups via the version vector and updates
+      // both the VV and the materialized state per op (idempotent here, since
+      // these ops already produced the seeded blocks). No emit: an attached
+      // editor already renders this content.
+      const sorted = [...ops].sort((a, b) => compareHLC(a.clock, b.clock));
+      for (const op of sorted) {
+        opLog = appendOp(opLog, op, schema);
+      }
+      page = opLog.state;
+      advanceBindingPast(sorted);
     },
 
     on(event: "update", callback: (update: DocUpdate) => void): () => void {

@@ -1,3 +1,4 @@
+import { type Doc } from "../doc";
 import {
   createDefaultNodeRegistry,
   createNodeRegistry,
@@ -32,6 +33,13 @@ import {
 
 export interface MountedEditor {
   readonly editor: Editor;
+  /**
+   * The CRDT document this editor renders, when one was supplied via
+   * {@link MountEditorOptions.doc}. Sync and persistence go through it
+   * (`doc.applyUpdate` inbound, `doc.on("update")` outbound, `doc.load` for
+   * persisted tail ops). Undefined for standalone editors mounted without a doc.
+   */
+  readonly doc?: Doc;
   /** Container for React portals (e.g., slash command menu) */
   readonly portalContainer: HTMLDivElement;
   /** Refocus the hidden input (useful after closing drawers/modals) */
@@ -131,8 +139,20 @@ export interface MountEditorOptions {
    * the SAME binding to `createSyncEngine`, making it the single id/clock
    * source shared by the editor and the sync engine. Omit for standalone
    * editors — a binding with a random peer id is created internally.
+   *
+   * Ignored when {@link doc} is supplied (the doc's own binding is used).
    */
   crdtBinding?: CRDTbinding;
+  /**
+   * Attach an existing CRDT document (see `createDoc`). The editor renders and
+   * edits this doc: local edits flow into it (`doc._ingestLocal`), and updates
+   * applied from elsewhere (`doc.applyUpdate`) flow back into the editor. When
+   * present, the editor mounts from `doc.getBlocks()` and uses `doc._binding`
+   * as its id/clock source, so `blocks`/`crdtBinding`/`pageId` are derived from
+   * the doc. The caller owns the doc's lifetime — `mountEditor`'s `destroy`
+   * detaches its listener but does not destroy the doc.
+   */
+  doc?: Doc;
 }
 
 /**
@@ -189,11 +209,13 @@ export function mountEditor(
   // and threaded through measurement), so there is no global to save/restore.
   const theme = optionsToTheme(options);
 
-  // Create a Page object from the blocks
+  // When a doc is attached it is the source of truth: mount from its blocks and
+  // adopt its page id, so the editor and doc start from one identical state.
+  const doc = options?.doc;
   const page: Page = {
-    id: options?.pageId ?? "",
+    id: doc?.pageId ?? options?.pageId ?? "",
     title: "",
-    blocks: blocks,
+    blocks: doc ? doc.getBlocks() : blocks,
   };
 
   // Create a container for the layered canvases
@@ -276,7 +298,8 @@ export function mountEditor(
   const initialState = createInitialState(page, {
     mode: options?.editable === false ? "readonly" : "edit",
     nodes,
-    crdtBinding: options?.crdtBinding,
+    // The doc's binding is the shared id/clock source when a doc is attached.
+    crdtBinding: doc?._binding ?? options?.crdtBinding,
     theme,
   });
 
@@ -287,6 +310,23 @@ export function mountEditor(
     initialViewport,
     hiddenInput,
   );
+
+  // ── Doc ↔ editor wiring ────────────────────────────────────────────────────
+  // Local edits → doc: the editor has already applied them to its own state;
+  // the doc logs them and notifies its other listeners (providers, persistence).
+  // Doc updates from any other origin → editor: adopt the doc's fully-merged
+  // page (not an incremental replay) so a dependency-reordered op isn't dropped.
+  // `docOrigin` tags our own local batches so we skip our echoes.
+  const docOrigin = Symbol("editor");
+  let offDocUpdate: (() => void) | null = null;
+  if (doc) {
+    editor.setBroadcast((ops) => doc._ingestLocal(ops, docOrigin));
+    offDocUpdate = doc.on("update", (u) => {
+      if (u.origin === docOrigin) return;
+      // Pass the applied ops so editor.on("change") fires with isRemote: true.
+      editor.updatePageFromSync(doc._getPage(), u.ops);
+    });
+  }
 
   // Height reserved by the React keyboard toolbar when keyboard is open
   const KEYBOARD_TOOLBAR_HEIGHT = 48;
@@ -496,6 +536,11 @@ export function mountEditor(
   const destroy = () => {
     destroyed = true;
     resizeObserver.disconnect();
+    // Detach the doc listener before tearing the editor down. The doc itself is
+    // owned by the caller (a private doc by createEditor, the host's doc by the
+    // app), so it is not destroyed here.
+    offDocUpdate?.();
+    offDocUpdate = null;
     editor.destroy();
     if (blurTimeoutId !== null) {
       clearTimeout(blurTimeoutId);
@@ -522,6 +567,7 @@ export function mountEditor(
 
   return {
     editor,
+    doc,
     refocus,
     blurInput,
     setKeyboardHeight,
