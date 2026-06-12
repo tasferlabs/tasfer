@@ -159,7 +159,7 @@ editor.chain()
         { name: "change", type: "ChangeTransaction", desc: "The document changed — typing, paste, undo, or a remote sync. Payload: { isRemote, ops }." },
         { name: "selectionchange", type: "Selection", desc: "The caret or selection moved, without a document edit." },
         { name: "focus / blur", type: "void", desc: "The canvas gained or lost focus." },
-        { name: "sync", type: "SyncState", desc: "A provider connected, fell behind, or caught up. See Collaboration." },
+        { name: "sync", type: "SyncState", desc: "Transport connection / peer count. Driven by a provider — subscribe on the provider (provider.on(\"sync\")), or forward it onto the editor with setSyncState. See Collaboration." },
       ]} />
       <Code lang="ts" code={`
 const off = editor.on("change", (tx) => {
@@ -348,7 +348,10 @@ const provider = createRelayProvider({
   relay: "wss://relay.cypher.md",  // swap for your own; it forwards, can't read
 });
 
-editor.on("sync", (s) => {
+// Connection status comes from the provider, not the editor — the provider
+// owns the transport. (To route it through editor.on("sync") instead, forward
+// it once: provider.on("sync", editor.setSyncState).)
+provider.on("sync", (s) => {
   status.textContent = s.connected ? \`live · \${s.peers} peer(s)\` : "offline";
 });
 `} />
