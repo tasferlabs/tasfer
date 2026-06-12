@@ -45,7 +45,7 @@ export function EditorInstall() {
 
       <h2 id="requirements">Requirements</h2>
       <ul>
-        <li><strong>A browser with <code>OffscreenCanvas</code> and <code>ResizeObserver</code></strong> — every evergreen browser since 2021. There is no DOM-contenteditable fallback by design; the canvas <em>is</em> the editor.</li>
+        <li><strong>A browser with <code>ResizeObserver</code> and a 2D <code>&lt;canvas&gt;</code> context</strong> — every evergreen browser since ~2020. There is no DOM-contenteditable fallback by design; the canvas <em>is</em> the editor.</li>
         <li><strong>ES2020 or a bundler that targets it.</strong> The package ships ESM with a CommonJS interop entry. Types are bundled — no <code>@types</code> install.</li>
         <li><strong>No build step required for the CRDT.</strong> It's pure JavaScript — there's nothing to copy into your <code>public/</code> folder.</li>
       </ul>
