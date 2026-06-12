@@ -686,7 +686,7 @@ export interface EditorStyles {
   readonly imageResize: ImageResizeStyles;
   readonly list: ListStyles;
   readonly search: SearchStyles;
-  readonly scrollbar: ScrollbarColors;
+  readonly scrollbar: ScrollbarStyles;
   readonly unknownBlock: UnknownBlockStyles;
 }
 
@@ -771,12 +771,36 @@ export interface SearchStyles {
   readonly inactiveOpacity: number;
 }
 
-/** Scrollbar thumb/track colors. Geometry lives in scrollbar.ts `ScrollbarStyles`. */
-export interface ScrollbarColors {
+/**
+ * Scrollbar appearance — colors plus geometry/timing, all overridable per
+ * instance through `theme.styles.scrollbar` (e.g.
+ * `setTheme({ styles: { scrollbar: { width: 10, borderRadius: 0 } } })`).
+ * Colors default from the `scrollbar*` tokens; geometry/timing from neutral
+ * built-in defaults. `width` additionally narrows on touch devices — unless the
+ * host sets it explicitly, in which case that value is used on every device.
+ */
+export interface ScrollbarStyles {
+  // ── Colors (token-derived) ────────────────────────────────────────────────
   readonly trackColor: string;
   readonly thumbColor: string;
   readonly thumbHoverColor: string;
   readonly thumbActiveColor: string;
+  // ── Geometry ──────────────────────────────────────────────────────────────
+  /** Track/thumb width in px. Desktop default 12; touch narrows to 8 unless set. */
+  readonly width: number;
+  /** Smallest thumb height in px, so it stays grabbable in very long documents. */
+  readonly minThumbHeight: number;
+  /** Inset of the track from the viewport edges, in px. */
+  readonly padding: number;
+  /** Corner radius of the track and thumb, in px (0 = square). */
+  readonly borderRadius: number;
+  // ── Auto-hide timing ──────────────────────────────────────────────────────
+  /** ms the scrollbar stays fully visible after interaction before fading out. */
+  readonly fadeDelay: number;
+  /** ms the fade-out animation takes once it starts. */
+  readonly fadeDuration: number;
+  /** Invisible touch hit-area width in px (≥ `width`) for easier grabbing. */
+  readonly touchTargetWidth: number;
 }
 
 /**

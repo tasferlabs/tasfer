@@ -20,8 +20,7 @@ const editor = createEditor(options: EditorOptions): Editor;
         { name: "value", type: "string", desc: "Initial document as markdown. Ignored if doc is provided." },
         { name: "doc", type: "Doc", desc: "An existing CRDT document to edit. Takes precedence over value." },
         { name: "schema", type: "Schema", desc: "Allowed nodes & marks. Defaults to baseSchema." },
-        { name: "plugins", type: "Plugin[]", desc: "Keymaps, input rules, decorations. See the Plugins reference." },
-        { name: "theme", type: "Theme", desc: "Canvas colors, fonts, metrics. Defaults to the inherit theme." },
+        { name: "theme", type: "EditorTheme", desc: "Canvas color tokens, styles, and fonts. Defaults to the neutral palette." },
         { name: "editable", type: "boolean", desc: "Set false for a read-only renderer. Default true." },
         { name: "placeholder", type: "string", desc: "Ghost text shown when the document is empty." },
         { name: "autofocus", type: "boolean", desc: "Focus the editor on mount. Default false." },
@@ -80,9 +79,7 @@ export function EditorApiCommands() {
       <PropsTable cols={["Command", "Signature", "Description"]} rows={[
         { name: "toggleMark", type: "(name, attrs?) => boolean", desc: "Add or remove an inline mark across the selection." },
         { name: "setBlock", type: "(name, attrs?) => boolean", desc: "Turn the selected blocks into a node type (heading, paragraph…)." },
-        { name: "wrapIn", type: "(name, attrs?) => boolean", desc: "Wrap the selection in a block — blockquote, callout, list." },
         { name: "insertText", type: "(text: string) => boolean", desc: "Insert text at the cursor, replacing any selection." },
-        { name: "insertNode", type: "(name, attrs?) => boolean", desc: "Insert a leaf or block node (rule, image, embed)." },
         { name: "undo / redo", type: "() => boolean", desc: "Step through local history. Remote edits never enter your undo stack." },
         { name: "selectAll", type: "() => boolean", desc: "Select the whole document." },
       ]} />
@@ -99,7 +96,7 @@ const ok = editor.chain()
   .run();              // commits everything, or nothing if any step fails
 
 // dry-run: will this chain apply right now? (for enabling a toolbar button)
-const canRun = editor.chain().wrapIn("callout").canRun();
+const canRun = editor.chain().setBlock("heading", { level: 1 }).canRun();
 `} />
 
     </>
@@ -162,73 +159,6 @@ const schema = baseSchema.extend({
         nodes &amp; marks</A> for the full <code>defineNode</code> /{" "}
         <code>defineMark</code> options and how they round-trip through Markdown.
       </p>
-    </>
-  );
-}
-
-export function EditorApiPlugins() {
-  return (
-    <>
-      <p className="dx-lede">
-        Plugins extend the editor without forking it: add keymaps, input rules,
-        decorations, or react to transactions. They're plain objects passed to
-        <code> createEditor({"{ plugins }"})</code>.
-      </p>
-
-      <h2 id="define">definePlugin</h2>
-      <Code lang="ts" code={`
-import { definePlugin } from "@cypherkit/editor";
-
-const wordGoal = definePlugin({
-  name: "wordGoal",
-  // react to every transaction
-  appendTransaction(transactions, oldState, newState) {
-    // Word count is yours to define — derive it from the document text.
-    const words = newState.doc.getMarkdown().trim().split(/\\s+/).length;
-    if (words >= 500) emit("goal-reached");
-    return null;  // return a tr to append an edit, or null
-  },
-});
-`} />
-
-      <h2 id="keymap">Keymaps & input rules</h2>
-      <Code lang="ts" code={`
-import { keymap, inputRules } from "@cypherkit/editor";
-
-const myKeys = keymap({
-  "Mod-s": () => { save(); return true; },          // returns handled?
-  "Mod-Shift-h": (editor) => editor.commands.toggleMark("highlight"),
-});
-
-const myRules = inputRules([
-  // type "(c) " → insert ©
-  { match: /\\(c\\)\\s$/, replace: "© " },
-]);
-
-createEditor({ element, plugins: [myKeys, myRules, wordGoal] });
-`} />
-
-      <h2 id="decorations">Decorations</h2>
-      <p>
-        Decorations paint over the document without changing it — spellcheck
-        squiggles, search highlights, remote cursors. They're recomputed from state,
-        never persisted into the CRDT.
-      </p>
-      <Code lang="ts" code={`
-const searchHighlight = definePlugin({
-  name: "search",
-  decorations(state) {
-    return state.doc
-      .findText(query)
-      .map((range) => Decoration.highlight(range, { class: "search-hit" }));
-  },
-});
-`} />
-      <Callout kind="tip" title="Decorations are free to be expensive-looking.">
-        Only decorations intersecting the visible viewport are painted, so
-        highlighting every match in a long document costs nothing until you scroll
-        to it.
-      </Callout>
     </>
   );
 }

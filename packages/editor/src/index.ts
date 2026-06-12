@@ -27,22 +27,12 @@ export {
   textNode,
 } from "./rendering/nodes";
 
-// Interaction regions — canvas hit areas with their own hit detection and
-// tap/drag behavior, shared across mouse and touch input. Chrome regions
-// ship built-in (scrollbar, selection handles, peer indicators); hosts can
-// register custom regions via `mountEditor`'s `regions` option. Nodes
-// contribute geometry-only sub-regions via `Node.regions` (NodeHitRegion),
-// with behavior bound by id in the event layer.
-export type {
-  PointerType,
-  Region,
-  RegionClaim,
-  RegionCtx,
-  RegionDragSpec,
-  RegionPoint,
-  RegionResult,
-} from "./events/regions";
-export { RegionRegistry } from "./events/regions";
+// Interaction regions are an internal concept — there is no host-level region
+// API. Built-in chrome regions (scrollbar, selection handles, peer indicators)
+// ship inside the engine, and block types contribute their interactive
+// sub-regions through the node layer: a node declares geometry-only
+// `NodeHitRegion`s via `Node.regions` (see the block-views export above) and
+// the event layer binds behavior to them by id. Nodes are the extension point.
 
 // Editor instance API
 export type {
@@ -53,6 +43,7 @@ export type {
   EditorEvent,
   EditorStateSnapshot,
   MarkName,
+  SyncState,
 } from "./entries/editor";
 
 // Convenience constructor — parse Markdown + mount in a single call, returning
@@ -122,6 +113,7 @@ export type {
   NodeOverlay,
   NodeStringsMap,
   Operation,
+  ScrollbarStyles,
   SlashCommand,
   ThemeTokens,
   VersionVector,

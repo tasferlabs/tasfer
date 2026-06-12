@@ -19,7 +19,6 @@ import {
 } from "../actions/commands";
 import { createChromeRegionRegistry } from "../events/chromeRegions";
 import { handleEvents } from "../events/events";
-import type { Region } from "../events/regions";
 import { createInteractionSession, isInLongPressMode } from "../events/session";
 import { onFontsReady } from "../fonts";
 import {
@@ -107,8 +106,16 @@ import type { CanvasLayers } from "./layers";
  *   - "change"          — the document content changed
  *   - "selectionchange" — the caret/selection moved (no content change)
  *   - "focus" / "blur"  — the editor gained or lost focus
+ *   - "sync"            — transport connection / peer status changed (see
+ *                         {@link SyncState}); driven by a provider through
+ *                         {@link Editor.setSyncState}
  */
-export type EditorEvent = "change" | "selectionchange" | "focus" | "blur";
+export type EditorEvent =
+  | "change"
+  | "selectionchange"
+  | "focus"
+  | "blur"
+  | "sync";
 
 /**
  * Payload delivered to `on("change", …)` listeners: the batch of CRDT
@@ -121,6 +128,24 @@ export interface ChangeTransaction {
   readonly isRemote: boolean;
   /** The CRDT operations that produced this change, in apply order. */
   readonly ops: readonly Operation[];
+}
+
+/**
+ * Connection/sync status delivered to `on("sync", …)` listeners.
+ *
+ * This is transport-reported state, not something the editor measures itself:
+ * a provider (relay / WebRTC / a custom backend) calls
+ * {@link Editor.setSyncState} as its connection opens or closes and the room
+ * roster changes, and the editor fans that out to every `sync` listener. With
+ * no provider attached it stays `{ connected: false, peers: 0 }`. A freshly
+ * subscribed listener is invoked once immediately with the current status, so
+ * UI bound to it paints correctly without waiting for the next transition.
+ */
+export interface SyncState {
+  /** True while a transport is connected and replicating this editor's doc. */
+  readonly connected: boolean;
+  /** Number of other replicas currently sharing the document. */
+  readonly peers: number;
 }
 
 /**
@@ -217,6 +242,7 @@ export interface Editor {
    * (`{ isRemote, ops }`); the others receive the {@link EditorState}.
    */
   on(event: "change", callback: (tx: ChangeTransaction) => void): () => void;
+  on(event: "sync", callback: (status: SyncState) => void): () => void;
   on(
     event: "selectionchange" | "focus" | "blur",
     callback: (state: EditorState) => void,
@@ -369,6 +395,14 @@ export interface Editor {
   setRemoteAwareness: (peerId: string, state: AwarenessState | null) => void;
   /** Get all remote awareness states */
   getRemoteAwareness: () => Map<string, AwarenessState>;
+  /**
+   * Report transport connection / peer status (see {@link SyncState}). Called
+   * by a provider as its connection opens or closes and the peer roster
+   * changes; the editor stores it and notifies `on("sync")` listeners only when
+   * it actually changes. Accepts a partial patch, so `connected` and `peers`
+   * can be updated independently.
+   */
+  setSyncState: (status: Partial<SyncState>) => void;
   /** Set callback for when an image file is pasted from clipboard */
   onImagePaste: (
     callback: ((file: File, blockIndex: number) => void) | null,
@@ -397,7 +431,6 @@ export default function createEditor(
   initialState: EditorState,
   viewportProp: ViewportState,
   hiddenInput?: HTMLInputElement,
-  extraRegions?: readonly Region[],
 ): Editor {
   // Extract contexts from layers
   const contentCtx = layers.content.ctx;
@@ -407,13 +440,10 @@ export default function createEditor(
   let state: EditorState = initialState;
   let viewport = viewportProp;
   // Per-instance pointer interaction state (in-flight gestures, auto-scroll,
-  // tap tracking) and this editor's interactive regions — threaded into
-  // handleEvents so two mounted editors never share gesture state. Hosts can
-  // extend the built-in chrome set with custom regions.
+  // tap tracking) and this editor's built-in chrome regions (scrollbar,
+  // selection handles, peer indicators) — threaded into handleEvents so two
+  // mounted editors never share gesture state.
   const regionRegistry = createChromeRegionRegistry();
-  for (const region of extraRegions ?? []) {
-    regionRegistry.register(region);
-  }
   const session = createInteractionSession(regionRegistry);
   let animationFrameId: number | null = null;
   let documentHeight = 0;
@@ -443,6 +473,19 @@ export default function createEditor(
     if (ops.length === 0) return;
     broadcastFn?.(ops);
     emitChange(ops, false);
+  };
+
+  // Sync-status channel. `on("sync")` listeners receive a SyncState
+  // ({ connected, peers }) — transport-reported connection status, distinct
+  // from the document `change` channel and the state-diff subscribe() path. The
+  // editor never measures connectivity itself; a provider drives it through
+  // setSyncState. Closed over per instance, so two mounted editors keep
+  // independent status.
+  let syncState: SyncState = { connected: false, peers: 0 };
+  const syncListeners: ((status: SyncState) => void)[] = [];
+  const emitSync = (): void => {
+    const current = syncState;
+    for (const listener of syncListeners) listener(current);
   };
 
   // Awareness state for remote peers
@@ -1758,6 +1801,7 @@ export default function createEditor(
     event: EditorEvent,
     callback:
       | ((tx: ChangeTransaction) => void)
+      | ((status: SyncState) => void)
       | ((state: EditorState) => void),
   ): () => void {
     // "change" rides the dedicated op channel (emitChange) so it can carry the
@@ -1768,6 +1812,19 @@ export default function createEditor(
       return () => {
         const i = changeListeners.indexOf(cb);
         if (i > -1) changeListeners.splice(i, 1);
+      };
+    }
+
+    // "sync" rides its own status channel (emitSync). Replay the current status
+    // to the new listener immediately so status-bound UI paints correctly
+    // without waiting for the next transition.
+    if (event === "sync") {
+      const cb = callback as (status: SyncState) => void;
+      syncListeners.push(cb);
+      cb(syncState);
+      return () => {
+        const i = syncListeners.indexOf(cb);
+        if (i > -1) syncListeners.splice(i, 1);
       };
     }
 
@@ -2926,6 +2983,25 @@ export default function createEditor(
     return getActiveRemoteAwareness();
   }
 
+  function setSyncStateMethod(patch: Partial<SyncState>): void {
+    // Nullish-coalesce so an explicit `false`/`0` in the patch is honored and
+    // only the omitted fields fall through to the current value.
+    const next: SyncState = {
+      connected: patch.connected ?? syncState.connected,
+      peers: patch.peers ?? syncState.peers,
+    };
+    // Skip redundant notifications when nothing actually changed (mirrors the
+    // awareness-broadcast and window-focus early-returns).
+    if (
+      next.connected === syncState.connected &&
+      next.peers === syncState.peers
+    ) {
+      return;
+    }
+    syncState = next;
+    emitSync();
+  }
+
   function advanceClockMethod(clock: HLC) {
     state.CRDTbinding.advanceClock(clock);
   }
@@ -3148,6 +3224,7 @@ export default function createEditor(
     setAwarenessBroadcast: setAwarenessBroadcastMethod,
     setRemoteAwareness: setRemoteAwarenessMethod,
     getRemoteAwareness: getRemoteAwarenessMethod,
+    setSyncState: setSyncStateMethod,
     onImagePaste: (
       callback: ((file: File, blockIndex: number) => void) | null,
     ) => {

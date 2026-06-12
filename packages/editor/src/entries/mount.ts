@@ -1,4 +1,3 @@
-import type { Region } from "../events/regions";
 import {
   createDefaultNodeRegistry,
   createNodeRegistry,
@@ -126,13 +125,6 @@ export interface MountEditorOptions {
    *   mountEditor(el, blocks, { nodes: [lineNode, textNode] });
    */
   nodes?: readonly Node[];
-  /**
-   * Custom interactive regions registered on top of the built-in chrome set
-   * (scrollbar, selection handles, peer indicators). A region owns its own
-   * hit detection and tap/drag behavior, shared across mouse and touch —
-   * see the `Region` type. Higher `priority` wins where regions overlap.
-   */
-  regions?: readonly Region[];
   /**
    * Per-instance CRDT context (peer id + clock + id generator). Hosts that
    * sync should create one with `createCRDTbinding(pageId, peerId)` and pass
@@ -294,7 +286,6 @@ export function mountEditor(
     initialState,
     initialViewport,
     hiddenInput,
-    options?.regions,
   );
 
   // Height reserved by the React keyboard toolbar when keyboard is open

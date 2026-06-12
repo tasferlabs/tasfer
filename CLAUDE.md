@@ -91,10 +91,12 @@ Cross-platform abstraction — one implementation, three runtimes (Web, Electron
 - `sync.ts` — Replicator: pull-based P2P replication over WebRTC DataChannels, version vector sync, awareness routing, lazy asset pull
 - `driver.ts` — Minimal platform contract: `DbDriver`, `FsDriver`, `CryptoDriver`
 - `bridge.ts` — Native bridge definition injected by iOS/Android (clipboard, haptics, navigation, storage)
+- `wire-codec.ts` — Encode/decode for the P2P wire format (ops/awareness/asset messages over DataChannels)
+- `devlog.ts` — Scoped dev logging
 - `index.ts` — Platform detection and initialization (detects Web/Electron/Capacitor, creates appropriate drivers)
 
 ### Platform Adapters (`apps/web/src/platform/adapters/`)
-- `web.ts` — Browser: OPFS (Origin Private File System) + wa-sqlite (WebAssembly SQLite in Web Worker)
+- `web.ts` — Browser: OPFS (Origin Private File System) + wa-sqlite (WebAssembly SQLite in Web Worker); the worker itself is `sqlite.worker.ts`
 - `electron.ts` — Desktop: IPC proxy to Electron main process (better-sqlite3 + node:fs + node:crypto)
 - `capacitor.ts` — Mobile: native SQLite plugin + Capacitor filesystem + TweetNaCl.js for Ed25519
 - `webrtc.ts` — Shared WebRTC network driver (all platforms): signaling via WebSocket to `apps/live`, then direct P2P DataChannels
@@ -103,33 +105,37 @@ Cross-platform abstraction — one implementation, three runtimes (Web, Electron
 The headless editor core was extracted from the web app into the `@cypherkit/editor` package.
 It is framework-agnostic (canvas + CRDT + DOM events); the host app supplies fonts, asset
 resolution, and React UI chrome. Public surface is `packages/editor/src/index.ts`; deep subpath
-imports (e.g. `@cypherkit/editor/sync/awareness`) are also currently allowed.
+imports (e.g. `@cypherkit/editor/sync/awareness`) are also currently allowed (the package
+`exports` map exposes both `.` and `./*`).
 
 - Custom text rendering directly on HTML5 Canvas — not DOM-based
-- `entries/` — lifecycle/orchestration: `mount.ts` (`mountEditor`), `editor.ts` (`createEditor` instance API), `layers.ts` (canvas layers)
-- `rendering/` — `renderer.ts` (canvas rendering), `scrollbar.ts`
-- `events/` — manual input handling: keyboard (`keysEvents.ts`), mouse (`mouseEvents.ts`), touch (`touchEvents.ts`), IME composition (`compositionEvents.ts`), plus `events.ts`/`genericEvents.ts`/`eventsState.ts`
+- `entries/` — lifecycle/orchestration: `mount.ts` (`mountEditor`: attach the engine to a canvas; low-level lifecycle), `editor.ts` (the `Editor` instance API — commands, command chains, change transactions, marks), `create.ts` (`createEditor`: parse Markdown + mount in one call, returning a `CypherEditor` that merges the command API with the mount lifecycle), `layers.ts` (stacked canvas layers)
+- `doc.ts` — **Doc abstraction**: the CRDT document as a first-class, editor-independent object. `createDoc` (from markdown / blocks / persisted bytes), sync via `applyUpdate` + `on("update")`, persist via `encodeState()`. An editor without an explicit `doc` gets a private one (`editor.doc`). The Doc is the source of truth; the editor is a view over it.
+- `schema.ts` + `sync/schema.ts` — **Extensible schema**: declare custom block types (`defineNode`) and inline marks (`defineMark`), bundle them via `baseSchema.extend(...)`, pass to `createEditor({ schema })`. Split in two halves so the sync/fuzz import graph never pulls in canvas code: `sync/schema.ts` is the canvas-free `DataSchema` (CRDT + serialization facets — per-type descriptors + codecs; `baseDataSchema`); `schema.ts` adds the rendering `NodeRegistry` (the full `Schema`). Schemas are immutable per-instance values — `extend()` returns a new one, nothing is mutated in place.
+- `rendering/` — `renderer.ts` (canvas rendering), `scrollbar.ts`, and `nodes/` — the **per-instance node registry** (the former "BlockView", renamed to `Node`). Each block type is a `Node` subclass (`TextNode`, `ListNode`, `ImageNode`, `LineNode`, `MathNode`, `BoxNode`, `AtomicNode`, `UnknownNode`) that owns its own layout, painting, hit-testing, and geometry-only `NodeHitRegion`s. `node-shared.ts` holds leaf helpers shared by the node views (kept out of `state-utils` to avoid an import cycle).
+- `events/` — manual input handling: keyboard (`keysEvents.ts`), mouse (`mouseEvents.ts`), touch (`touchEvents.ts`), IME composition (`compositionEvents.ts`), plus `events.ts`/`genericEvents.ts`/`eventUtils.ts`. **Region-based input**: interactive areas are modeled as hit regions (`regions.ts`) — `chromeRegions.ts` (built-in chrome: scrollbar thumb/track, touch selection handles, off-screen peer indicators) and `blockRegions.ts` (behavior bound by id to the geometry-only regions a `Node` declares, e.g. `todo-checkbox`, `image-resize`). `session.ts` holds per-instance pointer-interaction state (formerly module-level globals); `autoScroll.ts` is the shared edge-of-viewport scroll curve; `haptics.ts` bridges native vibration.
 - `actions/` — `commands.ts` (editor commands), `clipboard.ts`
-- `fonts.ts` — font loading/measurement (host registers/loads faces, then notifies via `notifyFontsLoaded`); `selection.ts` — cursor/selection; `styles.ts` — style config
+- `math.ts` / `inline-math.ts` — MathJax rendering for `math` blocks and inline-math chips (runs of LaTeX characters tagged with the `math` mark); `composition.ts` (IME state), `cjk.ts` (CJK word-boundary detection), `constants.ts` (interaction thresholds)
+- `fonts.ts` — font loading/measurement (host registers font families via the per-instance theme and loads the faces, then notifies via `notifyFontsLoaded`/`notifyFontsChanged`); `selection.ts` — cursor/selection; `styles.ts` — per-instance theme resolution (`resolveTheme`/`mergeTheme`, `DEFAULT_TOKENS`)
 - RTL text (Arabic, Hebrew) supported via `rtl.ts`
 - Undo/redo is CRDT-aware: converts between index-based positions and CRDT ID-based positions (`inverse.ts`, `sync/crdt-undo.ts`)
-- `adapters.ts` — host integration points (e.g. `setAssetResolver`/`resolveAssetUrl`)
+- `adapters.ts` — host integration points (e.g. `setAssetResolver`/`resolveAssetUrl`, slash-command provider)
 
 ### CRDT System (`packages/editor/src/sync/`)
 Operation-log CRDT for offline-first collaborative editing:
-- `types.ts` — Operation types: `text_insert`, `text_delete`, `format_set`, `block_insert`, `block_delete`, `block_set`
+- Operation types (`text_insert`, `text_delete`, `format_set`, `block_insert`, `block_delete`, `block_set`) are the `Operation` union defined in `../state-types.ts` — not under `sync/`
 - `hlc.ts` — Hybrid Logical Clock (pure Lamport clock: counter + peerId, no wall clock). Ordering: counter → peerId (lexicographic)
-- `char-runs.ts` — RGA-style character-level CRDT using runs (`{peerId, startCounter, text, deletedMask}`)
-- `conflicts.ts` — RGA insertion position resolution with HLC-based ordering
-- `oplog.ts` — Operation log management
-- `reducer.ts` — Applies operations to document state
-- `sync.ts` — Public CRDT API + version vector tracking
+- `char-runs.ts` — RGA-style character-level CRDT using runs (`{peerId, startCounter, text, deletedMask}`); character IDs are `${peerId}:${startCounter + offset}`
+- `oplog.ts` — Operation log management; `reducer.ts` — applies operations to document state, resolving concurrent-insert ordering via HLC (there is no separate `conflicts.ts` module)
+- `sync.ts` — Public CRDT API + version vector tracking. The per-instance `CRDTbinding` (id/clock/peer identity) is created here (`createCRDTbinding`) and shared between `mountEditor` and `createSyncEngine`
+- `schema.ts` — canvas-free `DataSchema` (block/mark descriptors + serialization codecs); see the Schema bullet under the rendering engine above
 - `awareness.ts` — Peer cursors/selections/presence
-- `crdt-undo.ts` — CRDT-aware undo/redo; `snapshot-diff.ts`, `block-registry.ts`, `id.ts`, `crdt-helpers.ts`/`crdt-utils.ts` — supporting utilities
+- `crdt-undo.ts` — CRDT-aware undo/redo; `snapshot-diff.ts`, `block-registry.ts`, `id.ts`, `crdt-utils.ts` — supporting utilities
 - `__fuzz__/` — convergence + regression fuzz tests (vitest; `npm test` from `packages/editor`)
 - Character IDs use `${peerId}:${counter}` format
 
 ### State Management (`packages/editor/src/state-types.ts`, `state-utils.ts`)
+`state-types.ts` is also where the CRDT `Operation` union and core type aliases (`HLC`, `VersionVector`, `EditorState`, `EditorTheme`, …) live.
 Three-layer state architecture:
 1. **DocumentState** — Content (page, cursor, selection) — persisted in undo/redo
 2. **UIState** — UI interactions (menus, composition modes)
@@ -139,9 +145,9 @@ Three-layer state architecture:
 - Entry point: `main.tsx` — calls `initPlatform()` to set up Engine + Replicator, registers fonts and the editor's asset resolver, starts P2P sync before rendering
 - Path aliases (`apps/web/tsconfig.json` + `vite.config.ts`): `@/*` → `./src/*`, `@cypherkit/editor` → `../../packages/editor/src`, `@shared/*` → `../../shared/*` (shared dir currently absent)
 - `app/MountedEditor.tsx` — Main editor mount component (calls `mountEditor` from `@cypherkit/editor`), uses `useP2PRoom` hook for real-time sync
-- `app/hooks/useP2PRoom.ts` — Page-level P2P room subscription (operations, awareness, peer presence)
+- `app/hooks/useP2PRoom.ts` — Page-level P2P room subscription (operations, awareness, peer presence); `useP2PPageEvents.ts` — page-event wiring on top of it
 - `editor/` — **React UI chrome only** (no engine code): `ContextMenu.tsx`, `SlashCommandMenu.tsx`, `FindBar.tsx`, link/image popovers, `MathBlockEditor.tsx`
-- `fonts.ts` — host-side font registration; the engine's markdown parsing/serialization lives in the editor package (`packages/editor/src/serlization/`: `loadPage.ts`, `parser.ts`, `tokenizer.ts`, `serializer.ts`, `htmlSerializer.ts`)
+- `fonts.ts` — host-side font registration; the engine's markdown parsing/serialization lives in the editor package (`packages/editor/src/serlization/`: `loadPage.ts`, `parser.ts`, `tokenizer.ts`, `serializer.ts`, `htmlSerializer.ts`, `textSerializer.ts`, plus per-block-type `codecs/`)
 - `sw.ts` / `sw-router.ts` — Service Worker (PWA via workbox/VitePWA injectManifest)
 - i18n via i18next
 
@@ -212,9 +218,10 @@ The app is fully internationalized using i18next + react-i18next. **All user-fac
 
 ## Key Patterns
 
-- Block types: `paragraph`, `heading1-3`, `bullet_list`, `numbered_list`, `todo_list`, `image`, `line`
-- Text format types: `bold`, `italic`, `strikethrough`, `code`, `link`
+- Built-in block types (`sync/block-registry.ts`): `paragraph`, `heading1`/`heading2`/`heading3`, `bullet_list`, `numbered_list`, `todo_list`, `image`, `line`, `math`. Custom block types are added via the schema (`defineNode`)
+- Built-in inline mark types (`sync/schema.ts` → `BUILTIN_MARK_TYPES`): `strong`, `emphasis`, `strike`, `code`, `link`, `math`. (Note: these are the CRDT mark names — `strong`/`emphasis`/`strike`, not `bold`/`italic`/`strikethrough`.) Custom marks are added via the schema (`defineMark`)
 - Image blocks support width (`number | "full"`), height, objectFit (`"cover" | "contain"`), alt text
+- Inline math is a run of LaTeX characters carrying the `math` mark (rendered as a chip); block math is the `math` block type
 - RTL text (Arabic, Hebrew) supported with bidirectional rendering
 - IME/composition input handled specially for CJK languages
 

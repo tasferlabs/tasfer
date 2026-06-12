@@ -1,0 +1,15 @@
+{
+  "name": "@cypherkit/provider-core",
+  "version": "0.0.0",
+  "description": "Transport-agnostic sync protocol that connects a @cypherkit/editor Doc to any pipe (the shared core every provider builds on).",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "peerDependencies": {
+    "@cypherkit/editor": "*",
+    "typescript": "^5.9.3"
+  }
+}

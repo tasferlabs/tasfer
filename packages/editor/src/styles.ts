@@ -461,10 +461,22 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
       inactiveOpacity: 0.35,
     },
     scrollbar: {
+      // Colors come from tokens…
       trackColor: t.scrollbarTrack,
       thumbColor: t.scrollbarThumb,
       thumbHoverColor: t.scrollbarThumbHover,
       thumbActiveColor: t.scrollbarThumbActive,
+      // …geometry/timing from neutral defaults (formerly hardcoded in
+      // scrollbar.ts). All overridable via `theme.styles.scrollbar`. `width` is
+      // the desktop default; touch devices narrow it in `getScrollbarStyles`
+      // unless the host sets it explicitly.
+      width: 12,
+      minThumbHeight: 40,
+      padding: 4,
+      borderRadius: 6,
+      fadeDelay: 1000,
+      fadeDuration: 300,
+      touchTargetWidth: 32,
     },
     unknownBlock: {
       backgroundColor: t.unknownBlockBackground,

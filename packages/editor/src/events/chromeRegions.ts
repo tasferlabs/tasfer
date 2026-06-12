@@ -17,6 +17,7 @@ import {
 import { getOutOfViewIndicatorAtPoint } from "../rendering/renderer";
 import {
   endScrollbarDrag,
+  getScrollbarStyles,
   isPointInScrollbar,
   isPointInThumb,
   startScrollbarDrag,
@@ -86,7 +87,7 @@ const scrollbarThumbRegion: Region = {
       ctx.viewport,
       ctx.documentHeight,
       ctx.state.view.scrollbar,
-      undefined,
+      getScrollbarStyles(ctx.state),
       buffer,
     )
       ? true
@@ -106,6 +107,7 @@ const scrollbarThumbRegion: Region = {
               p.y,
               ctx.viewport,
               ctx.documentHeight,
+              getScrollbarStyles(ctx.state),
             ),
           },
         },
@@ -117,6 +119,7 @@ const scrollbarThumbRegion: Region = {
         ctx.viewport,
         ctx.documentHeight,
         ctx.state.view.scrollbar,
+        getScrollbarStyles(ctx.state),
       );
       ctx.updateViewport?.({ scrollY: newScrollY });
       // Clear hover overlays while scrolling via the scrollbar
@@ -148,7 +151,13 @@ const scrollbarTrackRegion: Region = {
   modes: ["edit", "select", "readonly"],
   hitTest(p, pointerType, ctx) {
     if (pointerType !== "mouse") return null;
-    return isPointInScrollbar(p.x, p.y, ctx.viewport, ctx.documentHeight)
+    return isPointInScrollbar(
+      p.x,
+      p.y,
+      ctx.viewport,
+      ctx.documentHeight,
+      getScrollbarStyles(ctx.state),
+    )
       ? true
       : null;
   },
@@ -158,6 +167,7 @@ const scrollbarTrackRegion: Region = {
       ctx.viewport,
       ctx.documentHeight,
       ctx.state.view.scrollbar,
+      getScrollbarStyles(ctx.state),
     );
     ctx.updateViewport?.({ scrollY: newScrollY });
     return { state: withScrollbarInteraction(ctx.state) };

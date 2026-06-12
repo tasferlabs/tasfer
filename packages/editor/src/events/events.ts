@@ -6,6 +6,7 @@ import {
 import { imageCache } from "../rendering/renderer";
 import {
   applyMomentum,
+  getScrollbarStyles,
   updateScrollbarFadeOpacity,
 } from "../rendering/scrollbar";
 import {
@@ -496,7 +497,10 @@ export function handleEvents(
       ...state,
       view: {
         ...state.view,
-        scrollbar: updateScrollbarFadeOpacity(state.view.scrollbar),
+        scrollbar: updateScrollbarFadeOpacity(
+          state.view.scrollbar,
+          getScrollbarStyles(state),
+        ),
       },
     };
 
@@ -672,7 +676,10 @@ export function handleEvents(
     ...state,
     view: {
       ...state.view,
-      scrollbar: updateScrollbarFadeOpacity(state.view.scrollbar),
+      scrollbar: updateScrollbarFadeOpacity(
+        state.view.scrollbar,
+        getScrollbarStyles(state),
+      ),
     },
   };
 

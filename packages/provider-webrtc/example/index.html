@@ -3,12 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>@cypherkit/editor — collab + schema</title>
+    <title>@cypherkit/provider — two replicas, one document</title>
     <style>
       :root {
         color-scheme: light dark;
-        /* The renderer reads a handful of CSS variables off :root so the host
-           controls theming. These are the ones the default styles look for. */
         --editor-text: #1a1a1a;
         --editor-bg: #ffffff;
         --editor-selection: rgba(64, 120, 255, 0.25);
@@ -34,12 +32,7 @@
         flex: 0 0 auto;
         flex-wrap: wrap;
       }
-      #toolbar .sep {
-        width: 1px;
-        align-self: stretch;
-        background: rgba(128, 128, 128, 0.3);
-        margin: 2px 2px;
-      }
+      #toolbar .sep { width: 1px; align-self: stretch; background: rgba(128, 128, 128, 0.3); margin: 2px; }
       #toolbar button {
         font: inherit;
         padding: 6px 12px;
@@ -50,20 +43,18 @@
         cursor: pointer;
       }
       #toolbar button:hover { background: rgba(128, 128, 128, 0.12); }
-      /* Active format state, painted from editor.getActiveFormats(). */
       #toolbar button.is-active {
         background: var(--editor-selection);
         border-color: rgba(64, 120, 255, 0.55);
       }
       #toolbar .hint { opacity: 0.6; font-size: 13px; margin-left: auto; }
 
-      /* Two panes side by side — each is its own editor over its own Doc. */
       #panes {
         flex: 1 1 auto;
         min-height: 0;
         display: flex;
         gap: 1px;
-        background: rgba(128, 128, 128, 0.25); /* the gap reads as a divider */
+        background: rgba(128, 128, 128, 0.25);
       }
       .pane {
         flex: 1 1 0;
@@ -81,14 +72,8 @@
         opacity: 0.55;
         border-bottom: 1px solid rgba(128, 128, 128, 0.15);
       }
-      /* The editor fills whatever box you give it and observes its size. */
-      .pane > .editor {
-        flex: 1 1 auto;
-        min-height: 0;
-        position: relative;
-      }
+      .pane > .editor { flex: 1 1 auto; min-height: 0; position: relative; }
 
-      /* Live read-model: per-peer word + op counts and a convergence flag. */
       #status {
         flex: 0 0 auto;
         display: flex;
@@ -97,7 +82,7 @@
         padding: 6px 14px;
         border-top: 1px solid rgba(128, 128, 128, 0.25);
         font-size: 13px;
-        opacity: 0.8;
+        opacity: 0.85;
         font-variant-numeric: tabular-nums;
       }
       #status .spacer { flex: 1 1 auto; }
@@ -105,36 +90,34 @@
     </style>
   </head>
   <body>
-    <!-- data-editor-overlay tells the editor's focus tracking not to steal
-         focus away when you click these buttons. -->
     <div id="toolbar" data-editor-overlay>
-      <button id="bold" title="Toggle bold — editorA.commands.toggleMark('strong')"><strong>B</strong></button>
-      <button id="h1" title="Heading 1 — editorA.commands.setBlock('heading1')">H1</button>
-      <button id="bullet" title="Bullet list — editorA.commands.setBlock('bullet_list')">• List</button>
+      <button id="bold" title="Toggle bold"><strong>B</strong></button>
+      <button id="h1" title="Heading 1">H1</button>
+      <button id="bullet" title="Bullet list">• List</button>
       <span class="sep"></span>
-      <button id="undo" title="Undo — editorA.commands.undo()">Undo</button>
-      <button id="redo" title="Redo — editorA.commands.redo()">Redo</button>
+      <button id="undo" title="Undo">Undo</button>
+      <button id="redo" title="Redo">Redo</button>
       <span class="sep"></span>
-      <button id="save" title="Serialize editor A to Markdown (shows the &lt;x-callout&gt; round-trip) → console">Log&nbsp;.md</button>
       <button id="reset" title="Clear the persisted Doc and reload">Reset</button>
-      <span class="hint">edits in either pane sync through the CRDT Doc</span>
+      <span class="hint">two replicas, kept in sync by a provider — edit either pane (or open a 2nd tab)</span>
     </div>
 
     <div id="panes">
       <div class="pane">
-        <div class="label" data-editor-overlay>Peer A</div>
+        <div class="label" data-editor-overlay>Replica A</div>
         <div id="editorA" class="editor"></div>
       </div>
       <div class="pane">
-        <div class="label" data-editor-overlay>Peer B</div>
+        <div class="label" data-editor-overlay>Replica B (starts empty — catches up over the provider)</div>
         <div id="editorB" class="editor"></div>
       </div>
     </div>
 
     <div id="status" data-editor-overlay>
-      <span id="status-a">Peer A</span>
-      <span id="status-b">Peer B</span>
+      <span id="status-a">Replica A</span>
+      <span id="status-b">Replica B</span>
       <span class="spacer"></span>
+      <span id="status-net"></span>
       <span id="status-sync"></span>
     </div>
 

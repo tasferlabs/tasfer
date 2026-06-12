@@ -147,7 +147,7 @@ editor.commands.setBlock("heading", { level: 2 });
 
 // chain several into one undo step
 editor.chain()
-  .selectParagraph()
+  .toggleMark("strong")
   .toggleMark("emphasis")
   .insertText(" ✶")
   .run();
@@ -608,60 +608,114 @@ export function EditorTheming() {
   return (
     <>
       <p className="dx-lede">
-        Because the editor paints its own pixels, theming is done through a token
-        object — colors, fonts, and metrics — not CSS selectors into a DOM you
-        don't control.
+        Because the editor paints its own pixels, theming is done through a plain{" "}
+        <code>EditorTheme</code> object — semantic color <strong>tokens</strong>, a
+        deep-partial <strong>styles</strong> override, and a <strong>fonts</strong>{" "}
+        registry — not CSS selectors into a DOM you don't control.
       </p>
 
       <h2 id="tokens">The theme object</h2>
+      <p>
+        Pass a <code>theme</code> to <code>createEditor</code>. Colors live under{" "}
+        <code>tokens</code>; every field is optional and merges over the built-in{" "}
+        <code>DEFAULT_TOKENS</code> palette, so you only set what you change.
+      </p>
       <Code lang="ts" code={`
-import { createTheme } from "@cypherkit/editor";
+import { createEditor } from "@cypherkit/editor";
 
-const editorial = createTheme({
-  fontFamily: '"Libre Baskerville", Georgia, serif',
-  fontSize: 17,
-  lineHeight: 1.7,
-  color: {
-    text: "#1c1c1f",
-    heading: "#09090b",
-    cursor: "#1db984",
-    selection: "rgba(29,185,132,0.30)",
-    link: "#1db984",
-    codeBg: "#f4f4f5",
+const editor = createEditor({
+  element,
+  theme: {
+    // Semantic color tokens — merged over DEFAULT_TOKENS.
+    tokens: {
+      text: "#1c1c1f",
+      heading: "#09090b",
+      cursor: "#1db984",
+      selection: "rgba(29,185,132,0.30)",
+      link: "#1db984",
+      codeBackground: "#f4f4f5",
+    },
+    // The selected font family key + the CSS stacks it can resolve to.
+    // (The host is responsible for actually loading the faces.)
+    fontFamily: "serif",
+    fonts: { families: { serif: '"Libre Baskerville", Georgia, serif' } },
   },
 });
+`} />
+      <Callout kind="note" title="tokens vs styles.">
+        <code>tokens</code> are the semantic colors (text, heading, cursor,
+        selection, link, <code>codeBackground</code>, …). For finer control —
+        per-block font sizes, canvas padding, scrollbar geometry — pass a
+        deep-partial <code>styles</code> object that overrides any individual leaf
+        of the resolved style tree. <code>resolveTheme</code>,{" "}
+        <code>mergeTheme</code>, and <code>DEFAULT_TOKENS</code> are exported for
+        hosts that want to precompute or inspect the result.
+      </Callout>
 
-createEditor({ element, theme: editorial });
+      <h2 id="live">Updating the theme live</h2>
+      <p>
+        <code>editor.setTheme(patch)</code> deep-merges a patch onto the current
+        theme and repaints — the one path for a runtime theme change, e.g. a
+        dark-mode toggle:
+      </p>
+      <Code lang="ts" code={`
+editor.setTheme({
+  tokens: { text: "#e6e6e6", heading: "#ffffff", background: "#0b0b0c" },
+});
 `} />
 
       <h2 id="css-vars">Driving it from CSS variables</h2>
       <p>
-        Pass <code>"inherit"</code> for any token and the editor reads the matching
-        CSS custom property off its host element. This is how you get free dark mode:
-        flip a class on <code>&lt;html&gt;</code> and the canvas repaints.
+        The engine <strong>never reads the DOM</strong> — there is no{" "}
+        <code>"inherit"</code> token. To follow CSS custom properties, the host
+        reads them and forwards the values as <code>tokens</code>: once at mount,
+        and again whenever your theme class flips.
       </p>
       <Code lang="ts" code={`
-const theme = createTheme({
-  color: {
-    text: "inherit",        // reads --cy-editor-text
-    cursor: "inherit",      // reads --cy-editor-cursor
-    selection: "inherit",   // reads --cy-editor-selection
+function tokensFromCss(el: HTMLElement) {
+  const v = getComputedStyle(el);
+  return {
+    text: v.getPropertyValue("--cy-editor-text").trim(),
+    cursor: v.getPropertyValue("--cy-editor-cursor").trim(),
+    selection: v.getPropertyValue("--cy-editor-selection").trim(),
+  };
+}
+
+const editor = createEditor({ element, theme: { tokens: tokensFromCss(element) } });
+
+// Re-read on a dark-mode class flip on <html> and push the new tokens in.
+new MutationObserver(() => editor.setTheme({ tokens: tokensFromCss(element) }))
+  .observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+`} />
+      <Callout kind="note" title="Matching the Cypher look.">
+        Cypher's host feeds its <code>--cy-editor-*</code> design tokens straight
+        into <code>tokens</code> exactly this way, so dropping the editor into a
+        Cypher surface needs no palette of its own — it gets the same variables the
+        rest of the UI uses.
+      </Callout>
+
+      <h2 id="metrics">Metrics live in <code>styles</code></h2>
+      <p>
+        Sizes and spacing aren't tokens — they're leaves of the <code>styles</code>{" "}
+        tree, each overridable per instance:
+      </p>
+      <PropsTable cols={["Path", "Default", "Description"]} rows={[
+        { name: "styles.blocks.paragraph.fontSize", type: "16", desc: "Base paragraph size in px. Each heading level carries its own fontSize (32 / 24 / 20)." },
+        { name: "styles.blocks.paragraph.lineHeight", type: "1.6", desc: "Unitless line-height multiple for the block." },
+        { name: "styles.canvas.paddingTop / paddingBottom", type: "4 / 80", desc: "Vertical canvas padding in px." },
+        { name: "styles.canvas.paddingLeft / paddingRight", type: "40 / 40", desc: "Horizontal canvas padding. The text column is the container width minus these — there is no fixed max-width token." },
+      ]} />
+      <Code lang="ts" code={`
+createEditor({
+  element,
+  theme: {
+    styles: {
+      blocks: { paragraph: { fontSize: 17 } },
+      canvas: { paddingLeft: 64, paddingRight: 64 },
+    },
   },
 });
 `} />
-      <Callout kind="note" title="Matching the Cypher look.">
-        The token names line up one-to-one with the <code>--cy-editor-*</code>
-        variables in Cypher's design tokens, so dropping the editor into a Cypher
-        surface needs no theme at all — it inherits.
-      </Callout>
-
-      <h2 id="metrics">Metrics</h2>
-      <PropsTable cols={["Token", "Default", "Description"]} rows={[
-        { name: "fontSize", type: "16", desc: "Base paragraph size in px. Headings scale from this." },
-        { name: "lineHeight", type: "1.6", desc: "Unitless multiple applied to every line box." },
-        { name: "maxWidth", type: "680", desc: "Measure of the text column in px; the canvas centers it." },
-        { name: "padding", type: "[40, 40]", desc: "Vertical / horizontal canvas padding in px." },
-      ]} />
     </>
   );
 }

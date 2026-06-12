@@ -1,7 +1,7 @@
 /**
  * @cypherkit/editor — collaboration + extensibility example.
  *
- * Framework-agnostic, no React. It exercises the three new headline APIs:
+ * Framework-agnostic, no React. It exercises the two new headline APIs:
  *
  *   1. Doc — the CRDT document as a first-class object, independent of any
  *      editor. We build TWO editors over TWO Docs and wire their Docs together
@@ -15,9 +15,6 @@
  *      replicates through the CRDT, renders as a styled box, and round-trips
  *      back to `<x-callout … />` — across BOTH panes.
  *
- *   3. Regions — a host-authored "drag the gutter to scroll" interaction
- *      (see gutterRegion.ts), passed to each editor via `createEditor({ regions })`.
- *
  * Persistence is lossless: we save `docA.encodeState()` (the full op log +
  * version vector, not a Markdown flattening) and restore with `createDoc(bytes)`
  * — so undo history and CRDT identity survive a reload.
@@ -25,7 +22,6 @@
 import { createDoc, createEditor } from "@cypherkit/editor";
 
 import { FONT_STYLES, loadFonts } from "./fonts";
-import { createGutterScrollRegion } from "./gutterRegion";
 import { schema } from "./schema";
 
 const STORAGE_KEY = "cypher-collab-doc";
@@ -40,9 +36,6 @@ Use **⌘B / Ctrl+B** to bold, **⌘Z** to undo (CRDT-aware, not a text diff).
 
 The box above is a **custom block type** defined in host code. It replicates and
 round-trips to Markdown as \`<x-callout … />\` — try **Log .md** below.
-
-> Drag the empty **left gutter** of a pane to scroll it: a custom interaction
-> *region*, the same input contract the built-in scrollbar uses.
 
 <x-callout tone="warn" />
 `;
@@ -94,8 +87,7 @@ async function main() {
   // 4. Mount one editor per Doc. Passing `doc` makes the editor a VIEW over it:
   //    local edits flow into the Doc, and updates applied to the Doc from
   //    elsewhere (the wire) flow back into the editor. We still pass `schema`
-  //    so the custom callout node renders, and a fresh gutter region instance
-  //    to each (per-instance gesture state — never shared).
+  //    so the custom callout node renders.
   // Per-instance theme: same font registry + page padding for both editors.
   // Because the theme is per instance (no globals), you could give A and B
   // different `tokens`/`fonts` here and they would not clobber each other.
@@ -105,7 +97,7 @@ async function main() {
       canvas: {
         paddingTop: 28,
         paddingBottom: 80,
-        paddingLeft: 28, // leave the left gutter clear for the scroll region
+        paddingLeft: 28,
         paddingRight: 12,
       },
     },
@@ -115,15 +107,14 @@ async function main() {
     doc: docA,
     schema,
     theme,
-    regions: [createGutterScrollRegion()],
     autofocus: true,
   });
+
   const editorB = createEditor({
     element: byId<HTMLDivElement>("editorB"),
     doc: docB,
     schema,
     theme,
-    regions: [createGutterScrollRegion()],
   });
 
   // 5. Toolbar drives editor A (whatever you do there syncs to B). preventDefault
@@ -137,6 +128,7 @@ async function main() {
       editorA.refocus();
     });
   };
+
   keepFocus("bold", () => editorA.commands.toggleMark("strong"));
   keepFocus("h1", () => editorA.commands.setBlock("heading1"));
   keepFocus("bullet", () => editorA.commands.setBlock("bullet_list"));
@@ -170,11 +162,18 @@ async function main() {
   const paintStatus = () => {
     const wordsA = countWords(editorA.getMarkdown());
     const wordsB = countWords(editorB.getMarkdown());
-    byId("status-a").textContent = `Peer A — ${wordsA} words · ${docA.getOperations().length} ops`;
-    byId("status-b").textContent = `Peer B — ${wordsB} words · ${docB.getOperations().length} ops`;
+    byId("status-a").textContent =
+      `Peer A — ${wordsA} words · ${docA.getOperations().length} ops`;
+    byId("status-b").textContent =
+      `Peer B — ${wordsB} words · ${docB.getOperations().length} ops`;
     byId("status-sync").textContent =
-      editorA.getMarkdown() === editorB.getMarkdown() ? "✓ converged" : "… syncing";
-    boldBtn.classList.toggle("is-active", editorA.getActiveMarks().has("strong"));
+      editorA.getMarkdown() === editorB.getMarkdown()
+        ? "✓ converged"
+        : "… syncing";
+    boldBtn.classList.toggle(
+      "is-active",
+      editorA.getActiveMarks().has("strong"),
+    );
   };
   // Repaint whenever either Doc advances or the caret moves.
   docA.on("update", paintStatus);

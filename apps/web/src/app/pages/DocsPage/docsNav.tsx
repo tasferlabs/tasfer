@@ -20,7 +20,6 @@ import {
   EditorApiEditor,
   EditorApiCommands,
   EditorApiSchema,
-  EditorApiPlugins,
 } from "./pages/editorApiPages";
 
 /* ============================================================
@@ -94,7 +93,6 @@ export const NAV: NavSection[] = [
           { route: "editor/api-editor", title: "Editor", Comp: EditorApiEditor, kw: "createeditor options methods state events instance" },
           { route: "editor/api-commands", title: "Commands", Comp: EditorApiCommands, kw: "command chain togglemark dispatch transaction" },
           { route: "editor/api-schema", title: "Schema & nodes", Comp: EditorApiSchema, kw: "schema baseschema nodes marks content expression" },
-          { route: "editor/api-plugins", title: "Plugins", Comp: EditorApiPlugins, kw: "plugin keymap input rules decorations extend" },
         ],
       },
     ],

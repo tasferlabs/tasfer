@@ -1,6 +1,7 @@
 import { getDefaultDirection } from "../rtl";
 import type {
   EditorState,
+  ScrollbarStyles,
   SearchHighlight,
   ViewportState,
 } from "../state-types";
@@ -22,20 +23,10 @@ export interface ScrollbarState {
   readonly dragStartOffset: number; // Offset from thumb top to mouse Y when drag started
 }
 
-export interface ScrollbarStyles {
-  readonly width: number;
-  readonly minThumbHeight: number;
-  readonly padding: number;
-  readonly borderRadius: number;
-  readonly fadeDelay: number; // ms before starting to fade
-  readonly fadeDuration: number; // ms to complete fade
-  readonly touchTargetWidth: number; // Wider hit area for touch devices
-}
-
-// Scrollbar colors are part of the resolved editor theme (`EditorStyles.scrollbar`,
-// per instance) — geometry lives here; colors are read at paint time from the
-// theme. (Previously read from `--editor-scrollbar-*` CSS variables off the
-// document root, which the headless engine no longer touches.)
+// The scrollbar's full style — colors AND geometry/timing — now lives on the
+// per-instance resolved theme (`EditorStyles.scrollbar`, see state-types.ts), so
+// a host can restyle it via `theme.styles.scrollbar` / `setTheme`. This module
+// reads it through `getScrollbarStyles(state)`; geometry is no longer hardcoded.
 
 // Detect if device has touch support
 function isTouchDevice(): boolean {
@@ -124,23 +115,24 @@ export function updateSafeAreaCache(): void {
 }
 
 /**
- * Scrollbar geometry/timing. Colors are sourced separately from the resolved
- * editor theme (`EditorStyles.scrollbar`) at paint time — no DOM access.
+ * Resolve this instance's scrollbar style (colors + geometry + timing) from the
+ * editor theme (`EditorStyles.scrollbar`). One device-dependent default the
+ * theme can't bake in: `width` narrows on touch devices — unless the host set it
+ * explicitly via `theme.styles.scrollbar.width`, in which case that wins on every
+ * device (mirrors how horizontal page padding is handled). Without `state`,
+ * returns the neutral resolved defaults (desktop width).
+ *
+ * Pass `state` everywhere the geometry is read (rendering AND hit-testing) so a
+ * themed width/padding/radius stays consistent between paint and pointer math.
  */
-export function getScrollbarStyles(): ScrollbarStyles {
-  return {
-    width: isTouchDevice() ? 8 : 12,
-    minThumbHeight: 40,
-    padding: 4,
-    borderRadius: 6,
-    fadeDelay: 1000,
-    fadeDuration: 300,
-    touchTargetWidth: 32, // Wider hit area for touch devices (invisible)
-  };
+export function getScrollbarStyles(state?: EditorState): ScrollbarStyles {
+  const styles = getEditorStyles(state).scrollbar;
+  const widthSetByHost = state?.theme.styles?.scrollbar?.width !== undefined;
+  if (isTouchDevice() && !widthSetByHost) {
+    return { ...styles, width: 8 };
+  }
+  return styles;
 }
-
-// Export default for backwards compatibility
-export const defaultScrollbarStyles: ScrollbarStyles = getScrollbarStyles();
 
 export function createInitialScrollbarState(): ScrollbarState {
   return {
@@ -215,7 +207,7 @@ export function renderScrollbar(
   documentHeight: number,
   state: EditorState,
   remoteAwareness: Map<string, AwarenessState>,
-  styles = getScrollbarStyles(),
+  styles = getScrollbarStyles(state),
 ): void {
   // Don't render if document fits in viewport
   if (documentHeight <= viewport.height) {
@@ -262,14 +254,13 @@ export function renderScrollbar(
   const thumbX = rtl ? bounds.thumbX : bounds.thumbX - widthDiff;
   const trackX = rtl ? bounds.trackX : bounds.trackX - trackWidthDiff;
 
-  // Colors come from the per-instance resolved theme (not a global / the DOM).
-  const colors = getEditorStyles(state).scrollbar;
-
+  // Colors + geometry both come from `styles` (the per-instance resolved theme,
+  // via getScrollbarStyles(state)) — not a global / the DOM.
   ctx.save();
   ctx.globalAlpha = opacity;
 
   // Draw track (optional, subtle background) - scales with thumb when active
-  ctx.fillStyle = colors.trackColor;
+  ctx.fillStyle = styles.trackColor;
   ctx.beginPath();
   ctx.roundRect(
     trackX,
@@ -281,11 +272,11 @@ export function renderScrollbar(
   ctx.fill();
 
   // Draw thumb
-  let thumbColor = colors.thumbColor;
+  let thumbColor = styles.thumbColor;
   if (scrollbarState.isDragging) {
-    thumbColor = colors.thumbActiveColor;
+    thumbColor = styles.thumbActiveColor;
   } else if (scrollbarState.isHovered) {
-    thumbColor = colors.thumbHoverColor;
+    thumbColor = styles.thumbHoverColor;
   }
 
   ctx.fillStyle = thumbColor;

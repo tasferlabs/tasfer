@@ -1,0 +1,16 @@
+{
+  "name": "@cypherkit/provider-webrtc",
+  "version": "0.0.0",
+  "description": "WebRTC transport for @cypherkit/editor — direct peer-to-peer document sync after a small signaling step.",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "peerDependencies": {
+    "@cypherkit/editor": "*",
+    "@cypherkit/provider-core": "*",
+    "typescript": "^5.9.3"
+  }
+}

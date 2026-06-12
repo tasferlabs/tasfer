@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    // Mirror the Vite aliases so `tsc` resolves all three packages' source.
+    "baseUrl": ".",
+    "paths": {
+      "@cypherkit/editor": ["../../editor/src/index.ts"],
+      "@cypherkit/editor/*": ["../../editor/src/*"],
+      "@cypherkit/provider-core": ["../../provider-core/src/index.ts"],
+      "@cypherkit/provider-core/*": ["../../provider-core/src/*"],
+      "@cypherkit/provider-webrtc": ["../src/index.ts"],
+      "@cypherkit/provider-webrtc/*": ["../src/*"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

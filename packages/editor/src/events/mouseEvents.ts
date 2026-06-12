@@ -6,6 +6,7 @@ import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
 import { getInlineMathAtPosition } from "../inline-math";
 import { getDragHandleAtPoint } from "../rendering/nodes";
 import {
+  getScrollbarStyles,
   isPointInThumb,
   updateScrollbarHover,
   updateScrollFromWheel,
@@ -569,6 +570,7 @@ export function handleMouseMove(
     viewport,
     documentHeight,
     state.view.scrollbar,
+    getScrollbarStyles(state),
   );
   state = {
     ...state,
