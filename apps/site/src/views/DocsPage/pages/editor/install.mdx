@@ -1,7 +1,7 @@
 {/* @cypherkit/editor docs — Installation. */}
 
 import { Icons } from "../../docsIcons";
-import { Callout, Card, CardGrid, Code, InstallTabs, LicenseCard } from "../../docsComponents";
+import { Callout, Card, CardGrid, InstallTabs, LicenseCard } from "../../docsComponents";
 
 <p className="dx-lede">`@cypherkit/editor` is a CRDT-first canvas editor for the web — the same engine that powers the Cypher app, extracted as a standalone, framework-agnostic package. **It renders to a canvas, models your document as a conflict-free replicated data type, and never assumes a server exists.**</p>
 
@@ -27,12 +27,12 @@ The core package has **zero runtime dependencies**. The CRDT, the canvas rendere
 
 Mount an editor into any element. This is the smallest thing that works — an editable document with markdown shortcuts, history, and a blinking cursor:
 
-<Code file="main.ts" lang="ts" code={`
+```ts file="main.ts"
 import { createEditor } from "@cypherkit/editor";
 
 const editor = createEditor({
   element: document.querySelector("#editor")!,
-  value: "# Hello\\n\\nStart typing — *markdown* shortcuts just work.",
+  value: "# Hello\n\nStart typing — *markdown* shortcuts just work.",
   autofocus: true,
 });
 
@@ -40,7 +40,7 @@ const editor = createEditor({
 editor.on("change", () => {
   localStorage.setItem("draft", editor.getMarkdown());
 });
-`} />
+```
 
 <Callout kind="tip" title="That document is already a CRDT.">Even with no provider attached, the editor's value is backed by a replicated data structure. Wiring up sync later is additive — you never rewrite your document model to "make it collaborative."</Callout>
 

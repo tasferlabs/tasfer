@@ -1,6 +1,6 @@
 {/* Cypher app docs — Self-hosting the relay. */}
 
-import { Callout, Code, PropsTable } from "../../docsComponents";
+import { Callout, PropsTable } from "../../docsComponents";
 
 <p className="dx-lede">The relay is a small, stateless service: it introduces peers and forwards encrypted bytes it cannot read. **It has no database, no accounts, and nothing worth subpoenaing.** Running your own takes one container.</p>
 
@@ -8,15 +8,15 @@ import { Callout, Code, PropsTable } from "../../docsComponents";
 
 The relay ships as a container image and a single static binary. Either works:
 
-<Code lang="bash" code={`
+```bash
 # container
-docker run -p 443:8443 \\
-  -v $PWD/certs:/certs \\
+docker run -p 443:8443 \
+  -v $PWD/certs:/certs \
   ghcr.io/hamza512b/cypher-relay:latest
 
 # or the static binary
 cypher-relay --listen :8443 --tls-cert ./fullchain.pem --tls-key ./key.pem
-`} />
+```
 
 Then point your app at it: `Settings → Sync → Relay → wss://relay.example.org`.
 

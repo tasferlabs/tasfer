@@ -1,11 +1,13 @@
 "use client";
 
 import {
+  Children,
   createContext,
   useContext,
   useId,
   useMemo,
   useState,
+  type ReactElement,
   type ReactNode,
   type AnchorHTMLAttributes,
 } from "react";
@@ -181,6 +183,23 @@ export function Code({
       </pre>
     </div>
   );
+}
+
+/* ── fenced-code bridge for MDX ──
+   The docs articles write code samples as markdown fences (```ts file="main.ts");
+   mdx-components maps `pre` here. The meta string survives as data-meta thanks
+   to the rehypeCodeMeta plugin in next.config.ts. */
+export function CodeFence({ children }: { children?: ReactNode }) {
+  const child = Children.only(children) as ReactElement<{
+    className?: string;
+    children?: ReactNode;
+    "data-meta"?: string;
+  }>;
+  const lang = /language-([^\s]+)/.exec(child.props.className ?? "")?.[1] ?? "text";
+  const meta = child.props["data-meta"] ?? "";
+  const file = /file="([^"]*)"/.exec(meta)?.[1];
+  const code = typeof child.props.children === "string" ? child.props.children : "";
+  return <Code code={code} lang={lang} file={file} terminal={/\bterminal\b/.test(meta)} />;
 }
 
 /* ── install tabs (npm / pnpm / yarn / bun) ──

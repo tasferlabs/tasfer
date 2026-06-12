@@ -22,8 +22,35 @@ const nextConfig: NextConfig = {
   // automatically via the NEXT_PUBLIC_ prefix.
 };
 
+/**
+ * Remark plugin: carry a fenced code block's meta string (the part after the
+ * language, e.g. ```ts file="main.ts") through to the rendered <code> as a
+ * data-meta attribute. MDX/mdast-util-to-hast drops the meta otherwise, and
+ * the docs `pre` component (CodeFence) needs it to rebuild the snippet header.
+ * Setting it as hProperties at the mdast stage is the reliable path — node.meta
+ * is always present here, before hast conversion can lose it.
+ */
+function remarkCodeMeta() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (tree: any) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const visit = (node: any) => {
+      if (node?.type === "code" && node.meta) {
+        node.data = node.data || {};
+        node.data.hProperties = { ...node.data.hProperties, "data-meta": node.meta };
+      }
+      for (const child of node?.children ?? []) visit(child);
+    };
+    visit(tree);
+  };
+}
+
 // The docs articles (src/views/DocsPage/pages/**/*.mdx) are MDX imported as
 // components; routes themselves stay .tsx, so pageExtensions is untouched.
-const withMDX = createMDX({});
+// Code samples are fenced blocks (markdown keeps their indentation intact —
+// JSX attribute expressions don't) rendered through the mdx-components map.
+const withMDX = createMDX({
+  options: { remarkPlugins: [remarkCodeMeta] },
+});
 
 export default withMDX(nextConfig);

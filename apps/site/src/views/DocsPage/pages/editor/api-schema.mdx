@@ -1,6 +1,6 @@
 {/* @cypherkit/editor API reference — Schema & nodes. */}
 
-import { Callout, Code, PropsTable } from "../../docsComponents";
+import { Callout, PropsTable } from "../../docsComponents";
 
 <p className="dx-lede">A `Schema` declares what a document is made of: the block types and inline marks the editor understands. The default `baseSchema` covers every built-in type; derive your own with `baseSchema.extend(...)`.</p>
 
@@ -25,13 +25,13 @@ Inline marks: `strong` (`**`), `emphasis` (`*`), `strike` (`~~`), `code` (backti
 
 `extend` takes *arrays* of node and mark specs and returns a new, immutable schema — the base is never mutated, so two editors on one page can run different schemas:
 
-<Code lang="ts" code={`
+```ts
 import { baseSchema, defineNode, defineMark } from "@cypherkit/editor";
 
 const schema = baseSchema.extend({
   nodes: [defineNode("callout", { attrs: { tone: { default: "note" } } })],
   marks: [defineMark("highlight")],
 });
-`} />
+```
 
 Custom block types are leaf, void nodes today (a styled box carrying replicated attributes). See [Custom nodes & marks](/docs/editor/custom-nodes) for the full `defineNode` / `defineMark` options and how they round-trip through Markdown.

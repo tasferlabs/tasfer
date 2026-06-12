@@ -1,15 +1,15 @@
 {/* @cypherkit/editor API reference — Editor. */}
 
-import { Callout, Code, PropsTable } from "../../docsComponents";
+import { Callout, PropsTable } from "../../docsComponents";
 
 <p className="dx-lede">`createEditor(options)` returns a `CypherEditor` — the view, command dispatcher, and selection owner over a CRDT document (the full `Editor` command surface plus the mount lifecycle). This is the object you'll hold onto for the lifetime of the editing surface.</p>
 
 <h2 id="create">createEditor(options)</h2>
 
-<Code lang="ts" code={`
+```ts
 import { createEditor } from "@cypherkit/editor";
 const editor = createEditor(options: CreateEditorOptions): CypherEditor;
-`} />
+```
 
 <PropsTable rows={[
   { name: "element", type: "HTMLElement", required: true, desc: "The host element the canvas mounts into. Sized to fill it." },
@@ -47,7 +47,7 @@ const editor = createEditor(options: CreateEditorOptions): CypherEditor;
 
 <h2 id="lifecycle">Lifecycle</h2>
 
-<Code lang="ts" code={`
+```ts
 const editor = createEditor({ element });
 
 // ... use it ...
@@ -55,4 +55,4 @@ const editor = createEditor({ element });
 // always destroy when the surface unmounts, or you'll leak
 // the canvas, the ResizeObserver, and any attached providers.
 editor.destroy();
-`} />
+```

@@ -1,7 +1,7 @@
 {/* Cypher app docs — Getting started. The pager and article header are supplied by the shell. */}
 
 import { Icons } from "../../docsIcons";
-import { Callout, Card, CardGrid, Code, Step, Steps } from "../../docsComponents";
+import { Callout, Card, CardGrid, Step, Steps } from "../../docsComponents";
 
 <p className="dx-lede">Cypher is a local-first, end-to-end encrypted markdown editor. Your files live on your disk, your keys never leave your device, and sync is peer-to-peer. **There is no account to create — you start by opening the app.**</p>
 
@@ -26,12 +26,12 @@ Cypher runs as a desktop app and as a local web build. Pick whichever fits your 
 
 To build from source:
 
-<Code lang="bash" code={`
+```bash
 git clone https://github.com/hamza512b/cypher
 cd cypher
 pnpm install
 pnpm dev          # opens the app at http://localhost:4000
-`} />
+```
 
 <h2 id="first-doc">Your first document</h2>
 

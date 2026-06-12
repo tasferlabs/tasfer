@@ -1,6 +1,6 @@
 {/* Cypher app docs — Sync & relay setup. */}
 
-import { Callout, Code, PropsTable, Step, Steps } from "../../docsComponents";
+import { Callout, PropsTable, Step, Steps } from "../../docsComponents";
 
 <p className="dx-lede">Sync is off by default. When you turn it on, your devices talk **directly, peer-to-peer, encrypted with keys that never leave your hardware.** A relay exists only to introduce devices that can't see each other directly — and it can't read a thing.</p>
 
@@ -32,19 +32,19 @@ Three stages, in plain terms:
 
 Out of the box, Cypher uses `wss://relay.cypher.md` for the introduce/fallback step. It holds no accounts, keeps no message log, and is structurally unable to decrypt your documents. If that's not enough trust — and it shouldn't have to be — point Cypher at your own.
 
-<Code file="Settings → Sync → Relay" lang="text" code={`
+```text file="Settings → Sync → Relay"
 Relay URL    wss://relay.cypher.md      (default)
              wss://relay.example.org    (your own — see Self-hosting)
-`} />
+```
 
 <h2 id="own-relay">Use your own relay</h2>
 
 It's a single config field. Paste a WebSocket URL and Cypher uses it for every introduction and fallback:
 
-<Code lang="bash" code={`
+```bash
 # or set it without opening the UI:
 cypher config set sync.relay wss://relay.example.org
-`} />
+```
 
 <Callout kind="tip" title="Your relay, your rules.">Running your own relay means no third party — not even the Cypher project — is ever in the path of an introduction. Setup is one container. See [Self-hosting the relay](/docs/app/self-hosting).</Callout>
 

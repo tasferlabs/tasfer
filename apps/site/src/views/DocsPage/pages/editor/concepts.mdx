@@ -1,6 +1,6 @@
 {/* @cypherkit/editor docs — Core concepts. */}
 
-import { Callout, Code } from "../../docsComponents";
+import { Callout } from "../../docsComponents";
 
 <p className="dx-lede">Most editors bolt collaboration on at the end and spend years fighting it. `@cypherkit/editor` is built the other way around: **the document is a CRDT from the first keystroke**, and single-player editing is just the case where there is one replica.</p>
 
@@ -22,7 +22,7 @@ Browser `contenteditable` is a thirty-year-old API that every editor team eventu
 
 <h2 id="pieces">The pieces fit together like this</h2>
 
-<Code lang="text" code={`
+```text
   createDoc()        ── the CRDT: the source of truth
         │
         ▼
@@ -31,6 +31,6 @@ Browser `contenteditable` is a thirty-year-old API that every editor team eventu
         ├── schema     what nodes & marks are allowed
         ├── theme      canvas colors, fonts, metrics
         └── provider   (optional) transport that syncs the doc
-`} />
+```
 
 You can hold a `Doc` with no editor (e.g. on a server, to render markdown), and you can hold an editor with no provider (single-player). The layers are independent on purpose.

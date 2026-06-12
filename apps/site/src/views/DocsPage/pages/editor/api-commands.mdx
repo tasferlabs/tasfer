@@ -1,6 +1,6 @@
 {/* @cypherkit/editor API reference — Commands. */}
 
-import { Code, PropsTable } from "../../docsComponents";
+import { PropsTable } from "../../docsComponents";
 
 <p className="dx-lede">Commands are the only way to change a document. Each is a transactional function that applies to the CRDT or no-ops, returning a boolean for whether it ran. They live on `editor.commands` and chain via `editor.chain()`.</p>
 
@@ -18,7 +18,7 @@ import { Code, PropsTable } from "../../docsComponents";
 
 A chain batches commands into one transaction — one network update, one undo step. The chain runs only if every command in it can apply:
 
-<Code lang="ts" code={`
+```ts
 const ok = editor.chain()
   .setBlock("heading", { level: 1 })
   .insertText("Untitled")
@@ -26,4 +26,4 @@ const ok = editor.chain()
 
 // dry-run: will this chain apply right now? (for enabling a toolbar button)
 const canRun = editor.chain().setBlock("heading", { level: 1 }).canRun();
-`} />
+```

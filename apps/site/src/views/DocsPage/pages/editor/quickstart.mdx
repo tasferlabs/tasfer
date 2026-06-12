@@ -1,6 +1,6 @@
 {/* @cypherkit/editor docs — Quick start. */}
 
-import { Code, PropsTable } from "../../docsComponents";
+import { PropsTable } from "../../docsComponents";
 
 <p className="dx-lede">Four things make up the whole surface area: the **value** you put in, the **state** you read out, the **commands** you dispatch, and the **events** you listen to. Learn these and you know the editor.</p>
 
@@ -8,7 +8,7 @@ import { Code, PropsTable } from "../../docsComponents";
 
 An editor is created from markdown, a CRDT document, or nothing at all. These three are equivalent starting points:
 
-<Code lang="ts" code={`
+```ts
 import { createEditor, createDoc } from "@cypherkit/editor";
 
 // from a markdown string
@@ -20,24 +20,24 @@ createEditor({ element, doc });
 
 // empty
 createEditor({ element });
-`} />
+```
 
 <h2 id="state">2 — State out</h2>
 
 `editor.state` is an immutable snapshot. Read it whenever you need to know what is selected, what marks are active, or render your own UI from it. It never changes underneath you — each edit produces a new snapshot.
 
-<Code lang="ts" code={`
+```ts
 const { selection, activeMarks, doc } = editor.state;
 
 selection.empty;              // true when it's just a caret
 activeMarks.has("strong");    // is bold active at the cursor?
-`} />
+```
 
 <h2 id="commands">3 — Commands</h2>
 
 You never mutate the document directly. You dispatch commands, which are transactional: they either apply cleanly to the CRDT or no-op. Commands are chainable and return whether they ran.
 
-<Code lang="ts" code={`
+```ts
 editor.commands.toggleMark("strong");
 editor.commands.setBlock("heading", { level: 2 });
 
@@ -47,7 +47,7 @@ editor.chain()
   .toggleMark("emphasis")
   .insertText(" ✶")
   .run();
-`} />
+```
 
 <h2 id="events">4 — Events</h2>
 
@@ -60,11 +60,11 @@ Subscribe to what the editor does. Every listener returns an unsubscribe functio
   { name: "sync", type: "SyncState", desc: "Transport connection / peer count. Driven by a provider — subscribe on the provider (provider.on(\"sync\")), or forward it onto the editor with setSyncState. See Collaboration." },
 ]} />
 
-<Code lang="ts" code={`
+```ts
 const off = editor.on("change", (tx) => {
   if (tx.isRemote) return;          // ignore edits that came from a peer
   console.log("local edit:", tx.ops.length, "ops");
 });
 // later
 off();
-`} />
+```
