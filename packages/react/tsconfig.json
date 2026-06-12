@@ -13,8 +13,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "jsx": "react-jsx",
-    "baseUrl": ".",
     "paths": {
+      "*": ["./*"],
       "@cypherkit/editor": ["../editor/src/index.ts"],
       "@cypherkit/editor/*": ["../editor/src/*"],
       "react": ["../../apps/web/node_modules/@types/react"],

@@ -12,8 +12,8 @@
     "skipLibCheck": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "baseUrl": ".",
     "paths": {
+      "*": ["./*"],
       "@cypherkit/editor": ["../editor/src/index.ts"],
       "@cypherkit/editor/*": ["../editor/src/*"],
       "@cypherkit/provider-core": ["../provider-core/src/index.ts"],

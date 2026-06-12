@@ -15,8 +15,9 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     // Mirror the Vite aliases so `tsc` resolves all three packages' source.
-    "baseUrl": ".",
     "paths": {
+      "*": ["./*"],
+    
       "@cypherkit/editor": ["../../editor/src/index.ts"],
       "@cypherkit/editor/*": ["../../editor/src/*"],
       "@cypherkit/provider-core": ["../../provider-core/src/index.ts"],

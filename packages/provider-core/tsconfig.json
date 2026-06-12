@@ -13,8 +13,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     // Resolve the editor source the same way apps/web and the examples do.
-    "baseUrl": ".",
     "paths": {
+      "*": ["./*"],
+
       "@cypherkit/editor": ["../editor/src/index.ts"],
       "@cypherkit/editor/*": ["../editor/src/*"]
     }

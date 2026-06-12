@@ -17,8 +17,9 @@
     // Mirror the Vite alias so `tsc` resolves the editor source too. The exact
     // same mapping apps/web uses (index for the bare specifier, deep subpaths
     // for everything else).
-    "baseUrl": ".",
     "paths": {
+      "*": ["./*"],
+
       "@cypherkit/editor": ["../../src/index.ts"],
       "@cypherkit/editor/*": ["../../src/*"]
     }
