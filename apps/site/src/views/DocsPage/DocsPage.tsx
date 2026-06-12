@@ -1,4 +1,7 @@
-import { Link, useNavigate } from "react-router-dom";
+"use client";
+
+import { Link } from "@/components/Link";
+import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { Icons } from "./docsIcons";
 import { DocsHeader } from "./DocsHeader";
@@ -10,8 +13,8 @@ const EDITOR_SRC_URL = `${REPO_URL}/tree/main/packages/editor`;
 /** A sub-link inside a branch card. The whole card is also a link, so these
  *  are spans (no nested anchors) that navigate to a docs route on click. */
 function BranchLink({ label, to }: { label: string; to: string }) {
-  const navigate = useNavigate();
-  const go = () => navigate(to);
+  const router = useRouter();
+  const go = () => router.push(to);
   return (
     <span
       role="link"

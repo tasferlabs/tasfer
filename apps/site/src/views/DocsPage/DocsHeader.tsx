@@ -1,6 +1,8 @@
-import { Link } from "react-router-dom";
+"use client";
+
+import { Link } from "@/components/Link";
 import { useTranslation } from "react-i18next";
-import { useTheme } from "@/app/hooks/useTheme";
+import { useTheme } from "@/providers/ThemeProvider";
 import { Icons } from "./docsIcons";
 
 const REPO_URL = "https://github.com/hamza512b/cypher";

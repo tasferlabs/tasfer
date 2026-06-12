@@ -1,5 +1,7 @@
+"use client";
+
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link } from "@/components/Link";
 import { useTranslation } from "react-i18next";
 import { Icons } from "./docsIcons";
 import { DocsHeader } from "./DocsHeader";
@@ -38,10 +40,15 @@ function Breadcrumb({ meta }: { meta: PageMeta }) {
 /** Documentation article shell: header, searchable sidebar, prose column,
  *  right-rail TOC, pager, and the mobile drawer. Routed at
  *  /docs/:section/:slug. */
-export default function DocsArticle() {
+export default function DocsArticle({
+  section,
+  slug,
+}: {
+  section: string;
+  slug: string;
+}) {
   const { t } = useTranslation();
-  const params = useParams();
-  const route = `${params.section}/${params.slug}`;
+  const route = `${section}/${slug}`;
   const meta = PAGE[route];
   const [drawer, setDrawer] = useState(false);
 

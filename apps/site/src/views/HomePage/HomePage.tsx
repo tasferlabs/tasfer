@@ -1,8 +1,10 @@
+"use client";
+
 import { useEffect, useState, useRef, type SVGProps } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "@/components/Link";
 import { useTranslation } from "react-i18next";
-import { useTheme } from "@/app/hooks/useTheme";
-import { loadArabicFonts } from "@/fonts";
+import { useTheme } from "@/providers/ThemeProvider";
+import { loadArabicFonts } from "@/lib/fonts";
 import "./HomePage.css";
 
 const REPO_URL = "https://github.com/hamza512b/cypher";

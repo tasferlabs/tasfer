@@ -1,15 +1,13 @@
 import React from "react";
-import { Navigate, createBrowserRouter, createHashRouter, redirect } from "react-router-dom";
+import {
+  Navigate,
+  createBrowserRouter,
+  createHashRouter,
+  redirect,
+} from "react-router-dom";
 import Layout from "../layout/Layout";
 import { getClientPlatform } from "@/platform";
-
-/** Guard: only allow /home and /privacy on web platform, redirect others to editor */
-function WebOnlyGuard({ children }: { children: React.ReactNode }) {
-  if (getClientPlatform() !== "web") {
-    return <Navigate to="/page" replace />;
-  }
-  return <>{children}</>;
-}
+import { SITE_URL } from "./siteUrl";
 
 const EditorPage = React.lazy(() => import("../pages/EditorPage"));
 const CalendarPage = React.lazy(
@@ -17,14 +15,6 @@ const CalendarPage = React.lazy(
 );
 const SettingsPage = React.lazy(
   () => import("../pages/SettingsPage/SettingsPage"),
-);
-const HomePage = React.lazy(() => import("../pages/HomePage/HomePage"));
-const PrivacyPage = React.lazy(
-  () => import("../pages/PrivacyPage/PrivacyPage"),
-);
-const DocsPage = React.lazy(() => import("../pages/DocsPage/DocsPage"));
-const DocsArticle = React.lazy(
-  () => import("../pages/DocsPage/DocsArticle"),
 );
 
 const createRouter =
@@ -39,9 +29,12 @@ export const router = createRouter([
         index: true,
         loader: () => {
           const lastRoute = localStorage.getItem("lastRoute");
-          // New user on web → show home page
+          // New user on web → the marketing home now lives in the separate site
+          // app (apps/site), served at /home. Hard-navigate there (a react-router
+          // redirect would stay inside this SPA, which no longer has that route).
           if (!lastRoute && getClientPlatform() === "web") {
-            return redirect("/home");
+            window.location.assign(`${SITE_URL}/home`);
+            return null;
           }
           return redirect(lastRoute || "/page");
         },
@@ -63,38 +56,6 @@ export const router = createRouter([
         element: <SettingsPage />,
       },
     ],
-  },
-  {
-    path: "/home",
-    element: (
-      <WebOnlyGuard>
-        <HomePage />
-      </WebOnlyGuard>
-    ),
-  },
-  {
-    path: "/privacy",
-    element: (
-      <WebOnlyGuard>
-        <PrivacyPage />
-      </WebOnlyGuard>
-    ),
-  },
-  {
-    path: "/docs",
-    element: (
-      <WebOnlyGuard>
-        <DocsPage />
-      </WebOnlyGuard>
-    ),
-  },
-  {
-    path: "/docs/:section/:slug",
-    element: (
-      <WebOnlyGuard>
-        <DocsArticle />
-      </WebOnlyGuard>
-    ),
   },
   {
     path: "*",

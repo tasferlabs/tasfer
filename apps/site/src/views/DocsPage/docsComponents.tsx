@@ -1,3 +1,5 @@
+"use client";
+
 import {
   createContext,
   useContext,
@@ -7,7 +9,7 @@ import {
   type ReactNode,
   type AnchorHTMLAttributes,
 } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "@/components/Link";
 import { Icons } from "./docsIcons";
 
 /* ============================================================

@@ -1,5 +1,7 @@
+"use client";
+
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "@/components/Link";
 import { useTranslation } from "react-i18next";
 import { Icons } from "./docsIcons";
 import { NAV, FLAT, type NavItem } from "./docsNav";

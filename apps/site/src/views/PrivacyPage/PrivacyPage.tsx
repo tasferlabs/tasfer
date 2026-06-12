@@ -1,4 +1,6 @@
-import { Link } from "react-router-dom";
+"use client";
+
+import { Link } from "@/components/Link";
 import { useTranslation } from "react-i18next";
 import "./PrivacyPage.css";
 
