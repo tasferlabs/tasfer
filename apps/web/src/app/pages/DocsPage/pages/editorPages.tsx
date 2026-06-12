@@ -413,9 +413,10 @@ const net = createRelayProvider({ doc: editor.doc, room: "team-notes" });
       <Code lang="ts" code={`
 net.presence.set({ name: "Ada", color: "#1db984" });
 
-// the editor draws remote carets automatically; subscribe for a UI list:
+// the editor draws remote carets automatically; subscribe for a UI list.
+// each entry is { peerId, state } — the state is what that peer published:
 net.presence.on("change", (peers) => {
-  avatars.render(peers.map((p) => p.name));
+  avatars.render(peers.map((p) => p.state.name));
 });
 `} />
       <Callout kind="note" title="Offline is not a special case.">
