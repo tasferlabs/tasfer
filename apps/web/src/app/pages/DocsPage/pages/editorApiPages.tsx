@@ -5,19 +5,21 @@ export function EditorApiEditor() {
   return (
     <>
       <p className="dx-lede">
-        <code>createEditor(options)</code> returns an <code>Editor</code> — the view,
-        command dispatcher, and selection owner over a CRDT document. This is the
+        <code>createEditor(options)</code> returns a <code>CypherEditor</code> — the view,
+        command dispatcher, and selection owner over a CRDT document (the full{" "}
+        <code>Editor</code> command surface plus the mount lifecycle). This is the
         object you'll hold onto for the lifetime of the editing surface.
       </p>
 
       <h2 id="create">createEditor(options)</h2>
       <Code lang="ts" code={`
 import { createEditor } from "@cypherkit/editor";
-const editor = createEditor(options: EditorOptions): Editor;
+const editor = createEditor(options: CreateEditorOptions): CypherEditor;
 `} />
       <PropsTable rows={[
         { name: "element", type: "HTMLElement", required: true, desc: "The host element the canvas mounts into. Sized to fill it." },
-        { name: "value", type: "string", desc: "Initial document as markdown. Ignored if doc is provided." },
+        { name: "value", type: "string", desc: "Initial document as markdown. Ignored when doc or blocks is provided." },
+        { name: "blocks", type: "Block[]", desc: "Pre-parsed blocks to mount (e.g. restored from a snapshot). Takes precedence over value." },
         { name: "doc", type: "Doc", desc: "An existing CRDT document to edit. Takes precedence over value." },
         { name: "schema", type: "Schema", desc: "Allowed nodes & marks. Defaults to baseSchema." },
         { name: "theme", type: "EditorTheme", desc: "Canvas color tokens, styles, and fonts. Defaults to the neutral palette." },
@@ -39,7 +41,7 @@ const editor = createEditor(options: EditorOptions): Editor;
 
       <h2 id="props">Instance properties</h2>
       <PropsTable cols={["Property", "Type", "Description"]} rows={[
-        { name: "state", type: "EditorState", desc: "Immutable snapshot: selection, activeMarks, doc. Replaced on every edit." },
+        { name: "state", type: "EditorStateSnapshot", desc: "Immutable snapshot { selection, activeMarks, doc }, rebuilt every edit. The raw internal EditorState is available via getState()." },
         { name: "commands", type: "Commands", desc: "The command registry — call e.g. editor.commands.toggleMark('strong')." },
         { name: "doc", type: "Doc", desc: "The underlying CRDT document. Pass this to providers to sync." },
       ]} />
@@ -77,7 +79,7 @@ export function EditorApiCommands() {
 
       <h2 id="builtins">Built-in commands</h2>
       <PropsTable cols={["Command", "Signature", "Description"]} rows={[
-        { name: "toggleMark", type: "(name, attrs?) => boolean", desc: "Add or remove an inline mark across the selection." },
+        { name: "toggleMark", type: "(name: MarkName) => boolean", desc: "Add or remove an inline mark across the selection." },
         { name: "setBlock", type: "(name, attrs?) => boolean", desc: "Turn the selected blocks into a node type (heading, paragraph…)." },
         { name: "insertText", type: "(text: string) => boolean", desc: "Insert text at the cursor, replacing any selection." },
         { name: "undo / redo", type: "() => boolean", desc: "Step through local history. Remote edits never enter your undo stack." },

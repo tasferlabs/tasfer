@@ -27,7 +27,7 @@ export function EditorInstall() {
       <LicenseCard>
         Released under the <strong>MIT license</strong>. Use it in commercial and
         closed-source products, fork it, rebrand it — no copyleft, no attribution
-        clause beyond keeping the license file. (The Cypher <em>app</em> is GPL-3.0;
+        clause beyond keeping the license file. (The Cypher <em>app</em> is AGPL-3.0;
         the editor package is deliberately permissive.)
       </LicenseCard>
 
@@ -224,7 +224,6 @@ export function EditorConcepts() {
   createEditor()     ── view + commands + selection over the doc
         │
         ├── schema     what nodes & marks are allowed
-        ├── plugins    keymaps, input rules, decorations
         ├── theme      canvas colors, fonts, metrics
         └── provider   (optional) transport that syncs the doc
 `} />
@@ -312,7 +311,7 @@ paint();
 `} />
       <Callout kind="tip" title="Markdown shortcuts are already on.">
         Type <code>**bold**</code>, <code>## </code> at the start of a line, or
-        <code> &gt; </code> for a quote — the built-in input rules transform them as
+        <code>- </code> for a bullet — the built-in input rules transform them as
         you type. Your toolbar and the shortcuts edit the same state.
       </Callout>
 

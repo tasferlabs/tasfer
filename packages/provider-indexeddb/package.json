@@ -1,0 +1,12 @@
+{
+  "name": "@cypherkit/provider-indexeddb",
+  "version": "0.0.0",
+  "description": "IndexedDB persistence for @cypherkit/editor — stores the CRDT op log locally so reloads are instant and edits survive offline.",
+  "type": "module",
+  "license": "MIT",
+  "exports": { ".": "./src/index.ts", "./*": "./src/*" },
+  "peerDependencies": {
+    "@cypherkit/editor": "*",
+    "typescript": "^5.9.3"
+  }
+}
