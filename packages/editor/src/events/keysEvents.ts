@@ -23,6 +23,7 @@ import {
   toggleBold,
 } from "../actions/commands";
 import { getSlashCommands } from "../adapters";
+import { getCrossedInlineMathSpan } from "../inline-math";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { getTextDirection } from "../rtl";
 import {
@@ -63,7 +64,6 @@ import {
   closeSlashCommand,
   getBlockTextContent,
   getBlockTextLength,
-  getCrossedInlineMathSpan,
   openContextMenu,
   openSlashCommand,
   setActiveMenu,

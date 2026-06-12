@@ -6,13 +6,7 @@
  * and subscribing to state changes.
  */
 
-import type {
-  Block,
-  Char,
-  CharRun,
-  Page,
-  TextFormat,
-} from "../serlization/loadPage";
+import type { Block, Char, CharRun, Mark, Page } from "../serlization/loadPage";
 import type { CRDTbinding } from "../state-types";
 import type {
   BlockDelete,
@@ -20,8 +14,8 @@ import type {
   BlockProps,
   BlockSet,
   BlockType,
-  FormatSet,
   HLC,
+  MarkSet,
   Operation,
   OpLog,
   TextDelete,
@@ -145,8 +139,8 @@ export type {
   BlockProps,
   BlockSet,
   BlockType,
-  FormatSet,
   HLC,
+  MarkSet,
   Operation,
   TextDelete,
   TextInsert,
@@ -389,9 +383,9 @@ export interface SyncEngine {
   createFormatSet(
     blockId: string,
     charIds: string[],
-    format: TextFormat,
+    format: Mark,
     value: boolean | string,
-  ): FormatSet;
+  ): MarkSet;
   createBlockInsert(
     afterBlockId: string | null,
     blockType: BlockType,
@@ -410,9 +404,9 @@ export interface SyncEngine {
     blockId: string,
     startIndex: number,
     endIndex: number,
-    format: TextFormat,
+    format: Mark,
     value: boolean | string,
-  ): FormatSet;
+  ): MarkSet;
   /** Insert a new paragraph block after the given block (null = beginning). */
   insertParagraph(afterBlockId: string | null): BlockInsert;
   /** Change a block's type. */
@@ -602,12 +596,12 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
   function createFormatSet(
     blockId: string,
     charIds: string[],
-    format: TextFormat,
+    format: Mark,
     value: boolean | string,
-  ): FormatSet {
+  ): MarkSet {
     return {
       ...createBaseOp(),
-      op: "format_set",
+      op: "mark_set",
       blockId,
       charIds,
       format,
@@ -783,9 +777,9 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
       blockId: string,
       startIndex: number,
       endIndex: number,
-      format: TextFormat,
+      format: Mark,
       value: boolean | string,
-    ): FormatSet {
+    ): MarkSet {
       const block = getState().blocks.find((b) => b.id === blockId);
       const charIds =
         block && isTextualBlock(block)

@@ -41,7 +41,6 @@ const DEFAULTS = {
   height: 40,
   padding: 12,
   marginBottom: 8,
-  color: "rgba(60,60,67,0.85)",
 } as const;
 
 export class BoxNode extends AtomicNode<Block> {
@@ -82,7 +81,9 @@ export class BoxNode extends AtomicNode<Block> {
 
     const label = (s.label ?? ((b) => b.type))(c.block);
     if (label) {
-      ctx.fillStyle = s.color ?? DEFAULTS.color;
+      // Default to the themed unknown-block label color when the custom node
+      // doesn't specify one.
+      ctx.fillStyle = s.color ?? c.styles.unknownBlock.textColor;
       ctx.font =
         '13px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
       ctx.textBaseline = "middle";

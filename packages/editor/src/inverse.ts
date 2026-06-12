@@ -14,13 +14,13 @@
  * folds `applyOp` through the batch to materialise these intermediate
  * states; callers pass `applyOp` in to avoid a circular import.
  */
-import type { Block, Char, Page, TextFormat } from "./serlization/loadPage";
+import type { Block, Char, Mark, Page } from "./serlization/loadPage";
 import type { CRDTbinding } from "./state-types";
 import type {
   BlockDelete,
   BlockInsert,
   BlockSet,
-  FormatSet,
+  MarkSet,
   Operation,
   TextDelete,
   TextInsert,
@@ -42,7 +42,7 @@ import {
 //
 // Each inverter takes the Page as it existed BEFORE the corresponding op was
 // applied. They read whatever prior state the inverse needs (deleted-char
-// payload for TextDelete, prior format value for FormatSet, full block fields
+// payload for TextDelete, prior format value for MarkSet, full block fields
 // for BlockDelete, prior field value for BlockSet) and produce an op with a
 // placeholder id/clock. The id/clock get re-stamped via refreshOp at the
 // moment the inverse is applied so peers see the undo as a new event.
@@ -147,20 +147,20 @@ function invertTextDelete(
  * the prior value, and undo failing loud is better than corrupting state.
  */
 function invertFormatSet(
-  op: FormatSet,
+  op: MarkSet,
   pageBefore: Page,
   binding: CRDTbinding,
-): FormatSet[] {
+): MarkSet[] {
   const block = pageBefore.blocks.find((b) => b.id === op.blockId);
   if (!block || block.deleted || !isTextualBlock(block)) return [];
 
   // Look up the prior value of `op.format.type` on each affected char.
   // For overlapping same-type spans we pick the one with the latest HLC
   // (LWW — matches how applyFormatSet computes the visible state).
-  type Prior = { charId: string; priorFormat: TextFormat | null };
+  type Prior = { charId: string; priorFormat: Mark | null };
   const priors: Prior[] = [];
   for (const charId of op.charIds) {
-    let priorFormat: TextFormat | null = null;
+    let priorFormat: Mark | null = null;
     let priorCounter = -1;
     let priorPeer = "";
     for (const span of block.formats) {
@@ -188,7 +188,7 @@ function invertFormatSet(
   }
 
   // Group consecutive entries by prior-format identity.
-  const sameFormat = (a: TextFormat | null, b: TextFormat | null): boolean => {
+  const sameFormat = (a: Mark | null, b: Mark | null): boolean => {
     if (a === null && b === null) return true;
     if (a === null || b === null) return false;
     if (a.type !== b.type) return false;
@@ -196,7 +196,7 @@ function invertFormatSet(
     return true;
   };
 
-  const inverses: FormatSet[] = [];
+  const inverses: MarkSet[] = [];
   let runStart = 0;
   while (runStart < priors.length) {
     const groupPrior = priors[runStart].priorFormat;
@@ -211,7 +211,7 @@ function invertFormatSet(
     if (groupPrior === null) {
       // No prior format of this type on these chars — undo by removing.
       inverses.push({
-        op: "format_set",
+        op: "mark_set",
         id: binding.nextId(),
         clock: binding.getClock(),
         pageId: op.pageId,
@@ -224,7 +224,7 @@ function invertFormatSet(
       // Had a prior format (possibly with a different URL for links):
       // re-apply it so the original span is restored.
       inverses.push({
-        op: "format_set",
+        op: "mark_set",
         id: binding.nextId(),
         clock: binding.getClock(),
         pageId: op.pageId,
@@ -331,7 +331,7 @@ function invertBlockSet(
  * op was applied. Returns an empty array when the op cannot be inverted
  * (e.g. the original op was a no-op already).
  *
- * Some op kinds invert into multiple ops — format_set crossing pre-existing
+ * Some op kinds invert into multiple ops — mark_set crossing pre-existing
  * formatting boundaries inverts into one op per prior segment.
  */
 export function invertOperation(
@@ -348,7 +348,7 @@ export function invertOperation(
       const inv = invertTextDelete(op, pageBefore, binding);
       return inv ? [inv] : [];
     }
-    case "format_set":
+    case "mark_set":
       return invertFormatSet(op, pageBefore, binding);
     case "block_insert":
       return [invertBlockInsert(op, binding)];

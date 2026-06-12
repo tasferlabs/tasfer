@@ -5,13 +5,13 @@
  * operations to restore the page to a specific snapshot state.
  */
 
-import type { Block, CharRun, FormatSpan } from "../serlization/loadPage";
+import type { Block, CharRun, MarkSpan } from "../serlization/loadPage";
 import type {
   BlockDelete,
   BlockInsert,
   BlockSet,
-  FormatSet,
   HLC,
+  MarkSet,
   Operation,
   TextInsert,
 } from "../state-types";
@@ -279,7 +279,7 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
         oldToNewCharIdMap.set(visibleOldChars[i].id, newId);
       }
 
-      const newFormats: FormatSpan[] = block.formats
+      const newFormats: MarkSpan[] = block.formats
         .map((f) => {
           const newStartId = oldToNewCharIdMap.get(f.startCharId);
           const newEndId = oldToNewCharIdMap.get(f.endCharId);
@@ -293,7 +293,7 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
           }
           return null;
         })
-        .filter((f): f is FormatSpan => f !== null);
+        .filter((f): f is MarkSpan => f !== null);
 
       if (visibleOldChars.length > 0) {
         const text = visibleOldChars.map((c) => c.char).join("");
@@ -325,8 +325,8 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
         const endIdx = newCharIds.findIndex((id) => id === format.endCharId);
         if (startIdx !== -1 && endIdx !== -1) {
           const charIds = newCharIds.slice(startIdx, endIdx + 1);
-          const formatOp: FormatSet = {
-            op: "format_set",
+          const formatOp: MarkSet = {
+            op: "mark_set",
             id: nextId(),
             clock: getClock(),
             pageId,

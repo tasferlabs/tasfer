@@ -8,7 +8,7 @@
 import {
   type Block,
   type Char,
-  type FormatSpan,
+  type MarkSpan,
   type Page,
 } from "../serlization/loadPage";
 import type {
@@ -16,7 +16,7 @@ import type {
   BlockInsert,
   BlockSet,
   BlockType,
-  FormatSet,
+  MarkSet,
   Operation,
   TextDelete,
   TextInsert,
@@ -189,11 +189,11 @@ function applyTextDelete(state: Page, op: TextDelete): Page {
  * When op.value !== false, drops any same-type spans overlapping the new
  * range and appends a fresh span for it.
  *
- * The local-emit path in crdt-helpers::formatCharsInRange uses the same
+ * The local-emit path in crdt-helpers::markCharsInRange uses the same
  * algorithm — they must stay in sync, otherwise the locally-rendered state
  * diverges from what remote peers compute from the same op.
  */
-function applyFormatSet(state: Page, op: FormatSet): Page {
+function applyFormatSet(state: Page, op: MarkSet): Page {
   const blockIndex = findBlockIndex(state, op.blockId);
 
   if (blockIndex === -1) {
@@ -210,7 +210,7 @@ function applyFormatSet(state: Page, op: FormatSet): Page {
     return state;
   }
 
-  let newFormats: FormatSpan[];
+  let newFormats: MarkSpan[];
 
   if (op.value === false) {
     newFormats = [];
@@ -292,7 +292,7 @@ function applyFormatSet(state: Page, op: FormatSet): Page {
       return !overlaps;
     });
 
-    const newSpan: FormatSpan = {
+    const newSpan: MarkSpan = {
       startCharId: op.charIds[0],
       endCharId: op.charIds[op.charIds.length - 1],
       format: op.format,
@@ -477,7 +477,7 @@ export function applyOp(
       return applyTextInsert(state, op);
     case "text_delete":
       return applyTextDelete(state, op);
-    case "format_set":
+    case "mark_set":
       return applyFormatSet(state, op);
     case "block_insert":
       return applyBlockInsert(state, op, schema);

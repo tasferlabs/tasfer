@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
-import { setCurrentFontFamily, type FontFamily } from "@cypherkit/editor/fonts";
+import React, { createContext, useContext, useState, useCallback } from "react";
+import type { FontFamily } from "@cypherkit/editor/fonts";
 import useLocalStorage from "../hooks/useLocalStorage";
 import type { AwarenessUser } from "@cypherkit/editor/sync/awareness";
 import type { Block } from "@cypherkit/editor/serlization/loadPage";
@@ -38,7 +38,7 @@ const PageSettingsContext = createContext<PageSettingsContextType | undefined>(
   undefined
 );
 
-const fontStyleToFamily = (style: FontStyle): FontFamily => {
+export const fontStyleToFamily = (style: FontStyle): FontFamily => {
   return style === "serif" ? "libre-baskerville" : "poppins";
 };
 
@@ -57,16 +57,10 @@ export const PageSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [permission, setPermission] = useState<PagePermission>("owner");
   const [onOpenFind, setOnOpenFindState] = useState<(() => void) | null>(null);
 
-  // Apply font family on mount and when fontStyle changes
-  useEffect(() => {
-    if (fontStyle) {
-      setCurrentFontFamily(fontStyleToFamily(fontStyle));
-    }
-  }, [fontStyle]);
-
+  // The selected family is applied per editor instance: MountedEditor reads
+  // `fontStyle` and pushes it via `editor.setTheme({ fontFamily })` (no global).
   const setFontStyle = useCallback((style: FontStyle) => {
     setFontStyleState(style);
-    setCurrentFontFamily(fontStyleToFamily(style));
   }, [setFontStyleState]);
 
   const setShowWordCount = useCallback((show: boolean) => {

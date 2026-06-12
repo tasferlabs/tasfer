@@ -212,6 +212,20 @@ export class ImageNode extends AtomicNode<Image> {
   readonly type = "image" as const;
 
   /**
+   * The image block's localized canvas strings (status labels), owned by the
+   * node rather than the global string table. English defaults; a host
+   * localizes per instance via `theme.nodeStrings.image`. Read with `this.str`.
+   */
+  readonly strings = {
+    clickToUpload: "Click to upload image",
+    loading: "Loading image...",
+    uploading: "Uploading image...",
+    uploadFailed: "Failed to upload image",
+    clickToRetry: "Click to retry",
+    changeImage: "Change Image",
+  } as const;
+
+  /**
    * Resolve the on-canvas geometry from block props + container width. Depends
    * only on layout context (no origin), so both the height pass and paint use it.
    */
@@ -381,7 +395,7 @@ export class ImageNode extends AtomicNode<Image> {
         c,
         box,
         styles.blocks.image.uploading.backgroundColor,
-        [{ text: styles.blocks.image.uploading.text, dy: 0 }],
+        [{ text: this.str(state, "uploading"), dy: 0 }],
         styles.blocks.image.uploading.textColor,
       );
     } else if (uploadStatus === "error") {
@@ -390,8 +404,8 @@ export class ImageNode extends AtomicNode<Image> {
         box,
         styles.blocks.image.error.backgroundColor,
         [
-          { text: styles.blocks.image.error.text, dy: 0 },
-          { text: styles.blocks.image.error.retryText, dy: 20 },
+          { text: this.str(state, "uploadFailed"), dy: 0 },
+          { text: this.str(state, "clickToRetry"), dy: 20 },
         ],
         styles.blocks.image.error.textColor,
       );
@@ -402,8 +416,8 @@ export class ImageNode extends AtomicNode<Image> {
           box,
           styles.blocks.image.error.backgroundColor,
           [
-            { text: styles.blocks.image.error.text, dy: 0 },
-            { text: styles.blocks.image.error.retryText, dy: 20 },
+            { text: this.str(state, "uploadFailed"), dy: 0 },
+            { text: this.str(state, "clickToRetry"), dy: 20 },
           ],
           styles.blocks.image.error.textColor,
         );
@@ -416,7 +430,7 @@ export class ImageNode extends AtomicNode<Image> {
             c,
             box,
             styles.blocks.image.loading.backgroundColor,
-            [{ text: styles.blocks.image.loading.text, dy: 0 }],
+            [{ text: this.str(state, "loading"), dy: 0 }],
             styles.blocks.image.loading.textColor,
           );
           loadImage(block.url)
@@ -447,7 +461,7 @@ export class ImageNode extends AtomicNode<Image> {
       ctx.font = "14px system-ui, -apple-system, sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(
-        styles.blocks.image.placeholder.text,
+        this.str(state, "clickToUpload"),
         x + width / 2,
         y + height / 2,
       );

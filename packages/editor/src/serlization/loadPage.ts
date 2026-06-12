@@ -7,8 +7,8 @@ import type { HLC } from "../sync/sync";
 import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
 
-export interface TextFormat {
-  type: "bold" | "italic" | "strikethrough" | "code" | "link" | "math";
+export interface Mark {
+  type: "strong" | "emphasis" | "strike" | "code" | "link" | "math";
   url?: string; // Only for link type
 }
 
@@ -32,15 +32,15 @@ export interface CharRun {
 }
 
 // Format span that references characters by ID
-export interface FormatSpan {
+export interface MarkSpan {
   startCharId: string;
   endCharId: string;
-  format: TextFormat;
+  format: Mark;
   clock: HLC; // For LWW conflict resolution
 }
 
-// Helper function to compare two TextFormat objects
-export function areFormatsEqual(a: TextFormat, b: TextFormat): boolean {
+// Helper function to compare two Mark objects
+export function areMarksEqual(a: Mark, b: Mark): boolean {
   if (a.type !== b.type) return false;
   if (a.type === "link" && b.type === "link") {
     return a.url === b.url;
@@ -48,10 +48,10 @@ export function areFormatsEqual(a: TextFormat, b: TextFormat): boolean {
   return true;
 }
 
-// Helper function to compare two arrays of TextFormat objects
-export function areFormatArraysEqual(
-  a: TextFormat[] | undefined,
-  b: TextFormat[] | undefined,
+// Helper function to compare two arrays of Mark objects
+export function areMarkArraysEqual(
+  a: Mark[] | undefined,
+  b: Mark[] | undefined,
 ): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -62,7 +62,7 @@ export function areFormatArraysEqual(
   const sortedB = [...b].sort((x, y) => x.type.localeCompare(y.type));
 
   for (let i = 0; i < sortedA.length; i++) {
-    if (!areFormatsEqual(sortedA[i], sortedB[i])) {
+    if (!areMarksEqual(sortedA[i], sortedB[i])) {
       return false;
     }
   }
@@ -91,7 +91,7 @@ export type Block = TextBlock | VisualBlock | ListBlock;
 export interface CustomBlock extends BlockRuntimeState {
   type: string;
   charRuns?: CharRun[];
-  formats?: FormatSpan[];
+  formats?: MarkSpan[];
   [key: string]: unknown;
 }
 

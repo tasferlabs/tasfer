@@ -21,11 +21,11 @@ import "@fontsource/space-grotesk/500.css";
 import "@fontsource/space-grotesk/600.css";
 import "@fontsource/space-grotesk/700.css";
 
+import type { FontStyles } from "@cypherkit/editor";
 import { notifyFontsChanged, notifyFontsLoaded } from "@cypherkit/editor/fonts";
-import { setFontStyles } from "@cypherkit/editor/styles";
 
 // The app's font families (key → CSS font-stack). These keys are what
-// PageSettingsContext selects between via setCurrentFontFamily().
+// PageSettingsContext selects between (via `fontStyleToFamily`).
 const POPPINS_STACK =
   'Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 const LIBRE_BASKERVILLE_STACK =
@@ -36,14 +36,8 @@ const LIBRE_BASKERVILLE_STACK =
 const POPPINS_STACK_ARABIC = `"Noto Sans Arabic", ${POPPINS_STACK}`;
 const LIBRE_BASKERVILLE_STACK_ARABIC = `Amiri, ${LIBRE_BASKERVILLE_STACK}`;
 
-/**
- * Register the app's font families with the editor up front, before any editor
- * mounts. The editor ships no fonts of its own — this is what tells it which
- * stacks to render/measure with. Re-applied with Arabic-aware stacks once the
- * Arabic faces load (see loadArabicFonts).
- */
-function registerFontStyles(arabic: boolean): void {
-  setFontStyles({
+function buildRegistry(arabic: boolean): FontStyles {
+  return {
     families: {
       poppins: arabic ? POPPINS_STACK_ARABIC : POPPINS_STACK,
       "libre-baskerville": arabic
@@ -51,10 +45,35 @@ function registerFontStyles(arabic: boolean): void {
         : LIBRE_BASKERVILLE_STACK,
     },
     defaultFamily: "poppins",
-  });
+  };
 }
 
-registerFontStyles(false);
+// The app's editor font registry — one host-app config shared by every editor
+// instance. The headless editor is no longer told about fonts via a global;
+// instead each mounted editor receives this as `theme.fonts` and re-themes via
+// `setTheme` when it changes (e.g. Arabic stacks swap in). A single app-level
+// value here is fine — it is the host's config, not the engine's per-instance
+// state.
+let appFontRegistry: FontStyles = buildRegistry(false);
+const fontRegistryListeners = new Set<() => void>();
+
+/** The current editor font registry to pass as `theme.fonts` at mount. */
+export function getAppFontRegistry(): FontStyles {
+  return appFontRegistry;
+}
+
+/** Subscribe to registry changes (e.g. Arabic stacks loaded). Returns unsubscribe. */
+export function onAppFontRegistryChange(cb: () => void): () => void {
+  fontRegistryListeners.add(cb);
+  return () => {
+    fontRegistryListeners.delete(cb);
+  };
+}
+
+function setAppFontRegistry(arabic: boolean): void {
+  appFontRegistry = buildRegistry(arabic);
+  for (const cb of [...fontRegistryListeners]) cb();
+}
 
 // Base font faces the editor measures against.
 const FONT_CONFIGS = [
@@ -199,8 +218,9 @@ export async function loadArabicFonts(): Promise<void> {
     );
 
     arabicFontsLoaded = true;
-    // Swap in the Arabic-aware font stacks and tell the editor to re-measure.
-    registerFontStyles(true);
+    // Swap in the Arabic-aware font stacks (mounted editors re-theme via their
+    // registry subscription) and flush the editor's metrics cache to re-measure.
+    setAppFontRegistry(true);
     notifyFontsChanged();
   })();
 

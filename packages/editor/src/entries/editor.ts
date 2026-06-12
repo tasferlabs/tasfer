@@ -21,9 +21,10 @@ import { createChromeRegionRegistry } from "../events/chromeRegions";
 import { handleEvents } from "../events/events";
 import type { Region } from "../events/regions";
 import { createInteractionSession, isInLongPressMode } from "../events/session";
-import { onFontFamilyChange, onFontsReady } from "../fonts";
+import { onFontsReady } from "../fonts";
 import {
   clearAllBlockCaches,
+  collectOverlays,
   getBlockHeight,
   invalidateBlockCache,
   renderCursorLayer,
@@ -43,16 +44,19 @@ import { isCursorBlinking } from "../selection";
 import { updateFocus } from "../selection";
 import { updateCursor } from "../selection";
 import { clearSelection } from "../selection";
+import { updateSelection } from "../selection";
 import {
   type Block,
   loadPage,
+  type Mark,
   type Page,
-  type TextFormat,
 } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
 import type {
   CommandResult,
   EditorState,
+  EditorTheme,
+  NodeOverlay,
   SlashCommand,
   ViewportState,
 } from "../state-types";
@@ -68,7 +72,12 @@ import {
   updatePhysicalKeyboardState,
   updateWindowFocused,
 } from "../state-utils";
-import { getEditorStyles } from "../styles";
+import {
+  getEditorStyles,
+  mergeTheme,
+  resolveNodeStrings,
+  resolveTheme,
+} from "../styles";
 import type {
   AwarenessCursor,
   AwarenessSelection,
@@ -85,13 +94,12 @@ import { isTextualBlock } from "../sync/block-registry";
 import { recordUndoOps, redoState, undoState } from "../sync/crdt-undo";
 import {
   deleteCharsInRange,
-  formatCharsInRange,
   insertCharsAtPosition,
+  markCharsInRange,
 } from "../sync/crdt-utils";
 import { applyOps } from "../sync/reducer";
 import { generateRestoreOperations } from "../sync/snapshot-diff";
 import { createBlockSet, getVisibleBlocks } from "../sync/sync";
-import { updateSelection } from "../updateSelection";
 import type { CanvasLayers } from "./layers";
 
 /**
@@ -103,15 +111,26 @@ import type { CanvasLayers } from "./layers";
 export type EditorEvent = "change" | "selectionchange" | "focus" | "blur";
 
 /**
+ * Payload delivered to `on("change", …)` listeners: the batch of CRDT
+ * operations that changed the document, and whether they were applied from a
+ * remote peer (sync) rather than a local edit. Filter on `isRemote` to ignore
+ * your own echoes; read `ops.length` for the size of the change.
+ */
+export interface ChangeTransaction {
+  /** True when applied from a peer via sync; false for a local edit/undo/redo. */
+  readonly isRemote: boolean;
+  /** The CRDT operations that produced this change, in apply order. */
+  readonly ops: readonly Operation[];
+}
+
+/**
  * Inline mark names accepted by {@link EditorCommands.toggleMark}.
  *
- * These are the public, HTML-semantic mark names used throughout the docs
- * (`strong`/`emphasis`/`strike`). They are deliberately decoupled from the
- * internal {@link TextFormat} `type` vocabulary (`bold`/`italic`/`strikethrough`)
- * that is persisted in the CRDT op log, serialized, and consumed by the
- * renderer — renaming that storage vocabulary would break existing documents
- * and sync with peers on older builds. {@link EditorCommands.toggleMark} maps
- * these public names to the internal format types at the API boundary.
+ * These HTML-semantic names (`strong`/`emphasis`/`strike`/`code`) are exactly
+ * the vocabulary stored in the CRDT op log, serialized to Markdown/HTML, and
+ * consumed by the renderer — the editor has a single mark vocabulary, so there
+ * is no public/internal translation. (`link` and `math` are also valid
+ * {@link Mark} `type`s but are applied through their own commands, not toggled.)
  */
 export type MarkName = "strong" | "emphasis" | "strike" | "code";
 
@@ -124,7 +143,10 @@ export interface EditorCommands {
   /** Toggle an inline mark across the selection (or the pending caret format). */
   toggleMark: (name: MarkName) => boolean;
   /** Convert the current block to a textual block type (paragraph/heading/list). */
-  setBlock: (type: Block["type"]) => boolean;
+  setBlock: (
+    type: Block["type"] | "heading",
+    attrs?: { level?: number },
+  ) => boolean;
   /** Insert text at the caret, replacing any selection. */
   insertText: (text: string) => boolean;
   /** Select the whole document. */
@@ -141,7 +163,10 @@ export interface EditorCommands {
  */
 export interface EditorCommandChain {
   toggleMark: (name: MarkName) => EditorCommandChain;
-  setBlock: (type: Block["type"]) => EditorCommandChain;
+  setBlock: (
+    type: Block["type"] | "heading",
+    attrs?: { level?: number },
+  ) => EditorCommandChain;
   insertText: (text: string) => EditorCommandChain;
   selectAll: () => EditorCommandChain;
   /** Commit every queued command as one undoable step; returns whether anything changed. */
@@ -150,15 +175,32 @@ export interface EditorCommandChain {
   canRun: () => boolean;
 }
 
+/**
+ * Read-only snapshot of editor state for UI binding (see {@link Editor.state}).
+ * A fresh value is built on each read and is never mutated, so it's safe to
+ * destructure and hold for the duration of one read.
+ */
+export interface EditorStateSnapshot {
+  /** The current selection. `empty` is true for a bare caret (or no caret). */
+  readonly selection: { readonly empty: boolean };
+  /** Inline marks active at the caret / across the selection. */
+  readonly activeMarks: ReadonlySet<Mark["type"]>;
+}
+
 export interface Editor {
   getState: () => EditorState | null;
-  /** Live snapshot of editor state, as a property (same value as getState()). */
-  readonly state: EditorState;
+  /**
+   * Read-only state snapshot for UI binding: `{ selection, activeMarks }`.
+   * For the raw internal {@link EditorState} (escape hatch), use {@link getState}.
+   */
+  readonly state: EditorStateSnapshot;
   destroy: () => void;
   updateViewport: (viewport: Partial<ViewportState>) => void;
   getDocumentHeight: () => number;
   setFocus: (focused: boolean, shouldClearSelection?: boolean) => void;
   setInitialCursor: () => void;
+  /** Place the caret at the document start or end (forces a new caret). */
+  setCaret: (at: "start" | "end") => void;
   setPhysicalKeyboard: (hasPhysicalKeyboard: boolean) => void;
   /** Update browser-window focus (affects selection color); re-renders. */
   setWindowFocused: (focused: boolean) => void;
@@ -171,12 +213,14 @@ export interface Editor {
   /**
    * Convenience event subscription — a thin, self-describing filter over
    * {@link Editor.subscribe} (see {@link EditorEvent}). Returns an unsubscribe
-   * function.
+   * function. The `"change"` listener receives a {@link ChangeTransaction}
+   * (`{ isRemote, ops }`); the others receive the {@link EditorState}.
    */
-  on: (
-    event: EditorEvent,
+  on(event: "change", callback: (tx: ChangeTransaction) => void): () => void;
+  on(
+    event: "selectionchange" | "focus" | "blur",
     callback: (state: EditorState) => void,
-  ) => () => void;
+  ): () => void;
   /** Serialize the current document to a Markdown string. */
   getMarkdown: () => string;
   /**
@@ -198,11 +242,9 @@ export interface Editor {
    * toggled formats, or those inherited from the character before it. Handy for
    * lighting up a toolbar.
    */
-  getActiveFormats: () => Set<TextFormat["type"]>;
+  getActiveMarks: () => Set<Mark["type"]>;
   /** True when there is no selection (just a caret, or nothing). */
   isSelectionEmpty: () => boolean;
-  /** Number of whitespace-separated words across all text blocks. */
-  getWordCount: () => number;
   executeSlashCommand: (command: SlashCommand) => void;
   copy: () => Promise<boolean>;
   cut: () => Promise<boolean>;
@@ -231,6 +273,21 @@ export interface Editor {
     selection: EditorState["document"]["selection"],
   ) => void;
   forceRender: () => void;
+  /**
+   * Collect the node-declared overlay descriptors for the on-screen blocks
+   * (see {@link NodeOverlay}). The host maps each `key` to a component and
+   * mounts it at the descriptor's `rect`; recompute on state/scroll changes.
+   * Empty unless a registered node implements `overlays()`.
+   */
+  collectOverlays: () => NodeOverlay[];
+  /**
+   * Update this instance's theme. The patch is deep-merged onto the current
+   * theme (tokens/fonts/strings shallow-merged, `styles` deep-merged), re-
+   * resolved into the full style tree, and the editor re-renders. Use for live
+   * theme changes — e.g. a host driving colors from CSS variables on a
+   * dark-mode toggle calls `setTheme({ tokens })`.
+   */
+  setTheme: (patch: EditorTheme) => void;
   updateImageBlock: (
     blockIndex: number,
     updates: {
@@ -281,7 +338,11 @@ export interface Editor {
   ) => void;
   closeActiveMenu: () => void;
   /** Update page content from CRDT sync (remote operations) */
-  updatePageFromSync: (page: Page) => void;
+  /**
+   * Apply a remotely-merged page. Pass the merged `remoteOps` so `on("change")`
+   * listeners fire with `isRemote: true` and the applied ops.
+   */
+  updatePageFromSync: (page: Page, remoteOps?: readonly Operation[]) => void;
   /** Restore from snapshot - generates and broadcasts operations */
   restoreFromSnapshot: (blocks: Block[]) => void;
   /** Apply remote operations to the current page state */
@@ -365,6 +426,24 @@ export default function createEditor(
 
   // Broadcast function for sending operations to peers
   let broadcastFn: ((ops: Operation[]) => void) | null = null;
+
+  // Change-event channel. `on("change")` listeners receive a ChangeTransaction
+  // ({ isRemote, ops }); this is distinct from the state-diff subscribe() path
+  // that backs selectionchange/focus/blur.
+  const changeListeners: ((tx: ChangeTransaction) => void)[] = [];
+  const emitChange = (ops: readonly Operation[], isRemote: boolean): void => {
+    if (ops.length === 0 || changeListeners.length === 0) return;
+    const tx: ChangeTransaction = { isRemote, ops };
+    for (const listener of changeListeners) listener(tx);
+  };
+  // Single funnel for locally-produced ops: broadcast to peers (when wired) and
+  // notify change listeners as a local edit. Replaces the bare emitLocalOps(ops)
+  // calls at every op site below.
+  const emitLocalOps = (ops: Operation[]): void => {
+    if (ops.length === 0) return;
+    broadcastFn?.(ops);
+    emitChange(ops, false);
+  };
 
   // Awareness state for remote peers
   const remoteAwareness: Map<string, AwarenessState> = new Map();
@@ -484,7 +563,7 @@ export default function createEditor(
 
     // Broadcast ops to peers (if any)
     if (ops.length > 0 && broadcastFn) {
-      broadcastFn(ops);
+      emitLocalOps(ops);
     }
 
     // Trigger re-render
@@ -657,7 +736,7 @@ export default function createEditor(
         }
         // Broadcast ops to peers
         if (broadcastFn) {
-          broadcastFn(handleEventsResult.ops);
+          emitLocalOps(handleEventsResult.ops);
         }
       }
 
@@ -1473,14 +1552,8 @@ export default function createEditor(
       hiddenInput.setAttribute("tabindex", "0");
     }
 
-    // Register font change callback to invalidate caches when font changes
-    const handleFontChange = () => {
-      // Clear all block caches since measurements will change with new font
-      clearAllBlockCaches(state.document.page.blocks);
-      // Trigger a re-render with the new font
-      scheduleRender();
-    };
-    onFontFamilyChange(handleFontChange);
+    // Font-family changes now flow through `setTheme` (which clears block caches
+    // and re-renders), so there's no separate font-change subscription.
 
     // If fonts haven't loaded yet, re-render once they're ready
     // so text measurements use the correct font metrics
@@ -1533,9 +1606,6 @@ export default function createEditor(
     window.removeEventListener("paste", eventsHandler);
     window.removeEventListener("resize", invalidateRectCache);
     window.removeEventListener("scroll", invalidateRectCache, true);
-
-    // Unregister font change callback
-    onFontFamilyChange(() => {});
 
     // Clean up hidden input handlers
     if (hiddenInput) {
@@ -1635,6 +1705,27 @@ export default function createEditor(
     }
   }
 
+  // Force the caret to the document start or end (used by `focus(at)`).
+  function setCaret(at: "start" | "end") {
+    const visible = state.view.visibleBlocks;
+    if (visible.length === 0) return;
+    const blocks = state.document.page.blocks;
+    const target = at === "start" ? visible[0] : visible[visible.length - 1];
+    const blockIndex = blocks.findIndex((b) => b.id === target.id);
+    if (blockIndex === -1) return;
+    const textIndex =
+      at === "start" ? 0 : getBlockTextContent(blocks[blockIndex]).length;
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        cursor: { position: { blockIndex, textIndex }, lastUpdate: Date.now() },
+        selection: null,
+      },
+    };
+    scheduleRender();
+  }
+
   function getCursorScreenPosition() {
     if (!state.document.cursor) return null;
 
@@ -1665,10 +1756,24 @@ export default function createEditor(
 
   function on(
     event: EditorEvent,
-    callback: (state: EditorState) => void,
+    callback:
+      | ((tx: ChangeTransaction) => void)
+      | ((state: EditorState) => void),
   ): () => void {
-    // Capture the snapshot at subscription time, then diff against it on each
-    // notification to classify what kind of change occurred.
+    // "change" rides the dedicated op channel (emitChange) so it can carry the
+    // ChangeTransaction { isRemote, ops }, rather than the state-diff path.
+    if (event === "change") {
+      const cb = callback as (tx: ChangeTransaction) => void;
+      changeListeners.push(cb);
+      return () => {
+        const i = changeListeners.indexOf(cb);
+        if (i > -1) changeListeners.splice(i, 1);
+      };
+    }
+
+    // selectionchange / focus / blur are pure state transitions — classify them
+    // by diffing the snapshot captured at subscription time on each notification.
+    const cb = callback as (state: EditorState) => void;
     let prev = state;
     return subscribe((next) => {
       const pageChanged = prev.document.page !== next.document.page;
@@ -1680,17 +1785,14 @@ export default function createEditor(
       prev = next;
 
       switch (event) {
-        case "change":
-          if (pageChanged) callback(next);
-          break;
         case "selectionchange":
-          if (selectionChanged && !pageChanged) callback(next);
+          if (selectionChanged && !pageChanged) cb(next);
           break;
         case "focus":
-          if (focusGained) callback(next);
+          if (focusGained) cb(next);
           break;
         case "blur":
-          if (focusLost) callback(next);
+          if (focusLost) cb(next);
           break;
       }
     });
@@ -1717,10 +1819,9 @@ export default function createEditor(
   // `chain()` threads state through several and commits them as ONE undo step.
   type Command = (s: EditorState) => CommandResult;
 
-  // Public mark name (docs vocabulary) → the toggle command that applies the
-  // corresponding internal TextFormat type. The translation lives here, at the
-  // API boundary, so the persisted/serialized/rendered format vocabulary
-  // (bold/italic/strikethrough) stays untouched.
+  // Mark name → the toggle command that applies it. Mark names match the
+  // stored vocabulary one-to-one, so this is a plain name→command dispatch
+  // with no vocabulary translation.
   const MARK_COMMANDS: Partial<Record<MarkName, Command>> = {
     strong: toggleBold,
     emphasis: toggleItalic,
@@ -1732,6 +1833,18 @@ export default function createEditor(
     (type: Block["type"]): Command =>
     (s) =>
       convertBlockType(s, type);
+  // setBlock accepts the concrete block types plus the convenience "heading",
+  // mapped to heading1/2/3 by `attrs.level` (clamped 1–3, the levels that render).
+  const resolveBlockType = (
+    type: Block["type"] | "heading",
+    attrs?: { level?: number },
+  ): Block["type"] => {
+    if (type === "heading") {
+      const level = Math.min(3, Math.max(1, Math.round(attrs?.level ?? 1)));
+      return `heading${level}` as Block["type"];
+    }
+    return type;
+  };
   const insertTextCommand =
     (text: string): Command =>
     (s) =>
@@ -1752,7 +1865,8 @@ export default function createEditor(
       const cmd = MARK_COMMANDS[name];
       return cmd ? runCommand(cmd) : false;
     },
-    setBlock: (type) => runCommand(blockCommand(type)),
+    setBlock: (type, attrs) =>
+      runCommand(blockCommand(resolveBlockType(type, attrs))),
     insertText: (text) => runCommand(insertTextCommand(text)),
     selectAll: () => runCommand(selectAllCommand),
     undo: () => {
@@ -1786,7 +1900,7 @@ export default function createEditor(
         allOps.length > 0
           ? recordUndoOps(prev, cur, allOps, state.CRDTbinding.getPeerId())
           : cur;
-      if (allOps.length > 0 && broadcastFn) broadcastFn(allOps);
+      if (allOps.length > 0 && broadcastFn) emitLocalOps(allOps);
       scheduleRender();
       const currentState = state;
       listeners.forEach((listener) => listener(currentState));
@@ -1798,8 +1912,8 @@ export default function createEditor(
         if (cmd) steps.push(cmd);
         return builder;
       },
-      setBlock: (type) => {
-        steps.push(blockCommand(type));
+      setBlock: (type, attrs) => {
+        steps.push(blockCommand(resolveBlockType(type, attrs)));
         return builder;
       },
       insertText: (text) => {
@@ -1816,9 +1930,9 @@ export default function createEditor(
     return builder;
   }
 
-  function getActiveFormats(): Set<TextFormat["type"]> {
-    const result = new Set<TextFormat["type"]>();
-    const mode = state.ui.activeFormatsMode;
+  function getActiveMarks(): Set<Mark["type"]> {
+    const result = new Set<Mark["type"]>();
+    const mode = state.ui.activeMarksMode;
     if (mode.type === "explicit") {
       for (const f of mode.formats) result.add(f.type);
       return result;
@@ -1836,16 +1950,6 @@ export default function createEditor(
   function isSelectionEmpty(): boolean {
     const sel = state.document.selection;
     return !sel || sel.isCollapsed;
-  }
-
-  function getWordCount(): number {
-    let count = 0;
-    for (const block of state.document.page.blocks) {
-      if (block.deleted || !isTextualBlock(block)) continue;
-      const text = getBlockTextContent(block).trim();
-      if (text.length > 0) count += text.split(/\s+/).length;
-    }
-    return count;
   }
 
   function executeSlashCommand(command: SlashCommand) {
@@ -1897,7 +2001,7 @@ export default function createEditor(
       listeners.forEach((listener) => listener(result.state));
       // Broadcast inverse operations to sync engine
       if (result.ops.length > 0 && broadcastFn) {
-        broadcastFn(result.ops);
+        emitLocalOps(result.ops);
       }
     }
   }
@@ -1910,7 +2014,7 @@ export default function createEditor(
       listeners.forEach((listener) => listener(result.state));
       // Broadcast redo operations to sync engine
       if (result.ops.length > 0 && broadcastFn) {
-        broadcastFn(result.ops);
+        emitLocalOps(result.ops);
       }
     }
   }
@@ -2028,7 +2132,7 @@ export default function createEditor(
     ops.push(insertOp);
 
     // Apply link formatting to the inserted text
-    const { newPage: p3, op: formatOp } = formatCharsInRange(
+    const { newPage: p3, op: formatOp } = markCharsInRange(
       p2,
       block.id,
       start.textIndex,
@@ -2202,7 +2306,7 @@ export default function createEditor(
 
     // Broadcast operations
     if (ops.length > 0 && broadcastFn) {
-      broadcastFn(ops);
+      emitLocalOps(ops);
     }
 
     const currentState = state;
@@ -2290,7 +2394,7 @@ export default function createEditor(
 
     // Broadcast operations
     if (ops.length > 0 && broadcastFn) {
-      broadcastFn(ops);
+      emitLocalOps(ops);
     }
 
     const currentState = state;
@@ -2380,7 +2484,7 @@ export default function createEditor(
     }
 
     if (ops.length > 0 && broadcastFn) {
-      broadcastFn(ops);
+      emitLocalOps(ops);
     }
 
     const currentState = state;
@@ -2462,7 +2566,7 @@ export default function createEditor(
     );
     ops.push(insertOp);
 
-    const { newPage: p3, op: formatOp } = formatCharsInRange(
+    const { newPage: p3, op: formatOp } = markCharsInRange(
       p2,
       blockId,
       startIndex,
@@ -2490,7 +2594,7 @@ export default function createEditor(
     }
 
     if (ops.length > 0 && broadcastFn) {
-      broadcastFn(ops);
+      emitLocalOps(ops);
     }
 
     const currentState = state;
@@ -2534,7 +2638,7 @@ export default function createEditor(
     state = moveCursorToPosition(state, blockIndex, startIndex);
 
     if (broadcastFn) {
-      broadcastFn([op]);
+      emitLocalOps([op]);
     }
 
     const currentState = state;
@@ -2585,7 +2689,10 @@ export default function createEditor(
     scheduleRender();
   }
 
-  function updatePageFromSync(page: Page) {
+  function updatePageFromSync(
+    page: Page,
+    remoteOps: readonly Operation[] = [],
+  ) {
     // Update the page from CRDT sync while preserving cursor/selection
     // This is called when remote operations are applied
 
@@ -2712,6 +2819,8 @@ export default function createEditor(
     const currentState = state;
     scheduleRender();
     listeners.forEach((listener) => listener(currentState));
+    // Fire the change event as a remote-applied edit (isRemote: true).
+    emitChange(remoteOps, true);
   }
 
   /**
@@ -2769,7 +2878,7 @@ export default function createEditor(
 
     // Broadcast operations to peers
     if (broadcastFn) {
-      broadcastFn(ops);
+      emitLocalOps(ops);
     }
 
     // Mark document height as dirty and reset scroll to top
@@ -2957,6 +3066,22 @@ export default function createEditor(
     listeners.forEach((listener) => listener(currentState));
   }
 
+  function setTheme(patch: EditorTheme) {
+    const nextTheme = mergeTheme(state.theme, patch);
+    state = {
+      ...state,
+      theme: nextTheme,
+      resolvedStyles: resolveTheme(nextTheme),
+      resolvedNodeStrings: resolveNodeStrings(state.nodes, nextTheme),
+    };
+    // Block layout is cached keyed by content/width; text metrics depend on the
+    // theme's font sizes/weights/family, so invalidate so blocks re-measure and
+    // the document height recomputes with the new styles.
+    clearAllBlockCaches(state.document.page.blocks);
+    documentHeightDirty = true;
+    scheduleRender();
+  }
+
   return {
     getState,
     destroy,
@@ -2964,9 +3089,13 @@ export default function createEditor(
     getDocumentHeight,
     setFocus,
     setInitialCursor,
+    setCaret,
     getCursorScreenPosition,
-    get state() {
-      return state;
+    get state(): EditorStateSnapshot {
+      return {
+        selection: { empty: isSelectionEmpty() },
+        activeMarks: getActiveMarks(),
+      };
     },
     subscribe,
     on,
@@ -2974,9 +3103,8 @@ export default function createEditor(
     setMarkdown,
     commands,
     chain,
-    getActiveFormats,
+    getActiveMarks,
     isSelectionEmpty,
-    getWordCount,
     executeSlashCommand,
     copy,
     cut,
@@ -2996,6 +3124,9 @@ export default function createEditor(
     setMode,
     restoreCursorAndSelection,
     forceRender: scheduleRender,
+    collectOverlays: () =>
+      collectOverlays(state, viewport, getEditorStyles(state)),
+    setTheme,
     updateImageBlock: updateImageBlock,
     deleteImageBlock: deleteImageBlockMethod,
     openImageUploadMenu,

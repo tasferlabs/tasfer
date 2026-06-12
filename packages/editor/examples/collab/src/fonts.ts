@@ -6,8 +6,8 @@
  * faces to be loaded and it needs to be told which CSS font-stacks to measure
  * against. That is the host's job:
  *
- *   1. export a font registry (family keys → CSS font-stacks) and pass it to the
- *      editor as `theme.fonts` at mount (see main.ts)
+ *   1. export a font registry (family keys → CSS font-stacks) and pass it to
+ *      each editor as `theme.fonts` at mount (see main.ts)
  *   2. load the actual faces (here we just use system fonts, so there's nothing
  *      to download — but we still wait for document.fonts.ready)
  *   3. notifyFontsLoaded()  — flush the editor's metrics cache and repaint
@@ -20,7 +20,8 @@ import { notifyFontsLoaded } from "@cypherkit/editor/fonts";
 
 // Our font registry. The keys ("sans"/"serif") are arbitrary — they're what
 // you'd pass as `theme.fontFamily` (e.g. via `editor.setTheme({ fontFamily })`)
-// to switch fonts at runtime. Pass this whole object as `theme.fonts` at mount.
+// to switch fonts at runtime. Pass this whole object as `theme.fonts` at mount —
+// it's per-instance, so two editors on the page can register different fonts.
 export const FONT_STYLES: FontStyles = {
   families: {
     sans: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',

@@ -6,13 +6,13 @@
  * It exercises the real public API:
  *   - Tier A: getMarkdown() / setMarkdown(), on("change"/"selectionchange")
  *   - Tier B: editor.commands.*, editor.chain()…run(), and the read-model
- *             helpers getActiveFormats() / isSelectionEmpty() / getWordCount()
+ *             helpers getActiveMarks() / isSelectionEmpty()
  *
  * See the README for a short walkthrough.
  */
 import { createEditor } from "@cypherkit/editor";
 
-import { loadFonts } from "./fonts";
+import { FONT_STYLES, loadFonts } from "./fonts";
 
 const DRAFT_KEY = "cypher-minimal-draft";
 
@@ -48,11 +48,18 @@ async function main() {
     element: byId<HTMLDivElement>("editor"),
     value: localStorage.getItem(DRAFT_KEY) ?? INITIAL_MARKDOWN,
     pageId: "minimal-demo",
-    padding: {
-      paddingTop: 32,
-      paddingBottom: 120,
-      paddingLeft: 8,
-      paddingRight: 8,
+    // The headless theme: our font registry plus a couple of style overrides.
+    // `tokens` would re-color everything; here we just tweak page padding.
+    theme: {
+      fonts: FONT_STYLES,
+      styles: {
+        canvas: {
+          paddingTop: 32,
+          paddingBottom: 120,
+          paddingLeft: 8,
+          paddingRight: 8,
+        },
+      },
     },
     autofocus: true,
   });
@@ -98,17 +105,20 @@ async function main() {
   const formatsEl = byId("status-formats");
   const boldBtn = byId("bold");
 
+  // Word count is a consumer concern — the editor ships no counter. Derive it
+  // from the serialized Markdown; the host decides what counts as "a word".
+  const countWords = (md: string) =>
+    md.trim() ? md.trim().split(/\s+/).length : 0;
+
   const paintStatus = () => {
-    const words = editor.getWordCount();
-    const formats = [...editor.getActiveFormats()];
+    const words = countWords(editor.getMarkdown());
+    const marks = [...editor.getActiveMarks()];
     wordsEl.textContent = `${words} word${words === 1 ? "" : "s"}`;
     selectionEl.textContent = editor.isSelectionEmpty() ? "caret" : "selection";
-    formatsEl.textContent = formats.length
-      ? `formats: ${formats.join(", ")}`
-      : "";
+    formatsEl.textContent = marks.length ? `marks: ${marks.join(", ")}` : "";
     boldBtn.classList.toggle(
       "is-active",
-      editor.getActiveFormats().has("bold"),
+      editor.getActiveMarks().has("strong"),
     );
   };
   editor.on("change", paintStatus);
@@ -116,8 +126,10 @@ async function main() {
   paintStatus();
 
   // 5. Auto-save a draft on every content change — the canonical createEditor
-  //    pattern: on("change") + getMarkdown().
-  editor.on("change", (state) => {
+  //    pattern: on("change") + getMarkdown(). The listener receives a
+  //    ChangeTransaction ({ isRemote, ops }); with sync wired you'd
+  //    `if (tx.isRemote) return` to skip re-saving a peer's echo.
+  editor.on("change", () => {
     localStorage.setItem(DRAFT_KEY, editor.getMarkdown());
   });
 

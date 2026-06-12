@@ -2,9 +2,9 @@ import { updateCursor } from "../selection";
 import {
   type Block,
   type CharRun,
-  type FormatSpan,
+  type Mark,
+  type MarkSpan,
   type Page,
-  type TextFormat,
 } from "../serlization/loadPage";
 import type {
   CRDTbinding,
@@ -14,8 +14,8 @@ import type {
   EditorState,
   Position,
 } from "../state-types";
-import type { FormatSet, TextDelete, TextInsert } from "../state-types";
-import { updateSelection } from "../updateSelection";
+import type { MarkSet, TextDelete, TextInsert } from "../state-types";
+import { updateSelection } from "../selection";
 import { isTextualBlock } from "./block-registry";
 import {
   findCharInRuns,
@@ -339,7 +339,7 @@ export interface DeleteCharsResult {
 
 export interface FormatCharsResult {
   newPage: Page;
-  op: FormatSet;
+  op: MarkSet;
 }
 /**
  * Insert text at a position in a block's visible content.
@@ -418,12 +418,12 @@ export function deleteCharsInRange(
  * Apply (or remove, when `value === false`) a format to a visible range.
  */
 
-export function formatCharsInRange(
+export function markCharsInRange(
   page: Page,
   blockId: string,
   startIndex: number,
   endIndex: number,
-  format: TextFormat,
+  format: Mark,
   value: boolean | string,
   binding: CRDTbinding,
 ): FormatCharsResult {
@@ -431,8 +431,8 @@ export function formatCharsInRange(
   const charRuns = block && isTextualBlock(block) ? block.charRuns : undefined;
   const charIds = getCharIdsInRangeFromRuns(charRuns, startIndex, endIndex);
 
-  const op: FormatSet = {
-    op: "format_set",
+  const op: MarkSet = {
+    op: "mark_set",
     id: binding.nextId(),
     clock: binding.getClock(),
     pageId: binding.pageId,
@@ -450,7 +450,7 @@ export function getVisibleLength(charRuns: CharRun[]): number {
 }
 function isCharIdInSpan(
   charId: string,
-  span: FormatSpan,
+  span: MarkSpan,
   charRuns: CharRun[] | undefined,
 ): boolean {
   if (!charRuns) return false;
@@ -462,10 +462,10 @@ function isCharIdInSpan(
 
 export function allCharsHaveFormat(
   charRuns: CharRun[] | undefined,
-  formats: FormatSpan[],
+  formats: MarkSpan[],
   startIndex: number,
   endIndex: number,
-  formatType: TextFormat["type"],
+  formatType: Mark["type"],
 ): boolean {
   if (!charRuns) return false;
 
@@ -486,20 +486,20 @@ export function allCharsHaveFormat(
 
 export function getFormatsAtCharPosition(
   charRuns: CharRun[],
-  formats: FormatSpan[],
+  formats: MarkSpan[],
   position: number,
-): TextFormat[] {
+): Mark[] {
   if (position === 0) return [];
 
   const charId = getCharIdAtVisiblePosition(charRuns, position);
   if (!charId) return [];
 
-  const activeFormats: TextFormat[] = [];
+  const activeMarks: Mark[] = [];
   for (const span of formats) {
     if (isCharIdInSpan(charId, span, charRuns)) {
-      activeFormats.push(span.format);
+      activeMarks.push(span.format);
     }
   }
 
-  return activeFormats;
+  return activeMarks;
 }

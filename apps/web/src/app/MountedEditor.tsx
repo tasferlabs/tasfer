@@ -28,7 +28,7 @@ import {
   Strikethrough,
   Type,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import { CursorMagnifier } from "./components/CursorMagnifier";
 import {
   MobileKeyboardToolbar,
@@ -66,33 +66,35 @@ import type {
   CursorDragState,
   EditorState,
   EditorStrings,
+  NodeOverlay,
   PlaceholderStyles,
   SlashCommand,
   TextStyle,
 } from "@cypherkit/editor/state-types";
 import i18next from "i18next";
+import { cssVarsToTheme, readEditorTokens } from "../editorTheme";
+import { getAppFontRegistry, onAppFontRegistryChange } from "../fonts";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
-import { usePageSettings } from "./contexts/PageSettingsContext";
+import {
+  fontStyleToFamily,
+  usePageSettings,
+} from "./contexts/PageSettingsContext";
 import { EditorLoadingState } from "./pages/EditorPage";
 import { isTextualBlock } from "@cypherkit/editor/sync/block-registry";
 
 /**
- * Localized strings for everything the editor paints onto the canvas. The
+ * Localized cross-node canvas strings (block placeholders). The
  * @cypherkit/editor package ships English defaults and no i18n library, so the
  * host passes translations at mount. Evaluated at mount time — fine, since
  * changing the language happens on the Settings page where no editor is
  * mounted; the next mount picks up the new language.
+ *
+ * Strings owned by a single block type live on the node, not here — see
+ * {@link editorNodeStrings}.
  */
 function editorStrings(): EditorStrings {
   return {
-    imageClickToUpload: i18next.t("image.clickToUpload"),
-    imageLoading: i18next.t("image.loading"),
-    imageUploading: i18next.t("image.uploading"),
-    imageUploadFailed: i18next.t("error.failedToUploadImage"),
-    imageClickToRetry: i18next.t("common.clickToRetry"),
-    imageChangeImage: i18next.t("image.changeImage"),
-    mathClickToEdit: i18next.t("math.clickToEdit"),
     placeholderHeading1: i18next.t("blocks.heading1"),
     placeholderHeading2: i18next.t("blocks.heading2"),
     placeholderHeading3: i18next.t("blocks.heading3"),
@@ -101,6 +103,66 @@ function editorStrings(): EditorStrings {
     placeholderListItem: i18next.t("blocks.listItem"),
     placeholderTodoItem: i18next.t("blocks.todoItem"),
   };
+}
+
+/**
+ * Per-node localized strings, keyed by block type then the node's local string
+ * key (mirrors each node's `strings` catalog). Passed as `theme.nodeStrings`;
+ * the editor overlays these onto the nodes' English defaults per instance.
+ */
+function editorNodeStrings(): Record<string, Record<string, string>> {
+  return {
+    image: {
+      clickToUpload: i18next.t("image.clickToUpload"),
+      loading: i18next.t("image.loading"),
+      uploading: i18next.t("image.uploading"),
+      uploadFailed: i18next.t("error.failedToUploadImage"),
+      clickToRetry: i18next.t("common.clickToRetry"),
+      changeImage: i18next.t("image.changeImage"),
+    },
+    math: {
+      clickToEdit: i18next.t("math.clickToEdit"),
+    },
+  };
+}
+
+/**
+ * Host overlay registry: maps a node-declared overlay `key` (see
+ * {@link NodeOverlay}) to the React component that renders it. Node-declared
+ * overlays are framework-free in the engine — this registry is where they
+ * become real UI, positioned at the descriptor's `rect`.
+ *
+ * Empty for now: the built-in image-upload / math popovers still render through
+ * their own `activeMenu` paths. They migrate onto this registry in a follow-up;
+ * custom nodes register their editing chrome here today.
+ */
+type NodeOverlayProps = {
+  readonly overlay: NodeOverlay;
+  readonly editor: MountedEditorInstance["editor"];
+};
+const NODE_OVERLAYS: Record<string, ComponentType<NodeOverlayProps>> = {};
+
+/**
+ * Structural compare of two overlay lists so we only re-render the React tree
+ * when `collectOverlays()` actually changes (it runs every state tick).
+ */
+function nodeOverlaysEqual(a: NodeOverlay[], b: NodeOverlay[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.key !== y.key ||
+      x.blockIndex !== y.blockIndex ||
+      x.rect.x !== y.rect.x ||
+      x.rect.y !== y.rect.y ||
+      x.rect.width !== y.rect.width ||
+      x.rect.height !== y.rect.height
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 async function downloadImage(url: string, alt?: string): Promise<void> {
@@ -256,12 +318,16 @@ export function MountedEditor({
   placeholderOverrides,
   onScroll,
 }: MountedEditorProps) {
-  const { setOnOpenFind } = usePageSettings();
+  const { setOnOpenFind, fontStyle } = usePageSettings();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { t } = useTranslation();
   const mountedRef = useRef<MountedEditorInstance | null>(null);
   const syncEngineRef = useRef<SyncEngine | null>(null);
   const onScrollRef = useRef(onScroll);
+  // Latest selected font family, read at mount time without making it a mount
+  // dependency (changing it re-themes via setTheme below, not a full re-mount).
+  const fontStyleRef = useRef(fontStyle);
+  fontStyleRef.current = fontStyle;
   onScrollRef.current = onScroll;
   const onContentChangeRef = useRef(onContentChange);
   onContentChangeRef.current = onContentChange;
@@ -339,6 +405,12 @@ export function MountedEditor({
   const [cursorDragState, setCursorDragState] = useState<CursorDragState | null>(null);
   const lastCursorDragStateRef = useRef<CursorDragState | null>(null);
 
+  // Node-declared overlay slots (engine, framework-free) collected each state
+  // tick and rendered via NODE_OVERLAYS. The ref dedupes equivalent collections
+  // so an unchanged set doesn't churn the React tree.
+  const [nodeOverlays, setNodeOverlays] = useState<NodeOverlay[]>([]);
+  const lastNodeOverlaysRef = useRef<NodeOverlay[]>([]);
+
   // Find bar state
   const [findBarOpen, setFindBarOpen] = useState(false);
   const findBarOpenRef = useRef(false);
@@ -397,6 +469,14 @@ export function MountedEditor({
   useEffect(() => {
     mountedRef.current?.setKeyboardHeight(keyboardHeight);
   }, [keyboardHeight]);
+
+  // Push the selected font family (serif/sans page setting) into the live
+  // editor as a theme change — no full re-mount, no module global.
+  useEffect(() => {
+    mountedRef.current?.editor.setTheme({
+      fontFamily: fontStyleToFamily(fontStyle),
+    });
+  }, [fontStyle]);
 
   // Track current toolbar icon type
   const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">(
@@ -531,15 +611,41 @@ export function MountedEditor({
     const crdtBinding = createCRDTbinding(pageId, peerIdRef.current);
 
     const mounted = mountEditor(el, initialBlocks, {
-      readonly,
+      editable: !readonly,
       pageId,
       padding,
       blockStyleOverrides,
       placeholderOverrides,
       strings: editorStrings(),
+      // The editor is headless and never reads the DOM for styling — feed it our
+      // current `--editor-*` CSS variables as theme tokens. Kept in sync with
+      // dark-mode toggles via the MutationObserver below (editor.setTheme).
+      // Fonts (registry + selected family) ride on the theme too; both update
+      // live via the subscriptions below.
+      theme: {
+        ...cssVarsToTheme(),
+        fonts: getAppFontRegistry(),
+        fontFamily: fontStyleToFamily(fontStyleRef.current),
+        nodeStrings: editorNodeStrings(),
+      },
       crdtBinding,
     });
     mountedRef.current = mounted;
+
+    // Re-push theme tokens whenever the document root's class changes (the
+    // dark-mode toggle swaps the `.dark` class, which flips the CSS variables).
+    const themeObserver = new MutationObserver(() => {
+      mounted.editor.setTheme({ tokens: readEditorTokens() });
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    // Re-theme when the app font registry changes (e.g. Arabic stacks load).
+    const offFontRegistry = onAppFontRegistryChange(() => {
+      mounted.editor.setTheme({ fonts: getAppFontRegistry() });
+    });
 
     // True if snapshot has any block with actual text (not just the auto-generated empty init block).
     // Used to decide whether to show the spinner overlay until local ops are confirmed loaded.
@@ -563,6 +669,14 @@ export function MountedEditor({
       // In readonly mode, we only render the content - no sync, no offline store
       // Subscribe to state changes for context menu only
       const unsubscribe = mounted.editor.subscribe((state: EditorState) => {
+        // Node-declared overlay slots (engine, framework-free) → host registry.
+        // Recollected each tick; only pushed to React state when the set changes.
+        const newOverlays = mounted.editor.collectOverlays();
+        if (!nodeOverlaysEqual(newOverlays, lastNodeOverlaysRef.current)) {
+          lastNodeOverlaysRef.current = newOverlays;
+          setNodeOverlays(newOverlays);
+        }
+
         // Calculate context menu state for readonly mode
         let newContextMenuState: typeof contextMenuState = null;
         if (state.ui.activeMenu.type === "contextMenu") {
@@ -612,6 +726,8 @@ export function MountedEditor({
 
       return () => {
         unsubscribe();
+        themeObserver.disconnect();
+        offFontRegistry();
         mounted.destroy();
         if (mountedRef.current === mounted) {
           mountedRef.current = null;
@@ -1174,14 +1290,14 @@ export function MountedEditor({
             block.formats,
             range.start.textIndex,
             range.end.textIndex,
-            "bold",
+            "strong",
           );
           isItalic = allCharsHaveFormat(
             block.charRuns,
             block.formats,
             range.start.textIndex,
             range.end.textIndex,
-            "italic",
+            "emphasis",
           );
           isCode = allCharsHaveFormat(
             block.charRuns,
@@ -1195,16 +1311,16 @@ export function MountedEditor({
             block.formats,
             range.start.textIndex,
             range.end.textIndex,
-            "strikethrough",
+            "strike",
           );
         } else {
           isBold = isItalic = isCode = isStrikethrough = false;
         }
       } else {
         // No selection or multi-block: use cursor position
-        const getActiveFormats = () => {
-          if (state.ui.activeFormatsMode.type === "explicit") {
-            return state.ui.activeFormatsMode.formats;
+        const getActiveMarks = () => {
+          if (state.ui.activeMarksMode.type === "explicit") {
+            return state.ui.activeMarksMode.formats;
           }
           if (state.document.cursor) {
             const { blockIndex, textIndex } = state.document.cursor.position;
@@ -1213,11 +1329,11 @@ export function MountedEditor({
           }
           return [];
         };
-        const activeFormats = getActiveFormats();
-        isBold = activeFormats.some((f) => f.type === "bold");
-        isItalic = activeFormats.some((f) => f.type === "italic");
-        isCode = activeFormats.some((f) => f.type === "code");
-        isStrikethrough = activeFormats.some((f) => f.type === "strikethrough");
+        const activeMarks = getActiveMarks();
+        isBold = activeMarks.some((f) => f.type === "strong");
+        isItalic = activeMarks.some((f) => f.type === "emphasis");
+        isCode = activeMarks.some((f) => f.type === "code");
+        isStrikethrough = activeMarks.some((f) => f.type === "strike");
       }
 
       // Update mobile toolbar state
@@ -1297,6 +1413,8 @@ export function MountedEditor({
 
     return () => {
       unsubscribe();
+      themeObserver.disconnect();
+      offFontRegistry();
 
       // Capture live editor state before destroying
       const editorState = mounted.editor.getState();
@@ -1646,14 +1764,14 @@ export function MountedEditor({
               block.formats,
               range.start.textIndex,
               range.end.textIndex,
-              "bold",
+              "strong",
             );
             isItalic = allCharsHaveFormat(
               block.charRuns,
               block.formats,
               range.start.textIndex,
               range.end.textIndex,
-              "italic",
+              "emphasis",
             );
             isCode = allCharsHaveFormat(
               block.charRuns,
@@ -1667,14 +1785,14 @@ export function MountedEditor({
               block.formats,
               range.start.textIndex,
               range.end.textIndex,
-              "strikethrough",
+              "strike",
             );
           }
         } else {
           // No selection or multi-block: use cursor position
-          const getActiveFormats = () => {
-            if (state.ui.activeFormatsMode.type === "explicit") {
-              return state.ui.activeFormatsMode.formats;
+          const getActiveMarks = () => {
+            if (state.ui.activeMarksMode.type === "explicit") {
+              return state.ui.activeMarksMode.formats;
             }
             if (state.document.cursor) {
               const { blockIndex, textIndex } = state.document.cursor.position;
@@ -1683,12 +1801,12 @@ export function MountedEditor({
             }
             return [];
           };
-          const activeFormats = getActiveFormats();
-          isBold = activeFormats.some((f) => f.type === "bold");
-          isItalic = activeFormats.some((f) => f.type === "italic");
-          isCode = activeFormats.some((f) => f.type === "code");
-          isStrikethrough = activeFormats.some(
-            (f) => f.type === "strikethrough",
+          const activeMarks = getActiveMarks();
+          isBold = activeMarks.some((f) => f.type === "strong");
+          isItalic = activeMarks.some((f) => f.type === "emphasis");
+          isCode = activeMarks.some((f) => f.type === "code");
+          isStrikethrough = activeMarks.some(
+            (f) => f.type === "strike",
           );
         }
       }
@@ -1969,6 +2087,35 @@ export function MountedEditor({
           />,
           mountedRef.current.portalContainer,
         )}
+
+      {/* Node-declared overlay slots — located by the engine
+          (editor.collectOverlays), rendered here via the NODE_OVERLAYS
+          registry. The engine stays framework-free; this is where a node's
+          declared `key` becomes a React component, positioned at its rect. */}
+      {(() => {
+        const mounted = mountedRef.current;
+        if (!mounted?.portalContainer) return null;
+        return nodeOverlays.map((overlay) => {
+          const Component = NODE_OVERLAYS[overlay.key];
+          if (!Component) return null;
+          return createPortal(
+            <div
+              key={`${overlay.key}:${overlay.blockIndex}`}
+              style={{
+                position: "absolute",
+                left: `${overlay.rect.x}px`,
+                top: `${overlay.rect.y}px`,
+                width: `${overlay.rect.width}px`,
+                height: `${overlay.rect.height}px`,
+                pointerEvents: "none",
+              }}
+            >
+              <Component overlay={overlay} editor={mounted.editor} />
+            </div>,
+            mounted.portalContainer,
+          );
+        });
+      })()}
 
       {/* Image upload popover */}
       {imageUploadState &&

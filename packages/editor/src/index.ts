@@ -12,6 +12,7 @@ export { mountEditor } from "./entries/mount";
 
 // Block views — per-instance registry + built-in views for opt-in block sets
 export {
+  AtomicNode,
   createDefaultNodeRegistry,
   createNodeRegistry,
   imageNode,
@@ -45,10 +46,12 @@ export { RegionRegistry } from "./events/regions";
 
 // Editor instance API
 export type {
+  ChangeTransaction,
   Editor,
   EditorCommandChain,
   EditorCommands,
   EditorEvent,
+  EditorStateSnapshot,
   MarkName,
 } from "./entries/editor";
 
@@ -102,20 +105,25 @@ export type {
   Block,
   Char,
   CharRun,
-  FormatSpan,
+  Mark,
+  MarkSpan,
   Page,
-  TextFormat,
 } from "./serlization/loadPage";
 export type {
   CRDTbinding,
+  DeepPartial,
   EditorState,
   EditorStrings,
   EditorStyles,
+  EditorTheme,
   FontFamily,
   FontStyles,
   HLC,
+  NodeOverlay,
+  NodeStringsMap,
   Operation,
   SlashCommand,
+  ThemeTokens,
   VersionVector,
   ViewportState,
 } from "./state-types";
@@ -132,13 +140,21 @@ export {
   serializeVV,
 } from "./sync/sync";
 
-// Fonts — the host registers font families/stacks and loads the faces, then
-// notifies the editor. The editor itself ships no bundled fonts.
+// Fonts — the host registers font families/stacks via the per-instance theme
+// (`EditorTheme.fonts`), loads the faces itself, then calls `notifyFontsLoaded`
+// / `notifyFontsChanged` so the editor flushes its (shared, pure) metrics cache
+// and re-measures. The selected family is `theme.fontFamily` (change it with
+// `editor.setTheme({ fontFamily })`). The editor ships no bundled fonts.
 export {
-  getCurrentFontFamily,
+  currentFontFamily,
   notifyFontsChanged,
   notifyFontsLoaded,
   onFontsReady,
-  setCurrentFontFamily,
 } from "./fonts";
-export { getFontStyles, setFontStyles } from "./styles";
+
+// Theming — resolve a host `EditorTheme` (semantic `tokens` + deep-partial
+// `styles` overrides + `fonts`) into the full style tree, the neutral default
+// palette, and the merge used by `editor.setTheme`. A host driving appearance
+// from CSS variables converts them to `tokens` and passes a theme at mount (or
+// via `setTheme`); the engine never reads the DOM.
+export { DEFAULT_TOKENS, mergeTheme, resolveTheme } from "./styles";

@@ -43,7 +43,6 @@ const editor = createEditor(options: EditorOptions): Editor;
         { name: "state", type: "EditorState", desc: "Immutable snapshot: selection, activeMarks, doc. Replaced on every edit." },
         { name: "commands", type: "Commands", desc: "The command registry — call e.g. editor.commands.toggleMark('strong')." },
         { name: "doc", type: "Doc", desc: "The underlying CRDT document. Pass this to providers to sync." },
-        { name: "view", type: "EditorView", desc: "Low-level canvas view. You rarely need it; escape hatch for custom rendering." },
       ]} />
 
       <Callout kind="note" title="state is a value, not a store.">
@@ -103,27 +102,6 @@ const ok = editor.chain()
 const canRun = editor.chain().wrapIn("callout").canRun();
 `} />
 
-      <h2 id="custom">Custom commands</h2>
-      <p>
-        A command receives the current state and a <code>dispatch</code>. Call
-        <code> dispatch</code> with a transaction to apply; return <code>false</code>
-        to signal it can't run (which keeps it out of a chain).
-      </p>
-      <Code lang="ts" code={`
-import { defineCommand } from "@cypherkit/editor";
-
-const clearFormatting = defineCommand((state, dispatch) => {
-  if (state.selection.empty) return false;
-  if (dispatch) {
-    const tx = state.tr.removeMarks(state.selection.range);
-    dispatch(tx);
-  }
-  return true;
-});
-
-editor.commands.register({ clearFormatting });
-editor.commands.clearFormatting();
-`} />
     </>
   );
 }
@@ -132,42 +110,58 @@ export function EditorApiSchema() {
   return (
     <>
       <p className="dx-lede">
-        A <code>Schema</code> is the grammar of a document: which nodes and marks
-        exist, and how they may nest. The default <code>baseSchema</code> covers
-        the built-in block and mark types — paragraphs, headings, lists, task
-        lists, and images, plus inline marks including bold, code, links, and
-        strikethrough.
+        A <code>Schema</code> declares what a document is made of: the block
+        types and inline marks the editor understands. The default{" "}
+        <code>baseSchema</code> covers every built-in type; derive your own with{" "}
+        <code>baseSchema.extend(...)</code>.
       </p>
 
-      <h2 id="base">baseSchema</h2>
-      <PropsTable cols={["Node", "Content", "Markdown"]} rows={[
-        { name: "doc", type: "block+", desc: "The root. Holds one or more blocks." },
-        { name: "paragraph", type: "inline*", desc: "Plain text block." },
-        { name: "heading", type: "inline*", desc: "Levels 1–6. attrs: { level }." },
-        { name: "blockquote", type: "block+", desc: "> quoted blocks." },
-        { name: "codeBlock", type: "text*", desc: "Fenced code. attrs: { lang }." },
-        { name: "list / listItem", type: "listItem+ / block+", desc: "Ordered, bulleted, and task lists." },
-        { name: "image / hr", type: "leaf", desc: "Leaf nodes with no children." },
+      <Callout kind="note" title="Cypher's block model is flat.">
+        A document is an ordered <em>list</em> of blocks — there is no block
+        nesting. Each block is either text-bearing (paragraph, heading, a list
+        item) or a leaf (image, divider, math). Nested containers — a blockquote
+        wrapping several blocks, columns — are on the roadmap; today every block
+        stands on its own.
+      </Callout>
+
+      <h2 id="base">Built-in block types</h2>
+      <PropsTable cols={["Block type", "Markdown", "Notes"]} rows={[
+        { name: "paragraph", type: "(plain text)", desc: "The default text block." },
+        { name: "heading1 / 2 / 3", type: "# / ## / ###", desc: 'Three heading levels. setBlock("heading", { level }) maps here.' },
+        { name: "bullet_list", type: "- ", desc: "Unordered list item." },
+        { name: "numbered_list", type: "1. ", desc: "Ordered list item." },
+        { name: "todo_list", type: "- [ ] ", desc: "Checkable task item." },
+        { name: "image", type: "![alt](url)", desc: "Leaf. attrs: width, height, objectFit, alt." },
+        { name: "line", type: "---", desc: 'Leaf horizontal divider (the classic "hr").' },
+        { name: "math", type: "$$ … $$", desc: "Leaf block-level math." },
       ]} />
-      <p>Marks in the base schema: <code>strong</code>, <code>emphasis</code>, <code>code</code>, <code>strike</code>, <code>link</code>.</p>
+      <p>
+        Inline marks: <code>strong</code> (<code>**</code>),{" "}
+        <code>emphasis</code> (<code>*</code>), <code>strike</code>{" "}
+        (<code>~~</code>), <code>code</code> (backticks), <code>link</code>{" "}
+        (<code>[text](url)</code>), plus inline <code>math</code> (<code>$…$</code>).
+      </p>
 
       <h2 id="extend">Extending</h2>
+      <p>
+        <code>extend</code> takes <em>arrays</em> of node and mark specs and
+        returns a new, immutable schema — the base is never mutated, so two
+        editors on one page can run different schemas:
+      </p>
       <Code lang="ts" code={`
+import { baseSchema, defineNode, defineMark } from "@cypherkit/editor";
+
 const schema = baseSchema.extend({
-  nodes: { callout, mention },
-  marks: { highlight },
+  nodes: [defineNode("callout", { attrs: { tone: { default: "note" } } })],
+  marks: [defineMark("highlight")],
 });
 `} />
-      <p>See <A href="/docs/editor/custom-nodes">Custom nodes &amp; marks</A> for the full <code>defineNode</code> / <code>defineMark</code> options.</p>
-
-      <h2 id="content">Content expressions</h2>
-      <p>A node's <code>content</code> is a small grammar, the same shape ProseMirror users will recognise:</p>
-      <PropsTable cols={["Expression", "Means", ""]} rows={[
-        { name: '"block+"', type: "one or more blocks", desc: "Used by doc and blockquote." },
-        { name: '"inline*"', type: "zero or more inline", desc: "Used by paragraph and heading." },
-        { name: '"text*"', type: "raw text only", desc: "Used by code blocks." },
-        { name: '"listItem+"', type: "one or more of a node", desc: "Used by lists." },
-      ]} />
+      <p>
+        Custom block types are leaf, void nodes today (a styled box carrying
+        replicated attributes). See <A href="/docs/editor/custom-nodes">Custom
+        nodes &amp; marks</A> for the full <code>defineNode</code> /{" "}
+        <code>defineMark</code> options and how they round-trip through Markdown.
+      </p>
     </>
   );
 }
@@ -189,7 +183,9 @@ const wordGoal = definePlugin({
   name: "wordGoal",
   // react to every transaction
   appendTransaction(transactions, oldState, newState) {
-    if (newState.doc.wordCount >= 500) emit("goal-reached");
+    // Word count is yours to define — derive it from the document text.
+    const words = newState.doc.getMarkdown().trim().split(/\\s+/).length;
+    if (words >= 500) emit("goal-reached");
     return null;  // return a tr to append an edit, or null
   },
 });

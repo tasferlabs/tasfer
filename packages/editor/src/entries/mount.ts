@@ -7,8 +7,12 @@ import {
 import { setKeyboardOpen } from "../rendering/scrollbar";
 import { type Block, type Page } from "../serlization/loadPage";
 import type {
+  BlockStyles,
   CRDTbinding,
+  DeepPartial,
   EditorStrings,
+  EditorStyles,
+  EditorTheme,
   FontStyles,
   PlaceholderStyles,
   TextStyle,
@@ -19,7 +23,7 @@ import {
   detectPhysicalKeyboardHeuristic,
   isTouchDevice,
 } from "../state-utils";
-import { getFontStyles, setFontStyles } from "../styles";
+import { mergeTheme } from "../styles";
 import createEditor, { type Editor } from "./editor";
 import {
   createCanvasLayers,
@@ -70,26 +74,46 @@ function createCanvasContainer(parentContainer: HTMLElement): HTMLDivElement {
 }
 
 export interface MountEditorOptions {
-  readonly?: boolean;
+  /** Whether the document can be edited. Default `true`; `false` mounts a
+   *  read-only renderer (no caret edits, no sync writes). */
+  editable?: boolean;
+  /** Ghost text shown on an empty paragraph (keyboard + touch variants). */
+  placeholder?: string;
   pageId?: string;
+  /**
+   * The headless theming surface for this instance — semantic `tokens`, a
+   * deep-partial `styles` override of any leaf, `fonts`, the selected
+   * `fontFamily`, and localized `strings`. Resolved once into per-instance
+   * styles (no DOM reads, no globals). Update later with `editor.setTheme`.
+   *
+   * Wins over the legacy `padding` / `blockStyleOverrides` /
+   * `placeholderOverrides` / `strings` / `fonts` options below, which are
+   * folded into a theme for backwards compatibility.
+   */
+  theme?: EditorTheme;
+  /** @deprecated Use `theme.styles.canvas`. */
   padding?: Partial<{
     paddingTop: number;
     paddingBottom: number;
     paddingLeft: number;
     paddingRight: number;
   }>;
+  /** @deprecated Use `theme.styles.blocks`. */
   blockStyleOverrides?: Partial<Record<string, Partial<TextStyle>>> | null;
+  /** @deprecated Use `theme.styles.placeholder`. */
   placeholderOverrides?: Partial<PlaceholderStyles> | null;
   /**
    * Localized canvas strings (placeholders, image/math states). The editor
    * ships English defaults and no i18n library — pass your app's translations
    * here. For block placeholders, `placeholderOverrides` wins over `strings`.
+   * @deprecated Use `theme.strings`.
    */
   strings?: Partial<EditorStrings> | null;
   /**
    * Host font registry (family key → CSS font-stack + default family). The host
    * is responsible for loading the corresponding font faces. Omit to leave any
    * globally-configured registry untouched; the editor defaults to system fonts.
+   * @deprecated Use `theme.fonts`.
    */
   fonts?: Partial<FontStyles> | null;
   /**
@@ -120,6 +144,45 @@ export interface MountEditorOptions {
 }
 
 /**
+ * Fold the legacy per-instance style options (`padding` /
+ * `blockStyleOverrides` / `placeholderOverrides` / `strings` / `fonts`) into a
+ * single {@link EditorTheme}, with an explicit `options.theme` merged on top
+ * (so it wins).
+ */
+function optionsToTheme(options?: MountEditorOptions): EditorTheme {
+  if (!options) return {};
+  // Merge placeholderOverrides (styles) with a top-level `placeholder` string,
+  // which sets the empty-paragraph ghost text (keyboard + touch variants).
+  const placeholderStyle = {
+    ...(options.placeholderOverrides ?? {}),
+    ...(options.placeholder !== undefined
+      ? {
+          paragraph: {
+            ...(options.placeholderOverrides?.paragraph ?? {}),
+            keyboardCompatibleText: options.placeholder,
+            touchCompatiableText: options.placeholder,
+          },
+        }
+      : {}),
+  } as DeepPartial<EditorStyles["placeholder"]>;
+  const styles: DeepPartial<EditorStyles> = {
+    ...(options.padding ? { canvas: { ...options.padding } } : {}),
+    ...(options.blockStyleOverrides
+      ? { blocks: options.blockStyleOverrides as DeepPartial<BlockStyles> }
+      : {}),
+    ...(options.placeholderOverrides || options.placeholder !== undefined
+      ? { placeholder: placeholderStyle }
+      : {}),
+  };
+  const legacy: EditorTheme = {
+    styles,
+    strings: options.strings ?? undefined,
+    fonts: options.fonts ?? undefined,
+  };
+  return mergeTheme(legacy, options.theme ?? {});
+}
+
+/**
  * Mounts the canvas editor from a pre-loaded snapshot (Block[]) instead of parsing markdown.
  * This is used when loading pages with snapshot storage.
  */
@@ -128,17 +191,11 @@ export function mountEditor(
   blocks: Block[], //NOTE - Should be called state
   options?: MountEditorOptions,
 ): MountedEditor {
-  // Padding, block-style, and placeholder overrides are now per-instance state
-  // (see createInitialState below) — no module globals to save/restore.
-  //
-  // The font registry is still a module global pending Phase 2, so it keeps the
-  // save/restore dance. Fonts are opt-in: only override when explicitly provided
-  // so an app that configures its registry globally isn't reset by editors that
-  // don't.
-  const prevFonts = getFontStyles();
-  if (options?.fonts !== undefined) {
-    setFontStyles(options.fonts);
-  }
+  // Resolve the host's styling into one theme (legacy options folded in). It
+  // becomes per-instance state via createInitialState below — no style globals.
+  // The font registry rides on the theme too (resolved into EditorStyles.fonts
+  // and threaded through measurement), so there is no global to save/restore.
+  const theme = optionsToTheme(options);
 
   // Create a Page object from the blocks
   const page: Page = {
@@ -225,15 +282,10 @@ export function mountEditor(
   // style overrides live on the state (no module globals), so two editors on a
   // page don't clobber each other's padding/block/placeholder styling.
   const initialState = createInitialState(page, {
-    mode: options?.readonly ? "readonly" : "edit",
+    mode: options?.editable === false ? "readonly" : "edit",
     nodes,
     crdtBinding: options?.crdtBinding,
-    styleConfig: {
-      padding: options?.padding ?? null,
-      blockStyleOverrides: options?.blockStyleOverrides ?? null,
-      placeholderOverrides: options?.placeholderOverrides ?? null,
-      strings: options?.strings ?? null,
-    },
+    theme,
   });
 
   // Create editor with initial state and layered canvases
@@ -433,17 +485,10 @@ export function mountEditor(
   window.addEventListener("focus", handleWindowFocus);
   window.addEventListener("blur", handleWindowBlur);
 
-  // Watch for theme changes (dark class toggle on document root)
-  const themeObserver = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      if (mutation.attributeName === "class") {
-        // Theme changed, force re-render to pick up new CSS variables
-        editor.forceRender();
-        break;
-      }
-    }
-  });
-  themeObserver.observe(document.documentElement, { attributes: true });
+  // Theme reactivity (e.g. dark-mode toggle) is the host's responsibility: the
+  // engine no longer reads the DOM for styling, so the host watches its own
+  // theme source and calls `editor.setTheme(...)`. (Was a MutationObserver on
+  // document.documentElement that force-rendered to re-read CSS variables.)
 
   const refocus = () => {
     if (hiddenInput && !destroyed) {
@@ -459,11 +504,6 @@ export function mountEditor(
 
   const destroy = () => {
     destroyed = true;
-    // Restore previous font registry so the main editor isn't affected (the
-    // other style overrides are per-instance state and need no restore).
-    if (options?.fonts !== undefined) {
-      setFontStyles(prevFonts);
-    }
     resizeObserver.disconnect();
     editor.destroy();
     if (blurTimeoutId !== null) {
@@ -473,7 +513,6 @@ export function mountEditor(
     window.removeEventListener("message", handlePhysicalKeyboardMessage);
     window.removeEventListener("focus", handleWindowFocus);
     window.removeEventListener("blur", handleWindowBlur);
-    themeObserver.disconnect();
     document.removeEventListener("mousedown", handleDocumentClick);
     document.removeEventListener("touchstart", handleDocumentClick);
     document.removeEventListener("focusin", handleDocumentFocusIn);

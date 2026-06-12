@@ -23,6 +23,7 @@ import type {
   BlockBounds,
   EditorState,
   EditorStyles,
+  NodeOverlay,
   Position,
   RenderedBlock,
   RenderedLine,
@@ -123,6 +124,17 @@ export abstract class Node<B extends Block = Block> {
   readonly types?: readonly string[];
 
   /**
+   * Optional: this node's catalog of localized canvas strings (status labels,
+   * placeholders) keyed by a short local name — e.g. ImageNode owns
+   * `{ clickToUpload, loading, … }`. English defaults ship with the node; a
+   * host overrides per instance via `theme.nodeStrings[type]`, merged into
+   * `state.resolvedNodeStrings` at resolve time. Co-locating the catalog with
+   * the node is what keeps `EditorStrings` from being a hand-maintained
+   * god-object — each node owns its own slice. Read with {@link str}.
+   */
+  readonly strings?: Readonly<Record<string, string>>;
+
+  /**
    * Shared work: wrap text / resolve intrinsic size, return height + line
    * boxes. Called by the height pass (uses only `.height`) and by paint.
    */
@@ -154,9 +166,34 @@ export abstract class Node<B extends Block = Block> {
    */
   regions?(c: NodeRegionCtx): readonly NodeHitRegion[];
 
+  /**
+   * Optional: the host-rendered overlays this block wants right now (an upload
+   * popover, an inline editor, …), derived from its data + the current UI state
+   * (read off `c.state`). Identity + geometry only — the actual React/DOM lives
+   * host-side, keyed by {@link NodeOverlay.key}, so the engine stays
+   * framework-agnostic. Collected per visible block by
+   * `editor.collectOverlays()`; the host maps each `key` to a component and
+   * mounts it at the returned `rect`. Return `[]` (or omit) for no overlay.
+   */
+  overlays?(c: NodeRegionCtx): readonly NodeOverlay[];
+
   /** Convenience for subclasses building their RenderedBlock result. */
   protected bounds(c: NodePaintCtx, height: number): BlockBounds {
     return { x: c.origin.x, y: c.origin.y, width: c.maxWidth, height };
+  }
+
+  /**
+   * Resolve one of this node's {@link strings} for the current instance: the
+   * host's `theme.nodeStrings` override if present, else the node's English
+   * default. Reads the per-instance table off `state` (never a field on the
+   * shared singleton), so overrides stay scoped to one editor.
+   */
+  protected str(state: EditorState, key: string): string {
+    return (
+      state.resolvedNodeStrings.get(this.type)?.[key] ??
+      this.strings?.[key] ??
+      ""
+    );
   }
 }
 
@@ -190,6 +227,15 @@ export class NodeRegistry {
   /** Look up the node for a block type, or `undefined` if none is registered. */
   get(type: string): Node | undefined {
     return this.nodes.get(type);
+  }
+
+  /**
+   * Every distinct registered node, deduped — a family node (TextNode,
+   * ListNode) registers under several type keys but is one instance. Used to
+   * collect per-node string catalogs at theme-resolution time.
+   */
+  nodeList(): Node[] {
+    return [...new Set(this.nodes.values())];
   }
 
   /** Whether a node is registered for this block type. */

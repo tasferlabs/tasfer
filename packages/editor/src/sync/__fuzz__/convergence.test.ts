@@ -14,11 +14,7 @@
  * FUZZ_SEED. Override the workload with FUZZ_SEED / FUZZ_PEERS / FUZZ_OPS.
  */
 
-import {
-  type Block,
-  type Page,
-  type TextFormat,
-} from "../../serlization/loadPage";
+import { type Block, type Mark, type Page } from "../../serlization/loadPage";
 import type { BlockType, Operation } from "../../state-types";
 import { isTextualBlock } from "../block-registry";
 import { getVisibleLengthFromRuns } from "../char-runs";
@@ -33,19 +29,14 @@ const TEXTUAL_TYPES: TextualType[] = [
   "bullet_list",
   "todo_list",
 ];
-const FORMAT_TYPES: TextFormat["type"][] = [
-  "bold",
-  "italic",
-  "strikethrough",
-  "code",
-];
+const FORMAT_TYPES: Mark["type"][] = ["strong", "emphasis", "strike", "code"];
 const ASCII =
   "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,!?";
 
 type OpKind =
   | "text_insert"
   | "text_delete"
-  | "format_set"
+  | "mark_set"
   | "block_insert"
   | "block_delete"
   | "block_set";
@@ -53,7 +44,7 @@ type OpKind =
 const OP_WEIGHTS: Array<[OpKind, number]> = [
   ["text_insert", 0.35],
   ["text_delete", 0.2],
-  ["format_set", 0.15],
+  ["mark_set", 0.15],
   ["block_insert", 0.15],
   ["block_delete", 0.05],
   ["block_set", 0.1],
@@ -191,7 +182,7 @@ function tryGenerateOp(
       const end = rng.intRange(start + 1, len);
       return engine.deleteText(block.id, start, end);
     }
-    case "format_set": {
+    case "mark_set": {
       const block = pickTextualBlock(state, rng, true);
       if (!block) return null;
       const len = visibleLen(block);

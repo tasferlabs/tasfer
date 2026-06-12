@@ -133,7 +133,6 @@ const { selection, activeMarks, doc } = editor.state;
 
 selection.empty;              // true when it's just a caret
 activeMarks.has("strong");    // is bold active at the cursor?
-doc.wordCount;                // derived, memoised
 `} />
 
       <h2 id="commands">3 — Commands</h2>
@@ -157,7 +156,7 @@ editor.chain()
       <h2 id="events">4 — Events</h2>
       <p>Subscribe to what the editor does. Every listener returns an unsubscribe function.</p>
       <PropsTable cols={["Event", "Fires when", "Payload"]} rows={[
-        { name: "change", type: "Transaction", desc: "The document changed — typing, paste, a remote sync, an undo." },
+        { name: "change", type: "ChangeTransaction", desc: "The document changed — typing, paste, undo, or a remote sync. Payload: { isRemote, ops }." },
         { name: "selectionchange", type: "Selection", desc: "The caret or selection moved, without a document edit." },
         { name: "focus / blur", type: "void", desc: "The canvas gained or lost focus." },
         { name: "sync", type: "SyncState", desc: "A provider connected, fell behind, or caught up. See Collaboration." },
@@ -165,7 +164,7 @@ editor.chain()
       <Code lang="ts" code={`
 const off = editor.on("change", (tx) => {
   if (tx.isRemote) return;          // ignore edits that came from a peer
-  console.log("local edit:", tx.steps.length, "steps");
+  console.log("local edit:", tx.ops.length, "ops");
 });
 // later
 off();
@@ -468,6 +467,99 @@ const callout = defineNode("callout", {
   },
 });
 `} />
+
+      <p>
+        Prefer a class? Subclass a node and register the instance directly. The
+        class owns its drawing, strings, and UI; a <code>static nodeConfig</code>{" "}
+        supplies the same attrs/serialization <code>defineNode</code> takes. Both
+        styles produce identical data, so they're interchangeable:
+      </p>
+      <Code lang="ts" code={`
+import { AtomicNode, baseSchema } from "@cypherkit/editor";
+
+class CalloutNode extends AtomicNode {
+  readonly type = "callout";
+  // Attrs + serialization, read when the class is registered directly.
+  static nodeConfig = { attrs: { tone: { default: "note" } } };
+
+  protected intrinsicHeight() { return 48; }
+  protected draw(box, c) {
+    c.ctx.fillStyle = "rgba(29,185,132,0.10)";
+    c.ctx.fillRect(box.x, box.y, box.width, 48);
+  }
+}
+
+const schema = baseSchema.extend({ nodes: [new CalloutNode()] });
+`} />
+
+      <h2 id="strings">Localized strings live on the node</h2>
+      <p>
+        A node owns the canvas strings it paints — status labels, prompts — as a{" "}
+        <code>strings</code> catalog of English defaults. The editor ships no
+        i18n library; a localized host overrides per type via{" "}
+        <code>theme.nodeStrings</code>. Read them inside <code>draw</code> with
+        the protected <code>str(state, key)</code> helper. (The built-in image
+        and math nodes own their labels exactly this way — they're no longer in
+        a global string table.)
+      </p>
+      <Code lang="ts" code={`
+class CalloutNode extends AtomicNode {
+  readonly type = "callout";
+  readonly strings = { hint: "Add a note…" };
+
+  protected draw(box, c) {
+    c.ctx.fillText(this.str(c.state, "hint"), box.x + 12, box.y + 24);
+  }
+}
+
+// Host overrides, keyed by block type then the node's local string key:
+createEditor({
+  element,
+  schema,
+  theme: { nodeStrings: { callout: { hint: "ملاحظة…" } } },
+});
+`} />
+
+      <h2 id="overlays">Node-owned UI (overlay slots)</h2>
+      <p>
+        A node can ask the host to float real UI — a popover, an inline editor —
+        over one of its blocks, without the engine ever importing your UI
+        framework. <code>overlays()</code> returns renderer-agnostic{" "}
+        <em>descriptors</em> (identity + geometry, derived from the block's data
+        and the current UI state); the host maps each <code>key</code> to a
+        component and mounts it at the descriptor's <code>rect</code>.
+      </p>
+      <Code lang="ts" code={`
+class CalloutNode extends AtomicNode {
+  readonly type = "callout";
+  overlays(c) {
+    // Show an editor overlay while this block holds the caret.
+    if (c.state.document.cursor?.position.blockIndex !== c.blockIndex) return [];
+    return [{
+      key: "callout-editor",
+      blockIndex: c.blockIndex,
+      rect: { x: c.origin.x, y: c.origin.y, width: c.maxWidth, height: 48 },
+    }];
+  }
+}
+`} />
+      <p>
+        The host drives them through one registry — no per-type <code>if</code>{" "}
+        ladder. Recompute each frame and mount the registered keys at their rect:
+      </p>
+      <Code lang="tsx" code={`
+const OVERLAYS = { "callout-editor": CalloutEditor };
+
+editor.collectOverlays().forEach((o) => {
+  const Comp = OVERLAYS[o.key];
+  if (Comp) mountAt(o.rect, <Comp overlay={o} editor={editor} />);
+});
+`} />
+      <Callout kind="note" title="The engine stays headless.">
+        <code>overlays()</code> returns data, never JSX — so the same node works
+        in a React host, a vanilla-DOM host, or none at all. It's the seam the
+        built-in image and math popovers are migrating onto.
+      </Callout>
 
       <h2 id="mark">Define a mark</h2>
       <p>

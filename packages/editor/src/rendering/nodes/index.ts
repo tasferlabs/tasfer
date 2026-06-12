@@ -13,6 +13,9 @@
  * TextNode — and share the same layout/paint/hit-test API.
  */
 
+// TextNode must be imported (and thus module-evaluated) before ListNode, which
+// `extends TextNode`: in the editor's circular import graph the base class has
+// to be defined first, or `class ListNode extends TextNode` sees `undefined`.
 import { ImageNode } from "./ImageNode";
 import { LineNode } from "./LineNode";
 import { listNode } from "./ListNode";

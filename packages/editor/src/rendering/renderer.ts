@@ -1,10 +1,11 @@
-import { getCurrentFontFamily, getFontStack } from "../fonts";
+import { currentFontFamily, getFontStack } from "../fonts";
 import { getTextDirection } from "../rtl";
 import { isCursorBlinking } from "../selection";
-import type { Block, Char, CharRun, FormatSpan } from "../serlization/loadPage";
+import type { Block, Char, CharRun, MarkSpan } from "../serlization/loadPage";
 import type {
   EditorState,
   EditorStyles,
+  NodeOverlay,
   RenderedBlock,
   ViewportState,
 } from "../state-types";
@@ -19,7 +20,7 @@ import {
   isCharDeleted,
 } from "../sync/char-runs";
 import type { Operation } from "../sync/sync";
-import type { NodeRegistry } from "./nodes";
+import type { NodeRegionCtx, NodeRegistry } from "./nodes";
 import { getContentWithComposition, TextNode, unknownNode } from "./nodes";
 import { renderScrollbar } from "./scrollbar";
 
@@ -91,7 +92,7 @@ export function invalidateAffectedBlocks(
     switch (op.op) {
       case "text_insert":
       case "text_delete":
-      case "format_set":
+      case "mark_set":
       case "block_set":
         affectedBlockIds.add(op.blockId);
         break;
@@ -208,6 +209,56 @@ export function renderPage(
 
   return documentHeight;
   // console.log(viewport.visibleBlocksStartIndex, viewport.visibleBlocksEndIndex);
+}
+
+/**
+ * Collect the host-rendered overlay descriptors for the currently on-screen
+ * blocks. Walks the same block flow as `renderPage` (so an overlay's `rect`
+ * matches the painted layout), asking each block's node for its overlays at the
+ * block's on-screen origin. Coordinates come back in container/viewport space
+ * (scroll already applied), ready for the host to mount portals at.
+ *
+ * Framework-free: the engine never renders these — it only locates them and
+ * hands the host `{ key, rect, … }`. See {@link NodeOverlay} and `Node.overlays`.
+ */
+export function collectOverlays(
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+): NodeOverlay[] {
+  const overlays: NodeOverlay[] = [];
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  let y = styles.canvas.paddingTop - viewport.scrollY;
+  const visibleBlocks = state.view.visibleBlocks;
+  for (let i = 0; i < visibleBlocks.length; i++) {
+    const block = visibleBlocks[i];
+    const height = getBlockHeight(
+      state.nodes,
+      block,
+      maxWidth,
+      styles,
+      i === 0,
+    );
+    const node = state.nodes.get(block.type);
+    // Only ask blocks that are actually within the viewport — an off-screen
+    // overlay would mount a portal nobody can see.
+    if (node?.overlays && y + height >= 0 && y <= viewport.height) {
+      const regionCtx: NodeRegionCtx = {
+        block,
+        blockIndex: block.originalIndex,
+        maxWidth,
+        isFirst: i === 0,
+        styles,
+        state,
+        viewport,
+        origin: { x: styles.canvas.paddingLeft, y },
+      };
+      overlays.push(...node.overlays(regionCtx));
+    }
+    y += height;
+  }
+  return overlays;
 }
 
 export function renderBlock(
@@ -332,7 +383,7 @@ function calculateCursorPosition(
   styles: EditorStyles,
   compositionRange: { start: number; end: number } | null = null,
   renderChars?: Char[],
-  renderFormats?: FormatSpan[],
+  renderFormats?: MarkSpan[],
 ): { x: number; y: number; height: number } | null {
   if (!isTextualBlock(block)) return null;
   const node = state.nodes.get(block.type);
@@ -443,7 +494,7 @@ function renderOutOfViewIndicators(
   // Clear previous hit areas
   outOfViewIndicatorHitAreas = [];
 
-  ctx.font = `600 ${fontSize}px ${getFontStack(getCurrentFontFamily())}`;
+  ctx.font = `600 ${fontSize}px ${getFontStack(currentFontFamily(styles), styles.fonts)}`;
 
   // Render indicators for peers above viewport
   abovePeers.forEach((peer, i) => {
@@ -604,7 +655,7 @@ function renderRemoteCursors(
     if (awareness.user.name) {
       const labelPadding = 2;
       const labelFontSize = 10;
-      ctx.font = `${labelFontSize}px ${getFontStack(getCurrentFontFamily())}`;
+      ctx.font = `${labelFontSize}px ${getFontStack(currentFontFamily(styles), styles.fonts)}`;
       const labelWidth =
         ctx.measureText(awareness.user.name).width + labelPadding * 2;
       const labelHeight = labelFontSize + labelPadding * 2;
@@ -794,8 +845,8 @@ export function renderCursorLayer(
 
   // Draw cursor drag handle on touch devices (small circle below cursor)
   if (isTouchDevice()) {
-    const handleRadius = 5;
-    const handleStemHeight = 3;
+    const handleRadius = styles.cursor.handleRadius;
+    const handleStemHeight = styles.cursor.handleStemHeight;
     const handleY =
       cursorPos.y + cursorPos.height + handleStemHeight + handleRadius;
 

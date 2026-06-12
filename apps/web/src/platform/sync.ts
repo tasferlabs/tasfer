@@ -151,7 +151,7 @@ interface SpaceOpsMsg {
   spaceId: string;
   ops: SpaceOperation[];
 }
-/** Real-time push of one or more page-level CRDT ops (text_insert, format_set, etc.) generated after catch-up is complete. */
+/** Real-time push of one or more page-level CRDT ops (text_insert, mark_set, etc.) generated after catch-up is complete. */
 interface PageOpsMsg {
   type: "page-ops";
   spaceId: string;

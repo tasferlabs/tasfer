@@ -514,7 +514,7 @@ export function mergeAdjacentRuns(runs: CharRun[] | undefined): CharRun[] {
 }
 
 // =============================================================================
-// Character ID Range Helpers (for FormatSpan)
+// Character ID Range Helpers (for MarkSpan)
 // =============================================================================
 
 /**

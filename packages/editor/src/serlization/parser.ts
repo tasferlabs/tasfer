@@ -12,14 +12,7 @@
 import { extractCounter, extractPeerId } from "../sync/id";
 import { baseDataSchema, type DataSchema } from "../sync/schema";
 import type { InputCtx, ParsedTag } from "./codecs";
-import type {
-  Block,
-  Char,
-  CharRun,
-  FormatSpan,
-  Page,
-  TextFormat,
-} from "./loadPage";
+import type { Block, Char, CharRun, Mark, MarkSpan, Page } from "./loadPage";
 import {
   BOLD_END,
   BOLD_START,
@@ -266,18 +259,16 @@ function emptyBlock(context: ParserContext): Block {
   };
 }
 
-// Parse text into Char[] and FormatSpan[] (CRDT native format)
+// Parse text into Char[] and MarkSpan[] (CRDT native format)
 function parseCharsAndFormats(context: ParserContext): {
   chars: Char[];
-  formats: FormatSpan[];
+  formats: MarkSpan[];
 } {
   const chars: Char[] = [];
-  const formats: FormatSpan[] = [];
-  const formatStack: TextFormat[] = [];
-  const activeFormats: Map<
-    string,
-    { format: TextFormat; startCharId: string }
-  > = new Map();
+  const formats: MarkSpan[] = [];
+  const formatStack: Mark[] = [];
+  const activeMarks: Map<string, { format: Mark; startCharId: string }> =
+    new Map();
   // Links can't ride the formatStack: their text chars are created before the
   // url token arrives (at LINK_TEXT_END), so the span is emitted directly at
   // LINK_END over the chars created since LINK_START.
@@ -288,11 +279,11 @@ function parseCharsAndFormats(context: ParserContext): {
 
     // Handle format start tokens
     if (node.type === BOLD_START) {
-      formatStack.push({ type: "bold" });
+      formatStack.push({ type: "strong" });
     } else if (node.type === ITALIC_START) {
-      formatStack.push({ type: "italic" });
+      formatStack.push({ type: "emphasis" });
     } else if (node.type === STRIKETHROUGH_START) {
-      formatStack.push({ type: "strikethrough" });
+      formatStack.push({ type: "strike" });
     } else if (node.type === CODE_START) {
       formatStack.push({ type: "code" });
     } else if (node.type === INLINE_MATH_START) {
@@ -331,13 +322,13 @@ function parseCharsAndFormats(context: ParserContext): {
     }
     // Handle format end tokens
     else if (node.type === BOLD_END) {
-      const index = formatStack.findIndex((f) => f.type === "bold");
+      const index = formatStack.findIndex((f) => f.type === "strong");
       if (index !== -1) formatStack.splice(index, 1);
     } else if (node.type === ITALIC_END) {
-      const index = formatStack.findIndex((f) => f.type === "italic");
+      const index = formatStack.findIndex((f) => f.type === "emphasis");
       if (index !== -1) formatStack.splice(index, 1);
     } else if (node.type === STRIKETHROUGH_END) {
-      const index = formatStack.findIndex((f) => f.type === "strikethrough");
+      const index = formatStack.findIndex((f) => f.type === "strike");
       if (index !== -1) formatStack.splice(index, 1);
     } else if (node.type === CODE_END) {
       const index = formatStack.findIndex((f) => f.type === "code");
@@ -352,13 +343,13 @@ function parseCharsAndFormats(context: ParserContext): {
         // Create format spans for active formats
         for (const format of formatStack) {
           const formatKey = format.type + (format.url || "");
-          if (!activeFormats.has(formatKey)) {
-            activeFormats.set(formatKey, { format, startCharId: charId });
+          if (!activeMarks.has(formatKey)) {
+            activeMarks.set(formatKey, { format, startCharId: charId });
           }
         }
 
         // Close formats that are no longer active
-        for (const [key, active] of activeFormats.entries()) {
+        for (const [key, active] of activeMarks.entries()) {
           const stillActive = formatStack.some(
             (f) => f.type + (f.url || "") === key,
           );
@@ -370,7 +361,7 @@ function parseCharsAndFormats(context: ParserContext): {
               format: active.format,
               clock: { counter: 0, peerId: "parser" },
             });
-            activeFormats.delete(key);
+            activeMarks.delete(key);
           }
         }
       }
@@ -379,7 +370,7 @@ function parseCharsAndFormats(context: ParserContext): {
 
   // Close any remaining active formats
   if (chars.length > 0) {
-    for (const [_, active] of activeFormats.entries()) {
+    for (const [_, active] of activeMarks.entries()) {
       formats.push({
         startCharId: active.startCharId,
         endCharId: chars[chars.length - 1].id,

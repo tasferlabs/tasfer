@@ -1,5 +1,4 @@
 import mathjaxBundle from "./mathjax-bundle.mjs";
-import { getEditorStyles } from "./styles";
 
 const { mathjax, TeX, SVG, liteAdaptor, RegisterHTMLHandler, AllPackages } =
   mathjaxBundle;
@@ -51,8 +50,15 @@ const pendingImageRenders = new Set<string>();
 function dimsKey(latex: string, fontSize: number): string {
   return `${fontSize}:${latex}`;
 }
-function imageKey(latex: string, fontSize: number, dpr: number): string {
-  return `${fontSize}:${dpr}:${latex}`;
+function imageKey(
+  latex: string,
+  fontSize: number,
+  dpr: number,
+  color: string,
+): string {
+  // `color` is part of the key so a theme change (new text color) produces a
+  // fresh bitmap instead of serving the previous theme's colored glyphs.
+  return `${fontSize}:${dpr}:${color}:${latex}`;
 }
 
 // Synchronously compute inline math dimensions in CSS pixels for a given font size.
@@ -116,9 +122,11 @@ export function getInlineMathImage(
   latex: string,
   fontSize: number,
   dpr: number,
+  color: string,
+  errorBackgroundColor: string,
   onReady?: () => void,
 ): InlineMathImage | null {
-  const key = imageKey(latex, fontSize, dpr);
+  const key = imageKey(latex, fontSize, dpr, color);
   const cached = imageCache.get(key);
   if (cached) return cached;
   if (pendingImageRenders.has(key)) return null;
@@ -128,7 +136,6 @@ export function getInlineMathImage(
   void (async () => {
     try {
       const svgString = renderToSVG(latex, false);
-      const color = getEditorStyles().blocks.paragraph.color;
 
       const inner = svgString.replace(
         /^<mjx-container[^>]*>([\s\S]*)<\/mjx-container>$/,
@@ -146,7 +153,7 @@ export function getInlineMathImage(
       svgEl.setAttribute("color", color);
       svgEl.style.color = color;
       for (const rect of svgEl.querySelectorAll("rect[data-background]")) {
-        rect.setAttribute("fill", "rgba(128,128,128,0.15)");
+        rect.setAttribute("fill", errorBackgroundColor);
       }
 
       const dims = getInlineMathDims(latex, fontSize);

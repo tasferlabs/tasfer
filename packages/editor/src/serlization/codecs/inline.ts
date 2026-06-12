@@ -11,11 +11,11 @@ import {
   getVisibleTextFromRuns,
   iterateVisibleChars,
 } from "../../sync/char-runs";
-import type { CharRun, FormatSpan, TextFormat } from "../loadPage";
+import type { CharRun, Mark, MarkSpan } from "../loadPage";
 
 export interface Segment {
   text: string;
-  formats?: TextFormat[];
+  formats?: Mark[];
 }
 
 function setsEqual(a: Set<string>, b: Set<string>): boolean {
@@ -26,14 +26,14 @@ function setsEqual(a: Set<string>, b: Set<string>): boolean {
   return true;
 }
 
-function formatKeysToFormats(keys: Set<string>): TextFormat[] | undefined {
+function formatKeysToFormats(keys: Set<string>): Mark[] | undefined {
   if (keys.size === 0) return undefined;
-  const formats: TextFormat[] = [];
+  const formats: Mark[] = [];
   for (const key of keys) {
     if (key.startsWith("link:")) {
       formats.push({ type: "link", url: key.slice(5) });
     } else {
-      formats.push({ type: key as TextFormat["type"] });
+      formats.push({ type: key as Mark["type"] });
     }
   }
   return formats.length > 0 ? formats : undefined;
@@ -42,7 +42,7 @@ function formatKeysToFormats(keys: Set<string>): TextFormat[] | undefined {
 /** Group visible chars into runs of identical formatting. */
 export function groupSegments(
   charRuns: CharRun[],
-  formats: FormatSpan[],
+  formats: MarkSpan[],
 ): Segment[] {
   const visibleChars: Array<{ id: string; char: string }> = [];
   for (const { id, char } of iterateVisibleChars(charRuns)) {
@@ -115,7 +115,7 @@ export function escapeAttr(s: string): string {
 /** Markdown inline rendering: `**bold**`, `*italic*`, `[text](url)`, … */
 export function inlineToMarkdown(
   charRuns: CharRun[],
-  formats: FormatSpan[],
+  formats: MarkSpan[],
 ): string {
   const segments = groupSegments(charRuns, formats);
   let content = "";
@@ -123,11 +123,11 @@ export function inlineToMarkdown(
     let text = segment.text;
     if (segment.formats) {
       for (const format of segment.formats) {
-        if (format.type === "bold") {
+        if (format.type === "strong") {
           text = `**${text}**`;
-        } else if (format.type === "italic") {
+        } else if (format.type === "emphasis") {
           text = `*${text}*`;
-        } else if (format.type === "strikethrough") {
+        } else if (format.type === "strike") {
           text = `~~${text}~~`;
         } else if (format.type === "code") {
           text = `\`${text}\``;
@@ -146,7 +146,7 @@ export function inlineToMarkdown(
 /** HTML inline rendering: `<strong>`, `<em>`, `<a href>`, math via injected renderer. */
 export function inlineToHtml(
   charRuns: CharRun[],
-  formats: FormatSpan[],
+  formats: MarkSpan[],
   renderMathSVG?: (latex: string, displayMode: boolean) => string,
 ): string {
   const segments = groupSegments(charRuns, formats);
@@ -168,9 +168,9 @@ export function inlineToHtml(
         return html;
       }
       if (has("code")) html = `<code>${html}</code>`;
-      if (has("bold")) html = `<strong>${html}</strong>`;
-      if (has("italic")) html = `<em>${html}</em>`;
-      if (has("strikethrough")) html = `<s>${html}</s>`;
+      if (has("strong")) html = `<strong>${html}</strong>`;
+      if (has("emphasis")) html = `<em>${html}</em>`;
+      if (has("strike")) html = `<s>${html}</s>`;
       if (link && link.url)
         html = `<a href="${escapeAttr(link.url)}">${html}</a>`;
       return html;

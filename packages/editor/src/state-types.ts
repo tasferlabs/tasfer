@@ -1,6 +1,6 @@
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
-import type { Block, CharRun, Page, TextFormat } from "./serlization/loadPage";
+import type { Block, CharRun, Mark, Page } from "./serlization/loadPage";
 import type { ReactElement } from "react";
 
 // =============================================================================
@@ -110,14 +110,14 @@ export interface TextDelete extends BaseOp {
 /**
  * Set formatting on a range of characters.
  */
-export interface FormatSet extends BaseOp {
-  op: "format_set";
+export interface MarkSet extends BaseOp {
+  op: "mark_set";
   /** Block containing the characters */
   blockId: string;
   /** Character IDs to format */
   charIds: string[];
   /** Format to apply */
-  format: TextFormat;
+  format: Mark;
   /** Format value (true/false for toggles, URL for links) */
   value: boolean | string;
 }
@@ -165,7 +165,7 @@ export interface BlockSet extends BaseOp {
 export type Operation =
   | TextInsert
   | TextDelete
-  | FormatSet
+  | MarkSet
   | BlockInsert
   | BlockDelete
   | BlockSet;
@@ -303,7 +303,7 @@ export interface CompositionState {
 // Active formats mode for typing
 export type ActiveFormatsMode =
   | { type: "inherit" } // Inherit formatting from previous character (normal typing)
-  | { type: "explicit"; formats: readonly TextFormat[] }; // Explicit formatting mode (Ctrl+B toggled on/off)
+  | { type: "explicit"; formats: readonly Mark[] }; // Explicit formatting mode (Ctrl+B toggled on/off)
 
 // Drag handle position on an image
 export type DragHandlePosition = "left" | "right" | "bottom" | null;
@@ -382,7 +382,7 @@ export interface UIState {
   } | null;
   readonly hoveredMathBlockIndex: number | null;
   readonly composition: CompositionState | null;
-  readonly activeFormatsMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
+  readonly activeMarksMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
   readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)
   readonly imageDrag: ImageDragState | null; // Active image drag operation
   readonly selectionHandleDrag: SelectionHandleDragState | null; // Active selection handle drag (mobile)
@@ -402,43 +402,27 @@ export interface ViewState {
   visibleBlocks: (Block & { originalIndex: number })[];
 }
 
-/**
- * Per-editor-instance style overrides supplied by the host at mount.
- *
- * These were previously module-level globals in styles.ts, which meant two
- * editors on one page shared (and clobbered) one another's styling. They now
- * live on `EditorState` so each instance resolves its own styles. `null` for a
- * field means "use the built-in default". Consumed by `getEditorStyles(state)`.
- */
-export interface StyleConfig {
-  readonly padding: Partial<{
-    paddingTop: number;
-    paddingBottom: number;
-    paddingLeft: number;
-    paddingRight: number;
-  }> | null;
-  readonly blockStyleOverrides: Partial<
-    Record<string, Partial<TextStyle>>
-  > | null;
-  readonly placeholderOverrides: Partial<PlaceholderStyles> | null;
-  readonly strings: Partial<EditorStrings> | null;
-}
+// The former `StyleConfig` (a fixed set of per-instance overrides:
+// padding/blockStyleOverrides/placeholderOverrides/strings) has been folded into
+// the unified, fully-overridable {@link EditorTheme}. The host now passes one
+// `theme`, resolved once into `EditorState.resolvedStyles`. The legacy mount
+// options still work (see `MountEditorOptions`) — they are converted to a theme
+// at mount.
 
 /**
- * Every user-facing string the editor paints onto the canvas. The package
- * ships English defaults and no i18n library; a localized host overrides
- * these at mount (e.g. from its own i18next instance) via
- * `MountEditorOptions.strings`. For the block placeholders,
- * `placeholderOverrides` (more specific) wins over `strings`.
+ * The cross-node user-facing strings the editor paints onto the canvas (block
+ * placeholders). The package ships English defaults and no i18n library; a
+ * localized host overrides these at mount via `MountEditorOptions.strings`. For
+ * the block placeholders, `placeholderOverrides` (more specific) wins over
+ * `strings`.
+ *
+ * Strings that belong to a single block type (image upload/status labels, the
+ * math placeholder, …) are NOT here — they live on the owning {@link Node} as
+ * its `strings` catalog and are overridden per type via
+ * {@link EditorTheme.nodeStrings}. This interface is only the strings with no
+ * single owning node.
  */
 export interface EditorStrings {
-  readonly imageClickToUpload: string;
-  readonly imageLoading: string;
-  readonly imageUploading: string;
-  readonly imageUploadFailed: string;
-  readonly imageClickToRetry: string;
-  readonly imageChangeImage: string;
-  readonly mathClickToEdit: string;
   readonly placeholderHeading1: string;
   readonly placeholderHeading2: string;
   readonly placeholderHeading3: string;
@@ -449,9 +433,48 @@ export interface EditorStrings {
   readonly placeholderListItem: string;
   readonly placeholderTodoItem: string;
 }
-// NOTE: the host font registry and selected font family are still module-level
-// globals in fonts.ts/styles.ts (they thread deep into the measurement path).
-// If de-globalized later, they belong on this StyleConfig too.
+
+/**
+ * Per-instance resolved node strings: block type → its localized string catalog
+ * (the node's English defaults merged with `theme.nodeStrings[type]`). Built
+ * once at mount and on every `setTheme`, stored on {@link EditorState}; a node
+ * reads its slice via the protected `str(state, key)` helper. Keyed by node
+ * `type` so it stays per-instance — never a field on the shared node singleton.
+ */
+export type NodeStringsMap = ReadonlyMap<
+  string,
+  Readonly<Record<string, string>>
+>;
+
+/**
+ * A renderer-agnostic descriptor for a piece of host UI a node wants floated
+ * over one of its blocks — an "overlay slot." A node declares these from its
+ * current data + UI state (see `Node.overlays`); the engine collects them per
+ * visible block (`editor.collectOverlays()`); the host maps `key` to a
+ * component and mounts it at `rect`.
+ *
+ * This is what lets a node own its UI without the engine importing React: the
+ * engine only ever says "render whatever is registered under `key`, here." The
+ * built-in image/math popovers migrate onto this; custom nodes use it to bring
+ * their own editing chrome.
+ */
+export interface NodeOverlay {
+  /** Stable key the host's overlay registry maps to a component. */
+  readonly key: string;
+  /** The block this overlay belongs to (original page index). */
+  readonly blockIndex: number;
+  /**
+   * Where to float the UI, in the same container/viewport coordinate space the
+   * host positions its portals in (origin at the canvas top-left, current
+   * scroll already applied — i.e. directly usable as `left`/`top`/`width`/
+   * `height`).
+   */
+  readonly rect: BlockBounds;
+  /** Optional serializable payload forwarded to the host component. */
+  readonly data?: unknown;
+}
+// The host font registry and selected font family are per-instance: they live
+// on `EditorTheme` (`fonts` / `fontFamily`), resolved into `resolvedStyles`.
 
 // Undo tracks operations per user for independent undo/redo.
 //
@@ -491,11 +514,28 @@ export interface EditorState {
    */
   readonly nodes: NodeRegistry;
   /**
-   * Per-instance style overrides (padding, block styles, placeholders, fonts,
-   * selected font family). Replaces the former module-level globals in styles.ts
-   * so editors don't clobber each other's styling. Read by `getEditorStyles`.
+   * The host's raw styling input for this instance (tokens + style overrides +
+   * fonts + selected family + strings). Kept so `setTheme` can merge a partial
+   * update and re-resolve. Read at render time only for the few dynamic overlays
+   * (mobile horizontal padding, window-focus selection color).
    */
-  readonly styleConfig: StyleConfig;
+  readonly theme: EditorTheme;
+  /**
+   * The fully-resolved styles for this instance — `theme` merged over the
+   * neutral defaults, computed once at mount and on every `setTheme`. Replaces
+   * the former module-level style globals + per-render `getComputedStyle`
+   * reads, so editors never clobber each other's styling and the engine never
+   * touches the DOM. Read (with tiny dynamic overlays) by `getEditorStyles`.
+   */
+  readonly resolvedStyles: EditorStyles;
+  /**
+   * Per-instance node string catalogs (block type → localized strings), built
+   * from each registered node's `strings` defaults overlaid with
+   * `theme.nodeStrings`. Read by a node via its protected `str(state, key)`
+   * helper. Per-instance (not a node-singleton field) so two editors localize
+   * independently.
+   */
+  readonly resolvedNodeStrings: NodeStringsMap;
 }
 
 // Command result - all commands return state + operations
@@ -631,6 +671,12 @@ export interface RemoteCursorStyles {
 export interface EditorStyles {
   readonly canvas: CanvasStyles;
   readonly fonts: FontStyles;
+  /**
+   * The currently-selected font family key (from `fonts.families`). When unset
+   * the editor uses `fonts.defaultFamily`. Resolved per instance — switching it
+   * is a theme change (`setTheme({ fontFamily })`), not a module global.
+   */
+  readonly fontFamily: FontFamily | null;
   readonly blocks: BlockStyles;
   readonly selection: SelectionStyles;
   readonly cursor: CursorStyles;
@@ -639,6 +685,9 @@ export interface EditorStyles {
   readonly textFormats: TextFormatStyles;
   readonly imageResize: ImageResizeStyles;
   readonly list: ListStyles;
+  readonly search: SearchStyles;
+  readonly scrollbar: ScrollbarColors;
+  readonly unknownBlock: UnknownBlockStyles;
 }
 
 /**
@@ -667,10 +716,11 @@ export interface MathStyles {
   readonly minHeight: number;
   readonly hoverBackgroundColor: string;
   readonly hoverBorderRadius: number;
+  /** Fill for MathJax error-marker background rects (block + inline math). */
+  readonly errorBackgroundColor: string;
   readonly placeholder: {
     readonly backgroundColor: string;
     readonly textColor: string;
-    readonly text: string;
   };
 }
 
@@ -707,11 +757,47 @@ export interface CursorStyles {
   readonly width: number;
   readonly color: string;
   readonly blinkInterval: number;
+  /** Radius of the touch-device cursor drag handle (the small circle). */
+  readonly handleRadius: number;
+  /** Height of the stem connecting the cursor to its touch drag handle. */
+  readonly handleStemHeight: number;
+}
+
+/** Find-in-document highlight fills (active match vs the rest). */
+export interface SearchStyles {
+  readonly activeColor: string;
+  readonly activeOpacity: number;
+  readonly inactiveColor: string;
+  readonly inactiveOpacity: number;
+}
+
+/** Scrollbar thumb/track colors. Geometry lives in scrollbar.ts `ScrollbarStyles`. */
+export interface ScrollbarColors {
+  readonly trackColor: string;
+  readonly thumbColor: string;
+  readonly thumbHoverColor: string;
+  readonly thumbActiveColor: string;
+}
+
+/**
+ * Fallback paint for blocks the editor cannot render (unknown/custom-without-a-
+ * view block types). Drawn as a muted dashed box with a label.
+ */
+export interface UnknownBlockStyles {
+  readonly backgroundColor: string;
+  readonly borderColor: string;
+  readonly textColor: string;
+  /** CSS font-stack for the "Unsupported block" label. */
+  readonly fontFamily: string;
 }
 
 export interface SelectionStyles {
   readonly backgroundColor: string;
+  /** Selection fill used when the browser window is blurred (desktop only). */
+  readonly unfocusedBackgroundColor: string;
   readonly opacity: number;
+  /** Opacity of remote peers' selection fills (their color comes from awareness). */
+  readonly remoteOpacity: number;
   readonly handles: SelectionHandleStyles;
 }
 
@@ -835,29 +921,23 @@ export interface ImageStyles {
     readonly backgroundColor: string;
     readonly textColor: string;
     readonly borderColor: string;
-    readonly text: string;
   };
   readonly loading: {
     readonly backgroundColor: string;
     readonly textColor: string;
-    readonly text: string;
   };
   readonly uploading: {
     readonly backgroundColor: string;
     readonly textColor: string;
-    readonly text: string;
   };
   readonly error: {
     readonly backgroundColor: string;
     readonly textColor: string;
-    readonly text: string;
-    readonly retryText: string;
   };
   readonly hover: {
     readonly overlayColor: string;
     readonly buttonBackgroundColor: string;
     readonly buttonTextColor: string;
-    readonly buttonText: string;
   };
   readonly dimensions: {
     readonly height: number;
@@ -867,6 +947,129 @@ export interface ImageStyles {
     readonly buttonHeight: number;
     readonly borderRadius: number;
   };
+}
+
+/**
+ * Recursive partial — every leaf of `T` becomes optional, arrays kept whole.
+ * Used so a host can override any single style leaf without restating the tree.
+ */
+export type DeepPartial<T> = T extends readonly (infer _U)[]
+  ? T
+  : T extends object
+    ? { [K in keyof T]?: DeepPartial<T[K]> }
+    : T;
+
+/**
+ * Semantic color palette — the small set of values that drive the editor's
+ * appearance. Setting a handful of tokens re-themes the whole editor; the
+ * resolved {@link EditorStyles} default every color leaf to one of these.
+ *
+ * The editor ships neutral, opinion-free defaults (see `DEFAULT_TOKENS`); a
+ * host overrides them per instance via `mountEditor({ theme: { tokens } })` or
+ * `editor.setTheme({ tokens })`. Nothing here is read from the DOM — a host
+ * driving these from CSS variables converts them on its own side.
+ */
+export interface ThemeTokens {
+  /** Default body text. */
+  readonly text: string;
+  /** Heading text (h1–h3). */
+  readonly heading: string;
+  /** Placeholder/ghost text. */
+  readonly placeholder: string;
+  /** Page background (used for hover button backgrounds etc.). */
+  readonly background: string;
+  /** Foreground on `background`. */
+  readonly foreground: string;
+  /** Hairlines, dividers, the `line` block, checkbox borders. */
+  readonly border: string;
+  /** Muted surface (image/math placeholder backgrounds, hover wash). */
+  readonly muted: string;
+  /** Text/icon on a muted surface. */
+  readonly mutedForeground: string;
+  /** Accent (cursor, links, todo check, resize handles). */
+  readonly primary: string;
+  /** Foreground on `primary` (e.g. the checkmark). */
+  readonly primaryForeground: string;
+  /** Error surface (image upload failure). */
+  readonly destructive: string;
+  /** Foreground on `destructive`. */
+  readonly destructiveForeground: string;
+  /** Text caret. */
+  readonly cursor: string;
+  /** Selection fill (focused). */
+  readonly selection: string;
+  /** Selection fill when the window is blurred (desktop). */
+  readonly selectionUnfocused: string;
+  /** Label text on a remote peer's cursor flag. */
+  readonly remoteCursorLabelText: string;
+  /** Inline `code` background. */
+  readonly codeBackground: string;
+  /** Inline `code` text. */
+  readonly codeText: string;
+  /** Link text. */
+  readonly link: string;
+  /** Link text on hover. */
+  readonly linkHover: string;
+  /** Wash over a cover image on hover. */
+  readonly coverImageOverlay: string;
+  /** Scrollbar track. */
+  readonly scrollbarTrack: string;
+  /** Scrollbar thumb. */
+  readonly scrollbarThumb: string;
+  /** Scrollbar thumb (hover). */
+  readonly scrollbarThumbHover: string;
+  /** Scrollbar thumb (dragging). */
+  readonly scrollbarThumbActive: string;
+  /** Find-in-document highlight (non-active matches). */
+  readonly searchHighlight: string;
+  /** Find-in-document highlight (the active match). */
+  readonly searchHighlightActive: string;
+  /** Fallback box fill for unrenderable blocks. */
+  readonly unknownBlockBackground: string;
+  /** Fallback box border for unrenderable blocks. */
+  readonly unknownBlockBorder: string;
+  /** Fallback box label text for unrenderable blocks. */
+  readonly unknownBlockText: string;
+  /** MathJax error-marker background. */
+  readonly mathErrorBackground: string;
+}
+
+/**
+ * The host's styling input for an editor instance — the headless theming
+ * surface. All fields optional; anything omitted falls back to the editor's
+ * neutral defaults.
+ *
+ * Two tiers, layered: `tokens` (semantic palette — set a few, re-theme
+ * everything) then `styles` (a deep-partial override of the fully-resolved
+ * {@link EditorStyles}, for pixel-level control of any single leaf). `fonts`
+ * registers the host's font families (the host loads the faces); `fontFamily`
+ * selects the active one.
+ *
+ * Resolved once into an {@link EditorStyles} stored per instance — no module
+ * globals, no DOM reads — so two editors on a page can be themed independently.
+ */
+export interface EditorTheme {
+  readonly tokens?: Partial<ThemeTokens>;
+  readonly styles?: DeepPartial<EditorStyles>;
+  readonly fonts?: Partial<FontStyles>;
+  readonly fontFamily?: FontFamily | null;
+  /**
+   * Localized canvas placeholder strings. English defaults ship with the
+   * editor; override per instance. For block placeholders, an explicit
+   * `styles.placeholder.*.text` wins over `strings`. Strings owned by a single
+   * block type live in {@link nodeStrings}, not here.
+   */
+  readonly strings?: Partial<EditorStrings>;
+  /**
+   * Per-node string overrides, keyed by block `type` then by the node's local
+   * string key — e.g. `{ image: { clickToUpload: "…" }, math: { … } }`. Each
+   * node ships English defaults in its own `strings` catalog; values here win
+   * for this instance. Merged into {@link EditorState.resolvedNodeStrings} at
+   * resolve time.
+   */
+  readonly nodeStrings?: Readonly<
+    Record<string, Readonly<Record<string, string>>>
+  >;
 }
 
 // Event Types

@@ -1,27 +1,31 @@
 import { IMAGE_DEFAULT_HEIGHT } from "./constants";
-import { getCurrentFontFamily, getFontStack } from "./fonts";
+import { currentFontFamily, getFontStack } from "./fonts";
+// From the leaf `node-shared`, not `state-utils`: `state-utils` imports the node
+// registry, and the node views import `styles`, so importing `isTouchDevice`
+// from `state-utils` here would close a circular init (`styles → state-utils →
+// nodes → TextNode → styles`) that leaves `ListNode extends TextNode` undefined.
+import { isTouchDevice } from "./node-shared";
+import type { NodeRegistry } from "./rendering/nodes/Node";
 import type {
+  DeepPartial,
   EditorState,
   EditorStrings,
   EditorStyles,
+  EditorTheme,
   FontStyles,
+  NodeStringsMap,
   TextStyle,
+  ThemeTokens,
 } from "./state-types";
-import { isTouchDevice } from "./state-utils";
 
 /**
- * English defaults for every canvas-painted string. The editor ships no i18n
- * library — a localized host overrides these per instance via the `strings`
- * mount option (see {@link EditorStrings}).
+ * English defaults for the cross-node canvas strings (block placeholders). The
+ * editor ships no i18n library — a localized host overrides these per instance
+ * via the `strings` mount option (see {@link EditorStrings}). Strings owned by a
+ * single block type live on the node (its `strings` catalog) and resolve
+ * through {@link resolveNodeStrings}, not here.
  */
 const DEFAULT_STRINGS: EditorStrings = {
-  imageClickToUpload: "Click to upload image",
-  imageLoading: "Loading image...",
-  imageUploading: "Uploading image...",
-  imageUploadFailed: "Failed to upload image",
-  imageClickToRetry: "Click to retry",
-  imageChangeImage: "Change Image",
-  mathClickToEdit: "Click to add equation",
   placeholderHeading1: "Heading 1",
   placeholderHeading2: "Heading 2",
   placeholderHeading3: "Heading 3",
@@ -33,11 +37,11 @@ const DEFAULT_STRINGS: EditorStrings = {
 
 /**
  * Neutral, opinion-free default font registry. The editor ships no bundled
- * fonts — a consuming app registers its own faces via `setFontStyles()` (or
- * mount options) and is responsible for loading them. This system-font default
- * just guarantees text renders before any custom fonts are configured.
+ * fonts — a consuming app registers its own faces via `theme.fonts` (mount
+ * option or `setTheme`) and is responsible for loading them. This system-font
+ * default just guarantees text renders before any custom fonts are configured.
  */
-const DEFAULT_FONT_STYLES: FontStyles = {
+export const DEFAULT_FONT_STYLES: FontStyles = {
   families: {
     default:
       'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
@@ -46,179 +50,267 @@ const DEFAULT_FONT_STYLES: FontStyles = {
 };
 
 /**
- * Host-supplied font registry set via setFontStyles(). When null the editor
- * uses the neutral system-font default (DEFAULT_FONT_STYLES).
- *
- * NOTE: still a module global pending Phase 2 of the styles de-globalization
- * (the font registry threads deep into the measurement path). Padding, block,
- * placeholder, and window-focus state now live on `EditorState`.
+ * Neutral, opinion-free default palette. The editor ships these so it renders
+ * sensibly with zero configuration; a host re-themes by passing `tokens` (see
+ * {@link ThemeTokens}). These were formerly read from `--editor-*` /
+ * `--primary` / `--muted` … CSS variables off `document.documentElement`; the
+ * engine no longer touches the DOM — a host that drives appearance from CSS
+ * variables converts them to tokens on its own side and passes them in.
  */
-let fontStylesOverride: Partial<FontStyles> | null = null;
+export const DEFAULT_TOKENS: ThemeTokens = {
+  text: "#1f2328",
+  heading: "#0d1117",
+  placeholder: "#9ca3af",
+  background: "#ffffff",
+  foreground: "#1f2328",
+  border: "#e5e7eb",
+  muted: "#f3f4f6",
+  mutedForeground: "#6b7280",
+  primary: "#3b82f6",
+  primaryForeground: "#ffffff",
+  destructive: "#ef4444",
+  destructiveForeground: "#ffffff",
+  cursor: "#3b82f6",
+  selection: "#3b82f6",
+  selectionUnfocused: "#9ca3af",
+  remoteCursorLabelText: "#ffffff",
+  codeBackground: "#f3f4f6",
+  codeText: "#ef4444",
+  link: "#3b82f6",
+  linkHover: "#2563eb",
+  coverImageOverlay: "rgba(0,0,0,0.05)",
+  scrollbarTrack: "rgba(0,0,0,0.05)",
+  scrollbarThumb: "rgba(128,128,128,0.5)",
+  scrollbarThumbHover: "rgba(128,128,128,0.7)",
+  scrollbarThumbActive: "rgba(128,128,128,0.9)",
+  searchHighlight: "#facc15",
+  searchHighlightActive: "#f97316",
+  unknownBlockBackground: "rgba(127,127,127,0.06)",
+  unknownBlockBorder: "rgba(127,127,127,0.4)",
+  unknownBlockText: "rgba(127,127,127,0.8)",
+  mathErrorBackground: "rgba(128,128,128,0.15)",
+};
 
-/**
- * Register the host application's font families (key → CSS font-stack) and the
- * default family. The host owns loading the corresponding font faces. Pass null
- * to reset to the neutral system-font default.
- *
- * Update this (e.g. to prepend a newly-loaded script font) and then call
- * `notifyFontsChanged()` so the editor flushes its metrics cache and re-renders.
- */
-export function setFontStyles(fonts: Partial<FontStyles> | null): void {
-  fontStylesOverride = fonts;
+// Default horizontal page padding. Mobile gets tighter gutters; both are
+// overridable via `theme.styles.canvas.paddingLeft/Right`. The mobile/desktop
+// choice is dynamic (depends on the live viewport width), so it is applied in
+// `getEditorStyles` rather than baked into the resolved theme.
+const DESKTOP_HORIZONTAL_PADDING = 40;
+const MOBILE_HORIZONTAL_PADDING = 16;
+
+// Default font-stack for the unknown-block label (matches the previous
+// hardcoded monospace stack). Part of the resolved theme so a host can override.
+const DEFAULT_UNKNOWN_BLOCK_FONT =
+  "12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+
+/** Is `v` a plain object we should recurse into for a deep merge? */
+function isMergeableObject(v: unknown): v is Record<string, unknown> {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    !Array.isArray(v) &&
+    // Treat class instances / exotic objects as leaves.
+    (Object.getPrototypeOf(v) === Object.prototype ||
+      Object.getPrototypeOf(v) === null)
+  );
 }
 
-/** Return the current font registry override (for save/restore across editor instances). */
-export function getFontStyles() {
-  return fontStylesOverride;
+/**
+ * Deep-merge `override` onto `base`, recursing into plain objects and replacing
+ * everything else (primitives, arrays) wholesale. Returns a new object; never
+ * mutates the inputs.
+ */
+function deepMerge<T>(base: T, override: DeepPartial<T> | undefined): T {
+  if (override === undefined) return base;
+  if (!isMergeableObject(base) || !isMergeableObject(override)) {
+    // Override is a leaf (or replaces a non-object) — take it as-is.
+    return override as unknown as T;
+  }
+  const out: Record<string, unknown> = { ...base };
+  for (const key of Object.keys(override)) {
+    const o = (override as Record<string, unknown>)[key];
+    if (o === undefined) continue;
+    out[key] = deepMerge((base as Record<string, unknown>)[key], o as never);
+  }
+  return out as unknown as T;
 }
 
 /**
- * Resolved font registry (host override layered over the system-font default).
- *
- * This is the accessor for the text-measurement hot path (`getFontStack` runs
- * once per character during wrapping) — it must stay free of the
- * `getComputedStyle` calls that building a full `EditorStyles` incurs.
+ * Merge two themes (e.g. for `setTheme`): later wins, deep-merging `styles` and
+ * shallow-merging `tokens` / `fonts.families` / `strings`. `fontFamily` from the
+ * patch wins when present (including an explicit `null`).
  */
-export function getResolvedFontStyles(): FontStyles {
+export function mergeTheme(base: EditorTheme, patch: EditorTheme): EditorTheme {
   return {
-    families: fontStylesOverride?.families ?? DEFAULT_FONT_STYLES.families,
+    tokens: { ...base.tokens, ...patch.tokens },
+    styles: deepMerge(
+      (base.styles ?? {}) as DeepPartial<EditorStyles>,
+      patch.styles as DeepPartial<EditorStyles> | undefined,
+    ),
+    fonts:
+      base.fonts || patch.fonts
+        ? {
+            families: { ...base.fonts?.families, ...patch.fonts?.families },
+            defaultFamily:
+              patch.fonts?.defaultFamily ?? base.fonts?.defaultFamily,
+          }
+        : undefined,
+    fontFamily: "fontFamily" in patch ? patch.fontFamily : base.fontFamily,
+    strings: { ...base.strings, ...patch.strings },
+    nodeStrings: mergeNodeStrings(base.nodeStrings, patch.nodeStrings),
+  };
+}
+
+/** Per-type merge of {@link EditorTheme.nodeStrings} (patch keys win within a
+ *  type; sibling keys/types are preserved). Returns `undefined` when neither
+ *  side has overrides, so the field stays absent on a bare theme. */
+function mergeNodeStrings(
+  base: EditorTheme["nodeStrings"],
+  patch: EditorTheme["nodeStrings"],
+): EditorTheme["nodeStrings"] {
+  if (!base && !patch) return undefined;
+  const out: Record<string, Record<string, string>> = {};
+  for (const type of Object.keys(base ?? {})) out[type] = { ...base![type] };
+  for (const type of Object.keys(patch ?? {})) {
+    out[type] = { ...out[type], ...patch![type] };
+  }
+  return out;
+}
+
+/**
+ * Resolve the per-instance node string table: for each registered node that
+ * ships a `strings` catalog, its English defaults overlaid with
+ * `theme.nodeStrings[type]`. Stored on `EditorState.resolvedNodeStrings` and
+ * read by nodes via their `str(state, key)` helper. Per-instance (takes the
+ * editor's own registry + theme), so two editors localize independently — no
+ * module global, no mutation of the shared node singletons.
+ */
+export function resolveNodeStrings(
+  nodes: NodeRegistry,
+  theme: EditorTheme = {},
+): NodeStringsMap {
+  const out = new Map<string, Readonly<Record<string, string>>>();
+  for (const node of nodes.nodeList()) {
+    if (!node.strings) continue;
+    const overrides = theme.nodeStrings?.[node.type] ?? {};
+    out.set(node.type, { ...node.strings, ...overrides });
+  }
+  return out;
+}
+
+/**
+ * Resolve a host {@link EditorTheme} into the full {@link EditorStyles} the
+ * renderer/layout/hit-test paths read. Layers, in order: neutral token defaults
+ * → `theme.tokens` → structural defaults built from those tokens →
+ * `theme.styles` deep-partial overrides. No DOM access, no globals — pure.
+ *
+ * The two genuinely view-dependent values (mobile horizontal padding and the
+ * window-focus selection color) are NOT decided here; `getEditorStyles` applies
+ * them per render. This function fills the resolved fields with their
+ * focused / desktop variants.
+ */
+export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
+  const t: ThemeTokens = { ...DEFAULT_TOKENS, ...theme.tokens };
+  const strings: EditorStrings = { ...DEFAULT_STRINGS, ...theme.strings };
+  // Font registry: this instance's `theme.fonts` layered over the neutral
+  // system default. Per-instance — no module global.
+  const fonts: FontStyles = {
+    families: { ...DEFAULT_FONT_STYLES.families, ...theme.fonts?.families },
     defaultFamily:
-      fontStylesOverride?.defaultFamily ?? DEFAULT_FONT_STYLES.defaultFamily,
+      theme.fonts?.defaultFamily ?? DEFAULT_FONT_STYLES.defaultFamily,
   };
-}
 
-/**
- * Get CSS custom property value from the document root
- */
-function getCSSVariable(name: string, fallback?: string): string {
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim();
-
-  return value || fallback || "";
-}
-
-//NOTE -  We make as customizable as possible, but as well make sure that we offload customization to the consumers.
-/**
- * Get editor styles from CSS variables, layered with this instance's overrides.
- *
- * Per-instance overrides (padding, block styles, placeholders, window focus)
- * are read from `state` when provided. Omitting `state` yields the unstyled
- * defaults — used only by fallback default-params and the `defaultStyles`
- * snapshot; every real render/layout/hit-test path passes `state`.
- */
-export function getEditorStyles(state?: EditorState): EditorStyles {
-  const paddingOverride = state?.styleConfig.padding ?? null;
-  const blockStyleOverrides = state?.styleConfig.blockStyleOverrides ?? null;
-  const placeholderOverrides = state?.styleConfig.placeholderOverrides ?? null;
-  const strings: EditorStrings = {
-    ...DEFAULT_STRINGS,
-    ...state?.styleConfig.strings,
-  };
-  // Window focus defaults to true when unknown (no state) so selection renders
-  // in its focused color rather than the dimmed unfocused variant.
-  const isWindowFocused = state?.view.isWindowFocused ?? true;
-
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-  const horizontalPadding = isMobile ? 16 : 40;
-
-  return {
+  const base: EditorStyles = {
     canvas: {
-      paddingTop: paddingOverride?.paddingTop ?? 4,
-      paddingBottom: paddingOverride?.paddingBottom ?? 80,
-      paddingLeft: paddingOverride?.paddingLeft ?? horizontalPadding,
-      paddingRight: paddingOverride?.paddingRight ?? horizontalPadding,
+      paddingTop: 4,
+      paddingBottom: 80,
+      // Horizontal padding is overlaid per-render (mobile vs desktop); this is
+      // the desktop default used when nothing is overridden.
+      paddingLeft: DESKTOP_HORIZONTAL_PADDING,
+      paddingRight: DESKTOP_HORIZONTAL_PADDING,
       lineHeight: 1.6,
     },
-    fonts: getResolvedFontStyles(),
+    fonts,
+    fontFamily: theme.fontFamily ?? null,
     blocks: {
       heading1: {
         fontSize: 32,
         fontWeight: "500",
-        color: getCSSVariable("--editor-heading"),
+        color: t.heading,
         lineHeight: 1.4,
         paddingBottom: 10,
-        ...blockStyleOverrides?.heading1,
       },
       heading2: {
         fontSize: 24,
         fontWeight: "500",
-        color: getCSSVariable("--editor-heading"),
+        color: t.heading,
         lineHeight: 1.4,
         paddingBottom: 10,
-        ...blockStyleOverrides?.heading2,
       },
       heading3: {
         fontSize: 20,
         fontWeight: "500",
-        color: getCSSVariable("--editor-heading"),
+        color: t.heading,
         lineHeight: 1.4,
         paddingBottom: 10,
-        ...blockStyleOverrides?.heading3,
       },
       paragraph: {
         fontSize: 16,
         fontWeight: "normal",
-        color: getCSSVariable("--editor-text"),
+        color: t.text,
         lineHeight: 1.6,
         paddingBottom: 12,
       },
       bulletList: {
         fontSize: 16,
         fontWeight: "normal",
-        color: getCSSVariable("--editor-text"),
+        color: t.text,
         lineHeight: 1.6,
         paddingBottom: 6,
       },
       numberedList: {
         fontSize: 16,
         fontWeight: "normal",
-        color: getCSSVariable("--editor-text"),
+        color: t.text,
         lineHeight: 1.6,
         paddingBottom: 6,
       },
       todoList: {
         fontSize: 16,
         fontWeight: "normal",
-        color: getCSSVariable("--editor-text"),
+        color: t.text,
         lineHeight: 1.6,
         paddingBottom: 6,
       },
       line: {
         height: 32, // Total block height
         lineHeight: 1, // Thickness of the line
-        color: getCSSVariable("--border"),
+        color: t.border,
         paddingTop: 16,
         paddingBottom: 16,
       },
       image: {
         placeholder: {
-          backgroundColor: getCSSVariable("--muted"),
-          textColor: getCSSVariable("--muted-foreground"),
-          borderColor: getCSSVariable("--border"),
-          text: strings.imageClickToUpload,
+          backgroundColor: t.muted,
+          textColor: t.mutedForeground,
+          borderColor: t.border,
         },
         loading: {
-          backgroundColor: getCSSVariable("--muted"),
-          textColor: getCSSVariable("--muted-foreground"),
-          text: strings.imageLoading,
+          backgroundColor: t.muted,
+          textColor: t.mutedForeground,
         },
         uploading: {
-          backgroundColor: getCSSVariable("--muted"),
-          textColor: getCSSVariable("--muted-foreground"),
-          text: strings.imageUploading,
+          backgroundColor: t.muted,
+          textColor: t.mutedForeground,
         },
         error: {
-          backgroundColor: getCSSVariable("--destructive"),
-          textColor: getCSSVariable("--destructive-foreground"),
-          text: strings.imageUploadFailed,
-          retryText: strings.imageClickToRetry,
+          backgroundColor: t.destructive,
+          textColor: t.destructiveForeground,
         },
         hover: {
-          overlayColor: getCSSVariable("--editor-cover-image-overlay"),
-          buttonBackgroundColor: getCSSVariable("--background"),
-          buttonTextColor: getCSSVariable("--foreground"),
-          buttonText: strings.imageChangeImage,
+          overlayColor: t.coverImageOverlay,
+          buttonBackgroundColor: t.background,
+          buttonTextColor: t.foreground,
         },
         dimensions: {
           height: IMAGE_DEFAULT_HEIGHT,
@@ -233,87 +325,68 @@ export function getEditorStyles(state?: EditorState): EditorStyles {
         paddingTop: 12,
         paddingBottom: 12,
         minHeight: 48,
-        hoverBackgroundColor: getCSSVariable("--muted"),
+        hoverBackgroundColor: t.muted,
         hoverBorderRadius: 6,
+        errorBackgroundColor: t.mathErrorBackground,
         placeholder: {
-          backgroundColor: getCSSVariable("--muted"),
-          textColor: getCSSVariable("--muted-foreground"),
-          text: strings.mathClickToEdit,
+          backgroundColor: t.muted,
+          textColor: t.mutedForeground,
         },
       },
     },
     cursor: {
       width: 2,
-      color: getCSSVariable("--editor-cursor"),
+      color: t.cursor,
       blinkInterval: 530,
+      handleRadius: 5,
+      handleStemHeight: 3,
     },
     remoteCursor: {
-      labelTextColor: getCSSVariable(
-        "--editor-remote-cursor-label-text",
-        "#FFFFFF",
-      ),
+      labelTextColor: t.remoteCursorLabelText,
     },
     selection: {
-      backgroundColor:
-        isWindowFocused || isTouchDevice()
-          ? getCSSVariable("--editor-selection")
-          : getCSSVariable("--editor-selection-unfocused"),
+      // Focused variant; `getEditorStyles` swaps in `unfocusedBackgroundColor`
+      // when the window is blurred (desktop).
+      backgroundColor: t.selection,
+      unfocusedBackgroundColor: t.selectionUnfocused,
       opacity: 0.2,
+      remoteOpacity: 0.2,
       handles: {
         size: 12, // Diameter of the handle circle
-        color: getCSSVariable("--editor-selection"),
+        color: t.selection,
         touchTargetSize: 44, // Larger touch target for easier interaction
         stemHeight: 8, // Height of the vertical stem
         stemWidth: 2, // Width of the stem
       },
     },
     placeholder: {
-      heading1: {
-        text:
-          placeholderOverrides?.heading1?.text ?? strings.placeholderHeading1,
-      },
-      heading2: {
-        text:
-          placeholderOverrides?.heading2?.text ?? strings.placeholderHeading2,
-      },
-      heading3: {
-        text:
-          placeholderOverrides?.heading3?.text ?? strings.placeholderHeading3,
-      },
+      heading1: { text: strings.placeholderHeading1 },
+      heading2: { text: strings.placeholderHeading2 },
+      heading3: { text: strings.placeholderHeading3 },
       paragraph: {
-        keyboardCompatibleText:
-          placeholderOverrides?.paragraph?.keyboardCompatibleText ??
-          strings.placeholderParagraph,
-        touchCompatiableText:
-          placeholderOverrides?.paragraph?.touchCompatiableText ??
-          strings.placeholderParagraphTouch,
+        keyboardCompatibleText: strings.placeholderParagraph,
+        touchCompatiableText: strings.placeholderParagraphTouch,
       },
-      listItem: {
-        text:
-          placeholderOverrides?.listItem?.text ?? strings.placeholderListItem,
-      },
-      todoItem: {
-        text:
-          placeholderOverrides?.todoItem?.text ?? strings.placeholderTodoItem,
-      },
-      color: getCSSVariable("--editor-placeholder"),
+      listItem: { text: strings.placeholderListItem },
+      todoItem: { text: strings.placeholderTodoItem },
+      color: t.placeholder,
     },
     textFormats: {
       code: {
-        backgroundColor: getCSSVariable("--editor-code-bg"),
-        color: getCSSVariable("--editor-code-text"),
+        backgroundColor: t.codeBackground,
+        color: t.codeText,
         padding: 2,
         borderRadius: 3,
       },
       link: {
-        color: getCSSVariable("--editor-link"),
+        color: t.link,
         underlineThickness: 1,
-        hoverColor: getCSSVariable("--editor-link-hover"),
+        hoverColor: t.linkHover,
       },
       inlineMath: {
-        backgroundColor: getCSSVariable("--editor-code-bg"),
-        hoverBackgroundColor: getCSSVariable("--muted"),
-        color: getCSSVariable("--editor-code-text"),
+        backgroundColor: t.codeBackground,
+        hoverBackgroundColor: t.muted,
+        color: t.codeText,
         padding: 2,
         borderRadius: 3,
       },
@@ -325,8 +398,8 @@ export function getEditorStyles(state?: EditorState): EditorStyles {
           length: 100, // Height of the vertical drag bar
           thickness: 6, // Thickness of the vertical drag bar
           borderRadius: 3, // Rounded corners (0 = sharp)
-          backgroundColor: getCSSVariable("--muted-foreground"),
-          hoverBackgroundColor: getCSSVariable("--primary"),
+          backgroundColor: t.mutedForeground,
+          hoverBackgroundColor: t.primary,
           opacity: 1, // Hidden by default
           hoverOpacity: 1, // Visible on hover
           inset: 16, // Distance from the edge (0 = at the edge, positive = inside)
@@ -336,15 +409,15 @@ export function getEditorStyles(state?: EditorState): EditorStyles {
           length: 200, // Width of the horizontal drag bar
           thickness: 6, // Thickness of the horizontal drag bar
           borderRadius: 3, // Rounded corners (0 = sharp)
-          backgroundColor: getCSSVariable("--muted-foreground"),
-          hoverBackgroundColor: getCSSVariable("--primary"),
+          backgroundColor: t.mutedForeground,
+          hoverBackgroundColor: t.primary,
           opacity: 1, // Hidden by default
           hoverOpacity: 1, // Visible on hover
           inset: 16, // Distance from the edge (0 = at the edge, positive = inside)
         },
       },
       outline: {
-        color: getCSSVariable("--primary"),
+        color: t.primary,
         width: 2,
         opacity: 0, // Hidden by default
         hoverOpacity: 0, // Subtle outline on hover
@@ -358,19 +431,19 @@ export function getEditorStyles(state?: EditorState): EditorStyles {
     list: {
       bullet: {
         character: "•",
-        color: getCSSVariable("--editor-text"),
+        color: t.text,
         size: 16,
       },
       numbered: {
-        color: getCSSVariable("--editor-text"),
+        color: t.text,
         minWidth: 24, // Space reserved for number display
       },
       todo: {
         checkboxSize: 16,
-        checkboxBorderColor: getCSSVariable("--border"),
-        checkboxCheckedColor: getCSSVariable("--primary"),
+        checkboxBorderColor: t.border,
+        checkboxCheckedColor: t.primary,
         checkboxBorderRadius: 3,
-        checkmarkColor: getCSSVariable("--primary-foreground"),
+        checkmarkColor: t.primaryForeground,
       },
       indent: {
         size: 24, // Pixels per indent level
@@ -381,11 +454,82 @@ export function getEditorStyles(state?: EditorState): EditorStyles {
         textGap: 2, // Gap between marker and text
       },
     },
+    search: {
+      activeColor: t.searchHighlightActive,
+      activeOpacity: 0.5,
+      inactiveColor: t.searchHighlight,
+      inactiveOpacity: 0.35,
+    },
+    scrollbar: {
+      trackColor: t.scrollbarTrack,
+      thumbColor: t.scrollbarThumb,
+      thumbHoverColor: t.scrollbarThumbHover,
+      thumbActiveColor: t.scrollbarThumbActive,
+    },
+    unknownBlock: {
+      backgroundColor: t.unknownBlockBackground,
+      borderColor: t.unknownBlockBorder,
+      textColor: t.unknownBlockText,
+      fontFamily: DEFAULT_UNKNOWN_BLOCK_FONT,
+    },
+  };
+
+  return theme.styles ? deepMerge<EditorStyles>(base, theme.styles) : base;
+}
+
+/**
+ * The fully-resolved styles for an instance, plus the two view-dependent
+ * overlays the resolved theme can't bake in:
+ *   1. horizontal page padding — tighter on mobile, unless explicitly set;
+ *   2. selection color — dimmed when the browser window is blurred (desktop).
+ *
+ * Every render/layout/hit-test path passes `state`, reading the pre-resolved
+ * `state.resolvedStyles` (no `getComputedStyle`, no globals). Omitting `state`
+ * yields the neutral defaults — used only by stateless hit-test/geometry
+ * helpers and the `defaultStyles` snapshot.
+ */
+export function getEditorStyles(state?: EditorState): EditorStyles {
+  const resolved = state?.resolvedStyles ?? defaultStyles;
+
+  // Window focus defaults to true when unknown so selection renders focused.
+  const isWindowFocused = state?.view.isWindowFocused ?? true;
+  const useFocusedSelection = isWindowFocused || isTouchDevice();
+
+  // Horizontal padding: explicit override (legacy `padding` option or
+  // `theme.styles.canvas.padding*`, both folded into `theme.styles.canvas`)
+  // wins on every viewport; otherwise mobile gets tighter gutters.
+  const explicitCanvas = state?.theme.styles?.canvas;
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const horizontalDefault = isMobile
+    ? MOBILE_HORIZONTAL_PADDING
+    : DESKTOP_HORIZONTAL_PADDING;
+  const paddingLeft = explicitCanvas?.paddingLeft ?? horizontalDefault;
+  const paddingRight = explicitCanvas?.paddingRight ?? horizontalDefault;
+
+  // Fast path: focused + no horizontal change needed.
+  if (
+    useFocusedSelection &&
+    resolved.canvas.paddingLeft === paddingLeft &&
+    resolved.canvas.paddingRight === paddingRight
+  ) {
+    return resolved;
+  }
+
+  return {
+    ...resolved,
+    canvas: { ...resolved.canvas, paddingLeft, paddingRight },
+    selection: useFocusedSelection
+      ? resolved.selection
+      : {
+          ...resolved.selection,
+          backgroundColor: resolved.selection.unfocusedBackgroundColor,
+        },
   };
 }
 
-// Export default styles for backwards compatibility
-export const defaultStyles: EditorStyles = getEditorStyles();
+// Neutral resolved defaults (no host theme). Used by stateless callers and as
+// the base for the per-render overlay above.
+export const defaultStyles: EditorStyles = resolveTheme();
 
 export function getTextStyle(
   styles: EditorStyles,
@@ -411,8 +555,9 @@ export function getTextStyle(
 export function applyTextStyle(
   ctx: CanvasRenderingContext2D,
   style: TextStyle,
+  styles: EditorStyles,
 ) {
-  const fontStack = getFontStack(getCurrentFontFamily());
+  const fontStack = getFontStack(currentFontFamily(styles), styles.fonts);
   ctx.font = `${style.fontWeight} ${style.fontSize}px ${fontStack}`;
   ctx.fillStyle = style.color;
   ctx.textBaseline = "alphabetic";

@@ -26,15 +26,16 @@ export interface ScrollbarStyles {
   readonly width: number;
   readonly minThumbHeight: number;
   readonly padding: number;
-  readonly thumbColor: string;
-  readonly thumbHoverColor: string;
-  readonly thumbActiveColor: string;
-  readonly trackColor: string;
   readonly borderRadius: number;
   readonly fadeDelay: number; // ms before starting to fade
   readonly fadeDuration: number; // ms to complete fade
   readonly touchTargetWidth: number; // Wider hit area for touch devices
 }
+
+// Scrollbar colors are part of the resolved editor theme (`EditorStyles.scrollbar`,
+// per instance) — geometry lives here; colors are read at paint time from the
+// theme. (Previously read from `--editor-scrollbar-*` CSS variables off the
+// document root, which the headless engine no longer touches.)
 
 // Detect if device has touch support
 function isTouchDevice(): boolean {
@@ -123,44 +124,14 @@ export function updateSafeAreaCache(): void {
 }
 
 /**
- * Get CSS custom property value from the document root
- */
-function getCSSVariable(name: string, fallback: string): string {
-  if (typeof window === "undefined" || typeof document === "undefined") {
-    return fallback;
-  }
-
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim();
-
-  return value || fallback;
-}
-
-/**
- * Get scrollbar styles from CSS variables
+ * Scrollbar geometry/timing. Colors are sourced separately from the resolved
+ * editor theme (`EditorStyles.scrollbar`) at paint time — no DOM access.
  */
 export function getScrollbarStyles(): ScrollbarStyles {
   return {
     width: isTouchDevice() ? 8 : 12,
     minThumbHeight: 40,
     padding: 4,
-    thumbColor: getCSSVariable(
-      "--editor-scrollbar-thumb",
-      "rgba(128, 128, 128, 0.5)",
-    ),
-    thumbHoverColor: getCSSVariable(
-      "--editor-scrollbar-thumb-hover",
-      "rgba(128, 128, 128, 0.7)",
-    ),
-    thumbActiveColor: getCSSVariable(
-      "--editor-scrollbar-thumb-active",
-      "rgba(128, 128, 128, 0.9)",
-    ),
-    trackColor: getCSSVariable(
-      "--editor-scrollbar-track",
-      "rgba(0, 0, 0, 0.05)",
-    ),
     borderRadius: 6,
     fadeDelay: 1000,
     fadeDuration: 300,
@@ -291,11 +262,14 @@ export function renderScrollbar(
   const thumbX = rtl ? bounds.thumbX : bounds.thumbX - widthDiff;
   const trackX = rtl ? bounds.trackX : bounds.trackX - trackWidthDiff;
 
+  // Colors come from the per-instance resolved theme (not a global / the DOM).
+  const colors = getEditorStyles(state).scrollbar;
+
   ctx.save();
   ctx.globalAlpha = opacity;
 
   // Draw track (optional, subtle background) - scales with thumb when active
-  ctx.fillStyle = styles.trackColor;
+  ctx.fillStyle = colors.trackColor;
   ctx.beginPath();
   ctx.roundRect(
     trackX,
@@ -307,11 +281,11 @@ export function renderScrollbar(
   ctx.fill();
 
   // Draw thumb
-  let thumbColor = styles.thumbColor;
+  let thumbColor = colors.thumbColor;
   if (scrollbarState.isDragging) {
-    thumbColor = styles.thumbActiveColor;
+    thumbColor = colors.thumbActiveColor;
   } else if (scrollbarState.isHovered) {
-    thumbColor = styles.thumbHoverColor;
+    thumbColor = colors.thumbHoverColor;
   }
 
   ctx.fillStyle = thumbColor;

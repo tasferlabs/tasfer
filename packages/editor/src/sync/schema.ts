@@ -26,11 +26,11 @@ import type { Block } from "../serlization/loadPage";
 import type { TokenType } from "../serlization/tokenizer";
 import { BLOCK_REGISTRY, type BlockTypeDescriptor } from "./block-registry";
 
-/** The built-in inline mark types (TextFormat.type values). */
+/** The built-in inline mark types (Mark.type values). */
 export const BUILTIN_MARK_TYPES: readonly string[] = [
-  "bold",
-  "italic",
-  "strikethrough",
+  "strong",
+  "emphasis",
+  "strike",
   "code",
   "link",
   "math",

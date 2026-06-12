@@ -25,7 +25,7 @@
  * through the context instead).
  */
 
-import type { Block, CharRun, FormatSpan } from "../loadPage";
+import type { Block, CharRun, MarkSpan } from "../loadPage";
 import type { Token, TokenType } from "../tokenizer";
 
 export type SerialFormat = "markdown" | "html" | "text";
@@ -34,7 +34,7 @@ export type SerialFormat = "markdown" | "html" | "text";
 export interface OutputCtx {
   readonly format: SerialFormat;
   /** Render rich text content (char runs + format spans) in the active format. */
-  inline(charRuns: CharRun[], formats: FormatSpan[]): string;
+  inline(charRuns: CharRun[], formats: MarkSpan[]): string;
   /**
    * Map an asset reference (content-hash url etc.) to the url to emit.
    * Identity by default; export flows supply bundle paths or data URIs.
@@ -71,7 +71,7 @@ export interface InputCtx {
    * Parse inline tokens up to the end of line into CRDT runs + format spans.
    * Consumes the trailing newline.
    */
-  inlineText(): { charRuns: CharRun[]; formats: FormatSpan[] };
+  inlineText(): { charRuns: CharRun[]; formats: MarkSpan[] };
   match(...types: TokenType[]): boolean;
   check(type: TokenType): boolean;
   advance(): Token;

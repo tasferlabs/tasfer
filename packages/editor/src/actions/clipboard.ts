@@ -6,9 +6,9 @@ import type {
   Block,
   Char,
   CharRun,
-  FormatSpan,
+  Mark,
+  MarkSpan,
   Page,
-  TextFormat,
 } from "../serlization/loadPage";
 import { isListBlock } from "../serlization/loadPage";
 import { loadPage } from "../serlization/loadPage";
@@ -22,7 +22,7 @@ import type {
 import type {
   BlockInsert,
   BlockSet,
-  FormatSet,
+  MarkSet,
   Operation,
   TextInsert,
 } from "../state-types";
@@ -36,8 +36,8 @@ import {
 } from "../sync/char-runs";
 import {
   deleteCharsInRange,
-  formatCharsInRange,
   insertCharsAtPosition,
+  markCharsInRange,
 } from "../sync/crdt-utils";
 import { generateBlockId } from "../sync/id";
 import { applyOps } from "../sync/reducer";
@@ -63,7 +63,7 @@ function autoLinkInRange(
   rangeEnd: number,
   binding: CRDTbinding,
 ): { newPage: Page; ops: Operation[] } {
-  // `format_set` ops applied below only append link spans — they never
+  // `mark_set` ops applied below only append link spans — they never
   // mutate charRuns. So the block's charRuns and the (link-)format spans we
   // need to check are stable across the URL loop; only the accumulated link
   // ops we ourselves emit need to be considered. Hoist the initial lookup
@@ -122,7 +122,7 @@ function autoLinkInRange(
     }
 
     if (!alreadyLinked) {
-      const { newPage, op } = formatCharsInRange(
+      const { newPage, op } = markCharsInRange(
         pageAcc,
         blockId,
         start,
@@ -318,14 +318,14 @@ function extractCharsInRange(
  * Extract format spans that apply to the given chars
  */
 function extractFormatsForChars(
-  formats: FormatSpan[],
+  formats: MarkSpan[],
   extractedChars: Char[],
   originalCharRuns: CharRun[],
-): FormatSpan[] {
+): MarkSpan[] {
   if (extractedChars.length === 0) return [];
 
   const charIdSet = new Set(extractedChars.map((c) => c.id));
-  const result: FormatSpan[] = [];
+  const result: MarkSpan[] = [];
 
   // Build a map of char ID to index for original charRuns
   const originalCharMap = new Map<string, number>();
@@ -471,7 +471,7 @@ function blocksToHTML(blocks: Block[]): string {
     }
 
     // Build a map of char ID to formats
-    const charFormats = new Map<string, TextFormat[]>();
+    const charFormats = new Map<string, Mark[]>();
     for (const span of block.formats) {
       const startIdx = visibleChars.findIndex((c) => c.id === span.startCharId);
       const endIdx = visibleChars.findIndex((c) => c.id === span.endCharId);
@@ -509,11 +509,11 @@ function blocksToHTML(blocks: Block[]): string {
       // Apply non-math formats as HTML tags (math is handled via $...$ wrapping)
       if (!isMath) {
         for (const format of formats) {
-          if (format.type === "bold") {
+          if (format.type === "strong") {
             text = `<strong>${text}</strong>`;
-          } else if (format.type === "italic") {
+          } else if (format.type === "emphasis") {
             text = `<em>${text}</em>`;
-          } else if (format.type === "strikethrough") {
+          } else if (format.type === "strike") {
             text = `<s>${text}</s>`;
           } else if (format.type === "code") {
             text = `<code>${text}</code>`;
@@ -698,10 +698,10 @@ function makeClipboardIdGen(): () => string {
  * Convert text segments with formatting to chars and format spans
  */
 function segmentsToCharsAndFormats(
-  segments: Array<{ content: string; formats?: TextFormat[] }>,
-): { chars: Char[]; formats: FormatSpan[] } {
+  segments: Array<{ content: string; formats?: Mark[] }>,
+): { chars: Char[]; formats: MarkSpan[] } {
   const chars: Char[] = [];
-  const formats: FormatSpan[] = [];
+  const formats: MarkSpan[] = [];
   const idGen = makeClipboardIdGen();
   const clock = { counter: 0, peerId: "clipboard" };
 
@@ -813,17 +813,17 @@ function parseHTMLToBlocks(html: string, binding: CRDTbinding): Block[] {
       if (tagName === "strong" || tagName === "b") {
         // For <b> tags, check if it's actually bold (Google Docs uses <b> with font-weight:normal)
         if (tagName === "b" && hasGoogleDocsFormat(element, "bold")) {
-          newFormats.push({ type: "bold" });
+          newFormats.push({ type: "strong" });
         } else if (tagName === "strong") {
-          newFormats.push({ type: "bold" });
+          newFormats.push({ type: "strong" });
         } else if (tagName === "b" && !element.hasAttribute("style")) {
           // Regular <b> tag without styles
-          newFormats.push({ type: "bold" });
+          newFormats.push({ type: "strong" });
         }
       } else if (tagName === "em" || tagName === "i") {
-        newFormats.push({ type: "italic" });
+        newFormats.push({ type: "emphasis" });
       } else if (tagName === "s" || tagName === "strike" || tagName === "del") {
-        newFormats.push({ type: "strikethrough" });
+        newFormats.push({ type: "strike" });
       } else if (tagName === "code") {
         newFormats.push({ type: "code" });
       } else if (tagName === "a") {
@@ -834,10 +834,10 @@ function parseHTMLToBlocks(html: string, binding: CRDTbinding): Block[] {
       } else if (tagName === "span") {
         // Check for Google Docs inline styling on spans
         if (hasGoogleDocsFormat(element, "bold")) {
-          newFormats.push({ type: "bold" });
+          newFormats.push({ type: "strong" });
         }
         if (hasGoogleDocsFormat(element, "italic")) {
-          newFormats.push({ type: "italic" });
+          newFormats.push({ type: "emphasis" });
         }
       }
 
@@ -1587,8 +1587,8 @@ function insertBlocksAtCursor(
           const charIds = insertedChars
             .slice(pasteStartIdx, pasteEndIdx + 1)
             .map((c) => c.id);
-          const formatOp: FormatSet = {
-            op: "format_set",
+          const formatOp: MarkSet = {
+            op: "mark_set",
             id: state.CRDTbinding.nextId(),
             clock: state.CRDTbinding.getClock(),
             pageId: state.CRDTbinding.pageId,
@@ -1865,7 +1865,7 @@ function insertBlocksAtCursor(
           const newEndCharId = insertedChars[pasteEndIdx]?.id;
 
           if (newStartCharId && newEndCharId) {
-            const newSpan: FormatSpan = {
+            const newSpan: MarkSpan = {
               startCharId: newStartCharId,
               endCharId: newEndCharId,
               format: pasteFormat.format,
@@ -1876,8 +1876,8 @@ function insertBlocksAtCursor(
             const charIds = insertedChars
               .slice(pasteStartIdx, pasteEndIdx + 1)
               .map((c) => c.id);
-            const formatOp: FormatSet = {
-              op: "format_set",
+            const formatOp: MarkSet = {
+              op: "mark_set",
               id: state.CRDTbinding.nextId(),
               clock: state.CRDTbinding.getClock(),
               pageId: state.CRDTbinding.pageId,
@@ -2039,7 +2039,7 @@ function insertBlocksAtCursor(
         });
 
         // Map formats to use new char IDs
-        const newFormats: FormatSpan[] = block.formats
+        const newFormats: MarkSpan[] = block.formats
           .map((f) => {
             const newStartId = oldToNewCharIdMap.get(f.startCharId);
             const newEndId = oldToNewCharIdMap.get(f.endCharId);
@@ -2053,7 +2053,7 @@ function insertBlocksAtCursor(
             }
             return null;
           })
-          .filter((f): f is FormatSpan => f !== null);
+          .filter((f): f is MarkSpan => f !== null);
 
         const newBlock: Block = {
           ...block,
@@ -2092,7 +2092,7 @@ function insertBlocksAtCursor(
           ops.push(textInsertOp);
         }
 
-        // Add format_set operations for each format span
+        // Add mark_set operations for each format span
         for (const format of newFormats) {
           const startIdx = newChars.findIndex(
             (c) => c.id === format.startCharId,
@@ -2102,8 +2102,8 @@ function insertBlocksAtCursor(
             const charIds = newChars
               .slice(startIdx, endIdx + 1)
               .map((c) => c.id);
-            const formatOp: FormatSet = {
-              op: "format_set",
+            const formatOp: MarkSet = {
+              op: "mark_set",
               id: state.CRDTbinding.nextId(),
               clock: state.CRDTbinding.getClock(),
               pageId: state.CRDTbinding.pageId,
@@ -2195,7 +2195,7 @@ function insertBlocksAtCursor(
         const allNewChars = [...newPastedChars, ...newAfterChars];
 
         // Map pasted formats to use new char IDs
-        const newPastedFormats: FormatSpan[] = lastPastedBlock.formats
+        const newPastedFormats: MarkSpan[] = lastPastedBlock.formats
           .map((f) => {
             const newStartId = pastedOldToNewMap.get(f.startCharId);
             const newEndId = pastedOldToNewMap.get(f.endCharId);
@@ -2209,10 +2209,10 @@ function insertBlocksAtCursor(
             }
             return null;
           })
-          .filter((f): f is FormatSpan => f !== null);
+          .filter((f): f is MarkSpan => f !== null);
 
         // Map after formats to use new char IDs
-        const newAfterFormats: FormatSpan[] = afterFormats
+        const newAfterFormats: MarkSpan[] = afterFormats
           .map((f) => {
             const newStartId = afterOldToNewMap.get(f.startCharId);
             const newEndId = afterOldToNewMap.get(f.endCharId);
@@ -2226,7 +2226,7 @@ function insertBlocksAtCursor(
             }
             return null;
           })
-          .filter((f): f is FormatSpan => f !== null);
+          .filter((f): f is MarkSpan => f !== null);
 
         const allNewFormats = [...newPastedFormats, ...newAfterFormats];
 
@@ -2267,7 +2267,7 @@ function insertBlocksAtCursor(
           ops.push(textInsertOp);
         }
 
-        // Add format_set operations for each format span
+        // Add mark_set operations for each format span
         for (const format of allNewFormats) {
           const startIdx = allNewChars.findIndex(
             (c) => c.id === format.startCharId,
@@ -2279,8 +2279,8 @@ function insertBlocksAtCursor(
             const charIds = allNewChars
               .slice(startIdx, endIdx + 1)
               .map((c) => c.id);
-            const formatOp: FormatSet = {
-              op: "format_set",
+            const formatOp: MarkSet = {
+              op: "mark_set",
               id: state.CRDTbinding.nextId(),
               clock: state.CRDTbinding.getClock(),
               pageId: state.CRDTbinding.pageId,
@@ -2369,7 +2369,7 @@ function insertBlocksAtCursor(
           });
 
           // Map after formats to use new char IDs
-          const newAfterFormatsForImg: FormatSpan[] = afterFormats
+          const newAfterFormatsForImg: MarkSpan[] = afterFormats
             .map((f) => {
               const newStartId = afterOldToNewMapForImg.get(f.startCharId);
               const newEndId = afterOldToNewMapForImg.get(f.endCharId);
@@ -2383,7 +2383,7 @@ function insertBlocksAtCursor(
               }
               return null;
             })
-            .filter((f): f is FormatSpan => f !== null);
+            .filter((f): f is MarkSpan => f !== null);
 
           const afterBlock: Block = {
             id: afterBlockId,
@@ -2420,7 +2420,7 @@ function insertBlocksAtCursor(
             ops.push(textInsertOp);
           }
 
-          // Add format_set operations
+          // Add mark_set operations
           for (const format of newAfterFormatsForImg) {
             const startIdx = newAfterCharsForImg.findIndex(
               (c) => c.id === format.startCharId,
@@ -2432,8 +2432,8 @@ function insertBlocksAtCursor(
               const charIds = newAfterCharsForImg
                 .slice(startIdx, endIdx + 1)
                 .map((c) => c.id);
-              const formatOp: FormatSet = {
-                op: "format_set",
+              const formatOp: MarkSet = {
+                op: "mark_set",
                 id: state.CRDTbinding.nextId(),
                 clock: state.CRDTbinding.getClock(),
                 pageId: state.CRDTbinding.pageId,
@@ -2506,7 +2506,7 @@ function insertBlocksAtCursor(
           });
 
           // Map after formats to use new char IDs
-          const newAfterFormatsForLine: FormatSpan[] = afterFormats
+          const newAfterFormatsForLine: MarkSpan[] = afterFormats
             .map((f) => {
               const newStartId = afterOldToNewMapForLine.get(f.startCharId);
               const newEndId = afterOldToNewMapForLine.get(f.endCharId);
@@ -2520,7 +2520,7 @@ function insertBlocksAtCursor(
               }
               return null;
             })
-            .filter((f): f is FormatSpan => f !== null);
+            .filter((f): f is MarkSpan => f !== null);
 
           const afterBlock: Block = {
             id: afterBlockId,
@@ -2557,7 +2557,7 @@ function insertBlocksAtCursor(
             ops.push(textInsertOp);
           }
 
-          // Add format_set operations
+          // Add mark_set operations
           for (const format of newAfterFormatsForLine) {
             const startIdx = newAfterCharsForLine.findIndex(
               (c) => c.id === format.startCharId,
@@ -2569,8 +2569,8 @@ function insertBlocksAtCursor(
               const charIds = newAfterCharsForLine
                 .slice(startIdx, endIdx + 1)
                 .map((c) => c.id);
-              const formatOp: FormatSet = {
-                op: "format_set",
+              const formatOp: MarkSet = {
+                op: "mark_set",
                 id: state.CRDTbinding.nextId(),
                 clock: state.CRDTbinding.getClock(),
                 pageId: state.CRDTbinding.pageId,
@@ -2617,7 +2617,7 @@ function insertBlocksAtCursor(
         });
 
         // Map after formats to use new char IDs
-        const newAfterFormatsSingle: FormatSpan[] = afterFormats
+        const newAfterFormatsSingle: MarkSpan[] = afterFormats
           .map((f) => {
             const newStartId = afterOldToNewMapSingle.get(f.startCharId);
             const newEndId = afterOldToNewMapSingle.get(f.endCharId);
@@ -2631,7 +2631,7 @@ function insertBlocksAtCursor(
             }
             return null;
           })
-          .filter((f): f is FormatSpan => f !== null);
+          .filter((f): f is MarkSpan => f !== null);
 
         const afterBlock: Block = {
           id: afterBlockId,
@@ -2668,7 +2668,7 @@ function insertBlocksAtCursor(
           ops.push(textInsertOp);
         }
 
-        // Add format_set operations
+        // Add mark_set operations
         for (const format of newAfterFormatsSingle) {
           const startIdx = newAfterCharsSingle.findIndex(
             (c) => c.id === format.startCharId,
@@ -2680,8 +2680,8 @@ function insertBlocksAtCursor(
             const charIds = newAfterCharsSingle
               .slice(startIdx, endIdx + 1)
               .map((c) => c.id);
-            const formatOp: FormatSet = {
-              op: "format_set",
+            const formatOp: MarkSet = {
+              op: "mark_set",
               id: state.CRDTbinding.nextId(),
               clock: state.CRDTbinding.getClock(),
               pageId: state.CRDTbinding.pageId,

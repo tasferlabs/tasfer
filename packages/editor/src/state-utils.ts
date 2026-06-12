@@ -1,4 +1,9 @@
-import { getCurrentFontFamily, measureCharsUpToIndex, wrapText } from "./fonts";
+import { currentFontFamily, measureCharsUpToIndex, wrapText } from "./fonts";
+// `getBlockTextContent` / `isTouchDevice` are defined in the leaf `node-shared`
+// (not here) and re-exported below: the node views import them, and the node
+// registry imports back into this module, so keeping those two off `state-utils`
+// breaks the `ListNode extends TextNode` circular-init hazard.
+import { isTouchDevice } from "./node-shared";
 import type { NodeRegistry } from "./rendering/nodes";
 import { createDefaultNodeRegistry } from "./rendering/nodes";
 import {
@@ -12,16 +17,22 @@ import type {
   EditorMode,
   EditorState,
   EditorStyles,
+  EditorTheme,
   Position,
-  StyleConfig,
 } from "./state-types";
-import { getEditorStyles, getTextStyle } from "./styles";
+import {
+  getEditorStyles,
+  getTextStyle,
+  resolveNodeStrings,
+  resolveTheme,
+} from "./styles";
+
+export { getBlockTextContent, isTouchDevice } from "./node-shared";
 import { isTextualBlock } from "./sync/block-registry";
 import {
   charRunsToChars,
   getVisibleLengthFromRuns,
   getVisibleTextFromRuns,
-  iterateVisibleChars,
 } from "./sync/char-runs";
 import { initialUndoManagerState } from "./sync/crdt-undo";
 import { generatePeerId } from "./sync/id";
@@ -37,7 +48,7 @@ export function createInitialState(
   options?: {
     mode?: EditorMode;
     nodes?: NodeRegistry;
-    styleConfig?: Partial<StyleConfig>;
+    theme?: EditorTheme;
     crdtBinding?: CRDTbindingType;
   },
 ): EditorState {
@@ -64,17 +75,21 @@ export function createInitialState(
   // (opt-in block set); default to the built-in views when not provided.
   const nodes = options?.nodes ?? createDefaultNodeRegistry();
 
-  const styleConfig: StyleConfig = {
-    padding: options?.styleConfig?.padding ?? null,
-    blockStyleOverrides: options?.styleConfig?.blockStyleOverrides ?? null,
-    placeholderOverrides: options?.styleConfig?.placeholderOverrides ?? null,
-    strings: options?.styleConfig?.strings ?? null,
-  };
+  // The host's raw theme, resolved once into the full style tree. Stored
+  // per-instance (not a module global) so two editors on a page style
+  // independently and the engine never reads the DOM.
+  const theme: EditorTheme = options?.theme ?? {};
+  const resolvedStyles = resolveTheme(theme);
+  // Node string catalogs (image/math status labels, …) resolved per-instance
+  // from each registered node's defaults overlaid with theme.nodeStrings.
+  const resolvedNodeStrings = resolveNodeStrings(nodes, theme);
 
   return {
     CRDTbinding,
     nodes,
-    styleConfig,
+    theme,
+    resolvedStyles,
+    resolvedNodeStrings,
     document: {
       page,
       cursor: null,
@@ -88,7 +103,7 @@ export function createInitialState(
       isHoveringCheckbox: false,
       isHoveringPeerIndicator: false,
       composition: null,
-      activeFormatsMode: { type: "inherit" },
+      activeMarksMode: { type: "inherit" },
       imageHover: null,
       imageDrag: null,
       selectionHandleDrag: null,
@@ -185,96 +200,6 @@ export function getBlockTextLength(block: Block): number {
   return getVisibleLengthFromRuns(block.charRuns);
 }
 
-export function getBlockTextContent(block: Block): string {
-  if (!block) return "";
-
-  if (!isTextualBlock(block)) return "";
-
-  // Get visible text from charRuns
-  return getVisibleTextFromRuns(block.charRuns);
-}
-
-/**
- * Inline math is stored as a tagged run of characters but is treated as a
- * single atomic chip in the editor. Caret positions inside the chip are
- * disallowed — this helper snaps a candidate visible-index past the chip in
- * the requested logical direction.
- *
- * Returns the snapped index, or the original index if it did not fall inside
- * an inline-math span.
- */
-/**
- * If a cursor move went from one boundary of an inline-math span to the
- * opposite boundary (i.e. the snap fired and we crossed the chip), return the
- * span. Used to open the inline-math editor popover when arrow-keying inbound.
- */
-export function getCrossedInlineMathSpan(
-  block: Block,
-  prevTextIndex: number,
-  newTextIndex: number,
-): { startIndex: number; endIndex: number; latex: string } | null {
-  if (!isTextualBlock(block)) return null;
-
-  const visibleIds: string[] = [];
-  const visibleChars: string[] = [];
-  for (const { id, char } of iterateVisibleChars(block.charRuns)) {
-    visibleIds.push(id);
-    visibleChars.push(char);
-  }
-
-  for (const span of block.formats) {
-    if (span.format.type !== "math") continue;
-    const startIdx = visibleIds.indexOf(span.startCharId);
-    const endIdx = visibleIds.indexOf(span.endCharId);
-    if (startIdx === -1 || endIdx === -1) continue;
-
-    const spanStart = startIdx;
-    const spanEnd = endIdx + 1;
-
-    if (
-      (prevTextIndex === spanStart && newTextIndex === spanEnd) ||
-      (prevTextIndex === spanEnd && newTextIndex === spanStart)
-    ) {
-      return {
-        startIndex: spanStart,
-        endIndex: spanEnd,
-        latex: visibleChars.slice(spanStart, spanEnd).join(""),
-      };
-    }
-  }
-
-  return null;
-}
-
-export function snapInlineMathPosition(
-  block: Block,
-  textIndex: number,
-  direction: "left" | "right",
-): number {
-  if (!isTextualBlock(block)) return textIndex;
-
-  const visibleIds: string[] = [];
-  for (const { id } of iterateVisibleChars(block.charRuns)) {
-    visibleIds.push(id);
-  }
-
-  for (const span of block.formats) {
-    if (span.format.type !== "math") continue;
-    const startIdx = visibleIds.indexOf(span.startCharId);
-    const endIdx = visibleIds.indexOf(span.endCharId);
-    if (startIdx === -1 || endIdx === -1) continue;
-
-    const spanStart = startIdx;
-    const spanEnd = endIdx + 1;
-
-    if (textIndex > spanStart && textIndex < spanEnd) {
-      return direction === "left" ? spanStart : spanEnd;
-    }
-  }
-
-  return textIndex;
-}
-
 /**
  * Get line information for a given position within a block
  * Returns the line index, line start/end indices, and total lines in the block
@@ -296,7 +221,7 @@ export function getLineInfoAtPosition(
   }
 
   const textStyle = getTextStyle(styles, block.type);
-  const fontFamily = getCurrentFontFamily();
+  const fontFamily = currentFontFamily(styles);
   const codePadding = styles.textFormats.code.padding;
 
   // Calculate adjusted max width for list blocks
@@ -316,6 +241,7 @@ export function getLineInfoAtPosition(
     textStyle.fontSize,
     textStyle.fontWeight,
     fontFamily,
+    styles.fonts,
     codePadding,
   );
 
@@ -383,7 +309,7 @@ export function getTextIndexAtRelativePosition(
 
   // RTL: find the text index that corresponds to the visual position
   const textStyle = getTextStyle(styles, block.type);
-  const fontFamily = getCurrentFontFamily();
+  const fontFamily = currentFontFamily(styles);
   const codePadding = styles.textFormats.code.padding;
 
   // Find the character position that has the target visual position
@@ -405,6 +331,7 @@ export function getTextIndexAtRelativePosition(
       textStyle.fontSize,
       textStyle.fontWeight,
       fontFamily,
+      styles.fonts,
       codePadding,
     );
 
@@ -564,14 +491,6 @@ export function clearAutoCreatedParagraph(state: EditorState): EditorState {
       autoCreatedParagraph: null,
     },
   };
-}
-
-// Detect if device has touch support
-export function isTouchDevice(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    ("ontouchstart" in window || navigator.maxTouchPoints > 0)
-  );
 }
 
 /**

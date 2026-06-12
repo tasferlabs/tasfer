@@ -84,7 +84,7 @@ export const NAV: NavSection[] = [
         items: [
           { route: "editor/first-editor", title: "Your first editor", Comp: EditorFirstEditor, kw: "tutorial toolbar persistence collaboration build" },
           { route: "editor/collaboration", title: "Realtime collaboration", Comp: EditorCollaboration, kw: "provider presence cursors offline merge webrtc relay" },
-          { route: "editor/custom-nodes", title: "Custom nodes & marks", Comp: EditorCustomNodes, kw: "schema node mark callout highlight extend define" },
+          { route: "editor/custom-nodes", title: "Custom nodes & marks", Comp: EditorCustomNodes, kw: "schema node mark callout highlight extend define class register overlay slot strings nodeStrings localize" },
           { route: "editor/theming", title: "Theming the canvas", Comp: EditorTheming, kw: "theme color font metrics dark mode tokens" },
         ],
       },

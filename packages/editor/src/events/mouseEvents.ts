@@ -3,6 +3,7 @@ import {
   selectWordAtPosition,
 } from "../actions/commands";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
+import { getInlineMathAtPosition } from "../inline-math";
 import { getDragHandleAtPoint } from "../rendering/nodes";
 import {
   isPointInThumb,
@@ -11,7 +12,6 @@ import {
 } from "../rendering/scrollbar";
 import {
   getCursorDocumentCoords,
-  getInlineMathAtPosition,
   getLinkAtPosition,
   getTextPositionFromViewport,
 } from "../selection";

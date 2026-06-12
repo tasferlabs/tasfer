@@ -51,8 +51,11 @@ function mathCacheKey(
   latex: string,
   displayMode: boolean,
   dpr: number,
+  color: string,
 ): string {
-  return `${displayMode ? "D" : "I"}:${dpr}:${latex}`;
+  // `color` is part of the key so a theme change re-renders with the new text
+  // color instead of serving the previous theme's colored glyphs.
+  return `${displayMode ? "D" : "I"}:${dpr}:${color}:${latex}`;
 }
 
 /**
@@ -64,10 +67,11 @@ function renderMathToImage(
   latex: string,
   displayMode: boolean,
   color: string,
+  errorBackgroundColor: string,
   onReady: () => void,
 ): void {
   const dpr = window.devicePixelRatio || 1;
-  const cacheKey = mathCacheKey(latex, displayMode, dpr);
+  const cacheKey = mathCacheKey(latex, displayMode, dpr, color);
   if (mathImageCache.has(cacheKey) || pendingMathRenders.has(cacheKey)) return;
 
   pendingMathRenders.add(cacheKey);
@@ -100,7 +104,7 @@ function renderMathToImage(
       // from the parent <g>, making error backgrounds the same color as text.
       // Set them to a semi-transparent color instead.
       for (const rect of svgEl.querySelectorAll("rect[data-background]")) {
-        rect.setAttribute("fill", "rgba(128,128,128,0.15)");
+        rect.setAttribute("fill", errorBackgroundColor);
       }
 
       // Scale up: MathJax uses ex units, we want ~20px font equivalent
@@ -182,6 +186,16 @@ export class MathNode extends AtomicNode<MathBlock> {
   readonly type = "math" as const;
 
   /**
+   * The math block's localized canvas strings, owned by the node rather than
+   * the global string table. English defaults; localize per instance via
+   * `theme.nodeStrings.math`. Read with `this.str`.
+   */
+  readonly strings = {
+    clickToEdit: "Click to add equation",
+    rendering: "Rendering...",
+  } as const;
+
+  /**
    * Drawn equation height, excluding the block's own top/bottom flow padding.
    * Falls back to minHeight until the equation has been rendered + cached.
    * Depends only on layout context, so the height pass and paint agree on size.
@@ -192,7 +206,12 @@ export class MathNode extends AtomicNode<MathBlock> {
     if (block.latex) {
       const dpr = window.devicePixelRatio || 1;
       const cached = mathImageCache.get(
-        mathCacheKey(block.latex, block.displayMode, dpr),
+        mathCacheKey(
+          block.latex,
+          block.displayMode,
+          dpr,
+          c.styles.blocks.paragraph.color,
+        ),
       );
       if (cached) return Math.max(m.minHeight, cached.height);
     }
@@ -223,7 +242,12 @@ export class MathNode extends AtomicNode<MathBlock> {
     if (block.latex) {
       const dpr = window.devicePixelRatio || 1;
       const cached = mathImageCache.get(
-        mathCacheKey(block.latex, block.displayMode, dpr),
+        mathCacheKey(
+          block.latex,
+          block.displayMode,
+          dpr,
+          styles.blocks.paragraph.color,
+        ),
       );
 
       if (cached) {
@@ -244,6 +268,7 @@ export class MathNode extends AtomicNode<MathBlock> {
           block.latex,
           block.displayMode,
           styles.blocks.paragraph.color,
+          m.errorBackgroundColor,
           () => {
             block.cachedHeight = undefined;
             block.cachedWidth = undefined;
@@ -258,7 +283,7 @@ export class MathNode extends AtomicNode<MathBlock> {
         ctx.textBaseline = "middle";
         ctx.globalAlpha = 0.5;
         ctx.fillText(
-          "Rendering...",
+          this.str(state, "rendering"),
           x + width / 2,
           contentY + contentHeight / 2,
         );
@@ -275,7 +300,7 @@ export class MathNode extends AtomicNode<MathBlock> {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(
-        m.placeholder.text,
+        this.str(state, "clickToEdit"),
         x + width / 2,
         contentY + contentHeight / 2,
       );

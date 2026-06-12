@@ -10,19 +10,15 @@
  * editor with no list blocks, and TextNode never references list types.
  */
 
-import {
-  getCurrentFontFamily,
-  getFontMetrics,
-  getFontStack,
-} from "../../fonts";
+import { currentFontFamily, getFontMetrics, getFontStack } from "../../fonts";
+import { getBlockTextContent } from "../../node-shared";
 import { getTextDirection } from "../../rtl";
 import {
   type CharRun,
-  type FormatSpan,
   isListBlock,
+  type MarkSpan,
 } from "../../serlization/loadPage";
 import type { EditorState, EditorStyles } from "../../state-types";
-import { getBlockTextContent } from "../../state-utils";
 import { getTextStyle } from "../../styles";
 import type { BlockRuntimeState, NodeHitRegion, NodeRegionCtx } from "./Node";
 import { TextNode, type TextNodeLayout, type TextualBlock } from "./TextNode";
@@ -38,21 +34,21 @@ export const LIST_BLOCK_TYPES = [
 export interface BulletListItem extends BlockRuntimeState {
   type: "bullet_list";
   charRuns: CharRun[]; // Character runs (squashed CRDT storage)
-  formats: FormatSpan[]; // Format spans reference char IDs
+  formats: MarkSpan[]; // Format spans reference char IDs
   indent: number; // 0-based indent level (0 = no indent)
 }
 
 export interface NumberedListItem extends BlockRuntimeState {
   type: "numbered_list";
   charRuns: CharRun[]; // Character runs (squashed CRDT storage)
-  formats: FormatSpan[]; // Format spans reference char IDs
+  formats: MarkSpan[]; // Format spans reference char IDs
   indent: number; // 0-based indent level (0 = no indent)
 }
 
 export interface TodoListItem extends BlockRuntimeState {
   type: "todo_list";
   charRuns: CharRun[]; // Character runs (squashed CRDT storage)
-  formats: FormatSpan[]; // Format spans reference char IDs
+  formats: MarkSpan[]; // Format spans reference char IDs
   checked: boolean;
   indent: number; // 0-based indent level (0 = no indent)
 }
@@ -139,12 +135,12 @@ export class ListNode extends TextNode {
     if (!isListBlock(block)) return;
 
     const { fontMetrics, textStyle } = layout;
-    const fontFamily = getCurrentFontFamily();
+    const fontFamily = currentFontFamily(styles);
 
     if (block.type === "bullet_list") {
       ctx.save();
       ctx.fillStyle = styles.list.bullet.color;
-      ctx.font = `${textStyle.fontWeight} ${styles.list.bullet.size}px ${getFontStack(fontFamily)}`;
+      ctx.font = `${textStyle.fontWeight} ${styles.list.bullet.size}px ${getFontStack(fontFamily, styles.fonts)}`;
       ctx.textBaseline = "alphabetic";
 
       const bulletX = markerX + 6;
@@ -161,7 +157,7 @@ export class ListNode extends TextNode {
 
       ctx.save();
       ctx.fillStyle = styles.list.numbered.color;
-      ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily)}`;
+      ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily, styles.fonts)}`;
       ctx.textBaseline = "alphabetic";
       ctx.textAlign = "right";
 
@@ -246,7 +242,8 @@ export class ListNode extends TextNode {
           const fontMetrics = getFontMetrics(
             textStyle.fontSize,
             textStyle.fontWeight,
-            getCurrentFontFamily(),
+            currentFontFamily(styles),
+            styles.fonts,
           );
           const checkboxY = c.origin.y + fontMetrics.ascent - checkboxSize + 2;
 

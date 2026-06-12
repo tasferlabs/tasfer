@@ -327,7 +327,7 @@ function tokenizeHeading(state: TokenizerState, tokens: Token[]) {
 function tokenizeLine(state: TokenizerState, tokens: Token[]) {
   state.startOfLine = false;
   const formatStack: Array<{
-    type: "bold" | "italic" | "strikethrough";
+    type: "strong" | "emphasis" | "strike";
     marker: string;
   }> = [];
 
@@ -567,15 +567,13 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
     // Check for strikethrough (~~)
     else if (char === "~") {
       if (peek(state) === "~") {
-        const existingIndex = formatStack.findIndex(
-          (f) => f.type === "strikethrough",
-        );
+        const existingIndex = formatStack.findIndex((f) => f.type === "strike");
         if (existingIndex !== -1) {
           tokens.push({ type: STRIKETHROUGH_END, content: "~~" });
           formatStack.splice(existingIndex, 1);
         } else {
           tokens.push({ type: STRIKETHROUGH_START, content: "~~" });
-          formatStack.push({ type: "strikethrough", marker: "~~" });
+          formatStack.push({ type: "strike", marker: "~~" });
         }
         next(state, 2);
       } else {
@@ -587,23 +585,25 @@ function tokenizeLine(state: TokenizerState, tokens: Token[]) {
     // Check for bold (**) or italic (*)
     else if (char === "*") {
       if (peek(state) === "*") {
-        const existingIndex = formatStack.findIndex((f) => f.type === "bold");
+        const existingIndex = formatStack.findIndex((f) => f.type === "strong");
         if (existingIndex !== -1) {
           tokens.push({ type: BOLD_END, content: "**" });
           formatStack.splice(existingIndex, 1);
         } else {
           tokens.push({ type: BOLD_START, content: "**" });
-          formatStack.push({ type: "bold", marker: "**" });
+          formatStack.push({ type: "strong", marker: "**" });
         }
         next(state, 2);
       } else {
-        const existingIndex = formatStack.findIndex((f) => f.type === "italic");
+        const existingIndex = formatStack.findIndex(
+          (f) => f.type === "emphasis",
+        );
         if (existingIndex !== -1) {
           tokens.push({ type: ITALIC_END, content: "*" });
           formatStack.splice(existingIndex, 1);
         } else {
           tokens.push({ type: ITALIC_START, content: "*" });
-          formatStack.push({ type: "italic", marker: "*" });
+          formatStack.push({ type: "emphasis", marker: "*" });
         }
         next(state);
       }

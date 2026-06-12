@@ -1,4 +1,5 @@
 import { isCJKCharacter } from "../cjk";
+import { findInlineMathSpan } from "../inline-math";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { isRTLChar } from "../rtl";
 import { moveCursorToPosition } from "../selection";
@@ -10,8 +11,8 @@ import {
 import {
   type Block,
   type CharRun,
+  type Mark,
   type Page,
-  type TextFormat,
 } from "../serlization/loadPage";
 import { isListBlock } from "../serlization/loadPage";
 import type {
@@ -24,7 +25,7 @@ import type {
 import type {
   BlockInsert,
   BlockSet,
-  FormatSet,
+  MarkSet,
   Operation,
   TextDelete,
 } from "../state-types";
@@ -47,10 +48,10 @@ import {
   crdtToPosition,
   crdtToSelectionRange,
   deleteCharsInRange,
-  formatCharsInRange,
   getFormatsAtCharPosition,
   getVisibleLength,
   insertCharsAtPosition,
+  markCharsInRange,
   positionToCRDT,
   selectionRangeToCRDT,
 } from "../sync/crdt-utils";
@@ -150,7 +151,7 @@ function autoLinkAtCursor(
     }
   }
 
-  const { newPage, op } = formatCharsInRange(
+  const { newPage, op } = markCharsInRange(
     page,
     blockId,
     detected.start,
@@ -191,7 +192,7 @@ function isBlockRTL(charRuns: CharRun[]): boolean {
 export function getFormatsAtPosition(
   block: Block,
   textIndex: number,
-): readonly TextFormat[] | undefined {
+): readonly Mark[] | undefined {
   if (!isTextualBlock(block)) {
     return undefined;
   }
@@ -221,11 +222,15 @@ function detectAndApplyInlineMarkdown(
   const patterns: Array<{
     regex: RegExp;
     markerLen: number;
-    format: TextFormat;
+    format: Mark;
   }> = [
-    { regex: /\*\*([^\*]+)\*\*$/, markerLen: 2, format: { type: "bold" } },
-    { regex: /(?<!\*)\*([^\*]+)\*$/, markerLen: 1, format: { type: "italic" } },
-    { regex: /~~([^~]+)~~$/, markerLen: 2, format: { type: "strikethrough" } },
+    { regex: /\*\*([^\*]+)\*\*$/, markerLen: 2, format: { type: "strong" } },
+    {
+      regex: /(?<!\*)\*([^\*]+)\*$/,
+      markerLen: 1,
+      format: { type: "emphasis" },
+    },
+    { regex: /~~([^~]+)~~$/, markerLen: 2, format: { type: "strike" } },
     { regex: /\$([^$\n]+)\$$/, markerLen: 1, format: { type: "math" } },
     { regex: /`([^`]+)`$/, markerLen: 1, format: { type: "code" } },
   ];
@@ -260,7 +265,7 @@ function detectAndApplyInlineMarkdown(
     pageAcc = p2;
     ops.push(deleteOp2);
 
-    const { newPage: p3, op: formatOp } = formatCharsInRange(
+    const { newPage: p3, op: formatOp } = markCharsInRange(
       pageAcc,
       blockId,
       matchStart,
@@ -529,7 +534,7 @@ function mergeBlocksOps(
           sourceToNew.set(sourceIds[i], newIds[i]);
         }
 
-        const formatOps: FormatSet[] = [];
+        const formatOps: MarkSet[] = [];
         for (const span of source.formats) {
           const coveredNewIds: string[] = [];
           for (const oldId of sourceIds) {
@@ -546,7 +551,7 @@ function mergeBlocksOps(
           }
           if (coveredNewIds.length > 0) {
             formatOps.push({
-              op: "format_set",
+              op: "mark_set",
               id: binding.nextId(),
               clock: binding.getClock(),
               pageId: binding.pageId,
@@ -998,9 +1003,9 @@ export function insertText(state: EditorState, input: string): CommandResult {
   let pageAcc = pageAfterInsert;
 
   // Handle active formats (when user has toggled formatting without selection)
-  if (state.ui.activeFormatsMode.type === "explicit") {
-    for (const format of state.ui.activeFormatsMode.formats) {
-      const { newPage: pageAfterFormat, op: formatOp } = formatCharsInRange(
+  if (state.ui.activeMarksMode.type === "explicit") {
+    for (const format of state.ui.activeMarksMode.formats) {
+      const { newPage: pageAfterFormat, op: formatOp } = markCharsInRange(
         pageAcc,
         oldBlock.id,
         textIndex,
@@ -1141,44 +1146,6 @@ export function insertText(state: EditorState, input: string): CommandResult {
   newState = updateMode(newState, "edit");
 
   return { state: newState, ops };
-}
-
-/**
- * Find the inline-math format span covering a given visible-index position.
- * `position` is interpreted as a caret edge (0..length); `mode` controls whether
- * positions exactly at the edges are considered "in" the span.
- */
-function findInlineMathSpan(
-  block: Block,
-  position: number,
-  mode: "leftEdge" | "rightEdge" | "inside",
-): { startIndex: number; endIndex: number } | null {
-  if (!isTextualBlock(block)) return null;
-
-  const visibleIds: string[] = [];
-  for (const { id } of iterateVisibleChars(block.charRuns)) {
-    visibleIds.push(id);
-  }
-
-  for (const span of block.formats) {
-    if (span.format.type !== "math") continue;
-    const startIdx = visibleIds.indexOf(span.startCharId);
-    const endIdx = visibleIds.indexOf(span.endCharId);
-    if (startIdx === -1 || endIdx === -1) continue;
-    const spanStart = startIdx;
-    const spanEnd = endIdx + 1;
-
-    if (mode === "leftEdge" && position === spanStart) {
-      return { startIndex: spanStart, endIndex: spanEnd };
-    }
-    if (mode === "rightEdge" && position === spanEnd) {
-      return { startIndex: spanStart, endIndex: spanEnd };
-    }
-    if (mode === "inside" && position > spanStart && position < spanEnd) {
-      return { startIndex: spanStart, endIndex: spanEnd };
-    }
-  }
-  return null;
 }
 
 export function deleteText(state: EditorState): CommandResult {
@@ -2851,8 +2818,8 @@ export function splitBlock(state: EditorState): CommandResult {
   }
 
   // 6. Transfer format spans covering the after-cursor range onto block 2.
-  //    Match each original FormatSpan against the inserted chars, emit one
-  //    format_set per overlap, then apply them to pageAcc in one batch.
+  //    Match each original MarkSpan against the inserted chars, emit one
+  //    mark_set per overlap, then apply them to pageAcc in one batch.
   const block2 = pageAcc.blocks.find((b) => b.id === newBlockId);
   const block2CharRuns: CharRun[] =
     block2 && isTextualBlock(block2) ? block2.charRuns : [];
@@ -2878,7 +2845,7 @@ export function splitBlock(state: EditorState): CommandResult {
         oldIdToNewId.set(afterCharIds[i], newCharIds[i]);
       }
 
-      const formatOps: FormatSet[] = [];
+      const formatOps: MarkSet[] = [];
       for (const span of currentBlock.formats) {
         const coveredNewIds: string[] = [];
         for (const oldId of afterCharIds) {
@@ -2896,7 +2863,7 @@ export function splitBlock(state: EditorState): CommandResult {
 
         if (coveredNewIds.length > 0) {
           formatOps.push({
-            op: "format_set",
+            op: "mark_set",
             id: state.CRDTbinding.nextId(),
             clock: state.CRDTbinding.getClock(),
             pageId: state.CRDTbinding.pageId,
@@ -3028,7 +2995,7 @@ export function selectCurrentBlock(state: EditorState): EditorState {
  */
 export function toggleFormat(
   state: EditorState,
-  formatType: "bold" | "italic" | "code" | "strikethrough",
+  formatType: "strong" | "emphasis" | "code" | "strike",
 ): CommandResult {
   const range = getSelectionRange(state);
 
@@ -3057,9 +3024,9 @@ export function toggleFormat(
     }
 
     // Get current active formats or infer from cursor position
-    let currentFormats: readonly TextFormat[];
-    if (state.ui.activeFormatsMode.type === "explicit") {
-      currentFormats = state.ui.activeFormatsMode.formats;
+    let currentFormats: readonly Mark[];
+    if (state.ui.activeMarksMode.type === "explicit") {
+      currentFormats = state.ui.activeMarksMode.formats;
     } else {
       // Inherit mode: check formatting at cursor position
       currentFormats = getFormatsAtCharPosition(
@@ -3071,7 +3038,7 @@ export function toggleFormat(
 
     const hasFormat = currentFormats.some((f) => f.type === formatType);
 
-    let newFormats: TextFormat[];
+    let newFormats: Mark[];
     if (hasFormat) {
       // Remove format
       newFormats = currentFormats.filter((f) => f.type !== formatType);
@@ -3085,7 +3052,7 @@ export function toggleFormat(
         ...state,
         ui: {
           ...state.ui,
-          activeFormatsMode: { type: "explicit", formats: newFormats },
+          activeMarksMode: { type: "explicit", formats: newFormats },
         },
       },
       ops: [],
@@ -3120,7 +3087,7 @@ export function toggleFormat(
     );
 
     // Toggle formatting: use helper to apply the op and get the new page
-    const { newPage, op } = formatCharsInRange(
+    const { newPage, op } = markCharsInRange(
       state.document.page,
       block.id,
       start.textIndex,
@@ -3205,7 +3172,7 @@ export function toggleFormat(
       }
 
       if (formatStart < formatEnd) {
-        const { newPage, op } = formatCharsInRange(
+        const { newPage, op } = markCharsInRange(
           pageAcc,
           block.id,
           formatStart,
@@ -3235,7 +3202,7 @@ export function toggleFormat(
  * If there's no selection, toggles bold mode for next typed text
  */
 export function toggleBold(state: EditorState): CommandResult {
-  return toggleFormat(state, "bold");
+  return toggleFormat(state, "strong");
 }
 
 /**
@@ -3243,7 +3210,7 @@ export function toggleBold(state: EditorState): CommandResult {
  * If there's no selection, toggles italic mode for next typed text
  */
 export function toggleItalic(state: EditorState): CommandResult {
-  return toggleFormat(state, "italic");
+  return toggleFormat(state, "emphasis");
 }
 
 /**
@@ -3259,7 +3226,7 @@ export function toggleCode(state: EditorState): CommandResult {
  * If there's no selection, toggles strikethrough mode for next typed text
  */
 export function toggleStrikethrough(state: EditorState): CommandResult {
-  return toggleFormat(state, "strikethrough");
+  return toggleFormat(state, "strike");
 }
 
 // Convert block type at current cursor position
@@ -4259,7 +4226,7 @@ export function updateLinkInBlock(
     ops.push(insertOp);
   }
 
-  const { newPage: pageAfterFormat, op: formatOp } = formatCharsInRange(
+  const { newPage: pageAfterFormat, op: formatOp } = markCharsInRange(
     pageAcc,
     block.id,
     startIndex,
@@ -4304,7 +4271,7 @@ export function clearLinkInBlock(
   }
 
   // Remove link formatting by setting value to false
-  const { newPage, op } = formatCharsInRange(
+  const { newPage, op } = markCharsInRange(
     state.document.page,
     block.id,
     startIndex,

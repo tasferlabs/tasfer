@@ -27,8 +27,8 @@
 
 import {
   batchChars,
+  currentFontFamily,
   type FontFamily,
-  getCurrentFontFamily,
   getFontMetrics,
   getFontStack,
   measureCRDTPositions,
@@ -38,25 +38,26 @@ import {
   wrapText,
 } from "../../fonts";
 import { getInlineMathDims, getInlineMathImage } from "../../math";
+import { getBlockTextContent, isTouchDevice } from "../../node-shared";
 import { getTextDirection } from "../../rtl";
 import type {
   Block,
   Char,
   CharRun,
-  FormatSpan,
+  MarkSpan,
 } from "../../serlization/loadPage";
 import type {
   BlockBounds,
   EditorState,
   EditorStyles,
   FontMetrics,
+  FontStyles,
   Position,
   RenderedBlock,
   RenderedLine,
   SelectionState,
   TextStyle,
 } from "../../state-types";
-import { getBlockTextContent, isTouchDevice } from "../../state-utils";
 import { getTextStyle } from "../../styles";
 import { awarenessSelectionToSelection } from "../../sync/awareness";
 import { isTextualBlock } from "../../sync/block-registry";
@@ -103,6 +104,9 @@ export interface TextNodeLayout extends NodeLayout {
   readonly isRTL: boolean;
   readonly textStyle: TextStyle;
   readonly fontFamily: FontFamily;
+  /** Resolved font registry for this instance — used to resolve `fontFamily`
+   *  to a CSS stack during measurement (keeps caret/hit-test in sync). */
+  readonly fonts: FontStyles;
   readonly codePadding: number;
   readonly fontMetrics: FontMetrics;
   readonly lineHeight: number;
@@ -112,7 +116,7 @@ export interface TextNodeLayout extends NodeLayout {
   readonly adjustedMaxWidth: number;
   /** Resolved characters used for this layout (may include composition text). */
   readonly chars: Char[];
-  readonly formats: FormatSpan[];
+  readonly formats: MarkSpan[];
   readonly compositionRange: { start: number; end: number } | null;
   /** Raw wrap result, retained for consumers that need consumedSpace. */
   readonly wrapped: WrappedLine[];
@@ -121,12 +125,12 @@ export interface TextNodeLayout extends NodeLayout {
 export interface Heading extends BlockRuntimeState {
   type: "heading1" | "heading2" | "heading3";
   charRuns: CharRun[]; // Character runs (squashed CRDT storage)
-  formats: FormatSpan[]; // Format spans reference char IDs
+  formats: MarkSpan[]; // Format spans reference char IDs
 }
 export interface Paragraph extends BlockRuntimeState {
   type: "paragraph";
   charRuns: CharRun[]; // Character runs (squashed CRDT storage)
-  formats: FormatSpan[]; // Format spans reference char IDs
+  formats: MarkSpan[]; // Format spans reference char IDs
 }
 
 export type TextBlock = Heading | Paragraph;
@@ -149,7 +153,7 @@ export function getContentWithComposition(
   blockIndex: number,
 ): {
   chars: Char[];
-  formats: FormatSpan[];
+  formats: MarkSpan[];
   compositionRange: { start: number; end: number } | null;
 } {
   if (!isTextualBlock(block)) {
@@ -230,11 +234,12 @@ export function getContentWithComposition(
 // measurement so cursor x stays aligned with wrap + render.
 function measureLineWidth(
   chars: Char[],
-  formats: FormatSpan[],
+  formats: MarkSpan[],
   lineStartIndex: number,
   lineEndIndex: number,
   textStyle: TextStyle,
   fontFamily: FontFamily,
+  fonts: FontStyles,
   codePadding: number,
 ): number {
   return measureTextUpToIndex(
@@ -245,6 +250,7 @@ function measureLineWidth(
     textStyle.fontSize,
     textStyle.fontWeight,
     fontFamily,
+    fonts,
     codePadding,
   );
 }
@@ -266,7 +272,8 @@ function renderPlaceholder(
   ctx.save();
   ctx.fillStyle = styles.placeholder.color;
   ctx.font = `${textStyle.fontWeight} ${textStyle.fontSize}px ${getFontStack(
-    getCurrentFontFamily(),
+    currentFontFamily(styles),
+    styles.fonts,
   )}`;
   ctx.textBaseline = "alphabetic";
   ctx.direction = isRTL ? "rtl" : "ltr";
@@ -280,7 +287,7 @@ function renderPlaceholder(
 function renderCompositionUnderline(
   ctx: CanvasRenderingContext2D,
   chars: Char[],
-  formats: FormatSpan[],
+  formats: MarkSpan[],
   lineStartIndex: number,
   lineEndIndex: number,
   compositionStart: number,
@@ -289,6 +296,7 @@ function renderCompositionUnderline(
   y: number,
   textStyle: TextStyle,
   fontFamily: FontFamily,
+  fonts: FontStyles,
   fontMetrics: FontMetrics,
   codePadding: number,
   isRTL: boolean,
@@ -306,6 +314,7 @@ function renderCompositionUnderline(
     underlineStart,
     textStyle,
     fontFamily,
+    fonts,
     codePadding,
   );
 
@@ -316,6 +325,7 @@ function renderCompositionUnderline(
     underlineEnd,
     textStyle,
     fontFamily,
+    fonts,
     codePadding,
   );
 
@@ -345,7 +355,7 @@ function renderCompositionUnderline(
 function renderLine(
   ctx: CanvasRenderingContext2D,
   chars: Char[],
-  formats: FormatSpan[],
+  formats: MarkSpan[],
   lineStartIndex: number,
   lineEndIndex: number,
   x: number,
@@ -373,7 +383,7 @@ function renderLine(
     const effectiveFontWeight = batch.isBold ? "bold" : textStyle.fontWeight;
     const fontStyle = batch.isItalic ? "italic" : "normal";
 
-    ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily)}`;
+    ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily, styles.fonts)}`;
     ctx.textBaseline = "alphabetic";
 
     const batchVisibleEnd = batchVisibleStart + batch.text.length;
@@ -417,6 +427,8 @@ function renderLine(
           batch.text,
           textStyle.fontSize,
           dpr,
+          styles.blocks.paragraph.color,
+          styles.blocks.math.errorBackgroundColor,
           requestRedraw,
         );
         if (image) {
@@ -560,6 +572,7 @@ function computeSelectionRects(
     isRTL,
     textStyle,
     fontFamily,
+    fonts,
     codePadding,
     lineHeight,
     chars,
@@ -616,6 +629,7 @@ function computeSelectionRects(
             selStartTextIndex,
             textStyle,
             fontFamily,
+            fonts,
             codePadding,
           );
           const widthToSelEnd = measureLineWidth(
@@ -625,6 +639,7 @@ function computeSelectionRects(
             selEndTextIndex,
             textStyle,
             fontFamily,
+            fonts,
             codePadding,
           );
 
@@ -639,6 +654,7 @@ function computeSelectionRects(
               start.textIndex,
               textStyle,
               fontFamily,
+              fonts,
               codePadding,
             );
           }
@@ -650,6 +666,7 @@ function computeSelectionRects(
               Math.min(line.endIndex, end.textIndex),
               textStyle,
               fontFamily,
+              fonts,
               codePadding,
             );
             selectionEndX = selectionStartX + selectedWidth;
@@ -676,6 +693,7 @@ function computeSelectionRects(
             selStartTextIndex,
             textStyle,
             fontFamily,
+            fonts,
             codePadding,
           );
 
@@ -690,6 +708,7 @@ function computeSelectionRects(
               start.textIndex,
               textStyle,
               fontFamily,
+              fonts,
               codePadding,
             );
           }
@@ -708,6 +727,7 @@ function computeSelectionRects(
             selEndTextIndex,
             textStyle,
             fontFamily,
+            fonts,
             codePadding,
           );
 
@@ -724,6 +744,7 @@ function computeSelectionRects(
                 end.textIndex,
                 textStyle,
                 fontFamily,
+                fonts,
                 codePadding,
               );
           }
@@ -773,12 +794,13 @@ export class TextNode extends Node<TextualBlock> {
     styles: EditorStyles,
     content?: {
       chars: Char[];
-      formats: FormatSpan[];
+      formats: MarkSpan[];
       compositionRange: { start: number; end: number } | null;
     },
   ): TextNodeLayout {
     const textStyle = getTextStyle(styles, block.type);
-    const fontFamily = getCurrentFontFamily();
+    const fontFamily = currentFontFamily(styles);
+    const fonts = styles.fonts;
     const codePadding = styles.textFormats.code.padding;
 
     const isRTL =
@@ -802,6 +824,7 @@ export class TextNode extends Node<TextualBlock> {
       textStyle.fontSize,
       textStyle.fontWeight,
       fontFamily,
+      fonts,
       codePadding,
       compositionRange,
     );
@@ -810,6 +833,7 @@ export class TextNode extends Node<TextualBlock> {
       textStyle.fontSize,
       textStyle.fontWeight,
       fontFamily,
+      fonts,
     );
     const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
     const textHeight = fontMetrics.ascent + fontMetrics.descent;
@@ -832,6 +856,7 @@ export class TextNode extends Node<TextualBlock> {
         lineEndIndex,
         textStyle,
         fontFamily,
+        fonts,
         codePadding,
       );
       lines.push({
@@ -855,6 +880,7 @@ export class TextNode extends Node<TextualBlock> {
       isRTL,
       textStyle,
       fontFamily,
+      fonts,
       codePadding,
       fontMetrics,
       lineHeight,
@@ -891,6 +917,7 @@ export class TextNode extends Node<TextualBlock> {
       isRTL,
       textStyle,
       fontFamily,
+      fonts,
       codePadding,
       lineHeight,
       chars,
@@ -910,6 +937,7 @@ export class TextNode extends Node<TextualBlock> {
           textStyle.fontSize,
           textStyle.fontWeight,
           fontFamily,
+          fonts,
           codePadding,
         );
         return {
@@ -973,8 +1001,15 @@ export class TextNode extends Node<TextualBlock> {
     line: RenderedLine,
     baseX: number,
   ): number {
-    const { isRTL, textStyle, fontFamily, chars, formats, adjustedMaxWidth } =
-      layout;
+    const {
+      isRTL,
+      textStyle,
+      fontFamily,
+      fonts,
+      chars,
+      formats,
+      adjustedMaxWidth,
+    } = layout;
     const lineStartIndex = line.startIndex;
     const lineEndIndex = line.endIndex;
     const lineText = line.text;
@@ -988,6 +1023,7 @@ export class TextNode extends Node<TextualBlock> {
       textStyle.fontSize,
       textStyle.fontWeight,
       fontFamily,
+      fonts,
     );
 
     const lineWidth = positionWidths[positionWidths.length - 1];
@@ -1122,6 +1158,7 @@ export class TextNode extends Node<TextualBlock> {
       isRTL,
       textStyle,
       fontFamily,
+      fonts,
       fontMetrics,
       lineHeight,
       codePadding,
@@ -1222,6 +1259,7 @@ export class TextNode extends Node<TextualBlock> {
             currentY,
             textStyle,
             fontFamily,
+            fonts,
             fontMetrics,
             codePadding,
             isRTL,
@@ -1263,8 +1301,10 @@ export class TextNode extends Node<TextualBlock> {
         this.fillRects(
           ctx,
           rects,
-          isActive ? "#f97316" : "#facc15",
-          isActive ? 0.5 : 0.35,
+          isActive ? styles.search.activeColor : styles.search.inactiveColor,
+          isActive
+            ? styles.search.activeOpacity
+            : styles.search.inactiveOpacity,
         );
       }
     }
@@ -1279,7 +1319,12 @@ export class TextNode extends Node<TextualBlock> {
         );
         if (!sel || sel.isCollapsed) continue;
         const rects = this.selectionRects(layout, sel, blockIndex, x, y);
-        this.fillRects(ctx, rects, awareness.user.color, 0.2);
+        this.fillRects(
+          ctx,
+          rects,
+          awareness.user.color,
+          styles.selection.remoteOpacity,
+        );
       }
     }
 

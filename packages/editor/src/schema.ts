@@ -28,7 +28,7 @@ import {
   textNode,
 } from "./rendering/nodes";
 import { BoxNode, type BoxRenderStyle } from "./rendering/nodes/BoxNode";
-import type { Node } from "./rendering/nodes/Node";
+import { Node } from "./rendering/nodes/Node";
 import {
   type BlockCodec,
   type InputCtx,
@@ -54,7 +54,15 @@ export interface BlockSpec extends BlockSpecCore {
 }
 
 export interface SchemaExtension {
-  readonly nodes?: readonly BlockSpec[];
+  /**
+   * Custom block types to add. Each entry is either a {@link BlockSpec} (built
+   * by `defineNode`) or — the class-first style — a {@link Node} subclass
+   * instance that carries its own facets: its `type`, optional `static
+   * nodeConfig` (attrs + serialization), plus its draw/overlays/strings. A bare
+   * Node is normalized to a leaf BlockSpec with the same generic round-trip
+   * `defineNode` produces, so both styles are interchangeable.
+   */
+  readonly nodes?: readonly (BlockSpec | Node)[];
   readonly marks?: readonly MarkSpec[];
 }
 
@@ -74,8 +82,11 @@ export class Schema {
 
   /** Derive a new schema with extra custom node and mark types. */
   extend(ext: SchemaExtension): Schema {
+    // Normalize both authoring styles (a prebuilt BlockSpec, or a bare Node
+    // subclass instance registered directly) to a single BlockSpec list.
+    const specs = ext.nodes?.map(toBlockSpec) ?? [];
     const data = this.data.extend({
-      blocks: ext.nodes?.map(
+      blocks: specs.map(
         ({ type, descriptor, codec }): BlockSpecCore => ({
           type,
           descriptor,
@@ -84,9 +95,25 @@ export class Schema {
       ),
       marks: ext.marks,
     });
-    const nodes = [...this.nodes, ...(ext.nodes?.map((n) => n.node) ?? [])];
+    const nodes = [...this.nodes, ...specs.map((spec) => spec.node)];
     return new Schema(data, nodes);
   }
+}
+
+/**
+ * Normalize a `SchemaExtension.nodes` entry to a {@link BlockSpec}. A prebuilt
+ * spec (from `defineNode`) passes through; a bare {@link Node} subclass instance
+ * is turned into a leaf spec using its `type` and optional `static nodeConfig`,
+ * via the same generator `defineNode` uses — so registering a class directly
+ * and registering `defineNode(...)` produce identical data facets.
+ */
+function toBlockSpec(entry: BlockSpec | Node): BlockSpec {
+  if (entry instanceof Node) {
+    const config =
+      (entry.constructor as { nodeConfig?: DefineNodeConfig }).nodeConfig ?? {};
+    return buildLeafSpec(entry.type, config, entry);
+  }
+  return entry;
 }
 
 /**
@@ -174,17 +201,48 @@ function coerceAttr(raw: string, def: unknown): unknown {
 
 /**
  * Define a custom leaf block type — its CRDT shape, its markdown/HTML/text
- * round-trip, and how it draws. Register it on a schema:
+ * round-trip, and how it draws. Two interchangeable authoring styles:
  *
+ *   // 1. Config style — a styled box with no canvas code:
  *   const callout = defineNode("callout", {
  *     attrs: { tone: { default: "note" } },
  *     render: { background: "rgba(0,0,0,0.04)", borderLeft: { width: 3, color: "#1db984" } },
  *   });
  *   const schema = baseSchema.extend({ nodes: [callout] });
+ *
+ *   // 2. Class-first style — subclass a Node and register it directly. The
+ *   //    class owns its draw/overlays/strings; `static nodeConfig` supplies
+ *   //    attrs + serialization (same fields as this config):
+ *   class Callout extends AtomicNode {
+ *     readonly type = "callout";
+ *     static nodeConfig = { attrs: { tone: { default: "note" } } };
+ *     protected intrinsicHeight() { return 48; }
+ *     protected draw(box, c) {  ... }
+ *   }
+ *   const schema = baseSchema.extend({ nodes: [new Callout()] });
  */
 export function defineNode(
   type: string,
   config: DefineNodeConfig = {},
+): BlockSpec {
+  return buildLeafSpec(
+    type,
+    config,
+    config.node ?? new BoxNode(type, config.render ?? {}),
+  );
+}
+
+/**
+ * Build the leaf {@link BlockSpec} (descriptor + generic round-trip codec) for
+ * `type`, rendered by the supplied `node`. Shared by `defineNode` (which picks
+ * a BoxNode or `config.node`) and class-first registration (which passes the
+ * Node subclass instance). The `render`/`node` fields of `config` are ignored
+ * here — node selection is the caller's job.
+ */
+function buildLeafSpec(
+  type: string,
+  config: DefineNodeConfig,
+  node: Node,
 ): BlockSpec {
   const attrs = config.attrs ?? {};
   const attrNames = Object.keys(attrs);
@@ -273,8 +331,6 @@ export function defineNode(
         : () => "",
     },
   };
-
-  const node = config.node ?? new BoxNode(type, config.render ?? {});
 
   return { type, descriptor, codec, node };
 }

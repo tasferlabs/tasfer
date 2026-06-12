@@ -2,25 +2,24 @@
  * Font measurement, metrics, and text wrapping for the editor.
  *
  * The editor is font-agnostic: the host application defines which font families
- * exist and their CSS font-stacks via the editor styles (`EditorStyles.fonts`,
- * configured through `setFontStyles` / mount options). The host also loads the
- * font faces, then calls `notifyFontsLoaded` (and `notifyFontsChanged` whenever
- * the available faces or stacks change — e.g. a script-specific font becomes
- * available) so the editor can flush its metrics cache and re-measure with the
- * real fonts.
+ * exist and their CSS font-stacks via the per-instance theme (`EditorTheme.fonts`
+ * → resolved `EditorStyles.fonts`). The resolved registry is threaded into every
+ * measurement call (no module global). The host also loads the font faces, then
+ * calls `notifyFontsLoaded` (and `notifyFontsChanged` whenever the available
+ * faces or stacks change — e.g. a script-specific font becomes available) so the
+ * editor can flush its metrics cache and re-measure with the real fonts.
  */
 
 import { containsCJK, isCJKCharacter } from "./cjk";
 import { getInlineMathDims } from "./math";
-// Formatted text measurement - handles Char[] with FormatSpan[]
+// Formatted text measurement - handles Char[] with MarkSpan[]
+import type { Char, CharRun, Mark, MarkSpan } from "./serlization/loadPage";
 import type {
-  Char,
-  CharRun,
-  FormatSpan,
-  TextFormat,
-} from "./serlization/loadPage";
-import type { FontFamily, FontMetrics } from "./state-types";
-import { getResolvedFontStyles } from "./styles";
+  EditorStyles,
+  FontFamily,
+  FontMetrics,
+  FontStyles,
+} from "./state-types";
 import { charRunsToChars } from "./sync/char-runs";
 
 // Re-exported for back-compat with `@cypherkit/editor/fonts` consumers.
@@ -29,13 +28,13 @@ export type { FontFamily };
 // Legacy text segment type (for backward compatibility)
 interface TextSegment {
   content: string;
-  formats?: TextFormat[];
+  formats?: Mark[];
 }
 
 // A batch of consecutive characters with the same formatting
 export interface TextBatch {
   text: string;
-  formats: TextFormat[];
+  formats: Mark[];
   isBold: boolean;
   isItalic: boolean;
   isCode: boolean;
@@ -51,20 +50,17 @@ export interface WrappedLine {
   consumedSpace: boolean; // True if this line consumed a trailing space character
 }
 
-// Whether the host has reported that the base font faces are loaded.
+// Whether the host has reported that the base font faces are loaded. This is a
+// browser-level fact (a @font-face finished loading), shared by every editor
+// instance — not per-instance config — so it stays a module global, as do the
+// pure measurement caches below (keyed by the resolved CSS font-stack, so two
+// instances with different registries can't collide).
 let fontsLoaded = false;
 
 // Callbacks fired once when fonts finish loading
 const fontReadyCallbacks: Array<() => void> = [];
 
-// Currently selected font family key. `null` means "use the default family
-// configured in the editor styles" (EditorStyles.fonts.defaultFamily).
-let selectedFontFamily: FontFamily | null = null;
-
-// Callback for font family changes (used to invalidate caches)
-let fontChangeCallback: (() => void) | null = null;
-
-// Global metrics cache (immutable) - keyed by "fontFamily-fontSize-fontWeight"
+// Global metrics cache (immutable) - keyed by "fontStack-fontSize-fontWeight".
 let metricsCache: ReadonlyMap<string, FontMetrics> = new Map();
 
 // Canvas context for measurements (created once)
@@ -76,13 +72,28 @@ const measurementCanvas = (() => {
 })();
 
 /**
- * Resolve the CSS font-stack for a family key from the host-configured font
+ * Resolve the CSS font-stack for a family key from a (per-instance) font
  * registry (`EditorStyles.fonts`). Unknown keys fall back to the configured
  * default family, then to a generic system stack.
  */
-export function getFontStack(fontFamily: FontFamily): string {
-  const { families, defaultFamily } = getResolvedFontStyles();
-  return families[fontFamily] ?? families[defaultFamily] ?? "sans-serif";
+export function getFontStack(
+  fontFamily: FontFamily,
+  fonts: FontStyles,
+): string {
+  return (
+    fonts.families[fontFamily] ??
+    fonts.families[fonts.defaultFamily] ??
+    "sans-serif"
+  );
+}
+
+/**
+ * The active font family for an instance: the explicitly-selected family from
+ * its resolved styles, or the registry's default. Replaces the former global
+ * `getCurrentFontFamily()` — selection is now per-instance theme state.
+ */
+export function currentFontFamily(styles: EditorStyles): FontFamily {
+  return styles.fontFamily ?? styles.fonts.defaultFamily;
 }
 
 /** Register a one-shot callback for when fonts are ready. Fires immediately if already loaded. Returns unsubscribe fn. */
@@ -137,13 +148,15 @@ export function notifyFontsChanged(): void {
   for (const cb of cbs) cb();
 }
 
-// Helper function to create cache key
+// Helper function to create cache key. Keyed by the resolved CSS font-stack
+// (not the family key) so two instances whose registries map the same key to
+// different stacks never collide in the shared cache.
 function createCacheKey(
-  fontFamily: FontFamily,
+  fontStack: string,
   fontSize: number,
   fontWeight: string,
 ): string {
-  return `${fontFamily}-${fontSize}-${fontWeight}`;
+  return `${fontStack}-${fontSize}-${fontWeight}`;
 }
 
 // Last font string applied to each measurement context. Assigning `ctx.font`
@@ -156,29 +169,33 @@ function createCacheKey(
 const lastAppliedFont = new WeakMap<CanvasRenderingContext2D, string>();
 let fontEpoch = 0;
 
-// Pure function to apply font to context
+// Apply font to a context. Returns the resolved CSS font-stack so callers can
+// build cache keys without re-resolving the registry.
 function applyFont(
   ctx: CanvasRenderingContext2D,
   fontSize: number,
   fontWeight: string,
   fontFamily: FontFamily,
-): void {
-  const fontStack = getFontStack(fontFamily);
+  fonts: FontStyles,
+): string {
+  const fontStack = getFontStack(fontFamily, fonts);
   const font = `${fontWeight} ${fontSize}px ${fontStack}`;
   const cacheKey = `${fontEpoch}|${font}`;
   if (lastAppliedFont.get(ctx) !== cacheKey) {
     ctx.font = font;
     lastAppliedFont.set(ctx, cacheKey);
   }
+  return fontStack;
 }
 // Pure function to calculate font metrics
 function calculateFontMetrics(
   fontFamily: FontFamily,
   fontSize: number,
   fontWeight: string,
+  fonts: FontStyles,
 ): FontMetrics {
   const ctx = measurementCanvas;
-  applyFont(ctx, fontSize, fontWeight, fontFamily);
+  applyFont(ctx, fontSize, fontWeight, fontFamily, fonts);
   const textMetrics = ctx.measureText("Mg");
 
   // Use font bounding box metrics for consistent line height across all characters
@@ -197,8 +214,10 @@ export function getFontMetrics(
   fontSize: number,
   fontWeight: string,
   fontFamily: FontFamily,
+  fonts: FontStyles,
 ): FontMetrics {
-  const cacheKey = createCacheKey(fontFamily, fontSize, fontWeight);
+  const fontStack = getFontStack(fontFamily, fonts);
+  const cacheKey = createCacheKey(fontStack, fontSize, fontWeight);
   const cached = metricsCache.get(cacheKey);
 
   if (cached) {
@@ -206,7 +225,7 @@ export function getFontMetrics(
   }
 
   // Calculate on demand
-  const metrics = calculateFontMetrics(fontFamily, fontSize, fontWeight);
+  const metrics = calculateFontMetrics(fontFamily, fontSize, fontWeight, fonts);
 
   // Update cache
   metricsCache = new Map(metricsCache).set(cacheKey, metrics);
@@ -227,28 +246,30 @@ export function measureCtxText(
   fontSize: number,
   fontWeight: string,
   fontFamily: FontFamily,
+  fonts: FontStyles,
 ): number {
   const ctx = measurementCanvas;
   // <= 2 covers surrogate pairs while keeping the cache bounded
   if (text.length <= 2) {
-    const cacheKey = `${fontFamily}|${fontWeight}|${fontSize}|${text}`;
+    const fontStack = getFontStack(fontFamily, fonts);
+    const cacheKey = `${fontStack}|${fontWeight}|${fontSize}|${text}`;
     let width = charWidthCache.get(cacheKey);
     if (width === undefined) {
-      applyFont(ctx, fontSize, fontWeight, fontFamily);
+      applyFont(ctx, fontSize, fontWeight, fontFamily, fonts);
       width = ctx.measureText(text).width;
       charWidthCache.set(cacheKey, width);
     }
     return width;
   }
 
-  applyFont(ctx, fontSize, fontWeight, fontFamily);
+  applyFont(ctx, fontSize, fontWeight, fontFamily, fonts);
   return ctx.measureText(text).width;
 }
 
 // Helper: Check if a char is within a format span
 function isCharInSpan(
   charIndex: number,
-  span: FormatSpan,
+  span: MarkSpan,
   chars: Char[],
 ): boolean {
   const startIdx = chars.findIndex((c) => c.id === span.startCharId);
@@ -263,17 +284,17 @@ function isCharInSpan(
 export function getFormatsAtIndex(
   charIndex: number,
   chars: Char[],
-  formats: FormatSpan[],
-): TextFormat[] {
-  const activeFormats: TextFormat[] = [];
+  formats: MarkSpan[],
+): Mark[] {
+  const activeMarks: Mark[] = [];
 
   for (const span of formats) {
     if (isCharInSpan(charIndex, span, chars)) {
-      activeFormats.push(span.format);
+      activeMarks.push(span.format);
     }
   }
 
-  return activeFormats;
+  return activeMarks;
 }
 
 // === Batching utilities for Arabic/RTL text support ===
@@ -281,7 +302,7 @@ export function getFormatsAtIndex(
 // to preserve ligatures and cursive connections in scripts like Arabic
 
 // Create a unique key for a set of formats (for batching comparison)
-export function getFormatKey(formats: TextFormat[]): string {
+export function getFormatKey(formats: Mark[]): string {
   const keys: string[] = [];
   for (const f of formats) {
     if (f.type === "link") {
@@ -297,7 +318,7 @@ export function getFormatKey(formats: TextFormat[]): string {
 // This preserves Arabic ligatures by keeping same-formatted chars together
 export function batchChars(
   chars: Char[],
-  formats: FormatSpan[],
+  formats: MarkSpan[],
   startIndex: number,
   endIndex: number,
 ): TextBatch[] {
@@ -329,12 +350,10 @@ export function batchChars(
       currentBatch.text += char.char;
     } else {
       // Different formatting, start new batch
-      const isBold = charFormats.some((f) => f.type === "bold");
-      const isItalic = charFormats.some((f) => f.type === "italic");
+      const isBold = charFormats.some((f) => f.type === "strong");
+      const isItalic = charFormats.some((f) => f.type === "emphasis");
       const isCode = charFormats.some((f) => f.type === "code");
-      const isStrikethrough = charFormats.some(
-        (f) => f.type === "strikethrough",
-      );
+      const isStrikethrough = charFormats.some((f) => f.type === "strike");
       const isMath = charFormats.some((f) => f.type === "math");
       const linkFormat = charFormats.find((f) => f.type === "link");
 
@@ -364,6 +383,7 @@ export function measureBatchedText(
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
+  fonts: FontStyles,
 ): number {
   let width = 0;
 
@@ -383,6 +403,7 @@ export function measureBatchedText(
       fontSize,
       effectiveFontWeight,
       fontFamily,
+      fonts,
     );
   }
 
@@ -408,12 +429,13 @@ export function measureBatchedText(
  */
 export function measureCRDTPositions(
   chars: Char[],
-  formats: FormatSpan[],
+  formats: MarkSpan[],
   startIndex: number,
   endIndex: number,
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
+  fonts: FontStyles,
 ): number[] {
   const lineLength = endIndex - startIndex;
   const positions: number[] = new Array(lineLength + 1);
@@ -431,22 +453,24 @@ export function measureCRDTPositions(
       fontSize,
       baseFontWeight,
       fontFamily,
+      fonts,
     );
   }
 
   return positions;
 }
 
-// Measure width of CRDT text (Char[] with FormatSpan[]) up to a specific character position
+// Measure width of CRDT text (Char[] with MarkSpan[]) up to a specific character position
 // Uses batching to preserve Arabic ligature widths
 export function measureTextUpToIndex(
   chars: Char[],
-  formats: FormatSpan[],
+  formats: MarkSpan[],
   startIndex: number,
   endIndex: number,
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
+  fonts: FontStyles,
   _codePadding: number = 0,
 ): number {
   // Use batched measurement to preserve Arabic ligatures
@@ -513,7 +537,13 @@ export function measureTextUpToIndex(
     }
   }
 
-  return measureBatchedText(batches, fontSize, baseFontWeight, fontFamily);
+  return measureBatchedText(
+    batches,
+    fontSize,
+    baseFontWeight,
+    fontFamily,
+    fonts,
+  );
 }
 
 /**
@@ -522,12 +552,13 @@ export function measureTextUpToIndex(
  */
 export function measureCharsUpToIndex(
   charRuns: CharRun[],
-  formats: FormatSpan[],
+  formats: MarkSpan[],
   startIndex: number,
   endIndex: number,
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
+  fonts: FontStyles,
   codePadding: number = 0,
 ): number {
   // Convert charRuns to Char[] for compatibility with existing measurement code
@@ -542,6 +573,7 @@ export function measureCharsUpToIndex(
     fontSize,
     baseFontWeight,
     fontFamily,
+    fonts,
     codePadding,
   );
 }
@@ -552,11 +584,12 @@ export function measureTextSegment(
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
+  fonts: FontStyles,
   codePadding: number = 0,
 ): number {
   // Determine effective font weight (bold overrides base weight)
   const effectiveFontWeight = textSegment.formats?.some(
-    (f) => f.type === "bold",
+    (f) => f.type === "strong",
   )
     ? "bold"
     : baseFontWeight;
@@ -566,6 +599,7 @@ export function measureTextSegment(
     fontSize,
     effectiveFontWeight,
     fontFamily,
+    fonts,
   );
 
   // Add code padding if applicable
@@ -582,6 +616,7 @@ export function measureFormattedText(
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
+  fonts: FontStyles,
   codePadding: number = 0,
 ): number {
   let totalWidth = 0;
@@ -591,6 +626,7 @@ export function measureFormattedText(
       fontSize,
       baseFontWeight,
       fontFamily,
+      fonts,
       codePadding,
     );
   }
@@ -606,6 +642,7 @@ export function measureFormattedTextUpToIndex(
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
+  fonts: FontStyles,
   codePadding: number = 0,
 ): number {
   let width = 0;
@@ -635,7 +672,9 @@ export function measureFormattedTextUpToIndex(
       overlapEnd - segmentStart,
     );
 
-    const effectiveFontWeight = segment.formats?.some((f) => f.type === "bold")
+    const effectiveFontWeight = segment.formats?.some(
+      (f) => f.type === "strong",
+    )
       ? "bold"
       : baseFontWeight;
 
@@ -644,6 +683,7 @@ export function measureFormattedTextUpToIndex(
       fontSize,
       effectiveFontWeight,
       fontFamily,
+      fonts,
     );
 
     width += segmentWidth;
@@ -665,15 +705,16 @@ export function measureFormattedTextUpToIndex(
   return width;
 }
 
-// Wrap CRDT text (Char[] with FormatSpan[]) for rendering
+// Wrap CRDT text (Char[] with MarkSpan[]) for rendering
 // Uses incremental character measurement for O(n) complexity
 export function wrapText(
   chars: Char[],
-  formats: FormatSpan[],
+  formats: MarkSpan[],
   maxWidth: number,
   fontSize: number,
   baseFontWeight: string,
   fontFamily: FontFamily,
+  fonts: FontStyles,
   _codePadding: number = 0,
   _compositionRange: { start: number; end: number } | null = null,
 ): WrappedLine[] {
@@ -701,7 +742,9 @@ export function wrapText(
   const getFontWeightAtIndex = (visibleIndex: number): string => {
     const originalIndex = visibleToOriginalIndex[visibleIndex];
     const charFormats = getFormatsAtIndex(originalIndex, chars, formats);
-    return charFormats.some((f) => f.type === "bold") ? "bold" : baseFontWeight;
+    return charFormats.some((f) => f.type === "strong")
+      ? "bold"
+      : baseFontWeight;
   };
 
   // Pre-compute inline-math span ranges (visible indices) and their rendered
@@ -765,7 +808,7 @@ export function wrapText(
       charWidth = 0;
     } else {
       const fontWeight = getFontWeightAtIndex(visibleIndex);
-      charWidth = measureCtxText(char, fontSize, fontWeight, fontFamily);
+      charWidth = measureCtxText(char, fontSize, fontWeight, fontFamily, fonts);
     }
 
     // Check if adding this character would exceed max width
@@ -825,24 +868,8 @@ export function wrapText(
   return lines.length > 0 ? lines : [{ text: "", consumedSpace: false }];
 }
 
-// Register a callback to be called when font family changes
-export function onFontFamilyChange(callback: () => void): void {
-  fontChangeCallback = callback;
-}
-
-// Get the current font family (falls back to the styles' default family)
-export function getCurrentFontFamily(): FontFamily {
-  return selectedFontFamily ?? getResolvedFontStyles().defaultFamily;
-}
-
-// Set the current font family
-export function setCurrentFontFamily(fontFamily: FontFamily): void {
-  const previousFontFamily = getCurrentFontFamily();
-
-  selectedFontFamily = fontFamily;
-
-  // If font family actually changed, notify callback to invalidate caches
-  if (previousFontFamily !== fontFamily && fontChangeCallback) {
-    fontChangeCallback();
-  }
-}
+// The selected font family is per-instance theme state (`EditorStyles.fontFamily`,
+// resolved from `EditorTheme.fontFamily`). Read it with `currentFontFamily(styles)`
+// above; change it with `editor.setTheme({ fontFamily })`. (Replaces the former
+// module globals `selectedFontFamily` / `getCurrentFontFamily` /
+// `setCurrentFontFamily` / `onFontFamilyChange`.)

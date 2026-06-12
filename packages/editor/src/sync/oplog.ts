@@ -142,7 +142,7 @@ export function appendOp(
  * Slow path (any new op interleaves with the existing log): replay the full
  * HLC-sorted log via rebuildState. This is the safety net for cases the
  * apply-time reducer cannot resolve locally — text_insert ops referencing
- * an afterCharId whose creating op hasn't been applied yet, format_set
+ * an afterCharId whose creating op hasn't been applied yet, mark_set
  * overlaps with non-LWW order dependence, and similar reorder hazards.
  *
  * @param log - Current operation log

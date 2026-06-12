@@ -22,7 +22,7 @@
 import { invertOperation, refreshOps } from "../../inverse";
 import type { Paragraph } from "../../rendering/nodes/TextNode";
 import type { Page } from "../../serlization/loadPage";
-import type { FormatSet } from "../../state-types";
+import type { MarkSet } from "../../state-types";
 import { isTextualBlock } from "../block-registry";
 import { getVisibleLengthFromRuns, iterateVisibleChars } from "../char-runs";
 import { applyOps } from "../reducer";
@@ -81,14 +81,14 @@ describe("undo after remote edit", () => {
       if (visibleCount >= 4) break;
     }
 
-    const boldOp: FormatSet = {
-      op: "format_set",
+    const boldOp: MarkSet = {
+      op: "mark_set",
       id: binding.nextId(),
       clock: binding.getClock(),
       pageId,
       blockId,
       charIds: charIdsToBold,
-      format: { type: "bold" },
+      format: { type: "strong" },
       value: true,
     };
     peerA.apply([boldOp]);
@@ -98,8 +98,8 @@ describe("undo after remote edit", () => {
     const capturedInverses = invertOperation(boldOp, pageBeforeBold, binding);
     expect(capturedInverses).toHaveLength(1);
     const inverse = capturedInverses[0];
-    expect(inverse.op).toBe("format_set");
-    expect((inverse as FormatSet).value).toBe(false);
+    expect(inverse.op).toBe("mark_set");
+    expect((inverse as MarkSet).value).toBe(false);
 
     // Sync bold to B.
     peerB.apply([boldOp]);
@@ -140,7 +140,7 @@ describe("undo after remote edit", () => {
 
     const stillBolded: string[] = [];
     for (const span of finalBlock.formats) {
-      if (span.format.type !== "bold") continue;
+      if (span.format.type !== "strong") continue;
       const startIdx = sequenceIds.indexOf(span.startCharId);
       const endIdx = sequenceIds.indexOf(span.endCharId);
       if (startIdx === -1 || endIdx === -1) continue;

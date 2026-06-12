@@ -1,4 +1,5 @@
 import { measureCharsUpToIndex } from "./fonts";
+import { snapInlineMathPosition } from "./inline-math";
 import {
   getContentWithComposition,
   TextNode,
@@ -6,7 +7,7 @@ import {
 } from "./rendering/nodes/TextNode";
 import { getBlockHeight } from "./rendering/renderer";
 import { getTextDirection } from "./rtl";
-import type { Block, CharRun, FormatSpan } from "./serlization/loadPage";
+import type { Block, CharRun, MarkSpan } from "./serlization/loadPage";
 import type {
   CursorState,
   EditorState,
@@ -20,7 +21,6 @@ import {
   getBlockTextContent,
   getBlockTextLength,
   getTextIndexAtRelativePosition,
-  snapInlineMathPosition,
 } from "./state-utils";
 import { getEditorStyles } from "./styles";
 import { isTextualBlock } from "./sync/block-registry";
@@ -94,7 +94,7 @@ function lineIndexAt(layout: TextNodeLayout, textIndex: number): number {
  * getTextIndexAtRelativePosition's RTL handling.
  */
 function relativeColumn(
-  block: { charRuns: CharRun[]; formats: FormatSpan[] },
+  block: { charRuns: CharRun[]; formats: MarkSpan[] },
   layout: TextNodeLayout,
   lineStartIndex: number,
   textIndex: number,
@@ -108,6 +108,7 @@ function relativeColumn(
     layout.textStyle.fontSize,
     layout.textStyle.fontWeight,
     layout.fontFamily,
+    layout.fonts,
     layout.codePadding,
   );
 }
@@ -573,105 +574,6 @@ export function getLinkAtPosition(
 }
 
 /**
- * Find the inline-math span containing a visible character index within a block.
- * Inline math is stored as a run of LaTeX characters tagged with the "math" format.
- * The span is treated as a single atomic unit by callers — the cursor should snap
- * to either the start (visible index = startIndex) or the end (visible index = endIndex)
- * rather than landing inside the chip.
- *
- * `mode` controls inclusivity at the boundaries:
- * - "inside": treat positions strictly between [startIndex+1, endIndex-1] as inside
- *             (positions at the edges return null — cursor is fine to sit there)
- * - "any":    return the span if the index is anywhere within [startIndex, endIndex]
- */
-export function getInlineMathAtPosition(
-  blockIndex: number,
-  textIndex: number,
-  state: EditorState,
-  mode: "inside" | "any" = "inside",
-  pointer?: { x: number; viewport: ViewportState; styles?: EditorStyles },
-): {
-  blockId: string;
-  startIndex: number;
-  endIndex: number;
-  latex: string;
-} | null {
-  const block = state.document.page.blocks[blockIndex];
-  if (!block || block.deleted) return null;
-  if (!isTextualBlock(block)) return null;
-
-  // Build a quick id → visible-index lookup for chars in this block
-  const visibleIds: string[] = [];
-  const visibleChars: string[] = [];
-  for (const { id, char } of iterateVisibleChars(block.charRuns)) {
-    visibleIds.push(id);
-    visibleChars.push(char);
-  }
-
-  for (const formatSpan of block.formats) {
-    if (formatSpan.format.type !== "math") continue;
-
-    const startIdx = visibleIds.indexOf(formatSpan.startCharId);
-    const endIdx = visibleIds.indexOf(formatSpan.endCharId);
-    if (startIdx === -1 || endIdx === -1) continue;
-
-    // Visible-index range is [startIdx, endIdx + 1) — caret positions go from
-    // startIdx (before first char) to endIdx + 1 (after last char).
-    const spanStart = startIdx;
-    const spanEnd = endIdx + 1;
-
-    let insideHit =
-      mode === "any"
-        ? textIndex >= spanStart && textIndex <= spanEnd
-        : textIndex > spanStart && textIndex < spanEnd;
-
-    // Boundary disambiguation for single-char spans (and any case where
-    // textIndex sits on a span boundary): textIndex alone can't tell "end
-    // of preceding text" from "start of chip". When pointer x is provided,
-    // verify the click landed within the chip's rendered x-range.
-    if (
-      !insideHit &&
-      mode === "inside" &&
-      pointer &&
-      (textIndex === spanStart || textIndex === spanEnd)
-    ) {
-      const startCoords = getCursorDocumentCoords(
-        { blockIndex, textIndex: spanStart },
-        state,
-        pointer.viewport,
-        pointer.styles,
-      );
-      const endCoords = getCursorDocumentCoords(
-        { blockIndex, textIndex: spanEnd },
-        state,
-        pointer.viewport,
-        pointer.styles,
-      );
-      if (
-        startCoords &&
-        endCoords &&
-        startCoords.y === endCoords.y &&
-        pointer.x >= startCoords.x &&
-        pointer.x <= endCoords.x
-      ) {
-        insideHit = true;
-      }
-    }
-
-    if (insideHit) {
-      return {
-        blockId: block.id,
-        startIndex: spanStart,
-        endIndex: spanEnd,
-        latex: visibleChars.slice(spanStart, spanEnd).join(""),
-      };
-    }
-  }
-
-  return null;
-}
-
-/**
  * Check if pixel coordinates (x, y) fall within the actual visual selection rectangles.
  * This accounts for text wrapping and only returns true if the point is on highlighted text.
  * Used for mobile tap detection to avoid clearing selection when tapping empty space.
@@ -1041,12 +943,12 @@ export function startSelection(
 ): EditorState {
   // Clear active formats when starting a selection
   let newState = state;
-  if (state.ui.activeFormatsMode.type === "explicit") {
+  if (state.ui.activeMarksMode.type === "explicit") {
     newState = {
       ...state,
       ui: {
         ...state.ui,
-        activeFormatsMode: { type: "inherit" },
+        activeMarksMode: { type: "inherit" },
       },
     };
   }
@@ -1447,13 +1349,13 @@ export function moveCursorToPosition(
   // Clear active formats when cursor moves (unless explicitly preserving them, e.g., during typing)
   if (
     !preserveActiveFormats &&
-    newState.ui.activeFormatsMode.type === "explicit"
+    newState.ui.activeMarksMode.type === "explicit"
   ) {
     newState = {
       ...newState,
       ui: {
         ...newState.ui,
-        activeFormatsMode: { type: "inherit" },
+        activeMarksMode: { type: "inherit" },
       },
     };
   }

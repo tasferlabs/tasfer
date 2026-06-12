@@ -429,7 +429,7 @@ interface CrdtOpEntry {
 const CRDT_OP_TYPES = [
   "text_insert",
   "text_delete",
-  "format_set",
+  "mark_set",
   "block_insert",
   "block_delete",
   "block_set",
@@ -445,7 +445,7 @@ const CRDT_OP_TYPES = [
 const OP_TYPE_COLORS: Record<string, string> = {
   text_insert: "text-emerald-400",
   text_delete: "text-red-400",
-  format_set: "text-purple-400",
+  mark_set: "text-purple-400",
   block_insert: "text-blue-400",
   block_delete: "text-red-400",
   block_set: "text-amber-400",
@@ -525,7 +525,7 @@ function crdtOpSummary(op: CrdtOpEntry): string {
     }
     case "text_delete":
       return `${(d.charIds as string[])?.length ?? 0} chars`;
-    case "format_set":
+    case "mark_set":
       return `${d.format}=${String(d.value)} on ${(d.charIds as string[])?.length ?? 0} chars`;
     case "block_insert":
       return `${d.blockType} after ${d.afterBlockId ? String(d.afterBlockId).slice(0, 8) : "start"}`;

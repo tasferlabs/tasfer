@@ -2,7 +2,7 @@ import { createDoc, type Doc } from "../doc";
 import { baseSchema, type Schema } from "../schema";
 import { type Block, loadPage } from "../serlization/loadPage";
 import type { Operation } from "../state-types";
-import type { Editor } from "./editor";
+import type { Editor, EditorStateSnapshot } from "./editor";
 import { mountEditor, type MountEditorOptions } from "./mount";
 
 export interface CreateEditorOptions extends MountEditorOptions {
@@ -54,10 +54,18 @@ export interface CypherEditor extends Editor {
    * are routed through the doc; prefer the doc API in new code.)
    */
   readonly doc: Doc;
+  /**
+   * Read-only state snapshot for UI binding: `{ selection, activeMarks, doc }`.
+   * The raw internal {@link EditorState} stays available via {@link getState}.
+   */
+  readonly state: EditorStateSnapshot & { readonly doc: Doc };
   /** Container to mount React popovers/overlays into (slash menu, link editor). */
   readonly portalContainer: HTMLDivElement;
-  /** Focus the editor, placing a caret if there isn't one yet. */
-  focus: () => void;
+  /**
+   * Focus the editor. With no argument, places a caret only if there isn't one
+   * yet; pass `"start"` / `"end"` to force the caret to the document boundary.
+   */
+  focus: (at?: "start" | "end") => void;
   /** Blur the editor / dismiss the soft keyboard. */
   blur: () => void;
   /** Refocus the hidden input (e.g. after closing a dialog or drawer). */
@@ -129,9 +137,10 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
   let offDocUpdate: (() => void) | null = null;
   let offHostBroadcast: (() => void) | null = null;
 
-  const focus = () => {
+  const focus = (at?: "start" | "end") => {
     mounted.refocus();
-    editor.setInitialCursor();
+    if (at) editor.setCaret(at);
+    else editor.setInitialCursor();
   };
 
   const destroy = () => {
@@ -150,8 +159,9 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
     ...editor,
     // Re-expose `state` as a live getter: object spread above evaluates the
     // core getter once and would otherwise freeze it to a stale snapshot.
+    // Adds `doc` so the documented `{ selection, activeMarks, doc }` shape works.
     get state() {
-      return editor.state;
+      return { ...editor.state, doc };
     },
     doc,
     portalContainer: mounted.portalContainer,
@@ -193,7 +203,8 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
   // batch), which a per-op fold in the editor would drop.
   offDocUpdate = doc.on("update", (u) => {
     if (u.origin === handle) return;
-    editor.updatePageFromSync(doc._getPage());
+    // Pass the applied ops so `editor.on("change")` fires with isRemote: true.
+    editor.updatePageFromSync(doc._getPage(), u.ops);
   });
 
   if (autofocus) focus();

@@ -33,21 +33,22 @@ export class UnknownNode extends AtomicNode<Block> {
 
   protected draw(box: BlockBounds, c: NodePaintCtx): void {
     const ctx = c.ctx;
+    const style = c.styles.unknownBlock;
     const h = box.height - PADDING_BOTTOM;
     ctx.save();
 
     // Muted dashed box.
-    ctx.fillStyle = "rgba(127,127,127,0.06)";
+    ctx.fillStyle = style.backgroundColor;
     ctx.fillRect(box.x, box.y, box.width, h);
-    ctx.strokeStyle = "rgba(127,127,127,0.4)";
+    ctx.strokeStyle = style.borderColor;
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 3]);
     ctx.strokeRect(box.x + 0.5, box.y + 0.5, box.width - 1, h - 1);
 
     // Label: the unrenderable block type.
     ctx.setLineDash([]);
-    ctx.fillStyle = "rgba(127,127,127,0.8)";
-    ctx.font = "12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    ctx.fillStyle = style.textColor;
+    ctx.font = style.fontFamily;
     ctx.textBaseline = "middle";
     const label = `Unsupported block: ${c.block.type}`;
     ctx.fillText(label, box.x + 12, box.y + h / 2, box.width - 24);
