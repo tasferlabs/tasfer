@@ -275,14 +275,6 @@ export interface Editor {
   copy: () => Promise<boolean>;
   cut: () => Promise<boolean>;
   paste: () => Promise<boolean>;
-  undo: () => void;
-  redo: () => void;
-  selectAll: () => void;
-  toggleBold: () => void;
-  toggleItalic: () => void;
-  toggleCode: () => void;
-  toggleStrikethrough: () => void;
-  setBlockType: (type: Block["type"]) => void;
   updateLink: (
     blockIndex: number,
     startIndex: number,
@@ -2076,49 +2068,6 @@ export default function createEditor(
     }
   }
 
-  function selectAllMethod() {
-    state = selectAll(state);
-    state = closeContextMenu(state);
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
-  }
-
-  function toggleBoldMethod() {
-    const hasSelection =
-      state.document.selection && !state.document.selection.isCollapsed;
-    const result = toggleBold(hasSelection ? state : state);
-    executeCommand(result);
-  }
-
-  function toggleItalicMethod() {
-    const hasSelection =
-      state.document.selection && !state.document.selection.isCollapsed;
-    const result = toggleItalic(hasSelection ? state : state);
-    executeCommand(result);
-  }
-
-  function toggleCodeMethod() {
-    const hasSelection =
-      state.document.selection && !state.document.selection.isCollapsed;
-    const result = toggleCode(hasSelection ? state : state);
-    executeCommand(result);
-  }
-
-  function toggleStrikethroughMethod() {
-    const hasSelection =
-      state.document.selection && !state.document.selection.isCollapsed;
-    const result = toggleStrikethrough(hasSelection ? state : state);
-    executeCommand(result);
-  }
-
-  function setBlockType(type: Block["type"]) {
-    if (!state.document.cursor) return;
-    state = state;
-    const result = convertBlockType(state, type);
-    executeCommand(result);
-  }
-
   function updateLink(
     blockIndex: number,
     startIndex: number,
@@ -3185,14 +3134,6 @@ export default function createEditor(
     copy,
     cut,
     paste,
-    undo,
-    redo,
-    selectAll: selectAllMethod,
-    toggleBold: toggleBoldMethod,
-    toggleItalic: toggleItalicMethod,
-    toggleCode: toggleCodeMethod,
-    toggleStrikethrough: toggleStrikethroughMethod,
-    setBlockType,
     updateLink,
     clearLink,
     createLink,

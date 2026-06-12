@@ -702,7 +702,8 @@ export function MountedEditor({
                     await editor.copy();
                     break;
                   case "selectAll":
-                    editor.selectAll();
+                    editor.commands.selectAll();
+                    editor.closeActiveMenu();
                     break;
                 }
               }, 0);
@@ -1001,18 +1002,19 @@ export function MountedEditor({
 
     // Expose editor methods to window for native bridges
     const editorMethods = {
-      undo: () => mounted.editor.undo(),
-      redo: () => mounted.editor.redo(),
-      setBlockType: (type: string) => mounted.editor.setBlockType(type as any),
+      undo: () => mounted.editor.commands.undo(),
+      redo: () => mounted.editor.commands.redo(),
+      setBlockType: (type: string) =>
+        mounted.editor.commands.setBlock(type as any),
       focus: () => {
         mounted.editor.setFocus(true);
         mounted.editor.setInitialCursor();
       },
       onFormatButtonClick: handleFormatButtonClick,
-      toggleBold: () => mounted.editor.toggleBold(),
-      toggleItalic: () => mounted.editor.toggleItalic(),
-      toggleCode: () => mounted.editor.toggleCode(),
-      toggleStrikethrough: () => mounted.editor.toggleStrikethrough(),
+      toggleBold: () => mounted.editor.commands.toggleMark("strong"),
+      toggleItalic: () => mounted.editor.commands.toggleMark("emphasis"),
+      toggleCode: () => mounted.editor.commands.toggleMark("code"),
+      toggleStrikethrough: () => mounted.editor.commands.toggleMark("strike"),
     };
 
     window.CypherEditorCallbacks = editorMethods;
@@ -1676,7 +1678,8 @@ export function MountedEditor({
         await editor.paste();
         break;
       case "selectAll":
-        editor.selectAll();
+        editor.commands.selectAll();
+        editor.closeActiveMenu();
         break;
     }
   };
@@ -1820,28 +1823,28 @@ export function MountedEditor({
             id: "format-bold",
             label: t("contextMenu.bold", "Bold"),
             icon: <Bold size={16} />,
-            action: () => mountedRef.current?.editor.toggleBold(),
+            action: () => mountedRef.current?.editor.commands.toggleMark("strong"),
             active: isBold,
           },
           {
             id: "format-italic",
             label: t("contextMenu.italic", "Italic"),
             icon: <Italic size={16} />,
-            action: () => mountedRef.current?.editor.toggleItalic(),
+            action: () => mountedRef.current?.editor.commands.toggleMark("emphasis"),
             active: isItalic,
           },
           {
             id: "format-code",
             label: t("contextMenu.code", "Code"),
             icon: <Code size={16} />,
-            action: () => mountedRef.current?.editor.toggleCode(),
+            action: () => mountedRef.current?.editor.commands.toggleMark("code"),
             active: isCode,
           },
           {
             id: "format-strikethrough",
             label: t("contextMenu.strikethrough", "Strikethrough"),
             icon: <Strikethrough size={16} />,
-            action: () => mountedRef.current?.editor.toggleStrikethrough(),
+            action: () => mountedRef.current?.editor.commands.toggleMark("strike"),
             active: isStrikethrough,
           },
           {
@@ -2614,16 +2617,22 @@ export function MountedEditor({
             isCode={mobileToolbar.isCode}
             isStrikethrough={mobileToolbar.isStrikethrough}
             currentBlockType={mobileToolbar.blockType}
-            onUndo={() => mountedRef.current?.editor.undo()}
-            onRedo={() => mountedRef.current?.editor.redo()}
-            onToggleBold={() => mountedRef.current?.editor.toggleBold()}
-            onToggleItalic={() => mountedRef.current?.editor.toggleItalic()}
-            onToggleCode={() => mountedRef.current?.editor.toggleCode()}
+            onUndo={() => mountedRef.current?.editor.commands.undo()}
+            onRedo={() => mountedRef.current?.editor.commands.redo()}
+            onToggleBold={() =>
+              mountedRef.current?.editor.commands.toggleMark("strong")
+            }
+            onToggleItalic={() =>
+              mountedRef.current?.editor.commands.toggleMark("emphasis")
+            }
+            onToggleCode={() =>
+              mountedRef.current?.editor.commands.toggleMark("code")
+            }
             onToggleStrikethrough={() =>
-              mountedRef.current?.editor.toggleStrikethrough()
+              mountedRef.current?.editor.commands.toggleMark("strike")
             }
             onSetBlockType={(type) =>
-              mountedRef.current?.editor.setBlockType(type as any)
+              mountedRef.current?.editor.commands.setBlock(type as any)
             }
             onDismissKeyboard={() => mountedRef.current?.blurInput()}
           />
