@@ -333,8 +333,7 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
             blockId: newBlockId,
             charIds,
             format: format.format,
-            value:
-              format.format.type === "link" ? format.format.url || true : true,
+            value: true,
           };
           ops.push(formatOp);
         }

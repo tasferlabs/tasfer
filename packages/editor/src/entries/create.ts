@@ -133,6 +133,8 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
     // Render with the schema's nodes (built-ins + any custom), unless the host
     // passed an explicit `nodes` list (which then wins).
     nodes: mountOptions.nodes ?? schema.nodes,
+    // Same for inline marks — schema's marks unless the host overrode them.
+    marks: mountOptions.marks ?? schema.marks,
     // Attach the doc: mountEditor mounts from its blocks, shares its binding,
     // and owns the doc↔editor wiring (local edits → doc, doc updates → editor).
     doc,

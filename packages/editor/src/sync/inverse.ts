@@ -15,6 +15,7 @@
  * states; callers pass `applyOp` in to avoid a circular import.
  */
 import type { Block, Char, Mark, Page } from "../serlization/loadPage";
+import { areMarksEqual } from "../serlization/loadPage";
 import type { CRDTbinding } from "../state-types";
 import type {
   BlockDelete,
@@ -187,13 +188,11 @@ function invertFormatSet(
     priors.push({ charId, priorFormat });
   }
 
-  // Group consecutive entries by prior-format identity.
+  // Group consecutive entries by prior-format identity (type + attrs).
   const sameFormat = (a: Mark | null, b: Mark | null): boolean => {
     if (a === null && b === null) return true;
     if (a === null || b === null) return false;
-    if (a.type !== b.type) return false;
-    if (a.type === "link") return a.url === b.url;
-    return true;
+    return areMarksEqual(a, b);
   };
 
   const inverses: MarkSet[] = [];

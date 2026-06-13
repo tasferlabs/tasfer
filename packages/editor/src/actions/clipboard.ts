@@ -128,8 +128,8 @@ function autoLinkInRange(
         blockId,
         start,
         end,
-        { type: "link", url },
-        url,
+        { type: "link", attrs: { url } },
+        true,
         binding,
       );
       pageAcc = newPage;
@@ -514,8 +514,8 @@ function blocksToHTML(blocks: Block[]): string {
             text = `<s>${text}</s>`;
           } else if (format.type === "code") {
             text = `<code>${text}</code>`;
-          } else if (format.type === "link" && format.url) {
-            text = `<a href="${format.url}">${text}</a>`;
+          } else if (format.type === "link" && format.attrs?.url) {
+            text = `<a href="${format.attrs.url}">${text}</a>`;
           }
         }
       }
@@ -563,6 +563,36 @@ function blocksToHTML(blocks: Block[]): string {
 }
 
 /**
+ * Build the clipboard representations of the current selection synchronously.
+ * Returns `null` when there is no (non-empty) selection. Used both by the async
+ * clipboard writers below and by the native `copy`/`cut` ClipboardEvent
+ * handlers, which must call `setData` synchronously within the event.
+ */
+export function buildClipboardPayload(
+  state: EditorState,
+): { plainText: string; html: string; markdown: string } | null {
+  const selectedContent = getSelectedContent(state);
+  if (!selectedContent) return null;
+  const { blocks } = selectedContent;
+  if (blocks.length === 0) return null;
+  return {
+    plainText: blocksToPlainText(blocks),
+    html: blocksToHTML(blocks),
+    markdown: blocksToMarkdown(blocks),
+  };
+}
+
+/**
+ * Plain text of the current selection (empty string when nothing is selected).
+ * Used to mirror the selection into the accessible input surface so its text
+ * matches exactly what a copy would produce.
+ */
+export function getSelectionPlainText(state: EditorState): string {
+  const payload = buildClipboardPayload(state);
+  return payload ? payload.plainText : "";
+}
+
+/**
  * Copy selected content to clipboard with formatting
  * Returns true if successful, false otherwise
  */
@@ -570,15 +600,10 @@ export async function copySelectionToClipboard(
   state: EditorState,
 ): Promise<boolean> {
   try {
-    const selectedContent = getSelectedContent(state);
-    if (!selectedContent) return false;
+    const payload = buildClipboardPayload(state);
+    if (!payload) return false;
 
-    const { blocks } = selectedContent;
-    if (blocks.length === 0) return false;
-
-    const plainText = blocksToPlainText(blocks);
-    const markdown = blocksToMarkdown(blocks);
-    const html = blocksToHTML(blocks);
+    const { plainText, markdown, html } = payload;
 
     const nativeClipboard = state.hostBridge?.clipboard;
     if (nativeClipboard) {
@@ -828,7 +853,7 @@ function parseHTMLToBlocks(html: string, binding: CRDTbinding): Block[] {
       } else if (tagName === "a") {
         const href = element.getAttribute("href");
         if (href) {
-          newFormats.push({ type: "link", url: href });
+          newFormats.push({ type: "link", attrs: { url: href } });
         }
       } else if (tagName === "span") {
         // Check for Google Docs inline styling on spans
@@ -1594,10 +1619,7 @@ function insertBlocksAtCursor(
             blockId: currentBlock.id,
             charIds,
             format: pasteFormat.format,
-            value:
-              pasteFormat.format.type === "link"
-                ? pasteFormat.format.url || true
-                : true,
+            value: true,
           };
           ops.push(formatOp);
           pageAcc = applyOps(pageAcc, [formatOp]);
@@ -1883,10 +1905,7 @@ function insertBlocksAtCursor(
               blockId: currentBlock.id,
               charIds,
               format: pasteFormat.format,
-              value:
-                pasteFormat.format.type === "link"
-                  ? pasteFormat.format.url || true
-                  : true,
+              value: true,
             };
             ops.push(formatOp);
           }
@@ -2109,10 +2128,7 @@ function insertBlocksAtCursor(
               blockId: newBlockId,
               charIds,
               format: format.format,
-              value:
-                format.format.type === "link"
-                  ? format.format.url || true
-                  : true,
+              value: true,
             };
             ops.push(formatOp);
           }
@@ -2286,10 +2302,7 @@ function insertBlocksAtCursor(
               blockId: lastBlockId,
               charIds,
               format: format.format,
-              value:
-                format.format.type === "link"
-                  ? format.format.url || true
-                  : true,
+              value: true,
             };
             ops.push(formatOp);
           }
@@ -2439,10 +2452,7 @@ function insertBlocksAtCursor(
                 blockId: afterBlockId,
                 charIds,
                 format: format.format,
-                value:
-                  format.format.type === "link"
-                    ? format.format.url || true
-                    : true,
+                value: true,
               };
               ops.push(formatOp);
             }
@@ -2576,10 +2586,7 @@ function insertBlocksAtCursor(
                 blockId: afterBlockId,
                 charIds,
                 format: format.format,
-                value:
-                  format.format.type === "link"
-                    ? format.format.url || true
-                    : true,
+                value: true,
               };
               ops.push(formatOp);
             }
@@ -2687,10 +2694,7 @@ function insertBlocksAtCursor(
               blockId: afterBlockId,
               charIds,
               format: format.format,
-              value:
-                format.format.type === "link"
-                  ? format.format.url || true
-                  : true,
+              value: true,
             };
             ops.push(formatOp);
           }

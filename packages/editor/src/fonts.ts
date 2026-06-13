@@ -12,8 +12,9 @@
 
 import { containsCJK, isCJKCharacter } from "./cjk";
 import { getInlineMathDims } from "./math";
-// Formatted text measurement - handles Char[] with MarkSpan[]
 import type { Char, CharRun, Mark, MarkSpan } from "./serlization/loadPage";
+// Formatted text measurement - handles Char[] with MarkSpan[]
+import { markKey } from "./serlization/loadPage";
 import type {
   EditorStyles,
   FontFamily,
@@ -31,17 +32,18 @@ interface TextSegment {
   formats?: Mark[];
 }
 
-// A batch of consecutive characters with the same formatting
+// A batch of consecutive characters with the same formatting.
+//
+// The batch carries only the metric-affecting flags the measurement engine
+// needs — `isBold` (weight) and `isMath` (atomic inline-math width). The
+// *visual* mark channels (italic, code chip, link, strike, color) are resolved
+// from `formats` through the per-instance MarkRegistry at paint time, so they
+// don't live here.
 export interface TextBatch {
   text: string;
   formats: Mark[];
   isBold: boolean;
-  isItalic: boolean;
-  isCode: boolean;
-  isStrikethrough: boolean;
-  isLink: boolean;
   isMath: boolean;
-  linkUrl?: string;
 }
 
 // Line wrapping result with information about consumed characters
@@ -303,15 +305,7 @@ export function getFormatsAtIndex(
 
 // Create a unique key for a set of formats (for batching comparison)
 export function getFormatKey(formats: Mark[]): string {
-  const keys: string[] = [];
-  for (const f of formats) {
-    if (f.type === "link") {
-      keys.push(`link:${f.url}`);
-    } else {
-      keys.push(f.type);
-    }
-  }
-  return keys.sort().join("|");
+  return formats.map(markKey).sort().join("|");
 }
 
 // Batch CRDT characters by formatting within a visible index range
@@ -349,24 +343,14 @@ export function batchChars(
       // Same formatting, append to current batch
       currentBatch.text += char.char;
     } else {
-      // Different formatting, start new batch
-      const isBold = charFormats.some((f) => f.type === "strong");
-      const isItalic = charFormats.some((f) => f.type === "emphasis");
-      const isCode = charFormats.some((f) => f.type === "code");
-      const isStrikethrough = charFormats.some((f) => f.type === "strike");
-      const isMath = charFormats.some((f) => f.type === "math");
-      const linkFormat = charFormats.find((f) => f.type === "link");
-
+      // Different formatting, start new batch. Only the metric-affecting flags
+      // (bold weight, atomic inline-math) are precomputed; visual channels are
+      // resolved from `formats` via the MarkRegistry at paint time.
       currentBatch = {
         text: char.char,
         formats: charFormats,
-        isBold,
-        isItalic,
-        isCode,
-        isStrikethrough,
-        isLink: !!linkFormat,
-        isMath,
-        linkUrl: linkFormat?.type === "link" ? linkFormat.url : undefined,
+        isBold: charFormats.some((f) => f.type === "strong"),
+        isMath: charFormats.some((f) => f.type === "math"),
       };
       batches.push(currentBatch);
     }

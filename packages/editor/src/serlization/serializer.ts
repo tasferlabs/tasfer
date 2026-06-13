@@ -61,7 +61,7 @@ export function serializeToMarkdown(
 
   const ctx: OutputCtx = {
     format: "markdown",
-    inline: inlineToMarkdown,
+    inline: (charRuns, formats) => inlineToMarkdown(charRuns, formats, schema),
     mapAssetUrl: options?.mapAssetUrl ?? ((url) => url),
   };
 

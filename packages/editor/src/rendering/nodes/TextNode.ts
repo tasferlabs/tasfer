@@ -37,13 +37,13 @@ import {
   type WrappedLine,
   wrapText,
 } from "../../fonts";
-import { getInlineMathDims, getInlineMathImage } from "../../math";
 import { getBlockTextContent, isTouchDevice } from "../../node-shared";
 import { getTextDirection } from "../../rtl";
 import type {
   Block,
   Char,
   CharRun,
+  Mark,
   MarkSpan,
 } from "../../serlization/loadPage";
 import type {
@@ -67,6 +67,12 @@ import {
   getVisibleTextFromRuns,
   iterateVisibleChars,
 } from "../../sync/char-runs";
+import type {
+  MarkChipStyle,
+  MarkRegistry,
+  MarkReplacement,
+  MarkUnderlineStyle,
+} from "../marks";
 import type { ListBlock } from "./ListNode";
 import {
   type BlockRuntimeState,
@@ -351,7 +357,74 @@ function renderCompositionUnderline(
   ctx.restore();
 }
 
+/** The visual style of one text run, folded from all its marks' channels. */
+interface ComposedMarkStyle {
+  italic: boolean;
+  strikethrough: boolean;
+  /** Glyph fill color, or undefined to use the block's base text color. */
+  color?: string;
+  /** Background chip (code). */
+  background?: MarkChipStyle;
+  /** Underline (link). */
+  underline?: MarkUnderlineStyle;
+  /** Replacement renderer (inline math): draws its own glyphs, measured atomically. */
+  replacement?: MarkReplacement;
+}
+
+/**
+ * Resolve a run's stored marks through the per-instance {@link MarkRegistry}
+ * and fold their style channels into one {@link ComposedMarkStyle}. Replaces the
+ * former hardcoded `batch.isCode / isLink / isMath` branches in `renderLine`.
+ *
+ * Precedence preserves the prior behavior: a chip-bearing mark's color (code)
+ * wins over a plain color (link); italic / strike / underline are additive; a
+ * replacement mark (math) wins the run and contributes no inline channels.
+ */
+function composeMarkStyle(
+  formats: Mark[],
+  marks: MarkRegistry,
+  styles: EditorStyles,
+): ComposedMarkStyle {
+  let italic = false;
+  let strikethrough = false;
+  let background: MarkChipStyle | undefined;
+  let chipColor: string | undefined;
+  let plainColor: string | undefined;
+  let underline: MarkUnderlineStyle | undefined;
+  let replacement: MarkReplacement | undefined;
+
+  for (const format of formats) {
+    const mark = marks.get(format.type);
+    if (!mark) continue;
+    if (mark.replacement) {
+      replacement = mark.replacement;
+      continue;
+    }
+    const s = mark.style({ styles, mark: format });
+    if (s.italic) italic = true;
+    if (s.strikethrough) strikethrough = true;
+    if (s.underline) underline = s.underline;
+    if (s.background) {
+      background = s.background;
+      if (s.color) chipColor = s.color;
+    } else if (s.color) {
+      plainColor = s.color;
+    }
+  }
+
+  return {
+    italic,
+    strikethrough,
+    background,
+    underline,
+    color: chipColor ?? plainColor,
+    replacement,
+  };
+}
+
 // Render a single line with CRDT formatting (batched to preserve ligatures).
+// Per-mark visual style is resolved through the editor's MarkRegistry, so the
+// renderer no longer special-cases individual mark types.
 function renderLine(
   ctx: CanvasRenderingContext2D,
   chars: Char[],
@@ -363,6 +436,7 @@ function renderLine(
   textStyle: TextStyle,
   fontFamily: FontFamily,
   styles: EditorStyles,
+  marks: MarkRegistry,
   isRTL: boolean,
   requestRedraw: () => void,
   hoveredInlineMath: { startIndex: number; endIndex: number } | null = null,
@@ -380,67 +454,38 @@ function renderLine(
   let batchVisibleStart = lineStartIndex;
 
   for (const batch of batches) {
+    const style = composeMarkStyle(batch.formats, marks, styles);
     const effectiveFontWeight = batch.isBold ? "bold" : textStyle.fontWeight;
-    const fontStyle = batch.isItalic ? "italic" : "normal";
+    const fontStyle = style.italic ? "italic" : "normal";
 
     ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily, styles.fonts)}`;
     ctx.textBaseline = "alphabetic";
 
     const batchVisibleEnd = batchVisibleStart + batch.text.length;
-    const isBatchHovered =
-      batch.isMath &&
-      hoveredInlineMath !== null &&
-      batchVisibleStart >= hoveredInlineMath.startIndex &&
-      batchVisibleEnd <= hoveredInlineMath.endIndex;
 
-    if (batch.isMath) {
-      const dpr = window.devicePixelRatio || 1;
-      const dims = getInlineMathDims(batch.text, textStyle.fontSize);
-      const mathStyle = styles.textFormats.inlineMath;
-
+    // Replacement marks (inline math) draw their own glyphs and measure as an
+    // atomic unit — they win the run. Fall through to plain text only when the
+    // replacement can't render (measure returns null), matching prior behavior.
+    if (style.replacement) {
+      const hovered =
+        hoveredInlineMath !== null &&
+        batchVisibleStart >= hoveredInlineMath.startIndex &&
+        batchVisibleEnd <= hoveredInlineMath.endIndex;
+      const dims = style.replacement.measure(batch.text, textStyle.fontSize);
       if (dims) {
-        const mathWidth = dims.width;
-        const visualX = currentX;
-        const drawX = isRTL ? visualX - mathWidth : visualX;
-
-        if (isBatchHovered) {
-          const padding = mathStyle.padding;
-          ctx.save();
-          ctx.fillStyle = mathStyle.hoverBackgroundColor;
-          const rectX = drawX - padding;
-          const rectY = y - dims.height + dims.depthBelowBaseline - padding;
-          const rectWidth = mathWidth + padding * 2;
-          const rectHeight = dims.height + padding * 2;
-          ctx.beginPath();
-          ctx.roundRect(
-            rectX,
-            rectY,
-            rectWidth,
-            rectHeight,
-            mathStyle.borderRadius,
-          );
-          ctx.fill();
-          ctx.restore();
-        }
-
-        const image = getInlineMathImage(
-          batch.text,
-          textStyle.fontSize,
-          dpr,
-          styles.blocks.paragraph.color,
-          styles.blocks.math.errorBackgroundColor,
+        style.replacement.paint({
+          ctx,
+          text: batch.text,
+          x: currentX,
+          y,
+          fontSize: textStyle.fontSize,
+          isRTL,
+          hovered,
+          dims,
+          styles,
           requestRedraw,
-        );
-        if (image) {
-          const imgY = y - dims.height + dims.depthBelowBaseline;
-          ctx.drawImage(image.bitmap, drawX, imgY, mathWidth, dims.height);
-        }
-
-        if (isRTL) {
-          currentX -= mathWidth;
-        } else {
-          currentX += mathWidth;
-        }
+        });
+        currentX += isRTL ? -dims.width : dims.width;
         batchVisibleStart = batchVisibleEnd;
         continue;
       }
@@ -449,59 +494,33 @@ function renderLine(
     const textWidth = ctx.measureText(batch.text).width;
     const visualX = currentX;
 
-    if (batch.isCode || batch.isMath) {
-      const chipStyle = batch.isMath
-        ? styles.textFormats.inlineMath
-        : styles.textFormats.code;
-      const padding = chipStyle.padding;
-
-      const drawChip = batch.isCode || isBatchHovered;
-      if (drawChip) {
-        ctx.save();
-        ctx.fillStyle =
-          batch.isMath && isBatchHovered
-            ? styles.textFormats.inlineMath.hoverBackgroundColor
-            : chipStyle.backgroundColor;
-
-        let rectX: number;
-        if (isRTL) {
-          rectX = visualX - textWidth - padding;
-        } else {
-          rectX = visualX - padding;
-        }
-
-        const rectY = y - textStyle.fontSize - padding;
-        const rectWidth = textWidth + padding * 2;
-        const rectHeight = textStyle.fontSize * textStyle.lineHeight;
-
-        ctx.beginPath();
-        ctx.roundRect(
-          rectX,
-          rectY,
-          rectWidth,
-          rectHeight,
-          chipStyle.borderRadius,
-        );
-        ctx.fill();
-        ctx.restore();
-      }
-
-      ctx.fillStyle = chipStyle.color;
-    } else if (batch.isLink) {
-      ctx.fillStyle = styles.textFormats.link.color;
-    } else {
-      ctx.fillStyle = textStyle.color;
+    // Background chip (code).
+    if (style.background) {
+      const chip = style.background;
+      ctx.save();
+      ctx.fillStyle = chip.color;
+      const rectX = isRTL
+        ? visualX - textWidth - chip.padding
+        : visualX - chip.padding;
+      const rectY = y - textStyle.fontSize - chip.padding;
+      const rectWidth = textWidth + chip.padding * 2;
+      const rectHeight = textStyle.fontSize * textStyle.lineHeight;
+      ctx.beginPath();
+      ctx.roundRect(rectX, rectY, rectWidth, rectHeight, chip.borderRadius);
+      ctx.fill();
+      ctx.restore();
     }
 
+    ctx.fillStyle = style.color ?? textStyle.color;
     ctx.fillText(batch.text, visualX, y);
 
-    if (batch.isLink) {
-      const linkStyle = styles.textFormats.link;
+    // Underline (link).
+    if (style.underline) {
+      const u = style.underline;
       ctx.save();
-      ctx.strokeStyle = linkStyle.color;
-      ctx.lineWidth = linkStyle.underlineThickness;
+      ctx.strokeStyle = u.color;
+      ctx.lineWidth = u.thickness;
       ctx.beginPath();
-
       if (isRTL) {
         ctx.moveTo(visualX - textWidth, y + textStyle.fontSize * 0.1);
         ctx.lineTo(visualX, y + textStyle.fontSize * 0.1);
@@ -513,12 +532,12 @@ function renderLine(
       ctx.restore();
     }
 
-    if (batch.isStrikethrough) {
+    // Strike-through — uses the resolved fill color, matching prior behavior.
+    if (style.strikethrough) {
       ctx.save();
       ctx.strokeStyle = ctx.fillStyle;
       ctx.lineWidth = Math.max(1, textStyle.fontSize / 16);
       ctx.beginPath();
-
       if (isRTL) {
         ctx.moveTo(visualX - textWidth, y - textStyle.fontSize * 0.3);
         ctx.lineTo(visualX, y - textStyle.fontSize * 0.3);
@@ -1237,6 +1256,7 @@ export class TextNode extends Node<TextualBlock> {
         textStyle,
         fontFamily,
         styles,
+        state.marks,
         isRTL,
         c.requestRedraw,
         hoveredInlineMath,

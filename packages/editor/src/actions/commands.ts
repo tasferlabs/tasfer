@@ -156,8 +156,8 @@ function autoLinkAtCursor(
     blockId,
     detected.start,
     detected.end,
-    { type: "link", url: detected.url },
-    detected.url,
+    { type: "link", attrs: { url: detected.url } },
+    true,
     binding,
   );
 
@@ -558,8 +558,7 @@ function mergeBlocksOps(
               blockId: target.id,
               charIds: coveredNewIds,
               format: span.format,
-              value:
-                span.format.type === "link" ? span.format.url || true : true,
+              value: true,
             });
           }
         }
@@ -2870,7 +2869,7 @@ export function splitBlock(state: EditorState): CommandResult {
             blockId: newBlockId,
             charIds: coveredNewIds,
             format: span.format,
-            value: span.format.type === "link" ? span.format.url || true : true,
+            value: true,
           });
         }
       }
@@ -2990,12 +2989,15 @@ export function selectCurrentBlock(state: EditorState): EditorState {
 }
 
 /**
- * Generic function to toggle inline formatting on selected text or at cursor position
- * If there's no selection, toggles the format mode for next typed text
+ * Generic function to toggle an inline mark on selected text or at the cursor.
+ * If there's no selection, toggles the format mode for next typed text.
+ *
+ * `formatType` is any toggleable mark type (the built-ins plus custom toggle
+ * marks); callers gate non-toggleable marks (link/math) before reaching here.
  */
 export function toggleFormat(
   state: EditorState,
-  formatType: "strong" | "emphasis" | "code" | "strike",
+  formatType: string,
 ): CommandResult {
   const range = getSelectionRange(state);
 
@@ -4231,8 +4233,8 @@ export function updateLinkInBlock(
     block.id,
     startIndex,
     startIndex + newText.length,
-    { type: "link", url: newUrl },
-    newUrl,
+    { type: "link", attrs: { url: newUrl } },
+    true,
     state.CRDTbinding,
   );
   pageAcc = pageAfterFormat;

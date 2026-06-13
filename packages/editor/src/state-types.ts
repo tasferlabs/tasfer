@@ -1,3 +1,4 @@
+import type { MarkRegistry } from "./rendering/marks/Mark";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
 import type { Block, CharRun, Mark, Page } from "./serlization/loadPage";
@@ -116,10 +117,10 @@ export interface MarkSet extends BaseOp {
   blockId: string;
   /** Character IDs to format */
   charIds: string[];
-  /** Format to apply */
+  /** Mark to apply (its per-mark data, e.g. a link's url, rides `format.attrs`) */
   format: Mark;
-  /** Format value (true/false for toggles, URL for links) */
-  value: boolean | string;
+  /** Whether to apply the mark (`true`) or remove it from the range (`false`) */
+  value: boolean;
 }
 
 /**
@@ -532,6 +533,13 @@ export interface EditorState {
    * page can register different block sets and so block types are opt-in at mount.
    */
   readonly nodes: NodeRegistry;
+  /**
+   * Per-instance registry of inline marks (the rendering facet: style channels
+   * + replacement painting per mark type). Owned by this editor — NOT a module
+   * global — so multiple editors on the same page can register different mark
+   * sets and so marks are opt-in at mount. Mirrors {@link nodes}.
+   */
+  readonly marks: MarkRegistry;
   /**
    * The host's raw styling input for this instance (tokens + style overrides +
    * fonts + selected family + strings). Kept so `setTheme` can merge a partial

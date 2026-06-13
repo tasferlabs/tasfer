@@ -635,7 +635,7 @@ export function getLinkAtPosition(
       }
 
       return {
-        url: formatSpan.format.url || "",
+        url: (formatSpan.format.attrs?.url as string | undefined) || "",
         text: linkText.join(""),
         startIndex: startVisIndex,
         endIndex: endVisIndex + 1,

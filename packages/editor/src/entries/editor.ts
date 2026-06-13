@@ -1,20 +1,20 @@
 import {
+  buildClipboardPayload,
   copySelectionToClipboard,
   cutSelectionToClipboard,
+  getSelectionPlainText,
   pasteFromNativeClipboardAPI,
 } from "../actions/clipboard";
 import {
   applySlashCommand,
   clearLinkInBlock,
   convertBlockType,
+  deleteSelectedText,
   getFormatsAtPosition,
   getSelectionRange,
   insertText,
   selectAll,
-  toggleBold,
-  toggleCode,
-  toggleItalic,
-  toggleStrikethrough,
+  toggleFormat,
   updateLinkInBlock,
 } from "../actions/commands";
 import { createChromeRegionRegistry } from "../events/chromeRegions";
@@ -125,15 +125,17 @@ export interface ChangeTransaction {
 }
 
 /**
- * Inline mark names accepted by {@link EditorCommands.toggleMark}.
+ * An inline mark name accepted by {@link EditorCommands.toggleMark} — any mark
+ * type registered on the editor's schema whose {@link Mark.togglable} is true
+ * (the built-ins `strong`/`emphasis`/`strike`/`code`, plus any custom toggle
+ * marks a host registers). `link` and `math` are valid mark types but are
+ * `togglable: false` — they carry data (a url / LaTeX) and are applied through
+ * their own commands, so `toggleMark` is a no-op for them.
  *
- * These HTML-semantic names (`strong`/`emphasis`/`strike`/`code`) are exactly
- * the vocabulary stored in the CRDT op log, serialized to Markdown/HTML, and
- * consumed by the renderer — the editor has a single mark vocabulary, so there
- * is no public/internal translation. (`link` and `math` are also valid
- * {@link Mark} `type`s but are applied through their own commands, not toggled.)
+ * Typed as `string` rather than a closed union so custom marks are accepted;
+ * the name is validated against the schema at call time.
  */
-export type MarkName = "strong" | "emphasis" | "strike" | "code";
+export type MarkName = string;
 
 /**
  * Imperative command namespace (see {@link Editor.commands}). Each command
@@ -398,7 +400,7 @@ export default function createEditor(
   layers: CanvasLayers,
   initialState: EditorState,
   viewportProp: ViewportState,
-  hiddenInput?: HTMLInputElement,
+  hiddenInput?: HTMLElement,
 ): Editor {
   // Extract contexts from layers
   const contentCtx = layers.content.ctx;
@@ -606,6 +608,21 @@ export default function createEditor(
     text: string;
     imageFile: File | null;
   } | null = null;
+
+  // ── Accessible input-surface mirror (per-instance) ──────────────────────────
+  // `hiddenInput` is a contenteditable surface that always holds either the
+  // current selection's text (so native copy/cut and screen readers see real
+  // content) or a single sentinel char with the caret placed AFTER it. The
+  // trailing-character caret is what keeps Android GBoard emitting
+  // `deleteContentBackward` on backspace (the old <input> used value=" ").
+  // NBSP is used because a plain space can be collapsed/trimmed in a
+  // contenteditable. All programmatic DOM mutation is wrapped in
+  // `isMirrorUpdating` so the resulting input/selection events aren't mistaken
+  // for user edits, and `lastSelectionSig` avoids recomputing the (potentially
+  // large) selection text on every render frame.
+  const SENTINEL = "\u00A0"; // NBSP (stable in contenteditable; a plain space can be trimmed)
+  let isMirrorUpdating = false;
+  let lastSelectionSig: string | null = null;
 
   // Callback for when an image file is pasted (set by external code to handle async upload)
   let onImagePasteCallback: ((file: File, blockIndex: number) => void) | null =
@@ -903,6 +920,17 @@ export default function createEditor(
           }
         }
 
+        // Mirror the model selection into the input surface so native copy/cut
+        // and screen readers operate on real text. Skipped during IME
+        // composition (the browser owns the surface content then).
+        if (
+          hiddenInput &&
+          state.view.isFocused &&
+          !state.ui.composition?.isComposing
+        ) {
+          syncMirrorToSelection();
+        }
+
         // Notify listeners only if state changed
         if (stateChanged) {
           const currentState = state;
@@ -982,31 +1010,9 @@ export default function createEditor(
       e.preventDefault();
     }
 
-    // For paste events, extract clipboard data immediately since it gets detached
-    if (e.type === "paste" && e instanceof ClipboardEvent) {
-      e.preventDefault();
-      const clipboardData = e.clipboardData;
-      if (clipboardData) {
-        // Check for image files in clipboard items (e.g. pasted screenshots)
-        let imageFile: File | null = null;
-        for (let i = 0; i < clipboardData.items.length; i++) {
-          const item = clipboardData.items[i];
-          if (item.type.startsWith("image/")) {
-            imageFile = item.getAsFile();
-            if (imageFile) break;
-          }
-        }
-
-        pendingClipboardData = {
-          html: clipboardData.getData("text/html") || "",
-          text:
-            clipboardData.getData("text/plain") ||
-            clipboardData.getData("text") ||
-            "",
-          imageFile,
-        };
-      }
-    }
+    // Paste is handled by the contenteditable surface's `paste` listener
+    // (pasteHandler), which extracts the clipboard data synchronously and
+    // queues the event. eventsHandler no longer receives paste/keydown.
 
     eventsQueue.push(e);
     scheduleRender(); // Mark that we need to render due to this event
@@ -1100,13 +1106,172 @@ export default function createEditor(
     eventsHandler(e);
   }
 
-  // Handle input from hidden input element (mobile keyboard)
+  // ── Input-surface mirror + clipboard helpers ───────────────────────────────
+
+  // Write `text` into the contenteditable surface and, when it's the focused
+  // element, set the DOM selection: spanning the whole text (so a screen reader
+  // announces it and the browser has real content to copy) or collapsed after
+  // it (the sentinel caret). Wrapped in `isMirrorUpdating` so the resulting DOM
+  // events are ignored by our own handlers.
+  function setMirror(text: string, selectText: boolean) {
+    if (!hiddenInput) return;
+    isMirrorUpdating = true;
+    try {
+      if (hiddenInput.textContent !== text) {
+        hiddenInput.textContent = text;
+      }
+      const node = hiddenInput.firstChild;
+      if (node && document.activeElement === hiddenInput) {
+        const sel = window.getSelection();
+        if (sel) {
+          const range = document.createRange();
+          if (selectText) {
+            range.setStart(node, 0);
+            range.setEnd(node, text.length);
+          } else {
+            range.setStart(node, text.length);
+            range.collapse(true);
+          }
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+    } catch {
+      // Defensive: a stray DOM state shouldn't break input handling.
+    } finally {
+      isMirrorUpdating = false;
+    }
+  }
+
+  // Restore the single-sentinel-char state with the caret AFTER it (keeps
+  // Android emitting deleteContentBackward). Called after every input/compose.
+  function resetSentinel() {
+    setMirror(SENTINEL, false);
+  }
+
+  // Cheap signature of the current selection/caret, to avoid recomputing the
+  // (potentially large) selection text on every render frame.
+  function selectionSignature(s: EditorState): string {
+    const sel = s.document.selection;
+    if (sel && !sel.isCollapsed) {
+      return `sel:${sel.anchor.blockIndex}:${sel.anchor.textIndex}-${sel.focus.blockIndex}:${sel.focus.textIndex}`;
+    }
+    const c = s.document.cursor;
+    return c
+      ? `caret:${c.position.blockIndex}:${c.position.textIndex}`
+      : "none";
+  }
+
+  // Keep the surface in sync with the model selection: hold the selection's
+  // plain text (selected, so copy/AT see it) or fall back to the sentinel.
+  // Skipped during IME composition (the browser owns the content then).
+  function syncMirrorToSelection() {
+    if (!hiddenInput) return;
+    const sig = selectionSignature(state);
+    if (sig === lastSelectionSig) return;
+    lastSelectionSig = sig;
+    const sel = state.document.selection;
+    if (sel && !sel.isCollapsed) {
+      const text = getSelectionPlainText(state);
+      if (text) {
+        setMirror(text, true);
+        return;
+      }
+    }
+    // No selection: (re)place the sentinel + caret. Runs only when the
+    // selection signature changes (cheap), and re-anchors the caret after the
+    // sentinel on focus and after every caret move so Android keeps emitting
+    // deleteContentBackward.
+    resetSentinel();
+  }
+
+  // Pull html/text/image out of a ClipboardEvent synchronously (clipboardData
+  // detaches after the handler returns).
+  function extractPendingClipboard(e: ClipboardEvent): {
+    html: string;
+    text: string;
+    imageFile: File | null;
+  } | null {
+    const clipboardData = e.clipboardData;
+    if (!clipboardData) return null;
+    let imageFile: File | null = null;
+    for (let i = 0; i < clipboardData.items.length; i++) {
+      const item = clipboardData.items[i];
+      if (item.type.startsWith("image/")) {
+        imageFile = item.getAsFile();
+        if (imageFile) break;
+      }
+    }
+    return {
+      html: clipboardData.getData("text/html") || "",
+      text:
+        clipboardData.getData("text/plain") ||
+        clipboardData.getData("text") ||
+        "",
+      imageFile,
+    };
+  }
+
+  // Native copy: write the selection as text/plain + text/html synchronously.
+  // Copy is allowed in readonly mode. In a native shell the WebView may ignore
+  // ClipboardEvent.setData, so defer to the async host-bridge path there.
+  function copyHandler(e: ClipboardEvent) {
+    if (!state.view.isFocused) return;
+    if (state.hostBridge?.clipboard) {
+      copySelectionToClipboard(state).catch((err) =>
+        console.error("Copy failed:", err),
+      );
+      return;
+    }
+    const payload = buildClipboardPayload(state);
+    if (!payload || !e.clipboardData) return; // nothing selected → browser default
+    e.preventDefault();
+    e.clipboardData.setData("text/plain", payload.plainText);
+    e.clipboardData.setData("text/html", payload.html);
+  }
+
+  // Native cut: copy, then delete the selection through the command pipeline.
+  function cutHandler(e: ClipboardEvent) {
+    if (!state.view.isFocused) return;
+    if (state.ui.mode === "readonly" || state.ui.mode === "locked") return;
+    if (state.ui.composition?.isComposing) return;
+    if (state.hostBridge?.clipboard) {
+      cutSelectionToClipboard(state)
+        .then((r) => {
+          if (r.success && r.result) executeCommand(r.result);
+        })
+        .catch((err) => console.error("Cut failed:", err));
+      return;
+    }
+    const payload = buildClipboardPayload(state);
+    if (!payload || !e.clipboardData) return;
+    e.preventDefault();
+    e.clipboardData.setData("text/plain", payload.plainText);
+    e.clipboardData.setData("text/html", payload.html);
+    executeCommand(deleteSelectedText(state));
+    resetSentinel();
+  }
+
+  // Native paste: stash the clipboard payload and queue the event so the
+  // existing handlePaste flow (incl. the image-paste callback) runs in-frame.
+  function pasteHandler(e: ClipboardEvent) {
+    if (!state.view.isFocused) return;
+    if (state.ui.mode === "readonly" || state.ui.mode === "locked") return;
+    e.preventDefault();
+    pendingClipboardData = extractPendingClipboard(e);
+    eventsQueue.push(e);
+    scheduleRender();
+  }
+
+  // Handle input from the contenteditable surface (mobile keyboard + desktop
+  // character input flow through here as InputEvents).
   function hiddenInputHandler(e: Event) {
     if (!hiddenInput) return;
+    if (isMirrorUpdating) return;
 
     // Block input in readonly or locked mode
     if (state.ui.mode === "readonly" || state.ui.mode === "locked") {
-      hiddenInput.value = " ";
+      resetSentinel();
       return;
     }
 
@@ -1139,13 +1304,18 @@ export default function createEditor(
         eventsQueue.push(keyEvent);
       }
       scheduleRender();
-      // Keep a dummy space to ensure Android fires deleteContentBackward events
-      hiddenInput.value = " ";
+      // Restore the sentinel (caret after a real char) so Android keeps firing
+      // deleteContentBackward.
+      resetSentinel();
       return;
     }
 
-    // Handle special input types
-    if (inputEvent.inputType === "insertLineBreak") {
+    // Handle special input types. Contenteditable favors `insertParagraph` for
+    // Enter (vs. `insertLineBreak` on <input>), so accept both.
+    if (
+      inputEvent.inputType === "insertParagraph" ||
+      inputEvent.inputType === "insertLineBreak"
+    ) {
       const enterEvent = new KeyboardEvent("keydown", {
         key: "Enter",
         bubbles: true,
@@ -1153,7 +1323,7 @@ export default function createEditor(
       });
       eventsQueue.push(enterEvent);
       scheduleRender();
-      hiddenInput.value = " ";
+      resetSentinel();
       return;
     }
 
@@ -1165,12 +1335,24 @@ export default function createEditor(
       });
       eventsQueue.push(backspaceEvent);
       scheduleRender();
-      hiddenInput.value = " ";
+      resetSentinel();
       return;
     }
 
-    // Keep a dummy space for any other input types
-    hiddenInput.value = " ";
+    if (inputEvent.inputType === "deleteContentForward") {
+      const deleteEvent = new KeyboardEvent("keydown", {
+        key: "Delete",
+        bubbles: true,
+        cancelable: true,
+      });
+      eventsQueue.push(deleteEvent);
+      scheduleRender();
+      resetSentinel();
+      return;
+    }
+
+    // Restore the sentinel for any other input types
+    resetSentinel();
   }
 
   // Handle keydown from hidden input (for special keys)
@@ -1219,9 +1401,7 @@ export default function createEditor(
             composition: null,
           },
         };
-        if (hiddenInput) {
-          hiddenInput.value = " ";
-        }
+        resetSentinel();
         scheduleRender();
         e.preventDefault();
         return;
@@ -1263,9 +1443,7 @@ export default function createEditor(
               ...state,
               ui: { ...state.ui, composition: null },
             };
-            if (hiddenInput) {
-              hiddenInput.value = " ";
-            }
+            resetSentinel();
           }
           scheduleRender();
         }
@@ -1304,9 +1482,7 @@ export default function createEditor(
               ...state,
               ui: { ...state.ui, composition: null },
             };
-            if (hiddenInput) {
-              hiddenInput.value = " ";
-            }
+            resetSentinel();
           }
           scheduleRender();
         }
@@ -1404,7 +1580,7 @@ export default function createEditor(
       e.stopPropagation();
       eventsQueue.push(e);
       scheduleRender();
-      hiddenInput.value = " ";
+      resetSentinel();
     } else if (isShortcut) {
       // Save as Markdown - handle here (not in events queue) to preserve user gesture for download
       if (e.code === "KeyS") {
@@ -1434,10 +1610,12 @@ export default function createEditor(
         return;
       }
 
-      const handledShortcuts = ["KeyZ", "KeyY", "KeyA", "KeyC", "KeyX", "KeyB"];
+      // Copy/cut (KeyC/KeyX) are intentionally excluded: they must fall through
+      // so the browser fires native `copy`/`cut` events (handled by
+      // copyHandler/cutHandler), which write the clipboard synchronously.
+      const handledShortcuts = ["KeyZ", "KeyY", "KeyA", "KeyB"];
       if (handledShortcuts.includes(e.code)) {
-        // For editor shortcuts, forward to events queue and stop propagation
-        // to prevent window listener from also processing it
+        // For editor shortcuts, forward to the events queue.
         e.preventDefault();
         e.stopPropagation();
         eventsQueue.push(e);
@@ -1470,8 +1648,8 @@ export default function createEditor(
     eventsQueue.push(e);
     scheduleRender();
 
-    // Keep a dummy space after composition ends
-    hiddenInput.value = " ";
+    // Restore the sentinel after composition ends.
+    resetSentinel();
   }
 
   // Click handler for focusing input (stored for cleanup)
@@ -1526,14 +1704,17 @@ export default function createEditor(
     contentCanvas.addEventListener("touchcancel", eventsHandler, {
       passive: false,
     });
-    window.addEventListener("keydown", eventsHandler);
-    window.addEventListener("paste", eventsHandler);
+
+    // Keyboard, IME, and clipboard are NOT captured on `window` — they flow
+    // through the per-instance contenteditable surface below. This keeps two
+    // editors on one page from clobbering each other's input (the old global
+    // window keydown/paste listeners fired for every instance).
 
     // Invalidate rect cache when canvas position might change
     window.addEventListener("resize", invalidateRectCache);
     window.addEventListener("scroll", invalidateRectCache, true);
 
-    // Set up hidden input handlers for mobile keyboard support
+    // Set up input-surface handlers (keyboard, mobile, IME, clipboard).
     if (hiddenInput) {
       hiddenInput.addEventListener("input", hiddenInputHandler);
       hiddenInput.addEventListener("keydown", hiddenInputKeyDownHandler);
@@ -1546,8 +1727,16 @@ export default function createEditor(
       );
       hiddenInput.addEventListener("compositionend", compositionEndHandler);
 
+      // Native clipboard events — synchronous copy/cut/paste on the selection.
+      hiddenInput.addEventListener("copy", copyHandler);
+      hiddenInput.addEventListener("cut", cutHandler);
+      hiddenInput.addEventListener("paste", pasteHandler);
+
       // Ensure input is focusable (already set in mount.ts, but ensure it's correct)
       hiddenInput.setAttribute("tabindex", "0");
+
+      // Seed the sentinel content so the surface is never empty before focus.
+      resetSentinel();
     }
 
     // Font-family changes now flow through `setTheme` (which clears block caches
@@ -1600,12 +1789,10 @@ export default function createEditor(
     contentCanvas.removeEventListener("touchmove", touchMoveHandler);
     contentCanvas.removeEventListener("touchend", touchEndHandler);
     contentCanvas.removeEventListener("touchcancel", eventsHandler);
-    window.removeEventListener("keydown", eventsHandler);
-    window.removeEventListener("paste", eventsHandler);
     window.removeEventListener("resize", invalidateRectCache);
     window.removeEventListener("scroll", invalidateRectCache, true);
 
-    // Clean up hidden input handlers
+    // Clean up input-surface handlers
     if (hiddenInput) {
       hiddenInput.removeEventListener("input", hiddenInputHandler);
       hiddenInput.removeEventListener("keydown", hiddenInputKeyDownHandler);
@@ -1618,6 +1805,9 @@ export default function createEditor(
         compositionUpdateHandler,
       );
       hiddenInput.removeEventListener("compositionend", compositionEndHandler);
+      hiddenInput.removeEventListener("copy", copyHandler);
+      hiddenInput.removeEventListener("cut", cutHandler);
+      hiddenInput.removeEventListener("paste", pasteHandler);
     }
 
     // Clean up awareness cleanup interval
@@ -1674,6 +1864,22 @@ export default function createEditor(
     state = updateFocus(state, focused);
     if (shouldClearSelection) {
       state = clearSelection(state);
+    }
+    // Keep DOM focus on the input surface in lockstep with logical focus. Since
+    // keyboard input is no longer captured on `window`, the surface must own DOM
+    // focus to receive keystrokes/IME. (The 'focus' event re-enters setFocus,
+    // but the transition guard below makes that idempotent.)
+    if (
+      focused &&
+      hiddenInput &&
+      !state.ui.isReadonlyBase &&
+      document.activeElement !== hiddenInput
+    ) {
+      try {
+        hiddenInput.focus({ preventScroll: true });
+      } catch {
+        // Ignore — focus can throw if the element is detached mid-teardown.
+      }
     }
     scheduleRender(); // Schedule render when focus changes
     // Focus is applied here, outside the render-frame diff, so the render loop
@@ -1808,15 +2014,15 @@ export default function createEditor(
   // `chain()` threads state through several and commits them as ONE undo step.
   type Command = (s: EditorState) => CommandResult;
 
-  // Mark name → the toggle command that applies it. Mark names match the
-  // stored vocabulary one-to-one, so this is a plain name→command dispatch
-  // with no vocabulary translation.
-  const MARK_COMMANDS: Partial<Record<MarkName, Command>> = {
-    strong: toggleBold,
-    emphasis: toggleItalic,
-    code: toggleCode,
-    strike: toggleStrikethrough,
-  };
+  // toggleMark dispatch is registry-driven: any togglable mark on the schema
+  // can be toggled by name (built-ins + custom). Marks that need extra input
+  // (link → url, math → LaTeX) are `togglable: false` and ignored here.
+  const toggleMarkCommand =
+    (name: MarkName): Command =>
+    (s) =>
+      toggleFormat(s, name);
+  const canToggleMark = (name: MarkName): boolean =>
+    state.marks.get(name)?.togglable === true;
 
   const blockCommand =
     (type: Block["type"]): Command =>
@@ -1850,10 +2056,8 @@ export default function createEditor(
   }
 
   const commands: EditorCommands = {
-    toggleMark: (name) => {
-      const cmd = MARK_COMMANDS[name];
-      return cmd ? runCommand(cmd) : false;
-    },
+    toggleMark: (name) =>
+      canToggleMark(name) ? runCommand(toggleMarkCommand(name)) : false,
     setBlock: (type, attrs) =>
       runCommand(blockCommand(resolveBlockType(type, attrs))),
     insertText: (text) => runCommand(insertTextCommand(text)),
@@ -1897,8 +2101,7 @@ export default function createEditor(
     };
     const builder: EditorCommandChain = {
       toggleMark: (name) => {
-        const cmd = MARK_COMMANDS[name];
-        if (cmd) steps.push(cmd);
+        if (canToggleMark(name)) steps.push(toggleMarkCommand(name));
         return builder;
       },
       setBlock: (type, attrs) => {
@@ -2083,8 +2286,8 @@ export default function createEditor(
       block.id,
       start.textIndex,
       start.textIndex + text.length,
-      { type: "link", url },
-      url,
+      { type: "link", attrs: { url } },
+      true,
       state.CRDTbinding,
     );
     ops.push(formatOp);
@@ -2387,9 +2590,8 @@ export default function createEditor(
         start,
         start + text.length,
         mark,
-        // Link marks carry their url as the value; flag-style marks (e.g. math)
-        // carry `true`.
-        mark.url ?? true,
+        // Apply the mark; its per-mark data (e.g. a link url) rides mark.attrs.
+        true,
         state.CRDTbinding,
       );
       ops.push(formatOp);

@@ -88,7 +88,8 @@ export function serializeToHTML(
 
   const ctx: OutputCtx = {
     format: "html",
-    inline: (charRuns, formats) => inlineToHtml(charRuns, formats, renderToSVG),
+    inline: (charRuns, formats) =>
+      inlineToHtml(charRuns, formats, schema, renderToSVG),
     mapAssetUrl: (url) => options.imageUrlMap?.get(url) ?? url,
     renderMathSVG: renderToSVG,
   };

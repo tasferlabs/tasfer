@@ -11,7 +11,9 @@ import {
   getVisibleTextFromRuns,
   iterateVisibleChars,
 } from "../../sync/char-runs";
+import type { DataSchema } from "../../sync/schema";
 import type { CharRun, Mark, MarkSpan } from "../loadPage";
+import type { MarkHtmlCtx } from "./mark-codec";
 
 export interface Segment {
   text: string;
@@ -31,9 +33,9 @@ function formatKeysToFormats(keys: Set<string>): Mark[] | undefined {
   const formats: Mark[] = [];
   for (const key of keys) {
     if (key.startsWith("link:")) {
-      formats.push({ type: "link", url: key.slice(5) });
+      formats.push({ type: "link", attrs: { url: key.slice(5) } });
     } else {
-      formats.push({ type: key as Mark["type"] });
+      formats.push({ type: key });
     }
   }
   return formats.length > 0 ? formats : undefined;
@@ -64,7 +66,8 @@ export function groupSegments(
         formatMap.set(charId, new Set());
       }
       const key =
-        span.format.type + (span.format.url ? `:${span.format.url}` : "");
+        span.format.type +
+        (span.format.attrs?.url ? `:${span.format.attrs.url}` : "");
       formatMap.get(charId)!.add(key);
     }
   }
@@ -112,10 +115,16 @@ export function escapeAttr(s: string): string {
   return escapeHtml(s);
 }
 
-/** Markdown inline rendering: `**bold**`, `*italic*`, `[text](url)`, … */
+/**
+ * Markdown inline rendering: `**bold**`, `*italic*`, `[text](url)`, … Each
+ * mark's delimiters come from its {@link MarkCodec} on the schema, so the set
+ * of marks is data-driven rather than a hardcoded `format.type === …` chain.
+ * Marks with no markdown codec (custom marks) are emitted as their text.
+ */
 export function inlineToMarkdown(
   charRuns: CharRun[],
   formats: MarkSpan[],
+  schema: DataSchema,
 ): string {
   const segments = groupSegments(charRuns, formats);
   let content = "";
@@ -123,19 +132,8 @@ export function inlineToMarkdown(
     let text = segment.text;
     if (segment.formats) {
       for (const format of segment.formats) {
-        if (format.type === "strong") {
-          text = `**${text}**`;
-        } else if (format.type === "emphasis") {
-          text = `*${text}*`;
-        } else if (format.type === "strike") {
-          text = `~~${text}~~`;
-        } else if (format.type === "code") {
-          text = `\`${text}\``;
-        } else if (format.type === "math") {
-          text = `$${text}$`;
-        } else if (format.type === "link" && format.url) {
-          text = `[${text}](${format.url})`;
-        }
+        const codec = schema.getMarkCodec(format.type);
+        if (codec) text = codec.toMarkdown(text, format);
       }
     }
     content += text;
@@ -143,36 +141,48 @@ export function inlineToMarkdown(
   return content;
 }
 
-/** HTML inline rendering: `<strong>`, `<em>`, `<a href>`, math via injected renderer. */
+/**
+ * HTML inline rendering: `<strong>`, `<em>`, `<a href>`, math via injected
+ * renderer. Each mark's HTML comes from its {@link MarkCodec.html} on the
+ * schema — a replacement mark (math) wins the run, otherwise the run's marks
+ * wrap in ascending `priority` (innermost first), reproducing the prior fixed
+ * nesting without a hardcoded per-mark chain.
+ */
 export function inlineToHtml(
   charRuns: CharRun[],
   formats: MarkSpan[],
+  schema: DataSchema,
   renderMathSVG?: (latex: string, displayMode: boolean) => string,
 ): string {
   const segments = groupSegments(charRuns, formats);
   return segments
     .map((seg) => {
-      let html = escapeHtml(seg.text);
-      if (!seg.formats) return html;
-      // Wrap in a deterministic order so nesting is consistent
-      const has = (t: string) => seg.formats!.some((f) => f.type === t);
-      const link = seg.formats.find((f) => f.type === "link");
-      if (has("math")) {
-        // Replace text content with rendered SVG; fall back to $...$ source
-        try {
-          if (!renderMathSVG) throw new Error("no math renderer");
-          html = renderMathSVG(seg.text, false);
-        } catch {
-          html = `<code>$${escapeHtml(seg.text)}$</code>`;
-        }
-        return html;
+      const escaped = escapeHtml(seg.text);
+      if (!seg.formats) return escaped;
+
+      const ctx: MarkHtmlCtx = {
+        text: seg.text,
+        escapeHtml,
+        escapeAttr,
+        renderMathSVG,
+      };
+      const entries = seg.formats
+        .map((mark) => ({ html: schema.getMarkCodec(mark.type)?.html, mark }))
+        .filter((e): e is { html: NonNullable<typeof e.html>; mark: Mark } =>
+          Boolean(e.html),
+        );
+
+      // A replacement mark (inline math) renders the whole run.
+      const replacement = entries.find((e) => e.html.replace);
+      if (replacement)
+        return replacement.html.render(escaped, replacement.mark, ctx);
+
+      // Otherwise wrap innermost-first by priority.
+      entries.sort((a, b) => a.html.priority - b.html.priority);
+      let html = escaped;
+      for (const { html: codec, mark } of entries) {
+        html = codec.render(html, mark, ctx);
       }
-      if (has("code")) html = `<code>${html}</code>`;
-      if (has("strong")) html = `<strong>${html}</strong>`;
-      if (has("emphasis")) html = `<em>${html}</em>`;
-      if (has("strike")) html = `<s>${html}</s>`;
-      if (link && link.url)
-        html = `<a href="${escapeAttr(link.url)}">${html}</a>`;
       return html;
     })
     .join("");

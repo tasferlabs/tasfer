@@ -21,6 +21,15 @@
  */
 
 import {
+  codeMark,
+  emphasisMark,
+  linkMark,
+  Mark,
+  mathMark,
+  strikeMark,
+  strongMark,
+} from "./rendering/marks";
+import {
   imageNode,
   lineNode,
   listNode,
@@ -74,10 +83,16 @@ export interface SchemaExtension {
 export class Schema {
   readonly data: DataSchema;
   readonly nodes: readonly Node[];
+  readonly marks: readonly Mark[];
 
-  constructor(data: DataSchema, nodes: readonly Node[]) {
+  constructor(
+    data: DataSchema,
+    nodes: readonly Node[],
+    marks: readonly Mark[],
+  ) {
     this.data = data;
     this.nodes = nodes;
+    this.marks = marks;
   }
 
   /** Derive a new schema with extra custom node and mark types. */
@@ -96,7 +111,10 @@ export class Schema {
       marks: ext.marks,
     });
     const nodes = [...this.nodes, ...specs.map((spec) => spec.node)];
-    return new Schema(data, nodes);
+    // Rendering marks pass through unchanged — `ext.marks` only declares the
+    // data facet today; custom rendering marks are supplied via `mountEditor`'s
+    // `marks` option (the full authoring API lands with `defineMark`).
+    return new Schema(data, nodes, this.marks);
   }
 }
 
@@ -120,13 +138,11 @@ function toBlockSpec(entry: BlockSpec | Node): BlockSpec {
  * The default schema — every built-in block and mark type, and the built-in
  * nodes. Immutable; derive variants with `baseSchema.extend(...)`.
  */
-export const baseSchema: Schema = new Schema(baseDataSchema, [
-  lineNode,
-  imageNode,
-  mathNode,
-  textNode,
-  listNode,
-]);
+export const baseSchema: Schema = new Schema(
+  baseDataSchema,
+  [lineNode, imageNode, mathNode, textNode, listNode],
+  [strongMark, emphasisMark, strikeMark, codeMark, linkMark, mathMark],
+);
 
 // ─── defineMark ──────────────────────────────────────────────────────────────
 

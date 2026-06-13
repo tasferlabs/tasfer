@@ -1,8 +1,6 @@
-import { copySelectionToClipboard } from "../actions/clipboard";
 import {
   applySlashCommand,
   deleteForward,
-  deleteSelectedText,
   deleteText,
   deleteWordBackward,
   deleteWordForward,
@@ -262,33 +260,11 @@ export function handleKeyDown(
     return { state, ops };
   }
 
-  // Copy
-  if (isCtrl && code === "KeyC") {
-    // Don't prevent default - allow browser's copy to work as fallback
-    // But also handle our custom copy with formatting
-    copySelectionToClipboard(state).catch((err) => {
-      console.error("Copy failed:", err);
-    });
-    return { state, ops };
-  }
-
-  // Cut
-  if (isCtrl && code === "KeyX") {
-    const range = getSelectionRange(state);
-    if (range) {
-      // Copy to clipboard first
-      copySelectionToClipboard(state).catch((err) => {
-        console.error("Cut (copy) failed:", err);
-      });
-      // Then delete the selected text
-      const result = deleteSelectedText(state);
-      const newState = result.state;
-      ops.push(...result.ops);
-      ensureCursorVisible(newState, state, viewport, updateViewportCallback);
-      return { state: newState, ops };
-    }
-    return { state, ops };
-  }
+  // Copy/cut (Ctrl/Cmd+C / +X) are handled by the native `copy`/`cut`
+  // ClipboardEvents on the input surface (see copyHandler/cutHandler in
+  // editor.ts), which write the clipboard synchronously via clipboardData. They
+  // are intentionally NOT intercepted here, so the keydown falls through and
+  // the browser fires those events.
 
   // Handle slash command menu navigation
   if (state.ui.activeMenu.type === "slashCommand") {

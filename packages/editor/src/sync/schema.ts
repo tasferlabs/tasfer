@@ -22,6 +22,10 @@
  */
 
 import { ALL_CODECS, type BlockCodec } from "../serlization/codecs";
+import {
+  BUILTIN_MARK_CODECS,
+  type MarkCodec,
+} from "../serlization/codecs/mark-codec";
 import type { Block } from "../serlization/loadPage";
 import type { TokenType } from "../serlization/tokenizer";
 import { BLOCK_REGISTRY, type BlockTypeDescriptor } from "./block-registry";
@@ -50,6 +54,8 @@ export interface BlockSpecCore {
 /** A declared inline mark (bold, a custom highlight, …). */
 export interface MarkSpec {
   readonly type: string;
+  /** Markdown serialization facet — wrap on output, paired tokens on input. */
+  readonly codec?: MarkCodec;
 }
 
 export interface DataSchemaExtension {
@@ -68,6 +74,10 @@ export class DataSchema {
   readonly tokenDispatch: ReadonlyMap<TokenType, BlockCodec>;
   /** HTML tag (lowercase) → codec, derived from each block's markdown.htmlTags. */
   readonly htmlTagDispatch: ReadonlyMap<string, BlockCodec>;
+  /** Inline-mark open-token → mark type, derived from each mark codec's tokens. */
+  private readonly markStartTokens: ReadonlyMap<TokenType, string>;
+  /** Inline-mark close-token → mark type. */
+  private readonly markEndTokens: ReadonlyMap<TokenType, string>;
 
   constructor(
     blockSpecs: readonly BlockSpecCore[],
@@ -90,12 +100,23 @@ export class DataSchema {
       }
     }
     const marks = new Map<string, MarkSpec>();
-    for (const mark of markSpecs) marks.set(mark.type, mark);
+    const markStartTokens = new Map<TokenType, string>();
+    const markEndTokens = new Map<TokenType, string>();
+    for (const mark of markSpecs) {
+      marks.set(mark.type, mark);
+      const tokens = mark.codec?.tokens;
+      if (tokens) {
+        markStartTokens.set(tokens.start, mark.type);
+        markEndTokens.set(tokens.end, mark.type);
+      }
+    }
 
     this.blocks = blocks;
     this.marks = marks;
     this.tokenDispatch = tokenDispatch;
     this.htmlTagDispatch = htmlTagDispatch;
+    this.markStartTokens = markStartTokens;
+    this.markEndTokens = markEndTokens;
   }
 
   /** Whether a block type is known to this schema. */
@@ -127,6 +148,21 @@ export class DataSchema {
   /** Every mark type this schema declares. */
   hasMark(type: string): boolean {
     return this.marks.has(type);
+  }
+
+  /** The markdown serialization codec for a mark type, if any. */
+  getMarkCodec(type: string): MarkCodec | undefined {
+    return this.marks.get(type)?.codec;
+  }
+
+  /** The mark type a paired-delimiter open token introduces, if any. */
+  markTypeForStartToken(token: TokenType): string | undefined {
+    return this.markStartTokens.get(token);
+  }
+
+  /** The mark type a paired-delimiter close token ends, if any. */
+  markTypeForEndToken(token: TokenType): string | undefined {
+    return this.markEndTokens.get(token);
   }
 
   // ── Capability queries (sourced from the per-type descriptor) ──────────────
@@ -225,5 +261,8 @@ function buildBaseBlockSpecs(): BlockSpecCore[] {
  */
 export const baseDataSchema: DataSchema = new DataSchema(
   buildBaseBlockSpecs(),
-  BUILTIN_MARK_TYPES.map((type) => ({ type })),
+  BUILTIN_MARK_TYPES.map((type) => ({
+    type,
+    codec: BUILTIN_MARK_CODECS[type],
+  })),
 );

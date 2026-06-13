@@ -380,7 +380,7 @@ export interface SyncEngine {
     blockId: string,
     charIds: string[],
     format: Mark,
-    value: boolean | string,
+    value: boolean,
   ): MarkSet;
   createBlockInsert(
     afterBlockId: string | null,
@@ -401,7 +401,7 @@ export interface SyncEngine {
     startIndex: number,
     endIndex: number,
     format: Mark,
-    value: boolean | string,
+    value: boolean,
   ): MarkSet;
   /** Insert a new paragraph block after the given block (null = beginning). */
   insertParagraph(afterBlockId: string | null): BlockInsert;
@@ -593,7 +593,7 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
     blockId: string,
     charIds: string[],
     format: Mark,
-    value: boolean | string,
+    value: boolean,
   ): MarkSet {
     return {
       ...createBaseOp(),
@@ -774,7 +774,7 @@ export function createSyncEngine(binding: CRDTbinding): SyncEngine {
       startIndex: number,
       endIndex: number,
       format: Mark,
-      value: boolean | string,
+      value: boolean,
     ): MarkSet {
       const block = getState().blocks.find((b) => b.id === blockId);
       const charIds =

@@ -2,6 +2,8 @@
 // (not here) and re-exported below: the node views import them, and the node
 // registry imports back into this module, so keeping those two off `state-utils`
 // breaks the `ListNode extends TextNode` circular-init hazard.
+import type { MarkRegistry } from "./rendering/marks";
+import { createDefaultMarkRegistry } from "./rendering/marks";
 import type { NodeRegistry } from "./rendering/nodes";
 import { createDefaultNodeRegistry } from "./rendering/nodes";
 import {
@@ -36,6 +38,7 @@ export function createInitialState(
   options?: {
     mode?: EditorMode;
     nodes?: NodeRegistry;
+    marks?: MarkRegistry;
     theme?: EditorTheme;
     crdtBinding?: CRDTbindingType;
     hostBridge?: HostBridge | null;
@@ -64,6 +67,10 @@ export function createInitialState(
   // (opt-in block set); default to the built-in views when not provided.
   const nodes = options?.nodes ?? createDefaultNodeRegistry();
 
+  // Inline-mark registry is likewise per-instance (opt-in mark set); default to
+  // the built-in marks when not provided.
+  const marks = options?.marks ?? createDefaultMarkRegistry();
+
   // The host's raw theme, resolved once into the full style tree. Stored
   // per-instance (not a module global) so two editors on a page style
   // independently and the engine never reads the DOM.
@@ -77,6 +84,7 @@ export function createInitialState(
     CRDTbinding,
     hostBridge: options?.hostBridge ?? null,
     nodes,
+    marks,
     theme,
     resolvedStyles,
     resolvedNodeStrings,

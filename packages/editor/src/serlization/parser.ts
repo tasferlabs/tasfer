@@ -13,23 +13,14 @@ import { extractCounter, extractPeerId } from "../sync/id";
 import { baseDataSchema, type DataSchema } from "../sync/schema";
 import type { InputCtx, ParsedTag } from "./codecs";
 import type { Block, Char, CharRun, Mark, MarkSpan, Page } from "./loadPage";
+import { markKey } from "./loadPage";
 import {
-  BOLD_END,
-  BOLD_START,
-  CODE_END,
-  CODE_START,
   HTML_TAG,
   INDENT,
-  INLINE_MATH_END,
-  INLINE_MATH_START,
-  ITALIC_END,
-  ITALIC_START,
   LINK_END,
   LINK_START,
   LINK_TEXT_END,
   NEWLINE,
-  STRIKETHROUGH_END,
-  STRIKETHROUGH_START,
   type Token,
   type TokenType,
   type VisibleToken,
@@ -277,19 +268,17 @@ function parseCharsAndFormats(context: ParserContext): {
   while (!isEnd(context) && nomatch(context, NEWLINE)) {
     const node = previous(context) as VisibleToken;
 
-    // Handle format start tokens
-    if (node.type === BOLD_START) {
-      formatStack.push({ type: "strong" });
-    } else if (node.type === ITALIC_START) {
-      formatStack.push({ type: "emphasis" });
-    } else if (node.type === STRIKETHROUGH_START) {
-      formatStack.push({ type: "strike" });
-    } else if (node.type === CODE_START) {
-      formatStack.push({ type: "code" });
-    } else if (node.type === INLINE_MATH_START) {
-      formatStack.push({ type: "math" });
-    } else if (node.type === INLINE_MATH_END) {
-      const index = formatStack.findIndex((f) => f.type === "math");
+    // Inline mark open/close tokens are data-driven: each mark declares its
+    // paired tokenizer tokens via its codec (MarkCodec.tokens), so the parser
+    // dispatches token → mark type through the schema instead of a per-mark
+    // if-chain. Links are parsed specially (their url arrives after the text),
+    // so they stay out of the token table and are handled below.
+    const markStart = context.schema.markTypeForStartToken(node.type);
+    const markEnd = context.schema.markTypeForEndToken(node.type);
+    if (markStart) {
+      formatStack.push({ type: markStart });
+    } else if (markEnd) {
+      const index = formatStack.findIndex((f) => f.type === markEnd);
       if (index !== -1) formatStack.splice(index, 1);
     } else if (node.type === LINK_START) {
       // Link text chars start here; the url arrives at LINK_TEXT_END
@@ -314,25 +303,11 @@ function parseCharsAndFormats(context: ParserContext): {
         formats.push({
           startCharId: chars[pendingLink.startCharIndex].id,
           endCharId: chars[chars.length - 1].id,
-          format: { type: "link", url: pendingLink.url },
+          format: { type: "link", attrs: { url: pendingLink.url } },
           clock: { counter: 0, peerId: "parser" },
         });
       }
       pendingLink = null;
-    }
-    // Handle format end tokens
-    else if (node.type === BOLD_END) {
-      const index = formatStack.findIndex((f) => f.type === "strong");
-      if (index !== -1) formatStack.splice(index, 1);
-    } else if (node.type === ITALIC_END) {
-      const index = formatStack.findIndex((f) => f.type === "emphasis");
-      if (index !== -1) formatStack.splice(index, 1);
-    } else if (node.type === STRIKETHROUGH_END) {
-      const index = formatStack.findIndex((f) => f.type === "strike");
-      if (index !== -1) formatStack.splice(index, 1);
-    } else if (node.type === CODE_END) {
-      const index = formatStack.findIndex((f) => f.type === "code");
-      if (index !== -1) formatStack.splice(index, 1);
     }
     // Handle text content - create chars
     else if (node.content) {
@@ -342,7 +317,7 @@ function parseCharsAndFormats(context: ParserContext): {
 
         // Create format spans for active formats
         for (const format of formatStack) {
-          const formatKey = format.type + (format.url || "");
+          const formatKey = markKey(format);
           if (!activeMarks.has(formatKey)) {
             activeMarks.set(formatKey, { format, startCharId: charId });
           }
@@ -350,9 +325,7 @@ function parseCharsAndFormats(context: ParserContext): {
 
         // Close formats that are no longer active
         for (const [key, active] of activeMarks.entries()) {
-          const stillActive = formatStack.some(
-            (f) => f.type + (f.url || "") === key,
-          );
+          const stillActive = formatStack.some((f) => markKey(f) === key);
           if (!stillActive) {
             // This format ended - create a span
             formats.push({

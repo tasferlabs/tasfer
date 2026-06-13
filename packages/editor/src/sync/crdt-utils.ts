@@ -424,7 +424,7 @@ export function markCharsInRange(
   startIndex: number,
   endIndex: number,
   format: Mark,
-  value: boolean | string,
+  value: boolean,
   binding: CRDTbinding,
 ): FormatCharsResult {
   const block = page.blocks.find((b) => b.id === blockId);

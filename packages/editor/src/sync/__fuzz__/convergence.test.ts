@@ -30,6 +30,9 @@ const TEXTUAL_TYPES: TextualType[] = [
   "todo_list",
 ];
 const FORMAT_TYPES: Mark["type"][] = ["strong", "emphasis", "strike", "code"];
+// A tiny url pool so differing-url overlaps are common — that's what exercises
+// attr-aware LWW in the reducer and inverse grouping via `areMarksEqual`.
+const LINK_URLS = ["https://a", "https://b"];
 const ASCII =
   "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,!?";
 
@@ -188,9 +191,14 @@ function tryGenerateOp(
       const len = visibleLen(block);
       const start = rng.intRange(0, len - 1);
       const end = rng.intRange(start + 1, len);
-      const fmtType = rng.pick(FORMAT_TYPES);
       const value = rng.bool();
-      return engine.formatText(block.id, start, end, { type: fmtType }, value);
+      // Mostly flag-style marks; sometimes an attributed mark (a link carrying
+      // a url) so the fuzz exercises attr convergence + inverse grouping.
+      const mark: Mark =
+        rng.next() < 0.25
+          ? { type: "link", attrs: { url: rng.pick(LINK_URLS) } }
+          : { type: rng.pick(FORMAT_TYPES) };
+      return engine.formatText(block.id, start, end, mark, value);
     }
     case "block_insert": {
       const blockType: BlockType = rng.pick(TEXTUAL_TYPES);

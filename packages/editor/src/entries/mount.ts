@@ -1,5 +1,10 @@
 import { type Doc } from "../doc";
 import {
+  createDefaultMarkRegistry,
+  createMarkRegistry,
+  Mark,
+} from "../rendering/marks";
+import {
   createDefaultNodeRegistry,
   createNodeRegistry,
   type Node,
@@ -81,6 +86,9 @@ export interface MountEditorOptions {
   /** Whether the document can be edited. Default `true`; `false` mounts a
    *  read-only renderer (no caret edits, no sync writes). */
   editable?: boolean;
+  /** Accessible name for the editor's input surface, announced by screen
+   *  readers. Defaults to `"Text editor"`. */
+  ariaLabel?: string;
   /** Ghost text shown on an empty paragraph (keyboard + touch variants). */
   placeholder?: string;
   pageId?: string;
@@ -130,6 +138,12 @@ export interface MountEditorOptions {
    *   mountEditor(el, blocks, { nodes: [lineNode, textNode] });
    */
   nodes?: readonly Node[];
+  /**
+   * The set of inline marks this editor instance renders. Each editor owns its
+   * own registry, so different editors can opt into different mark types.
+   * Omit to use the built-in set (`createDefaultMarkRegistry`). Mirrors `nodes`.
+   */
+  marks?: readonly Mark[];
   /**
    * Per-instance CRDT context (peer id + clock + id generator). Hosts that
    * sync should create one with `createCRDTbinding(pageId, peerId)` and pass
@@ -243,9 +257,20 @@ export function mountEditor(
   contentCanvas.addEventListener("selectstart", preventSelectStart);
   contentCanvas.addEventListener("dragstart", preventDragStart);
 
-  // Create a hidden input element for mobile keyboard support
-  const hiddenInput = document.createElement("input");
-  hiddenInput.type = "text";
+  // The editor's input surface: a visually-hidden but accessibility-tree-VISIBLE
+  // contenteditable element. It is the single source of native keyboard, IME,
+  // and clipboard (copy/cut/paste) events and the editor's focus target; the
+  // canvas is purely a rendering surface. Unlike the old `aria-hidden` 1px
+  // <input>, this element is announced by screen readers as an editable text
+  // field, and native copy/cut/paste operate on it directly (so they're
+  // synchronous and reliable). Its content is owned by the engine (a one-char
+  // sentinel when nothing is selected, the selection's text otherwise — see
+  // `resetSentinel`/selection mirror in editor.ts); never `aria-hidden` /
+  // `display:none` / `visibility:hidden`, which would drop it from the a11y
+  // tree and break IME. Per-instance, so multiple editors never share a surface.
+  const editable = options?.editable !== false;
+  const hiddenInput = document.createElement("div");
+  hiddenInput.contentEditable = editable ? "true" : "false";
   hiddenInput.style.position = "absolute";
   hiddenInput.style.opacity = "0";
   hiddenInput.style.width = "1px";
@@ -262,13 +287,18 @@ export function mountEditor(
   hiddenInput.style.pointerEvents = "none";
   hiddenInput.style.caretColor = "transparent";
   hiddenInput.style.color = "transparent";
-  hiddenInput.setAttribute("aria-hidden", "true");
+  // Preserve newlines/spaces in the selection mirror text (it's never visible).
+  hiddenInput.style.whiteSpace = "pre";
+  hiddenInput.setAttribute("role", "textbox");
+  hiddenInput.setAttribute("aria-multiline", "true");
+  hiddenInput.setAttribute("aria-label", options?.ariaLabel ?? "Text editor");
+  if (!editable) hiddenInput.setAttribute("aria-readonly", "true");
   hiddenInput.setAttribute("tabindex", "0");
-  hiddenInput.setAttribute("autocomplete", "off");
-  hiddenInput.setAttribute("autocorrect", "off");
   hiddenInput.setAttribute("autocapitalize", "off");
   hiddenInput.setAttribute("spellcheck", "false");
-  hiddenInput.value = " ";
+  // Suppress Grammarly and similar contenteditable injectors.
+  hiddenInput.setAttribute("data-gramm", "false");
+  // The engine seeds the sentinel content/caret on first focus + render.
 
   canvasContainer.appendChild(hiddenInput);
 
@@ -295,12 +325,18 @@ export function mountEditor(
     ? createNodeRegistry(options.nodes)
     : createDefaultNodeRegistry();
 
+  // Per-instance inline-mark registry (opt-in mark set), mirroring `nodes`.
+  const marks = options?.marks
+    ? createMarkRegistry(options.marks)
+    : createDefaultMarkRegistry();
+
   // Create initial state from the page (blocks already loaded). Per-instance
   // style overrides live on the state (no module globals), so two editors on a
   // page don't clobber each other's padding/block/placeholder styling.
   const initialState = createInitialState(page, {
     mode: options?.editable === false ? "readonly" : "edit",
     nodes,
+    marks,
     // The doc's binding is the shared id/clock source when a doc is attached.
     crdtBinding: doc?._binding ?? options?.crdtBinding,
     theme,
@@ -404,9 +440,8 @@ export function mountEditor(
       clearTimeout(blurTimeoutId);
       blurTimeoutId = null;
     }
-    if (!hiddenInput.value) {
-      hiddenInput.value = " ";
-    }
+    // Sentinel content/caret is seeded by the engine (resetSentinel) on the
+    // render frame triggered by setFocus — mount.ts no longer touches it.
     editor.setFocus(true);
     editor.setInitialCursor();
   };
@@ -431,7 +466,6 @@ export function mountEditor(
       const tagName = relatedTarget.tagName.toUpperCase();
       if (tagName === "INPUT" || tagName === "TEXTAREA") {
         editor.setFocus(false, true);
-        hiddenInput.value = " ";
         return;
       }
       return;
@@ -458,7 +492,6 @@ export function mountEditor(
     } else {
       editor.setFocus(false);
     }
-    hiddenInput.value = " ";
   };
 
   const handleTouchStart = () => {

@@ -7,9 +7,17 @@ import type { HLC } from "../sync/sync";
 import parsePage from "./parser";
 import tokenizePage from "./tokenizer";
 
+/**
+ * An inline mark applied to a run of characters. `type` is the mark's name —
+ * built-ins are `strong`/`emphasis`/`strike`/`code`/`link`/`math`, but the
+ * field is intentionally `string` (not a closed union) so a schema can register
+ * custom marks. Per-mark data (e.g. a link's href) lives in `attrs`; plain
+ * toggle marks carry none.
+ */
 export interface Mark {
-  type: "strong" | "emphasis" | "strike" | "code" | "link" | "math";
-  url?: string; // Only for link type
+  type: string;
+  /** Per-mark data, e.g. `{ url }` for a link. Absent for toggle marks. */
+  attrs?: Record<string, unknown>;
 }
 
 // CRDT character with unique ID (legacy - kept for operation payloads)
@@ -39,13 +47,42 @@ export interface MarkSpan {
   clock: HLC; // For LWW conflict resolution
 }
 
+/** Shallow value-equality of two marks' attribute bags (order-independent). */
+function attrsEqual(
+  a: Record<string, unknown> | undefined,
+  b: Record<string, unknown> | undefined,
+): boolean {
+  if (a === b) return true;
+  const aKeys = a ? Object.keys(a) : [];
+  const bKeys = b ? Object.keys(b) : [];
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (a![key] !== b?.[key]) return false;
+  }
+  return true;
+}
+
 // Helper function to compare two Mark objects
 export function areMarksEqual(a: Mark, b: Mark): boolean {
   if (a.type !== b.type) return false;
-  if (a.type === "link" && b.type === "link") {
-    return a.url === b.url;
-  }
-  return true;
+  return attrsEqual(a.attrs, b.attrs);
+}
+
+/**
+ * A stable string identity for a mark — its type plus a deterministic encoding
+ * of its attrs. Two marks share a key iff `areMarksEqual` considers them equal.
+ * Used to batch/group runs of identically-formatted characters (rendering and
+ * the parser's active-mark tracking).
+ */
+export function markKey(mark: Mark): string {
+  if (!mark.attrs) return mark.type;
+  const keys = Object.keys(mark.attrs).sort();
+  if (keys.length === 0) return mark.type;
+  return (
+    mark.type +
+    ":" +
+    keys.map((k) => `${k}=${String(mark.attrs![k])}`).join(",")
+  );
 }
 
 // Helper function to compare two arrays of Mark objects

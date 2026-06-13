@@ -1995,9 +1995,9 @@ export function MountedEditor({
         "relative w-full h-full overflow-hidden focus:outline-none",
         className,
       )}
-      role="textbox"
-      aria-label="Text editor"
-      aria-multiline="true"
+      // The editable surface and its ARIA semantics (role="textbox",
+      // aria-label, aria-multiline) now live on the engine's contenteditable
+      // input element; this wrapper is just a layout container.
     >
       {/* Spinner overlay — visible until local storage state is confirmed.
           Absolutely positioned so it overlays the canvas regardless of DOM order,
