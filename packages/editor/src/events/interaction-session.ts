@@ -53,6 +53,21 @@ export interface TouchTapTracker {
   count: number;
 }
 
+/**
+ * Click target for an off-screen peer indicator pill. Recomputed by the
+ * renderer every cursor-layer paint (the geometry depends on this instance's
+ * viewport/layout) and read back at click time by the peer-indicator region.
+ * Per-instance, since two editors paint different indicators.
+ */
+export interface IndicatorHitArea {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  blockIndex: number;
+  textIndex: number;
+}
+
 export interface InteractionSession {
   autoScroll: AutoScrollState;
   touch: TouchState | null;
@@ -73,6 +88,12 @@ export interface InteractionSession {
     x: number;
     y: number;
   } | null;
+  /**
+   * Click targets for off-screen peer-indicator pills, rewritten by the
+   * renderer on every cursor-layer paint and read by the peer-indicator region
+   * at click time. Per-instance so two editors don't clobber each other.
+   */
+  outOfViewIndicatorHitAreas: IndicatorHitArea[];
 }
 
 export function createInteractionSession(
@@ -94,6 +115,7 @@ export function createInteractionSession(
     regions,
     captured: null,
     pendingCapture: null,
+    outOfViewIndicatorHitAreas: [],
   };
 }
 

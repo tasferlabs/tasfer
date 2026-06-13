@@ -17,7 +17,6 @@ import type {
   CommandResult,
   CRDTbinding,
   EditorState,
-  HostBridge,
   Position,
 } from "../state-types";
 import type {
@@ -139,48 +138,6 @@ function autoLinkInRange(
   }
 
   return { newPage: pageAcc, ops };
-}
-
-/** The native clipboard capability supplied by the host shell, when present. */
-type NativeClipboard = NonNullable<HostBridge["clipboard"]>;
-
-async function copyToNativeClipboard(
-  clipboard: NativeClipboard,
-  text: string,
-): Promise<boolean> {
-  try {
-    await clipboard.copy(text);
-    return true;
-  } catch (error) {
-    console.error("Failed to copy to native clipboard:", error);
-    return false;
-  }
-}
-
-async function cutToNativeClipboard(
-  clipboard: NativeClipboard,
-  text: string,
-): Promise<boolean> {
-  try {
-    await clipboard.cut(text);
-    return true;
-  } catch (error) {
-    console.error("Failed to cut to native clipboard:", error);
-    return false;
-  }
-}
-
-async function pasteFromNativeClipboard(
-  clipboard: NativeClipboard | undefined,
-): Promise<string | null> {
-  if (!clipboard) return null;
-  try {
-    const text = await clipboard.paste();
-    return text || null;
-  } catch (error) {
-    console.error("Failed to paste from native clipboard:", error);
-    return null;
-  }
 }
 
 /**
@@ -605,11 +562,6 @@ export async function copySelectionToClipboard(
 
     const { plainText, markdown, html } = payload;
 
-    const nativeClipboard = state.hostBridge?.clipboard;
-    if (nativeClipboard) {
-      return await copyToNativeClipboard(nativeClipboard, markdown);
-    }
-
     if (navigator.clipboard && navigator.clipboard.write) {
       const clipboardItems = [
         new ClipboardItem({
@@ -642,15 +594,7 @@ export async function cutSelectionToClipboard(
     const { blocks } = selectedContent;
     if (blocks.length === 0) return { success: false, result: null };
 
-    const markdown = blocksToMarkdown(blocks);
-
-    let success = false;
-    const nativeClipboard = state.hostBridge?.clipboard;
-    if (nativeClipboard) {
-      success = await cutToNativeClipboard(nativeClipboard, markdown);
-    } else {
-      success = await copySelectionToClipboard(state);
-    }
+    let success = await copySelectionToClipboard(state);
 
     if (success) {
       const stateWithUndo = state;
@@ -711,11 +655,14 @@ function hasGoogleDocsFormat(
 }
 
 /**
- * Simple ID generator for clipboard parsing (temporary IDs that will be replaced)
+ * Simple ID generator for clipboard parsing (temporary IDs that will be replaced).
+ * The counter lives in the closure so each parse gets its own sequence — these
+ * IDs only need to be unique within a single parse, so there's no need for
+ * (shared, multi-instance-unsafe) module-level state.
  */
-let clipboardIdCounter = 0;
 function makeClipboardIdGen(): () => string {
-  return () => `clipboard:${clipboardIdCounter++}`;
+  let counter = 0;
+  return () => `clipboard:${counter++}`;
 }
 
 /**
@@ -1250,26 +1197,6 @@ function parsePlainTextToBlocks(text: string, binding: CRDTbinding): Block[] {
     }
 
     return blocks;
-  }
-}
-
-/**
- * Paste content from native clipboard (for mobile apps)
- */
-export async function pasteFromNativeClipboardAPI(
-  state: EditorState,
-): Promise<CommandResult | null> {
-  try {
-    const text = await pasteFromNativeClipboard(state.hostBridge?.clipboard);
-    if (!text) return null;
-
-    const blocks = parsePlainTextToBlocks(text, state.CRDTbinding);
-    if (blocks.length === 0) return null;
-
-    return insertBlocksAtCursor(state, blocks);
-  } catch (error) {
-    console.error("Failed to paste from native clipboard:", error);
-    return null;
   }
 }
 
@@ -2858,4 +2785,56 @@ export function pasteFromClipboardEventAsPlainText(
       resolve(null);
     }
   });
+}
+
+/**
+ * Paste content by reading the system clipboard via the async `navigator.clipboard`
+ * API (used by the imperative `editor.paste()`, e.g. a context-menu "Paste").
+ *
+ * Cmd/Ctrl+V flows through the synchronous {@link pasteFromClipboardEvent} on the
+ * contenteditable surface instead; this path is for programmatic pastes that have
+ * no `ClipboardEvent` to read from. Prefers `read()` so HTML formatting survives,
+ * mirroring the event path, and falls back to plain text.
+ */
+export async function pasteFromSystemClipboard(
+  state: EditorState,
+): Promise<CommandResult | null> {
+  try {
+    let html = "";
+    let text = "";
+
+    if (navigator.clipboard?.read) {
+      try {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          if (!html && item.types.includes("text/html")) {
+            html = await (await item.getType("text/html")).text();
+          }
+          if (!text && item.types.includes("text/plain")) {
+            text = await (await item.getType("text/plain")).text();
+          }
+        }
+      } catch {
+        // read() can reject (permissions / unsupported MIME types) — fall back
+        // to readText() below.
+      }
+    }
+
+    if (!html && !text && navigator.clipboard?.readText) {
+      text = await navigator.clipboard.readText();
+    }
+
+    if (html) {
+      const blocks = parseHTMLToBlocks(html, state.CRDTbinding);
+      if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
+    }
+    if (text) {
+      const blocks = parsePlainTextToBlocks(text, state.CRDTbinding);
+      if (blocks.length > 0) return insertBlocksAtCursor(state, blocks);
+    }
+    return null;
+  } catch (error) {
+    console.error("Failed to paste from system clipboard:", error);
+    return null;
+  }
 }

@@ -98,7 +98,6 @@ export function isNative(): boolean {
 /**
  * Fire device haptic feedback from host UI (sidebar, calendar, context menus).
  * Uses the native shell's haptic when present, else the web Vibration API.
- * Editor-internal haptics go through the editor's per-instance `state.hostBridge`.
  */
 export function triggerHaptic(
   style: "light" | "medium" | "heavy" = "heavy",

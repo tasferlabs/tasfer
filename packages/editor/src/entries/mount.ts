@@ -12,6 +12,7 @@ import {
 import { setKeyboardOpen } from "../rendering/scrollbar";
 import { type Block, type Page } from "../serlization/loadPage";
 import type {
+  AssetResolver,
   BlockStyles,
   CRDTbinding,
   DeepPartial,
@@ -19,7 +20,6 @@ import type {
   EditorStyles,
   EditorTheme,
   FontStyles,
-  HostBridge,
   PlaceholderStyles,
   TextStyle,
   ViewportState,
@@ -145,6 +145,14 @@ export interface MountEditorOptions {
    */
   marks?: readonly Mark[];
   /**
+   * Resolve a (possibly content-addressed) asset url to a loadable one when an
+   * image block loads its source (e.g. `platform.assets.getUrl`). Per-instance:
+   * asset resolution is the consumer's responsibility, not the engine's. Omit
+   * for an identity resolver (urls used as-is) — fine when sources are already
+   * loadable (`blob:` / `data:` / `http(s):`).
+   */
+  resolveAsset?: AssetResolver;
+  /**
    * Per-instance CRDT context (peer id + clock + id generator). Hosts that
    * sync should create one with `createCRDTbinding(pageId, peerId)` and pass
    * the SAME binding to `createSyncEngine`, making it the single id/clock
@@ -164,12 +172,6 @@ export interface MountEditorOptions {
    * detaches its listener but does not destroy the doc.
    */
   doc?: Doc;
-  /**
-   * Native-shell capabilities (haptics, clipboard, open-URL) for hosts running
-   * inside an iOS/Android WebView. Stored per-instance on the editor's state, so
-   * the engine never reaches into `window` for them. Omit on plain web.
-   */
-  hostBridge?: HostBridge | null;
 }
 
 /**
@@ -339,8 +341,8 @@ export function mountEditor(
     marks,
     // The doc's binding is the shared id/clock source when a doc is attached.
     crdtBinding: doc?._binding ?? options?.crdtBinding,
+    resolveAsset: options?.resolveAsset,
     theme,
-    hostBridge: options?.hostBridge ?? null,
   });
 
   // Create editor with initial state and layered canvases
@@ -417,12 +419,25 @@ export function mountEditor(
   });
   resizeObserver.observe(container);
 
+  // Single predicate for "does this node belong to this editor instance?" —
+  // shared by every focus-out path so their decisions can't drift. Covers the
+  // canvas surface (which contains the hidden input) and any editor chrome the
+  // host portals elsewhere, tagged with [data-editor-overlay] (e.g. the mobile
+  // keyboard toolbar or popovers). Per-instance closure — no module globals.
+  const isInsideEditor = (node: globalThis.Node | null): boolean => {
+    if (!node) return false;
+    if (canvasContainer.contains(node)) return true;
+    return (
+      node instanceof HTMLElement &&
+      node.closest("[data-editor-overlay]") !== null
+    );
+  };
+
+  // Backstop #1: a pointerdown on a target the browser won't focus (plain page
+  // chrome, non-focusable divs) never moves DOM focus, so the hidden input's
+  // native blur below never fires — this releases logical focus for that case.
   const handleDocumentClick = (e: MouseEvent | TouchEvent) => {
-    const target = e.target as globalThis.Node;
-    if (!target) return;
-    if (canvasContainer.contains(target) || hiddenInput.contains(target)) {
-      return;
-    }
+    if (isInsideEditor(e.target as globalThis.Node | null)) return;
     if (editor.getState()?.ui.activeMenu.type === "contextMenu") {
       return;
     }
@@ -446,6 +461,9 @@ export function mountEditor(
     editor.setInitialCursor();
   };
 
+  // Primary focus-out signal: the hidden input owns DOM focus, so its native
+  // blur is the source of truth for losing focus. The two document-level
+  // backstop handlers cover the cases this event can't see.
   const handleInputBlur = (e: FocusEvent) => {
     if (editor.getState()?.ui.activeMenu.type === "contextMenu") {
       return;
@@ -458,18 +476,7 @@ export function mountEditor(
       return;
     }
     const relatedTarget = e.relatedTarget as globalThis.Node | null;
-    if (
-      editor.getState()?.hostBridge?.isNativeShell &&
-      relatedTarget &&
-      relatedTarget instanceof HTMLElement
-    ) {
-      const tagName = relatedTarget.tagName.toUpperCase();
-      if (tagName === "INPUT" || tagName === "TEXTAREA") {
-        editor.setFocus(false, true);
-        return;
-      }
-      return;
-    }
+
     if (isTouchDevice()) {
       if (relatedTarget && container.contains(relatedTarget)) {
         return;
@@ -504,19 +511,13 @@ export function mountEditor(
     }, 10);
   };
 
-  // When focus moves to an element outside the editor (e.g., a dialog input),
-  // unfocus the editor so keystrokes don't get processed by it
+  // Backstop #2: when focus moves to a real element outside the editor (e.g. a
+  // dialog input) we must release focus so keystrokes don't get processed here.
+  // The hidden input's native blur normally covers this, but some touch browsers
+  // fire that blur with a null relatedTarget; focusin bubbles to document with
+  // the true target, so we can still detect focus landing outside the editor.
   const handleDocumentFocusIn = (e: FocusEvent) => {
-    const target = e.target as globalThis.Node;
-    if (!target) return;
-    if (target === hiddenInput) return;
-    if (canvasContainer.contains(target)) return;
-    // Don't unfocus when focus moves into editor overlay UI (e.g. mobile keyboard toolbar)
-    if (
-      target instanceof HTMLElement &&
-      target.closest("[data-editor-overlay]")
-    )
-      return;
+    if (isInsideEditor(e.target as globalThis.Node | null)) return;
     if (editor.getState()?.view.isFocused) {
       editor.setFocus(false);
     }

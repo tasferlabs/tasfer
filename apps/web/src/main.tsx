@@ -6,12 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 import { Direction } from "radix-ui";
 import { registerSW } from "virtual:pwa-register";
-import { initPlatform, getPlatform } from "./platform";
-import {
-  setAssetResolver,
-  setSlashCommandProvider,
-} from "@cypherkit/editor/adapters";
-import { getSlashCommands } from "./editor/SlashCommandMenu";
+import { initPlatform } from "./platform";
 import { AuthProvider } from "./app/contexts/AuthContext";
 import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
@@ -279,10 +274,8 @@ if (platformReady) {
     // Must await — the worker-backed SQLite needs time to spin up.
     initPlatform()
       .then(() => {
-        // Wire the editor package's asset resolver to the host platform layer
-        setAssetResolver((url) => getPlatform().assets.getUrl(url));
-        // Provide the host's (translated, UI-decorated) slash command list
-        setSlashCommandProvider(getSlashCommands);
+        // Asset resolution is wired per editor instance at mount time
+        // (MountedEditor passes `resolveAsset`), not through a module global.
         platformReady = true;
         (window as any).__CYPHER_PLATFORM_READY__ = true;
         renderApp();

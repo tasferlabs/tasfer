@@ -20,7 +20,7 @@ import {
   splitBlock,
   toggleBold,
 } from "../actions/commands";
-import { getSlashCommands } from "../adapters";
+import { SLASH_CONFIRM, SLASH_NAVIGATE } from "../command-bus";
 import { getCrossedInlineMathSpan } from "../inline-math";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { getTextDirection } from "../rtl";
@@ -55,6 +55,7 @@ import type {
   EditorState,
   KeyboardEvent,
   MouseEvent,
+  SlashCommand,
   ViewportState,
 } from "../state-types";
 import {
@@ -66,7 +67,6 @@ import {
   openSlashCommand,
   setActiveMenu,
   updateSlashCommandFilter,
-  updateSlashCommandSelection,
 } from "../state-utils";
 import { isTextualBlock } from "../sync/block-registry";
 import { redoState, undoState } from "../sync/crdt-undo";
@@ -268,19 +268,10 @@ export function handleKeyDown(
 
   // Handle slash command menu navigation
   if (state.ui.activeMenu.type === "slashCommand") {
+    // The host owns the command list, filtering, and the current selection.
+    // The engine only relays navigation keys to it (via the command bus) and
+    // applies the chosen command — it never sees the list itself.
     const slashMenu = state.ui.activeMenu;
-    const filteredCommands = slashMenu.filter
-      ? getSlashCommands().filter(
-          (cmd) =>
-            cmd.label.toLowerCase().includes(slashMenu.filter.toLowerCase()) ||
-            cmd.description
-              .toLowerCase()
-              .includes(slashMenu.filter.toLowerCase()) ||
-            cmd.keywords?.some((keyword) =>
-              keyword.toLowerCase().startsWith(slashMenu.filter.toLowerCase()),
-            ),
-        )
-      : getSlashCommands();
 
     switch (key) {
       case "ArrowLeft":
@@ -289,21 +280,26 @@ export function handleKeyDown(
         state = closeSlashCommand(state);
         break;
       case "ArrowDown":
-        if (filteredCommands.length > 0) {
-          const newIndex = Math.min(
-            slashMenu.selectedIndex + 1,
-            filteredCommands.length - 1,
-          );
-          return { state: updateSlashCommandSelection(state, newIndex), ops };
-        }
+        // Relay to the host so it moves its own highlight; consume the key so
+        // the caret doesn't move.
+        state.commandBus.dispatch(SLASH_NAVIGATE, { direction: "down" });
         return { state, ops };
       case "ArrowUp":
-        const newIndex = Math.max(slashMenu.selectedIndex - 1, 0);
-        return { state: updateSlashCommandSelection(state, newIndex), ops };
-      case "Enter":
-        if (filteredCommands.length > 0 && state.document.cursor) {
-          const selectedCommand = filteredCommands[slashMenu.selectedIndex];
-          const result = applySlashCommand(state, selectedCommand);
+        state.commandBus.dispatch(SLASH_NAVIGATE, { direction: "up" });
+        return { state, ops };
+      case "Enter": {
+        // Ask the host for its selected command. It calls `confirm`
+        // synchronously; we apply it here, through the normal return path, so
+        // the engine stays the sole writer of `state` (no mid-frame clobber
+        // from the host callback). No host claim (e.g. empty list) → close.
+        const picked: { command: SlashCommand | null } = { command: null };
+        state.commandBus.dispatch(SLASH_CONFIRM, {
+          confirm: (command) => {
+            picked.command = command;
+          },
+        });
+        if (picked.command && state.document.cursor) {
+          const result = applySlashCommand(state, picked.command);
           const newState = result.state;
           ops.push(...result.ops);
           ensureCursorVisible(
@@ -315,6 +311,7 @@ export function handleKeyDown(
           return { state: newState, ops };
         }
         return { state: closeSlashCommand(state), ops };
+      }
       case "Escape":
         // Close slash command and remove the "/" character
         if (state.document.cursor) {

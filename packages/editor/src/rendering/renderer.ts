@@ -1,3 +1,7 @@
+import type {
+  IndicatorHitArea,
+  InteractionSession,
+} from "../events/interaction-session";
 import { currentFontFamily, getFontStack } from "../fonts";
 import { getTextDirection } from "../rtl";
 import { isCursorBlinking } from "../selection";
@@ -446,23 +450,15 @@ interface OutOfViewPeer {
   textIndex: number;
 }
 
-// Stored hit areas for out-of-view peer indicators (populated each render)
-interface IndicatorHitArea {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  blockIndex: number;
-  textIndex: number;
-}
-
-let outOfViewIndicatorHitAreas: IndicatorHitArea[] = [];
+// Hit areas for out-of-view peer indicators live on the per-instance session
+// (InteractionSession.outOfViewIndicatorHitAreas), populated each render below.
 
 export function getOutOfViewIndicatorAtPoint(
+  session: InteractionSession,
   canvasX: number,
   canvasY: number,
 ): { blockIndex: number; textIndex: number } | null {
-  for (const area of outOfViewIndicatorHitAreas) {
+  for (const area of session.outOfViewIndicatorHitAreas) {
     if (
       canvasX >= area.x &&
       canvasX <= area.x + area.width &&
@@ -477,6 +473,7 @@ export function getOutOfViewIndicatorAtPoint(
 
 function renderOutOfViewIndicators(
   ctx: CanvasRenderingContext2D,
+  hitAreas: IndicatorHitArea[],
   peers: OutOfViewPeer[],
   viewport: ViewportState,
   styles: EditorStyles,
@@ -491,8 +488,8 @@ function renderOutOfViewIndicators(
   const chevronSize = 6;
   const gap = 8;
 
-  // Clear previous hit areas
-  outOfViewIndicatorHitAreas = [];
+  // Clear previous hit areas (mutate in place — callers hold this same array)
+  hitAreas.length = 0;
 
   ctx.font = `600 ${fontSize}px ${getFontStack(currentFontFamily(styles), styles.fonts)}`;
 
@@ -506,7 +503,7 @@ function renderOutOfViewIndicators(
     const y = topOffset + pillPadding + chevronSize;
 
     // Store hit area (includes chevron)
-    outOfViewIndicatorHitAreas.push({
+    hitAreas.push({
       x,
       y: y - chevronSize,
       width: pillWidth,
@@ -550,7 +547,7 @@ function renderOutOfViewIndicators(
     const y = viewport.height - pillPadding - pillHeight - chevronSize;
 
     // Store hit area (includes chevron)
-    outOfViewIndicatorHitAreas.push({
+    hitAreas.push({
       x,
       y,
       width: pillWidth,
@@ -587,6 +584,7 @@ function renderOutOfViewIndicators(
 
 function renderRemoteCursors(
   ctx: CanvasRenderingContext2D,
+  session: InteractionSession,
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles,
@@ -707,13 +705,14 @@ function renderRemoteCursors(
   if (outOfViewPeers.length > 0) {
     renderOutOfViewIndicators(
       ctx,
+      session.outOfViewIndicatorHitAreas,
       outOfViewPeers,
       viewport,
       styles,
       styles.canvas.paddingTop,
     );
   } else {
-    outOfViewIndicatorHitAreas = [];
+    session.outOfViewIndicatorHitAreas.length = 0;
   }
 }
 
@@ -723,6 +722,7 @@ function renderRemoteCursors(
  */
 export function renderCursorLayer(
   ctx: CanvasRenderingContext2D,
+  session: InteractionSession,
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
@@ -737,7 +737,7 @@ export function renderCursorLayer(
 
   // Render remote cursors first (so they appear behind local cursor)
   if (remoteAwareness && remoteAwareness.size > 0) {
-    renderRemoteCursors(ctx, state, viewport, styles, remoteAwareness);
+    renderRemoteCursors(ctx, session, state, viewport, styles, remoteAwareness);
   }
 
   // Only render if cursor exists, editor is focused, and cursor is visible (not blinking)

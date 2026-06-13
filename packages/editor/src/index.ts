@@ -81,14 +81,21 @@ export type { CustomBlock } from "./serlization/loadPage";
 export type { BlockSpecCore, DataSchema, MarkSpec } from "./sync/schema";
 export { baseDataSchema } from "./sync/schema";
 
-// Host adapters
-export type { AssetResolver, SlashCommandProvider } from "./adapters";
+// Command bus — declare imperative commands (`defineCommand`) that hosts hook
+// via `editor.registerCommand` (override by returning `true`, or observe by
+// returning `void`). The engine dispatches built-ins like `OPEN_LINK` and the
+// touch-gesture milestones below; a native shell maps them to its own effects.
+export type { Command, CommandBus, CommandHandler } from "./command-bus";
 export {
-  getSlashCommands,
-  resolveAssetUrl,
-  setAssetResolver,
-  setSlashCommandProvider,
-} from "./adapters";
+  CURSOR_DRAG_BOUNDARY,
+  CURSOR_DRAG_END,
+  CURSOR_DRAG_START,
+  defineCommand,
+  OPEN_LINK,
+  REGION_DRAG_START,
+  SLASH_CONFIRM,
+  SLASH_NAVIGATE,
+} from "./command-bus";
 
 // Core document model + CRDT operation types
 export type {
@@ -100,6 +107,7 @@ export type {
   Page,
 } from "./serlization/loadPage";
 export type {
+  AssetResolver,
   CRDTbinding,
   DeepPartial,
   EditorState,
@@ -109,7 +117,6 @@ export type {
   FontFamily,
   FontStyles,
   HLC,
-  HostBridge,
   NodeOverlay,
   NodeStringsMap,
   Operation,

@@ -12,9 +12,14 @@ import {
   Sigma,
   Type,
 } from "lucide-react";
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollArea } from "../components/ui/scroll-area";
+import {
+  type Editor,
+  SLASH_CONFIRM,
+  SLASH_NAVIGATE,
+} from "@cypherkit/editor";
 import type { SlashCommand } from "@cypherkit/editor/state-types";
 
 interface SlashCommandWithMeta extends SlashCommand {
@@ -233,18 +238,19 @@ export function getSlashCommands(): SlashCommandWithMeta[] {
 }
 
 interface SlashCommandMenuProps {
+  /** The editor whose command bus relays keyboard nav/confirm to this menu. */
+  editor: Editor;
   x: number;
   y: number;
-  selectedIndex: number;
   filter?: string;
   onSelect: (command: SlashCommand) => void;
   onClose: () => void;
 }
 
 export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
+  editor,
   x,
   y,
-  selectedIndex,
   filter = "",
   onSelect,
   onClose,
@@ -289,6 +295,58 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
     }
     return groups;
   }, [filteredCommands]);
+
+  // Grouped order is the order the list renders in; the selection indexes into
+  // this flat list (NOT raw `filteredCommands`, which isn't grouped).
+  const flatCommands = useMemo(
+    () => Object.values(groupedCommands).flat(),
+    [groupedCommands],
+  );
+
+  // The engine owns opening the menu and the `/filter` text and relays
+  // navigation/confirmation to us over the command bus; we own the list and the
+  // current selection.
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  // Reset the highlight whenever the filter changes (the list just changed).
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [filter]);
+
+  // Refs so the once-registered command handlers always read the latest values.
+  const selectedIndexRef = useRef(0);
+  selectedIndexRef.current = selectedIndex;
+  const flatCommandsRef = useRef(flatCommands);
+  flatCommandsRef.current = flatCommands;
+
+  useEffect(() => {
+    const offNavigate = editor.registerCommand(
+      SLASH_NAVIGATE,
+      ({ direction }) => {
+        setSelectedIndex((i) => {
+          const len = flatCommandsRef.current.length;
+          if (len === 0) return 0;
+          return direction === "down"
+            ? Math.min(i + 1, len - 1)
+            : Math.max(i - 1, 0);
+        });
+        return true;
+      },
+    );
+    // Enter: hand the engine our selected command. It applies it in-flow, so we
+    // must NOT call `executeSlashCommand` here (that would mutate editor state
+    // mid-frame); `confirm` is the engine's own callback.
+    const offConfirm = editor.registerCommand(SLASH_CONFIRM, ({ confirm }) => {
+      const command = flatCommandsRef.current[selectedIndexRef.current];
+      if (!command) return false;
+      confirm(command);
+      return true;
+    });
+    return () => {
+      offNavigate();
+      offConfirm();
+    };
+  }, [editor]);
 
   // Auto-close menu when no commands match
   useEffect(() => {

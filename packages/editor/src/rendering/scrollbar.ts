@@ -65,12 +65,18 @@ function getSafeAreaInsetBottom(): number {
   return inset;
 }
 
-// Cache the safe area inset value with window dimensions for invalidation
+// Cache the safe area inset value with window dimensions for invalidation.
+// Window/OS-level facts (one viewport per page), identical for every editor
+// instance — correctly shared, not per-instance state.
+// eslint-disable-next-line local/no-global-mutable-state -- viewport-level safe-area-inset cache, identical for every instance on the page.
 let cachedSafeAreaInsetBottom: number | null = null;
+// eslint-disable-next-line local/no-global-mutable-state -- window dimension used to invalidate the shared safe-area cache.
 let cachedWindowWidth: number | null = null;
+// eslint-disable-next-line local/no-global-mutable-state -- window dimension used to invalidate the shared safe-area cache.
 let cachedWindowHeight: number | null = null;
 
-// Track keyboard state - when keyboard is open, don't apply safe area inset
+// Track keyboard state - when keyboard is open, don't apply safe area inset.
+// eslint-disable-next-line local/no-global-mutable-state -- one soft keyboard per page; a window/OS-level fact shared by every instance.
 let isKeyboardOpen = false;
 
 export function setKeyboardOpen(open: boolean): void {

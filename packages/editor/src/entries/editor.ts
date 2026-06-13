@@ -3,7 +3,7 @@ import {
   copySelectionToClipboard,
   cutSelectionToClipboard,
   getSelectionPlainText,
-  pasteFromNativeClipboardAPI,
+  pasteFromSystemClipboard,
 } from "../actions/clipboard";
 import {
   applySlashCommand,
@@ -17,6 +17,13 @@ import {
   toggleFormat,
   updateLinkInBlock,
 } from "../actions/commands";
+import {
+  type Command,
+  type CommandHandler,
+  DEFAULT_COMMAND_PRIORITY,
+  type DispatchArgs,
+  OPEN_LINK,
+} from "../command-bus";
 import { createChromeRegionRegistry } from "../events/chromeRegions";
 import { handleEvents } from "../events/events";
 import {
@@ -222,6 +229,22 @@ export interface Editor {
     event: "selectionchange" | "focus" | "blur",
     callback: (state: EditorState) => void,
   ): () => void;
+  /**
+   * Register a handler for a command (see `defineCommand`). Higher `priority`
+   * runs first (default `0`, above the editor's built-in defaults). Return
+   * `true` to handle the command and stop propagation — skipping the default —
+   * or `false`/`void` to observe and pass through. Returns an unsubscribe fn.
+   */
+  registerCommand<P>(
+    command: Command<P>,
+    handler: CommandHandler<P>,
+    priority?: number,
+  ): () => void;
+  /**
+   * Dispatch a command through this editor's bus; returns whether a handler
+   * claimed it (see {@link Editor.registerCommand}).
+   */
+  dispatch<P>(command: Command<P>, ...args: DispatchArgs<P>): boolean;
   /** Serialize the current document to a Markdown string. */
   getMarkdown: () => string;
   /**
@@ -409,6 +432,19 @@ export default function createEditor(
 
   let state: EditorState = initialState;
   let viewport = viewportProp;
+
+  // Built-in command defaults. These sit below any host handler (registered via
+  // editor.registerCommand) on the bus, so a host can override them by returning
+  // true — e.g. a native shell taking over OPEN_LINK. Observe-only commands
+  // (haptics, gesture milestones) have no default and are dispatched as-is.
+  state.commandBus.register(
+    OPEN_LINK,
+    ({ url }) => {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return true;
+    },
+    DEFAULT_COMMAND_PRIORITY,
+  );
   // Per-instance pointer interaction state (in-flight gestures, auto-scroll,
   // tap tracking) and this editor's built-in chrome regions (scrollbar,
   // selection handles, peer indicators) — threaded into handleEvents so two
@@ -898,6 +934,7 @@ export default function createEditor(
         if (dirtyLayers.cursor) {
           renderCursorLayer(
             cursorCtx,
+            session,
             state,
             viewport,
             getEditorStyles(state),
@@ -1217,12 +1254,7 @@ export default function createEditor(
   // ClipboardEvent.setData, so defer to the async host-bridge path there.
   function copyHandler(e: ClipboardEvent) {
     if (!state.view.isFocused) return;
-    if (state.hostBridge?.clipboard) {
-      copySelectionToClipboard(state).catch((err) =>
-        console.error("Copy failed:", err),
-      );
-      return;
-    }
+
     const payload = buildClipboardPayload(state);
     if (!payload || !e.clipboardData) return; // nothing selected → browser default
     e.preventDefault();
@@ -1235,14 +1267,7 @@ export default function createEditor(
     if (!state.view.isFocused) return;
     if (state.ui.mode === "readonly" || state.ui.mode === "locked") return;
     if (state.ui.composition?.isComposing) return;
-    if (state.hostBridge?.clipboard) {
-      cutSelectionToClipboard(state)
-        .then((r) => {
-          if (r.success && r.result) executeCommand(r.result);
-        })
-        .catch((err) => console.error("Cut failed:", err));
-      return;
-    }
+
     const payload = buildClipboardPayload(state);
     if (!payload || !e.clipboardData) return;
     e.preventDefault();
@@ -2173,7 +2198,7 @@ export default function createEditor(
   }
 
   async function paste(): Promise<boolean> {
-    const result = await pasteFromNativeClipboardAPI(state);
+    const result = await pasteFromSystemClipboard(state);
     if (result) {
       executeCommand(result);
       state = closeContextMenu(state);
@@ -2945,6 +2970,10 @@ export default function createEditor(
     },
     subscribe,
     on,
+    // The bus methods are closures (no `this`), so exposing them directly is
+    // safe — the bus reference is stable across state updates.
+    registerCommand: state.commandBus.register,
+    dispatch: state.commandBus.dispatch,
     getMarkdown,
     setMarkdown,
     commands,

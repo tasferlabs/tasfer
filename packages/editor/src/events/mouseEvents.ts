@@ -2,6 +2,7 @@ import {
   selectLineAtPosition,
   selectWordAtPosition,
 } from "../actions/commands";
+import { OPEN_LINK } from "../command-bus";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
 import { getInlineMathAtPosition } from "../inline-math";
 import { getDragHandleAtPoint } from "../rendering/nodes";
@@ -137,13 +138,9 @@ export function handleMouseDown(
     if (position) {
       const linkData = getLinkAtPosition(position, state);
       if (linkData) {
-        // Open the link using native bridge on mobile apps, or browser on web
-        const bridge = state.hostBridge;
-        if (bridge?.openUrl) {
-          bridge.openUrl(linkData.url);
-        } else {
-          window.open(linkData.url, "_blank", "noopener,noreferrer");
-        }
+        // Activate the link as a command: the editor's default opens it in a
+        // new tab; a native shell can override OPEN_LINK to route it natively.
+        state.commandBus.dispatch(OPEN_LINK, { url: linkData.url });
         // Clear any link hover state
         state = {
           ...state,

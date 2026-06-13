@@ -119,7 +119,7 @@ imports (e.g. `@cypherkit/editor/sync/awareness`) are also currently allowed (th
 - `fonts.ts` — font loading/measurement (host registers font families via the per-instance theme and loads the faces, then notifies via `notifyFontsLoaded`/`notifyFontsChanged`); `selection.ts` — cursor/selection; `styles.ts` — per-instance theme resolution (`resolveTheme`/`mergeTheme`, `DEFAULT_TOKENS`)
 - RTL text (Arabic, Hebrew) supported via `rtl.ts`
 - Undo/redo is CRDT-aware: converts between index-based positions and CRDT ID-based positions (`inverse.ts`, `sync/crdt-undo.ts`)
-- `adapters.ts` — host integration points (e.g. `setAssetResolver`/`resolveAssetUrl`, slash-command provider)
+- Host integration points are per-instance (no module globals): asset resolution is a `resolveAsset` function passed at mount (`MountEditorOptions.resolveAsset`, stored on `EditorState.resolveAsset`), and slash commands are routed through the command bus (`SLASH_NAVIGATE`/`SLASH_CONFIRM` in `command-bus.ts`)
 
 ### CRDT System (`packages/editor/src/sync/`)
 Operation-log CRDT for offline-first collaborative editing:
@@ -142,7 +142,7 @@ Three-layer state architecture:
 3. **ViewState** — Ephemeral viewport info (scroll position)
 
 ### Web App (`apps/web/src/`)
-- Entry point: `main.tsx` — calls `initPlatform()` to set up Engine + Replicator, registers fonts and the editor's asset resolver, starts P2P sync before rendering
+- Entry point: `main.tsx` — calls `initPlatform()` to set up Engine + Replicator, registers fonts, starts P2P sync before rendering (the editor's asset resolver is wired per-instance at mount in `MountedEditor`, not here)
 - Path aliases (`apps/web/tsconfig.json` + `vite.config.ts`): `@/*` → `./src/*`, `@cypherkit/editor` → `../../packages/editor/src`, `@shared/*` → `../../shared/*` (shared dir currently absent)
 - `app/MountedEditor.tsx` — Main editor mount component (calls `mountEditor` from `@cypherkit/editor`), uses `useP2PRoom` hook for real-time sync
 - `app/hooks/useP2PRoom.ts` — Page-level P2P room subscription (operations, awareness, peer presence); `useP2PPageEvents.ts` — page-event wiring on top of it

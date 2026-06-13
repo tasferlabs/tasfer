@@ -2,6 +2,7 @@ import {
   selectLineAtPosition,
   selectWordAtPosition,
 } from "../actions/commands";
+import { CURSOR_DRAG_BOUNDARY, CURSOR_DRAG_END } from "../command-bus";
 import {
   CURSOR_TOUCH_RADIUS,
   DOUBLE_CLICK_TIME,
@@ -34,7 +35,6 @@ import { isTextualBlock } from "../sync/block-registry";
 import type { Operation } from "../sync/sync";
 import { hitTestAllRegions } from "./blockRegions";
 import { getAtomicBlockAtPoint, isWithinClickDistance } from "./eventUtils";
-import { triggerHapticFeedback } from "./haptics";
 import {
   type InteractionSession,
   startAutoScroll,
@@ -47,9 +47,6 @@ import {
   routeCapturedEnd,
   routeCapturedMove,
 } from "./regions";
-
-// Re-export for hosts that deep-import from this module (apps/web does).
-export { triggerHapticFeedback } from "./haptics";
 
 /** Get rendered line height (px) for the block at the given position. */
 function getLineHeightAtPosition(
@@ -476,7 +473,7 @@ export function handleTouchMove(
           (prevPosition.blockIndex !== newPosition.blockIndex ||
             prevPosition.textIndex !== newPosition.textIndex)
         ) {
-          triggerHapticFeedback(state.hostBridge, "light");
+          state.commandBus.dispatch(CURSOR_DRAG_BOUNDARY);
         }
 
         state = updateCursor(state, newPosition);
@@ -753,7 +750,7 @@ export function handleTouchEnd(
     const didNotMove = !session.touch.hasMoved;
     const touchX = session.touch.currentTouchX;
     const touchY = session.touch.currentTouchY;
-    triggerHapticFeedback(state.hostBridge, "medium");
+    state.commandBus.dispatch(CURSOR_DRAG_END);
     session.touch = null;
 
     let newState: EditorState = {

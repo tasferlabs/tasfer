@@ -23,9 +23,9 @@
  * once the pointer has been held still long enough.
  */
 
+import { REGION_DRAG_START } from "../command-bus";
 import type { EditorState, ViewportState } from "../state-types";
 import type { Operation } from "../sync/sync";
-import { triggerHapticFeedback } from "./haptics";
 import type { InteractionSession } from "./interaction-session";
 
 export type PointerType = "mouse" | "touch";
@@ -57,8 +57,12 @@ export interface RegionDragSpec {
    * past the movement threshold cancels the hold.
    */
   touchHoldMs?: number;
-  /** Haptic style fired when a `touchHoldMs` hold promotes to a drag. */
-  hapticOnActivate?: "light" | "medium" | "heavy";
+  /**
+   * Interaction-salience hint forwarded as `REGION_DRAG_START.intensity` when a
+   * `touchHoldMs` hold promotes to a drag. A host maps it to haptics/sound/etc.
+   * — the engine no longer fires haptics itself.
+   */
+  activationIntensity?: "light" | "medium" | "heavy";
   /** Return null to decline — the pointer falls through uncaptured. */
   onStart(hit: unknown, p: RegionPoint, ctx: RegionCtx): RegionResult;
   onMove(p: RegionPoint, ctx: RegionCtx): RegionResult;
@@ -204,11 +208,11 @@ export function tickPendingCapture(ctx: RegionCtx): EditorState | null {
   if (Date.now() - pending.startTime < holdMs) return null;
 
   ctx.session.pendingCapture = null;
-  if (pending.region.drag.hapticOnActivate) {
-    triggerHapticFeedback(
-      ctx.state.hostBridge,
-      pending.region.drag.hapticOnActivate,
-    );
+  if (pending.region.drag.activationIntensity) {
+    ctx.state.commandBus.dispatch(REGION_DRAG_START, {
+      regionId: pending.region.id,
+      intensity: pending.region.drag.activationIntensity,
+    });
   }
   const result = pending.region.drag.onStart(
     pending.hit,

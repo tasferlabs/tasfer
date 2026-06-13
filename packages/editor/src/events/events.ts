@@ -1,3 +1,4 @@
+import { CURSOR_DRAG_START } from "../command-bus";
 import {
   CONTEXT_MENU_DURATION,
   CURSOR_DRAG_ACTIVATION_DELAY,
@@ -28,7 +29,7 @@ import {
 } from "./compositionEvents";
 import { isTouchDevice, updateImageDrag } from "./eventUtils";
 import { handlePaste } from "./genericEvents";
-import { triggerHapticFeedback } from "./haptics";
+import { type InteractionSession, stopAutoScroll } from "./interaction-session";
 import { handleContextMenu, handleKeyDown } from "./keysEvents";
 import {
   handleMouseDown,
@@ -38,7 +39,6 @@ import {
   handleWheel,
 } from "./mouseEvents";
 import { tickPendingCapture } from "./regions";
-import { type InteractionSession, stopAutoScroll } from "./interaction-session";
 import {
   handleTouchCancel,
   handleTouchEnd,
@@ -102,7 +102,7 @@ export function handleEvents(
     const timeSinceStart = Date.now() - session.touch.startTime;
     if (timeSinceStart >= CURSOR_DRAG_ACTIVATION_DELAY) {
       session.touch.isCursorDrag = true;
-      triggerHapticFeedback(state.hostBridge, "light");
+      state.commandBus.dispatch(CURSOR_DRAG_START);
 
       // Get cursor coordinates for initial magnifier position
       const cursorCoords = state.document.cursor

@@ -2,6 +2,7 @@
 // (not here) and re-exported below: the node views import them, and the node
 // registry imports back into this module, so keeping those two off `state-utils`
 // breaks the `ListNode extends TextNode` circular-init hazard.
+import { createCommandBus } from "./command-bus";
 import type { MarkRegistry } from "./rendering/marks";
 import { createDefaultMarkRegistry } from "./rendering/marks";
 import type { NodeRegistry } from "./rendering/nodes";
@@ -12,11 +13,11 @@ import {
 } from "./rendering/scrollbar";
 import { type Block, type Page } from "./serlization/loadPage";
 import type {
+  AssetResolver,
   CRDTbinding as CRDTbindingType,
   EditorMode,
   EditorState,
   EditorTheme,
-  HostBridge,
   Position,
 } from "./state-types";
 import { resolveNodeStrings, resolveTheme } from "./styles";
@@ -41,7 +42,7 @@ export function createInitialState(
     marks?: MarkRegistry;
     theme?: EditorTheme;
     crdtBinding?: CRDTbindingType;
-    hostBridge?: HostBridge | null;
+    resolveAsset?: AssetResolver;
   },
 ): EditorState {
   // Each editor instance owns its own CRDT context. Because the binding is
@@ -71,6 +72,12 @@ export function createInitialState(
   // the built-in marks when not provided.
   const marks = options?.marks ?? createDefaultMarkRegistry();
 
+  // Asset resolution is the host's job (see AssetResolver). Per-instance, never
+  // a module global; identity by default so a standalone editor (no host) loads
+  // already-usable urls as-is.
+  const resolveAsset: AssetResolver =
+    options?.resolveAsset ?? (async (url) => url);
+
   // The host's raw theme, resolved once into the full style tree. Stored
   // per-instance (not a module global) so two editors on a page style
   // independently and the engine never reads the DOM.
@@ -82,9 +89,11 @@ export function createInitialState(
 
   return {
     CRDTbinding,
-    hostBridge: options?.hostBridge ?? null,
+    // One bus per editor instance (handlers are per-instance, never global).
+    commandBus: createCommandBus(),
     nodes,
     marks,
+    resolveAsset,
     theme,
     resolvedStyles,
     resolvedNodeStrings,
@@ -198,7 +207,6 @@ export function openSlashCommand(
     blockIndex,
     textIndex,
     filter: "",
-    selectedIndex: 0,
   });
 }
 
@@ -210,18 +218,6 @@ export function updateSlashCommandFilter(
   return setActiveMenu(state, {
     ...state.ui.activeMenu,
     filter,
-    selectedIndex: 0, // Reset selection when filter changes
-  });
-}
-
-export function updateSlashCommandSelection(
-  state: EditorState,
-  selectedIndex: number,
-): EditorState {
-  if (state.ui.activeMenu.type !== "slashCommand") return state;
-  return setActiveMenu(state, {
-    ...state.ui.activeMenu,
-    selectedIndex,
   });
 }
 

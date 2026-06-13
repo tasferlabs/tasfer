@@ -16,8 +16,11 @@
  * the optional Node.onPointerDown hook in a later pass.
  */
 
-import { resolveAssetUrl } from "../../adapters";
-import type { BlockBounds, EditorStyles } from "../../state-types";
+import type {
+  AssetResolver,
+  BlockBounds,
+  EditorStyles,
+} from "../../state-types";
 import { getEditorStyles } from "../../styles";
 import { AtomicNode } from "./AtomicNode";
 import type {
@@ -63,8 +66,15 @@ export function clearFailedImageCache(url?: string): void {
   }
 }
 
-/** Load + cache an image. Resolves once decoded; the caller drives any redraw. */
-function loadImage(url: string): Promise<HTMLImageElement> {
+/**
+ * Load + cache an image. Resolves once decoded; the caller drives any redraw.
+ * `resolveAsset` is the per-instance host resolver (off `EditorState`) — the
+ * engine does not resolve asset urls itself.
+ */
+function loadImage(
+  url: string,
+  resolveAsset: AssetResolver,
+): Promise<HTMLImageElement> {
   if (failedImageCache.has(url)) {
     return Promise.reject(new Error(`Image previously failed to load: ${url}`));
   }
@@ -88,7 +98,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     let resolvedUrl = url;
     if (!isAlreadyUrl) {
       try {
-        resolvedUrl = await resolveAssetUrl(url);
+        resolvedUrl = await resolveAsset(url);
       } catch {
         // Asset not found — use as-is.
       }
@@ -433,7 +443,7 @@ export class ImageNode extends AtomicNode<Image> {
             [{ text: this.str(state, "loading"), dy: 0 }],
             styles.blocks.image.loading.textColor,
           );
-          loadImage(block.url)
+          loadImage(block.url, state.resolveAsset)
             .then(() => {
               // The decoded size may differ from the placeholder — drop the
               // cached height so it recomputes, then ask for a repaint.

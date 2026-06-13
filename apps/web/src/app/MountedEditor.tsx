@@ -1,15 +1,22 @@
 import { useP2PRoom, type SyncState } from "@/app/hooks/useP2PRoom";
 import { Button } from "@/components/ui/button";
-import { getBridge, isNative } from "@/platform/bridge";
+import { getBridge } from "@/platform/bridge";
 import {
   positionToAwarenessCursor,
   selectionToAwarenessSelection,
   type AwarenessState,
   type AwarenessUser,
 } from "@cypherkit/editor/sync/awareness";
+import {
+  CURSOR_DRAG_BOUNDARY,
+  CURSOR_DRAG_END,
+  CURSOR_DRAG_START,
+  OPEN_LINK,
+  REGION_DRAG_START,
+} from "@cypherkit/editor";
 import { createDoc, type Doc } from "@cypherkit/editor/doc";
 import { serializeVV } from "@cypherkit/editor/sync/sync";
-import type { HostBridge, Operation } from "@cypherkit/editor/state-types";
+import type { Operation } from "@cypherkit/editor/state-types";
 import { getPlatform } from "@/platform";
 import {
   Bold,
@@ -24,7 +31,13 @@ import {
   Strikethrough,
   Type,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+} from "react";
 import { CursorMagnifier } from "./components/CursorMagnifier";
 import {
   MobileKeyboardToolbar,
@@ -333,7 +346,6 @@ export function MountedEditor({
     visible: boolean;
     x: number;
     y: number;
-    selectedIndex: number;
     filter: string;
   } | null>(null);
 
@@ -398,7 +410,8 @@ export function MountedEditor({
   const persistedImageHoverRef = useRef<typeof imageHoverState>(null);
 
   // Cursor drag state (for mobile magnifier)
-  const [cursorDragState, setCursorDragState] = useState<CursorDragState | null>(null);
+  const [cursorDragState, setCursorDragState] =
+    useState<CursorDragState | null>(null);
   const lastCursorDragStateRef = useRef<CursorDragState | null>(null);
 
   // Node-declared overlay slots (engine, framework-free) collected each state
@@ -614,19 +627,12 @@ export function MountedEditor({
     docRef.current = doc;
 
     // Adapt the native shell's CypherBridge into the editor's per-instance
-    // HostBridge (haptics/clipboard/open-URL). null on plain web.
+    // Haptics and link-opening are editor commands now, wired after mount below.
     const native = getBridge();
-    const hostBridge: HostBridge | null = native && {
-      haptic: (style) => void native.haptic.trigger(style),
-      clipboard: native.clipboard,
-      openUrl: (url) => void native.navigation.openUrl(url),
-      isNativeShell: true,
-    };
 
     const mounted = mountEditor(el, doc.getBlocks(), {
       editable: !readonly,
       pageId,
-      hostBridge,
       padding,
       blockStyleOverrides,
       placeholderOverrides,
@@ -642,12 +648,53 @@ export function MountedEditor({
         fontFamily: fontStyleToFamily(fontStyleRef.current),
         nodeStrings: editorNodeStrings(),
       },
+      // Resolve content-addressed image urls against this device's asset store.
+      // Per-instance (no module global) — asset resolution is the host's job.
+      resolveAsset: (url) => getPlatform().assets.getUrl(url),
       // Attach the doc: the editor mounts from its blocks, shares its binding,
       // and the doc↔editor wiring (local edits → doc, doc updates → editor) is
       // owned by mountEditor.
       doc,
     });
     mountedRef.current = mounted;
+
+    // Haptics + native link-opening are editor commands now:
+    // the engine dispatches semantic commands and we map them to the
+    // native shell, falling back to the web Vibration API. These handlers live
+    // on this editor's command bus and die with it on destroy — no cleanup.
+    const fireHaptic = (style: "light" | "medium" | "heavy") => {
+      // Never let a haptic failure bubble into the editor's event loop.
+      try {
+        if (native) {
+          void native.haptic.trigger(style);
+          return;
+        }
+        if ("vibrate" in navigator) {
+          navigator.vibrate(
+            style === "light" ? 10 : style === "medium" ? 20 : 50,
+          );
+        }
+      } catch (e) {
+        console.debug("Haptic feedback not supported:", e);
+      }
+    };
+    mounted.editor.registerCommand(CURSOR_DRAG_START, () =>
+      fireHaptic("light"),
+    );
+    mounted.editor.registerCommand(CURSOR_DRAG_BOUNDARY, () =>
+      fireHaptic("light"),
+    );
+    mounted.editor.registerCommand(CURSOR_DRAG_END, () => fireHaptic("medium"));
+    mounted.editor.registerCommand(REGION_DRAG_START, ({ intensity }) =>
+      fireHaptic(intensity),
+    );
+    if (native) {
+      // Override the editor's window.open default with native navigation.
+      mounted.editor.registerCommand(OPEN_LINK, ({ url }) => {
+        void native.navigation.openUrl(url);
+        return true;
+      });
+    }
 
     // Re-push theme tokens whenever the document root's class changes (the
     // dark-mode toggle swaps the `.dark` class, which flips the CSS variables).
@@ -1086,7 +1133,6 @@ export function MountedEditor({
               visible: true,
               x,
               y,
-              selectedIndex: state.ui.activeMenu.selectedIndex,
               filter: state.ui.activeMenu.filter,
             };
           }
@@ -1694,7 +1740,6 @@ export function MountedEditor({
 
   const getContextMenuItems = (): ContextMenuItem[] => {
     const hasSelection = contextMenuState?.hasSelection ?? false;
-    const canPaste = isNative();
 
     const items: ContextMenuItem[] = [
       {
@@ -1722,14 +1767,16 @@ export function MountedEditor({
         disabled: !hasSelection,
       });
 
-      if (canPaste) {
-        items.push({
-          id: "paste",
-          label: t("contextMenu.paste", "Paste"),
-          icon: <Clipboard size={16} />,
-          action: () => handleContextMenuAction("paste"),
-        });
-      }
+      // Paste reads the system clipboard via `navigator.clipboard` (editor.paste
+      // → pasteFromSystemClipboard). Clipboard *read* is gated by the browser:
+      // Chromium/Safari/native WebViews prompt-then-allow on this click gesture,
+      // Firefox restricts it for pages — there the action just no-ops gracefully.
+      items.push({
+        id: "paste",
+        label: t("contextMenu.paste", "Paste"),
+        icon: <Clipboard size={16} />,
+        action: () => handleContextMenuAction("paste"),
+      });
     }
 
     // Add Download item when cursor is on an image block with a url
@@ -1816,9 +1863,7 @@ export function MountedEditor({
           isBold = activeMarks.some((f) => f.type === "strong");
           isItalic = activeMarks.some((f) => f.type === "emphasis");
           isCode = activeMarks.some((f) => f.type === "code");
-          isStrikethrough = activeMarks.some(
-            (f) => f.type === "strike",
-          );
+          isStrikethrough = activeMarks.some((f) => f.type === "strike");
         }
       }
 
@@ -1831,28 +1876,32 @@ export function MountedEditor({
             id: "format-bold",
             label: t("contextMenu.bold", "Bold"),
             icon: <Bold size={16} />,
-            action: () => mountedRef.current?.editor.commands.toggleMark("strong"),
+            action: () =>
+              mountedRef.current?.editor.commands.toggleMark("strong"),
             active: isBold,
           },
           {
             id: "format-italic",
             label: t("contextMenu.italic", "Italic"),
             icon: <Italic size={16} />,
-            action: () => mountedRef.current?.editor.commands.toggleMark("emphasis"),
+            action: () =>
+              mountedRef.current?.editor.commands.toggleMark("emphasis"),
             active: isItalic,
           },
           {
             id: "format-code",
             label: t("contextMenu.code", "Code"),
             icon: <Code size={16} />,
-            action: () => mountedRef.current?.editor.commands.toggleMark("code"),
+            action: () =>
+              mountedRef.current?.editor.commands.toggleMark("code"),
             active: isCode,
           },
           {
             id: "format-strikethrough",
             label: t("contextMenu.strikethrough", "Strikethrough"),
             icon: <Strikethrough size={16} />,
-            action: () => mountedRef.current?.editor.commands.toggleMark("strike"),
+            action: () =>
+              mountedRef.current?.editor.commands.toggleMark("strike"),
             active: isStrikethrough,
           },
           {
@@ -2017,9 +2066,9 @@ export function MountedEditor({
         createPortal(
           <div style={{ pointerEvents: "auto" }}>
             <SlashCommandMenu
+              editor={mountedRef.current.editor}
               x={slashMenuState.x}
               y={slashMenuState.y}
-              selectedIndex={slashMenuState.selectedIndex}
               filter={slashMenuState.filter}
               onSelect={handleSlashCommandSelect}
               onClose={handleSlashCommandClose}
@@ -2616,39 +2665,37 @@ export function MountedEditor({
 
       {/* Mobile keyboard toolbar — always mounted while editor is focused on touch so
           the slide-in/out animation can play. Visibility is driven by isKeyboardOpen. */}
-      {!readonly &&
-        mobileToolbar.isEditorFocused &&
-        isTouchDevice() && (
-          <MobileKeyboardToolbar
-            isVisible={isKeyboardOpen}
-            keyboardHeight={keyboardHeight}
-            canUndo={mobileToolbar.canUndo}
-            canRedo={mobileToolbar.canRedo}
-            isBold={mobileToolbar.isBold}
-            isItalic={mobileToolbar.isItalic}
-            isCode={mobileToolbar.isCode}
-            isStrikethrough={mobileToolbar.isStrikethrough}
-            currentBlockType={mobileToolbar.blockType}
-            onUndo={() => mountedRef.current?.editor.commands.undo()}
-            onRedo={() => mountedRef.current?.editor.commands.redo()}
-            onToggleBold={() =>
-              mountedRef.current?.editor.commands.toggleMark("strong")
-            }
-            onToggleItalic={() =>
-              mountedRef.current?.editor.commands.toggleMark("emphasis")
-            }
-            onToggleCode={() =>
-              mountedRef.current?.editor.commands.toggleMark("code")
-            }
-            onToggleStrikethrough={() =>
-              mountedRef.current?.editor.commands.toggleMark("strike")
-            }
-            onSetBlockType={(type) =>
-              mountedRef.current?.editor.commands.setBlock(type as any)
-            }
-            onDismissKeyboard={() => mountedRef.current?.blurInput()}
-          />
-        )}
+      {!readonly && mobileToolbar.isEditorFocused && isTouchDevice() && (
+        <MobileKeyboardToolbar
+          isVisible={isKeyboardOpen}
+          keyboardHeight={keyboardHeight}
+          canUndo={mobileToolbar.canUndo}
+          canRedo={mobileToolbar.canRedo}
+          isBold={mobileToolbar.isBold}
+          isItalic={mobileToolbar.isItalic}
+          isCode={mobileToolbar.isCode}
+          isStrikethrough={mobileToolbar.isStrikethrough}
+          currentBlockType={mobileToolbar.blockType}
+          onUndo={() => mountedRef.current?.editor.commands.undo()}
+          onRedo={() => mountedRef.current?.editor.commands.redo()}
+          onToggleBold={() =>
+            mountedRef.current?.editor.commands.toggleMark("strong")
+          }
+          onToggleItalic={() =>
+            mountedRef.current?.editor.commands.toggleMark("emphasis")
+          }
+          onToggleCode={() =>
+            mountedRef.current?.editor.commands.toggleMark("code")
+          }
+          onToggleStrikethrough={() =>
+            mountedRef.current?.editor.commands.toggleMark("strike")
+          }
+          onSetBlockType={(type) =>
+            mountedRef.current?.editor.commands.setBlock(type as any)
+          }
+          onDismissKeyboard={() => mountedRef.current?.blurInput()}
+        />
+      )}
 
       {/* Cursor magnifier for mobile cursor drag repositioning */}
       {cursorDragState?.isActive &&
@@ -2665,9 +2712,7 @@ export function MountedEditor({
                 "#cursor-layer",
               ) ?? null
             }
-            containerRect={
-              wrapperRef.current?.getBoundingClientRect() ?? null
-            }
+            containerRect={wrapperRef.current?.getBoundingClientRect() ?? null}
           />,
           document.body,
         )}

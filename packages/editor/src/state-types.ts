@@ -1,3 +1,4 @@
+import type { CommandBus } from "./command-bus";
 import type { MarkRegistry } from "./rendering/marks/Mark";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
@@ -230,11 +231,12 @@ export interface LinkHoverState {
 export type ActiveMenu =
   | { type: "none" }
   | {
+      // The engine owns opening the menu and the `/filter` text; the host owns
+      // the command list and the current selection (no `selectedIndex` here).
       type: "slashCommand";
       blockIndex: number;
       textIndex: number;
       filter: string;
-      selectedIndex: number;
     }
   | {
       type: "contextMenu";
@@ -494,26 +496,13 @@ export interface UndoManagerState {
 }
 
 /**
- * Optional native-shell capabilities, injected per-instance at mount (the
- * iOS/Android WebView provides them). Lives on `EditorState` like `CRDTbinding`
- * and `nodes` — NOT a module global — so two editors on a page each talk to
- * their own host. `null` on plain web. Every capability is independently
- * optional; an absent one falls back to standard web behavior at the call site.
+ * Resolve a (possibly content-addressed) asset URL to a loadable URL. Supplied
+ * per-instance by the host (e.g. `platform.assets.getUrl`) via the mount
+ * options and stored on {@link EditorState.resolveAsset} — NOT a module global,
+ * so two editors on a page can resolve assets against different backends. The
+ * engine never resolves assets itself; resolution is entirely the consumer's.
  */
-export interface HostBridge {
-  /** Native haptic feedback. */
-  readonly haptic?: (style: "light" | "medium" | "heavy") => void;
-  /** Native clipboard. When present the editor prefers it over `navigator.clipboard`. */
-  readonly clipboard?: {
-    copy(text: string): Promise<void>;
-    cut(text: string): Promise<void>;
-    paste(): Promise<string>;
-  };
-  /** Open an external URL through the native shell instead of `window.open`. */
-  readonly openUrl?: (url: string) => void;
-  /** True inside a native shell; drives focus/blur handling that differs from the browser. */
-  readonly isNativeShell?: boolean;
-}
+export type AssetResolver = (url: string) => Promise<string>;
 
 // New unified EditorState
 export interface EditorState {
@@ -523,10 +512,13 @@ export interface EditorState {
   readonly undoManager: UndoManagerState;
   readonly CRDTbinding: CRDTbinding;
   /**
-   * Per-instance native-shell capabilities (haptics/clipboard/openUrl), or `null`
-   * on plain web. Injected at mount and carried on state like `CRDTbinding`.
+   * Per-instance command bus (see `defineCommand`): hooks for the editor's
+   * imperative actions — link activation, touch-gesture milestones. The engine
+   * dispatches through `state.commandBus`; hosts attach handlers via
+   * `editor.registerCommand`. Owned by this editor — NOT a module global — so
+   * two editors on a page keep separate listeners.
    */
-  readonly hostBridge: HostBridge | null;
+  readonly commandBus: CommandBus;
   /**
    * Per-instance registry of block views (layout/paint/hit-test per block type).
    * Owned by this editor — NOT a module global — so multiple editors on the same
@@ -540,6 +532,13 @@ export interface EditorState {
    * sets and so marks are opt-in at mount. Mirrors {@link nodes}.
    */
   readonly marks: MarkRegistry;
+  /**
+   * Per-instance asset URL resolver (see {@link AssetResolver}). The host wires
+   * its platform asset store here at mount; the engine calls it when loading an
+   * image block's source. Owned by this editor — NOT a module global. Defaults
+   * to identity (return the url as-is) for standalone editors with no host.
+   */
+  readonly resolveAsset: AssetResolver;
   /**
    * The host's raw styling input for this instance (tokens + style overrides +
    * fonts + selected family + strings). Kept so `setTheme` can merge a partial

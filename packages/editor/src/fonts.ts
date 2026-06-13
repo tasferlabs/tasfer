@@ -57,12 +57,14 @@ export interface WrappedLine {
 // instance — not per-instance config — so it stays a module global, as do the
 // pure measurement caches below (keyed by the resolved CSS font-stack, so two
 // instances with different registries can't collide).
+// eslint-disable-next-line local/no-global-mutable-state -- browser-level "@font-face loaded" fact, identical for every instance on the page.
 let fontsLoaded = false;
 
 // Callbacks fired once when fonts finish loading
 const fontReadyCallbacks: Array<() => void> = [];
 
 // Global metrics cache (immutable) - keyed by "fontStack-fontSize-fontWeight".
+// eslint-disable-next-line local/no-global-mutable-state -- pure measurement cache keyed by resolved CSS font-stack; instance-independent, so two instances can't collide.
 let metricsCache: ReadonlyMap<string, FontMetrics> = new Map();
 
 // Canvas context for measurements (created once)
@@ -169,6 +171,7 @@ function createCacheKey(
 // newly loaded faces after `ctx.font` is re-assigned, so the epoch forces one
 // fresh assignment per context after every font event.
 const lastAppliedFont = new WeakMap<CanvasRenderingContext2D, string>();
+// eslint-disable-next-line local/no-global-mutable-state -- monotonic font-load epoch paired with the per-context lastAppliedFont WeakMap; a browser-level fact shared by every instance.
 let fontEpoch = 0;
 
 // Apply font to a context. Returns the resolved CSS font-stack so callers can
@@ -240,6 +243,7 @@ export function getFontMetrics(
 // metricsCache this memoizes pure measurements (instance-independent), and is
 // flushed by notifyFontsLoaded/notifyFontsChanged. Longer strings (batched
 // ligature measurement) are arbitrary and unbounded, so they stay uncached.
+// eslint-disable-next-line local/no-global-mutable-state -- pure per-char width cache keyed by resolved CSS font-stack; instance-independent, so two instances can't collide.
 let charWidthCache = new Map<string, number>();
 
 // Measure character

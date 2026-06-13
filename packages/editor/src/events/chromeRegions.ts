@@ -95,7 +95,7 @@ const scrollbarThumbRegion: Region = {
   },
   drag: {
     touchHoldMs: SCROLLBAR_HOLD_DURATION,
-    hapticOnActivate: "heavy",
+    activationIntensity: "heavy",
     onStart(_hit, p, ctx) {
       return {
         state: {
@@ -294,9 +294,9 @@ const peerIndicatorRegion: Region = {
   id: "peer-indicator",
   priority: 70,
   modes: ["edit", "select", "readonly"],
-  hitTest(p, pointerType) {
+  hitTest(p, pointerType, ctx) {
     if (pointerType !== "mouse") return null;
-    return getOutOfViewIndicatorAtPoint(p.x, p.y);
+    return getOutOfViewIndicatorAtPoint(ctx.session, p.x, p.y);
   },
   onTap(hit, _p, _tapCount, ctx) {
     const target = hit as { blockIndex: number; textIndex: number };
