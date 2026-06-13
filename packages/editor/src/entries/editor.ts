@@ -19,7 +19,10 @@ import {
 } from "../actions/commands";
 import { createChromeRegionRegistry } from "../events/chromeRegions";
 import { handleEvents } from "../events/events";
-import { createInteractionSession, isInLongPressMode } from "../events/session";
+import {
+  createInteractionSession,
+  isInLongPressMode,
+} from "../events/interaction-session";
 import { onFontsReady } from "../fonts";
 import {
   clearAllBlockCaches,
@@ -59,7 +62,7 @@ import type {
   SlashCommand,
   ViewportState,
 } from "../state-types";
-import type { BlockDelete, BlockInsert, Operation } from "../state-types";
+import type { Operation } from "../state-types";
 import {
   closeActiveMenu,
   closeContextMenu,
@@ -68,7 +71,6 @@ import {
   isTouchDevice,
   setActiveMenu,
   updateMode,
-  updatePhysicalKeyboardState,
   updateWindowFocused,
 } from "../state-utils";
 import {
@@ -98,7 +100,7 @@ import {
 } from "../sync/crdt-utils";
 import { applyOps } from "../sync/reducer";
 import { generateRestoreOperations } from "../sync/snapshot-diff";
-import { createBlockSet, getVisibleBlocks } from "../sync/sync";
+import { getVisibleBlocks } from "../sync/sync";
 import type { CanvasLayers } from "./layers";
 
 /**
@@ -199,7 +201,6 @@ export interface Editor {
   setInitialCursor: () => void;
   /** Place the caret at the document start or end (forces a new caret). */
   setCaret: (at: "start" | "end") => void;
-  setPhysicalKeyboard: (hasPhysicalKeyboard: boolean) => void;
   /** Update browser-window focus (affects selection color); re-renders. */
   setWindowFocused: (focused: boolean) => void;
   getCursorScreenPosition: () => {
@@ -277,15 +278,39 @@ export interface Editor {
    * dark-mode toggle calls `setTheme({ tokens })`.
    */
   setTheme: (patch: EditorTheme) => void;
-  updateImageBlock: (
-    blockIndex: number,
-    updates: {
-      url?: string;
-      alt?: string;
-    },
-    uploadStatus?: "uploading" | "complete" | "error",
-  ) => void;
-  deleteImageBlock: (blockIndex: number) => void;
+  /**
+   * Set one or more attributes on a block, addressed by id. Each entry becomes
+   * a `block_set` CRDT op; the field/value are validated against the block
+   * type's schema when applied. Generic over block type — e.g. an image block's
+   * `{ url, alt }` or a math block's `{ latex, displayMode }`. One undoable
+   * step; broadcast to peers. Returns false if the block is missing/deleted.
+   */
+  setNodeAttrs: (blockId: string, attrs: Record<string, unknown>) => boolean;
+  /**
+   * Delete a block, addressed by id (tombstoned, so undo can restore it). If it
+   * was the last visible block, an empty paragraph is inserted in its place.
+   * One undoable step; broadcast to peers. Returns false if missing/deleted.
+   */
+  deleteNode: (blockId: string) => boolean;
+  /**
+   * Replace the inline text range `[start, end)` in a block with `text`,
+   * optionally applying a single inline `mark` to the inserted run (e.g. the
+   * `math` mark for an inline-math chip). Empty `text` deletes the range. One
+   * undoable step; broadcast to peers. Returns false if the block isn't textual.
+   */
+  replaceInlineRange: (
+    blockId: string,
+    start: number,
+    end: number,
+    text: string,
+    mark?: Mark,
+  ) => boolean;
+  /**
+   * Delete the inline text range `[start, end)` in a block and place the caret
+   * where it began. One undoable step; broadcast to peers. Returns false if the
+   * block isn't textual or the range is empty.
+   */
+  deleteInlineRange: (blockId: string, start: number, end: number) => boolean;
   openImageUploadMenu: (
     blockIndex: number,
     x: number,
@@ -293,9 +318,13 @@ export interface Editor {
     existingUrl?: string,
     existingAlt?: string,
   ) => void;
-  updateMathBlock: (
-    blockIndex: number,
-    updates: { latex?: string; displayMode?: boolean },
+  /**
+   * Set the upload-status chrome the canvas paints over the active image-upload
+   * menu's block (spinner / error). No-op unless an image-upload menu is open.
+   * This is transient UI status, not document content — it produces no CRDT op.
+   */
+  setImageUploadStatus: (
+    status: "idle" | "uploading" | "complete" | "error",
   ) => void;
   openMathEditMenu: (blockIndex: number, x: number, y: number) => void;
   openInlineMathEditMenu: (
@@ -305,17 +334,6 @@ export interface Editor {
     latex: string,
     x: number,
     y: number,
-  ) => void;
-  updateInlineMath: (
-    blockIndex: number,
-    startIndex: number,
-    endIndex: number,
-    newLatex: string,
-  ) => void;
-  deleteInlineMath: (
-    blockIndex: number,
-    startIndex: number,
-    endIndex: number,
   ) => void;
   /** Close the inline-math edit popover and move the caret past the chip in the
    * given visual direction. Used when the user arrows out of the popover input. */
@@ -2143,154 +2161,110 @@ export default function createEditor(
     listeners.forEach((listener) => listener(currentState));
   }
 
-  function updateImageBlock(
-    blockIndex: number,
-    updates: {
-      url?: string;
-      alt?: string;
-    },
-    uploadStatus?: "uploading" | "complete" | "error",
-  ) {
-    const block = state.document.page.blocks[blockIndex];
+  function setNodeAttrs(
+    blockId: string,
+    attrs: Record<string, unknown>,
+  ): boolean {
+    const blocks = state.document.page.blocks;
+    const blockIndex = blocks.findIndex((b) => b.id === blockId);
+    const block = blocks[blockIndex];
+    if (!block || block.deleted) return false;
 
-    if (!block || block.deleted || block.type !== "image") {
-      console.error("Attempted to update non-image-cover block as image cover");
-      return;
-    }
+    const fields = Object.keys(attrs);
+    if (fields.length === 0) return false;
 
-    const updatedBlock = {
-      ...block,
-      ...updates,
-    };
-
-    // Invalidate cache when image URL changes (height changes from placeholder to full)
+    const updatedBlock = { ...block, ...attrs } as typeof block;
+    // Layout caches are keyed by content; an attr change (image URL, math
+    // latex, …) can change a block's measured height, so drop its cache.
     invalidateBlockCache(updatedBlock);
 
-    const newBlocks = [...state.document.page.blocks];
+    const newBlocks = [...blocks];
     newBlocks[blockIndex] = updatedBlock;
 
-    // Update UI state with upload status if provided
-    let newUIState = state.ui;
-    if (
-      uploadStatus !== undefined &&
-      state.ui.activeMenu.type === "imageUpload"
-    ) {
-      newUIState = {
+    // Each attribute is a block_set op. The field/value are validated against
+    // the block type's registered schema when the op is applied, so this stays
+    // generic — the editor needs no per-block-type knowledge here.
+    const ops: Operation[] = fields.map(
+      (field): Operation => ({
+        op: "block_set",
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
+        blockId,
+        field,
+        value: attrs[field],
+      }),
+    );
+
+    executeCommand({
+      state: {
+        ...state,
+        document: {
+          ...state.document,
+          page: { ...state.document.page, blocks: newBlocks },
+        },
+      },
+      ops,
+    });
+    return true;
+  }
+
+  function setImageUploadStatus(
+    status: "idle" | "uploading" | "complete" | "error",
+  ): void {
+    // Transient canvas chrome (spinner / error) painted over the active
+    // image-upload menu's block — not document content, so no CRDT op. No-op
+    // unless an image-upload menu is open.
+    if (state.ui.activeMenu.type !== "imageUpload") return;
+    state = {
+      ...state,
+      ui: {
         ...state.ui,
         activeMenu: {
           ...state.ui.activeMenu,
-          uploadStatus,
+          // The field is optional; undefined means "idle".
+          uploadStatus: status === "idle" ? undefined : status,
         },
-      };
-    }
-
-    // Create CRDT operations for image property updates. Use the typed
-    // createBlockSet helper so the field name + value are checked against
-    // the image block's registered field schema at compile time.
-    const ops: Operation[] = [];
-    const blockId = block.id;
-
-    if (updates.url !== undefined) {
-      ops.push(
-        createBlockSet<"image", "url">(
-          blockId,
-          "url",
-          updates.url,
-          state.CRDTbinding,
-        ),
-      );
-    }
-    if (updates.alt !== undefined) {
-      ops.push(
-        createBlockSet<"image", "alt">(
-          blockId,
-          "alt",
-          updates.alt,
-          state.CRDTbinding,
-        ),
-      );
-    }
-
-    const prevState = state;
-
-    state = {
-      ...state,
-      ui: newUIState,
-      document: {
-        ...state.document,
-        page: { ...state.document.page, blocks: newBlocks },
       },
     };
-
-    // Record to undo stack
-    if (ops.length > 0) {
-      state = recordUndoOps(
-        prevState,
-        state,
-        ops,
-        state.CRDTbinding.getPeerId(),
-      );
-    }
-
-    // Broadcast operations
-    if (ops.length > 0 && broadcastFn) {
-      emitLocalOps(ops);
-    }
-
     const currentState = state;
     scheduleRender();
     listeners.forEach((listener) => listener(currentState));
   }
 
-  function deleteImageBlockMethod(blockIndex: number) {
-    const block = state.document.page.blocks[blockIndex];
+  function deleteNode(blockId: string): boolean {
+    const blocks = state.document.page.blocks;
+    const blockIndex = blocks.findIndex((b) => b.id === blockId);
+    const block = blocks[blockIndex];
+    if (!block || block.deleted) return false;
 
-    if (
-      !block ||
-      block.deleted ||
-      (block.type !== "image" && block.type !== "math")
-    ) {
-      console.error("Attempted to delete non-visual block");
-      return;
-    }
-
-    // Get block ID before deletion
-    const blockId = block.id;
-
-    const prevState = state;
-
-    // Tombstone the block (mark as deleted) instead of splicing it out, so
-    // undo can locate it in state to compute the inverse block_insert.
-    const newBlocks = [...state.document.page.blocks];
+    // Tombstone the block (mark deleted) instead of splicing it out, so undo
+    // can locate it in state to compute the inverse block_insert.
+    const newBlocks = [...blocks];
     newBlocks[blockIndex] = { ...block, deleted: true };
 
-    // Create CRDT operations
-    const ops: Operation[] = [];
+    const ops: Operation[] = [
+      {
+        op: "block_delete",
+        id: state.CRDTbinding.nextId(),
+        clock: state.CRDTbinding.getClock(),
+        pageId: state.CRDTbinding.pageId,
+        blockId,
+      },
+    ];
 
-    // Delete the image block
-    const deleteOp: BlockDelete = {
-      op: "block_delete",
-      id: state.CRDTbinding.nextId(),
-      clock: state.CRDTbinding.getClock(),
-      pageId: state.CRDTbinding.pageId,
-      blockId,
-    };
-    ops.push(deleteOp);
-
-    // If this was the only visible block, add an empty paragraph
+    // If that was the last visible block, keep the document editable by
+    // inserting an empty paragraph in its place.
     const visibleCount = newBlocks.filter((b) => !b.deleted).length;
-    let newParagraphBlockId: string | null = null;
     if (visibleCount === 0) {
-      newParagraphBlockId = `b-${state.CRDTbinding.nextId()}`;
+      const newParagraphBlockId = `b-${state.CRDTbinding.nextId()}`;
       newBlocks.push({
         id: newParagraphBlockId,
         type: "paragraph",
         charRuns: [],
         formats: [],
       });
-
-      // Insert new paragraph block
-      const insertOp: BlockInsert = {
+      ops.push({
         op: "block_insert",
         id: state.CRDTbinding.nextId(),
         clock: state.CRDTbinding.getClock(),
@@ -2298,36 +2272,20 @@ export default function createEditor(
         afterBlockId: null,
         blockId: newParagraphBlockId,
         blockType: "paragraph",
-      };
-      ops.push(insertOp);
+      });
     }
 
-    state = {
-      ...state,
-      document: {
-        ...state.document,
-        page: { ...state.document.page, blocks: newBlocks },
+    executeCommand({
+      state: {
+        ...state,
+        document: {
+          ...state.document,
+          page: { ...state.document.page, blocks: newBlocks },
+        },
       },
-    };
-
-    // Record to undo stack
-    if (ops.length > 0) {
-      state = recordUndoOps(
-        prevState,
-        state,
-        ops,
-        state.CRDTbinding.getPeerId(),
-      );
-    }
-
-    // Broadcast operations
-    if (ops.length > 0 && broadcastFn) {
-      emitLocalOps(ops);
-    }
-
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+      ops,
+    });
+    return true;
   }
 
   function openImageUploadMenu(
@@ -2343,77 +2301,6 @@ export default function createEditor(
       x,
       y,
     });
-
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
-  }
-
-  function updateMathBlock(
-    blockIndex: number,
-    updates: { latex?: string; displayMode?: boolean },
-  ) {
-    const block = state.document.page.blocks[blockIndex];
-    if (!block || block.deleted || block.type !== "math") {
-      return;
-    }
-
-    const prevState = state;
-
-    const updatedBlock = { ...block, ...updates };
-    invalidateBlockCache(updatedBlock);
-
-    const newBlocks = [...state.document.page.blocks];
-    newBlocks[blockIndex] = updatedBlock;
-
-    // Use the typed createBlockSet helper so the field name + value are
-    // checked against the math block's registered field schema at compile
-    // time.
-    const ops: Operation[] = [];
-    const blockId = block.id;
-
-    if (updates.latex !== undefined) {
-      ops.push(
-        createBlockSet<"math", "latex">(
-          blockId,
-          "latex",
-          updates.latex,
-          state.CRDTbinding,
-        ),
-      );
-    }
-    if (updates.displayMode !== undefined) {
-      ops.push(
-        createBlockSet<"math", "displayMode">(
-          blockId,
-          "displayMode",
-          updates.displayMode,
-          state.CRDTbinding,
-        ),
-      );
-    }
-
-    state = {
-      ...state,
-      document: {
-        ...state.document,
-        page: { ...state.document.page, blocks: newBlocks },
-      },
-    };
-
-    // Record to undo stack
-    if (ops.length > 0) {
-      state = recordUndoOps(
-        prevState,
-        state,
-        ops,
-        state.CRDTbinding.getPeerId(),
-      );
-    }
-
-    if (ops.length > 0 && broadcastFn) {
-      emitLocalOps(ops);
-    }
 
     const currentState = state;
     scheduleRender();
@@ -2456,31 +2343,29 @@ export default function createEditor(
     listeners.forEach((listener) => listener(currentState));
   }
 
-  function updateInlineMathMethod(
-    blockIndex: number,
-    startIndex: number,
-    endIndex: number,
-    newLatex: string,
-  ) {
-    const block = state.document.page.blocks[blockIndex];
-    if (!block || block.deleted || !isTextualBlock(block)) return;
-    if (newLatex.length === 0) {
-      // Empty latex is treated as a delete
-      deleteInlineMathMethod(blockIndex, startIndex, endIndex);
-      return;
-    }
+  function replaceInlineRange(
+    blockId: string,
+    start: number,
+    end: number,
+    text: string,
+    mark?: Mark,
+  ): boolean {
+    const blocks = state.document.page.blocks;
+    const blockIndex = blocks.findIndex((b) => b.id === blockId);
+    const block = blocks[blockIndex];
+    if (!block || block.deleted || !isTextualBlock(block)) return false;
+    // An empty replacement is a deletion of the range.
+    if (text.length === 0) return deleteInlineRange(blockId, start, end);
 
-    const prevState = state;
     const ops: Operation[] = [];
-    const blockId = block.id;
 
-    // Replace the existing chars in [startIndex, endIndex) with the new LaTeX,
-    // then re-apply the math format to the freshly inserted chars.
+    // Replace the chars in [start, end) with `text`, then (optionally) apply the
+    // mark to the freshly inserted run.
     const { newPage: p1, op: deleteOp } = deleteCharsInRange(
       state.document.page,
       blockId,
-      startIndex,
-      endIndex,
+      start,
+      end,
       state.CRDTbinding,
     );
     ops.push(deleteOp);
@@ -2488,90 +2373,67 @@ export default function createEditor(
     const { newPage: p2, op: insertOp } = insertCharsAtPosition(
       p1,
       blockId,
-      startIndex,
-      newLatex,
+      start,
+      text,
       state.CRDTbinding,
     );
     ops.push(insertOp);
 
-    const { newPage: p3, op: formatOp } = markCharsInRange(
-      p2,
-      blockId,
-      startIndex,
-      startIndex + newLatex.length,
-      { type: "math" },
-      true,
-      state.CRDTbinding,
-    );
-    ops.push(formatOp);
-
-    invalidateBlockCache(p3.blocks[blockIndex]);
-
-    state = {
-      ...state,
-      document: { ...state.document, page: p3 },
-    };
-
-    if (ops.length > 0) {
-      state = recordUndoOps(
-        prevState,
-        state,
-        ops,
-        state.CRDTbinding.getPeerId(),
+    let page = p2;
+    if (mark) {
+      const { newPage: p3, op: formatOp } = markCharsInRange(
+        p2,
+        blockId,
+        start,
+        start + text.length,
+        mark,
+        // Link marks carry their url as the value; flag-style marks (e.g. math)
+        // carry `true`.
+        mark.url ?? true,
+        state.CRDTbinding,
       );
+      ops.push(formatOp);
+      page = p3;
     }
 
-    if (ops.length > 0 && broadcastFn) {
-      emitLocalOps(ops);
-    }
+    invalidateBlockCache(page.blocks[blockIndex]);
 
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    executeCommand({
+      state: { ...state, document: { ...state.document, page } },
+      ops,
+    });
+    return true;
   }
 
-  function deleteInlineMathMethod(
-    blockIndex: number,
-    startIndex: number,
-    endIndex: number,
-  ) {
-    const block = state.document.page.blocks[blockIndex];
-    if (!block || block.deleted || !isTextualBlock(block)) return;
-    if (endIndex <= startIndex) return;
+  function deleteInlineRange(
+    blockId: string,
+    start: number,
+    end: number,
+  ): boolean {
+    const blocks = state.document.page.blocks;
+    const blockIndex = blocks.findIndex((b) => b.id === blockId);
+    const block = blocks[blockIndex];
+    if (!block || block.deleted || !isTextualBlock(block)) return false;
+    if (end <= start) return false;
 
-    const prevState = state;
-    const blockId = block.id;
     const { newPage, op } = deleteCharsInRange(
       state.document.page,
       blockId,
-      startIndex,
-      endIndex,
+      start,
+      end,
       state.CRDTbinding,
     );
     invalidateBlockCache(newPage.blocks[blockIndex]);
 
-    state = {
-      ...state,
-      document: { ...state.document, page: newPage },
-    };
-
-    state = recordUndoOps(
-      prevState,
-      state,
-      [op],
-      state.CRDTbinding.getPeerId(),
+    // Place the caret where the deleted range began.
+    const movedState = moveCursorToPosition(
+      { ...state, document: { ...state.document, page: newPage } },
+      blockIndex,
+      start,
     );
 
-    // Place caret where the chip used to be
-    state = moveCursorToPosition(state, blockIndex, startIndex);
-
-    if (broadcastFn) {
-      emitLocalOps([op]);
-    }
-
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+    executeCommand({ state: movedState, ops: [op] });
+    return true;
   }
 
   function exitInlineMathMethod(
@@ -2602,11 +2464,6 @@ export default function createEditor(
     const currentState = state;
     scheduleRender();
     listeners.forEach((listener) => listener(currentState));
-  }
-
-  function setPhysicalKeyboard(hasPhysicalKeyboard: boolean) {
-    state = updatePhysicalKeyboardState(state, hasPhysicalKeyboard);
-    scheduleRender();
   }
 
   function setWindowFocused(focused: boolean) {
@@ -2905,17 +2762,16 @@ export default function createEditor(
     collectOverlays: () =>
       collectOverlays(state, viewport, getEditorStyles(state)),
     setTheme,
-    updateImageBlock: updateImageBlock,
-    deleteImageBlock: deleteImageBlockMethod,
+    setNodeAttrs,
+    deleteNode,
+    replaceInlineRange,
+    deleteInlineRange,
     openImageUploadMenu,
-    updateMathBlock,
+    setImageUploadStatus,
     openMathEditMenu,
     openInlineMathEditMenu,
-    updateInlineMath: updateInlineMathMethod,
-    deleteInlineMath: deleteInlineMathMethod,
     exitInlineMath: exitInlineMathMethod,
     closeActiveMenu: closeActiveMenuMethod,
-    setPhysicalKeyboard,
     setWindowFocused,
     updatePageFromSync,
     restoreFromSnapshot: restoreFromSnapshotMethod,

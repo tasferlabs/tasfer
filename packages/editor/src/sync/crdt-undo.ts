@@ -1,4 +1,3 @@
-import { invertOperations, refreshOps } from "../inverse";
 import { invalidateAffectedBlocks } from "../rendering/renderer";
 import type { EditorState, UndoGroup, UndoManagerState } from "../state-types";
 import type { Operation } from "../state-types";
@@ -8,6 +7,7 @@ import {
   restoreCursor,
   restoreSelection,
 } from "./crdt-utils";
+import { invertOperations, refreshOps } from "./inverse";
 import { applyOp, applyOps } from "./reducer";
 
 export const initialUndoManagerState: UndoManagerState = {

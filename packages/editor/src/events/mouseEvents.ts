@@ -41,17 +41,17 @@ import {
   isWithinClickDistance,
 } from "./eventUtils";
 import {
+  type InteractionSession,
+  startAutoScroll,
+  stopAutoScroll,
+} from "./interaction-session";
+import {
   beginRegionInteraction,
   type RegionCtx,
   routeCapturedCancel,
   routeCapturedEnd,
   routeCapturedMove,
 } from "./regions";
-import {
-  type InteractionSession,
-  startAutoScroll,
-  stopAutoScroll,
-} from "./session";
 
 export function handleMouseDown(
   state: EditorState,
@@ -138,8 +138,9 @@ export function handleMouseDown(
       const linkData = getLinkAtPosition(position, state);
       if (linkData) {
         // Open the link using native bridge on mobile apps, or browser on web
-        if (window.CypherBridge) {
-          window.CypherBridge.navigation.openUrl(linkData.url);
+        const bridge = state.hostBridge;
+        if (bridge?.openUrl) {
+          bridge.openUrl(linkData.url);
         } else {
           window.open(linkData.url, "_blank", "noopener,noreferrer");
         }

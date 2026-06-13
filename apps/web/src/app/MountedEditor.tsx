@@ -1,6 +1,6 @@
 import { useP2PRoom, type SyncState } from "@/app/hooks/useP2PRoom";
 import { Button } from "@/components/ui/button";
-import { hasNativeBridge } from "@cypherkit/editor/actions/clipboard";
+import { getBridge, isNative } from "@/platform/bridge";
 import {
   positionToAwarenessCursor,
   selectionToAwarenessSelection,
@@ -9,7 +9,7 @@ import {
 } from "@cypherkit/editor/sync/awareness";
 import { createDoc, type Doc } from "@cypherkit/editor/doc";
 import { serializeVV } from "@cypherkit/editor/sync/sync";
-import type { Operation } from "@cypherkit/editor/state-types";
+import type { HostBridge, Operation } from "@cypherkit/editor/state-types";
 import { getPlatform } from "@/platform";
 import {
   Bold,
@@ -613,9 +613,20 @@ export function MountedEditor({
     });
     docRef.current = doc;
 
+    // Adapt the native shell's CypherBridge into the editor's per-instance
+    // HostBridge (haptics/clipboard/open-URL). null on plain web.
+    const native = getBridge();
+    const hostBridge: HostBridge | null = native && {
+      haptic: (style) => void native.haptic.trigger(style),
+      clipboard: native.clipboard,
+      openUrl: (url) => void native.navigation.openUrl(url),
+      isNativeShell: true,
+    };
+
     const mounted = mountEditor(el, doc.getBlocks(), {
       editable: !readonly,
       pageId,
+      hostBridge,
       padding,
       blockStyleOverrides,
       placeholderOverrides,
@@ -899,19 +910,15 @@ export function MountedEditor({
     mounted.editor.onImagePaste(async (file, blockIndex) => {
       try {
         const imageData = await uploadImage(file);
-        // Revoke the temporary blob URL
-        const state = mounted.editor.getState();
-        if (state) {
-          const block = state.document.page.blocks[blockIndex];
-          if (
-            block &&
-            block.type === "image" &&
-            block.url?.startsWith("blob:")
-          ) {
-            URL.revokeObjectURL(block.url);
-          }
+        // Resolve the block by id (index may have shifted during the upload).
+        const block =
+          mounted.editor.getState()?.document.page.blocks[blockIndex];
+        if (!block || block.deleted || block.type !== "image") return;
+        // Revoke the temporary blob URL we were displaying.
+        if (block.url?.startsWith("blob:")) {
+          URL.revokeObjectURL(block.url);
         }
-        mounted.editor.updateImageBlock(blockIndex, {
+        mounted.editor.setNodeAttrs(block.id, {
           url: imageData.url,
           alt: imageData.fileName,
         });
@@ -1687,7 +1694,7 @@ export function MountedEditor({
 
   const getContextMenuItems = (): ContextMenuItem[] => {
     const hasSelection = contextMenuState?.hasSelection ?? false;
-    const canPaste = hasNativeBridge();
+    const canPaste = isNative();
 
     const items: ContextMenuItem[] = [
       {
@@ -2132,60 +2139,47 @@ export function MountedEditor({
             onUpload={async (file) => {
               if (!mountedRef.current) return;
               const editor = mountedRef.current.editor;
-              const state = editor.getState();
-              if (!state) return;
-
-              // Get current block to check if there's an existing URL to clear from failed cache
               const block =
-                state.document.page.blocks[imageUploadState.blockIndex];
-              if (block && block.type === "image" && block.url) {
+                editor.getState()?.document.page.blocks[
+                  imageUploadState.blockIndex
+                ];
+              if (!block || block.deleted || block.type !== "image") return;
+
+              // Clear any failed-cache entry for the URL we're replacing.
+              if (block.url) {
                 clearFailedImageCache(block.url);
               }
 
-              // Set uploading status
-              editor.updateImageBlock(
-                imageUploadState.blockIndex,
-                {},
-                "uploading",
-              );
+              editor.setImageUploadStatus("uploading");
 
               try {
-                // Upload the image
                 const imageData = await uploadImage(file);
-
-                // Update with the uploaded URL
-                editor.updateImageBlock(
-                  imageUploadState.blockIndex,
-                  {
-                    url: imageData.url,
-                    alt: imageData.fileName,
-                  },
-                  "complete",
-                );
-
-                // Close the popover after successful upload
+                // Address by id — the upload may have shifted the block index.
+                editor.setNodeAttrs(block.id, {
+                  url: imageData.url,
+                  alt: imageData.fileName,
+                });
+                editor.setImageUploadStatus("complete");
                 editor.closeActiveMenu();
               } catch (error) {
                 console.error("Image upload failed:", error);
-                editor.updateImageBlock(
-                  imageUploadState.blockIndex,
-                  {},
-                  "error",
-                );
+                editor.setImageUploadStatus("error");
               }
             }}
             onUrlSubmit={(url) => {
               if (!mountedRef.current) return;
               const editor = mountedRef.current.editor;
+              const block =
+                editor.getState()?.document.page.blocks[
+                  imageUploadState.blockIndex
+                ];
+              if (!block || block.deleted || block.type !== "image") return;
 
               // Clear failed cache for this URL to allow retry
               clearFailedImageCache(url);
 
-              editor.updateImageBlock(
-                imageUploadState.blockIndex,
-                { url },
-                "complete",
-              );
+              editor.setNodeAttrs(block.id, { url });
+              editor.setImageUploadStatus("complete");
             }}
             onDelete={() => {
               if (!mountedRef.current) return;
@@ -2228,19 +2222,25 @@ export function MountedEditor({
             })()}
             onSubmit={(latex, displayMode) => {
               if (!mountedRef.current) return;
-              mountedRef.current.editor.updateMathBlock(
-                mathEditState.blockIndex,
-                { latex, displayMode },
-              );
-              mountedRef.current.editor.closeActiveMenu();
+              const editor = mountedRef.current.editor;
+              const block =
+                editor.getState()?.document.page.blocks[
+                  mathEditState.blockIndex
+                ];
+              if (block && !block.deleted && block.type === "math") {
+                editor.setNodeAttrs(block.id, { latex, displayMode });
+              }
+              editor.closeActiveMenu();
               setMathEditState(null);
             }}
             onDelete={() => {
               if (!mountedRef.current) return;
-              // Delete the math block (reuse image delete logic pattern)
-              mountedRef.current.editor.deleteImageBlock(
-                mathEditState.blockIndex,
-              );
+              const editor = mountedRef.current.editor;
+              const block =
+                editor.getState()?.document.page.blocks[
+                  mathEditState.blockIndex
+                ];
+              if (block && !block.deleted) editor.deleteNode(block.id);
               setMathEditState(null);
             }}
             onClose={() => {
@@ -2266,23 +2266,38 @@ export function MountedEditor({
             inline
             onSubmit={(latex) => {
               if (!mountedRef.current) return;
-              mountedRef.current.editor.updateInlineMath(
-                inlineMathEditState.blockIndex,
-                inlineMathEditState.startIndex,
-                inlineMathEditState.endIndex,
-                latex,
-              );
-              mountedRef.current.editor.closeActiveMenu();
+              const editor = mountedRef.current.editor;
+              const block =
+                editor.getState()?.document.page.blocks[
+                  inlineMathEditState.blockIndex
+                ];
+              if (block && !block.deleted) {
+                editor.replaceInlineRange(
+                  block.id,
+                  inlineMathEditState.startIndex,
+                  inlineMathEditState.endIndex,
+                  latex,
+                  { type: "math" },
+                );
+              }
+              editor.closeActiveMenu();
               setInlineMathEditState(null);
             }}
             onDelete={() => {
               if (!mountedRef.current) return;
-              mountedRef.current.editor.deleteInlineMath(
-                inlineMathEditState.blockIndex,
-                inlineMathEditState.startIndex,
-                inlineMathEditState.endIndex,
-              );
-              mountedRef.current.editor.closeActiveMenu();
+              const editor = mountedRef.current.editor;
+              const block =
+                editor.getState()?.document.page.blocks[
+                  inlineMathEditState.blockIndex
+                ];
+              if (block && !block.deleted) {
+                editor.deleteInlineRange(
+                  block.id,
+                  inlineMathEditState.startIndex,
+                  inlineMathEditState.endIndex,
+                );
+              }
+              editor.closeActiveMenu();
               setInlineMathEditState(null);
             }}
             onClose={() => {
@@ -2532,51 +2547,47 @@ export function MountedEditor({
             onUpload={async (file) => {
               if (!mountedRef.current) return;
               const editor = mountedRef.current.editor;
-              const state = editor.getState();
-              if (!state) return;
-
               const block =
-                state.document.page.blocks[nativeImageDrawerState.blockIndex];
-              if (block && block.type === "image" && block.url) {
+                editor.getState()?.document.page.blocks[
+                  nativeImageDrawerState.blockIndex
+                ];
+              if (!block || block.deleted || block.type !== "image") return;
+              if (block.url) {
                 clearFailedImageCache(block.url);
               }
 
-              editor.updateImageBlock(
-                nativeImageDrawerState.blockIndex,
-                {},
-                "uploading",
-              );
+              editor.setImageUploadStatus("uploading");
 
               try {
                 const imageData = await uploadImage(file);
-                editor.updateImageBlock(
-                  nativeImageDrawerState.blockIndex,
-                  {
-                    url: imageData.url,
-                    alt: imageData.fileName,
-                  },
-                  "complete",
-                );
+                editor.setNodeAttrs(block.id, {
+                  url: imageData.url,
+                  alt: imageData.fileName,
+                });
+                editor.setImageUploadStatus("complete");
               } catch (error) {
                 console.error("Image upload failed:", error);
-                editor.updateImageBlock(
-                  nativeImageDrawerState.blockIndex,
-                  {},
-                  "error",
-                );
+                editor.setImageUploadStatus("error");
               }
             }}
             onUrlSubmit={(url) => {
               if (!mountedRef.current) return;
               const editor = mountedRef.current.editor;
-              editor.updateImageBlock(nativeImageDrawerState.blockIndex, {
-                url,
-              });
+              const block =
+                editor.getState()?.document.page.blocks[
+                  nativeImageDrawerState.blockIndex
+                ];
+              if (!block || block.deleted || block.type !== "image") return;
+              editor.setNodeAttrs(block.id, { url });
             }}
             onDelete={() => {
               if (!mountedRef.current) return;
               const editor = mountedRef.current.editor;
-              editor.deleteImageBlock(nativeImageDrawerState.blockIndex);
+              const block =
+                editor.getState()?.document.page.blocks[
+                  nativeImageDrawerState.blockIndex
+                ];
+              if (block && !block.deleted) editor.deleteNode(block.id);
               setNativeImageDrawerState(null);
             }}
             onClose={() => {

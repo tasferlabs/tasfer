@@ -1,4 +1,4 @@
-import { measureCharsUpToIndex } from "./fonts";
+import { currentFontFamily, measureCharsUpToIndex } from "./fonts";
 import { snapInlineMathPosition } from "./inline-math";
 import {
   getContentWithComposition,
@@ -20,9 +20,8 @@ import {
   createInitialCursorState,
   getBlockTextContent,
   getBlockTextLength,
-  getTextIndexAtRelativePosition,
 } from "./state-utils";
-import { getEditorStyles } from "./styles";
+import { getEditorStyles, getTextStyle } from "./styles";
 import { isTextualBlock } from "./sync/block-registry";
 import {
   findCharInRuns,
@@ -111,6 +110,80 @@ function relativeColumn(
     layout.fonts,
     layout.codePadding,
   );
+}
+
+/**
+ * Get the text index at a relative position within a line
+ * Used to maintain horizontal position when moving up/down between lines
+ */
+export function getTextIndexAtRelativePosition(
+  lineStartIndex: number,
+  lineEndIndex: number,
+  relativePosition: number,
+  block?: Block,
+  maxWidth?: number,
+  styles?: EditorStyles,
+): number {
+  // If no block info provided, use simple logical positioning
+  if (!block || !maxWidth || !styles) {
+    const lineLength = lineEndIndex - lineStartIndex;
+    const targetIndex = lineStartIndex + Math.min(relativePosition, lineLength);
+    return targetIndex;
+  }
+
+  if (!isTextualBlock(block)) {
+    const lineLength = lineEndIndex - lineStartIndex;
+    return lineStartIndex + Math.min(relativePosition, lineLength);
+  }
+
+  // Check if this is RTL text
+  const isRTL =
+    getTextDirection(getVisibleTextFromRuns(block.charRuns)) === "rtl";
+
+  if (!isRTL) {
+    // LTR: simple logical positioning
+    const lineLength = lineEndIndex - lineStartIndex;
+    const targetIndex = lineStartIndex + Math.min(relativePosition, lineLength);
+    return targetIndex;
+  }
+
+  // RTL: find the text index that corresponds to the visual position
+  const textStyle = getTextStyle(styles, block.type);
+  const fontFamily = currentFontFamily(styles);
+  const codePadding = styles.textFormats.code.padding;
+
+  // Find the character position that has the target visual position
+  // For RTL: relativePosition is widthFromStart (distance from line start)
+  // We need to find the charIndex where widthFromStart matches relativePosition
+  let bestIndex = lineStartIndex;
+  let minDistance = Infinity;
+
+  const lineLength = lineEndIndex - lineStartIndex;
+  for (let i = 0; i <= lineLength; i++) {
+    const charIndex = lineStartIndex + i;
+
+    // Measure from line start to this character position
+    const widthFromStart = measureCharsUpToIndex(
+      block.charRuns,
+      block.formats,
+      lineStartIndex,
+      charIndex,
+      textStyle.fontSize,
+      textStyle.fontWeight,
+      fontFamily,
+      styles.fonts,
+      codePadding,
+    );
+
+    const distance = Math.abs(widthFromStart - relativePosition);
+
+    if (distance < minDistance) {
+      minDistance = distance;
+      bestIndex = charIndex;
+    }
+  }
+
+  return bestIndex;
 }
 
 export function getCursorDocumentCoords(

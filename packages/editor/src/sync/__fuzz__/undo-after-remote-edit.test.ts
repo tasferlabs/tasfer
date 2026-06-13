@@ -19,12 +19,12 @@
  * step.
  */
 
-import { invertOperation, refreshOps } from "../../inverse";
 import type { Paragraph } from "../../rendering/nodes/TextNode";
 import type { Page } from "../../serlization/loadPage";
 import type { MarkSet } from "../../state-types";
 import { isTextualBlock } from "../block-registry";
 import { getVisibleLengthFromRuns, iterateVisibleChars } from "../char-runs";
+import { invertOperation, refreshOps } from "../inverse";
 import { applyOps } from "../reducer";
 import { createCRDTbinding, createSyncEngine } from "../sync";
 import { describe, expect, it } from "vitest";

@@ -1,39 +1,27 @@
-import { currentFontFamily, measureCharsUpToIndex, wrapText } from "./fonts";
 // `getBlockTextContent` / `isTouchDevice` are defined in the leaf `node-shared`
 // (not here) and re-exported below: the node views import them, and the node
 // registry imports back into this module, so keeping those two off `state-utils`
 // breaks the `ListNode extends TextNode` circular-init hazard.
-import { isTouchDevice } from "./node-shared";
 import type { NodeRegistry } from "./rendering/nodes";
 import { createDefaultNodeRegistry } from "./rendering/nodes";
 import {
   createInitialMomentumState,
   createInitialScrollbarState,
 } from "./rendering/scrollbar";
-import { getTextDirection } from "./rtl";
-import { type Block, isListBlock, type Page } from "./serlization/loadPage";
+import { type Block, type Page } from "./serlization/loadPage";
 import type {
   CRDTbinding as CRDTbindingType,
   EditorMode,
   EditorState,
-  EditorStyles,
   EditorTheme,
+  HostBridge,
   Position,
 } from "./state-types";
-import {
-  getEditorStyles,
-  getTextStyle,
-  resolveNodeStrings,
-  resolveTheme,
-} from "./styles";
+import { resolveNodeStrings, resolveTheme } from "./styles";
 
 export { getBlockTextContent, isTouchDevice } from "./node-shared";
 import { isTextualBlock } from "./sync/block-registry";
-import {
-  charRunsToChars,
-  getVisibleLengthFromRuns,
-  getVisibleTextFromRuns,
-} from "./sync/char-runs";
+import { getVisibleLengthFromRuns } from "./sync/char-runs";
 import { initialUndoManagerState } from "./sync/crdt-undo";
 import { generatePeerId } from "./sync/id";
 import {
@@ -50,6 +38,7 @@ export function createInitialState(
     nodes?: NodeRegistry;
     theme?: EditorTheme;
     crdtBinding?: CRDTbindingType;
+    hostBridge?: HostBridge | null;
   },
 ): EditorState {
   // Each editor instance owns its own CRDT context. Because the binding is
@@ -86,6 +75,7 @@ export function createInitialState(
 
   return {
     CRDTbinding,
+    hostBridge: options?.hostBridge ?? null,
     nodes,
     theme,
     resolvedStyles,
@@ -123,7 +113,6 @@ export function createInitialState(
       },
       scrollbar: createInitialScrollbarState(),
       momentum: createInitialMomentumState(),
-      hasPhysicalKeyboard: false, // Default to false, will be updated by native
       visibleBlocks: getVisibleBlocks(page),
     },
     undoManager: initialUndoManagerState,
@@ -151,16 +140,6 @@ export function updateMode(state: EditorState, mode: EditorMode): EditorState {
   return {
     ...state,
     ui: { ...state.ui, mode },
-  };
-}
-
-export function updatePhysicalKeyboardState(
-  state: EditorState,
-  hasPhysicalKeyboard: boolean,
-): EditorState {
-  return {
-    ...state,
-    view: { ...state.view, hasPhysicalKeyboard },
   };
 }
 
@@ -198,152 +177,6 @@ export function getBlockTextLength(block: Block): number {
   if (!isTextualBlock(block)) return 0;
 
   return getVisibleLengthFromRuns(block.charRuns);
-}
-
-/**
- * Get line information for a given position within a block
- * Returns the line index, line start/end indices, and total lines in the block
- */
-export function getLineInfoAtPosition(
-  block: Block,
-  textIndex: number,
-  maxWidth: number,
-  styles: EditorStyles = getEditorStyles(),
-): {
-  lineIndex: number;
-  lineStartIndex: number;
-  lineEndIndex: number;
-  totalLines: number;
-  lines: string[];
-} | null {
-  if (!isTextualBlock(block)) {
-    return null;
-  }
-
-  const textStyle = getTextStyle(styles, block.type);
-  const fontFamily = currentFontFamily(styles);
-  const codePadding = styles.textFormats.code.padding;
-
-  // Calculate adjusted max width for list blocks
-  let adjustedMaxWidth = maxWidth;
-  if (isListBlock(block)) {
-    const indent = block.indent || 0;
-    const indentOffset = indent * styles.list.indent.size;
-    const markerWidth =
-      styles.list.numbered.minWidth + styles.list.marker.textGap;
-    adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
-  }
-
-  const wrappedLines = wrapText(
-    charRunsToChars(block.charRuns),
-    block.formats,
-    adjustedMaxWidth,
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
-    styles.fonts,
-    codePadding,
-  );
-
-  let currentTextIndex = 0;
-  for (let lineIndex = 0; lineIndex < wrappedLines.length; lineIndex++) {
-    const wrappedLine = wrappedLines[lineIndex];
-    const line = wrappedLine.text;
-    const lineStartIndex = currentTextIndex;
-    const lineEndIndex = currentTextIndex + line.length;
-
-    if (textIndex >= lineStartIndex && textIndex <= lineEndIndex) {
-      return {
-        lineIndex,
-        lineStartIndex,
-        lineEndIndex,
-        totalLines: wrappedLines.length,
-        lines: wrappedLines.map((wl) => wl.text),
-      };
-    }
-
-    currentTextIndex += line.length;
-    // Account for the space character consumed during text wrapping
-    if (wrappedLine.consumedSpace) {
-      currentTextIndex += 1;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Get the text index at a relative position within a line
- * Used to maintain horizontal position when moving up/down between lines
- */
-export function getTextIndexAtRelativePosition(
-  lineStartIndex: number,
-  lineEndIndex: number,
-  relativePosition: number,
-  block?: Block,
-  maxWidth?: number,
-  styles?: EditorStyles,
-): number {
-  // If no block info provided, use simple logical positioning
-  if (!block || !maxWidth || !styles) {
-    const lineLength = lineEndIndex - lineStartIndex;
-    const targetIndex = lineStartIndex + Math.min(relativePosition, lineLength);
-    return targetIndex;
-  }
-
-  if (!isTextualBlock(block)) {
-    const lineLength = lineEndIndex - lineStartIndex;
-    return lineStartIndex + Math.min(relativePosition, lineLength);
-  }
-
-  // Check if this is RTL text
-  const isRTL =
-    getTextDirection(getVisibleTextFromRuns(block.charRuns)) === "rtl";
-
-  if (!isRTL) {
-    // LTR: simple logical positioning
-    const lineLength = lineEndIndex - lineStartIndex;
-    const targetIndex = lineStartIndex + Math.min(relativePosition, lineLength);
-    return targetIndex;
-  }
-
-  // RTL: find the text index that corresponds to the visual position
-  const textStyle = getTextStyle(styles, block.type);
-  const fontFamily = currentFontFamily(styles);
-  const codePadding = styles.textFormats.code.padding;
-
-  // Find the character position that has the target visual position
-  // For RTL: relativePosition is widthFromStart (distance from line start)
-  // We need to find the charIndex where widthFromStart matches relativePosition
-  let bestIndex = lineStartIndex;
-  let minDistance = Infinity;
-
-  const lineLength = lineEndIndex - lineStartIndex;
-  for (let i = 0; i <= lineLength; i++) {
-    const charIndex = lineStartIndex + i;
-
-    // Measure from line start to this character position
-    const widthFromStart = measureCharsUpToIndex(
-      block.charRuns,
-      block.formats,
-      lineStartIndex,
-      charIndex,
-      textStyle.fontSize,
-      textStyle.fontWeight,
-      fontFamily,
-      styles.fonts,
-      codePadding,
-    );
-
-    const distance = Math.abs(widthFromStart - relativePosition);
-
-    if (distance < minDistance) {
-      minDistance = distance;
-      bestIndex = charIndex;
-    }
-  }
-
-  return bestIndex;
 }
 
 // Slash Command State Management
@@ -491,33 +324,4 @@ export function clearAutoCreatedParagraph(state: EditorState): EditorState {
       autoCreatedParagraph: null,
     },
   };
-}
-
-/**
- * Heuristic detection for physical keyboard (used as fallback)
- * This is not 100% reliable but works in most cases
- */
-export function detectPhysicalKeyboardHeuristic(): boolean {
-  if (typeof window === "undefined") return false;
-
-  // Check if this is a touch device first
-  const isTouch = isTouchDevice();
-  if (!isTouch) {
-    // Non-touch devices always have a keyboard
-    return true;
-  }
-
-  // For touch devices, use heuristics to detect physical keyboard
-  // Method 1: Check for fine pointer (mouse/trackpad) which often indicates keyboard setup
-  const hasFinePointer = window.matchMedia("(pointer: fine)").matches;
-
-  // Method 2: Check if the device is a tablet in landscape mode with large screen
-  // iPads with keyboards are often in landscape and have larger width
-  const isLandscape = window.innerWidth > window.innerHeight;
-  const isLargeScreen = window.innerWidth > 768;
-
-  // Combine heuristics
-  const hasKeyboardHeuristic = hasFinePointer || (isLandscape && isLargeScreen);
-
-  return hasKeyboardHeuristic;
 }

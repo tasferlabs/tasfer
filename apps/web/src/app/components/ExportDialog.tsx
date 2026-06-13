@@ -14,13 +14,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FileText, FileCode, FileType, Loader2 } from "lucide-react";
+import { FileCode, FileType, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
 import { serializeToMarkdown } from "@cypherkit/editor/serlization/serializer";
 import { serializeToHTML } from "@cypherkit/editor/serlization/htmlSerializer";
-import { serializeToText } from "@cypherkit/editor/serlization/textSerializer";
 import { collectAssetRefs } from "@cypherkit/editor/serlization/codecs";
 import { extractTitleFromBlocks } from "@cypherkit/editor/sync/char-runs";
 import { imageCache } from "@cypherkit/editor/rendering/renderer";
@@ -136,11 +135,6 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     const blob = new Blob([content], { type: mimeType });
     await downloadFile(blob, `${getBaseName()}.${extension}`, mimeType);
     onOpenChange(false);
-  };
-
-  const handleExportTxt = () => {
-    const content = serializeToText(currentBlocks);
-    downloadTextFile(content, "txt", "text/plain");
   };
 
   const fetchMetadata = async (): Promise<PageMetadata | undefined> => {
@@ -322,19 +316,6 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
               <Button
                 variant="outline"
                 className="w-full justify-start gap-3 h-auto py-3"
-                onClick={handleExportTxt}
-              >
-                <FileText className="h-5 w-5 text-muted-foreground" />
-                <div className="flex flex-col items-start">
-                  <span className="font-medium">
-                    {t("export.plainText", "Plain Text")}
-                  </span>
-                  <span className="text-xs text-muted-foreground">.txt</span>
-                </div>
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full justify-start gap-3 h-auto py-3"
                 onClick={handleExportPdf}
                 disabled={isExporting}
               >
@@ -388,17 +369,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-3 gap-3">
-          <button
-            onClick={handleExportTxt}
-            className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer"
-          >
-            <FileText className="h-8 w-8 mb-2 text-muted-foreground" />
-            <span className="font-medium">
-              {t("export.plainText", "Plain Text")}
-            </span>
-            <span className="text-xs text-muted-foreground">.txt</span>
-          </button>
-          <button
+            <button
             onClick={handleExportPdf}
             disabled={isExporting}
             className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"

@@ -17,6 +17,7 @@ import type {
   CommandResult,
   CRDTbinding,
   EditorState,
+  HostBridge,
   Position,
 } from "../state-types";
 import type {
@@ -140,46 +141,42 @@ function autoLinkInRange(
   return { newPage: pageAcc, ops };
 }
 
-export function hasNativeBridge(): boolean {
-  return !!window.CypherBridge;
-}
+/** The native clipboard capability supplied by the host shell, when present. */
+type NativeClipboard = NonNullable<HostBridge["clipboard"]>;
 
-async function copyToNativeClipboard(text: string): Promise<boolean> {
+async function copyToNativeClipboard(
+  clipboard: NativeClipboard,
+  text: string,
+): Promise<boolean> {
   try {
-    const bridge = window.CypherBridge;
-    if (bridge) {
-      await bridge.clipboard.copy(text);
-      return true;
-    }
-    return false;
+    await clipboard.copy(text);
+    return true;
   } catch (error) {
     console.error("Failed to copy to native clipboard:", error);
     return false;
   }
 }
 
-async function cutToNativeClipboard(text: string): Promise<boolean> {
+async function cutToNativeClipboard(
+  clipboard: NativeClipboard,
+  text: string,
+): Promise<boolean> {
   try {
-    const bridge = window.CypherBridge;
-    if (bridge) {
-      await bridge.clipboard.cut(text);
-      return true;
-    }
-    return false;
+    await clipboard.cut(text);
+    return true;
   } catch (error) {
     console.error("Failed to cut to native clipboard:", error);
     return false;
   }
 }
 
-async function pasteFromNativeClipboard(): Promise<string | null> {
+async function pasteFromNativeClipboard(
+  clipboard: NativeClipboard | undefined,
+): Promise<string | null> {
+  if (!clipboard) return null;
   try {
-    const bridge = window.CypherBridge;
-    if (bridge) {
-      const text = await bridge.clipboard.paste();
-      return text || null;
-    }
-    return null;
+    const text = await clipboard.paste();
+    return text || null;
   } catch (error) {
     console.error("Failed to paste from native clipboard:", error);
     return null;
@@ -583,8 +580,9 @@ export async function copySelectionToClipboard(
     const markdown = blocksToMarkdown(blocks);
     const html = blocksToHTML(blocks);
 
-    if (hasNativeBridge()) {
-      return await copyToNativeClipboard(markdown);
+    const nativeClipboard = state.hostBridge?.clipboard;
+    if (nativeClipboard) {
+      return await copyToNativeClipboard(nativeClipboard, markdown);
     }
 
     if (navigator.clipboard && navigator.clipboard.write) {
@@ -622,8 +620,9 @@ export async function cutSelectionToClipboard(
     const markdown = blocksToMarkdown(blocks);
 
     let success = false;
-    if (hasNativeBridge()) {
-      success = await cutToNativeClipboard(markdown);
+    const nativeClipboard = state.hostBridge?.clipboard;
+    if (nativeClipboard) {
+      success = await cutToNativeClipboard(nativeClipboard, markdown);
     } else {
       success = await copySelectionToClipboard(state);
     }
@@ -1236,7 +1235,7 @@ export async function pasteFromNativeClipboardAPI(
   state: EditorState,
 ): Promise<CommandResult | null> {
   try {
-    const text = await pasteFromNativeClipboard();
+    const text = await pasteFromNativeClipboard(state.hostBridge?.clipboard);
     if (!text) return null;
 
     const blocks = parsePlainTextToBlocks(text, state.CRDTbinding);

@@ -47,7 +47,7 @@ import {
   formatMonthLong,
   type ViewMode,
 } from "./utils";
-import { triggerHapticFeedback } from "@cypherkit/editor/events/touchEvents";
+import { triggerHaptic } from "@/platform/bridge";
 import { useP2PPageEventsWithQueryClient } from "../../hooks/useP2PPageEvents";
 import { EventCard } from "./EventCard";
 import { EventPreview } from "./EventPreview";
@@ -481,7 +481,7 @@ export default function CalendarPage() {
 
         if (edgeDir !== null) {
           edgeDragTimerRef.current = setTimeout(() => {
-            triggerHapticFeedback("medium");
+            triggerHaptic("medium");
 
             // In day view, track the accumulated target day so handleDragEnd
             // knows which day to save the event to
@@ -534,7 +534,7 @@ export default function CalendarPage() {
   function handleDragStart(event: DragStartEvent) {
     const page = event.active.data.current?.page as ICalendarPage | undefined;
     if (page) {
-      triggerHapticFeedback("medium");
+      triggerHaptic("medium");
       setActiveDragPage(page);
       setDragDeltaMinutes(0);
       setDragTargetDay(null);
@@ -602,7 +602,7 @@ export default function CalendarPage() {
     e.preventDefault();
     e.stopPropagation();
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    triggerHapticFeedback("light");
+    triggerHaptic("light");
 
     const state: ResizeState = {
       pageId,
@@ -834,7 +834,7 @@ export default function CalendarPage() {
         state.active = true;
 
         // Haptic feedback (native bridge on iOS/Android, Vibration API fallback)
-        triggerHapticFeedback("medium");
+        triggerHaptic("medium");
 
         const date = getColumnDateFromElement(state.targetEl);
         const minutes = getMinutesFromClientY(state.startY);

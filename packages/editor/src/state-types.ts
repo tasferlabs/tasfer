@@ -132,7 +132,7 @@ export interface BlockInsert extends BaseOp {
   /** New block's unique ID */
   blockId: string;
   /** Block type — a built-in `BlockType` or a custom schema-registered name. */
-  blockType: BlockType | (string & {});
+  blockType: string & {};
   /** Initial block properties */
   initialProps?: BlockProps;
 }
@@ -398,16 +398,8 @@ export interface ViewState {
   readonly clickTracker: ClickTracker;
   readonly scrollbar: ScrollbarState;
   readonly momentum: MomentumState;
-  readonly hasPhysicalKeyboard: boolean; // Set by native side when hardware keyboard is connected
   visibleBlocks: (Block & { originalIndex: number })[];
 }
-
-// The former `StyleConfig` (a fixed set of per-instance overrides:
-// padding/blockStyleOverrides/placeholderOverrides/strings) has been folded into
-// the unified, fully-overridable {@link EditorTheme}. The host now passes one
-// `theme`, resolved once into `EditorState.resolvedStyles`. The legacy mount
-// options still work (see `MountEditorOptions`) — they are converted to a theme
-// at mount.
 
 /**
  * The cross-node user-facing strings the editor paints onto the canvas (block
@@ -500,6 +492,28 @@ export interface UndoManagerState {
   readonly redoStack: readonly UndoGroup[];
 }
 
+/**
+ * Optional native-shell capabilities, injected per-instance at mount (the
+ * iOS/Android WebView provides them). Lives on `EditorState` like `CRDTbinding`
+ * and `nodes` — NOT a module global — so two editors on a page each talk to
+ * their own host. `null` on plain web. Every capability is independently
+ * optional; an absent one falls back to standard web behavior at the call site.
+ */
+export interface HostBridge {
+  /** Native haptic feedback. */
+  readonly haptic?: (style: "light" | "medium" | "heavy") => void;
+  /** Native clipboard. When present the editor prefers it over `navigator.clipboard`. */
+  readonly clipboard?: {
+    copy(text: string): Promise<void>;
+    cut(text: string): Promise<void>;
+    paste(): Promise<string>;
+  };
+  /** Open an external URL through the native shell instead of `window.open`. */
+  readonly openUrl?: (url: string) => void;
+  /** True inside a native shell; drives focus/blur handling that differs from the browser. */
+  readonly isNativeShell?: boolean;
+}
+
 // New unified EditorState
 export interface EditorState {
   readonly document: DocumentState;
@@ -507,6 +521,11 @@ export interface EditorState {
   readonly view: ViewState;
   readonly undoManager: UndoManagerState;
   readonly CRDTbinding: CRDTbinding;
+  /**
+   * Per-instance native-shell capabilities (haptics/clipboard/openUrl), or `null`
+   * on plain web. Injected at mount and carried on state like `CRDTbinding`.
+   */
+  readonly hostBridge: HostBridge | null;
   /**
    * Per-instance registry of block views (layout/paint/hit-test per block type).
    * Owned by this editor — NOT a module global — so multiple editors on the same

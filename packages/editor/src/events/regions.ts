@@ -26,7 +26,7 @@
 import type { EditorState, ViewportState } from "../state-types";
 import type { Operation } from "../sync/sync";
 import { triggerHapticFeedback } from "./haptics";
-import type { InteractionSession } from "./session";
+import type { InteractionSession } from "./interaction-session";
 
 export type PointerType = "mouse" | "touch";
 
@@ -205,7 +205,10 @@ export function tickPendingCapture(ctx: RegionCtx): EditorState | null {
 
   ctx.session.pendingCapture = null;
   if (pending.region.drag.hapticOnActivate) {
-    triggerHapticFeedback(pending.region.drag.hapticOnActivate);
+    triggerHapticFeedback(
+      ctx.state.hostBridge,
+      pending.region.drag.hapticOnActivate,
+    );
   }
   const result = pending.region.drag.onStart(
     pending.hit,

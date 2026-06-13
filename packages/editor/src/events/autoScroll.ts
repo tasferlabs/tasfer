@@ -12,7 +12,7 @@ import {
   EDGE_SCROLL_THRESHOLD,
 } from "../constants";
 import type { ViewportState } from "../state-types";
-import type { InteractionSession } from "./session";
+import type { InteractionSession } from "./interaction-session";
 
 /**
  * Scroll delta (px) for a pointer at viewport-y `y`.

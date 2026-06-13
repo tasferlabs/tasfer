@@ -1439,10 +1439,10 @@ export class TextNode extends Node<TextualBlock> {
   protected placeholderText(
     block: TextualBlock,
     styles: EditorStyles,
-    state: EditorState,
+    _state: EditorState,
   ): string {
     if (block.type === "paragraph") {
-      const isTouchOnly = isTouchDevice() && !state.view.hasPhysicalKeyboard;
+      const isTouchOnly = isTouchDevice();
       return isTouchOnly
         ? styles.placeholder.paragraph.touchCompatiableText
         : styles.placeholder.paragraph.keyboardCompatibleText;

@@ -1,5 +1,5 @@
 import { useP2PPageEventsWithQueryClient } from "@/app/hooks/useP2PPageEvents";
-import { triggerHapticFeedback } from "@cypherkit/editor/events/touchEvents";
+import { triggerHaptic } from "@/platform/bridge";
 import {
   closestCenter,
   DndContext,
@@ -206,7 +206,7 @@ export function SidebarContent({
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
     setActiveDragData(event.active.data.current as IListPage);
-    triggerHapticFeedback("medium");
+    triggerHaptic("medium");
   }
 
   function getSpaceName(spaceId: string): string {

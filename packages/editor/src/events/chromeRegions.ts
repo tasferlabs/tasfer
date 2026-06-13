@@ -30,8 +30,8 @@ import {
 } from "../selection";
 import type { EditorState } from "../state-types";
 import { getSelectionHandleAtPoint } from "./eventUtils";
+import { startAutoScroll, stopAutoScroll } from "./interaction-session";
 import { type Region, RegionRegistry } from "./regions";
-import { startAutoScroll, stopAutoScroll } from "./session";
 
 /** Bump the scrollbar's lastInteraction so it stays visible (fade timer). */
 export function withScrollbarInteraction(state: EditorState): EditorState {

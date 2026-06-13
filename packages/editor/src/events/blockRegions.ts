@@ -26,6 +26,7 @@ import {
   startImageDrag,
   updateImageDrag,
 } from "./eventUtils";
+import { startAutoScroll, stopAutoScroll } from "./interaction-session";
 import {
   hitTestRegions,
   type PointerType,
@@ -34,7 +35,6 @@ import {
   type RegionCtx,
   type RegionPoint,
 } from "./regions";
-import { startAutoScroll, stopAutoScroll } from "./session";
 
 interface ImageResizeHit {
   blockIndex: number;

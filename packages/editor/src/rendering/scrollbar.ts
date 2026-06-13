@@ -1,3 +1,4 @@
+import { isTouchDevice } from "../events/eventUtils";
 import { getDefaultDirection } from "../rtl";
 import type {
   EditorState,
@@ -27,14 +28,6 @@ export interface ScrollbarState {
 // per-instance resolved theme (`EditorStyles.scrollbar`, see state-types.ts), so
 // a host can restyle it via `theme.styles.scrollbar` / `setTheme`. This module
 // reads it through `getScrollbarStyles(state)`; geometry is no longer hardcoded.
-
-// Detect if device has touch support
-function isTouchDevice(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    ("ontouchstart" in window || navigator.maxTouchPoints > 0)
-  );
-}
 
 // Get safe area inset bottom value
 function getSafeAreaInsetBottom(): number {

@@ -109,6 +109,7 @@ export type {
   FontFamily,
   FontStyles,
   HLC,
+  HostBridge,
   NodeOverlay,
   NodeStringsMap,
   Operation,

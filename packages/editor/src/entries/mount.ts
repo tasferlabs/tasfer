@@ -14,15 +14,12 @@ import type {
   EditorStyles,
   EditorTheme,
   FontStyles,
+  HostBridge,
   PlaceholderStyles,
   TextStyle,
   ViewportState,
 } from "../state-types";
-import {
-  createInitialState,
-  detectPhysicalKeyboardHeuristic,
-  isTouchDevice,
-} from "../state-utils";
+import { createInitialState, isTouchDevice } from "../state-utils";
 import { mergeTheme } from "../styles";
 import createEditor, { type Editor } from "./editor";
 import {
@@ -153,6 +150,12 @@ export interface MountEditorOptions {
    * detaches its listener but does not destroy the doc.
    */
   doc?: Doc;
+  /**
+   * Native-shell capabilities (haptics, clipboard, open-URL) for hosts running
+   * inside an iOS/Android WebView. Stored per-instance on the editor's state, so
+   * the engine never reaches into `window` for them. Omit on plain web.
+   */
+  hostBridge?: HostBridge | null;
 }
 
 /**
@@ -301,6 +304,7 @@ export function mountEditor(
     // The doc's binding is the shared id/clock source when a doc is attached.
     crdtBinding: doc?._binding ?? options?.crdtBinding,
     theme,
+    hostBridge: options?.hostBridge ?? null,
   });
 
   // Create editor with initial state and layered canvases
@@ -367,17 +371,6 @@ export function mountEditor(
     resizeCanvasForKeyboard();
   };
 
-  // Keep physical keyboard detection from native messages (still useful)
-  const handlePhysicalKeyboardMessage = (event: MessageEvent) => {
-    if (event.data?.type === "physical-keyboard-connected") {
-      editor.setPhysicalKeyboard(event.data.connected === true);
-    }
-  };
-  window.addEventListener("message", handlePhysicalKeyboardMessage);
-
-  const initialKeyboardState = detectPhysicalKeyboardHeuristic();
-  editor.setPhysicalKeyboard(initialKeyboardState);
-
   let destroyed = false;
   const resizeObserver = new ResizeObserver(() => {
     if (destroyed) return;
@@ -431,7 +424,7 @@ export function mountEditor(
     }
     const relatedTarget = e.relatedTarget as globalThis.Node | null;
     if (
-      window.CypherBridge &&
+      editor.getState()?.hostBridge?.isNativeShell &&
       relatedTarget &&
       relatedTarget instanceof HTMLElement
     ) {
@@ -546,7 +539,6 @@ export function mountEditor(
       clearTimeout(blurTimeoutId);
       blurTimeoutId = null;
     }
-    window.removeEventListener("message", handlePhysicalKeyboardMessage);
     window.removeEventListener("focus", handleWindowFocus);
     window.removeEventListener("blur", handleWindowBlur);
     document.removeEventListener("mousedown", handleDocumentClick);

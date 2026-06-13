@@ -14,8 +14,8 @@
  * folds `applyOp` through the batch to materialise these intermediate
  * states; callers pass `applyOp` in to avoid a circular import.
  */
-import type { Block, Char, Mark, Page } from "./serlization/loadPage";
-import type { CRDTbinding } from "./state-types";
+import type { Block, Char, Mark, Page } from "../serlization/loadPage";
+import type { CRDTbinding } from "../state-types";
 import type {
   BlockDelete,
   BlockInsert,
@@ -24,18 +24,18 @@ import type {
   Operation,
   TextDelete,
   TextInsert,
-} from "./state-types";
+} from "../state-types";
 import {
   getBlockDescriptor,
   getBlockFieldNames,
   isTextualBlock,
-} from "./sync/block-registry";
+} from "./block-registry";
 import {
   charRunsToChars,
   charsToRuns,
   isCharIdInRange,
   iterateAllChars,
-} from "./sync/char-runs";
+} from "./char-runs";
 
 // =============================================================================
 // Per-op inversion

@@ -20,12 +20,12 @@
  * ops so we don't need to spin up the canvas editor.
  */
 
-import { invertOperations, refreshOps } from "../../inverse";
 import { type Page } from "../../serlization/loadPage";
 import type { BlockInsert, Operation, TextInsert } from "../../state-types";
 import { isTextualBlock } from "../block-registry";
 import { getVisibleLengthFromRuns, iterateVisibleChars } from "../char-runs";
 import { insertCharsAtPosition } from "../crdt-utils";
+import { invertOperations, refreshOps } from "../inverse";
 import { applyOp, applyOps, createEmptyPageState } from "../reducer";
 import { createCRDTbinding } from "../sync";
 import { describe, expect, it } from "vitest";

@@ -38,7 +38,7 @@ import {
   handleWheel,
 } from "./mouseEvents";
 import { tickPendingCapture } from "./regions";
-import { type InteractionSession, stopAutoScroll } from "./session";
+import { type InteractionSession, stopAutoScroll } from "./interaction-session";
 import {
   handleTouchCancel,
   handleTouchEnd,
@@ -102,7 +102,7 @@ export function handleEvents(
     const timeSinceStart = Date.now() - session.touch.startTime;
     if (timeSinceStart >= CURSOR_DRAG_ACTIVATION_DELAY) {
       session.touch.isCursorDrag = true;
-      triggerHapticFeedback("light");
+      triggerHapticFeedback(state.hostBridge, "light");
 
       // Get cursor coordinates for initial magnifier position
       const cursorCoords = state.document.cursor

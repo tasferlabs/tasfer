@@ -1,14 +1,18 @@
+import type { HostBridge } from "../state-types";
+
 /**
- * Trigger haptic feedback through native bridges (iOS/Android), falling back
- * to the standard Vibration API where available.
+ * Trigger haptic feedback through the host's native bridge (iOS/Android),
+ * falling back to the standard Vibration API where available. The bridge comes
+ * from the editor's per-instance state (`state.hostBridge`); pass `null` on web.
  */
 export function triggerHapticFeedback(
+  bridge: HostBridge | null,
   style: "light" | "medium" | "heavy" = "heavy",
 ): void {
   try {
     // Native bridge (iOS / Android)
-    if (window.CypherBridge) {
-      window.CypherBridge.haptic.trigger(style);
+    if (bridge?.haptic) {
+      bridge.haptic(style);
       return;
     }
 

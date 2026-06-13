@@ -36,17 +36,17 @@ import { hitTestAllRegions } from "./blockRegions";
 import { getAtomicBlockAtPoint, isWithinClickDistance } from "./eventUtils";
 import { triggerHapticFeedback } from "./haptics";
 import {
+  type InteractionSession,
+  startAutoScroll,
+  stopAutoScroll,
+} from "./interaction-session";
+import {
   beginRegionInteraction,
   type RegionCtx,
   routeCapturedCancel,
   routeCapturedEnd,
   routeCapturedMove,
 } from "./regions";
-import {
-  type InteractionSession,
-  startAutoScroll,
-  stopAutoScroll,
-} from "./session";
 
 // Re-export for hosts that deep-import from this module (apps/web does).
 export { triggerHapticFeedback } from "./haptics";
@@ -476,7 +476,7 @@ export function handleTouchMove(
           (prevPosition.blockIndex !== newPosition.blockIndex ||
             prevPosition.textIndex !== newPosition.textIndex)
         ) {
-          triggerHapticFeedback("light");
+          triggerHapticFeedback(state.hostBridge, "light");
         }
 
         state = updateCursor(state, newPosition);
@@ -753,7 +753,7 @@ export function handleTouchEnd(
     const didNotMove = !session.touch.hasMoved;
     const touchX = session.touch.currentTouchX;
     const touchY = session.touch.currentTouchY;
-    triggerHapticFeedback("medium");
+    triggerHapticFeedback(state.hostBridge, "medium");
     session.touch = null;
 
     let newState: EditorState = {

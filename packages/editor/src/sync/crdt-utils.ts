@@ -1,4 +1,5 @@
 import { updateCursor } from "../selection";
+import { updateSelection } from "../selection";
 import {
   type Block,
   type CharRun,
@@ -15,7 +16,6 @@ import type {
   Position,
 } from "../state-types";
 import type { MarkSet, TextDelete, TextInsert } from "../state-types";
-import { updateSelection } from "../selection";
 import { isTextualBlock } from "./block-registry";
 import {
   findCharInRuns,

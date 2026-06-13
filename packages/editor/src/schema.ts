@@ -202,7 +202,7 @@ function coerceAttr(raw: string, def: unknown): unknown {
 /**
  * Define a custom leaf block type — its CRDT shape, its markdown/HTML/text
  * round-trip, and how it draws. Two interchangeable authoring styles:
- *
+ *  ```ts
  *   // 1. Config style — a styled box with no canvas code:
  *   const callout = defineNode("callout", {
  *     attrs: { tone: { default: "note" } },
@@ -220,6 +220,7 @@ function coerceAttr(raw: string, def: unknown): unknown {
  *     protected draw(box, c) {  ... }
  *   }
  *   const schema = baseSchema.extend({ nodes: [new Callout()] });
+ *   ```
  */
 export function defineNode(
   type: string,
