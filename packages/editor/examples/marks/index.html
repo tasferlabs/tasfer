@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>@cypherkit/editor — custom inline marks</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        /* The renderer reads a handful of CSS variables off :root so the host
+           controls theming. These are the ones the default styles look for. */
+        --editor-text: #1a1a1a;
+        --editor-bg: #ffffff;
+        --editor-selection: rgba(64, 120, 255, 0.25);
+        --editor-cursor: #1a1a1a;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: var(--editor-bg);
+        color: var(--editor-text);
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+
+      #toolbar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 12px;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+      }
+      #toolbar .sep {
+        width: 1px;
+        align-self: stretch;
+        background: rgba(128, 128, 128, 0.3);
+        margin: 2px 2px;
+      }
+      #toolbar button {
+        font: inherit;
+        padding: 6px 12px;
+        border: 1px solid rgba(128, 128, 128, 0.35);
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      #toolbar button:hover { background: rgba(128, 128, 128, 0.12); }
+      /* Active mark state, painted from editor.getActiveMarks(). */
+      #toolbar button.is-active {
+        background: var(--editor-selection);
+        border-color: rgba(64, 120, 255, 0.55);
+      }
+      /* Hint each custom button at what it does, on the button itself. */
+      #highlight .swatch {
+        background: rgba(255, 209, 0, 0.55);
+        padding: 0 3px;
+        border-radius: 2px;
+      }
+      #toolbar .hint { opacity: 0.6; font-size: 13px; margin-left: auto; }
+
+      /* The editor fills whatever box you give it and observes its size. */
+      #editor {
+        flex: 1 1 auto;
+        min-height: 0;
+        position: relative;
+        max-width: 740px;
+        width: 100%;
+        margin: 0 auto;
+      }
+
+      /* Live read-model: word count + selection state + active marks. */
+      #status {
+        flex: 0 0 auto;
+        display: flex;
+        gap: 10px;
+        padding: 6px 14px;
+        border-top: 1px solid rgba(128, 128, 128, 0.25);
+        font-size: 13px;
+        opacity: 0.75;
+        font-variant-numeric: tabular-nums;
+      }
+      #status .spacer { flex: 1 1 auto; }
+    </style>
+  </head>
+  <body>
+    <!-- data-editor-overlay tells the editor's focus tracking not to steal
+         focus away when you click these buttons. -->
+    <div id="toolbar" data-editor-overlay>
+      <!-- Built-in mark -->
+      <button id="bold" title="Toggle bold — editor.commands.toggleMark('strong')"><strong>B</strong></button>
+      <span class="sep"></span>
+      <!-- Custom marks, defined in marks.ts -->
+      <button id="highlight" title="Toggle highlight — custom mark; editor.commands.toggleMark('highlight')"><span class="swatch">H</span></button>
+      <button id="underline" title="Toggle underline — custom mark; editor.commands.toggleMark('underline')"><u>U</u></button>
+      <span class="sep"></span>
+      <button id="undo" title="Undo — editor.commands.undo()">Undo</button>
+      <button id="redo" title="Redo — editor.commands.redo()">Redo</button>
+      <span class="sep"></span>
+      <button id="save" title="Serialize to Markdown (getMarkdown) → console — note custom marks aren't in it">Log&nbsp;.md</button>
+      <button id="reset" title="Clear the persisted Doc and reload">Reset</button>
+      <span class="hint">highlight + underline are custom marks — they survive a reload</span>
+    </div>
+
+    <div id="editor"></div>
+
+    <div id="status" data-editor-overlay>
+      <span id="status-words">0 words</span>
+      <span id="status-selection">caret</span>
+      <span class="spacer"></span>
+      <span id="status-formats"></span>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
