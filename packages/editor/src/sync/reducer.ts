@@ -5,6 +5,7 @@
  * This is the core of the CRDT engine - all state changes flow through here.
  */
 
+import { baseDataSchema } from "../baseDataSchema";
 import {
   type Block,
   type Char,
@@ -33,7 +34,7 @@ import {
 } from "./char-runs";
 import { resolveBlockOrder } from "./crdt-utils";
 import { compareHLC } from "./hlc";
-import { baseDataSchema, type DataSchema } from "./schema";
+import type { DataSchema } from "./schema";
 
 /**
  * Create an empty page state.

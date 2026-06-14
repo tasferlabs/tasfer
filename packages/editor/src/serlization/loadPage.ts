@@ -1,7 +1,7 @@
+import type { ListBlock } from "../nodes/ListNode";
+import type { TextBlock } from "../nodes/TextNode";
 import type { VisualBlock } from "../rendering/nodes/AtomicNode";
-import type { ListBlock } from "../rendering/nodes/ListNode";
 import type { BlockRuntimeState } from "../rendering/nodes/Node";
-import type { TextBlock } from "../rendering/nodes/TextNode";
 import type { DataSchema } from "../sync/schema";
 import type { HLC } from "../sync/sync";
 import parsePage from "./parser";

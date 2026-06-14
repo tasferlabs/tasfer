@@ -18,11 +18,31 @@
  * in events/mouseEvents + eventUtils, the same split used for image resize
  * handles. The shared selection-overlay machinery is inherited from
  * AtomicNode.
+ *
+ * The serialization methods are this node's markdown/HTML/text round-trip,
+ * adapted into a BlockCodec by the schema. HTML output renders through
+ * `ctx.renderMathSVG`, injected by the HTML orchestrator — the codec path must
+ * NOT statically import `../math` (it boots MathJax at module load, and the
+ * codec registry sits on the parser/fuzz import path). The on-canvas render
+ * keeps the dynamic `import("../math")`.
  */
 
-import type { BlockBounds } from "../../state-types";
-import { AtomicNode } from "./AtomicNode";
-import type { BlockRuntimeState, NodeLayoutCtx, NodePaintCtx } from "./Node";
+import { AtomicNode } from "../rendering/nodes/AtomicNode";
+import type {
+  BlockRuntimeState,
+  NodeLayoutCtx,
+  NodePaintCtx,
+} from "../rendering/nodes/Node";
+import { escapeHtml } from "../serlization/codecs/inline";
+import type { InputCtx, OutputCtx } from "../serlization/codecs/types";
+import type { Block } from "../serlization/loadPage";
+import {
+  MATH_BLOCK,
+  NEWLINE,
+  type TokenType,
+  type VisibleToken,
+} from "../serlization/tokenizer";
+import type { BlockBounds } from "../state-types";
 
 // Math block - rendered LaTeX equation. Named `MathBlock` (not `Math`) to avoid
 // shadowing the global `Math` object, which this module uses heavily.
@@ -77,7 +97,7 @@ function renderMathToImage(
   pendingMathRenders.add(cacheKey);
 
   // Lazy import MathJax renderer
-  import("../../math").then(({ renderToSVG }) => {
+  import("../math").then(({ renderToSVG }) => {
     try {
       const svgString = renderToSVG(latex, displayMode);
 
@@ -195,6 +215,8 @@ export class MathNode extends AtomicNode<MathBlock> {
     rendering: "Rendering...",
   } as const;
 
+  // ── Rendering ──────────────────────────────────────────────────────────────
+
   /**
    * Drawn equation height, excluding the block's own top/bottom flow padding.
    * Falls back to minHeight until the equation has been rendered + cached.
@@ -305,5 +327,51 @@ export class MathNode extends AtomicNode<MathBlock> {
         contentY + contentHeight / 2,
       );
     }
+  }
+
+  // ── Serialization ──────────────────────────────────────────────────────────
+
+  readonly markdownTokens: readonly TokenType[] = [MATH_BLOCK];
+
+  outputMarkdown(block: MathBlock): string {
+    const b = block;
+    if (!b.latex) return "";
+    if (b.displayMode) {
+      return `$$\n${b.latex}\n$$`;
+    }
+    return `$${b.latex}$`;
+  }
+
+  inputMarkdown(ctx: InputCtx): Block {
+    ctx.match(MATH_BLOCK);
+    const latex = (ctx.previous() as VisibleToken).content;
+    ctx.match(NEWLINE);
+
+    const math: MathBlock = {
+      id: ctx.nextBlockId(),
+      type: "math",
+      latex,
+      displayMode: true,
+    };
+    return math;
+  }
+
+  outputHTML(block: MathBlock, ctx: OutputCtx): string {
+    const b = block;
+    if (!b.latex) return "";
+    try {
+      if (!ctx.renderMathSVG) throw new Error("no math renderer");
+      const svg = ctx.renderMathSVG(b.latex, b.displayMode);
+      if (b.displayMode) {
+        return `<div style="text-align:center;margin:1em 0;">${svg}</div>`;
+      }
+      return `<span style="display:inline-block;vertical-align:middle;">${svg}</span>`;
+    } catch {
+      return `<code>${escapeHtml(b.latex)}</code>`;
+    }
+  }
+
+  outputText(): string {
+    return "";
   }
 }

@@ -12,12 +12,12 @@
  * renderImageBlock / renderMathBlock; this folds it into one place.
  */
 
+import type { Image } from "../../nodes/ImageNode";
+import type { Line } from "../../nodes/LineNode";
+import type { MathBlock } from "../../nodes/MathNode";
 import type { Block } from "../../serlization/loadPage";
 import type { BlockBounds, RenderedBlock } from "../../state-types";
 import { awarenessSelectionToSelection } from "../../sync/awareness";
-import type { Image } from "./ImageNode";
-import type { Line } from "./LineNode";
-import type { MathBlock } from "./MathNode";
 import {
   Node,
   type NodeLayout,

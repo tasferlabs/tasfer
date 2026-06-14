@@ -20,6 +20,7 @@
  * it just applied).
  */
 
+import { baseDataSchema } from "./baseDataSchema";
 import { type Block, loadPage, type Page } from "./serlization/loadPage";
 import { serializeToMarkdown } from "./serlization/serializer";
 import type {
@@ -39,7 +40,7 @@ import {
   serializeVV,
 } from "./sync/oplog";
 import { cleanSnapshotForSave } from "./sync/reducer";
-import { baseDataSchema, type DataSchema } from "./sync/schema";
+import type { DataSchema } from "./sync/schema";
 import {
   createCRDTbinding,
   maxOpIdCounter,

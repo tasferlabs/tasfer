@@ -37,11 +37,12 @@
  * already provides ordering.
  */
 
+import { baseDataSchema } from "../baseDataSchema";
 import type { Operation, OpLog, VersionVector } from "../state-types";
 import { compareHLC } from "./hlc";
 import { extractCounter, extractPeerId } from "./id";
 import { applyOp, createEmptyPageState, rebuildState } from "./reducer";
-import { baseDataSchema, type DataSchema } from "./schema";
+import type { DataSchema } from "./schema";
 
 const IS_DEV = typeof import.meta !== "undefined" && !!import.meta.env?.DEV;
 

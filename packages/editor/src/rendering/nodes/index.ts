@@ -16,18 +16,24 @@
 // TextNode must be imported (and thus module-evaluated) before ListNode, which
 // `extends TextNode`: in the editor's circular import graph the base class has
 // to be defined first, or `class ListNode extends TextNode` sees `undefined`.
-import { ImageNode } from "./ImageNode";
-import { LineNode } from "./LineNode";
-import { ListNode } from "./ListNode";
-import { MathNode } from "./MathNode";
+import { ImageNode } from "../../nodes/ImageNode";
+import { LineNode } from "../../nodes/LineNode";
+import { ListNode } from "../../nodes/ListNode";
+import { MathNode } from "../../nodes/MathNode";
+import { TextNode } from "../../nodes/TextNode";
 import { Node, NodeRegistry } from "./Node";
-import { TextNode } from "./TextNode";
 
+export { getDragHandleAtPoint, ImageNode } from "../../nodes/ImageNode";
+export { LineNode } from "../../nodes/LineNode";
+export { LIST_BLOCK_TYPES, ListNode } from "../../nodes/ListNode";
+export { MathNode } from "../../nodes/MathNode";
+export {
+  getContentWithComposition,
+  TEXT_BLOCK_TYPES,
+  TextNode,
+  type TextNodeLayout,
+} from "../../nodes/TextNode";
 export { AtomicNode } from "./AtomicNode";
-export { getDragHandleAtPoint, ImageNode } from "./ImageNode";
-export { LineNode } from "./LineNode";
-export { LIST_BLOCK_TYPES, ListNode } from "./ListNode";
-export { MathNode } from "./MathNode";
 export {
   Node,
   type NodeActivateCtx,
@@ -41,12 +47,6 @@ export {
   NodeRegistry,
   type Point,
 } from "./Node";
-export {
-  getContentWithComposition,
-  TEXT_BLOCK_TYPES,
-  TextNode,
-  type TextNodeLayout,
-} from "./TextNode";
 export { UnknownNode } from "./UnknownNode";
 
 /**
@@ -59,7 +59,7 @@ export { UnknownNode } from "./UnknownNode";
  * host can drop list support entirely by omitting `ListNode` from a custom
  * `nodes` list passed to `mountEditor`.
  */
-function defaultNodes(): Node[] {
+export function defaultNodes(): Node[] {
   return [
     new LineNode(),
     new ImageNode(),

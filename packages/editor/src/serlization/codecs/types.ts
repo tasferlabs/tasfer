@@ -3,11 +3,15 @@
  *
  * A codec is the *serialization* facet of a block type, parallel to the
  * rendering Node (presentation) and the block-registry descriptor (CRDT
- * shape/validation). It lives in the serialization layer — NOT on the canvas
- * Node class — so the sync/fuzz import graph stays canvas-free.
+ * shape/validation). Each block type now carries its serialization AS METHODS
+ * ON ITS NODE (`outputMarkdown` / `inputMarkdown` / `inputMarkdownTag` /
+ * `outputHTML` / `outputText`, plus the `markdownTokens` / `htmlTags` /
+ * `assetRefs` facets), so a block's rendering and round-trip live in one file
+ * (src/nodes/*). `codecFromNode` (./from-node) adapts a node into the
+ * `BlockCodec` shape below; `baseDataSchema` (../../baseDataSchema) assembles
+ * the default schema from the node instances.
  *
- * Each block type registers one `BlockCodec` with an output function per
- * format plus markdown input dispatch declarations:
+ * The `BlockCodec` contract:
  *
  *   markdown.output / html.output / text.output — block → string
  *   markdown.tokens   — block-start tokens that dispatch to markdown.input
@@ -19,10 +23,11 @@
  * frontmatter, and the trailing-newline rule. Codecs receive what they need
  * through `OutputCtx` / `InputCtx`.
  *
- * IMPORTANT: codec modules must not runtime-import `loadPage` (it imports the
- * parser, which imports the codec registry — a cycle) or `../math` (it boots
- * MathJax at module load; the HTML orchestrator injects `renderMathSVG`
- * through the context instead).
+ * This `types` module stays dependency-light (types + tokenizer only). The
+ * parser/serializers dispatch through the per-instance `DataSchema` the editor
+ * holds — not a static codec registry — so there is no parser→registry cycle;
+ * and math rendering reaches the codec via `OutputCtx.renderMathSVG`, never a
+ * direct MathJax import.
  */
 
 import type { Block, CharRun, MarkSpan } from "../loadPage";

@@ -6,8 +6,9 @@
  * item's number depends on its neighbors), and the trailing-newline rule.
  */
 
+import { baseDataSchema } from "../baseDataSchema";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
-import { baseDataSchema, type DataSchema } from "../sync/schema";
+import type { DataSchema } from "../sync/schema";
 import type { OutputCtx } from "./codecs";
 import { inlineToMarkdown } from "./codecs/inline";
 import type { Block } from "./loadPage";

@@ -21,14 +21,11 @@
  * schema; nothing is ever mutated in place.
  */
 
-import { ALL_CODECS, type BlockCodec } from "../serlization/codecs";
-import {
-  BUILTIN_MARK_CODECS,
-  type MarkCodec,
-} from "../serlization/codecs/mark-codec";
+import type { BlockCodec } from "../serlization/codecs";
+import type { MarkCodec } from "../serlization/codecs/mark-codec";
 import type { Block } from "../serlization/loadPage";
 import type { TokenType } from "../serlization/tokenizer";
-import { BLOCK_REGISTRY, type BlockTypeDescriptor } from "./block-registry";
+import type { BlockTypeDescriptor } from "./block-registry";
 
 /** The built-in inline mark types (Mark.type values). */
 export const BUILTIN_MARK_TYPES: readonly string[] = [
@@ -240,29 +237,6 @@ export class DataSchema {
   }
 }
 
-/** Pair each built-in descriptor with the codec that claims its type. */
-function buildBaseBlockSpecs(): BlockSpecCore[] {
-  const codecByType = new Map<string, BlockCodec>();
-  for (const codec of ALL_CODECS) {
-    for (const type of codec.types) codecByType.set(type, codec);
-  }
-  const specs: BlockSpecCore[] = [];
-  for (const descriptor of Object.values(BLOCK_REGISTRY)) {
-    const codec = codecByType.get(descriptor.type);
-    if (!codec) continue;
-    specs.push({ type: descriptor.type, descriptor, codec });
-  }
-  return specs;
-}
-
-/**
- * The default schema: every built-in block and mark type. Immutable — derive
- * variants with `baseDataSchema.extend(...)`, never mutate this.
- */
-export const baseDataSchema: DataSchema = new DataSchema(
-  buildBaseBlockSpecs(),
-  BUILTIN_MARK_TYPES.map((type) => ({
-    type,
-    codec: BUILTIN_MARK_CODECS[type],
-  })),
-);
+// `baseDataSchema` (the default schema instance, assembled from the built-in
+// node instances) lives in ../baseDataSchema — this module stays canvas-free so
+// the sync/fuzz import graph never pulls in the nodes at module-init.

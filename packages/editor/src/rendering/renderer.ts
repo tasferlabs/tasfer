@@ -184,6 +184,7 @@ export function renderPage(
         state,
         block,
         block.originalIndex,
+        visibleIdx === 0,
         styles.canvas.paddingLeft,
         currentY,
         maxWidth,
@@ -291,6 +292,7 @@ export function renderBlock(
   state: EditorState,
   block: Block,
   blockIndex: number,
+  isFirst: boolean,
   x: number,
   y: number,
   maxWidth: number,
@@ -308,7 +310,13 @@ export function renderBlock(
       block,
       blockIndex,
       maxWidth,
-      isFirst: blockIndex === 0,
+      // `isFirst` is the block's position among *visible* blocks (the first one
+      // rendered at the top of the document), NOT `blockIndex === 0`. `blockIndex`
+      // is `originalIndex`, which counts leading tombstones — so deriving the flag
+      // from it desyncs the bleed of a first full-width image from the flow-height,
+      // overlay, and hit-test paths (all of which key off the visible position),
+      // painting the image too low and floating its overlay/hit box too high.
+      isFirst,
       styles,
     };
     const layout = view.layout(layoutCtx);
@@ -326,7 +334,7 @@ export function renderBlock(
 // The image cache lives with the image block (./blocks/ImageNode).
 // Re-exported here so existing deep imports from
 // `@cypherkit/editor/rendering/renderer` keep resolving.
-export { clearFailedImageCache, imageCache } from "./nodes/ImageNode";
+export { clearFailedImageCache, imageCache } from "../nodes/ImageNode";
 
 // renderLineBlock / renderMathBlock were removed: the `line` and `math` blocks
 // now live in rendering/nodes/{LineNode,MathNode}.ts and render via

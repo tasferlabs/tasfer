@@ -11,7 +11,7 @@
  * restored with full fidelity.
  */
 
-import type { MathBlock } from "../../rendering/nodes/MathNode";
+import type { MathBlock } from "../../nodes/MathNode";
 import { invertOperation } from "../inverse";
 import { applyOp } from "../reducer";
 import { createCRDTbinding, createSyncEngine } from "../sync";

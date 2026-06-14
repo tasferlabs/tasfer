@@ -20,6 +20,7 @@
  * block-containing custom nodes are future steps — see docs/editor/custom-nodes.
  */
 
+import { baseDataSchema } from "./baseDataSchema";
 import {
   CodeMark,
   EmphasisMark,
@@ -52,7 +53,6 @@ import type {
   FieldDescriptor,
 } from "./sync/block-registry";
 import {
-  baseDataSchema,
   type BlockSpecCore,
   type DataSchema,
   type MarkSpec,

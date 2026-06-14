@@ -23,6 +23,12 @@
  * All arithmetic here was moved verbatim from renderer.ts / selection.ts so
  * behavior is preserved; the win is that there is now exactly one source of
  * truth for text geometry.
+ *
+ * Serialization (markdown/HTML/text round-trip) lives as methods on the class,
+ * adapted into a BlockCodec by the schema. This is also the parser's fallback:
+ * any block-start token no codec claims (plain text, unknown HTML tags,
+ * heading4+ tokens) parses as a paragraph, with the unclaimed token's content
+ * flowing into the text via `inlineText()`.
  */
 
 import {
@@ -36,16 +42,37 @@ import {
   type TextBatch,
   type WrappedLine,
   wrapText,
-} from "../../fonts";
-import { getBlockTextContent, isTouchDevice } from "../../node-shared";
-import { getTextDirection } from "../../rtl";
+} from "../fonts";
+import { getBlockTextContent, isTouchDevice } from "../node-shared";
+import type {
+  MarkChipStyle,
+  MarkRegistry,
+  MarkReplacement,
+  MarkUnderlineStyle,
+} from "../rendering/marks";
+import {
+  type BlockRuntimeState,
+  Node,
+  type NodeLayout,
+  type NodeLayoutCtx,
+  type NodePaintCtx,
+} from "../rendering/nodes/Node";
+import { getTextDirection } from "../rtl";
+import type { InputCtx, OutputCtx } from "../serlization/codecs/types";
 import type {
   Block,
   Char,
   CharRun,
   Mark,
   MarkSpan,
-} from "../../serlization/loadPage";
+} from "../serlization/loadPage";
+import type { TokenType } from "../serlization/tokenizer";
+import {
+  HEADING_1,
+  HEADING_2,
+  HEADING_3,
+  NEWLINE,
+} from "../serlization/tokenizer";
 import type {
   BlockBounds,
   EditorState,
@@ -57,30 +84,17 @@ import type {
   RenderedLine,
   SelectionState,
   TextStyle,
-} from "../../state-types";
-import { getTextStyle } from "../../styles";
-import { awarenessSelectionToSelection } from "../../sync/awareness";
-import { isTextualBlock } from "../../sync/block-registry";
+} from "../state-types";
+import { getTextStyle } from "../styles";
+import { awarenessSelectionToSelection } from "../sync/awareness";
+import { isTextualBlock } from "../sync/block-registry";
 import {
   charRunsToChars,
   getVisibleTextFromChars,
   getVisibleTextFromRuns,
   iterateVisibleChars,
-} from "../../sync/char-runs";
-import type {
-  MarkChipStyle,
-  MarkRegistry,
-  MarkReplacement,
-  MarkUnderlineStyle,
-} from "../marks";
+} from "../sync/char-runs";
 import type { ListBlock } from "./ListNode";
-import {
-  type BlockRuntimeState,
-  Node,
-  type NodeLayout,
-  type NodeLayoutCtx,
-  type NodePaintCtx,
-} from "./Node";
 
 /**
  * The block types handled by TextNode itself: headings + paragraph.
@@ -785,6 +799,31 @@ function computeSelectionRects(
 }
 
 // ---------------------------------------------------------------------------
+// Serialization tables (folded in from the former textCodec)
+// ---------------------------------------------------------------------------
+
+const MARKDOWN_PREFIX: Record<string, string> = {
+  heading1: "# ",
+  heading2: "## ",
+  heading3: "### ",
+  paragraph: "",
+};
+
+const HTML_TAG_NAME: Record<string, string> = {
+  heading1: "h1",
+  heading2: "h2",
+  heading3: "h3",
+  paragraph: "p",
+};
+
+function headingLevel(ctx: InputCtx): number {
+  if (ctx.match(HEADING_1)) return 1;
+  if (ctx.match(HEADING_2)) return 2;
+  if (ctx.match(HEADING_3)) return 3;
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
 // TextNode
 // ---------------------------------------------------------------------------
 
@@ -1411,6 +1450,58 @@ export class TextNode extends Node<TextualBlock> {
    * renderer/selection call positionFromPoint directly with the y coordinate). */
   hitTest(): Position {
     return { blockIndex: 0, textIndex: 0 };
+  }
+
+  // -------------------------------------------------------------------------
+  // Serialization (folded in from the former textCodec). The codec's
+  // markdown/html/text round-trip is now expressed as methods adapted into a
+  // BlockCodec by the schema. This block is also the parser's paragraph
+  // fallback for any unclaimed block-start token.
+  // -------------------------------------------------------------------------
+
+  readonly markdownTokens: readonly TokenType[] = [
+    HEADING_1,
+    HEADING_2,
+    HEADING_3,
+  ];
+
+  outputMarkdown(block: TextualBlock, ctx: OutputCtx): string {
+    const prefix = MARKDOWN_PREFIX[block.type] ?? "";
+    return prefix + ctx.inline(block.charRuns, block.formats);
+  }
+
+  inputMarkdown(ctx: InputCtx): Block {
+    const level = headingLevel(ctx);
+    const { charRuns, formats } = ctx.inlineText();
+
+    if (level > 0) {
+      const heading: Heading = {
+        id: ctx.nextBlockId(),
+        type: `heading${level}` as Heading["type"],
+        charRuns,
+        formats,
+      };
+      ctx.match(NEWLINE);
+      return heading;
+    }
+
+    const paragraph: Paragraph = {
+      id: ctx.nextBlockId(),
+      type: "paragraph",
+      charRuns,
+      formats,
+    };
+    return paragraph;
+  }
+
+  outputHTML(block: TextualBlock, ctx: OutputCtx): string {
+    const tag = HTML_TAG_NAME[block.type] ?? "p";
+    const inner = ctx.inline(block.charRuns, block.formats);
+    return `<${tag}>${inner}</${tag}>`;
+  }
+
+  outputText(block: TextualBlock, ctx: OutputCtx): string {
+    return ctx.inline(block.charRuns, block.formats);
   }
 
   // -------------------------------------------------------------------------

@@ -93,6 +93,7 @@ export { createDoc } from "./doc";
 // The canvas-free `DataSchema` (`schema.data`) carries the CRDT + serialization
 // facets; the full `Schema` adds the rendering nodes. v1 custom nodes are leaf
 // void blocks that round-trip through a generic `<x-type …>` HTML tag.
+export { baseDataSchema } from "./baseDataSchema";
 export { UnknownNode } from "./rendering/nodes";
 export { BoxNode, type BoxRenderStyle } from "./rendering/nodes/BoxNode";
 export type {
@@ -111,7 +112,6 @@ export type {
 } from "./serlization/codecs/mark-codec";
 export type { CustomBlock } from "./serlization/loadPage";
 export type { BlockSpecCore, DataSchema, MarkSpec } from "./sync/schema";
-export { baseDataSchema } from "./sync/schema";
 
 // Command bus — declare imperative commands (`defineCommand`) that hosts hook
 // via `editor.registerCommand` (override by returning `true`, or observe by
@@ -206,7 +206,7 @@ export { DEFAULT_TOKENS, mergeTheme, resolveTheme } from "./styles";
 
 // Serialization — project a document to Markdown / HTML, parse Markdown back
 // into blocks, and collect the asset urls a block tree references.
-export { collectAssetRefs } from "./serlization/codecs";
+export { collectAssetRefs } from "./baseDataSchema";
 export { serializeToHTML } from "./serlization/htmlSerializer";
 export { parseFrontmatter } from "./serlization/loadPage";
 export { default as parsePage } from "./serlization/parser";
@@ -230,7 +230,7 @@ export { isValidLatex, renderToSVG } from "./math";
 // `Editor`/`Doc` handle. Exposed now so hosts that drive toolbars, link UI, and
 // find can read block/format state without deep imports.
 export { getFormatsAtPosition, getSelectionRange } from "./actions/commands";
-export type { TextualBlock } from "./rendering/nodes/TextNode";
+export type { TextualBlock } from "./nodes/TextNode";
 export { getLinkAtPosition } from "./selection";
 export {
   getBlockTextContent,

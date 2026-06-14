@@ -10,7 +10,7 @@
  * snapshot-diff — degrade rather than throw when they meet a custom block).
  */
 
-import type { TextualBlock } from "../rendering/nodes/TextNode";
+import type { TextualBlock } from "../nodes/TextNode";
 import type { Block } from "../serlization/loadPage";
 import type { BlockType } from "../state-types";
 

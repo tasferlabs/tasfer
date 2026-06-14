@@ -8,19 +8,40 @@
  * TextNode exposes (`leadingInset`, `paintMarker`, `placeholderText`). That
  * keeps lists fully opt-in: a host that doesn't register a `ListNode` gets an
  * editor with no list blocks, and TextNode never references list types.
+ *
+ * Serialization for the list family lives here too, as methods on the class:
+ * the markdown/HTML/text round-trip (`- ` / `1. ` / `- [ ]`, `<li>`), adapted
+ * into a BlockCodec by the schema. Cross-item concerns stay with the
+ * orchestrators: the markdown serializer computes `ctx.listNumber` for numbered
+ * items (numbering depends on neighbors), and the HTML serializer owns
+ * <ul>/<ol> group wrapping — this codec's html output is the `<li>` element
+ * only.
  */
 
-import { currentFontFamily, getFontMetrics, getFontStack } from "../../fonts";
-import { getBlockTextContent } from "../../node-shared";
-import { getTextDirection } from "../../rtl";
+import { currentFontFamily, getFontMetrics, getFontStack } from "../fonts";
+import { getBlockTextContent } from "../node-shared";
+import type {
+  BlockRuntimeState,
+  NodeHitRegion,
+  NodeRegionCtx,
+} from "../rendering/nodes/Node";
+import { getTextDirection } from "../rtl";
+import type { InputCtx, OutputCtx } from "../serlization/codecs/types";
 import {
+  type Block,
   type CharRun,
-  isListBlock,
   type MarkSpan,
-} from "../../serlization/loadPage";
-import type { EditorState, EditorStyles } from "../../state-types";
-import { getTextStyle } from "../../styles";
-import type { BlockRuntimeState, NodeHitRegion, NodeRegionCtx } from "./Node";
+} from "../serlization/loadPage";
+import {
+  BULLET_LIST,
+  NUMBERED_LIST,
+  TODO_LIST_CHECKED,
+  TODO_LIST_UNCHECKED,
+  type TokenType,
+} from "../serlization/tokenizer";
+import type { EditorState, EditorStyles } from "../state-types";
+import { getTextStyle } from "../styles";
+import { isListType } from "../sync/block-registry";
 import { TextNode, type TextNodeLayout, type TextualBlock } from "./TextNode";
 
 /** The block types handled by ListNode. */
@@ -54,6 +75,16 @@ export interface TodoListItem extends BlockRuntimeState {
 }
 // List blocks contain list items with text content
 export type ListBlock = BulletListItem | NumberedListItem | TodoListItem;
+
+/**
+ * Narrow a block to the list family. Mirrors the `isListBlock` guard in
+ * `loadPage`, but routes the runtime check through the canvas-free
+ * `isListType` (from the block registry) so the rendering layer never
+ * runtime-imports `loadPage` — keeping that module out of the sync/fuzz graph.
+ */
+function isListBlock(block: Block): block is ListBlock {
+  return isListType(block.type);
+}
 
 /**
  * Item number for a numbered list item — counts preceding same-indent siblings.
@@ -272,5 +303,90 @@ export class ListNode extends TextNode {
       return styles.placeholder.listItem.text;
     }
     return super.placeholderText(block, styles, state);
+  }
+
+  // ── Serialization ──────────────────────────────────────────────────────────
+
+  readonly markdownTokens: readonly TokenType[] = [
+    BULLET_LIST,
+    NUMBERED_LIST,
+    TODO_LIST_UNCHECKED,
+    TODO_LIST_CHECKED,
+  ];
+
+  outputMarkdown(block: ListBlock, ctx: OutputCtx): string {
+    const b = block;
+    const indent = " ".repeat(b.indent * 2);
+    const content = ctx.inline(b.charRuns, b.formats);
+
+    if (b.type === "bullet_list") {
+      return `${indent}- ${content}`;
+    }
+    if (b.type === "numbered_list") {
+      return `${indent}${ctx.listNumber ?? 1}. ${content}`;
+    }
+    // todo_list
+    const checkbox = (b as TodoListItem).checked ? "[x]" : "[ ]";
+    return `${indent}- ${checkbox} ${content}`;
+  }
+
+  inputMarkdown(ctx: InputCtx): Block {
+    if (ctx.match(BULLET_LIST)) {
+      const { charRuns, formats } = ctx.inlineText();
+      const item: BulletListItem = {
+        id: ctx.nextBlockId(),
+        type: "bullet_list",
+        charRuns,
+        formats,
+        indent: ctx.indent,
+      };
+      return item;
+    }
+
+    if (ctx.match(NUMBERED_LIST)) {
+      const { charRuns, formats } = ctx.inlineText();
+      const item: NumberedListItem = {
+        id: ctx.nextBlockId(),
+        type: "numbered_list",
+        charRuns,
+        formats,
+        indent: ctx.indent,
+      };
+      return item;
+    }
+
+    const checked = ctx.check(TODO_LIST_CHECKED);
+    ctx.match(TODO_LIST_CHECKED, TODO_LIST_UNCHECKED);
+    const { charRuns, formats } = ctx.inlineText();
+    const item: TodoListItem = {
+      id: ctx.nextBlockId(),
+      type: "todo_list",
+      charRuns,
+      formats,
+      checked,
+      indent: ctx.indent,
+    };
+    return item;
+  }
+
+  /** The <li> element only — group wrapping (<ul>/<ol>) is the orchestrator's. */
+  outputHTML(block: ListBlock, ctx: OutputCtx): string {
+    const b = block;
+    const inner = ctx.inline(b.charRuns, b.formats);
+    if (b.type === "todo_list") {
+      const checked = (b as TodoListItem).checked ? " checked" : "";
+      return `<li><input type="checkbox" disabled${checked} /><span>${inner}</span></li>`;
+    }
+    return `<li>${inner}</li>`;
+  }
+
+  outputText(block: ListBlock, ctx: OutputCtx): string {
+    const b = block;
+    const text = ctx.inline(b.charRuns, b.formats);
+    if (b.type === "todo_list") {
+      const checkbox = (b as TodoListItem).checked ? "[x]" : "[ ]";
+      return `${checkbox} ${text}`;
+    }
+    return text;
   }
 }

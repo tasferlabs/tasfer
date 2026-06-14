@@ -9,8 +9,9 @@
  * chaining.
  */
 
+import { baseDataSchema } from "../baseDataSchema";
 import { extractCounter, extractPeerId } from "../sync/id";
-import { baseDataSchema, type DataSchema } from "../sync/schema";
+import type { DataSchema } from "../sync/schema";
 import type { InputCtx, ParsedTag } from "./codecs";
 import type { Block, Char, CharRun, Mark, MarkSpan, Page } from "./loadPage";
 import { markKey } from "./loadPage";

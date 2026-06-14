@@ -4,7 +4,7 @@ import {
   getContentWithComposition,
   TextNode,
   type TextNodeLayout,
-} from "./rendering/nodes/TextNode";
+} from "./nodes/TextNode";
 import { getBlockHeight } from "./rendering/renderer";
 import { getTextDirection } from "./rtl";
 import type { Block, CharRun, MarkSpan } from "./serlization/loadPage";

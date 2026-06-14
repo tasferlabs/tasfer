@@ -8,10 +8,11 @@
  * context — keeping the heavy ../math import out of the parser/codec chain.
  */
 
+import { baseDataSchema } from "../baseDataSchema";
 import { renderToSVG } from "../math";
 import { isTextualBlock } from "../sync/block-registry";
 import { iterateVisibleChars } from "../sync/char-runs";
-import { baseDataSchema, type DataSchema } from "../sync/schema";
+import type { DataSchema } from "../sync/schema";
 import type { OutputCtx } from "./codecs";
 import { escapeHtml, inlineToHtml } from "./codecs/inline";
 import type { Block } from "./loadPage";

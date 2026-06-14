@@ -19,7 +19,7 @@
  * step.
  */
 
-import type { Paragraph } from "../../rendering/nodes/TextNode";
+import type { Paragraph } from "../../nodes/TextNode";
 import type { Page } from "../../serlization/loadPage";
 import type { MarkSet } from "../../state-types";
 import { isTextualBlock } from "../block-registry";

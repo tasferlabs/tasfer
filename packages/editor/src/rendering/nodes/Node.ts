@@ -18,7 +18,13 @@
  * and the geometry passes (caret/selection/hit-test) from ever disagreeing.
  */
 
+import type {
+  InputCtx,
+  OutputCtx,
+  ParsedTag,
+} from "../../serlization/codecs/types";
 import type { Block } from "../../serlization/loadPage";
+import type { TokenType } from "../../serlization/tokenizer";
 import type {
   BlockBounds,
   EditorState,
@@ -199,6 +205,31 @@ export abstract class Node<B extends Block = Block> {
    * names the overlay itself, so the activation policy + overlay live host-side.
    */
   activate?(c: NodeActivateCtx): NodeActivation | null;
+
+  // ── Serialization facet ────────────────────────────────────────────────────
+  // A node owns its own markdown/HTML/text round-trip, so a block type's
+  // rendering AND serialization live in one file. The schema adapts these into
+  // the BlockCodec the parser/serializers consume (see codecs/from-node.ts);
+  // the parser/serializers themselves never see a Node. All optional: a node
+  // that implements none falls back to the generic round-trip (defineNode).
+
+  /** Block-start tokens that dispatch markdown parsing to {@link inputMarkdown}. */
+  readonly markdownTokens?: readonly TokenType[];
+  /** HTML tag names (lowercase) that dispatch parsing to {@link inputMarkdownTag}. */
+  readonly htmlTags?: readonly string[];
+
+  /** Serialize a block of this type to markdown. */
+  outputMarkdown?(block: B, ctx: OutputCtx): string;
+  /** Parse a block from the token stream (dispatched by {@link markdownTokens}). */
+  inputMarkdown?(ctx: InputCtx): Block;
+  /** Parse a block from an HTML tag (dispatched by {@link htmlTags}). */
+  inputMarkdownTag?(tag: ParsedTag, ctx: InputCtx): Block;
+  /** Serialize a block of this type to HTML. */
+  outputHTML?(block: B, ctx: OutputCtx): string;
+  /** Serialize a block of this type to plain text. */
+  outputText?(block: B, ctx: OutputCtx): string;
+  /** Asset references (urls / content-hashes) this block owns, for lazy sync. */
+  assetRefs?(block: B): string[];
 
   /** Convenience for subclasses building their RenderedBlock result. */
   protected bounds(c: NodePaintCtx, height: number): BlockBounds {
