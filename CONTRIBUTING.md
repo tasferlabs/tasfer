@@ -33,7 +33,7 @@ Open an issue with the **feature request** template. Describe the problem you're
 - Keep PRs focused on a single change
 - Write a clear description of what changed and why
 - Reference any related issues
-- Make sure the app builds (`npm run build` in `apps/web`)
+- Make sure the app builds (run the build in `apps/web`)
 - Add translations for any new user-facing strings (see [i18n](#internationalization))
 
 ## Development Setup
@@ -41,9 +41,25 @@ Open an issue with the **feature request** template. Describe the problem you're
 ### Prerequisites
 
 - Node.js 22+
-- npm
+- A package manager — pnpm, npm, yarn, or bun
 
 ### Getting Started
+
+<details open>
+<summary><strong>pnpm</strong></summary>
+
+```bash
+git clone https://github.com/<your-fork>/cypher.git
+cd cypher
+pnpm install
+cd apps/web
+pnpm dev
+```
+
+</details>
+
+<details>
+<summary><strong>npm</strong></summary>
 
 ```bash
 git clone https://github.com/<your-fork>/cypher.git
@@ -52,6 +68,34 @@ npm install
 cd apps/web
 npm run dev
 ```
+
+</details>
+
+<details>
+<summary><strong>yarn</strong></summary>
+
+```bash
+git clone https://github.com/<your-fork>/cypher.git
+cd cypher
+yarn
+cd apps/web
+yarn dev
+```
+
+</details>
+
+<details>
+<summary><strong>bun</strong></summary>
+
+```bash
+git clone https://github.com/<your-fork>/cypher.git
+cd cypher
+bun install
+cd apps/web
+bun dev
+```
+
+</details>
 
 The web app runs at `http://localhost:4000`.
 

@@ -94,3 +94,25 @@ export function getBridge(): CypherBridge | null {
 export function isNative(): boolean {
   return !!getBridge();
 }
+
+/**
+ * Fire device haptic feedback from host UI (sidebar, calendar, context menus).
+ * Uses the native shell's haptic when present, else the web Vibration API.
+ */
+export function triggerHaptic(
+  style: "light" | "medium" | "heavy" = "heavy",
+): void {
+  try {
+    const bridge = getBridge();
+    if (bridge) {
+      void bridge.haptic.trigger(style);
+      return;
+    }
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      const duration = style === "light" ? 10 : style === "medium" ? 20 : 50;
+      navigator.vibrate(duration);
+    }
+  } catch (e) {
+    console.debug("Haptic feedback not supported:", e);
+  }
+}

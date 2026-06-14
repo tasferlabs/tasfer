@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Check, ChevronRight } from "lucide-react";
-import { triggerHapticFeedback } from "./events/touchEvents";
+import { triggerHaptic } from "@/platform/bridge";
 
 export interface ContextMenuItem {
   id: string;
@@ -131,7 +131,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   hoveredItemId,
 }) => {
   useEffect(() => {
-    triggerHapticFeedback("medium");
+    triggerHaptic("medium");
   }, []);
 
   if (items.length === 0) {

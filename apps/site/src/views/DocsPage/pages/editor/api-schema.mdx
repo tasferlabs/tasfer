@@ -1,0 +1,37 @@
+{/* @cypherkit/editor API reference — Schema & nodes. */}
+
+import { Callout, PropsTable } from "../../docsComponents";
+
+<p className="dx-lede">A `Schema` declares what a document is made of: the block types and inline marks the editor understands. The default `baseSchema` covers every built-in type; derive your own with `baseSchema.extend(...)`.</p>
+
+<Callout kind="note" title="Cypher's block model is flat.">A document is an ordered *list* of blocks — there is no block nesting. Each block is either text-bearing (paragraph, heading, a list item) or a leaf (image, divider, math). Nested containers — a blockquote wrapping several blocks, columns — are on the roadmap; today every block stands on its own.</Callout>
+
+<h2 id="base">Built-in block types</h2>
+
+<PropsTable cols={["Block type", "Markdown", "Notes"]} rows={[
+  { name: "paragraph", type: "(plain text)", desc: "The default text block." },
+  { name: "heading1 / 2 / 3", type: "# / ## / ###", desc: 'Three heading levels. setBlock("heading", { level }) maps here.' },
+  { name: "bullet_list", type: "- ", desc: "Unordered list item." },
+  { name: "numbered_list", type: "1. ", desc: "Ordered list item." },
+  { name: "todo_list", type: "- [ ] ", desc: "Checkable task item." },
+  { name: "image", type: "![alt](url)", desc: "Leaf. attrs: width, height, objectFit, alt." },
+  { name: "line", type: "---", desc: 'Leaf horizontal divider (the classic "hr").' },
+  { name: "math", type: "$$ … $$", desc: "Leaf block-level math." },
+]} />
+
+Inline marks: `strong` (`**`), `emphasis` (`*`), `strike` (`~~`), `code` (backticks), `link` (`[text](url)`), plus inline `math` (`$…$`).
+
+<h2 id="extend">Extending</h2>
+
+`extend` takes *arrays* of node and mark specs and returns a new, immutable schema — the base is never mutated, so two editors on one page can run different schemas:
+
+```ts
+import { baseSchema, defineNode, defineMark } from "@cypherkit/editor";
+
+const schema = baseSchema.extend({
+  nodes: [defineNode("callout", { attrs: { tone: { default: "note" } } })],
+  marks: [defineMark("highlight")],
+});
+```
+
+Custom block types are leaf, void nodes today (a styled box carrying replicated attributes). See [Custom nodes & marks](/docs/editor/custom-nodes) for the full `defineNode` / `defineMark` options and how they round-trip through Markdown.

@@ -1,0 +1,35 @@
+{
+  "name": "@cypher/site",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cypher marketing site + documentation (Next.js, static export)",
+  "scripts": {
+    "dev": "next dev -p 4100",
+    "build": "next build",
+    "start": "next start -p 4100",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@fontsource/amiri": "^5.2.8",
+    "@fontsource/libre-baskerville": "^5.2.10",
+    "@fontsource/noto-sans-arabic": "^5.2.10",
+    "@fontsource/poppins": "^5.2.6",
+    "@fontsource/space-grotesk": "^5.2.10",
+    "@mdx-js/loader": "^3.1.1",
+    "@mdx-js/react": "^3.1.1",
+    "@next/mdx": "^16.2.9",
+    "i18next": "^25.3.2",
+    "i18next-browser-languagedetector": "^8.2.0",
+    "next": "^15.5.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-i18next": "^15.6.1"
+  },
+  "devDependencies": {
+    "@types/mdx": "^2.0.14",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.6",
+    "typescript": "^5.9.3"
+  }
+}

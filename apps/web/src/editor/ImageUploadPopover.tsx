@@ -19,7 +19,7 @@ import {
 } from "../components/ui/drawer";
 import useResponsive from "../app/hooks/useResponsive";
 import { usePreventMobileKeyboard } from "../app/hooks/usePreventMobileKeyboard";
-import { hasNativeBridge } from "./actions/clipboard";
+import { isNative } from "@/platform/bridge";
 import { useTranslation } from "react-i18next";
 
 interface ImageUploadPopoverProps {
@@ -85,7 +85,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
       }
     };
 
-    if (hasNativeBridge()) {
+    if (isNative()) {
       window.addEventListener("message", handleNativeImageSelected);
 
       return () => {
@@ -142,13 +142,13 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
     window.CypherBridge?.navigation.openCamera();
   };
 
-  const isNative = hasNativeBridge();
+  const native = isNative();
 
   // Shared content for both drawer and popover
   const content = (
     <>
       {/* Mode Toggle - Only show on non-native platforms */}
-      {!isNative && (
+      {!native && (
         <div className="flex gap-2 p-1 bg-muted rounded-md">
           <button
             onClick={() => setUploadMode("file")}
@@ -178,7 +178,7 @@ export const ImageUploadPopover: React.FC<ImageUploadPopoverProps> = ({
       )}
 
       {/* Upload Area */}
-      {isNative ? (
+      {native ? (
         // Native platform: Show photo library and camera buttons
         <div className="space-y-2">
           {uploadStatus === "uploading" ? (

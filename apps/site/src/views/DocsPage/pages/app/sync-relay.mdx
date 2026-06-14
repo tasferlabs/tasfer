@@ -1,0 +1,57 @@
+{/* Cypher app docs — Sync & relay setup. */}
+
+import { Callout, PropsTable, Step, Steps } from "../../docsComponents";
+
+<p className="dx-lede">Sync is off by default. When you turn it on, your devices talk **directly, peer-to-peer, encrypted with keys that never leave your hardware.** A relay exists only to introduce devices that can't see each other directly — and it can't read a thing.</p>
+
+<h2 id="how">How sync works</h2>
+
+Three stages, in plain terms:
+
+- **Introduce.** A relay tells your two devices how to reach each other. It does not authenticate them and learns nothing else.
+- **Direct.** Your devices negotiate an encrypted peer-to-peer channel and talk to each other with no third party in the path.
+- **Fallback.** If a direct path can't be made (strict NAT, locked-down network), the relay forwards encrypted bytes it cannot decrypt. Still no accounts, still no logs.
+
+<Callout kind="note" title="See it move.">The relay model is animated on the [documentation home](/docs) and the [project landing page](https://github.com/hamza512b/cypher) — introduce, direct, fallback.</Callout>
+
+<h2 id="enable">Turn on sync</h2>
+
+<Steps>
+  <Step title="Open Settings → Sync">
+    Toggle **Enable sync**. Cypher generates a device key pair locally. The private key is written to your OS keychain and never transmitted.
+  </Step>
+  <Step title="Pair a second device">
+    On device A choose **Pair a device** to show a one-time code (and a QR). Enter it on device B. The two exchange public keys directly; the code is never sent to the relay.
+  </Step>
+  <Step title="Pick what syncs">
+    Sync an entire space, or pick individual pages. Each synced document converges across every paired device — edit offline on one and they merge cleanly when both are online.
+  </Step>
+</Steps>
+
+<h2 id="default-relay">The default relay</h2>
+
+Out of the box, Cypher uses `wss://relay.cypher.md` for the introduce/fallback step. It holds no accounts, keeps no message log, and is structurally unable to decrypt your documents. If that's not enough trust — and it shouldn't have to be — point Cypher at your own.
+
+```text file="Settings → Sync → Relay"
+Relay URL    wss://relay.cypher.md      (default)
+             wss://relay.example.org    (your own — see Self-hosting)
+```
+
+<h2 id="own-relay">Use your own relay</h2>
+
+It's a single config field. Paste a WebSocket URL and Cypher uses it for every introduction and fallback:
+
+```bash
+# or set it without opening the UI:
+cypher config set sync.relay wss://relay.example.org
+```
+
+<Callout kind="tip" title="Your relay, your rules.">Running your own relay means no third party — not even the Cypher project — is ever in the path of an introduction. Setup is one container. See [Self-hosting the relay](/docs/app/self-hosting).</Callout>
+
+<h2 id="troubleshoot">When devices won't pair</h2>
+
+<PropsTable cols={["Symptom", "Likely cause", "Fix"]} rows={[
+  { name: "Stuck on 'introducing'", type: "Relay unreachable", desc: "Check the relay URL and that your network allows outbound WSS (443)." },
+  { name: "Pairs, then 'fallback'", type: "Strict NAT both ends", desc: "Expected — sync still works, just via the encrypted relay path. Nothing to fix." },
+  { name: "Code rejected", type: "Code expired", desc: "Pairing codes are single-use and time-boxed. Generate a fresh one." },
+]} />

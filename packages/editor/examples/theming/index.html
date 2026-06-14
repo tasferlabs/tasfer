@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>@cypherkit/editor — full restyle / theming</title>
+    <style>
+      /* The page chrome is driven entirely by CSS variables that main.ts rewrites
+         on every theme switch (from the active theme's `chrome`). The editor
+         canvas is transparent — the renderer never paints a page background — so
+         the reading surface behind the text is THIS host's job, not the engine's.
+         Restyling "fully" therefore means: editor tokens/styles/font (via
+         setTheme) AND these host chrome colours, moved together. */
+      :root {
+        --page-bg: #eef1f6;
+        --surface: #ffffff;
+        --text: #2b3040;
+        --muted: #6b7280;
+        --accent: #5b5bd6;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: var(--page-bg);
+        color: var(--text);
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        /* Animate the chrome so a theme switch reads as one smooth restyle. */
+        transition: background 0.35s ease, color 0.35s ease;
+      }
+
+      #toolbar {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 10px 14px;
+        background: var(--surface);
+        border-bottom: 1px solid color-mix(in srgb, var(--muted) 22%, transparent);
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+        transition: background 0.35s ease, border-color 0.35s ease;
+      }
+
+      /* The theme switcher — a segmented control. The active button is filled
+         with the live --accent so the control itself restyles too. */
+      #themes { display: flex; gap: 6px; }
+      #themes button {
+        font: inherit;
+        font-size: 13px;
+        padding: 7px 14px;
+        border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+        border-radius: 8px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+      }
+      #themes button:hover { background: color-mix(in srgb, var(--muted) 14%, transparent); }
+      #themes button.is-active {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+
+      #toolbar .sep {
+        width: 1px;
+        align-self: stretch;
+        background: color-mix(in srgb, var(--muted) 30%, transparent);
+        margin: 2px 2px;
+      }
+      #toolbar .act {
+        font: inherit;
+        padding: 7px 12px;
+        border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+        border-radius: 8px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      #toolbar .act:hover { background: color-mix(in srgb, var(--muted) 14%, transparent); }
+      #toolbar .act.is-active { background: var(--accent); border-color: var(--accent); color: #fff; }
+      #toolbar .hint { opacity: 0.6; font-size: 13px; margin-left: auto; }
+
+      /* The editor "card" — a surface that floats on the page background. Its
+         fill matches the theme's reading surface so the transparent canvas sits
+         on the right colour. */
+      #stage {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        justify-content: center;
+        overflow: hidden;
+        padding: 22px;
+      }
+      #card {
+        flex: 1 1 auto;
+        max-width: 760px;
+        background: var(--surface);
+        border: 1px solid color-mix(in srgb, var(--muted) 18%, transparent);
+        border-radius: 14px;
+        box-shadow: 0 10px 40px color-mix(in srgb, var(--text) 12%, transparent);
+        overflow: hidden;
+        transition: background 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
+      }
+      /* The editor fills whatever box you give it and observes its size. */
+      #editor {
+        height: 100%;
+        position: relative;
+      }
+
+      #status {
+        flex: 0 0 auto;
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+        padding: 8px 16px;
+        background: var(--surface);
+        border-top: 1px solid color-mix(in srgb, var(--muted) 22%, transparent);
+        font-size: 13px;
+        transition: background 0.35s ease, border-color 0.35s ease;
+      }
+      #status .name { font-weight: 600; }
+      #status .blurb { opacity: 0.7; }
+      #status .spacer { flex: 1 1 auto; }
+      #status .api { opacity: 0.55; font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+  <body>
+    <!-- data-editor-overlay tells the editor's focus tracking not to steal focus
+         away when you click this chrome (so a Bold click keeps your selection). -->
+    <div id="toolbar" data-editor-overlay>
+      <!-- One button per theme, filled in by main.ts from THEMES. -->
+      <div id="themes"></div>
+      <span class="sep"></span>
+      <button class="act" id="bold" title="Toggle bold — editor.commands.toggleMark('strong')"><strong>B</strong></button>
+      <button class="act" id="undo" title="Undo — editor.commands.undo()">Undo</button>
+      <span class="hint">every theme is one <code>editor.setTheme(...)</code> call · tokens + styles + font</span>
+    </div>
+
+    <div id="stage">
+      <div id="card">
+        <div id="editor"></div>
+      </div>
+    </div>
+
+    <div id="status" data-editor-overlay>
+      <span class="name" id="status-name">—</span>
+      <span class="blurb" id="status-blurb"></span>
+      <span class="spacer"></span>
+      <span class="api" id="status-api"></span>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

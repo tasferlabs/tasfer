@@ -12,7 +12,7 @@ import { VersionProvider } from "./app/contexts/VersionContext";
 import { ThemeProvider } from "./app/hooks/useTheme";
 import { router } from "./app/routes/Router";
 import LoadingScreen from "./components/ui/loading-screen";
-import { loadFonts, loadArabicFonts } from "./editor/fonts";
+import { loadFonts, loadArabicFonts } from "./fonts";
 import "./i18n";
 import i18next from "i18next";
 import { serviceWorkerBridge } from "./serviceWorkerBridge";
@@ -274,6 +274,8 @@ if (platformReady) {
     // Must await — the worker-backed SQLite needs time to spin up.
     initPlatform()
       .then(() => {
+        // Asset resolution is owned by the host's image node (see
+        // `editorSchema.ts` → CypherImageNode), per-instance and not a global.
         platformReady = true;
         (window as any).__CYPHER_PLATFORM_READY__ = true;
         renderApp();

@@ -429,7 +429,7 @@ interface CrdtOpEntry {
 const CRDT_OP_TYPES = [
   "text_insert",
   "text_delete",
-  "format_set",
+  "mark_set",
   "block_insert",
   "block_delete",
   "block_set",
@@ -445,7 +445,7 @@ const CRDT_OP_TYPES = [
 const OP_TYPE_COLORS: Record<string, string> = {
   text_insert: "text-emerald-400",
   text_delete: "text-red-400",
-  format_set: "text-purple-400",
+  mark_set: "text-purple-400",
   block_insert: "text-blue-400",
   block_delete: "text-red-400",
   block_set: "text-amber-400",
@@ -458,15 +458,11 @@ const OP_TYPE_COLORS: Record<string, string> = {
   page_set: "text-amber-400",
 };
 
-async function fetchCrdtOps(
-  pageId: string,
-  opType: string,
-): Promise<CrdtOpEntry[]> {
-  const db = getDb();
-  let query = "SELECT id, scope_id, peer_id, clock, type, data, timestamp FROM ops";
+const CRDT_VIEW_LIMIT = 200;
+
+function buildCrdtWhere(pageId: string, opType: string) {
   const params: unknown[] = [];
   const conditions: string[] = [];
-
   if (pageId !== "all") {
     conditions.push("scope_id = ?");
     params.push(pageId);
@@ -475,11 +471,36 @@ async function fetchCrdtOps(
     conditions.push("type = ?");
     params.push(opType);
   }
+  const where = conditions.length > 0 ? " WHERE " + conditions.join(" AND ") : "";
+  return { where, params };
+}
 
-  if (conditions.length > 0) query += " WHERE " + conditions.join(" AND ");
-  query += " ORDER BY timestamp DESC, clock DESC LIMIT 200";
+async function fetchCrdtOpCount(
+  pageId: string,
+  opType: string,
+): Promise<number> {
+  const db = getDb();
+  const { where, params } = buildCrdtWhere(pageId, opType);
+  const [{ cnt }] = await db.execute<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM ops${where}`,
+    params,
+  );
+  return cnt;
+}
 
-  const rows = await db.execute(query, params);
+async function fetchCrdtOps(
+  pageId: string,
+  opType: string,
+  limit: number = CRDT_VIEW_LIMIT,
+): Promise<CrdtOpEntry[]> {
+  const db = getDb();
+  const { where, params } = buildCrdtWhere(pageId, opType);
+  const query =
+    "SELECT id, scope_id, peer_id, clock, type, data, timestamp FROM ops" +
+    where +
+    " ORDER BY timestamp DESC, clock DESC LIMIT ?";
+
+  const rows = await db.execute(query, [...params, limit]);
   return rows.map((r: DbRow) => {
     let parsed: Record<string, unknown> = {};
     try {
@@ -525,7 +546,7 @@ function crdtOpSummary(op: CrdtOpEntry): string {
     }
     case "text_delete":
       return `${(d.charIds as string[])?.length ?? 0} chars`;
-    case "format_set":
+    case "mark_set":
       return `${d.format}=${String(d.value)} on ${(d.charIds as string[])?.length ?? 0} chars`;
     case "block_insert":
       return `${d.blockType} after ${d.afterBlockId ? String(d.afterBlockId).slice(0, 8) : "start"}`;
@@ -710,6 +731,11 @@ export function DevToolbar() {
   const [crdtExpanded, setCrdtExpanded] = useState<number | null>(null);
   const [crdtFilter, setCrdtFilter] = useState("");
   const [crdtCopied, setCrdtCopied] = useState(false);
+  // crdt export dialog
+  const [crdtExportOpen, setCrdtExportOpen] = useState(false);
+  const [crdtExportTotal, setCrdtExportTotal] = useState<number | null>(null);
+  const [crdtExportLimit, setCrdtExportLimit] = useState("");
+  const [crdtExporting, setCrdtExporting] = useState(false);
   const [logsCopied, setLogsCopied] = useState(false);
   const [netCopied, setNetCopied] = useState(false);
   const [queryCopied, setQueryCopied] = useState(false);
@@ -892,21 +918,50 @@ export function DevToolbar() {
     setTimeout(() => setCrdtCopied(false), 1500);
   }, [getFilteredCrdtOps]);
 
-  const exportCrdtOps = useCallback(() => {
-    const filtered = getFilteredCrdtOps();
-    const json = JSON.stringify(
-      filtered.map((o) => o.data),
-      null,
-      2,
-    );
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `crdt-ops-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [getFilteredCrdtOps]);
+  const openCrdtExport = useCallback(async () => {
+    setCrdtExportOpen(true);
+    setCrdtExportTotal(null);
+    try {
+      const total = await fetchCrdtOpCount(crdtPageId, crdtOpType);
+      setCrdtExportTotal(total);
+      setCrdtExportLimit(String(total));
+    } catch (e) {
+      console.error("crdt count:", e);
+      setCrdtExportTotal(0);
+    }
+  }, [crdtPageId, crdtOpType]);
+
+  const runCrdtExport = useCallback(async () => {
+    const limit = Math.max(1, Math.floor(Number(crdtExportLimit) || 0));
+    if (!limit) return;
+    setCrdtExporting(true);
+    try {
+      const ops = await fetchCrdtOps(crdtPageId, crdtOpType, limit);
+      const filtered = ops.filter(
+        (o) =>
+          !crdtFilter ||
+          crdtOpSummary(o).toLowerCase().includes(crdtFilter.toLowerCase()) ||
+          o.peerId.toLowerCase().includes(crdtFilter.toLowerCase()),
+      );
+      const json = JSON.stringify(
+        filtered.map((o) => o.data),
+        null,
+        2,
+      );
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `crdt-ops-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setCrdtExportOpen(false);
+    } catch (e) {
+      console.error("crdt export:", e);
+    } finally {
+      setCrdtExporting(false);
+    }
+  }, [crdtExportLimit, crdtPageId, crdtOpType, crdtFilter]);
 
   const copyQueryResult = useCallback(async () => {
     if (!queryResult || !queryResult.ok) return;
@@ -2265,7 +2320,7 @@ export function DevToolbar() {
             <motion.div
               key="crdt"
               {...tabMotion}
-              className="flex flex-col flex-1 min-h-0"
+              className="relative flex flex-col flex-1 min-h-0"
             >
               <div className="flex items-center h-8 px-2 border-b border-border shrink-0 gap-1.5">
                 {/* Page filter */}
@@ -2356,7 +2411,7 @@ export function DevToolbar() {
                   {crdtCopied ? "Copied!" : "Copy"}
                 </button>
                 <button
-                  onClick={exportCrdtOps}
+                  onClick={openCrdtExport}
                   className="h-5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
                   Export
@@ -2438,6 +2493,61 @@ export function DevToolbar() {
                   )}
                 </div>
               </ScrollArea>
+
+              {/* Export dialog */}
+              {crdtExportOpen && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 backdrop-blur-sm">
+                  <div className="w-[280px] rounded-lg border border-border bg-popover shadow-2xl p-4 flex flex-col gap-3">
+                    <div className="text-xs font-semibold text-foreground">
+                      Export CRDT ops
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {crdtExportTotal === null ? (
+                        "Counting rows…"
+                      ) : (
+                        <>
+                          {crdtExportTotal.toLocaleString()} op
+                          {crdtExportTotal === 1 ? "" : "s"} match the current
+                          filters. How many do you want to export?
+                        </>
+                      )}
+                    </div>
+                    <input
+                      type="number"
+                      min={1}
+                      max={crdtExportTotal ?? undefined}
+                      value={crdtExportLimit}
+                      onChange={(e) => setCrdtExportLimit(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") runCrdtExport();
+                        if (e.key === "Escape") setCrdtExportOpen(false);
+                      }}
+                      autoFocus
+                      disabled={crdtExportTotal === null}
+                      className="h-7 px-2 text-xs rounded bg-transparent border border-border text-foreground focus:outline-none focus:border-foreground/40 tabular-nums"
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => setCrdtExportOpen(false)}
+                        className="h-6 px-2 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={runCrdtExport}
+                        disabled={
+                          crdtExporting ||
+                          crdtExportTotal === null ||
+                          !(Number(crdtExportLimit) > 0)
+                        }
+                        className="h-6 px-2 rounded text-[11px] text-foreground bg-muted hover:bg-muted/70 transition-colors disabled:opacity-40"
+                      >
+                        {crdtExporting ? "Exporting…" : "Export"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
 

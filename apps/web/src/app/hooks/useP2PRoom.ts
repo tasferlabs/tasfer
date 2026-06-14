@@ -9,9 +9,9 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { getPlatform } from "@/platform";
 import type { ConnectionState, SyncEvents } from "@/platform/types";
-import type { Operation } from "@/editor/sync/types";
-import type { AwarenessState, AwarenessUser } from "@/editor/sync/awareness";
-import { getColorForPeer } from "@/editor/sync/awareness";
+import type { Operation } from "@cypherkit/editor";
+import type { AwarenessState, AwarenessUser } from "@cypherkit/editor";
+import { getColorForPeer } from "@cypherkit/editor";
 
 // =============================================================================
 // Types

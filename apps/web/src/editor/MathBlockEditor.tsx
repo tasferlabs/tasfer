@@ -16,7 +16,7 @@ import {
 } from "../components/ui/drawer";
 import useResponsive from "../app/hooks/useResponsive";
 import { useTranslation } from "react-i18next";
-import { renderToSVG, isValidLatex } from "./mathjax";
+import { renderToSVG, isValidLatex } from "@cypherkit/editor";
 import { AnimatePresence, motion } from "framer-motion";
 
 // Common LaTeX snippets for quick insertion
@@ -36,9 +36,12 @@ interface MathBlockEditorProps {
   y: number;
   initialLatex?: string;
   displayMode?: boolean;
+  inline?: boolean;
   onSubmit: (latex: string, displayMode: boolean) => void;
   onDelete?: () => void;
   onClose: () => void;
+  /** Inline mode only: arrow-out at the start/end of the textarea. */
+  onExitArrow?: (direction: "left" | "right") => void;
   collisionBoundary?: HTMLElement | null;
   container?: HTMLElement | null;
 }
@@ -136,9 +139,11 @@ function SnippetButton({
 function MathEditorContent({
   initialLatex = "",
   displayMode: initialDisplayMode = true,
+  inline = false,
   onSubmit,
   onDelete,
   onClose,
+  onExitArrow,
 }: Omit<MathBlockEditorProps, "x" | "y" | "collisionBoundary" | "container">) {
   const { t } = useTranslation();
   const [latex, setLatex] = useState(initialLatex);
@@ -167,7 +172,8 @@ function MathEditorContent({
     (e: React.KeyboardEvent) => {
       const isShortcut = e.metaKey || e.ctrlKey;
 
-      if (e.key === "Enter" && isShortcut) {
+      // In inline mode, plain Enter confirms (single-line feel).
+      if (e.key === "Enter" && (isShortcut || inline) && !e.shiftKey) {
         e.preventDefault();
         e.stopPropagation();
         handleSubmit();
@@ -175,13 +181,39 @@ function MathEditorContent({
         e.preventDefault();
         e.stopPropagation();
         onClose();
+      } else if (
+        inline &&
+        onExitArrow &&
+        (e.key === "ArrowLeft" || e.key === "ArrowRight") &&
+        !e.shiftKey &&
+        !isShortcut
+      ) {
+        // Arrow out of the popover when caret is at the matching textarea edge,
+        // so the user can keep navigating past the chip with arrow keys.
+        const ta = textareaRef.current;
+        if (ta && ta.selectionStart === ta.selectionEnd) {
+          const atStart = ta.selectionStart === 0;
+          const atEnd = ta.selectionStart === ta.value.length;
+          if (e.key === "ArrowLeft" && atStart) {
+            e.preventDefault();
+            e.stopPropagation();
+            onExitArrow("left");
+            return;
+          }
+          if (e.key === "ArrowRight" && atEnd) {
+            e.preventDefault();
+            e.stopPropagation();
+            onExitArrow("right");
+            return;
+          }
+        }
       } else if (isShortcut) {
         // Keep native textarea shortcuts (undo/redo/copy/paste/select-all)
         // and prevent the canvas-level editor hotkeys from intercepting them.
         e.stopPropagation();
       }
     },
-    [handleSubmit, onClose],
+    [handleSubmit, onClose, inline, onExitArrow],
   );
 
   const insertSnippet = useCallback(
@@ -197,6 +229,44 @@ function MathEditorContent({
     },
     [],
   );
+
+  if (inline) {
+    return (
+      <div className="math-editor-root math-editor-inline">
+        <div className="flex items-center gap-1.5 px-2 py-1.5">
+          <div className="math-editor-lang-tag math-editor-lang-tag-inline">
+            TeX
+          </div>
+          <textarea
+            ref={textareaRef}
+            value={latex}
+            onChange={(e) => setLatex(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="\frac{a}{b}"
+            className="math-editor-textarea math-editor-textarea-inline"
+            rows={1}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoComplete="off"
+            autoCorrect="off"
+          />
+          <button
+            type="button"
+            disabled={!latex.trim()}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleSubmit}
+            title={t("common.confirm", "Confirm")}
+            className="flex items-center justify-center size-6 rounded-md
+              text-muted-foreground hover:text-foreground hover:bg-accent
+              disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent
+              transition-colors cursor-pointer"
+          >
+            <CornerDownLeft className="size-3.5" />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="math-editor-root">
@@ -334,6 +404,7 @@ export const MathBlockEditor: React.FC<MathBlockEditorProps> = (props) => {
     onClose,
     collisionBoundary,
     container,
+    inline = false,
     ...contentProps
   } = props;
   const isMobile = useResponsive("(max-width: 768px)");
@@ -357,7 +428,7 @@ export const MathBlockEditor: React.FC<MathBlockEditorProps> = (props) => {
     [onClose],
   );
 
-  if (isMobile) {
+  if (isMobile && !inline) {
     return (
       <Drawer
         open={true}
@@ -373,7 +444,11 @@ export const MathBlockEditor: React.FC<MathBlockEditorProps> = (props) => {
             </DrawerTitle>
           </DrawerHeader>
           <div className="pb-4">
-            <MathEditorContent {...contentProps} onClose={onClose} />
+            <MathEditorContent
+              {...contentProps}
+              inline={inline}
+              onClose={onClose}
+            />
           </div>
         </DrawerContent>
       </Drawer>
@@ -394,10 +469,10 @@ export const MathBlockEditor: React.FC<MathBlockEditorProps> = (props) => {
       <Popover.Portal container={container}>
         <Popover.Content
           ref={contentRef}
-          className="math-editor-popover z-50 select-none pointer-events-auto animate-in fade-in zoom-in-95 duration-150"
+          className={`${inline ? "math-editor-popover-inline" : "math-editor-popover"} z-50 select-none pointer-events-auto animate-in fade-in zoom-in-95 duration-150`}
           side="bottom"
           align="start"
-          sideOffset={8}
+          sideOffset={6}
           collisionPadding={12}
           collisionBoundary={collisionBoundary ?? undefined}
           onOpenAutoFocus={(e) => e.preventDefault()}
@@ -405,7 +480,11 @@ export const MathBlockEditor: React.FC<MathBlockEditorProps> = (props) => {
           onEscapeKeyDown={onClose}
           onPointerDownOutside={handlePointerDownOutside}
         >
-          <MathEditorContent {...contentProps} onClose={onClose} />
+          <MathEditorContent
+            {...contentProps}
+            inline={inline}
+            onClose={onClose}
+          />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

@@ -1,5 +1,5 @@
 import { useP2PPageEventsWithQueryClient } from "@/app/hooks/useP2PPageEvents";
-import { triggerHapticFeedback } from "@/editor/events/touchEvents";
+import { triggerHaptic } from "@/platform/bridge";
 import {
   closestCenter,
   DndContext,
@@ -206,7 +206,7 @@ export function SidebarContent({
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
     setActiveDragData(event.active.data.current as IListPage);
-    triggerHapticFeedback("medium");
+    triggerHaptic("medium");
   }
 
   function getSpaceName(spaceId: string): string {
@@ -512,7 +512,7 @@ export function SidebarContent({
                     <div className={style.appSidebarSection}>
                       <div className={style.appSidebarSectionTitle}>
                         <div className={style.appSidebarSectionIcon}>
-                          <Icons.Shared />
+                          <Icons.Box />
                         </div>
                         {space.name || t("common.untitled", "Untitled")}
                       </div>

@@ -1,0 +1,29 @@
+{/* @cypherkit/editor API reference — Commands. */}
+
+import { PropsTable } from "../../docsComponents";
+
+<p className="dx-lede">Commands are the only way to change a document. Each is a transactional function that applies to the CRDT or no-ops, returning a boolean for whether it ran. They live on `editor.commands` and chain via `editor.chain()`.</p>
+
+<h2 id="builtins">Built-in commands</h2>
+
+<PropsTable cols={["Command", "Signature", "Description"]} rows={[
+  { name: "toggleMark", type: "(name: MarkName) => boolean", desc: "Add or remove an inline mark across the selection." },
+  { name: "setBlock", type: "(name, attrs?) => boolean", desc: "Turn the selected blocks into a node type (heading, paragraph…)." },
+  { name: "insertText", type: "(text: string) => boolean", desc: "Insert text at the cursor, replacing any selection." },
+  { name: "undo / redo", type: "() => boolean", desc: "Step through local history. Remote edits never enter your undo stack." },
+  { name: "selectAll", type: "() => boolean", desc: "Select the whole document." },
+]} />
+
+<h2 id="chaining">Chaining</h2>
+
+A chain batches commands into one transaction — one network update, one undo step. The chain runs only if every command in it can apply:
+
+```ts
+const ok = editor.chain()
+  .setBlock("heading", { level: 1 })
+  .insertText("Untitled")
+  .run();              // commits everything, or nothing if any step fails
+
+// dry-run: will this chain apply right now? (for enabling a toolbar button)
+const canRun = editor.chain().setBlock("heading", { level: 1 }).canRun();
+```

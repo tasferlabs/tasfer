@@ -1,18 +1,46 @@
 import { useP2PRoom, type SyncState } from "@/app/hooks/useP2PRoom";
 import { Button } from "@/components/ui/button";
-import { hasNativeBridge } from "@/editor/actions/clipboard";
+import { getBridge } from "@/platform/bridge";
 import {
+  CURSOR_DRAG_BOUNDARY,
+  CURSOR_DRAG_END,
+  CURSOR_DRAG_START,
+  OPEN_LINK,
+  REGION_DRAG_START,
+  allCharsHaveFormat,
+  clearFailedImageCache,
+  createDoc,
+  getBlockTextContent,
+  getBlockTextLength,
+  getFormatsAtPosition,
+  getLinkAtPosition,
+  getSelectionRange,
+  isTextualBlock,
+  isTouchDevice,
   positionToAwarenessCursor,
   selectionToAwarenessSelection,
+  serializeVV,
   type AwarenessState,
   type AwarenessUser,
-} from "@/editor/sync/awareness";
+  type Block,
+  type CursorDragState,
+  type Doc,
+  type EditorState,
+  type EditorStrings,
+  type MountedEditor as MountedEditorInstance,
+  type NodeOverlay,
+  type Operation,
+  type PlaceholderStyles,
+  type SlashCommand,
+  type TextStyle,
+} from "@cypherkit/editor";
+import { useEditor } from "@cypherkit/react";
 import {
-  SyncEngine,
-  advanceGlobalClock,
-  serializeVV,
-} from "@/editor/sync/sync";
-import type { Operation } from "@/editor/sync/types";
+  appSchema,
+  type LinkEditOverlayData,
+  openImageUploadMenu,
+  openLinkEditMenu,
+} from "../editorSchema";
 import { getPlatform } from "@/platform";
 import {
   Bold,
@@ -27,7 +55,14 @@ import {
   Strikethrough,
   Type,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ComponentType,
+} from "react";
 import { CursorMagnifier } from "./components/CursorMagnifier";
 import {
   MobileKeyboardToolbar,
@@ -36,8 +71,6 @@ import {
 import { useKeyboardOpen } from "./hooks/useKeyboardOpen";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import type { Block } from "../deserializer/loadPage";
-import { isTextualBlock } from "../deserializer/loadPage";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { FindBar } from "../editor/FindBar";
 import { ImageUploadPopover } from "../editor/ImageUploadPopover";
@@ -46,33 +79,491 @@ import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
 import { SlashCommandMenu } from "../editor/SlashCommandMenu";
-import {
-  getFormatsAtPosition,
-  getSelectionRange,
-} from "../editor/actions/commands";
-import {
-  mountEditor,
-  type MountedEditor as MountedEditorInstance,
-} from "../editor/mount";
-import { clearFailedImageCache } from "../editor/renderer";
-import { getLinkAtPosition } from "../editor/selection";
-import {
-  getBlockTextContent,
-  getBlockTextLength,
-  isTouchDevice,
-} from "../editor/state";
-import { allCharsHaveFormat } from "../editor/sync/crdt-helpers";
-import type {
-  CursorDragState,
-  EditorState,
-  PlaceholderStyles,
-  SlashCommand,
-  TextStyle,
-} from "../editor/types";
+import useResponsive from "./hooks/useResponsive";
+import i18next from "i18next";
+import { cssVarsToTheme, readEditorTokens } from "../editorTheme";
+import { getAppFontRegistry, onAppFontRegistryChange } from "../fonts";
 import { cn, shallowEqual } from "../lib/utils";
 import { uploadImage } from "./api/images.api";
-import { usePageSettings } from "./contexts/PageSettingsContext";
+import {
+  fontStyleToFamily,
+  usePageSettings,
+} from "./contexts/PageSettingsContext";
 import { EditorLoadingState } from "./pages/EditorPage";
+
+/**
+ * Localized cross-node canvas strings (block placeholders). The
+ * @cypherkit/editor package ships English defaults and no i18n library, so the
+ * host passes translations at mount. Evaluated at mount time — fine, since
+ * changing the language happens on the Settings page where no editor is
+ * mounted; the next mount picks up the new language.
+ *
+ * Strings owned by a single block type live on the node, not here — see
+ * {@link editorNodeStrings}.
+ */
+function editorStrings(): EditorStrings {
+  return {
+    placeholderHeading1: i18next.t("blocks.heading1"),
+    placeholderHeading2: i18next.t("blocks.heading2"),
+    placeholderHeading3: i18next.t("blocks.heading3"),
+    placeholderParagraph: i18next.t("editor.typeForCommands"),
+    placeholderParagraphTouch: i18next.t("editor.typeSomething"),
+    placeholderListItem: i18next.t("blocks.listItem"),
+    placeholderTodoItem: i18next.t("blocks.todoItem"),
+  };
+}
+
+/**
+ * Per-node localized strings, keyed by block type then the node's local string
+ * key (mirrors each node's `strings` catalog). Passed as `theme.nodeStrings`;
+ * the editor overlays these onto the nodes' English defaults per instance.
+ */
+function editorNodeStrings(): Record<string, Record<string, string>> {
+  return {
+    image: {
+      clickToUpload: i18next.t("image.clickToUpload"),
+      loading: i18next.t("image.loading"),
+      uploading: i18next.t("image.uploading"),
+      uploadFailed: i18next.t("error.failedToUploadImage"),
+      clickToRetry: i18next.t("common.clickToRetry"),
+      changeImage: i18next.t("image.changeImage"),
+    },
+    math: {
+      clickToEdit: i18next.t("math.clickToEdit"),
+    },
+  };
+}
+
+/**
+ * Host overlay registry: maps a node-declared overlay `key` (see
+ * {@link NodeOverlay}) to the React component that renders it. Node-declared
+ * overlays are framework-free in the engine — this registry is where they
+ * become real UI, positioned at the descriptor's `rect`.
+ *
+ * The built-in image-upload popover renders here: `CypherImageNode.overlays()`
+ * declares an `"image-upload"` slot whenever the active menu targets its block
+ * (see `editorSchema.ts`). The math popover still renders through its own
+ * `activeMenu` path; custom nodes register their editing chrome here too.
+ */
+type NodeOverlayProps = {
+  readonly overlay: NodeOverlay;
+  readonly editor: MountedEditorInstance["editor"];
+  readonly portalContainer: HTMLElement;
+  /** Return focus to the editor canvas (restores the native/mobile toolbar). */
+  readonly refocus: () => void;
+};
+
+/**
+ * Renders the image upload/edit popover for a `CypherImageNode`-declared
+ * `"image-upload"` overlay slot. The descriptor's `rect` carries the anchor in
+ * canvas/container space; the popover anchors in fixed viewport space, so we
+ * shift by the container's on-screen origin. All editing goes through the
+ * editor instance (no React state), so the engine's `activeMenu` stays the
+ * single source of truth for whether the popover is open.
+ */
+const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
+  overlay,
+  editor,
+  portalContainer,
+  refocus,
+}) => {
+  const { blockIndex } = overlay;
+  const uploadStatus =
+    (overlay.data as { uploadStatus?: "idle" | "uploading" | "complete" | "error" })
+      ?.uploadStatus ?? "idle";
+
+  const containerRect = portalContainer.getBoundingClientRect();
+
+  const close = () => {
+    editor.closeActiveMenu();
+    // Restore the native/mobile toolbar after the drawer dismisses.
+    if (window.CypherBridge) refocus();
+  };
+
+  return (
+    <ImageUploadPopover
+      x={containerRect.left + overlay.rect.x}
+      y={containerRect.top + overlay.rect.y}
+      uploadStatus={uploadStatus}
+      onUpload={async (file) => {
+        const block = editor.getState()?.document.page.blocks[blockIndex];
+        if (!block || block.deleted || block.type !== "image") return;
+
+        // Clear any failed-cache entry for the URL we're replacing.
+        if (block.url) {
+          clearFailedImageCache(block.url);
+        }
+
+        editor.setNodeViewState(block.id, { uploadStatus: "uploading" });
+
+        try {
+          const imageData = await uploadImage(file);
+          // Address by id — the upload may have shifted the block index.
+          editor.setNodeAttrs(block.id, {
+            url: imageData.url,
+            alt: imageData.fileName,
+          });
+          editor.setNodeViewState(block.id, null);
+          editor.closeActiveMenu();
+        } catch (error) {
+          console.error("Image upload failed:", error);
+          editor.setNodeViewState(block.id, { uploadStatus: "error" });
+        }
+      }}
+      onUrlSubmit={(url) => {
+        const block = editor.getState()?.document.page.blocks[blockIndex];
+        if (!block || block.deleted || block.type !== "image") return;
+
+        // Clear failed cache for this URL to allow retry
+        clearFailedImageCache(url);
+
+        editor.setNodeAttrs(block.id, { url });
+        editor.setNodeViewState(block.id, null);
+      }}
+      onDelete={() => {
+        // "Remove Image" deletes the block (was a no-op on the desktop edit
+        // path before this migration; the mobile drawer already deleted).
+        const block = editor.getState()?.document.page.blocks[blockIndex];
+        if (block && !block.deleted) editor.deleteNode(block.id);
+        close();
+      }}
+      onClose={close}
+      collisionBoundary={portalContainer}
+      container={portalContainer}
+    />
+  );
+};
+
+/**
+ * Renders the block-math edit popover for a `CypherMathNode`-declared
+ * `"math-edit"` overlay slot. Mirrors {@link ImageUploadOverlay}: the
+ * descriptor's `rect` is the anchor in canvas/container space, shifted into
+ * fixed viewport space; latex/displayMode are read live off the block, and all
+ * editing routes through the editor instance so `activeMenu` stays the single
+ * source of truth for whether the popover is open.
+ */
+const MathEditOverlay: ComponentType<NodeOverlayProps> = ({
+  overlay,
+  editor,
+  portalContainer,
+}) => {
+  const { blockIndex } = overlay;
+  const containerRect = portalContainer.getBoundingClientRect();
+  const block = editor.getState()?.document.page.blocks[blockIndex];
+  const mathBlock = block?.type === "math" ? block : undefined;
+
+  return (
+    <MathBlockEditor
+      x={containerRect.left + overlay.rect.x}
+      y={containerRect.top + overlay.rect.y}
+      initialLatex={mathBlock?.latex ?? ""}
+      displayMode={mathBlock?.displayMode ?? true}
+      onSubmit={(latex, displayMode) => {
+        const b = editor.getState()?.document.page.blocks[blockIndex];
+        if (b && !b.deleted && b.type === "math") {
+          editor.setNodeAttrs(b.id, { latex, displayMode });
+        }
+        editor.closeActiveMenu();
+      }}
+      onDelete={() => {
+        const b = editor.getState()?.document.page.blocks[blockIndex];
+        if (b && !b.deleted) editor.deleteNode(b.id);
+        editor.closeActiveMenu();
+      }}
+      onClose={() => editor.closeActiveMenu()}
+      collisionBoundary={portalContainer}
+      container={portalContainer}
+    />
+  );
+};
+
+/**
+ * Renders the inline-math edit popover for a `CypherMathMark`-declared
+ * `"inline-math-edit"` overlay slot. Inline math is a run of `math`-marked
+ * characters in a text block, so the slot comes from the mark, and its `data`
+ * carries the run's range + latex. Editing routes through the editor instance
+ * (replace/delete the inline range, exit on arrow keys) so the engine's
+ * `activeMenu` stays the single source of truth for whether it's open.
+ */
+const InlineMathEditOverlay: ComponentType<NodeOverlayProps> = ({
+  overlay,
+  editor,
+  portalContainer,
+  refocus,
+}) => {
+  const { blockIndex } = overlay;
+  const { startIndex, endIndex, latex } = overlay.data as {
+    startIndex: number;
+    endIndex: number;
+    latex: string;
+  };
+  const containerRect = portalContainer.getBoundingClientRect();
+
+  return (
+    <MathBlockEditor
+      x={containerRect.left + overlay.rect.x}
+      y={containerRect.top + overlay.rect.y}
+      initialLatex={latex}
+      displayMode={false}
+      inline
+      onSubmit={(nextLatex) => {
+        const block = editor.getState()?.document.page.blocks[blockIndex];
+        if (block && !block.deleted) {
+          editor.replaceInlineRange(
+            block.id,
+            startIndex,
+            endIndex,
+            nextLatex,
+            { type: "math" },
+          );
+        }
+        editor.closeActiveMenu();
+      }}
+      onDelete={() => {
+        const block = editor.getState()?.document.page.blocks[blockIndex];
+        if (block && !block.deleted) {
+          editor.deleteInlineRange(block.id, startIndex, endIndex);
+        }
+        editor.closeActiveMenu();
+      }}
+      onClose={() => editor.closeActiveMenu()}
+      onExitArrow={(direction) => {
+        editor.exitInlineMath(blockIndex, startIndex, endIndex, direction);
+        refocus();
+      }}
+      collisionBoundary={portalContainer}
+      container={portalContainer}
+    />
+  );
+};
+
+/**
+ * Renders the image hover chrome (download + edit buttons) for a
+ * `CypherImageNode`-declared `"image-hover"` slot. The descriptor's `rect` is
+ * the image's drawn box; the buttons sit at its top-right. "Edit Image" opens
+ * the image upload/edit menu just below itself.
+ */
+const ImageHoverOverlay: ComponentType<NodeOverlayProps> = ({
+  overlay,
+  editor,
+  portalContainer,
+}) => {
+  const { t } = useTranslation();
+  const { blockIndex } = overlay;
+  const block = editor.getState()?.document.page.blocks[blockIndex];
+  if (block?.type !== "image" || !block.url) return null;
+  const { url, alt } = block;
+
+  return (
+    <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
+      <div
+        style={{
+          position: "absolute",
+          right: "8px",
+          top: "8px",
+          pointerEvents: "auto",
+          display: "flex",
+          gap: "6px",
+        }}
+      >
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            void downloadImage(url, alt);
+          }}
+          onMouseDown={(e) => e.preventDefault()}
+          aria-label={t("contextMenu.downloadImage", "Download image")}
+          title={t("contextMenu.downloadImage", "Download image")}
+        >
+          <Download className="size-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={(e) => {
+            const buttonRect = e.currentTarget.getBoundingClientRect();
+            const containerRect = portalContainer.getBoundingClientRect();
+            openImageUploadMenu(
+              editor,
+              blockIndex,
+              buttonRect.left - containerRect.left,
+              buttonRect.bottom - containerRect.top,
+            );
+          }}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <ImageIcon className="size-4" />
+          <span className="text-xs">{t("image.editImage", "Edit Image")}</span>
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Renders the link hover tooltip for a `CypherLinkMark`-declared
+ * `"link-tooltip"` slot. "Edit" promotes the hover menu to the `linkEdit` menu
+ * in place (clearing the selection first, as the old flow did).
+ */
+const LinkTooltipOverlay: ComponentType<NodeOverlayProps> = ({
+  overlay,
+  editor,
+  portalContainer,
+}) => {
+  const { blockIndex } = overlay;
+  const { url, text, startIndex, endIndex } = overlay.data as {
+    url: string;
+    text: string;
+    startIndex: number;
+    endIndex: number;
+  };
+  const containerRect = portalContainer.getBoundingClientRect();
+
+  return (
+    <div
+      style={{
+        pointerEvents: "none",
+        position: "fixed",
+        inset: 0,
+        zIndex: 50,
+      }}
+    >
+      <LinkTooltip
+        url={url}
+        linkText={text}
+        x={containerRect.left + overlay.rect.x}
+        y={containerRect.top + overlay.rect.y}
+        onOpen={() => {
+          if (window.CypherBridge) {
+            window.CypherBridge.navigation.openUrl(url);
+          } else {
+            window.open(url, "_blank", "noopener,noreferrer");
+          }
+        }}
+        onEdit={() => {
+          editor.clearSelection();
+          openLinkEditMenu(editor, {
+            blockIndex,
+            startIndex,
+            endIndex,
+            url,
+            text,
+            x: overlay.rect.x,
+            y: overlay.rect.y,
+          });
+        }}
+      />
+    </div>
+  );
+};
+
+/**
+ * Renders the link edit/create popover (desktop) or drawer (mobile) for a
+ * `CypherLinkMark`-declared `"link-edit"` slot. Both update/clear the link via
+ * the editor; the engine's `linkEdit` menu is the single source of truth for
+ * whether it's open.
+ */
+const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
+  overlay,
+  editor,
+  portalContainer,
+  refocus,
+}) => {
+  const isMobile = useResponsive("(max-width: 768px)");
+  const { blockIndex } = overlay;
+  const { url, text, selectedText, startIndex, endIndex } =
+    overlay.data as LinkEditOverlayData;
+  const containerRect = portalContainer.getBoundingClientRect();
+  const x = containerRect.left + overlay.rect.x;
+  const y = containerRect.top + overlay.rect.y;
+
+  const close = () => {
+    editor.closeActiveMenu();
+    // Restore the native/mobile toolbar after the drawer dismisses.
+    if (window.CypherBridge) refocus();
+  };
+  const update = (newUrl: string, newText: string) =>
+    editor.updateLink(blockIndex, startIndex, endIndex, newUrl, newText);
+  const clearLink = () => editor.clearLink(blockIndex, startIndex, endIndex);
+
+  if (isMobile) {
+    return (
+      <LinkDrawer
+        x={x}
+        y={y}
+        url={url || undefined}
+        linkText={text || undefined}
+        selectedText={selectedText}
+        onUpdate={(newUrl, newText) => {
+          update(newUrl, newText);
+          close();
+        }}
+        onClear={
+          url
+            ? () => {
+                clearLink();
+                close();
+              }
+            : undefined
+        }
+        onClose={close}
+        collisionBoundary={portalContainer}
+        container={portalContainer}
+      />
+    );
+  }
+
+  return (
+    <LinkEditPopover
+      x={x}
+      y={y}
+      url={url}
+      linkText={text}
+      onUpdate={update}
+      onClear={clearLink}
+      onClose={close}
+      collisionBoundary={portalContainer}
+      container={portalContainer}
+    />
+  );
+};
+
+const NODE_OVERLAYS: Record<string, ComponentType<NodeOverlayProps>> = {
+  "image-upload": ImageUploadOverlay,
+  "image-hover": ImageHoverOverlay,
+  "math-edit": MathEditOverlay,
+  "inline-math-edit": InlineMathEditOverlay,
+  "link-tooltip": LinkTooltipOverlay,
+  "link-edit": LinkEditOverlay,
+};
+
+/**
+ * Structural compare of two overlay lists so we only re-render the React tree
+ * when `collectOverlays()` actually changes (it runs every state tick).
+ */
+function nodeOverlaysEqual(a: NodeOverlay[], b: NodeOverlay[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.key !== y.key ||
+      x.blockIndex !== y.blockIndex ||
+      x.rect.x !== y.rect.x ||
+      x.rect.y !== y.rect.y ||
+      x.rect.width !== y.rect.width ||
+      x.rect.height !== y.rect.height ||
+      // The serializable payload (e.g. an image's upload status) is part of the
+      // descriptor — a change there must re-render the overlay component.
+      JSON.stringify(x.data) !== JSON.stringify(y.data)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
 
 async function downloadImage(url: string, alt?: string): Promise<void> {
   const isAlreadyUrl =
@@ -210,7 +701,22 @@ interface MountedEditorProps {
   onScroll?: (scrollY: number) => void;
 }
 
-export function MountedEditor({
+/**
+ * Public mount component. Remounts the inner {@link EditorSurface} whenever the
+ * page (or read-only mode) changes: the surface mounts its editor once via
+ * `useEditor` (a mount-once hook), so a fresh `key` is how we recreate the
+ * doc + editor for a new page — replacing the old in-effect teardown/rebuild.
+ */
+export function MountedEditor(props: MountedEditorProps) {
+  return (
+    <EditorSurface
+      key={`${props.pageId}::${props.readonly ? "ro" : "rw"}`}
+      {...props}
+    />
+  );
+}
+
+function EditorSurface({
   snapshot,
   className = "",
   onContentChange,
@@ -227,12 +733,16 @@ export function MountedEditor({
   placeholderOverrides,
   onScroll,
 }: MountedEditorProps) {
-  const { setOnOpenFind } = usePageSettings();
+  const { setOnOpenFind, fontStyle } = usePageSettings();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { t } = useTranslation();
   const mountedRef = useRef<MountedEditorInstance | null>(null);
-  const syncEngineRef = useRef<SyncEngine | null>(null);
+  const docRef = useRef<Doc | null>(null);
   const onScrollRef = useRef(onScroll);
+  // Latest selected font family, read at mount time without making it a mount
+  // dependency (changing it re-themes via setTheme below, not a full re-mount).
+  const fontStyleRef = useRef(fontStyle);
+  fontStyleRef.current = fontStyle;
   onScrollRef.current = onScroll;
   const onContentChangeRef = useRef(onContentChange);
   onContentChangeRef.current = onContentChange;
@@ -242,7 +752,6 @@ export function MountedEditor({
     visible: boolean;
     x: number;
     y: number;
-    selectedIndex: number;
     filter: string;
   } | null>(null);
 
@@ -253,53 +762,22 @@ export function MountedEditor({
     hoveredItemId?: string | null;
   } | null>(null);
 
-  const [linkTooltipState, setLinkTooltipState] = useState<{
-    x: number;
-    y: number;
-    url: string;
-    text: string;
-  } | null>(null);
-
-  const [linkEditState, setLinkEditState] = useState<{
-    x: number;
-    y: number;
-    url: string;
-    text: string;
-    blockIndex: number;
-    startIndex: number;
-    endIndex: number;
-    savedCursor: EditorState["document"]["cursor"];
-    savedSelection: EditorState["document"]["selection"];
-  } | null>(null);
-
-  const [imageUploadState, setImageUploadState] = useState<{
-    x: number;
-    y: number;
-    blockIndex: number;
-    uploadStatus: "idle" | "uploading" | "complete" | "error";
-  } | null>(null);
-
-  const [mathEditState, setMathEditState] = useState<{
-    x: number;
-    y: number;
-    blockIndex: number;
-  } | null>(null);
-
-  const [imageHoverState, setImageHoverState] = useState<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    blockIndex: number;
-    hoveredHandle: "left" | "right" | "bottom" | null;
-  } | null>(null);
-
-  const lastImageHoverStateRef = useRef<typeof imageHoverState>(null);
-  const persistedImageHoverRef = useRef<typeof imageHoverState>(null);
+  // True while a text-input popover (image upload/edit or link edit) is open, so
+  // the editor enters "locked" mode and the canvas stops capturing input. These
+  // popovers now render via the node/mark overlay registry; this mirror is just
+  // the locked-mode signal, derived from the engine's active menu.
+  const [modalPopoverOpen, setModalPopoverOpen] = useState(false);
 
   // Cursor drag state (for mobile magnifier)
-  const [cursorDragState, setCursorDragState] = useState<CursorDragState | null>(null);
+  const [cursorDragState, setCursorDragState] =
+    useState<CursorDragState | null>(null);
   const lastCursorDragStateRef = useRef<CursorDragState | null>(null);
+
+  // Node-declared overlay slots (engine, framework-free) collected each state
+  // tick and rendered via NODE_OVERLAYS. The ref dedupes equivalent collections
+  // so an unchanged set doesn't churn the React tree.
+  const [nodeOverlays, setNodeOverlays] = useState<NodeOverlay[]>([]);
+  const lastNodeOverlaysRef = useRef<NodeOverlay[]>([]);
 
   // Find bar state
   const [findBarOpen, setFindBarOpen] = useState(false);
@@ -319,8 +797,6 @@ export function MountedEditor({
 
   const lastSlashMenuStateRef = useRef<typeof slashMenuState>(null);
   const lastContextMenuStateRef = useRef<typeof contextMenuState>(null);
-  const lastLinkTooltipStateRef = useRef<typeof linkTooltipState>(null);
-  const linkEditActionPerformedRef = useRef(false);
   const lastSerializedBlocksRef = useRef<
     EditorState["document"]["page"]["blocks"] | null
   >(null);
@@ -331,8 +807,14 @@ export function MountedEditor({
   );
   // Track when applying remote operations to prevent triggering saves for non-local changes
   const isApplyingRemoteOpsRef = useRef(false);
-  // Spinner overlay: hidden once we've confirmed local storage state (ops loaded or snapshot has content)
-  const [isContentReady, setIsContentReady] = useState(false);
+  // Spinner overlay: hidden once we've confirmed local storage state (ops
+  // loaded or snapshot has content). Keyed by pageId rather than a boolean so
+  // a page switch hides the canvas on the very first render (a boolean reset
+  // in the mount effect lands one render too late, flashing the previous
+  // page's content) and so a stale reveal from a previous page's pending
+  // rAF/ops-load can't dismiss the new page's overlay.
+  const [readyPageId, setReadyPageId] = useState<string | null>(null);
+  const isContentReady = readyPageId === pageId;
 
   // Mobile keyboard toolbar state (updated on every editor state change)
   const [mobileToolbar, setMobileToolbar] = useState({
@@ -353,6 +835,14 @@ export function MountedEditor({
   useEffect(() => {
     mountedRef.current?.setKeyboardHeight(keyboardHeight);
   }, [keyboardHeight]);
+
+  // Push the selected font family (serif/sans page setting) into the live
+  // editor as a theme change — no full re-mount, no module global.
+  useEffect(() => {
+    mountedRef.current?.editor.setTheme({
+      fontFamily: fontStyleToFamily(fontStyle),
+    });
+  }, [fontStyle]);
 
   // Track current toolbar icon type
   const currentIconTypeRef = useRef<"link" | "image" | "format" | "none">(
@@ -434,72 +924,206 @@ export function MountedEditor({
     onSyncStateChange?.(syncState);
   }, [syncState, onSyncStateChange]);
 
-  // Native drawer states (triggered by format button on mobile)
-  const [nativeLinkDrawerState, setNativeLinkDrawerState] = useState<{
-    x: number;
-    y: number;
-    url?: string;
-    linkText?: string;
-    selectedText?: string;
-    blockIndex?: number;
-    startIndex?: number;
-    endIndex?: number;
-  } | null>(null);
-
-  const [nativeImageDrawerState, setNativeImageDrawerState] = useState<{
-    x: number;
-    y: number;
-    blockIndex: number;
-  } | null>(null);
-
-  // Imperatively mount/unmount editor (no React state needed)
-  useEffect(() => {
-    const el = wrapperRef.current;
-    if (!el) return;
-
-    // Clean up any previous mount (e.g., content changes, strict mode re-mount)
-    if (mountedRef.current) {
-      mountedRef.current.destroy();
-      mountedRef.current = null;
-    }
-
-    // Clean up previous sync engine
-    if (syncEngineRef.current) {
-      syncEngineRef.current = null;
-    }
-
-    // Reset serialization tracking and initialization flag when snapshot changes
-    lastSerializedBlocksRef.current = null;
-    editorInitializedRef.current = false;
-
-    setIsContentReady(false);
-
-    // Use live editor content if available (HMR re-mount for same page), otherwise use snapshot prop
+  // ── Mount via @cypherkit/react's useEditor ───────────────────────────────
+  // The CRDT Doc is the single source of truth. We create it ourselves (rather
+  // than letting useEditor make a private one) for two reasons: it must carry
+  // this device's persistent peer id — so local ops stay causally ours across
+  // reloads — and the app's explicit `appSchema`. useEditor owns the editor
+  // lifecycle and mounts the canvas into `containerRef`; we keep owning the
+  // doc and tear it down below (after the editor).
+  //
+  // Created exactly once per mount: this surface is remounted per page via the
+  // MountedEditor wrapper's `key`, and useEditor reads its options once and is
+  // reconfigured imperatively (setTheme, …) thereafter.
+  if (!docRef.current) {
+    // HMR: reuse live editor content for the same page (refs survive Fast
+    // Refresh); otherwise start from the snapshot prop.
     const initialBlocks =
       liveBlocksRef.current?.pageId === pageId
         ? liveBlocksRef.current.blocks
         : snapshot;
     liveBlocksRef.current = null;
-
-    const mounted = mountEditor(el, initialBlocks, {
-      readonly,
+    docRef.current = createDoc({
+      blocks: initialBlocks,
       pageId,
-      padding,
-      blockStyleOverrides,
-      placeholderOverrides,
+      peerId: peerIdRef.current,
+      schema: appSchema.data,
     });
+  }
+  const doc = docRef.current!;
+
+  const { containerRef, editor } = useEditor({
+    doc,
+    schema: appSchema,
+    editable: !readonly,
+    pageId,
+    padding,
+    blockStyleOverrides,
+    placeholderOverrides,
+    strings: editorStrings(),
+    // The editor is headless and never reads the DOM for styling — feed it our
+    // current `--editor-*` CSS variables as theme tokens. Kept in sync with
+    // dark-mode toggles via the MutationObserver below (editor.setTheme). Fonts
+    // (registry + selected family) ride on the theme too; both update live via
+    // the subscriptions below.
+    theme: {
+      ...cssVarsToTheme(),
+      fonts: getAppFontRegistry(),
+      fontFamily: fontStyleToFamily(fontStyleRef.current),
+      nodeStrings: editorNodeStrings(),
+    },
+  });
+
+  // Bridge the hook's CypherEditor into the MountedEditorInstance shape the
+  // wiring effect + portals below were written against. Rebuilt only when the
+  // editor identity changes (once per mount), so the reference stays stable.
+  if (editor && mountedRef.current?.editor !== editor) {
+    mountedRef.current = {
+      editor,
+      doc: editor.doc,
+      portalContainer: editor.portalContainer,
+      refocus: editor.refocus,
+      blurInput: editor.blur,
+      setKeyboardHeight: editor.setKeyboardHeight,
+      destroy: editor.destroy,
+    };
+  } else if (!editor) {
+    mountedRef.current = null;
+  }
+
+  // We own the doc's lifetime (useEditor doesn't, since we passed `doc` in).
+  // A passive cleanup runs in the passive phase — after useEditor's layout-phase
+  // editor teardown — so the editor is destroyed before the doc, matching the
+  // engine's "tear down the editor (detaches doc↔editor wiring), then the doc".
+  useEffect(() => {
+    return () => {
+      docRef.current?.destroy();
+      docRef.current = null;
+    };
+    // Mount-once (the surface is keyed per page); destroy on unmount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist cursor position + (for HMR) live blocks on unmount, while the editor
+  // is still alive. As a layout-effect cleanup declared after useEditor, it runs
+  // in the commit phase before useEditor's own layout cleanup destroys the
+  // editor — so getState()/getScrollY() still return live state here.
+  useLayoutEffect(() => {
+    if (readonly) return;
+    return () => {
+      const editorState = mountedRef.current?.editor.getState();
+      if (!editorState) return;
+      if (editorState.document.page?.blocks) {
+        liveBlocksRef.current = {
+          blocks: editorState.document.page.blocks as Block[],
+          pageId,
+        };
+      }
+      if (editorState.document.cursor) {
+        saveCursorPosition(pageId, {
+          blockIndex: editorState.document.cursor.position.blockIndex,
+          textIndex: editorState.document.cursor.position.textIndex,
+          scrollY: mountedRef.current?.editor.getScrollY() ?? 0,
+        });
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Wire up editor subscriptions, sync, and native bridges once the editor is
+  // ready. Gated on `editor`; reads stable per-mount values (pageId, readonly,
+  // the room callbacks) captured once for this keyed surface.
+  useEffect(() => {
+    if (!editor) return;
+    // Derive the bridged instance from `editor` rather than trusting the
+    // render-phase assignment above. Under StrictMode/HMR, React re-runs passive
+    // effects as setup→cleanup→setup with no intervening render, and this
+    // effect's cleanup nulls mountedRef.current — so the second setup would
+    // otherwise read a null ref. Rebuilding here keeps the ref in sync for the
+    // imperative handlers (and matches the object the render phase builds).
+    const mounted: MountedEditorInstance =
+      mountedRef.current?.editor === editor
+        ? mountedRef.current
+        : {
+            editor,
+            doc: editor.doc,
+            portalContainer: editor.portalContainer,
+            refocus: editor.refocus,
+            blurInput: editor.blur,
+            setKeyboardHeight: editor.setKeyboardHeight,
+            destroy: editor.destroy,
+          };
     mountedRef.current = mounted;
+    const doc = editor.doc;
+    const native = getBridge();
+
+    // Reset serialization tracking and initialization flag for this mount.
+    lastSerializedBlocksRef.current = null;
+    editorInitializedRef.current = false;
+
+    // Haptics + native link-opening are editor commands now:
+    // the engine dispatches semantic commands and we map them to the
+    // native shell, falling back to the web Vibration API. These handlers live
+    // on this editor's command bus and die with it on destroy — no cleanup.
+    const fireHaptic = (style: "light" | "medium" | "heavy") => {
+      // Never let a haptic failure bubble into the editor's event loop.
+      try {
+        if (native) {
+          void native.haptic.trigger(style);
+          return;
+        }
+        if ("vibrate" in navigator) {
+          navigator.vibrate(
+            style === "light" ? 10 : style === "medium" ? 20 : 50,
+          );
+        }
+      } catch (e) {
+        console.debug("Haptic feedback not supported:", e);
+      }
+    };
+    mounted.editor.registerCommand(CURSOR_DRAG_START, () =>
+      fireHaptic("light"),
+    );
+    mounted.editor.registerCommand(CURSOR_DRAG_BOUNDARY, () =>
+      fireHaptic("light"),
+    );
+    mounted.editor.registerCommand(CURSOR_DRAG_END, () => fireHaptic("medium"));
+    mounted.editor.registerCommand(REGION_DRAG_START, ({ intensity }) =>
+      fireHaptic(intensity),
+    );
+    if (native) {
+      // Override the editor's window.open default with native navigation.
+      mounted.editor.registerCommand(OPEN_LINK, ({ url }) => {
+        void native.navigation.openUrl(url);
+        return true;
+      });
+    }
+
+    // Re-push theme tokens whenever the document root's class changes (the
+    // dark-mode toggle swaps the `.dark` class, which flips the CSS variables).
+    const themeObserver = new MutationObserver(() => {
+      mounted.editor.setTheme({ tokens: readEditorTokens() });
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    // Re-theme when the app font registry changes (e.g. Arabic stacks load).
+    const offFontRegistry = onAppFontRegistryChange(() => {
+      mounted.editor.setTheme({ fonts: getAppFontRegistry() });
+    });
 
     // True if snapshot has any block with actual text (not just the auto-generated empty init block).
     // Used to decide whether to show the spinner overlay until local ops are confirmed loaded.
-    const snapshotHasContent = initialBlocks.some((b) => {
+    const snapshotHasContent = doc.getBlocks().some((b) => {
       if (isTextualBlock(b)) return b.charRuns.some((r) => r.text.length > 0);
       return true; // image and line blocks are always real content
     });
 
     if (snapshotHasContent) {
       // Content is already in the snapshot — reveal after the canvas renders its first frame.
-      requestAnimationFrame(() => setIsContentReady(true));
+      requestAnimationFrame(() => setReadyPageId(pageId));
     }
 
     // Wire up scroll callback
@@ -512,6 +1136,14 @@ export function MountedEditor({
       // In readonly mode, we only render the content - no sync, no offline store
       // Subscribe to state changes for context menu only
       const unsubscribe = mounted.editor.subscribe((state: EditorState) => {
+        // Node-declared overlay slots (engine, framework-free) → host registry.
+        // Recollected each tick; only pushed to React state when the set changes.
+        const newOverlays = mounted.editor.collectOverlays();
+        if (!nodeOverlaysEqual(newOverlays, lastNodeOverlaysRef.current)) {
+          lastNodeOverlaysRef.current = newOverlays;
+          setNodeOverlays(newOverlays);
+        }
+
         // Calculate context menu state for readonly mode
         let newContextMenuState: typeof contextMenuState = null;
         if (state.ui.activeMenu.type === "contextMenu") {
@@ -537,7 +1169,8 @@ export function MountedEditor({
                     await editor.copy();
                     break;
                   case "selectAll":
-                    editor.selectAll();
+                    editor.commands.selectAll();
+                    editor.closeActiveMenu();
                     break;
                 }
               }, 0);
@@ -556,40 +1189,34 @@ export function MountedEditor({
 
       // Readonly mode never receives sync updates, so reveal immediately if not already done.
       if (!snapshotHasContent) {
-        setIsContentReady(true);
+        setReadyPageId(pageId);
       }
 
       return () => {
         unsubscribe();
-        mounted.destroy();
+        themeObserver.disconnect();
+        offFontRegistry();
+        // The editor (useEditor) and the doc (our cleanup effects) are torn
+        // down separately; here we only undo this effect's own wiring.
         if (mountedRef.current === mounted) {
           mountedRef.current = null;
         }
       };
     }
 
-    // Load persisted operations from SQLite (if any)
-    // This restores the sync engine's VV and applies any ops that arrived
-    // while the page was closed (e.g. from bulk P2P sync while offline).
-    // Load persisted ops into SyncEngine for VV tracking.
-    // Page content is already rebuilt from ops by the engine, so no need
-    // to apply them to the editor — just feed the SyncEngine.
+    // Load persisted operations from SQLite (if any) and register them on the
+    // doc. This catches the doc's version vector + clock/id counter up to what
+    // the snapshot blocks already represent (the blocks were rebuilt from these
+    // ops by the engine), without re-rendering — see Doc.load. New local ops
+    // then out-order and out-counter historical ones.
     const platform = getPlatform();
     const opsLoadedPromise = platform.ops.load(pageId).then((persistedOps) => {
-      if (persistedOps.length > 0 && syncEngineRef.current) {
-        syncEngineRef.current.loadOperations(persistedOps);
-        // Advance the global HLC past all loaded ops so that new operations
-        // (typing, restore, etc.) get HLC values higher than historical ops.
-        // Without this, mergeOps full-rebuild would sort session ops before
-        // historical ops, breaking causality (e.g. deletes before inserts).
-        const lastOp = persistedOps[persistedOps.length - 1];
-        if (lastOp) {
-          advanceGlobalClock(lastOp.clock);
-        }
+      if (persistedOps.length > 0 && docRef.current) {
+        docRef.current.load(persistedOps);
       }
       // Local storage confirmed — we have whatever we have. Reveal the canvas.
       if (!snapshotHasContent) {
-        requestAnimationFrame(() => setIsContentReady(true));
+        requestAnimationFrame(() => setReadyPageId(pageId));
       }
     });
 
@@ -599,10 +1226,6 @@ export function MountedEditor({
         mounted.editor.restoreFromSnapshot(blocks);
       });
     }
-
-    // Initialize sync engine for CRDT (use same peerId as WebSocket)
-    const syncEngine = new SyncEngine(pageId, peerIdRef.current);
-    syncEngineRef.current = syncEngine;
 
     // Debounced snapshot writer — keeps the FS snapshot in sync after edits.
     // 2s delay avoids writing on every keystroke.
@@ -614,21 +1237,27 @@ export function MountedEditor({
       }, 2000);
     };
 
-    // Apply remote ops to the in-memory sync engine and update the editor.
-    // Persistence is handled by the Replicator before ops reach these callbacks.
+    // Single fan-out for every document change. Local edits (u.local) are
+    // broadcast to peers and persisted to SQLite here; remote ops are persisted
+    // by the Replicator before they reach applyRemoteOps, so we only refresh the
+    // FS snapshot for those. The doc's update event also drives the editor
+    // re-render (via the editor's doc↔editor wiring), so there's no second fold.
+    const offDocUpdate = doc.on("update", (u) => {
+      if (u.local) {
+        roomBroadcast(u.ops);
+        platform.ops.persist(pageId, u.ops);
+      }
+      saveSnapshot(doc.getBlocks());
+    });
+
+    // Apply remote ops through the doc. applyUpdate dedups via the version
+    // vector, advances the shared binding past everything received (so local
+    // ops stay causally ahead), drives the editor, and fires offDocUpdate — all
+    // synchronously, so the isApplyingRemoteOps guard still brackets the
+    // editor's state-change notification and suppresses the local save path.
     const applyRemoteOps = (ops: Operation[]) => {
       isApplyingRemoteOpsRef.current = true;
-      syncEngine.apply(ops);
-      // Advance the global HLC past all received ops so that subsequent
-      // local operations (typing, deleting) get HLC values that respect
-      // causality. Without this, a local delete could get a lower counter
-      // than the remote inserts it depends on, breaking convergence during
-      // rebuildState (which sorts by HLC).
-      for (const op of ops) {
-        advanceGlobalClock(op.clock);
-      }
-      mounted.editor.updatePageFromSync(syncEngine.getState());
-      saveSnapshot(syncEngine.getState().blocks);
+      doc.applyUpdate(ops, "remote");
       isApplyingRemoteOpsRef.current = false;
     };
 
@@ -692,7 +1321,7 @@ export function MountedEditor({
       if (hasOtherPeers) {
         // Wait for persisted ops to load so the VV is accurate
         opsLoadedPromise.then(() => {
-          const localVV = serializeVV(syncEngine.getVersionVector());
+          const localVV = serializeVV(doc.getVersionVector());
           roomSendSyncRequest(localVV);
         });
 
@@ -715,17 +1344,9 @@ export function MountedEditor({
       }
     };
 
-    // Connect editor's broadcast to room
-    mounted.editor.setBroadcast((ops) => {
-      // Add to sync engine's log
-      syncEngine.emit(ops);
-      // Broadcast to peers
-      roomBroadcast(ops);
-      // Persist to SQLite
-      platform.ops.persist(pageId, ops);
-      // Keep FS snapshot in sync so next page-open skips the op-log rebuild
-      saveSnapshot(syncEngine.getState().blocks);
-    });
+    // Local-edit broadcast/persistence is handled by the doc.on("update")
+    // subscription above — the editor feeds its local ops into the doc, and the
+    // doc fans them out to peers + SQLite + the snapshot.
 
     // Connect editor's awareness broadcast to room
     // Guard: don't broadcast before P2P identity loads (localUserRef starts as { peerId: "", color: "" })
@@ -738,19 +1359,15 @@ export function MountedEditor({
     mounted.editor.onImagePaste(async (file, blockIndex) => {
       try {
         const imageData = await uploadImage(file);
-        // Revoke the temporary blob URL
-        const state = mounted.editor.getState();
-        if (state) {
-          const block = state.document.page.blocks[blockIndex];
-          if (
-            block &&
-            block.type === "image" &&
-            block.url?.startsWith("blob:")
-          ) {
-            URL.revokeObjectURL(block.url);
-          }
+        // Resolve the block by id (index may have shifted during the upload).
+        const block =
+          mounted.editor.getState()?.document.page.blocks[blockIndex];
+        if (!block || block.deleted || block.type !== "image") return;
+        // Revoke the temporary blob URL we were displaying.
+        if (block.url?.startsWith("blob:")) {
+          URL.revokeObjectURL(block.url);
         }
-        mounted.editor.updateImageBlock(blockIndex, {
+        mounted.editor.setNodeAttrs(block.id, {
           url: imageData.url,
           alt: imageData.fileName,
         });
@@ -770,23 +1387,27 @@ export function MountedEditor({
 
       const iconType = currentIconTypeRef.current;
 
+      // Anchor in canvas/container space (the overlay shifts it into viewport
+      // space). On mobile these render as full-screen drawers, so x/y are only a
+      // rough origin.
+      const menuX = containerRect.width / 2;
+      const menuY = 100;
+
       if (iconType === "image") {
-        // Open image drawer for selected image
+        // Open the image upload/edit menu for the selected image — rendered as a
+        // drawer on mobile by the CypherImageNode "image-upload" overlay.
         if (state.document.selection && !state.document.selection.isCollapsed) {
           const { anchor } = state.document.selection;
           const block = state.document.page.blocks[anchor.blockIndex];
           if (block && block.type === "image") {
-            setNativeImageDrawerState({
-              x: containerRect.left + containerRect.width / 2,
-              y: containerRect.top + 100,
-              blockIndex: anchor.blockIndex,
-            });
+            openImageUploadMenu(mounted.editor, anchor.blockIndex, menuX, menuY);
             return true;
           }
         }
         return false;
       } else if (iconType === "link") {
-        // Open link drawer for selected text or existing link
+        // Open the link edit/create menu — rendered as a drawer on mobile by the
+        // CypherLinkMark "link-edit" overlay.
         if (state.document.cursor) {
           const linkData = getLinkAtPosition(
             state.document.cursor.position,
@@ -795,14 +1416,14 @@ export function MountedEditor({
 
           if (linkData) {
             // Editing existing link
-            setNativeLinkDrawerState({
-              x: containerRect.left + containerRect.width / 2,
-              y: containerRect.top + 100,
-              url: linkData.url,
-              linkText: linkData.text,
+            openLinkEditMenu(mounted.editor, {
               blockIndex: state.document.cursor.position.blockIndex,
               startIndex: linkData.startIndex,
               endIndex: linkData.endIndex,
+              url: linkData.url,
+              text: linkData.text,
+              x: menuX,
+              y: menuY,
             });
             return true;
           } else if (
@@ -821,13 +1442,15 @@ export function MountedEditor({
                   end.textIndex,
                 );
 
-                setNativeLinkDrawerState({
-                  x: containerRect.left + containerRect.width / 2,
-                  y: containerRect.top + 100,
-                  selectedText,
+                openLinkEditMenu(mounted.editor, {
                   blockIndex: start.blockIndex,
                   startIndex: start.textIndex,
                   endIndex: end.textIndex,
+                  url: "",
+                  text: "",
+                  selectedText,
+                  x: menuX,
+                  y: menuY,
                 });
                 return true;
               }
@@ -843,18 +1466,19 @@ export function MountedEditor({
 
     // Expose editor methods to window for native bridges
     const editorMethods = {
-      undo: () => mounted.editor.undo(),
-      redo: () => mounted.editor.redo(),
-      setBlockType: (type: string) => mounted.editor.setBlockType(type as any),
+      undo: () => mounted.editor.commands.undo(),
+      redo: () => mounted.editor.commands.redo(),
+      setBlockType: (type: string) =>
+        mounted.editor.commands.setBlock(type as any),
       focus: () => {
         mounted.editor.setFocus(true);
         mounted.editor.setInitialCursor();
       },
       onFormatButtonClick: handleFormatButtonClick,
-      toggleBold: () => mounted.editor.toggleBold(),
-      toggleItalic: () => mounted.editor.toggleItalic(),
-      toggleCode: () => mounted.editor.toggleCode(),
-      toggleStrikethrough: () => mounted.editor.toggleStrikethrough(),
+      toggleBold: () => mounted.editor.commands.toggleMark("strong"),
+      toggleItalic: () => mounted.editor.commands.toggleMark("emphasis"),
+      toggleCode: () => mounted.editor.commands.toggleMark("code"),
+      toggleStrikethrough: () => mounted.editor.commands.toggleMark("strike"),
     };
 
     window.CypherEditorCallbacks = editorMethods;
@@ -917,7 +1541,6 @@ export function MountedEditor({
               visible: true,
               x,
               y,
-              selectedIndex: state.ui.activeMenu.selectedIndex,
               filter: state.ui.activeMenu.filter,
             };
           }
@@ -928,6 +1551,14 @@ export function MountedEditor({
       if (!shallowEqual(newSlashState, lastSlashMenuStateRef.current)) {
         lastSlashMenuStateRef.current = newSlashState;
         setSlashMenuState(newSlashState);
+      }
+
+      // Node-declared overlay slots (engine, framework-free) → host registry.
+      // Recollected each tick; only pushed to React state when the set changes.
+      const newOverlays = mounted.editor.collectOverlays();
+      if (!nodeOverlaysEqual(newOverlays, lastNodeOverlaysRef.current)) {
+        lastNodeOverlaysRef.current = newOverlays;
+        setNodeOverlays(newOverlays);
       }
 
       // Calculate new context menu state
@@ -962,83 +1593,20 @@ export function MountedEditor({
         setContextMenuState(newContextMenuState);
       }
 
-      // Calculate new link tooltip state
-      let newLinkTooltipState: typeof linkTooltipState = null;
-      if (state.ui.activeMenu.type === "linkHover") {
-        newLinkTooltipState = {
-          x: state.ui.activeMenu.x,
-          y: state.ui.activeMenu.y,
-          url: state.ui.activeMenu.url,
-          text: state.ui.activeMenu.text,
-        };
-      }
-
-      // Only update if changed
-      if (!shallowEqual(newLinkTooltipState, lastLinkTooltipStateRef.current)) {
-        lastLinkTooltipStateRef.current = newLinkTooltipState;
-        setLinkTooltipState(newLinkTooltipState);
-      }
-
-      // Calculate new image upload state
-      if (state.ui.activeMenu.type === "imageUpload") {
-        const containerRect = wrapperRef.current?.getBoundingClientRect();
-        if (containerRect) {
-          setImageUploadState({
-            x: containerRect.left + state.ui.activeMenu.x,
-            y: containerRect.top + state.ui.activeMenu.y,
-            blockIndex: state.ui.activeMenu.blockIndex,
-            uploadStatus: state.ui.activeMenu.uploadStatus || "idle",
-          });
-        }
-      } else if (imageUploadState) {
-        setImageUploadState(null);
-      }
-
-      // Calculate math edit state
-      if (state.ui.activeMenu.type === "mathEdit") {
-        const containerRect = wrapperRef.current?.getBoundingClientRect();
-        if (containerRect) {
-          setMathEditState({
-            x: containerRect.left + state.ui.activeMenu.x,
-            y: containerRect.top + state.ui.activeMenu.y,
-            blockIndex: state.ui.activeMenu.blockIndex,
-          });
-        }
-      } else if (mathEditState) {
-        setMathEditState(null);
-      }
-
-      // Calculate new image hover state
-      let newImageHoverState: typeof imageHoverState = null;
-      // Don't show hover button when dragging an image
-      if (state.ui.imageHover && !state.ui.imageDrag) {
-        newImageHoverState = {
-          x: state.ui.imageHover.x,
-          y: state.ui.imageHover.y,
-          width: state.ui.imageHover.width,
-          height: state.ui.imageHover.height,
-          blockIndex: state.ui.imageHover.blockIndex,
-          hoveredHandle: state.ui.imageHover.hoveredHandle,
-        };
-        // Persist this state for when the menu transitions
-        persistedImageHoverRef.current = newImageHoverState;
-      }
-
-      // Clear hover state when dragging
-      if (state.ui.imageDrag) {
-        newImageHoverState = null;
-      }
-
-      // Only update if changed
-      if (!shallowEqual(newImageHoverState, lastImageHoverStateRef.current)) {
-        lastImageHoverStateRef.current = newImageHoverState;
-        setImageHoverState(newImageHoverState);
-      }
-
-      // Clear persisted state when image upload closes
-      if (state.ui.activeMenu.type !== "imageUpload") {
-        persistedImageHoverRef.current = null;
-      }
+      // These all render via the node/mark overlay registry now, driven by the
+      // engine's active menu (collectOverlays → NODE_OVERLAYS):
+      //   - link hover tooltip      → CypherLinkMark  → "link-tooltip"
+      //   - link edit / create      → CypherLinkMark  → "link-edit"
+      //   - image upload/edit popover→ CypherImageNode → "image-upload"
+      //   - image hover buttons      → CypherImageNode → "image-hover"
+      //   - block / inline math      → CypherMathNode / CypherMathMark
+      // The only mirror kept here is the locked-mode signal: a text-input
+      // popover (image upload or link edit) is open.
+      const popoverOpen =
+        state.ui.activeMenu.type === "overlay" &&
+        (state.ui.activeMenu.key === "image-upload" ||
+          state.ui.activeMenu.key === "link-edit");
+      setModalPopoverOpen(popoverOpen);
 
       // Update cursor drag state for magnifier
       const newCursorDragState = state.ui.cursorDrag ?? null;
@@ -1115,14 +1683,14 @@ export function MountedEditor({
             block.formats,
             range.start.textIndex,
             range.end.textIndex,
-            "bold",
+            "strong",
           );
           isItalic = allCharsHaveFormat(
             block.charRuns,
             block.formats,
             range.start.textIndex,
             range.end.textIndex,
-            "italic",
+            "emphasis",
           );
           isCode = allCharsHaveFormat(
             block.charRuns,
@@ -1136,16 +1704,16 @@ export function MountedEditor({
             block.formats,
             range.start.textIndex,
             range.end.textIndex,
-            "strikethrough",
+            "strike",
           );
         } else {
           isBold = isItalic = isCode = isStrikethrough = false;
         }
       } else {
         // No selection or multi-block: use cursor position
-        const getActiveFormats = () => {
-          if (state.ui.activeFormatsMode.type === "explicit") {
-            return state.ui.activeFormatsMode.formats;
+        const getActiveMarks = () => {
+          if (state.ui.activeMarksMode.type === "explicit") {
+            return state.ui.activeMarksMode.formats;
           }
           if (state.document.cursor) {
             const { blockIndex, textIndex } = state.document.cursor.position;
@@ -1154,11 +1722,11 @@ export function MountedEditor({
           }
           return [];
         };
-        const activeFormats = getActiveFormats();
-        isBold = activeFormats.some((f) => f.type === "bold");
-        isItalic = activeFormats.some((f) => f.type === "italic");
-        isCode = activeFormats.some((f) => f.type === "code");
-        isStrikethrough = activeFormats.some((f) => f.type === "strikethrough");
+        const activeMarks = getActiveMarks();
+        isBold = activeMarks.some((f) => f.type === "strong");
+        isItalic = activeMarks.some((f) => f.type === "emphasis");
+        isCode = activeMarks.some((f) => f.type === "code");
+        isStrikethrough = activeMarks.some((f) => f.type === "strike");
       }
 
       // Update mobile toolbar state
@@ -1238,26 +1806,9 @@ export function MountedEditor({
 
     return () => {
       unsubscribe();
-
-      // Capture live editor state before destroying
-      const editorState = mounted.editor.getState();
-
-      // Preserve content for HMR re-mount (refs survive Fast Refresh)
-      if (editorState?.document.page?.blocks) {
-        liveBlocksRef.current = {
-          blocks: editorState.document.page.blocks as Block[],
-          pageId,
-        };
-      }
-
-      // Save cursor position before destroying
-      if (editorState?.document.cursor) {
-        saveCursorPosition(pageId, {
-          blockIndex: editorState.document.cursor.position.blockIndex,
-          textIndex: editorState.document.cursor.position.textIndex,
-          scrollY: mounted.editor.getScrollY(),
-        });
-      }
+      offDocUpdate();
+      themeObserver.disconnect();
+      offFontRegistry();
 
       // Clear room callback refs
       onRoomOperationsRef.current = null;
@@ -1271,33 +1822,20 @@ export function MountedEditor({
       // Cancel pending snapshot write
       if (snapshotTimer) clearTimeout(snapshotTimer);
 
-      // Clean up sync engine
-      if (syncEngineRef.current) {
-        syncEngineRef.current = null;
-      }
-
-      mounted.destroy();
-
+      // The editor (useEditor) is destroyed in the commit phase and the doc by
+      // our dedicated cleanup effect; cursor/live-blocks are saved by the
+      // layout-effect above (all while the editor is still alive). Here we only
+      // undo this effect's own wiring.
       delete window.CypherEditorCallbacks;
       if (mountedRef.current === mounted) {
         mountedRef.current = null;
       }
     };
-  }, [
-    snapshot,
-    autoFocus,
-    pageId,
-    roomBroadcast,
-    roomBroadcastAwareness,
-    roomSendSyncRequest,
-    // peerId and localUser are read from refs (peerIdRef, localUserRef) to avoid
-    // destroying/recreating the editor when the P2P identity loads asynchronously.
-    // This prevents a race where callback refs are briefly null during re-mount.
-    readonly,
-    padding,
-    blockStyleOverrides,
-    placeholderOverrides,
-  ]);
+    // Runs once when the editor becomes available. The surface is remounted per
+    // page (keyed wrapper), so pageId/readonly/snapshot are constant here, and
+    // the room callbacks are stable per roomId — all captured once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
 
   // Update editor's awareness user when localUser becomes available
   // (without re-mounting the entire editor)
@@ -1499,14 +2037,14 @@ export function MountedEditor({
         await editor.paste();
         break;
       case "selectAll":
-        editor.selectAll();
+        editor.commands.selectAll();
+        editor.closeActiveMenu();
         break;
     }
   };
 
   const getContextMenuItems = (): ContextMenuItem[] => {
     const hasSelection = contextMenuState?.hasSelection ?? false;
-    const canPaste = hasNativeBridge();
 
     const items: ContextMenuItem[] = [
       {
@@ -1534,14 +2072,16 @@ export function MountedEditor({
         disabled: !hasSelection,
       });
 
-      if (canPaste) {
-        items.push({
-          id: "paste",
-          label: t("contextMenu.paste", "Paste"),
-          icon: <Clipboard size={16} />,
-          action: () => handleContextMenuAction("paste"),
-        });
-      }
+      // Paste reads the system clipboard via `navigator.clipboard` (editor.paste
+      // → pasteFromSystemClipboard). Clipboard *read* is gated by the browser:
+      // Chromium/Safari/native WebViews prompt-then-allow on this click gesture,
+      // Firefox restricts it for pages — there the action just no-ops gracefully.
+      items.push({
+        id: "paste",
+        label: t("contextMenu.paste", "Paste"),
+        icon: <Clipboard size={16} />,
+        action: () => handleContextMenuAction("paste"),
+      });
     }
 
     // Add Download item when cursor is on an image block with a url
@@ -1587,14 +2127,14 @@ export function MountedEditor({
               block.formats,
               range.start.textIndex,
               range.end.textIndex,
-              "bold",
+              "strong",
             );
             isItalic = allCharsHaveFormat(
               block.charRuns,
               block.formats,
               range.start.textIndex,
               range.end.textIndex,
-              "italic",
+              "emphasis",
             );
             isCode = allCharsHaveFormat(
               block.charRuns,
@@ -1608,14 +2148,14 @@ export function MountedEditor({
               block.formats,
               range.start.textIndex,
               range.end.textIndex,
-              "strikethrough",
+              "strike",
             );
           }
         } else {
           // No selection or multi-block: use cursor position
-          const getActiveFormats = () => {
-            if (state.ui.activeFormatsMode.type === "explicit") {
-              return state.ui.activeFormatsMode.formats;
+          const getActiveMarks = () => {
+            if (state.ui.activeMarksMode.type === "explicit") {
+              return state.ui.activeMarksMode.formats;
             }
             if (state.document.cursor) {
               const { blockIndex, textIndex } = state.document.cursor.position;
@@ -1624,13 +2164,11 @@ export function MountedEditor({
             }
             return [];
           };
-          const activeFormats = getActiveFormats();
-          isBold = activeFormats.some((f) => f.type === "bold");
-          isItalic = activeFormats.some((f) => f.type === "italic");
-          isCode = activeFormats.some((f) => f.type === "code");
-          isStrikethrough = activeFormats.some(
-            (f) => f.type === "strikethrough",
-          );
+          const activeMarks = getActiveMarks();
+          isBold = activeMarks.some((f) => f.type === "strong");
+          isItalic = activeMarks.some((f) => f.type === "emphasis");
+          isCode = activeMarks.some((f) => f.type === "code");
+          isStrikethrough = activeMarks.some((f) => f.type === "strike");
         }
       }
 
@@ -1643,28 +2181,32 @@ export function MountedEditor({
             id: "format-bold",
             label: t("contextMenu.bold", "Bold"),
             icon: <Bold size={16} />,
-            action: () => mountedRef.current?.editor.toggleBold(),
+            action: () =>
+              mountedRef.current?.editor.commands.toggleMark("strong"),
             active: isBold,
           },
           {
             id: "format-italic",
             label: t("contextMenu.italic", "Italic"),
             icon: <Italic size={16} />,
-            action: () => mountedRef.current?.editor.toggleItalic(),
+            action: () =>
+              mountedRef.current?.editor.commands.toggleMark("emphasis"),
             active: isItalic,
           },
           {
             id: "format-code",
             label: t("contextMenu.code", "Code"),
             icon: <Code size={16} />,
-            action: () => mountedRef.current?.editor.toggleCode(),
+            action: () =>
+              mountedRef.current?.editor.commands.toggleMark("code"),
             active: isCode,
           },
           {
             id: "format-strikethrough",
             label: t("contextMenu.strikethrough", "Strikethrough"),
             icon: <Strikethrough size={16} />,
-            action: () => mountedRef.current?.editor.toggleStrikethrough(),
+            action: () =>
+              mountedRef.current?.editor.commands.toggleMark("strike"),
             active: isStrikethrough,
           },
           {
@@ -1685,14 +2227,19 @@ export function MountedEditor({
                 end.textIndex,
               );
               const containerRect = wrapperRef.current?.getBoundingClientRect();
-              if (!containerRect) return;
-              setNativeLinkDrawerState({
-                x: containerRect.left + containerRect.width / 2,
-                y: containerRect.top + 100,
-                selectedText,
+              const mountedEditor = mountedRef.current?.editor;
+              if (!containerRect || !mountedEditor) return;
+              // Open the link create menu — rendered as a drawer on mobile by
+              // the CypherLinkMark "link-edit" overlay.
+              openLinkEditMenu(mountedEditor, {
                 blockIndex: start.blockIndex,
                 startIndex: start.textIndex,
                 endIndex: end.textIndex,
+                url: "",
+                text: "",
+                selectedText,
+                x: containerRect.width / 2,
+                y: 100,
               });
             },
           },
@@ -1703,14 +2250,15 @@ export function MountedEditor({
     return items;
   };
 
-  // Set editor to locked mode when link edit or image upload popover is open
+  // Lock the editor (canvas stops capturing input) while a text-input popover
+  // (image upload/edit or link edit) is open — see `modalPopoverOpen`.
   useEffect(() => {
     if (!mountedRef.current?.editor) return;
 
     const currentState = mountedRef.current.editor.getState();
     if (!currentState) return;
 
-    if (linkEditState || imageUploadState) {
+    if (modalPopoverOpen) {
       // Set editor to locked mode when popover opens (only if not already locked)
       if (currentState.ui.mode !== "locked") {
         mountedRef.current.editor.setMode("locked");
@@ -1721,102 +2269,34 @@ export function MountedEditor({
         mountedRef.current.editor.setMode("edit");
       }
     }
-  }, [linkEditState, imageUploadState]);
-
-  const handleLinkEdit = () => {
-    if (!linkTooltipState || !mountedRef.current) return;
-
-    const state = mountedRef.current.editor.getState();
-    if (!state) return;
-
-    if (state.ui.activeMenu.type === "linkHover") {
-      const containerRect = wrapperRef.current?.getBoundingClientRect();
-      if (containerRect) {
-        // Save current cursor and selection before clearing
-        const savedCursor = state.document.cursor;
-        const savedSelection = state.document.selection;
-
-        // Clear selection and cursor when opening link editor
-        mountedRef.current.editor.clearSelection();
-
-        // Reset the action flag when opening
-        linkEditActionPerformedRef.current = false;
-
-        // Get link data from activeMenu
-        const linkData = state.ui.activeMenu;
-
-        setLinkEditState({
-          x: linkData.x,
-          y: linkData.y,
-          url: linkData.url,
-          text: linkData.text,
-          blockIndex: linkData.position.blockIndex,
-          startIndex: linkData.startIndex,
-          endIndex: linkData.endIndex,
-          savedCursor,
-          savedSelection,
-        });
-        setLinkTooltipState(null);
-      }
-    }
-  };
-
-  const handleLinkUpdate = (newUrl: string, newText: string) => {
-    if (!linkEditState || !mountedRef.current) return;
-
-    const editor = mountedRef.current.editor;
-    editor.updateLink(
-      linkEditState.blockIndex,
-      linkEditState.startIndex,
-      linkEditState.endIndex,
-      newUrl,
-      newText,
-    );
-    // Mark that an action was performed (don't restore selection on close)
-    linkEditActionPerformedRef.current = true;
-  };
-
-  const handleLinkClear = () => {
-    if (!linkEditState || !mountedRef.current) return;
-
-    const editor = mountedRef.current.editor;
-    editor.clearLink(
-      linkEditState.blockIndex,
-      linkEditState.startIndex,
-      linkEditState.endIndex,
-    );
-    // Mark that an action was performed (don't restore selection on close)
-    linkEditActionPerformedRef.current = true;
-  };
-
-  const handleLinkEditClose = () => {
-    if (!linkEditState || !mountedRef.current) return;
-    mountedRef.current.editor.closeActiveMenu();
-    setLinkEditState(null);
-
-    if (window.CypherBridge) {
-      // Refocus editor to restore native toolbar on mobile
-      mountedRef.current.refocus();
-    }
-  };
+  }, [modalPopoverOpen]);
 
   return (
     <div
-      ref={wrapperRef}
+      // The hook owns `containerRef` (it mounts the canvas here); we keep
+      // `wrapperRef` for the existing layout/positioning reads. One element,
+      // both refs.
+      ref={(el) => {
+        wrapperRef.current = el;
+        containerRef.current = el;
+      }}
       className={cn(
         "relative w-full h-full overflow-hidden focus:outline-none",
         className,
       )}
-      role="textbox"
-      aria-label="Text editor"
-      aria-multiline="true"
+      // The editable surface and its ARIA semantics (role="textbox",
+      // aria-label, aria-multiline) now live on the engine's contenteditable
+      // input element; this wrapper is just a layout container.
     >
       {/* Spinner overlay — visible until local storage state is confirmed.
           Absolutely positioned so it overlays the canvas regardless of DOM order,
           preventing the skeleton from pushing the canvas below the viewport
-          (which would block mousedown events from reaching the canvas). */}
+          (which would block mousedown events from reaching the canvas).
+          Opaque background: the canvas mounts and paints underneath while this
+          is still up (the reveal intentionally waits for the first canvas
+          frame), so a transparent overlay would show both at once. */}
       {!isContentReady && (
-        <div className="absolute inset-0 z-10">
+        <div className="absolute inset-0 z-10 bg-background">
           <EditorLoadingState />
         </div>
       )}
@@ -1826,9 +2306,9 @@ export function MountedEditor({
         createPortal(
           <div style={{ pointerEvents: "auto" }}>
             <SlashCommandMenu
+              editor={mountedRef.current.editor}
               x={slashMenuState.x}
               y={slashMenuState.y}
-              selectedIndex={slashMenuState.selectedIndex}
               filter={slashMenuState.filter}
               onSelect={handleSlashCommandSelect}
               onClose={handleSlashCommandClose}
@@ -1855,474 +2335,60 @@ export function MountedEditor({
         />
       )}
 
-      {/* Link tooltip portal */}
-      {linkTooltipState &&
-        !linkEditState &&
-        mountedRef.current?.portalContainer &&
-        createPortal(
-          <div
-            style={{
-              pointerEvents: "none",
-              position: "fixed",
-              inset: 0,
-              zIndex: 50,
-            }}
-          >
-            <LinkTooltip
-              url={linkTooltipState.url}
-              linkText={linkTooltipState.text}
-              x={linkTooltipState.x}
-              y={linkTooltipState.y}
-              onOpen={() => {
-                if (window.CypherBridge) {
-                  window.CypherBridge.navigation.openUrl(linkTooltipState.url);
-                } else {
-                  window.open(
-                    linkTooltipState.url,
-                    "_blank",
-                    "noopener,noreferrer",
-                  );
-                }
-              }}
-              onEdit={handleLinkEdit}
-            />
-          </div>,
-          mountedRef.current.portalContainer,
-        )}
+      {/* Link tooltip + link edit/create popover render via the mark-overlay
+          registry below (CypherLinkMark.overlays → "link-tooltip" /
+          "link-edit"). */}
 
-      {/* Link edit popover */}
-      {linkEditState &&
-        mountedRef.current?.portalContainer &&
-        createPortal(
-          <LinkEditPopover
-            x={linkEditState.x}
-            y={linkEditState.y}
-            url={linkEditState.url}
-            linkText={linkEditState.text}
-            onUpdate={handleLinkUpdate}
-            onClear={handleLinkClear}
-            onClose={handleLinkEditClose}
-            collisionBoundary={mountedRef.current?.portalContainer}
-            container={mountedRef.current?.portalContainer}
-          />,
-          mountedRef.current.portalContainer,
-        )}
-
-      {/* Image upload popover */}
-      {imageUploadState &&
-        mountedRef.current?.portalContainer &&
-        createPortal(
-          <ImageUploadPopover
-            x={imageUploadState.x}
-            y={imageUploadState.y}
-            uploadStatus={imageUploadState.uploadStatus}
-            onUpload={async (file) => {
-              if (!mountedRef.current) return;
-              const editor = mountedRef.current.editor;
-              const state = editor.getState();
-              if (!state) return;
-
-              // Get current block to check if there's an existing URL to clear from failed cache
-              const block =
-                state.document.page.blocks[imageUploadState.blockIndex];
-              if (block && block.type === "image" && block.url) {
-                clearFailedImageCache(block.url);
-              }
-
-              // Set uploading status
-              editor.updateImageBlock(
-                imageUploadState.blockIndex,
-                {},
-                "uploading",
-              );
-
-              try {
-                // Upload the image
-                const imageData = await uploadImage(file);
-
-                // Update with the uploaded URL
-                editor.updateImageBlock(
-                  imageUploadState.blockIndex,
-                  {
-                    url: imageData.url,
-                    alt: imageData.fileName,
-                  },
-                  "complete",
-                );
-
-                // Close the popover after successful upload
-                editor.closeActiveMenu();
-              } catch (error) {
-                console.error("Image upload failed:", error);
-                editor.updateImageBlock(
-                  imageUploadState.blockIndex,
-                  {},
-                  "error",
-                );
-              }
-            }}
-            onUrlSubmit={(url) => {
-              if (!mountedRef.current) return;
-              const editor = mountedRef.current.editor;
-
-              // Clear failed cache for this URL to allow retry
-              clearFailedImageCache(url);
-
-              editor.updateImageBlock(
-                imageUploadState.blockIndex,
-                { url },
-                "complete",
-              );
-            }}
-            onDelete={() => {
-              if (!mountedRef.current) return;
-              setImageUploadState(null);
-            }}
-            onClose={() => {
-              if (!mountedRef.current) return;
-              // Clear the menu state in the editor
-              mountedRef.current.editor.closeActiveMenu();
-              setImageUploadState(null);
-            }}
-            collisionBoundary={mountedRef.current?.portalContainer}
-            container={mountedRef.current?.portalContainer}
-          />,
-          mountedRef.current.portalContainer,
-        )}
-
-      {/* Math block editor popover */}
-      {mathEditState &&
-        mountedRef.current?.portalContainer &&
-        createPortal(
-          <MathBlockEditor
-            x={mathEditState.x}
-            y={mathEditState.y}
-            initialLatex={(() => {
-              if (!mountedRef.current) return "";
-              const block =
-                mountedRef.current.editor.getState()?.document.page.blocks[
-                  mathEditState.blockIndex
-                ];
-              return block?.type === "math" ? block.latex : "";
-            })()}
-            displayMode={(() => {
-              if (!mountedRef.current) return true;
-              const block =
-                mountedRef.current.editor.getState()?.document.page.blocks[
-                  mathEditState.blockIndex
-                ];
-              return block?.type === "math" ? block.displayMode : true;
-            })()}
-            onSubmit={(latex, displayMode) => {
-              if (!mountedRef.current) return;
-              mountedRef.current.editor.updateMathBlock(
-                mathEditState.blockIndex,
-                { latex, displayMode },
-              );
-              mountedRef.current.editor.closeActiveMenu();
-              setMathEditState(null);
-            }}
-            onDelete={() => {
-              if (!mountedRef.current) return;
-              // Delete the math block (reuse image delete logic pattern)
-              mountedRef.current.editor.deleteImageBlock(
-                mathEditState.blockIndex,
-              );
-              setMathEditState(null);
-            }}
-            onClose={() => {
-              if (!mountedRef.current) return;
-              mountedRef.current.editor.closeActiveMenu();
-              setMathEditState(null);
-            }}
-            collisionBoundary={mountedRef.current?.portalContainer}
-            container={mountedRef.current?.portalContainer}
-          />,
-          mountedRef.current.portalContainer,
-        )}
-
-      {/* Image hover edit button overlay */}
-      {(imageHoverState ||
-        imageUploadState ||
-        persistedImageHoverRef.current) &&
-        mountedRef.current?.portalContainer &&
-        (() => {
-          // Use imageHoverState if available, otherwise use persisted state or reconstruct from imageUploadState
-          const displayState =
-            imageHoverState ||
-            persistedImageHoverRef.current ||
-            (imageUploadState
-              ? {
-                  x:
-                    imageUploadState.x -
-                    (wrapperRef.current?.getBoundingClientRect().left || 0),
-                  y:
-                    imageUploadState.y -
-                    (wrapperRef.current?.getBoundingClientRect().top || 0),
-                  width: wrapperRef.current?.offsetWidth || 0,
-                  height: 300, // Default image height
-                  blockIndex: imageUploadState.blockIndex,
-                  hoveredHandle: null,
-                }
-              : null);
-
-          if (!displayState) return null;
-
-          const state = mountedRef.current?.editor.getState();
-          if (!state) return null;
-
-          const block = state.document.page.blocks[displayState.blockIndex];
-          if (block?.type !== "image") return null;
-
-          // Check if the image is in placeholder mode (no URL)
-          const isPlaceholder = !block.url;
-
-          // Don't show the overlay for placeholder mode (no Edit Image button)
-          if (isPlaceholder) return null;
-
+      {/* Node-declared overlay slots — located by the engine
+          (editor.collectOverlays), rendered here via the NODE_OVERLAYS
+          registry. The engine stays framework-free; this is where a node's
+          declared `key` becomes a React component, positioned at its rect. */}
+      {(() => {
+        const mounted = mountedRef.current;
+        if (!mounted?.portalContainer) return null;
+        return nodeOverlays.map((overlay) => {
+          const Component = NODE_OVERLAYS[overlay.key];
+          if (!Component) return null;
           return createPortal(
             <div
+              key={`${overlay.key}:${overlay.blockIndex}`}
               style={{
                 position: "absolute",
-                left: `${displayState.x}px`,
-                top: `${displayState.y}px`,
-                width: `${displayState.width}px`,
-                height: `${displayState.height}px`,
+                left: `${overlay.rect.x}px`,
+                top: `${overlay.rect.y}px`,
+                width: `${overlay.rect.width}px`,
+                height: `${overlay.rect.height}px`,
                 pointerEvents: "none",
-                overflow: "hidden",
-                zIndex: 10,
               }}
             >
-              <div
-                style={{
-                  position: "absolute",
-                  right: "8px",
-                  top: "8px",
-                  pointerEvents: "auto",
-                  display: "flex",
-                  gap: "6px",
-                }}
-              >
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (block.type === "image" && block.url) {
-                      void downloadImage(block.url, block.alt);
-                    }
-                  }}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                  }}
-                  aria-label={t("contextMenu.downloadImage", "Download image")}
-                  title={t("contextMenu.downloadImage", "Download image")}
-                >
-                  <Download className="size-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={(e) => {
-                    if (!mountedRef.current) return;
-                    const state = mountedRef.current.editor.getState();
-                    if (!state) return;
-
-                    const block =
-                      state.document.page.blocks[displayState.blockIndex];
-                    if (block.type === "image") {
-                      // Get button position to open popover below it
-                      const buttonRect =
-                        e.currentTarget.getBoundingClientRect();
-                      const containerRect =
-                        wrapperRef.current?.getBoundingClientRect();
-
-                      if (containerRect) {
-                        // Convert button position to canvas-relative coordinates
-                        const canvasX = buttonRect.left - containerRect.left;
-                        const canvasY = buttonRect.bottom - containerRect.top;
-
-                        // Open the image upload/edit popover
-                        mountedRef.current.editor.openImageUploadMenu(
-                          displayState.blockIndex,
-                          canvasX,
-                          canvasY,
-                          block.url || undefined,
-                          block.alt || undefined,
-                        );
-                      }
-                    }
-                  }}
-                  onMouseDown={(e) => {
-                    // Prevent button from taking focus away from hidden input
-                    e.preventDefault();
-                  }}
-                >
-                  <ImageIcon className="size-4" />
-                  <span className="text-xs">Edit Image</span>
-                </Button>
-              </div>
+              <Component
+                overlay={overlay}
+                editor={mounted.editor}
+                portalContainer={mounted.portalContainer}
+                refocus={mounted.refocus}
+              />
             </div>,
-            mountedRef.current.portalContainer,
+            mounted.portalContainer,
           );
-        })()}
+        });
+      })()}
 
-      {/* Native Link Drawer (triggered by format button on mobile) */}
-      {nativeLinkDrawerState &&
-        mountedRef.current?.portalContainer &&
-        createPortal(
-          <LinkDrawer
-            x={nativeLinkDrawerState.x}
-            y={nativeLinkDrawerState.y}
-            url={nativeLinkDrawerState.url}
-            linkText={nativeLinkDrawerState.linkText}
-            selectedText={nativeLinkDrawerState.selectedText}
-            onUpdate={(newUrl, newText) => {
-              if (!mountedRef.current) return;
-              const editor = mountedRef.current.editor;
+      {/* Image upload/edit popover + hover buttons render via the node-overlay
+          registry above (CypherImageNode.overlays → "image-upload" /
+          "image-hover"). The locked-mode signal is the `modalPopoverOpen`
+          mirror, derived from the engine's active menu. */}
 
-              if (
-                nativeLinkDrawerState.blockIndex !== undefined &&
-                nativeLinkDrawerState.startIndex !== undefined &&
-                nativeLinkDrawerState.endIndex !== undefined
-              ) {
-                // Update existing link
-                editor.updateLink(
-                  nativeLinkDrawerState.blockIndex,
-                  nativeLinkDrawerState.startIndex,
-                  nativeLinkDrawerState.endIndex,
-                  newUrl,
-                  newText,
-                );
-              } else if (
-                nativeLinkDrawerState.blockIndex !== undefined &&
-                nativeLinkDrawerState.startIndex !== undefined &&
-                nativeLinkDrawerState.endIndex !== undefined
-              ) {
-                // Create new link from selection - restore selection first
-                const blockIndex = nativeLinkDrawerState.blockIndex;
-                const startTextIndex = nativeLinkDrawerState.startIndex;
-                const endTextIndex = nativeLinkDrawerState.endIndex;
+      {/* Block-math edit popover renders via the node-overlay registry above
+          (CypherMathNode.overlays → NODE_OVERLAYS["math-edit"]). */}
 
-                // Restore the selection by creating it programmatically
-                const anchor = { blockIndex, textIndex: startTextIndex };
-                const focus = { blockIndex, textIndex: endTextIndex };
+      {/* Inline-math edit popover renders via the node-overlay registry above
+          (CypherMathMark.overlays → NODE_OVERLAYS["inline-math-edit"]). */}
 
-                editor.restoreCursorAndSelection(
-                  { position: focus, lastUpdate: Date.now() },
-                  {
-                    anchor,
-                    focus,
-                    isForward: true,
-                    isCollapsed: false,
-                    lastUpdate: Date.now(),
-                  },
-                );
+      {/* Image hover buttons + native image drawer render via the
+          node-overlay registry above (CypherImageNode.overlays → "image-hover"
+          / "image-upload"). The native link drawer renders via the mark-overlay
+          registry (CypherLinkMark → "link-edit"). */}
 
-                // Now create the link with the restored selection
-                editor.createLink(newUrl, newText);
-              }
-              setNativeLinkDrawerState(null);
-            }}
-            onClear={
-              nativeLinkDrawerState.url
-                ? () => {
-                    if (!mountedRef.current) return;
-                    const editor = mountedRef.current.editor;
-                    if (
-                      nativeLinkDrawerState.blockIndex !== undefined &&
-                      nativeLinkDrawerState.startIndex !== undefined &&
-                      nativeLinkDrawerState.endIndex !== undefined
-                    ) {
-                      editor.clearLink(
-                        nativeLinkDrawerState.blockIndex,
-                        nativeLinkDrawerState.startIndex,
-                        nativeLinkDrawerState.endIndex,
-                      );
-                    }
-                    setNativeLinkDrawerState(null);
-                  }
-                : undefined
-            }
-            onClose={() => {
-              setNativeLinkDrawerState(null);
-              // Refocus editor to restore island toolbar on iOS
-              mountedRef.current?.refocus();
-            }}
-            collisionBoundary={mountedRef.current?.portalContainer}
-            container={mountedRef.current?.portalContainer}
-          />,
-          mountedRef.current.portalContainer,
-        )}
-
-      {/* Native Image Drawer (triggered by format button on mobile) */}
-      {nativeImageDrawerState &&
-        mountedRef.current?.portalContainer &&
-        createPortal(
-          <ImageUploadPopover
-            x={nativeImageDrawerState.x}
-            y={nativeImageDrawerState.y}
-            uploadStatus="idle"
-            onUpload={async (file) => {
-              if (!mountedRef.current) return;
-              const editor = mountedRef.current.editor;
-              const state = editor.getState();
-              if (!state) return;
-
-              const block =
-                state.document.page.blocks[nativeImageDrawerState.blockIndex];
-              if (block && block.type === "image" && block.url) {
-                clearFailedImageCache(block.url);
-              }
-
-              editor.updateImageBlock(
-                nativeImageDrawerState.blockIndex,
-                {},
-                "uploading",
-              );
-
-              try {
-                const imageData = await uploadImage(file);
-                editor.updateImageBlock(
-                  nativeImageDrawerState.blockIndex,
-                  {
-                    url: imageData.url,
-                    alt: imageData.fileName,
-                  },
-                  "complete",
-                );
-              } catch (error) {
-                console.error("Image upload failed:", error);
-                editor.updateImageBlock(
-                  nativeImageDrawerState.blockIndex,
-                  {},
-                  "error",
-                );
-              }
-            }}
-            onUrlSubmit={(url) => {
-              if (!mountedRef.current) return;
-              const editor = mountedRef.current.editor;
-              editor.updateImageBlock(nativeImageDrawerState.blockIndex, {
-                url,
-              });
-            }}
-            onDelete={() => {
-              if (!mountedRef.current) return;
-              const editor = mountedRef.current.editor;
-              editor.deleteImageBlock(nativeImageDrawerState.blockIndex);
-              setNativeImageDrawerState(null);
-            }}
-            onClose={() => {
-              setNativeImageDrawerState(null);
-              // Refocus editor to restore island toolbar on iOS
-              mountedRef.current?.refocus();
-            }}
-            collisionBoundary={mountedRef.current?.portalContainer}
-            container={mountedRef.current?.portalContainer}
-          />,
-          mountedRef.current.portalContainer,
-        )}
 
       {/* Find bar — rendered last so it sits above the canvas container in DOM order */}
       {findBarOpen && (
@@ -2339,33 +2405,37 @@ export function MountedEditor({
 
       {/* Mobile keyboard toolbar — always mounted while editor is focused on touch so
           the slide-in/out animation can play. Visibility is driven by isKeyboardOpen. */}
-      {!readonly &&
-        mobileToolbar.isEditorFocused &&
-        isTouchDevice() && (
-          <MobileKeyboardToolbar
-            isVisible={isKeyboardOpen}
-            keyboardHeight={keyboardHeight}
-            canUndo={mobileToolbar.canUndo}
-            canRedo={mobileToolbar.canRedo}
-            isBold={mobileToolbar.isBold}
-            isItalic={mobileToolbar.isItalic}
-            isCode={mobileToolbar.isCode}
-            isStrikethrough={mobileToolbar.isStrikethrough}
-            currentBlockType={mobileToolbar.blockType}
-            onUndo={() => mountedRef.current?.editor.undo()}
-            onRedo={() => mountedRef.current?.editor.redo()}
-            onToggleBold={() => mountedRef.current?.editor.toggleBold()}
-            onToggleItalic={() => mountedRef.current?.editor.toggleItalic()}
-            onToggleCode={() => mountedRef.current?.editor.toggleCode()}
-            onToggleStrikethrough={() =>
-              mountedRef.current?.editor.toggleStrikethrough()
-            }
-            onSetBlockType={(type) =>
-              mountedRef.current?.editor.setBlockType(type as any)
-            }
-            onDismissKeyboard={() => mountedRef.current?.blurInput()}
-          />
-        )}
+      {!readonly && mobileToolbar.isEditorFocused && isTouchDevice() && (
+        <MobileKeyboardToolbar
+          isVisible={isKeyboardOpen}
+          keyboardHeight={keyboardHeight}
+          canUndo={mobileToolbar.canUndo}
+          canRedo={mobileToolbar.canRedo}
+          isBold={mobileToolbar.isBold}
+          isItalic={mobileToolbar.isItalic}
+          isCode={mobileToolbar.isCode}
+          isStrikethrough={mobileToolbar.isStrikethrough}
+          currentBlockType={mobileToolbar.blockType}
+          onUndo={() => mountedRef.current?.editor.commands.undo()}
+          onRedo={() => mountedRef.current?.editor.commands.redo()}
+          onToggleBold={() =>
+            mountedRef.current?.editor.commands.toggleMark("strong")
+          }
+          onToggleItalic={() =>
+            mountedRef.current?.editor.commands.toggleMark("emphasis")
+          }
+          onToggleCode={() =>
+            mountedRef.current?.editor.commands.toggleMark("code")
+          }
+          onToggleStrikethrough={() =>
+            mountedRef.current?.editor.commands.toggleMark("strike")
+          }
+          onSetBlockType={(type) =>
+            mountedRef.current?.editor.commands.setBlock(type as any)
+          }
+          onDismissKeyboard={() => mountedRef.current?.blurInput()}
+        />
+      )}
 
       {/* Cursor magnifier for mobile cursor drag repositioning */}
       {cursorDragState?.isActive &&
@@ -2382,9 +2452,7 @@ export function MountedEditor({
                 "#cursor-layer",
               ) ?? null
             }
-            containerRect={
-              wrapperRef.current?.getBoundingClientRect() ?? null
-            }
+            containerRect={wrapperRef.current?.getBoundingClientRect() ?? null}
           />,
           document.body,
         )}

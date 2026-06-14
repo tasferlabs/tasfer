@@ -1,0 +1,43 @@
+{/* Cypher app docs — Privacy & data. */}
+
+import { Callout } from "../../docsComponents";
+
+export const ledger = [
+  ["Your email address", "never asked"],
+  ["Your name", "never asked"],
+  ["Your documents", "never uploaded — they stay on your disk"],
+  ["Who you sync with", "never logged — the relay forgets immediately"],
+  ["Your editing habits", "never tracked — there is no analytics SDK"],
+  ["Device fingerprint", "never collected"],
+  ["Crash reports", "shown to you locally; sent nowhere unless you copy them yourself"],
+];
+
+<p className="dx-lede">The short version: **Cypher does not have a file on you, because it never opens one.** No accounts, no telemetry, no document upload. Here is the complete accounting.</p>
+
+<h2 id="ledger">What we know about you</h2>
+
+<div className="dx-table-wrap">
+  <table className="dx-table">
+    <thead><tr><th>Data point</th><th>Status</th></tr></thead>
+    <tbody>
+      {ledger.map(([k, v]) => (
+        <tr key={k}>
+          <td className="desc" style={{ color: "var(--fg)" }}>{k}</td>
+          <td><span className="ty" style={{ fontStyle: "normal" }}>{v}</span></td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+<h2 id="where">Where your work actually lives</h2>
+
+- **On your device.** Every keystroke lands in your space, stored locally on your device. No round-trip, no server copy.
+- **Between your devices.** If you enable sync, documents are encrypted on-device before they cross any wire. Only your paired devices hold the keys.
+- **Through a relay — only when needed.** When a direct connection can't be made, an encrypted blob passes through a relay that cannot decrypt it and keeps no record of it.
+
+<Callout kind="tip" title="Don't trust the page — read the code.">Every claim here is enforced by source you can audit. The encryption, the relay, and the protocol are all in the [GPL-3.0 repository](https://github.com/hamza512b/cypher). Fork it, swap the relay, or ship your own build — every fork inherits the same refusal.</Callout>
+
+<h2 id="keys">Your keys</h2>
+
+Encryption keys are generated on your device and stored in your operating system's keychain. They never leave your hardware and are never escrowed with anyone. There is no key-recovery service — which also means there is no master key for anyone to compel. If you lose every paired device, your encrypted sync data is unrecoverable by design; your local space on this device — and any markdown you've exported — is, of course, still right there.

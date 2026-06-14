@@ -1,0 +1,13 @@
+{
+  "name": "@cypherkit/provider-relay",
+  "version": "0.0.0",
+  "description": "WebSocket-relay transport for @cypherkit/editor — peers behind NATs sync through a relay that forwards opaque, end-to-end-encrypted updates it cannot read.",
+  "type": "module",
+  "license": "MIT",
+  "exports": { ".": "./src/index.ts", "./*": "./src/*" },
+  "peerDependencies": {
+    "@cypherkit/editor": "*",
+    "@cypherkit/provider-core": "*",
+    "typescript": "^5.9.3"
+  }
+}

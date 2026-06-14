@@ -14,20 +14,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FileText, FileCode, FileType, Loader2 } from "lucide-react";
+import { FileCode, FileType, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
-import { serializeToMarkdown } from "@/deserializer/serializer";
-import { serializeToHTML } from "@/deserializer/htmlSerializer";
-import {
-  getVisibleTextFromRuns,
-  extractTitleFromBlocks,
-} from "@/editor/sync/char-runs";
-import { isTextualBlock, isListBlock, type Block, type Image } from "@/deserializer/loadPage";
-import { imageCache } from "@/editor/renderer";
+import { serializeToMarkdown } from "@cypherkit/editor";
+import { serializeToHTML } from "@cypherkit/editor";
+import { collectAssetRefs } from "@cypherkit/editor";
+import { extractTitleFromBlocks } from "@cypherkit/editor";
+import { imageCache } from "@cypherkit/editor";
+import { getPlatform } from "@/platform";
 import { getPage } from "../api/pages.api";
-import type { PageMetadata } from "@/deserializer/serializer";
+import type { PageMetadata } from "@cypherkit/editor";
 import { downloadFile } from "@/downloadFile";
 import { getBridge } from "@/platform/bridge";
 
@@ -40,25 +38,6 @@ function base64ToBlob(base64: string, mimeType: string): Blob {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return new Blob([bytes], { type: mimeType });
-}
-
-function serializeToText(blocks: Block[]): string {
-  return blocks
-    .filter((block) => !block.deleted)
-    .map((block) => {
-      if (block.type === "line") return "---";
-      if (block.type === "image") return block.alt || "";
-      if (isTextualBlock(block) || isListBlock(block)) {
-        const text = getVisibleTextFromRuns(block.charRuns);
-        if (block.type === "todo_list") {
-          const checkbox = block.checked ? "[x]" : "[ ]";
-          return `${checkbox} ${text}`;
-        }
-        return text;
-      }
-      return "";
-    })
-    .join("\n");
 }
 
 /** Guess file extension from mime type */
@@ -81,18 +60,39 @@ function imageElementToBlob(img: HTMLImageElement): Promise<Blob | null> {
     canvas.width = img.naturalWidth;
     canvas.height = img.naturalHeight;
     const ctx = canvas.getContext("2d");
-    if (!ctx) { resolve(null); return; }
+    if (!ctx) {
+      resolve(null);
+      return;
+    }
     ctx.drawImage(img, 0, 0);
     canvas.toBlob((blob) => resolve(blob), "image/png");
   });
 }
 
-/** Fetch an image blob, falling back to the renderer's imageCache for revoked blob URLs */
+/** Fetch an image blob, resolving asset hashes via the platform and falling back to imageCache. */
 async function fetchImageBlob(url: string): Promise<Blob | null> {
-  // Try fetch first (works for platform asset URLs and live blob URLs)
+  const isAlreadyUrl =
+    url.startsWith("blob:") ||
+    url.startsWith("data:") ||
+    url.startsWith("http://") ||
+    url.startsWith("https://");
+
+  // Resolve asset hashes (e.g. "assets/<hash>.png") to a real URL the same way the renderer does
+  let resolvedUrl = url;
+  if (!isAlreadyUrl) {
+    try {
+      resolvedUrl = await getPlatform().assets.getUrl(url);
+    } catch {
+      // ignore — fall through to fetch attempt / cache fallback
+    }
+  }
+
   try {
-    const response = await fetch(url);
-    if (response.ok) return response.blob();
+    const response = await fetch(resolvedUrl);
+    if (response.ok) {
+      const blob = await response.blob();
+      if (blob.size > 0) return blob;
+    }
   } catch {
     // fetch failed — fall through to imageCache
   }
@@ -127,15 +127,14 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     return sanitized || "document";
   };
 
-  const downloadTextFile = async (content: string, extension: string, mimeType: string) => {
+  const downloadTextFile = async (
+    content: string,
+    extension: string,
+    mimeType: string,
+  ) => {
     const blob = new Blob([content], { type: mimeType });
     await downloadFile(blob, `${getBaseName()}.${extension}`, mimeType);
     onOpenChange(false);
-  };
-
-  const handleExportTxt = () => {
-    const content = serializeToText(currentBlocks);
-    downloadTextFile(content, "txt", "text/plain");
   };
 
   const fetchMetadata = async (): Promise<PageMetadata | undefined> => {
@@ -165,23 +164,20 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   const buildExportHtml = async (): Promise<string> => {
     // Resolve image URLs to data URLs so they survive across windows / native renderers
     const imageUrlMap = new Map<string, string>();
-    const seen = new Set<string>();
-    for (const block of currentBlocks) {
-      if (block.type === "image" && (block as Image).url) {
-        const url = (block as Image).url;
-        if (seen.has(url)) continue;
-        seen.add(url);
-        const blob = await fetchImageBlob(url);
-        if (blob) {
-          try {
-            imageUrlMap.set(url, await blobToDataUrl(blob));
-          } catch {
-            // ignore — the image just won't render
-          }
+    for (const url of collectAssetRefs(currentBlocks)) {
+      const blob = await fetchImageBlob(url);
+      if (blob) {
+        try {
+          imageUrlMap.set(url, await blobToDataUrl(blob));
+        } catch {
+          // ignore — the image just won't render
         }
       }
     }
-    return serializeToHTML(currentBlocks, { title: getBaseName(), imageUrlMap });
+    return serializeToHTML(currentBlocks, {
+      title: getBaseName(),
+      imageUrlMap,
+    });
   };
 
   const printViaWindow = async (html: string) => {
@@ -233,7 +229,10 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       // Electron: silent printToPDF in main process, then download via existing flow
       const electron = (window as unknown as ElectronWindow).cypher;
       if (electron?.invoke) {
-        const buf = (await electron.invoke("pdf:generate", html)) as ArrayBuffer;
+        const buf = (await electron.invoke(
+          "pdf:generate",
+          html,
+        )) as ArrayBuffer;
         const blob = new Blob([buf], { type: "application/pdf" });
         await downloadFile(blob, `${baseName}.pdf`, "application/pdf");
         onOpenChange(false);
@@ -250,19 +249,17 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
 
   const handleExportMarkdown = async () => {
     const metadata = await fetchMetadata();
-    const markdown = serializeToMarkdown(currentBlocks, metadata);
 
-    // Collect all image URLs from image blocks (handles blob:, /api/images/, etc.)
-    const imageUrls = new Set<string>();
-    for (const block of currentBlocks) {
-      if (block.type === "image" && (block as Image).url) {
-        imageUrls.add((block as Image).url);
-      }
-    }
+    // All asset references owned by the blocks (handles blob:, /api/images/, etc.)
+    const assetUrls = collectAssetRefs(currentBlocks);
 
     // No images → plain .md download
-    if (imageUrls.size === 0) {
-      downloadTextFile(markdown, "md", "text/markdown");
+    if (assetUrls.length === 0) {
+      downloadTextFile(
+        serializeToMarkdown(currentBlocks, metadata),
+        "md",
+        "text/markdown",
+      );
       return;
     }
 
@@ -275,7 +272,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       const urlToFileName = new Map<string, string>();
       let imgIndex = 0;
 
-      for (const url of imageUrls) {
+      for (const url of assetUrls) {
         const blob = await fetchImageBlob(url);
         if (blob) {
           const ext = extFromMime(blob.type);
@@ -286,15 +283,16 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
         }
       }
 
-      // Rewrite image URLs in markdown — replace each original URL with relative path
-      let rewritten = markdown;
-      for (const [originalUrl, fileName] of urlToFileName) {
-        // Escape special regex chars in the URL
-        const escaped = originalUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        rewritten = rewritten.replace(new RegExp(escaped, "g"), `./images/${fileName}`);
-      }
+      // Asset urls become bundle-relative paths via the serializer itself —
+      // no post-hoc rewriting of the markdown string.
+      const markdown = serializeToMarkdown(currentBlocks, metadata, {
+        mapAssetUrl: (url) => {
+          const fileName = urlToFileName.get(url);
+          return fileName ? `./images/${fileName}` : url;
+        },
+      });
 
-      zip.file(`${baseName}.md`, rewritten);
+      zip.file(`${baseName}.md`, markdown);
 
       const blob = await zip.generateAsync({ type: "blob" });
       await downloadFile(blob, `${baseName}.zip`, "application/zip");
@@ -310,20 +308,11 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
         <DrawerContent>
           <div className="mx-auto w-full max-w-sm pb-6">
             <DrawerHeader>
-              <DrawerTitle>{t("export.document", "Export document")}</DrawerTitle>
+              <DrawerTitle>
+                {t("export.document", "Export document")}
+              </DrawerTitle>
             </DrawerHeader>
             <div className="px-4 space-y-2">
-              <Button
-                variant="outline"
-                className="w-full justify-start gap-3 h-auto py-3"
-                onClick={handleExportTxt}
-              >
-                <FileText className="h-5 w-5 text-muted-foreground" />
-                <div className="flex flex-col items-start">
-                  <span className="font-medium">{t("export.plainText", "Plain Text")}</span>
-                  <span className="text-xs text-muted-foreground">.txt</span>
-                </div>
-              </Button>
               <Button
                 variant="outline"
                 className="w-full justify-start gap-3 h-auto py-3"
@@ -352,7 +341,11 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
                   <FileCode className="h-5 w-5 text-muted-foreground" />
                 )}
                 <div className="flex flex-col items-start">
-                  <span className="font-medium">{isExporting ? t("export.exporting", "Exporting...") : t("common.markdown", "Markdown")}</span>
+                  <span className="font-medium">
+                    {isExporting
+                      ? t("export.exporting", "Exporting...")
+                      : t("common.markdown", "Markdown")}
+                  </span>
                   <span className="text-xs text-muted-foreground">.md</span>
                 </div>
               </Button>
@@ -369,19 +362,14 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
         <DialogHeader>
           <DialogTitle>{t("export.document", "Export document")}</DialogTitle>
           <DialogDescription>
-            {t("export.chooseFormat", "Choose a format to export your document")}
+            {t(
+              "export.chooseFormat",
+              "Choose a format to export your document",
+            )}
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-3 gap-3">
-          <button
-            onClick={handleExportTxt}
-            className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer"
-          >
-            <FileText className="h-8 w-8 mb-2 text-muted-foreground" />
-            <span className="font-medium">{t("export.plainText", "Plain Text")}</span>
-            <span className="text-xs text-muted-foreground">.txt</span>
-          </button>
-          <button
+            <button
             onClick={handleExportPdf}
             disabled={isExporting}
             className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
@@ -404,7 +392,11 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             ) : (
               <FileCode className="h-8 w-8 mb-2 text-muted-foreground" />
             )}
-            <span className="font-medium">{isExporting ? t("export.exporting", "Exporting...") : t("common.markdown", "Markdown")}</span>
+            <span className="font-medium">
+              {isExporting
+                ? t("export.exporting", "Exporting...")
+                : t("common.markdown", "Markdown")}
+            </span>
             <span className="text-xs text-muted-foreground">.md</span>
           </button>
         </div>

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>@cypherkit/provider — two replicas, one document</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --editor-text: #1a1a1a;
+        --editor-bg: #ffffff;
+        --editor-selection: rgba(64, 120, 255, 0.25);
+        --editor-cursor: #1a1a1a;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: var(--editor-bg);
+        color: var(--editor-text);
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+
+      #toolbar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 12px;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+      }
+      #toolbar .sep { width: 1px; align-self: stretch; background: rgba(128, 128, 128, 0.3); margin: 2px; }
+      #toolbar button {
+        font: inherit;
+        padding: 6px 12px;
+        border: 1px solid rgba(128, 128, 128, 0.35);
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      #toolbar button:hover { background: rgba(128, 128, 128, 0.12); }
+      #toolbar button.is-active {
+        background: var(--editor-selection);
+        border-color: rgba(64, 120, 255, 0.55);
+      }
+      #toolbar .hint { opacity: 0.6; font-size: 13px; margin-left: auto; }
+
+      #panes {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        gap: 1px;
+        background: rgba(128, 128, 128, 0.25);
+      }
+      .pane {
+        flex: 1 1 0;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--editor-bg);
+      }
+      .pane > .label {
+        flex: 0 0 auto;
+        padding: 6px 14px;
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        opacity: 0.55;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+      }
+      .pane > .editor { flex: 1 1 auto; min-height: 0; position: relative; }
+
+      #status {
+        flex: 0 0 auto;
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        padding: 6px 14px;
+        border-top: 1px solid rgba(128, 128, 128, 0.25);
+        font-size: 13px;
+        opacity: 0.85;
+        font-variant-numeric: tabular-nums;
+      }
+      #status .spacer { flex: 1 1 auto; }
+      #status-sync { font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div id="toolbar" data-editor-overlay>
+      <button id="bold" title="Toggle bold"><strong>B</strong></button>
+      <button id="h1" title="Heading 1">H1</button>
+      <button id="bullet" title="Bullet list">• List</button>
+      <span class="sep"></span>
+      <button id="undo" title="Undo">Undo</button>
+      <button id="redo" title="Redo">Redo</button>
+      <span class="sep"></span>
+      <button id="reset" title="Clear the persisted Doc and reload">Reset</button>
+      <span class="hint">two replicas, kept in sync by a provider — edit either pane (or open a 2nd tab)</span>
+    </div>
+
+    <div id="panes">
+      <div class="pane">
+        <div class="label" data-editor-overlay>Replica A</div>
+        <div id="editorA" class="editor"></div>
+      </div>
+      <div class="pane">
+        <div class="label" data-editor-overlay>Replica B (starts empty — catches up over the provider)</div>
+        <div id="editorB" class="editor"></div>
+      </div>
+    </div>
+
+    <div id="status" data-editor-overlay>
+      <span id="status-a">Replica A</span>
+      <span id="status-b">Replica B</span>
+      <span class="spacer"></span>
+      <span id="status-net"></span>
+      <span id="status-sync"></span>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

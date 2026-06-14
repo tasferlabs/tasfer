@@ -21,10 +21,18 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
-    "baseUrl": ".",
     "paths": {
+      "*": ["./*"],
+      "@cypherkit/editor": ["../../packages/editor/src/index.ts"],
+      "@cypherkit/editor/*": ["../../packages/editor/src/*"],
+      "@cypherkit/react": ["../../packages/react/src/index.ts"],
+      "@cypherkit/react/*": ["../../packages/react/src/*"],
       "@/*": ["./src/*"],
-      "@shared/*": ["../../shared/*"]
+      "@shared/*": ["../../shared/*"],
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "react-dom/*": ["./node_modules/@types/react-dom/*"]
     }
   },
   "include": ["src"]

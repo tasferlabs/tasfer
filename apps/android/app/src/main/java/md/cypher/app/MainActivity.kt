@@ -445,8 +445,9 @@ class MainActivity : BridgeActivity() {
 
     private fun detectPhysicalKeyboard() {
         val config = resources.configuration
-        hasPhysicalKeyboard = config.hardKeyboardHidden != Configuration.HARDKEYBOARDHIDDEN_YES &&
-            config.hardKeyboardHidden != Configuration.HARDKEYBOARDHIDDEN_UNDEFINED
+        // No op for now
+        // hasPhysicalKeyboard = config.hardKeyboardHidden != Configuration.HARDKEYBOARDHIDDEN_YES &&
+        //     config.hardKeyboardHidden != Configuration.HARDKEYBOARDHIDDEN_UNDEFINED
     }
 
     private fun notifyPhysicalKeyboardState() {

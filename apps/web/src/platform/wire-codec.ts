@@ -10,7 +10,7 @@
  *  2. CharId run compression — consecutive IDs from the same peer are encoded
  *     as a [peerId, start, count] triple.  "abc1:100","abc1:101","abc1:102"
  *     → [["abc1",100,3]].  Only applied when the run encoding is shorter.
- *     Applies to text_delete and format_set charIds arrays.
+ *     Applies to text_delete and mark_set charIds arrays.
  *
  *  3. Redundant pageId stripping — each Operation already carries its pageId
  *     (BaseOp.pageId), but that same value is also present as the message-
@@ -67,7 +67,7 @@ export function bytesToHex(bytes: Uint8Array): string {
 export const OP_SHORT: Record<string, string> = {
   text_insert:  "ti",
   text_delete:  "td",
-  format_set:   "fs",
+  mark_set:   "fs",
   block_insert: "bi",
   block_delete: "bd",
   block_set:    "bs",

@@ -1,0 +1,14 @@
+{
+  "name": "@cypherkit/react",
+  "version": "0.0.0",
+  "description": "React 19 bindings for @cypherkit/editor — a useEditor hook, an <Editor> component, and live state subscriptions.",
+  "type": "module",
+  "license": "MIT",
+  "exports": { ".": "./src/index.ts", "./*": "./src/*" },
+  "peerDependencies": {
+    "@cypherkit/editor": "*",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "typescript": "^5.9.3"
+  }
+}

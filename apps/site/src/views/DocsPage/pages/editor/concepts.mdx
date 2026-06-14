@@ -1,0 +1,36 @@
+{/* @cypherkit/editor docs — Core concepts. */}
+
+import { Callout } from "../../docsComponents";
+
+<p className="dx-lede">Most editors bolt collaboration on at the end and spend years fighting it. `@cypherkit/editor` is built the other way around: **the document is a CRDT from the first keystroke**, and single-player editing is just the case where there is one replica.</p>
+
+<h2 id="crdt">The document is a CRDT</h2>
+
+A CRDT — conflict-free replicated data type — is a data structure that any number of replicas can edit independently and merge without a coordinating server and without conflicts. Two people can type in the same paragraph, offline, on opposite sides of the planet, and the merge is deterministic: every replica converges on the same result.
+
+In `@cypherkit/editor` that structure is not a feature you opt into. It is the canonical representation of your text. Reading markdown out is a *projection* of the CRDT; it is not where your data lives.
+
+<Callout kind="note" title="No server in the model.">The CRDT does not know what a server is. Persistence, transport, and presence are all layered on top as optional providers. This is what lets the same editor run fully offline, peer-to-peer, or against your own backend without code changes.</Callout>
+
+<h2 id="canvas">Why a canvas, not contenteditable</h2>
+
+Browser `contenteditable` is a thirty-year-old API that every editor team eventually wrestles to the ground. Cypher renders the document to a canvas instead and owns every pixel: layout, carets, selection, bidirectional text, and composition. That buys three things:
+
+- **Deterministic layout.** The same document renders identically across browsers — no contenteditable quirks, no `<div>`-vs-`<p>` surprises on Enter.
+- **Real selection control.** Multiple cursors, remote-peer carets, and rectangular selections are first-class, not hacks layered over DOM ranges.
+- **Performance at length.** Only visible lines are shaped and painted; a 200-page document scrolls like an empty one.
+
+<h2 id="pieces">The pieces fit together like this</h2>
+
+```text
+  createDoc()        ── the CRDT: the source of truth
+        │
+        ▼
+  createEditor()     ── view + commands + selection over the doc
+        │
+        ├── schema     what nodes & marks are allowed
+        ├── theme      canvas colors, fonts, metrics
+        └── provider   (optional) transport that syncs the doc
+```
+
+You can hold a `Doc` with no editor (e.g. on a server, to render markdown), and you can hold an editor with no provider (single-player). The layers are independent on purpose.

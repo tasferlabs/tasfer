@@ -16,8 +16,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { Block } from "@/deserializer/loadPage";
-import { extractTitleFromBlocks } from "@/editor/sync/char-runs";
+import type { Block } from "@cypherkit/editor";
+import { extractTitleFromBlocks } from "@cypherkit/editor";
 import { DURATION_OPTIONS, formatDurationLabel } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
