@@ -204,25 +204,60 @@ export interface EditorStateSnapshot {
  * class is compile-checked (`class Editor implements EditorApi`) against it.
  */
 export interface EditorApi {
+  /**
+   * The raw internal {@link EditorState} (escape hatch), or `null` before any
+   * state exists. Prefer {@link state} for UI binding.
+   */
   getState: () => EditorState | null;
   /**
    * Read-only state snapshot for UI binding: `{ selection, activeMarks }`.
    * For the raw internal {@link EditorState} (escape hatch), use {@link getState}.
    */
   readonly state: EditorStateSnapshot;
+  /**
+   * Tear down the editor: cancel the render loop, remove every canvas/input/
+   * window event listener, and clear awareness timers. For an editor created via
+   * `createEditor`, call `CypherEditor.destroy` instead — it supersedes this and
+   * also tears down the mount.
+   */
   destroy: () => void;
+  /**
+   * Merge a partial viewport patch (e.g. width/height on a container resize) and
+   * re-render. A width change clears cached block layout, since it affects text
+   * wrapping and document height.
+   */
   updateViewport: (viewport: Partial<ViewportState>) => void;
+  /**
+   * Set logical focus, keeping DOM focus on the input surface in lockstep so it
+   * keeps receiving keystrokes/IME. Pass `shouldClearSelection` to drop the
+   * selection. Fires `on("focus")`/`on("blur")` on an actual transition.
+   */
   setFocus: (focused: boolean, shouldClearSelection?: boolean) => void;
+  /**
+   * Place the caret at the document start if there is no cursor yet — a no-op
+   * otherwise, or when the document has no visible blocks.
+   */
   setInitialCursor: () => void;
   /** Place the caret at the document start or end (forces a new caret). */
   setCaret: (at: "start" | "end") => void;
   /** Update browser-window focus (affects selection color); re-renders. */
   setWindowFocused: (focused: boolean) => void;
+  /**
+   * The caret's position in viewport (screen) coordinates — `{ x, y, height }`
+   * with scroll applied — or `null` when there is no caret or it isn't laid out.
+   * Use to anchor a host overlay (IME, autocomplete) to the caret.
+   */
   getCursorScreenPosition: () => {
     x: number;
     y: number;
     height: number;
   } | null;
+  /**
+   * Subscribe to state changes: the listener receives the full {@link
+   * EditorState} after each render-loop diff and on direct notifications (focus,
+   * mode, undo…). Returns an unsubscribe function. For a filtered, self-
+   * describing alternative see {@link on}.
+   */
   subscribe: (listener: (state: EditorState) => void) => () => void;
   /**
    * Convenience event subscription — a thin, self-describing filter over
@@ -275,10 +310,31 @@ export interface EditorApi {
   getActiveMarks: () => Set<Mark["type"]>;
   /** True when there is no selection (just a caret, or nothing). */
   isSelectionEmpty: () => boolean;
+  /**
+   * Run the given slash command against the open slash-command menu, applying
+   * its result as one undoable step. No-op unless the slash menu is open with a
+   * live cursor.
+   */
   executeSlashCommand: (command: SlashCommand) => void;
+  /**
+   * Copy the current selection to the system clipboard and close any open
+   * context menu. Resolves to whether the copy succeeded.
+   */
   copy: () => Promise<boolean>;
+  /**
+   * Cut the current selection to the system clipboard (one undoable step) and
+   * close any open context menu. Resolves to whether anything was cut.
+   */
   cut: () => Promise<boolean>;
+  /**
+   * Paste from the system clipboard at the caret/selection (one undoable step)
+   * and close any open context menu. Resolves to whether anything was pasted.
+   */
   paste: () => Promise<boolean>;
+  /**
+   * Update the URL and text of an existing link spanning `[startIndex, endIndex)`
+   * in the block at `blockIndex`. One undoable step; broadcast to peers.
+   */
   updateLink: (
     blockIndex: number,
     startIndex: number,
@@ -286,10 +342,32 @@ export interface EditorApi {
     newUrl: string,
     newText: string,
   ) => void;
+  /**
+   * Remove link formatting from the range `[startIndex, endIndex)` in the block
+   * at `blockIndex`, leaving the text. One undoable step; broadcast to peers.
+   */
   clearLink: (blockIndex: number, startIndex: number, endIndex: number) => void;
+  /**
+   * Replace the current selection with `text` formatted as a link to `url`,
+   * placing the caret after it. Requires a non-collapsed, single-block selection
+   * (otherwise a no-op). One undoable step; broadcast to peers.
+   */
   createLink: (url: string, text: string) => void;
+  /**
+   * Clear both the selection and the caret — removing all selection/cursor
+   * visuals — and notify subscribers.
+   */
   clearSelection: () => void;
+  /**
+   * Switch the interaction mode: `edit` (normal), `select` (selection-only, e.g.
+   * mobile), or `locked` (read-only; also halts scroll momentum). Notifies
+   * subscribers.
+   */
   setMode: (mode: "edit" | "select" | "locked") => void;
+  /**
+   * Restore a previously captured cursor and selection (and return to `edit`
+   * mode) — e.g. after the host temporarily moved focus away. Notifies subscribers.
+   */
   restoreCursorAndSelection: (
     cursor: EditorState["document"]["cursor"],
     selection: EditorState["document"]["selection"],
@@ -373,6 +451,10 @@ export interface EditorApi {
     endIndex: number,
     direction: "left" | "right",
   ) => void;
+  /**
+   * Close whichever menu/overlay is currently open (context menu, slash menu,
+   * host overlay…) and notify subscribers.
+   */
   closeActiveMenu: () => void;
   /**
    * Adopt a remotely-merged page (the doc→editor channel). Pass the merged
