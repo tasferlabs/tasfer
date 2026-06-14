@@ -18,18 +18,20 @@
 // to be defined first, or `class ListNode extends TextNode` sees `undefined`.
 import { ImageNode } from "./ImageNode";
 import { LineNode } from "./LineNode";
-import { listNode } from "./ListNode";
+import { ListNode } from "./ListNode";
 import { MathNode } from "./MathNode";
 import { Node, NodeRegistry } from "./Node";
-import { textNode } from "./TextNode";
+import { TextNode } from "./TextNode";
 
 export { AtomicNode } from "./AtomicNode";
 export { getDragHandleAtPoint, ImageNode } from "./ImageNode";
 export { LineNode } from "./LineNode";
-export { LIST_BLOCK_TYPES, ListNode, listNode } from "./ListNode";
+export { LIST_BLOCK_TYPES, ListNode } from "./ListNode";
 export { MathNode } from "./MathNode";
 export {
   Node,
+  type NodeActivateCtx,
+  type NodeActivation,
   type NodeHitRegion,
   type NodeLayout,
   type NodeLayoutCtx,
@@ -43,32 +45,28 @@ export {
   getContentWithComposition,
   TEXT_BLOCK_TYPES,
   TextNode,
-  textNode,
   type TextNodeLayout,
 } from "./TextNode";
-export { UnknownNode, unknownNode } from "./UnknownNode";
+export { UnknownNode } from "./UnknownNode";
 
 /**
- * Shared singleton instances of the stateless built-in nodes, so hosts can
- * compose a custom `nodes` list without constructing them by hand. (Nodes
- * hold no per-editor state — only layout/paint logic — so sharing instances
- * across editors is safe.)
- */
-export const lineNode = new LineNode();
-export const imageNode = new ImageNode();
-export const mathNode = new MathNode();
-
-/**
- * The built-in nodes. Constructed lazily (inside the factory) so importing
- * this module has no side effects and no module-init ordering hazards.
+ * The built-in nodes. Each is constructed fresh here (the built-in nodes are
+ * stateless, holding only layout/paint logic), so importing this module has no
+ * side effects and no module-init ordering hazards.
  *
- * `textNode` backs headings + paragraph; `listNode` (a subclass) backs
- * the bullet/numbered/todo family. They register under disjoint type keys, so a
- * host can drop list support entirely by omitting `listNode` from a custom
+ * `TextNode` backs headings + paragraph; `ListNode` (a subclass) backs the
+ * bullet/numbered/todo family. They register under disjoint type keys, so a
+ * host can drop list support entirely by omitting `ListNode` from a custom
  * `nodes` list passed to `mountEditor`.
  */
 function defaultNodes(): Node[] {
-  return [lineNode, imageNode, mathNode, textNode, listNode];
+  return [
+    new LineNode(),
+    new ImageNode(),
+    new MathNode(),
+    new TextNode(),
+    new ListNode(),
+  ];
 }
 
 /** Build a registry from an explicit list of nodes (host opt-in). */

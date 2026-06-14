@@ -15,6 +15,8 @@ import type {
   ViewportState,
 } from "../state-types";
 import { defaultStyles } from "../styles";
+import type { MarkStyle } from "./marks";
+import { Mark, type MarkOverlayCtx, MarkRegistry } from "./marks";
 import { AtomicNode } from "./nodes/AtomicNode";
 import type { NodeRegionCtx } from "./nodes/Node";
 import { NodeRegistry } from "./nodes/Node";
@@ -49,6 +51,24 @@ class SilentNode extends AtomicNode {
   protected draw(): void {}
 }
 
+/** A mark that declares one overlay unconditionally (the block-free path). */
+class OverlayTestMark extends Mark {
+  readonly type = "overlay-test-mark";
+  style(): MarkStyle {
+    return {};
+  }
+  overlays(c: MarkOverlayCtx): readonly NodeOverlay[] {
+    // Omit width/height — collectOverlays must default them to 1.
+    return [
+      {
+        key: "mark-overlay-ui",
+        blockIndex: 3,
+        rect: { x: c.viewport.scrollY, y: 7 },
+      },
+    ];
+  }
+}
+
 function blockOf(type: string, id: string, originalIndex: number) {
   return { type, id, originalIndex } as unknown as Block & {
     originalIndex: number;
@@ -59,9 +79,11 @@ function blockOf(type: string, id: string, originalIndex: number) {
 function stateWith(
   registry: NodeRegistry,
   visibleBlocks: (Block & { originalIndex: number })[],
+  marks: MarkRegistry = new MarkRegistry(),
 ): EditorState {
   return {
     nodes: registry,
+    marks,
     view: { visibleBlocks },
   } as unknown as EditorState;
 }
@@ -125,5 +147,19 @@ describe("collectOverlays", () => {
     // Scroll the single 100px block far above the viewport top.
     const scrolled: ViewportState = { ...viewport, scrollY: 2000 };
     expect(collectOverlays(state, scrolled, defaultStyles)).toEqual([]);
+  });
+
+  it("collects overlays declared by registered marks", () => {
+    const marks = new MarkRegistry().register(new OverlayTestMark());
+    // No visible blocks: mark overlays are block-free, so they still appear.
+    const state = stateWith(new NodeRegistry(), [], marks);
+
+    expect(collectOverlays(state, viewport, defaultStyles)).toEqual([
+      {
+        key: "mark-overlay-ui",
+        blockIndex: 3,
+        rect: { x: viewport.scrollY, y: 7, width: 1, height: 1 },
+      },
+    ]);
   });
 });

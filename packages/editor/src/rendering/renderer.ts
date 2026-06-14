@@ -25,7 +25,7 @@ import {
 } from "../sync/char-runs";
 import type { Operation } from "../sync/sync";
 import type { NodeRegionCtx, NodeRegistry } from "./nodes";
-import { getContentWithComposition, TextNode, unknownNode } from "./nodes";
+import { getContentWithComposition, TextNode, UnknownNode } from "./nodes";
 import { renderScrollbar } from "./scrollbar";
 
 /**
@@ -258,11 +258,32 @@ export function collectOverlays(
         viewport,
         origin: { x: styles.canvas.paddingLeft, y },
       };
-      overlays.push(...node.overlays(regionCtx));
+      for (const o of node.overlays(regionCtx))
+        overlays.push(normalizeOverlay(o));
     }
     y += height;
   }
+  // Inline marks declare overlays too (e.g. inline-math's editor). A mark isn't
+  // tied to one block, so each registered mark is consulted once; it reads the
+  // run's block/range/position off the active menu in `state`.
+  for (const mark of state.marks.markList()) {
+    if (mark.overlays) {
+      for (const o of mark.overlays({ state, viewport, styles })) {
+        overlays.push(normalizeOverlay(o));
+      }
+    }
+  }
   return overlays;
+}
+
+/**
+ * Fill a declared overlay's optional `rect.width`/`rect.height` with `1` (a
+ * point anchor) so every collected overlay carries concrete dimensions the host
+ * can use directly.
+ */
+function normalizeOverlay(o: NodeOverlay): NodeOverlay {
+  const { x, y, width = 1, height = 1 } = o.rect;
+  return { ...o, rect: { x, y, width, height } };
 }
 
 export function renderBlock(
@@ -278,11 +299,11 @@ export function renderBlock(
   requestRedraw: () => void = () => {},
 ): RenderedBlock {
   // Blocks dispatch to their registered node. A block type with no registered
-  // node (a custom/newer type this build doesn't know) falls back to
-  // `unknownNode`, which paints a labeled placeholder so the content is
+  // node (a custom/newer type this build doesn't know) falls back to an
+  // `UnknownNode`, which paints a labeled placeholder so the content is
   // visible and keeps its place rather than silently vanishing.
   {
-    const view = state.nodes.get(block.type) ?? unknownNode;
+    const view = state.nodes.get(block.type) ?? new UnknownNode();
     const layoutCtx = {
       block,
       blockIndex,
@@ -321,7 +342,7 @@ export function calculateBlockHeight(
   // The height pass reuses the same layout() the painter uses, so
   // wrapping/sizing never drifts. Unknown types fall back to the placeholder
   // node so they reserve their on-screen space in the document flow.
-  const view = views.get(block.type) ?? unknownNode;
+  const view = views.get(block.type) ?? new UnknownNode();
   return view.layout({
     block,
     blockIndex: 0,

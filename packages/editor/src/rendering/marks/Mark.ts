@@ -29,7 +29,12 @@
  */
 
 import type { Mark as MarkData } from "../../serlization/loadPage";
-import type { EditorStyles } from "../../state-types";
+import type {
+  EditorState,
+  EditorStyles,
+  NodeOverlay,
+  ViewportState,
+} from "../../state-types";
 
 /** A rounded-rect background drawn behind a mark's glyphs (code, inline math). */
 export interface MarkChipStyle {
@@ -107,6 +112,18 @@ export interface MarkReplacement {
 }
 
 /**
+ * Everything a mark needs to declare its host-overlay slots — the inline
+ * analogue of `NodeRegionCtx`, minus the per-block geometry. A mark isn't tied
+ * to one block, so it reads the run's position/range off the active menu in
+ * {@link MarkOverlayCtx.state} rather than from a block origin.
+ */
+export interface MarkOverlayCtx {
+  readonly state: EditorState;
+  readonly viewport: ViewportState;
+  readonly styles: EditorStyles;
+}
+
+/**
  * Base class for an inline mark's on-canvas behavior. One instance per type,
  * registered in a {@link MarkRegistry}. Stateless — shareable across editors.
  */
@@ -133,6 +150,27 @@ export abstract class Mark {
 
   /** If set, this mark replaces glyph rendering for its run (inline math). */
   readonly replacement?: MarkReplacement;
+
+  /**
+   * Optional: the host-rendered overlays this mark wants right now (an inline
+   * editor for the run under the active menu, …), derived from the current UI
+   * state. The inline analogue of `Node.overlays`: identity + geometry only —
+   * the host maps {@link NodeOverlay.key} to a component and mounts it at the
+   * returned `rect`. Marks aren't tied to one block, so this is consulted once
+   * per registered mark by `editor.collectOverlays()`; read the run's
+   * block/range/position off `c.state`'s active menu. Return `[]` (or omit) for
+   * none.
+   */
+  overlays?(c: MarkOverlayCtx): readonly NodeOverlay[];
+
+  /**
+   * If set, the host overlay key the engine opens when the user activates a run
+   * of this mark (e.g. clicking an inline-math chip opens its editor). The engine
+   * detects the activation and relays this key through `openOverlay` with the
+   * run's range as `data`; it never names the overlay itself. Pair with
+   * {@link overlays} to render it. Omit if the mark has no edit overlay.
+   */
+  readonly editOverlayKey?: string;
 }
 
 // ---------------------------------------------------------------------------

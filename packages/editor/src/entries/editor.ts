@@ -62,6 +62,7 @@ import {
 } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
 import type {
+  ActiveMenu,
   CommandResult,
   EditorState,
   EditorTheme,
@@ -336,30 +337,29 @@ export interface Editor {
    * block isn't textual or the range is empty.
    */
   deleteInlineRange: (blockId: string, start: number, end: number) => boolean;
-  openImageUploadMenu: (
-    blockIndex: number,
-    x: number,
-    y: number,
-    existingUrl?: string,
-    existingAlt?: string,
-  ) => void;
   /**
-   * Set the upload-status chrome the canvas paints over the active image-upload
-   * menu's block (spinner / error). No-op unless an image-upload menu is open.
-   * This is transient UI status, not document content — it produces no CRDT op.
+   * Open a host-defined overlay (popover/drawer/tooltip). The single generic
+   * primitive every host overlay flows through: the engine stores `{ key, data }`
+   * opaquely and never names a specific overlay. The node/mark that declares the
+   * overlay in `overlays()` reads it back by `key`; a typed opener co-located
+   * with that owner (e.g. `openLinkEditMenu` in the host schema) builds the
+   * payload and calls this. Use {@link closeActiveMenu} to dismiss.
    */
-  setImageUploadStatus: (
-    status: "idle" | "uploading" | "complete" | "error",
-  ) => void;
-  openMathEditMenu: (blockIndex: number, x: number, y: number) => void;
-  openInlineMathEditMenu: (
-    blockIndex: number,
-    startIndex: number,
-    endIndex: number,
-    latex: string,
-    x: number,
-    y: number,
-  ) => void;
+  openOverlay: (overlay: {
+    key: string;
+    blockIndex: number;
+    x: number;
+    y: number;
+    data?: unknown;
+  }) => void;
+  /**
+   * Set (or clear, with `null`) transient per-block canvas view-state, keyed by
+   * `blockId`. The opaque payload is read by the node that paints the block — the
+   * generic channel for ephemeral chrome like an image's upload spinner, so the
+   * engine never models that chrome as a menu/overlay. Not document content;
+   * produces no CRDT op.
+   */
+  setNodeViewState: (blockId: string, data: unknown | null) => void;
   /** Close the inline-math edit popover and move the caret past the chip in the
    * given visual direction. Used when the user arrows out of the popover input. */
   exitInlineMath: (
@@ -842,22 +842,12 @@ export default function createEditor(
           dirtyLayers.content = true;
         }
 
-        // Math hover state changes affect rendered chip/block backgrounds.
-        // The inline-math edit popover also styles its chip as hovered.
+        // Math hover state changes affect rendered chip/block backgrounds. The
+        // inline-math edit popover also styles its chip as hovered — the open
+        // path records that range in `inlineMathHover`, so this check covers it.
         if (
           prevState.ui.inlineMathHover !== state.ui.inlineMathHover ||
-          prevState.ui.hoveredMathBlockIndex !==
-            state.ui.hoveredMathBlockIndex ||
-          (prevState.ui.activeMenu.type === "inlineMathEdit") !==
-            (state.ui.activeMenu.type === "inlineMathEdit") ||
-          (prevState.ui.activeMenu.type === "inlineMathEdit" &&
-            state.ui.activeMenu.type === "inlineMathEdit" &&
-            (prevState.ui.activeMenu.blockIndex !==
-              state.ui.activeMenu.blockIndex ||
-              prevState.ui.activeMenu.startIndex !==
-                state.ui.activeMenu.startIndex ||
-              prevState.ui.activeMenu.endIndex !==
-                state.ui.activeMenu.endIndex))
+          prevState.ui.hoveredMathBlockIndex !== state.ui.hoveredMathBlockIndex
         ) {
           dirtyLayers.content = true;
         }
@@ -2437,24 +2427,13 @@ export default function createEditor(
     return true;
   }
 
-  function setImageUploadStatus(
-    status: "idle" | "uploading" | "complete" | "error",
-  ): void {
-    // Transient canvas chrome (spinner / error) painted over the active
-    // image-upload menu's block — not document content, so no CRDT op. No-op
-    // unless an image-upload menu is open.
-    if (state.ui.activeMenu.type !== "imageUpload") return;
-    state = {
-      ...state,
-      ui: {
-        ...state.ui,
-        activeMenu: {
-          ...state.ui.activeMenu,
-          // The field is optional; undefined means "idle".
-          uploadStatus: status === "idle" ? undefined : status,
-        },
-      },
-    };
+  function setNodeViewState(blockId: string, data: unknown | null): void {
+    // Transient per-block canvas chrome (e.g. an image's upload spinner) — not
+    // document content, so no CRDT op. `null` clears the block's entry.
+    const next = { ...state.ui.nodeViewState };
+    if (data == null) delete next[blockId];
+    else next[blockId] = data;
+    state = { ...state, ui: { ...state.ui, nodeViewState: next } };
     const currentState = state;
     scheduleRender();
     listeners.forEach((listener) => listener(currentState));
@@ -2516,59 +2495,22 @@ export default function createEditor(
     return true;
   }
 
-  function openImageUploadMenu(
-    blockIndex: number,
-    x: number,
-    y: number,
-    _existingUrl?: string,
-    _existingAlt?: string,
-  ) {
-    state = setActiveMenu(state, {
-      type: "imageUpload",
-      blockIndex,
-      x,
-      y,
-    });
+  function setActiveMenuMethod(menu: Exclude<ActiveMenu, { type: "none" }>) {
+    state = setActiveMenu(state, menu);
 
     const currentState = state;
     scheduleRender();
     listeners.forEach((listener) => listener(currentState));
   }
 
-  function openMathEditMenu(blockIndex: number, x: number, y: number) {
-    state = setActiveMenu(state, {
-      type: "mathEdit",
-      blockIndex,
-      x,
-      y,
-    });
-
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
-  }
-
-  function openInlineMathEditMenu(
-    blockIndex: number,
-    startIndex: number,
-    endIndex: number,
-    latex: string,
-    x: number,
-    y: number,
-  ) {
-    state = setActiveMenu(state, {
-      type: "inlineMathEdit",
-      blockIndex,
-      startIndex,
-      endIndex,
-      latex,
-      x,
-      y,
-    });
-
-    const currentState = state;
-    scheduleRender();
-    listeners.forEach((listener) => listener(currentState));
+  function openOverlay(overlay: {
+    key: string;
+    blockIndex: number;
+    x: number;
+    y: number;
+    data?: unknown;
+  }) {
+    setActiveMenuMethod({ type: "overlay", ...overlay });
   }
 
   function replaceInlineRange(
@@ -2670,6 +2612,10 @@ export default function createEditor(
     direction: "left" | "right",
   ) {
     state = closeActiveMenu(state);
+    // Clear the edit highlight set when the popover opened.
+    if (state.ui.inlineMathHover) {
+      state = { ...state, ui: { ...state.ui, inlineMathHover: null } };
+    }
 
     // Place the caret on the side we're exiting toward, then step out one
     // position so snapInlineMathPosition doesn't pull us back into the chip.
@@ -2997,10 +2943,8 @@ export default function createEditor(
     deleteNode,
     replaceInlineRange,
     deleteInlineRange,
-    openImageUploadMenu,
-    setImageUploadStatus,
-    openMathEditMenu,
-    openInlineMathEditMenu,
+    openOverlay,
+    setNodeViewState,
     exitInlineMath: exitInlineMathMethod,
     closeActiveMenu: closeActiveMenuMethod,
     setWindowFocused,

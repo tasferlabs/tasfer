@@ -16,11 +16,7 @@
  * the optional Node.onPointerDown hook in a later pass.
  */
 
-import type {
-  AssetResolver,
-  BlockBounds,
-  EditorStyles,
-} from "../../state-types";
+import type { BlockBounds, EditorStyles } from "../../state-types";
 import { getEditorStyles } from "../../styles";
 import { AtomicNode } from "./AtomicNode";
 import type {
@@ -68,12 +64,13 @@ export function clearFailedImageCache(url?: string): void {
 
 /**
  * Load + cache an image. Resolves once decoded; the caller drives any redraw.
- * `resolveAsset` is the per-instance host resolver (off `EditorState`) — the
- * engine does not resolve asset urls itself.
+ * `resolve` maps a (possibly content-addressed) url to a loadable one — it is the
+ * node's own {@link ImageNode.resolveUrl} hook, so the engine itself never
+ * resolves assets. Only invoked for sources that aren't already loadable urls.
  */
 function loadImage(
   url: string,
-  resolveAsset: AssetResolver,
+  resolve: (url: string) => string | Promise<string>,
 ): Promise<HTMLImageElement> {
   if (failedImageCache.has(url)) {
     return Promise.reject(new Error(`Image previously failed to load: ${url}`));
@@ -98,7 +95,7 @@ function loadImage(
     let resolvedUrl = url;
     if (!isAlreadyUrl) {
       try {
-        resolvedUrl = await resolveAsset(url);
+        resolvedUrl = await resolve(url);
       } catch {
         // Asset not found — use as-is.
       }
@@ -236,6 +233,19 @@ export class ImageNode extends AtomicNode<Image> {
   } as const;
 
   /**
+   * Map a block's `url` to a loadable one, just before the image is fetched.
+   * Default: identity — the engine treats `block.url` as a normal, loadable URL
+   * and never resolves assets itself. A host whose image blocks store a
+   * content-addressed reference (not a `blob:`/`data:`/`http(s):` URL) subclasses
+   * this node, overrides `resolveUrl` to map that reference to a loadable URL
+   * (e.g. its platform asset store), and registers the subclass in its schema.
+   * Only called for sources that aren't already loadable URLs.
+   */
+  protected resolveUrl(url: string): string | Promise<string> {
+    return url;
+  }
+
+  /**
    * Resolve the on-canvas geometry from block props + container width. Depends
    * only on layout context (no origin), so both the height pass and paint use it.
    */
@@ -285,17 +295,24 @@ export class ImageNode extends AtomicNode<Image> {
   }
 
   protected paintBox(c: NodePaintCtx): BlockBounds {
-    const { displayX, displayWidth, displayHeight } = this.geometry(c);
-    const block = c.block as Image;
-    const imageWidth = block.width ?? "full";
+    return this.displayBox(c);
+  }
 
-    // First full-width image bleeds up into the top padding for an edge-to-edge
-    // look; it keeps its drawn dimensions but starts higher.
-    const shouldBleed = c.isFirst && imageWidth === "full";
+  /**
+   * The drawn image rect in `c`'s origin space — a first full-width image bleeds
+   * up into the top padding for an edge-to-edge look (it keeps its drawn
+   * dimensions but starts higher). Shared by paint ({@link paintBox}) and
+   * overlay positioning, so a subclass can land host chrome (e.g. hover
+   * buttons) exactly on the image. Accepts any ctx with an `origin` — both
+   * `NodePaintCtx` and `NodeRegionCtx` qualify.
+   */
+  protected displayBox(c: NodeLayoutCtx & { origin: Point }): BlockBounds {
+    const { displayX, displayWidth, displayHeight } = this.geometry(c);
+    const shouldBleed =
+      c.isFirst && ((c.block as Image).width ?? "full") === "full";
     const y = shouldBleed
       ? c.origin.y - c.styles.canvas.paddingTop
       : c.origin.y;
-
     return { x: displayX, y, width: displayWidth, height: displayHeight };
   }
 
@@ -389,16 +406,17 @@ export class ImageNode extends AtomicNode<Image> {
 
   protected draw(box: BlockBounds, c: NodePaintCtx): void {
     const block = c.block as Image;
-    const { ctx, state, styles, blockIndex } = c;
+    const { ctx, state, styles } = c;
     const objectFit = block.objectFit ?? "cover";
     const { x, y, width, height } = box;
 
-    // Upload status from transient UI state.
-    const uploadStatus =
-      state.ui.activeMenu.type === "imageUpload" &&
-      state.ui.activeMenu.blockIndex === blockIndex
-        ? state.ui.activeMenu.uploadStatus
-        : undefined;
+    // Upload status from transient per-block view-state (set by the host upload
+    // flow via `editor.setNodeViewState`). Not modelled as a menu/overlay.
+    const uploadStatus = (
+      state.ui.nodeViewState[block.id] as
+        | { uploadStatus?: "uploading" | "error" }
+        | undefined
+    )?.uploadStatus;
 
     if (uploadStatus === "uploading") {
       this.drawStatus(
@@ -443,7 +461,7 @@ export class ImageNode extends AtomicNode<Image> {
             [{ text: this.str(state, "loading"), dy: 0 }],
             styles.blocks.image.loading.textColor,
           );
-          loadImage(block.url, state.resolveAsset)
+          loadImage(block.url, (url) => this.resolveUrl(url))
             .then(() => {
               // The decoded size may differ from the placeholder — drop the
               // cached height so it recomputes, then ask for a repaint.

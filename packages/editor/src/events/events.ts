@@ -470,9 +470,7 @@ export function handleEvents(
     }
 
     state = {
-      ...(state.ui.activeMenu.type === "linkHover"
-        ? closeActiveMenu(state)
-        : state),
+      ...state,
       view: {
         ...state.view,
         momentum: momentumResult.momentumState,
@@ -485,6 +483,7 @@ export function handleEvents(
         ...state.ui,
         isHoveringLinkWithModifier: false,
         imageHover: null,
+        linkHover: null,
         inlineMathHover: null,
         hoveredMathBlockIndex: null,
       },

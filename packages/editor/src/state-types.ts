@@ -224,7 +224,8 @@ export interface LinkHoverState {
   readonly text: string;
   readonly x: number;
   readonly y: number;
-  readonly segmentIndex: number;
+  readonly startIndex: number;
+  readonly endIndex: number;
 }
 
 // Unified menu system - only one menu can be active at a time
@@ -246,46 +247,17 @@ export type ActiveMenu =
       selectedItemId?: string | null;
     }
   | {
-      type: "linkHover";
-      position: Position;
-      url: string;
-      text: string;
-      x: number;
-      y: number;
-      startIndex: number;
-      endIndex: number;
-    }
-  | {
-      type: "linkEdit";
-      position: Position;
-      url: string;
-      text: string;
-      x: number;
-      y: number;
-      startIndex: number;
-      endIndex: number;
-    }
-  | {
-      type: "imageUpload";
+      // A host-defined overlay (popover/drawer/tooltip), anchored at a block.
+      // The engine knows nothing about which overlay it is: `key` maps to a host
+      // component (the node/mark that declares it in `overlays()` reads this back
+      // by key), `data` is an opaque host payload. This is the generic slot every
+      // host overlay flows through — the engine never names a specific overlay.
+      type: "overlay";
+      key: string;
       blockIndex: number;
       x: number;
       y: number;
-      uploadStatus?: "uploading" | "complete" | "error";
-    }
-  | {
-      type: "mathEdit";
-      blockIndex: number;
-      x: number;
-      y: number;
-    }
-  | {
-      type: "inlineMathEdit";
-      blockIndex: number;
-      startIndex: number;
-      endIndex: number;
-      latex: string;
-      x: number;
-      y: number;
+      data?: unknown;
     };
 
 // Document State - Only this goes in undo/redo
@@ -374,7 +346,7 @@ export interface ImageHoverState {
 export interface UIState {
   readonly mode: EditorMode;
   readonly isReadonlyBase: boolean; // True if editor was initialized in readonly mode (persists through select mode)
-  readonly activeMenu: ActiveMenu; // Unified menu system - replaces slashCommand, contextMenu, linkHover, imageUpload
+  readonly activeMenu: ActiveMenu; // Unified menu system: engine-native menus (slash/context) + the generic host `overlay` slot
   readonly isHoveringLinkWithModifier: boolean;
   readonly isHoveringCheckbox: boolean;
   readonly isHoveringPeerIndicator: boolean;
@@ -387,6 +359,15 @@ export interface UIState {
   readonly composition: CompositionState | null;
   readonly activeMarksMode: ActiveFormatsMode; // Formatting to apply to next typed text (Ctrl+B without selection)
   readonly imageHover: ImageHoverState | null; // Image hover overlay (not a blocking menu)
+  // Link hover state (not a blocking menu): the engine detects hover over a link
+  // mark and records it here; the host `link` mark renders a tooltip overlay from
+  // it. Engine-owned hover state, parallel to imageHover/inlineMathHover.
+  readonly linkHover: LinkHoverState | null;
+  // Transient, per-block canvas view-state, keyed by blockId. An opaque host
+  // payload a node reads to paint ephemeral chrome (e.g. an image's upload
+  // spinner) without the engine modelling that chrome as a menu/overlay. Set via
+  // `editor.setNodeViewState`; not document content, never persisted.
+  readonly nodeViewState: Readonly<Record<string, unknown>>;
   readonly imageDrag: ImageDragState | null; // Active image drag operation
   readonly selectionHandleDrag: SelectionHandleDragState | null; // Active selection handle drag (mobile)
   readonly cursorDrag: CursorDragState | null; // Active cursor drag for repositioning (mobile)
@@ -462,11 +443,25 @@ export interface NodeOverlay {
    * Where to float the UI, in the same container/viewport coordinate space the
    * host positions its portals in (origin at the canvas top-left, current
    * scroll already applied — i.e. directly usable as `left`/`top`/`width`/
-   * `height`).
+   * `height`). `width`/`height` are optional: omit them for a point anchor
+   * (e.g. a popover that positions its own content off this origin) and
+   * `collectOverlays` fills both with `1`.
    */
-  readonly rect: BlockBounds;
+  readonly rect: OverlayRect;
   /** Optional serializable payload forwarded to the host component. */
   readonly data?: unknown;
+}
+
+/**
+ * The placement of a {@link NodeOverlay}. `width`/`height` are optional at the
+ * declaration site (a 1×1 point anchor by default); `collectOverlays`
+ * normalizes them so every collected overlay carries concrete dimensions.
+ */
+export interface OverlayRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width?: number;
+  readonly height?: number;
 }
 // The host font registry and selected font family are per-instance: they live
 // on `EditorTheme` (`fonts` / `fontFamily`), resolved into `resolvedStyles`.
@@ -494,15 +489,6 @@ export interface UndoManagerState {
   readonly undoStack: readonly UndoGroup[];
   readonly redoStack: readonly UndoGroup[];
 }
-
-/**
- * Resolve a (possibly content-addressed) asset URL to a loadable URL. Supplied
- * per-instance by the host (e.g. `platform.assets.getUrl`) via the mount
- * options and stored on {@link EditorState.resolveAsset} — NOT a module global,
- * so two editors on a page can resolve assets against different backends. The
- * engine never resolves assets itself; resolution is entirely the consumer's.
- */
-export type AssetResolver = (url: string) => Promise<string>;
 
 // New unified EditorState
 export interface EditorState {
@@ -532,13 +518,6 @@ export interface EditorState {
    * sets and so marks are opt-in at mount. Mirrors {@link nodes}.
    */
   readonly marks: MarkRegistry;
-  /**
-   * Per-instance asset URL resolver (see {@link AssetResolver}). The host wires
-   * its platform asset store here at mount; the engine calls it when loading an
-   * image block's source. Owned by this editor — NOT a module global. Defaults
-   * to identity (return the url as-is) for standalone editors with no host.
-   */
-  readonly resolveAsset: AssetResolver;
   /**
    * The host's raw styling input for this instance (tokens + style overrides +
    * fonts + selected family + strings). Kept so `setTheme` can merge a partial

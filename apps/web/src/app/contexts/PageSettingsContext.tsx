@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useCallback } from "react";
-import type { FontFamily } from "@cypherkit/editor/fonts";
+import type { FontFamily } from "@cypherkit/editor";
 import useLocalStorage from "../hooks/useLocalStorage";
-import type { AwarenessUser } from "@cypherkit/editor/sync/awareness";
-import type { Block } from "@cypherkit/editor/serlization/loadPage";
+import type { AwarenessUser } from "@cypherkit/editor";
+import type { Block } from "@cypherkit/editor";
 
 export type FontStyle = "default" | "serif";
 

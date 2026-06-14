@@ -7,19 +7,14 @@
  * `createDefaultMarkRegistry()` for the built-in set.
  */
 
-export {
-  codeMark,
-  createDefaultMarkRegistry,
-  createMarkRegistry,
-  emphasisMark,
-  linkMark,
-  mathMark,
-  strikeMark,
-  strongMark,
-} from "./builtins";
+export { createDefaultMarkRegistry, createMarkRegistry } from "./builtins";
+export { CodeMark } from "./CodeMark";
+export { EmphasisMark } from "./EmphasisMark";
+export { LinkMark } from "./LinkMark";
 export {
   Mark,
   type MarkChipStyle,
+  type MarkOverlayCtx,
   MarkRegistry,
   type MarkReplacement,
   type MarkReplacementDims,
@@ -28,3 +23,6 @@ export {
   type MarkStyleCtx,
   type MarkUnderlineStyle,
 } from "./Mark";
+export { MathMark } from "./MathMark";
+export { StrikeMark } from "./StrikeMark";
+export { StrongMark } from "./StrongMark";

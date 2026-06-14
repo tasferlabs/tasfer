@@ -1205,23 +1205,16 @@ export class TextNode extends Node<TextualBlock> {
     const renderedLines: RenderedLine[] = [];
     const fullContent = getBlockTextContent(block);
 
-    const activeInlineMathEdit =
-      state.ui.activeMenu.type === "inlineMathEdit" &&
-      state.ui.activeMenu.blockIndex === blockIndex
-        ? {
-            startIndex: state.ui.activeMenu.startIndex,
-            endIndex: state.ui.activeMenu.endIndex,
-          }
-        : null;
+    // Highlight the hovered chip, or the one being edited — both are recorded in
+    // `inlineMathHover` (the open path sets it to the edited run's range).
     const hoveredInlineMath =
-      activeInlineMathEdit ??
-      (state.ui.inlineMathHover &&
+      state.ui.inlineMathHover &&
       state.ui.inlineMathHover.blockIndex === blockIndex
         ? {
             startIndex: state.ui.inlineMathHover.startIndex,
             endIndex: state.ui.inlineMathHover.endIndex,
           }
-        : null);
+        : null;
 
     for (let lineIndex = 0; lineIndex < layout.lines.length; lineIndex++) {
       const lyt = layout.lines[lineIndex];
@@ -1480,6 +1473,3 @@ export class TextNode extends Node<TextualBlock> {
     return "";
   }
 }
-
-/** Singleton text view, shared by the renderer and selection geometry. */
-export const textNode = new TextNode();

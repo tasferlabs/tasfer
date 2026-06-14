@@ -20,7 +20,7 @@ import {
   SLASH_CONFIRM,
   SLASH_NAVIGATE,
 } from "@cypherkit/editor";
-import type { SlashCommand } from "@cypherkit/editor/state-types";
+import type { SlashCommand } from "@cypherkit/editor";
 
 interface SlashCommandWithMeta extends SlashCommand {
   category: "basic" | "media" | "lists";

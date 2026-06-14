@@ -9,11 +9,10 @@
  *
  * Two things to notice:
  *
- *   1. The render marks are passed to `createEditor` via the `marks` option,
- *      separately from the `schema`. `extend()` folds in a mark's DATA facet but
- *      not its RENDER facet (two editors on a page may paint the same mark
- *      differently), so the renderer needs the explicit list. Drop `marks` and
- *      the highlight/underline would still replicate — they'd just paint as
+ *   1. Both facets of each mark are declared in one `defineMark` call in
+ *      marks.ts, and `extend()` folds them into the `schema` — so `createEditor`
+ *      gets everything from `schema` alone, no separate `marks` option. A mark
+ *      defined without a `render` would still replicate; it'd just paint as
  *      plain text.
  *
  *   2. Persistence is lossless via the CRDT: we save `doc.encodeState()` (the op
@@ -25,7 +24,7 @@
 import { createDoc, createEditor, type CypherEditor } from "@cypherkit/editor";
 
 import { FONT_STYLES, loadFonts } from "./fonts";
-import { renderMarks, schema } from "./marks";
+import { schema } from "./marks";
 
 const STORAGE_KEY = "cypher-marks-doc";
 const PAGE_ID = "marks-demo";
@@ -104,14 +103,13 @@ async function main() {
         schema: schema.data,
       });
 
-  // 3. Mount the editor over the Doc. `schema` supplies the data half + the
-  //    built-in nodes; `marks` supplies the RENDER facet — the built-in marks
-  //    plus our two custom ones (see the note in the file header).
+  // 3. Mount the editor over the Doc. `schema` supplies everything: the data
+  //    half, the built-in nodes, and the render facet for our two custom marks
+  //    (folded in by `extend()`) — no separate `marks` option needed.
   const editor = createEditor({
     element: byId<HTMLDivElement>("editor"),
     doc,
     schema,
-    marks: renderMarks,
     // Per-instance theme: our font registry plus a little page padding.
     theme: {
       fonts: FONT_STYLES,

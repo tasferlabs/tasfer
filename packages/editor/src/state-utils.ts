@@ -13,12 +13,11 @@ import {
 } from "./rendering/scrollbar";
 import { type Block, type Page } from "./serlization/loadPage";
 import type {
-  AssetResolver,
   CRDTbinding as CRDTbindingType,
   EditorMode,
   EditorState,
   EditorTheme,
-  Position,
+  LinkHoverState,
 } from "./state-types";
 import { resolveNodeStrings, resolveTheme } from "./styles";
 
@@ -42,7 +41,6 @@ export function createInitialState(
     marks?: MarkRegistry;
     theme?: EditorTheme;
     crdtBinding?: CRDTbindingType;
-    resolveAsset?: AssetResolver;
   },
 ): EditorState {
   // Each editor instance owns its own CRDT context. Because the binding is
@@ -72,12 +70,6 @@ export function createInitialState(
   // the built-in marks when not provided.
   const marks = options?.marks ?? createDefaultMarkRegistry();
 
-  // Asset resolution is the host's job (see AssetResolver). Per-instance, never
-  // a module global; identity by default so a standalone editor (no host) loads
-  // already-usable urls as-is.
-  const resolveAsset: AssetResolver =
-    options?.resolveAsset ?? (async (url) => url);
-
   // The host's raw theme, resolved once into the full style tree. Stored
   // per-instance (not a module global) so two editors on a page style
   // independently and the engine never reads the DOM.
@@ -93,7 +85,6 @@ export function createInitialState(
     commandBus: createCommandBus(),
     nodes,
     marks,
-    resolveAsset,
     theme,
     resolvedStyles,
     resolvedNodeStrings,
@@ -112,6 +103,8 @@ export function createInitialState(
       composition: null,
       activeMarksMode: { type: "inherit" },
       imageHover: null,
+      linkHover: null,
+      nodeViewState: {},
       imageDrag: null,
       selectionHandleDrag: null,
       cursorDrag: null,
@@ -273,31 +266,13 @@ export function selectContextMenuItem(
   };
 }
 
-// Link Hover State Management
+// Link Hover State Management — engine-owned hover state (not a blocking menu),
+// rendered as a tooltip overlay host-side by the `link` mark.
 export function setLinkHover(
   state: EditorState,
-  linkHover: {
-    position: Position;
-    url: string;
-    text: string;
-    x: number;
-    y: number;
-    startIndex: number;
-    endIndex: number;
-  } | null,
+  linkHover: LinkHoverState | null,
 ): EditorState {
-  return linkHover
-    ? setActiveMenu(state, {
-        type: "linkHover",
-        position: linkHover.position,
-        url: linkHover.url,
-        text: linkHover.text,
-        x: linkHover.x,
-        y: linkHover.y,
-        startIndex: linkHover.startIndex,
-        endIndex: linkHover.endIndex,
-      })
-    : closeActiveMenu(state);
+  return { ...state, ui: { ...state.ui, linkHover } };
 }
 
 // Unified Menu Management

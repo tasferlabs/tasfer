@@ -22,7 +22,7 @@ import "@fontsource/space-grotesk/600.css";
 import "@fontsource/space-grotesk/700.css";
 
 import type { FontStyles } from "@cypherkit/editor";
-import { notifyFontsChanged, notifyFontsLoaded } from "@cypherkit/editor/fonts";
+import { notifyFontsChanged, notifyFontsLoaded } from "@cypherkit/editor";
 
 // The app's font families (key → CSS font-stack). These keys are what
 // PageSettingsContext selects between (via `fontStyleToFamily`).

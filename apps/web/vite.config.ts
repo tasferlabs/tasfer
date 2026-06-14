@@ -45,6 +45,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@cypherkit/editor": resolve(__dirname, "../../packages/editor/src"),
+      "@cypherkit/react": resolve(__dirname, "../../packages/react/src"),
       "@": "/src",
       "@shared": resolve(__dirname, "../../shared"),
     },

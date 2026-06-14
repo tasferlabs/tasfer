@@ -15,9 +15,9 @@ import { useSpaces } from "../contexts/SpaceContext";
 import {
   serializeToMarkdown,
   type PageMetadata,
-} from "@cypherkit/editor/serlization/serializer";
+} from "@cypherkit/editor";
 import { downloadFile } from "@/downloadFile";
-import { collectAssetRefs } from "@cypherkit/editor/serlization/codecs";
+import { collectAssetRefs } from "@cypherkit/editor";
 import type { IPage } from "../api/pages.api";
 import { useTranslation } from "react-i18next";
 

@@ -17,13 +17,13 @@ import { Upload, FileUp, FilePlus, Replace } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import useResponsive from "../hooks/useResponsive";
-import tokenizePage from "@cypherkit/editor/serlization/tokenizer";
+import { tokenizePage } from "@cypherkit/editor";
 import { getPlatform } from "@/platform";
-import parsePage from "@cypherkit/editor/serlization/parser";
+import { parsePage } from "@cypherkit/editor";
 import {
   parseFrontmatter,
   type PageMetadata,
-} from "@cypherkit/editor/serlization/loadPage";
+} from "@cypherkit/editor";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -33,9 +33,9 @@ import { useSpaces } from "../contexts/SpaceContext";
 import {
   extractTitleFromBlocks,
   getVisibleTextFromRuns,
-} from "@cypherkit/editor/sync/char-runs";
-import { type Block } from "@cypherkit/editor/serlization/loadPage";
-import { isTextualBlock } from "@cypherkit/editor/sync/block-registry";
+} from "@cypherkit/editor";
+import { type Block } from "@cypherkit/editor";
+import { isTextualBlock } from "@cypherkit/editor";
 
 interface ImportDialogProps {
   open: boolean;

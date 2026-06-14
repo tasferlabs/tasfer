@@ -21,20 +21,20 @@
  */
 
 import {
-  codeMark,
-  emphasisMark,
-  linkMark,
+  CodeMark,
+  EmphasisMark,
+  LinkMark,
   Mark,
-  mathMark,
-  strikeMark,
-  strongMark,
+  MathMark,
+  StrikeMark,
+  StrongMark,
 } from "./rendering/marks";
 import {
-  imageNode,
-  lineNode,
-  listNode,
-  mathNode,
-  textNode,
+  ImageNode,
+  LineNode,
+  ListNode,
+  MathNode,
+  TextNode,
 } from "./rendering/nodes";
 import { BoxNode, type BoxRenderStyle } from "./rendering/nodes/BoxNode";
 import { Node } from "./rendering/nodes/Node";
@@ -44,6 +44,7 @@ import {
   type ParsedTag,
 } from "./serlization/codecs";
 import { escapeAttr } from "./serlization/codecs/inline";
+import type { MarkCodec } from "./serlization/codecs/mark-codec";
 import { asBlock, type Block, type CustomBlock } from "./serlization/loadPage";
 import type {
   BlockCapabilities,
@@ -62,6 +63,17 @@ export interface BlockSpec extends BlockSpecCore {
   readonly node: Node;
 }
 
+/**
+ * A full mark spec: the canvas-free data facet ({@link MarkSpec}) plus the
+ * rendering {@link Mark}. The inline analogue of {@link BlockSpec} — `render` is
+ * the mark's on-canvas paint, stripped before the spec reaches the canvas-free
+ * `DataSchema`. Omit `render` for a data-only mark (it replicates and serializes
+ * but paints as plain text).
+ */
+export interface MarkDef extends MarkSpec {
+  readonly render?: Mark;
+}
+
 export interface SchemaExtension {
   /**
    * Custom block types to add. Each entry is either a {@link BlockSpec} (built
@@ -72,7 +84,14 @@ export interface SchemaExtension {
    * `defineNode` produces, so both styles are interchangeable.
    */
   readonly nodes?: readonly (BlockSpec | Node)[];
-  readonly marks?: readonly MarkSpec[];
+  /**
+   * Custom inline marks to add, built by `defineMark`. Each {@link MarkDef}
+   * carries the data facet (CRDT type + optional serialization codec) and,
+   * optionally, the rendering {@link Mark} — `extend()` folds the render facet
+   * into the schema's mark list so `createEditor({ schema })` paints it without
+   * a separate `marks` option.
+   */
+  readonly marks?: readonly MarkDef[];
 }
 
 /**
@@ -100,6 +119,7 @@ export class Schema {
     // Normalize both authoring styles (a prebuilt BlockSpec, or a bare Node
     // subclass instance registered directly) to a single BlockSpec list.
     const specs = ext.nodes?.map(toBlockSpec) ?? [];
+    const markDefs = ext.marks ?? [];
     const data = this.data.extend({
       blocks: specs.map(
         ({ type, descriptor, codec }): BlockSpecCore => ({
@@ -108,13 +128,22 @@ export class Schema {
           codec,
         }),
       ),
-      marks: ext.marks,
+      // Strip the render facet — DataSchema stays canvas-free (mirrors how the
+      // block path drops `node` before reaching `this.data.extend`).
+      marks: markDefs.map(({ type, codec }): MarkSpec => ({ type, codec })),
     });
     const nodes = [...this.nodes, ...specs.map((spec) => spec.node)];
-    // Rendering marks pass through unchanged — `ext.marks` only declares the
-    // data facet today; custom rendering marks are supplied via `mountEditor`'s
-    // `marks` option (the full authoring API lands with `defineMark`).
-    return new Schema(data, nodes, this.marks);
+    // Fold each custom mark's render facet into the rendering list (built-ins +
+    // custom), so `createEditor({ schema })` paints them with no separate
+    // `marks` option. A data-only mark (no `render`) contributes nothing here —
+    // it replicates and serializes but renders as plain text.
+    const marks = [
+      ...this.marks,
+      ...markDefs
+        .map((mark) => mark.render)
+        .filter((render): render is Mark => Boolean(render)),
+    ];
+    return new Schema(data, nodes, marks);
   }
 }
 
@@ -140,23 +169,56 @@ function toBlockSpec(entry: BlockSpec | Node): BlockSpec {
  */
 export const baseSchema: Schema = new Schema(
   baseDataSchema,
-  [lineNode, imageNode, mathNode, textNode, listNode],
-  [strongMark, emphasisMark, strikeMark, codeMark, linkMark, mathMark],
+  [
+    new LineNode(),
+    new ImageNode(),
+    new MathNode(),
+    new TextNode(),
+    new ListNode(),
+  ],
+  [
+    new StrongMark(),
+    new EmphasisMark(),
+    new StrikeMark(),
+    new CodeMark(),
+    new LinkMark(),
+    new MathMark(),
+  ],
 );
 
 // ─── defineMark ──────────────────────────────────────────────────────────────
 
 export interface DefineMarkConfig {
-  // Reserved for future fields (markdown delimiters, paint style). A declared
-  // mark is currently just a named, allowed inline format.
+  /**
+   * On-canvas appearance — a {@link Mark} subclass instance. Omit and the mark
+   * still replicates and serializes, but paints as plain text. Folded into the
+   * schema's render list by `extend()`, so no separate `createEditor({ marks })`
+   * is needed.
+   */
+  readonly render?: Mark;
+  /**
+   * Markdown/HTML round-trip. Omit and the mark survives only via the CRDT (the
+   * source of truth) — it's dropped on markdown export. Provide a codec to give
+   * it delimiters (`==text==`) and an HTML tag.
+   */
+  readonly codec?: MarkCodec;
 }
 
-/** Declare an inline mark (so the schema recognizes it as a valid format). */
+/**
+ * Declare an inline mark. Returns a {@link MarkDef} for `baseSchema.extend({
+ * marks })` — carrying the data facet (the mark type), and optionally how it
+ * paints (`render`) and serializes (`codec`):
+ *
+ *   const schema = baseSchema.extend({
+ *     marks: [defineMark("highlight", { render: new HighlightMark() })],
+ *   });
+ *   const editor = createEditor({ element, schema }); // paints, no `marks` option
+ */
 export function defineMark(
   type: string,
-  _config: DefineMarkConfig = {},
-): MarkSpec {
-  return { type };
+  config: DefineMarkConfig = {},
+): MarkDef {
+  return { type, codec: config.codec, render: config.render };
 }
 
 // ─── defineNode ──────────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "serve": "node server.js",
     "cap:sync": "npx cap sync",
+    "cap:build": "npm run build && npx cap sync",
     "cap:open:ios": "npx cap open ios",
     "cap:build:ios": "npm run build && npx cap sync ios",
     "cap:open:android": "npx cap open android",

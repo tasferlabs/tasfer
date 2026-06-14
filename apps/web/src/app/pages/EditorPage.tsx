@@ -16,13 +16,13 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
-import { type Block } from "@cypherkit/editor/serlization/loadPage";
-import type { TextualBlock } from "@cypherkit/editor/rendering/nodes/TextNode";
-import type { AwarenessUser } from "@cypherkit/editor/sync/awareness";
+import { type Block } from "@cypherkit/editor";
+import type { TextualBlock } from "@cypherkit/editor";
+import type { AwarenessUser } from "@cypherkit/editor";
 import {
   extractTitleFromBlocks,
   getVisibleTextFromRuns,
-} from "@cypherkit/editor/sync/char-runs";
+} from "@cypherkit/editor";
 import {
   formatDatePreferred,
   formatTimePreferred,
@@ -77,7 +77,7 @@ import useLocalStorage from "../hooks/useLocalStorage";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useResponsive from "../hooks/useResponsive";
 import style from "./EditorPage.module.css";
-import { isTextualBlock } from "@cypherkit/editor/sync/block-registry";
+import { isTextualBlock } from "@cypherkit/editor";
 
 // Helper function to count words from blocks
 function countWordsFromBlocks(blocks: Block[]): number {

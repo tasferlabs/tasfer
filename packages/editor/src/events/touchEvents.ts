@@ -912,10 +912,10 @@ export function handleTouchEnd(
   if (isTap && session.touch) {
     const tapPosition = { x: session.touch.startX, y: session.touch.startY };
 
-    // Track if image upload was open (we'll use this to prevent reopening on same tap)
-    const wasImageUploadOpen = state.ui.activeMenu.type === "imageUpload";
-    const wasImageUploadBlockIndex =
-      state.ui.activeMenu.type === "imageUpload"
+    // Track if a host overlay was open (used to prevent reopening on same tap)
+    const wasOverlayOpen = state.ui.activeMenu.type === "overlay";
+    const wasOverlayBlockIndex =
+      state.ui.activeMenu.type === "overlay"
         ? state.ui.activeMenu.blockIndex
         : undefined;
 
@@ -1124,16 +1124,24 @@ export function handleTouchEnd(
           "image",
         );
         if (imageBlock) {
-          // If it's a placeholder (no URL), open upload menu
-          // Block in readonly mode
-          if (!tappedBlock.url && state.ui.mode !== "readonly") {
-            // If the upload menu was already open for this same block, don't reopen it (let it stay closed)
-            // This allows tapping on an open upload menu to close it
+          // Ask the node whether activation opens a host overlay (a placeholder
+          // image opens its upload popover). Blocked in readonly mode.
+          const activation =
+            state.ui.mode !== "readonly"
+              ? state.nodes.get(tappedBlock.type)?.activate?.({
+                  state,
+                  block: tappedBlock,
+                  blockIndex: position.blockIndex,
+                })
+              : null;
+          if (activation) {
+            // If an overlay was already open for this same block, don't reopen it
+            // (let it stay closed) — tapping an open popover closes it.
             if (
-              wasImageUploadOpen &&
-              wasImageUploadBlockIndex === position.blockIndex
+              wasOverlayOpen &&
+              wasOverlayBlockIndex === position.blockIndex
             ) {
-              // Close image upload popover and keep it closed
+              // Close the popover and keep it closed
               session.touch = null;
               const closedState = closeActiveMenu(state);
               return {
@@ -1151,13 +1159,15 @@ export function handleTouchEnd(
               };
             }
 
-            // Open image upload popover
+            // Open the host overlay
             session.touch = null;
             const menuState = setActiveMenu(state, {
-              type: "imageUpload",
+              type: "overlay",
+              key: activation.key,
               blockIndex: position.blockIndex,
               x: tapPosition.x,
               y: tapPosition.y,
+              data: activation.data,
             });
             return {
               state: {

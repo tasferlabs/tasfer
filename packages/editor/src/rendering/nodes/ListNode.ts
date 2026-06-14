@@ -6,7 +6,7 @@
  *
  * Everything list-specific lives here, behind the three `protected` hooks
  * TextNode exposes (`leadingInset`, `paintMarker`, `placeholderText`). That
- * keeps lists fully opt-in: a host that doesn't register `listNode` gets an
+ * keeps lists fully opt-in: a host that doesn't register a `ListNode` gets an
  * editor with no list blocks, and TextNode never references list types.
  */
 
@@ -274,6 +274,3 @@ export class ListNode extends TextNode {
     return super.placeholderText(block, styles, state);
   }
 }
-
-/** Singleton list view, shared across editors (holds no per-editor state). */
-export const listNode = new ListNode();

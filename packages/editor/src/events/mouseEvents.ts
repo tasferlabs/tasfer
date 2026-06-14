@@ -30,6 +30,7 @@ import {
   closeActiveMenu,
   closeSlashCommand,
   setActiveMenu,
+  setLinkHover,
   updateMode,
 } from "../state-utils";
 import { getEditorStyles } from "../styles";
@@ -171,25 +172,34 @@ export function handleMouseDown(
       // In readonly mode, don't allow placeholder clicks
       // (resize handle drags are claimed by the image-resize region above)
       if (state.ui.mode !== "readonly") {
-        // If it's a placeholder (no URL), open the upload menu immediately
-        if (!block.url) {
-          // Don't reopen if we just closed the menu for this same block
+        // Ask the node whether activation opens a host overlay (a placeholder
+        // image opens its upload popover); the engine relays the host-provided
+        // key/data and never names the overlay itself.
+        const activation = state.nodes.get(block.type)?.activate?.({
+          state,
+          block,
+          blockIndex: imageBlock.blockIndex,
+        });
+        if (activation) {
+          // Don't reopen if we just closed the overlay for this same block
           if (
             wasMenuOpen &&
-            previousMenu.type === "imageUpload" &&
+            previousMenu.type === "overlay" &&
             previousMenu.blockIndex === imageBlock.blockIndex
           ) {
             // Just keep it closed
             return { state, ops };
           }
 
-          // Open the image upload menu at the click position
+          // Open the host overlay at the click position
           return {
             state: setActiveMenu(state, {
-              type: "imageUpload",
+              type: "overlay",
+              key: activation.key,
               blockIndex: imageBlock.blockIndex,
               x: canvasX,
               y: canvasY,
+              data: activation.data,
             }),
             ops,
           };
@@ -285,28 +295,39 @@ export function handleMouseDown(
     }
 
     if (state.ui.mode !== "readonly") {
-      // Don't reopen if we just closed the menu for this same block
-      if (
-        wasMenuOpen &&
-        previousMenu.type === "mathEdit" &&
-        previousMenu.blockIndex === mathBlock.blockIndex
-      ) {
-        return { state, ops };
-      }
+      // Ask the node whether activation opens a host overlay (the math editor);
+      // the engine relays the host-provided key/data and never names the overlay.
+      const activation = state.nodes.get(block.type)?.activate?.({
+        state,
+        block,
+        blockIndex: mathBlock.blockIndex,
+      });
+      if (activation) {
+        // Don't reopen if we just closed the overlay for this same block
+        if (
+          wasMenuOpen &&
+          previousMenu.type === "overlay" &&
+          previousMenu.blockIndex === mathBlock.blockIndex
+        ) {
+          return { state, ops };
+        }
 
-      // Open the math editor at the click position
-      return {
-        state: setActiveMenu(state, {
-          type: "mathEdit",
-          blockIndex: mathBlock.blockIndex,
-          x: canvasX,
-          y: canvasY,
-        }),
-        ops,
-      };
+        // Open the host overlay at the click position
+        return {
+          state: setActiveMenu(state, {
+            type: "overlay",
+            key: activation.key,
+            blockIndex: mathBlock.blockIndex,
+            x: canvasX,
+            y: canvasY,
+            data: activation.data,
+          }),
+          ops,
+        };
+      }
     }
 
-    // In readonly mode, just select the block
+    // In readonly mode (or no activation), just select the block
     const mathPosition = { blockIndex: mathBlock.blockIndex, textIndex: 0 };
     let newState = updateCursor(state, mathPosition);
     newState = {
@@ -398,28 +419,47 @@ export function handleMouseDown(
       "inside",
       { x: canvasX, viewport },
     );
-    if (inlineMath) {
-      // Don't reopen if we just closed the popover for this same chip
+    // The inline-math edit overlay is host-defined; the `math` mark owns its key.
+    const key = inlineMath
+      ? state.marks.get("math")?.editOverlayKey
+      : undefined;
+    if (inlineMath && key) {
+      // Don't reopen if we just closed the popover for this same block
       if (
         wasMenuOpen &&
-        previousMenu.type === "inlineMathEdit" &&
-        previousMenu.blockIndex === position.blockIndex &&
-        previousMenu.startIndex === inlineMath.startIndex &&
-        previousMenu.endIndex === inlineMath.endIndex
+        previousMenu.type === "overlay" &&
+        previousMenu.key === key &&
+        previousMenu.blockIndex === position.blockIndex
       ) {
         return { state, ops };
       }
 
-      return {
-        state: setActiveMenu(state, {
-          type: "inlineMathEdit",
-          blockIndex: position.blockIndex,
+      const withOverlay = setActiveMenu(state, {
+        type: "overlay",
+        key,
+        blockIndex: position.blockIndex,
+        x: canvasX,
+        y: canvasY,
+        data: {
           startIndex: inlineMath.startIndex,
           endIndex: inlineMath.endIndex,
           latex: inlineMath.latex,
-          x: canvasX,
-          y: canvasY,
-        }),
+        },
+      });
+      // Highlight the edited chip while the popover is open (engine-owned hover
+      // state; the host overlay reads the range from `data`).
+      return {
+        state: {
+          ...withOverlay,
+          ui: {
+            ...withOverlay.ui,
+            inlineMathHover: {
+              blockIndex: position.blockIndex,
+              startIndex: inlineMath.startIndex,
+              endIndex: inlineMath.endIndex,
+            },
+          },
+        },
         ops,
       };
     }
@@ -730,16 +770,14 @@ export function handleMouseMove(
     const isCtrlOrCmd = event.ctrlKey || event.metaKey;
 
     // If Ctrl/Command is held and we have a link hover showing, clear it
-    if (isCtrlOrCmd && state.ui.activeMenu.type === "linkHover") {
-      state = closeActiveMenu(state);
+    if (isCtrlOrCmd && state.ui.linkHover) {
+      state = setLinkHover(state, null);
       return state;
     }
 
-    // Don't show link hover when any menu is open (except for linkHover)
-    if (
-      state.ui.activeMenu.type !== "none" &&
-      state.ui.activeMenu.type !== "linkHover"
-    ) {
+    // Don't show the link tooltip while a menu is open; clear any stale hover.
+    if (state.ui.activeMenu.type !== "none") {
+      if (state.ui.linkHover) state = setLinkHover(state, null);
       return state;
     }
 
@@ -759,7 +797,7 @@ export function handleMouseMove(
           isOverLink = true;
           // If Ctrl/Command is held, show pointer cursor but no tooltip
           if (isCtrlOrCmd) {
-            state = closeActiveMenu(state);
+            state = setLinkHover(state, null);
             state = {
               ...state,
               ui: {
@@ -781,27 +819,24 @@ export function handleMouseMove(
             );
 
             if (linkCoords) {
-              // Position tooltip below the start of the link text
-              // linkCoords.y is in document coordinates, so we need to subtract scrollY to get viewport coordinates
-              const stateWithMenu = setActiveMenu(state, {
-                type: "linkHover",
+              // Anchor in canvas/container space (the overlay shifts it into
+              // viewport space by adding containerRect — do NOT bake it in here,
+              // or it gets added twice). `linkCoords` is document space, so
+              // subtract scrollY to land in container space (matching canvasX/Y).
+              state = setLinkHover(state, {
                 position,
                 url: linkData.url,
                 text: linkData.text,
-                x: linkCoords.x + containerRect.left,
-                y:
-                  linkCoords.y -
-                  viewport.scrollY +
-                  linkCoords.height +
-                  containerRect.top,
+                x: linkCoords.x,
+                y: linkCoords.y - viewport.scrollY + linkCoords.height,
                 startIndex: linkData.startIndex,
                 endIndex: linkData.endIndex,
               });
 
               state = {
-                ...stateWithMenu,
+                ...state,
                 ui: {
-                  ...stateWithMenu.ui,
+                  ...state.ui,
                   isHoveringLinkWithModifier: false,
                 },
               };
@@ -812,21 +847,21 @@ export function handleMouseMove(
 
       // Handle clearing linkHover when not over a link
       if (!isOverLink) {
-        if (state.ui.activeMenu.type === "linkHover") {
+        if (state.ui.linkHover) {
           // Check if mouse is over the tooltip area before clearing
           const tooltipHeight = 120;
           const tooltipWidth = 300;
-          const menu = state.ui.activeMenu;
+          const hover = state.ui.linkHover;
 
           const isOverTooltip =
-            event.x >= menu.x &&
-            event.x <= menu.x + tooltipWidth &&
-            event.y >= menu.y &&
-            event.y <= menu.y + tooltipHeight;
+            event.x >= hover.x &&
+            event.x <= hover.x + tooltipWidth &&
+            event.y >= hover.y &&
+            event.y <= hover.y + tooltipHeight;
 
           if (!isOverTooltip) {
             // Clear link hover
-            state = closeActiveMenu(state);
+            state = setLinkHover(state, null);
           }
         }
 
@@ -841,12 +876,9 @@ export function handleMouseMove(
           };
         }
       }
-    } else if (
-      state.ui.activeMenu.type === "linkHover" ||
-      state.ui.isHoveringLinkWithModifier
-    ) {
+    } else if (state.ui.linkHover || state.ui.isHoveringLinkWithModifier) {
       // Clear link hover on touch devices
-      state = closeActiveMenu(state);
+      state = setLinkHover(state, null);
       state = {
         ...state,
         ui: { ...state.ui, isHoveringLinkWithModifier: false },

@@ -12,7 +12,6 @@ import {
 import { setKeyboardOpen } from "../rendering/scrollbar";
 import { type Block, type Page } from "../serlization/loadPage";
 import type {
-  AssetResolver,
   BlockStyles,
   CRDTbinding,
   DeepPartial,
@@ -134,8 +133,8 @@ export interface MountEditorOptions {
    * Omit to use the built-in set (`createDefaultNodeRegistry`).
    *
    * Example — an editor without the image block:
-   *   import { lineNode, textNode } from "@cypherkit/editor";
-   *   mountEditor(el, blocks, { nodes: [lineNode, textNode] });
+   *   import { LineNode, TextNode } from "@cypherkit/editor";
+   *   mountEditor(el, blocks, { nodes: [new LineNode(), new TextNode()] });
    */
   nodes?: readonly Node[];
   /**
@@ -144,14 +143,6 @@ export interface MountEditorOptions {
    * Omit to use the built-in set (`createDefaultMarkRegistry`). Mirrors `nodes`.
    */
   marks?: readonly Mark[];
-  /**
-   * Resolve a (possibly content-addressed) asset url to a loadable one when an
-   * image block loads its source (e.g. `platform.assets.getUrl`). Per-instance:
-   * asset resolution is the consumer's responsibility, not the engine's. Omit
-   * for an identity resolver (urls used as-is) — fine when sources are already
-   * loadable (`blob:` / `data:` / `http(s):`).
-   */
-  resolveAsset?: AssetResolver;
   /**
    * Per-instance CRDT context (peer id + clock + id generator). Hosts that
    * sync should create one with `createCRDTbinding(pageId, peerId)` and pass
@@ -341,7 +332,6 @@ export function mountEditor(
     marks,
     // The doc's binding is the shared id/clock source when a doc is attached.
     crdtBinding: doc?._binding ?? options?.crdtBinding,
-    resolveAsset: options?.resolveAsset,
     theme,
   });
 

@@ -79,6 +79,19 @@ export interface Point {
   readonly y: number;
 }
 
+/** Context for {@link Node.activate} — enough to decide which overlay to open. */
+export interface NodeActivateCtx {
+  readonly state: EditorState;
+  readonly block: Block;
+  readonly blockIndex: number;
+}
+
+/** The host overlay {@link Node.activate} asks the engine to open. */
+export interface NodeActivation {
+  readonly key: string;
+  readonly data?: unknown;
+}
+
 /** Pointer type for node hit regions (mirrors events/regions PointerType). */
 export type NodePointerType = "mouse" | "touch";
 
@@ -176,6 +189,16 @@ export abstract class Node<B extends Block = Block> {
    * mounts it at the returned `rect`. Return `[]` (or omit) for no overlay.
    */
   overlays?(c: NodeRegionCtx): readonly NodeOverlay[];
+
+  /**
+   * Optional: when the user activates (clicks/taps) this block in edit mode, the
+   * host overlay to open — `key` maps to a host component (see {@link overlays}),
+   * `data` is an opaque host payload. Return `null` to let the engine fall back
+   * to its default activation (e.g. selecting the block). The engine relays the
+   * returned `key`/`data` through `openOverlay` at the click anchor; it never
+   * names the overlay itself, so the activation policy + overlay live host-side.
+   */
+  activate?(c: NodeActivateCtx): NodeActivation | null;
 
   /** Convenience for subclasses building their RenderedBlock result. */
   protected bounds(c: NodePaintCtx, height: number): BlockBounds {

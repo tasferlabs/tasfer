@@ -105,15 +105,35 @@ function maybeOpenInlineMathOnArrowCross(
   );
   if (!coords) return newState;
 
-  return setActiveMenu(newState, {
-    type: "inlineMathEdit",
-    blockIndex: newCursor.position.blockIndex,
-    startIndex: span.startIndex,
-    endIndex: span.endIndex,
-    latex: span.latex,
+  // The inline-math edit overlay is host-defined; the `math` mark owns its key.
+  const key = newState.marks.get("math")?.editOverlayKey;
+  if (!key) return newState;
+  const blockIndex = newCursor.position.blockIndex;
+  const withOverlay = setActiveMenu(newState, {
+    type: "overlay",
+    key,
+    blockIndex,
     x: coords.x,
     y: coords.y - viewport.scrollY,
+    data: {
+      startIndex: span.startIndex,
+      endIndex: span.endIndex,
+      latex: span.latex,
+    },
   });
+  // Highlight the edited chip while the popover is open (engine-owned hover
+  // state; the host overlay reads the range from `data`).
+  return {
+    ...withOverlay,
+    ui: {
+      ...withOverlay.ui,
+      inlineMathHover: {
+        blockIndex,
+        startIndex: span.startIndex,
+        endIndex: span.endIndex,
+      },
+    },
+  };
 }
 
 export function handleKeyDown(

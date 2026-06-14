@@ -274,8 +274,8 @@ if (platformReady) {
     // Must await — the worker-backed SQLite needs time to spin up.
     initPlatform()
       .then(() => {
-        // Asset resolution is wired per editor instance at mount time
-        // (MountedEditor passes `resolveAsset`), not through a module global.
+        // Asset resolution is owned by the host's image node (see
+        // `editorSchema.ts` → CypherImageNode), per-instance and not a global.
         platformReady = true;
         (window as any).__CYPHER_PLATFORM_READY__ = true;
         renderApp();

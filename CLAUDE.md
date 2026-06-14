@@ -119,7 +119,7 @@ imports (e.g. `@cypherkit/editor/sync/awareness`) are also currently allowed (th
 - `fonts.ts` — font loading/measurement (host registers font families via the per-instance theme and loads the faces, then notifies via `notifyFontsLoaded`/`notifyFontsChanged`); `selection.ts` — cursor/selection; `styles.ts` — per-instance theme resolution (`resolveTheme`/`mergeTheme`, `DEFAULT_TOKENS`)
 - RTL text (Arabic, Hebrew) supported via `rtl.ts`
 - Undo/redo is CRDT-aware: converts between index-based positions and CRDT ID-based positions (`inverse.ts`, `sync/crdt-undo.ts`)
-- Host integration points are per-instance (no module globals): asset resolution is a `resolveAsset` function passed at mount (`MountEditorOptions.resolveAsset`, stored on `EditorState.resolveAsset`), and slash commands are routed through the command bus (`SLASH_NAVIGATE`/`SLASH_CONFIRM` in `command-bus.ts`)
+- Host integration points are per-instance (no module globals): asset resolution lives on the image node — the engine treats `block.url` as a plain loadable URL, and a host whose images are content-addressed subclasses `ImageNode` and overrides the protected `resolveUrl(url)` hook, registering the subclass in its schema (see `apps/web/src/editorSchema.ts` → `CypherImageNode`). Slash commands are routed through the command bus (`SLASH_NAVIGATE`/`SLASH_CONFIRM` in `command-bus.ts`)
 
 ### CRDT System (`packages/editor/src/sync/`)
 Operation-log CRDT for offline-first collaborative editing:

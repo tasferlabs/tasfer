@@ -1,33 +1,25 @@
 /**
  * Custom inline marks, defined entirely in host code.
  *
- * A custom mark has TWO facets, and you wire them separately:
+ * A custom mark has TWO facets, declared together in one `defineMark` call:
  *
- *   • DATA   — `defineMark(type)` declares the mark as a valid inline format and
- *              `baseSchema.extend({ marks })` folds it into a fresh, immutable
- *              schema. The canvas-free half (`schema.data`) rides on the `Doc`,
- *              so the mark replicates and persists through the CRDT.
+ *   • DATA   — the mark `type`. `baseSchema.extend({ marks })` folds it into a
+ *              fresh, immutable schema; the canvas-free half (`schema.data`)
+ *              rides on the `Doc`, so the mark replicates and persists through
+ *              the CRDT.
  *   • RENDER — a `Mark` subclass whose `style()` returns the visual channels for
  *              a run (a background chip, an underline, italic, a colour…). The
  *              renderer COMPOSES the styles of every mark on a run, so one word
  *              can be bold + highlighted + underlined at once and each mark just
- *              contributes its own channel.
+ *              contributes its own channel. Passed as `defineMark`'s `render`;
+ *              `extend()` folds it into `schema.marks` for you.
  *
- * The split is deliberate: two editors on the same page may want to PAINT the
- * same mark differently, so the render facet isn't baked into the shared schema
- * (the project's no-shared-mutable-state rule) — it's passed per editor via
- * `createEditor`'s `marks` option (see main.ts).
- *
- * The rendering `Mark` base class isn't on the package's top-level surface yet,
- * so we reach it through the `@cypherkit/editor/rendering/marks` subpath — the
- * same deep-import style fonts.ts uses for `notifyFontsLoaded`.
+ * Because `extend()` carries the render facet, `createEditor({ schema })` paints
+ * these marks with no separate `marks` option — and you can't accidentally drop
+ * the built-ins (bold/italic/links) by forgetting to spread them into a list.
  */
-import { baseSchema, defineMark } from "@cypherkit/editor";
-import {
-  Mark,
-  type MarkStyle,
-  type MarkStyleCtx,
-} from "@cypherkit/editor/rendering/marks";
+import { baseSchema, defineMark, Mark } from "@cypherkit/editor";
+import type { MarkStyle, MarkStyleCtx } from "@cypherkit/editor";
 
 // ── Render facet ─────────────────────────────────────────────────────────────
 
@@ -64,25 +56,18 @@ class UnderlineMark extends Mark {
   }
 }
 
-/** One stateless instance per type — safe to share across editor instances. */
-export const highlightMark = new HighlightMark();
-export const underlineMark = new UnderlineMark();
+// ── Schema ───────────────────────────────────────────────────────────────────
 
 /**
- * The render-mark list to hand `createEditor`: every built-in mark
- * (`baseSchema.marks`) PLUS our two. This list REPLACES the editor's mark
- * registry, it doesn't add to it — drop the built-ins and bold/italic/links
- * would stop rendering.
- */
-export const renderMarks = [...baseSchema.marks, highlightMark, underlineMark];
-
-// ── Data facet ───────────────────────────────────────────────────────────────
-
-/**
- * The schema with both marks declared. `extend()` returns a NEW immutable schema
- * — `baseSchema` is untouched. Pass `schema` to `createEditor` (for the built-in
- * nodes + the data half) and `schema.data` to `createDoc`.
+ * The schema with both marks declared — data + render in one `defineMark` call.
+ * `extend()` returns a NEW immutable schema (`baseSchema` is untouched) with the
+ * render facets folded into `schema.marks`. Pass `schema` to `createEditor` (for
+ * the built-in nodes, the data half, and our marks' paint) and `schema.data` to
+ * `createDoc`.
  */
 export const schema = baseSchema.extend({
-  marks: [defineMark("highlight"), defineMark("underline")],
+  marks: [
+    defineMark("highlight", { render: new HighlightMark() }),
+    defineMark("underline", { render: new UnderlineMark() }),
+  ],
 });

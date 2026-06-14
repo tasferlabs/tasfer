@@ -10,8 +10,8 @@
  * occupies space and participates in selection.
  *
  * It is not registered under any type key; the renderer reaches for it only
- * when a lookup misses. One shared stateless instance (`unknownNode`) is safe
- * across editors, like the other built-in node singletons.
+ * when a lookup misses, constructing one on demand (the node is stateless, so
+ * the per-miss instance is cheap and shares no state across editors).
  */
 
 import type { Block } from "../../serlization/loadPage";
@@ -56,6 +56,3 @@ export class UnknownNode extends AtomicNode<Block> {
     ctx.restore();
   }
 }
-
-/** Shared stateless fallback node — see the renderer's registry-miss path. */
-export const unknownNode = new UnknownNode();
