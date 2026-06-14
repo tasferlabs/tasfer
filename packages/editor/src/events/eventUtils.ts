@@ -362,9 +362,14 @@ export function endImageDrag(state: EditorState): {
   if (block && block.type === "image") {
     const blockId = block.id;
 
-    // Create operations only for fields that changed during the drag
-    // Compare final values with original values from when drag started
-    if (block.width !== startWidth) {
+    // Create operations only for fields that changed during the drag.
+    // Compare final values with original values from when drag started.
+    // Guard against `undefined`: a defensive resize math edge case could leave
+    // a dimension unset, and emitting `value: undefined` serializes to a
+    // value-less block_set that `applyBlockSet`/`validateField` reject on every
+    // peer — leaving the local editor's image silently desynced (it reflows to
+    // its default size, jumping the content below it). Never emit such an op.
+    if (block.width !== startWidth && block.width !== undefined) {
       ops.push({
         op: "block_set",
         id: state.CRDTbinding.nextId(),
@@ -376,7 +381,7 @@ export function endImageDrag(state: EditorState): {
       });
     }
 
-    if (block.height !== startHeight) {
+    if (block.height !== startHeight && block.height !== undefined) {
       ops.push({
         op: "block_set",
         id: state.CRDTbinding.nextId(),
@@ -388,7 +393,7 @@ export function endImageDrag(state: EditorState): {
       });
     }
 
-    if (block.objectFit !== startObjectFit) {
+    if (block.objectFit !== startObjectFit && block.objectFit !== undefined) {
       ops.push({
         op: "block_set",
         id: state.CRDTbinding.nextId(),

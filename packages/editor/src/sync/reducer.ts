@@ -415,6 +415,15 @@ function applyBlockSet(state: Page, op: BlockSet, schema: DataSchema): Page {
     return state;
   }
 
+  // A value-less block_set (e.g. an op emitted with `value: undefined`, which
+  // serializes to a missing key) carries no information and must never mutate
+  // state. The per-field validators already reject `undefined`, but make the
+  // contract explicit here so a malformed op is a no-op regardless of how a
+  // field validates — it must converge identically on every peer.
+  if (op.value === undefined) {
+    return state;
+  }
+
   if (!schema.validateField(block.type, op.field, op.value)) {
     return state;
   }
