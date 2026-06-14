@@ -488,11 +488,29 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
     if (window.CypherBridge) refocus();
   };
   const update = (newUrl: string, newText: string) =>
-    editor.change((c) =>
-      c.updateLink(blockIndex, startIndex, endIndex, newUrl, newText),
-    );
+    editor.change((c) => {
+      // newText is required (an empty range/text would shift indices); the
+      // caller's UI guards against empty input.
+      if (!newText) return;
+      const block = editor.getState()?.document.page.blocks[blockIndex];
+      if (!block) return;
+      const link = { type: "link", attrs: { url: newUrl } };
+      // The link's existing text is `text` (edit) or the selected text (create).
+      // When it's unchanged, just (re)apply the mark so co-existing marks and
+      // character ids survive; otherwise replace the run with the new text.
+      const oldText = text ?? selectedText ?? "";
+      if (newText === oldText) {
+        c.setMarkRange(block.id, startIndex, startIndex + newText.length, link);
+      } else {
+        c.replaceInlineRange(block.id, startIndex, endIndex, newText, link);
+      }
+    });
   const clearLink = () =>
-    editor.change((c) => c.clearLink(blockIndex, startIndex, endIndex));
+    editor.change((c) => {
+      const block = editor.getState()?.document.page.blocks[blockIndex];
+      if (!block) return;
+      c.setMarkRange(block.id, startIndex, endIndex, { type: "link" }, false);
+    });
 
   if (isMobile) {
     return (

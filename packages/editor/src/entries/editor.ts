@@ -7,15 +7,12 @@ import {
 } from "../actions/clipboard";
 import {
   applySlashCommand,
-  clearLinkInBlock,
   convertBlockType,
   deleteSelectedText,
   getFormatsAtPosition,
-  getSelectionRange,
   insertText,
   selectAll,
   toggleFormat,
-  updateLinkInBlock,
 } from "../actions/commands";
 import {
   type Command,
@@ -138,7 +135,8 @@ export interface ChangeTransaction {
  * (the built-ins `strong`/`emphasis`/`strike`/`code`, plus any custom toggle
  * marks a host registers). `link` and `math` are valid mark types but are
  * `togglable: false` — they carry data (a url / LaTeX) and are applied through
- * their own commands, so `toggleMark` is a no-op for them.
+ * {@link ChangeApi.setMarkRange} (which takes `mark.attrs`), so `toggleMark` is
+ * a no-op for them.
  *
  * Typed as `string` rather than a closed union so custom marks are accepted;
  * the name is validated against the schema at call time.
@@ -179,21 +177,22 @@ export interface ChangeApi {
   ): this;
   /** Delete the inline range `[start, end)` in a block, caret where it began. */
   deleteInlineRange(blockId: string, start: number, end: number): this;
-  /** Replace the current (non-collapsed, single-block) selection with `text`
-   * formatted as a link to `url`, caret after it. */
-  createLink(url: string, text: string): this;
-  /** Update the url/text of an existing link spanning `[startIndex, endIndex)`
-   * in the block at `blockIndex`. */
-  updateLink(
-    blockIndex: number,
-    startIndex: number,
-    endIndex: number,
-    newUrl: string,
-    newText: string,
+  /**
+   * Apply (`active` true, the default) or remove (`active` false) an inline
+   * `mark` over the existing range `[start, end)` in a block, leaving its text
+   * untouched. The mark's per-mark data (e.g. a link's `url`) rides on
+   * `mark.attrs`. This is the general primitive for attrs-carrying marks that
+   * {@link toggleMark} can't apply (links, inline math); combine it with
+   * {@link replaceInlineRange} when the text changes too. A no-op for an empty
+   * range or a missing/non-textual block.
+   */
+  setMarkRange(
+    blockId: string,
+    start: number,
+    end: number,
+    mark: Mark,
+    active?: boolean,
   ): this;
-  /** Remove link formatting from `[startIndex, endIndex)` in the block at
-   * `blockIndex`, leaving the text. */
-  clearLink(blockIndex: number, startIndex: number, endIndex: number): this;
 }
 
 /**
@@ -323,10 +322,12 @@ export interface EditorApi {
   /** Dry-run a {@link change}: would the queued mutations change anything now? */
   canChange: (fn: (c: ChangeApi) => void) => boolean;
   /**
-   * Run one or more named {@link EditorCommand}s, composed into a single
-   * undoable step (sugar over {@link change}). Returns whether anything changed.
+   * Run one or more commands, composed into a single undoable step (sugar over
+   * {@link change}). Each entry is an inline {@link EditorCommand} or the name
+   * of one declared on the schema (`schema.commands`); an unknown name is a
+   * no-op. Returns whether anything changed.
    */
-  run: (...commands: EditorCommand[]) => boolean;
+  run: (...commands: (string | EditorCommand)[]) => boolean;
   /** Step local history backward; returns whether it changed the document. */
   undo: () => boolean;
   /** Step local history forward; returns whether it changed the document. */
@@ -610,17 +611,29 @@ export class Editor implements EditorApi {
   // Click handler for focusing input (stored for cleanup)
   private canvasClickHandler: (() => void) | null = null;
 
+  // Named commands (from the schema), resolvable by name in `run`.
+  private schemaCommands: Readonly<Record<string, EditorCommand>> = {};
+  // Keybinding → command (name or inline), dispatched ahead of built-in keys.
+  private schemaShortcuts: Readonly<Record<string, string | EditorCommand>> = {};
+
   constructor(
     layers: CanvasLayers,
     initialState: EditorState,
     viewportProp: ViewportState,
     hiddenInput?: HTMLElement,
+    config?: {
+      commands?: Readonly<Record<string, EditorCommand>>;
+      shortcuts?: Readonly<Record<string, string | EditorCommand>>;
+    },
   ) {
     // Extract contexts from layers
     this.contentCtx = layers.content.ctx;
     this.cursorCtx = layers.cursor.ctx;
     this.contentCanvas = layers.content.canvas;
     this.hiddenInput = hiddenInput;
+
+    this.schemaCommands = config?.commands ?? {};
+    this.schemaShortcuts = config?.shortcuts ?? {};
 
     this._state = initialState;
     this.viewport = viewportProp;
@@ -2289,24 +2302,8 @@ export class Editor implements EditorApi {
         apply(this.deleteInlineRangeCommand(blockId, start, end));
         return c;
       },
-      createLink: (url, text) => {
-        apply(this.createLinkCommand(url, text));
-        return c;
-      },
-      updateLink: (blockIndex, startIndex, endIndex, newUrl, newText) => {
-        apply(
-          this.updateLinkCommand(
-            blockIndex,
-            startIndex,
-            endIndex,
-            newUrl,
-            newText,
-          ),
-        );
-        return c;
-      },
-      clearLink: (blockIndex, startIndex, endIndex) => {
-        apply(this.clearLinkCommand(blockIndex, startIndex, endIndex));
+      setMarkRange: (blockId, start, end, mark, active = true) => {
+        apply(this.setMarkRangeCommand(blockId, start, end, mark, active));
         return c;
       },
     };
@@ -2345,10 +2342,69 @@ export class Editor implements EditorApi {
     return ctx.state !== this._state || ctx.ops.length > 0;
   };
 
-  run = (...commands: EditorCommand[]): boolean =>
+  run = (...commands: (string | EditorCommand)[]): boolean =>
     this.change((c) => {
-      for (const cmd of commands) cmd(c);
+      for (const cmd of commands) {
+        const fn = typeof cmd === "string" ? this.schemaCommands[cmd] : cmd;
+        if (fn) fn(c);
+      }
     });
+
+  // Match a KeyboardEvent against a combo string like "mod+shift+b" (mod = ⌘
+  // on macOS, Ctrl elsewhere; also ctrl/meta/cmd/alt/opt/shift). The final
+  // token is the key, compared case-insensitively against `event.key` (so
+  // "b"/"enter"/"/" all work). Returns true on an exact modifier+key match.
+  private matchesShortcut = (e: KeyboardEvent, combo: string): boolean => {
+    const parts = combo
+      .toLowerCase()
+      .split("+")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const key = parts.pop();
+    if (!key) return false;
+    let wantCtrl = false;
+    let wantMeta = false;
+    let wantAlt = false;
+    let wantShift = false;
+    let wantMod = false;
+    for (const mod of parts) {
+      if (mod === "mod") wantMod = true;
+      else if (mod === "ctrl" || mod === "control") wantCtrl = true;
+      else if (mod === "meta" || mod === "cmd" || mod === "command")
+        wantMeta = true;
+      else if (mod === "alt" || mod === "opt" || mod === "option")
+        wantAlt = true;
+      else if (mod === "shift") wantShift = true;
+      else return false; // unknown modifier token
+    }
+    const isMac = /Mac|iP(hone|ad|od)/.test(navigator.platform);
+    // `mod` resolves to ⌘ on macOS and Ctrl elsewhere; the platform-native key
+    // must be down and the other must not, so a combo can't double-fire.
+    if (wantMod) {
+      if (isMac ? !(e.metaKey && !e.ctrlKey) : !(e.ctrlKey && !e.metaKey))
+        return false;
+    } else {
+      if (e.ctrlKey !== wantCtrl) return false;
+      if (e.metaKey !== wantMeta) return false;
+    }
+    if (e.altKey !== wantAlt) return false;
+    if (e.shiftKey !== wantShift) return false;
+    return e.key.toLowerCase() === key;
+  };
+
+  // Run the first schema shortcut whose combo matches this event. Returns true
+  // if one matched (and was applied), so the keydown handler can preventDefault
+  // and stop the built-in path. Host shortcuts are checked before built-ins.
+  private handleSchemaShortcut = (e: KeyboardEvent): boolean => {
+    for (const [combo, target] of Object.entries(this.schemaShortcuts)) {
+      if (!this.matchesShortcut(e, combo)) continue;
+      const fn =
+        typeof target === "string" ? this.schemaCommands[target] : target;
+      if (fn) this.change((c) => fn(c));
+      return true;
+    }
+    return false;
+  };
 
   getActiveMarks = (): Set<Mark["type"]> => {
     const result = new Set<Mark["type"]>();
@@ -2441,91 +2497,38 @@ export class Editor implements EditorApi {
     return true;
   };
 
-  private updateLinkCommand =
+  private setMarkRangeCommand =
     (
-      blockIndex: number,
-      startIndex: number,
-      endIndex: number,
-      newUrl: string,
-      newText: string,
+      blockId: string,
+      start: number,
+      end: number,
+      mark: Mark,
+      active: boolean,
     ): StateCommand =>
-    (s) =>
-      updateLinkInBlock(s, blockIndex, startIndex, endIndex, newUrl, newText);
-
-  private clearLinkCommand =
-    (blockIndex: number, startIndex: number, endIndex: number): StateCommand =>
-    (s) =>
-      clearLinkInBlock(s, blockIndex, startIndex, endIndex);
-
-  private createLinkCommand =
-    (url: string, text: string): StateCommand =>
     (s) => {
-      const noChange = { state: s, ops: [] as Operation[] };
-      if (!s.document.selection || s.document.selection.isCollapsed) {
-        return noChange; // Need a selection to create a link
-      }
+      const blocks = s.document.page.blocks;
+      const blockIndex = blocks.findIndex((b) => b.id === blockId);
+      const block = blocks[blockIndex];
+      if (!block || block.deleted || !isTextualBlock(block))
+        return { state: s, ops: [] };
+      if (end <= start) return { state: s, ops: [] };
 
-      const range = getSelectionRange(s);
-      if (!range) return noChange;
-
-      const { start, end } = range;
-
-      // Only support single-block link creation for now
-      if (start.blockIndex !== end.blockIndex) return noChange;
-
-      const block = s.document.page.blocks[start.blockIndex];
-      if (!block || block.deleted || !isTextualBlock(block)) return noChange;
-
-      const ops: Operation[] = [];
-
-      // Delete the selected text first
-      const { newPage: p1, op: deleteOp } = deleteCharsInRange(
+      // The mark's per-mark data (e.g. a link url) rides on mark.attrs.
+      const { newPage, op } = markCharsInRange(
         s.document.page,
-        block.id,
-        start.textIndex,
-        end.textIndex,
+        blockId,
+        start,
+        end,
+        mark,
+        active,
         s.CRDTbinding,
       );
-      ops.push(deleteOp);
+      invalidateBlockCache(newPage.blocks[blockIndex]);
 
-      // Insert the new link text
-      const { newPage: p2, op: insertOp } = insertCharsAtPosition(
-        p1,
-        block.id,
-        start.textIndex,
-        text,
-        s.CRDTbinding,
-      );
-      ops.push(insertOp);
-
-      // Apply link formatting to the inserted text
-      const { newPage: p3, op: formatOp } = markCharsInRange(
-        p2,
-        block.id,
-        start.textIndex,
-        start.textIndex + text.length,
-        { type: "link", attrs: { url } },
-        true,
-        s.CRDTbinding,
-      );
-      ops.push(formatOp);
-
-      invalidateBlockCache(p3.blocks[start.blockIndex]);
-
-      const newState = {
-        ...s,
-        document: { ...s.document, page: p3 },
+      return {
+        state: { ...s, document: { ...s.document, page: newPage } },
+        ops: [op],
       };
-
-      // Clear selection and move cursor to end of inserted link
-      const stateWithClearedSelection = clearSelection(newState);
-      const finalState = moveCursorToPosition(
-        stateWithClearedSelection,
-        start.blockIndex,
-        start.textIndex + text.length,
-      );
-
-      return { state: finalState, ops };
     };
 
   clearSelection = (): void => {
