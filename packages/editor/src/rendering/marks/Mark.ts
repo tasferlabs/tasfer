@@ -142,7 +142,7 @@ export abstract class Mark {
   readonly bold: boolean = false;
 
   /**
-   * Whether `editor.commands.toggleMark` may add/remove this mark directly.
+   * Whether `ChangeApi.toggleMark` may add/remove this mark directly.
    * Marks that need extra input to apply (a link's url, math's LaTeX) set
    * `false`; they're applied through their own dedicated commands instead.
    */

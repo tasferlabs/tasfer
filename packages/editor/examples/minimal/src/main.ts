@@ -5,8 +5,8 @@
  * facade, which parses Markdown and mounts the canvas editor in a single call.
  * It exercises the real public API:
  *   - Tier A: getMarkdown() / setMarkdown(), on("change"/"selectionchange")
- *   - Tier B: editor.commands.*, editor.chain()…run(), and the read-model
- *             helpers getActiveMarks() / isSelectionEmpty()
+ *   - Tier B: editor.change(c => …), editor.run(...commands), undo()/redo(),
+ *             and the read-model helpers getActiveMarks() / isSelectionEmpty()
  *
  * See the README for a short walkthrough.
  */
@@ -77,16 +77,16 @@ async function main() {
   };
 
   // Tier B — the commands namespace. Each returns whether it changed anything.
-  keepFocus("bold", () => editor.commands.toggleMark("strong"));
-  keepFocus("h1", () => editor.commands.setBlock("heading1"));
-  keepFocus("bullet", () => editor.commands.setBlock("bullet_list"));
-  keepFocus("undo", () => editor.commands.undo());
-  keepFocus("redo", () => editor.commands.redo());
+  keepFocus("bold", () => editor.change((c) => c.toggleMark("strong")));
+  keepFocus("h1", () => editor.change((c) => c.setBlock("heading1")));
+  keepFocus("bullet", () => editor.change((c) => c.setBlock("bullet_list")));
+  keepFocus("undo", () => editor.undo());
+  keepFocus("redo", () => editor.redo());
 
   // Tier B — chain(): set the block to a heading AND type its text as a single
   // undoable step (one ⌘Z reverts the whole thing, not just the text).
   keepFocus("section", () =>
-    editor.chain().setBlock("heading2").insertText("New section").run(),
+    editor.change((c) => c.setBlock("heading2").insertText("New section")),
   );
 
   // setMarkdown() replaces the whole document — and it's a single undoable step,

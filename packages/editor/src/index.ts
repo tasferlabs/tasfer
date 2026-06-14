@@ -66,10 +66,10 @@ export {
 // The concrete `Editor` class is reachable via the `@cypherkit/editor/entries/
 // editor` subpath for advanced use (`new Editor(...)`).
 export type {
+  ChangeApi,
   ChangeTransaction,
   EditorApi as Editor,
-  EditorCommandChain,
-  EditorCommands,
+  EditorCommand,
   EditorEvent,
   EditorStateSnapshot,
   MarkName,

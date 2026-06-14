@@ -26,7 +26,7 @@ import type { MarkStyle, MarkStyleCtx } from "@cypherkit/editor";
 /**
  * Highlight: a translucent chip painted behind the glyphs (the same `background`
  * channel the built-in `code` mark uses). Marks are togglable by default, so
- * `editor.commands.toggleMark("highlight")` just works.
+ * `editor.change((c) => c.toggleMark("highlight"))` just works.
  */
 class HighlightMark extends Mark {
   readonly type = "highlight";

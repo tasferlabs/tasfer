@@ -160,8 +160,8 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
   };
 
   const handle: CypherEditor = {
-    // Spread the core editor command surface (toggleBold, undo, on,
-    // getMarkdown, commands, chain, sync methods, …) onto the returned handle.
+    // Spread the core editor command surface (change, run, undo, on,
+    // getMarkdown, sync methods, …) onto the returned handle.
     ...editor,
     // Re-expose `state` as a live getter: object spread above evaluates the
     // core getter once and would otherwise freeze it to a stale snapshot.

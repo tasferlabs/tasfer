@@ -158,8 +158,8 @@ async function main() {
     });
   };
   const boldBtn = byId("bold");
-  keepFocus("bold", () => editor.commands.toggleMark("strong"));
-  keepFocus("undo", () => editor.commands.undo());
+  keepFocus("bold", () => editor.change((c) => c.toggleMark("strong")));
+  keepFocus("undo", () => editor.undo());
 
   // Light up Bold from the live read-model — pure function of editor state.
   const paintActive = () => {

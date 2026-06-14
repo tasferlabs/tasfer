@@ -199,10 +199,12 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
         try {
           const imageData = await uploadImage(file);
           // Address by id — the upload may have shifted the block index.
-          editor.setNodeAttrs(block.id, {
-            url: imageData.url,
-            alt: imageData.fileName,
-          });
+          editor.change((c) =>
+            c.setNodeAttrs(block.id, {
+              url: imageData.url,
+              alt: imageData.fileName,
+            }),
+          );
           editor.setNodeViewState(block.id, null);
           editor.closeActiveMenu();
         } catch (error) {
@@ -217,14 +219,15 @@ const ImageUploadOverlay: ComponentType<NodeOverlayProps> = ({
         // Clear failed cache for this URL to allow retry
         clearFailedImageCache(url);
 
-        editor.setNodeAttrs(block.id, { url });
+        editor.change((c) => c.setNodeAttrs(block.id, { url }));
         editor.setNodeViewState(block.id, null);
       }}
       onDelete={() => {
         // "Remove Image" deletes the block (was a no-op on the desktop edit
         // path before this migration; the mobile drawer already deleted).
         const block = editor.getState()?.document.page.blocks[blockIndex];
-        if (block && !block.deleted) editor.deleteNode(block.id);
+        if (block && !block.deleted)
+          editor.change((c) => c.deleteNode(block.id));
         close();
       }}
       onClose={close}
@@ -261,13 +264,13 @@ const MathEditOverlay: ComponentType<NodeOverlayProps> = ({
       onSubmit={(latex, displayMode) => {
         const b = editor.getState()?.document.page.blocks[blockIndex];
         if (b && !b.deleted && b.type === "math") {
-          editor.setNodeAttrs(b.id, { latex, displayMode });
+          editor.change((c) => c.setNodeAttrs(b.id, { latex, displayMode }));
         }
         editor.closeActiveMenu();
       }}
       onDelete={() => {
         const b = editor.getState()?.document.page.blocks[blockIndex];
-        if (b && !b.deleted) editor.deleteNode(b.id);
+        if (b && !b.deleted) editor.change((c) => c.deleteNode(b.id));
         editor.closeActiveMenu();
       }}
       onClose={() => editor.closeActiveMenu()}
@@ -309,12 +312,10 @@ const InlineMathEditOverlay: ComponentType<NodeOverlayProps> = ({
       onSubmit={(nextLatex) => {
         const block = editor.getState()?.document.page.blocks[blockIndex];
         if (block && !block.deleted) {
-          editor.replaceInlineRange(
-            block.id,
-            startIndex,
-            endIndex,
-            nextLatex,
-            { type: "math" },
+          editor.change((c) =>
+            c.replaceInlineRange(block.id, startIndex, endIndex, nextLatex, {
+              type: "math",
+            }),
           );
         }
         editor.closeActiveMenu();
@@ -322,7 +323,9 @@ const InlineMathEditOverlay: ComponentType<NodeOverlayProps> = ({
       onDelete={() => {
         const block = editor.getState()?.document.page.blocks[blockIndex];
         if (block && !block.deleted) {
-          editor.deleteInlineRange(block.id, startIndex, endIndex);
+          editor.change((c) =>
+            c.deleteInlineRange(block.id, startIndex, endIndex),
+          );
         }
         editor.closeActiveMenu();
       }}
@@ -485,8 +488,11 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
     if (window.CypherBridge) refocus();
   };
   const update = (newUrl: string, newText: string) =>
-    editor.updateLink(blockIndex, startIndex, endIndex, newUrl, newText);
-  const clearLink = () => editor.clearLink(blockIndex, startIndex, endIndex);
+    editor.change((c) =>
+      c.updateLink(blockIndex, startIndex, endIndex, newUrl, newText),
+    );
+  const clearLink = () =>
+    editor.change((c) => c.clearLink(blockIndex, startIndex, endIndex));
 
   if (isMobile) {
     return (
@@ -1169,7 +1175,7 @@ function EditorSurface({
                     await editor.copy();
                     break;
                   case "selectAll":
-                    editor.commands.selectAll();
+                    editor.change((c) => c.selectAll());
                     editor.closeActiveMenu();
                     break;
                 }
@@ -1367,10 +1373,12 @@ function EditorSurface({
         if (block.url?.startsWith("blob:")) {
           URL.revokeObjectURL(block.url);
         }
-        mounted.editor.setNodeAttrs(block.id, {
-          url: imageData.url,
-          alt: imageData.fileName,
-        });
+        mounted.editor.change((c) =>
+          c.setNodeAttrs(block.id, {
+            url: imageData.url,
+            alt: imageData.fileName,
+          }),
+        );
       } catch (error) {
         console.error("Image paste upload failed:", error);
       }
@@ -1466,19 +1474,19 @@ function EditorSurface({
 
     // Expose editor methods to window for native bridges
     const editorMethods = {
-      undo: () => mounted.editor.commands.undo(),
-      redo: () => mounted.editor.commands.redo(),
+      undo: () => mounted.editor.undo(),
+      redo: () => mounted.editor.redo(),
       setBlockType: (type: string) =>
-        mounted.editor.commands.setBlock(type as any),
+        mounted.editor.change((c) => c.setBlock(type as any)),
       focus: () => {
         mounted.editor.setFocus(true);
         mounted.editor.setInitialCursor();
       },
       onFormatButtonClick: handleFormatButtonClick,
-      toggleBold: () => mounted.editor.commands.toggleMark("strong"),
-      toggleItalic: () => mounted.editor.commands.toggleMark("emphasis"),
-      toggleCode: () => mounted.editor.commands.toggleMark("code"),
-      toggleStrikethrough: () => mounted.editor.commands.toggleMark("strike"),
+      toggleBold: () => mounted.editor.change((c) => c.toggleMark("strong")),
+      toggleItalic: () => mounted.editor.change((c) => c.toggleMark("emphasis")),
+      toggleCode: () => mounted.editor.change((c) => c.toggleMark("code")),
+      toggleStrikethrough: () => mounted.editor.change((c) => c.toggleMark("strike")),
     };
 
     window.CypherEditorCallbacks = editorMethods;
@@ -2037,7 +2045,7 @@ function EditorSurface({
         await editor.paste();
         break;
       case "selectAll":
-        editor.commands.selectAll();
+        editor.change((c) => c.selectAll());
         editor.closeActiveMenu();
         break;
     }
@@ -2182,7 +2190,7 @@ function EditorSurface({
             label: t("contextMenu.bold", "Bold"),
             icon: <Bold size={16} />,
             action: () =>
-              mountedRef.current?.editor.commands.toggleMark("strong"),
+              mountedRef.current?.editor.change((c) => c.toggleMark("strong")),
             active: isBold,
           },
           {
@@ -2190,7 +2198,7 @@ function EditorSurface({
             label: t("contextMenu.italic", "Italic"),
             icon: <Italic size={16} />,
             action: () =>
-              mountedRef.current?.editor.commands.toggleMark("emphasis"),
+              mountedRef.current?.editor.change((c) => c.toggleMark("emphasis")),
             active: isItalic,
           },
           {
@@ -2198,7 +2206,7 @@ function EditorSurface({
             label: t("contextMenu.code", "Code"),
             icon: <Code size={16} />,
             action: () =>
-              mountedRef.current?.editor.commands.toggleMark("code"),
+              mountedRef.current?.editor.change((c) => c.toggleMark("code")),
             active: isCode,
           },
           {
@@ -2206,7 +2214,7 @@ function EditorSurface({
             label: t("contextMenu.strikethrough", "Strikethrough"),
             icon: <Strikethrough size={16} />,
             action: () =>
-              mountedRef.current?.editor.commands.toggleMark("strike"),
+              mountedRef.current?.editor.change((c) => c.toggleMark("strike")),
             active: isStrikethrough,
           },
           {
@@ -2416,22 +2424,22 @@ function EditorSurface({
           isCode={mobileToolbar.isCode}
           isStrikethrough={mobileToolbar.isStrikethrough}
           currentBlockType={mobileToolbar.blockType}
-          onUndo={() => mountedRef.current?.editor.commands.undo()}
-          onRedo={() => mountedRef.current?.editor.commands.redo()}
+          onUndo={() => mountedRef.current?.editor.undo()}
+          onRedo={() => mountedRef.current?.editor.redo()}
           onToggleBold={() =>
-            mountedRef.current?.editor.commands.toggleMark("strong")
+            mountedRef.current?.editor.change((c) => c.toggleMark("strong"))
           }
           onToggleItalic={() =>
-            mountedRef.current?.editor.commands.toggleMark("emphasis")
+            mountedRef.current?.editor.change((c) => c.toggleMark("emphasis"))
           }
           onToggleCode={() =>
-            mountedRef.current?.editor.commands.toggleMark("code")
+            mountedRef.current?.editor.change((c) => c.toggleMark("code"))
           }
           onToggleStrikethrough={() =>
-            mountedRef.current?.editor.commands.toggleMark("strike")
+            mountedRef.current?.editor.change((c) => c.toggleMark("strike"))
           }
           onSetBlockType={(type) =>
-            mountedRef.current?.editor.commands.setBlock(type as any)
+            mountedRef.current?.editor.change((c) => c.setBlock(type as any))
           }
           onDismissKeyboard={() => mountedRef.current?.blurInput()}
         />

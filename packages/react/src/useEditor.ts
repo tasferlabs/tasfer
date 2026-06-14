@@ -27,7 +27,7 @@ export interface UseEditorResult {
   /**
    * The live editor handle, or `null` before the first effect runs (i.e. on the
    * initial render, and on the server). Drive imperative changes through this —
-   * `editor.setTheme(...)`, `editor.setMarkdown(...)`, `editor.commands.*`, etc.
+   * `editor.setTheme(...)`, `editor.setMarkdown(...)`, `editor.change(...)`, etc.
    */
   editor: CypherEditor | null;
 }

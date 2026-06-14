@@ -133,7 +133,7 @@ export interface ChangeTransaction {
 }
 
 /**
- * An inline mark name accepted by {@link EditorCommands.toggleMark} — any mark
+ * An inline mark name accepted by {@link ChangeApi.toggleMark} — any mark
  * type registered on the editor's schema whose {@link Mark.togglable} is true
  * (the built-ins `strong`/`emphasis`/`strike`/`code`, plus any custom toggle
  * marks a host registers). `link` and `math` are valid mark types but are
@@ -146,45 +146,63 @@ export interface ChangeTransaction {
 export type MarkName = string;
 
 /**
- * Imperative command namespace (see {@link Editor.commands}). Each command
- * applies immediately as its own undoable step and returns whether it changed
- * the document/selection. Group several into one step with {@link Editor.chain}.
+ * The single mutation surface, handed to the callback of {@link Editor.change}
+ * / {@link Editor.canChange} (and to an {@link EditorCommand}). Every method
+ * queues one granular edit and returns `this`, so calls chain. The whole
+ * callback commits as ONE undoable step — one undo entry, one broadcast, one
+ * `on("change")` — regardless of how many methods it calls. A method whose
+ * target is missing/invalid is a silent no-op (it queues nothing).
  */
-export interface EditorCommands {
+export interface ChangeApi {
   /** Toggle an inline mark across the selection (or the pending caret format). */
-  toggleMark: (name: MarkName) => boolean;
+  toggleMark(name: MarkName): this;
   /** Convert the current block to a textual block type (paragraph/heading/list). */
-  setBlock: (
-    type: Block["type"] | "heading",
-    attrs?: { level?: number },
-  ) => boolean;
+  setBlock(type: Block["type"] | "heading", attrs?: { level?: number }): this;
   /** Insert text at the caret, replacing any selection. */
-  insertText: (text: string) => boolean;
+  insertText(text: string): this;
   /** Select the whole document. */
-  selectAll: () => boolean;
-  /** Step local history backward / forward. */
-  undo: () => boolean;
-  redo: () => boolean;
+  selectAll(): this;
+  /** Set one or more attributes on a block, addressed by id (one `block_set` op
+   * per field; validated against the block type's schema). */
+  setNodeAttrs(blockId: string, attrs: Record<string, unknown>): this;
+  /** Delete a block, addressed by id (tombstoned, so undo can restore it). If it
+   * was the last visible block, an empty paragraph replaces it. */
+  deleteNode(blockId: string): this;
+  /** Replace the inline range `[start, end)` in a block with `text`, optionally
+   * applying a single inline `mark` to the inserted run. Empty `text` deletes. */
+  replaceInlineRange(
+    blockId: string,
+    start: number,
+    end: number,
+    text: string,
+    mark?: Mark,
+  ): this;
+  /** Delete the inline range `[start, end)` in a block, caret where it began. */
+  deleteInlineRange(blockId: string, start: number, end: number): this;
+  /** Replace the current (non-collapsed, single-block) selection with `text`
+   * formatted as a link to `url`, caret after it. */
+  createLink(url: string, text: string): this;
+  /** Update the url/text of an existing link spanning `[startIndex, endIndex)`
+   * in the block at `blockIndex`. */
+  updateLink(
+    blockIndex: number,
+    startIndex: number,
+    endIndex: number,
+    newUrl: string,
+    newText: string,
+  ): this;
+  /** Remove link formatting from `[startIndex, endIndex)` in the block at
+   * `blockIndex`, leaving the text. */
+  clearLink(blockIndex: number, startIndex: number, endIndex: number): this;
 }
 
 /**
- * A batch of commands committed together as a single undoable step (see
- * {@link Editor.chain}). Builder methods are chainable; `run()` commits the
- * batch (one undo entry, one broadcast), `canRun()` dry-runs it.
+ * A named, reusable document mutation: a function over the {@link ChangeApi}.
+ * Pass one (or several) to {@link Editor.run}; they compose into a single
+ * undoable step. The host's own commands and the engine built-ins are the same
+ * kind of value — `const toggleStrong: EditorCommand = (c) => c.toggleMark("strong")`.
  */
-export interface EditorCommandChain {
-  toggleMark: (name: MarkName) => EditorCommandChain;
-  setBlock: (
-    type: Block["type"] | "heading",
-    attrs?: { level?: number },
-  ) => EditorCommandChain;
-  insertText: (text: string) => EditorCommandChain;
-  selectAll: () => EditorCommandChain;
-  /** Commit every queued command as one undoable step; returns whether anything changed. */
-  run: () => boolean;
-  /** Dry-run: would the queued commands change anything right now? */
-  canRun: () => boolean;
-}
+export type EditorCommand = (c: ChangeApi) => void;
 
 /**
  * Read-only snapshot of editor state for UI binding (see {@link Editor.state}).
@@ -296,12 +314,23 @@ export interface EditorApi {
    */
   setMarkdown: (markdown: string) => void;
   /**
-   * Imperative command namespace — each command applies immediately as its own
-   * undoable step and returns whether it changed anything.
+   * Apply document mutations as ONE undoable step. The callback receives a
+   * {@link ChangeApi} whose methods chain; everything it queues commits
+   * together — one undo entry, one broadcast, one `on("change")`. Returns
+   * whether anything actually changed.
    */
-  commands: EditorCommands;
-  /** Begin a chain of commands committed together as a single undoable step. */
-  chain: () => EditorCommandChain;
+  change: (fn: (c: ChangeApi) => void) => boolean;
+  /** Dry-run a {@link change}: would the queued mutations change anything now? */
+  canChange: (fn: (c: ChangeApi) => void) => boolean;
+  /**
+   * Run one or more named {@link EditorCommand}s, composed into a single
+   * undoable step (sugar over {@link change}). Returns whether anything changed.
+   */
+  run: (...commands: EditorCommand[]) => boolean;
+  /** Step local history backward; returns whether it changed the document. */
+  undo: () => boolean;
+  /** Step local history forward; returns whether it changed the document. */
+  redo: () => boolean;
   /**
    * The inline formats that will apply to text typed at the caret — explicit
    * toggled formats, or those inherited from the character before it. Handy for
@@ -331,28 +360,6 @@ export interface EditorApi {
    * and close any open context menu. Resolves to whether anything was pasted.
    */
   paste: () => Promise<boolean>;
-  /**
-   * Update the URL and text of an existing link spanning `[startIndex, endIndex)`
-   * in the block at `blockIndex`. One undoable step; broadcast to peers.
-   */
-  updateLink: (
-    blockIndex: number,
-    startIndex: number,
-    endIndex: number,
-    newUrl: string,
-    newText: string,
-  ) => void;
-  /**
-   * Remove link formatting from the range `[startIndex, endIndex)` in the block
-   * at `blockIndex`, leaving the text. One undoable step; broadcast to peers.
-   */
-  clearLink: (blockIndex: number, startIndex: number, endIndex: number) => void;
-  /**
-   * Replace the current selection with `text` formatted as a link to `url`,
-   * placing the caret after it. Requires a non-collapsed, single-block selection
-   * (otherwise a no-op). One undoable step; broadcast to peers.
-   */
-  createLink: (url: string, text: string) => void;
   /**
    * Clear both the selection and the caret — removing all selection/cursor
    * visuals — and notify subscribers.
@@ -387,39 +394,6 @@ export interface EditorApi {
    * dark-mode toggle calls `setTheme({ tokens })`.
    */
   setTheme: (patch: EditorTheme) => void;
-  /**
-   * Set one or more attributes on a block, addressed by id. Each entry becomes
-   * a `block_set` CRDT op; the field/value are validated against the block
-   * type's schema when applied. Generic over block type — e.g. an image block's
-   * `{ url, alt }` or a math block's `{ latex, displayMode }`. One undoable
-   * step; broadcast to peers. Returns false if the block is missing/deleted.
-   */
-  setNodeAttrs: (blockId: string, attrs: Record<string, unknown>) => boolean;
-  /**
-   * Delete a block, addressed by id (tombstoned, so undo can restore it). If it
-   * was the last visible block, an empty paragraph is inserted in its place.
-   * One undoable step; broadcast to peers. Returns false if missing/deleted.
-   */
-  deleteNode: (blockId: string) => boolean;
-  /**
-   * Replace the inline text range `[start, end)` in a block with `text`,
-   * optionally applying a single inline `mark` to the inserted run (e.g. the
-   * `math` mark for an inline-math chip). Empty `text` deletes the range. One
-   * undoable step; broadcast to peers. Returns false if the block isn't textual.
-   */
-  replaceInlineRange: (
-    blockId: string,
-    start: number,
-    end: number,
-    text: string,
-    mark?: Mark,
-  ) => boolean;
-  /**
-   * Delete the inline text range `[start, end)` in a block and place the caret
-   * where it began. One undoable step; broadcast to peers. Returns false if the
-   * block isn't textual or the range is empty.
-   */
-  deleteInlineRange: (blockId: string, start: number, end: number) => boolean;
   /**
    * Open a host-defined overlay (popover/drawer/tooltip). The single generic
    * primitive every host overlay flows through: the engine stores `{ key, data }`
@@ -2270,88 +2244,111 @@ export class Editor implements EditorApi {
     ops: [],
   });
 
-  /** Run a single command immediately; returns whether it changed anything. */
-  private runCommand = (cmd: StateCommand): boolean => {
+  // Build a ChangeApi over a working-state/ops accumulator. Each method queues
+  // a StateCommand by threading the accumulator forward, then returns the same
+  // builder so calls chain. Nothing is committed here — commitChange does that.
+  private makeChangeApi = (ctx: {
+    state: EditorState;
+    ops: Operation[];
+  }): ChangeApi => {
+    const apply = (cmd: StateCommand) => {
+      const r = cmd(ctx.state);
+      ctx.state = r.state;
+      ctx.ops.push(...r.ops);
+    };
+    const c: ChangeApi = {
+      toggleMark: (name) => {
+        if (this.canToggleMark(name)) apply(this.toggleMarkCommand(name));
+        return c;
+      },
+      setBlock: (type, attrs) => {
+        apply(this.blockCommand(this.resolveBlockType(type, attrs)));
+        return c;
+      },
+      insertText: (text) => {
+        apply(this.insertTextCommand(text));
+        return c;
+      },
+      selectAll: () => {
+        apply(this.selectAllCommand);
+        return c;
+      },
+      setNodeAttrs: (blockId, attrs) => {
+        apply(this.setNodeAttrsCommand(blockId, attrs));
+        return c;
+      },
+      deleteNode: (blockId) => {
+        apply(this.deleteNodeCommand(blockId));
+        return c;
+      },
+      replaceInlineRange: (blockId, start, end, text, mark) => {
+        apply(this.replaceInlineRangeCommand(blockId, start, end, text, mark));
+        return c;
+      },
+      deleteInlineRange: (blockId, start, end) => {
+        apply(this.deleteInlineRangeCommand(blockId, start, end));
+        return c;
+      },
+      createLink: (url, text) => {
+        apply(this.createLinkCommand(url, text));
+        return c;
+      },
+      updateLink: (blockIndex, startIndex, endIndex, newUrl, newText) => {
+        apply(
+          this.updateLinkCommand(
+            blockIndex,
+            startIndex,
+            endIndex,
+            newUrl,
+            newText,
+          ),
+        );
+        return c;
+      },
+      clearLink: (blockIndex, startIndex, endIndex) => {
+        apply(this.clearLinkCommand(blockIndex, startIndex, endIndex));
+        return c;
+      },
+    };
+    return c;
+  };
+
+  // Commit an accumulated batch as ONE undoable step: record undo, broadcast
+  // once, re-render, notify. No-op (returns false) when nothing changed.
+  private commitChange = (ctx: {
+    state: EditorState;
+    ops: Operation[];
+  }): boolean => {
     const prev = this._state;
-    const result = cmd(prev);
-    if (result.state === prev && result.ops.length === 0) return false;
-    this.executeCommand(result);
+    const changed = ctx.state !== prev || ctx.ops.length > 0;
+    if (!changed) return false;
+    this._state =
+      ctx.ops.length > 0
+        ? recordUndoOps(prev, ctx.state, ctx.ops, prev.CRDTbinding.getPeerId())
+        : ctx.state;
+    if (ctx.ops.length > 0 && this.broadcastFn) this.emitLocalOps(ctx.ops);
+    this.scheduleRender();
+    const currentState = this._state;
+    this.listeners.forEach((listener) => listener(currentState));
     return true;
   };
 
-  commands: EditorCommands = {
-    toggleMark: (name) =>
-      this.canToggleMark(name)
-        ? this.runCommand(this.toggleMarkCommand(name))
-        : false,
-    setBlock: (type, attrs) =>
-      this.runCommand(this.blockCommand(this.resolveBlockType(type, attrs))),
-    insertText: (text) => this.runCommand(this.insertTextCommand(text)),
-    selectAll: () => this.runCommand(this.selectAllCommand),
-    undo: () => {
-      const before = this._state;
-      this.undo();
-      return this._state !== before;
-    },
-    redo: () => {
-      const before = this._state;
-      this.redo();
-      return this._state !== before;
-    },
+  change = (fn: (c: ChangeApi) => void): boolean => {
+    const ctx = { state: this._state, ops: [] as Operation[] };
+    fn(this.makeChangeApi(ctx));
+    return this.commitChange(ctx);
   };
 
-  chain = (): EditorCommandChain => {
-    const steps: StateCommand[] = [];
-    // Apply queued steps to a working copy; commit (record ONE undo step,
-    // broadcast once, notify) only when `commit` is true. canRun() passes false.
-    const apply = (commit: boolean): boolean => {
-      const prev = this._state;
-      let cur = prev;
-      const allOps: Operation[] = [];
-      for (const step of steps) {
-        const r = step(cur);
-        cur = r.state;
-        allOps.push(...r.ops);
-      }
-      const changed = cur !== prev || allOps.length > 0;
-      if (!commit || !changed) return changed;
-      this._state =
-        allOps.length > 0
-          ? recordUndoOps(
-              prev,
-              cur,
-              allOps,
-              this._state.CRDTbinding.getPeerId(),
-            )
-          : cur;
-      if (allOps.length > 0 && this.broadcastFn) this.emitLocalOps(allOps);
-      this.scheduleRender();
-      const currentState = this._state;
-      this.listeners.forEach((listener) => listener(currentState));
-      return true;
-    };
-    const builder: EditorCommandChain = {
-      toggleMark: (name) => {
-        if (this.canToggleMark(name)) steps.push(this.toggleMarkCommand(name));
-        return builder;
-      },
-      setBlock: (type, attrs) => {
-        steps.push(this.blockCommand(this.resolveBlockType(type, attrs)));
-        return builder;
-      },
-      insertText: (text) => {
-        steps.push(this.insertTextCommand(text));
-        return builder;
-      },
-      selectAll: () => {
-        steps.push(this.selectAllCommand);
-        return builder;
-      },
-      run: () => apply(true),
-      canRun: () => apply(false),
-    };
-    return builder;
+  canChange = (fn: (c: ChangeApi) => void): boolean => {
+    const ctx = { state: this._state, ops: [] as Operation[] };
+    fn(this.makeChangeApi(ctx));
+    return ctx.state !== this._state || ctx.ops.length > 0;
   };
+
+  run = (...commands: EditorCommand[]): boolean =>
+    this.change((c) => {
+      for (const cmd of commands) cmd(c);
+    });
 
   getActiveMarks = (): Set<Mark["type"]> => {
     const result = new Set<Mark["type"]>();
@@ -2418,138 +2415,118 @@ export class Editor implements EditorApi {
     return false;
   };
 
-  private undo = () => {
+  undo = (): boolean => {
     const result = undoState(this._state);
-    if (result.state !== this._state) {
-      this._state = result.state;
-      this.scheduleRender();
-      this.listeners.forEach((listener) => listener(result.state));
-      // Broadcast inverse operations to sync engine
-      if (result.ops.length > 0 && this.broadcastFn) {
-        this.emitLocalOps(result.ops);
-      }
+    if (result.state === this._state) return false;
+    this._state = result.state;
+    this.scheduleRender();
+    this.listeners.forEach((listener) => listener(result.state));
+    // Broadcast inverse operations to sync engine
+    if (result.ops.length > 0 && this.broadcastFn) {
+      this.emitLocalOps(result.ops);
     }
+    return true;
   };
 
-  private redo = () => {
+  redo = (): boolean => {
     const result = redoState(this._state);
-    if (result.state !== this._state) {
-      this._state = result.state;
-      this.scheduleRender();
-      this.listeners.forEach((listener) => listener(result.state));
-      // Broadcast redo operations to sync engine
-      if (result.ops.length > 0 && this.broadcastFn) {
-        this.emitLocalOps(result.ops);
+    if (result.state === this._state) return false;
+    this._state = result.state;
+    this.scheduleRender();
+    this.listeners.forEach((listener) => listener(result.state));
+    // Broadcast redo operations to sync engine
+    if (result.ops.length > 0 && this.broadcastFn) {
+      this.emitLocalOps(result.ops);
+    }
+    return true;
+  };
+
+  private updateLinkCommand =
+    (
+      blockIndex: number,
+      startIndex: number,
+      endIndex: number,
+      newUrl: string,
+      newText: string,
+    ): StateCommand =>
+    (s) =>
+      updateLinkInBlock(s, blockIndex, startIndex, endIndex, newUrl, newText);
+
+  private clearLinkCommand =
+    (blockIndex: number, startIndex: number, endIndex: number): StateCommand =>
+    (s) =>
+      clearLinkInBlock(s, blockIndex, startIndex, endIndex);
+
+  private createLinkCommand =
+    (url: string, text: string): StateCommand =>
+    (s) => {
+      const noChange = { state: s, ops: [] as Operation[] };
+      if (!s.document.selection || s.document.selection.isCollapsed) {
+        return noChange; // Need a selection to create a link
       }
-    }
-  };
 
-  updateLink = (
-    blockIndex: number,
-    startIndex: number,
-    endIndex: number,
-    newUrl: string,
-    newText: string,
-  ): void => {
-    const result = updateLinkInBlock(
-      this._state,
-      blockIndex,
-      startIndex,
-      endIndex,
-      newUrl,
-      newText,
-    );
-    this.executeCommand(result);
-  };
+      const range = getSelectionRange(s);
+      if (!range) return noChange;
 
-  clearLink = (
-    blockIndex: number,
-    startIndex: number,
-    endIndex: number,
-  ): void => {
-    const result = clearLinkInBlock(
-      this._state,
-      blockIndex,
-      startIndex,
-      endIndex,
-    );
-    this.executeCommand(result);
-  };
+      const { start, end } = range;
 
-  createLink = (url: string, text: string): void => {
-    if (
-      !this._state.document.selection ||
-      this._state.document.selection.isCollapsed
-    ) {
-      return; // Need a selection to create a link
-    }
+      // Only support single-block link creation for now
+      if (start.blockIndex !== end.blockIndex) return noChange;
 
-    const range = getSelectionRange(this._state);
-    if (!range) return;
+      const block = s.document.page.blocks[start.blockIndex];
+      if (!block || block.deleted || !isTextualBlock(block)) return noChange;
 
-    const { start, end } = range;
+      const ops: Operation[] = [];
 
-    // Only support single-block link creation for now
-    if (start.blockIndex !== end.blockIndex) {
-      return;
-    }
+      // Delete the selected text first
+      const { newPage: p1, op: deleteOp } = deleteCharsInRange(
+        s.document.page,
+        block.id,
+        start.textIndex,
+        end.textIndex,
+        s.CRDTbinding,
+      );
+      ops.push(deleteOp);
 
-    const block = this._state.document.page.blocks[start.blockIndex];
-    if (!block || block.deleted || !isTextualBlock(block)) {
-      return;
-    }
+      // Insert the new link text
+      const { newPage: p2, op: insertOp } = insertCharsAtPosition(
+        p1,
+        block.id,
+        start.textIndex,
+        text,
+        s.CRDTbinding,
+      );
+      ops.push(insertOp);
 
-    const ops: Operation[] = [];
+      // Apply link formatting to the inserted text
+      const { newPage: p3, op: formatOp } = markCharsInRange(
+        p2,
+        block.id,
+        start.textIndex,
+        start.textIndex + text.length,
+        { type: "link", attrs: { url } },
+        true,
+        s.CRDTbinding,
+      );
+      ops.push(formatOp);
 
-    // Delete the selected text first
-    const { newPage: p1, op: deleteOp } = deleteCharsInRange(
-      this._state.document.page,
-      block.id,
-      start.textIndex,
-      end.textIndex,
-      this._state.CRDTbinding,
-    );
-    ops.push(deleteOp);
+      invalidateBlockCache(p3.blocks[start.blockIndex]);
 
-    // Insert the new link text
-    const { newPage: p2, op: insertOp } = insertCharsAtPosition(
-      p1,
-      block.id,
-      start.textIndex,
-      text,
-      this._state.CRDTbinding,
-    );
-    ops.push(insertOp);
+      const newState = {
+        ...s,
+        document: { ...s.document, page: p3 },
+      };
 
-    // Apply link formatting to the inserted text
-    const { newPage: p3, op: formatOp } = markCharsInRange(
-      p2,
-      block.id,
-      start.textIndex,
-      start.textIndex + text.length,
-      { type: "link", attrs: { url } },
-      true,
-      this._state.CRDTbinding,
-    );
-    ops.push(formatOp);
+      // Clear selection and move cursor to end of inserted link
+      const stateWithClearedSelection = clearSelection(newState);
+      const finalState = moveCursorToPosition(
+        stateWithClearedSelection,
+        start.blockIndex,
+        start.textIndex + text.length,
+      );
 
-    invalidateBlockCache(p3.blocks[start.blockIndex]);
-
-    const newState = {
-      ...this._state,
-      document: { ...this._state.document, page: p3 },
+      return { state: finalState, ops };
     };
-
-    // Clear selection and move cursor to end of inserted link
-    const stateWithClearedSelection = clearSelection(newState);
-    const finalState = moveCursorToPosition(
-      stateWithClearedSelection,
-      start.blockIndex,
-      start.textIndex + text.length,
-    );
-
-    this.executeCommand({ state: finalState, ops });
-  };
 
   clearSelection = (): void => {
     this._state = clearSelection(this._state);
@@ -2605,50 +2582,51 @@ export class Editor implements EditorApi {
     this.listeners.forEach((listener) => listener(currentState));
   };
 
-  setNodeAttrs = (blockId: string, attrs: Record<string, unknown>): boolean => {
-    const blocks = this._state.document.page.blocks;
-    const blockIndex = blocks.findIndex((b) => b.id === blockId);
-    const block = blocks[blockIndex];
-    if (!block || block.deleted) return false;
+  private setNodeAttrsCommand =
+    (blockId: string, attrs: Record<string, unknown>): StateCommand =>
+    (s) => {
+      const blocks = s.document.page.blocks;
+      const blockIndex = blocks.findIndex((b) => b.id === blockId);
+      const block = blocks[blockIndex];
+      if (!block || block.deleted) return { state: s, ops: [] };
 
-    const fields = Object.keys(attrs);
-    if (fields.length === 0) return false;
+      const fields = Object.keys(attrs);
+      if (fields.length === 0) return { state: s, ops: [] };
 
-    const updatedBlock = { ...block, ...attrs } as typeof block;
-    // Layout caches are keyed by content; an attr change (image URL, math
-    // latex, …) can change a block's measured height, so drop its cache.
-    invalidateBlockCache(updatedBlock);
+      const updatedBlock = { ...block, ...attrs } as typeof block;
+      // Layout caches are keyed by content; an attr change (image URL, math
+      // latex, …) can change a block's measured height, so drop its cache.
+      invalidateBlockCache(updatedBlock);
 
-    const newBlocks = [...blocks];
-    newBlocks[blockIndex] = updatedBlock;
+      const newBlocks = [...blocks];
+      newBlocks[blockIndex] = updatedBlock;
 
-    // Each attribute is a block_set op. The field/value are validated against
-    // the block type's registered schema when the op is applied, so this stays
-    // generic — the editor needs no per-block-type knowledge here.
-    const ops: Operation[] = fields.map(
-      (field): Operation => ({
-        op: "block_set",
-        id: this._state.CRDTbinding.nextId(),
-        clock: this._state.CRDTbinding.getClock(),
-        pageId: this._state.CRDTbinding.pageId,
-        blockId,
-        field,
-        value: attrs[field],
-      }),
-    );
+      // Each attribute is a block_set op. The field/value are validated against
+      // the block type's registered schema when the op is applied, so this stays
+      // generic — the editor needs no per-block-type knowledge here.
+      const ops: Operation[] = fields.map(
+        (field): Operation => ({
+          op: "block_set",
+          id: s.CRDTbinding.nextId(),
+          clock: s.CRDTbinding.getClock(),
+          pageId: s.CRDTbinding.pageId,
+          blockId,
+          field,
+          value: attrs[field],
+        }),
+      );
 
-    this.executeCommand({
-      state: {
-        ...this._state,
-        document: {
-          ...this._state.document,
-          page: { ...this._state.document.page, blocks: newBlocks },
+      return {
+        state: {
+          ...s,
+          document: {
+            ...s.document,
+            page: { ...s.document.page, blocks: newBlocks },
+          },
         },
-      },
-      ops,
-    });
-    return true;
-  };
+        ops,
+      };
+    };
 
   setNodeViewState = (blockId: string, data: unknown | null): void => {
     // Transient per-block canvas chrome (e.g. an image's upload spinner) — not
@@ -2665,61 +2643,62 @@ export class Editor implements EditorApi {
     this.listeners.forEach((listener) => listener(currentState));
   };
 
-  deleteNode = (blockId: string): boolean => {
-    const blocks = this._state.document.page.blocks;
-    const blockIndex = blocks.findIndex((b) => b.id === blockId);
-    const block = blocks[blockIndex];
-    if (!block || block.deleted) return false;
+  private deleteNodeCommand =
+    (blockId: string): StateCommand =>
+    (s) => {
+      const blocks = s.document.page.blocks;
+      const blockIndex = blocks.findIndex((b) => b.id === blockId);
+      const block = blocks[blockIndex];
+      if (!block || block.deleted) return { state: s, ops: [] };
 
-    // Tombstone the block (mark deleted) instead of splicing it out, so undo
-    // can locate it in state to compute the inverse block_insert.
-    const newBlocks = [...blocks];
-    newBlocks[blockIndex] = { ...block, deleted: true };
+      // Tombstone the block (mark deleted) instead of splicing it out, so undo
+      // can locate it in state to compute the inverse block_insert.
+      const newBlocks = [...blocks];
+      newBlocks[blockIndex] = { ...block, deleted: true };
 
-    const ops: Operation[] = [
-      {
-        op: "block_delete",
-        id: this._state.CRDTbinding.nextId(),
-        clock: this._state.CRDTbinding.getClock(),
-        pageId: this._state.CRDTbinding.pageId,
-        blockId,
-      },
-    ];
-
-    // If that was the last visible block, keep the document editable by
-    // inserting an empty paragraph in its place.
-    const visibleCount = newBlocks.filter((b) => !b.deleted).length;
-    if (visibleCount === 0) {
-      const newParagraphBlockId = `b-${this._state.CRDTbinding.nextId()}`;
-      newBlocks.push({
-        id: newParagraphBlockId,
-        type: "paragraph",
-        charRuns: [],
-        formats: [],
-      });
-      ops.push({
-        op: "block_insert",
-        id: this._state.CRDTbinding.nextId(),
-        clock: this._state.CRDTbinding.getClock(),
-        pageId: this._state.CRDTbinding.pageId,
-        afterBlockId: null,
-        blockId: newParagraphBlockId,
-        blockType: "paragraph",
-      });
-    }
-
-    this.executeCommand({
-      state: {
-        ...this._state,
-        document: {
-          ...this._state.document,
-          page: { ...this._state.document.page, blocks: newBlocks },
+      const ops: Operation[] = [
+        {
+          op: "block_delete",
+          id: s.CRDTbinding.nextId(),
+          clock: s.CRDTbinding.getClock(),
+          pageId: s.CRDTbinding.pageId,
+          blockId,
         },
-      },
-      ops,
-    });
-    return true;
-  };
+      ];
+
+      // If that was the last visible block, keep the document editable by
+      // inserting an empty paragraph in its place.
+      const visibleCount = newBlocks.filter((b) => !b.deleted).length;
+      if (visibleCount === 0) {
+        const newParagraphBlockId = `b-${s.CRDTbinding.nextId()}`;
+        newBlocks.push({
+          id: newParagraphBlockId,
+          type: "paragraph",
+          charRuns: [],
+          formats: [],
+        });
+        ops.push({
+          op: "block_insert",
+          id: s.CRDTbinding.nextId(),
+          clock: s.CRDTbinding.getClock(),
+          pageId: s.CRDTbinding.pageId,
+          afterBlockId: null,
+          blockId: newParagraphBlockId,
+          blockType: "paragraph",
+        });
+      }
+
+      return {
+        state: {
+          ...s,
+          document: {
+            ...s.document,
+            page: { ...s.document.page, blocks: newBlocks },
+          },
+        },
+        ops,
+      };
+    };
 
   private applyActiveMenu = (menu: Exclude<ActiveMenu, { type: "none" }>) => {
     this._state = setActiveMenu(this._state, menu);
@@ -2739,97 +2718,98 @@ export class Editor implements EditorApi {
     this.applyActiveMenu({ type: "overlay", ...overlay });
   };
 
-  replaceInlineRange = (
-    blockId: string,
-    start: number,
-    end: number,
-    text: string,
-    mark?: Mark,
-  ): boolean => {
-    const blocks = this._state.document.page.blocks;
-    const blockIndex = blocks.findIndex((b) => b.id === blockId);
-    const block = blocks[blockIndex];
-    if (!block || block.deleted || !isTextualBlock(block)) return false;
-    // An empty replacement is a deletion of the range.
-    if (text.length === 0) return this.deleteInlineRange(blockId, start, end);
+  private replaceInlineRangeCommand =
+    (
+      blockId: string,
+      start: number,
+      end: number,
+      text: string,
+      mark?: Mark,
+    ): StateCommand =>
+    (s) => {
+      const blocks = s.document.page.blocks;
+      const blockIndex = blocks.findIndex((b) => b.id === blockId);
+      const block = blocks[blockIndex];
+      if (!block || block.deleted || !isTextualBlock(block))
+        return { state: s, ops: [] };
+      // An empty replacement is a deletion of the range.
+      if (text.length === 0)
+        return this.deleteInlineRangeCommand(blockId, start, end)(s);
 
-    const ops: Operation[] = [];
+      const ops: Operation[] = [];
 
-    // Replace the chars in [start, end) with `text`, then (optionally) apply the
-    // mark to the freshly inserted run.
-    const { newPage: p1, op: deleteOp } = deleteCharsInRange(
-      this._state.document.page,
-      blockId,
-      start,
-      end,
-      this._state.CRDTbinding,
-    );
-    ops.push(deleteOp);
-
-    const { newPage: p2, op: insertOp } = insertCharsAtPosition(
-      p1,
-      blockId,
-      start,
-      text,
-      this._state.CRDTbinding,
-    );
-    ops.push(insertOp);
-
-    let page = p2;
-    if (mark) {
-      const { newPage: p3, op: formatOp } = markCharsInRange(
-        p2,
+      // Replace the chars in [start, end) with `text`, then (optionally) apply
+      // the mark to the freshly inserted run.
+      const { newPage: p1, op: deleteOp } = deleteCharsInRange(
+        s.document.page,
         blockId,
         start,
-        start + text.length,
-        mark,
-        // Apply the mark; its per-mark data (e.g. a link url) rides mark.attrs.
-        true,
-        this._state.CRDTbinding,
+        end,
+        s.CRDTbinding,
       );
-      ops.push(formatOp);
-      page = p3;
-    }
+      ops.push(deleteOp);
 
-    invalidateBlockCache(page.blocks[blockIndex]);
+      const { newPage: p2, op: insertOp } = insertCharsAtPosition(
+        p1,
+        blockId,
+        start,
+        text,
+        s.CRDTbinding,
+      );
+      ops.push(insertOp);
 
-    this.executeCommand({
-      state: { ...this._state, document: { ...this._state.document, page } },
-      ops,
-    });
-    return true;
-  };
+      let page = p2;
+      if (mark) {
+        const { newPage: p3, op: formatOp } = markCharsInRange(
+          p2,
+          blockId,
+          start,
+          start + text.length,
+          mark,
+          // Apply the mark; its per-mark data (e.g. a link url) rides mark.attrs.
+          true,
+          s.CRDTbinding,
+        );
+        ops.push(formatOp);
+        page = p3;
+      }
 
-  deleteInlineRange = (
-    blockId: string,
-    start: number,
-    end: number,
-  ): boolean => {
-    const blocks = this._state.document.page.blocks;
-    const blockIndex = blocks.findIndex((b) => b.id === blockId);
-    const block = blocks[blockIndex];
-    if (!block || block.deleted || !isTextualBlock(block)) return false;
-    if (end <= start) return false;
+      invalidateBlockCache(page.blocks[blockIndex]);
 
-    const { newPage, op } = deleteCharsInRange(
-      this._state.document.page,
-      blockId,
-      start,
-      end,
-      this._state.CRDTbinding,
-    );
-    invalidateBlockCache(newPage.blocks[blockIndex]);
+      return {
+        state: { ...s, document: { ...s.document, page } },
+        ops,
+      };
+    };
 
-    // Place the caret where the deleted range began.
-    const movedState = moveCursorToPosition(
-      { ...this._state, document: { ...this._state.document, page: newPage } },
-      blockIndex,
-      start,
-    );
+  private deleteInlineRangeCommand =
+    (blockId: string, start: number, end: number): StateCommand =>
+    (s) => {
+      const blocks = s.document.page.blocks;
+      const blockIndex = blocks.findIndex((b) => b.id === blockId);
+      const block = blocks[blockIndex];
+      if (!block || block.deleted || !isTextualBlock(block))
+        return { state: s, ops: [] };
+      if (end <= start) return { state: s, ops: [] };
 
-    this.executeCommand({ state: movedState, ops: [op] });
-    return true;
-  };
+      const { newPage, op } = deleteCharsInRange(
+        s.document.page,
+        blockId,
+        start,
+        end,
+        s.CRDTbinding,
+      );
+      invalidateBlockCache(newPage.blocks[blockIndex]);
+
+      // Place the caret where the deleted range began.
+      const movedState = moveCursorToPosition(
+        { ...s, document: { ...s.document, page: newPage } },
+        blockIndex,
+        start,
+      );
+
+      return { state: movedState, ops: [op] };
+    };
 
   exitInlineMath = (
     blockIndex: number,

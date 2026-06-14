@@ -129,11 +129,11 @@ async function main() {
     });
   };
 
-  keepFocus("bold", () => editorA.commands.toggleMark("strong"));
-  keepFocus("h1", () => editorA.commands.setBlock("heading1"));
-  keepFocus("bullet", () => editorA.commands.setBlock("bullet_list"));
-  keepFocus("undo", () => editorA.commands.undo());
-  keepFocus("redo", () => editorA.commands.redo());
+  keepFocus("bold", () => editorA.change((c) => c.toggleMark("strong")));
+  keepFocus("h1", () => editorA.change((c) => c.setBlock("heading1")));
+  keepFocus("bullet", () => editorA.change((c) => c.setBlock("bullet_list")));
+  keepFocus("undo", () => editorA.undo());
+  keepFocus("redo", () => editorA.redo());
   // Prove the custom block round-trips: its `<x-callout … />` tag is right there
   // in the serialized Markdown.
   keepFocus("save", () => {

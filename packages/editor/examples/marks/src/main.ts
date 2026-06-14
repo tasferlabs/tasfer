@@ -42,7 +42,7 @@ ${DEMO_LINE}
 
 The **Highlight** and **Underline** buttons above are *not* built in — they're
 inline marks defined in host code (see \`marks.ts\`) and toggled with
-\`editor.commands.toggleMark("highlight" | "underline")\`. **⌘B / Ctrl+B** still
+\`editor.change((c) => c.toggleMark("highlight" | "underline"))\`. **⌘B / Ctrl+B** still
 bolds, and marks stack: a word can be bold, highlighted, and underlined at once.
 
 > Reload the page — your highlights come back. They live in the CRDT op log
@@ -78,9 +78,11 @@ function seedDemoMarks(editor: CypherEditor): void {
     const start = DEMO_LINE.indexOf(word);
     if (start === -1) return;
     // Same text in, same length out, so offsets stay valid across both calls.
-    editor.replaceInlineRange(demoBlock.id, start, start + word.length, word, {
-      type,
-    });
+    editor.change((c) =>
+      c.replaceInlineRange(demoBlock.id, start, start + word.length, word, {
+        type,
+      }),
+    );
   };
   mark("Highlight", "highlight");
   mark("Underline", "underline");
@@ -142,11 +144,11 @@ async function main() {
 
   // Built-in and custom marks go through the SAME command — `toggleMark(name)`
   // works for any togglable mark on the editor's registry, built-in or not.
-  keepFocus("bold", () => editor.commands.toggleMark("strong"));
-  keepFocus("highlight", () => editor.commands.toggleMark("highlight"));
-  keepFocus("underline", () => editor.commands.toggleMark("underline"));
-  keepFocus("undo", () => editor.commands.undo());
-  keepFocus("redo", () => editor.commands.redo());
+  keepFocus("bold", () => editor.change((c) => c.toggleMark("strong")));
+  keepFocus("highlight", () => editor.change((c) => c.toggleMark("highlight")));
+  keepFocus("underline", () => editor.change((c) => c.toggleMark("underline")));
+  keepFocus("undo", () => editor.undo());
+  keepFocus("redo", () => editor.redo());
   // Prove the point about Markdown: getMarkdown() round-trips the built-in marks
   // but drops the custom ones (no delimiter for them yet). The CRDT keeps them.
   keepFocus("save", () => {
