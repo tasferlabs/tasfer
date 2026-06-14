@@ -2,7 +2,7 @@ import { createDoc, type Doc } from "../doc";
 import { baseSchema, type Schema } from "../schema";
 import { type Block, loadPage } from "../serlization/loadPage";
 import type { Operation } from "../state-types";
-import type { Editor, EditorStateSnapshot } from "./editor";
+import type { EditorApi, EditorStateSnapshot } from "./editor";
 import { mountEditor, type MountEditorOptions } from "./mount";
 
 export interface CreateEditorOptions extends MountEditorOptions {
@@ -44,7 +44,7 @@ export interface CreateEditorOptions extends MountEditorOptions {
  * listeners, the portal, and the render loop — so always call it when removing
  * the editor (it supersedes the core `Editor.destroy`).
  */
-export interface CypherEditor extends Editor {
+export interface CypherEditor extends EditorApi {
   /**
    * The CRDT document this editor renders and edits — the one passed via
    * `CreateEditorOptions.doc`, or a private one created on mount. Sync and

@@ -60,10 +60,14 @@ export {
 // `NodeHitRegion`s via `Node.regions` (see the block-views export above) and
 // the event layer binds behavior to them by id. Nodes are the extension point.
 
-// Editor instance API
+// Editor instance API. The public `Editor` type is the structural command/
+// lifecycle surface (`EditorApi`) — host code holds the spread `CypherEditor`
+// handle, not a class instance, so the public type must stay interface-shaped.
+// The concrete `Editor` class is reachable via the `@cypherkit/editor/entries/
+// editor` subpath for advanced use (`new Editor(...)`).
 export type {
   ChangeTransaction,
-  Editor,
+  EditorApi as Editor,
   EditorCommandChain,
   EditorCommands,
   EditorEvent,

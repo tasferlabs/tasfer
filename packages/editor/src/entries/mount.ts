@@ -25,7 +25,7 @@ import type {
 } from "../state-types";
 import { createInitialState, isTouchDevice } from "../state-utils";
 import { mergeTheme } from "../styles";
-import createEditor, { type Editor } from "./editor";
+import { type EditorApi, Editor } from "./editor";
 import {
   createCanvasLayers,
   destroyCanvasLayers,
@@ -33,7 +33,7 @@ import {
 } from "./layers";
 
 export interface MountedEditor {
-  readonly editor: Editor;
+  readonly editor: EditorApi;
   /**
    * The CRDT document this editor renders, when one was supplied via
    * {@link MountEditorOptions.doc}. Sync and persistence go through it
@@ -336,12 +336,7 @@ export function mountEditor(
   });
 
   // Create editor with initial state and layered canvases
-  const editor = createEditor(
-    layers,
-    initialState,
-    initialViewport,
-    hiddenInput,
-  );
+  const editor = new Editor(layers, initialState, initialViewport, hiddenInput);
 
   // ── Doc ↔ editor wiring ────────────────────────────────────────────────────
   // Local edits → doc: the editor has already applied them to its own state;
