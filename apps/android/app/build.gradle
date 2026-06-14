@@ -54,6 +54,22 @@ dependencies {
 
 apply from: 'capacitor.build.gradle'
 
+// Build the web app and run `cap sync` before every native build, so an
+// Android Studio "Run"/"Build" always packages the latest web bundle.
+// Set CYPHER_SKIP_WEB_BUILD=1 to skip (e.g. CI building the web bundle separately).
+tasks.register('cypherWebBuildAndSync', Exec) {
+    description = 'Build the web app and sync it into the Android project'
+    // app -> android -> apps -> repo; web lives at apps/web.
+    def script = file("${rootProject.projectDir}/../web/scripts/build-and-sync.sh")
+    workingDir rootProject.projectDir
+    if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+        commandLine 'cmd', '/c', 'bash', script.absolutePath, 'android'
+    } else {
+        commandLine 'bash', script.absolutePath, 'android'
+    }
+}
+preBuild.dependsOn 'cypherWebBuildAndSync'
+
 try {
     def servicesJSON = file('google-services.json')
     if (servicesJSON.text) {
