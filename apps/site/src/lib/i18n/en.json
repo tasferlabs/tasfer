@@ -1,5 +1,13 @@
 {
   "docs.tag": "docs",
+  "internals.kicker": "internals",
+  "internals.author": "Cypher",
+  "internals.backToDocs": "← Documentation",
+  "internals.backToArchive": "← Internal notes",
+  "internals.notFound": "This note wandered off.",
+  "internals.archive.kicker": "internals · build log",
+  "internals.archive.title": "Internal notes",
+  "internals.archive.lede": "How Cypher got built — the design notes, architecture decisions, and plans behind the editor, written as the work happened.",
   "docs.nav.landing": "Landing",
   "docs.nav.openApp": "Open app",
   "docs.nav.appDocs": "App docs",
