@@ -1,0 +1,90 @@
+{/* @cypherkit/editor API reference — React bindings. */}
+
+import { Callout, PropsTable } from "../../docsComponents";
+
+<p className="dx-lede">`@cypherkit/react` is the thin React 19 binding over the headless engine — a hook to own an editor, a component to render one, and `useSyncExternalStore` subscriptions for toolbars and live preview. Every piece is per-instance, so any number of editors can live on one page.</p>
+
+```ts
+import { Editor, useEditor, useEditorState } from "@cypherkit/react";
+```
+
+<Callout kind="note" title="Options are read once.">Editor options are read at mount only. Reconfigure at runtime through the imperative `CypherEditor` handle (`setTheme`, `setMarkdown`, `change`, …) — not by re-passing props.</Callout>
+
+<h2 id="component">&lt;Editor /&gt;</h2>
+
+A drop-in component that renders the host element for you and reports the live editor through `onReady`. It takes every `createEditor` option except `element`, plus the props below.
+
+<PropsTable rows={[
+  { name: "...options", type: "UseEditorOptions", desc: "Every createEditor option except element — value, doc, schema, theme, placeholder, autofocus, editable." },
+  { name: "className", type: "string", desc: "Forwarded to the host <div>." },
+  { name: "style", type: "CSSProperties", desc: "Forwarded to the host <div>. The div must be sized — give it a height here or via className." },
+  { name: "onReady", type: "(editor: CypherEditor) => void", desc: "Called once per editor instance with the live handle. Wire events / persistence here." },
+]} />
+
+```tsx
+import { Editor } from "@cypherkit/react";
+
+function App() {
+  return (
+    <Editor
+      value="# Hello"
+      autofocus
+      style={{ height: "100vh" }}
+      onReady={(editor) =>
+        editor.on("change", () => save(editor.getMarkdown()))
+      }
+    />
+  );
+}
+```
+
+<h2 id="useeditor">useEditor(options)</h2>
+
+For full control over the host element. Creates the editor exactly once (in a layout effect) and tears it down on unmount. Returns a `containerRef` to attach and the live `editor` (`null` until the first effect runs).
+
+<PropsTable cols={["Returns", "Type", "Description"]} rows={[
+  { name: "containerRef", type: "RefObject<HTMLDivElement | null>", desc: "Attach to the host element: <div ref={containerRef} />. The editor fills it, so the div needs a height." },
+  { name: "editor", type: "CypherEditor | null", desc: "The live handle, or null on the first render before the mount effect runs." },
+]} />
+
+```tsx
+import { useEditor } from "@cypherkit/react";
+import { useEffect } from "react";
+
+function Notes() {
+  const { containerRef, editor } = useEditor({ value: "# Hello" });
+
+  useEffect(() => {
+    if (editor) editor.focus("end");
+  }, [editor]);
+
+  return <div ref={containerRef} style={{ height: "100%" }} />;
+}
+```
+
+<h2 id="state">useEditorState(editor) & useEditorMarkdown(editor)</h2>
+
+`useSyncExternalStore` subscriptions that re-render your component when the editor changes — the React-idiomatic way to drive a toolbar or a live markdown preview off editor state.
+
+<PropsTable cols={["Hook", "Returns", "Re-renders on"]} rows={[
+  { name: "useEditorState", type: "EditorStateValue | null", desc: "{ selection, activeMarks }. Edits and caret/selection moves. null until the editor exists." },
+  { name: "useEditorMarkdown", type: "string", desc: "The serialised document. Every document edit (local or remote)." },
+]} />
+
+```tsx
+function Toolbar({ editor }: { editor: CypherEditor | null }) {
+  const state = useEditorState(editor);
+  const active = state?.activeMarks ?? new Set();
+
+  return (
+    <button
+      data-active={active.has("strong")}
+      onClick={() => editor?.change((c) => c.toggleMark("strong"))}
+    >
+      Bold
+    </button>
+  );
+}
+```
+
+<Callout kind="tip" title="One import surface.">`@cypherkit/react` re-exports the engine types you reach for most — `CypherEditor`, `Doc`, `ChangeTransaction`, `EditorStateSnapshot`, `CreateEditorOptions` — so a consumer can import everything from one place.</Callout>

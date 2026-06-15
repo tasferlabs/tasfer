@@ -4,8 +4,6 @@ import { Callout } from "../../docsComponents";
 
 <p className="dx-lede">The schema declares what your document is made of. Extend it to add new block types (*nodes*) and inline formatting (*marks*) — a callout block, an @-mention, a highlight.</p>
 
-<Callout kind="note" title="What's shippable today.">The extension API below is real and tested for **leaf block nodes** — a styled box that carries attributes (a callout, an embed, a divider variant). Text-bearing and block-containing custom nodes (`content: "text" | "block+"`) and custom-mark rendering are on the roadmap; the shapes here are forward-compatible with them.</Callout>
-
 <h2 id="node">Define a node</h2>
 
 A node is a block type. It declares its attributes (replicated CRDT fields), how it serializes, and how it draws. A callout box:
@@ -103,12 +101,19 @@ editor.collectOverlays().forEach((o) => {
 
 <h2 id="mark">Define a mark</h2>
 
-A mark is inline formatting. Declaring one registers it as a valid format name on the schema (full custom markdown delimiters and canvas paint for marks are the next step):
+A mark is inline formatting. The bare call registers a valid, replicated format name; pass `render` to paint it on the canvas (a `Mark` subclass) and `codec` to give it markdown delimiters and an HTML tag. Omit `render` and it survives via the CRDT but paints as plain text; omit `codec` and it's dropped on markdown export.
 
 ```ts
 import { defineMark } from "@cypherkit/editor";
 
+// minimal — replicates, but paints as plain text and doesn't serialize
 const highlight = defineMark("highlight");
+
+// full — on-canvas paint + a `==text==` round-trip
+const marked = defineMark("highlight", {
+  render: new HighlightMark(),       // a Mark subclass; style() returns the paint
+  codec: highlightCodec,             // delimiters + HTML tag
+});
 ```
 
 <h2 id="register">Register them</h2>

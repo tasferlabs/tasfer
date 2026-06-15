@@ -33,21 +33,21 @@ selection.empty;              // true when it's just a caret
 activeMarks.has("strong");    // is bold active at the cursor?
 ```
 
-<h2 id="commands">3 — Commands</h2>
+<h2 id="commands">3 — Changes</h2>
 
-You never mutate the document directly. You dispatch commands, which are transactional: they either apply cleanly to the CRDT or no-op. Commands are chainable and return whether they ran.
+You never mutate the document directly. You call `change(fn)`, which hands you a `ChangeApi`: each method queues a transactional edit (it applies cleanly to the CRDT or no-ops) and chains. The whole callback commits as **one undoable step**, and `change` returns whether anything changed.
 
 ```ts
-editor.commands.toggleMark("strong");
-editor.commands.setBlock("heading", { level: 2 });
+editor.change((c) => c.toggleMark("strong"));
+editor.change((c) => c.setBlock("heading", { level: 2 }));
 
-// chain several into one undo step
-editor.chain()
-  .toggleMark("strong")
-  .toggleMark("emphasis")
-  .insertText(" ✶")
-  .run();
+// several edits, one undo step
+editor.change((c) =>
+  c.toggleMark("strong").toggleMark("emphasis").insertText(" ✶"),
+);
 ```
+
+The full `ChangeApi`, dry runs (`canChange`), and the action bus are on [Changes & actions](/docs/editor/api-commands).
 
 <h2 id="events">4 — Events</h2>
 
@@ -55,10 +55,11 @@ Subscribe to what the editor does. Every listener returns an unsubscribe functio
 
 <PropsTable cols={["Event", "Fires when", "Payload"]} rows={[
   { name: "change", type: "ChangeTransaction", desc: "The document changed — typing, paste, undo, or a remote sync. Payload: { isRemote, ops }." },
-  { name: "selectionchange", type: "Selection", desc: "The caret or selection moved, without a document edit." },
-  { name: "focus / blur", type: "void", desc: "The canvas gained or lost focus." },
-  { name: "sync", type: "SyncState", desc: "Transport connection / peer count. Driven by a provider — subscribe on the provider (provider.on(\"sync\")), or forward it onto the editor with setSyncState. See Collaboration." },
+  { name: "selectionchange", type: "EditorState", desc: "The caret or selection moved, without a document edit." },
+  { name: "focus / blur", type: "EditorState", desc: "The canvas gained or lost focus." },
 ]} />
+
+Connection status and peer count are **not** editor events — they live on the provider (`provider.on("sync")`), because the provider owns the transport. See [Collaboration](/docs/editor/collaboration).
 
 ```ts
 const off = editor.on("change", (tx) => {
