@@ -1,7 +1,17 @@
 import {
-  selectLineAtPosition,
-  selectWordAtPosition,
-} from "../actions/commands";
+  CLEAR_SELECTION_IN_PADDING,
+  CLEAR_VISUAL_BLOCK_SELECTION,
+  OPEN_BLOCK_OVERLAY,
+  OPEN_INLINE_MATH_OVERLAY,
+  PLACE_CURSOR_AT_POINT,
+  PLACE_CURSOR_IN_SIDE_PADDING,
+  SELECT_LINE_AT_POINT,
+  SELECT_VISUAL_BLOCK,
+  SELECT_WORD_AT_POINT,
+  SET_IMAGE_HOVER,
+  SET_INLINE_MATH_HOVER,
+  SET_MATH_BLOCK_HOVER,
+} from "../actions/mouse-commands";
 import { OPEN_LINK } from "../command-bus";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
 import { getInlineMathAtPosition } from "../inline-math";
@@ -19,17 +29,12 @@ import {
 } from "../selection";
 import { updateFocus } from "../selection";
 import { updateCursor } from "../selection";
-import {
-  clearSelection,
-  startSelection,
-  updateSelectionFocus,
-} from "../selection";
+import { updateSelectionFocus } from "../selection";
 import type { EditorState, MouseEvent, ViewportState } from "../state-types";
 import {
   clearAutoCreatedParagraph,
   closeActiveMenu,
   closeSlashCommand,
-  setActiveMenu,
   setLinkHover,
   updateMode,
 } from "../state-utils";
@@ -193,14 +198,16 @@ export function handleMouseDown(
 
           // Open the host overlay at the click position
           return {
-            state: setActiveMenu(state, {
-              type: "overlay",
-              key: activation.key,
-              blockIndex: imageBlock.blockIndex,
-              x: canvasX,
-              y: canvasY,
-              data: activation.data,
-            }),
+            state: state.commandBus.dispatchState(OPEN_BLOCK_OVERLAY, state, {
+              overlay: {
+                type: "overlay",
+                key: activation.key,
+                blockIndex: imageBlock.blockIndex,
+                x: canvasX,
+                y: canvasY,
+                data: activation.data,
+              },
+            }).state,
             ops,
           };
         }
@@ -208,31 +215,13 @@ export function handleMouseDown(
       // If it has an image, select the image block (same as arrow key behavior)
       // Position at the start of the image block (textIndex 0)
       const imagePosition = { blockIndex: imageBlock.blockIndex, textIndex: 0 };
-
-      let newState = updateCursor(state, imagePosition);
-
-      // Create a selection that spans the entire image block
-      if (event.shiftKey && state.document.selection) {
-        // Extend selection to include this image
-        newState = updateSelectionFocus(newState, imagePosition);
-      } else {
-        // Select just this image block (match arrow key selection behavior)
-        newState = {
-          ...newState,
-          document: {
-            ...newState.document,
-            selection: {
-              anchor: imagePosition,
-              focus: imagePosition,
-              isForward: true,
-              isCollapsed: false,
-              lastUpdate: Date.now(),
-            },
-          },
-        };
-      }
-
-      return { state: updateMode(newState, "edit"), ops };
+      return {
+        state: state.commandBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
+          position: imagePosition,
+          extend: !!(event.shiftKey && state.document.selection),
+        }).state,
+        ops,
+      };
     }
   }
 
@@ -252,31 +241,13 @@ export function handleMouseDown(
     if (block.type === "line") {
       // Select the line block (same as image block behavior)
       const linePosition = { blockIndex: lineBlock.blockIndex, textIndex: 0 };
-
-      let newState = updateCursor(state, linePosition);
-
-      // Create a selection that spans the entire line block
-      if (event.shiftKey && state.document.selection) {
-        // Extend selection to include this line block
-        newState = updateSelectionFocus(newState, linePosition);
-      } else {
-        // Select just this line block (match image block selection behavior)
-        newState = {
-          ...newState,
-          document: {
-            ...newState.document,
-            selection: {
-              anchor: linePosition,
-              focus: linePosition,
-              isForward: true,
-              isCollapsed: false,
-              lastUpdate: Date.now(),
-            },
-          },
-        };
-      }
-
-      return { state: updateMode(newState, "edit"), ops };
+      return {
+        state: state.commandBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
+          position: linePosition,
+          extend: !!(event.shiftKey && state.document.selection),
+        }).state,
+        ops,
+      };
     }
   }
 
@@ -314,14 +285,16 @@ export function handleMouseDown(
 
         // Open the host overlay at the click position
         return {
-          state: setActiveMenu(state, {
-            type: "overlay",
-            key: activation.key,
-            blockIndex: mathBlock.blockIndex,
-            x: canvasX,
-            y: canvasY,
-            data: activation.data,
-          }),
+          state: state.commandBus.dispatchState(OPEN_BLOCK_OVERLAY, state, {
+            overlay: {
+              type: "overlay",
+              key: activation.key,
+              blockIndex: mathBlock.blockIndex,
+              x: canvasX,
+              y: canvasY,
+              data: activation.data,
+            },
+          }).state,
           ops,
         };
       }
@@ -329,21 +302,13 @@ export function handleMouseDown(
 
     // In readonly mode (or no activation), just select the block
     const mathPosition = { blockIndex: mathBlock.blockIndex, textIndex: 0 };
-    let newState = updateCursor(state, mathPosition);
-    newState = {
-      ...newState,
-      document: {
-        ...newState.document,
-        selection: {
-          anchor: mathPosition,
-          focus: mathPosition,
-          isForward: true,
-          isCollapsed: false,
-          lastUpdate: Date.now(),
-        },
-      },
+    return {
+      state: state.commandBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
+        position: mathPosition,
+        extend: false,
+      }).state,
+      ops,
     };
-    return { state: updateMode(newState, "edit"), ops };
   }
 
   // Check if we have a visual block (image/line/math) selected but clicked outside its container
@@ -364,7 +329,10 @@ export function handleMouseDown(
       if (!selectedBlock || selectedBlock.deleted) return { state, ops };
       if (selectedBlock && !isTextualBlock(selectedBlock)) {
         // We have a visual block selected, but clicked outside it - clear the selection
-        state = clearSelection(state);
+        state = state.commandBus.dispatchState(
+          CLEAR_VISUAL_BLOCK_SELECTION,
+          state,
+        ).state;
       }
     }
   }
@@ -376,8 +344,11 @@ export function handleMouseDown(
 
   // If clicking in top padding, clear selection
   if (isClickInTopPadding) {
-    const clearedState = clearSelection(state);
-    return { state: updateMode(clearedState, "edit"), ops };
+    return {
+      state: state.commandBus.dispatchState(CLEAR_SELECTION_IN_PADDING, state)
+        .state,
+      ops,
+    };
   }
 
   // Check if clicking in left/right padding area
@@ -396,9 +367,14 @@ export function handleMouseDown(
     );
 
     if (paddingPosition) {
-      let newState = clearSelection(state);
-      newState = updateCursor(newState, paddingPosition);
-      return { state: updateMode(newState, "edit"), ops };
+      return {
+        state: state.commandBus.dispatchState(
+          PLACE_CURSOR_IN_SIDE_PADDING,
+          state,
+          { position: paddingPosition },
+        ).state,
+        ops,
+      };
     }
   }
 
@@ -434,32 +410,28 @@ export function handleMouseDown(
         return { state, ops };
       }
 
-      const withOverlay = setActiveMenu(state, {
-        type: "overlay",
-        key,
-        blockIndex: position.blockIndex,
-        x: canvasX,
-        y: canvasY,
-        data: {
-          startIndex: inlineMath.startIndex,
-          endIndex: inlineMath.endIndex,
-          latex: inlineMath.latex,
-        },
-      });
       // Highlight the edited chip while the popover is open (engine-owned hover
       // state; the host overlay reads the range from `data`).
       return {
-        state: {
-          ...withOverlay,
-          ui: {
-            ...withOverlay.ui,
-            inlineMathHover: {
-              blockIndex: position.blockIndex,
+        state: state.commandBus.dispatchState(OPEN_INLINE_MATH_OVERLAY, state, {
+          overlay: {
+            type: "overlay",
+            key,
+            blockIndex: position.blockIndex,
+            x: canvasX,
+            y: canvasY,
+            data: {
               startIndex: inlineMath.startIndex,
               endIndex: inlineMath.endIndex,
+              latex: inlineMath.latex,
             },
           },
-        },
+          hover: {
+            blockIndex: position.blockIndex,
+            startIndex: inlineMath.startIndex,
+            endIndex: inlineMath.endIndex,
+          },
+        }).state,
         ops,
       };
     }
@@ -469,8 +441,11 @@ export function handleMouseDown(
   if (!position) {
     // Only clear selection if it's collapsed or doesn't exist
     if (!state.document.selection || state.document.selection.isCollapsed) {
-      const clearedState = clearSelection(state);
-      return { state: updateMode(clearedState, "edit"), ops };
+      return {
+        state: state.commandBus.dispatchState(CLEAR_SELECTION_IN_PADDING, state)
+          .state,
+        ops,
+      };
     }
     // Keep active selection and just switch to edit mode
     return { state: updateMode(state, "edit"), ops };
@@ -498,24 +473,13 @@ export function handleMouseDown(
     // If clicking below content and last block is an image, select it
     if (isClickBelowContent && !isTextualBlock(lastBlock)) {
       const imagePosition = { blockIndex: lastVisibleBlockIndex, textIndex: 0 };
-      let newState = updateCursor(state, imagePosition);
-
-      // Select the image block
-      newState = {
-        ...newState,
-        document: {
-          ...newState.document,
-          selection: {
-            anchor: imagePosition,
-            focus: imagePosition,
-            isForward: true,
-            isCollapsed: false,
-            lastUpdate: Date.now(),
-          },
-        },
+      return {
+        state: state.commandBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
+          position: imagePosition,
+          extend: false,
+        }).state,
+        ops,
       };
-
-      return { state: updateMode(newState, "edit"), ops };
     }
   }
 
@@ -553,26 +517,33 @@ export function handleMouseDown(
 
   // Handle triple-click: always select line (even inside selection)
   if (isMultiClick && clickCount >= 3) {
-    return { state: selectLineAtPosition(state, position), ops };
+    return {
+      state: state.commandBus.dispatchState(SELECT_LINE_AT_POINT, state, {
+        position,
+      }).state,
+      ops,
+    };
   }
 
   // Handle double-click: select word
   if (isMultiClick && clickCount === 2) {
-    return { state: selectWordAtPosition(state, position), ops };
+    return {
+      state: state.commandBus.dispatchState(SELECT_WORD_AT_POINT, state, {
+        position,
+      }).state,
+      ops,
+    };
   }
 
-  // Set cursor position
-  let newState = updateCursor(state, position);
-
-  // If shift is held, extend selection; otherwise start new selection
-  if (event.shiftKey && state.document.selection) {
-    newState = updateSelectionFocus(newState, position);
-  } else {
-    newState = startSelection(newState, position);
-    newState = updateMode(newState, "select");
-  }
-
-  return { state: newState, ops };
+  // Set cursor position. If shift is held, extend selection; otherwise start a
+  // new selection and enter select mode (drag-to-select).
+  return {
+    state: state.commandBus.dispatchState(PLACE_CURSOR_AT_POINT, state, {
+      position,
+      extend: !!(event.shiftKey && state.document.selection),
+    }).state,
+    ops,
+  };
 }
 export function handleMouseMove(
   state: EditorState,
@@ -681,29 +652,21 @@ export function handleMouseMove(
       );
 
       // Mouse is over an image block - set imageHover state (not a blocking menu)
-      state = {
-        ...state,
-        ui: {
-          ...state.ui,
-          imageHover: {
-            blockIndex: imageBlock.blockIndex,
-            x: imageBlock.x,
-            y: imageBlock.y,
-            width: imageBlock.width,
-            height: imageBlock.height,
-            hoveredHandle,
-          },
+      state = state.commandBus.dispatchState(SET_IMAGE_HOVER, state, {
+        imageHover: {
+          blockIndex: imageBlock.blockIndex,
+          x: imageBlock.x,
+          y: imageBlock.y,
+          width: imageBlock.width,
+          height: imageBlock.height,
+          hoveredHandle,
         },
-      };
-    } else if (state.ui.imageHover !== null) {
+      }).state;
+    } else {
       // Clear image hover state
-      state = {
-        ...state,
-        ui: {
-          ...state.ui,
-          imageHover: null,
-        },
-      };
+      state = state.commandBus.dispatchState(SET_IMAGE_HOVER, state, {
+        imageHover: null,
+      }).state;
     }
 
     // Math block hover (full block backdrop)
@@ -715,12 +678,9 @@ export function handleMouseMove(
       "math",
     );
     const newMathBlockHover = mathBlock ? mathBlock.blockIndex : null;
-    if (newMathBlockHover !== state.ui.hoveredMathBlockIndex) {
-      state = {
-        ...state,
-        ui: { ...state.ui, hoveredMathBlockIndex: newMathBlockHover },
-      };
-    }
+    state = state.commandBus.dispatchState(SET_MATH_BLOCK_HOVER, state, {
+      blockIndex: newMathBlockHover,
+    }).state;
 
     // Inline math chip hover (per-chip background highlight)
     let newInlineMathHover: typeof state.ui.inlineMathHover = null;
@@ -748,20 +708,9 @@ export function handleMouseMove(
         }
       }
     }
-    const prevInline = state.ui.inlineMathHover;
-    const inlineChanged =
-      (prevInline === null) !== (newInlineMathHover === null) ||
-      (prevInline &&
-        newInlineMathHover &&
-        (prevInline.blockIndex !== newInlineMathHover.blockIndex ||
-          prevInline.startIndex !== newInlineMathHover.startIndex ||
-          prevInline.endIndex !== newInlineMathHover.endIndex));
-    if (inlineChanged) {
-      state = {
-        ...state,
-        ui: { ...state.ui, inlineMathHover: newInlineMathHover },
-      };
-    }
+    state = state.commandBus.dispatchState(SET_INLINE_MATH_HOVER, state, {
+      hover: newInlineMathHover,
+    }).state;
   }
 
   if (state.ui.mode !== "select") {

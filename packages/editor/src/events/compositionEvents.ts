@@ -1,8 +1,8 @@
 import {
-  deleteSelectedText,
-  getSelectionRange,
-  insertText,
-} from "../actions/commands";
+  COMPOSITION_END,
+  COMPOSITION_START,
+  COMPOSITION_UPDATE,
+} from "../actions/input-commands";
 import { scrollToMakeCursorVisible } from "../selection";
 import type { EditorState, ViewportState } from "../state-types";
 import type { Operation } from "../sync/sync";
@@ -12,65 +12,32 @@ export function handleCompositionStart(
   state: EditorState,
   event: CompositionEvent,
 ): { state: EditorState; ops: Operation[] } {
-  const ops: Operation[] = [];
-
   // If editor is not focused, ignore composition
   if (!state.view.isFocused) {
-    return { state, ops };
+    return { state, ops: [] };
   }
 
   // Block composition in readonly or locked mode
   if (state.ui.mode === "readonly" || state.ui.mode === "locked") {
-    return { state, ops };
+    return { state, ops: [] };
   }
 
-  // When composition starts, save the current cursor position
-  if (!state.document.cursor) return { state, ops };
-
-  // Delete any selected text first (like normal typing would)
-  if (state.document.selection && !state.document.selection.isCollapsed) {
-    const range = getSelectionRange(state);
-    if (range) {
-      const result = deleteSelectedText(state);
-      state = result.state;
-      ops.push(...result.ops);
-    }
-  }
-
-  // Store the starting position for composition
-  if (!state.document.cursor) return { state, ops };
-  const startPosition = state.document.cursor.position;
-
-  return {
-    state: {
-      ...state,
-      ui: {
-        ...state.ui,
-        composition: {
-          isComposing: true,
-          text: event.data || "",
-          startPosition,
-          cursorOffset: (event.data || "").length,
-        },
-      },
-    },
-    ops,
-  };
+  return state.commandBus.dispatchState(COMPOSITION_START, state, {
+    data: event.data || "",
+  });
 }
 export function handleCompositionUpdate(
   state: EditorState,
   event: CompositionEvent,
 ): { state: EditorState; ops: Operation[] } {
-  const ops: Operation[] = [];
-
   // If editor is not focused, ignore composition
   if (!state.view.isFocused) {
-    return { state, ops };
+    return { state, ops: [] };
   }
 
   // Block composition in readonly or locked mode
   if (state.ui.mode === "readonly" || state.ui.mode === "locked") {
-    return { state, ops };
+    return { state, ops: [] };
   }
 
   if (!state.ui.composition) {
@@ -78,41 +45,11 @@ export function handleCompositionUpdate(
     return handleCompositionStart(state, event);
   }
 
-  // Don't insert text during composition - just track it
-  // The actual text will be inserted on compositionend
-  const newText = event.data || "";
-  const oldText = state.ui.composition.text;
-  const oldOffset = state.ui.composition.cursorOffset;
-  // If cursor was at the end of the old text, keep it at the end of the new text
-  // Otherwise preserve the user's explicit cursor position (from arrow keys), clamped to new length
-  const cursorOffset =
-    oldOffset >= oldText.length
-      ? newText.length
-      : Math.min(oldOffset, newText.length);
-  return {
-    state: {
-      ...state,
-      document: {
-        ...state.document,
-        // Keep cursor active (not blinking) during composition updates
-        cursor: state.document.cursor
-          ? {
-              ...state.document.cursor,
-              lastUpdate: Date.now(),
-            }
-          : null,
-      },
-      ui: {
-        ...state.ui,
-        composition: {
-          ...state.ui.composition,
-          text: newText,
-          cursorOffset,
-        },
-      },
-    },
-    ops,
-  };
+  // Don't insert text during composition - just track it.
+  // The actual text will be inserted on compositionend.
+  return state.commandBus.dispatchState(COMPOSITION_UPDATE, state, {
+    data: event.data || "",
+  });
 }
 export function handleCompositionEnd(
   state: EditorState,
@@ -120,49 +57,33 @@ export function handleCompositionEnd(
   viewport: ViewportState,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): { state: EditorState; ops: Operation[] } {
-  const ops: Operation[] = [];
-
   // If editor is not focused, ignore composition
   if (!state.view.isFocused) {
-    return { state, ops };
+    return { state, ops: [] };
   }
 
   // Block composition in readonly or locked mode
   if (state.ui.mode === "readonly" || state.ui.mode === "locked") {
-    return { state, ops };
+    return { state, ops: [] };
   }
 
-  // Insert the final composed text
   const composedText = event.data || "";
+  const result = state.commandBus.dispatchState(COMPOSITION_END, state, {
+    data: composedText,
+  });
 
-  if (composedText && state.document.cursor) {
-    // Insert the composed text at the cursor position
-    const result = insertText(state, composedText);
-    state = result.state;
-    ops.push(...result.ops);
-
-    // Scroll to make cursor visible
-    if (state.document.cursor && updateViewportCallback) {
-      const newScrollY = scrollToMakeCursorVisible(
-        state.document.cursor.position,
-        state,
-        viewport,
-      );
-      if (newScrollY !== null) {
-        updateViewportCallback({ scrollY: newScrollY });
-      }
+  // Scroll to make cursor visible after inserting the composed text. Only when
+  // text was actually composed and inserted, mirroring the original handler.
+  if (composedText && result.state.document.cursor && updateViewportCallback) {
+    const newScrollY = scrollToMakeCursorVisible(
+      result.state.document.cursor.position,
+      result.state,
+      viewport,
+    );
+    if (newScrollY !== null) {
+      updateViewportCallback({ scrollY: newScrollY });
     }
   }
 
-  // Clear composition state
-  return {
-    state: {
-      ...state,
-      ui: {
-        ...state.ui,
-        composition: null,
-      },
-    },
-    ops,
-  };
+  return result;
 }

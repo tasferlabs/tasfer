@@ -1,4 +1,4 @@
-import { pasteFromClipboardEvent } from "../actions/clipboard";
+import { PASTE, runPaste } from "../actions/input-commands";
 import { scrollToMakeCursorVisible } from "../selection";
 import type { EditorState, ViewportState } from "../state-types";
 import type { Operation } from "../sync/sync";
@@ -29,10 +29,19 @@ export function handlePaste(
     return { state, ops: [] };
   }
 
-  // Use the tracked pasteAsPlainText flag (set during keydown)
-  // Paste as plain text
-  const result = pasteFromClipboardEvent(state, event, clipboardData);
-  if (!result) {
+  // Run the paste once here so we can keep the `pastedImageBlockIndex` it
+  // surfaces (a StateResult can't carry it); then dispatch PASTE with the
+  // already-computed `{ state, ops }` so observers/overrides still fire without
+  // the paste running a second time.
+  const pasted = runPaste(state, event, clipboardData);
+  const result = state.commandBus.dispatchState(PASTE, state, {
+    event,
+    clipboardData,
+    precomputed: { state: pasted.state, ops: pasted.ops },
+  });
+
+  // PASTE returns the input state untouched when the clipboard yielded nothing.
+  if (result.state === state && result.ops.length === 0) {
     return { state, ops: [] };
   }
 
@@ -60,6 +69,6 @@ export function handlePaste(
   return {
     state: newState,
     ops: result.ops,
-    pastedImageBlockIndex: result.pastedImageBlockIndex,
+    pastedImageBlockIndex: pasted.pastedImageBlockIndex,
   };
 }

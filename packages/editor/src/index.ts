@@ -180,6 +180,69 @@ export {
   MOVE_TO_NEXT_WORD,
   MOVE_TO_PREVIOUS_WORD,
 } from "./actions/keyboard-commands";
+// Editor edit commands — named content-mutating / selection-clearing actions
+// (insert, delete, split, format, indent, clear) migrated out of the event
+// handlers (see `actions/edit-commands.ts`).
+export {
+  CLEAR_SELECTION,
+  DELETE_BACKWARD,
+  DELETE_FORWARD,
+  DELETE_WORD_BACKWARD,
+  DELETE_WORD_FORWARD,
+  INDENT_LIST_ITEM,
+  INSERT_TEXT,
+  OUTDENT_LIST_ITEM,
+  SELECT_ALL,
+  SPLIT_BLOCK,
+  TOGGLE_BOLD,
+} from "./actions/edit-commands";
+// Editor mouse commands — named click / selection / hover actions migrated out
+// of the mouse event handlers (see `actions/mouse-commands.ts`).
+export {
+  CLEAR_SELECTION_IN_PADDING,
+  CLEAR_VISUAL_BLOCK_SELECTION,
+  OPEN_BLOCK_OVERLAY,
+  OPEN_INLINE_MATH_OVERLAY,
+  PLACE_CURSOR_AT_POINT,
+  PLACE_CURSOR_IN_SIDE_PADDING,
+  SELECT_LINE_AT_POINT,
+  SELECT_VISUAL_BLOCK,
+  SELECT_WORD_AT_POINT,
+  SET_IMAGE_HOVER,
+  SET_INLINE_MATH_HOVER,
+  SET_MATH_BLOCK_HOVER,
+} from "./actions/mouse-commands";
+// Editor touch commands — named tap / long-press / visual-block actions migrated
+// out of the touch event handlers (see `actions/touch-commands.ts`).
+export {
+  CLOSE_NODE_OVERLAY,
+  CREATE_PARAGRAPH_BELOW_IMAGE,
+  FINISH_SELECT_MODE,
+  OPEN_CONTEXT_MENU_AT,
+  OPEN_NODE_OVERLAY,
+  SELECT_LINE,
+  SELECT_WORD,
+  TAP_CLEAR_VISUAL_BLOCK_SELECTION,
+  TAP_ON_SELECTION,
+  TAP_OUTSIDE_CONTENT,
+  TAP_PLACE_CURSOR,
+  TAP_SELECT_VISUAL_BLOCK,
+  TAP_SIDE_PADDING,
+  TAP_TOP_PADDING,
+} from "./actions/touch-commands";
+// Editor input commands — named IME-composition / paste / image-resize-drag
+// actions migrated out of the input event handlers (see
+// `actions/input-commands.ts`).
+export {
+  CANCEL_IMAGE_DRAG,
+  COMPOSITION_END,
+  COMPOSITION_START,
+  COMPOSITION_UPDATE,
+  END_IMAGE_DRAG,
+  PASTE,
+  START_IMAGE_DRAG,
+  UPDATE_IMAGE_DRAG,
+} from "./actions/input-commands";
 
 // Core document model + CRDT operation types. The stored-mark CRDT record is
 // exported as `StoredMark` so the top-level `Mark` can be the rendering base

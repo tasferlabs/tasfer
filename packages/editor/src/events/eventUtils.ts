@@ -1,18 +1,19 @@
 import {
+  CANCEL_IMAGE_DRAG,
+  END_IMAGE_DRAG,
+  START_IMAGE_DRAG,
+  UPDATE_IMAGE_DRAG,
+} from "../actions/input-commands";
+import {
   CLICK_DISTANCE_THRESHOLD,
   SELECTION_HANDLE_TOUCH_TARGET,
 } from "../constants";
 import { AtomicNode, getDragHandleAtPoint } from "../rendering/nodes";
-import {
-  getBlockHeight,
-  imageCache,
-  invalidateBlockCache,
-} from "../rendering/renderer";
+import { getBlockHeight } from "../rendering/renderer";
 import {
   getCursorDocumentCoords,
   scrollToMakeCursorVisible,
 } from "../selection";
-import type { Block } from "../serlization/loadPage";
 import type { EditorState, ViewportState } from "../state-types";
 import { getEditorStyles } from "../styles";
 import type { Operation } from "../sync/sync";
@@ -142,21 +143,19 @@ export function startImageDrag(
     const startWidth = storedWidth === "full" ? "full" : imageBlock.width;
     const startHeight = imageBlock.height;
 
-    return {
-      ...state,
-      ui: {
-        ...state.ui,
-        imageDrag: {
-          blockIndex: imageBlock.blockIndex,
-          handle: clickedHandle,
-          startX: canvasX,
-          startY: canvasY,
-          startWidth,
-          startHeight,
-          startObjectFit: objectFit,
-        },
+    // The handle hit + start dimensions are pointer-derived; resolve them here
+    // and hand the finished drag descriptor to START_IMAGE_DRAG.
+    return state.commandBus.dispatchState(START_IMAGE_DRAG, state, {
+      imageDrag: {
+        blockIndex: imageBlock.blockIndex,
+        handle: clickedHandle,
+        startX: canvasX,
+        startY: canvasY,
+        startWidth,
+        startHeight,
+        startObjectFit: objectFit,
       },
-    };
+    }).state;
   }
 
   return null;
@@ -176,168 +175,11 @@ export function updateImageDrag(
   canvasX: number,
   canvasY: number,
 ): EditorState {
-  if (!state.ui.imageDrag) {
-    return state;
-  }
-
-  const {
-    blockIndex,
-    handle,
-    startX,
-    startY,
-    startWidth,
-    startHeight,
-    startObjectFit,
-  } = state.ui.imageDrag;
-  const block = state.document.page.blocks[blockIndex];
-  if (!block || block.deleted) return state;
-
-  if (block.type !== "image") {
-    return state;
-  }
-
-  const styles = getEditorStyles(state);
-  const deltaX = canvasX - startX;
-  const deltaY = canvasY - startY;
-  const maxWidth =
-    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-  const snapThreshold = 20; // pixels to snap to padding
-
-  let newWidth: number | "full" = startWidth;
-  let newHeight = startHeight;
-  let newObjectFit: "cover" | "contain" = startObjectFit;
-
-  if (handle === "left" || handle === "right") {
-    // Horizontal resize
-    const widthDelta = handle === "left" ? -deltaX * 2 : deltaX * 2; // multiply by 2 because we resize from center
-    const { minWidth: constraintMinWidth } = styles.imageResize.constraints;
-
-    if (startWidth === "full") {
-      // Start from full width
-      const currentWidth = viewport.width;
-      newWidth = Math.max(constraintMinWidth, currentWidth + widthDelta);
-
-      // Check if we should snap to padding (transitioning to contained)
-      if (Math.abs(newWidth - maxWidth) < snapThreshold) {
-        newWidth = maxWidth;
-        newObjectFit = "contain";
-      } else if (newWidth < maxWidth - snapThreshold) {
-        // Definitely in contain mode
-        newObjectFit = "contain";
-      } else if (newWidth > maxWidth) {
-        // If width exceeds document width (maxWidth), stay in cover mode
-        newWidth = "full";
-        newObjectFit = "cover";
-      } else if (newWidth >= viewport.width - 10) {
-        // Snap back to full if close
-        newWidth = "full";
-        newObjectFit = "cover";
-      }
-    } else {
-      // Already in custom width mode
-      newWidth = Math.max(
-        constraintMinWidth,
-        Math.min(viewport.width, (startWidth as number) + widthDelta),
-      );
-
-      // Check if we should snap back to full width
-      if (newWidth >= viewport.width - snapThreshold) {
-        newWidth = "full";
-        newObjectFit = "cover";
-      } else if (
-        newWidth >= maxWidth - snapThreshold &&
-        newWidth <= maxWidth + snapThreshold
-      ) {
-        // Snap to padding width
-        newWidth = maxWidth;
-        newObjectFit = "contain";
-      } else if (newWidth > maxWidth) {
-        // If width exceeds document width (maxWidth), convert to cover
-        newWidth = "full";
-        newObjectFit = "cover";
-      } else {
-        // Remain in contain mode
-        newObjectFit = "contain";
-      }
-    }
-
-    // In contain mode, calculate height based on image aspect ratio to avoid jumps
-    // Apply minWidth constraint to prevent over-resizing of wide images
-    if (
-      newObjectFit === "contain" &&
-      typeof newWidth === "number" &&
-      block.url
-    ) {
-      const cachedImage = imageCache.get(block.url);
-      if (cachedImage && cachedImage.complete) {
-        const imgAspectRatio =
-          cachedImage.naturalWidth / cachedImage.naturalHeight;
-
-        // Ensure width doesn't go below minimum (already enforced above, but keep for clarity)
-        newWidth = Math.max(newWidth, constraintMinWidth);
-
-        // Calculate height based on width and aspect ratio
-        newHeight = newWidth / imgAspectRatio;
-      }
-    }
-  } else if (handle === "bottom" && startObjectFit === "cover") {
-    // Vertical resize (only in cover mode)
-    // In cover mode, we enforce minimum height
-    const { minHeight: constraintMinHeight } = styles.imageResize.constraints;
-    const calculatedHeight = Math.max(
-      constraintMinHeight,
-      startHeight + deltaY,
-    );
-
-    // Cap height based on image aspect ratio to prevent over-resizing
-    if (block.url) {
-      const cachedImage = imageCache.get(block.url);
-      if (cachedImage && cachedImage.complete) {
-        const imgAspectRatio =
-          cachedImage.naturalWidth / cachedImage.naturalHeight;
-
-        // Calculate the current container width
-        const containerWidth =
-          typeof startWidth === "number" ? startWidth : viewport.width;
-
-        // For portrait images (tall), cap the height so it doesn't exceed the image's natural ratio
-        // This prevents excessive cropping when the image is resized too tall
-        const maxHeightForRatio = containerWidth / imgAspectRatio;
-
-        // Cap the height at the image's natural ratio relative to container width
-        newHeight = Math.min(calculatedHeight, maxHeightForRatio);
-
-        // Ensure we don't go below minimum height
-        newHeight = Math.max(newHeight, constraintMinHeight);
-      } else {
-        newHeight = calculatedHeight;
-      }
-    } else {
-      newHeight = calculatedHeight;
-    }
-  }
-
-  // Update the block with new dimensions
-  const updatedBlock: Block = {
-    ...block,
-    width: newWidth,
-    height: newHeight,
-    objectFit: newObjectFit,
-  };
-
-  // Invalidate the block height cache since dimensions changed
-  invalidateBlockCache(updatedBlock);
-
-  const newBlocks = [...state.document.page.blocks];
-  newBlocks[blockIndex] = updatedBlock;
-
-  return {
-    ...state,
-    document: {
-      ...state.document,
-      page: { ...state.document.page, blocks: newBlocks },
-    },
-  };
+  return state.commandBus.dispatchState(UPDATE_IMAGE_DRAG, state, {
+    viewport,
+    canvasX,
+    canvasY,
+  }).state;
 }
 /**
  * End an image drag resize operation
@@ -350,71 +192,7 @@ export function endImageDrag(state: EditorState): {
   state: EditorState;
   ops: Operation[];
 } {
-  if (!state.ui.imageDrag) {
-    return { state, ops: [] };
-  }
-
-  const ops: Operation[] = [];
-  const { blockIndex, startWidth, startHeight, startObjectFit } =
-    state.ui.imageDrag;
-  const block = state.document.page.blocks[blockIndex];
-
-  if (block && block.type === "image") {
-    const blockId = block.id;
-
-    // Create operations only for fields that changed during the drag.
-    // Compare final values with original values from when drag started.
-    // Guard against `undefined`: a defensive resize math edge case could leave
-    // a dimension unset, and emitting `value: undefined` serializes to a
-    // value-less block_set that `applyBlockSet`/`validateField` reject on every
-    // peer — leaving the local editor's image silently desynced (it reflows to
-    // its default size, jumping the content below it). Never emit such an op.
-    if (block.width !== startWidth && block.width !== undefined) {
-      ops.push({
-        op: "block_set",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        blockId,
-        field: "width",
-        value: block.width,
-      });
-    }
-
-    if (block.height !== startHeight && block.height !== undefined) {
-      ops.push({
-        op: "block_set",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        blockId,
-        field: "height",
-        value: block.height,
-      });
-    }
-
-    if (block.objectFit !== startObjectFit && block.objectFit !== undefined) {
-      ops.push({
-        op: "block_set",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        blockId,
-        field: "objectFit",
-        value: block.objectFit,
-      });
-    }
-  }
-
-  const finalState = {
-    ...state,
-    ui: {
-      ...state.ui,
-      imageDrag: null,
-    },
-  };
-
-  return { state: finalState, ops };
+  return state.commandBus.dispatchState(END_IMAGE_DRAG, state);
 }
 /**
  * Cancel an image drag resize operation (without recording undo)
@@ -422,17 +200,7 @@ export function endImageDrag(state: EditorState): {
  * @returns Updated state with imageDrag cleared
  */
 export function cancelImageDrag(state: EditorState): EditorState {
-  if (!state.ui.imageDrag) {
-    return state;
-  }
-
-  return {
-    ...state,
-    ui: {
-      ...state.ui,
-      imageDrag: null,
-    },
-  };
+  return state.commandBus.dispatchState(CANCEL_IMAGE_DRAG, state).state;
 }
 /**
  * Helper function to scroll viewport to make cursor visible after state changes
