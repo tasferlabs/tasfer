@@ -19,7 +19,7 @@ export interface EditorProps extends UseEditorOptions {
   style?: CSSProperties;
   /**
    * Called once with the {@link CypherEditor} as soon as it has mounted. Use it
-   * to grab the imperative handle (focus, commands, event subscriptions, …).
+   * to grab the imperative handle (focus, change, event subscriptions, …).
    */
   onReady?: (editor: CypherEditor) => void;
 }

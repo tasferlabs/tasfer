@@ -25,7 +25,7 @@ import type {
 } from "../state-types";
 import { createInitialState, isTouchDevice } from "../state-utils";
 import { mergeTheme } from "../styles";
-import { type EditorApi, Editor } from "./editor";
+import { Editor, type EditorApi } from "./editor";
 import {
   createCanvasLayers,
   destroyCanvasLayers,
@@ -41,7 +41,7 @@ export interface MountedEditor {
    * persisted tail ops). Undefined for standalone editors mounted without a doc.
    */
   readonly doc?: Doc;
-  /** Container for React portals (e.g., slash command menu) */
+  /** Container for React portals (e.g., slash action menu) */
   readonly portalContainer: HTMLDivElement;
   /** Refocus the hidden input (useful after closing drawers/modals) */
   refocus: () => void;

@@ -1,9 +1,10 @@
-import { CURSOR_DRAG_START } from "../command-bus";
+import { CURSOR_DRAG_START } from "../action-bus";
 import {
   CONTEXT_MENU_DURATION,
   CURSOR_DRAG_ACTIVATION_DELAY,
   EDGE_SCROLL_THRESHOLD,
 } from "../constants";
+import { updateImageHandleDrag } from "../rendering/nodes";
 import { imageCache } from "../rendering/renderer";
 import {
   applyMomentum,
@@ -27,7 +28,7 @@ import {
   handleCompositionStart,
   handleCompositionUpdate,
 } from "./compositionEvents";
-import { isTouchDevice, updateImageDrag } from "./eventUtils";
+import { isTouchDevice } from "./eventUtils";
 import { handlePaste } from "./genericEvents";
 import { type InteractionSession, stopAutoScroll } from "./interaction-session";
 import { handleContextMenu, handleKeyDown } from "./keysEvents";
@@ -71,7 +72,7 @@ export function handleEvents(
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
   clipboardData?: { html: string; text: string; imageFile: File | null } | null,
 ): { state: EditorState; ops: Operation[]; pastedImageBlockIndex?: number } {
-  // Collect operations from commands
+  // Collect operations from actions
   let collectedOps: Operation[] = [];
   let pastedImageBlockIndex: number | undefined;
   // Promote a pending hold-to-drag capture once its hold time has elapsed
@@ -102,7 +103,7 @@ export function handleEvents(
     const timeSinceStart = Date.now() - session.touch.startTime;
     if (timeSinceStart >= CURSOR_DRAG_ACTIVATION_DELAY) {
       session.touch.isCursorDrag = true;
-      state.commandBus.dispatch(CURSOR_DRAG_START);
+      state.actionBus.dispatch(CURSOR_DRAG_START);
 
       // Get cursor coordinates for initial magnifier position
       const cursorCoords = state.document.cursor
@@ -445,7 +446,7 @@ export function handleEvents(
             },
           },
         };
-        state = updateImageDrag(
+        state = updateImageHandleDrag(
           state,
           viewport,
           session.autoScroll.lastPointerX,

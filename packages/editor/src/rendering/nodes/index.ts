@@ -23,10 +23,34 @@ import { MathNode } from "../../nodes/MathNode";
 import { TextNode } from "../../nodes/TextNode";
 import { Node, NodeRegistry } from "./Node";
 
-export { getDragHandleAtPoint, ImageNode } from "../../nodes/ImageNode";
+export {
+  CANCEL_IMAGE_HANDLE_DRAG,
+  cancelImageHandleDrag,
+  CREATE_PARAGRAPH_BELOW_IMAGE,
+  END_IMAGE_HANDLE_DRAG,
+  endImageHandleDrag,
+  getDragHandleAtPoint,
+  ImageNode,
+  SET_IMAGE_HOVER,
+  START_IMAGE_HANDLE_DRAG,
+  startImageHandleDrag,
+  UPDATE_IMAGE_HANDLE_DRAG,
+  updateImageHandleDrag,
+} from "../../nodes/ImageNode";
 export { LineNode } from "../../nodes/LineNode";
-export { LIST_BLOCK_TYPES, ListNode } from "../../nodes/ListNode";
-export { MathNode } from "../../nodes/MathNode";
+export {
+  INDENT_LIST_ITEM,
+  LIST_BLOCK_TYPES,
+  ListNode,
+  OUTDENT_LIST_ITEM,
+  TOGGLE_TODO_CHECKED,
+} from "../../nodes/ListNode";
+export {
+  MathNode,
+  OPEN_INLINE_MATH_OVERLAY,
+  SET_INLINE_MATH_HOVER,
+  SET_MATH_BLOCK_HOVER,
+} from "../../nodes/MathNode";
 export {
   getContentWithComposition,
   TEXT_BLOCK_TYPES,

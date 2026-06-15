@@ -1,10 +1,8 @@
 {/* @cypherkit/editor API reference — Schema & nodes. */}
 
-import { Callout, PropsTable } from "../../docsComponents";
+import { PropsTable } from "../../docsComponents";
 
 <p className="dx-lede">A `Schema` declares what a document is made of: the block types and inline marks the editor understands. The default `baseSchema` covers every built-in type; derive your own with `baseSchema.extend(...)`.</p>
-
-<Callout kind="note" title="Cypher's block model is flat.">A document is an ordered *list* of blocks — there is no block nesting. Each block is either text-bearing (paragraph, heading, a list item) or a leaf (image, divider, math). Nested containers — a blockquote wrapping several blocks, columns — are on the roadmap; today every block stands on its own.</Callout>
 
 <h2 id="base">Built-in block types</h2>
 
@@ -19,7 +17,18 @@ import { Callout, PropsTable } from "../../docsComponents";
   { name: "math", type: "$$ … $$", desc: "Leaf block-level math." },
 ]} />
 
-Inline marks: `strong` (`**`), `emphasis` (`*`), `strike` (`~~`), `code` (backticks), `link` (`[text](url)`), plus inline `math` (`$…$`).
+<h2 id="marks">Built-in inline marks</h2>
+
+Marks are inline formatting carried on runs of text. The CRDT names are `strong`/`emphasis`/`strike` (not bold/italic/strikethrough). The togglable ones flip across the selection with `change((c) => c.toggleMark(name))`; `link` and `math` carry data, so they're applied through `setMarkRange` instead.
+
+<PropsTable cols={["Mark", "Markdown", "Togglable", "Notes"]} rows={[
+  { name: "strong", type: "**…**", desc: "Yes · bold." },
+  { name: "emphasis", type: "*…*", desc: "Yes · italic." },
+  { name: "strike", type: "~~…~~", desc: "Yes · strikethrough." },
+  { name: "code", type: "`…`", desc: "Yes · inline code span." },
+  { name: "link", type: "[text](url)", desc: "No — carries a url on attrs; applied via setMarkRange." },
+  { name: "math", type: "$…$", desc: "No — a run of LaTeX rendered as a chip; applied via setMarkRange." },
+]} />
 
 <h2 id="extend">Extending</h2>
 
@@ -34,4 +43,30 @@ const schema = baseSchema.extend({
 });
 ```
 
-Custom block types are leaf, void nodes today (a styled box carrying replicated attributes). See [Custom nodes & marks](/docs/editor/custom-nodes) for the full `defineNode` / `defineMark` options and how they round-trip through Markdown.
+<h2 id="definenode">defineNode(type, config)</h2>
+
+Declares a custom block type. v1 custom nodes are leaf (`content: "none"`) void blocks that round-trip through a generic `<x-type …attrs>` tag, so no tokenizer changes are needed.
+
+<PropsTable cols={["Field", "Type", "Description"]} rows={[
+  { name: "attrs", type: "Record<string, AttrSpec>", desc: "Declared attributes, each replicated as a top-level field (via block_set) with a { default }." },
+  { name: "render", type: "BoxRenderStyle", desc: "Declarative paint for the built-in box renderer — background, borderLeft, label. Ignored when node is supplied." },
+  { name: "node", type: "Node", desc: "A custom canvas Node to render with, instead of the generated box. Owns its own draw/hit-test/overlays." },
+  { name: "toMarkdown / toHtml / toText", type: "(block) => string", desc: "Override the default generic-tag serialization. Override toMarkdown only if you ensure the result re-parses." },
+]} />
+
+<h2 id="definemark">defineMark(type, config?)</h2>
+
+Declares a custom inline mark. With no config it registers a replicated, togglable format name; the optional fields add paint and serialization.
+
+<PropsTable cols={["Field", "Type", "Description"]} rows={[
+  { name: "render", type: "Mark", desc: "A Mark subclass instance — its style() returns the on-canvas paint (color, chip, underline). Omit and the mark replicates but paints as plain text." },
+  { name: "codec", type: "MarkCodec", desc: "Markdown/HTML round-trip — delimiters (==text==) and an HTML tag. Omit and the mark survives via the CRDT but is dropped on markdown export." },
+]} />
+
+```ts
+const schema = baseSchema.extend({
+  marks: [defineMark("highlight", { render: new HighlightMark(), codec: highlightCodec })],
+});
+```
+
+Both `defineNode` and `defineMark` return specs you pass to `extend`. See [Custom nodes & marks](/docs/editor/custom-nodes) for the class-first authoring style, node-owned strings, overlay slots, and how the data round-trips through Markdown.

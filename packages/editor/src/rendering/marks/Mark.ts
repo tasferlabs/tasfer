@@ -144,7 +144,7 @@ export abstract class Mark {
   /**
    * Whether `ChangeApi.toggleMark` may add/remove this mark directly.
    * Marks that need extra input to apply (a link's url, math's LaTeX) set
-   * `false`; they're applied through their own dedicated commands instead.
+   * `false`; they're applied through their own dedicated actions instead.
    */
   readonly togglable: boolean = true;
 

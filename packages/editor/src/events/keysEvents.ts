@@ -1,27 +1,51 @@
+import { SLASH_CONFIRM, SLASH_NAVIGATE } from "../action-bus";
 import {
-  applySlashCommand,
-  deleteForward,
+  applySlashAction,
   deleteText,
-  deleteWordBackward,
-  deleteWordForward,
-  extendSelectionEnd,
-  extendSelectionHome,
-  extendSelectionWordLeft,
-  extendSelectionWordRight,
   getSelectionRange,
-  indentListItem,
   insertText,
-  moveToLineEnd,
-  moveToLineStart,
-  moveToNextWord,
-  moveToPreviousWord,
-  outdentListItem,
-  selectAll,
-  splitBlock,
-  toggleBold,
-} from "../actions/commands";
-import { SLASH_CONFIRM, SLASH_NAVIGATE } from "../command-bus";
+} from "../actions/actions";
+import {
+  CLEAR_SELECTION,
+  createParagraphAbove,
+  createParagraphBelow,
+  DELETE_BACKWARD,
+  DELETE_FORWARD,
+  DELETE_WORD_BACKWARD,
+  DELETE_WORD_FORWARD,
+  INSERT_TEXT,
+  removeAutoCreatedParagraph,
+  SELECT_ALL,
+  selectVisualBlockAfterMove,
+  SPLIT_BLOCK,
+} from "../actions/edit-actions";
+import {
+  EXTEND_SELECTION_DOWN,
+  EXTEND_SELECTION_END,
+  EXTEND_SELECTION_HOME,
+  EXTEND_SELECTION_LEFT,
+  EXTEND_SELECTION_PAGE_DOWN,
+  EXTEND_SELECTION_PAGE_UP,
+  EXTEND_SELECTION_RIGHT,
+  EXTEND_SELECTION_UP,
+  EXTEND_SELECTION_WORD_LEFT,
+  EXTEND_SELECTION_WORD_RIGHT,
+  MOVE_CURSOR_DOWN,
+  MOVE_CURSOR_LEFT,
+  MOVE_CURSOR_PAGE_DOWN,
+  MOVE_CURSOR_PAGE_UP,
+  MOVE_CURSOR_RIGHT,
+  MOVE_CURSOR_UP,
+  MOVE_TO_DOCUMENT_END,
+  MOVE_TO_DOCUMENT_START,
+  MOVE_TO_LINE_END,
+  MOVE_TO_LINE_START,
+  MOVE_TO_NEXT_WORD,
+  MOVE_TO_PREVIOUS_WORD,
+} from "../actions/keyboard-actions";
 import { getCrossedInlineMathSpan } from "../inline-math";
+import { TOGGLE_BOLD } from "../rendering/marks";
+import { INDENT_LIST_ITEM, OUTDENT_LIST_ITEM } from "../rendering/nodes";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { getTextDirection } from "../rtl";
 import {
@@ -29,44 +53,26 @@ import {
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
 } from "../selection";
-import {
-  moveCursorLeft,
-  moveCursorRight,
-  moveCursorToPosition,
-} from "../selection";
+import { moveCursorToPosition } from "../selection";
 import { updateFocus } from "../selection";
 import { updateCursor } from "../selection";
-import {
-  clearSelection,
-  extendSelectionDown,
-  extendSelectionLeft,
-  extendSelectionPageDown,
-  extendSelectionPageUp,
-  extendSelectionRight,
-  extendSelectionUp,
-  moveCursorDown,
-  moveCursorPageDown,
-  moveCursorPageUp,
-  moveCursorUp,
-} from "../selection";
-import { type Block } from "../serlization/loadPage";
+import { clearSelection } from "../selection";
 import { isListBlock } from "../serlization/loadPage";
 import type {
   EditorState,
   KeyboardEvent,
   MouseEvent,
-  SlashCommand,
+  SlashAction,
   ViewportState,
 } from "../state-types";
 import {
   clearAutoCreatedParagraph,
-  closeSlashCommand,
+  closeSlashAction,
   getBlockTextContent,
-  getBlockTextLength,
   openContextMenu,
-  openSlashCommand,
+  openSlashAction,
   setActiveMenu,
-  updateSlashCommandFilter,
+  updateSlashActionFilter,
 } from "../state-utils";
 import { isTextualBlock } from "../sync/block-registry";
 import { redoState, undoState } from "../sync/crdt-undo";
@@ -212,7 +218,7 @@ export function handleKeyDown(
     }
   }
 
-  // Undo/Redo - handle these first, even if slash command is open
+  // Undo/Redo - handle these first, even if slash action is open
   // Use code instead of key for keyboard layout independence
   if (isCtrl && code === "KeyZ" && !keyEvent.shiftKey) {
     const result = undoState(state);
@@ -227,16 +233,15 @@ export function handleKeyDown(
 
   // Select All
   if (isCtrl && code === "KeyA") {
-    return { state: selectAll(state), ops };
+    const result = state.actionBus.dispatchState(SELECT_ALL, state);
+    ops.push(...result.ops);
+    return { state: result.state, ops };
   }
 
   // Bold
   if (isCtrl && code === "KeyB") {
     event.preventDefault();
-    // Only record undo if there's a selection (actual document change)
-    const hasSelection =
-      state.document.selection && !state.document.selection.isCollapsed;
-    const result = toggleBold(hasSelection ? state : state);
+    const result = state.actionBus.dispatchState(TOGGLE_BOLD, state);
     ops.push(...result.ops);
     return { state: result.state, ops };
   }
@@ -251,7 +256,10 @@ export function handleKeyDown(
       if (isListBlock(block)) {
         if (keyEvent.shiftKey) {
           // Shift+Tab: outdent
-          const result = outdentListItem(state);
+          const result = state.actionBus.dispatchState(
+            OUTDENT_LIST_ITEM,
+            state,
+          );
           const newState = result.state;
           ops.push(...result.ops);
           ensureCursorVisible(
@@ -263,7 +271,7 @@ export function handleKeyDown(
           return { state: newState, ops };
         } else {
           // Tab: indent
-          const result = indentListItem(state);
+          const result = state.actionBus.dispatchState(INDENT_LIST_ITEM, state);
           const newState = result.state;
           ops.push(...result.ops);
           ensureCursorVisible(
@@ -286,40 +294,40 @@ export function handleKeyDown(
   // are intentionally NOT intercepted here, so the keydown falls through and
   // the browser fires those events.
 
-  // Handle slash command menu navigation
-  if (state.ui.activeMenu.type === "slashCommand") {
-    // The host owns the command list, filtering, and the current selection.
-    // The engine only relays navigation keys to it (via the command bus) and
-    // applies the chosen command — it never sees the list itself.
+  // Handle slash action menu navigation
+  if (state.ui.activeMenu.type === "slashAction") {
+    // The host owns the action list, filtering, and the current selection.
+    // The engine only relays navigation keys to it (via the action bus) and
+    // applies the chosen action — it never sees the list itself.
     const slashMenu = state.ui.activeMenu;
 
     switch (key) {
       case "ArrowLeft":
       case "ArrowRight":
         // Close slash menu on left/right arrow and continue to normal arrow key handling
-        state = closeSlashCommand(state);
+        state = closeSlashAction(state);
         break;
       case "ArrowDown":
         // Relay to the host so it moves its own highlight; consume the key so
         // the caret doesn't move.
-        state.commandBus.dispatch(SLASH_NAVIGATE, { direction: "down" });
+        state.actionBus.dispatch(SLASH_NAVIGATE, { direction: "down" });
         return { state, ops };
       case "ArrowUp":
-        state.commandBus.dispatch(SLASH_NAVIGATE, { direction: "up" });
+        state.actionBus.dispatch(SLASH_NAVIGATE, { direction: "up" });
         return { state, ops };
       case "Enter": {
-        // Ask the host for its selected command. It calls `confirm`
+        // Ask the host for its selected action. It calls `confirm`
         // synchronously; we apply it here, through the normal return path, so
         // the engine stays the sole writer of `state` (no mid-frame clobber
         // from the host callback). No host claim (e.g. empty list) → close.
-        const picked: { command: SlashCommand | null } = { command: null };
-        state.commandBus.dispatch(SLASH_CONFIRM, {
-          confirm: (command) => {
-            picked.command = command;
+        const picked: { action: SlashAction | null } = { action: null };
+        state.actionBus.dispatch(SLASH_CONFIRM, {
+          confirm: (action) => {
+            picked.action = action;
           },
         });
-        if (picked.command && state.document.cursor) {
-          const result = applySlashCommand(state, picked.command);
+        if (picked.action && state.document.cursor) {
+          const result = applySlashAction(state, picked.action);
           const newState = result.state;
           ops.push(...result.ops);
           ensureCursorVisible(
@@ -330,10 +338,10 @@ export function handleKeyDown(
           );
           return { state: newState, ops };
         }
-        return { state: closeSlashCommand(state), ops };
+        return { state: closeSlashAction(state), ops };
       }
       case "Escape":
-        // Close slash command and remove the "/" character
+        // Close slash action and remove the "/" character
         if (state.document.cursor) {
           const { blockIndex, textIndex } = slashMenu;
           const block = state.document.page.blocks[blockIndex];
@@ -341,7 +349,7 @@ export function handleKeyDown(
 
           // Visual blocks (image/line/math) don't have text content, so guard anyway
           if (!isTextualBlock(block)) {
-            return { state: closeSlashCommand(state), ops };
+            return { state: closeSlashAction(state), ops };
           }
 
           // Remove the "/" and filter text using CRDT operations
@@ -360,7 +368,7 @@ export function handleKeyDown(
             ...state,
             document: { ...state.document, page: newPage },
           };
-          newState = closeSlashCommand(newState);
+          newState = closeSlashAction(newState);
           newState = moveCursorToPosition(newState, blockIndex, textIndex - 1);
 
           ensureCursorVisible(
@@ -371,18 +379,18 @@ export function handleKeyDown(
           );
           return { state: newState, ops };
         }
-        return { state: closeSlashCommand(state), ops };
+        return { state: closeSlashAction(state), ops };
       case "Backspace":
         // If at the start of filter, close menu
         if (
           state.document.cursor &&
-          state.ui.activeMenu.type === "slashCommand" &&
+          state.ui.activeMenu.type === "slashAction" &&
           state.document.cursor.position.textIndex <=
             state.ui.activeMenu.textIndex
         ) {
           // Close menu and delete the slash character - no  needed since deleteText already records
           const deleteResult = deleteText(state);
-          const newState = closeSlashCommand(deleteResult.state);
+          const newState = closeSlashAction(deleteResult.state);
           ops.push(...deleteResult.ops);
           ensureCursorVisible(
             newState,
@@ -395,7 +403,7 @@ export function handleKeyDown(
         // Otherwise update filter - deleteText handles  internally
         if (
           state.document.cursor &&
-          state.ui.activeMenu.type === "slashCommand"
+          state.ui.activeMenu.type === "slashAction"
         ) {
           const slashMenu = state.ui.activeMenu;
           const result = deleteText(state);
@@ -409,7 +417,7 @@ export function handleKeyDown(
               slashMenu.textIndex,
               newState.document.cursor.position.textIndex,
             );
-            const finalState = updateSlashCommandFilter(newState, filter);
+            const finalState = updateSlashActionFilter(newState, filter);
             ensureCursorVisible(
               finalState,
               state,
@@ -421,13 +429,13 @@ export function handleKeyDown(
         }
         return { state, ops };
       default:
-        // Handle typing to filter commands (including spaces)
+        // Handle typing to filter actions (including spaces)
         if (
           key.length === 1 &&
           !keyEvent.ctrlKey &&
           !keyEvent.altKey &&
           !keyEvent.metaKey &&
-          state.ui.activeMenu.type === "slashCommand"
+          state.ui.activeMenu.type === "slashAction"
         ) {
           const slashMenu = state.ui.activeMenu;
           // insertText handles  internally
@@ -442,7 +450,7 @@ export function handleKeyDown(
               slashMenu.textIndex,
               result.state.document.cursor.position.textIndex,
             );
-            const finalState = updateSlashCommandFilter(result.state, filter);
+            const finalState = updateSlashActionFilter(result.state, filter);
             ensureCursorVisible(
               finalState,
               state,
@@ -482,9 +490,19 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (isCtrl && keyEvent.shiftKey) {
-        newState = extendSelectionWordLeft(newState);
+        const moved = newState.actionBus.dispatchState(
+          EXTEND_SELECTION_WORD_LEFT,
+          newState,
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else if (keyEvent.shiftKey) {
-        newState = extendSelectionLeft(newState);
+        const moved = newState.actionBus.dispatchState(
+          EXTEND_SELECTION_LEFT,
+          newState,
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
         // Check if we're on an image at the start of the page
         if (state.document.cursor) {
@@ -496,114 +514,31 @@ export function handleKeyDown(
           const visibleBlocks = state.view.visibleBlocks;
           const firstVisibleBlock =
             visibleBlocks.length > 0 ? visibleBlocks[0] : null;
-          const isFirstBlock =
-            firstVisibleBlock && currentBlock.id === firstVisibleBlock.id;
+          const isFirstBlock = !!(
+            firstVisibleBlock && currentBlock.id === firstVisibleBlock.id
+          );
 
-          if (isFirstBlock && currentBlock && !isTextualBlock(currentBlock)) {
-            // Create a new paragraph above the visual block
-            const newParagraphId = state.CRDTbinding.nextId();
-            const newParagraph: Block = {
-              id: newParagraphId,
-              afterId: null,
-              type: "paragraph",
-              charRuns: [],
-              formats: [],
-            };
-
-            const blockInsertOp: Operation = {
-              op: "block_insert",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              afterBlockId: null,
-              blockId: newParagraphId,
-              blockType: "paragraph",
-            };
-
-            const newBlocks = [newParagraph, ...state.document.page.blocks];
-            const newPage = { ...state.document.page, blocks: newBlocks };
-
-            newState = {
-              ...state,
-              document: { ...state.document, page: newPage },
-            };
-            newState = clearSelection(newState);
-            newState = moveCursorToPosition(newState, 0, 0);
-
-            // Broadcast the operation
-            ops.push(blockInsertOp);
-
+          // Create a new paragraph above the visual block (no tracking on
+          // ArrowLeft).
+          const edge = createParagraphAbove(
+            state,
+            isFirstBlock,
+            currentBlock,
+            false,
+          );
+          if (edge.kind === "break") {
+            newState = edge.state;
+            ops.push(...edge.ops);
             break;
           }
         }
 
         // Check if we should remove an auto-created paragraph (RTL: left = forward)
-        if (state.ui.autoCreatedParagraph && state.document.cursor) {
-          const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
-          const currentBlock =
-            state.document.page.blocks[
-              state.document.cursor.position.blockIndex
-            ];
-
-          // Check if cursor is on the auto-created paragraph and it's RTL and empty
-          if (
-            state.document.cursor.position.blockIndex === blockIndex &&
-            currentBlock?.id === blockId &&
-            currentBlock.type === "paragraph" &&
-            isTextualBlock(currentBlock) &&
-            getBlockTextContent(currentBlock) === "" &&
-            getTextDirection(getBlockTextContent(currentBlock)) === "rtl"
-          ) {
-            // Remove the auto-created paragraph and move to the image below
-            const blockToDelete = state.document.page.blocks[blockIndex];
-
-            const blockDeleteOp: Operation = {
-              op: "block_delete",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              blockId: blockToDelete.id,
-            };
-            ops.push(blockDeleteOp);
-
-            const newBlocks = state.document.page.blocks.filter(
-              (_, i) => i !== blockIndex,
-            );
-            const newPage = { ...state.document.page, blocks: newBlocks };
-
-            newState = {
-              ...state,
-              document: { ...state.document, page: newPage },
-              ui: {
-                ...state.ui,
-                autoCreatedParagraph: null,
-              },
-            };
-
-            // Broadcast the operation
-            // Move cursor to the image that was below
-            newState = clearSelection(newState);
-            newState = moveCursorToPosition(newState, 0, 0);
-
-            // Select the visual block (image/line)
-            const visibleBlocks = newState.view.visibleBlocks;
-            const firstBlock =
-              visibleBlocks.length > 0 ? visibleBlocks[0] : null;
-            if (firstBlock && !isTextualBlock(firstBlock)) {
-              newState = {
-                ...newState,
-                document: {
-                  ...newState.document,
-                  selection: {
-                    anchor: { blockIndex: 0, textIndex: 0 },
-                    focus: { blockIndex: 0, textIndex: 0 },
-                    isForward: true,
-                    isCollapsed: false,
-                    lastUpdate: Date.now(),
-                  },
-                },
-              };
-            }
+        {
+          const edge = removeAutoCreatedParagraph(state, "rtl");
+          if (edge.kind === "break") {
+            newState = edge.state;
+            ops.push(...edge.ops);
             break;
           }
         }
@@ -644,47 +579,28 @@ export function handleKeyDown(
             );
           }
         } else if (isCtrl) {
-          newState = moveToPreviousWord(clearSelection(newState));
+          const moved = newState.actionBus.dispatchState(
+            MOVE_TO_PREVIOUS_WORD,
+            newState,
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
         } else {
-          newState = moveCursorLeft(clearSelection(newState));
+          // Dispatch the named state action so hosts/plugins can observe or
+          // override it; the bus threads {state, ops} forward (no ops here —
+          // a pure caret move).
+          const moved = newState.actionBus.dispatchState(
+            MOVE_CURSOR_LEFT,
+            newState,
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
         }
 
-        // If we moved to a visual block (image/line), select it; otherwise leave just cursor
-        if (newState.document.cursor) {
-          const targetBlock =
-            newState.document.page.blocks[
-              newState.document.cursor.position.blockIndex
-            ];
-          if (targetBlock && !isTextualBlock(targetBlock)) {
-            const visualBlockPosition = {
-              blockIndex: newState.document.cursor.position.blockIndex,
-              textIndex: 0,
-            };
-            newState = {
-              ...newState,
-              document: {
-                ...newState.document,
-                selection: {
-                  anchor: visualBlockPosition,
-                  focus: visualBlockPosition,
-                  isForward: true,
-                  isCollapsed: false,
-                  lastUpdate: Date.now(),
-                },
-              },
-            };
-          }
-
-          // Clear auto-created paragraph tracking only if we moved away from it
-          if (
-            state.ui.autoCreatedParagraph &&
-            newState.document.cursor &&
-            newState.document.cursor.position.blockIndex !==
-              state.ui.autoCreatedParagraph.blockIndex
-          ) {
-            newState = clearAutoCreatedParagraph(newState);
-          }
-        }
+        // If we moved to a visual block (image/line), select it; otherwise leave
+        // just cursor. Also clears auto-created paragraph tracking if we moved
+        // off the tracked block.
+        newState = selectVisualBlockAfterMove(state, newState);
 
         newState = maybeOpenInlineMathOnArrowCross(state, newState, viewport);
       }
@@ -694,9 +610,19 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (isCtrl && keyEvent.shiftKey) {
-        newState = extendSelectionWordRight(state);
+        const moved = newState.actionBus.dispatchState(
+          EXTEND_SELECTION_WORD_RIGHT,
+          newState,
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else if (keyEvent.shiftKey) {
-        newState = extendSelectionRight(newState);
+        const moved = newState.actionBus.dispatchState(
+          EXTEND_SELECTION_RIGHT,
+          newState,
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
         // Check if we're on a visual block (image/line) at the end of the page
         if (state.document.cursor) {
@@ -714,111 +640,21 @@ export function handleKeyDown(
           const isLastBlock =
             state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
 
-          if (isLastBlock && currentBlock && !isTextualBlock(currentBlock)) {
-            // Create a new paragraph below the visual block
-            const newParagraphId = state.CRDTbinding.nextId();
-            const newParagraph: Block = {
-              id: newParagraphId,
-              afterId: currentBlock.id,
-              type: "paragraph",
-              charRuns: [],
-              formats: [],
-            };
-
-            const blockInsertOp: Operation = {
-              op: "block_insert",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              afterBlockId: currentBlock.id,
-              blockId: newParagraphId,
-              blockType: "paragraph",
-            };
-
-            const newBlocks = [...state.document.page.blocks, newParagraph];
-            const newPage = { ...state.document.page, blocks: newBlocks };
-
-            newState = {
-              ...state,
-              document: { ...state.document, page: newPage },
-            };
-            newState = clearSelection(newState);
-            newState = moveCursorToPosition(newState, newBlocks.length - 1, 0);
-
-            // Broadcast the operation
-            ops.push(blockInsertOp);
-
+          // Create a new paragraph below the visual block.
+          const edge = createParagraphBelow(state, isLastBlock, currentBlock);
+          if (edge.kind === "break") {
+            newState = edge.state;
+            ops.push(...edge.ops);
             break;
           }
         }
 
         // Check if we should remove an auto-created paragraph (LTR: right = forward)
-        if (state.ui.autoCreatedParagraph && state.document.cursor) {
-          const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
-          const currentBlock =
-            state.document.page.blocks[
-              state.document.cursor.position.blockIndex
-            ];
-
-          // Check if cursor is on the auto-created paragraph and it's LTR and empty
-          if (
-            state.document.cursor.position.blockIndex === blockIndex &&
-            currentBlock?.id === blockId &&
-            currentBlock.type === "paragraph" &&
-            isTextualBlock(currentBlock) &&
-            getBlockTextContent(currentBlock) === "" &&
-            getTextDirection(getBlockTextContent(currentBlock)) === "ltr"
-          ) {
-            // Remove the auto-created paragraph and move to the image below
-            const blockToDelete = state.document.page.blocks[blockIndex];
-
-            const blockDeleteOp: Operation = {
-              op: "block_delete",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              blockId: blockToDelete.id,
-            };
-            ops.push(blockDeleteOp);
-
-            const newBlocks = state.document.page.blocks.filter(
-              (_, i) => i !== blockIndex,
-            );
-            const newPage = { ...state.document.page, blocks: newBlocks };
-
-            newState = {
-              ...state,
-              document: { ...state.document, page: newPage },
-              ui: {
-                ...state.ui,
-                autoCreatedParagraph: null,
-              },
-            };
-
-            // Broadcast the operation
-            // Move cursor to the visual block that was below
-            newState = clearSelection(newState);
-            newState = moveCursorToPosition(newState, 0, 0);
-
-            // Select the visual block (image/line)
-            const visibleBlocks = newState.view.visibleBlocks;
-            const firstBlock =
-              visibleBlocks.length > 0 ? visibleBlocks[0] : null;
-            if (firstBlock && !isTextualBlock(firstBlock)) {
-              newState = {
-                ...newState,
-                document: {
-                  ...newState.document,
-                  selection: {
-                    anchor: { blockIndex: 0, textIndex: 0 },
-                    focus: { blockIndex: 0, textIndex: 0 },
-                    isForward: true,
-                    isCollapsed: false,
-                    lastUpdate: Date.now(),
-                  },
-                },
-              };
-            }
+        {
+          const edge = removeAutoCreatedParagraph(state, "ltr");
+          if (edge.kind === "break") {
+            newState = edge.state;
+            ops.push(...edge.ops);
             break;
           }
         }
@@ -858,47 +694,25 @@ export function handleKeyDown(
             );
           }
         } else if (isCtrl) {
-          newState = moveToNextWord(clearSelection(newState));
+          const moved = newState.actionBus.dispatchState(
+            MOVE_TO_NEXT_WORD,
+            newState,
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
         } else {
-          newState = moveCursorRight(clearSelection(newState));
+          const moved = newState.actionBus.dispatchState(
+            MOVE_CURSOR_RIGHT,
+            newState,
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
         }
 
-        // If we moved to a visual block (image/line), select it; otherwise leave just cursor
-        if (newState.document.cursor) {
-          const targetBlock =
-            newState.document.page.blocks[
-              newState.document.cursor.position.blockIndex
-            ];
-          if (targetBlock && !isTextualBlock(targetBlock)) {
-            const visualBlockPosition = {
-              blockIndex: newState.document.cursor.position.blockIndex,
-              textIndex: 0,
-            };
-            newState = {
-              ...newState,
-              document: {
-                ...newState.document,
-                selection: {
-                  anchor: visualBlockPosition,
-                  focus: visualBlockPosition,
-                  isForward: true,
-                  isCollapsed: false,
-                  lastUpdate: Date.now(),
-                },
-              },
-            };
-          }
-
-          // Clear auto-created paragraph tracking only if we moved away from it
-          if (
-            state.ui.autoCreatedParagraph &&
-            newState.document.cursor &&
-            newState.document.cursor.position.blockIndex !==
-              state.ui.autoCreatedParagraph.blockIndex
-          ) {
-            newState = clearAutoCreatedParagraph(newState);
-          }
-        }
+        // If we moved to a visual block (image/line), select it; otherwise leave
+        // just cursor. Also clears auto-created paragraph tracking if we moved
+        // off the tracked block.
+        newState = selectVisualBlockAfterMove(state, newState);
 
         newState = maybeOpenInlineMathOnArrowCross(state, newState, viewport);
       }
@@ -908,7 +722,13 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        newState = extendSelectionUp(newState, viewport);
+        const moved = newState.actionBus.dispatchState(
+          EXTEND_SELECTION_UP,
+          newState,
+          { viewport },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
         // Check if we're on a visual block (image/line) at the start of the page
         if (state.document.cursor) {
@@ -918,90 +738,35 @@ export function handleKeyDown(
             ];
           const isFirstBlock = state.document.cursor.position.blockIndex === 0;
 
-          if (isFirstBlock && currentBlock && !isTextualBlock(currentBlock)) {
-            // Create a new paragraph above the visual block
-            const newParagraphId = state.CRDTbinding.nextId();
-            const newParagraph: Block = {
-              id: newParagraphId,
-              afterId: null,
-              type: "paragraph",
-              charRuns: [],
-              formats: [],
-            };
-
-            const blockInsertOp: Operation = {
-              op: "block_insert",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              afterBlockId: null,
-              blockId: newParagraphId,
-              blockType: "paragraph",
-            };
-
-            const newBlocks = [newParagraph, ...state.document.page.blocks];
-            const newPage = { ...state.document.page, blocks: newBlocks };
-
-            newState = {
-              ...state,
-              document: { ...state.document, page: newPage },
-              ui: {
-                ...state.ui,
-                autoCreatedParagraph: {
-                  blockIndex: 0,
-                  blockId: newParagraph.id,
-                },
-              },
-            };
-
-            // Broadcast the operation
-            ops.push(blockInsertOp);
-
-            newState = clearSelection(newState);
-            newState = moveCursorToPosition(newState, 0, 0);
+          // Create a new paragraph above the visual block (track it on ArrowUp).
+          const edge = createParagraphAbove(
+            state,
+            isFirstBlock,
+            currentBlock,
+            true,
+          );
+          if (edge.kind === "break") {
+            newState = edge.state;
+            ops.push(...edge.ops);
             break;
           }
         }
 
         // Clear selection and move cursor
-        newState = moveCursorUp(clearSelection(newState), viewport);
-
-        // If we moved to a visual block (image/line), select it; otherwise leave just cursor
-        if (newState.document.cursor) {
-          const targetBlock =
-            newState.document.page.blocks[
-              newState.document.cursor.position.blockIndex
-            ];
-          if (targetBlock && !isTextualBlock(targetBlock)) {
-            const visualBlockPosition = {
-              blockIndex: newState.document.cursor.position.blockIndex,
-              textIndex: 0,
-            };
-            newState = {
-              ...newState,
-              document: {
-                ...newState.document,
-                selection: {
-                  anchor: visualBlockPosition,
-                  focus: visualBlockPosition,
-                  isForward: true,
-                  isCollapsed: false,
-                  lastUpdate: Date.now(),
-                },
-              },
-            };
-          }
-
-          // Clear auto-created paragraph tracking only if we moved away from it
-          if (
-            state.ui.autoCreatedParagraph &&
-            newState.document.cursor &&
-            newState.document.cursor.position.blockIndex !==
-              state.ui.autoCreatedParagraph.blockIndex
-          ) {
-            newState = clearAutoCreatedParagraph(newState);
-          }
+        {
+          const moved = newState.actionBus.dispatchState(
+            MOVE_CURSOR_UP,
+            newState,
+            { viewport },
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
         }
+
+        // If we moved to a visual block (image/line), select it; otherwise leave
+        // just cursor. Also clears auto-created paragraph tracking if we moved
+        // off the tracked block.
+        newState = selectVisualBlockAfterMove(state, newState);
       }
       break;
     case "ArrowDown":
@@ -1009,74 +774,20 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        newState = extendSelectionDown(newState, viewport);
+        const moved = newState.actionBus.dispatchState(
+          EXTEND_SELECTION_DOWN,
+          newState,
+          { viewport },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
         // Check if we should remove an auto-created paragraph
-        if (state.ui.autoCreatedParagraph && state.document.cursor) {
-          const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
-          const currentBlock =
-            state.document.page.blocks[
-              state.document.cursor.position.blockIndex
-            ];
-
-          // If cursor is on the auto-created paragraph and it's still empty
-          if (
-            state.document.cursor.position.blockIndex === blockIndex &&
-            currentBlock?.id === blockId &&
-            currentBlock.type === "paragraph" &&
-            isTextualBlock(currentBlock) &&
-            getBlockTextContent(currentBlock) === ""
-          ) {
-            // Remove the auto-created paragraph and move to the visual block below
-            const blockToDelete = state.document.page.blocks[blockIndex];
-
-            const blockDeleteOp: Operation = {
-              op: "block_delete",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              blockId: blockToDelete.id,
-            };
-            ops.push(blockDeleteOp);
-
-            const newBlocks = state.document.page.blocks.filter(
-              (_, i) => i !== blockIndex,
-            );
-            const newPage = { ...state.document.page, blocks: newBlocks };
-
-            newState = {
-              ...state,
-              document: { ...state.document, page: newPage },
-              ui: {
-                ...state.ui,
-                autoCreatedParagraph: null,
-              },
-            };
-
-            // Broadcast the operation
-            // Move cursor to the visual block that was below
-            newState = clearSelection(newState);
-            newState = moveCursorToPosition(newState, 0, 0);
-
-            // Select the visual block (image/line)
-            const visibleBlocks = newState.view.visibleBlocks;
-            const firstBlock =
-              visibleBlocks.length > 0 ? visibleBlocks[0] : null;
-            if (firstBlock && !isTextualBlock(firstBlock)) {
-              newState = {
-                ...newState,
-                document: {
-                  ...newState.document,
-                  selection: {
-                    anchor: { blockIndex: 0, textIndex: 0 },
-                    focus: { blockIndex: 0, textIndex: 0 },
-                    isForward: true,
-                    isCollapsed: false,
-                    lastUpdate: Date.now(),
-                  },
-                },
-              };
-            }
+        {
+          const edge = removeAutoCreatedParagraph(state, null);
+          if (edge.kind === "break") {
+            newState = edge.state;
+            ops.push(...edge.ops);
             break;
           }
         }
@@ -1097,83 +808,30 @@ export function handleKeyDown(
           const isLastBlock =
             state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
 
-          if (isLastBlock && currentBlock && !isTextualBlock(currentBlock)) {
-            // Create a new paragraph below the visual block
-            const newParagraphId = state.CRDTbinding.nextId();
-            const newParagraph: Block = {
-              id: newParagraphId,
-              afterId: currentBlock.id,
-              type: "paragraph",
-              charRuns: [],
-              formats: [],
-            };
-
-            const blockInsertOp: Operation = {
-              op: "block_insert",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              afterBlockId: currentBlock.id,
-              blockId: newParagraphId,
-              blockType: "paragraph",
-            };
-
-            const newBlocks = [...state.document.page.blocks, newParagraph];
-            const newPage = { ...state.document.page, blocks: newBlocks };
-
-            newState = {
-              ...state,
-              document: { ...state.document, page: newPage },
-            };
-            newState = clearSelection(newState);
-            newState = moveCursorToPosition(newState, newBlocks.length - 1, 0);
-
-            // Broadcast the operation
-            ops.push(blockInsertOp);
-
+          // Create a new paragraph below the visual block.
+          const edge = createParagraphBelow(state, isLastBlock, currentBlock);
+          if (edge.kind === "break") {
+            newState = edge.state;
+            ops.push(...edge.ops);
             break;
           }
         }
 
         // Clear selection and move cursor
-        newState = moveCursorDown(clearSelection(newState), viewport);
-
-        // If we moved to a visual block (image/line), select it; otherwise leave just cursor
-        if (newState.document.cursor) {
-          const targetBlock =
-            newState.document.page.blocks[
-              newState.document.cursor.position.blockIndex
-            ];
-          if (targetBlock && !isTextualBlock(targetBlock)) {
-            const visualBlockPosition = {
-              blockIndex: newState.document.cursor.position.blockIndex,
-              textIndex: 0,
-            };
-            newState = {
-              ...newState,
-              document: {
-                ...newState.document,
-                selection: {
-                  anchor: visualBlockPosition,
-                  focus: visualBlockPosition,
-                  isForward: true,
-                  isCollapsed: false,
-                  lastUpdate: Date.now(),
-                },
-              },
-            };
-          }
-
-          // Clear auto-created paragraph tracking only if we moved away from it
-          if (
-            state.ui.autoCreatedParagraph &&
-            newState.document.cursor &&
-            newState.document.cursor.position.blockIndex !==
-              state.ui.autoCreatedParagraph.blockIndex
-          ) {
-            newState = clearAutoCreatedParagraph(newState);
-          }
+        {
+          const moved = newState.actionBus.dispatchState(
+            MOVE_CURSOR_DOWN,
+            newState,
+            { viewport },
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
         }
+
+        // If we moved to a visual block (image/line), select it; otherwise leave
+        // just cursor. Also clears auto-created paragraph tracking if we moved
+        // off the tracked block.
+        newState = selectVisualBlockAfterMove(state, newState);
       }
       break;
     case "PageUp":
@@ -1181,7 +839,13 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        newState = extendSelectionPageUp(newState, viewport);
+        const moved = newState.actionBus.dispatchState(
+          EXTEND_SELECTION_PAGE_UP,
+          newState,
+          { viewport },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
         // Check if we're on a visual block (image/line) at the start of the page
         if (state.document.cursor) {
@@ -1191,88 +855,34 @@ export function handleKeyDown(
             ];
           const isFirstBlock = state.document.cursor.position.blockIndex === 0;
 
-          if (isFirstBlock && currentBlock && !isTextualBlock(currentBlock)) {
-            // Create a new paragraph above the visual block
-            const newParagraphId = state.CRDTbinding.nextId();
-            const newParagraph: Block = {
-              id: newParagraphId,
-              afterId: null,
-              type: "paragraph",
-              charRuns: [],
-              formats: [],
-            };
-
-            const blockInsertOp: Operation = {
-              op: "block_insert",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              afterBlockId: null,
-              blockId: newParagraphId,
-              blockType: "paragraph",
-            };
-
-            const newBlocks = [newParagraph, ...state.document.page.blocks];
-            const newPage = { ...state.document.page, blocks: newBlocks };
-
-            newState = {
-              ...state,
-              document: { ...state.document, page: newPage },
-              ui: {
-                ...state.ui,
-                autoCreatedParagraph: {
-                  blockIndex: 0,
-                  blockId: newParagraph.id,
-                },
-              },
-            };
-
-            ops.push(blockInsertOp);
-
-            newState = clearSelection(newState);
-            newState = moveCursorToPosition(newState, 0, 0);
+          // Create a new paragraph above the visual block (track it on PageUp).
+          const edge = createParagraphAbove(
+            state,
+            isFirstBlock,
+            currentBlock,
+            true,
+          );
+          if (edge.kind === "break") {
+            newState = edge.state;
+            ops.push(...edge.ops);
             break;
           }
         }
 
-        newState = moveCursorPageUp(clearSelection(state), viewport);
-
-        // If we moved to a visual block (image/line), select it; otherwise leave just cursor
-        if (newState.document.cursor) {
-          const targetBlock =
-            newState.document.page.blocks[
-              newState.document.cursor.position.blockIndex
-            ];
-          if (targetBlock && !isTextualBlock(targetBlock)) {
-            const visualBlockPosition = {
-              blockIndex: newState.document.cursor.position.blockIndex,
-              textIndex: 0,
-            };
-            newState = {
-              ...newState,
-              document: {
-                ...newState.document,
-                selection: {
-                  anchor: visualBlockPosition,
-                  focus: visualBlockPosition,
-                  isForward: true,
-                  isCollapsed: false,
-                  lastUpdate: Date.now(),
-                },
-              },
-            };
-          }
-
-          // Clear auto-created paragraph tracking only if we moved away from it
-          if (
-            state.ui.autoCreatedParagraph &&
-            newState.document.cursor &&
-            newState.document.cursor.position.blockIndex !==
-              state.ui.autoCreatedParagraph.blockIndex
-          ) {
-            newState = clearAutoCreatedParagraph(newState);
-          }
+        {
+          const moved = newState.actionBus.dispatchState(
+            MOVE_CURSOR_PAGE_UP,
+            newState,
+            { viewport },
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
         }
+
+        // If we moved to a visual block (image/line), select it; otherwise leave
+        // just cursor. Also clears auto-created paragraph tracking if we moved
+        // off the tracked block.
+        newState = selectVisualBlockAfterMove(state, newState);
       }
       break;
     case "PageDown":
@@ -1280,72 +890,20 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        newState = extendSelectionPageDown(newState, viewport);
+        const moved = newState.actionBus.dispatchState(
+          EXTEND_SELECTION_PAGE_DOWN,
+          newState,
+          { viewport },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
         // Check if we should remove an auto-created paragraph
-        if (state.ui.autoCreatedParagraph && state.document.cursor) {
-          const { blockIndex, blockId } = state.ui.autoCreatedParagraph;
-          const currentBlock =
-            state.document.page.blocks[
-              state.document.cursor.position.blockIndex
-            ];
-
-          // If cursor is on the auto-created paragraph and it's still empty
-          if (
-            state.document.cursor.position.blockIndex === blockIndex &&
-            currentBlock?.id === blockId &&
-            currentBlock.type === "paragraph" &&
-            isTextualBlock(currentBlock) &&
-            getBlockTextContent(currentBlock) === ""
-          ) {
-            // Remove the auto-created paragraph and move to the visual block below
-            const blockToDelete = state.document.page.blocks[blockIndex];
-
-            const blockDeleteOp: Operation = {
-              op: "block_delete",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              blockId: blockToDelete.id,
-            };
-            ops.push(blockDeleteOp);
-
-            const newBlocks = state.document.page.blocks.filter(
-              (_, i) => i !== blockIndex,
-            );
-            const newPage = { ...state.document.page, blocks: newBlocks };
-
-            newState = {
-              ...state,
-              document: { ...state.document, page: newPage },
-              ui: {
-                ...state.ui,
-                autoCreatedParagraph: null,
-              },
-            };
-
-            newState = clearSelection(newState);
-            newState = moveCursorToPosition(newState, 0, 0);
-
-            // Select the visual block (image/line)
-            const visibleBlocks = newState.view.visibleBlocks;
-            const firstBlock =
-              visibleBlocks.length > 0 ? visibleBlocks[0] : null;
-            if (firstBlock && !isTextualBlock(firstBlock)) {
-              newState = {
-                ...newState,
-                document: {
-                  ...newState.document,
-                  selection: {
-                    anchor: { blockIndex: 0, textIndex: 0 },
-                    focus: { blockIndex: 0, textIndex: 0 },
-                    isForward: true,
-                    isCollapsed: false,
-                    lastUpdate: Date.now(),
-                  },
-                },
-              };
-            }
+        {
+          const edge = removeAutoCreatedParagraph(state, null);
+          if (edge.kind === "break") {
+            newState = edge.state;
+            ops.push(...edge.ops);
             break;
           }
         }
@@ -1366,81 +924,29 @@ export function handleKeyDown(
           const isLastBlock =
             state.document.cursor.position.blockIndex === lastVisibleBlockIndex;
 
-          if (isLastBlock && currentBlock && !isTextualBlock(currentBlock)) {
-            // Create a new paragraph below the visual block
-            const newParagraphId = state.CRDTbinding.nextId();
-            const newParagraph: Block = {
-              id: newParagraphId,
-              afterId: currentBlock.id,
-              type: "paragraph",
-              charRuns: [],
-              formats: [],
-            };
-
-            const blockInsertOp: Operation = {
-              op: "block_insert",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              afterBlockId: currentBlock.id,
-              blockId: newParagraphId,
-              blockType: "paragraph",
-            };
-
-            const newBlocks = [...state.document.page.blocks, newParagraph];
-            const newPage = { ...state.document.page, blocks: newBlocks };
-
-            newState = {
-              ...state,
-              document: { ...state.document, page: newPage },
-            };
-            newState = clearSelection(newState);
-            newState = moveCursorToPosition(newState, newBlocks.length - 1, 0);
-
-            ops.push(blockInsertOp);
-
+          // Create a new paragraph below the visual block.
+          const edge = createParagraphBelow(state, isLastBlock, currentBlock);
+          if (edge.kind === "break") {
+            newState = edge.state;
+            ops.push(...edge.ops);
             break;
           }
         }
 
-        newState = moveCursorPageDown(clearSelection(state), viewport);
-
-        // If we moved to a visual block (image/line), select it; otherwise leave just cursor
-        if (newState.document.cursor) {
-          const targetBlock =
-            newState.document.page.blocks[
-              newState.document.cursor.position.blockIndex
-            ];
-          if (targetBlock && !isTextualBlock(targetBlock)) {
-            const visualBlockPosition = {
-              blockIndex: newState.document.cursor.position.blockIndex,
-              textIndex: 0,
-            };
-            newState = {
-              ...newState,
-              document: {
-                ...newState.document,
-                selection: {
-                  anchor: visualBlockPosition,
-                  focus: visualBlockPosition,
-                  isForward: true,
-                  isCollapsed: false,
-                  lastUpdate: Date.now(),
-                },
-              },
-            };
-          }
-
-          // Clear auto-created paragraph tracking only if we moved away from it
-          if (
-            state.ui.autoCreatedParagraph &&
-            newState.document.cursor &&
-            newState.document.cursor.position.blockIndex !==
-              state.ui.autoCreatedParagraph.blockIndex
-          ) {
-            newState = clearAutoCreatedParagraph(newState);
-          }
+        {
+          const moved = newState.actionBus.dispatchState(
+            MOVE_CURSOR_PAGE_DOWN,
+            newState,
+            { viewport },
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
         }
+
+        // If we moved to a visual block (image/line), select it; otherwise leave
+        // just cursor. Also clears auto-created paragraph tracking if we moved
+        // off the tracked block.
+        newState = selectVisualBlockAfterMove(state, newState);
       }
       break;
     case "Home":
@@ -1448,13 +954,20 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        newState = extendSelectionHome(newState, isCtrl);
+        const moved = newState.actionBus.dispatchState(
+          EXTEND_SELECTION_HOME,
+          newState,
+          { isCtrl },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
-        if (isCtrl) {
-          newState = moveCursorToPosition(clearSelection(state), 0, 0);
-        } else {
-          newState = moveToLineStart(clearSelection(state));
-        }
+        const moved = newState.actionBus.dispatchState(
+          isCtrl ? MOVE_TO_DOCUMENT_START : MOVE_TO_LINE_START,
+          newState,
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       }
       break;
     case "End":
@@ -1462,77 +975,63 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        newState = extendSelectionEnd(newState, isCtrl);
+        const moved = newState.actionBus.dispatchState(
+          EXTEND_SELECTION_END,
+          newState,
+          { isCtrl },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
-        if (isCtrl) {
-          // Get last visible block and find its index in the full array
-          const visibleBlocks = state.view.visibleBlocks;
-          if (visibleBlocks.length === 0) {
-            newState = clearSelection(state);
-          } else {
-            const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
-            const allBlocks = state.document.page.blocks;
-            const lastVisibleBlockIndex = allBlocks.findIndex(
-              (b) => b.id === lastVisibleBlock.id,
-            );
-            if (lastVisibleBlockIndex !== -1) {
-              newState = moveCursorToPosition(
-                clearSelection(state),
-                lastVisibleBlockIndex,
-                getBlockTextLength(lastVisibleBlock),
-              );
-            } else {
-              newState = clearSelection(state);
-            }
-          }
-        } else {
-          newState = moveToLineEnd(clearSelection(state));
-        }
+        const moved = newState.actionBus.dispatchState(
+          isCtrl ? MOVE_TO_DOCUMENT_END : MOVE_TO_LINE_END,
+          newState,
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       }
       break;
-    case "Escape":
-      return { state: clearSelection(state), ops };
-    case "Backspace":
-      if (isCtrl) {
-        const result = deleteWordBackward(state);
-        newState = result.state;
-        ops.push(...result.ops);
-      } else {
-        const result = deleteText(state);
-        newState = result.state;
-        ops.push(...result.ops);
-      }
-      // Clear auto-created paragraph tracking on delete
-      newState = clearAutoCreatedParagraph(newState);
+    case "Escape": {
+      const result = state.actionBus.dispatchState(CLEAR_SELECTION, state);
+      ops.push(...result.ops);
+      return { state: result.state, ops };
+    }
+    case "Backspace": {
+      const result = state.actionBus.dispatchState(
+        isCtrl ? DELETE_WORD_BACKWARD : DELETE_BACKWARD,
+        state,
+      );
+      newState = result.state;
+      ops.push(...result.ops);
       break;
-    case "Delete":
-      if (isCtrl) {
-        const result = deleteWordForward(state);
-        newState = result.state;
-        ops.push(...result.ops);
-      } else {
-        const result = deleteForward(state);
-        newState = result.state;
-        ops.push(...result.ops);
-      }
-      // Clear auto-created paragraph tracking on delete
-      newState = clearAutoCreatedParagraph(newState);
+    }
+    case "Delete": {
+      const result = state.actionBus.dispatchState(
+        isCtrl ? DELETE_WORD_FORWARD : DELETE_FORWARD,
+        state,
+      );
+      newState = result.state;
+      ops.push(...result.ops);
       break;
-    case "Enter":
-      const splitResult = splitBlock(state);
-      newState = splitResult.state;
-      ops.push(...splitResult.ops);
-      // Clear auto-created paragraph tracking on enter
-      newState = clearAutoCreatedParagraph(newState);
+    }
+    case "Enter": {
+      const result = state.actionBus.dispatchState(SPLIT_BLOCK, state);
+      newState = result.state;
+      ops.push(...result.ops);
       break;
+    }
     case " ":
-    case "Space":
-      const spaceResult = insertText(state, " ");
-      newState = spaceResult.state;
-      ops.push(...spaceResult.ops);
-      // Clear auto-created paragraph tracking on space (already cleared in insertText, but for safety)
+    case "Space": {
+      const result = state.actionBus.dispatchState(INSERT_TEXT, state, {
+        text: " ",
+      });
+      newState = result.state;
+      ops.push(...result.ops);
+      // Clear auto-created paragraph tracking on space (already cleared in
+      // insertText on its main paths, but for safety on its early-return guards)
       newState = clearAutoCreatedParagraph(newState);
       break;
+    }
     default:
       // Check if typing "/" at the start of a block (only on desktop)
       if (
@@ -1545,12 +1044,12 @@ export function handleKeyDown(
       ) {
         const { blockIndex: blockIndex } = state.document.cursor.position;
 
-        // Allow slash command anywhere in paragraphs and headings
+        // Allow slash action anywhere in paragraphs and headings
         const slashResult = insertText(state, "/");
         const newState = slashResult.state;
         ops.push(...slashResult.ops);
         if (newState.document.cursor) {
-          const finalState = openSlashCommand(
+          const finalState = openSlashAction(
             newState,
             blockIndex,
             newState.document.cursor.position.textIndex,
@@ -1572,7 +1071,9 @@ export function handleKeyDown(
         !keyEvent.altKey &&
         !keyEvent.metaKey
       ) {
-        const result = insertText(state, key);
+        const result = state.actionBus.dispatchState(INSERT_TEXT, state, {
+          text: key,
+        });
         newState = result.state;
         ops.push(...result.ops);
         break;

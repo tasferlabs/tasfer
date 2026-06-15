@@ -9,6 +9,15 @@ import "./HomePage.css";
 
 const REPO_URL = "https://github.com/hamza512b/cypher";
 const APP_VERSION = "v0.4.2";
+// The editor SPA (apps/web) is a separate app served at the app origin — same
+// origin behind the CDN in prod, a different port in dev. "open cypher" must be
+// a full-page navigation (plain <a>), not a next/link client route, or it never
+// leaves the marketing site. NEXT_PUBLIC_APP_URL overrides the base; "" = same
+// origin (the prod default), localhost:4000 is the dev fallback.
+const APP_URL =
+  process.env.NEXT_PUBLIC_APP_URL ??
+  (process.env.NODE_ENV === "development" ? "http://localhost:4000" : "");
+const APP_OPEN_URL = `${APP_URL}/page`;
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -613,7 +622,7 @@ export default function HomePage() {
       t("home.lp.refusal.fork.name", "your fork"),
       t(
         "home.lp.refusal.fork.detail",
-        "GPL-3.0. Take the code. Swap the relay for your own. Ship your own build. The copyleft is the point: every fork inherits the same refusal.",
+        "AGPL-3.0. Take the code. Swap the relay for your own. Ship your own build. The copyleft is the point: every fork inherits the same refusal.",
       ),
     ],
     [
@@ -675,9 +684,9 @@ export default function HomePage() {
               {t("home.lp.nav.source", "source")}
             </a>
             <ThemeToggle />
-            <Link className="lp-nav-cta" to="/page">
+            <a className="lp-nav-cta" href={APP_OPEN_URL}>
               {t("home.lp.nav.open", "open cypher")}
-            </Link>
+            </a>
           </nav>
         </div>
       </header>
@@ -740,7 +749,7 @@ export default function HomePage() {
                 </strong>{" "}
                 {t(
                   "home.lp.hero.metaTail",
-                  "· GPL-3.0 · 0 accounts · 0 trackers · 0 servers that own anything about you",
+                  "· AGPL-3.0 app · MIT engine · 0 accounts · 0 trackers · you choose when to share",
                 )}
               </span>
             </div>
@@ -938,7 +947,7 @@ export default function HomePage() {
               </div>
               <div className="lp-repo-stats">
                 <div className="lp-repo-stat">
-                  <span className="v">GPL-3.0</span>
+                  <span className="v">AGPL-3.0</span>
                   <span className="k">
                     {t("home.lp.repo.stat.copyleft", "copyleft")}
                   </span>
@@ -990,10 +999,10 @@ export default function HomePage() {
               )}
             </p>
             <div className="lp-finale-actions">
-              <Link className="lp-btn lp-btn-primary" to="/page">
+              <a className="lp-btn lp-btn-primary" href={APP_OPEN_URL}>
                 {t("home.lp.finale.open", "open cypher")}
                 <Icons.Arrow />
-              </Link>
+              </a>
               {showInstall && (
                 <button className="lp-btn lp-btn-ghost" onClick={handleInstall}>
                   <Icons.Download />

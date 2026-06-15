@@ -1,26 +1,29 @@
 import {
+  type Action,
+  type ActionHandler,
+  DEFAULT_ACTION_PRIORITY,
+  type DispatchArgs,
+  isMutationAction,
+  type MutationAction,
+  type MutationHandler,
+  OPEN_LINK,
+} from "../action-bus";
+import {
+  applySlashAction,
+  convertBlockType,
+  getFormatsAtPosition,
+  insertText,
+  selectAll,
+  toggleFormat,
+} from "../actions/actions";
+import {
   buildClipboardPayload,
   copySelectionToClipboard,
   cutSelectionToClipboard,
   getSelectionPlainText,
   pasteFromSystemClipboard,
 } from "../actions/clipboard";
-import {
-  applySlashCommand,
-  convertBlockType,
-  deleteSelectedText,
-  getFormatsAtPosition,
-  insertText,
-  selectAll,
-  toggleFormat,
-} from "../actions/commands";
-import {
-  type Command,
-  type CommandHandler,
-  DEFAULT_COMMAND_PRIORITY,
-  type DispatchArgs,
-  OPEN_LINK,
-} from "../command-bus";
+import { COPY, CUT } from "../actions/input-actions";
 import { createChromeRegionRegistry } from "../events/chromeRegions";
 import { handleEvents } from "../events/events";
 import {
@@ -59,12 +62,12 @@ import {
 } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
 import type {
+  ActionResult,
   ActiveMenu,
-  CommandResult,
   EditorState,
   EditorTheme,
   NodeOverlay,
-  SlashCommand,
+  SlashAction,
   ViewportState,
 } from "../state-types";
 import type { Operation } from "../state-types";
@@ -145,7 +148,7 @@ export type MarkName = string;
 
 /**
  * The single mutation surface, handed to the callback of {@link Editor.change}
- * / {@link Editor.canChange} (and to an {@link EditorCommand}). Every method
+ * / {@link Editor.canChange} (and to an {@link EditorAction}). Every method
  * queues one granular edit and returns `this`, so calls chain. The whole
  * callback commits as ONE undoable step — one undo entry, one broadcast, one
  * `on("change")` — regardless of how many methods it calls. A method whose
@@ -198,10 +201,10 @@ export interface ChangeApi {
 /**
  * A named, reusable document mutation: a function over the {@link ChangeApi}.
  * Pass one (or several) to {@link Editor.run}; they compose into a single
- * undoable step. The host's own commands and the engine built-ins are the same
- * kind of value — `const toggleStrong: EditorCommand = (c) => c.toggleMark("strong")`.
+ * undoable step. The host's own actions and the engine built-ins are the same
+ * kind of value — `const toggleStrong: EditorAction = (c) => c.toggleMark("strong")`.
  */
-export type EditorCommand = (c: ChangeApi) => void;
+export type EditorAction = (c: ChangeApi) => void;
 
 /**
  * Read-only snapshot of editor state for UI binding (see {@link Editor.state}).
@@ -216,7 +219,7 @@ export interface EditorStateSnapshot {
 }
 
 /**
- * The public command/lifecycle surface implemented by {@link Editor}. Kept as a
+ * The public action/lifecycle surface implemented by {@link Editor}. Kept as a
  * standalone interface so the rich documentation lives in one place and the
  * class is compile-checked (`class Editor implements EditorApi`) against it.
  */
@@ -288,21 +291,35 @@ export interface EditorApi {
     callback: (state: EditorState) => void,
   ): () => void;
   /**
-   * Register a handler for a command (see `defineCommand`). Higher `priority`
-   * runs first (default `0`, above the editor's built-in defaults). Return
-   * `true` to handle the command and stop propagation — skipping the default —
-   * or `false`/`void` to observe and pass through. Returns an unsubscribe fn.
+   * Observe or override a mutation action (see `action`). The handler runs
+   * inside the dispatch's single transaction and is handed the {@link ChangeApi}
+   * — return `true` to claim the action and skip its default mutation, or
+   * `false`/`void` to observe while still contributing edits. Higher `priority`
+   * runs first (default `0`). Returns an unsubscribe fn.
    */
-  registerCommand<P>(
-    command: Command<P>,
-    handler: CommandHandler<P>,
+  registerAction<P>(
+    action: MutationAction<P>,
+    handler: MutationHandler<P>,
     priority?: number,
   ): () => void;
   /**
-   * Dispatch a command through this editor's bus; returns whether a handler
-   * claimed it (see {@link Editor.registerCommand}).
+   * Register a handler for a action (see `action`). Higher `priority`
+   * runs first (default `0`, above the editor's built-in defaults). Return
+   * `true` to handle the action and stop propagation — skipping the default —
+   * or `false`/`void` to observe and pass through. Returns an unsubscribe fn.
    */
-  dispatch<P>(command: Command<P>, ...args: DispatchArgs<P>): boolean;
+  registerAction<P>(
+    action: Action<P>,
+    handler: ActionHandler<P>,
+    priority?: number,
+  ): () => void;
+  /**
+   * Dispatch a action through this editor's bus. For a plain action, returns
+   * whether a handler claimed it. For a mutation action (see `action`), the
+   * default plus all observers run inside ONE undoable transaction and the
+   * return value is whether the document changed (see {@link Editor.registerAction}).
+   */
+  dispatch<P>(action: Action<P>, ...args: DispatchArgs<P>): boolean;
   /** Serialize the current document to a Markdown string. */
   getMarkdown: () => string;
   /**
@@ -322,12 +339,17 @@ export interface EditorApi {
   /** Dry-run a {@link change}: would the queued mutations change anything now? */
   canChange: (fn: (c: ChangeApi) => void) => boolean;
   /**
-   * Run one or more commands, composed into a single undoable step (sugar over
-   * {@link change}). Each entry is an inline {@link EditorCommand} or the name
-   * of one declared on the schema (`schema.commands`); an unknown name is a
-   * no-op. Returns whether anything changed.
+   * Run one or more actions, composed into a single undoable step (sugar over
+   * {@link change}). Each entry is an inline {@link EditorAction}, a
+   * {@link MutationAction} (its `mutate` is composed in; only void-payload ones
+   * fit here), or the name of a action declared on the schema
+   * (`schema.actions`); an unknown name is a no-op. Returns whether anything
+   * changed. Unlike {@link dispatch}, `run` composes raw mutations — it does
+   * not fire a mutation action's registered observers.
    */
-  run: (...commands: (string | EditorCommand)[]) => boolean;
+  run: (
+    ...actions: (string | EditorAction | MutationAction<void>)[]
+  ) => boolean;
   /** Step local history backward; returns whether it changed the document. */
   undo: () => boolean;
   /** Step local history forward; returns whether it changed the document. */
@@ -341,11 +363,11 @@ export interface EditorApi {
   /** True when there is no selection (just a caret, or nothing). */
   isSelectionEmpty: () => boolean;
   /**
-   * Run the given slash command against the open slash-command menu, applying
+   * Run the given slash action against the open slash-action menu, applying
    * its result as one undoable step. No-op unless the slash menu is open with a
    * live cursor.
    */
-  executeSlashCommand: (command: SlashCommand) => void;
+  executeSlashAction: (action: SlashAction) => void;
   /**
    * Copy the current selection to the system clipboard and close any open
    * context menu. Resolves to whether the copy succeeded.
@@ -482,14 +504,14 @@ export interface EditorApi {
 
 type AwarenessBroadcastFn = (state: AwarenessState) => void;
 
-// A pure (state) => CommandResult transform. Named distinctly from the
-// command-bus `Command` type (imported above), which is a different concept.
-type StateCommand = (s: EditorState) => CommandResult;
+// A pure (state) => ActionResult transform. Named distinctly from the
+// action-bus `Action` type (imported above), which is a different concept.
+type StateAction = (s: EditorState) => ActionResult;
 
 /**
  * The canvas editor instance. Attaches the engine to a set of layered canvases
  * and (optionally) an accessible contenteditable input surface, runs the render
- * loop, and exposes the imperative command/lifecycle API ({@link EditorApi}).
+ * loop, and exposes the imperative action/lifecycle API ({@link EditorApi}).
  *
  * Every public member is an arrow-function field (bound to the instance) so the
  * surface survives being spread into a host handle (see `createEditor`). All
@@ -611,10 +633,16 @@ export class Editor implements EditorApi {
   // Click handler for focusing input (stored for cleanup)
   private canvasClickHandler: (() => void) | null = null;
 
-  // Named commands (from the schema), resolvable by name in `run`.
-  private schemaCommands: Readonly<Record<string, EditorCommand>> = {};
-  // Keybinding → command (name or inline), dispatched ahead of built-in keys.
-  private schemaShortcuts: Readonly<Record<string, string | EditorCommand>> = {};
+  // Named actions (from the schema), resolvable by name in `run`/shortcuts.
+  // A value is either a raw EditorAction or a listenable MutationAction.
+  private schemaActions: Readonly<
+    Record<string, EditorAction | MutationAction<void>>
+  > = {};
+  // Keybinding → action (name, inline, or MutationAction), checked ahead of
+  // built-in keys. A MutationAction fires through `dispatch` so its observers run.
+  private schemaShortcuts: Readonly<
+    Record<string, string | EditorAction | MutationAction<void>>
+  > = {};
 
   constructor(
     layers: CanvasLayers,
@@ -622,8 +650,10 @@ export class Editor implements EditorApi {
     viewportProp: ViewportState,
     hiddenInput?: HTMLElement,
     config?: {
-      commands?: Readonly<Record<string, EditorCommand>>;
-      shortcuts?: Readonly<Record<string, string | EditorCommand>>;
+      actions?: Readonly<Record<string, EditorAction | MutationAction<void>>>;
+      shortcuts?: Readonly<
+        Record<string, string | EditorAction | MutationAction<void>>
+      >;
     },
   ) {
     // Extract contexts from layers
@@ -632,24 +662,24 @@ export class Editor implements EditorApi {
     this.contentCanvas = layers.content.canvas;
     this.hiddenInput = hiddenInput;
 
-    this.schemaCommands = config?.commands ?? {};
+    this.schemaActions = config?.actions ?? {};
     this.schemaShortcuts = config?.shortcuts ?? {};
 
     this._state = initialState;
     this.viewport = viewportProp;
 
-    // Built-in command defaults. These sit below any host handler (registered
-    // via editor.registerCommand) on the bus, so a host can override them by
+    // Built-in action defaults. These sit below any host handler (registered
+    // via editor.registerAction) on the bus, so a host can override them by
     // returning true — e.g. a native shell taking over OPEN_LINK. Observe-only
-    // commands (haptics, gesture milestones) have no default and are dispatched
+    // actions (haptics, gesture milestones) have no default and are dispatched
     // as-is.
-    this._state.commandBus.register(
+    this._state.actionBus.register(
       OPEN_LINK,
       ({ url }) => {
         window.open(url, "_blank", "noopener,noreferrer");
         return true;
       },
-      DEFAULT_COMMAND_PRIORITY,
+      DEFAULT_ACTION_PRIORITY,
     );
 
     this.awarenessCleanupInterval = setInterval(
@@ -854,10 +884,10 @@ export class Editor implements EditorApi {
   };
 
   /**
-   * Execute a command that returns { state, ops } and broadcast operations to peers.
+   * Execute a action that returns { state, ops } and broadcast operations to peers.
    * This is the central point for all state-modifying operations.
    */
-  private executeCommand = (result: CommandResult): void => {
+  private executeAction = (result: ActionResult): void => {
     const { state: newState, ops } = result;
     const prevState = this._state;
 
@@ -1487,11 +1517,16 @@ export class Editor implements EditorApi {
     const payload = buildClipboardPayload(this._state);
     if (!payload || !e.clipboardData) return; // nothing selected → browser default
     e.preventDefault();
+    // The clipboard write MUST stay synchronous in the ClipboardEvent.
     e.clipboardData.setData("text/plain", payload.plainText);
     e.clipboardData.setData("text/html", payload.html);
+    // Copy produces no state/ops — fire COPY as a plain signal so hosts can
+    // observe/override it (the override doesn't replace the sync write above,
+    // which must run in-event; it lets a native shell react to the copy).
+    this.dispatch(COPY);
   };
 
-  // Native cut: copy, then delete the selection through the command pipeline.
+  // Native cut: copy, then delete the selection through the action pipeline.
   private cutHandler = (e: ClipboardEvent) => {
     if (!this._state.view.isFocused) return;
     if (this._state.ui.mode === "readonly" || this._state.ui.mode === "locked")
@@ -1501,9 +1536,12 @@ export class Editor implements EditorApi {
     const payload = buildClipboardPayload(this._state);
     if (!payload || !e.clipboardData) return;
     e.preventDefault();
+    // The clipboard write MUST stay synchronous in the ClipboardEvent.
     e.clipboardData.setData("text/plain", payload.plainText);
     e.clipboardData.setData("text/html", payload.html);
-    this.executeCommand(deleteSelectedText(this._state));
+    // Route the deletion through CUT so observers/overrides see it; CUT's
+    // default wraps `deleteSelectedText`, so the emitted ops match the old path.
+    this.executeAction(this._state.actionBus.dispatchState(CUT, this._state));
     this.resetSentinel();
   };
 
@@ -1814,6 +1852,16 @@ export class Editor implements EditorApi {
         }
         return;
       }
+    }
+
+    // Host schema shortcuts take precedence over the built-in keymap. A matched
+    // combo runs its action (a MutationAction goes through dispatch so its
+    // observers fire) and consumes the key, so the built-in path below — and the
+    // window listener — don't also act on it.
+    if (this.handleSchemaShortcut(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
     }
 
     // Only forward special keys to avoid duplication with input event
@@ -2186,16 +2234,42 @@ export class Editor implements EditorApi {
 
   // The bus methods are stable closures across state updates (the bus reference
   // never changes), so these simply delegate to the current binding.
-  registerCommand = <P>(
-    command: Command<P>,
-    handler: CommandHandler<P>,
+  // One implementation behind the two public overloads (plain ActionHandler vs.
+  // a mutation action's ChangeApi-threading MutationHandler). The bus stores
+  // both shapes in the same slot; `dispatch`/`dispatchMutation` invoke each with
+  // the right arguments, so the registry stays handler-shape-agnostic here.
+  registerAction = <P>(
+    action: Action<P>,
+    handler: ActionHandler<P> | MutationHandler<P>,
     priority?: number,
   ): (() => void) => {
-    return this._state.commandBus.register(command, handler, priority);
+    return this._state.actionBus.register(
+      action,
+      handler as ActionHandler<P>,
+      priority,
+    );
   };
 
-  dispatch = <P>(command: Command<P>, ...args: DispatchArgs<P>): boolean => {
-    return this._state.commandBus.dispatch(command, ...args);
+  dispatch = <P>(action: Action<P>, ...args: DispatchArgs<P>): boolean => {
+    // Plain action: route straight through the bus (handler walk, override on
+    // first `true`). Returns whether a handler claimed it.
+    if (!isMutationAction(action)) {
+      return this._state.actionBus.dispatch(action, ...args);
+    }
+    // Mutation action: run its observers (high→low) plus its default inside ONE
+    // change() — an observer can override (return true → skip the default) or
+    // contribute edits to the same transaction. Returns whether the doc changed.
+    const payload = (args as unknown[])[0] as P;
+    return this.change((c) => {
+      let claimed = false;
+      for (const handler of this._state.actionBus.handlersFor(action)) {
+        if ((handler as unknown as MutationHandler<P>)(c, payload) === true) {
+          claimed = true;
+          break;
+        }
+      }
+      if (!claimed) action.mutate(c, payload);
+    });
   };
 
   getMarkdown = (): string => {
@@ -2212,25 +2286,25 @@ export class Editor implements EditorApi {
     this.restoreFromSnapshot(loadPage(markdown).blocks);
   };
 
-  // ── Commands & chaining (Tier B) ────────────────────────────────────────
-  // Every command is a pure (state) => CommandResult transform built on the
-  // same action functions the keyboard/menu paths use. `commands.X` runs one
-  // immediately (its own undo step, broadcast, notify, via executeCommand);
+  // ── Actions & chaining (Tier B) ────────────────────────────────────────
+  // Every action is a pure (state) => ActionResult transform built on the
+  // same action functions the keyboard/menu paths use. `actions.X` runs one
+  // immediately (its own undo step, broadcast, notify, via executeAction);
   // `chain()` threads state through several and commits them as ONE undo step.
 
   // toggleMark dispatch is registry-driven: any togglable mark on the schema
   // can be toggled by name (built-ins + custom). Marks that need extra input
   // (link → url, math → LaTeX) are `togglable: false` and ignored here.
-  private toggleMarkCommand =
-    (name: MarkName): StateCommand =>
+  private toggleMarkAction =
+    (name: MarkName): StateAction =>
     (s) =>
       toggleFormat(s, name);
 
   private canToggleMark = (name: MarkName): boolean =>
     this._state.marks.get(name)?.togglable === true;
 
-  private blockCommand =
-    (type: Block["type"]): StateCommand =>
+  private blockAction =
+    (type: Block["type"]): StateAction =>
     (s) =>
       convertBlockType(s, type);
 
@@ -2247,63 +2321,63 @@ export class Editor implements EditorApi {
     return type;
   };
 
-  private insertTextCommand =
-    (text: string): StateCommand =>
+  private insertTextAction =
+    (text: string): StateAction =>
     (s) =>
       insertText(s, text);
 
-  private selectAllCommand: StateCommand = (s) => ({
+  private selectAllAction: StateAction = (s) => ({
     state: selectAll(s),
     ops: [],
   });
 
   // Build a ChangeApi over a working-state/ops accumulator. Each method queues
-  // a StateCommand by threading the accumulator forward, then returns the same
+  // a StateAction by threading the accumulator forward, then returns the same
   // builder so calls chain. Nothing is committed here — commitChange does that.
   private makeChangeApi = (ctx: {
     state: EditorState;
     ops: Operation[];
   }): ChangeApi => {
-    const apply = (cmd: StateCommand) => {
+    const apply = (cmd: StateAction) => {
       const r = cmd(ctx.state);
       ctx.state = r.state;
       ctx.ops.push(...r.ops);
     };
     const c: ChangeApi = {
       toggleMark: (name) => {
-        if (this.canToggleMark(name)) apply(this.toggleMarkCommand(name));
+        if (this.canToggleMark(name)) apply(this.toggleMarkAction(name));
         return c;
       },
       setBlock: (type, attrs) => {
-        apply(this.blockCommand(this.resolveBlockType(type, attrs)));
+        apply(this.blockAction(this.resolveBlockType(type, attrs)));
         return c;
       },
       insertText: (text) => {
-        apply(this.insertTextCommand(text));
+        apply(this.insertTextAction(text));
         return c;
       },
       selectAll: () => {
-        apply(this.selectAllCommand);
+        apply(this.selectAllAction);
         return c;
       },
       setNodeAttrs: (blockId, attrs) => {
-        apply(this.setNodeAttrsCommand(blockId, attrs));
+        apply(this.setNodeAttrsAction(blockId, attrs));
         return c;
       },
       deleteNode: (blockId) => {
-        apply(this.deleteNodeCommand(blockId));
+        apply(this.deleteNodeAction(blockId));
         return c;
       },
       replaceInlineRange: (blockId, start, end, text, mark) => {
-        apply(this.replaceInlineRangeCommand(blockId, start, end, text, mark));
+        apply(this.replaceInlineRangeAction(blockId, start, end, text, mark));
         return c;
       },
       deleteInlineRange: (blockId, start, end) => {
-        apply(this.deleteInlineRangeCommand(blockId, start, end));
+        apply(this.deleteInlineRangeAction(blockId, start, end));
         return c;
       },
       setMarkRange: (blockId, start, end, mark, active = true) => {
-        apply(this.setMarkRangeCommand(blockId, start, end, mark, active));
+        apply(this.setMarkRangeAction(blockId, start, end, mark, active));
         return c;
       },
     };
@@ -2342,13 +2416,30 @@ export class Editor implements EditorApi {
     return ctx.state !== this._state || ctx.ops.length > 0;
   };
 
-  run = (...commands: (string | EditorCommand)[]): boolean =>
+  run = (
+    ...actions: (string | EditorAction | MutationAction<void>)[]
+  ): boolean =>
     this.change((c) => {
-      for (const cmd of commands) {
-        const fn = typeof cmd === "string" ? this.schemaCommands[cmd] : cmd;
+      for (const cmd of actions) {
+        const fn = this.resolveAction(cmd);
         if (fn) fn(c);
       }
     });
+
+  // Resolve a action reference to a raw mutation `(c) => void`. A string names
+  // a schema action; a MutationAction contributes its `mutate` (payload void);
+  // an EditorAction is already the right shape.
+  private resolveAction = (
+    cmd: string | EditorAction | MutationAction<void>,
+  ): EditorAction | undefined => {
+    if (typeof cmd === "string") {
+      const named = this.schemaActions[cmd];
+      return named && isMutationAction(named)
+        ? (c) => named.mutate(c, undefined)
+        : named;
+    }
+    return isMutationAction(cmd) ? (c) => cmd.mutate(c, undefined) : cmd;
+  };
 
   // Match a KeyboardEvent against a combo string like "mod+shift+b" (mod = ⌘
   // on macOS, Ctrl elsewhere; also ctrl/meta/cmd/alt/opt/shift). The final
@@ -2370,7 +2461,7 @@ export class Editor implements EditorApi {
     for (const mod of parts) {
       if (mod === "mod") wantMod = true;
       else if (mod === "ctrl" || mod === "control") wantCtrl = true;
-      else if (mod === "meta" || mod === "cmd" || mod === "command")
+      else if (mod === "meta" || mod === "cmd" || mod === "action")
         wantMeta = true;
       else if (mod === "alt" || mod === "opt" || mod === "option")
         wantAlt = true;
@@ -2393,14 +2484,16 @@ export class Editor implements EditorApi {
   };
 
   // Run the first schema shortcut whose combo matches this event. Returns true
-  // if one matched (and was applied), so the keydown handler can preventDefault
-  // and stop the built-in path. Host shortcuts are checked before built-ins.
+  // if one matched (so the keydown handler can preventDefault and stop the
+  // built-in path). A MutationAction fires through `dispatch` so its observers
+  // run; anything else is a raw mutation composed into one change().
   private handleSchemaShortcut = (e: KeyboardEvent): boolean => {
     for (const [combo, target] of Object.entries(this.schemaShortcuts)) {
       if (!this.matchesShortcut(e, combo)) continue;
-      const fn =
-        typeof target === "string" ? this.schemaCommands[target] : target;
-      if (fn) this.change((c) => fn(c));
+      const resolved =
+        typeof target === "string" ? this.schemaActions[target] : target;
+      if (resolved && isMutationAction(resolved)) this.dispatch(resolved);
+      else if (resolved) this.change((c) => resolved(c));
       return true;
     }
     return false;
@@ -2428,13 +2521,13 @@ export class Editor implements EditorApi {
     return !sel || sel.isCollapsed;
   };
 
-  executeSlashCommand = (command: SlashCommand): void => {
+  executeSlashAction = (action: SlashAction): void => {
     if (
-      this._state.ui.activeMenu.type === "slashCommand" &&
+      this._state.ui.activeMenu.type === "slashAction" &&
       this._state.document.cursor
     ) {
-      const result = applySlashCommand(this._state, command);
-      this.executeCommand(result);
+      const result = applySlashAction(this._state, action);
+      this.executeAction(result);
     }
   };
 
@@ -2448,7 +2541,7 @@ export class Editor implements EditorApi {
   cut = async (): Promise<boolean> => {
     const result = await cutSelectionToClipboard(this._state);
     if (result.success && result.result) {
-      this.executeCommand(result.result);
+      this.executeAction(result.result);
       this._state = closeContextMenu(this._state);
       this.scheduleRender();
       return true;
@@ -2461,7 +2554,7 @@ export class Editor implements EditorApi {
   paste = async (): Promise<boolean> => {
     const result = await pasteFromSystemClipboard(this._state);
     if (result) {
-      this.executeCommand(result);
+      this.executeAction(result);
       this._state = closeContextMenu(this._state);
       this.scheduleRender();
       return true;
@@ -2497,14 +2590,14 @@ export class Editor implements EditorApi {
     return true;
   };
 
-  private setMarkRangeCommand =
+  private setMarkRangeAction =
     (
       blockId: string,
       start: number,
       end: number,
       mark: Mark,
       active: boolean,
-    ): StateCommand =>
+    ): StateAction =>
     (s) => {
       const blocks = s.document.page.blocks;
       const blockIndex = blocks.findIndex((b) => b.id === blockId);
@@ -2585,8 +2678,8 @@ export class Editor implements EditorApi {
     this.listeners.forEach((listener) => listener(currentState));
   };
 
-  private setNodeAttrsCommand =
-    (blockId: string, attrs: Record<string, unknown>): StateCommand =>
+  private setNodeAttrsAction =
+    (blockId: string, attrs: Record<string, unknown>): StateAction =>
     (s) => {
       const blocks = s.document.page.blocks;
       const blockIndex = blocks.findIndex((b) => b.id === blockId);
@@ -2646,8 +2739,8 @@ export class Editor implements EditorApi {
     this.listeners.forEach((listener) => listener(currentState));
   };
 
-  private deleteNodeCommand =
-    (blockId: string): StateCommand =>
+  private deleteNodeAction =
+    (blockId: string): StateAction =>
     (s) => {
       const blocks = s.document.page.blocks;
       const blockIndex = blocks.findIndex((b) => b.id === blockId);
@@ -2721,14 +2814,14 @@ export class Editor implements EditorApi {
     this.applyActiveMenu({ type: "overlay", ...overlay });
   };
 
-  private replaceInlineRangeCommand =
+  private replaceInlineRangeAction =
     (
       blockId: string,
       start: number,
       end: number,
       text: string,
       mark?: Mark,
-    ): StateCommand =>
+    ): StateAction =>
     (s) => {
       const blocks = s.document.page.blocks;
       const blockIndex = blocks.findIndex((b) => b.id === blockId);
@@ -2737,7 +2830,7 @@ export class Editor implements EditorApi {
         return { state: s, ops: [] };
       // An empty replacement is a deletion of the range.
       if (text.length === 0)
-        return this.deleteInlineRangeCommand(blockId, start, end)(s);
+        return this.deleteInlineRangeAction(blockId, start, end)(s);
 
       const ops: Operation[] = [];
 
@@ -2785,8 +2878,8 @@ export class Editor implements EditorApi {
       };
     };
 
-  private deleteInlineRangeCommand =
-    (blockId: string, start: number, end: number): StateCommand =>
+  private deleteInlineRangeAction =
+    (blockId: string, start: number, end: number): StateAction =>
     (s) => {
       const blocks = s.document.page.blocks;
       const blockIndex = blocks.findIndex((b) => b.id === blockId);

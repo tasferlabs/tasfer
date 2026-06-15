@@ -15,6 +15,7 @@ import EditorTheming from "./pages/editor/theming.mdx";
 import EditorApiEditor from "./pages/editor/api-editor.mdx";
 import EditorApiCommands from "./pages/editor/api-commands.mdx";
 import EditorApiSchema from "./pages/editor/api-schema.mdx";
+import EditorApiReact from "./pages/editor/api-react.mdx";
 
 /* ============================================================
    Documentation navigation model — ported from docs-shell.jsx.
@@ -86,8 +87,9 @@ export const NAV: NavSection[] = [
         label: "API reference",
         items: [
           { route: "editor/api-editor", title: "Editor", Comp: EditorApiEditor, kw: "createeditor options methods state events instance" },
-          { route: "editor/api-commands", title: "Commands", Comp: EditorApiCommands, kw: "command chain togglemark dispatch transaction" },
+          { route: "editor/api-commands", title: "Changes & actions", Comp: EditorApiCommands, kw: "change run changeapi togglemark setblock insert dispatch action mutation undo redo transaction" },
           { route: "editor/api-schema", title: "Schema & nodes", Comp: EditorApiSchema, kw: "schema baseschema nodes marks content expression" },
+          { route: "editor/api-react", title: "React bindings", Comp: EditorApiReact, kw: "react useeditor editor component useeditorstate hook jsx tsx binding" },
         ],
       },
     ],

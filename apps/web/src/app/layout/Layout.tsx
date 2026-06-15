@@ -4,7 +4,7 @@ import { ConfirmationDialogProvider } from "../components/ConfirmationDialog";
 import { DevToolbar } from "../components/DevToolbar";
 import { OnboardingScreen } from "../components/OnboardingScreen";
 import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
-import { CommandCenter } from "../components/CommandCenter";
+import { ActionCenter } from "../components/ActionCenter";
 import UpdatePopup from "../components/UpdatePopup";
 import { PageSettingsProvider } from "../contexts/PageSettingsContext";
 import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
@@ -122,7 +122,7 @@ function LayoutInner({ needsForceUpdate }: { needsForceUpdate: boolean }) {
         open={!!inviteMembersId}
         onOpenChange={(open) => setInviteMembersId(open ? inviteMembersId : null)}
       />
-      <CommandCenter />
+      <ActionCenter />
       <UpdatePopup />
       <DevToolbar />
       {needsForceUpdate && <ForceUpdatePage />}

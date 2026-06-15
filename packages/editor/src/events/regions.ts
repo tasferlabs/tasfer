@@ -23,7 +23,7 @@
  * once the pointer has been held still long enough.
  */
 
-import { REGION_DRAG_START } from "../command-bus";
+import { REGION_DRAG_START } from "../action-bus";
 import type { EditorState, ViewportState } from "../state-types";
 import type { Operation } from "../sync/sync";
 import type { InteractionSession } from "./interaction-session";
@@ -209,7 +209,7 @@ export function tickPendingCapture(ctx: RegionCtx): EditorState | null {
 
   ctx.session.pendingCapture = null;
   if (pending.region.drag.activationIntensity) {
-    ctx.state.commandBus.dispatch(REGION_DRAG_START, {
+    ctx.state.actionBus.dispatch(REGION_DRAG_START, {
       regionId: pending.region.id,
       intensity: pending.region.drag.activationIntensity,
     });

@@ -37,7 +37,7 @@ export interface CreateEditorOptions extends MountEditorOptions {
 }
 
 /**
- * The handle returned by {@link createEditor}: the full {@link Editor} command
+ * The handle returned by {@link createEditor}: the full {@link Editor} action
  * surface plus the mount-level conveniences (focus / blur / teardown / portal).
  *
  * Its `destroy()` performs the *complete* teardown — canvas layers, global
@@ -85,7 +85,7 @@ export interface CypherEditor extends EditorApi {
 
 /**
  * Convenience constructor: parse Markdown, mount the canvas editor into an
- * element, and return a single handle that merges the editor command API with
+ * element, and return a single handle that merges the editor action API with
  * the mount lifecycle.
  *
  * A thin wrapper over `loadPage` + `mountEditor` — reach for `mountEditor`
@@ -160,7 +160,7 @@ export function createEditor(options: CreateEditorOptions): CypherEditor {
   };
 
   const handle: CypherEditor = {
-    // Spread the core editor command surface (change, run, undo, on,
+    // Spread the core editor action surface (change, run, undo, on,
     // getMarkdown, sync methods, …) onto the returned handle.
     ...editor,
     // Re-expose `state` as a live getter: object spread above evaluates the

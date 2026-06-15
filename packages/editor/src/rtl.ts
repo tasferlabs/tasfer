@@ -3,6 +3,9 @@
  * Provides functions to detect and handle RTL languages like Arabic, Hebrew, Persian, etc.
  */
 
+import type { CharRun } from "./serlization/loadPage";
+import { iterateVisibleChars } from "./sync/char-runs";
+
 /**
  * Unicode ranges for RTL scripts
  * Based on Unicode standard for strong RTL characters
@@ -73,4 +76,24 @@ export function getTextDirection(text: string): "rtl" | "ltr" {
   if (totalDirectional === 0) return getDefaultDirection();
 
   return rtlCount / totalDirectional > 0.3 ? "rtl" : "ltr";
+}
+/**
+ * Helper to determine if text is RTL based on charRuns
+ */
+export function isBlockRTL(charRuns: CharRun[]): boolean {
+  let totalRtl = 0;
+  let totalLtr = 0;
+
+  for (const { char } of iterateVisibleChars(charRuns)) {
+    if (isRTLChar(char)) {
+      totalRtl++;
+    } else if (/[a-zA-Z]/.test(char)) {
+      totalLtr++;
+    }
+  }
+
+  const totalDirectional = totalRtl + totalLtr;
+  if (totalDirectional === 0) return false;
+
+  return totalRtl / totalDirectional > 0.3;
 }

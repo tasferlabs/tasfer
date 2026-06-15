@@ -74,7 +74,7 @@ export default function DocsPage() {
             <Link className="dx-branch dx-branch--primary" to="/docs/app/getting-started">
               <div className="dx-branch-top">
                 <span className="dx-branch-ic"><Icons.Shield /></span>
-                <span className="dx-branch-badge">{t("docs.hub.app.badge", "the app · GPL-3.0")}</span>
+                <span className="dx-branch-badge">{t("docs.hub.app.badge", "the app · AGPL-3.0")}</span>
               </div>
               <h2 className="dx-branch-name">{t("docs.hub.app.name", "Cypher, the app")}</h2>
               <p className="dx-branch-desc">
@@ -115,7 +115,7 @@ export default function DocsPage() {
               so the original "0 runtime deps" claim is dropped). */}
           <div className="dx-hub-strip">
             <div className="dx-hub-stat"><span className="v">MIT</span><span className="k">{t("docs.hub.stat.editorLicense", "editor license")}</span></div>
-            <div className="dx-hub-stat"><span className="v">GPL-3.0</span><span className="k">{t("docs.hub.stat.appLicense", "app license")}</span></div>
+            <div className="dx-hub-stat"><span className="v">AGPL-3.0</span><span className="k">{t("docs.hub.stat.appLicense", "app license")}</span></div>
             <div className="dx-hub-stat"><span className="v">0</span><span className="k">{t("docs.hub.stat.accounts", "accounts")}</span></div>
             <div className="dx-hub-stat"><span className="v">CRDT</span><span className="k">{t("docs.hub.stat.crdt", "first, by design")}</span></div>
             <div className="dx-hub-stat"><span className="v">P2P</span><span className="k">{t("docs.hub.stat.p2p", "encrypted sync")}</span></div>

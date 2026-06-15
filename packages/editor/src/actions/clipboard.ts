@@ -1,4 +1,4 @@
-import { deleteSelectedText, getSelectionRange } from "../actions/commands";
+import { deleteSelectedText, getSelectionRange } from "../actions/actions";
 import { IMAGE_DEFAULT_HEIGHT } from "../constants";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { clearSelection, moveCursorToPosition } from "../selection";
@@ -14,7 +14,7 @@ import { isListBlock } from "../serlization/loadPage";
 import { loadPage } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
 import type {
-  CommandResult,
+  ActionResult,
   CRDTbinding,
   EditorState,
   Position,
@@ -586,7 +586,7 @@ export async function copySelectionToClipboard(
 
 export async function cutSelectionToClipboard(
   state: EditorState,
-): Promise<{ success: boolean; result: CommandResult | null }> {
+): Promise<{ success: boolean; result: ActionResult | null }> {
   try {
     const selectedContent = getSelectedContent(state);
     if (!selectedContent) return { success: false, result: null };
@@ -1208,7 +1208,7 @@ function parsePlainTextToBlocks(text: string, binding: CRDTbinding): Block[] {
 function insertBlocksAtCursor(
   state: EditorState,
   blocks: Block[],
-): CommandResult {
+): ActionResult {
   if (blocks.length === 0) return { state, ops: [] };
 
   const ops: Operation[] = [];
@@ -2680,7 +2680,7 @@ export function pasteFromClipboardEvent(
   state: EditorState,
   event: ClipboardEvent,
   extractedData?: { html: string; text: string; imageFile: File | null } | null,
-): (CommandResult & { pastedImageBlockIndex?: number }) | null {
+): (ActionResult & { pastedImageBlockIndex?: number }) | null {
   // Use extracted data if provided (from immediate event handler)
   // Otherwise try to get from event (may be empty if not called synchronously)
   let html = "";
@@ -2753,7 +2753,7 @@ export function pasteFromClipboardEvent(
 export function pasteFromClipboardEventAsPlainText(
   state: EditorState,
   event: ClipboardEvent,
-): Promise<CommandResult | null> {
+): Promise<ActionResult | null> {
   return new Promise((resolve) => {
     try {
       const clipboardData = event.clipboardData;
@@ -2798,7 +2798,7 @@ export function pasteFromClipboardEventAsPlainText(
  */
 export async function pasteFromSystemClipboard(
   state: EditorState,
-): Promise<CommandResult | null> {
+): Promise<ActionResult | null> {
   try {
     let html = "";
     let text = "";

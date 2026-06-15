@@ -1,8 +1,20 @@
+import { CURSOR_DRAG_BOUNDARY, CURSOR_DRAG_END } from "../action-bus";
 import {
-  selectLineAtPosition,
-  selectWordAtPosition,
-} from "../actions/commands";
-import { CURSOR_DRAG_BOUNDARY, CURSOR_DRAG_END } from "../command-bus";
+  CLOSE_NODE_OVERLAY,
+  FINISH_SELECT_MODE,
+  isVisualBlockSelection,
+  OPEN_CONTEXT_MENU_AT,
+  OPEN_NODE_OVERLAY,
+  TAP_CLEAR_VISUAL_BLOCK_SELECTION,
+  TAP_ON_SELECTION,
+  TAP_OUTSIDE_CONTENT,
+  TAP_PLACE_CURSOR,
+  TAP_SELECT_LINE,
+  TAP_SELECT_VISUAL_BLOCK,
+  TAP_SELECT_WORD,
+  TAP_SIDE_PADDING,
+  TAP_TOP_PADDING,
+} from "../actions/touch-actions";
 import {
   CURSOR_TOUCH_RADIUS,
   DOUBLE_CLICK_TIME,
@@ -11,22 +23,19 @@ import {
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
 } from "../constants";
+import { CREATE_PARAGRAPH_BELOW_IMAGE } from "../rendering/nodes";
 import { endScrollbarDrag } from "../rendering/scrollbar";
 import {
   getCursorDocumentCoords,
   getTextPositionFromViewport,
   isPointWithinSelectionRects,
 } from "../selection";
-import { moveCursorToPosition } from "../selection";
 import { updateCursor } from "../selection";
-import { clearSelection, startSelection } from "../selection";
-import { type Block } from "../serlization/loadPage";
+import { startSelection } from "../selection";
 import type { EditorState, ViewportState } from "../state-types";
 import {
   closeActiveMenu,
-  openContextMenu,
   selectContextMenuItem,
-  setActiveMenu,
   updateContextMenuHover,
   updateMode,
 } from "../state-utils";
@@ -473,7 +482,7 @@ export function handleTouchMove(
           (prevPosition.blockIndex !== newPosition.blockIndex ||
             prevPosition.textIndex !== newPosition.textIndex)
         ) {
-          state.commandBus.dispatch(CURSOR_DRAG_BOUNDARY);
+          state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
         }
 
         state = updateCursor(state, newPosition);
@@ -750,7 +759,7 @@ export function handleTouchEnd(
     const didNotMove = !session.touch.hasMoved;
     const touchX = session.touch.currentTouchX;
     const touchY = session.touch.currentTouchY;
-    state.commandBus.dispatch(CURSOR_DRAG_END);
+    state.actionBus.dispatch(CURSOR_DRAG_END);
     session.touch = null;
 
     let newState: EditorState = {
@@ -771,7 +780,11 @@ export function handleTouchEnd(
     // If the user held on the cursor without moving, open context menu
     // This matches standard mobile behavior (long-press on cursor = paste menu)
     if (didNotMove) {
-      newState = openContextMenu(newState, touchX, touchY);
+      newState = newState.actionBus.dispatchState(
+        OPEN_CONTEXT_MENU_AT,
+        newState,
+        { point: { x: touchX, y: touchY } },
+      ).state;
     }
 
     return {
@@ -847,22 +860,7 @@ export function handleTouchEnd(
       };
     } else if (state.ui.mode === "select") {
       // Long press created a new selection (user dragged) - exit select mode
-      // Clear initialBoundary when finishing selection
-      if (state.document.selection?.initialBoundary) {
-        state = {
-          ...state,
-          document: {
-            ...state.document,
-            selection: state.document.selection
-              ? {
-                  ...state.document.selection,
-                  initialBoundary: undefined,
-                }
-              : null,
-          },
-        };
-      }
-      state = updateMode(state, "edit");
+      state = state.actionBus.dispatchState(FINISH_SELECT_MODE, state).state;
       session.touch = null;
 
       return {
@@ -880,11 +878,12 @@ export function handleTouchEnd(
       };
     } else {
       // Long press on non-selected text but user didn't drag - show context menu now
-      state = openContextMenu(
-        state,
-        session.touch.currentTouchX,
-        session.touch.currentTouchY,
-      );
+      state = state.actionBus.dispatchState(OPEN_CONTEXT_MENU_AT, state, {
+        point: {
+          x: session.touch.currentTouchX,
+          y: session.touch.currentTouchY,
+        },
+      }).state;
       session.touch = null;
       return {
         state: {
@@ -926,12 +925,7 @@ export function handleTouchEnd(
 
     // If tapping in top padding, clear selection
     if (isTapInTopPadding) {
-      state = clearSelection(state);
-      state = updateMode(state, "edit");
-      // Close any active menu when tapping in padding
-      if (state.ui.activeMenu.type === "contextMenu") {
-        state = closeActiveMenu(state);
-      }
+      state = state.actionBus.dispatchState(TAP_TOP_PADDING, state).state;
 
       session.touch = null;
       return {
@@ -966,13 +960,9 @@ export function handleTouchEnd(
       );
 
       if (paddingPosition) {
-        state = clearSelection(state);
-        state = updateCursor(state, paddingPosition);
-        state = updateMode(state, "edit");
-        // Close any active menu when tapping in padding
-        if (state.ui.activeMenu.type === "contextMenu") {
-          state = closeActiveMenu(state);
-        }
+        state = state.actionBus.dispatchState(TAP_SIDE_PADDING, state, {
+          position: paddingPosition,
+        }).state;
 
         session.touch = null;
         return {
@@ -1063,38 +1053,19 @@ export function handleTouchEnd(
           lastBlock.type === "image" &&
           state.ui.mode !== "readonly"
         ) {
-          const newParagraphId = state.CRDTbinding.nextId();
-          const newParagraph: Block = {
-            id: newParagraphId,
-            afterId: lastBlock.id,
-            type: "paragraph",
-            charRuns: [],
-            formats: [],
-          };
-
-          const blockInsertOp: Operation = {
-            op: "block_insert",
-            id: state.CRDTbinding.nextId(),
-            clock: state.CRDTbinding.getClock(),
-            pageId: state.CRDTbinding.pageId,
-            afterBlockId: lastBlock.id,
-            blockId: newParagraphId,
-            blockType: "paragraph",
-          };
-
-          const newBlocks = [...state.document.page.blocks, newParagraph];
-          const newPage = { ...state.document.page, blocks: newBlocks };
-
-          state = {
-            ...state,
-            document: { ...state.document, page: newPage },
-          };
-          state = clearSelection(state);
-          state = moveCursorToPosition(state, lastVisibleBlockIndex + 1, 0);
+          const created = state.actionBus.dispatchState(
+            CREATE_PARAGRAPH_BELOW_IMAGE,
+            state,
+            {
+              afterBlock: lastBlock,
+              afterBlockIndex: lastVisibleBlockIndex,
+              binding: state.CRDTbinding,
+            },
+          );
+          const finalState = created.state;
+          ops.push(...created.ops);
 
           session.touch = null;
-          const finalState = updateMode(state, "edit");
-          ops.push(blockInsertOp);
           return {
             state: {
               ...finalState,
@@ -1143,7 +1114,10 @@ export function handleTouchEnd(
             ) {
               // Close the popover and keep it closed
               session.touch = null;
-              const closedState = closeActiveMenu(state);
+              const closedState = state.actionBus.dispatchState(
+                CLOSE_NODE_OVERLAY,
+                state,
+              ).state;
               return {
                 state: {
                   ...closedState,
@@ -1161,14 +1135,16 @@ export function handleTouchEnd(
 
             // Open the host overlay
             session.touch = null;
-            const menuState = setActiveMenu(state, {
-              type: "overlay",
-              key: activation.key,
-              blockIndex: position.blockIndex,
-              x: tapPosition.x,
-              y: tapPosition.y,
-              data: activation.data,
-            });
+            const menuState = state.actionBus.dispatchState(
+              OPEN_NODE_OVERLAY,
+              state,
+              {
+                key: activation.key,
+                blockIndex: position.blockIndex,
+                point: { x: tapPosition.x, y: tapPosition.y },
+                data: activation.data,
+              },
+            ).state;
             return {
               state: {
                 ...menuState,
@@ -1185,32 +1161,13 @@ export function handleTouchEnd(
           }
 
           // If it has an image, select the image block (same behavior as desktop)
-          const imagePosition = {
-            blockIndex: imageBlock.blockIndex,
-            textIndex: 0,
-          };
-
-          // Close any active menu when selecting an image
-          if (state.ui.activeMenu.type !== "none") {
-            state = closeActiveMenu(state);
-          }
-
-          // Create a selection that spans the image block (same as arrow key behavior)
-          state = moveCursorToPosition(state, imageBlock.blockIndex, 0);
-          state = {
-            ...state,
-            document: {
-              ...state.document,
-              selection: {
-                anchor: imagePosition,
-                focus: imagePosition,
-                isForward: true,
-                isCollapsed: false,
-                lastUpdate: Date.now(),
-              },
+          state = state.actionBus.dispatchState(
+            TAP_SELECT_VISUAL_BLOCK,
+            state,
+            {
+              position: { blockIndex: imageBlock.blockIndex, textIndex: 0 },
             },
-          };
-          state = updateMode(state, "edit");
+          ).state;
 
           session.touch = null;
           return {
@@ -1241,40 +1198,20 @@ export function handleTouchEnd(
           if (isLastBlock && state.ui.mode !== "readonly") {
             const currentBlock =
               state.document.page.blocks[position.blockIndex];
-            const newParagraphId = state.CRDTbinding.nextId();
-            const newParagraph: Block = {
-              id: newParagraphId,
-              afterId: currentBlock.id,
-              type: "paragraph",
-              charRuns: [],
-              formats: [],
-            };
-
-            const blockInsertOp: Operation = {
-              op: "block_insert",
-              id: state.CRDTbinding.nextId(),
-              clock: state.CRDTbinding.getClock(),
-              pageId: state.CRDTbinding.pageId,
-              afterBlockId: currentBlock.id,
-              blockId: newParagraphId,
-              blockType: "paragraph",
-            };
-
-            const newBlocks = [...state.document.page.blocks, newParagraph];
-            const newPage = { ...state.document.page, blocks: newBlocks };
-
-            state = {
-              ...state,
-              document: { ...state.document, page: newPage },
-            };
-            state = clearSelection(state);
-            state = moveCursorToPosition(state, position.blockIndex + 1, 0);
-
+            const created = state.actionBus.dispatchState(
+              CREATE_PARAGRAPH_BELOW_IMAGE,
+              state,
+              {
+                afterBlock: currentBlock,
+                afterBlockIndex: position.blockIndex,
+                binding: state.CRDTbinding,
+              },
+            );
+            const finalState = created.state;
             // Broadcast the operation
-            ops.push(blockInsertOp);
+            ops.push(...created.ops);
 
             session.touch = null;
-            const finalState = updateMode(state, "edit");
             return {
               state: {
                 ...finalState,
@@ -1304,32 +1241,16 @@ export function handleTouchEnd(
         );
         if (lineBlockResult) {
           // Select the line block (same behavior as image blocks)
-          const linePosition = {
-            blockIndex: lineBlockResult.blockIndex,
-            textIndex: 0,
-          };
-
-          // Close any active menu when selecting a line block
-          if (state.ui.activeMenu.type !== "none") {
-            state = closeActiveMenu(state);
-          }
-
-          // Create a selection that spans the line block
-          state = moveCursorToPosition(state, lineBlockResult.blockIndex, 0);
-          state = {
-            ...state,
-            document: {
-              ...state.document,
-              selection: {
-                anchor: linePosition,
-                focus: linePosition,
-                isForward: true,
-                isCollapsed: false,
-                lastUpdate: Date.now(),
+          state = state.actionBus.dispatchState(
+            TAP_SELECT_VISUAL_BLOCK,
+            state,
+            {
+              position: {
+                blockIndex: lineBlockResult.blockIndex,
+                textIndex: 0,
               },
             },
-          };
-          state = updateMode(state, "edit");
+          ).state;
 
           session.touch = null;
           return {
@@ -1363,9 +1284,12 @@ export function handleTouchEnd(
         ) {
           const selectedBlock = state.document.page.blocks[anchor.blockIndex];
           if (!selectedBlock || selectedBlock.deleted) return { state, ops };
-          if (selectedBlock && !isTextualBlock(selectedBlock)) {
+          if (isVisualBlockSelection(selectedBlock)) {
             // We have a visual block selected, but tapped outside it - clear the selection
-            state = clearSelection(state);
+            state = state.actionBus.dispatchState(
+              TAP_CLEAR_VISUAL_BLOCK_SELECTION,
+              state,
+            ).state;
           }
         }
       }
@@ -1377,7 +1301,9 @@ export function handleTouchEnd(
 
       // Handle triple-tap: always select line (even inside selection)
       if (isMultiTap && session.tapTracker.count >= 3) {
-        state = selectLineAtPosition(state, position);
+        state = state.actionBus.dispatchState(TAP_SELECT_LINE, state, {
+          position,
+        }).state;
       }
 
       // If tapping inside a selection (single or double tap), open context menu (mobile UX)
@@ -1390,40 +1316,29 @@ export function handleTouchEnd(
           viewport,
         )
       ) {
-        // Keep selection but update cursor position
-        state = updateCursor(state, position);
-        // Open context menu at tap position (or keep open if already open)
-        if (state.ui.activeMenu.type !== "contextMenu") {
-          state = openContextMenu(state, tapPosition.x, tapPosition.y);
-        }
+        // Keep selection but update cursor position; open context menu at tap
+        state = state.actionBus.dispatchState(TAP_ON_SELECTION, state, {
+          position,
+          point: { x: tapPosition.x, y: tapPosition.y },
+        }).state;
       }
 
       // Handle double-tap: select word
       else if (isMultiTap && session.tapTracker.count === 2) {
-        state = selectWordAtPosition(state, position);
-        // Close any active menu when making new selection
-        if (state.ui.activeMenu.type === "contextMenu") {
-          state = closeActiveMenu(state);
-        }
+        state = state.actionBus.dispatchState(TAP_SELECT_WORD, state, {
+          position,
+        }).state;
       }
 
       // Single tap outside selection: position cursor and close context menu
       else {
-        state = clearSelection(state);
-        state = updateCursor(state, position);
-        state = updateMode(state, "edit");
-        // Close any active menu when tapping outside
-        if (state.ui.activeMenu.type === "contextMenu") {
-          state = closeActiveMenu(state);
-        }
+        state = state.actionBus.dispatchState(TAP_PLACE_CURSOR, state, {
+          position,
+        }).state;
       }
     } else {
       // Tapping outside editor area (padding/margins) - clear selection and close menus
-      state = clearSelection(state);
-      state = updateMode(state, "edit");
-      if (state.ui.activeMenu.type === "contextMenu") {
-        state = closeActiveMenu(state);
-      }
+      state = state.actionBus.dispatchState(TAP_OUTSIDE_CONTENT, state).state;
     }
 
     session.touch = null;

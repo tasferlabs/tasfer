@@ -1,29 +1,97 @@
-{/* @cypherkit/editor API reference — Commands. */}
+{/* @cypherkit/editor API reference — Changes & actions. */}
 
-import { PropsTable } from "../../docsComponents";
+import { Callout, PropsTable } from "../../docsComponents";
 
-<p className="dx-lede">Commands are the only way to change a document. Each is a transactional function that applies to the CRDT or no-ops, returning a boolean for whether it ran. They live on `editor.commands` and chain via `editor.chain()`.</p>
+<p className="dx-lede">There is one way to change a document: describe the edit against the **`ChangeApi`** and let the editor apply it as CRDT operations. Everything in a single `change()` call commits as one undoable, broadcastable step — whether it queues one edit or twenty.</p>
 
-<h2 id="builtins">Built-in commands</h2>
+<h2 id="change">change(fn)</h2>
 
-<PropsTable cols={["Command", "Signature", "Description"]} rows={[
-  { name: "toggleMark", type: "(name: MarkName) => boolean", desc: "Add or remove an inline mark across the selection." },
-  { name: "setBlock", type: "(name, attrs?) => boolean", desc: "Turn the selected blocks into a node type (heading, paragraph…)." },
-  { name: "insertText", type: "(text: string) => boolean", desc: "Insert text at the cursor, replacing any selection." },
-  { name: "undo / redo", type: "() => boolean", desc: "Step through local history. Remote edits never enter your undo stack." },
-  { name: "selectAll", type: "() => boolean", desc: "Select the whole document." },
-]} />
-
-<h2 id="chaining">Chaining</h2>
-
-A chain batches commands into one transaction — one network update, one undo step. The chain runs only if every command in it can apply:
+`editor.change` hands your callback a `ChangeApi`. Each method queues one granular edit and returns `this`, so calls chain. The whole callback commits together — **one undo entry, one broadcast, one `change` event** — and `change` returns whether anything actually changed.
 
 ```ts
-const ok = editor.chain()
-  .setBlock("heading", { level: 1 })
-  .insertText("Untitled")
-  .run();              // commits everything, or nothing if any step fails
+// one mark toggle
+editor.change((c) => c.toggleMark("strong"));
 
-// dry-run: will this chain apply right now? (for enabling a toolbar button)
-const canRun = editor.chain().setBlock("heading", { level: 1 }).canRun();
+// several edits, still ONE undo step
+const changed = editor.change((c) =>
+  c.setBlock("heading", { level: 1 }).insertText("Untitled"),
+);
 ```
+
+A method whose target is missing or invalid is a silent no-op — it queues nothing, so a `change` that ends up empty simply returns `false`.
+
+<h2 id="api">The ChangeApi</h2>
+
+<PropsTable cols={["Method", "Signature", "Description"]} rows={[
+  { name: "toggleMark", type: "(name: MarkName) => this", desc: "Add or remove a togglable inline mark across the selection (or the pending caret format): strong, emphasis, strike, code." },
+  { name: "setBlock", type: "(type, attrs?) => this", desc: 'Convert the current block to a textual type — paragraph, heading (with { level: 1|2|3 }), or a list type.' },
+  { name: "insertText", type: "(text: string) => this", desc: "Insert text at the caret, replacing any selection." },
+  { name: "selectAll", type: "() => this", desc: "Select the whole document." },
+  { name: "setNodeAttrs", type: "(blockId, attrs) => this", desc: "Set one or more attributes on a block by id (one block_set op per field, validated against the block type)." },
+  { name: "deleteNode", type: "(blockId) => this", desc: "Delete a block by id (tombstoned, so undo restores it). An empty paragraph replaces the last visible block." },
+  { name: "replaceInlineRange", type: "(blockId, start, end, text, mark?) => this", desc: "Replace the inline range [start, end) with text, optionally applying one inline mark to the inserted run. Empty text deletes." },
+  { name: "deleteInlineRange", type: "(blockId, start, end) => this", desc: "Delete the inline range [start, end), caret where it began." },
+  { name: "setMarkRange", type: "(blockId, start, end, mark, active?) => this", desc: "Apply (default) or remove an inline mark over an existing range, leaving text untouched. The primitive for attrs-carrying marks (link url, inline math) that toggleMark can't apply." },
+]} />
+
+<Callout kind="note" title="Togglable vs data-carrying marks.">`toggleMark` works for the built-in togglable marks (`strong`, `emphasis`, `strike`, `code`) and any custom toggle mark. `link` and `math` are valid marks but carry data (a url / LaTeX) on `mark.attrs`, so they're applied through `setMarkRange` instead — `toggleMark` is a no-op for them.</Callout>
+
+<h2 id="canchange">canChange(fn) — dry runs</h2>
+
+`canChange` runs the same callback against a throwaway copy of the state and reports whether it *would* change anything — without touching the document. Use it to enable or disable UI:
+
+```ts
+// is there anything to turn into a heading right now?
+const enabled = editor.canChange((c) => c.setBlock("heading", { level: 1 }));
+toolbarButton.disabled = !enabled;
+```
+
+<h2 id="run">run(...actions) — composing named edits</h2>
+
+An *action* is a reusable mutation: a plain function over the `ChangeApi`, `(c) => void`. `run` composes one or more actions into a single undoable step — the same one-transaction guarantee as `change`, but factored into named, shareable values.
+
+```ts
+import type { EditorAction } from "@cypherkit/editor";
+
+const title: EditorAction = (c) => c.setBlock("heading", { level: 1 });
+const stamp: EditorAction = (c) => c.insertText(" ✶");
+
+editor.run(title, stamp);          // both, one undo step
+```
+
+`run` accepts inline `EditorAction` functions and void-payload `MutationAction` constants (below). Unlike `dispatch`, it composes the raw mutations only — it does **not** fire a mutation action's registered observers.
+
+<h2 id="history">Undo & redo</h2>
+
+History is local and CRDT-aware: it converts between index positions and CRDT ids so it stays correct after a remote merge. Edits that arrive from a peer never enter your undo stack.
+
+```ts
+editor.undo();   // returns whether it changed the document
+editor.redo();
+```
+
+<h2 id="actions">Actions: observe & override</h2>
+
+Above the document-mutation layer sits a small dispatch bus — the way a host hooks editor behaviour without forking it. An `action(name)` declares a typed signal identified *by reference*; handlers register with a priority and either **override** (return `true` — claim it, stop propagation) or **observe** (`false`/`void`). The bus is per-instance, so two editors on a page keep independent listeners.
+
+There are three action kinds, layered:
+
+<PropsTable cols={["Kind", "Declared with", "Default behaviour"]} rows={[
+  { name: "Action<P>", type: "action(name)", desc: "A pure signal, no default. dispatch walks handlers and returns whether one claimed it. Used for hooks like OPEN_LINK, SLASH_NAVIGATE, the touch-gesture milestones." },
+  { name: "MutationAction<P>", type: "action(name, mutate)", desc: "Its default is a document mutation over the ChangeApi. dispatch runs the default plus every observer inside ONE change() — one undo entry, one broadcast." },
+  { name: "StateAction<P>", type: "stateAction(name, transform)", desc: "Lower-level: a pure (state) => { state, ops } transform, dispatched from inside the event pipeline. Can express cursor/selection moves that emit no ops." },
+]} />
+
+```ts
+import { OPEN_LINK } from "@cypherkit/editor";
+
+// observe a built-in action — open links in the host's own router
+const off = editor.registerAction(OPEN_LINK, ({ url }) => {
+  router.push(url);
+  return true;                 // claim it: skip the engine's default
+});
+```
+
+Dispatch one yourself with `editor.dispatch(action, payload)`. For a plain action the return value is whether a handler claimed it; for a `MutationAction` it's whether the document changed.
+
+<Callout kind="note" title="One bus, several entry points.">`change`/`run` are the ergonomic surface for *your own* edits; the action bus is for *named, hookable* behaviour the engine also dispatches (slash menu, link clicks, native gestures). They bottom out in the same single-transaction machinery.</Callout>

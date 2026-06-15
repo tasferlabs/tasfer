@@ -21,7 +21,7 @@ const mobileItemClass =
 const iconBoxClass =
   "flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center bg-muted/60 text-muted-foreground";
 
-export function CommandCenter() {
+export function ActionCenter() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
@@ -245,7 +245,7 @@ export function CommandCenter() {
     <Command.Dialog
       open={open}
       onOpenChange={setOpen}
-      label={t("editor.commandCenter", "Command Center")}
+      label={t("editor.actionCenter", "Action Center")}
       overlayClassName="fixed inset-0 z-50 bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
       contentClassName="fixed top-[20%] left-1/2 z-50 w-full max-w-[560px] -translate-x-1/2 bg-background ring-foreground/10 rounded-xl ring-1 shadow-lg overflow-hidden outline-none"
       shouldFilter={false}

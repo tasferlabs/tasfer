@@ -2,7 +2,7 @@
 
 import { Callout, PropsTable } from "../../docsComponents";
 
-<p className="dx-lede">`createEditor(options)` returns a `CypherEditor` — the view, command dispatcher, and selection owner over a CRDT document (the full `Editor` command surface plus the mount lifecycle). This is the object you'll hold onto for the lifetime of the editing surface.</p>
+<p className="dx-lede">`createEditor(options)` returns a `CypherEditor` — the view, the document mutator, and the selection owner over a CRDT document. It's the object you hold onto for the lifetime of the editing surface, and the only handle you need for single-player editing.</p>
 
 <h2 id="create">createEditor(options)</h2>
 
@@ -12,38 +12,114 @@ const editor = createEditor(options: CreateEditorOptions): CypherEditor;
 ```
 
 <PropsTable rows={[
-  { name: "element", type: "HTMLElement", required: true, desc: "The host element the canvas mounts into. Sized to fill it." },
+  { name: "element", type: "HTMLElement", required: true, desc: "The host element the canvas mounts into. Sized to fill it, so give it a height." },
   { name: "value", type: "string", desc: "Initial document as markdown. Ignored when doc or blocks is provided." },
   { name: "blocks", type: "Block[]", desc: "Pre-parsed blocks to mount (e.g. restored from a snapshot). Takes precedence over value." },
-  { name: "doc", type: "Doc", desc: "An existing CRDT document to edit. Takes precedence over value." },
-  { name: "schema", type: "Schema", desc: "Allowed nodes & marks. Defaults to baseSchema." },
+  { name: "doc", type: "Doc", desc: "An existing CRDT document to edit (see createDoc). Takes precedence over blocks/value; sync and persistence flow through it." },
+  { name: "schema", type: "Schema", desc: "Allowed nodes & marks. Defaults to baseSchema. Ignored when doc is supplied (the doc carries its own data schema)." },
   { name: "theme", type: "EditorTheme", desc: "Canvas color tokens, styles, and fonts. Defaults to the neutral palette." },
   { name: "editable", type: "boolean", desc: "Set false for a read-only renderer. Default true." },
   { name: "placeholder", type: "string", desc: "Ghost text shown when the document is empty." },
-  { name: "autofocus", type: "boolean", desc: "Focus the editor on mount. Default false." },
+  { name: "autofocus", type: "boolean", desc: "Focus the editor and drop a caret in on mount. Default false." },
 ]} />
 
-<h2 id="methods">Instance methods</h2>
+<h2 id="reading">Reading state</h2>
+
+The editor never hands you a mutable store. `state` is a fresh, immutable snapshot rebuilt on every read; `getMarkdown()` projects the current document to text.
+
+<PropsTable cols={["Member", "Type", "Description"]} rows={[
+  { name: "state", type: "{ selection, activeMarks, doc }", desc: "Immutable snapshot. selection.empty is true for a bare caret; activeMarks is a Set of mark names active at the caret. Rebuilt every read." },
+  { name: "doc", type: "Doc", desc: "The underlying CRDT document. Pass this to a provider to sync, or call doc.encodeState() to persist." },
+  { name: "getState()", type: "() => EditorState | null", desc: "Escape hatch to the raw internal state. Prefer state for UI binding." },
+  { name: "getMarkdown()", type: "() => string", desc: "Serialise the current document to markdown." },
+  { name: "getActiveMarks()", type: "() => Set<string>", desc: "The inline marks that will apply to text typed at the caret. Same set as state.activeMarks; handy for lighting up a toolbar." },
+  { name: "isSelectionEmpty()", type: "() => boolean", desc: "True when there's just a caret (or nothing) — no range selected." },
+  { name: "portalContainer", type: "HTMLDivElement", desc: "Mount point for host overlays (slash menu, link editor) that float over the canvas." },
+]} />
+
+<Callout kind="note" title="state is a value, not a store.">`editor.state` is replaced — never mutated — on each transaction. Capture it in a variable only for the duration of one read; for live UI, recompute inside a `change` / `selectionchange` handler (or use `useEditorState` from `@cypherkit/react`).</Callout>
+
+<h2 id="writing">Changing the document</h2>
+
+You never mutate the document directly — you describe edits through the `ChangeApi`, and the editor applies them as CRDT operations. Every method here commits as one undoable step. These are summarised below and documented in full on [Changes & actions](/docs/editor/api-commands).
 
 <PropsTable cols={["Method", "Signature", "Description"]} rows={[
-  { name: "getMarkdown", type: "() => string", desc: "Serialise the current document to markdown." },
-  { name: "setMarkdown", type: "(md: string) => void", desc: "Replace the document. Recorded as one undoable transaction." },
-  { name: "focus", type: "(at?: 'start'|'end') => void", desc: "Move focus to the canvas, optionally placing the caret." },
-  { name: "blur", type: "() => void", desc: "Remove focus from the editor." },
-  { name: "on", type: "(event, cb) => () => void", desc: "Subscribe to an event. Returns an unsubscribe function." },
-  { name: "chain", type: "() => CommandChain", desc: "Begin a chain of commands committed as a single undo step." },
-  { name: "destroy", type: "() => void", desc: "Tear down listeners, canvas, and providers attached via the editor." },
+  { name: "change", type: "(fn: (c: ChangeApi) => void) => boolean", desc: "Apply mutations as ONE undoable step. The callback's methods chain. Returns whether anything changed." },
+  { name: "canChange", type: "(fn) => boolean", desc: "Dry-run a change: would those mutations change anything right now? (For enabling a toolbar button.)" },
+  { name: "run", type: "(...actions) => boolean", desc: "Compose named/inline actions into one undoable step — sugar over change." },
+  { name: "setMarkdown", type: "(md: string) => void", desc: "Replace the whole document with markdown. One undoable, broadcast transaction." },
+  { name: "undo / redo", type: "() => boolean", desc: "Step local history. Remote edits never enter your undo stack." },
 ]} />
 
-<h2 id="props">Instance properties</h2>
+```ts
+editor.change((c) => c.toggleMark("strong"));
 
-<PropsTable cols={["Property", "Type", "Description"]} rows={[
-  { name: "state", type: "EditorStateSnapshot", desc: "Immutable snapshot { selection, activeMarks, doc }, rebuilt every edit. The raw internal EditorState is available via getState()." },
-  { name: "commands", type: "Commands", desc: "The command registry — call e.g. editor.commands.toggleMark('strong')." },
-  { name: "doc", type: "Doc", desc: "The underlying CRDT document. Pass this to providers to sync." },
+// several edits, one undo step
+editor.change((c) =>
+  c.setBlock("heading", { level: 1 }).insertText("Untitled"),
+);
+```
+
+<h2 id="dispatch">Actions & hooks</h2>
+
+Actions are named, dispatchable behaviours a host can observe or override — the seam for slash commands, link clicks, native gestures, and custom mutations. See [Changes & actions](/docs/editor/api-commands#actions) for the three action kinds.
+
+<PropsTable cols={["Method", "Signature", "Description"]} rows={[
+  { name: "dispatch", type: "(action, ...args) => boolean", desc: "Dispatch an action through this editor's bus. Returns whether a handler claimed it (or, for a mutation action, whether the document changed)." },
+  { name: "registerAction", type: "(action, handler, priority?) => () => void", desc: "Observe or override an action. Higher priority runs first (default 0); return true to claim it. Returns an unsubscribe fn." },
 ]} />
 
-<Callout kind="note" title="state is a value, not a store.">`editor.state` is replaced — never mutated — on each transaction. Capture it in a variable only for the duration of one read; for live UI, recompute inside a `change` / `selectionchange` handler.</Callout>
+```ts
+import { OPEN_LINK } from "@cypherkit/editor";
+
+// Override a built-in action: open links through the host's own router
+// instead of the engine's default. Returning true claims it (stops the
+// default); return void to observe and let the default still run.
+const off = editor.registerAction(OPEN_LINK, ({ url }) => {
+  router.push(url);
+  return true;
+});
+
+// later — detach the handler
+off();
+```
+
+<h2 id="selection">Selection, focus & clipboard</h2>
+
+<PropsTable cols={["Method", "Signature", "Description"]} rows={[
+  { name: "focus", type: "(at?: 'start'|'end') => void", desc: "Focus the editor. With no argument, places a caret only if there isn't one; pass a boundary to force it there." },
+  { name: "blur", type: "() => void", desc: "Blur the editor and dismiss the soft keyboard." },
+  { name: "clearSelection", type: "() => void", desc: "Drop both the selection and the caret, removing all selection visuals." },
+  { name: "setMode", type: "(mode: 'edit'|'select'|'locked') => void", desc: "Switch interaction mode — normal, selection-only (mobile), or read-only." },
+  { name: "copy / cut / paste", type: "() => Promise<boolean>", desc: "Clipboard ops against the current selection. cut/paste are one undoable step. Resolve to whether they did anything." },
+]} />
+
+<h2 id="theming">Theming</h2>
+
+<PropsTable cols={["Method", "Signature", "Description"]} rows={[
+  { name: "setTheme", type: "(patch: EditorTheme) => void", desc: "Deep-merge a theme patch onto the current theme and repaint. The one path for live theme changes (e.g. a dark-mode toggle). See Theming." },
+]} />
+
+<h2 id="events">Events</h2>
+
+`on(event, cb)` subscribes and returns an unsubscribe function. The `change` listener receives a `ChangeTransaction` (`{ isRemote, ops }`); the others receive the internal `EditorState`.
+
+<PropsTable cols={["Event", "Fires when", "Payload"]} rows={[
+  { name: "change", type: "ChangeTransaction", desc: "The document changed — typing, paste, undo, or a remote sync. { isRemote, ops }." },
+  { name: "selectionchange", type: "EditorState", desc: "The caret or selection moved, with no document edit." },
+  { name: "focus / blur", type: "EditorState", desc: "The canvas gained or lost focus." },
+]} />
+
+```ts
+const off = editor.on("change", (tx) => {
+  if (tx.isRemote) return;            // ignore edits that came from a peer
+  localStorage.setItem("draft", editor.getMarkdown());
+});
+// later
+off();
+```
+
+<Callout kind="note" title="There is no `sync` event on the editor.">Connection status and peer count come from the *provider*, not the editor — the provider owns the transport. Subscribe with `provider.on("sync", …)`. See [Collaboration](/docs/editor/collaboration).</Callout>
 
 <h2 id="lifecycle">Lifecycle</h2>
 
@@ -52,7 +128,8 @@ const editor = createEditor({ element });
 
 // ... use it ...
 
-// always destroy when the surface unmounts, or you'll leak
-// the canvas, the ResizeObserver, and any attached providers.
+// always destroy when the surface unmounts, or you'll leak the canvas
+// layers, the ResizeObserver, the portal, and any providers attached to
+// editor.doc. createEditor's destroy() does the *full* teardown.
 editor.destroy();
 ```

@@ -1,4 +1,4 @@
-import type { CommandBus } from "./command-bus";
+import type { ActionBus } from "./action-bus";
 import type { MarkRegistry } from "./rendering/marks/Mark";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
@@ -198,7 +198,7 @@ export interface OpLog {
  * font-stacks via `EditorStyles.fonts.families`.
  */
 export type FontFamily = string;
-export interface SlashCommand {
+export interface SlashAction {
   id: string;
   type: Block["type"];
   label: string;
@@ -233,8 +233,8 @@ export type ActiveMenu =
   | { type: "none" }
   | {
       // The engine owns opening the menu and the `/filter` text; the host owns
-      // the command list and the current selection (no `selectedIndex` here).
-      type: "slashCommand";
+      // the action list and the current selection (no `selectedIndex` here).
+      type: "slashAction";
       blockIndex: number;
       textIndex: number;
       filter: string;
@@ -498,13 +498,13 @@ export interface EditorState {
   readonly undoManager: UndoManagerState;
   readonly CRDTbinding: CRDTbinding;
   /**
-   * Per-instance command bus (see `defineCommand`): hooks for the editor's
+   * Per-instance action bus (see `action`): hooks for the editor's
    * imperative actions — link activation, touch-gesture milestones. The engine
-   * dispatches through `state.commandBus`; hosts attach handlers via
-   * `editor.registerCommand`. Owned by this editor — NOT a module global — so
+   * dispatches through `state.actionBus`; hosts attach handlers via
+   * `editor.registerAction`. Owned by this editor — NOT a module global — so
    * two editors on a page keep separate listeners.
    */
-  readonly commandBus: CommandBus;
+  readonly actionBus: ActionBus;
   /**
    * Per-instance registry of block views (layout/paint/hit-test per block type).
    * Owned by this editor — NOT a module global — so multiple editors on the same
@@ -543,8 +543,8 @@ export interface EditorState {
   readonly resolvedNodeStrings: NodeStringsMap;
 }
 
-// Command result - all commands return state + operations
-export interface CommandResult {
+// Action result - all actions return state + operations
+export interface ActionResult {
   readonly state: EditorState;
   readonly ops: Operation[];
 }

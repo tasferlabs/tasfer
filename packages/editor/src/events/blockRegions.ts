@@ -2,7 +2,7 @@
  * Block-content regions — binds behavior to the named hit regions that nodes
  * declare (Node.regions). Nodes stay presentation-only: they expose geometry
  * + a stable id ("todo-checkbox", "image-resize"), and this module supplies
- * the semantic side (CRDT ops, drag state) in the event layer where commands
+ * the semantic side (CRDT ops, drag state) in the event layer where actions
  * and editor state belong.
  *
  * `hitTestAllRegions` is the full dispatcher entry point: chrome regions
@@ -10,22 +10,20 @@
  * the point compete purely on priority.
  */
 
-import { toggleTodoChecked } from "../actions/commands";
 import { EDGE_SCROLL_THRESHOLD } from "../constants";
 import {
   AtomicNode,
+  cancelImageHandleDrag,
+  endImageHandleDrag,
   type NodeHitRegion,
   type NodeRegionCtx,
+  startImageHandleDrag,
+  TOGGLE_TODO_CHECKED,
+  updateImageHandleDrag,
 } from "../rendering/nodes";
 import { getBlockHeight, imageCache } from "../rendering/renderer";
 import { getEditorStyles } from "../styles";
 import { withScrollbarInteraction, withStoppedMomentum } from "./chromeRegions";
-import {
-  cancelImageDrag,
-  endImageDrag,
-  startImageDrag,
-  updateImageDrag,
-} from "./eventUtils";
 import { startAutoScroll, stopAutoScroll } from "./interaction-session";
 import {
   hitTestRegions,
@@ -51,7 +49,11 @@ function bindTodoCheckbox(hitRegion: NodeHitRegion): Region {
     hitTest: (p, pointerType) => hitRegion.hitTest(p, pointerType),
     onTap(hit, _p, _tapCount, ctx) {
       const { blockIndex } = hit as { blockIndex: number };
-      const result = toggleTodoChecked(ctx.state, blockIndex);
+      const result = ctx.state.actionBus.dispatchState(
+        TOGGLE_TODO_CHECKED,
+        ctx.state,
+        { blockIndex },
+      );
       return { state: result.state, ops: result.ops };
     },
   };
@@ -69,7 +71,7 @@ function bindImageResize(hitRegion: NodeHitRegion): Region {
         const { blockIndex, box } = hit as ImageResizeHit;
         // Tolerance 12 covers both pointer types — the hit test already
         // applied the per-pointer slop, this only re-derives the handle.
-        const dragState = startImageDrag(
+        const dragState = startImageHandleDrag(
           ctx.state,
           { blockIndex, ...box },
           p.x,
@@ -137,13 +139,13 @@ function bindImageResize(hitRegion: NodeHitRegion): Region {
 
         return {
           state: withScrollbarInteraction(
-            updateImageDrag(state, viewport, p.x, p.y),
+            updateImageHandleDrag(state, viewport, p.x, p.y),
           ),
         };
       },
       onEnd(_p, ctx) {
         stopAutoScroll(ctx.session);
-        const result = endImageDrag(ctx.state);
+        const result = endImageHandleDrag(ctx.state);
         return {
           state: withScrollbarInteraction(result.state),
           ops: result.ops,
@@ -151,7 +153,7 @@ function bindImageResize(hitRegion: NodeHitRegion): Region {
       },
       onCancel(ctx) {
         stopAutoScroll(ctx.session);
-        return cancelImageDrag(ctx.state);
+        return cancelImageHandleDrag(ctx.state);
       },
     },
   };

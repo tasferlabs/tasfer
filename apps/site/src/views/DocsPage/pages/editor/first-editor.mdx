@@ -50,7 +50,7 @@ const buttons = [
 for (const b of buttons) {
   const el = document.createElement("button");
   el.textContent = b.label;
-  el.onclick = () => editor.commands.toggleMark(b.mark);
+  el.onclick = () => editor.change((c) => c.toggleMark(b.mark));
   toolbar.append(el);
   b.el = el;
 }
@@ -99,8 +99,7 @@ const provider = createRelayProvider({
 });
 
 // Connection status comes from the provider, not the editor — the provider
-// owns the transport. (To route it through editor.on("sync") instead, forward
-// it once: provider.on("sync", editor.setSyncState).)
+// owns the transport, so there is no "sync" event on the editor itself.
 provider.on("sync", (s) => {
   status.textContent = s.connected ? `live · ${s.peers} peer(s)` : "offline";
 });

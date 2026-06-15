@@ -31,7 +31,7 @@ import {
   type NodeOverlay,
   type Operation,
   type PlaceholderStyles,
-  type SlashCommand,
+  type SlashAction,
   type TextStyle,
 } from "@cypherkit/editor";
 import { useEditor } from "@cypherkit/react";
@@ -78,7 +78,7 @@ import { MathBlockEditor } from "../editor/MathBlockEditor";
 import { LinkDrawer } from "../editor/LinkDrawer";
 import { LinkEditPopover } from "../editor/LinkEditPopover";
 import { LinkTooltip } from "../editor/LinkTooltip";
-import { SlashCommandMenu } from "../editor/SlashCommandMenu";
+import { SlashActionMenu } from "../editor/SlashActionMenu";
 import useResponsive from "./hooks/useResponsive";
 import i18next from "i18next";
 import { cssVarsToTheme, readEditorTokens } from "../editorTheme";
@@ -106,7 +106,7 @@ function editorStrings(): EditorStrings {
     placeholderHeading1: i18next.t("blocks.heading1"),
     placeholderHeading2: i18next.t("blocks.heading2"),
     placeholderHeading3: i18next.t("blocks.heading3"),
-    placeholderParagraph: i18next.t("editor.typeForCommands"),
+    placeholderParagraph: i18next.t("editor.typeForActions"),
     placeholderParagraphTouch: i18next.t("editor.typeSomething"),
     placeholderListItem: i18next.t("blocks.listItem"),
     placeholderTodoItem: i18next.t("blocks.todoItem"),
@@ -1085,10 +1085,10 @@ function EditorSurface({
     lastSerializedBlocksRef.current = null;
     editorInitializedRef.current = false;
 
-    // Haptics + native link-opening are editor commands now:
-    // the engine dispatches semantic commands and we map them to the
+    // Haptics + native link-opening are editor actions now:
+    // the engine dispatches semantic actions and we map them to the
     // native shell, falling back to the web Vibration API. These handlers live
-    // on this editor's command bus and die with it on destroy — no cleanup.
+    // on this editor's action bus and die with it on destroy — no cleanup.
     const fireHaptic = (style: "light" | "medium" | "heavy") => {
       // Never let a haptic failure bubble into the editor's event loop.
       try {
@@ -1105,19 +1105,19 @@ function EditorSurface({
         console.debug("Haptic feedback not supported:", e);
       }
     };
-    mounted.editor.registerCommand(CURSOR_DRAG_START, () =>
+    mounted.editor.registerAction(CURSOR_DRAG_START, () =>
       fireHaptic("light"),
     );
-    mounted.editor.registerCommand(CURSOR_DRAG_BOUNDARY, () =>
+    mounted.editor.registerAction(CURSOR_DRAG_BOUNDARY, () =>
       fireHaptic("light"),
     );
-    mounted.editor.registerCommand(CURSOR_DRAG_END, () => fireHaptic("medium"));
-    mounted.editor.registerCommand(REGION_DRAG_START, ({ intensity }) =>
+    mounted.editor.registerAction(CURSOR_DRAG_END, () => fireHaptic("medium"));
+    mounted.editor.registerAction(REGION_DRAG_START, ({ intensity }) =>
       fireHaptic(intensity),
     );
     if (native) {
       // Override the editor's window.open default with native navigation.
-      mounted.editor.registerCommand(OPEN_LINK, ({ url }) => {
+      mounted.editor.registerAction(OPEN_LINK, ({ url }) => {
         void native.navigation.openUrl(url);
         return true;
       });
@@ -1509,7 +1509,7 @@ function EditorSurface({
 
     window.CypherEditorCallbacks = editorMethods;
 
-    // Subscribe to editor state changes for slash command and context menu
+    // Subscribe to editor state changes for slash action and context menu
     const handleStateChange = (state: EditorState) => {
       // Notify parent of content changes if callback is provided
       // Only serialize when blocks actually change (not on cursor blink, UI changes, etc.)
@@ -1548,10 +1548,10 @@ function EditorSurface({
         }
       }
 
-      // Calculate new slash command state
+      // Calculate new slash action state
       let newSlashState: typeof slashMenuState = null;
       if (
-        state.ui.activeMenu.type === "slashCommand" &&
+        state.ui.activeMenu.type === "slashAction" &&
         state.document.cursor
       ) {
         const cursorScreenPos = mounted.editor.getCursorScreenPosition();
@@ -2034,13 +2034,13 @@ function EditorSurface({
   }, []);
   handleFindCloseRef.current = handleFindClose;
 
-  const handleSlashCommandSelect = (command: SlashCommand) => {
+  const handleSlashActionSelect = (action: SlashAction) => {
     if (mountedRef.current) {
-      mountedRef.current.editor.executeSlashCommand(command);
+      mountedRef.current.editor.executeSlashAction(action);
     }
   };
 
-  const handleSlashCommandClose = () => {
+  const handleSlashActionClose = () => {
     if (mountedRef.current) {
       mountedRef.current.editor.closeActiveMenu();
       setSlashMenuState(null);
@@ -2326,18 +2326,18 @@ function EditorSurface({
           <EditorLoadingState />
         </div>
       )}
-      {/* Slash command menu portal */}
+      {/* Slash action menu portal */}
       {slashMenuState &&
         mountedRef.current?.portalContainer &&
         createPortal(
           <div style={{ pointerEvents: "auto" }}>
-            <SlashCommandMenu
+            <SlashActionMenu
               editor={mountedRef.current.editor}
               x={slashMenuState.x}
               y={slashMenuState.y}
               filter={slashMenuState.filter}
-              onSelect={handleSlashCommandSelect}
-              onClose={handleSlashCommandClose}
+              onSelect={handleSlashActionSelect}
+              onClose={handleSlashActionClose}
             />
           </div>,
           mountedRef.current.portalContainer,
