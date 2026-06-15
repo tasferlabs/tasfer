@@ -8,8 +8,8 @@
  */
 
 export { createDefaultMarkRegistry, createMarkRegistry } from "./builtins";
-export { CodeMark } from "./CodeMark";
-export { EmphasisMark } from "./EmphasisMark";
+export { CodeMark, TOGGLE_CODE } from "./CodeMark";
+export { EmphasisMark, TOGGLE_ITALIC } from "./EmphasisMark";
 export { LinkMark } from "./LinkMark";
 export {
   Mark,
@@ -24,5 +24,5 @@ export {
   type MarkUnderlineStyle,
 } from "./Mark";
 export { MathMark } from "./MathMark";
-export { StrikeMark } from "./StrikeMark";
-export { StrongMark } from "./StrongMark";
+export { StrikeMark, TOGGLE_STRIKE } from "./StrikeMark";
+export { StrongMark, TOGGLE_BOLD } from "./StrongMark";

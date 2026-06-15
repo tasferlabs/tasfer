@@ -5,12 +5,15 @@
  *
  * A state action is the low-level action shape: its default behavior is a
  * pure `(state) => { state, ops }` transform (see `action-bus.ts`), which is
- * exactly the currency the event pipeline already trades in. Most touch actions
- * are pure cursor/selection/view moves and emit no ops; the one that creates a
- * paragraph below a trailing image emits a single `block_insert`. Handlers
- * dispatch these via `state.actionBus.dispatchState(...)`, so hosts/plugins can
- * observe or override them, and the engine's logic lives in one named place
- * instead of being scattered across the switch statements in `touchEvents.ts`.
+ * exactly the currency the event pipeline already trades in. The touch actions
+ * here are pure cursor/selection/view moves and emit no ops. Handlers dispatch
+ * these via `state.actionBus.dispatchState(...)`, so hosts/plugins can observe
+ * or override them, and the engine's logic lives in one named place instead of
+ * being scattered across the switch statements in `touchEvents.ts`.
+ *
+ * (The one touch action that mutates the document — creating a paragraph below
+ * a trailing image — is co-located with the node it acts on: see
+ * `nodes/ImageNode.ts` → CREATE_PARAGRAPH_BELOW_IMAGE.)
  *
  * Payload policy: a {@link StateAction} must stay pure over {@link EditorState},
  * but the touch handlers resolve pixel positions, hit-test viewport coordinates,
@@ -27,7 +30,7 @@ import {
   updateCursor,
 } from "../selection";
 import { type Block } from "../serlization/loadPage";
-import type { CRDTbinding, Operation, Position } from "../state-types";
+import type { Position } from "../state-types";
 import {
   closeActiveMenu,
   openContextMenu,
@@ -164,64 +167,16 @@ export const CLOSE_NODE_OVERLAY = stateAction(
   (state) => ({ state: closeActiveMenu(state), ops: [] }),
 );
 
-// ─── Trailing-image paragraph creation (emits a block_insert) ────────────────
-
-/**
- * Tap below a trailing image block: append a new empty paragraph after it and
- * place the caret in it. This is the one touch action that mutates the document,
- * so it emits a single `block_insert`. The handler supplies the `afterBlock`
- * (the trailing image), its index, and the per-instance {@link CRDTbinding} used
- * to mint the new block + op ids.
- */
-export const CREATE_PARAGRAPH_BELOW_IMAGE = stateAction<{
-  afterBlock: Block;
-  afterBlockIndex: number;
-  binding: CRDTbinding;
-}>(
-  "create-paragraph-below-image",
-  (state, { afterBlock, afterBlockIndex, binding }) => {
-    const newParagraphId = binding.nextId();
-    const newParagraph: Block = {
-      id: newParagraphId,
-      afterId: afterBlock.id,
-      type: "paragraph",
-      charRuns: [],
-      formats: [],
-    };
-
-    const blockInsertOp: Operation = {
-      op: "block_insert",
-      id: binding.nextId(),
-      clock: binding.getClock(),
-      pageId: binding.pageId,
-      afterBlockId: afterBlock.id,
-      blockId: newParagraphId,
-      blockType: "paragraph",
-    };
-
-    const newBlocks = [...state.document.page.blocks, newParagraph];
-    const newPage = { ...state.document.page, blocks: newBlocks };
-
-    let next = {
-      ...state,
-      document: { ...state.document, page: newPage },
-    };
-    next = clearSelection(next);
-    next = moveCursorToPosition(next, afterBlockIndex + 1, 0);
-    next = updateMode(next, "edit");
-
-    return { state: next, ops: [blockInsertOp] };
-  },
-);
-
 // ─── Multi-tap word/line selection ───────────────────────────────────────────
 
 /**
  * Triple-tap: select the whole line at the tap position (fires even inside an
  * existing selection). The handler resolves `position`. Pure, no ops.
+ *
+ * Named `TAP_*` (vs the mouse `SELECT_LINE_AT_POINT`) for the touch convention.
  */
-export const SELECT_LINE = stateAction<PositionPayload>(
-  "select-line",
+export const TAP_SELECT_LINE = stateAction<PositionPayload>(
+  "tap-select-line",
   (state, { position }) => ({
     state: selectLineAtPosition(state, position),
     ops: [],
@@ -232,9 +187,11 @@ export const SELECT_LINE = stateAction<PositionPayload>(
  * Double-tap: select the word at the tap position, closing an open context menu
  * (a new selection supersedes it). The handler resolves `position`. Pure, no
  * ops.
+ *
+ * Named `TAP_*` (vs the mouse `SELECT_WORD_AT_POINT`) for the touch convention.
  */
-export const SELECT_WORD = stateAction<PositionPayload>(
-  "select-word",
+export const TAP_SELECT_WORD = stateAction<PositionPayload>(
+  "tap-select-word",
   (state, { position }) => {
     let next = selectWordAtPosition(state, position);
     if (next.ui.activeMenu.type === "contextMenu") {

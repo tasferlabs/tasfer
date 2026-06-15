@@ -1,18 +1,17 @@
 import { CURSOR_DRAG_BOUNDARY, CURSOR_DRAG_END } from "../action-bus";
 import {
   CLOSE_NODE_OVERLAY,
-  CREATE_PARAGRAPH_BELOW_IMAGE,
   FINISH_SELECT_MODE,
   isVisualBlockSelection,
   OPEN_CONTEXT_MENU_AT,
   OPEN_NODE_OVERLAY,
-  SELECT_LINE,
-  SELECT_WORD,
   TAP_CLEAR_VISUAL_BLOCK_SELECTION,
   TAP_ON_SELECTION,
   TAP_OUTSIDE_CONTENT,
   TAP_PLACE_CURSOR,
+  TAP_SELECT_LINE,
   TAP_SELECT_VISUAL_BLOCK,
+  TAP_SELECT_WORD,
   TAP_SIDE_PADDING,
   TAP_TOP_PADDING,
 } from "../actions/touch-actions";
@@ -24,6 +23,7 @@ import {
   TAP_DISTANCE_THRESHOLD,
   TAP_MAX_DURATION,
 } from "../constants";
+import { CREATE_PARAGRAPH_BELOW_IMAGE } from "../rendering/nodes";
 import { endScrollbarDrag } from "../rendering/scrollbar";
 import {
   getCursorDocumentCoords,
@@ -1301,7 +1301,7 @@ export function handleTouchEnd(
 
       // Handle triple-tap: always select line (even inside selection)
       if (isMultiTap && session.tapTracker.count >= 3) {
-        state = state.actionBus.dispatchState(SELECT_LINE, state, {
+        state = state.actionBus.dispatchState(TAP_SELECT_LINE, state, {
           position,
         }).state;
       }
@@ -1325,7 +1325,7 @@ export function handleTouchEnd(
 
       // Handle double-tap: select word
       else if (isMultiTap && session.tapTracker.count === 2) {
-        state = state.actionBus.dispatchState(SELECT_WORD, state, {
+        state = state.actionBus.dispatchState(TAP_SELECT_WORD, state, {
           position,
         }).state;
       }

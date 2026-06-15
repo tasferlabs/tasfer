@@ -27,6 +27,7 @@
  * keeps the dynamic `import("../math")`.
  */
 
+import { stateAction } from "../action-bus";
 import { AtomicNode } from "../rendering/nodes/AtomicNode";
 import type {
   BlockRuntimeState,
@@ -42,7 +43,8 @@ import {
   type TokenType,
   type VisibleToken,
 } from "../serlization/tokenizer";
-import type { BlockBounds } from "../state-types";
+import type { ActiveMenu, BlockBounds } from "../state-types";
+import { setActiveMenu } from "../state-utils";
 
 // Math block - rendered LaTeX equation. Named `MathBlock` (not `Math`) to avoid
 // shadowing the global `Math` object, which this module uses heavily.
@@ -375,3 +377,76 @@ export class MathNode extends AtomicNode<MathBlock> {
     return "";
   }
 }
+
+// ─── Math actions ────────────────────────────────────────────────────────────
+//
+// The math-specific click/hover actions live with the node they act on. The
+// handler in `mouseEvents.ts` resolves the hit (clicked chip range, hovered
+// block index) and dispatches these via `state.actionBus.dispatchState(...)`.
+// All are pure — they touch overlay/hover UI state and emit no ops.
+
+/** An inline-math chip's highlight range (engine-owned hover state). */
+interface InlineMathHover {
+  blockIndex: number;
+  startIndex: number;
+  endIndex: number;
+}
+
+/**
+ * Open the inline-math edit popover for a clicked chip and highlight that chip
+ * while the popover is open. The handler resolves the overlay menu (host `math`
+ * mark's key + the chip's range as `data`) and the matching hover range. Pure,
+ * no ops.
+ */
+export const OPEN_INLINE_MATH_OVERLAY = stateAction<{
+  overlay: Extract<ActiveMenu, { type: "overlay" }>;
+  hover: InlineMathHover;
+}>("open-inline-math-overlay", (state, { overlay, hover }) => {
+  const withOverlay = setActiveMenu(state, overlay);
+  return {
+    state: {
+      ...withOverlay,
+      ui: { ...withOverlay.ui, inlineMathHover: hover },
+    },
+    ops: [],
+  };
+});
+
+/** Set or clear the hovered block-math index (full-block backdrop). Pure, no ops. */
+export const SET_MATH_BLOCK_HOVER = stateAction<{ blockIndex: number | null }>(
+  "set-math-block-hover",
+  (state, { blockIndex }) => {
+    if (blockIndex === state.ui.hoveredMathBlockIndex)
+      return { state, ops: [] };
+    return {
+      state: {
+        ...state,
+        ui: { ...state.ui, hoveredMathBlockIndex: blockIndex },
+      },
+      ops: [],
+    };
+  },
+);
+
+/**
+ * Set or clear the inline-math chip hover highlight. The handler resolves the
+ * chip range under the pointer (or `null`); this installs it only when the range
+ * actually changed. Pure, no ops.
+ */
+export const SET_INLINE_MATH_HOVER = stateAction<{
+  hover: InlineMathHover | null;
+}>("set-inline-math-hover", (state, { hover }) => {
+  const prev = state.ui.inlineMathHover;
+  const changed =
+    (prev === null) !== (hover === null) ||
+    (prev &&
+      hover &&
+      (prev.blockIndex !== hover.blockIndex ||
+        prev.startIndex !== hover.startIndex ||
+        prev.endIndex !== hover.endIndex));
+  if (!changed) return { state, ops: [] };
+  return {
+    state: { ...state, ui: { ...state.ui, inlineMathHover: hover } },
+    ops: [],
+  };
+});

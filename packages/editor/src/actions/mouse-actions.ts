@@ -29,15 +29,8 @@ import {
   updateCursor,
   updateSelectionFocus,
 } from "../selection";
-import type { ActiveMenu, ImageHoverState, Position } from "../state-types";
+import type { ActiveMenu, Position } from "../state-types";
 import { setActiveMenu, updateMode } from "../state-utils";
-
-/** An inline-math chip's highlight range (engine-owned hover state). */
-interface InlineMathHover {
-  blockIndex: number;
-  startIndex: number;
-  endIndex: number;
-}
 
 // ─── Cursor placement (single click) ─────────────────────────────────────────
 
@@ -150,7 +143,7 @@ export const CLEAR_SELECTION_IN_PADDING = stateAction(
   (state) => ({ state: updateMode(clearSelection(state), "edit"), ops: [] }),
 );
 
-// ─── Host overlay openings (image placeholder / math editor / inline math) ───
+// ─── Host overlay openings (image placeholder / math editor) ─────────────────
 
 /**
  * Open a host overlay anchored at a block — the image-upload placeholder popover
@@ -165,84 +158,7 @@ export const OPEN_BLOCK_OVERLAY = stateAction<{
   ops: [],
 }));
 
-/**
- * Open the inline-math edit popover for a clicked chip and highlight that chip
- * while the popover is open. The handler resolves the overlay menu (host `math`
- * mark's key + the chip's range as `data`) and the matching hover range. Pure,
- * no ops.
- */
-export const OPEN_INLINE_MATH_OVERLAY = stateAction<{
-  overlay: Extract<ActiveMenu, { type: "overlay" }>;
-  hover: InlineMathHover;
-}>("open-inline-math-overlay", (state, { overlay, hover }) => {
-  const withOverlay = setActiveMenu(state, overlay);
-  return {
-    state: {
-      ...withOverlay,
-      ui: { ...withOverlay.ui, inlineMathHover: hover },
-    },
-    ops: [],
-  };
-});
-
-// ─── Hover state (handleMouseMove) ───────────────────────────────────────────
-//
-// Pure view/UI updates fired as the pointer moves. The handler resolves the hit
-// (image block + drag handle, math block, inline-math chip, link) and passes the
-// resolved hover payload; these actions install it idempotently.
-
-/**
- * Set or clear the image hover overlay (the resize-handle chrome). The handler
- * passes the resolved `ImageHoverState` (or `null` to clear). Pure, no ops.
- */
-export const SET_IMAGE_HOVER = stateAction<{
-  imageHover: ImageHoverState | null;
-}>("set-image-hover", (state, { imageHover }) => {
-  if (imageHover === null) {
-    if (state.ui.imageHover === null) return { state, ops: [] };
-    return {
-      state: { ...state, ui: { ...state.ui, imageHover: null } },
-      ops: [],
-    };
-  }
-  return { state: { ...state, ui: { ...state.ui, imageHover } }, ops: [] };
-});
-
-/** Set or clear the hovered block-math index (full-block backdrop). Pure, no ops. */
-export const SET_MATH_BLOCK_HOVER = stateAction<{ blockIndex: number | null }>(
-  "set-math-block-hover",
-  (state, { blockIndex }) => {
-    if (blockIndex === state.ui.hoveredMathBlockIndex)
-      return { state, ops: [] };
-    return {
-      state: {
-        ...state,
-        ui: { ...state.ui, hoveredMathBlockIndex: blockIndex },
-      },
-      ops: [],
-    };
-  },
-);
-
-/**
- * Set or clear the inline-math chip hover highlight. The handler resolves the
- * chip range under the pointer (or `null`); this installs it only when the range
- * actually changed. Pure, no ops.
- */
-export const SET_INLINE_MATH_HOVER = stateAction<{
-  hover: InlineMathHover | null;
-}>("set-inline-math-hover", (state, { hover }) => {
-  const prev = state.ui.inlineMathHover;
-  const changed =
-    (prev === null) !== (hover === null) ||
-    (prev &&
-      hover &&
-      (prev.blockIndex !== hover.blockIndex ||
-        prev.startIndex !== hover.startIndex ||
-        prev.endIndex !== hover.endIndex));
-  if (!changed) return { state, ops: [] };
-  return {
-    state: { ...state, ui: { ...state.ui, inlineMathHover: hover } },
-    ops: [],
-  };
-});
+// The node-specific hover/overlay actions are co-located with the node they act
+// on: image hover (SET_IMAGE_HOVER) lives in `nodes/ImageNode.ts`; the math
+// click/hover actions (OPEN_INLINE_MATH_OVERLAY, SET_MATH_BLOCK_HOVER,
+// SET_INLINE_MATH_HOVER) live in `nodes/MathNode.ts`.

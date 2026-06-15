@@ -11,7 +11,6 @@ import {
 import {
   applySlashAction,
   convertBlockType,
-  deleteSelectedText,
   getFormatsAtPosition,
   insertText,
   selectAll,
@@ -24,6 +23,7 @@ import {
   getSelectionPlainText,
   pasteFromSystemClipboard,
 } from "../actions/clipboard";
+import { COPY, CUT } from "../actions/input-actions";
 import { createChromeRegionRegistry } from "../events/chromeRegions";
 import { handleEvents } from "../events/events";
 import {
@@ -1517,8 +1517,13 @@ export class Editor implements EditorApi {
     const payload = buildClipboardPayload(this._state);
     if (!payload || !e.clipboardData) return; // nothing selected → browser default
     e.preventDefault();
+    // The clipboard write MUST stay synchronous in the ClipboardEvent.
     e.clipboardData.setData("text/plain", payload.plainText);
     e.clipboardData.setData("text/html", payload.html);
+    // Copy produces no state/ops — fire COPY as a plain signal so hosts can
+    // observe/override it (the override doesn't replace the sync write above,
+    // which must run in-event; it lets a native shell react to the copy).
+    this.dispatch(COPY);
   };
 
   // Native cut: copy, then delete the selection through the action pipeline.
@@ -1531,9 +1536,12 @@ export class Editor implements EditorApi {
     const payload = buildClipboardPayload(this._state);
     if (!payload || !e.clipboardData) return;
     e.preventDefault();
+    // The clipboard write MUST stay synchronous in the ClipboardEvent.
     e.clipboardData.setData("text/plain", payload.plainText);
     e.clipboardData.setData("text/html", payload.html);
-    this.executeAction(deleteSelectedText(this._state));
+    // Route the deletion through CUT so observers/overrides see it; CUT's
+    // default wraps `deleteSelectedText`, so the emitted ops match the old path.
+    this.executeAction(this._state.actionBus.dispatchState(CUT, this._state));
     this.resetSentinel();
   };
 

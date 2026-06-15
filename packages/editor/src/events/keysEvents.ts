@@ -13,14 +13,11 @@ import {
   DELETE_FORWARD,
   DELETE_WORD_BACKWARD,
   DELETE_WORD_FORWARD,
-  INDENT_LIST_ITEM,
   INSERT_TEXT,
-  OUTDENT_LIST_ITEM,
   removeAutoCreatedParagraph,
   SELECT_ALL,
   selectVisualBlockAfterMove,
   SPLIT_BLOCK,
-  TOGGLE_BOLD,
 } from "../actions/edit-actions";
 import {
   EXTEND_SELECTION_DOWN,
@@ -47,6 +44,8 @@ import {
   MOVE_TO_PREVIOUS_WORD,
 } from "../actions/keyboard-actions";
 import { getCrossedInlineMathSpan } from "../inline-math";
+import { TOGGLE_BOLD } from "../rendering/marks";
+import { INDENT_LIST_ITEM, OUTDENT_LIST_ITEM } from "../rendering/nodes";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { getTextDirection } from "../rtl";
 import {

@@ -3,19 +3,21 @@ import {
   CLEAR_SELECTION_IN_PADDING,
   CLEAR_VISUAL_BLOCK_SELECTION,
   OPEN_BLOCK_OVERLAY,
-  OPEN_INLINE_MATH_OVERLAY,
   PLACE_CURSOR_AT_POINT,
   PLACE_CURSOR_IN_SIDE_PADDING,
   SELECT_LINE_AT_POINT,
   SELECT_VISUAL_BLOCK,
   SELECT_WORD_AT_POINT,
-  SET_IMAGE_HOVER,
-  SET_INLINE_MATH_HOVER,
-  SET_MATH_BLOCK_HOVER,
 } from "../actions/mouse-actions";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
 import { getInlineMathAtPosition } from "../inline-math";
-import { getDragHandleAtPoint } from "../rendering/nodes";
+import {
+  getDragHandleAtPoint,
+  OPEN_INLINE_MATH_OVERLAY,
+  SET_IMAGE_HOVER,
+  SET_INLINE_MATH_HOVER,
+  SET_MATH_BLOCK_HOVER,
+} from "../rendering/nodes";
 import {
   getScrollbarStyles,
   isPointInThumb,

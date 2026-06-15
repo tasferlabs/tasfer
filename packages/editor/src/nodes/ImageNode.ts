@@ -11,9 +11,10 @@
  *    so it advances the document by less than it draws.
  *  - Block-owned chrome (resize drag handles) drawn from UI state.
  *
- * Still out of scope (event layer): hit-testing the resize handles and driving
- * the drag lives in events/eventUtils + mouseEvents. Those would migrate onto
- * the optional Node.onPointerDown hook in a later pass.
+ * The resize-handle drag — the `*_IMAGE_HANDLE_DRAG` actions plus their thin
+ * `*ImageHandleDrag` dispatch wrappers — lives at the bottom of this file, so
+ * the drag logic travels with the node. The event layer (mouseEvents /
+ * blockRegions / events) only resolves pointer hits and calls those wrappers.
  *
  * The serialization methods are this node's markdown/HTML/text round-trip
  * (`![alt](url)` / `<img>`), adapted into a BlockCodec by the schema.
@@ -28,6 +29,7 @@
  * an asset reference becomes (kept as-is, bundle-relative path, data URI).
  */
 
+import { stateAction } from "../action-bus";
 import { IMAGE_DEFAULT_HEIGHT } from "../constants";
 import { AtomicNode } from "../rendering/nodes/AtomicNode";
 import type {
@@ -38,6 +40,8 @@ import type {
   NodeRegionCtx,
   Point,
 } from "../rendering/nodes/Node";
+import { invalidateBlockCache } from "../rendering/renderer";
+import { clearSelection, moveCursorToPosition } from "../selection";
 import { escapeAttr } from "../serlization/codecs/inline";
 import type {
   InputCtx,
@@ -54,7 +58,17 @@ import {
   type TokenType,
   type VisibleToken,
 } from "../serlization/tokenizer";
-import type { BlockBounds, EditorStyles } from "../state-types";
+import type {
+  BlockBounds,
+  CRDTbinding,
+  EditorState,
+  EditorStyles,
+  ImageDragState,
+  ImageHoverState,
+  Operation,
+  ViewportState,
+} from "../state-types";
+import { updateMode } from "../state-utils";
 import { getEditorStyles } from "../styles";
 
 // Image block — an embedded image.
@@ -871,4 +885,496 @@ function renderImageDragHandles(
   }
 
   ctx.restore();
+}
+
+// ─── Image actions ───────────────────────────────────────────────────────────
+//
+// The image-specific actions live with the node they act on. The resize-handle
+// drag is named `*_IMAGE_HANDLE_DRAG` (not just "image-drag"): the bare term is
+// reserved for a future move-the-image gesture, this is the resize-handle drag.
+// The thin `*ImageHandleDrag` wrapper functions below resolve pointer/geometry
+// data and dispatch these actions; they used to live in `events/eventUtils.ts`
+// and moved here so the drag transforms travel with the node (the start wrapper
+// reuses this file's local {@link getDragHandleAtPoint}, avoiding a cycle).
+
+/**
+ * Begin an image-resize drag: record the resolved drag descriptor in
+ * `ui.imageDrag`. The hit test (which handle was grabbed) and the start
+ * dimensions depend on the pointer position and rendered geometry, so the
+ * caller ({@link startImageHandleDrag}) resolves them and passes the finished
+ * {@link ImageDragState} as the payload — keeping the action a pure state set.
+ * Pure UI change, no ops.
+ */
+export const START_IMAGE_HANDLE_DRAG = stateAction<{
+  imageDrag: ImageDragState;
+}>("start-image-handle-drag", (state, { imageDrag }) => ({
+  state: {
+    ...state,
+    ui: {
+      ...state.ui,
+      imageDrag,
+    },
+  },
+  ops: [],
+}));
+
+/** Payload for {@link UPDATE_IMAGE_HANDLE_DRAG} — the live pointer + viewport. */
+interface UpdateImageDragPayload {
+  viewport: ViewportState;
+  canvasX: number;
+  canvasY: number;
+}
+
+/**
+ * Recompute the dragged image's dimensions from the current pointer position,
+ * applying the resize math (handle direction, full-width snapping, aspect-ratio
+ * height capping) and writing the new width/height/objectFit onto the block.
+ * Pure block-dimension update — no ops; the final `block_set`s are emitted by
+ * {@link END_IMAGE_HANDLE_DRAG} when the drag releases. No-op when no drag is
+ * active or the target block is gone / not an image.
+ */
+export const UPDATE_IMAGE_HANDLE_DRAG = stateAction<UpdateImageDragPayload>(
+  "update-image-handle-drag",
+  (state, { viewport, canvasX, canvasY }) => {
+    if (!state.ui.imageDrag) {
+      return { state, ops: [] };
+    }
+
+    const {
+      blockIndex,
+      handle,
+      startX,
+      startY,
+      startWidth,
+      startHeight,
+      startObjectFit,
+    } = state.ui.imageDrag;
+    const block = state.document.page.blocks[blockIndex];
+    if (!block || block.deleted) return { state, ops: [] };
+
+    if (block.type !== "image") {
+      return { state, ops: [] };
+    }
+
+    const styles = getEditorStyles(state);
+    const deltaX = canvasX - startX;
+    const deltaY = canvasY - startY;
+    const maxWidth =
+      viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+    const snapThreshold = 20; // pixels to snap to padding
+
+    let newWidth: number | "full" = startWidth;
+    let newHeight = startHeight;
+    let newObjectFit: "cover" | "contain" = startObjectFit;
+
+    if (handle === "left" || handle === "right") {
+      // Horizontal resize
+      const widthDelta = handle === "left" ? -deltaX * 2 : deltaX * 2; // multiply by 2 because we resize from center
+      const { minWidth: constraintMinWidth } = styles.imageResize.constraints;
+
+      if (startWidth === "full") {
+        // Start from full width
+        const currentWidth = viewport.width;
+        newWidth = Math.max(constraintMinWidth, currentWidth + widthDelta);
+
+        // Check if we should snap to padding (transitioning to contained)
+        if (Math.abs(newWidth - maxWidth) < snapThreshold) {
+          newWidth = maxWidth;
+          newObjectFit = "contain";
+        } else if (newWidth < maxWidth - snapThreshold) {
+          // Definitely in contain mode
+          newObjectFit = "contain";
+        } else if (newWidth > maxWidth) {
+          // If width exceeds document width (maxWidth), stay in cover mode
+          newWidth = "full";
+          newObjectFit = "cover";
+        } else if (newWidth >= viewport.width - 10) {
+          // Snap back to full if close
+          newWidth = "full";
+          newObjectFit = "cover";
+        }
+      } else {
+        // Already in custom width mode
+        newWidth = Math.max(
+          constraintMinWidth,
+          Math.min(viewport.width, (startWidth as number) + widthDelta),
+        );
+
+        // Check if we should snap back to full width
+        if (newWidth >= viewport.width - snapThreshold) {
+          newWidth = "full";
+          newObjectFit = "cover";
+        } else if (
+          newWidth >= maxWidth - snapThreshold &&
+          newWidth <= maxWidth + snapThreshold
+        ) {
+          // Snap to padding width
+          newWidth = maxWidth;
+          newObjectFit = "contain";
+        } else if (newWidth > maxWidth) {
+          // If width exceeds document width (maxWidth), convert to cover
+          newWidth = "full";
+          newObjectFit = "cover";
+        } else {
+          // Remain in contain mode
+          newObjectFit = "contain";
+        }
+      }
+
+      // In contain mode, calculate height based on image aspect ratio to avoid jumps
+      // Apply minWidth constraint to prevent over-resizing of wide images
+      if (
+        newObjectFit === "contain" &&
+        typeof newWidth === "number" &&
+        block.url
+      ) {
+        const cachedImage = imageCache.get(block.url);
+        if (cachedImage && cachedImage.complete) {
+          const imgAspectRatio =
+            cachedImage.naturalWidth / cachedImage.naturalHeight;
+
+          // Ensure width doesn't go below minimum (already enforced above, but keep for clarity)
+          newWidth = Math.max(newWidth, constraintMinWidth);
+
+          // Calculate height based on width and aspect ratio
+          newHeight = newWidth / imgAspectRatio;
+        }
+      }
+    } else if (handle === "bottom" && startObjectFit === "cover") {
+      // Vertical resize (only in cover mode)
+      // In cover mode, we enforce minimum height
+      const { minHeight: constraintMinHeight } = styles.imageResize.constraints;
+      const calculatedHeight = Math.max(
+        constraintMinHeight,
+        startHeight + deltaY,
+      );
+
+      // Cap height based on image aspect ratio to prevent over-resizing
+      if (block.url) {
+        const cachedImage = imageCache.get(block.url);
+        if (cachedImage && cachedImage.complete) {
+          const imgAspectRatio =
+            cachedImage.naturalWidth / cachedImage.naturalHeight;
+
+          // Calculate the current container width
+          const containerWidth =
+            typeof startWidth === "number" ? startWidth : viewport.width;
+
+          // For portrait images (tall), cap the height so it doesn't exceed the image's natural ratio
+          // This prevents excessive cropping when the image is resized too tall
+          const maxHeightForRatio = containerWidth / imgAspectRatio;
+
+          // Cap the height at the image's natural ratio relative to container width
+          newHeight = Math.min(calculatedHeight, maxHeightForRatio);
+
+          // Ensure we don't go below minimum height
+          newHeight = Math.max(newHeight, constraintMinHeight);
+        } else {
+          newHeight = calculatedHeight;
+        }
+      } else {
+        newHeight = calculatedHeight;
+      }
+    }
+
+    // Update the block with new dimensions
+    const updatedBlock: Block = {
+      ...block,
+      width: newWidth,
+      height: newHeight,
+      objectFit: newObjectFit,
+    };
+
+    // Invalidate the block height cache since dimensions changed
+    invalidateBlockCache(updatedBlock);
+
+    const newBlocks = [...state.document.page.blocks];
+    newBlocks[blockIndex] = updatedBlock;
+
+    return {
+      state: {
+        ...state,
+        document: {
+          ...state.document,
+          page: { ...state.document.page, blocks: newBlocks },
+        },
+      },
+      ops: [],
+    };
+  },
+);
+
+/**
+ * Finish an image-resize drag: clear `ui.imageDrag` and emit a `block_set` op
+ * for each dimension (width / height / objectFit) that actually changed since
+ * the drag began.
+ *
+ * The `!== undefined` guards are load-bearing — a defensive resize-math edge
+ * case could leave a dimension unset, and emitting `value: undefined`
+ * serializes to a value-less `block_set` that `applyBlockSet`/`validateField`
+ * reject on every peer, silently desyncing the local image. They are preserved
+ * exactly (see `__fuzz__/image-resize-undefined.test.ts`).
+ */
+export const END_IMAGE_HANDLE_DRAG = stateAction(
+  "end-image-handle-drag",
+  (state) => {
+    if (!state.ui.imageDrag) {
+      return { state, ops: [] };
+    }
+
+    const ops: Operation[] = [];
+    const { blockIndex, startWidth, startHeight, startObjectFit } =
+      state.ui.imageDrag;
+    const block = state.document.page.blocks[blockIndex];
+
+    if (block && block.type === "image") {
+      const blockId = block.id;
+
+      // Create operations only for fields that changed during the drag.
+      // Compare final values with original values from when drag started.
+      // Guard against `undefined`: a defensive resize math edge case could leave
+      // a dimension unset, and emitting `value: undefined` serializes to a
+      // value-less block_set that `applyBlockSet`/`validateField` reject on every
+      // peer — leaving the local editor's image silently desynced (it reflows to
+      // its default size, jumping the content below it). Never emit such an op.
+      if (block.width !== startWidth && block.width !== undefined) {
+        ops.push({
+          op: "block_set",
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
+          blockId,
+          field: "width",
+          value: block.width,
+        });
+      }
+
+      if (block.height !== startHeight && block.height !== undefined) {
+        ops.push({
+          op: "block_set",
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
+          blockId,
+          field: "height",
+          value: block.height,
+        });
+      }
+
+      if (block.objectFit !== startObjectFit && block.objectFit !== undefined) {
+        ops.push({
+          op: "block_set",
+          id: state.CRDTbinding.nextId(),
+          clock: state.CRDTbinding.getClock(),
+          pageId: state.CRDTbinding.pageId,
+          blockId,
+          field: "objectFit",
+          value: block.objectFit,
+        });
+      }
+    }
+
+    return {
+      state: {
+        ...state,
+        ui: {
+          ...state.ui,
+          imageDrag: null,
+        },
+      },
+      ops,
+    };
+  },
+);
+
+/**
+ * Cancel an image-resize drag (e.g. pointer cancel) without recording undo:
+ * clear `ui.imageDrag` and emit no ops. The in-progress dimension changes
+ * {@link UPDATE_IMAGE_HANDLE_DRAG} wrote stay on the block but were never
+ * committed as ops, mirroring the previous behavior. No-op when no drag is
+ * active.
+ */
+export const CANCEL_IMAGE_HANDLE_DRAG = stateAction(
+  "cancel-image-handle-drag",
+  (state) => {
+    if (!state.ui.imageDrag) {
+      return { state, ops: [] };
+    }
+
+    return {
+      state: {
+        ...state,
+        ui: {
+          ...state.ui,
+          imageDrag: null,
+        },
+      },
+      ops: [],
+    };
+  },
+);
+
+/**
+ * Set or clear the image hover overlay (the resize-handle chrome). The handler
+ * passes the resolved {@link ImageHoverState} (or `null` to clear). Pure, no ops.
+ */
+export const SET_IMAGE_HOVER = stateAction<{
+  imageHover: ImageHoverState | null;
+}>("set-image-hover", (state, { imageHover }) => {
+  if (imageHover === null) {
+    if (state.ui.imageHover === null) return { state, ops: [] };
+    return {
+      state: { ...state, ui: { ...state.ui, imageHover: null } },
+      ops: [],
+    };
+  }
+  return { state: { ...state, ui: { ...state.ui, imageHover } }, ops: [] };
+});
+
+/**
+ * Tap below a trailing image block: append a new empty paragraph after it and
+ * place the caret in it. This is a touch-driven document mutation, so it emits a
+ * single `block_insert`. The handler supplies the `afterBlock` (the trailing
+ * image), its index, and the per-instance {@link CRDTbinding} used to mint the
+ * new block + op ids.
+ */
+export const CREATE_PARAGRAPH_BELOW_IMAGE = stateAction<{
+  afterBlock: Block;
+  afterBlockIndex: number;
+  binding: CRDTbinding;
+}>(
+  "create-paragraph-below-image",
+  (state, { afterBlock, afterBlockIndex, binding }) => {
+    const newParagraphId = binding.nextId();
+    const newParagraph: Block = {
+      id: newParagraphId,
+      afterId: afterBlock.id,
+      type: "paragraph",
+      charRuns: [],
+      formats: [],
+    };
+
+    const blockInsertOp: Operation = {
+      op: "block_insert",
+      id: binding.nextId(),
+      clock: binding.getClock(),
+      pageId: binding.pageId,
+      afterBlockId: afterBlock.id,
+      blockId: newParagraphId,
+      blockType: "paragraph",
+    };
+
+    const newBlocks = [...state.document.page.blocks, newParagraph];
+    const newPage = { ...state.document.page, blocks: newBlocks };
+
+    let next = {
+      ...state,
+      document: { ...state.document, page: newPage },
+    };
+    next = clearSelection(next);
+    next = moveCursorToPosition(next, afterBlockIndex + 1, 0);
+    next = updateMode(next, "edit");
+
+    return { state: next, ops: [blockInsertOp] };
+  },
+);
+
+// ─── Image-handle-drag wrappers (formerly events/eventUtils.ts) ──────────────
+//
+// Thin functions the event/region layer calls: they resolve pointer + geometry
+// data (which handle was grabbed, the start dimensions) and dispatch the actions
+// above via `state.actionBus.dispatchState(...)`. They live with the node so the
+// resize-handle drag logic is co-located with the image block.
+
+/**
+ * Start an image drag resize operation. Returns the updated state if a drag
+ * handle was hit, or `null` if none was. `extraTolerance` widens the hit area
+ * (mouse vs touch).
+ */
+export function startImageHandleDrag(
+  state: EditorState,
+  imageBlock: {
+    blockIndex: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  },
+  canvasX: number,
+  canvasY: number,
+  extraTolerance: number = 4,
+): EditorState | null {
+  const block = state.document.page.blocks[imageBlock.blockIndex];
+  if (!block || block.deleted) return null;
+  if (block.type !== "image") {
+    return null;
+  }
+
+  const objectFit = block.objectFit ?? "cover";
+  const clickedHandle = getDragHandleAtPoint(
+    canvasX,
+    canvasY,
+    imageBlock.x,
+    imageBlock.y,
+    imageBlock.width,
+    imageBlock.height,
+    objectFit,
+    extraTolerance,
+  );
+
+  if (clickedHandle && block.url) {
+    // Start dragging the handle
+    // Use the displayed dimensions (imageBlock.width/height) instead of stored dimensions (block.width/height)
+    // This ensures that resizing works correctly on mobile when the image was resized on desktop
+    // For 'full' width images, we keep them as 'full'
+    const storedWidth = block.width ?? "full";
+    const startWidth = storedWidth === "full" ? "full" : imageBlock.width;
+    const startHeight = imageBlock.height;
+
+    // The handle hit + start dimensions are pointer-derived; resolve them here
+    // and hand the finished drag descriptor to START_IMAGE_HANDLE_DRAG.
+    return state.actionBus.dispatchState(START_IMAGE_HANDLE_DRAG, state, {
+      imageDrag: {
+        blockIndex: imageBlock.blockIndex,
+        handle: clickedHandle,
+        startX: canvasX,
+        startY: canvasY,
+        startWidth,
+        startHeight,
+        startObjectFit: objectFit,
+      },
+    }).state;
+  }
+
+  return null;
+}
+
+/** Update image dimensions during a drag resize. */
+export function updateImageHandleDrag(
+  state: EditorState,
+  viewport: ViewportState,
+  canvasX: number,
+  canvasY: number,
+): EditorState {
+  return state.actionBus.dispatchState(UPDATE_IMAGE_HANDLE_DRAG, state, {
+    viewport,
+    canvasX,
+    canvasY,
+  }).state;
+}
+
+/**
+ * End an image drag resize operation, returning the `{ state, ops }` with the
+ * `block_set` ops for the dimensions that changed.
+ */
+export function endImageHandleDrag(state: EditorState): {
+  state: EditorState;
+  ops: Operation[];
+} {
+  return state.actionBus.dispatchState(END_IMAGE_HANDLE_DRAG, state);
+}
+
+/** Cancel an image drag resize operation (without recording undo). */
+export function cancelImageHandleDrag(state: EditorState): EditorState {
+  return state.actionBus.dispatchState(CANCEL_IMAGE_HANDLE_DRAG, state).state;
 }

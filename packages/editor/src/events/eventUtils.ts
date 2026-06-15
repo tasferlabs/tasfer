@@ -1,14 +1,8 @@
 import {
-  CANCEL_IMAGE_DRAG,
-  END_IMAGE_DRAG,
-  START_IMAGE_DRAG,
-  UPDATE_IMAGE_DRAG,
-} from "../actions/input-actions";
-import {
   CLICK_DISTANCE_THRESHOLD,
   SELECTION_HANDLE_TOUCH_TARGET,
 } from "../constants";
-import { AtomicNode, getDragHandleAtPoint } from "../rendering/nodes";
+import { AtomicNode } from "../rendering/nodes";
 import { getBlockHeight } from "../rendering/renderer";
 import {
   getCursorDocumentCoords,
@@ -16,7 +10,6 @@ import {
 } from "../selection";
 import type { EditorState, ViewportState } from "../state-types";
 import { getEditorStyles } from "../styles";
-import type { Operation } from "../sync/sync";
 
 export function isTouchDevice(): boolean {
   return (
@@ -93,115 +86,10 @@ export function getAtomicBlockAtPoint(
   return null;
 }
 
-/**
- * Start an image drag resize operation
- * @param state Current editor state
- * @param imageBlock The image block info from hit detection
- * @param canvasX X position relative to canvas
- * @param canvasY Y position relative to canvas
- * @param extraTolerance Extra tolerance for touch devices
- * @returns Updated state with imageDrag if drag started, or null if no drag handle was hit
- */
+// The image-resize-handle drag wrappers (startImageHandleDrag, … ) moved to
+// `nodes/ImageNode.ts`, where they live with the node + the drag actions they
+// dispatch. Importers now pull them from `../rendering/nodes`.
 
-export function startImageDrag(
-  state: EditorState,
-  imageBlock: {
-    blockIndex: number;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  },
-  canvasX: number,
-  canvasY: number,
-  extraTolerance: number = 4,
-): EditorState | null {
-  const block = state.document.page.blocks[imageBlock.blockIndex];
-  if (!block || block.deleted) return null;
-  if (block.type !== "image") {
-    return null;
-  }
-
-  const objectFit = block.objectFit ?? "cover";
-  const clickedHandle = getDragHandleAtPoint(
-    canvasX,
-    canvasY,
-    imageBlock.x,
-    imageBlock.y,
-    imageBlock.width,
-    imageBlock.height,
-    objectFit,
-    extraTolerance,
-  );
-
-  if (clickedHandle && block.url) {
-    // Start dragging the handle
-    // Use the displayed dimensions (imageBlock.width/height) instead of stored dimensions (block.width/height)
-    // This ensures that resizing works correctly on mobile when the image was resized on desktop
-    // For 'full' width images, we keep them as 'full'
-    const storedWidth = block.width ?? "full";
-    const startWidth = storedWidth === "full" ? "full" : imageBlock.width;
-    const startHeight = imageBlock.height;
-
-    // The handle hit + start dimensions are pointer-derived; resolve them here
-    // and hand the finished drag descriptor to START_IMAGE_DRAG.
-    return state.actionBus.dispatchState(START_IMAGE_DRAG, state, {
-      imageDrag: {
-        blockIndex: imageBlock.blockIndex,
-        handle: clickedHandle,
-        startX: canvasX,
-        startY: canvasY,
-        startWidth,
-        startHeight,
-        startObjectFit: objectFit,
-      },
-    }).state;
-  }
-
-  return null;
-}
-/**
- * Update image dimensions during drag resize
- * @param state Current editor state
- * @param viewport Current viewport state
- * @param canvasX Current x position relative to canvas
- * @param canvasY Current y position relative to canvas
- * @returns Updated state with new image dimensions
- */
-
-export function updateImageDrag(
-  state: EditorState,
-  viewport: ViewportState,
-  canvasX: number,
-  canvasY: number,
-): EditorState {
-  return state.actionBus.dispatchState(UPDATE_IMAGE_DRAG, state, {
-    viewport,
-    canvasX,
-    canvasY,
-  }).state;
-}
-/**
- * End an image drag resize operation
- * @param state Current editor state
- * @param crdtContext CRDT context for generating operations
- * @returns Updated state with imageDrag cleared and operations for the resize
- */
-
-export function endImageDrag(state: EditorState): {
-  state: EditorState;
-  ops: Operation[];
-} {
-  return state.actionBus.dispatchState(END_IMAGE_DRAG, state);
-}
-/**
- * Cancel an image drag resize operation (without recording undo)
- * @param state Current editor state
- * @returns Updated state with imageDrag cleared
- */
-export function cancelImageDrag(state: EditorState): EditorState {
-  return state.actionBus.dispatchState(CANCEL_IMAGE_DRAG, state).state;
-}
 /**
  * Helper function to scroll viewport to make cursor visible after state changes
  * @param newState The new editor state

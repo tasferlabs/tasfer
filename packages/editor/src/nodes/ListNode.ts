@@ -18,6 +18,12 @@
  * only.
  */
 
+import { stateAction } from "../action-bus";
+import {
+  indentListItem,
+  outdentListItem,
+  toggleTodoChecked,
+} from "../actions/actions";
 import { currentFontFamily, getFontMetrics, getFontStack } from "../fonts";
 import { getBlockTextContent } from "../node-shared";
 import type {
@@ -50,6 +56,39 @@ export const LIST_BLOCK_TYPES = [
   "numbered_list",
   "todo_list",
 ] as const;
+
+// ─── List actions ────────────────────────────────────────────────────────────
+//
+// The list-specific edit actions live with the node that owns the list family.
+// Each wraps the matching pure transform in `actions/actions.ts` so hosts can
+// observe/override it, and dispatches via `state.actionBus.dispatchState(...)`
+// from the event handlers (Tab/Shift+Tab in `keysEvents.ts`, the todo-checkbox
+// region in `blockRegions.ts`).
+
+/** Indent the current list item one level (Tab on a list block). */
+export const INDENT_LIST_ITEM = stateAction("indent-list-item", (state) => {
+  const result = indentListItem(state);
+  return { state: result.state, ops: result.ops };
+});
+
+/** Outdent the current list item one level (Shift+Tab on a list block). */
+export const OUTDENT_LIST_ITEM = stateAction("outdent-list-item", (state) => {
+  const result = outdentListItem(state);
+  return { state: result.state, ops: result.ops };
+});
+
+/**
+ * Toggle a todo list item's checked state (tapping its checkbox). The handler
+ * resolves the tapped block's index from the `todo-checkbox` hit region and
+ * passes it in; emits the resulting `block_set` op.
+ */
+export const TOGGLE_TODO_CHECKED = stateAction<{ blockIndex: number }>(
+  "toggle-todo-checked",
+  (state, { blockIndex }) => {
+    const result = toggleTodoChecked(state, blockIndex);
+    return { state: result.state, ops: result.ops };
+  },
+);
 
 // List item blocks - support bullet, numbered, and todo lists with nesting
 export interface BulletListItem extends BlockRuntimeState {

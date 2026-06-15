@@ -15,9 +15,13 @@ export { mountEditor } from "./entries/mount";
 // assembling a custom `nodes` list — they hold no per-editor state.
 export {
   AtomicNode,
+  CANCEL_IMAGE_HANDLE_DRAG,
+  CREATE_PARAGRAPH_BELOW_IMAGE,
   createDefaultNodeRegistry,
   createNodeRegistry,
+  END_IMAGE_HANDLE_DRAG,
   ImageNode,
+  INDENT_LIST_ITEM,
   LineNode,
   ListNode,
   MathNode,
@@ -28,7 +32,15 @@ export {
   type NodePointerType,
   type NodeRegionCtx,
   NodeRegistry,
+  OPEN_INLINE_MATH_OVERLAY,
+  OUTDENT_LIST_ITEM,
+  SET_IMAGE_HOVER,
+  SET_INLINE_MATH_HOVER,
+  SET_MATH_BLOCK_HOVER,
+  START_IMAGE_HANDLE_DRAG,
   TextNode,
+  TOGGLE_TODO_CHECKED,
+  UPDATE_IMAGE_HANDLE_DRAG,
 } from "./rendering/nodes";
 
 // Inline marks. `Mark` is the base class to subclass for a custom mark's
@@ -51,6 +63,10 @@ export {
   MathMark,
   StrikeMark,
   StrongMark,
+  TOGGLE_BOLD,
+  TOGGLE_CODE,
+  TOGGLE_ITALIC,
+  TOGGLE_STRIKE,
 } from "./rendering/marks";
 
 // Interaction regions are an internal concept — there is no host-level region
@@ -189,12 +205,9 @@ export {
   DELETE_FORWARD,
   DELETE_WORD_BACKWARD,
   DELETE_WORD_FORWARD,
-  INDENT_LIST_ITEM,
   INSERT_TEXT,
-  OUTDENT_LIST_ITEM,
   SELECT_ALL,
   SPLIT_BLOCK,
-  TOGGLE_BOLD,
 } from "./actions/edit-actions";
 // Editor mouse actions — named click / selection / hover actions migrated out
 // of the mouse event handlers (see `actions/mouse-actions.ts`).
@@ -202,46 +215,41 @@ export {
   CLEAR_SELECTION_IN_PADDING,
   CLEAR_VISUAL_BLOCK_SELECTION,
   OPEN_BLOCK_OVERLAY,
-  OPEN_INLINE_MATH_OVERLAY,
   PLACE_CURSOR_AT_POINT,
   PLACE_CURSOR_IN_SIDE_PADDING,
   SELECT_LINE_AT_POINT,
   SELECT_VISUAL_BLOCK,
   SELECT_WORD_AT_POINT,
-  SET_IMAGE_HOVER,
-  SET_INLINE_MATH_HOVER,
-  SET_MATH_BLOCK_HOVER,
 } from "./actions/mouse-actions";
 // Editor touch actions — named tap / long-press / visual-block actions migrated
 // out of the touch event handlers (see `actions/touch-actions.ts`).
 export {
   CLOSE_NODE_OVERLAY,
-  CREATE_PARAGRAPH_BELOW_IMAGE,
   FINISH_SELECT_MODE,
   OPEN_CONTEXT_MENU_AT,
   OPEN_NODE_OVERLAY,
-  SELECT_LINE,
-  SELECT_WORD,
   TAP_CLEAR_VISUAL_BLOCK_SELECTION,
   TAP_ON_SELECTION,
   TAP_OUTSIDE_CONTENT,
   TAP_PLACE_CURSOR,
+  TAP_SELECT_LINE,
   TAP_SELECT_VISUAL_BLOCK,
+  TAP_SELECT_WORD,
   TAP_SIDE_PADDING,
   TAP_TOP_PADDING,
 } from "./actions/touch-actions";
-// Editor input actions — named IME-composition / paste / image-resize-drag
+// Editor input actions — named IME-composition / clipboard (copy / cut / paste)
 // actions migrated out of the input event handlers (see
-// `actions/input-actions.ts`).
+// `actions/input-actions.ts`). The image-resize-handle drag actions moved to
+// the node they act on (see `nodes/ImageNode.ts` → `*_IMAGE_HANDLE_DRAG`,
+// re-exported below via `./rendering/nodes`).
 export {
-  CANCEL_IMAGE_DRAG,
   COMPOSITION_END,
   COMPOSITION_START,
   COMPOSITION_UPDATE,
-  END_IMAGE_DRAG,
+  COPY,
+  CUT,
   PASTE,
-  START_IMAGE_DRAG,
-  UPDATE_IMAGE_DRAG,
 } from "./actions/input-actions";
 
 // Core document model + CRDT operation types. The stored-mark CRDT record is

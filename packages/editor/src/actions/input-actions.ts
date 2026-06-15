@@ -1,9 +1,13 @@
 /**
- * Editor **input actions** — the IME-composition, paste, and image-resize-drag
- * actions the event handlers used to inline, lifted into named, dispatchable
- * {@link StateAction}s. Sibling to `keyboard-actions.ts` (cursor/selection
+ * Editor **input actions** — the IME-composition and clipboard (paste / copy /
+ * cut) actions the event handlers used to inline, lifted into named,
+ * dispatchable {@link StateAction}s (copy is a plain {@link action} signal — it
+ * produces no state/ops). Sibling to `keyboard-actions.ts` (cursor/selection
  * moves) and `edit-actions.ts` (key-driven content edits); this file holds the
- * actions driven by composition, clipboard, and pointer-drag events.
+ * actions driven by composition and clipboard events.
+ *
+ * (The image-resize-handle drag actions, formerly here, now live with the node
+ * they act on — see `nodes/ImageNode.ts` → `*_IMAGE_HANDLE_DRAG`.)
  *
  * A state action is the low-level action shape: its default behavior is a
  * pure `(state) => { state, ops }` transform (see `action-bus.ts`), which is
@@ -12,24 +16,16 @@
  * or override them, and the engine's logic lives in one named place instead of
  * being scattered across the input event handlers.
  *
- * Several of these actions need data that only lives on the DOM event or the
- * pointer (the composed string, the extracted clipboard data, the pointer
- * coordinates, the resolved drag handle). That data is computed in the event
- * handler and threaded in via the payload, so the action stays a pure
+ * Several of these actions need data that only lives on the DOM event (the
+ * composed string, the extracted clipboard data). That data is computed in the
+ * event handler and threaded in via the payload, so the action stays a pure
  * transform over {@link EditorState}. The handlers also keep their guards
  * (focus / readonly / locked / composition) — a action assumes it is allowed
  * to run.
  */
 
-import { stateAction } from "../action-bus";
-import { imageCache, invalidateBlockCache } from "../rendering/renderer";
-import type { Block } from "../serlization/loadPage";
-import type {
-  EditorState,
-  ImageDragState,
-  ViewportState,
-} from "../state-types";
-import { getEditorStyles } from "../styles";
+import { action, stateAction } from "../action-bus";
+import type { EditorState } from "../state-types";
 import type { Operation } from "../sync/sync";
 import { deleteSelectedText, getSelectionRange, insertText } from "./actions";
 import { pasteFromClipboardEvent } from "./clipboard";
@@ -184,6 +180,30 @@ export const COMPOSITION_END = stateAction<CompositionTextPayload>(
   },
 );
 
+// ─── Clipboard (copy / cut / paste) ──────────────────────────────────────────
+
+/**
+ * Copy the current selection to the system clipboard (Ctrl/Cmd+C). Copy
+ * produces no state/ops — it only builds a clipboard payload, written
+ * synchronously in the handler (`copyHandler` in `entries/editor.ts`) — so this
+ * is a plain {@link action} signal hosts can observe (e.g. analytics) or
+ * override (a native shell routing the copy through its own clipboard bridge),
+ * mirroring {@link OPEN_LINK}.
+ */
+export const COPY = action("copy");
+
+/**
+ * Cut the current selection to the system clipboard (Ctrl/Cmd+X). The clipboard
+ * write is synchronous in the handler (`cutHandler` in `entries/editor.ts`);
+ * this action is the document side — it deletes the selection, wrapping the pure
+ * `deleteSelectedText` transform and emitting the resulting delete ops, so the
+ * deletion is observable/overridable.
+ */
+export const CUT = stateAction("cut", (state) => {
+  const result = deleteSelectedText(state);
+  return { state: result.state, ops: result.ops };
+});
+
 // ─── Paste ───────────────────────────────────────────────────────────────────
 
 /**
@@ -236,315 +256,3 @@ export function runPaste(
     pastedImageBlockIndex: result.pastedImageBlockIndex,
   };
 }
-
-// ─── Image-resize drag ───────────────────────────────────────────────────────
-
-/**
- * Begin an image-resize drag: record the resolved drag descriptor in
- * `ui.imageDrag`. The hit test (which handle was grabbed) and the start
- * dimensions depend on the pointer position and rendered geometry, so the
- * handler resolves them and passes the finished {@link ImageDragState} as the
- * payload — keeping the action a pure state set. Pure UI change, no ops.
- */
-export const START_IMAGE_DRAG = stateAction<{ imageDrag: ImageDragState }>(
-  "start-image-drag",
-  (state, { imageDrag }) => ({
-    state: {
-      ...state,
-      ui: {
-        ...state.ui,
-        imageDrag,
-      },
-    },
-    ops: [],
-  }),
-);
-
-/** Payload for {@link UPDATE_IMAGE_DRAG} — the live pointer + viewport. */
-interface UpdateImageDragPayload {
-  viewport: ViewportState;
-  canvasX: number;
-  canvasY: number;
-}
-
-/**
- * Recompute the dragged image's dimensions from the current pointer position,
- * applying the resize math (handle direction, full-width snapping, aspect-ratio
- * height capping) and writing the new width/height/objectFit onto the block.
- * Pure block-dimension update — no ops; the final `block_set`s are emitted by
- * {@link END_IMAGE_DRAG} when the drag releases. No-op when no drag is active or
- * the target block is gone / not an image.
- */
-export const UPDATE_IMAGE_DRAG = stateAction<UpdateImageDragPayload>(
-  "update-image-drag",
-  (state, { viewport, canvasX, canvasY }) => {
-    if (!state.ui.imageDrag) {
-      return { state, ops: [] };
-    }
-
-    const {
-      blockIndex,
-      handle,
-      startX,
-      startY,
-      startWidth,
-      startHeight,
-      startObjectFit,
-    } = state.ui.imageDrag;
-    const block = state.document.page.blocks[blockIndex];
-    if (!block || block.deleted) return { state, ops: [] };
-
-    if (block.type !== "image") {
-      return { state, ops: [] };
-    }
-
-    const styles = getEditorStyles(state);
-    const deltaX = canvasX - startX;
-    const deltaY = canvasY - startY;
-    const maxWidth =
-      viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
-    const snapThreshold = 20; // pixels to snap to padding
-
-    let newWidth: number | "full" = startWidth;
-    let newHeight = startHeight;
-    let newObjectFit: "cover" | "contain" = startObjectFit;
-
-    if (handle === "left" || handle === "right") {
-      // Horizontal resize
-      const widthDelta = handle === "left" ? -deltaX * 2 : deltaX * 2; // multiply by 2 because we resize from center
-      const { minWidth: constraintMinWidth } = styles.imageResize.constraints;
-
-      if (startWidth === "full") {
-        // Start from full width
-        const currentWidth = viewport.width;
-        newWidth = Math.max(constraintMinWidth, currentWidth + widthDelta);
-
-        // Check if we should snap to padding (transitioning to contained)
-        if (Math.abs(newWidth - maxWidth) < snapThreshold) {
-          newWidth = maxWidth;
-          newObjectFit = "contain";
-        } else if (newWidth < maxWidth - snapThreshold) {
-          // Definitely in contain mode
-          newObjectFit = "contain";
-        } else if (newWidth > maxWidth) {
-          // If width exceeds document width (maxWidth), stay in cover mode
-          newWidth = "full";
-          newObjectFit = "cover";
-        } else if (newWidth >= viewport.width - 10) {
-          // Snap back to full if close
-          newWidth = "full";
-          newObjectFit = "cover";
-        }
-      } else {
-        // Already in custom width mode
-        newWidth = Math.max(
-          constraintMinWidth,
-          Math.min(viewport.width, (startWidth as number) + widthDelta),
-        );
-
-        // Check if we should snap back to full width
-        if (newWidth >= viewport.width - snapThreshold) {
-          newWidth = "full";
-          newObjectFit = "cover";
-        } else if (
-          newWidth >= maxWidth - snapThreshold &&
-          newWidth <= maxWidth + snapThreshold
-        ) {
-          // Snap to padding width
-          newWidth = maxWidth;
-          newObjectFit = "contain";
-        } else if (newWidth > maxWidth) {
-          // If width exceeds document width (maxWidth), convert to cover
-          newWidth = "full";
-          newObjectFit = "cover";
-        } else {
-          // Remain in contain mode
-          newObjectFit = "contain";
-        }
-      }
-
-      // In contain mode, calculate height based on image aspect ratio to avoid jumps
-      // Apply minWidth constraint to prevent over-resizing of wide images
-      if (
-        newObjectFit === "contain" &&
-        typeof newWidth === "number" &&
-        block.url
-      ) {
-        const cachedImage = imageCache.get(block.url);
-        if (cachedImage && cachedImage.complete) {
-          const imgAspectRatio =
-            cachedImage.naturalWidth / cachedImage.naturalHeight;
-
-          // Ensure width doesn't go below minimum (already enforced above, but keep for clarity)
-          newWidth = Math.max(newWidth, constraintMinWidth);
-
-          // Calculate height based on width and aspect ratio
-          newHeight = newWidth / imgAspectRatio;
-        }
-      }
-    } else if (handle === "bottom" && startObjectFit === "cover") {
-      // Vertical resize (only in cover mode)
-      // In cover mode, we enforce minimum height
-      const { minHeight: constraintMinHeight } = styles.imageResize.constraints;
-      const calculatedHeight = Math.max(
-        constraintMinHeight,
-        startHeight + deltaY,
-      );
-
-      // Cap height based on image aspect ratio to prevent over-resizing
-      if (block.url) {
-        const cachedImage = imageCache.get(block.url);
-        if (cachedImage && cachedImage.complete) {
-          const imgAspectRatio =
-            cachedImage.naturalWidth / cachedImage.naturalHeight;
-
-          // Calculate the current container width
-          const containerWidth =
-            typeof startWidth === "number" ? startWidth : viewport.width;
-
-          // For portrait images (tall), cap the height so it doesn't exceed the image's natural ratio
-          // This prevents excessive cropping when the image is resized too tall
-          const maxHeightForRatio = containerWidth / imgAspectRatio;
-
-          // Cap the height at the image's natural ratio relative to container width
-          newHeight = Math.min(calculatedHeight, maxHeightForRatio);
-
-          // Ensure we don't go below minimum height
-          newHeight = Math.max(newHeight, constraintMinHeight);
-        } else {
-          newHeight = calculatedHeight;
-        }
-      } else {
-        newHeight = calculatedHeight;
-      }
-    }
-
-    // Update the block with new dimensions
-    const updatedBlock: Block = {
-      ...block,
-      width: newWidth,
-      height: newHeight,
-      objectFit: newObjectFit,
-    };
-
-    // Invalidate the block height cache since dimensions changed
-    invalidateBlockCache(updatedBlock);
-
-    const newBlocks = [...state.document.page.blocks];
-    newBlocks[blockIndex] = updatedBlock;
-
-    return {
-      state: {
-        ...state,
-        document: {
-          ...state.document,
-          page: { ...state.document.page, blocks: newBlocks },
-        },
-      },
-      ops: [],
-    };
-  },
-);
-
-/**
- * Finish an image-resize drag: clear `ui.imageDrag` and emit a `block_set` op
- * for each dimension (width / height / objectFit) that actually changed since
- * the drag began.
- *
- * The `!== undefined` guards are load-bearing — a defensive resize-math edge
- * case could leave a dimension unset, and emitting `value: undefined`
- * serializes to a value-less `block_set` that `applyBlockSet`/`validateField`
- * reject on every peer, silently desyncing the local image. They are preserved
- * exactly (see `__fuzz__/image-resize-undefined.test.ts`).
- */
-export const END_IMAGE_DRAG = stateAction("end-image-drag", (state) => {
-  if (!state.ui.imageDrag) {
-    return { state, ops: [] };
-  }
-
-  const ops: Operation[] = [];
-  const { blockIndex, startWidth, startHeight, startObjectFit } =
-    state.ui.imageDrag;
-  const block = state.document.page.blocks[blockIndex];
-
-  if (block && block.type === "image") {
-    const blockId = block.id;
-
-    // Create operations only for fields that changed during the drag.
-    // Compare final values with original values from when drag started.
-    // Guard against `undefined`: a defensive resize math edge case could leave
-    // a dimension unset, and emitting `value: undefined` serializes to a
-    // value-less block_set that `applyBlockSet`/`validateField` reject on every
-    // peer — leaving the local editor's image silently desynced (it reflows to
-    // its default size, jumping the content below it). Never emit such an op.
-    if (block.width !== startWidth && block.width !== undefined) {
-      ops.push({
-        op: "block_set",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        blockId,
-        field: "width",
-        value: block.width,
-      });
-    }
-
-    if (block.height !== startHeight && block.height !== undefined) {
-      ops.push({
-        op: "block_set",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        blockId,
-        field: "height",
-        value: block.height,
-      });
-    }
-
-    if (block.objectFit !== startObjectFit && block.objectFit !== undefined) {
-      ops.push({
-        op: "block_set",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        blockId,
-        field: "objectFit",
-        value: block.objectFit,
-      });
-    }
-  }
-
-  return {
-    state: {
-      ...state,
-      ui: {
-        ...state.ui,
-        imageDrag: null,
-      },
-    },
-    ops,
-  };
-});
-
-/**
- * Cancel an image-resize drag (e.g. pointer cancel) without recording undo:
- * clear `ui.imageDrag` and emit no ops. The in-progress dimension changes
- * {@link UPDATE_IMAGE_DRAG} wrote stay on the block but were never committed as
- * ops, mirroring the previous behavior. No-op when no drag is active.
- */
-export const CANCEL_IMAGE_DRAG = stateAction("cancel-image-drag", (state) => {
-  if (!state.ui.imageDrag) {
-    return { state, ops: [] };
-  }
-
-  return {
-    state: {
-      ...state,
-      ui: {
-        ...state.ui,
-        imageDrag: null,
-      },
-    },
-    ops: [],
-  };
-});

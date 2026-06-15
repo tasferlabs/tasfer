@@ -31,12 +31,9 @@ import {
   deleteText,
   deleteWordBackward,
   deleteWordForward,
-  indentListItem,
   insertText,
-  outdentListItem,
   selectAll,
   splitBlock,
-  toggleBold,
 } from "./actions";
 
 // ─── Text input ──────────────────────────────────────────────────────────────
@@ -101,25 +98,9 @@ export const SPLIT_BLOCK = stateAction("split-block", (state) => {
   return { state: clearAutoCreatedParagraph(result.state), ops: result.ops };
 });
 
-/** Indent the current list item one level (Tab on a list block). */
-export const INDENT_LIST_ITEM = stateAction("indent-list-item", (state) => {
-  const result = indentListItem(state);
-  return { state: result.state, ops: result.ops };
-});
-
-/** Outdent the current list item one level (Shift+Tab on a list block). */
-export const OUTDENT_LIST_ITEM = stateAction("outdent-list-item", (state) => {
-  const result = outdentListItem(state);
-  return { state: result.state, ops: result.ops };
-});
-
-// ─── Formatting ──────────────────────────────────────────────────────────────
-
-/** Toggle the `strong` (bold) mark over the selection (Ctrl/Cmd+B). */
-export const TOGGLE_BOLD = stateAction("toggle-bold", (state) => {
-  const result = toggleBold(state);
-  return { state: result.state, ops: result.ops };
-});
+// The list indent/outdent actions (INDENT_LIST_ITEM / OUTDENT_LIST_ITEM) and the
+// mark toggles (TOGGLE_BOLD, …) are co-located with the node/mark they act on:
+// see `nodes/ListNode.ts` and `rendering/marks/*Mark.ts`.
 
 // ─── Selection ───────────────────────────────────────────────────────────────
 

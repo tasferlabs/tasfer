@@ -4,6 +4,7 @@ import {
   CURSOR_DRAG_ACTIVATION_DELAY,
   EDGE_SCROLL_THRESHOLD,
 } from "../constants";
+import { updateImageHandleDrag } from "../rendering/nodes";
 import { imageCache } from "../rendering/renderer";
 import {
   applyMomentum,
@@ -27,7 +28,7 @@ import {
   handleCompositionStart,
   handleCompositionUpdate,
 } from "./compositionEvents";
-import { isTouchDevice, updateImageDrag } from "./eventUtils";
+import { isTouchDevice } from "./eventUtils";
 import { handlePaste } from "./genericEvents";
 import { type InteractionSession, stopAutoScroll } from "./interaction-session";
 import { handleContextMenu, handleKeyDown } from "./keysEvents";
@@ -445,7 +446,7 @@ export function handleEvents(
             },
           },
         };
-        state = updateImageDrag(
+        state = updateImageHandleDrag(
           state,
           viewport,
           session.autoScroll.lastPointerX,
