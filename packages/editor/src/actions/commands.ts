@@ -1,7 +1,7 @@
 import { isCJKCharacter } from "../cjk";
 import { findInlineMathSpan } from "../inline-math";
 import { invalidateBlockCache } from "../rendering/renderer";
-import { isRTLChar } from "../rtl";
+import { isBlockRTL } from "../rtl";
 import { moveCursorToPosition } from "../selection";
 import {
   clearSelection,
@@ -162,27 +162,6 @@ function autoLinkAtCursor(
   );
 
   return { newPage, ops: [op] };
-}
-
-/**
- * Helper to determine if text is RTL based on charRuns
- */
-function isBlockRTL(charRuns: CharRun[]): boolean {
-  let totalRtl = 0;
-  let totalLtr = 0;
-
-  for (const { char } of iterateVisibleChars(charRuns)) {
-    if (isRTLChar(char)) {
-      totalRtl++;
-    } else if (/[a-zA-Z]/.test(char)) {
-      totalLtr++;
-    }
-  }
-
-  const totalDirectional = totalRtl + totalLtr;
-  if (totalDirectional === 0) return false;
-
-  return totalRtl / totalDirectional > 0.3;
 }
 
 /**
