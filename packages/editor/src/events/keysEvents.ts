@@ -20,6 +20,7 @@ import {
   splitBlock,
   toggleBold,
 } from "../actions/commands";
+import { MOVE_CURSOR_LEFT } from "../actions/state-commands";
 import { SLASH_CONFIRM, SLASH_NAVIGATE } from "../command-bus";
 import { getCrossedInlineMathSpan } from "../inline-math";
 import { invalidateBlockCache } from "../rendering/renderer";
@@ -29,11 +30,7 @@ import {
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
 } from "../selection";
-import {
-  moveCursorLeft,
-  moveCursorRight,
-  moveCursorToPosition,
-} from "../selection";
+import { moveCursorRight, moveCursorToPosition } from "../selection";
 import { updateFocus } from "../selection";
 import { updateCursor } from "../selection";
 import {
@@ -646,7 +643,15 @@ export function handleKeyDown(
         } else if (isCtrl) {
           newState = moveToPreviousWord(clearSelection(newState));
         } else {
-          newState = moveCursorLeft(clearSelection(newState));
+          // Dispatch the named state command so hosts/plugins can observe or
+          // override it; the bus threads {state, ops} forward (no ops here —
+          // a pure caret move).
+          const moved = newState.commandBus.dispatchState(
+            MOVE_CURSOR_LEFT,
+            newState,
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
         }
 
         // If we moved to a visual block (image/line), select it; otherwise leave just cursor

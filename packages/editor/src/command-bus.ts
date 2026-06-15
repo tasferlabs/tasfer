@@ -23,7 +23,7 @@
  */
 
 import type { ChangeApi } from "./entries/editor";
-import type { SlashCommand } from "./state-types";
+import type { EditorState, Operation, SlashCommand } from "./state-types";
 
 /**
  * A typed command identifier. Carries no state (the `_p` field is phantom —
@@ -88,6 +88,65 @@ export function isMutationCommand<P>(c: Command<P>): c is MutationCommand<P> {
 }
 
 /**
+ * The `{ state, ops }` pair every editor action produces — the lower-level
+ * currency a {@link StateCommand} trades in. `ops` is the CRDT operations the
+ * transform emitted (empty for a pure cursor/selection move).
+ */
+export interface StateResult {
+  state: EditorState;
+  ops: Operation[];
+}
+
+/**
+ * A state command's default behavior: a pure transform over the whole
+ * {@link EditorState}. This is the *low-level* command shape — the same
+ * `(state) => { state, ops }` currency the event pipeline already speaks, so it
+ * can express things a {@link MutationCommand}'s {@link ChangeApi} can't, like a
+ * cursor/selection move that emits no ops. A {@link MutationCommand} is sugar
+ * layered above this for the document-mutation case.
+ */
+export type StateMutator<P = void> = (state: EditorState, payload: P) => StateResult;
+
+/**
+ * A state command's observer/override handler. Receives the current working
+ * state (already threaded through higher-priority handlers) plus the payload.
+ * Return a {@link StateResult} to contribute changes; add `handled: true` to
+ * claim the command and skip the default transform; return `void` to observe
+ * without changing anything (and pass through to lower-priority handlers).
+ */
+export type StateHandler<P = void> = (
+  state: EditorState,
+  payload: P,
+) => (StateResult & { handled?: boolean }) | void;
+
+/**
+ * A command whose default behavior is a pure {@link StateMutator}. Dispatched
+ * through {@link CommandBus.dispatchState} — the event pipeline threads its
+ * `{ state, ops }` forward and commits it, rather than the live editor's
+ * `change()`. Still a `Command<P>`, so it shares the same handler registry.
+ */
+export interface StateCommand<P = void> extends Command<P> {
+  readonly transform: StateMutator<P>;
+}
+
+/**
+ * Declare a state command (see {@link StateCommand}). `name` is for debugging
+ * only — identity is by reference. The `transform` must be pure with respect to
+ * editor instances (it only reads/derives from the `state` it's handed).
+ */
+export function stateCommand<P = void>(
+  name: string,
+  transform: StateMutator<P>,
+): StateCommand<P> {
+  return { name, transform };
+}
+
+/** Narrow a command to a state command (dispatch picks the pure-transform path). */
+export function isStateCommand<P>(c: Command<P>): c is StateCommand<P> {
+  return typeof (c as Partial<StateCommand<P>>).transform === "function";
+}
+
+/**
  * A command handler. Return `true` to mark the command handled and stop
  * propagation (the editor's lower-priority default is skipped); return
  * `false`/`void` to observe and pass through to lower-priority handlers.
@@ -119,6 +178,18 @@ export interface CommandBus {
    * returns `true`. Returns whether any handler claimed it.
    */
   dispatch<P>(command: Command<P>, ...args: DispatchArgs<P>): boolean;
+  /**
+   * Run a {@link StateCommand}: thread `state` through its observers (high→low
+   * priority) and, unless one claims it (`handled: true`), its default
+   * transform — accumulating every emitted op — and return the resulting
+   * `{ state, ops }`. This is the pure-functional sibling of {@link dispatch}:
+   * the event pipeline calls it with the working state and commits the result.
+   */
+  dispatchState<P>(
+    command: StateCommand<P>,
+    state: EditorState,
+    ...args: DispatchArgs<P>
+  ): StateResult;
   /**
    * Registered handlers for `command`, high→low priority. For drivers that
    * invoke handlers with a non-standard signature — mutation commands thread a
@@ -165,6 +236,32 @@ export function createCommandBus(): CommandBus {
         if (handler(payload) === true) return true;
       }
       return false;
+    },
+    dispatchState(command, state, ...args) {
+      const payload = (args as unknown[])[0];
+      let working: StateResult = { state, ops: [] };
+      let claimed = false;
+      // Walk a copy so a handler that (un)registers mid-dispatch can't shift the
+      // array out from under the loop (same guard as `dispatch`).
+      const list = handlers.get(command as Command<unknown>) ?? [];
+      for (const { handler } of list.slice()) {
+        const r = (handler as unknown as StateHandler<unknown>)(
+          working.state,
+          payload,
+        );
+        if (r) {
+          working = { state: r.state, ops: working.ops.concat(r.ops) };
+          if (r.handled) {
+            claimed = true;
+            break;
+          }
+        }
+      }
+      if (!claimed) {
+        const r = command.transform(working.state, payload as never);
+        working = { state: r.state, ops: working.ops.concat(r.ops) };
+      }
+      return working;
     },
     handlersFor(command) {
       const list = handlers.get(command as Command<unknown>) ?? [];

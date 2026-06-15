@@ -125,6 +125,10 @@ export type { BlockSpecCore, DataSchema, MarkSpec } from "./sync/schema";
 // further: its default is a document mutation, so `editor.dispatch` runs the
 // default plus every observer inside ONE undoable transaction, and observers
 // (registered via the same `registerCommand`) are handed the `ChangeApi`.
+// A `StateCommand` (declared with `stateCommand(name, transform)`) is the
+// lower-level shape: its default is a pure `(state) => { state, ops }`
+// transform, dispatched via `commandBus.dispatchState` from inside the event
+// pipeline — the form that can express cursor/selection moves emitting no ops.
 export type {
   Command,
   CommandBus,
@@ -132,6 +136,10 @@ export type {
   MutationCommand,
   MutationHandler,
   Mutator,
+  StateCommand,
+  StateHandler,
+  StateMutator,
+  StateResult,
 } from "./command-bus";
 export {
   command,
@@ -139,11 +147,16 @@ export {
   CURSOR_DRAG_END,
   CURSOR_DRAG_START,
   isMutationCommand,
+  isStateCommand,
   OPEN_LINK,
   REGION_DRAG_START,
   SLASH_CONFIRM,
   SLASH_NAVIGATE,
+  stateCommand,
 } from "./command-bus";
+// Editor state commands — named imperative actions migrated out of the event
+// handlers (see `actions/state-commands.ts`), grown one at a time.
+export { MOVE_CURSOR_LEFT } from "./actions/state-commands";
 
 // Core document model + CRDT operation types. The stored-mark CRDT record is
 // exported as `StoredMark` so the top-level `Mark` can be the rendering base
