@@ -154,9 +154,32 @@ export {
   SLASH_NAVIGATE,
   stateCommand,
 } from "./command-bus";
-// Editor state commands — named imperative actions migrated out of the event
-// handlers (see `actions/state-commands.ts`), grown one at a time.
-export { MOVE_CURSOR_LEFT } from "./actions/state-commands";
+// Editor keyboard commands — named cursor-movement / selection-extension
+// actions migrated out of the event handlers (see `actions/keyboard-commands.ts`).
+export {
+  EXTEND_SELECTION_DOWN,
+  EXTEND_SELECTION_END,
+  EXTEND_SELECTION_HOME,
+  EXTEND_SELECTION_LEFT,
+  EXTEND_SELECTION_PAGE_DOWN,
+  EXTEND_SELECTION_PAGE_UP,
+  EXTEND_SELECTION_RIGHT,
+  EXTEND_SELECTION_UP,
+  EXTEND_SELECTION_WORD_LEFT,
+  EXTEND_SELECTION_WORD_RIGHT,
+  MOVE_CURSOR_DOWN,
+  MOVE_CURSOR_LEFT,
+  MOVE_CURSOR_PAGE_DOWN,
+  MOVE_CURSOR_PAGE_UP,
+  MOVE_CURSOR_RIGHT,
+  MOVE_CURSOR_UP,
+  MOVE_TO_DOCUMENT_END,
+  MOVE_TO_DOCUMENT_START,
+  MOVE_TO_LINE_END,
+  MOVE_TO_LINE_START,
+  MOVE_TO_NEXT_WORD,
+  MOVE_TO_PREVIOUS_WORD,
+} from "./actions/keyboard-commands";
 
 // Core document model + CRDT operation types. The stored-mark CRDT record is
 // exported as `StoredMark` so the top-level `Mark` can be the rendering base

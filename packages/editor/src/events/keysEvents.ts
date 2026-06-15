@@ -4,23 +4,38 @@ import {
   deleteText,
   deleteWordBackward,
   deleteWordForward,
-  extendSelectionEnd,
-  extendSelectionHome,
-  extendSelectionWordLeft,
-  extendSelectionWordRight,
   getSelectionRange,
   indentListItem,
   insertText,
-  moveToLineEnd,
-  moveToLineStart,
-  moveToNextWord,
-  moveToPreviousWord,
   outdentListItem,
   selectAll,
   splitBlock,
   toggleBold,
 } from "../actions/commands";
-import { MOVE_CURSOR_LEFT } from "../actions/state-commands";
+import {
+  EXTEND_SELECTION_DOWN,
+  EXTEND_SELECTION_END,
+  EXTEND_SELECTION_HOME,
+  EXTEND_SELECTION_LEFT,
+  EXTEND_SELECTION_PAGE_DOWN,
+  EXTEND_SELECTION_PAGE_UP,
+  EXTEND_SELECTION_RIGHT,
+  EXTEND_SELECTION_UP,
+  EXTEND_SELECTION_WORD_LEFT,
+  EXTEND_SELECTION_WORD_RIGHT,
+  MOVE_CURSOR_DOWN,
+  MOVE_CURSOR_LEFT,
+  MOVE_CURSOR_PAGE_DOWN,
+  MOVE_CURSOR_PAGE_UP,
+  MOVE_CURSOR_RIGHT,
+  MOVE_CURSOR_UP,
+  MOVE_TO_DOCUMENT_END,
+  MOVE_TO_DOCUMENT_START,
+  MOVE_TO_LINE_END,
+  MOVE_TO_LINE_START,
+  MOVE_TO_NEXT_WORD,
+  MOVE_TO_PREVIOUS_WORD,
+} from "../actions/keyboard-commands";
 import { SLASH_CONFIRM, SLASH_NAVIGATE } from "../command-bus";
 import { getCrossedInlineMathSpan } from "../inline-math";
 import { invalidateBlockCache } from "../rendering/renderer";
@@ -30,22 +45,10 @@ import {
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
 } from "../selection";
-import { moveCursorRight, moveCursorToPosition } from "../selection";
+import { moveCursorToPosition } from "../selection";
 import { updateFocus } from "../selection";
 import { updateCursor } from "../selection";
-import {
-  clearSelection,
-  extendSelectionDown,
-  extendSelectionLeft,
-  extendSelectionPageDown,
-  extendSelectionPageUp,
-  extendSelectionRight,
-  extendSelectionUp,
-  moveCursorDown,
-  moveCursorPageDown,
-  moveCursorPageUp,
-  moveCursorUp,
-} from "../selection";
+import { clearSelection } from "../selection";
 import { type Block } from "../serlization/loadPage";
 import { isListBlock } from "../serlization/loadPage";
 import type {
@@ -59,7 +62,6 @@ import {
   clearAutoCreatedParagraph,
   closeSlashCommand,
   getBlockTextContent,
-  getBlockTextLength,
   openContextMenu,
   openSlashCommand,
   setActiveMenu,
@@ -479,9 +481,19 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (isCtrl && keyEvent.shiftKey) {
-        newState = extendSelectionWordLeft(newState);
+        const moved = newState.commandBus.dispatchState(
+          EXTEND_SELECTION_WORD_LEFT,
+          newState,
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else if (keyEvent.shiftKey) {
-        newState = extendSelectionLeft(newState);
+        const moved = newState.commandBus.dispatchState(
+          EXTEND_SELECTION_LEFT,
+          newState,
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
         // Check if we're on an image at the start of the page
         if (state.document.cursor) {
@@ -641,7 +653,12 @@ export function handleKeyDown(
             );
           }
         } else if (isCtrl) {
-          newState = moveToPreviousWord(clearSelection(newState));
+          const moved = newState.commandBus.dispatchState(
+            MOVE_TO_PREVIOUS_WORD,
+            newState,
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
         } else {
           // Dispatch the named state command so hosts/plugins can observe or
           // override it; the bus threads {state, ops} forward (no ops here —
@@ -699,9 +716,19 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (isCtrl && keyEvent.shiftKey) {
-        newState = extendSelectionWordRight(state);
+        const moved = newState.commandBus.dispatchState(
+          EXTEND_SELECTION_WORD_RIGHT,
+          state,
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else if (keyEvent.shiftKey) {
-        newState = extendSelectionRight(newState);
+        const moved = newState.commandBus.dispatchState(
+          EXTEND_SELECTION_RIGHT,
+          newState,
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
         // Check if we're on a visual block (image/line) at the end of the page
         if (state.document.cursor) {
@@ -863,9 +890,19 @@ export function handleKeyDown(
             );
           }
         } else if (isCtrl) {
-          newState = moveToNextWord(clearSelection(newState));
+          const moved = newState.commandBus.dispatchState(
+            MOVE_TO_NEXT_WORD,
+            newState,
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
         } else {
-          newState = moveCursorRight(clearSelection(newState));
+          const moved = newState.commandBus.dispatchState(
+            MOVE_CURSOR_RIGHT,
+            newState,
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
         }
 
         // If we moved to a visual block (image/line), select it; otherwise leave just cursor
@@ -913,7 +950,13 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        newState = extendSelectionUp(newState, viewport);
+        const moved = newState.commandBus.dispatchState(
+          EXTEND_SELECTION_UP,
+          newState,
+          { viewport },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
         // Check if we're on a visual block (image/line) at the start of the page
         if (state.document.cursor) {
@@ -969,7 +1012,15 @@ export function handleKeyDown(
         }
 
         // Clear selection and move cursor
-        newState = moveCursorUp(clearSelection(newState), viewport);
+        {
+          const moved = newState.commandBus.dispatchState(
+            MOVE_CURSOR_UP,
+            newState,
+            { viewport },
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
+        }
 
         // If we moved to a visual block (image/line), select it; otherwise leave just cursor
         if (newState.document.cursor) {
@@ -1014,7 +1065,13 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        newState = extendSelectionDown(newState, viewport);
+        const moved = newState.commandBus.dispatchState(
+          EXTEND_SELECTION_DOWN,
+          newState,
+          { viewport },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
         // Check if we should remove an auto-created paragraph
         if (state.ui.autoCreatedParagraph && state.document.cursor) {
@@ -1141,7 +1198,15 @@ export function handleKeyDown(
         }
 
         // Clear selection and move cursor
-        newState = moveCursorDown(clearSelection(newState), viewport);
+        {
+          const moved = newState.commandBus.dispatchState(
+            MOVE_CURSOR_DOWN,
+            newState,
+            { viewport },
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
+        }
 
         // If we moved to a visual block (image/line), select it; otherwise leave just cursor
         if (newState.document.cursor) {
@@ -1186,7 +1251,13 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        newState = extendSelectionPageUp(newState, viewport);
+        const moved = newState.commandBus.dispatchState(
+          EXTEND_SELECTION_PAGE_UP,
+          newState,
+          { viewport },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
         // Check if we're on a visual block (image/line) at the start of the page
         if (state.document.cursor) {
@@ -1240,7 +1311,15 @@ export function handleKeyDown(
           }
         }
 
-        newState = moveCursorPageUp(clearSelection(state), viewport);
+        {
+          const moved = newState.commandBus.dispatchState(
+            MOVE_CURSOR_PAGE_UP,
+            state,
+            { viewport },
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
+        }
 
         // If we moved to a visual block (image/line), select it; otherwise leave just cursor
         if (newState.document.cursor) {
@@ -1285,7 +1364,13 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        newState = extendSelectionPageDown(newState, viewport);
+        const moved = newState.commandBus.dispatchState(
+          EXTEND_SELECTION_PAGE_DOWN,
+          newState,
+          { viewport },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
         // Check if we should remove an auto-created paragraph
         if (state.ui.autoCreatedParagraph && state.document.cursor) {
@@ -1408,7 +1493,15 @@ export function handleKeyDown(
           }
         }
 
-        newState = moveCursorPageDown(clearSelection(state), viewport);
+        {
+          const moved = newState.commandBus.dispatchState(
+            MOVE_CURSOR_PAGE_DOWN,
+            state,
+            { viewport },
+          );
+          newState = moved.state;
+          ops.push(...moved.ops);
+        }
 
         // If we moved to a visual block (image/line), select it; otherwise leave just cursor
         if (newState.document.cursor) {
@@ -1453,13 +1546,20 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        newState = extendSelectionHome(newState, isCtrl);
+        const moved = newState.commandBus.dispatchState(
+          EXTEND_SELECTION_HOME,
+          newState,
+          { isCtrl },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
-        if (isCtrl) {
-          newState = moveCursorToPosition(clearSelection(state), 0, 0);
-        } else {
-          newState = moveToLineStart(clearSelection(state));
-        }
+        const moved = newState.commandBus.dispatchState(
+          isCtrl ? MOVE_TO_DOCUMENT_START : MOVE_TO_LINE_START,
+          state,
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       }
       break;
     case "End":
@@ -1467,32 +1567,20 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        newState = extendSelectionEnd(newState, isCtrl);
+        const moved = newState.commandBus.dispatchState(
+          EXTEND_SELECTION_END,
+          newState,
+          { isCtrl },
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       } else {
-        if (isCtrl) {
-          // Get last visible block and find its index in the full array
-          const visibleBlocks = state.view.visibleBlocks;
-          if (visibleBlocks.length === 0) {
-            newState = clearSelection(state);
-          } else {
-            const lastVisibleBlock = visibleBlocks[visibleBlocks.length - 1];
-            const allBlocks = state.document.page.blocks;
-            const lastVisibleBlockIndex = allBlocks.findIndex(
-              (b) => b.id === lastVisibleBlock.id,
-            );
-            if (lastVisibleBlockIndex !== -1) {
-              newState = moveCursorToPosition(
-                clearSelection(state),
-                lastVisibleBlockIndex,
-                getBlockTextLength(lastVisibleBlock),
-              );
-            } else {
-              newState = clearSelection(state);
-            }
-          }
-        } else {
-          newState = moveToLineEnd(clearSelection(state));
-        }
+        const moved = newState.commandBus.dispatchState(
+          isCtrl ? MOVE_TO_DOCUMENT_END : MOVE_TO_LINE_END,
+          state,
+        );
+        newState = moved.state;
+        ops.push(...moved.ops);
       }
       break;
     case "Escape":
