@@ -1,5 +1,13 @@
 {
   "docs.tag": "التوثيق",
+  "internals.kicker": "الأعماق",
+  "internals.author": "Cypher",
+  "internals.backToDocs": "← التوثيق",
+  "internals.backToArchive": "← الملاحظات الداخلية",
+  "internals.notFound": "هذه الملاحظة غير موجودة.",
+  "internals.archive.kicker": "الأعماق · سجل البناء",
+  "internals.archive.title": "الملاحظات الداخلية",
+  "internals.archive.lede": "كيف بُني Cypher — ملاحظات التصميم وقرارات المعمارية والخطط وراء المحرر، كُتبت أثناء سير العمل.",
   "docs.nav.landing": "الصفحة الرئيسية",
   "docs.nav.openApp": "افتح التطبيق",
   "docs.nav.appDocs": "وثائق التطبيق",

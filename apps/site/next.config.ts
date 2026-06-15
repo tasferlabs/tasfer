@@ -1,5 +1,8 @@
 import type { NextConfig } from "next";
 import createMDX from "@next/mdx";
+import remarkGfm from "remark-gfm";
+import remarkFrontmatter from "remark-frontmatter";
+import remarkMdxFrontmatter from "remark-mdx-frontmatter";
 
 /**
  * Cypher site (marketing home + docs + privacy).
@@ -49,8 +52,13 @@ function remarkCodeMeta() {
 // components; routes themselves stay .tsx, so pageExtensions is untouched.
 // Code samples are fenced blocks (markdown keeps their indentation intact —
 // JSX attribute expressions don't) rendered through the mdx-components map.
+// remarkFrontmatter parses the leading `---` YAML; remarkMdxFrontmatter then
+// re-exports it as a named `frontmatter` export each .mdx module exposes
+// (consumed by internalsNav.tsx). Order matters: parse before re-export.
 const withMDX = createMDX({
-  options: { remarkPlugins: [remarkCodeMeta] },
+  options: {
+    remarkPlugins: [remarkGfm, remarkFrontmatter, remarkMdxFrontmatter, remarkCodeMeta],
+  },
 });
 
 export default withMDX(nextConfig);

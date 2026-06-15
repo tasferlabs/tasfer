@@ -1,0 +1,20 @@
+---
+title: "CRDT Operation Compaction"
+date: "2026-01-28"
+summary: "Does the in-memory op-log really grow unbounded during long editing sessions? Working through the numbers on why, with how small CRDT ops are, it rarely becomes a problem in practice."
+source: "docs/crdt-compaction.md"
+---
+
+## Overview
+
+The CRDT sync engine stores operations to enable real-time collaboration between peers. The operation log would seem to grow unbounded during long editing sessions, causing memory to increase. But while it might grow infinitely, CRDT growth also depends on the rate. With the rate of a well-implemented CRDT, text operation growth would never be a problem.
+
+But this is not an issue, since the operations are so small. Based on the calculation I made:
+
+| Lifetime edits (ops) | Behavior                                                                                                                                                                                 |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ~10k-100k            | Fine. Snapshot fast-path hides it; cold replay is sub-second.                                                                                                                            |
+| ~100k-1M             | Cold loads (new device, post-sync, snapshot miss) get noticeably sluggish — you're replaying the whole log. Memory holds every op.                                                       |
+| >1M                  | Cold-load latency and memory become a real problem. This is reachable for a long-lived daily-driver doc or anything with heavy multi-peer interleaving (run fragmentation compounds it). |
+
+But it is really hard to reach a couple of hundred thousand operations.
