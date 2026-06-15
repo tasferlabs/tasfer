@@ -12,7 +12,7 @@
  *     subscriptions that re-render on edits (great for toolbars / live preview).
  *
  * Editor options are read once at mount; reconfigure at runtime through the
- * imperative `CypherEditor` handle (`setTheme`, `setMarkdown`, `commands`, …).
+ * imperative `CypherEditor` handle (`setTheme`, `setMarkdown`, `change`, …).
  *
  * @example
  * import { Editor, useEditorState } from "@cypherkit/react";
