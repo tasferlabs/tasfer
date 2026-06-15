@@ -1,3 +1,4 @@
+import { CURSOR_DRAG_BOUNDARY, CURSOR_DRAG_END } from "../action-bus";
 import {
   CLOSE_NODE_OVERLAY,
   CREATE_PARAGRAPH_BELOW_IMAGE,
@@ -14,8 +15,7 @@ import {
   TAP_SELECT_VISUAL_BLOCK,
   TAP_SIDE_PADDING,
   TAP_TOP_PADDING,
-} from "../actions/touch-commands";
-import { CURSOR_DRAG_BOUNDARY, CURSOR_DRAG_END } from "../command-bus";
+} from "../actions/touch-actions";
 import {
   CURSOR_TOUCH_RADIUS,
   DOUBLE_CLICK_TIME,
@@ -482,7 +482,7 @@ export function handleTouchMove(
           (prevPosition.blockIndex !== newPosition.blockIndex ||
             prevPosition.textIndex !== newPosition.textIndex)
         ) {
-          state.commandBus.dispatch(CURSOR_DRAG_BOUNDARY);
+          state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
         }
 
         state = updateCursor(state, newPosition);
@@ -759,7 +759,7 @@ export function handleTouchEnd(
     const didNotMove = !session.touch.hasMoved;
     const touchX = session.touch.currentTouchX;
     const touchY = session.touch.currentTouchY;
-    state.commandBus.dispatch(CURSOR_DRAG_END);
+    state.actionBus.dispatch(CURSOR_DRAG_END);
     session.touch = null;
 
     let newState: EditorState = {
@@ -780,7 +780,7 @@ export function handleTouchEnd(
     // If the user held on the cursor without moving, open context menu
     // This matches standard mobile behavior (long-press on cursor = paste menu)
     if (didNotMove) {
-      newState = newState.commandBus.dispatchState(
+      newState = newState.actionBus.dispatchState(
         OPEN_CONTEXT_MENU_AT,
         newState,
         { point: { x: touchX, y: touchY } },
@@ -860,7 +860,7 @@ export function handleTouchEnd(
       };
     } else if (state.ui.mode === "select") {
       // Long press created a new selection (user dragged) - exit select mode
-      state = state.commandBus.dispatchState(FINISH_SELECT_MODE, state).state;
+      state = state.actionBus.dispatchState(FINISH_SELECT_MODE, state).state;
       session.touch = null;
 
       return {
@@ -878,7 +878,7 @@ export function handleTouchEnd(
       };
     } else {
       // Long press on non-selected text but user didn't drag - show context menu now
-      state = state.commandBus.dispatchState(OPEN_CONTEXT_MENU_AT, state, {
+      state = state.actionBus.dispatchState(OPEN_CONTEXT_MENU_AT, state, {
         point: {
           x: session.touch.currentTouchX,
           y: session.touch.currentTouchY,
@@ -925,7 +925,7 @@ export function handleTouchEnd(
 
     // If tapping in top padding, clear selection
     if (isTapInTopPadding) {
-      state = state.commandBus.dispatchState(TAP_TOP_PADDING, state).state;
+      state = state.actionBus.dispatchState(TAP_TOP_PADDING, state).state;
 
       session.touch = null;
       return {
@@ -960,7 +960,7 @@ export function handleTouchEnd(
       );
 
       if (paddingPosition) {
-        state = state.commandBus.dispatchState(TAP_SIDE_PADDING, state, {
+        state = state.actionBus.dispatchState(TAP_SIDE_PADDING, state, {
           position: paddingPosition,
         }).state;
 
@@ -1053,7 +1053,7 @@ export function handleTouchEnd(
           lastBlock.type === "image" &&
           state.ui.mode !== "readonly"
         ) {
-          const created = state.commandBus.dispatchState(
+          const created = state.actionBus.dispatchState(
             CREATE_PARAGRAPH_BELOW_IMAGE,
             state,
             {
@@ -1114,7 +1114,7 @@ export function handleTouchEnd(
             ) {
               // Close the popover and keep it closed
               session.touch = null;
-              const closedState = state.commandBus.dispatchState(
+              const closedState = state.actionBus.dispatchState(
                 CLOSE_NODE_OVERLAY,
                 state,
               ).state;
@@ -1135,7 +1135,7 @@ export function handleTouchEnd(
 
             // Open the host overlay
             session.touch = null;
-            const menuState = state.commandBus.dispatchState(
+            const menuState = state.actionBus.dispatchState(
               OPEN_NODE_OVERLAY,
               state,
               {
@@ -1161,7 +1161,7 @@ export function handleTouchEnd(
           }
 
           // If it has an image, select the image block (same behavior as desktop)
-          state = state.commandBus.dispatchState(
+          state = state.actionBus.dispatchState(
             TAP_SELECT_VISUAL_BLOCK,
             state,
             {
@@ -1198,7 +1198,7 @@ export function handleTouchEnd(
           if (isLastBlock && state.ui.mode !== "readonly") {
             const currentBlock =
               state.document.page.blocks[position.blockIndex];
-            const created = state.commandBus.dispatchState(
+            const created = state.actionBus.dispatchState(
               CREATE_PARAGRAPH_BELOW_IMAGE,
               state,
               {
@@ -1241,7 +1241,7 @@ export function handleTouchEnd(
         );
         if (lineBlockResult) {
           // Select the line block (same behavior as image blocks)
-          state = state.commandBus.dispatchState(
+          state = state.actionBus.dispatchState(
             TAP_SELECT_VISUAL_BLOCK,
             state,
             {
@@ -1286,7 +1286,7 @@ export function handleTouchEnd(
           if (!selectedBlock || selectedBlock.deleted) return { state, ops };
           if (isVisualBlockSelection(selectedBlock)) {
             // We have a visual block selected, but tapped outside it - clear the selection
-            state = state.commandBus.dispatchState(
+            state = state.actionBus.dispatchState(
               TAP_CLEAR_VISUAL_BLOCK_SELECTION,
               state,
             ).state;
@@ -1301,7 +1301,7 @@ export function handleTouchEnd(
 
       // Handle triple-tap: always select line (even inside selection)
       if (isMultiTap && session.tapTracker.count >= 3) {
-        state = state.commandBus.dispatchState(SELECT_LINE, state, {
+        state = state.actionBus.dispatchState(SELECT_LINE, state, {
           position,
         }).state;
       }
@@ -1317,7 +1317,7 @@ export function handleTouchEnd(
         )
       ) {
         // Keep selection but update cursor position; open context menu at tap
-        state = state.commandBus.dispatchState(TAP_ON_SELECTION, state, {
+        state = state.actionBus.dispatchState(TAP_ON_SELECTION, state, {
           position,
           point: { x: tapPosition.x, y: tapPosition.y },
         }).state;
@@ -1325,20 +1325,20 @@ export function handleTouchEnd(
 
       // Handle double-tap: select word
       else if (isMultiTap && session.tapTracker.count === 2) {
-        state = state.commandBus.dispatchState(SELECT_WORD, state, {
+        state = state.actionBus.dispatchState(SELECT_WORD, state, {
           position,
         }).state;
       }
 
       // Single tap outside selection: position cursor and close context menu
       else {
-        state = state.commandBus.dispatchState(TAP_PLACE_CURSOR, state, {
+        state = state.actionBus.dispatchState(TAP_PLACE_CURSOR, state, {
           position,
         }).state;
       }
     } else {
       // Tapping outside editor area (padding/margins) - clear selection and close menus
-      state = state.commandBus.dispatchState(TAP_OUTSIDE_CONTENT, state).state;
+      state = state.actionBus.dispatchState(TAP_OUTSIDE_CONTENT, state).state;
     }
 
     session.touch = null;

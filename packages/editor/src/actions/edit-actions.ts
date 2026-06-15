@@ -1,14 +1,14 @@
 /**
- * Editor **edit commands** — the content-mutating and selection-clearing
+ * Editor **edit actions** — the content-mutating and selection-clearing
  * actions the key handlers used to inline, lifted into named, dispatchable
- * {@link StateCommand}s. Sibling to `keyboard-commands.ts` (which holds the
+ * {@link StateAction}s. Sibling to `keyboard-actions.ts` (which holds the
  * cursor/selection moves); this file holds the ones that emit CRDT ops
  * (insert/delete/split/format/indent) plus the op-free Escape clear.
  *
- * A state command is the low-level command shape: its default behavior is a
- * pure `(state) => { state, ops }` transform (see `command-bus.ts`), which is
- * exactly the currency the event pipeline already trades in. Each command here
- * wraps the matching pure action in `commands.ts` so hosts/plugins can observe
+ * A state action is the low-level action shape: its default behavior is a
+ * pure `(state) => { state, ops }` transform (see `action-bus.ts`), which is
+ * exactly the currency the event pipeline already trades in. Each action here
+ * wraps the matching pure action in `actions.ts` so hosts/plugins can observe
  * or override the edit, and the engine's logic lives in one named place instead
  * of being scattered across the switch statements in `keysEvents.ts`.
  *
@@ -19,7 +19,7 @@
  * one implementation without changing behavior.
  */
 
-import { stateCommand } from "../command-bus";
+import { stateAction } from "../action-bus";
 import { getTextDirection } from "../rtl";
 import { clearSelection, moveCursorToPosition } from "../selection";
 import type { Block } from "../serlization/loadPage";
@@ -37,7 +37,7 @@ import {
   selectAll,
   splitBlock,
   toggleBold,
-} from "./commands";
+} from "./actions";
 
 // ─── Text input ──────────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ import {
  * used by the Space branch (payload `" "`) and the default single-character
  * branch (payload the typed key). Emits the resulting CRDT text/format ops.
  */
-export const INSERT_TEXT = stateCommand<{ text: string }>(
+export const INSERT_TEXT = stateAction<{ text: string }>(
   "insert-text",
   (state, { text }) => {
     const result = insertText(state, text);
@@ -61,13 +61,13 @@ export const INSERT_TEXT = stateCommand<{ text: string }>(
 // at.
 
 /** Delete backward one position / the selection (Backspace). */
-export const DELETE_BACKWARD = stateCommand("delete-backward", (state) => {
+export const DELETE_BACKWARD = stateAction("delete-backward", (state) => {
   const result = deleteText(state);
   return { state: clearAutoCreatedParagraph(result.state), ops: result.ops };
 });
 
 /** Delete backward to the previous word boundary (Ctrl/Cmd+Backspace). */
-export const DELETE_WORD_BACKWARD = stateCommand(
+export const DELETE_WORD_BACKWARD = stateAction(
   "delete-word-backward",
   (state) => {
     const result = deleteWordBackward(state);
@@ -76,13 +76,13 @@ export const DELETE_WORD_BACKWARD = stateCommand(
 );
 
 /** Delete forward one position / the selection (Delete). */
-export const DELETE_FORWARD = stateCommand("delete-forward", (state) => {
+export const DELETE_FORWARD = stateAction("delete-forward", (state) => {
   const result = deleteForward(state);
   return { state: clearAutoCreatedParagraph(result.state), ops: result.ops };
 });
 
 /** Delete forward to the next word boundary (Ctrl/Cmd+Delete). */
-export const DELETE_WORD_FORWARD = stateCommand(
+export const DELETE_WORD_FORWARD = stateAction(
   "delete-word-forward",
   (state) => {
     const result = deleteWordForward(state);
@@ -96,19 +96,19 @@ export const DELETE_WORD_FORWARD = stateCommand(
  * Split the current block at the caret (Enter), then clear the auto-created
  * paragraph tracking just as the inline handler did.
  */
-export const SPLIT_BLOCK = stateCommand("split-block", (state) => {
+export const SPLIT_BLOCK = stateAction("split-block", (state) => {
   const result = splitBlock(state);
   return { state: clearAutoCreatedParagraph(result.state), ops: result.ops };
 });
 
 /** Indent the current list item one level (Tab on a list block). */
-export const INDENT_LIST_ITEM = stateCommand("indent-list-item", (state) => {
+export const INDENT_LIST_ITEM = stateAction("indent-list-item", (state) => {
   const result = indentListItem(state);
   return { state: result.state, ops: result.ops };
 });
 
 /** Outdent the current list item one level (Shift+Tab on a list block). */
-export const OUTDENT_LIST_ITEM = stateCommand("outdent-list-item", (state) => {
+export const OUTDENT_LIST_ITEM = stateAction("outdent-list-item", (state) => {
   const result = outdentListItem(state);
   return { state: result.state, ops: result.ops };
 });
@@ -116,7 +116,7 @@ export const OUTDENT_LIST_ITEM = stateCommand("outdent-list-item", (state) => {
 // ─── Formatting ──────────────────────────────────────────────────────────────
 
 /** Toggle the `strong` (bold) mark over the selection (Ctrl/Cmd+B). */
-export const TOGGLE_BOLD = stateCommand("toggle-bold", (state) => {
+export const TOGGLE_BOLD = stateAction("toggle-bold", (state) => {
   const result = toggleBold(state);
   return { state: result.state, ops: result.ops };
 });
@@ -124,13 +124,13 @@ export const TOGGLE_BOLD = stateCommand("toggle-bold", (state) => {
 // ─── Selection ───────────────────────────────────────────────────────────────
 
 /** Select the whole document (Ctrl/Cmd+A). Pure selection change, no ops. */
-export const SELECT_ALL = stateCommand("select-all", (state) => ({
+export const SELECT_ALL = stateAction("select-all", (state) => ({
   state: selectAll(state),
   ops: [],
 }));
 
 /** Collapse any active selection to the caret (Escape). Pure, no ops. */
-export const CLEAR_SELECTION = stateCommand("clear-selection", (state) => ({
+export const CLEAR_SELECTION = stateAction("clear-selection", (state) => ({
   state: clearSelection(state),
   ops: [],
 }));

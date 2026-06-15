@@ -20,13 +20,13 @@ import {
   SLASH_CONFIRM,
   SLASH_NAVIGATE,
 } from "@cypherkit/editor";
-import type { SlashCommand } from "@cypherkit/editor";
+import type { SlashAction } from "@cypherkit/editor";
 
-interface SlashCommandWithMeta extends SlashCommand {
+interface SlashActionWithMeta extends SlashAction {
   category: "basic" | "media" | "lists";
 }
 
-function useSlashCommands(): SlashCommandWithMeta[] {
+function useSlashActions(): SlashActionWithMeta[] {
   const { t } = useTranslation();
   return useMemo(
     () => [
@@ -138,10 +138,10 @@ function useCategoryLabels(): Record<string, string> {
 }
 
 /**
- * Non-React getter for slash commands with current translations.
+ * Non-React getter for slash actions with current translations.
  * Used by keysEvents.ts and other non-component code.
  */
-export function getSlashCommands(): SlashCommandWithMeta[] {
+export function getSlashActions(): SlashActionWithMeta[] {
   const t = i18next.t.bind(i18next);
   return [
     {
@@ -237,17 +237,17 @@ export function getSlashCommands(): SlashCommandWithMeta[] {
   ];
 }
 
-interface SlashCommandMenuProps {
-  /** The editor whose command bus relays keyboard nav/confirm to this menu. */
+interface SlashActionMenuProps {
+  /** The editor whose action bus relays keyboard nav/confirm to this menu. */
   editor: Editor;
   x: number;
   y: number;
   filter?: string;
-  onSelect: (command: SlashCommand) => void;
+  onSelect: (action: SlashAction) => void;
   onClose: () => void;
 }
 
-export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
+export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
   editor,
   x,
   y,
@@ -256,7 +256,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
   onClose,
 }) => {
   const selectedRef = useRef<HTMLButtonElement>(null);
-  const slashCommands = useSlashCommands();
+  const slashActions = useSlashActions();
   const categoryLabels = useCategoryLabels();
 
   // Calculate max height based on available viewport space
@@ -270,11 +270,11 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
     return Math.max(150, Math.min(maxAllowed, availableSpace));
   }, [y]);
 
-  // Filter commands based on input
-  const filteredCommands = React.useMemo(() => {
-    if (!filter) return slashCommands;
+  // Filter actions based on input
+  const filteredActions = React.useMemo(() => {
+    if (!filter) return slashActions;
     const lowerFilter = filter.toLowerCase();
-    return slashCommands.filter(
+    return slashActions.filter(
       (cmd) =>
         cmd.label.toLowerCase().includes(lowerFilter) ||
         cmd.description.toLowerCase().includes(lowerFilter) ||
@@ -282,29 +282,29 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
           keyword.toLowerCase().startsWith(lowerFilter)
         )
     );
-  }, [filter, slashCommands]);
+  }, [filter, slashActions]);
 
-  // Group commands by category
-  const groupedCommands = React.useMemo(() => {
-    const groups: Record<string, SlashCommandWithMeta[]> = {};
-    for (const cmd of filteredCommands) {
+  // Group actions by category
+  const groupedActions = React.useMemo(() => {
+    const groups: Record<string, SlashActionWithMeta[]> = {};
+    for (const cmd of filteredActions) {
       if (!groups[cmd.category]) {
         groups[cmd.category] = [];
       }
       groups[cmd.category].push(cmd);
     }
     return groups;
-  }, [filteredCommands]);
+  }, [filteredActions]);
 
   // Grouped order is the order the list renders in; the selection indexes into
-  // this flat list (NOT raw `filteredCommands`, which isn't grouped).
-  const flatCommands = useMemo(
-    () => Object.values(groupedCommands).flat(),
-    [groupedCommands],
+  // this flat list (NOT raw `filteredActions`, which isn't grouped).
+  const flatActions = useMemo(
+    () => Object.values(groupedActions).flat(),
+    [groupedActions],
   );
 
   // The engine owns opening the menu and the `/filter` text and relays
-  // navigation/confirmation to us over the command bus; we own the list and the
+  // navigation/confirmation to us over the action bus; we own the list and the
   // current selection.
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -313,18 +313,18 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
     setSelectedIndex(0);
   }, [filter]);
 
-  // Refs so the once-registered command handlers always read the latest values.
+  // Refs so the once-registered action handlers always read the latest values.
   const selectedIndexRef = useRef(0);
   selectedIndexRef.current = selectedIndex;
-  const flatCommandsRef = useRef(flatCommands);
-  flatCommandsRef.current = flatCommands;
+  const flatActionsRef = useRef(flatActions);
+  flatActionsRef.current = flatActions;
 
   useEffect(() => {
-    const offNavigate = editor.registerCommand(
+    const offNavigate = editor.registerAction(
       SLASH_NAVIGATE,
       ({ direction }) => {
         setSelectedIndex((i) => {
-          const len = flatCommandsRef.current.length;
+          const len = flatActionsRef.current.length;
           if (len === 0) return 0;
           return direction === "down"
             ? Math.min(i + 1, len - 1)
@@ -333,13 +333,13 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
         return true;
       },
     );
-    // Enter: hand the engine our selected command. It applies it in-flow, so we
-    // must NOT call `executeSlashCommand` here (that would mutate editor state
+    // Enter: hand the engine our selected action. It applies it in-flow, so we
+    // must NOT call `executeSlashAction` here (that would mutate editor state
     // mid-frame); `confirm` is the engine's own callback.
-    const offConfirm = editor.registerCommand(SLASH_CONFIRM, ({ confirm }) => {
-      const command = flatCommandsRef.current[selectedIndexRef.current];
-      if (!command) return false;
-      confirm(command);
+    const offConfirm = editor.registerAction(SLASH_CONFIRM, ({ confirm }) => {
+      const action = flatActionsRef.current[selectedIndexRef.current];
+      if (!action) return false;
+      confirm(action);
       return true;
     });
     return () => {
@@ -348,12 +348,12 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
     };
   }, [editor]);
 
-  // Auto-close menu when no commands match
+  // Auto-close menu when no actions match
   useEffect(() => {
-    if (filter && filteredCommands.length === 0) {
+    if (filter && filteredActions.length === 0) {
       onClose();
     }
-  }, [filter, filteredCommands.length, onClose]);
+  }, [filter, filteredActions.length, onClose]);
 
   // Scroll selected item into view
   useEffect(() => {
@@ -365,11 +365,11 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
     }
   }, [selectedIndex]);
 
-  if (filteredCommands.length === 0) {
+  if (filteredActions.length === 0) {
     return null;
   }
 
-  // Calculate the flat index for each command
+  // Calculate the flat index for each action
   let currentIndex = 0;
 
   return (
@@ -394,22 +394,22 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
         >
           <ScrollArea style={{ maxHeight }}>
             <div className="py-2">
-              {Object.entries(groupedCommands).map(([category, commands]) => (
+              {Object.entries(groupedActions).map(([category, actions]) => (
                 <div key={category}>
                   <div className="px-4 py-2 text-xs font-medium text-muted-foreground/70 uppercase tracking-wide">
                     {categoryLabels[category] || category}
                   </div>
-                  {commands.map((command) => {
+                  {actions.map((action) => {
                     const index = currentIndex++;
                     const isSelected = index === selectedIndex;
                     return (
                       <button
-                        key={command.id}
+                        key={action.id}
                         ref={isSelected ? selectedRef : null}
                         className={`w-full px-3 py-2 flex items-center gap-3 transition-colors ${
                           isSelected ? "bg-accent" : "hover:bg-accent/50"
                         }`}
-                        onClick={() => onSelect(command)}
+                        onClick={() => onSelect(action)}
                         onMouseDown={(e) => {
                           e.preventDefault();
                         }}
@@ -421,7 +421,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
                               : "bg-muted/60 text-muted-foreground"
                           }`}
                         >
-                          {command.icon}
+                          {action.icon}
                         </div>
                         <div className="flex-1 text-start min-w-0">
                           <div
@@ -431,10 +431,10 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
                                 : "text-popover-foreground"
                             }`}
                           >
-                            {command.label}
+                            {action.label}
                           </div>
                           <div className="text-xs text-muted-foreground truncate">
-                            {command.description}
+                            {action.description}
                           </div>
                         </div>
                       </button>

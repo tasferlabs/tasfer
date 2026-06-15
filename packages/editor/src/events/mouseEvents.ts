@@ -1,3 +1,4 @@
+import { OPEN_LINK } from "../action-bus";
 import {
   CLEAR_SELECTION_IN_PADDING,
   CLEAR_VISUAL_BLOCK_SELECTION,
@@ -11,8 +12,7 @@ import {
   SET_IMAGE_HOVER,
   SET_INLINE_MATH_HOVER,
   SET_MATH_BLOCK_HOVER,
-} from "../actions/mouse-commands";
-import { OPEN_LINK } from "../command-bus";
+} from "../actions/mouse-actions";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
 import { getInlineMathAtPosition } from "../inline-math";
 import { getDragHandleAtPoint } from "../rendering/nodes";
@@ -34,7 +34,7 @@ import type { EditorState, MouseEvent, ViewportState } from "../state-types";
 import {
   clearAutoCreatedParagraph,
   closeActiveMenu,
-  closeSlashCommand,
+  closeSlashAction,
   setLinkHover,
   updateMode,
 } from "../state-utils";
@@ -78,9 +78,9 @@ export function handleMouseDown(
     return { state, ops };
   }
 
-  // Close slash command menu on mouse click
-  if (state.ui.activeMenu.type === "slashCommand") {
-    state = closeSlashCommand(state);
+  // Close slash action menu on mouse click
+  if (state.ui.activeMenu.type === "slashAction") {
+    state = closeSlashAction(state);
   }
 
   // Track if any menu was open (we'll use this to prevent reopening on same click)
@@ -131,7 +131,7 @@ export function handleMouseDown(
     }
   }
 
-  // Check for Ctrl/Command+Click on link to open it
+  // Check for Ctrl/Action+Click on link to open it
   const isCtrlOrCmd = event.ctrlKey || event.metaKey;
   if (isCtrlOrCmd) {
     const position = getTextPositionFromViewport(
@@ -144,9 +144,9 @@ export function handleMouseDown(
     if (position) {
       const linkData = getLinkAtPosition(position, state);
       if (linkData) {
-        // Activate the link as a command: the editor's default opens it in a
+        // Activate the link as a action: the editor's default opens it in a
         // new tab; a native shell can override OPEN_LINK to route it natively.
-        state.commandBus.dispatch(OPEN_LINK, { url: linkData.url });
+        state.actionBus.dispatch(OPEN_LINK, { url: linkData.url });
         // Clear any link hover state
         state = {
           ...state,
@@ -198,7 +198,7 @@ export function handleMouseDown(
 
           // Open the host overlay at the click position
           return {
-            state: state.commandBus.dispatchState(OPEN_BLOCK_OVERLAY, state, {
+            state: state.actionBus.dispatchState(OPEN_BLOCK_OVERLAY, state, {
               overlay: {
                 type: "overlay",
                 key: activation.key,
@@ -216,7 +216,7 @@ export function handleMouseDown(
       // Position at the start of the image block (textIndex 0)
       const imagePosition = { blockIndex: imageBlock.blockIndex, textIndex: 0 };
       return {
-        state: state.commandBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
+        state: state.actionBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
           position: imagePosition,
           extend: !!(event.shiftKey && state.document.selection),
         }).state,
@@ -242,7 +242,7 @@ export function handleMouseDown(
       // Select the line block (same as image block behavior)
       const linePosition = { blockIndex: lineBlock.blockIndex, textIndex: 0 };
       return {
-        state: state.commandBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
+        state: state.actionBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
           position: linePosition,
           extend: !!(event.shiftKey && state.document.selection),
         }).state,
@@ -285,7 +285,7 @@ export function handleMouseDown(
 
         // Open the host overlay at the click position
         return {
-          state: state.commandBus.dispatchState(OPEN_BLOCK_OVERLAY, state, {
+          state: state.actionBus.dispatchState(OPEN_BLOCK_OVERLAY, state, {
             overlay: {
               type: "overlay",
               key: activation.key,
@@ -303,7 +303,7 @@ export function handleMouseDown(
     // In readonly mode (or no activation), just select the block
     const mathPosition = { blockIndex: mathBlock.blockIndex, textIndex: 0 };
     return {
-      state: state.commandBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
+      state: state.actionBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
         position: mathPosition,
         extend: false,
       }).state,
@@ -329,7 +329,7 @@ export function handleMouseDown(
       if (!selectedBlock || selectedBlock.deleted) return { state, ops };
       if (selectedBlock && !isTextualBlock(selectedBlock)) {
         // We have a visual block selected, but clicked outside it - clear the selection
-        state = state.commandBus.dispatchState(
+        state = state.actionBus.dispatchState(
           CLEAR_VISUAL_BLOCK_SELECTION,
           state,
         ).state;
@@ -345,7 +345,7 @@ export function handleMouseDown(
   // If clicking in top padding, clear selection
   if (isClickInTopPadding) {
     return {
-      state: state.commandBus.dispatchState(CLEAR_SELECTION_IN_PADDING, state)
+      state: state.actionBus.dispatchState(CLEAR_SELECTION_IN_PADDING, state)
         .state,
       ops,
     };
@@ -368,7 +368,7 @@ export function handleMouseDown(
 
     if (paddingPosition) {
       return {
-        state: state.commandBus.dispatchState(
+        state: state.actionBus.dispatchState(
           PLACE_CURSOR_IN_SIDE_PADDING,
           state,
           { position: paddingPosition },
@@ -413,7 +413,7 @@ export function handleMouseDown(
       // Highlight the edited chip while the popover is open (engine-owned hover
       // state; the host overlay reads the range from `data`).
       return {
-        state: state.commandBus.dispatchState(OPEN_INLINE_MATH_OVERLAY, state, {
+        state: state.actionBus.dispatchState(OPEN_INLINE_MATH_OVERLAY, state, {
           overlay: {
             type: "overlay",
             key,
@@ -442,7 +442,7 @@ export function handleMouseDown(
     // Only clear selection if it's collapsed or doesn't exist
     if (!state.document.selection || state.document.selection.isCollapsed) {
       return {
-        state: state.commandBus.dispatchState(CLEAR_SELECTION_IN_PADDING, state)
+        state: state.actionBus.dispatchState(CLEAR_SELECTION_IN_PADDING, state)
           .state,
         ops,
       };
@@ -474,7 +474,7 @@ export function handleMouseDown(
     if (isClickBelowContent && !isTextualBlock(lastBlock)) {
       const imagePosition = { blockIndex: lastVisibleBlockIndex, textIndex: 0 };
       return {
-        state: state.commandBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
+        state: state.actionBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
           position: imagePosition,
           extend: false,
         }).state,
@@ -518,7 +518,7 @@ export function handleMouseDown(
   // Handle triple-click: always select line (even inside selection)
   if (isMultiClick && clickCount >= 3) {
     return {
-      state: state.commandBus.dispatchState(SELECT_LINE_AT_POINT, state, {
+      state: state.actionBus.dispatchState(SELECT_LINE_AT_POINT, state, {
         position,
       }).state,
       ops,
@@ -528,7 +528,7 @@ export function handleMouseDown(
   // Handle double-click: select word
   if (isMultiClick && clickCount === 2) {
     return {
-      state: state.commandBus.dispatchState(SELECT_WORD_AT_POINT, state, {
+      state: state.actionBus.dispatchState(SELECT_WORD_AT_POINT, state, {
         position,
       }).state,
       ops,
@@ -538,7 +538,7 @@ export function handleMouseDown(
   // Set cursor position. If shift is held, extend selection; otherwise start a
   // new selection and enter select mode (drag-to-select).
   return {
-    state: state.commandBus.dispatchState(PLACE_CURSOR_AT_POINT, state, {
+    state: state.actionBus.dispatchState(PLACE_CURSOR_AT_POINT, state, {
       position,
       extend: !!(event.shiftKey && state.document.selection),
     }).state,
@@ -652,7 +652,7 @@ export function handleMouseMove(
       );
 
       // Mouse is over an image block - set imageHover state (not a blocking menu)
-      state = state.commandBus.dispatchState(SET_IMAGE_HOVER, state, {
+      state = state.actionBus.dispatchState(SET_IMAGE_HOVER, state, {
         imageHover: {
           blockIndex: imageBlock.blockIndex,
           x: imageBlock.x,
@@ -664,7 +664,7 @@ export function handleMouseMove(
       }).state;
     } else {
       // Clear image hover state
-      state = state.commandBus.dispatchState(SET_IMAGE_HOVER, state, {
+      state = state.actionBus.dispatchState(SET_IMAGE_HOVER, state, {
         imageHover: null,
       }).state;
     }
@@ -678,7 +678,7 @@ export function handleMouseMove(
       "math",
     );
     const newMathBlockHover = mathBlock ? mathBlock.blockIndex : null;
-    state = state.commandBus.dispatchState(SET_MATH_BLOCK_HOVER, state, {
+    state = state.actionBus.dispatchState(SET_MATH_BLOCK_HOVER, state, {
       blockIndex: newMathBlockHover,
     }).state;
 
@@ -708,17 +708,17 @@ export function handleMouseMove(
         }
       }
     }
-    state = state.commandBus.dispatchState(SET_INLINE_MATH_HOVER, state, {
+    state = state.actionBus.dispatchState(SET_INLINE_MATH_HOVER, state, {
       hover: newInlineMathHover,
     }).state;
   }
 
   if (state.ui.mode !== "select") {
     // Check for link hover when not selecting (desktop only)
-    // Don't show tooltip if Ctrl/Command key is held (user wants to click to open)
+    // Don't show tooltip if Ctrl/Action key is held (user wants to click to open)
     const isCtrlOrCmd = event.ctrlKey || event.metaKey;
 
-    // If Ctrl/Command is held and we have a link hover showing, clear it
+    // If Ctrl/Action is held and we have a link hover showing, clear it
     if (isCtrlOrCmd && state.ui.linkHover) {
       state = setLinkHover(state, null);
       return state;
@@ -744,7 +744,7 @@ export function handleMouseMove(
         const linkData = getLinkAtPosition(position, state);
         if (linkData) {
           isOverLink = true;
-          // If Ctrl/Command is held, show pointer cursor but no tooltip
+          // If Ctrl/Action is held, show pointer cursor but no tooltip
           if (isCtrlOrCmd) {
             state = setLinkHover(state, null);
             state = {

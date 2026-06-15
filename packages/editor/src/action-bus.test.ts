@@ -1,7 +1,7 @@
 /**
- * Unit tests for the command-bus primitive (`command-bus.ts`).
+ * Unit tests for the action-bus primitive (`action-bus.ts`).
  *
- * These exercise the bus *mechanics* — command shapes, priority ordering,
+ * These exercise the bus *mechanics* — action shapes, priority ordering,
  * override/observe semantics, unsubscribe, and the `dispatchState` threading —
  * without building a real `EditorState`. A minimal fake state object, cast to
  * `EditorState`, is enough: the transforms here only read/write a tiny shape and
@@ -9,13 +9,13 @@
  */
 
 import {
-  command,
-  createCommandBus,
-  isMutationCommand,
-  isStateCommand,
-  stateCommand,
+  action,
+  createActionBus,
+  isMutationAction,
+  isStateAction,
+  stateAction,
   type StateResult,
-} from "./command-bus";
+} from "./action-bus";
 import type { ChangeApi } from "./entries/editor";
 import type { EditorState, Operation } from "./state-types";
 import { describe, expect, it } from "vitest";
@@ -40,45 +40,45 @@ function opTags(result: StateResult): string[] {
   return result.ops.map((op) => (op as unknown as { type: string }).type);
 }
 
-// ─── Command construction & narrowing ────────────────────────────────────────
+// ─── Action construction & narrowing ────────────────────────────────────────
 
-describe("command construction and narrowing", () => {
-  it("command(name) makes a plain command (no mutate/transform)", () => {
-    const c = command<{ url: string }>("open-link");
+describe("action construction and narrowing", () => {
+  it("action(name) makes a plain action (no mutate/transform)", () => {
+    const c = action<{ url: string }>("open-link");
     expect(c.name).toBe("open-link");
-    expect(isMutationCommand(c)).toBe(false);
-    expect(isStateCommand(c)).toBe(false);
+    expect(isMutationAction(c)).toBe(false);
+    expect(isStateAction(c)).toBe(false);
   });
 
-  it("command(name, mutate) makes a mutation command", () => {
+  it("action(name, mutate) makes a mutation action", () => {
     const mutate = (_c: ChangeApi, _p: void) => {};
-    const c = command("insert-bullet", mutate);
+    const c = action("insert-bullet", mutate);
     expect(c.name).toBe("insert-bullet");
     expect(c.mutate).toBe(mutate);
-    expect(isMutationCommand(c)).toBe(true);
-    expect(isStateCommand(c)).toBe(false);
+    expect(isMutationAction(c)).toBe(true);
+    expect(isStateAction(c)).toBe(false);
   });
 
-  it("stateCommand(name, transform) makes a state command", () => {
+  it("stateAction(name, transform) makes a state action", () => {
     const transform = (state: EditorState) => ({ state, ops: [] });
-    const c = stateCommand("move-cursor-left", transform);
+    const c = stateAction("move-cursor-left", transform);
     expect(c.name).toBe("move-cursor-left");
     expect(c.transform).toBe(transform);
-    expect(isStateCommand(c)).toBe(true);
-    expect(isMutationCommand(c)).toBe(false);
+    expect(isStateAction(c)).toBe(true);
+    expect(isMutationAction(c)).toBe(false);
   });
 
   it("narrowers gate on the right field, not on each other", () => {
-    const plain = command("plain");
-    const mut = command("mut", () => {});
-    const st = stateCommand("st", (state) => ({ state, ops: [] }));
+    const plain = action("plain");
+    const mut = action("mut", () => {});
+    const st = stateAction("st", (state) => ({ state, ops: [] }));
 
-    expect(isMutationCommand(plain)).toBe(false);
-    expect(isStateCommand(plain)).toBe(false);
-    expect(isMutationCommand(mut)).toBe(true);
-    expect(isStateCommand(mut)).toBe(false);
-    expect(isStateCommand(st)).toBe(true);
-    expect(isMutationCommand(st)).toBe(false);
+    expect(isMutationAction(plain)).toBe(false);
+    expect(isStateAction(plain)).toBe(false);
+    expect(isMutationAction(mut)).toBe(true);
+    expect(isStateAction(mut)).toBe(false);
+    expect(isStateAction(st)).toBe(true);
+    expect(isMutationAction(st)).toBe(false);
   });
 });
 
@@ -86,8 +86,8 @@ describe("command construction and narrowing", () => {
 
 describe("dispatch priority and override/observe semantics", () => {
   it("walks handlers high→low priority", () => {
-    const bus = createCommandBus();
-    const cmd = command("c");
+    const bus = createActionBus();
+    const cmd = action("c");
     const order: string[] = [];
 
     bus.register(cmd, () => void order.push("low"), 0);
@@ -99,8 +99,8 @@ describe("dispatch priority and override/observe semantics", () => {
   });
 
   it("a handler returning true claims it and stops propagation", () => {
-    const bus = createCommandBus();
-    const cmd = command("c");
+    const bus = createActionBus();
+    const cmd = action("c");
     const seen: string[] = [];
 
     bus.register(cmd, () => void seen.push("low"), 0);
@@ -120,8 +120,8 @@ describe("dispatch priority and override/observe semantics", () => {
   });
 
   it("false/void observes and lets propagation continue", () => {
-    const bus = createCommandBus();
-    const cmd = command("c");
+    const bus = createActionBus();
+    const cmd = action("c");
     const seen: string[] = [];
 
     bus.register(cmd, () => {
@@ -139,13 +139,13 @@ describe("dispatch priority and override/observe semantics", () => {
   });
 
   it("returns false when no handlers are registered", () => {
-    const bus = createCommandBus();
-    expect(bus.dispatch(command("none"))).toBe(false);
+    const bus = createActionBus();
+    expect(bus.dispatch(action("none"))).toBe(false);
   });
 
   it("passes the payload through to handlers", () => {
-    const bus = createCommandBus();
-    const cmd = command<{ url: string }>("open-link");
+    const bus = createActionBus();
+    const cmd = action<{ url: string }>("open-link");
     let received: string | undefined;
     bus.register(cmd, (p) => void (received = p.url));
     bus.dispatch(cmd, { url: "https://example.com" });
@@ -157,8 +157,8 @@ describe("dispatch priority and override/observe semantics", () => {
 
 describe("registration order and unsubscribe", () => {
   it("equal priority preserves registration order", () => {
-    const bus = createCommandBus();
-    const cmd = command("c");
+    const bus = createActionBus();
+    const cmd = action("c");
     const order: string[] = [];
 
     bus.register(cmd, () => void order.push("first"));
@@ -170,8 +170,8 @@ describe("registration order and unsubscribe", () => {
   });
 
   it("the unsubscribe function removes the handler", () => {
-    const bus = createCommandBus();
-    const cmd = command("c");
+    const bus = createActionBus();
+    const cmd = action("c");
     const seen: string[] = [];
 
     const off = bus.register(cmd, () => void seen.push("a"));
@@ -183,8 +183,8 @@ describe("registration order and unsubscribe", () => {
   });
 
   it("a handler that unregisters itself mid-dispatch doesn't corrupt the walk", () => {
-    const bus = createCommandBus();
-    const cmd = command("c");
+    const bus = createActionBus();
+    const cmd = action("c");
     const seen: string[] = [];
 
     const off = bus.register(
@@ -208,8 +208,8 @@ describe("registration order and unsubscribe", () => {
   });
 
   it("a handler that registers a new handler mid-dispatch doesn't run it this pass", () => {
-    const bus = createCommandBus();
-    const cmd = command("c");
+    const bus = createActionBus();
+    const cmd = action("c");
     const seen: string[] = [];
 
     bus.register(
@@ -231,8 +231,8 @@ describe("registration order and unsubscribe", () => {
   });
 
   it("handlersFor returns handlers high→low priority", () => {
-    const bus = createCommandBus();
-    const cmd = command("c");
+    const bus = createActionBus();
+    const cmd = action("c");
     const high = () => {};
     const low = () => {};
     bus.register(cmd, low, 0);
@@ -245,8 +245,8 @@ describe("registration order and unsubscribe", () => {
 
 describe("dispatchState threading and op accumulation", () => {
   it("runs the default transform when there are no observers", () => {
-    const bus = createCommandBus();
-    const cmd = stateCommand("move", (state) => ({
+    const bus = createActionBus();
+    const cmd = stateAction("move", (state) => ({
       state: fakeState(cursorOf(state) + 1),
       ops: [sentinelOp("default")],
     }));
@@ -257,9 +257,9 @@ describe("dispatchState threading and op accumulation", () => {
   });
 
   it("threads state through observers (high→low) then the default", () => {
-    const bus = createCommandBus();
+    const bus = createActionBus();
     const seen: string[] = [];
-    const cmd = stateCommand("move", (state) => {
+    const cmd = stateAction("move", (state) => {
       seen.push("default");
       return {
         state: fakeState(cursorOf(state) + 100),
@@ -300,9 +300,9 @@ describe("dispatchState threading and op accumulation", () => {
   });
 
   it("an observer returning handled:true overrides and skips the default", () => {
-    const bus = createCommandBus();
+    const bus = createActionBus();
     let defaultRan = false;
-    const cmd = stateCommand("move", (state) => {
+    const cmd = stateAction("move", (state) => {
       defaultRan = true;
       return { state, ops: [sentinelOp("default")] };
     });
@@ -324,9 +324,9 @@ describe("dispatchState threading and op accumulation", () => {
   });
 
   it("handled:true stops lower-priority observers too", () => {
-    const bus = createCommandBus();
+    const bus = createActionBus();
     const seen: string[] = [];
-    const cmd = stateCommand("move", (state) => ({ state, ops: [] }));
+    const cmd = stateAction("move", (state) => ({ state, ops: [] }));
 
     bus.register(
       cmd,
@@ -351,8 +351,8 @@ describe("dispatchState threading and op accumulation", () => {
   });
 
   it("a void observer passes through without changing state or ops", () => {
-    const bus = createCommandBus();
-    const cmd = stateCommand("move", (state) => ({
+    const bus = createActionBus();
+    const cmd = stateAction("move", (state) => ({
       state: fakeState(cursorOf(state) + 1),
       ops: [sentinelOp("default")],
     }));
@@ -375,8 +375,8 @@ describe("dispatchState threading and op accumulation", () => {
   });
 
   it("concatenates ops across multiple observers and the default", () => {
-    const bus = createCommandBus();
-    const cmd = stateCommand("move", (state) => ({
+    const bus = createActionBus();
+    const cmd = stateAction("move", (state) => ({
       state,
       ops: [sentinelOp("d1"), sentinelOp("d2")],
     }));
@@ -400,8 +400,8 @@ describe("dispatchState threading and op accumulation", () => {
   });
 
   it("passes the payload to observers and the default transform", () => {
-    const bus = createCommandBus();
-    const cmd = stateCommand<{ delta: number }>("move", (state, { delta }) => ({
+    const bus = createActionBus();
+    const cmd = stateAction<{ delta: number }>("move", (state, { delta }) => ({
       state: fakeState(cursorOf(state) + delta),
       ops: [],
     }));

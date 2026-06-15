@@ -113,7 +113,7 @@ export interface NodeRegionCtx extends NodeLayoutCtx {
  * A named interactive sub-region of a block (todo checkbox, image resize
  * handle, …). Nodes declare only identity + geometry; the event layer binds
  * behavior to the `id` (events/blockRegions.ts), so nodes stay the
- * presentation facet and never touch CRDT ops or editor commands.
+ * presentation facet and never touch CRDT ops or editor actions.
  */
 export interface NodeHitRegion {
   /** Stable id the event layer binds behavior to (e.g. "todo-checkbox"). */

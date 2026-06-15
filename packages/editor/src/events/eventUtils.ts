@@ -3,7 +3,7 @@ import {
   END_IMAGE_DRAG,
   START_IMAGE_DRAG,
   UPDATE_IMAGE_DRAG,
-} from "../actions/input-commands";
+} from "../actions/input-actions";
 import {
   CLICK_DISTANCE_THRESHOLD,
   SELECTION_HANDLE_TOUCH_TARGET,
@@ -145,7 +145,7 @@ export function startImageDrag(
 
     // The handle hit + start dimensions are pointer-derived; resolve them here
     // and hand the finished drag descriptor to START_IMAGE_DRAG.
-    return state.commandBus.dispatchState(START_IMAGE_DRAG, state, {
+    return state.actionBus.dispatchState(START_IMAGE_DRAG, state, {
       imageDrag: {
         blockIndex: imageBlock.blockIndex,
         handle: clickedHandle,
@@ -175,7 +175,7 @@ export function updateImageDrag(
   canvasX: number,
   canvasY: number,
 ): EditorState {
-  return state.commandBus.dispatchState(UPDATE_IMAGE_DRAG, state, {
+  return state.actionBus.dispatchState(UPDATE_IMAGE_DRAG, state, {
     viewport,
     canvasX,
     canvasY,
@@ -192,7 +192,7 @@ export function endImageDrag(state: EditorState): {
   state: EditorState;
   ops: Operation[];
 } {
-  return state.commandBus.dispatchState(END_IMAGE_DRAG, state);
+  return state.actionBus.dispatchState(END_IMAGE_DRAG, state);
 }
 /**
  * Cancel an image drag resize operation (without recording undo)
@@ -200,7 +200,7 @@ export function endImageDrag(state: EditorState): {
  * @returns Updated state with imageDrag cleared
  */
 export function cancelImageDrag(state: EditorState): EditorState {
-  return state.commandBus.dispatchState(CANCEL_IMAGE_DRAG, state).state;
+  return state.actionBus.dispatchState(CANCEL_IMAGE_DRAG, state).state;
 }
 /**
  * Helper function to scroll viewport to make cursor visible after state changes

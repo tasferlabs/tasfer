@@ -2,7 +2,7 @@
 // (not here) and re-exported below: the node views import them, and the node
 // registry imports back into this module, so keeping those two off `state-utils`
 // breaks the `ListNode extends TextNode` circular-init hazard.
-import { createCommandBus } from "./command-bus";
+import { createActionBus } from "./action-bus";
 import type { MarkRegistry } from "./rendering/marks";
 import { createDefaultMarkRegistry } from "./rendering/marks";
 import type { NodeRegistry } from "./rendering/nodes";
@@ -82,7 +82,7 @@ export function createInitialState(
   return {
     CRDTbinding,
     // One bus per editor instance (handlers are per-instance, never global).
-    commandBus: createCommandBus(),
+    actionBus: createActionBus(),
     nodes,
     marks,
     theme,
@@ -189,32 +189,32 @@ export function getBlockTextLength(block: Block): number {
   return getVisibleLengthFromRuns(block.charRuns);
 }
 
-// Slash Command State Management
-export function openSlashCommand(
+// Slash Action State Management
+export function openSlashAction(
   state: EditorState,
   blockIndex: number,
   textIndex: number,
 ): EditorState {
   return setActiveMenu(state, {
-    type: "slashCommand",
+    type: "slashAction",
     blockIndex,
     textIndex,
     filter: "",
   });
 }
 
-export function updateSlashCommandFilter(
+export function updateSlashActionFilter(
   state: EditorState,
   filter: string,
 ): EditorState {
-  if (state.ui.activeMenu.type !== "slashCommand") return state;
+  if (state.ui.activeMenu.type !== "slashAction") return state;
   return setActiveMenu(state, {
     ...state.ui.activeMenu,
     filter,
   });
 }
 
-export function closeSlashCommand(state: EditorState): EditorState {
+export function closeSlashAction(state: EditorState): EditorState {
   return closeActiveMenu(state);
 }
 

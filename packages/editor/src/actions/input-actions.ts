@@ -1,27 +1,27 @@
 /**
- * Editor **input commands** — the IME-composition, paste, and image-resize-drag
+ * Editor **input actions** — the IME-composition, paste, and image-resize-drag
  * actions the event handlers used to inline, lifted into named, dispatchable
- * {@link StateCommand}s. Sibling to `keyboard-commands.ts` (cursor/selection
- * moves) and `edit-commands.ts` (key-driven content edits); this file holds the
+ * {@link StateAction}s. Sibling to `keyboard-actions.ts` (cursor/selection
+ * moves) and `edit-actions.ts` (key-driven content edits); this file holds the
  * actions driven by composition, clipboard, and pointer-drag events.
  *
- * A state command is the low-level command shape: its default behavior is a
- * pure `(state) => { state, ops }` transform (see `command-bus.ts`), which is
+ * A state action is the low-level action shape: its default behavior is a
+ * pure `(state) => { state, ops }` transform (see `action-bus.ts`), which is
  * exactly the currency the event pipeline already trades in. Handlers dispatch
- * these via `state.commandBus.dispatchState(...)`, so hosts/plugins can observe
+ * these via `state.actionBus.dispatchState(...)`, so hosts/plugins can observe
  * or override them, and the engine's logic lives in one named place instead of
  * being scattered across the input event handlers.
  *
  * Several of these actions need data that only lives on the DOM event or the
  * pointer (the composed string, the extracted clipboard data, the pointer
  * coordinates, the resolved drag handle). That data is computed in the event
- * handler and threaded in via the payload, so the command stays a pure
+ * handler and threaded in via the payload, so the action stays a pure
  * transform over {@link EditorState}. The handlers also keep their guards
- * (focus / readonly / locked / composition) — a command assumes it is allowed
+ * (focus / readonly / locked / composition) — a action assumes it is allowed
  * to run.
  */
 
-import { stateCommand } from "../command-bus";
+import { stateAction } from "../action-bus";
 import { imageCache, invalidateBlockCache } from "../rendering/renderer";
 import type { Block } from "../serlization/loadPage";
 import type {
@@ -31,12 +31,12 @@ import type {
 } from "../state-types";
 import { getEditorStyles } from "../styles";
 import type { Operation } from "../sync/sync";
+import { deleteSelectedText, getSelectionRange, insertText } from "./actions";
 import { pasteFromClipboardEvent } from "./clipboard";
-import { deleteSelectedText, getSelectionRange, insertText } from "./commands";
 
 // ─── Composition (IME) ───────────────────────────────────────────────────────
 
-/** Payload for the composition start/end commands — the event's current data. */
+/** Payload for the composition start/end actions — the event's current data. */
 interface CompositionTextPayload {
   /** `event.data` for the composition event (empty string when null). */
   data: string;
@@ -51,7 +51,7 @@ interface CompositionTextPayload {
  * The caller passes the composition event's `data`; the focus / readonly /
  * locked / no-cursor guards stay in the handler.
  */
-export const COMPOSITION_START = stateCommand<CompositionTextPayload>(
+export const COMPOSITION_START = stateAction<CompositionTextPayload>(
   "composition-start",
   (state, { data }) => {
     const ops: Operation[] = [];
@@ -107,7 +107,7 @@ interface CompositionUpdatePayload {
  * Assumes `state.ui.composition` is already set; the handler routes a missing
  * composition back through {@link COMPOSITION_START}.
  */
-export const COMPOSITION_UPDATE = stateCommand<CompositionUpdatePayload>(
+export const COMPOSITION_UPDATE = stateAction<CompositionUpdatePayload>(
   "composition-update",
   (state, { data }) => {
     if (!state.ui.composition) return { state, ops: [] };
@@ -158,7 +158,7 @@ export const COMPOSITION_UPDATE = stateCommand<CompositionUpdatePayload>(
  *
  * The caller passes the composition event's `data`.
  */
-export const COMPOSITION_END = stateCommand<CompositionTextPayload>(
+export const COMPOSITION_END = stateAction<CompositionTextPayload>(
   "composition-end",
   (state, { data }) => {
     const ops: Operation[] = [];
@@ -191,7 +191,7 @@ export const COMPOSITION_END = stateCommand<CompositionTextPayload>(
  * `pasteFromClipboardEvent` is run **once**, in the handler (see
  * {@link runPaste}), so the handler can also keep the `pastedImageBlockIndex`
  * the paste surfaces. The resulting `{ state, ops }` is threaded back in via
- * `precomputed` so the command relays it to observers/overrides without pasting
+ * `precomputed` so the action relays it to observers/overrides without pasting
  * a second time (a second paste would mint new blocks / blob URLs).
  */
 interface PastePayload {
@@ -205,12 +205,12 @@ interface PastePayload {
  * Insert clipboard content at the caret (Ctrl/Cmd+V) — HTML → image file →
  * plain-text fallback, emitting the resulting CRDT ops. The actual paste is run
  * by the handler via {@link runPaste} (so it can recover the
- * `pastedImageBlockIndex` a {@link StateResult} can't carry); this command just
+ * `pastedImageBlockIndex` a {@link StateResult} can't carry); this action just
  * relays that pre-computed result, so observers/overrides see PASTE without the
  * paste running twice. A no-op (input state, no ops) when the paste yielded
  * nothing. The visibleBlocks refresh and scroll-to-cursor stay in the handler.
  */
-export const PASTE = stateCommand<PastePayload>(
+export const PASTE = stateAction<PastePayload>(
   "paste",
   (_state, { precomputed }) => precomputed,
 );
@@ -244,9 +244,9 @@ export function runPaste(
  * `ui.imageDrag`. The hit test (which handle was grabbed) and the start
  * dimensions depend on the pointer position and rendered geometry, so the
  * handler resolves them and passes the finished {@link ImageDragState} as the
- * payload — keeping the command a pure state set. Pure UI change, no ops.
+ * payload — keeping the action a pure state set. Pure UI change, no ops.
  */
-export const START_IMAGE_DRAG = stateCommand<{ imageDrag: ImageDragState }>(
+export const START_IMAGE_DRAG = stateAction<{ imageDrag: ImageDragState }>(
   "start-image-drag",
   (state, { imageDrag }) => ({
     state: {
@@ -275,7 +275,7 @@ interface UpdateImageDragPayload {
  * {@link END_IMAGE_DRAG} when the drag releases. No-op when no drag is active or
  * the target block is gone / not an image.
  */
-export const UPDATE_IMAGE_DRAG = stateCommand<UpdateImageDragPayload>(
+export const UPDATE_IMAGE_DRAG = stateAction<UpdateImageDragPayload>(
   "update-image-drag",
   (state, { viewport, canvasX, canvasY }) => {
     if (!state.ui.imageDrag) {
@@ -457,7 +457,7 @@ export const UPDATE_IMAGE_DRAG = stateCommand<UpdateImageDragPayload>(
  * reject on every peer, silently desyncing the local image. They are preserved
  * exactly (see `__fuzz__/image-resize-undefined.test.ts`).
  */
-export const END_IMAGE_DRAG = stateCommand("end-image-drag", (state) => {
+export const END_IMAGE_DRAG = stateAction("end-image-drag", (state) => {
   if (!state.ui.imageDrag) {
     return { state, ops: [] };
   }
@@ -532,7 +532,7 @@ export const END_IMAGE_DRAG = stateCommand("end-image-drag", (state) => {
  * {@link UPDATE_IMAGE_DRAG} wrote stay on the block but were never committed as
  * ops, mirroring the previous behavior. No-op when no drag is active.
  */
-export const CANCEL_IMAGE_DRAG = stateCommand("cancel-image-drag", (state) => {
+export const CANCEL_IMAGE_DRAG = stateAction("cancel-image-drag", (state) => {
   if (!state.ui.imageDrag) {
     return { state, ops: [] };
   }

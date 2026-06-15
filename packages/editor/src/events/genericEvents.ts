@@ -1,4 +1,4 @@
-import { PASTE, runPaste } from "../actions/input-commands";
+import { PASTE, runPaste } from "../actions/input-actions";
 import { scrollToMakeCursorVisible } from "../selection";
 import type { EditorState, ViewportState } from "../state-types";
 import type { Operation } from "../sync/sync";
@@ -34,7 +34,7 @@ export function handlePaste(
   // already-computed `{ state, ops }` so observers/overrides still fire without
   // the paste running a second time.
   const pasted = runPaste(state, event, clipboardData);
-  const result = state.commandBus.dispatchState(PASTE, state, {
+  const result = state.actionBus.dispatchState(PASTE, state, {
     event,
     clipboardData,
     precomputed: { state: pasted.state, ops: pasted.ops },

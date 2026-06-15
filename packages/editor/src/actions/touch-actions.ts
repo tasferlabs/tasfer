@@ -1,26 +1,26 @@
 /**
- * Editor **touch commands** — the discrete tap / long-press / scroll actions the
+ * Editor **touch actions** — the discrete tap / long-press / scroll actions the
  * touch handlers used to inline, lifted into named, dispatchable
- * {@link StateCommand}s.
+ * {@link StateAction}s.
  *
- * A state command is the low-level command shape: its default behavior is a
- * pure `(state) => { state, ops }` transform (see `command-bus.ts`), which is
+ * A state action is the low-level action shape: its default behavior is a
+ * pure `(state) => { state, ops }` transform (see `action-bus.ts`), which is
  * exactly the currency the event pipeline already trades in. Most touch actions
  * are pure cursor/selection/view moves and emit no ops; the one that creates a
  * paragraph below a trailing image emits a single `block_insert`. Handlers
- * dispatch these via `state.commandBus.dispatchState(...)`, so hosts/plugins can
+ * dispatch these via `state.actionBus.dispatchState(...)`, so hosts/plugins can
  * observe or override them, and the engine's logic lives in one named place
  * instead of being scattered across the switch statements in `touchEvents.ts`.
  *
- * Payload policy: a {@link StateCommand} must stay pure over {@link EditorState},
+ * Payload policy: a {@link StateAction} must stay pure over {@link EditorState},
  * but the touch handlers resolve pixel positions, hit-test viewport coordinates,
  * and read per-instance pointer `session` state. Anything that needs the
  * viewport, a resolved hit-test, or a `session`-derived value is computed in the
- * handler and threaded in via the payload, so the command body itself only reads
+ * handler and threaded in via the payload, so the action body itself only reads
  * and derives from the `state` it is handed.
  */
 
-import { stateCommand } from "../command-bus";
+import { stateAction } from "../action-bus";
 import {
   clearSelection,
   moveCursorToPosition,
@@ -35,7 +35,7 @@ import {
   updateMode,
 } from "../state-utils";
 import { isTextualBlock } from "../sync/block-registry";
-import { selectLineAtPosition, selectWordAtPosition } from "./commands";
+import { selectLineAtPosition, selectWordAtPosition } from "./actions";
 
 /** A resolved text position from {@link getTextPositionFromViewport}. */
 interface PositionPayload {
@@ -54,7 +54,7 @@ interface PointPayload {
  * Tap in the top padding area above the first block: clear any selection, drop
  * back to edit mode, and close an open context menu. Pure, no ops.
  */
-export const TAP_TOP_PADDING = stateCommand("tap-top-padding", (state) => {
+export const TAP_TOP_PADDING = stateAction("tap-top-padding", (state) => {
   let next = clearSelection(state);
   next = updateMode(next, "edit");
   if (next.ui.activeMenu.type === "contextMenu") {
@@ -69,7 +69,7 @@ export const TAP_TOP_PADDING = stateCommand("tap-top-padding", (state) => {
  * close an open context menu. The handler resolves `position` from the tap
  * point. Pure, no ops.
  */
-export const TAP_SIDE_PADDING = stateCommand<PositionPayload>(
+export const TAP_SIDE_PADDING = stateAction<PositionPayload>(
   "tap-side-padding",
   (state, { position }) => {
     let next = clearSelection(state);
@@ -91,7 +91,7 @@ export const TAP_SIDE_PADDING = stateCommand<PositionPayload>(
  * handler resolves `position.blockIndex` from the atomic-block hit-test. Pure,
  * no ops.
  */
-export const TAP_SELECT_VISUAL_BLOCK = stateCommand<PositionPayload>(
+export const TAP_SELECT_VISUAL_BLOCK = stateAction<PositionPayload>(
   "tap-select-visual-block",
   (state, { position }) => {
     let next = state;
@@ -125,7 +125,7 @@ export const TAP_SELECT_VISUAL_BLOCK = stateCommand<PositionPayload>(
  * selection exists and the tap missed it, passing the spanned block's index.
  * Pure, no ops.
  */
-export const TAP_CLEAR_VISUAL_BLOCK_SELECTION = stateCommand(
+export const TAP_CLEAR_VISUAL_BLOCK_SELECTION = stateAction(
   "tap-clear-visual-block-selection",
   (state) => ({ state: clearSelection(state), ops: [] }),
 );
@@ -138,7 +138,7 @@ export const TAP_CLEAR_VISUAL_BLOCK_SELECTION = stateCommand(
  * and passes the resolved `key`/`data`, the block index, and the tap point.
  * Pure, no ops.
  */
-export const OPEN_NODE_OVERLAY = stateCommand<{
+export const OPEN_NODE_OVERLAY = stateAction<{
   key: string;
   blockIndex: number;
   point: { x: number; y: number };
@@ -159,7 +159,7 @@ export const OPEN_NODE_OVERLAY = stateCommand<{
  * Re-tapping an image whose overlay is already open closes the overlay (and
  * keeps it closed for this tap). Pure, no ops.
  */
-export const CLOSE_NODE_OVERLAY = stateCommand(
+export const CLOSE_NODE_OVERLAY = stateAction(
   "close-node-overlay",
   (state) => ({ state: closeActiveMenu(state), ops: [] }),
 );
@@ -173,7 +173,7 @@ export const CLOSE_NODE_OVERLAY = stateCommand(
  * (the trailing image), its index, and the per-instance {@link CRDTbinding} used
  * to mint the new block + op ids.
  */
-export const CREATE_PARAGRAPH_BELOW_IMAGE = stateCommand<{
+export const CREATE_PARAGRAPH_BELOW_IMAGE = stateAction<{
   afterBlock: Block;
   afterBlockIndex: number;
   binding: CRDTbinding;
@@ -220,7 +220,7 @@ export const CREATE_PARAGRAPH_BELOW_IMAGE = stateCommand<{
  * Triple-tap: select the whole line at the tap position (fires even inside an
  * existing selection). The handler resolves `position`. Pure, no ops.
  */
-export const SELECT_LINE = stateCommand<PositionPayload>(
+export const SELECT_LINE = stateAction<PositionPayload>(
   "select-line",
   (state, { position }) => ({
     state: selectLineAtPosition(state, position),
@@ -233,7 +233,7 @@ export const SELECT_LINE = stateCommand<PositionPayload>(
  * (a new selection supersedes it). The handler resolves `position`. Pure, no
  * ops.
  */
-export const SELECT_WORD = stateCommand<PositionPayload>(
+export const SELECT_WORD = stateAction<PositionPayload>(
   "select-word",
   (state, { position }) => {
     let next = selectWordAtPosition(state, position);
@@ -252,7 +252,7 @@ export const SELECT_WORD = stateCommand<PositionPayload>(
  * isn't already open. The handler resolves `position` and supplies the tap
  * `point` the menu anchors to. Pure, no ops.
  */
-export const TAP_ON_SELECTION = stateCommand<PointPayload>(
+export const TAP_ON_SELECTION = stateAction<PointPayload>(
   "tap-on-selection",
   (state, { position, point }) => {
     let next = updateCursor(state, position);
@@ -268,7 +268,7 @@ export const TAP_ON_SELECTION = stateCommand<PointPayload>(
  * tap position, drop to edit mode, and close an open context menu. The handler
  * resolves `position`. Pure, no ops.
  */
-export const TAP_PLACE_CURSOR = stateCommand<PositionPayload>(
+export const TAP_PLACE_CURSOR = stateAction<PositionPayload>(
   "tap-place-cursor",
   (state, { position }) => {
     let next = clearSelection(state);
@@ -286,7 +286,7 @@ export const TAP_PLACE_CURSOR = stateCommand<PositionPayload>(
  * clear the selection, drop to edit mode, and close an open context menu. Pure,
  * no ops.
  */
-export const TAP_OUTSIDE_CONTENT = stateCommand(
+export const TAP_OUTSIDE_CONTENT = stateAction(
   "tap-outside-content",
   (state) => {
     let next = clearSelection(state);
@@ -306,7 +306,7 @@ export const TAP_OUTSIDE_CONTENT = stateCommand(
  * (mobile's long-press-on-cursor = paste menu). The handler supplies the
  * pixel `point`. Pure, no ops.
  */
-export const OPEN_CONTEXT_MENU_AT = stateCommand<{
+export const OPEN_CONTEXT_MENU_AT = stateAction<{
   point: { x: number; y: number };
 }>("open-context-menu-at", (state, { point }) => ({
   state: openContextMenu(state, point.x, point.y),
@@ -317,25 +317,22 @@ export const OPEN_CONTEXT_MENU_AT = stateCommand<{
  * Finish a long-press drag-selection: clear the selection's `initialBoundary`
  * marker and drop from select mode back to edit. Pure, no ops.
  */
-export const FINISH_SELECT_MODE = stateCommand(
-  "finish-select-mode",
-  (state) => {
-    let next = state;
-    if (next.document.selection?.initialBoundary) {
-      next = {
-        ...next,
-        document: {
-          ...next.document,
-          selection: next.document.selection
-            ? { ...next.document.selection, initialBoundary: undefined }
-            : null,
-        },
-      };
-    }
-    next = updateMode(next, "edit");
-    return { state: next, ops: [] };
-  },
-);
+export const FINISH_SELECT_MODE = stateAction("finish-select-mode", (state) => {
+  let next = state;
+  if (next.document.selection?.initialBoundary) {
+    next = {
+      ...next,
+      document: {
+        ...next.document,
+        selection: next.document.selection
+          ? { ...next.document.selection, initialBoundary: undefined }
+          : null,
+      },
+    };
+  }
+  next = updateMode(next, "edit");
+  return { state: next, ops: [] };
+});
 
 /** Whether the spanned block of the current selection is a non-textual visual
  * block — used by the handler to gate {@link CLEAR_VISUAL_BLOCK_SELECTION}. */

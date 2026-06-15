@@ -2,7 +2,7 @@
  * Block-content regions — binds behavior to the named hit regions that nodes
  * declare (Node.regions). Nodes stay presentation-only: they expose geometry
  * + a stable id ("todo-checkbox", "image-resize"), and this module supplies
- * the semantic side (CRDT ops, drag state) in the event layer where commands
+ * the semantic side (CRDT ops, drag state) in the event layer where actions
  * and editor state belong.
  *
  * `hitTestAllRegions` is the full dispatcher entry point: chrome regions
@@ -10,7 +10,7 @@
  * the point compete purely on priority.
  */
 
-import { toggleTodoChecked } from "../actions/commands";
+import { toggleTodoChecked } from "../actions/actions";
 import { EDGE_SCROLL_THRESHOLD } from "../constants";
 import {
   AtomicNode,

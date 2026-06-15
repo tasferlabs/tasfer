@@ -29,7 +29,7 @@ const DEFAULT_STRINGS: EditorStrings = {
   placeholderHeading1: "Heading 1",
   placeholderHeading2: "Heading 2",
   placeholderHeading3: "Heading 3",
-  placeholderParagraph: "Type '/' for commands.",
+  placeholderParagraph: "Type '/' for actions.",
   placeholderParagraphTouch: "Type something awesome...",
   placeholderListItem: "List item",
   placeholderTodoItem: "To-do item",

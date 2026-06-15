@@ -63,7 +63,7 @@ const inlineMathReplacement: MarkReplacement = {
 
 export class MathMark extends Mark {
   readonly type = "math";
-  readonly togglable = false; // needs LaTeX — applied via the math command
+  readonly togglable = false; // needs LaTeX — applied via the math action
   readonly replacement = inlineMathReplacement;
   style(): MarkStyle {
     return {};

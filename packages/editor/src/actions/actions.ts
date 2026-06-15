@@ -16,11 +16,11 @@ import {
 } from "../serlization/loadPage";
 import { isListBlock } from "../serlization/loadPage";
 import type {
-  CommandResult,
+  ActionResult,
   CRDTbinding,
   EditorState,
   Position,
-  SlashCommand,
+  SlashAction,
 } from "../state-types";
 import type {
   BlockInsert,
@@ -31,7 +31,7 @@ import type {
 } from "../state-types";
 import {
   clearAutoCreatedParagraph,
-  closeSlashCommand,
+  closeSlashAction,
   getBlockTextContent,
   getBlockTextLength,
   updateMode,
@@ -608,7 +608,7 @@ export function getSelectionRange(
  * Delete selected text.
  * Returns new state + CRDT operations for the deletion.
  */
-export function deleteSelectedText(state: EditorState): CommandResult {
+export function deleteSelectedText(state: EditorState): ActionResult {
   // Note: Cache will naturally miss due to content length change
   // Only clear for multi-block operations below
   const range = getSelectionRange(state);
@@ -909,7 +909,7 @@ export function deleteSelectedText(state: EditorState): CommandResult {
  *
  * Phase 3 refactor: Uses CRDT helpers that return { newData, op } atomically
  */
-export function insertText(state: EditorState, input: string): CommandResult {
+export function insertText(state: EditorState, input: string): ActionResult {
   if (!state.document.cursor) {
     return { state, ops: [] };
   }
@@ -1126,7 +1126,7 @@ export function insertText(state: EditorState, input: string): CommandResult {
   return { state: newState, ops };
 }
 
-export function deleteText(state: EditorState): CommandResult {
+export function deleteText(state: EditorState): ActionResult {
   if (!state.document.cursor) {
     return { state, ops: [] };
   }
@@ -1474,7 +1474,7 @@ export function deleteText(state: EditorState): CommandResult {
 }
 
 // Forward delete (Delete key) - deletes character after cursor
-export function deleteForward(state: EditorState): CommandResult {
+export function deleteForward(state: EditorState): ActionResult {
   if (!state.document.cursor) {
     return { state, ops: [] };
   }
@@ -1941,7 +1941,7 @@ export function moveToNextWord(state: EditorState): EditorState {
   return state;
 }
 
-export function deleteWordForward(state: EditorState): CommandResult {
+export function deleteWordForward(state: EditorState): ActionResult {
   if (!state.document.cursor) {
     return { state, ops: [] };
   }
@@ -2046,7 +2046,7 @@ export function deleteWordForward(state: EditorState): CommandResult {
   return { state, ops };
 }
 
-export function deleteWordBackward(state: EditorState): CommandResult {
+export function deleteWordBackward(state: EditorState): ActionResult {
   if (!state.document.cursor) {
     return { state, ops: [] };
   }
@@ -2332,7 +2332,7 @@ export function moveToLineEnd(state: EditorState): EditorState {
   return moveCursorToPosition(state, blockIndex, text.length);
 }
 
-export function splitBlock(state: EditorState): CommandResult {
+export function splitBlock(state: EditorState): ActionResult {
   if (!state.document.cursor) return { state, ops: [] };
 
   const ops: Operation[] = [];
@@ -2880,7 +2880,7 @@ export function selectCurrentBlock(state: EditorState): EditorState {
 export function toggleFormat(
   state: EditorState,
   formatType: string,
-): CommandResult {
+): ActionResult {
   const range = getSelectionRange(state);
 
   // If no selection, toggle format in UI's active formats
@@ -3085,7 +3085,7 @@ export function toggleFormat(
  * Toggle bold formatting on selected text or at cursor position
  * If there's no selection, toggles bold mode for next typed text
  */
-export function toggleBold(state: EditorState): CommandResult {
+export function toggleBold(state: EditorState): ActionResult {
   return toggleFormat(state, "strong");
 }
 
@@ -3093,7 +3093,7 @@ export function toggleBold(state: EditorState): CommandResult {
  * Toggle italic formatting on selected text or at cursor position
  * If there's no selection, toggles italic mode for next typed text
  */
-export function toggleItalic(state: EditorState): CommandResult {
+export function toggleItalic(state: EditorState): ActionResult {
   return toggleFormat(state, "emphasis");
 }
 
@@ -3101,7 +3101,7 @@ export function toggleItalic(state: EditorState): CommandResult {
  * Toggle code formatting on selected text or at cursor position
  * If there's no selection, toggles code mode for next typed text
  */
-export function toggleCode(state: EditorState): CommandResult {
+export function toggleCode(state: EditorState): ActionResult {
   return toggleFormat(state, "code");
 }
 
@@ -3109,7 +3109,7 @@ export function toggleCode(state: EditorState): CommandResult {
  * Toggle strikethrough formatting on selected text or at cursor position
  * If there's no selection, toggles strikethrough mode for next typed text
  */
-export function toggleStrikethrough(state: EditorState): CommandResult {
+export function toggleStrikethrough(state: EditorState): ActionResult {
   return toggleFormat(state, "strike");
 }
 
@@ -3117,7 +3117,7 @@ export function toggleStrikethrough(state: EditorState): CommandResult {
 export function convertBlockType(
   state: EditorState,
   blockType: Block["type"],
-): CommandResult {
+): ActionResult {
   if (!state.document.cursor) return { state, ops: [] };
 
   const ops: Operation[] = [];
@@ -3321,11 +3321,11 @@ export function convertBlockType(
   return { state: newState, ops };
 }
 
-export function applySlashCommand(
+export function applySlashAction(
   state: EditorState,
-  command: SlashCommand,
-): CommandResult {
-  if (!state.document.cursor || state.ui.activeMenu.type !== "slashCommand")
+  action: SlashAction,
+): ActionResult {
+  if (!state.document.cursor || state.ui.activeMenu.type !== "slashAction")
     return { state, ops: [] };
 
   const ops: Operation[] = [];
@@ -3336,7 +3336,7 @@ export function applySlashCommand(
   if (!block || block.deleted) return { state, ops: [] };
 
   // Special handling for image cover blocks
-  if (command.type === "image") {
+  if (action.type === "image") {
     // For image cover blocks, we replace the current block with an empty image cover block
     const newBlock: Block = {
       id: block.id,
@@ -3384,7 +3384,7 @@ export function applySlashCommand(
       ...state,
       document: { ...state.document, page: newPage },
     };
-    newState = closeSlashCommand(newState);
+    newState = closeSlashAction(newState);
 
     // Move cursor to next block (create one if needed)
     if (blockIndex + 1 < newBlocks.length) {
@@ -3427,7 +3427,7 @@ export function applySlashCommand(
   }
 
   // Special handling for math blocks
-  if (command.type === "math") {
+  if (action.type === "math") {
     const newBlock: Block = {
       id: block.id,
       afterId: block.afterId ?? null,
@@ -3473,7 +3473,7 @@ export function applySlashCommand(
       ...state,
       document: { ...state.document, page: newPage },
     };
-    newState = closeSlashCommand(newState);
+    newState = closeSlashAction(newState);
 
     // Move cursor to next block (create one if needed)
     if (blockIndex + 1 < newBlocks.length) {
@@ -3515,7 +3515,7 @@ export function applySlashCommand(
   }
 
   // Special handling for line/divider blocks
-  if (command.type === "line") {
+  if (action.type === "line") {
     // For line blocks, we replace the current block with a line block
     const newBlock: Block = {
       id: block.id,
@@ -3561,7 +3561,7 @@ export function applySlashCommand(
       ...state,
       document: { ...state.document, page: newPage },
     };
-    newState = closeSlashCommand(newState);
+    newState = closeSlashAction(newState);
 
     // Move cursor to next block (create one if needed)
     if (blockIndex + 1 < newBlocks.length) {
@@ -3604,20 +3604,20 @@ export function applySlashCommand(
   }
 
   // Regular text-based blocks and list blocks
-  // If the current block is already an image cover or math block, just close the slash command
+  // If the current block is already an image cover or math block, just close the slash action
   if (block.type === "image" || block.type === "math") {
-    return { state: closeSlashCommand(state), ops: [] };
+    return { state: closeSlashAction(state), ops: [] };
   }
 
   if (!isTextualBlock(block)) {
-    return { state: closeSlashCommand(state), ops: [] };
+    return { state: closeSlashAction(state), ops: [] };
   }
 
   // Delete from "/" position to current cursor position
   const deleteStart = textIndex - 1;
   const deleteEnd = state.document.cursor.position.textIndex;
 
-  // Delete the slash command text using CRDT helper
+  // Delete the slash action text using CRDT helper
   let updatedCharRuns = block.charRuns;
   if (deleteEnd > deleteStart) {
     const { newPage: pageAfterDelete, op: deleteOp } = deleteCharsInRange(
@@ -3636,7 +3636,7 @@ export function applySlashCommand(
 
   // Update block content and type
   let newBlock: Block;
-  if (command.type === "bullet_list") {
+  if (action.type === "bullet_list") {
     newBlock = {
       id: block.id,
       type: "bullet_list",
@@ -3644,7 +3644,7 @@ export function applySlashCommand(
       formats: block.formats,
       indent: 0,
     };
-  } else if (command.type === "numbered_list") {
+  } else if (action.type === "numbered_list") {
     newBlock = {
       id: block.id,
       type: "numbered_list",
@@ -3652,7 +3652,7 @@ export function applySlashCommand(
       formats: block.formats,
       indent: 0,
     };
-  } else if (command.type === "todo_list") {
+  } else if (action.type === "todo_list") {
     newBlock = {
       id: block.id,
       type: "todo_list",
@@ -3665,7 +3665,7 @@ export function applySlashCommand(
     // Regular text blocks (headings, paragraphs)
     newBlock = {
       id: block.id,
-      type: command.type as "heading1" | "heading2" | "heading3" | "paragraph",
+      type: action.type as "heading1" | "heading2" | "heading3" | "paragraph",
       charRuns: updatedCharRuns,
       formats: block.formats,
     };
@@ -3686,15 +3686,15 @@ export function applySlashCommand(
     pageId: state.CRDTbinding.pageId,
     blockId: block.id,
     field: "type",
-    value: command.type,
+    value: action.type,
   };
   ops.push(blockSetOp);
 
   // Emit property changes for list blocks
   if (
-    command.type === "bullet_list" ||
-    command.type === "numbered_list" ||
-    command.type === "todo_list"
+    action.type === "bullet_list" ||
+    action.type === "numbered_list" ||
+    action.type === "todo_list"
   ) {
     const indentSetOp: BlockSet = {
       op: "block_set",
@@ -3707,7 +3707,7 @@ export function applySlashCommand(
     };
     ops.push(indentSetOp);
 
-    if (command.type === "todo_list") {
+    if (action.type === "todo_list") {
       const checkedSetOp: BlockSet = {
         op: "block_set",
         id: state.CRDTbinding.nextId(),
@@ -3726,7 +3726,7 @@ export function applySlashCommand(
     ...state,
     document: { ...state.document, page: newPage },
   };
-  newState = closeSlashCommand(newState);
+  newState = closeSlashAction(newState);
   newState = moveCursorToPosition(newState, blockIndex, textIndex - 1);
 
   return { state: newState, ops };
@@ -3735,7 +3735,7 @@ export function applySlashCommand(
 /**
  * Indent a list item (increase indent level)
  */
-export function indentListItem(state: EditorState): CommandResult {
+export function indentListItem(state: EditorState): ActionResult {
   if (!state.document.cursor) return { state, ops: [] };
 
   const ops: Operation[] = [];
@@ -3799,7 +3799,7 @@ export function indentListItem(state: EditorState): CommandResult {
 /**
  * Outdent a list item (decrease indent level)
  */
-export function outdentListItem(state: EditorState): CommandResult {
+export function outdentListItem(state: EditorState): ActionResult {
   if (!state.document.cursor) return { state, ops: [] };
 
   const ops: Operation[] = [];
@@ -3899,7 +3899,7 @@ export function outdentListItem(state: EditorState): CommandResult {
 export function toggleTodoChecked(
   state: EditorState,
   blockIndex: number,
-): CommandResult {
+): ActionResult {
   const ops: Operation[] = [];
 
   // SAFETY: Validate blockIndex bounds and check block is not deleted
@@ -3950,7 +3950,7 @@ export function toggleTodoChecked(
 export function convertToList(
   state: EditorState,
   listType: "bullet_list" | "numbered_list" | "todo_list",
-): CommandResult {
+): ActionResult {
   if (!state.document.cursor) return { state, ops: [] };
 
   const ops: Operation[] = [];

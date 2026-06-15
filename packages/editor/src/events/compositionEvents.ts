@@ -2,7 +2,7 @@ import {
   COMPOSITION_END,
   COMPOSITION_START,
   COMPOSITION_UPDATE,
-} from "../actions/input-commands";
+} from "../actions/input-actions";
 import { scrollToMakeCursorVisible } from "../selection";
 import type { EditorState, ViewportState } from "../state-types";
 import type { Operation } from "../sync/sync";
@@ -22,7 +22,7 @@ export function handleCompositionStart(
     return { state, ops: [] };
   }
 
-  return state.commandBus.dispatchState(COMPOSITION_START, state, {
+  return state.actionBus.dispatchState(COMPOSITION_START, state, {
     data: event.data || "",
   });
 }
@@ -47,7 +47,7 @@ export function handleCompositionUpdate(
 
   // Don't insert text during composition - just track it.
   // The actual text will be inserted on compositionend.
-  return state.commandBus.dispatchState(COMPOSITION_UPDATE, state, {
+  return state.actionBus.dispatchState(COMPOSITION_UPDATE, state, {
     data: event.data || "",
   });
 }
@@ -68,7 +68,7 @@ export function handleCompositionEnd(
   }
 
   const composedText = event.data || "";
-  const result = state.commandBus.dispatchState(COMPOSITION_END, state, {
+  const result = state.actionBus.dispatchState(COMPOSITION_END, state, {
     data: composedText,
   });
 

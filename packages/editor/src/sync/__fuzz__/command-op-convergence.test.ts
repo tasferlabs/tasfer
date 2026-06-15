@@ -1,15 +1,15 @@
 /**
- * Regression: every editor command must keep the LOCAL page consistent with
+ * Regression: every editor action must keep the LOCAL page consistent with
  * its EMITTED ops.
  *
- * The invariant: for any command,
+ * The invariant: for any action,
  *
- *   visibleBlockOrder(command(state).page)
- *     === visibleBlockOrder(applyOps(state.page, command(state).ops))
+ *   visibleBlockOrder(action(state).page)
+ *     === visibleBlockOrder(applyOps(state.page, action(state).ops))
  *
  * i.e. a remote peer replaying the ops (or a reload rebuilding from the
  * oplog) computes the same block order the local editor rendered. Historical
- * bug class: command code hand-spliced new/replacement blocks into
+ * bug class: action code hand-spliced new/replacement blocks into
  * `page.blocks` without setting `afterId` (or dropped the old block's
  * `afterId` when rebuilding it for a type change). The local array looked
  * right until the next block_insert ran resolveBlockOrder — then the
@@ -21,7 +21,7 @@ import {
   convertBlockType,
   insertText,
   splitBlock,
-} from "../../actions/commands";
+} from "../../actions/actions";
 import { moveCursorToPosition } from "../../selection";
 import type { Block, Page } from "../../serlization/loadPage";
 import { loadPage } from "../../serlization/loadPage";
@@ -32,7 +32,7 @@ import { getVisibleTextFromRuns } from "../char-runs";
 import { applyOps, getVisibleBlocks } from "../reducer";
 import { describe, expect, it } from "vitest";
 
-interface CommandResult {
+interface ActionResult {
   state: EditorState;
   ops: Operation[];
 }
@@ -42,10 +42,10 @@ function orderOf(p: Page): string[] {
 }
 
 /**
- * Assert the command's local page matches replaying its ops on the
- * pre-command page — the convergence invariant.
+ * Assert the action's local page matches replaying its ops on the
+ * pre-action page — the convergence invariant.
  */
-function expectConvergence(prevPage: Page, result: CommandResult): void {
+function expectConvergence(prevPage: Page, result: ActionResult): void {
   const replayed = applyOps(prevPage, result.ops);
   expect(orderOf(result.state.document.page)).toEqual(orderOf(replayed));
 }
@@ -68,7 +68,7 @@ function textOf(block: Block): string {
   return isTextualBlock(block) ? getVisibleTextFromRuns(block.charRuns) : "";
 }
 
-describe("command/op convergence", () => {
+describe("action/op convergence", () => {
   it("convertBlockType preserves afterId and converges", () => {
     const s = moveCursorToPosition(fresh(), 2, 0);
     const conv = convertBlockType(s, "heading1");

@@ -4,7 +4,7 @@ import { Mark, type MarkStyle, type MarkStyleCtx } from "./Mark";
 
 export class LinkMark extends Mark {
   readonly type = "link";
-  readonly togglable = false; // needs a url — applied via the link command
+  readonly togglable = false; // needs a url — applied via the link action
   style({ styles }: MarkStyleCtx): MarkStyle {
     const link = styles.textFormats.link;
     return {

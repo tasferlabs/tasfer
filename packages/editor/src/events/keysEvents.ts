@@ -1,9 +1,10 @@
+import { SLASH_CONFIRM, SLASH_NAVIGATE } from "../action-bus";
 import {
-  applySlashCommand,
+  applySlashAction,
   deleteText,
   getSelectionRange,
   insertText,
-} from "../actions/commands";
+} from "../actions/actions";
 import {
   CLEAR_SELECTION,
   createParagraphAbove,
@@ -20,7 +21,7 @@ import {
   selectVisualBlockAfterMove,
   SPLIT_BLOCK,
   TOGGLE_BOLD,
-} from "../actions/edit-commands";
+} from "../actions/edit-actions";
 import {
   EXTEND_SELECTION_DOWN,
   EXTEND_SELECTION_END,
@@ -44,8 +45,7 @@ import {
   MOVE_TO_LINE_START,
   MOVE_TO_NEXT_WORD,
   MOVE_TO_PREVIOUS_WORD,
-} from "../actions/keyboard-commands";
-import { SLASH_CONFIRM, SLASH_NAVIGATE } from "../command-bus";
+} from "../actions/keyboard-actions";
 import { getCrossedInlineMathSpan } from "../inline-math";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { getTextDirection } from "../rtl";
@@ -63,17 +63,17 @@ import type {
   EditorState,
   KeyboardEvent,
   MouseEvent,
-  SlashCommand,
+  SlashAction,
   ViewportState,
 } from "../state-types";
 import {
   clearAutoCreatedParagraph,
-  closeSlashCommand,
+  closeSlashAction,
   getBlockTextContent,
   openContextMenu,
-  openSlashCommand,
+  openSlashAction,
   setActiveMenu,
-  updateSlashCommandFilter,
+  updateSlashActionFilter,
 } from "../state-utils";
 import { isTextualBlock } from "../sync/block-registry";
 import { redoState, undoState } from "../sync/crdt-undo";
@@ -219,7 +219,7 @@ export function handleKeyDown(
     }
   }
 
-  // Undo/Redo - handle these first, even if slash command is open
+  // Undo/Redo - handle these first, even if slash action is open
   // Use code instead of key for keyboard layout independence
   if (isCtrl && code === "KeyZ" && !keyEvent.shiftKey) {
     const result = undoState(state);
@@ -234,7 +234,7 @@ export function handleKeyDown(
 
   // Select All
   if (isCtrl && code === "KeyA") {
-    const result = state.commandBus.dispatchState(SELECT_ALL, state);
+    const result = state.actionBus.dispatchState(SELECT_ALL, state);
     ops.push(...result.ops);
     return { state: result.state, ops };
   }
@@ -242,7 +242,7 @@ export function handleKeyDown(
   // Bold
   if (isCtrl && code === "KeyB") {
     event.preventDefault();
-    const result = state.commandBus.dispatchState(TOGGLE_BOLD, state);
+    const result = state.actionBus.dispatchState(TOGGLE_BOLD, state);
     ops.push(...result.ops);
     return { state: result.state, ops };
   }
@@ -257,7 +257,7 @@ export function handleKeyDown(
       if (isListBlock(block)) {
         if (keyEvent.shiftKey) {
           // Shift+Tab: outdent
-          const result = state.commandBus.dispatchState(
+          const result = state.actionBus.dispatchState(
             OUTDENT_LIST_ITEM,
             state,
           );
@@ -272,10 +272,7 @@ export function handleKeyDown(
           return { state: newState, ops };
         } else {
           // Tab: indent
-          const result = state.commandBus.dispatchState(
-            INDENT_LIST_ITEM,
-            state,
-          );
+          const result = state.actionBus.dispatchState(INDENT_LIST_ITEM, state);
           const newState = result.state;
           ops.push(...result.ops);
           ensureCursorVisible(
@@ -298,40 +295,40 @@ export function handleKeyDown(
   // are intentionally NOT intercepted here, so the keydown falls through and
   // the browser fires those events.
 
-  // Handle slash command menu navigation
-  if (state.ui.activeMenu.type === "slashCommand") {
-    // The host owns the command list, filtering, and the current selection.
-    // The engine only relays navigation keys to it (via the command bus) and
-    // applies the chosen command — it never sees the list itself.
+  // Handle slash action menu navigation
+  if (state.ui.activeMenu.type === "slashAction") {
+    // The host owns the action list, filtering, and the current selection.
+    // The engine only relays navigation keys to it (via the action bus) and
+    // applies the chosen action — it never sees the list itself.
     const slashMenu = state.ui.activeMenu;
 
     switch (key) {
       case "ArrowLeft":
       case "ArrowRight":
         // Close slash menu on left/right arrow and continue to normal arrow key handling
-        state = closeSlashCommand(state);
+        state = closeSlashAction(state);
         break;
       case "ArrowDown":
         // Relay to the host so it moves its own highlight; consume the key so
         // the caret doesn't move.
-        state.commandBus.dispatch(SLASH_NAVIGATE, { direction: "down" });
+        state.actionBus.dispatch(SLASH_NAVIGATE, { direction: "down" });
         return { state, ops };
       case "ArrowUp":
-        state.commandBus.dispatch(SLASH_NAVIGATE, { direction: "up" });
+        state.actionBus.dispatch(SLASH_NAVIGATE, { direction: "up" });
         return { state, ops };
       case "Enter": {
-        // Ask the host for its selected command. It calls `confirm`
+        // Ask the host for its selected action. It calls `confirm`
         // synchronously; we apply it here, through the normal return path, so
         // the engine stays the sole writer of `state` (no mid-frame clobber
         // from the host callback). No host claim (e.g. empty list) → close.
-        const picked: { command: SlashCommand | null } = { command: null };
-        state.commandBus.dispatch(SLASH_CONFIRM, {
-          confirm: (command) => {
-            picked.command = command;
+        const picked: { action: SlashAction | null } = { action: null };
+        state.actionBus.dispatch(SLASH_CONFIRM, {
+          confirm: (action) => {
+            picked.action = action;
           },
         });
-        if (picked.command && state.document.cursor) {
-          const result = applySlashCommand(state, picked.command);
+        if (picked.action && state.document.cursor) {
+          const result = applySlashAction(state, picked.action);
           const newState = result.state;
           ops.push(...result.ops);
           ensureCursorVisible(
@@ -342,10 +339,10 @@ export function handleKeyDown(
           );
           return { state: newState, ops };
         }
-        return { state: closeSlashCommand(state), ops };
+        return { state: closeSlashAction(state), ops };
       }
       case "Escape":
-        // Close slash command and remove the "/" character
+        // Close slash action and remove the "/" character
         if (state.document.cursor) {
           const { blockIndex, textIndex } = slashMenu;
           const block = state.document.page.blocks[blockIndex];
@@ -353,7 +350,7 @@ export function handleKeyDown(
 
           // Visual blocks (image/line/math) don't have text content, so guard anyway
           if (!isTextualBlock(block)) {
-            return { state: closeSlashCommand(state), ops };
+            return { state: closeSlashAction(state), ops };
           }
 
           // Remove the "/" and filter text using CRDT operations
@@ -372,7 +369,7 @@ export function handleKeyDown(
             ...state,
             document: { ...state.document, page: newPage },
           };
-          newState = closeSlashCommand(newState);
+          newState = closeSlashAction(newState);
           newState = moveCursorToPosition(newState, blockIndex, textIndex - 1);
 
           ensureCursorVisible(
@@ -383,18 +380,18 @@ export function handleKeyDown(
           );
           return { state: newState, ops };
         }
-        return { state: closeSlashCommand(state), ops };
+        return { state: closeSlashAction(state), ops };
       case "Backspace":
         // If at the start of filter, close menu
         if (
           state.document.cursor &&
-          state.ui.activeMenu.type === "slashCommand" &&
+          state.ui.activeMenu.type === "slashAction" &&
           state.document.cursor.position.textIndex <=
             state.ui.activeMenu.textIndex
         ) {
           // Close menu and delete the slash character - no  needed since deleteText already records
           const deleteResult = deleteText(state);
-          const newState = closeSlashCommand(deleteResult.state);
+          const newState = closeSlashAction(deleteResult.state);
           ops.push(...deleteResult.ops);
           ensureCursorVisible(
             newState,
@@ -407,7 +404,7 @@ export function handleKeyDown(
         // Otherwise update filter - deleteText handles  internally
         if (
           state.document.cursor &&
-          state.ui.activeMenu.type === "slashCommand"
+          state.ui.activeMenu.type === "slashAction"
         ) {
           const slashMenu = state.ui.activeMenu;
           const result = deleteText(state);
@@ -421,7 +418,7 @@ export function handleKeyDown(
               slashMenu.textIndex,
               newState.document.cursor.position.textIndex,
             );
-            const finalState = updateSlashCommandFilter(newState, filter);
+            const finalState = updateSlashActionFilter(newState, filter);
             ensureCursorVisible(
               finalState,
               state,
@@ -433,13 +430,13 @@ export function handleKeyDown(
         }
         return { state, ops };
       default:
-        // Handle typing to filter commands (including spaces)
+        // Handle typing to filter actions (including spaces)
         if (
           key.length === 1 &&
           !keyEvent.ctrlKey &&
           !keyEvent.altKey &&
           !keyEvent.metaKey &&
-          state.ui.activeMenu.type === "slashCommand"
+          state.ui.activeMenu.type === "slashAction"
         ) {
           const slashMenu = state.ui.activeMenu;
           // insertText handles  internally
@@ -454,7 +451,7 @@ export function handleKeyDown(
               slashMenu.textIndex,
               result.state.document.cursor.position.textIndex,
             );
-            const finalState = updateSlashCommandFilter(result.state, filter);
+            const finalState = updateSlashActionFilter(result.state, filter);
             ensureCursorVisible(
               finalState,
               state,
@@ -494,14 +491,14 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (isCtrl && keyEvent.shiftKey) {
-        const moved = newState.commandBus.dispatchState(
+        const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_WORD_LEFT,
           newState,
         );
         newState = moved.state;
         ops.push(...moved.ops);
       } else if (keyEvent.shiftKey) {
-        const moved = newState.commandBus.dispatchState(
+        const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_LEFT,
           newState,
         );
@@ -583,17 +580,17 @@ export function handleKeyDown(
             );
           }
         } else if (isCtrl) {
-          const moved = newState.commandBus.dispatchState(
+          const moved = newState.actionBus.dispatchState(
             MOVE_TO_PREVIOUS_WORD,
             newState,
           );
           newState = moved.state;
           ops.push(...moved.ops);
         } else {
-          // Dispatch the named state command so hosts/plugins can observe or
+          // Dispatch the named state action so hosts/plugins can observe or
           // override it; the bus threads {state, ops} forward (no ops here —
           // a pure caret move).
-          const moved = newState.commandBus.dispatchState(
+          const moved = newState.actionBus.dispatchState(
             MOVE_CURSOR_LEFT,
             newState,
           );
@@ -614,14 +611,14 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (isCtrl && keyEvent.shiftKey) {
-        const moved = newState.commandBus.dispatchState(
+        const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_WORD_RIGHT,
           newState,
         );
         newState = moved.state;
         ops.push(...moved.ops);
       } else if (keyEvent.shiftKey) {
-        const moved = newState.commandBus.dispatchState(
+        const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_RIGHT,
           newState,
         );
@@ -698,14 +695,14 @@ export function handleKeyDown(
             );
           }
         } else if (isCtrl) {
-          const moved = newState.commandBus.dispatchState(
+          const moved = newState.actionBus.dispatchState(
             MOVE_TO_NEXT_WORD,
             newState,
           );
           newState = moved.state;
           ops.push(...moved.ops);
         } else {
-          const moved = newState.commandBus.dispatchState(
+          const moved = newState.actionBus.dispatchState(
             MOVE_CURSOR_RIGHT,
             newState,
           );
@@ -726,7 +723,7 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        const moved = newState.commandBus.dispatchState(
+        const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_UP,
           newState,
           { viewport },
@@ -758,7 +755,7 @@ export function handleKeyDown(
 
         // Clear selection and move cursor
         {
-          const moved = newState.commandBus.dispatchState(
+          const moved = newState.actionBus.dispatchState(
             MOVE_CURSOR_UP,
             newState,
             { viewport },
@@ -778,7 +775,7 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        const moved = newState.commandBus.dispatchState(
+        const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_DOWN,
           newState,
           { viewport },
@@ -823,7 +820,7 @@ export function handleKeyDown(
 
         // Clear selection and move cursor
         {
-          const moved = newState.commandBus.dispatchState(
+          const moved = newState.actionBus.dispatchState(
             MOVE_CURSOR_DOWN,
             newState,
             { viewport },
@@ -843,7 +840,7 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        const moved = newState.commandBus.dispatchState(
+        const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_PAGE_UP,
           newState,
           { viewport },
@@ -874,7 +871,7 @@ export function handleKeyDown(
         }
 
         {
-          const moved = newState.commandBus.dispatchState(
+          const moved = newState.actionBus.dispatchState(
             MOVE_CURSOR_PAGE_UP,
             newState,
             { viewport },
@@ -894,7 +891,7 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        const moved = newState.commandBus.dispatchState(
+        const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_PAGE_DOWN,
           newState,
           { viewport },
@@ -938,7 +935,7 @@ export function handleKeyDown(
         }
 
         {
-          const moved = newState.commandBus.dispatchState(
+          const moved = newState.actionBus.dispatchState(
             MOVE_CURSOR_PAGE_DOWN,
             newState,
             { viewport },
@@ -958,7 +955,7 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        const moved = newState.commandBus.dispatchState(
+        const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_HOME,
           newState,
           { isCtrl },
@@ -966,7 +963,7 @@ export function handleKeyDown(
         newState = moved.state;
         ops.push(...moved.ops);
       } else {
-        const moved = newState.commandBus.dispatchState(
+        const moved = newState.actionBus.dispatchState(
           isCtrl ? MOVE_TO_DOCUMENT_START : MOVE_TO_LINE_START,
           newState,
         );
@@ -979,7 +976,7 @@ export function handleKeyDown(
       newState = updateFocus(state, true);
 
       if (keyEvent.shiftKey) {
-        const moved = newState.commandBus.dispatchState(
+        const moved = newState.actionBus.dispatchState(
           EXTEND_SELECTION_END,
           newState,
           { isCtrl },
@@ -987,7 +984,7 @@ export function handleKeyDown(
         newState = moved.state;
         ops.push(...moved.ops);
       } else {
-        const moved = newState.commandBus.dispatchState(
+        const moved = newState.actionBus.dispatchState(
           isCtrl ? MOVE_TO_DOCUMENT_END : MOVE_TO_LINE_END,
           newState,
         );
@@ -996,12 +993,12 @@ export function handleKeyDown(
       }
       break;
     case "Escape": {
-      const result = state.commandBus.dispatchState(CLEAR_SELECTION, state);
+      const result = state.actionBus.dispatchState(CLEAR_SELECTION, state);
       ops.push(...result.ops);
       return { state: result.state, ops };
     }
     case "Backspace": {
-      const result = state.commandBus.dispatchState(
+      const result = state.actionBus.dispatchState(
         isCtrl ? DELETE_WORD_BACKWARD : DELETE_BACKWARD,
         state,
       );
@@ -1010,7 +1007,7 @@ export function handleKeyDown(
       break;
     }
     case "Delete": {
-      const result = state.commandBus.dispatchState(
+      const result = state.actionBus.dispatchState(
         isCtrl ? DELETE_WORD_FORWARD : DELETE_FORWARD,
         state,
       );
@@ -1019,14 +1016,14 @@ export function handleKeyDown(
       break;
     }
     case "Enter": {
-      const result = state.commandBus.dispatchState(SPLIT_BLOCK, state);
+      const result = state.actionBus.dispatchState(SPLIT_BLOCK, state);
       newState = result.state;
       ops.push(...result.ops);
       break;
     }
     case " ":
     case "Space": {
-      const result = state.commandBus.dispatchState(INSERT_TEXT, state, {
+      const result = state.actionBus.dispatchState(INSERT_TEXT, state, {
         text: " ",
       });
       newState = result.state;
@@ -1048,12 +1045,12 @@ export function handleKeyDown(
       ) {
         const { blockIndex: blockIndex } = state.document.cursor.position;
 
-        // Allow slash command anywhere in paragraphs and headings
+        // Allow slash action anywhere in paragraphs and headings
         const slashResult = insertText(state, "/");
         const newState = slashResult.state;
         ops.push(...slashResult.ops);
         if (newState.document.cursor) {
-          const finalState = openSlashCommand(
+          const finalState = openSlashAction(
             newState,
             blockIndex,
             newState.document.cursor.position.textIndex,
@@ -1075,7 +1072,7 @@ export function handleKeyDown(
         !keyEvent.altKey &&
         !keyEvent.metaKey
       ) {
-        const result = state.commandBus.dispatchState(INSERT_TEXT, state, {
+        const result = state.actionBus.dispatchState(INSERT_TEXT, state, {
           text: key,
         });
         newState = result.state;

@@ -60,7 +60,7 @@ export {
 // `NodeHitRegion`s via `Node.regions` (see the block-views export above) and
 // the event layer binds behavior to them by id. Nodes are the extension point.
 
-// Editor instance API. The public `Editor` type is the structural command/
+// Editor instance API. The public `Editor` type is the structural action/
 // lifecycle surface (`EditorApi`) — host code holds the spread `CypherEditor`
 // handle, not a class instance, so the public type must stay interface-shaped.
 // The concrete `Editor` class is reachable via the `@cypherkit/editor/entries/
@@ -69,14 +69,14 @@ export type {
   ChangeApi,
   ChangeTransaction,
   EditorApi as Editor,
-  EditorCommand,
+  EditorAction,
   EditorEvent,
   EditorStateSnapshot,
   MarkName,
 } from "./entries/editor";
 
 // Convenience constructor — parse Markdown + mount in a single call, returning
-// one handle that merges the editor command API with the mount lifecycle. The
+// one handle that merges the editor action API with the mount lifecycle. The
 // lower-level `mountEditor` (above) stays available for hosts that want the
 // split. (The raw `entries/editor` constructor remains reachable via the
 // `@cypherkit/editor/entries/editor` subpath for advanced use.)
@@ -117,45 +117,45 @@ export type {
 export type { CustomBlock } from "./serlization/loadPage";
 export type { BlockSpecCore, DataSchema, MarkSpec } from "./sync/schema";
 
-// Command bus — declare imperative commands (`command`) that hosts hook
-// via `editor.registerCommand` (override by returning `true`, or observe by
+// Action bus — declare imperative actions (`action`) that hosts hook
+// via `editor.registerAction` (override by returning `true`, or observe by
 // returning `void`). The engine dispatches built-ins like `OPEN_LINK` and the
 // touch-gesture milestones below; a native shell maps them to its own effects.
-// A `MutationCommand` (declared with `command(name, mutate)`) goes one step
+// A `MutationAction` (declared with `action(name, mutate)`) goes one step
 // further: its default is a document mutation, so `editor.dispatch` runs the
 // default plus every observer inside ONE undoable transaction, and observers
-// (registered via the same `registerCommand`) are handed the `ChangeApi`.
-// A `StateCommand` (declared with `stateCommand(name, transform)`) is the
+// (registered via the same `registerAction`) are handed the `ChangeApi`.
+// A `StateAction` (declared with `stateAction(name, transform)`) is the
 // lower-level shape: its default is a pure `(state) => { state, ops }`
-// transform, dispatched via `commandBus.dispatchState` from inside the event
+// transform, dispatched via `actionBus.dispatchState` from inside the event
 // pipeline — the form that can express cursor/selection moves emitting no ops.
 export type {
-  Command,
-  CommandBus,
-  CommandHandler,
-  MutationCommand,
+  Action,
+  ActionBus,
+  ActionHandler,
+  MutationAction,
   MutationHandler,
   Mutator,
-  StateCommand,
+  StateAction,
   StateHandler,
   StateMutator,
   StateResult,
-} from "./command-bus";
+} from "./action-bus";
 export {
-  command,
+  action,
   CURSOR_DRAG_BOUNDARY,
   CURSOR_DRAG_END,
   CURSOR_DRAG_START,
-  isMutationCommand,
-  isStateCommand,
+  isMutationAction,
+  isStateAction,
   OPEN_LINK,
   REGION_DRAG_START,
   SLASH_CONFIRM,
   SLASH_NAVIGATE,
-  stateCommand,
-} from "./command-bus";
-// Editor keyboard commands — named cursor-movement / selection-extension
-// actions migrated out of the event handlers (see `actions/keyboard-commands.ts`).
+  stateAction,
+} from "./action-bus";
+// Editor keyboard actions — named cursor-movement / selection-extension
+// actions migrated out of the event handlers (see `actions/keyboard-actions.ts`).
 export {
   EXTEND_SELECTION_DOWN,
   EXTEND_SELECTION_END,
@@ -179,10 +179,10 @@ export {
   MOVE_TO_LINE_START,
   MOVE_TO_NEXT_WORD,
   MOVE_TO_PREVIOUS_WORD,
-} from "./actions/keyboard-commands";
-// Editor edit commands — named content-mutating / selection-clearing actions
+} from "./actions/keyboard-actions";
+// Editor edit actions — named content-mutating / selection-clearing actions
 // (insert, delete, split, format, indent, clear) migrated out of the event
-// handlers (see `actions/edit-commands.ts`).
+// handlers (see `actions/edit-actions.ts`).
 export {
   CLEAR_SELECTION,
   DELETE_BACKWARD,
@@ -195,9 +195,9 @@ export {
   SELECT_ALL,
   SPLIT_BLOCK,
   TOGGLE_BOLD,
-} from "./actions/edit-commands";
-// Editor mouse commands — named click / selection / hover actions migrated out
-// of the mouse event handlers (see `actions/mouse-commands.ts`).
+} from "./actions/edit-actions";
+// Editor mouse actions — named click / selection / hover actions migrated out
+// of the mouse event handlers (see `actions/mouse-actions.ts`).
 export {
   CLEAR_SELECTION_IN_PADDING,
   CLEAR_VISUAL_BLOCK_SELECTION,
@@ -211,9 +211,9 @@ export {
   SET_IMAGE_HOVER,
   SET_INLINE_MATH_HOVER,
   SET_MATH_BLOCK_HOVER,
-} from "./actions/mouse-commands";
-// Editor touch commands — named tap / long-press / visual-block actions migrated
-// out of the touch event handlers (see `actions/touch-commands.ts`).
+} from "./actions/mouse-actions";
+// Editor touch actions — named tap / long-press / visual-block actions migrated
+// out of the touch event handlers (see `actions/touch-actions.ts`).
 export {
   CLOSE_NODE_OVERLAY,
   CREATE_PARAGRAPH_BELOW_IMAGE,
@@ -229,10 +229,10 @@ export {
   TAP_SELECT_VISUAL_BLOCK,
   TAP_SIDE_PADDING,
   TAP_TOP_PADDING,
-} from "./actions/touch-commands";
-// Editor input commands — named IME-composition / paste / image-resize-drag
+} from "./actions/touch-actions";
+// Editor input actions — named IME-composition / paste / image-resize-drag
 // actions migrated out of the input event handlers (see
-// `actions/input-commands.ts`).
+// `actions/input-actions.ts`).
 export {
   CANCEL_IMAGE_DRAG,
   COMPOSITION_END,
@@ -242,7 +242,7 @@ export {
   PASTE,
   START_IMAGE_DRAG,
   UPDATE_IMAGE_DRAG,
-} from "./actions/input-commands";
+} from "./actions/input-actions";
 
 // Core document model + CRDT operation types. The stored-mark CRDT record is
 // exported as `StoredMark` so the top-level `Mark` can be the rendering base
@@ -271,7 +271,7 @@ export type {
   Operation,
   OverlayRect,
   ScrollbarStyles,
-  SlashCommand,
+  SlashAction,
   ThemeTokens,
   VersionVector,
   ViewportState,
@@ -344,7 +344,7 @@ export { isValidLatex, renderToSVG } from "./math";
 // Convenience helpers — candidates for future encapsulation behind a richer
 // `Editor`/`Doc` handle. Exposed now so hosts that drive toolbars, link UI, and
 // find can read block/format state without deep imports.
-export { getFormatsAtPosition, getSelectionRange } from "./actions/commands";
+export { getFormatsAtPosition, getSelectionRange } from "./actions/actions";
 export type { TextualBlock } from "./nodes/TextNode";
 export { getLinkAtPosition } from "./selection";
 export {
