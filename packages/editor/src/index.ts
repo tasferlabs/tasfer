@@ -117,16 +117,28 @@ export type {
 export type { CustomBlock } from "./serlization/loadPage";
 export type { BlockSpecCore, DataSchema, MarkSpec } from "./sync/schema";
 
-// Command bus — declare imperative commands (`defineCommand`) that hosts hook
+// Command bus — declare imperative commands (`command`) that hosts hook
 // via `editor.registerCommand` (override by returning `true`, or observe by
 // returning `void`). The engine dispatches built-ins like `OPEN_LINK` and the
 // touch-gesture milestones below; a native shell maps them to its own effects.
-export type { Command, CommandBus, CommandHandler } from "./command-bus";
+// A `MutationCommand` (declared with `command(name, mutate)`) goes one step
+// further: its default is a document mutation, so `editor.dispatch` runs the
+// default plus every observer inside ONE undoable transaction, and observers
+// (registered via the same `registerCommand`) are handed the `ChangeApi`.
+export type {
+  Command,
+  CommandBus,
+  CommandHandler,
+  MutationCommand,
+  MutationHandler,
+  Mutator,
+} from "./command-bus";
 export {
+  command,
   CURSOR_DRAG_BOUNDARY,
   CURSOR_DRAG_END,
   CURSOR_DRAG_START,
-  defineCommand,
+  isMutationCommand,
   OPEN_LINK,
   REGION_DRAG_START,
   SLASH_CONFIRM,

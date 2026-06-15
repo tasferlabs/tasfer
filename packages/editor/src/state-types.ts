@@ -498,7 +498,7 @@ export interface EditorState {
   readonly undoManager: UndoManagerState;
   readonly CRDTbinding: CRDTbinding;
   /**
-   * Per-instance command bus (see `defineCommand`): hooks for the editor's
+   * Per-instance command bus (see `command`): hooks for the editor's
    * imperative actions — link activation, touch-gesture milestones. The engine
    * dispatches through `state.commandBus`; hosts attach handlers via
    * `editor.registerCommand`. Owned by this editor — NOT a module global — so

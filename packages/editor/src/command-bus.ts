@@ -2,7 +2,7 @@
  * Command bus — a small, Lexical-style dispatch primitive that lets hosts and
  * plugins hook the editor's imperative actions without the engine knowing who
  * is listening. It sits alongside the schema's `defineNode` / `defineMark` as a
- * third extension primitive: `defineCommand` declares a typed action,
+ * third extension primitive: `command` declares a typed action,
  * `editor.dispatch` fires it, `editor.registerCommand` listens.
  *
  * Two usage patterns fall out of one mechanism (priority + a "handled" return):
@@ -22,6 +22,7 @@
  * two editors on a page keep independent listeners.
  */
 
+import type { ChangeApi } from "./entries/editor";
 import type { SlashCommand } from "./state-types";
 
 /**
@@ -36,9 +37,54 @@ export interface Command<P = void> {
   readonly _p?: P;
 }
 
-/** Declare a command. `name` is for debugging; two commands never alias by it. */
-export function defineCommand<P = void>(name: string): Command<P> {
-  return { name };
+/**
+ * A mutation command's handler. Receives the editor's {@link ChangeApi} plus the
+ * payload, so an observer can contribute edits to the SAME transaction as the
+ * default. Return `true` to override — claim the command and skip the default
+ * mutation; return `false`/`void` to observe (queued edits still commit).
+ */
+export type MutationHandler<P = void> = (
+  c: ChangeApi,
+  payload: P,
+) => boolean | void;
+
+/** The default mutation carried by a {@link MutationCommand} (handler-shaped). */
+export type Mutator<P = void> = MutationHandler<P>;
+
+/**
+ * A command whose default behavior is a document mutation. Unlike a plain
+ * {@link Command}, dispatching it runs the default plus every observer inside
+ * ONE `change()` — one undo entry, one broadcast, one `on("change")`. It is
+ * still a `Command<P>`, so it also flows through `run`/schema shortcuts.
+ */
+export interface MutationCommand<P = void> extends Command<P> {
+  readonly mutate: Mutator<P>;
+}
+
+/**
+ * Declare a command. `name` is for debugging only — identity is by reference, so
+ * two commands never alias by it. Pass a `mutate` function to make it a
+ * {@link MutationCommand}: its default behavior is a document mutation that
+ * `editor.dispatch` runs (with every observer) inside one undoable transaction.
+ * Either form is safe as a shared module-level constant — a `mutate` must be
+ * pure with respect to editor instances (it only touches the {@link ChangeApi}
+ * it's handed).
+ */
+export function command<P = void>(name: string): Command<P>;
+export function command<P = void>(
+  name: string,
+  mutate: Mutator<P>,
+): MutationCommand<P>;
+export function command<P = void>(
+  name: string,
+  mutate?: Mutator<P>,
+): Command<P> | MutationCommand<P> {
+  return mutate ? { name, mutate } : { name };
+}
+
+/** Narrow a command to a mutation command (dispatch/run use this to pick a path). */
+export function isMutationCommand<P>(c: Command<P>): c is MutationCommand<P> {
+  return typeof (c as Partial<MutationCommand<P>>).mutate === "function";
 }
 
 /**
@@ -73,6 +119,12 @@ export interface CommandBus {
    * returns `true`. Returns whether any handler claimed it.
    */
   dispatch<P>(command: Command<P>, ...args: DispatchArgs<P>): boolean;
+  /**
+   * Registered handlers for `command`, high→low priority. For drivers that
+   * invoke handlers with a non-standard signature — mutation commands thread a
+   * {@link ChangeApi} through one transaction instead of going via `dispatch`.
+   */
+  handlersFor<P>(command: Command<P>): readonly CommandHandler<P>[];
 }
 
 interface Registered {
@@ -114,6 +166,12 @@ export function createCommandBus(): CommandBus {
       }
       return false;
     },
+    handlersFor(command) {
+      const list = handlers.get(command as Command<unknown>) ?? [];
+      return list.map(
+        (e) => e.handler,
+      ) as readonly CommandHandler<unknown>[] as never;
+    },
   };
 }
 
@@ -125,16 +183,16 @@ export function createCommandBus(): CommandBus {
  * {@link DEFAULT_COMMAND_PRIORITY}; a host can register a higher-priority
  * handler that returns `true` to route the link itself (e.g. native nav).
  */
-export const OPEN_LINK = defineCommand<{ url: string }>("open-link");
+export const OPEN_LINK = command<{ url: string }>("open-link");
 
 /** A touch cursor-drag gesture began. Observe-only (no editor default). */
-export const CURSOR_DRAG_START = defineCommand("cursor-drag-start");
+export const CURSOR_DRAG_START = command("cursor-drag-start");
 
 /** The touch-dragged caret crossed a character/line boundary. Observe-only. */
-export const CURSOR_DRAG_BOUNDARY = defineCommand("cursor-drag-boundary");
+export const CURSOR_DRAG_BOUNDARY = command("cursor-drag-boundary");
 
 /** A touch cursor-drag gesture ended (finger lifted). Observe-only. */
-export const CURSOR_DRAG_END = defineCommand("cursor-drag-end");
+export const CURSOR_DRAG_END = command("cursor-drag-end");
 
 /**
  * A held region drag (selection handle, image resize, scrollbar, …) promoted
@@ -142,7 +200,7 @@ export const CURSOR_DRAG_END = defineCommand("cursor-drag-end");
  * (see `RegionDragSpec.activationIntensity`); a host maps it to haptics, sound,
  * etc. Observe-only.
  */
-export const REGION_DRAG_START = defineCommand<{
+export const REGION_DRAG_START = command<{
   regionId: string;
   intensity: "light" | "medium" | "heavy";
 }>("region-drag-start");
@@ -154,7 +212,7 @@ export const REGION_DRAG_START = defineCommand<{
  * its own highlight. Observe-only (no editor default); the engine consumes the
  * key regardless so the caret doesn't move.
  */
-export const SLASH_NAVIGATE = defineCommand<{ direction: "up" | "down" }>(
+export const SLASH_NAVIGATE = command<{ direction: "up" | "down" }>(
   "slash-navigate",
 );
 
@@ -166,6 +224,6 @@ export const SLASH_NAVIGATE = defineCommand<{ direction: "up" | "down" }>(
  * host claims the command by returning `true`; if none does (e.g. an empty
  * filtered list), the engine closes the menu.
  */
-export const SLASH_CONFIRM = defineCommand<{
+export const SLASH_CONFIRM = command<{
   confirm: (command: SlashCommand) => void;
 }>("slash-confirm");

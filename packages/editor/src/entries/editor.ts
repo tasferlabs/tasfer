@@ -19,6 +19,9 @@ import {
   type CommandHandler,
   DEFAULT_COMMAND_PRIORITY,
   type DispatchArgs,
+  isMutationCommand,
+  type MutationCommand,
+  type MutationHandler,
   OPEN_LINK,
 } from "../command-bus";
 import { createChromeRegionRegistry } from "../events/chromeRegions";
@@ -288,7 +291,19 @@ export interface EditorApi {
     callback: (state: EditorState) => void,
   ): () => void;
   /**
-   * Register a handler for a command (see `defineCommand`). Higher `priority`
+   * Observe or override a mutation command (see `command`). The handler runs
+   * inside the dispatch's single transaction and is handed the {@link ChangeApi}
+   * — return `true` to claim the command and skip its default mutation, or
+   * `false`/`void` to observe while still contributing edits. Higher `priority`
+   * runs first (default `0`). Returns an unsubscribe fn.
+   */
+  registerCommand<P>(
+    command: MutationCommand<P>,
+    handler: MutationHandler<P>,
+    priority?: number,
+  ): () => void;
+  /**
+   * Register a handler for a command (see `command`). Higher `priority`
    * runs first (default `0`, above the editor's built-in defaults). Return
    * `true` to handle the command and stop propagation — skipping the default —
    * or `false`/`void` to observe and pass through. Returns an unsubscribe fn.
@@ -299,8 +314,10 @@ export interface EditorApi {
     priority?: number,
   ): () => void;
   /**
-   * Dispatch a command through this editor's bus; returns whether a handler
-   * claimed it (see {@link Editor.registerCommand}).
+   * Dispatch a command through this editor's bus. For a plain command, returns
+   * whether a handler claimed it. For a mutation command (see `command`), the
+   * default plus all observers run inside ONE undoable transaction and the
+   * return value is whether the document changed (see {@link Editor.registerCommand}).
    */
   dispatch<P>(command: Command<P>, ...args: DispatchArgs<P>): boolean;
   /** Serialize the current document to a Markdown string. */
@@ -323,11 +340,16 @@ export interface EditorApi {
   canChange: (fn: (c: ChangeApi) => void) => boolean;
   /**
    * Run one or more commands, composed into a single undoable step (sugar over
-   * {@link change}). Each entry is an inline {@link EditorCommand} or the name
-   * of one declared on the schema (`schema.commands`); an unknown name is a
-   * no-op. Returns whether anything changed.
+   * {@link change}). Each entry is an inline {@link EditorCommand}, a
+   * {@link MutationCommand} (its `mutate` is composed in; only void-payload ones
+   * fit here), or the name of a command declared on the schema
+   * (`schema.commands`); an unknown name is a no-op. Returns whether anything
+   * changed. Unlike {@link dispatch}, `run` composes raw mutations — it does
+   * not fire a mutation command's registered observers.
    */
-  run: (...commands: (string | EditorCommand)[]) => boolean;
+  run: (
+    ...commands: (string | EditorCommand | MutationCommand<void>)[]
+  ) => boolean;
   /** Step local history backward; returns whether it changed the document. */
   undo: () => boolean;
   /** Step local history forward; returns whether it changed the document. */
@@ -611,10 +633,16 @@ export class Editor implements EditorApi {
   // Click handler for focusing input (stored for cleanup)
   private canvasClickHandler: (() => void) | null = null;
 
-  // Named commands (from the schema), resolvable by name in `run`.
-  private schemaCommands: Readonly<Record<string, EditorCommand>> = {};
-  // Keybinding → command (name or inline), dispatched ahead of built-in keys.
-  private schemaShortcuts: Readonly<Record<string, string | EditorCommand>> = {};
+  // Named commands (from the schema), resolvable by name in `run`/shortcuts.
+  // A value is either a raw EditorCommand or a listenable MutationCommand.
+  private schemaCommands: Readonly<
+    Record<string, EditorCommand | MutationCommand<void>>
+  > = {};
+  // Keybinding → command (name, inline, or MutationCommand), checked ahead of
+  // built-in keys. A MutationCommand fires through `dispatch` so its observers run.
+  private schemaShortcuts: Readonly<
+    Record<string, string | EditorCommand | MutationCommand<void>>
+  > = {};
 
   constructor(
     layers: CanvasLayers,
@@ -622,8 +650,12 @@ export class Editor implements EditorApi {
     viewportProp: ViewportState,
     hiddenInput?: HTMLElement,
     config?: {
-      commands?: Readonly<Record<string, EditorCommand>>;
-      shortcuts?: Readonly<Record<string, string | EditorCommand>>;
+      commands?: Readonly<
+        Record<string, EditorCommand | MutationCommand<void>>
+      >;
+      shortcuts?: Readonly<
+        Record<string, string | EditorCommand | MutationCommand<void>>
+      >;
     },
   ) {
     // Extract contexts from layers
@@ -1816,6 +1848,16 @@ export class Editor implements EditorApi {
       }
     }
 
+    // Host schema shortcuts take precedence over the built-in keymap. A matched
+    // combo runs its command (a MutationCommand goes through dispatch so its
+    // observers fire) and consumes the key, so the built-in path below — and the
+    // window listener — don't also act on it.
+    if (this.handleSchemaShortcut(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
     // Only forward special keys to avoid duplication with input event
     // Regular text input is handled by hiddenInputHandler
     if (
@@ -2186,16 +2228,42 @@ export class Editor implements EditorApi {
 
   // The bus methods are stable closures across state updates (the bus reference
   // never changes), so these simply delegate to the current binding.
+  // One implementation behind the two public overloads (plain CommandHandler vs.
+  // a mutation command's ChangeApi-threading MutationHandler). The bus stores
+  // both shapes in the same slot; `dispatch`/`dispatchMutation` invoke each with
+  // the right arguments, so the registry stays handler-shape-agnostic here.
   registerCommand = <P>(
     command: Command<P>,
-    handler: CommandHandler<P>,
+    handler: CommandHandler<P> | MutationHandler<P>,
     priority?: number,
   ): (() => void) => {
-    return this._state.commandBus.register(command, handler, priority);
+    return this._state.commandBus.register(
+      command,
+      handler as CommandHandler<P>,
+      priority,
+    );
   };
 
   dispatch = <P>(command: Command<P>, ...args: DispatchArgs<P>): boolean => {
-    return this._state.commandBus.dispatch(command, ...args);
+    // Plain command: route straight through the bus (handler walk, override on
+    // first `true`). Returns whether a handler claimed it.
+    if (!isMutationCommand(command)) {
+      return this._state.commandBus.dispatch(command, ...args);
+    }
+    // Mutation command: run its observers (high→low) plus its default inside ONE
+    // change() — an observer can override (return true → skip the default) or
+    // contribute edits to the same transaction. Returns whether the doc changed.
+    const payload = (args as unknown[])[0] as P;
+    return this.change((c) => {
+      let claimed = false;
+      for (const handler of this._state.commandBus.handlersFor(command)) {
+        if ((handler as unknown as MutationHandler<P>)(c, payload) === true) {
+          claimed = true;
+          break;
+        }
+      }
+      if (!claimed) command.mutate(c, payload);
+    });
   };
 
   getMarkdown = (): string => {
@@ -2342,13 +2410,30 @@ export class Editor implements EditorApi {
     return ctx.state !== this._state || ctx.ops.length > 0;
   };
 
-  run = (...commands: (string | EditorCommand)[]): boolean =>
+  run = (
+    ...commands: (string | EditorCommand | MutationCommand<void>)[]
+  ): boolean =>
     this.change((c) => {
       for (const cmd of commands) {
-        const fn = typeof cmd === "string" ? this.schemaCommands[cmd] : cmd;
+        const fn = this.resolveCommand(cmd);
         if (fn) fn(c);
       }
     });
+
+  // Resolve a command reference to a raw mutation `(c) => void`. A string names
+  // a schema command; a MutationCommand contributes its `mutate` (payload void);
+  // an EditorCommand is already the right shape.
+  private resolveCommand = (
+    cmd: string | EditorCommand | MutationCommand<void>,
+  ): EditorCommand | undefined => {
+    if (typeof cmd === "string") {
+      const named = this.schemaCommands[cmd];
+      return named && isMutationCommand(named)
+        ? (c) => named.mutate(c, undefined)
+        : named;
+    }
+    return isMutationCommand(cmd) ? (c) => cmd.mutate(c, undefined) : cmd;
+  };
 
   // Match a KeyboardEvent against a combo string like "mod+shift+b" (mod = ⌘
   // on macOS, Ctrl elsewhere; also ctrl/meta/cmd/alt/opt/shift). The final
@@ -2393,14 +2478,16 @@ export class Editor implements EditorApi {
   };
 
   // Run the first schema shortcut whose combo matches this event. Returns true
-  // if one matched (and was applied), so the keydown handler can preventDefault
-  // and stop the built-in path. Host shortcuts are checked before built-ins.
+  // if one matched (so the keydown handler can preventDefault and stop the
+  // built-in path). A MutationCommand fires through `dispatch` so its observers
+  // run; anything else is a raw mutation composed into one change().
   private handleSchemaShortcut = (e: KeyboardEvent): boolean => {
     for (const [combo, target] of Object.entries(this.schemaShortcuts)) {
       if (!this.matchesShortcut(e, combo)) continue;
-      const fn =
+      const resolved =
         typeof target === "string" ? this.schemaCommands[target] : target;
-      if (fn) this.change((c) => fn(c));
+      if (resolved && isMutationCommand(resolved)) this.dispatch(resolved);
+      else if (resolved) this.change((c) => resolved(c));
       return true;
     }
     return false;
