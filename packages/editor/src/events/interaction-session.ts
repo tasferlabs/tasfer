@@ -13,6 +13,7 @@
  * undo, rendering diffs, or subscriber notifications.
  */
 
+import type { EditorState } from "../state-types";
 import type { Region, RegionRegistry } from "./regions";
 
 /** Edge-of-viewport auto-scroll engaged during a drag (selection, image resize, …). */
@@ -133,4 +134,39 @@ export function stopAutoScroll(session: InteractionSession): void {
 
 export function isInLongPressMode(session: InteractionSession): boolean {
   return session.touch?.isLongPress === true;
+}
+
+/**
+ * Mark the scrollbar as freshly interacted-with so it stays visible. Applied by
+ * drag interactions (scrollbar thumb, image resize) that should keep the
+ * scrollbar awake. A pure `view` transform — lives here, alongside the other
+ * interaction helpers, so node-layer drag handlers can reuse it without pulling
+ * in the chrome-region module (which would cycle through `rendering/nodes`).
+ */
+export function withScrollbarInteraction(state: EditorState): EditorState {
+  return {
+    ...state,
+    view: {
+      ...state.view,
+      scrollbar: {
+        ...state.view.scrollbar,
+        lastInteraction: Date.now(),
+      },
+    },
+  };
+}
+
+/** Kill any in-flight scroll momentum (e.g. when a drag interaction begins). */
+export function withStoppedMomentum(state: EditorState): EditorState {
+  return {
+    ...state,
+    view: {
+      ...state.view,
+      momentum: {
+        velocity: 0,
+        lastTime: Date.now(),
+        isActive: false,
+      },
+    },
+  };
 }

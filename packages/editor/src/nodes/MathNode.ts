@@ -14,10 +14,11 @@
  * serves every block referencing the same equation — mirroring the image cache
  * co-located in ImageNode.
  *
- * Out of scope (event layer): click-to-edit hit-testing and hover tracking live
- * in events/mouseEvents + eventUtils, the same split used for image resize
- * handles. The shared selection-overlay machinery is inherited from
- * AtomicNode.
+ * Click-to-edit and hover tracking are node contributions: `onTextClick` opens
+ * the inline-math editor when a click lands on a chip, and `onPointerMove` owns
+ * the block + inline-math hover highlights. The event layer only resolves the
+ * pointer's atomic block / caret position and calls these hooks. The shared
+ * selection-overlay machinery is inherited from AtomicNode.
  *
  * The serialization methods are this node's markdown/HTML/text round-trip,
  * adapted into a BlockCodec by the schema. HTML output renders through
@@ -28,11 +29,14 @@
  */
 
 import { stateAction } from "../action-bus";
+import { getInlineMathAtPosition } from "../inline-math";
 import { AtomicNode } from "../rendering/nodes/AtomicNode";
 import type {
   BlockRuntimeState,
   NodeLayoutCtx,
   NodePaintCtx,
+  NodePointerMoveCtx,
+  NodeTextClickCtx,
 } from "../rendering/nodes/Node";
 import { escapeHtml } from "../serlization/codecs/inline";
 import type { InputCtx, OutputCtx } from "../serlization/codecs/types";
@@ -43,7 +47,12 @@ import {
   type TokenType,
   type VisibleToken,
 } from "../serlization/tokenizer";
-import type { ActiveMenu, BlockBounds } from "../state-types";
+import type {
+  ActiveMenu,
+  BlockBounds,
+  EditorState,
+  Operation,
+} from "../state-types";
 import { setActiveMenu } from "../state-utils";
 
 // Math block - rendered LaTeX equation. Named `MathBlock` (not `Math`) to avoid
@@ -375,6 +384,107 @@ export class MathNode extends AtomicNode<MathBlock> {
 
   outputText(): string {
     return "";
+  }
+
+  /**
+   * Desktop hover: highlight the math block under the pointer (full-block
+   * backdrop), or — when the pointer is over text rather than a math block — the
+   * inline-math chip under it. Owns the `ui.hoveredMathBlockIndex` and
+   * `ui.inlineMathHover` slots via {@link SET_MATH_BLOCK_HOVER} /
+   * {@link SET_INLINE_MATH_HOVER}.
+   */
+  onPointerMove(c: NodePointerMoveCtx): EditorState {
+    const { atomicBlock, textPosition, canvasX, viewport } = c;
+    let { state } = c;
+
+    const mathBlockIndex =
+      atomicBlock &&
+      state.document.page.blocks[atomicBlock.blockIndex]?.type === "math"
+        ? atomicBlock.blockIndex
+        : null;
+    state = state.actionBus.dispatchState(SET_MATH_BLOCK_HOVER, state, {
+      blockIndex: mathBlockIndex,
+    }).state;
+
+    // Inline math chip hover — only when not over a block-math backdrop.
+    let inlineMathHover: InlineMathHover | null = null;
+    if (mathBlockIndex === null && textPosition) {
+      const inlineMath = getInlineMathAtPosition(
+        textPosition.blockIndex,
+        textPosition.textIndex,
+        state,
+        "inside",
+        { x: canvasX, viewport },
+      );
+      if (inlineMath) {
+        inlineMathHover = {
+          blockIndex: textPosition.blockIndex,
+          startIndex: inlineMath.startIndex,
+          endIndex: inlineMath.endIndex,
+        };
+      }
+    }
+    return state.actionBus.dispatchState(SET_INLINE_MATH_HOVER, state, {
+      hover: inlineMathHover,
+    }).state;
+  }
+
+  /**
+   * Click landed on an inline-math chip → open the inline-math editor popover
+   * (the host `math` mark owns the overlay key) instead of placing the caret
+   * inside the LaTeX source. Returns null (falls through to normal caret
+   * placement) when the click isn't on a chip.
+   */
+  onTextClick(
+    c: NodeTextClickCtx,
+  ): { state: EditorState; ops: Operation[] } | null {
+    const { state, position, previousMenu, canvasX, canvasY, viewport } = c;
+    if (state.ui.mode === "readonly") return null;
+
+    const inlineMath = getInlineMathAtPosition(
+      position.blockIndex,
+      position.textIndex,
+      state,
+      "inside",
+      { x: canvasX, viewport },
+    );
+    // The inline-math edit overlay is host-defined; the `math` mark owns its key.
+    const key = inlineMath
+      ? state.marks.get("math")?.editOverlayKey
+      : undefined;
+    if (!inlineMath || !key) return null;
+
+    // Don't reopen if we just closed the popover for this same block.
+    if (
+      previousMenu.type === "overlay" &&
+      previousMenu.key === key &&
+      previousMenu.blockIndex === position.blockIndex
+    ) {
+      return { state, ops: [] };
+    }
+
+    return {
+      state: state.actionBus.dispatchState(OPEN_INLINE_MATH_OVERLAY, state, {
+        overlay: {
+          type: "overlay",
+          key,
+          blockIndex: position.blockIndex,
+          x: canvasX,
+          y: canvasY,
+          data: {
+            startIndex: inlineMath.startIndex,
+            endIndex: inlineMath.endIndex,
+            latex: inlineMath.latex,
+          },
+        },
+        hover: {
+          blockIndex: position.blockIndex,
+          startIndex: inlineMath.startIndex,
+          endIndex: inlineMath.endIndex,
+        },
+      }).state,
+      ops: [],
+    };
   }
 }
 

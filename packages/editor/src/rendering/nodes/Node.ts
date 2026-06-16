@@ -19,6 +19,15 @@
  */
 
 import type { ActionBus } from "../../action-bus";
+// Type-only: the region-behavior contract a node carries on its hit regions.
+// Erased at compile time, so importing it here introduces no runtime cycle
+// even though the events layer imports `rendering/nodes`.
+import type {
+  RegionCtx,
+  RegionDragSpec,
+  RegionPoint,
+  RegionResult,
+} from "../../events/regions";
 import type {
   InputCtx,
   OutputCtx,
@@ -31,6 +40,7 @@ import type {
   EditorState,
   EditorStyles,
   NodeOverlay,
+  Operation,
   Position,
   RenderedBlock,
   RenderedLine,
@@ -112,9 +122,13 @@ export interface NodeRegionCtx extends NodeLayoutCtx {
 
 /**
  * A named interactive sub-region of a block (todo checkbox, image resize
- * handle, …). Nodes declare only identity + geometry; the event layer binds
- * behavior to the `id` (events/blockRegions.ts), so nodes stay the
- * presentation facet and never touch CRDT ops or editor actions.
+ * handle, …). A region always declares identity + geometry (`id` + `hitTest`);
+ * it may additionally carry its own behavior (`priority`/`onTap`/`drag`), in
+ * which case the event layer binds it directly instead of resolving behavior by
+ * `id`. Carrying behavior is how a node owns its full interaction semantics
+ * (e.g. ImageNode's resize-handle drag) rather than splitting geometry here and
+ * behavior into a binding table in the event layer. Geometry-only regions (no
+ * `onTap`/`drag`) are still bound by id (e.g. the todo checkbox).
  */
 export interface NodeHitRegion {
   /** Stable id the event layer binds behavior to (e.g. "todo-checkbox"). */
@@ -124,6 +138,54 @@ export interface NodeHitRegion {
    * canvas coordinates; apply pointer-type hit slop here.
    */
   hitTest(p: Point, pointerType: NodePointerType): unknown | null;
+  /** Higher wins when several regions contain the point. Defaults to 0. */
+  priority?: number;
+  /** Editor modes this region is active in. Defaults to ["edit", "select"]. */
+  modes?: readonly ("edit" | "select" | "readonly")[];
+  /** Tap behavior (carried with the region). */
+  onTap?(
+    hit: unknown,
+    p: RegionPoint,
+    tapCount: number,
+    ctx: RegionCtx,
+  ): RegionResult;
+  /** Drag behavior (carried with the region). */
+  drag?: RegionDragSpec;
+}
+
+/** An atomic block (image/math/line) resolved under the pointer. */
+export interface NodeAtomicHit {
+  readonly blockIndex: number;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** Context for {@link Node.onPointerMove} — desktop pointer hover updates. */
+export interface NodePointerMoveCtx {
+  readonly state: EditorState;
+  readonly viewport: ViewportState;
+  /** Pointer position in canvas coordinates. */
+  readonly canvasX: number;
+  readonly canvasY: number;
+  /** The topmost atomic block (any type) under the pointer, or null. */
+  readonly atomicBlock: NodeAtomicHit | null;
+  /** The text caret position under the pointer, or null. */
+  readonly textPosition: Position | null;
+}
+
+/** Context for {@link Node.onTextClick} — a click that resolved to a caret. */
+export interface NodeTextClickCtx {
+  readonly state: EditorState;
+  readonly viewport: ViewportState;
+  /** Pointer position in canvas coordinates. */
+  readonly canvasX: number;
+  readonly canvasY: number;
+  /** The caret position this click resolved to. */
+  readonly position: Position;
+  /** The active menu BEFORE this click (the handler clears it early). */
+  readonly previousMenu: EditorState["ui"]["activeMenu"];
 }
 
 /**
@@ -185,6 +247,27 @@ export abstract class Node<B extends Block = Block> {
    * bound by id in the event layer, keeping nodes presentation-only.
    */
   regions?(c: NodeRegionCtx): readonly NodeHitRegion[];
+
+  /**
+   * Optional: update this node's hover state on desktop pointer move. The
+   * engine resolves the atomic block + text position under the pointer once and
+   * calls every node's hook, threading state through; a node returns new state,
+   * clearing its own hover when the pointer is not over it. Co-locates hover
+   * detection with the node that owns the hover UI (ImageNode → resize-handle
+   * hover; MathNode → block + inline-math chip hover).
+   */
+  onPointerMove?(c: NodePointerMoveCtx): EditorState;
+
+  /**
+   * Optional: claim a text click before the engine places the caret. Called for
+   * each node with the resolved caret position; returning a result pre-empts the
+   * default caret placement (the engine returns it as-is), returning null falls
+   * through to the next node / default behavior. Used by MathNode to open the
+   * inline-math editor when the click lands on an inline-math chip.
+   */
+  onTextClick?(
+    c: NodeTextClickCtx,
+  ): { state: EditorState; ops: Operation[] } | null;
 
   /**
    * Optional: the host-rendered overlays this block wants right now (an upload

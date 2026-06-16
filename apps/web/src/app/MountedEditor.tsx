@@ -381,7 +381,7 @@ const ImageHoverOverlay: ComponentType<NodeOverlayProps> = ({
         }}
       >
         <Button
-          variant="outline"
+          variant="secondary"
           size="sm"
           onClick={(e) => {
             e.stopPropagation();
@@ -394,7 +394,7 @@ const ImageHoverOverlay: ComponentType<NodeOverlayProps> = ({
           <Download className="size-4" />
         </Button>
         <Button
-          variant="outline"
+          variant="secondary"
           size="sm"
           onClick={(e) => {
             const buttonRect = e.currentTarget.getBoundingClientRect();

@@ -30,13 +30,20 @@
  */
 
 import { stateAction } from "../action-bus";
-import { IMAGE_DEFAULT_HEIGHT } from "../constants";
+import { EDGE_SCROLL_THRESHOLD, IMAGE_DEFAULT_HEIGHT } from "../constants";
+import {
+  startAutoScroll,
+  stopAutoScroll,
+  withScrollbarInteraction,
+  withStoppedMomentum,
+} from "../events/interaction-session";
 import { AtomicNode } from "../rendering/nodes/AtomicNode";
 import type {
   BlockRuntimeState,
   NodeHitRegion,
   NodeLayoutCtx,
   NodePaintCtx,
+  NodePointerMoveCtx,
   NodeRegionCtx,
   Point,
 } from "../rendering/nodes/Node";
@@ -273,6 +280,13 @@ export function isImageDefault(block: Image): boolean {
   );
 }
 
+/** Hit data the image-resize region's hitTest returns to its drag spec. */
+interface ImageResizeHit {
+  blockIndex: number;
+  box: { x: number; y: number; width: number; height: number };
+  handle: "left" | "right" | "bottom";
+}
+
 export class ImageNode extends AtomicNode<Image> {
   readonly type = "image" as const;
 
@@ -383,13 +397,18 @@ export class ImageNode extends AtomicNode<Image> {
   }
 
   /**
-   * The resize drag handles are an interactive sub-region. Geometry only —
-   * the drag behavior is bound to the "image-resize" id in the event layer.
+   * The resize drag handles are an interactive sub-region that carries its own
+   * drag behavior: hit-test resolves the handle, and the drag spec records the
+   * resize (with edge auto-scroll), dispatching the `*_IMAGE_HANDLE_DRAG`
+   * actions defined below. The event layer (blockRegions) binds this directly —
+   * no id→behavior table.
    */
   regions(c: NodeRegionCtx): readonly NodeHitRegion[] {
     return [
       {
         id: "image-resize",
+        priority: 60,
+        modes: ["edit", "select"],
         hitTest: (p, pointerType) => {
           const block = c.block as Image;
           if (!block.url) return null;
@@ -407,8 +426,140 @@ export class ImageNode extends AtomicNode<Image> {
           );
           return handle ? { blockIndex: c.blockIndex, box, handle } : null;
         },
+        drag: {
+          onStart(hit, p, ctx) {
+            const { blockIndex, box } = hit as ImageResizeHit;
+            // Tolerance 12 covers both pointer types — the hit test already
+            // applied the per-pointer slop, this only re-derives the handle.
+            const dragState = startImageHandleDrag(
+              ctx.state,
+              { blockIndex, ...box },
+              p.x,
+              p.y,
+              12,
+            );
+            if (!dragState) return null;
+            return {
+              state: withScrollbarInteraction(withStoppedMomentum(dragState)),
+            };
+          },
+          onMove(p, ctx) {
+            const { state, viewport, session } = ctx;
+            if (!state.ui.imageDrag) return { state };
+            const { blockIndex, handle } = state.ui.imageDrag;
+            const block = state.document.page.blocks[blockIndex];
+            if (!block || block.deleted) return { state };
+
+            // Bottom handle: once the image is at its natural max height, stop
+            // auto-scrolling down (otherwise the drag chases its own scroll).
+            let shouldBlockBottomScroll = false;
+            const objectFit =
+              block.type === "image" ? (block.objectFit ?? "cover") : "cover";
+            if (
+              handle === "bottom" &&
+              objectFit === "cover" &&
+              block.type === "image" &&
+              block.url
+            ) {
+              const cachedImage = imageCache.get(block.url);
+              if (cachedImage && cachedImage.complete) {
+                const imgAspectRatio =
+                  cachedImage.naturalWidth / cachedImage.naturalHeight;
+                const containerWidth =
+                  typeof block.width === "number"
+                    ? block.width
+                    : viewport.width;
+                const maxHeightForRatio = containerWidth / imgAspectRatio;
+                const currentHeight =
+                  state.ui.imageDrag.startHeight +
+                  (p.y - state.ui.imageDrag.startY);
+                const isAtMaxHeight = currentHeight >= maxHeightForRatio - 1;
+                const isNearBottomEdge =
+                  p.y > viewport.height - EDGE_SCROLL_THRESHOLD ||
+                  p.y > viewport.height;
+                shouldBlockBottomScroll = isAtMaxHeight && isNearBottomEdge;
+              }
+            }
+
+            // Edge auto-scroll: record the pointer so the frame loop in
+            // handleEvents keeps scrolling (and resizing) while the pointer
+            // holds still at the edge.
+            const isNearTopEdge = p.y < EDGE_SCROLL_THRESHOLD || p.y < 0;
+            const isNearBottomEdge =
+              p.y > viewport.height - EDGE_SCROLL_THRESHOLD ||
+              p.y > viewport.height;
+            if (
+              (isNearTopEdge || isNearBottomEdge) &&
+              !(shouldBlockBottomScroll && isNearBottomEdge)
+            ) {
+              startAutoScroll(session);
+              session.autoScroll.lastPointerX = p.x;
+              session.autoScroll.lastPointerY = p.y;
+            } else if (session.autoScroll.isActive) {
+              stopAutoScroll(session);
+            }
+
+            return {
+              state: withScrollbarInteraction(
+                updateImageHandleDrag(state, viewport, p.x, p.y),
+              ),
+            };
+          },
+          onEnd(_p, ctx) {
+            stopAutoScroll(ctx.session);
+            const result = endImageHandleDrag(ctx.state);
+            return {
+              state: withScrollbarInteraction(result.state),
+              ops: result.ops,
+            };
+          },
+          onCancel(ctx) {
+            stopAutoScroll(ctx.session);
+            return cancelImageHandleDrag(ctx.state);
+          },
+        },
       },
     ];
+  }
+
+  /**
+   * Desktop hover: highlight the image (and any resize handle under the
+   * pointer) when the pointer is over an image block; clear otherwise. Owns the
+   * `ui.imageHover` slot — dispatches {@link SET_IMAGE_HOVER}.
+   */
+  onPointerMove(c: NodePointerMoveCtx): EditorState {
+    const { state, atomicBlock, canvasX, canvasY } = c;
+    const block =
+      atomicBlock &&
+      state.document.page.blocks[atomicBlock.blockIndex]?.type === "image"
+        ? atomicBlock
+        : null;
+    if (!block) {
+      return state.actionBus.dispatchState(SET_IMAGE_HOVER, state, {
+        imageHover: null,
+      }).state;
+    }
+    const imageBlock = state.document.page.blocks[block.blockIndex] as Image;
+    const objectFit = imageBlock.objectFit ?? "cover";
+    const hoveredHandle = getDragHandleAtPoint(
+      canvasX,
+      canvasY,
+      block.x,
+      block.y,
+      block.width,
+      block.height,
+      objectFit,
+    );
+    return state.actionBus.dispatchState(SET_IMAGE_HOVER, state, {
+      imageHover: {
+        blockIndex: block.blockIndex,
+        x: block.x,
+        y: block.y,
+        width: block.width,
+        height: block.height,
+        hoveredHandle,
+      },
+    }).state;
   }
 
   /**
