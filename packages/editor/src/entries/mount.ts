@@ -81,6 +81,28 @@ function createCanvasContainer(parentContainer: HTMLElement): HTMLDivElement {
   return canvasContainer;
 }
 
+/**
+ * Block types that render placeholder ghost text when empty. `bullet_list` and
+ * `numbered_list` both render through the same list-item placeholder slot.
+ */
+export type PlaceholderBlockType =
+  | "paragraph"
+  | "heading1"
+  | "heading2"
+  | "heading3"
+  | "bullet_list"
+  | "numbered_list"
+  | "todo_list";
+
+/**
+ * Placeholder ghost text for empty blocks: either one generic string applied to
+ * every block type, or a per-block-type map (e.g.
+ * `{ paragraph: "Write…", heading1: "Title" }`).
+ */
+export type PlaceholderOption =
+  | string
+  | Partial<Record<PlaceholderBlockType, string>>;
+
 export interface MountEditorOptions {
   /** Whether the document can be edited. Default `true`; `false` mounts a
    *  read-only renderer (no caret edits, no sync writes). */
@@ -88,8 +110,15 @@ export interface MountEditorOptions {
   /** Accessible name for the editor's input surface, announced by screen
    *  readers. Defaults to `"Text editor"`. */
   ariaLabel?: string;
-  /** Ghost text shown on an empty paragraph (keyboard + touch variants). */
-  placeholder?: string;
+  /**
+   * Ghost text shown on empty blocks. Either one generic string applied to
+   * every block type, or a per-block-type map
+   * (e.g. `{ paragraph: "Write…", heading1: "Title" }`). For paragraphs the
+   * value fills both the keyboard and touch variants; `bullet_list` and
+   * `numbered_list` share the rendered list-item slot (`bullet_list` wins if
+   * both are given). Wins over `placeholderOverrides` for any slot it sets.
+   */
+  placeholder?: PlaceholderOption;
   pageId?: string;
   /**
    * The headless theming surface for this instance — semantic `tokens`, a
@@ -166,6 +195,56 @@ export interface MountEditorOptions {
 }
 
 /**
+ * Convert the `placeholder` option (a generic string or a per-block-type map)
+ * into a partial {@link PlaceholderStyles} override. A single string fills every
+ * placeholder-bearing block type; paragraph values set both the keyboard and
+ * touch variants, and `bullet_list`/`numbered_list` map to the shared list-item
+ * slot (`bullet_list` wins if both are provided).
+ */
+function placeholderOptionToStyle(
+  placeholder: PlaceholderOption,
+): DeepPartial<PlaceholderStyles> {
+  const byType: Partial<Record<PlaceholderBlockType, string>> =
+    typeof placeholder === "string"
+      ? {
+          paragraph: placeholder,
+          heading1: placeholder,
+          heading2: placeholder,
+          heading3: placeholder,
+          bullet_list: placeholder,
+          numbered_list: placeholder,
+          todo_list: placeholder,
+        }
+      : placeholder;
+
+  // bullet_list and numbered_list share the rendered list-item slot.
+  const listText = byType.bullet_list ?? byType.numbered_list;
+  return {
+    ...(byType.paragraph !== undefined
+      ? {
+          paragraph: {
+            keyboardCompatibleText: byType.paragraph,
+            touchCompatiableText: byType.paragraph,
+          },
+        }
+      : {}),
+    ...(byType.heading1 !== undefined
+      ? { heading1: { text: byType.heading1 } }
+      : {}),
+    ...(byType.heading2 !== undefined
+      ? { heading2: { text: byType.heading2 } }
+      : {}),
+    ...(byType.heading3 !== undefined
+      ? { heading3: { text: byType.heading3 } }
+      : {}),
+    ...(listText !== undefined ? { listItem: { text: listText } } : {}),
+    ...(byType.todo_list !== undefined
+      ? { todoItem: { text: byType.todo_list } }
+      : {}),
+  };
+}
+
+/**
  * Fold the legacy per-instance style options (`padding` /
  * `blockStyleOverrides` / `placeholderOverrides` / `strings` / `fonts`) into a
  * single {@link EditorTheme}, with an explicit `options.theme` merged on top
@@ -173,18 +252,12 @@ export interface MountEditorOptions {
  */
 function optionsToTheme(options?: MountEditorOptions): EditorTheme {
   if (!options) return {};
-  // Merge placeholderOverrides (styles) with a top-level `placeholder` string,
-  // which sets the empty-paragraph ghost text (keyboard + touch variants).
+  // Merge placeholderOverrides (styles) with the top-level `placeholder`
+  // option, which sets empty-block ghost text per block type (or generically).
   const placeholderStyle = {
     ...(options.placeholderOverrides ?? {}),
     ...(options.placeholder !== undefined
-      ? {
-          paragraph: {
-            ...(options.placeholderOverrides?.paragraph ?? {}),
-            keyboardCompatibleText: options.placeholder,
-            touchCompatiableText: options.placeholder,
-          },
-        }
+      ? placeholderOptionToStyle(options.placeholder)
       : {}),
   } as DeepPartial<EditorStyles["placeholder"]>;
   const styles: DeepPartial<EditorStyles> = {

@@ -7,7 +7,12 @@
  */
 
 // Mount / lifecycle
-export type { MountedEditor, MountEditorOptions } from "./entries/mount";
+export type {
+  MountedEditor,
+  MountEditorOptions,
+  PlaceholderBlockType,
+  PlaceholderOption,
+} from "./entries/mount";
 export { mountEditor } from "./entries/mount";
 
 // Block views — per-instance registry + built-in node classes for opt-in block
