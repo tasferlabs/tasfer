@@ -1518,7 +1518,10 @@ export class Editor implements EditorApi {
     if (!payload || !e.clipboardData) return; // nothing selected → browser default
     e.preventDefault();
     // The clipboard write MUST stay synchronous in the ClipboardEvent.
-    e.clipboardData.setData("text/plain", payload.plainText);
+    // text/plain carries the markdown (formatted) variant: paste parses
+    // text/plain as markdown, so writing markdown here round-trips formatting
+    // even when text/html isn't used by the paste target.
+    e.clipboardData.setData("text/plain", payload.markdown);
     e.clipboardData.setData("text/html", payload.html);
     // Copy produces no state/ops — fire COPY as a plain signal so hosts can
     // observe/override it (the override doesn't replace the sync write above,
@@ -1537,7 +1540,8 @@ export class Editor implements EditorApi {
     if (!payload || !e.clipboardData) return;
     e.preventDefault();
     // The clipboard write MUST stay synchronous in the ClipboardEvent.
-    e.clipboardData.setData("text/plain", payload.plainText);
+    // text/plain carries the markdown (formatted) variant — see copyHandler.
+    e.clipboardData.setData("text/plain", payload.markdown);
     e.clipboardData.setData("text/html", payload.html);
     // Route the deletion through CUT so observers/overrides see it; CUT's
     // default wraps `deleteSelectedText`, so the emitted ops match the old path.
