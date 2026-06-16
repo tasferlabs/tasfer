@@ -733,7 +733,7 @@ function ScheduleTag({
     return (
       <>
         <Badge
-          variant={isScheduled ? "secondary" : "outline"}
+          variant={"secondary"}
           className="cursor-pointer gap-1.5 select-none"
           onClick={() => setOpen(true)}
         >
@@ -758,7 +758,7 @@ function ScheduleTag({
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <Badge
-          variant={isScheduled ? "secondary" : "outline"}
+          variant={"secondary"}
           className="cursor-pointer gap-1.5 select-none"
         >
           <Calendar className="h-3 w-3" />
