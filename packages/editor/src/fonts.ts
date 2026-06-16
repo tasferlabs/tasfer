@@ -11,7 +11,7 @@
  */
 
 import { containsCJK, isCJKCharacter } from "./cjk";
-import { getInlineMathDims } from "./math";
+import { getInlineMathDims } from "./nodes/math";
 import type { Char, CharRun, Mark, MarkSpan } from "./serlization/loadPage";
 // Formatted text measurement - handles Char[] with MarkSpan[]
 import { markKey } from "./serlization/loadPage";

@@ -457,8 +457,8 @@ export function handleEvents(
   }
 
   // Apply momentum scrolling if active (even when no events)
-  // But not in locked mode
-  if (state.view.momentum.isActive && state.ui.mode !== "locked") {
+  // But not in suspended mode
+  if (state.view.momentum.isActive && state.ui.mode !== "suspended") {
     const momentumResult = applyMomentum(
       viewport.scrollY,
       state.view.momentum,

@@ -1,7 +1,7 @@
-// `getBlockTextContent` / `isTouchDevice` are defined in the leaf `node-shared`
-// (not here) and re-exported below: the node views import them, and the node
-// registry imports back into this module, so keeping those two off `state-utils`
-// breaks the `ListNode extends TextNode` circular-init hazard.
+// `getBlockTextContent` / `getBlockTextLength` / `isTouchDevice` are defined in
+// the leaf `node-shared` (not here) and re-exported below: the node views import
+// them, and the node registry imports back into this module, so keeping these off
+// `state-utils` breaks the `ListNode extends TextNode` circular-init hazard.
 import { createActionBus } from "./action-bus";
 import type { MarkRegistry } from "./rendering/marks";
 import { createDefaultMarkRegistry } from "./rendering/marks";
@@ -11,7 +11,7 @@ import {
   createInitialMomentumState,
   createInitialScrollbarState,
 } from "./rendering/scrollbar";
-import { type Block, type Page } from "./serlization/loadPage";
+import { type Page } from "./serlization/loadPage";
 import type {
   CRDTbinding as CRDTbindingType,
   EditorMode,
@@ -21,9 +21,11 @@ import type {
 } from "./state-types";
 import { resolveNodeStrings, resolveTheme } from "./styles";
 
-export { getBlockTextContent, isTouchDevice } from "./node-shared";
-import { isTextualBlock } from "./sync/block-registry";
-import { getVisibleLengthFromRuns } from "./sync/char-runs";
+export {
+  getBlockTextContent,
+  getBlockTextLength,
+  isTouchDevice,
+} from "./node-shared";
 import { initialUndoManagerState } from "./sync/crdt-undo";
 import { generatePeerId } from "./sync/id";
 import {
@@ -138,8 +140,8 @@ export function createInitialState(
 export function updateMode(state: EditorState, mode: EditorMode): EditorState {
   // If editor was initialized as readonly, enforce readonly behavior
   if (state.ui.isReadonlyBase) {
-    // Allow switching to "select" for drag selection, or "locked"
-    if (mode === "select" || mode === "locked") {
+    // Allow switching to "select" for drag selection, or "suspended"
+    if (mode === "select" || mode === "suspended") {
       return {
         ...state,
         ui: { ...state.ui, mode },
@@ -186,43 +188,6 @@ export function createInitialCursorState(state: EditorState): EditorState {
       },
     },
   };
-}
-
-export function getBlockTextLength(block: Block): number {
-  if (!block) return 0;
-
-  if (!isTextualBlock(block)) return 0;
-
-  return getVisibleLengthFromRuns(block.charRuns);
-}
-
-// Slash Action State Management
-export function openSlashAction(
-  state: EditorState,
-  blockIndex: number,
-  textIndex: number,
-): EditorState {
-  return setActiveMenu(state, {
-    type: "slashAction",
-    blockIndex,
-    textIndex,
-    filter: "",
-  });
-}
-
-export function updateSlashActionFilter(
-  state: EditorState,
-  filter: string,
-): EditorState {
-  if (state.ui.activeMenu.type !== "slashAction") return state;
-  return setActiveMenu(state, {
-    ...state.ui.activeMenu,
-    filter,
-  });
-}
-
-export function closeSlashAction(state: EditorState): EditorState {
-  return closeActiveMenu(state);
 }
 
 // Context Menu State Management

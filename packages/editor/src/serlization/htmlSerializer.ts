@@ -5,11 +5,11 @@
  * the cross-block concerns: <ul>/<ol> group wrapping (adjacent list items
  * share one parent element), edge trimming of empty blocks, and the document
  * shell. It is also where the MathJax renderer is injected into the codec
- * context — keeping the heavy ../math import out of the parser/codec chain.
+ * context — keeping the heavy ../nodes/math import out of the parser/codec chain.
  */
 
 import { baseDataSchema } from "../baseDataSchema";
-import { renderToSVG } from "../math";
+import { renderToSVG } from "../nodes/math";
 import { isTextualBlock } from "../sync/block-registry";
 import { iterateVisibleChars } from "../sync/char-runs";
 import type { DataSchema } from "../sync/schema";

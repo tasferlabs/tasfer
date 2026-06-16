@@ -20,7 +20,6 @@ import type {
   CRDTbinding,
   EditorState,
   Position,
-  SlashAction,
 } from "../state-types";
 import type {
   BlockInsert,
@@ -31,12 +30,11 @@ import type {
 } from "../state-types";
 import {
   clearAutoCreatedParagraph,
-  closeSlashAction,
   getBlockTextContent,
   getBlockTextLength,
   updateMode,
 } from "../state-utils";
-import { isTextualBlock } from "../sync/block-registry";
+import { isTextualBlock, isTogglable } from "../sync/block-registry";
 import {
   deleteFromRuns,
   getVisibleTextFromRuns,
@@ -746,6 +744,12 @@ export function deleteSelectedText(state: EditorState): ActionResult {
 
     const blockCopy = pageAfterDelete.blocks[start.blockIndex];
 
+    // Re-run markdown-prefix promotion only from the neutral paragraph base.
+    // `applyMarkdownPrefix` promotes by text content ("- " → list, "# " →
+    // heading, …), so gating on `paragraph` is intentional, not incidental: an
+    // already-promoted heading/list — or a code block holding literal "- foo" —
+    // must not silently re-morph when its text is edited. (This is the same
+    // "paragraph is the base type" convention as the schema's fallback codec.)
     if (block.type === "paragraph") {
       ops.push(...applyMarkdownPrefix(blockCopy, state.CRDTbinding).ops);
     }
@@ -2866,26 +2870,28 @@ export function selectCurrentBlock(state: EditorState): EditorState {
 
   if (!block || block.deleted) return state;
 
-  // For image blocks, select the block by marking it with a selection
-  if (block.type === "image") {
-    const imagePosition: Position = { blockIndex: blockIndex, textIndex: 0 };
+  // For atomic (non-textual) blocks — image/line/math/custom void — select the
+  // whole block by marking its position. Gated on the textual capability, not
+  // an `image` literal, so every visual block selects uniformly.
+  if (!isTextualBlock(block)) {
+    const blockPosition: Position = { blockIndex: blockIndex, textIndex: 0 };
 
     let newState = moveCursorToPosition(state, blockIndex, 0);
 
-    // Create a selection that spans the image block
+    // Create a selection that spans the atomic block
     newState = {
       ...newState,
       document: {
         ...newState.document,
         selection: {
-          anchor: imagePosition,
-          focus: imagePosition,
+          anchor: blockPosition,
+          focus: blockPosition,
           isForward: true,
           isCollapsed: false, // Mark as not collapsed to show selection
           lastUpdate: Date.now(),
           initialBoundary: {
-            start: imagePosition,
-            end: imagePosition,
+            start: blockPosition,
+            end: blockPosition,
           },
         },
       },
@@ -3149,225 +3155,30 @@ export function toggleStrikethrough(state: EditorState): ActionResult {
   return toggleFormat(state, "strike");
 }
 
-// Convert block type at current cursor position
-export function convertBlockType(
+/**
+ * Convert the block at the cursor to `params.type`, emitting the CRDT ops and
+ * placing the caret. A generic document operation — knows nothing about menus:
+ * a slash plugin, a toolbar, or a shortcut can all drive it.
+ *
+ * `deleteFrom`/`deleteTo` describe an optional text range to strip from the
+ * source block before converting (e.g. a slash plugin passes the `/filter`
+ * range so the trigger text is consumed). They apply to the textual/list
+ * conversions; void blocks (image/math/line) always clear all text. Both
+ * default to the current caret index, i.e. no deletion.
+ */
+export function convertBlockAtCursor(
   state: EditorState,
-  blockType: Block["type"],
+  params: { type: Block["type"]; deleteFrom?: number; deleteTo?: number },
 ): ActionResult {
   if (!state.document.cursor) return { state, ops: [] };
 
   const ops: Operation[] = [];
+  const blockIndex = state.document.cursor.position.blockIndex;
+  const cursorIndex = state.document.cursor.position.textIndex;
+  const deleteFrom = params.deleteFrom ?? cursorIndex;
+  const deleteTo = params.deleteTo ?? cursorIndex;
+  const action = { type: params.type };
 
-  // SAFETY: Convert to CRDT position and back for validation against concurrent updates
-  const cursorCRDT = positionToCRDT(
-    state.document.page,
-    state.document.cursor.position,
-  );
-  if (!cursorCRDT) return { state, ops: [] };
-
-  const position = crdtToPosition(state.document.page, cursorCRDT);
-  if (!position) return { state, ops: [] };
-
-  const { blockIndex: blockIndex } = position;
-  const oldBlock = state.document.page.blocks[blockIndex];
-
-  // Only text blocks can have content property
-  if (!isTextualBlock(oldBlock)) {
-    return { state, ops: [] };
-  }
-
-  let newBlock: Block;
-  const typeChanged = oldBlock.type !== blockType;
-
-  // Replacement blocks must keep the old block's afterId — it anchors the
-  // block in resolveBlockOrder's linked list; dropping it re-anchors the
-  // block at the top of the document on the next block_insert.
-  if (blockType === "bullet_list") {
-    newBlock = {
-      id: oldBlock.id,
-      afterId: oldBlock.afterId ?? null,
-      type: "bullet_list",
-      charRuns: oldBlock.charRuns,
-      formats: oldBlock.formats,
-      indent: isListBlock(oldBlock) ? oldBlock.indent : 0,
-    };
-  } else if (blockType === "numbered_list") {
-    newBlock = {
-      id: oldBlock.id,
-      afterId: oldBlock.afterId ?? null,
-      type: "numbered_list",
-      charRuns: oldBlock.charRuns,
-      formats: oldBlock.formats,
-      indent: isListBlock(oldBlock) ? oldBlock.indent : 0,
-    };
-  } else if (blockType === "todo_list") {
-    newBlock = {
-      id: oldBlock.id,
-      afterId: oldBlock.afterId ?? null,
-      type: "todo_list",
-      charRuns: oldBlock.charRuns,
-      formats: oldBlock.formats,
-      checked:
-        isListBlock(oldBlock) && oldBlock.type === "todo_list"
-          ? oldBlock.checked
-          : false,
-      indent: isListBlock(oldBlock) ? oldBlock.indent : 0,
-    };
-  } else if (
-    blockType === "paragraph" ||
-    blockType === "heading1" ||
-    blockType === "heading2" ||
-    blockType === "heading3"
-  ) {
-    newBlock = {
-      id: oldBlock.id,
-      afterId: oldBlock.afterId ?? null,
-      type: blockType,
-      charRuns: oldBlock.charRuns,
-      formats: oldBlock.formats,
-    };
-  } else if (blockType === "image") {
-    // Convert text block to image block
-    newBlock = {
-      id: oldBlock.id,
-      afterId: oldBlock.afterId ?? null,
-      type: "image",
-      url: "", // Will be filled when image is uploaded
-      alt: "",
-    };
-  } else if (blockType === "line") {
-    // Convert text block to line block (divider)
-    newBlock = {
-      id: oldBlock.id,
-      afterId: oldBlock.afterId ?? null,
-      type: "line",
-    };
-  } else {
-    // Unknown type - shouldn't reach here
-    return { state, ops: [] };
-  }
-
-  // Emit CRDT operation for block type change
-  if (typeChanged) {
-    const blockSetOp: BlockSet = {
-      op: "block_set",
-      id: state.CRDTbinding.nextId(),
-      clock: state.CRDTbinding.getClock(),
-      pageId: state.CRDTbinding.pageId,
-      blockId: oldBlock.id,
-      field: "type",
-      value: blockType,
-    };
-    ops.push(blockSetOp);
-  }
-
-  // Emit property changes for list blocks
-  if (
-    blockType === "bullet_list" ||
-    blockType === "numbered_list" ||
-    blockType === "todo_list"
-  ) {
-    const newIndent = isListBlock(oldBlock) ? oldBlock.indent : 0;
-    // Only emit indent if it's different or this is a new list
-    if (
-      !isListBlock(oldBlock) ||
-      (isListBlock(oldBlock) && oldBlock.indent !== newIndent)
-    ) {
-      const indentSetOp: BlockSet = {
-        op: "block_set",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        blockId: oldBlock.id,
-        field: "indent",
-        value: newIndent,
-      };
-      ops.push(indentSetOp);
-    }
-
-    if (blockType === "todo_list") {
-      const newChecked =
-        isListBlock(oldBlock) && oldBlock.type === "todo_list"
-          ? oldBlock.checked
-          : false;
-      const checkedSetOp: BlockSet = {
-        op: "block_set",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        blockId: oldBlock.id,
-        field: "checked",
-        value: newChecked,
-      };
-      ops.push(checkedSetOp);
-    }
-  }
-
-  // Invalidate cache only for the changed block
-  invalidateBlockCache(newBlock);
-
-  const newBlocks = [...state.document.page.blocks];
-  newBlocks[blockIndex] = newBlock;
-  const newPage = { ...state.document.page, blocks: newBlocks };
-
-  let newState: EditorState = {
-    ...state,
-    document: { ...state.document, page: newPage },
-  };
-
-  // If converting to image or line, move cursor to next block and create one if needed
-  if (blockType === "image" || blockType === "line") {
-    // Move cursor to next block (create new paragraph if needed)
-    if (blockIndex + 1 < newBlocks.length) {
-      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
-    } else {
-      // Create a new paragraph block after the image/line
-      const newParagraphId = state.CRDTbinding.nextId();
-      const newParagraph: Block = {
-        id: newParagraphId,
-        afterId: oldBlock.id,
-        type: "paragraph",
-        charRuns: [],
-        formats: [],
-      };
-
-      const blockInsertOp: BlockInsert = {
-        op: "block_insert",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        afterBlockId: oldBlock.id,
-        blockId: newParagraphId,
-        blockType: "paragraph",
-      };
-      ops.push(blockInsertOp);
-
-      const blocksWithNewParagraph = [...newBlocks, newParagraph];
-      newState = {
-        ...newState,
-        document: {
-          ...newState.document,
-          page: { ...newPage, blocks: blocksWithNewParagraph },
-        },
-      };
-      newState = moveCursorToPosition(newState, blockIndex + 1, 0);
-    }
-  }
-
-  return { state: newState, ops };
-}
-
-export function applySlashAction(
-  state: EditorState,
-  action: SlashAction,
-): ActionResult {
-  if (!state.document.cursor || state.ui.activeMenu.type !== "slashAction")
-    return { state, ops: [] };
-
-  const ops: Operation[] = [];
-  const { blockIndex, textIndex } = state.ui.activeMenu;
-
-  // Remove the "/" and filter text, preserving formatting
   const block = state.document.page.blocks[blockIndex];
   if (!block || block.deleted) return { state, ops: [] };
 
@@ -3420,7 +3231,6 @@ export function applySlashAction(
       ...state,
       document: { ...state.document, page: newPage },
     };
-    newState = closeSlashAction(newState);
 
     // Move cursor to next block (create one if needed)
     if (blockIndex + 1 < newBlocks.length) {
@@ -3509,7 +3319,6 @@ export function applySlashAction(
       ...state,
       document: { ...state.document, page: newPage },
     };
-    newState = closeSlashAction(newState);
 
     // Move cursor to next block (create one if needed)
     if (blockIndex + 1 < newBlocks.length) {
@@ -3597,7 +3406,6 @@ export function applySlashAction(
       ...state,
       document: { ...state.document, page: newPage },
     };
-    newState = closeSlashAction(newState);
 
     // Move cursor to next block (create one if needed)
     if (blockIndex + 1 < newBlocks.length) {
@@ -3639,21 +3447,18 @@ export function applySlashAction(
     return { state: newState, ops };
   }
 
-  // Regular text-based blocks and list blocks
-  // If the current block is already an image cover or math block, just close the slash action
-  if (block.type === "image" || block.type === "math") {
-    return { state: closeSlashAction(state), ops: [] };
-  }
-
+  // Only textual blocks accept slash-triggered text edits below; any
+  // non-textual block (image, math, divider, custom void) just closes the
+  // slash action. One capability check covers them all — no per-type list.
   if (!isTextualBlock(block)) {
-    return { state: closeSlashAction(state), ops: [] };
+    return { state, ops: [] };
   }
 
-  // Delete from "/" position to current cursor position
-  const deleteStart = textIndex - 1;
-  const deleteEnd = state.document.cursor.position.textIndex;
+  // Delete the requested trigger range (e.g. a slash plugin's "/filter" text)
+  const deleteStart = deleteFrom;
+  const deleteEnd = deleteTo;
 
-  // Delete the slash action text using CRDT helper
+  // Delete that text using CRDT helper
   let updatedCharRuns = block.charRuns;
   if (deleteEnd > deleteStart) {
     const { newPage: pageAfterDelete, op: deleteOp } = deleteCharsInRange(
@@ -3780,8 +3585,7 @@ export function applySlashAction(
     ...state,
     document: { ...state.document, page: newPage },
   };
-  newState = closeSlashAction(newState);
-  newState = moveCursorToPosition(newState, blockIndex, textIndex - 1);
+  newState = moveCursorToPosition(newState, blockIndex, deleteFrom);
 
   return { state: newState, ops };
 }
@@ -3961,15 +3765,17 @@ export function toggleTodoChecked(
     return { state, ops: [] };
   }
   const block = state.document.page.blocks[blockIndex];
-  if (!block || block.deleted || block.type !== "todo_list") {
+  // Gate on the `togglable` capability, not a `todo_list` literal — any block
+  // type that declares it carries a `checked` field this can flip.
+  if (!block || block.deleted || !isTogglable(block.type)) {
     return { state, ops: [] };
   }
+  // A togglable block carries a `checked` field (todo today); read/flip it
+  // structurally so this stays type-agnostic.
+  const wasChecked = (block as { checked?: boolean }).checked ?? false;
 
   // Toggle checked state
-  const newBlock: Block = {
-    ...block,
-    checked: !block.checked,
-  };
+  const newBlock = { ...block, checked: !wasChecked } as Block;
 
   invalidateBlockCache(newBlock);
 
@@ -3985,7 +3791,7 @@ export function toggleTodoChecked(
     pageId: state.CRDTbinding.pageId,
     blockId: block.id,
     field: "checked",
-    value: !block.checked,
+    value: !wasChecked,
   };
   ops.push(blockSetOp);
 

@@ -9,8 +9,7 @@ import {
   OPEN_LINK,
 } from "../action-bus";
 import {
-  applySlashAction,
-  convertBlockType,
+  convertBlockAtCursor,
   getFormatsAtPosition,
   insertText,
   selectAll,
@@ -67,7 +66,7 @@ import type {
   EditorState,
   EditorTheme,
   NodeOverlay,
-  SlashAction,
+  Position,
   ViewportState,
 } from "../state-types";
 import type { Operation } from "../state-types";
@@ -157,8 +156,18 @@ export type MarkName = string;
 export interface ChangeApi {
   /** Toggle an inline mark across the selection (or the pending caret format). */
   toggleMark(name: MarkName): this;
-  /** Convert the current block to a textual block type (paragraph/heading/list). */
-  setBlock(type: Block["type"] | "heading", attrs?: { level?: number }): this;
+  /**
+   * Convert the block at the caret to `type`. Handles every block type —
+   * textual (paragraph/heading/list/code) and void (image/math/line, which clear
+   * their text and get a trailing paragraph). `"heading"` is sugar mapped to
+   * heading1–3 by `level`. `deleteFrom`/`deleteTo` optionally strip an inline
+   * range first (a slash plugin passes its "/filter" trigger range); both
+   * default to the caret, i.e. no deletion.
+   */
+  setBlock(
+    type: Block["type"] | "heading",
+    opts?: { level?: number; deleteFrom?: number; deleteTo?: number },
+  ): this;
   /** Insert text at the caret, replacing any selection. */
   insertText(text: string): this;
   /** Select the whole document. */
@@ -263,6 +272,19 @@ export interface EditorApi {
   /** Update browser-window focus (affects selection color); re-renders. */
   setWindowFocused: (focused: boolean) => void;
   /**
+   * Map an arbitrary document position to viewport (screen) coordinates —
+   * `{ x, y, height }` with scroll applied — or `null` when the position isn't
+   * laid out. This is the anchoring primitive a host menu/typeahead builds on:
+   * e.g. a slash plugin anchors at the `/` position so its popover stays put as
+   * the caret moves through the filter text. {@link getCursorScreenPosition} is
+   * just this applied to the current caret.
+   */
+  coordsAtPos: (position: Position) => {
+    x: number;
+    y: number;
+    height: number;
+  } | null;
+  /**
    * The caret's position in viewport (screen) coordinates — `{ x, y, height }`
    * with scroll applied — or `null` when there is no caret or it isn't laid out.
    * Use to anchor a host overlay (IME, autocomplete) to the caret.
@@ -363,12 +385,6 @@ export interface EditorApi {
   /** True when there is no selection (just a caret, or nothing). */
   isSelectionEmpty: () => boolean;
   /**
-   * Run the given slash action against the open slash-action menu, applying
-   * its result as one undoable step. No-op unless the slash menu is open with a
-   * live cursor.
-   */
-  executeSlashAction: (action: SlashAction) => void;
-  /**
    * Copy the current selection to the system clipboard and close any open
    * context menu. Resolves to whether the copy succeeded.
    */
@@ -390,10 +406,10 @@ export interface EditorApi {
   clearSelection: () => void;
   /**
    * Switch the interaction mode: `edit` (normal), `select` (selection-only, e.g.
-   * mobile), or `locked` (read-only; also halts scroll momentum). Notifies
+   * mobile), or `suspended` (read-only; also halts scroll momentum). Notifies
    * subscribers.
    */
-  setMode: (mode: "edit" | "select" | "locked") => void;
+  setMode: (mode: "edit" | "select" | "suspended") => void;
   /**
    * Restore a previously captured cursor and selection (and return to `edit`
    * mode) — e.g. after the host temporarily moved focus away. Notifies subscribers.
@@ -1532,7 +1548,7 @@ export class Editor implements EditorApi {
   // Native cut: copy, then delete the selection through the action pipeline.
   private cutHandler = (e: ClipboardEvent) => {
     if (!this._state.view.isFocused) return;
-    if (this._state.ui.mode === "readonly" || this._state.ui.mode === "locked")
+    if (this._state.ui.mode === "readonly" || this._state.ui.mode === "suspended")
       return;
     if (this._state.ui.composition?.isComposing) return;
 
@@ -1553,7 +1569,7 @@ export class Editor implements EditorApi {
   // existing handlePaste flow (incl. the image-paste callback) runs in-frame.
   private pasteHandler = (e: ClipboardEvent) => {
     if (!this._state.view.isFocused) return;
-    if (this._state.ui.mode === "readonly" || this._state.ui.mode === "locked")
+    if (this._state.ui.mode === "readonly" || this._state.ui.mode === "suspended")
       return;
     e.preventDefault();
     this.pendingClipboardData = this.extractPendingClipboard(e);
@@ -1567,10 +1583,10 @@ export class Editor implements EditorApi {
     if (!this.hiddenInput) return;
     if (this.isMirrorUpdating) return;
 
-    // Block input in readonly or locked mode
+    // Block input in readonly or suspended mode
     if (
       this._state.ui.mode === "readonly" ||
-      this._state.ui.mode === "locked"
+      this._state.ui.mode === "suspended"
     ) {
       this.resetSentinel();
       return;
@@ -1685,8 +1701,8 @@ export class Editor implements EditorApi {
       }
     }
 
-    // In locked mode, block everything
-    if (this._state.ui.mode === "locked") {
+    // In suspended mode, block everything
+    if (this._state.ui.mode === "suspended") {
       e.preventDefault();
       return;
     }
@@ -1893,6 +1909,23 @@ export class Editor implements EditorApi {
       this.scheduleRender();
       this.resetSentinel();
     } else if (isShortcut) {
+      // Copy/cut rely on the browser firing the native `copy`/`cut` event from
+      // the hidden contenteditable, which it only does when that element has a
+      // live, non-collapsed DOM selection. The render-loop mirror
+      // (`syncMirrorToSelection`) can drift out of sync with the model
+      // selection — its `lastSelectionSig` short-circuit skips a resync when the
+      // model selection is unchanged, so after focus moves to a popover/toolbar
+      // and back the DOM selection is left collapsed. Cmd+C then copies nothing
+      // while the OS Edit-menu Copy (which fires `copy` unconditionally) still
+      // works. Force a fresh sync here, before the browser decides whether to
+      // fire the event, then fall through (no preventDefault) so the native
+      // copy/cut path runs as designed.
+      if (e.code === "KeyC" || e.code === "KeyX") {
+        this.lastSelectionSig = null;
+        this.syncMirrorToSelection();
+        return;
+      }
+
       // Save as Markdown - handle here (not in events queue) to preserve user gesture for download
       if (e.code === "KeyS") {
         e.preventDefault();
@@ -2160,15 +2193,11 @@ export class Editor implements EditorApi {
     this.scheduleRender();
   };
 
-  getCursorScreenPosition = (): {
-    x: number;
-    y: number;
-    height: number;
-  } | null => {
-    if (!this._state.document.cursor) return null;
-
+  coordsAtPos = (
+    position: Position,
+  ): { x: number; y: number; height: number } | null => {
     const coords = getCursorDocumentCoords(
-      this._state.document.cursor.position,
+      position,
       this._state,
       this.viewport,
       getEditorStyles(this._state),
@@ -2180,6 +2209,15 @@ export class Editor implements EditorApi {
       y: coords.y - this.viewport.scrollY,
       height: coords.height,
     };
+  };
+
+  getCursorScreenPosition = (): {
+    x: number;
+    y: number;
+    height: number;
+  } | null => {
+    if (!this._state.document.cursor) return null;
+    return this.coordsAtPos(this._state.document.cursor.position);
   };
 
   subscribe = (listener: (state: EditorState) => void): (() => void) => {
@@ -2308,18 +2346,22 @@ export class Editor implements EditorApi {
     this._state.marks.get(name)?.togglable === true;
 
   private blockAction =
-    (type: Block["type"]): StateAction =>
+    (params: {
+      type: Block["type"];
+      deleteFrom?: number;
+      deleteTo?: number;
+    }): StateAction =>
     (s) =>
-      convertBlockType(s, type);
+      convertBlockAtCursor(s, params);
 
   // setBlock accepts the concrete block types plus the convenience "heading",
-  // mapped to heading1/2/3 by `attrs.level` (clamped 1–3, the levels that render).
+  // mapped to heading1/2/3 by `opts.level` (clamped 1–3, the levels that render).
   private resolveBlockType = (
     type: Block["type"] | "heading",
-    attrs?: { level?: number },
+    opts?: { level?: number },
   ): Block["type"] => {
     if (type === "heading") {
-      const level = Math.min(3, Math.max(1, Math.round(attrs?.level ?? 1)));
+      const level = Math.min(3, Math.max(1, Math.round(opts?.level ?? 1)));
       return `heading${level}` as Block["type"];
     }
     return type;
@@ -2352,8 +2394,14 @@ export class Editor implements EditorApi {
         if (this.canToggleMark(name)) apply(this.toggleMarkAction(name));
         return c;
       },
-      setBlock: (type, attrs) => {
-        apply(this.blockAction(this.resolveBlockType(type, attrs)));
+      setBlock: (type, opts) => {
+        apply(
+          this.blockAction({
+            type: this.resolveBlockType(type, opts),
+            deleteFrom: opts?.deleteFrom,
+            deleteTo: opts?.deleteTo,
+          }),
+        );
         return c;
       },
       insertText: (text) => {
@@ -2525,16 +2573,6 @@ export class Editor implements EditorApi {
     return !sel || sel.isCollapsed;
   };
 
-  executeSlashAction = (action: SlashAction): void => {
-    if (
-      this._state.ui.activeMenu.type === "slashAction" &&
-      this._state.document.cursor
-    ) {
-      const result = applySlashAction(this._state, action);
-      this.executeAction(result);
-    }
-  };
-
   copy = async (): Promise<boolean> => {
     const success = await copySelectionToClipboard(this._state);
     this._state = closeContextMenu(this._state);
@@ -2637,11 +2675,11 @@ export class Editor implements EditorApi {
     this.listeners.forEach((listener) => listener(currentState));
   };
 
-  setMode = (mode: "edit" | "select" | "locked"): void => {
+  setMode = (mode: "edit" | "select" | "suspended"): void => {
     this._state = updateMode(this._state, mode);
 
-    // Stop momentum when entering locked mode
-    if (mode === "locked") {
+    // Stop momentum when entering suspended mode
+    if (mode === "suspended") {
       this._state = {
         ...this._state,
         view: {

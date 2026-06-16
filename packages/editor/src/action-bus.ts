@@ -23,7 +23,7 @@
  */
 
 import type { ChangeApi } from "./entries/editor";
-import type { EditorState, Operation, SlashAction } from "./state-types";
+import type { EditorState, Operation } from "./state-types";
 
 /**
  * A typed action identifier. Carries no state (the `_p` field is phantom —
@@ -306,24 +306,19 @@ export const REGION_DRAG_START = action<{
 }>("region-drag-start");
 
 /**
- * The slash-action menu is open and the user pressed an up/down arrow. The
- * engine owns *opening* the menu and the `/filter` text, but not the action
- * list — that lives in the host UI. This relays the keypress so the host moves
- * its own highlight. Observe-only (no editor default); the engine consumes the
- * key regardless so the caret doesn't move.
+ * Local text was just inserted into a block by a keystroke — the host-facing
+ * "input" signal (a higher-level, index-based sibling of the CRDT `text_insert`
+ * op). Payload: the inserted `text` and the `blockIndex`/`textIndex` where it
+ * landed. Observe-only.
+ *
+ * This is the edge-trigger menus/typeaheads build on: a slash plugin opens its
+ * menu when it sees a `/` inserted here (edge-triggered, so the menu doesn't
+ * spuriously reopen on later keystrokes just because a stale `/` still sits in
+ * the text), then tracks the filter from editor state while open. The engine
+ * knows nothing about the menu.
  */
-export const SLASH_NAVIGATE = action<{ direction: "up" | "down" }>(
-  "slash-navigate",
-);
-
-/**
- * The slash-action menu is open and the user pressed Enter. The host calls
- * `confirm` synchronously with its currently-selected action; the engine then
- * applies it through its normal edit path — so the engine stays the sole writer
- * of editor state and there's no mid-frame clobber from the host callback. A
- * host claims the action by returning `true`; if none does (e.g. an empty
- * filtered list), the engine closes the menu.
- */
-export const SLASH_CONFIRM = action<{
-  confirm: (action: SlashAction) => void;
-}>("slash-confirm");
+export const TEXT_INPUT = action<{
+  text: string;
+  blockIndex: number;
+  textIndex: number;
+}>("text-input");

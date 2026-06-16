@@ -10,6 +10,7 @@ import {
   SELECT_WORD_AT_POINT,
 } from "../actions/mouse-actions";
 import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
+import { getLinkAtPosition } from "../rendering/marks/LinkMark";
 import {
   getScrollbarStyles,
   isPointInThumb,
@@ -18,7 +19,6 @@ import {
 } from "../rendering/scrollbar";
 import {
   getCursorDocumentCoords,
-  getLinkAtPosition,
   getTextPositionFromViewport,
 } from "../selection";
 import { updateFocus } from "../selection";
@@ -28,7 +28,6 @@ import type { EditorState, MouseEvent, ViewportState } from "../state-types";
 import {
   clearAutoCreatedParagraph,
   closeActiveMenu,
-  closeSlashAction,
   setLinkHover,
   updateMode,
 } from "../state-utils";
@@ -70,11 +69,6 @@ export function handleMouseDown(
   // This prevents clearing selection when right-clicking
   if (event.button === 2) {
     return { state, ops };
-  }
-
-  // Close slash action menu on mouse click
-  if (state.ui.activeMenu.type === "slashAction") {
-    state = closeSlashAction(state);
   }
 
   // Track if any menu was open (we'll use this to prevent reopening on same click)
@@ -156,123 +150,33 @@ export function handleMouseDown(
     }
   }
 
-  // Check if clicking on an image cover block (including placeholders)
-  const imageBlock = getAtomicBlockAtPoint(
-    canvasX,
-    canvasY,
-    state,
-    viewport,
-    "image",
-  );
-  if (imageBlock) {
-    const block = state.document.page.blocks[imageBlock.blockIndex];
-    if (!block || block.deleted) return { state: state, ops };
-    if (block.type === "image") {
-      // In readonly mode, don't allow placeholder clicks
-      // (resize handle drags are claimed by the image-resize region above)
-      if (state.ui.mode !== "readonly") {
-        // Ask the node whether activation opens a host overlay (a placeholder
-        // image opens its upload popover); the engine relays the host-provided
-        // key/data and never names the overlay itself.
-        const activation = state.nodes.get(block.type)?.activate?.({
-          state,
-          block,
-          blockIndex: imageBlock.blockIndex,
-        });
-        if (activation) {
-          // Don't reopen if we just closed the overlay for this same block
-          if (
-            wasMenuOpen &&
-            previousMenu.type === "overlay" &&
-            previousMenu.blockIndex === imageBlock.blockIndex
-          ) {
-            // Just keep it closed
-            return { state, ops };
-          }
+  // Check if clicking on an atomic block (image/line/math/custom void). One
+  // type-agnostic pass: `getAtomicBlockAtPoint` hit-tests any AtomicNode, and
+  // the node decides what a click means via its `activate` hook. A block type
+  // gets click-to-open + click-to-select with no code here.
+  const atomicBlock = getAtomicBlockAtPoint(canvasX, canvasY, state, viewport);
+  if (atomicBlock) {
+    const block = state.document.page.blocks[atomicBlock.blockIndex];
+    if (!block || block.deleted) return { state, ops };
 
-          // Open the host overlay at the click position
-          return {
-            state: state.actionBus.dispatchState(OPEN_BLOCK_OVERLAY, state, {
-              overlay: {
-                type: "overlay",
-                key: activation.key,
-                blockIndex: imageBlock.blockIndex,
-                x: canvasX,
-                y: canvasY,
-                data: activation.data,
-              },
-            }).state,
-            ops,
-          };
-        }
-      }
-      // If it has an image, select the image block (same as arrow key behavior)
-      // Position at the start of the image block (textIndex 0)
-      const imagePosition = { blockIndex: imageBlock.blockIndex, textIndex: 0 };
-      return {
-        state: state.actionBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
-          position: imagePosition,
-          extend: !!(event.shiftKey && state.document.selection),
-        }).state,
-        ops,
-      };
-    }
-  }
-
-  // Check if clicking on a line block
-  const lineBlock = getAtomicBlockAtPoint(
-    canvasX,
-    canvasY,
-    state,
-    viewport,
-    "line",
-  );
-  if (lineBlock) {
-    const block = state.document.page.blocks[lineBlock.blockIndex];
-    if (!block || block.deleted || block.type !== "line") {
-      return { state, ops };
-    }
-    if (block.type === "line") {
-      // Select the line block (same as image block behavior)
-      const linePosition = { blockIndex: lineBlock.blockIndex, textIndex: 0 };
-      return {
-        state: state.actionBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
-          position: linePosition,
-          extend: !!(event.shiftKey && state.document.selection),
-        }).state,
-        ops,
-      };
-    }
-  }
-
-  // Check if clicking on a math block
-  const mathBlock = getAtomicBlockAtPoint(
-    canvasX,
-    canvasY,
-    state,
-    viewport,
-    "math",
-  );
-  if (mathBlock) {
-    const block = state.document.page.blocks[mathBlock.blockIndex];
-    if (!block || block.deleted || block.type !== "math") {
-      return { state, ops };
-    }
-
+    // Non-readonly: ask the node whether activation opens a host overlay (a
+    // placeholder image opens its upload popover; a math block opens its
+    // editor). The engine relays the host-provided key/data and never names
+    // the overlay itself. Nodes with no overlay (e.g. a divider) return
+    // nothing and fall through to selection.
+    // (Image resize-handle drags are claimed by the image-resize region above.)
     if (state.ui.mode !== "readonly") {
-      // Ask the node whether activation opens a host overlay (the math editor);
-      // the engine relays the host-provided key/data and never names the overlay.
       const activation = state.nodes.get(block.type)?.activate?.({
         state,
         block,
-        blockIndex: mathBlock.blockIndex,
+        blockIndex: atomicBlock.blockIndex,
       });
       if (activation) {
         // Don't reopen if we just closed the overlay for this same block
         if (
           wasMenuOpen &&
           previousMenu.type === "overlay" &&
-          previousMenu.blockIndex === mathBlock.blockIndex
+          previousMenu.blockIndex === atomicBlock.blockIndex
         ) {
           return { state, ops };
         }
@@ -283,7 +187,7 @@ export function handleMouseDown(
             overlay: {
               type: "overlay",
               key: activation.key,
-              blockIndex: mathBlock.blockIndex,
+              blockIndex: atomicBlock.blockIndex,
               x: canvasX,
               y: canvasY,
               data: activation.data,
@@ -294,22 +198,21 @@ export function handleMouseDown(
       }
     }
 
-    // In readonly mode (or no activation), just select the block
-    const mathPosition = { blockIndex: mathBlock.blockIndex, textIndex: 0 };
+    // No activation (or readonly): select the visual block (same as arrow-key
+    // behavior). Position at the start of the block (textIndex 0).
+    const position = { blockIndex: atomicBlock.blockIndex, textIndex: 0 };
     return {
       state: state.actionBus.dispatchState(SELECT_VISUAL_BLOCK, state, {
-        position: mathPosition,
-        extend: false,
+        position,
+        extend: !!(event.shiftKey && state.document.selection),
       }).state,
       ops,
     };
   }
 
-  // Check if we have a visual block (image/line/math) selected but clicked outside its container
+  // Check if we have a visual block selected but clicked outside its container
   if (
-    !imageBlock &&
-    !lineBlock &&
-    !mathBlock &&
+    !atomicBlock &&
     state.document.selection &&
     !state.document.selection.isCollapsed
   ) {
@@ -857,8 +760,8 @@ export function handleWheel(
   documentHeight: number,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): EditorState {
-  // In locked mode, block scrolling (but allow in readonly mode)
-  if (state.ui.mode === "locked") {
+  // In suspended mode, block scrolling (but allow in readonly mode)
+  if (state.ui.mode === "suspended") {
     return state;
   }
 

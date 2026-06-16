@@ -78,7 +78,7 @@ export interface Region {
   /**
    * Editor modes this region is active in. Defaults to ["edit", "select"];
    * include "readonly" for regions that must work in read-only documents
-   * (e.g. scrolling). Locked mode disables all regions.
+   * (e.g. scrolling). Suspended mode disables all regions.
    */
   modes?: readonly ("edit" | "select" | "readonly")[];
   /**
@@ -138,7 +138,7 @@ export function hitTestRegions(
   extraRegions: readonly Region[] = [],
 ): RegionClaim | null {
   const mode = ctx.state.ui.mode;
-  if (mode === "locked") return null;
+  if (mode === "suspended") return null;
   const candidates = extraRegions.length
     ? [...ctx.session.regions.all(), ...extraRegions].sort(
         (a, b) => b.priority - a.priority,

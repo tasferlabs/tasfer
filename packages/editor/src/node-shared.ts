@@ -13,7 +13,10 @@
 
 import type { Block } from "./serlization/loadPage";
 import { isTextualBlock } from "./sync/block-registry";
-import { getVisibleTextFromRuns } from "./sync/char-runs";
+import {
+  getVisibleLengthFromRuns,
+  getVisibleTextFromRuns,
+} from "./sync/char-runs";
 
 /** Visible (non-deleted) text of a textual block; "" for non-textual blocks. */
 export function getBlockTextContent(block: Block): string {
@@ -23,6 +26,15 @@ export function getBlockTextContent(block: Block): string {
 
   // Get visible text from charRuns
   return getVisibleTextFromRuns(block.charRuns);
+}
+
+/** Visible (non-deleted) text length of a textual block; 0 for non-textual blocks. */
+export function getBlockTextLength(block: Block): number {
+  if (!block) return 0;
+
+  if (!isTextualBlock(block)) return 0;
+
+  return getVisibleLengthFromRuns(block.charRuns);
 }
 
 /** Whether the device reports touch support. */

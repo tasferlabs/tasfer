@@ -6,7 +6,7 @@
  * the former `batch.isMath` branch out of `renderLine`.
  */
 
-import { getInlineMathDims, getInlineMathImage } from "../../math";
+import { getInlineMathDims, getInlineMathImage } from "../../nodes/math";
 import { Mark, type MarkReplacement, type MarkStyle } from "./Mark";
 
 const inlineMathReplacement: MarkReplacement = {

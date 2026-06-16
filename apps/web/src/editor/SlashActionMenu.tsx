@@ -1,5 +1,4 @@
 import * as Popover from "@radix-ui/react-popover";
-import i18next from "i18next";
 import {
   Code2,
   Heading1,
@@ -13,21 +12,52 @@ import {
   Sigma,
   Type,
 } from "lucide-react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  type ReactElement,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
-import { ScrollArea } from "../components/ui/scroll-area";
 import {
+  CONVERT_BLOCK,
   type Editor,
-  SLASH_CONFIRM,
-  SLASH_NAVIGATE,
+  getBlockTextContent,
+  isTouchDevice,
+  TEXT_INPUT,
 } from "@cypherkit/editor";
-import type { SlashAction } from "@cypherkit/editor";
+import { ScrollArea } from "../components/ui/scroll-area";
 
-interface SlashActionWithMeta extends SlashAction {
+/** Block types the slash menu can insert. Assignable to the engine's `Block["type"]`. */
+export type SlashBlockType =
+  | "heading1"
+  | "heading2"
+  | "heading3"
+  | "paragraph"
+  | "line"
+  | "image"
+  | "math"
+  | "code"
+  | "bullet_list"
+  | "numbered_list"
+  | "todo_list";
+
+/**
+ * One entry in the slash menu. Pure host UI — the engine has no notion of it.
+ * `type` is the block this entry inserts (via the CONVERT_BLOCK command).
+ */
+export interface SlashItem {
+  id: string;
+  type: SlashBlockType;
+  label: string;
+  description: string;
+  icon: ReactElement;
+  keywords: string[];
   category: "basic" | "media" | "lists";
 }
 
-function useSlashActions(): SlashActionWithMeta[] {
+function useSlashActions(): SlashItem[] {
   const { t } = useTranslation();
   return useMemo(
     () => [
@@ -146,128 +176,139 @@ function useCategoryLabels(): Record<string, string> {
     [t],
   );
 }
-
-/**
- * Non-React getter for slash actions with current translations.
- * Used by keysEvents.ts and other non-component code.
- */
-export function getSlashActions(): SlashActionWithMeta[] {
-  const t = i18next.t.bind(i18next);
-  return [
-    {
-      id: "heading1",
-      type: "heading1",
-      label: t("blocks.heading1", "Heading 1"),
-      description: t("blocks.desc.bigSection", "Big section heading."),
-      icon: "",
-      keywords: ["h1", "heading", t("blocks.headingKw", "heading"), "1"],
-      category: "basic",
-    },
-    {
-      id: "heading2",
-      type: "heading2",
-      label: t("blocks.heading2", "Heading 2"),
-      description: t("blocks.desc.mediumSection", "Medium section heading."),
-      icon: "",
-      keywords: ["h2", "heading", t("blocks.headingKw", "heading"), "2"],
-      category: "basic",
-    },
-    {
-      id: "heading3",
-      type: "heading3",
-      label: t("blocks.heading3", "Heading 3"),
-      description: t("blocks.desc.smallSection", "Small section heading."),
-      icon: "",
-      keywords: ["h3", "heading", t("blocks.headingKw", "heading"), "3"],
-      category: "basic",
-    },
-    {
-      id: "paragraph",
-      type: "paragraph",
-      label: t("common.text", "Text"),
-      description: t("blocks.desc.regularText", "Regular text."),
-      icon: "",
-      keywords: ["text", t("blocks.textKw", "text"), "paragraph", t("blocks.paragraphKw", "paragraph"), "p"],
-      category: "basic",
-    },
-    {
-      id: "line",
-      type: "line",
-      label: t("blocks.divider", "Divider"),
-      description: t("blocks.desc.divider", "Horizontal line divider."),
-      icon: "",
-      keywords: ["line", t("blocks.lineKw", "line"), "divider", t("blocks.dividerKw", "divider"), "hr", "horizontal", t("blocks.horizontalKw", "horizontal"), "separator", t("blocks.separatorKw", "separator"), "---"],
-      category: "basic",
-    },
-    {
-      id: "image",
-      type: "image",
-      label: t("blocks.image", "Image"),
-      description: t("image.addSuitable", "Add a suitable image."),
-      icon: "",
-      keywords: ["image", t("blocks.imageKw", "image"), "img", "picture", t("blocks.pictureKw", "picture"), "photo", t("blocks.photoKw", "photo"), "upload", t("blocks.uploadKw", "upload")],
-      category: "media",
-    },
-    {
-      id: "math",
-      type: "math",
-      label: t("blocks.math", "Math Equation"),
-      description: t("blocks.desc.math", "LaTeX math expression."),
-      icon: "",
-      keywords: ["math", t("blocks.mathKw", "math"), "equation", t("blocks.equationKw", "equation"), "latex", "formula", t("blocks.formulaKw", "formula"), "$$"],
-      category: "media",
-    },
-    {
-      id: "code",
-      type: "code",
-      label: t("blocks.code", "Code"),
-      description: t("blocks.desc.code", "Editable code block."),
-      icon: "",
-      keywords: ["code", t("blocks.codeKw", "code"), "snippet", t("blocks.snippetKw", "snippet"), "monospace", "```", "pre"],
-      category: "media",
-    },
-    {
-      id: "bullet_list",
-      type: "bullet_list",
-      label: t("blocks.bulletList", "Bullet List"),
-      description: t("blocks.desc.bulletList", "Create a simple bullet list."),
-      icon: "",
-      keywords: ["bullet", t("blocks.bulletKw", "bullet"), "list", t("blocks.listKw", "list"), "ul", "-", "unordered", t("blocks.unorderedKw", "unordered")],
-      category: "lists",
-    },
-    {
-      id: "numbered_list",
-      type: "numbered_list",
-      label: t("blocks.numberedList", "Numbered List"),
-      description: t("blocks.desc.numberedList", "Create a numbered list."),
-      icon: "",
-      keywords: ["numbered", t("blocks.numberedKw", "numbered"), "list", t("blocks.listKw", "list"), "ol", "1.", "ordered", t("blocks.orderedKw", "ordered")],
-      category: "lists",
-    },
-    {
-      id: "todo_list",
-      type: "todo_list",
-      label: t("blocks.todoList", "To-do List"),
-      description: t("blocks.desc.todoList", "Track tasks with a checklist."),
-      icon: "",
-      keywords: ["todo", t("blocks.todoKw", "todo"), "task", t("calendar.taskKw", "task"), "check", t("blocks.checkKw", "check"), "checkbox", t("blocks.checkboxKw", "checkbox"), "[]"],
-      category: "lists",
-    },
-  ];
+interface SlashActionMenuProps {
+  /** The editor this menu observes for `/` input and drives via CONVERT_BLOCK. */
+  editor: Editor;
+  /** The editor surface's viewport rect, for translating caret coords to screen. */
+  getContainerRect: () => DOMRect | null | undefined;
 }
 
-interface SlashActionMenuProps {
-  /** The editor whose action bus relays keyboard nav/confirm to this menu. */
-  editor: Editor;
+/**
+ * Slash menu — a self-contained host component, always mounted. The engine has
+ * no notion of it: this observes the generic {@link TEXT_INPUT} command to
+ * edge-trigger opening on a typed `/` (so it won't reopen on later keystrokes
+ * once dismissed with the `/` still in the text), recomputes the filter/anchor
+ * from editor state on every change via `subscribe`, and applies the chosen
+ * block through the {@link CONVERT_BLOCK} command + unified change API. Renders
+ * nothing while closed.
+ */
+export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
+  editor,
+  getContainerRect,
+}) => {
+  // Open trigger lives in a ref (mutated synchronously inside the TEXT_INPUT
+  // handler, before the `/` commits) so the very next `subscribe` tick — which
+  // fires after the commit — sees it and computes the anchor/filter.
+  const triggerRef = useRef<{ blockIndex: number; slashIndex: number } | null>(
+    null,
+  );
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    filter: string;
+  } | null>(null);
+
+  const close = React.useCallback(() => {
+    triggerRef.current = null;
+    setMenu(null);
+  }, []);
+
+  const select = React.useCallback(
+    (item: SlashItem) => {
+      const t = triggerRef.current;
+      if (!t) return;
+      const cur = editor.getState()?.document.cursor;
+      editor.dispatch(CONVERT_BLOCK, {
+        type: item.type,
+        deleteFrom: t.slashIndex,
+        deleteTo: cur?.position.textIndex,
+      });
+      close();
+    },
+    [editor, close],
+  );
+
+  useEffect(() => {
+    const recompute = () => {
+      const t = triggerRef.current;
+      if (!t) return;
+      const st = editor.getState();
+      const cur = st?.document.cursor;
+      if (!st || !cur) {
+        close();
+        return;
+      }
+      const block = st.document.page.blocks[t.blockIndex];
+      if (!block) {
+        close();
+        return;
+      }
+      const text = getBlockTextContent(block);
+      const cursorIndex = cur.position.textIndex;
+      // Close when the caret has left the slash run: different block, moved at
+      // or before the `/`, or the `/` itself was deleted.
+      if (
+        cur.position.blockIndex !== t.blockIndex ||
+        cursorIndex <= t.slashIndex ||
+        text[t.slashIndex] !== "/"
+      ) {
+        close();
+        return;
+      }
+      const filter = text.slice(t.slashIndex + 1, cursorIndex);
+      const coords = editor.coordsAtPos({
+        blockIndex: t.blockIndex,
+        textIndex: t.slashIndex,
+      });
+      const rect = getContainerRect();
+      if (!coords || !rect) return;
+      const x = rect.left + coords.x;
+      const y = rect.top + coords.y + coords.height;
+      setMenu((prev) =>
+        prev && prev.x === x && prev.y === y && prev.filter === filter
+          ? prev
+          : { x, y, filter },
+      );
+    };
+
+    // Edge-trigger the open on a typed `/` (desktop only — the menu is
+    // keyboard-driven). The `/` isn't committed yet here, so the anchor/filter
+    // are computed on the next `subscribe` tick.
+    const offInput = editor.registerAction(
+      TEXT_INPUT,
+      ({ text, blockIndex, textIndex }) => {
+        if (text !== "/" || isTouchDevice()) return;
+        triggerRef.current = { blockIndex, slashIndex: textIndex };
+      },
+    );
+    const offSub = editor.subscribe(recompute);
+    return () => {
+      offInput();
+      offSub();
+    };
+  }, [editor, getContainerRect, close]);
+
+  if (!menu) return null;
+  return (
+    <SlashMenuList
+      x={menu.x}
+      y={menu.y}
+      filter={menu.filter}
+      onSelect={select}
+      onClose={close}
+    />
+  );
+};
+
+interface SlashMenuListProps {
   x: number;
   y: number;
   filter?: string;
-  onSelect: (action: SlashAction) => void;
+  onSelect: (item: SlashItem) => void;
   onClose: () => void;
 }
 
-export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
-  editor,
+const SlashMenuList: React.FC<SlashMenuListProps> = ({
   x,
   y,
   filter = "",
@@ -305,7 +346,7 @@ export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
 
   // Group actions by category
   const groupedActions = React.useMemo(() => {
-    const groups: Record<string, SlashActionWithMeta[]> = {};
+    const groups: Record<string, SlashItem[]> = {};
     for (const cmd of filteredActions) {
       if (!groups[cmd.category]) {
         groups[cmd.category] = [];
@@ -322,9 +363,9 @@ export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
     [groupedActions],
   );
 
-  // The engine owns opening the menu and the `/filter` text and relays
-  // navigation/confirmation to us over the action bus; we own the list and the
-  // current selection.
+  // We own the list and the current selection. The host plugin owns opening the
+  // menu and the `/filter` text (recomputed from the document); navigation keys
+  // are captured here, in the DOM, since the engine has no menu concept.
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   // Reset the highlight whenever the filter changes (the list just changed).
@@ -332,40 +373,59 @@ export const SlashActionMenu: React.FC<SlashActionMenuProps> = ({
     setSelectedIndex(0);
   }, [filter]);
 
-  // Refs so the once-registered action handlers always read the latest values.
+  // Refs so the once-registered keydown handler always reads the latest values.
   const selectedIndexRef = useRef(0);
   selectedIndexRef.current = selectedIndex;
   const flatActionsRef = useRef(flatActions);
   flatActionsRef.current = flatActions;
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
+  // Capture-phase keydown on window — fires before the engine's keydown handler
+  // (bound on its hidden input element), so we claim Arrow/Enter/Escape for the
+  // menu while letting every other key fall through to the editor (which types
+  // the filter text). The plugin then recomputes the filter from the document.
   useEffect(() => {
-    const offNavigate = editor.registerAction(
-      SLASH_NAVIGATE,
-      ({ direction }) => {
-        setSelectedIndex((i) => {
-          const len = flatActionsRef.current.length;
-          if (len === 0) return 0;
-          return direction === "down"
-            ? Math.min(i + 1, len - 1)
-            : Math.max(i - 1, 0);
-        });
-        return true;
-      },
-    );
-    // Enter: hand the engine our selected action. It applies it in-flow, so we
-    // must NOT call `executeSlashAction` here (that would mutate editor state
-    // mid-frame); `confirm` is the engine's own callback.
-    const offConfirm = editor.registerAction(SLASH_CONFIRM, ({ confirm }) => {
-      const action = flatActionsRef.current[selectedIndexRef.current];
-      if (!action) return false;
-      confirm(action);
-      return true;
-    });
-    return () => {
-      offNavigate();
-      offConfirm();
+    const onKeyDown = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case "ArrowDown":
+          e.preventDefault();
+          e.stopPropagation();
+          setSelectedIndex((i) => {
+            const len = flatActionsRef.current.length;
+            return len === 0 ? 0 : Math.min(i + 1, len - 1);
+          });
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          e.stopPropagation();
+          setSelectedIndex((i) => Math.max(i - 1, 0));
+          break;
+        case "Enter": {
+          const item = flatActionsRef.current[selectedIndexRef.current];
+          if (!item) break;
+          e.preventDefault();
+          e.stopPropagation();
+          onSelectRef.current(item);
+          break;
+        }
+        case "Escape":
+          e.preventDefault();
+          e.stopPropagation();
+          onCloseRef.current();
+          break;
+        case "ArrowLeft":
+        case "ArrowRight":
+          // Let the caret move (engine handles it); just dismiss the menu.
+          onCloseRef.current();
+          break;
+      }
     };
-  }, [editor]);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
 
   // Auto-close menu when no actions match
   useEffect(() => {

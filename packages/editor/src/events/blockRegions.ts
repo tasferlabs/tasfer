@@ -131,6 +131,6 @@ export function hitTestAllRegions(
   pointerType: PointerType,
   ctx: RegionCtx,
 ): RegionClaim | null {
-  if (ctx.state.ui.mode === "locked") return null;
+  if (ctx.state.ui.mode === "suspended") return null;
   return hitTestRegions(p, pointerType, ctx, nodeRegionsAtPoint(p, ctx));
 }

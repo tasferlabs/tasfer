@@ -18,7 +18,7 @@
  */
 
 import {
-  convertBlockType,
+  convertBlockAtCursor,
   insertText,
   splitBlock,
 } from "../../actions/actions";
@@ -69,9 +69,9 @@ function textOf(block: Block): string {
 }
 
 describe("action/op convergence", () => {
-  it("convertBlockType preserves afterId and converges", () => {
+  it("convertBlockAtCursor preserves afterId and converges", () => {
     const s = moveCursorToPosition(fresh(), 2, 0);
-    const conv = convertBlockType(s, "heading1");
+    const conv = convertBlockAtCursor(s, { type: "heading1" });
     expectConvergence(s.document.page, conv);
 
     const hb = conv.state.document.page.blocks[2];
@@ -80,7 +80,7 @@ describe("action/op convergence", () => {
 
   it("Enter after a type change does not reorder the document", () => {
     const s = moveCursorToPosition(fresh(), 2, 0);
-    const conv = convertBlockType(s, "heading1");
+    const conv = convertBlockAtCursor(s, { type: "heading1" });
 
     const block0 = conv.state.document.page.blocks[0];
     const len0 = textOf(block0).length;
@@ -96,7 +96,7 @@ describe("action/op convergence", () => {
     const st = fresh();
     const lastIdx = st.document.page.blocks.length - 1;
     const s = moveCursorToPosition(st, lastIdx, 0);
-    const conv = convertBlockType(s, "line");
+    const conv = convertBlockAtCursor(s, { type: "line" });
     expectConvergence(s.document.page, conv);
   });
 

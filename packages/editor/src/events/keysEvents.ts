@@ -1,10 +1,5 @@
-import { SLASH_CONFIRM, SLASH_NAVIGATE } from "../action-bus";
-import {
-  applySlashAction,
-  deleteText,
-  getSelectionRange,
-  insertText,
-} from "../actions/actions";
+import { TEXT_INPUT } from "../action-bus";
+import { getSelectionRange } from "../actions/actions";
 import {
   CLEAR_SELECTION,
   createParagraphAbove,
@@ -50,7 +45,6 @@ import {
   INSERT_TAB,
   OUTDENT_LIST_ITEM,
 } from "../rendering/nodes";
-import { invalidateBlockCache } from "../rendering/renderer";
 import { getTextDirection } from "../rtl";
 import {
   getCursorDocumentCoords,
@@ -66,23 +60,18 @@ import type {
   EditorState,
   KeyboardEvent,
   MouseEvent,
-  SlashAction,
   ViewportState,
 } from "../state-types";
 import {
   clearAutoCreatedParagraph,
-  closeSlashAction,
   getBlockTextContent,
   openContextMenu,
-  openSlashAction,
   setActiveMenu,
-  updateSlashActionFilter,
 } from "../state-utils";
-import { isTextualBlock } from "../sync/block-registry";
+import { isPreformattedType, isTextualBlock } from "../sync/block-registry";
 import { redoState, undoState } from "../sync/crdt-undo";
-import { deleteCharsInRange } from "../sync/crdt-utils";
 import type { Operation } from "../sync/sync";
-import { ensureCursorVisible, isTouchDevice } from "./eventUtils";
+import { ensureCursorVisible } from "./eventUtils";
 
 // Open the inline-math editor popover when an arrow key crosses an inline
 // math chip (snap fired between opposite boundaries).
@@ -158,8 +147,8 @@ export function handleKeyDown(
   const code = keyEvent.code;
   const isCtrl = keyEvent.ctrlKey || keyEvent.metaKey;
 
-  // In locked mode, block all operations
-  if (state.ui.mode === "locked") {
+  // In suspended mode, block all operations
+  if (state.ui.mode === "suspended") {
     return { state, ops };
   }
 
@@ -286,8 +275,11 @@ export function handleKeyDown(
           );
           return { state: newState, ops };
         }
-      } else if (block.type === "code") {
-        // Tab in a code block inserts two spaces instead of moving focus.
+      } else if (isPreformattedType(block.type)) {
+        // Tab in a preformatted (code) block inserts indentation instead of
+        // moving focus. The insertion behavior lives on the node (INSERT_TAB in
+        // CodeNode); the gate is a capability query, so a new code-like block
+        // opts in via its descriptor rather than being named here.
         event.preventDefault();
         const result = state.actionBus.dispatchState(INSERT_TAB, state);
         const newState = result.state;
@@ -305,177 +297,6 @@ export function handleKeyDown(
   // editor.ts), which write the clipboard synchronously via clipboardData. They
   // are intentionally NOT intercepted here, so the keydown falls through and
   // the browser fires those events.
-
-  // Handle slash action menu navigation
-  if (state.ui.activeMenu.type === "slashAction") {
-    // The host owns the action list, filtering, and the current selection.
-    // The engine only relays navigation keys to it (via the action bus) and
-    // applies the chosen action — it never sees the list itself.
-    const slashMenu = state.ui.activeMenu;
-
-    switch (key) {
-      case "ArrowLeft":
-      case "ArrowRight":
-        // Close slash menu on left/right arrow and continue to normal arrow key handling
-        state = closeSlashAction(state);
-        break;
-      case "ArrowDown":
-        // Relay to the host so it moves its own highlight; consume the key so
-        // the caret doesn't move.
-        state.actionBus.dispatch(SLASH_NAVIGATE, { direction: "down" });
-        return { state, ops };
-      case "ArrowUp":
-        state.actionBus.dispatch(SLASH_NAVIGATE, { direction: "up" });
-        return { state, ops };
-      case "Enter": {
-        // Ask the host for its selected action. It calls `confirm`
-        // synchronously; we apply it here, through the normal return path, so
-        // the engine stays the sole writer of `state` (no mid-frame clobber
-        // from the host callback). No host claim (e.g. empty list) → close.
-        const picked: { action: SlashAction | null } = { action: null };
-        state.actionBus.dispatch(SLASH_CONFIRM, {
-          confirm: (action) => {
-            picked.action = action;
-          },
-        });
-        if (picked.action && state.document.cursor) {
-          const result = applySlashAction(state, picked.action);
-          const newState = result.state;
-          ops.push(...result.ops);
-          ensureCursorVisible(
-            newState,
-            state,
-            viewport,
-            updateViewportCallback,
-          );
-          return { state: newState, ops };
-        }
-        return { state: closeSlashAction(state), ops };
-      }
-      case "Escape":
-        // Close slash action and remove the "/" character
-        if (state.document.cursor) {
-          const { blockIndex, textIndex } = slashMenu;
-          const block = state.document.page.blocks[blockIndex];
-          if (!block || block.deleted) return { state, ops };
-
-          // Visual blocks (image/line/math) don't have text content, so guard anyway
-          if (!isTextualBlock(block)) {
-            return { state: closeSlashAction(state), ops };
-          }
-
-          // Remove the "/" and filter text using CRDT operations
-          const { newPage } = deleteCharsInRange(
-            state.document.page,
-            block.id,
-            textIndex - 1, // Remove the "/"
-            state.document.cursor.position.textIndex, // Remove up to cursor (the filter text),
-            state.CRDTbinding,
-          );
-
-          const newBlock = newPage.blocks[blockIndex];
-          invalidateBlockCache(newBlock);
-
-          let newState: EditorState = {
-            ...state,
-            document: { ...state.document, page: newPage },
-          };
-          newState = closeSlashAction(newState);
-          newState = moveCursorToPosition(newState, blockIndex, textIndex - 1);
-
-          ensureCursorVisible(
-            newState,
-            state,
-            viewport,
-            updateViewportCallback,
-          );
-          return { state: newState, ops };
-        }
-        return { state: closeSlashAction(state), ops };
-      case "Backspace":
-        // If at the start of filter, close menu
-        if (
-          state.document.cursor &&
-          state.ui.activeMenu.type === "slashAction" &&
-          state.document.cursor.position.textIndex <=
-            state.ui.activeMenu.textIndex
-        ) {
-          // Close menu and delete the slash character - no  needed since deleteText already records
-          const deleteResult = deleteText(state);
-          const newState = closeSlashAction(deleteResult.state);
-          ops.push(...deleteResult.ops);
-          ensureCursorVisible(
-            newState,
-            state,
-            viewport,
-            updateViewportCallback,
-          );
-          return { state: newState, ops };
-        }
-        // Otherwise update filter - deleteText handles  internally
-        if (
-          state.document.cursor &&
-          state.ui.activeMenu.type === "slashAction"
-        ) {
-          const slashMenu = state.ui.activeMenu;
-          const result = deleteText(state);
-          const newState = result.state;
-          ops.push(...result.ops);
-          if (newState.document.cursor) {
-            const block = newState.document.page.blocks[slashMenu.blockIndex];
-            if (!block || block.deleted) return { state, ops };
-            const text = getBlockTextContent(block);
-            const filter = text.slice(
-              slashMenu.textIndex,
-              newState.document.cursor.position.textIndex,
-            );
-            const finalState = updateSlashActionFilter(newState, filter);
-            ensureCursorVisible(
-              finalState,
-              state,
-              viewport,
-              updateViewportCallback,
-            );
-            return { state: finalState, ops };
-          }
-        }
-        return { state, ops };
-      default:
-        // Handle typing to filter actions (including spaces)
-        if (
-          key.length === 1 &&
-          !keyEvent.ctrlKey &&
-          !keyEvent.altKey &&
-          !keyEvent.metaKey &&
-          state.ui.activeMenu.type === "slashAction"
-        ) {
-          const slashMenu = state.ui.activeMenu;
-          // insertText handles  internally
-          const result = insertText(state, key);
-          ops.push(...result.ops);
-          if (result.state.document.cursor) {
-            const block =
-              result.state.document.page.blocks[slashMenu.blockIndex];
-            if (!block || block.deleted) return { state, ops };
-            const text = getBlockTextContent(block);
-            const filter = text.slice(
-              slashMenu.textIndex,
-              result.state.document.cursor.position.textIndex,
-            );
-            const finalState = updateSlashActionFilter(result.state, filter);
-            ensureCursorVisible(
-              finalState,
-              state,
-              viewport,
-              updateViewportCallback,
-            );
-            return { state: finalState, ops };
-          }
-          return { state: result.state, ops };
-        }
-        return { state, ops };
-    }
-  }
 
   let newState = state;
 
@@ -1045,38 +866,6 @@ export function handleKeyDown(
       break;
     }
     default:
-      // Check if typing "/" at the start of a block (only on desktop)
-      if (
-        key === "/" &&
-        !isTouchDevice() &&
-        state.document.cursor &&
-        !keyEvent.ctrlKey &&
-        !keyEvent.altKey &&
-        !keyEvent.metaKey
-      ) {
-        const { blockIndex: blockIndex } = state.document.cursor.position;
-
-        // Allow slash action anywhere in paragraphs and headings
-        const slashResult = insertText(state, "/");
-        const newState = slashResult.state;
-        ops.push(...slashResult.ops);
-        if (newState.document.cursor) {
-          const finalState = openSlashAction(
-            newState,
-            blockIndex,
-            newState.document.cursor.position.textIndex,
-          );
-          ensureCursorVisible(
-            finalState,
-            state,
-            viewport,
-            updateViewportCallback,
-          );
-          return { state: finalState, ops };
-        }
-        return { state: newState, ops };
-      }
-
       if (
         key.length === 1 &&
         !keyEvent.ctrlKey &&
@@ -1088,6 +877,17 @@ export function handleKeyDown(
         });
         newState = result.state;
         ops.push(...result.ops);
+        // Host-facing input signal: report the inserted character + where it
+        // landed, so plugins (slash menus, typeaheads) can edge-trigger on it.
+        // The engine itself does nothing with this — it's observe-only.
+        const inserted = newState.document.cursor;
+        if (inserted) {
+          state.actionBus.dispatch(TEXT_INPUT, {
+            text: key,
+            blockIndex: inserted.position.blockIndex,
+            textIndex: inserted.position.textIndex - key.length,
+          });
+        }
         break;
       }
       return { state, ops };

@@ -174,9 +174,8 @@ export {
   isStateAction,
   OPEN_LINK,
   REGION_DRAG_START,
-  SLASH_CONFIRM,
-  SLASH_NAVIGATE,
   stateAction,
+  TEXT_INPUT,
 } from "./action-bus";
 // Editor keyboard actions — named cursor-movement / selection-extension
 // actions migrated out of the event handlers (see `actions/keyboard-actions.ts`).
@@ -209,6 +208,7 @@ export {
 // handlers (see `actions/edit-actions.ts`).
 export {
   CLEAR_SELECTION,
+  CONVERT_BLOCK,
   DELETE_BACKWARD,
   DELETE_FORWARD,
   DELETE_WORD_BACKWARD,
@@ -287,7 +287,6 @@ export type {
   Operation,
   OverlayRect,
   ScrollbarStyles,
-  SlashAction,
   ThemeTokens,
   VersionVector,
   ViewportState,
@@ -355,14 +354,14 @@ export {
 } from "./sync/awareness";
 
 // Inline-math rendering — render a LaTeX run to an SVG string, and validate it.
-export { isValidLatex, renderToSVG } from "./math";
+export { isValidLatex, renderToSVG } from "./nodes/math";
 
 // Convenience helpers — candidates for future encapsulation behind a richer
 // `Editor`/`Doc` handle. Exposed now so hosts that drive toolbars, link UI, and
 // find can read block/format state without deep imports.
 export { getFormatsAtPosition, getSelectionRange } from "./actions/actions";
 export type { TextualBlock } from "./nodes/TextNode";
-export { getLinkAtPosition } from "./selection";
+export { getLinkAtPosition } from "./rendering/marks/LinkMark";
 export {
   getBlockTextContent,
   getBlockTextLength,

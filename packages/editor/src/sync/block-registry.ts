@@ -44,6 +44,13 @@ export interface BlockCapabilities {
   readonly listKind?: "bullet" | "numbered" | "todo";
   /** Heading-role block: preferred source when extracting a page title. */
   readonly isHeading?: boolean;
+  /**
+   * Raw/verbatim text block (e.g. a code block): the Tab key inserts literal
+   * indentation rather than moving focus, newlines are kept verbatim, and no
+   * inline marks apply. Lets the Tab handler stay type-agnostic — a new
+   * code-like block opts in here instead of being named in events/keysEvents.
+   */
+  readonly preformatted?: boolean;
 }
 
 // =============================================================================
@@ -117,55 +124,57 @@ const checkedField: FieldDescriptor = {
     "checked" in block ? (block as { checked: boolean }).checked : false,
 };
 
-const urlField: FieldDescriptor = {
-  validate: (value): boolean => typeof value === "string",
-  extractForInverse: (block) =>
-    block.type === "image" ? block.url : undefined,
-};
+/**
+ * A field whose inverse value is just the named property, read generically.
+ *
+ * A field descriptor is only ever applied to blocks of the type that owns it —
+ * `inverse`/`snapshot-diff` look fields up through the block's own descriptor
+ * (`getBlockFieldNames(block.type)` / `descriptor.fields[op.field]`) — so no
+ * per-type `block.type === …` narrowing is needed to reach the property. This
+ * mirrors how `defineNode` generates the field descriptors for a custom node's
+ * declared attrs, keeping built-in and custom types on one extraction path.
+ */
+function propField(
+  name: string,
+  validate: (value: unknown) => boolean,
+): FieldDescriptor {
+  return {
+    validate,
+    extractForInverse: (block) =>
+      (block as unknown as Record<string, unknown>)[name],
+  };
+}
 
-const altField: FieldDescriptor = {
-  validate: (value): boolean =>
-    typeof value === "string" || value === undefined,
-  extractForInverse: (block) =>
-    block.type === "image" ? block.alt : undefined,
-};
+const urlField = propField("url", (value) => typeof value === "string");
 
-const widthField: FieldDescriptor = {
-  validate: (value): boolean => value === "full" || typeof value === "number",
-  extractForInverse: (block) =>
-    block.type === "image" ? block.width : undefined,
-};
+const altField = propField(
+  "alt",
+  (value) => typeof value === "string" || value === undefined,
+);
 
-const heightField: FieldDescriptor = {
-  validate: (value): boolean => typeof value === "number",
-  extractForInverse: (block) =>
-    block.type === "image" ? block.height : undefined,
-};
+const widthField = propField(
+  "width",
+  (value) => value === "full" || typeof value === "number",
+);
 
-const objectFitField: FieldDescriptor = {
-  validate: (value): boolean => value === "cover" || value === "contain",
-  extractForInverse: (block) =>
-    block.type === "image" ? block.objectFit : undefined,
-};
+const heightField = propField("height", (value) => typeof value === "number");
 
-const latexField: FieldDescriptor = {
-  validate: (value): boolean => typeof value === "string",
-  extractForInverse: (block) =>
-    block.type === "math" ? block.latex : undefined,
-};
+const objectFitField = propField(
+  "objectFit",
+  (value) => value === "cover" || value === "contain",
+);
 
-const displayModeField: FieldDescriptor = {
-  validate: (value): boolean => typeof value === "boolean",
-  extractForInverse: (block) =>
-    block.type === "math" ? block.displayMode : undefined,
-};
+const latexField = propField("latex", (value) => typeof value === "string");
 
-const languageField: FieldDescriptor = {
-  validate: (value): boolean =>
-    typeof value === "string" || value === undefined,
-  extractForInverse: (block) =>
-    block.type === "code" ? block.language : undefined,
-};
+const displayModeField = propField(
+  "displayMode",
+  (value) => typeof value === "boolean",
+);
+
+const languageField = propField(
+  "language",
+  (value) => typeof value === "string" || value === undefined,
+);
 
 // =============================================================================
 // Base block shape — matches `createEmptyBlock`'s base in reducer.ts
@@ -233,6 +242,7 @@ const CODE_CAPS: BlockCapabilities = {
   hasFormats: false,
   indentable: false,
   togglable: false,
+  preformatted: true,
 };
 
 // Each descriptor uses `satisfies BlockTypeDescriptor` (not a wide
@@ -497,6 +507,14 @@ export function isListType(type: string): boolean {
 /** Whether a block type is a heading (the preferred page-title source). */
 export function isHeadingType(type: string): boolean {
   return REGISTRY[type]?.capabilities.isHeading === true;
+}
+
+/**
+ * Whether a block type holds raw/verbatim text (e.g. code): Tab inserts literal
+ * indentation rather than moving focus. Drives the type-agnostic Tab handler.
+ */
+export function isPreformattedType(type: string): boolean {
+  return REGISTRY[type]?.capabilities.preformatted === true;
 }
 
 export function createDefaultBlock(

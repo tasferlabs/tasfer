@@ -3,7 +3,6 @@ import type { MarkRegistry } from "./rendering/marks/Mark";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import type { MomentumState, ScrollbarState } from "./rendering/scrollbar";
 import type { Block, CharRun, Mark, Page } from "./serlization/loadPage";
-import type { ReactElement } from "react";
 
 // =============================================================================
 // CRDT Types — P2P Offline-Tolerant Live Updates
@@ -199,14 +198,6 @@ export interface OpLog {
  * font-stacks via `EditorStyles.fonts.families`.
  */
 export type FontFamily = string;
-export interface SlashAction {
-  id: string;
-  type: Block["type"];
-  label: string;
-  description: string;
-  icon: string | ReactElement; //NOTE -  add perdeps, but the project should be headless no opninion about ui.
-  keywords?: string[];
-}
 // Editor State Types
 export interface ClickTracker {
   count: number;
@@ -232,14 +223,6 @@ export interface LinkHoverState {
 // Unified menu system - only one menu can be active at a time
 export type ActiveMenu =
   | { type: "none" }
-  | {
-      // The engine owns opening the menu and the `/filter` text; the host owns
-      // the action list and the current selection (no `selectedIndex` here).
-      type: "slashAction";
-      blockIndex: number;
-      textIndex: number;
-      filter: string;
-    }
   | {
       type: "contextMenu";
       x: number;
@@ -643,7 +626,7 @@ export interface TouchState {
   readonly isScrolling: boolean;
 }
 
-export type EditorMode = "edit" | "select" | "locked" | "readonly";
+export type EditorMode = "edit" | "select" | "suspended" | "readonly";
 
 // Rendering Types
 export interface RenderedBlock {

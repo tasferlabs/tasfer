@@ -1,4 +1,4 @@
-import mathjaxBundle from "./mathjax-bundle.mjs";
+import mathjaxBundle from "../mathjax-bundle.mjs";
 
 const { mathjax, TeX, SVG, liteAdaptor, RegisterHTMLHandler, AllPackages } =
   mathjaxBundle;

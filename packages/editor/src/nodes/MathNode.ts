@@ -23,9 +23,9 @@
  * The serialization methods are this node's markdown/HTML/text round-trip,
  * adapted into a BlockCodec by the schema. HTML output renders through
  * `ctx.renderMathSVG`, injected by the HTML orchestrator — the codec path must
- * NOT statically import `../math` (it boots MathJax at module load, and the
+ * NOT statically import `./math` (it boots MathJax at module load, and the
  * codec registry sits on the parser/fuzz import path). The on-canvas render
- * keeps the dynamic `import("../math")`.
+ * keeps the dynamic `import("./math")`.
  */
 
 import { stateAction } from "../action-bus";
@@ -108,7 +108,7 @@ function renderMathToImage(
   pendingMathRenders.add(cacheKey);
 
   // Lazy import MathJax renderer
-  import("../math").then(({ renderToSVG }) => {
+  import("./math").then(({ renderToSVG }) => {
     try {
       const svgString = renderToSVG(latex, displayMode);
 

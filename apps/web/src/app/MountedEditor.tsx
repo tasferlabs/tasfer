@@ -38,7 +38,6 @@ import {
   type NodeOverlay,
   type Operation,
   type PlaceholderStyles,
-  type SlashAction,
   type TextStyle,
 } from "@cypherkit/editor";
 import { useEditor } from "@cypherkit/react";
@@ -841,13 +840,6 @@ function EditorSurface({
   onContentChangeRef.current = onContentChange;
   const onContentUpdateRef = useRef(onContentUpdate);
   onContentUpdateRef.current = onContentUpdate;
-  const [slashMenuState, setSlashMenuState] = useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-    filter: string;
-  } | null>(null);
-
   const [contextMenuState, setContextMenuState] = useState<{
     x: number;
     y: number;
@@ -856,9 +848,9 @@ function EditorSurface({
   } | null>(null);
 
   // True while a text-input popover (image upload/edit or link edit) is open, so
-  // the editor enters "locked" mode and the canvas stops capturing input. These
+  // the editor enters "suspended" mode and the canvas stops capturing input. These
   // popovers now render via the node/mark overlay registry; this mirror is just
-  // the locked-mode signal, derived from the engine's active menu.
+  // the suspended-mode signal, derived from the engine's active menu.
   const [modalPopoverOpen, setModalPopoverOpen] = useState(false);
 
   // Cursor drag state (for mobile magnifier)
@@ -888,7 +880,6 @@ function EditorSurface({
     return () => setOnOpenFind(null);
   }, [setOnOpenFind]);
 
-  const lastSlashMenuStateRef = useRef<typeof slashMenuState>(null);
   const lastContextMenuStateRef = useRef<typeof contextMenuState>(null);
   const lastSerializedBlocksRef = useRef<
     EditorState["document"]["page"]["blocks"] | null
@@ -1617,37 +1608,6 @@ function EditorSurface({
         }
       }
 
-      // Calculate new slash action state
-      let newSlashState: typeof slashMenuState = null;
-      if (
-        state.ui.activeMenu.type === "slashAction" &&
-        state.document.cursor
-      ) {
-        const cursorScreenPos = mounted.editor.getCursorScreenPosition();
-
-        if (cursorScreenPos) {
-          const containerRect = wrapperRef.current?.getBoundingClientRect();
-          if (containerRect) {
-            const x = containerRect.left + cursorScreenPos.x;
-            const y =
-              containerRect.top + cursorScreenPos.y + cursorScreenPos.height;
-
-            newSlashState = {
-              visible: true,
-              x,
-              y,
-              filter: state.ui.activeMenu.filter,
-            };
-          }
-        }
-      }
-
-      // Only update if changed
-      if (!shallowEqual(newSlashState, lastSlashMenuStateRef.current)) {
-        lastSlashMenuStateRef.current = newSlashState;
-        setSlashMenuState(newSlashState);
-      }
-
       // Node-declared overlay slots (engine, framework-free) → host registry.
       // Recollected each tick; only pushed to React state when the set changes.
       const newOverlays = mounted.editor.collectOverlays();
@@ -1695,7 +1655,7 @@ function EditorSurface({
       //   - image upload/edit popover→ CypherImageNode → "image-upload"
       //   - image hover buttons      → CypherImageNode → "image-hover"
       //   - block / inline math      → CypherMathNode / CypherMathMark
-      // The only mirror kept here is the locked-mode signal: a text-input
+      // The only mirror kept here is the suspended-mode signal: a text-input
       // popover (image upload or link edit) is open.
       const popoverOpen =
         state.ui.activeMenu.type === "overlay" &&
@@ -2103,19 +2063,12 @@ function EditorSurface({
   }, []);
   handleFindCloseRef.current = handleFindClose;
 
-  const handleSlashActionSelect = (action: SlashAction) => {
-    if (mountedRef.current) {
-      mountedRef.current.editor.executeSlashAction(action);
-    }
-  };
-
-  const handleSlashActionClose = () => {
-    if (mountedRef.current) {
-      mountedRef.current.editor.closeActiveMenu();
-      setSlashMenuState(null);
-      lastSlashMenuStateRef.current = null;
-    }
-  };
+  // Stable so the always-mounted SlashActionMenu doesn't re-register its engine
+  // listeners on every render (wrapperRef is itself stable).
+  const getSlashContainerRect = useCallback(
+    () => wrapperRef.current?.getBoundingClientRect(),
+    [],
+  );
 
   const handleContextMenuAction = async (action: string) => {
     if (!mountedRef.current) return;
@@ -2354,13 +2307,13 @@ function EditorSurface({
     if (!currentState) return;
 
     if (modalPopoverOpen) {
-      // Set editor to locked mode when popover opens (only if not already locked)
-      if (currentState.ui.mode !== "locked") {
-        mountedRef.current.editor.setMode("locked");
+      // Set editor to suspended mode when popover opens (only if not already suspended)
+      if (currentState.ui.mode !== "suspended") {
+        mountedRef.current.editor.setMode("suspended");
       }
     } else {
-      // Restore to edit mode when popover closes (only if currently locked)
-      if (currentState.ui.mode === "locked") {
+      // Restore to edit mode when popover closes (only if currently suspended)
+      if (currentState.ui.mode === "suspended") {
         mountedRef.current.editor.setMode("edit");
       }
     }
@@ -2395,20 +2348,15 @@ function EditorSurface({
           <EditorLoadingState />
         </div>
       )}
-      {/* Slash action menu portal */}
-      {slashMenuState &&
-        mountedRef.current?.portalContainer &&
+      {/* Slash menu — self-contained, always mounted: it observes the engine's
+          TEXT_INPUT command to open and drives CONVERT_BLOCK to apply. */}
+      {mountedRef.current?.portalContainer &&
+        mountedRef.current.editor &&
         createPortal(
-          <div style={{ pointerEvents: "auto" }}>
-            <SlashActionMenu
-              editor={mountedRef.current.editor}
-              x={slashMenuState.x}
-              y={slashMenuState.y}
-              filter={slashMenuState.filter}
-              onSelect={handleSlashActionSelect}
-              onClose={handleSlashActionClose}
-            />
-          </div>,
+          <SlashActionMenu
+            editor={mountedRef.current.editor}
+            getContainerRect={getSlashContainerRect}
+          />,
           mountedRef.current.portalContainer,
         )}
 
@@ -2470,7 +2418,7 @@ function EditorSurface({
 
       {/* Image upload/edit popover + hover buttons render via the node-overlay
           registry above (CypherImageNode.overlays → "image-upload" /
-          "image-hover"). The locked-mode signal is the `modalPopoverOpen`
+          "image-hover"). The suspended-mode signal is the `modalPopoverOpen`
           mirror, derived from the engine's active menu. */}
 
       {/* Block-math edit popover renders via the node-overlay registry above

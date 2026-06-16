@@ -78,8 +78,8 @@ export function handleTouchStart(
   documentHeight: number,
   session: InteractionSession,
 ): EditorState {
-  // In locked mode, block touch interactions that might lead to scrolling
-  if (state.ui.mode === "locked") {
+  // In suspended mode, block touch interactions that might lead to scrolling
+  if (state.ui.mode === "suspended") {
     return state;
   }
 
@@ -264,8 +264,8 @@ export function handleTouchMove(
   session: InteractionSession,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
 ): EditorState {
-  // In locked mode, block scrolling
-  if (state.ui.mode === "locked") {
+  // In suspended mode, block scrolling
+  if (state.ui.mode === "suspended") {
     return state;
   }
 
@@ -1085,18 +1085,22 @@ export function handleTouchEnd(
       // Check if tapped on an image cover block
       const tappedBlock = state.document.page.blocks[position.blockIndex];
       if (!tappedBlock || tappedBlock.deleted) return { state, ops };
-      if (tappedBlock && tappedBlock.type === "image") {
-        // Verify the tap is actually within the image bounds, not just in the block
-        const imageBlock = getAtomicBlockAtPoint(
+      if (!isTextualBlock(tappedBlock)) {
+        // Tapped an atomic block (image/line/math/custom void). One
+        // type-agnostic path mirroring the desktop click handler: confirm the
+        // tap landed on the block's visual, then let the node's `activate` hook
+        // decide whether to open an overlay; otherwise select the block.
+        const atomicHit = getAtomicBlockAtPoint(
           tapPosition.x,
           tapPosition.y,
           state,
           viewport,
-          "image",
         );
-        if (imageBlock) {
+        if (atomicHit) {
           // Ask the node whether activation opens a host overlay (a placeholder
-          // image opens its upload popover). Blocked in readonly mode.
+          // image opens its upload popover; a math block opens its editor).
+          // Blocked in readonly mode. A node with no overlay (a divider)
+          // returns nothing and falls through to selection.
           const activation =
             state.ui.mode !== "readonly"
               ? state.nodes.get(tappedBlock.type)?.activate?.({
@@ -1160,12 +1164,12 @@ export function handleTouchEnd(
             };
           }
 
-          // If it has an image, select the image block (same behavior as desktop)
+          // No activation: select the visual block (same behavior as desktop)
           state = state.actionBus.dispatchState(
             TAP_SELECT_VISUAL_BLOCK,
             state,
             {
-              position: { blockIndex: imageBlock.blockIndex, textIndex: 0 },
+              position: { blockIndex: atomicHit.blockIndex, textIndex: 0 },
             },
           ).state;
 
@@ -1183,9 +1187,11 @@ export function handleTouchEnd(
             },
             ops,
           };
-        } else {
-          // Tapped on image block area but not on the actual image visual
-          // If this is the last block, create a new paragraph below
+        } else if (tappedBlock.type === "image") {
+          // Tapped within an image block's flow area but not on the image
+          // visual. If it's the last block, create a paragraph below so the
+          // user can add content after a trailing image. Image-specific
+          // affordance, owned by CREATE_PARAGRAPH_BELOW_IMAGE.
           const visibleBlocks = state.view.visibleBlocks;
           const lastVisibleBlockIndex =
             visibleBlocks.length > 0
@@ -1229,50 +1235,10 @@ export function handleTouchEnd(
         }
       }
 
-      // Check if tapped on a line block
-      if (tappedBlock && tappedBlock.type === "line") {
-        // Verify the tap is actually within the line block bounds
-        const lineBlockResult = getAtomicBlockAtPoint(
-          tapPosition.x,
-          tapPosition.y,
-          state,
-          viewport,
-          "line",
-        );
-        if (lineBlockResult) {
-          // Select the line block (same behavior as image blocks)
-          state = state.actionBus.dispatchState(
-            TAP_SELECT_VISUAL_BLOCK,
-            state,
-            {
-              position: {
-                blockIndex: lineBlockResult.blockIndex,
-                textIndex: 0,
-              },
-            },
-          ).state;
-
-          session.touch = null;
-          return {
-            state: {
-              ...state,
-              view: {
-                ...state.view,
-                scrollbar: {
-                  ...state.view.scrollbar,
-                  lastInteraction: Date.now(),
-                },
-              },
-            },
-            ops,
-          };
-        }
-      }
-
-      // Check if we have a visual block (image/line) selected but tapped outside its container
+      // Tapped a textual block (not an atomic visual block) while a visual
+      // block was selected → clear that selection.
       if (
-        tappedBlock?.type !== "image" &&
-        tappedBlock?.type !== "line" &&
+        isTextualBlock(tappedBlock) &&
         state.document.selection &&
         !state.document.selection.isCollapsed
       ) {

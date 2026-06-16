@@ -20,7 +20,7 @@
  * composed string, the extracted clipboard data). That data is computed in the
  * event handler and threaded in via the payload, so the action stays a pure
  * transform over {@link EditorState}. The handlers also keep their guards
- * (focus / readonly / locked / composition) — a action assumes it is allowed
+ * (focus / readonly / suspended / composition) — a action assumes it is allowed
  * to run.
  */
 
@@ -45,7 +45,7 @@ interface CompositionTextPayload {
  * selection delete (none when there is no selection to delete).
  *
  * The caller passes the composition event's `data`; the focus / readonly /
- * locked / no-cursor guards stay in the handler.
+ * suspended / no-cursor guards stay in the handler.
  */
 export const COMPOSITION_START = stateAction<CompositionTextPayload>(
   "composition-start",

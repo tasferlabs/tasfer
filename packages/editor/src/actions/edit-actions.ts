@@ -19,7 +19,8 @@
  * one implementation without changing behavior.
  */
 
-import { stateAction } from "../action-bus";
+import { action, stateAction } from "../action-bus";
+import type { ChangeApi } from "../entries/editor";
 import { getTextDirection } from "../rtl";
 import { clearSelection, moveCursorToPosition } from "../selection";
 import type { Block } from "../serlization/loadPage";
@@ -35,6 +36,24 @@ import {
   selectAll,
   splitBlock,
 } from "./actions";
+
+// ─── Block conversion ─────────────────────────────────────────────────────────
+
+/**
+ * Convert the block at the caret to a different type — the dispatchable
+ * **command** form of {@link ChangeApi.setBlock}. Its default mutation routes
+ * through the unified change API (one undoable step), so a host drives block
+ * changes by dispatching this rather than calling a bespoke method, and other
+ * handlers can observe/override it. `deleteFrom`/`deleteTo` optionally strip an
+ * inline range first (a slash plugin passes its "/filter" trigger range).
+ */
+export const CONVERT_BLOCK = action<{
+  type: Block["type"];
+  deleteFrom?: number;
+  deleteTo?: number;
+}>("convert-block", (c: ChangeApi, { type, deleteFrom, deleteTo }) => {
+  c.setBlock(type, { deleteFrom, deleteTo });
+});
 
 // ─── Text input ──────────────────────────────────────────────────────────────
 

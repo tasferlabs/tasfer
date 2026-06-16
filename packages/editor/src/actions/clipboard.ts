@@ -13,6 +13,7 @@ import type {
 import { isListBlock } from "../serlization/loadPage";
 import { loadPage } from "../serlization/loadPage";
 import { serializeToMarkdown } from "../serlization/serializer";
+import { serializeToText } from "../serlization/textSerializer";
 import type {
   ActionResult,
   CRDTbinding,
@@ -26,8 +27,12 @@ import type {
   Operation,
   TextInsert,
 } from "../state-types";
-import { getBlockTextContent, getBlockTextLength } from "../state-utils";
-import { isTextualBlock } from "../sync/block-registry";
+import { getBlockTextLength } from "../state-utils";
+import {
+  getBlockDescriptor,
+  getBlockFieldNames,
+  isTextualBlock,
+} from "../sync/block-registry";
 import {
   charRunsToChars,
   charsToRuns,
@@ -45,6 +50,53 @@ import { createMarkdownContent } from "defuddle/full";
 
 function globalGenerateBlockId(binding: CRDTbinding): string {
   return generateBlockId(binding.nextId);
+}
+
+/**
+ * Ops to recreate a non-textual (atomic) block — image, line, math, or any
+ * custom void type — at a new position: one `block_insert` plus a `block_set`
+ * per declared field that carries a value. The field set comes from the type's
+ * own descriptor (the same field-driven path `inverse.ts` uses to build a
+ * `block_insert`'s `initialProps`), so paste round-trips any atomic block type
+ * with no per-type code here — that's what lets a block type be added to the
+ * editor without editing this file.
+ */
+export function atomicBlockInsertOps(
+  block: Block,
+  newBlockId: string,
+  afterBlockId: string | null,
+  binding: CRDTbinding,
+): Operation[] {
+  const ops: Operation[] = [
+    {
+      op: "block_insert",
+      id: binding.nextId(),
+      clock: binding.getClock(),
+      pageId: binding.pageId,
+      afterBlockId,
+      blockId: newBlockId,
+      blockType: block.type,
+    },
+  ];
+
+  const descriptor = getBlockDescriptor(block.type);
+  if (!descriptor) return ops;
+  for (const field of getBlockFieldNames(block.type)) {
+    if (field === "type") continue;
+    const value = descriptor.fields[field].extractForInverse(block);
+    if (value === undefined) continue;
+    ops.push({
+      op: "block_set",
+      id: binding.nextId(),
+      clock: binding.getClock(),
+      pageId: binding.pageId,
+      blockId: newBlockId,
+      field,
+      value,
+    } as BlockSet);
+  }
+
+  return ops;
 }
 
 /**
@@ -326,44 +378,13 @@ function extractFormatsForChars(
 }
 
 /**
- * Convert blocks to plain text
+ * Convert blocks to plain text. Dispatches through the registry — each block's
+ * `outputText` lives on its node — rather than switching on block type here.
+ * Feeds the accessibility input mirror (`getSelectionPlainText`); the rich
+ * copy/cut payloads are markdown + HTML, not this.
  */
 function blocksToPlainText(blocks: Block[]): string {
-  return blocks
-    .map((block) => {
-      if (block.type === "math") {
-        if (!block.latex) return "";
-        return block.displayMode
-          ? `$$\n${block.latex}\n$$`
-          : `$${block.latex}$`;
-      }
-      if (!isTextualBlock(block)) return getBlockTextContent(block);
-
-      const visible: { id: string; char: string }[] = [];
-      for (const { id, char } of iterateVisibleChars(block.charRuns)) {
-        visible.push({ id, char });
-      }
-      const mathChars = new Set<string>();
-      for (const span of block.formats) {
-        if (span.format.type !== "math") continue;
-        const start = visible.findIndex((c) => c.id === span.startCharId);
-        const end = visible.findIndex((c) => c.id === span.endCharId);
-        if (start === -1 || end === -1) continue;
-        for (let i = start; i <= end; i++) mathChars.add(visible[i].id);
-      }
-      let out = "";
-      let inMath = false;
-      for (const { id, char } of visible) {
-        const isMath = mathChars.has(id);
-        if (isMath && !inMath) out += "$";
-        else if (!isMath && inMath) out += "$";
-        inMath = isMath;
-        out += char;
-      }
-      if (inMath) out += "$";
-      return out;
-    })
-    .join("\n\n");
+  return serializeToText(blocks);
 }
 
 /**
@@ -1216,130 +1237,23 @@ function insertBlocksAtCursor(
       ops.push(deleteOp);
     }
 
-    // Helper function to create image block operations
-    const createImageBlockOps = (
-      imageBlock: Block & { type: "image" },
+    // Emit the ops to recreate a non-textual (atomic) block — image, line,
+    // math, or any custom void type — at a new position. The per-field work is
+    // descriptor-driven in `atomicBlockInsertOps`, so there is no per-type code
+    // here: a new atomic block type round-trips through paste for free.
+    const pushAtomicBlockOps = (
+      block: Block,
       newBlockId: string,
       afterBlockId: string | null,
     ) => {
-      const blockInsertOp: BlockInsert = {
-        op: "block_insert",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        afterBlockId,
-        blockId: newBlockId,
-        blockType: "image",
-      };
-      ops.push(blockInsertOp);
-
-      // Add image properties
-      if (imageBlock.url) {
-        ops.push({
-          op: "block_set",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: newBlockId,
-          field: "url",
-          value: imageBlock.url,
-        } as BlockSet);
-      }
-      if (imageBlock.alt) {
-        ops.push({
-          op: "block_set",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: newBlockId,
-          field: "alt",
-          value: imageBlock.alt,
-        } as BlockSet);
-      }
-      if (imageBlock.width !== undefined) {
-        ops.push({
-          op: "block_set",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: newBlockId,
-          field: "width",
-          value: imageBlock.width,
-        } as BlockSet);
-      }
-      if (imageBlock.height !== undefined) {
-        ops.push({
-          op: "block_set",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: newBlockId,
-          field: "height",
-          value: imageBlock.height,
-        } as BlockSet);
-      }
-      if (imageBlock.objectFit) {
-        ops.push({
-          op: "block_set",
-          id: state.CRDTbinding.nextId(),
-          clock: state.CRDTbinding.getClock(),
-          pageId: state.CRDTbinding.pageId,
-          blockId: newBlockId,
-          field: "objectFit",
-          value: imageBlock.objectFit,
-        } as BlockSet);
-      }
-    };
-
-    // Helper to create line block operations
-    const createLineBlockOps = (
-      newBlockId: string,
-      afterBlockId: string | null,
-    ) => {
-      const blockInsertOp: BlockInsert = {
-        op: "block_insert",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        afterBlockId,
-        blockId: newBlockId,
-        blockType: "line",
-      };
-      ops.push(blockInsertOp);
-    };
-
-    const createMathBlockOps = (
-      mathBlock: Block & { type: "math" },
-      newBlockId: string,
-      afterBlockId: string | null,
-    ) => {
-      ops.push({
-        op: "block_insert",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        afterBlockId,
-        blockId: newBlockId,
-        blockType: "math",
-      });
-      ops.push({
-        op: "block_set",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        blockId: newBlockId,
-        field: "latex",
-        value: mathBlock.latex,
-      });
-      ops.push({
-        op: "block_set",
-        id: state.CRDTbinding.nextId(),
-        clock: state.CRDTbinding.getClock(),
-        pageId: state.CRDTbinding.pageId,
-        blockId: newBlockId,
-        field: "displayMode",
-        value: mathBlock.displayMode,
-      });
+      ops.push(
+        ...atomicBlockInsertOps(
+          block,
+          newBlockId,
+          afterBlockId,
+          state.CRDTbinding,
+        ),
+      );
     };
 
     const firstPastedBlock = blocks[0];
@@ -1430,8 +1344,12 @@ function insertBlocksAtCursor(
       };
       invalidateBlockCache(firstBlock);
       resultBlocks.push(firstBlock);
-    } else if (firstPastedBlock.type === "image") {
-      // Keep current block with before-cursor content, insert image as new block
+    } else {
+      // Non-textual (atomic) first pasted block — image/line/math/custom void.
+      // The current block keeps the before-cursor content; the atomic block is
+      // inserted right after it. One path for every atomic type (no per-type
+      // branch): the block is cloned with fresh ids and its ops come from the
+      // descriptor-driven helper.
       const firstBlock: Block = {
         ...currentBlock,
         charRuns: charsToRuns(beforeChars),
@@ -1440,70 +1358,16 @@ function insertBlocksAtCursor(
       invalidateBlockCache(firstBlock);
       resultBlocks.push(firstBlock);
 
-      const newImageBlockId = globalGenerateBlockId(state.CRDTbinding);
-      const newImageBlock: Block = {
-        id: newImageBlockId,
+      const newAtomicBlockId = globalGenerateBlockId(state.CRDTbinding);
+      const newAtomicBlock: Block = {
+        ...firstPastedBlock,
+        id: newAtomicBlockId,
         afterId: currentBlock.id,
-        type: "image",
-        url: firstPastedBlock.url,
-        alt: firstPastedBlock.alt,
-        width: firstPastedBlock.width,
-        height: firstPastedBlock.height,
-        objectFit: firstPastedBlock.objectFit,
       };
-      invalidateBlockCache(newImageBlock);
-      createImageBlockOps(
-        firstPastedBlock as any,
-        newImageBlockId,
-        currentBlock.id,
-      );
-      resultBlocks.push(newImageBlock);
-      lastInsertedBlockId = newImageBlockId;
-    } else if (firstPastedBlock.type === "line") {
-      // Keep current block with before-cursor content, insert line as new block
-      const firstBlock: Block = {
-        ...currentBlock,
-        charRuns: charsToRuns(beforeChars),
-        formats: beforeFormats,
-      };
-      invalidateBlockCache(firstBlock);
-      resultBlocks.push(firstBlock);
-
-      const newLineBlockId = globalGenerateBlockId(state.CRDTbinding);
-      const newLineBlock: Block = {
-        id: newLineBlockId,
-        afterId: currentBlock.id,
-        type: "line",
-      };
-      invalidateBlockCache(newLineBlock);
-      createLineBlockOps(newLineBlockId, currentBlock.id);
-      resultBlocks.push(newLineBlock);
-      lastInsertedBlockId = newLineBlockId;
-    } else if (firstPastedBlock.type === "math") {
-      const firstBlock: Block = {
-        ...currentBlock,
-        charRuns: charsToRuns(beforeChars),
-        formats: beforeFormats,
-      };
-      invalidateBlockCache(firstBlock);
-      resultBlocks.push(firstBlock);
-
-      const newMathBlockId = globalGenerateBlockId(state.CRDTbinding);
-      const newMathBlock: Block = {
-        id: newMathBlockId,
-        afterId: currentBlock.id,
-        type: "math",
-        latex: firstPastedBlock.latex,
-        displayMode: firstPastedBlock.displayMode,
-      };
-      invalidateBlockCache(newMathBlock);
-      createMathBlockOps(
-        firstPastedBlock as any,
-        newMathBlockId,
-        currentBlock.id,
-      );
-      resultBlocks.push(newMathBlock);
-      lastInsertedBlockId = newMathBlockId;
+      invalidateBlockCache(newAtomicBlock);
+      pushAtomicBlockOps(firstPastedBlock, newAtomicBlockId, currentBlock.id);
+      resultBlocks.push(newAtomicBlock);
+      lastInsertedBlockId = newAtomicBlockId;
     }
 
     // Handle middle blocks (all blocks except first and last)
@@ -1511,42 +1375,17 @@ function insertBlocksAtCursor(
     for (const block of middleBlocks) {
       const newBlockId = globalGenerateBlockId(state.CRDTbinding);
 
-      if (block.type === "image") {
-        const newImageBlock: Block = {
+      if (!isTextualBlock(block)) {
+        // Atomic middle block (image/line/math/custom void): clone with fresh
+        // ids, ops from the descriptor-driven helper — no per-type branch.
+        const newAtomicBlock: Block = {
+          ...block,
           id: newBlockId,
           afterId: lastInsertedBlockId,
-          type: "image",
-          url: block.url,
-          alt: block.alt,
-          width: block.width,
-          height: block.height,
-          objectFit: block.objectFit,
         };
-        invalidateBlockCache(newImageBlock);
-        createImageBlockOps(block as any, newBlockId, lastInsertedBlockId);
-        resultBlocks.push(newImageBlock);
-        lastInsertedBlockId = newBlockId;
-      } else if (block.type === "line") {
-        const newLineBlock: Block = {
-          id: newBlockId,
-          afterId: lastInsertedBlockId,
-          type: "line",
-        };
-        invalidateBlockCache(newLineBlock);
-        createLineBlockOps(newBlockId, lastInsertedBlockId);
-        resultBlocks.push(newLineBlock);
-        lastInsertedBlockId = newBlockId;
-      } else if (block.type === "math") {
-        const newMathBlock: Block = {
-          id: newBlockId,
-          afterId: lastInsertedBlockId,
-          type: "math",
-          latex: block.latex,
-          displayMode: block.displayMode,
-        };
-        invalidateBlockCache(newMathBlock);
-        createMathBlockOps(block as any, newBlockId, lastInsertedBlockId);
-        resultBlocks.push(newMathBlock);
+        invalidateBlockCache(newAtomicBlock);
+        pushAtomicBlockOps(block, newBlockId, lastInsertedBlockId);
+        resultBlocks.push(newAtomicBlock);
         lastInsertedBlockId = newBlockId;
       } else if (isTextualBlock(block)) {
         // Generate new chars with new IDs for CRDT sync
@@ -1853,18 +1692,13 @@ function insertBlocksAtCursor(
         // Insert image as new block
         const newImageBlockId = globalGenerateBlockId(state.CRDTbinding);
         const newImageBlock: Block = {
+          ...lastPastedBlock,
           id: newImageBlockId,
           afterId: lastInsertedBlockId,
-          type: "image",
-          url: lastPastedBlock.url,
-          alt: lastPastedBlock.alt,
-          width: lastPastedBlock.width,
-          height: lastPastedBlock.height,
-          objectFit: lastPastedBlock.objectFit,
         };
         invalidateBlockCache(newImageBlock);
-        createImageBlockOps(
-          lastPastedBlock as any,
+        pushAtomicBlockOps(
+          lastPastedBlock,
           newImageBlockId,
           lastInsertedBlockId,
         );
@@ -1975,30 +1809,24 @@ function insertBlocksAtCursor(
       } else if (lastPastedBlock.type === "math") {
         const newMathBlockId = globalGenerateBlockId(state.CRDTbinding);
         const newMathBlock: Block = {
+          ...lastPastedBlock,
           id: newMathBlockId,
           afterId: lastInsertedBlockId,
-          type: "math",
-          latex: lastPastedBlock.latex,
-          displayMode: lastPastedBlock.displayMode,
         };
         invalidateBlockCache(newMathBlock);
-        createMathBlockOps(
-          lastPastedBlock as any,
-          newMathBlockId,
-          lastInsertedBlockId,
-        );
+        pushAtomicBlockOps(lastPastedBlock, newMathBlockId, lastInsertedBlockId);
         resultBlocks.push(newMathBlock);
         lastInsertedBlockId = newMathBlockId;
       } else if (lastPastedBlock.type === "line") {
         // Insert line as new block
         const newLineBlockId = globalGenerateBlockId(state.CRDTbinding);
         const newLineBlock: Block = {
+          ...lastPastedBlock,
           id: newLineBlockId,
           afterId: lastInsertedBlockId,
-          type: "line",
         };
         invalidateBlockCache(newLineBlock);
-        createLineBlockOps(newLineBlockId, lastInsertedBlockId);
+        pushAtomicBlockOps(lastPastedBlock, newLineBlockId, lastInsertedBlockId);
         resultBlocks.push(newLineBlock);
         lastInsertedBlockId = newLineBlockId;
 

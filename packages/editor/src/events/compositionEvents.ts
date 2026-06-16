@@ -17,8 +17,8 @@ export function handleCompositionStart(
     return { state, ops: [] };
   }
 
-  // Block composition in readonly or locked mode
-  if (state.ui.mode === "readonly" || state.ui.mode === "locked") {
+  // Block composition in readonly or suspended mode
+  if (state.ui.mode === "readonly" || state.ui.mode === "suspended") {
     return { state, ops: [] };
   }
 
@@ -35,8 +35,8 @@ export function handleCompositionUpdate(
     return { state, ops: [] };
   }
 
-  // Block composition in readonly or locked mode
-  if (state.ui.mode === "readonly" || state.ui.mode === "locked") {
+  // Block composition in readonly or suspended mode
+  if (state.ui.mode === "readonly" || state.ui.mode === "suspended") {
     return { state, ops: [] };
   }
 
@@ -62,8 +62,8 @@ export function handleCompositionEnd(
     return { state, ops: [] };
   }
 
-  // Block composition in readonly or locked mode
-  if (state.ui.mode === "readonly" || state.ui.mode === "locked") {
+  // Block composition in readonly or suspended mode
+  if (state.ui.mode === "readonly" || state.ui.mode === "suspended") {
     return { state, ops: [] };
   }
 

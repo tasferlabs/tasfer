@@ -24,8 +24,8 @@ export function handlePaste(
     return { state, ops: [] };
   }
 
-  // Block paste in readonly or locked mode
-  if (state.ui.mode === "readonly" || state.ui.mode === "locked") {
+  // Block paste in readonly or suspended mode
+  if (state.ui.mode === "readonly" || state.ui.mode === "suspended") {
     return { state, ops: [] };
   }
 
