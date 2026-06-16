@@ -1,6 +1,7 @@
 import * as Popover from "@radix-ui/react-popover";
 import i18next from "i18next";
 import {
+  Code2,
   Heading1,
   Heading2,
   Heading3,
@@ -91,6 +92,15 @@ function useSlashActions(): SlashActionWithMeta[] {
         description: t("blocks.desc.math", "LaTeX math expression."),
         icon: <Sigma size={18} />,
         keywords: ["math", t("blocks.mathKw", "math"), "equation", t("blocks.equationKw", "equation"), "latex", "formula", t("blocks.formulaKw", "formula"), "$$"],
+        category: "media" as const,
+      },
+      {
+        id: "code",
+        type: "code" as const,
+        label: t("blocks.code", "Code"),
+        description: t("blocks.desc.code", "Editable code block."),
+        icon: <Code2 size={18} />,
+        keywords: ["code", t("blocks.codeKw", "code"), "snippet", t("blocks.snippetKw", "snippet"), "monospace", "```", "pre"],
         category: "media" as const,
       },
       {
@@ -205,6 +215,15 @@ export function getSlashActions(): SlashActionWithMeta[] {
       description: t("blocks.desc.math", "LaTeX math expression."),
       icon: "",
       keywords: ["math", t("blocks.mathKw", "math"), "equation", t("blocks.equationKw", "equation"), "latex", "formula", t("blocks.formulaKw", "formula"), "$$"],
+      category: "media",
+    },
+    {
+      id: "code",
+      type: "code",
+      label: t("blocks.code", "Code"),
+      description: t("blocks.desc.code", "Editable code block."),
+      icon: "",
+      keywords: ["code", t("blocks.codeKw", "code"), "snippet", t("blocks.snippetKw", "snippet"), "monospace", "```", "pre"],
       category: "media",
     },
     {

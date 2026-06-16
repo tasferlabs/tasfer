@@ -47,7 +47,8 @@ export type BlockType =
   | "todo_list"
   | "image"
   | "line"
-  | "math";
+  | "math"
+  | "code";
 
 /**
  * Block properties that can be set via BlockSet operation.
@@ -740,6 +741,31 @@ export interface BlockStyles {
   readonly bulletList: TextStyle;
   readonly numberedList: TextStyle;
   readonly todoList: TextStyle;
+  readonly code: CodeBlockStyle;
+}
+
+/**
+ * Code block styling. Extends {@link TextStyle} (so the text-geometry passes can
+ * consume it via `getTextStyle`) with the container chrome a code block draws:
+ * a rounded background box with its own internal padding.
+ */
+export interface CodeBlockStyle extends TextStyle {
+  readonly backgroundColor: string;
+  readonly borderRadius: number;
+  /** Internal padding above the first line / below the last line. */
+  readonly paddingTop: number;
+  /** Internal padding on the left and right of the text area. */
+  readonly paddingX: number;
+  /** Per-token-kind colors for syntax highlighting. */
+  readonly syntax: CodeSyntaxStyle;
+}
+
+export interface CodeSyntaxStyle {
+  readonly keyword: string;
+  readonly string: string;
+  readonly comment: string;
+  readonly number: string;
+  readonly function: string;
 }
 
 export interface LineStyles {
@@ -1061,6 +1087,12 @@ export interface ThemeTokens {
   readonly unknownBlockText: string;
   /** MathJax error-marker background. */
   readonly mathErrorBackground: string;
+  /** Code-block syntax highlighting colors (keyword/string/comment/number/function). */
+  readonly codeKeyword: string;
+  readonly codeString: string;
+  readonly codeComment: string;
+  readonly codeNumber: string;
+  readonly codeFunction: string;
 }
 
 /**

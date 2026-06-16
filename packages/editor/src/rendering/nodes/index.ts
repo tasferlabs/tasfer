@@ -16,6 +16,10 @@
 // TextNode must be imported (and thus module-evaluated) before ListNode, which
 // `extends TextNode`: in the editor's circular import graph the base class has
 // to be defined first, or `class ListNode extends TextNode` sees `undefined`.
+// CodeNode and ListNode both `extends TextNode`; the module graph (each imports
+// TextNode directly) guarantees TextNode evaluates first regardless of the order
+// here, so these stay alphabetized.
+import { CodeNode } from "../../nodes/CodeNode";
 import { ImageNode } from "../../nodes/ImageNode";
 import { LineNode } from "../../nodes/LineNode";
 import { ListNode } from "../../nodes/ListNode";
@@ -23,6 +27,7 @@ import { MathNode } from "../../nodes/MathNode";
 import { TextNode } from "../../nodes/TextNode";
 import { Node, NodeRegistry } from "./Node";
 
+export { type CodeBlock, CodeNode, INSERT_TAB } from "../../nodes/CodeNode";
 export {
   CANCEL_IMAGE_HANDLE_DRAG,
   cancelImageHandleDrag,
@@ -88,6 +93,7 @@ export function defaultNodes(): Node[] {
     new LineNode(),
     new ImageNode(),
     new MathNode(),
+    new CodeNode(),
     new TextNode(),
     new ListNode(),
   ];

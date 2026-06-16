@@ -45,7 +45,11 @@ import {
 } from "../actions/keyboard-actions";
 import { getCrossedInlineMathSpan } from "../inline-math";
 import { TOGGLE_BOLD } from "../rendering/marks";
-import { INDENT_LIST_ITEM, OUTDENT_LIST_ITEM } from "../rendering/nodes";
+import {
+  INDENT_LIST_ITEM,
+  INSERT_TAB,
+  OUTDENT_LIST_ITEM,
+} from "../rendering/nodes";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { getTextDirection } from "../rtl";
 import {
@@ -282,6 +286,14 @@ export function handleKeyDown(
           );
           return { state: newState, ops };
         }
+      } else if (block.type === "code") {
+        // Tab in a code block inserts two spaces instead of moving focus.
+        event.preventDefault();
+        const result = state.actionBus.dispatchState(INSERT_TAB, state);
+        const newState = result.state;
+        ops.push(...result.ops);
+        ensureCursorVisible(newState, state, viewport, updateViewportCallback);
+        return { state: newState, ops };
       }
     }
     // For non-list blocks, return state without preventing default

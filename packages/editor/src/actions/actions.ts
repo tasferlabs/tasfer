@@ -424,6 +424,33 @@ function applyMarkdownPrefix(
     (block as any).charRuns = [];
     (block as any).formats = [];
     setBlockField("type", "math");
+  } else if (text === "```") {
+    // Code block — three backticks on their own line. Unlike math/line, code is
+    // textual, so the caret stays inside the (now empty) block; the bottom of
+    // insertText clamps the cursor into the cleared block. Drop the three
+    // backticks and morph to a code block; `language` initializes to "" from the
+    // code descriptor's defaults on every peer (so only the type op is needed).
+    const allCharIds: string[] = [];
+    for (const { id } of iterateVisibleChars(block.charRuns)) {
+      allCharIds.push(id);
+    }
+    if (allCharIds.length > 0) {
+      block.charRuns = deleteFromRuns(block.charRuns, allCharIds);
+      const deleteOp: TextDelete = {
+        op: "text_delete",
+        id: binding.nextId(),
+        clock: binding.getClock(),
+        pageId: binding.pageId,
+        blockId: block.id,
+        charIds: allCharIds,
+      };
+      ops.push(deleteOp);
+    }
+    (block as any).type = "code";
+    (block as any).language = "";
+    (block as any).charRuns = [];
+    (block as any).formats = [];
+    setBlockField("type", "code");
   } else if (!preserveType) {
     if (oldType !== "paragraph") {
       (block as any).type = "paragraph";
@@ -997,12 +1024,18 @@ export function insertText(state: EditorState, input: string): ActionResult {
     }
   }
 
+  // Code blocks are verbatim source: no inline-mark auto-format and no
+  // block-prefix conversion ever applies inside them (their `hasFormats` is
+  // false, and "# "/"- "/"```" must stay literal text). The paragraph→code
+  // creation path below is unaffected — there `oldBlock` is the paragraph.
+  const inCodeBlock = oldBlock.type === "code";
+
   // Inline markdown detection (only on closing delimiter characters)
   const isClosingDelimiter =
     input === "*" || input === "`" || input === "~" || input === "$";
   let finalTextIndex = newTextIndex;
 
-  if (isClosingDelimiter) {
+  if (isClosingDelimiter && !inCodeBlock) {
     const markdownResult = detectAndApplyInlineMarkdown(
       pageAcc,
       oldBlock.id,
@@ -1043,8 +1076,8 @@ export function insertText(state: EditorState, input: string): ActionResult {
     }
   }
 
-  // Auto-detect URLs when a word boundary is typed (space)
-  if (input === " ") {
+  // Auto-detect URLs when a word boundary is typed (space) — never in code.
+  if (input === " " && !inCodeBlock) {
     const currentBlock = pageAcc.blocks[blockIndex];
     if (isTextualBlock(currentBlock)) {
       const text = getVisibleTextFromRuns(currentBlock.charRuns);
@@ -1062,16 +1095,19 @@ export function insertText(state: EditorState, input: string): ActionResult {
     }
   }
 
-  // Apply any markdown prefix (e.g. "## " → heading2). This mutates the
-  // block in place; pageAcc.blocks[blockIndex] already holds the latest copy.
+  // Apply any markdown prefix (e.g. "## " → heading2, "```" → code). This
+  // mutates the block in place; pageAcc.blocks[blockIndex] already holds the
+  // latest copy. Skipped inside code blocks (verbatim — see `inCodeBlock`).
   const blockCopy = pageAcc.blocks[blockIndex];
-  ops.push(
-    ...applyMarkdownPrefix(
-      blockCopy,
-      state.CRDTbinding,
-      oldBlock.type !== "paragraph",
-    ).ops,
-  );
+  if (!inCodeBlock) {
+    ops.push(
+      ...applyMarkdownPrefix(
+        blockCopy,
+        state.CRDTbinding,
+        oldBlock.type !== "paragraph",
+      ).ops,
+    );
+  }
   invalidateBlockCache(blockCopy);
 
   let newState: EditorState = {
@@ -3661,6 +3697,16 @@ export function applySlashAction(
       checked: false,
       indent: 0,
     };
+  } else if (action.type === "code") {
+    // Code keeps its text but carries NO inline marks — drop any formats the
+    // source block had so they don't render inside the code block.
+    newBlock = {
+      id: block.id,
+      type: "code",
+      charRuns: updatedCharRuns,
+      formats: [],
+      language: "",
+    };
   } else {
     // Regular text blocks (headings, paragraphs)
     newBlock = {
@@ -3670,6 +3716,14 @@ export function applySlashAction(
       formats: block.formats,
     };
   }
+
+  // Preserve the block's linked-list position. The conversion only changes
+  // type/props, not where the block sits in the document — but rebuilding the
+  // block literal above drops `afterId`. Without it, the next time block order
+  // is re-derived (a remote/undo `block_insert` applied through the reducer, or
+  // the inverse of this block's deletion) `resolveBlockOrder` keys the block
+  // under the `null` anchor and sorts it to the top of the page.
+  newBlock.afterId = block.afterId ?? null;
 
   // Invalidate cache only for the changed block
   invalidateBlockCache(newBlock);

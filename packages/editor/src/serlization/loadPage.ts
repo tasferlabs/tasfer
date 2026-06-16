@@ -1,3 +1,4 @@
+import type { CodeBlock } from "../nodes/CodeNode";
 import type { ListBlock } from "../nodes/ListNode";
 import type { TextBlock } from "../nodes/TextNode";
 import type { VisualBlock } from "../rendering/nodes/AtomicNode";
@@ -117,7 +118,7 @@ export function areMarkArraysEqual(
 // `defineNode` boundary (`asBlock`); the generic engine code only ever touches
 // the shared `BlockRuntimeState` fields and dispatches the rest to the type's
 // codec/descriptor/node, which narrow back to their own `CustomBlock` view.
-export type Block = TextBlock | VisualBlock | ListBlock;
+export type Block = TextBlock | VisualBlock | ListBlock | CodeBlock;
 
 /**
  * The author-facing view of a custom block (see `defineNode`). Carries the

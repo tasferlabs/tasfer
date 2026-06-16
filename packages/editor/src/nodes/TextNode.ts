@@ -94,6 +94,7 @@ import {
   getVisibleTextFromRuns,
   iterateVisibleChars,
 } from "../sync/char-runs";
+import type { CodeBlock } from "./CodeNode";
 import type { ListBlock } from "./ListNode";
 
 /**
@@ -132,6 +133,13 @@ export interface TextNodeLayout extends NodeLayout {
   readonly lineHeight: number;
   readonly indentOffset: number;
   readonly markerWidth: number;
+  /**
+   * Vertical inset before the first line (and mirrored after the last via the
+   * style's paddingBottom). Zero for every built-in text block; CodeNode uses it
+   * to pad text down from the top of its background box. Every Y-positioned pass
+   * (paint, caret, hit-test, selection) starts from `blockTop + insetY`.
+   */
+  readonly insetY: number;
   /** Content width available to text (maxWidth minus list indent + marker). */
   readonly adjustedMaxWidth: number;
   /** Resolved characters used for this layout (may include composition text). */
@@ -140,6 +148,28 @@ export interface TextNodeLayout extends NodeLayout {
   readonly compositionRange: { start: number; end: number } | null;
   /** Raw wrap result, retained for consumers that need consumedSpace. */
   readonly wrapped: WrappedLine[];
+}
+
+/** Arguments to the {@link TextNode.renderLineText} glyph-drawing hook. */
+export interface RenderLineTextArgs {
+  readonly block: TextualBlock;
+  readonly ctx: CanvasRenderingContext2D;
+  readonly chars: Char[];
+  readonly formats: MarkSpan[];
+  readonly lineStartIndex: number;
+  readonly lineEndIndex: number;
+  /** The line's visible text (already resolved, composition folded in). */
+  readonly lineText: string;
+  /** Left edge to start drawing from (RTL callers pass the right edge). */
+  readonly x: number;
+  readonly baselineY: number;
+  readonly textStyle: TextStyle;
+  readonly fontFamily: FontFamily;
+  readonly styles: EditorStyles;
+  readonly marks: MarkRegistry;
+  readonly isRTL: boolean;
+  readonly requestRedraw: () => void;
+  readonly hoveredInlineMath: { startIndex: number; endIndex: number } | null;
 }
 
 export interface Heading extends BlockRuntimeState {
@@ -154,7 +184,7 @@ export interface Paragraph extends BlockRuntimeState {
 }
 
 export type TextBlock = Heading | Paragraph;
-export type TextualBlock = TextBlock | ListBlock;
+export type TextualBlock = TextBlock | ListBlock | CodeBlock;
 
 // ---------------------------------------------------------------------------
 // Composition injection (shared with the renderer's cursor layer)
@@ -857,7 +887,7 @@ export class TextNode extends Node<TextualBlock> {
     },
   ): TextNodeLayout {
     const textStyle = getTextStyle(styles, block.type);
-    const fontFamily = currentFontFamily(styles);
+    const fontFamily = this.resolveFontFamily(styles);
     const fonts = styles.fonts;
     const codePadding = styles.textFormats.code.padding;
 
@@ -870,17 +900,17 @@ export class TextNode extends Node<TextualBlock> {
     // gets correct geometry without re-checking the block type.
     const { indentOffset, markerWidth } = this.leadingInset(block, styles);
     const adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
+    const insetY = this.contentInsetY(block, styles);
 
     const chars = content?.chars ?? charRunsToChars(block.charRuns);
     const formats = content?.formats ?? block.formats;
     const compositionRange = content?.compositionRange ?? null;
 
-    const wrapped = wrapText(
+    const wrapped = this.wrapLines(
       chars,
       formats,
       adjustedMaxWidth,
-      textStyle.fontSize,
-      textStyle.fontWeight,
+      textStyle,
       fontFamily,
       fonts,
       codePadding,
@@ -930,7 +960,8 @@ export class TextNode extends Node<TextualBlock> {
       if (wl.consumedSpace) textIndex += 1;
     }
 
-    const height = wrapped.length * lineHeight + textStyle.paddingBottom;
+    const height =
+      insetY + wrapped.length * lineHeight + textStyle.paddingBottom;
 
     return {
       height,
@@ -944,6 +975,7 @@ export class TextNode extends Node<TextualBlock> {
       lineHeight,
       indentOffset,
       markerWidth,
+      insetY,
       adjustedMaxWidth,
       chars,
       formats,
@@ -981,10 +1013,11 @@ export class TextNode extends Node<TextualBlock> {
       chars,
       formats,
       adjustedMaxWidth,
+      insetY,
     } = layout;
     const baseX = this.baseX(layout, originX);
 
-    let currentY = blockTopY;
+    let currentY = blockTopY + insetY;
     for (const line of layout.lines) {
       if (textIndex >= line.startIndex && textIndex <= line.endIndex) {
         const widthFromStart = measureTextUpToIndex(
@@ -1033,7 +1066,7 @@ export class TextNode extends Node<TextualBlock> {
     const { lineHeight } = layout;
     const baseX = this.baseX(layout, originX);
 
-    let currentLineY = blockTopY;
+    let currentLineY = blockTopY + layout.insetY;
     for (const line of layout.lines) {
       const lineBottom = currentLineY + lineHeight;
       if (y >= currentLineY && y < lineBottom) {
@@ -1184,7 +1217,7 @@ export class TextNode extends Node<TextualBlock> {
     return computeSelectionRects(
       layout,
       this.baseX(layout, originX),
-      blockTopY,
+      blockTopY + layout.insetY,
       layout.adjustedMaxWidth,
       selection,
       blockIndex,
@@ -1222,6 +1255,7 @@ export class TextNode extends Node<TextualBlock> {
       codePadding,
       indentOffset,
       markerWidth,
+      insetY,
       adjustedMaxWidth,
       chars: renderChars,
       formats: renderFormats,
@@ -1259,7 +1293,7 @@ export class TextNode extends Node<TextualBlock> {
       const lyt = layout.lines[lineIndex];
       const lineStartIndex = lyt.startIndex;
       const lineEndIndex = lyt.endIndex;
-      const currentY = y + lineIndex * lineHeight;
+      const currentY = y + insetY + lineIndex * lineHeight;
       const renderX = isRTL ? adjustedX + adjustedMaxWidth : adjustedX;
 
       if (lineIndex === 0) {
@@ -1277,22 +1311,24 @@ export class TextNode extends Node<TextualBlock> {
         );
       }
 
-      renderLine(
+      this.renderLineText({
+        block,
         ctx,
-        renderChars,
-        renderFormats,
+        chars: renderChars,
+        formats: renderFormats,
         lineStartIndex,
         lineEndIndex,
-        renderX,
-        currentY + fontMetrics.ascent,
+        lineText: lyt.text,
+        x: renderX,
+        baselineY: currentY + fontMetrics.ascent,
         textStyle,
         fontFamily,
         styles,
-        state.marks,
+        marks: state.marks,
         isRTL,
-        c.requestRedraw,
+        requestRedraw: c.requestRedraw,
         hoveredInlineMath,
-      );
+      });
 
       if (compositionRange) {
         const lineContainsComposition =
@@ -1411,7 +1447,7 @@ export class TextNode extends Node<TextualBlock> {
       renderPlaceholder(
         ctx,
         adjustedX,
-        y + fontMetrics.ascent,
+        y + insetY + fontMetrics.ascent,
         styles,
         textStyle,
         this.placeholderText(block, styles, state),
@@ -1522,6 +1558,85 @@ export class TextNode extends Node<TextualBlock> {
     _styles: EditorStyles,
   ): { indentOffset: number; markerWidth: number } {
     return { indentOffset: 0, markerWidth: 0 };
+  }
+
+  /**
+   * The font family this block's text is measured and rendered with. Defaults to
+   * the instance's selected family; CodeNode overrides it to monospace. Resolved
+   * once in `computeLayout` and threaded onto the layout, so every downstream
+   * pass (caret, selection, hit-test, paint) stays in sync.
+   */
+  protected resolveFontFamily(styles: EditorStyles): FontFamily {
+    return currentFontFamily(styles);
+  }
+
+  /**
+   * Draw one wrapped line's text at the given baseline. The default applies the
+   * full CRDT mark-aware renderer (`renderLine`). CodeNode overrides this to
+   * paint syntax-highlighted tokens instead (code has no marks). Selection,
+   * search, composition underline, and placeholder are still drawn by `paint`
+   * around this call, so an override only controls the glyph fill.
+   */
+  protected renderLineText(p: RenderLineTextArgs): void {
+    renderLine(
+      p.ctx,
+      p.chars,
+      p.formats,
+      p.lineStartIndex,
+      p.lineEndIndex,
+      p.x,
+      p.baselineY,
+      p.textStyle,
+      p.fontFamily,
+      p.styles,
+      p.marks,
+      p.isRTL,
+      p.requestRedraw,
+      p.hoveredInlineMath,
+    );
+  }
+
+  /**
+   * Vertical inset before the first line. Zero for every built-in text block;
+   * CodeNode returns its top padding so text sits inside the background box.
+   * Baked into the layout (and its height), so caret/hit-test/selection/paint
+   * all start from `blockTop + insetY` without re-checking the block type.
+   */
+  protected contentInsetY(_block: TextualBlock, _styles: EditorStyles): number {
+    return 0;
+  }
+
+  /**
+   * Wrap this block's characters into display lines. The default is plain
+   * width-based wrapping (`wrapText`), which has no concept of hard line breaks —
+   * textual blocks are single logical lines and Enter splits the block. CodeNode
+   * overrides this to break on literal "\n" characters (treating each as a
+   * consumed, non-rendered break, exactly like a wrap space) so one code block
+   * can span many lines. The returned `consumedSpace` flag on each line is what
+   * `computeLayout` uses to advance the visible-index accounting, so an override
+   * only has to mark consumed breaks correctly for caret/selection to follow.
+   */
+  protected wrapLines(
+    chars: Char[],
+    formats: MarkSpan[],
+    maxWidth: number,
+    textStyle: TextStyle,
+    fontFamily: FontFamily,
+    fonts: FontStyles,
+    codePadding: number,
+    compositionRange: { start: number; end: number } | null,
+  ): WrappedLine[] {
+    return wrapText(
+      chars,
+      formats,
+      maxWidth,
+      textStyle.fontSize,
+      textStyle.fontWeight,
+      fontFamily,
+      fonts,
+      codePadding,
+      compositionRange,
+    );
   }
 
   /**

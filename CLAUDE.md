@@ -81,6 +81,24 @@ npm run cap:open:android   # Open Android project in Android Studio
 `apps/web` has no test runner configured. `packages/editor` uses vitest (`npm test`); the CRDT
 fuzz/regression tests live in `packages/editor/src/sync/__fuzz__/*.test.ts`.
 
+### Verifying editor changes (preview is hard right now)
+
+Browser-preview / automated UI verification of editor behavior is currently difficult **because of
+the nature of the app**: the editor renders text directly onto an HTML5 `<canvas>` (not DOM), and
+all input flows through a hidden 1px contenteditable surface driven by `keydown` / `input`
+(`inputType: "insertText"`) events. So preview tools that rely on DOM selectors, accessibility
+snapshots, or synthetic clicks/typing can't reliably see or drive the document:
+- The visible content is pixels on a canvas — `preview_snapshot` / DOM queries return almost nothing.
+- Pasting markdown into an existing text block inserts it as literal text (it does **not** re-parse
+  into new blocks), and a fresh page's first click often lands in the title, not the body.
+- Creating a block means driving the slash menu via synthetic `input`/`keydown` on the hidden
+  contenteditable, which is fiddly and flaky.
+
+Prefer **unit tests** (`npm test` in `packages/editor`) plus the **web build** (`npm run build` in
+`apps/web`, the canonical typecheck) to verify editor work. Only the host-rendered React chrome
+(overlays, popovers, menus, toolbars) is reliably inspectable via the browser preview, since that
+part is real DOM. When a visual check is needed, expect to fall back to a manual screenshot.
+
 ## Architecture
 
 ### Platform Layer (`apps/web/src/platform/`)

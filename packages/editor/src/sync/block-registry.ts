@@ -79,6 +79,7 @@ const ALL_BLOCK_TYPES: readonly BlockType[] = [
   "image",
   "line",
   "math",
+  "code",
 ];
 
 const ALL_BLOCK_TYPES_SET: ReadonlySet<BlockType> = new Set(ALL_BLOCK_TYPES);
@@ -159,6 +160,13 @@ const displayModeField: FieldDescriptor = {
     block.type === "math" ? block.displayMode : undefined,
 };
 
+const languageField: FieldDescriptor = {
+  validate: (value): boolean =>
+    typeof value === "string" || value === undefined,
+  extractForInverse: (block) =>
+    block.type === "code" ? block.language : undefined,
+};
+
 // =============================================================================
 // Base block shape — matches `createEmptyBlock`'s base in reducer.ts
 // =============================================================================
@@ -212,6 +220,16 @@ const TODO_CAPS: BlockCapabilities = {
 
 const VISUAL_CAPS: BlockCapabilities = {
   hasText: false,
+  hasFormats: false,
+  indentable: false,
+  togglable: false,
+};
+
+// Code blocks hold editable text (so they are "textual" for cursor/selection/
+// hit-test purposes) but carry NO inline marks — formatting toggles are gated
+// off by `hasFormats: false`, so bold/italic/etc. never apply inside code.
+const CODE_CAPS: BlockCapabilities = {
+  hasText: true,
   hasFormats: false,
   indentable: false,
   togglable: false,
@@ -364,6 +382,26 @@ const mathDescriptor = {
   textPreservingMorphs: ["math"],
 } satisfies BlockTypeDescriptor;
 
+const codeDescriptor = {
+  type: "code",
+  capabilities: CODE_CAPS,
+  defaults: (id: string, afterId: string | null): Block => ({
+    ...makeBase(id, afterId),
+    type: "code",
+    charRuns: [],
+    formats: [],
+    language: "",
+  }),
+  fields: {
+    type: typeField,
+    language: languageField,
+  },
+  // Code holds text but can only morph to itself: morphing into a paragraph
+  // would orphan its `language` field and reinterpret embedded "\n" chars (which
+  // a code block renders as hard line breaks) as run-on paragraph text.
+  textPreservingMorphs: ["code"],
+} satisfies BlockTypeDescriptor;
+
 // `satisfies` (rather than a wide annotation) preserves the per-key
 // inferred type, so `(typeof BLOCK_REGISTRY)["image"]["fields"]` carries
 // the literal field keys `"type" | "url" | "alt" | ...`. That's what lets
@@ -380,6 +418,7 @@ export const BLOCK_REGISTRY = {
   image: imageDescriptor,
   line: lineDescriptor,
   math: mathDescriptor,
+  code: codeDescriptor,
 } satisfies Record<BlockType, BlockTypeDescriptor>;
 
 // =============================================================================

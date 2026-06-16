@@ -180,6 +180,13 @@ function makeInputCtx(context: ParserContext, indent: number): InputCtx {
       const { chars, formats } = parseCharsAndFormats(context);
       return { charRuns: charsToRuns(chars), formats };
     },
+    rawText: (text: string) => {
+      const chars: Char[] = [];
+      for (const char of text) {
+        chars.push({ id: generateCharId(context), char, deleted: false });
+      }
+      return charsToRuns(chars);
+    },
     match: (...types: TokenType[]) => match(context, ...types),
     check: (type: TokenType) => check(context, type),
     advance: () => advance(context),

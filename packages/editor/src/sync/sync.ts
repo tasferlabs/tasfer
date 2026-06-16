@@ -185,6 +185,7 @@ export interface BlockFieldsOf {
   };
   line: {};
   math: { latex: string; displayMode: boolean };
+  code: { language?: string };
 }
 
 // =============================================================================
@@ -226,6 +227,7 @@ const _assertBlockFieldsOfMatchesRegistry: _BlockFieldsOfMatchesRegistry = {
   image: true,
   line: true,
   math: true,
+  code: true,
 };
 void _assertBlockFieldsOfMatchesRegistry;
 

@@ -1,5 +1,12 @@
 import { useP2PRoom, type SyncState } from "@/app/hooks/useP2PRoom";
 import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
 import { getBridge } from "@/platform/bridge";
 import {
   CURSOR_DRAG_BOUNDARY,
@@ -42,6 +49,10 @@ import {
   openLinkEditMenu,
 } from "../editorSchema";
 import { getPlatform } from "@/platform";
+import {
+  CODE_LANGUAGES,
+  codeLanguageLabel,
+} from "@cypherkit/editor/nodes/code-highlight";
 import {
   Bold,
   Clipboard,
@@ -554,6 +565,63 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
   );
 };
 
+/**
+ * Renders the language picker for a `CodeNode`-declared `"code-language"` slot.
+ * The descriptor anchors a 1×1 point at the block box's top-right corner; the
+ * chip insets itself from there. The current language is read live off the block
+ * and a selection is written back via `setNodeAttrs` (a `language` block_set op),
+ * so the document stays the single source of truth — no React-side state.
+ */
+const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
+  overlay,
+  editor,
+}) => {
+  const { t } = useTranslation();
+  const { blockIndex } = overlay;
+  const block = editor.getState()?.document.page.blocks[blockIndex];
+  if (block?.type !== "code") return null;
+
+  const currentLabel = codeLanguageLabel(block.language);
+  const items = CODE_LANGUAGES.map((l) => l.label);
+
+  const handleChange = (label: string | null) => {
+    const language = CODE_LANGUAGES.find((l) => l.label === label)?.id ?? "";
+    const b = editor.getState()?.document.page.blocks[blockIndex];
+    if (b && !b.deleted && b.type === "code") {
+      editor.change((c) => c.setNodeAttrs(b.id, { language }));
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        right: "8px",
+        top: "8px",
+        pointerEvents: "auto",
+      }}
+    >
+      <Combobox items={items} value={currentLabel} onValueChange={handleChange}>
+        <ComboboxInput
+          className="h-7 w-auto gap-1 rounded-md border-border/60 bg-background/80 px-2 shadow-none backdrop-blur-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          placeholder={t("code.plainText", "Plain Text")}
+          aria-label={t("code.selectLanguage", "Select language")}
+          title={t("code.selectLanguage", "Select language")}
+        />
+        <ComboboxContent className="w-44">
+          <ComboboxList>
+            {(item) => (
+              <ComboboxItem key={item} value={item}>
+                {item}
+              </ComboboxItem>
+            )}
+          </ComboboxList>
+        </ComboboxContent>
+      </Combobox>
+    </div>
+  );
+};
+
 const NODE_OVERLAYS: Record<string, ComponentType<NodeOverlayProps>> = {
   "image-upload": ImageUploadOverlay,
   "image-hover": ImageHoverOverlay,
@@ -561,6 +629,7 @@ const NODE_OVERLAYS: Record<string, ComponentType<NodeOverlayProps>> = {
   "inline-math-edit": InlineMathEditOverlay,
   "link-tooltip": LinkTooltipOverlay,
   "link-edit": LinkEditOverlay,
+  "code-language": CodeLanguageOverlay,
 };
 
 /**

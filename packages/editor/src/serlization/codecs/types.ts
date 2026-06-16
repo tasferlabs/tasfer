@@ -77,6 +77,12 @@ export interface InputCtx {
    * Consumes the trailing newline.
    */
   inlineText(): { charRuns: CharRun[]; formats: MarkSpan[] };
+  /**
+   * Build CRDT runs from a literal string — no inline-mark parsing, newlines
+   * kept verbatim. For blocks whose text is raw source (e.g. code). The caller
+   * still consumes the block's tokens (trigger + trailing newline) itself.
+   */
+  rawText(text: string): CharRun[];
   match(...types: TokenType[]): boolean;
   check(type: TokenType): boolean;
   advance(): Token;

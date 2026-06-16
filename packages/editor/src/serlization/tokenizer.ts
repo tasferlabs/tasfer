@@ -29,6 +29,7 @@ export const TODO_LIST_CHECKED = "todo_checked";
 export const INDENT = "indent";
 export const HORIZONTAL_RULE = "horizontal_rule";
 export const MATH_BLOCK = "math_block";
+export const CODE_BLOCK = "code_block";
 export const INLINE_MATH_START = "inline_math_start";
 export const INLINE_MATH_END = "inline_math_end";
 export const NEWLINE = "newline";
@@ -63,6 +64,7 @@ type VisibleTokenType =
   | "text"
   | "horizontal_rule"
   | "math_block"
+  | "code_block"
   | FormatTokenType
   | ListTokenType;
 export type TokenType = VisibleTokenType | "newline";
@@ -123,6 +125,8 @@ export default function tokenizePage(content: string) {
       state.startOfLine = false;
     } else if (state.startOfLine && tryTokenizeMathBlock(state, tokens)) {
       // Math block was tokenized, continue
+    } else if (state.startOfLine && tryTokenizeCodeBlock(state, tokens)) {
+      // Fenced code block was tokenized, continue
     } else {
       tokenizeLine(state, tokens);
     }
@@ -212,6 +216,96 @@ function tryTokenizeMathBlock(state: TokenizerState, tokens: Token[]): boolean {
   next(state, i + 2); // Skip content + closing $$
 
   // Skip optional trailing newline
+  if (!isEnd(state) && current(state) === "\n") {
+    tokens.push({ type: "newline" });
+    next(state);
+  } else if (!isEnd(state) && current(state) === "\r" && peek(state) === "\n") {
+    tokens.push({ type: "newline" });
+    next(state, 2);
+  }
+
+  return true;
+}
+
+// Try to tokenize a fenced code block (```lang\n...\n```) at start of line.
+// Emits one CODE_BLOCK token whose content is JSON `{ code, language }`, since a
+// code block carries both verbatim text (newlines included) and a language tag.
+// The closing fence is the first subsequent line that begins with ``` — code
+// that contains its own ``` line is a known limitation (matches the simple
+// single-length-fence model the serializer emits).
+function tryTokenizeCodeBlock(state: TokenizerState, tokens: Token[]): boolean {
+  const content = state.content;
+  const base = state.index;
+  if (
+    content[base] !== "`" ||
+    content[base + 1] !== "`" ||
+    content[base + 2] !== "`"
+  ) {
+    return false;
+  }
+
+  // Language tag = the remainder of the opening line.
+  let langEnd = base + 3;
+  while (
+    langEnd < content.length &&
+    content[langEnd] !== "\n" &&
+    content[langEnd] !== "\r"
+  ) {
+    langEnd++;
+  }
+  // The opening fence must end in a newline; an unterminated `​`​`​ is literal text.
+  if (langEnd >= content.length) return false;
+  const language = content.slice(base + 3, langEnd).trim();
+
+  // Advance past the opening line's newline to the first content line.
+  let contentStart = langEnd;
+  if (content[contentStart] === "\r" && content[contentStart + 1] === "\n") {
+    contentStart += 2;
+  } else if (content[contentStart] === "\n") {
+    contentStart += 1;
+  } else {
+    return false;
+  }
+
+  // Scan line-by-line for a closing fence (a line beginning with ```).
+  let lineStart = contentStart;
+  let codeEnd = -1;
+  let closeEnd = -1;
+  for (;;) {
+    if (
+      content[lineStart] === "`" &&
+      content[lineStart + 1] === "`" &&
+      content[lineStart + 2] === "`"
+    ) {
+      if (lineStart === contentStart) {
+        codeEnd = contentStart; // empty body
+      } else {
+        // Drop the single newline (\n or \r\n) that separates body from fence.
+        let e = lineStart - 1;
+        if (content[e] === "\n") {
+          e--;
+          if (e >= contentStart && content[e] === "\r") e--;
+          codeEnd = e + 1;
+        } else {
+          codeEnd = lineStart;
+        }
+      }
+      closeEnd = lineStart + 3;
+      break;
+    }
+    const nl = content.indexOf("\n", lineStart);
+    if (nl === -1) return false; // no closing fence
+    lineStart = nl + 1;
+  }
+
+  const code = content.slice(contentStart, codeEnd);
+  tokens.push({
+    type: CODE_BLOCK,
+    content: JSON.stringify({ code, language }),
+  });
+  next(state, closeEnd - base);
+
+  // Consume the trailing newline after the closing fence, if any.
   if (!isEnd(state) && current(state) === "\n") {
     tokens.push({ type: "newline" });
     next(state);

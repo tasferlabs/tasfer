@@ -79,10 +79,17 @@ export function createInitialState(
   // from each registered node's defaults overlaid with theme.nodeStrings.
   const resolvedNodeStrings = resolveNodeStrings(nodes, theme);
 
+  // One bus per editor instance (handlers are per-instance, never global). Let
+  // each node install its own action handlers (e.g. CodeNode claims Enter to
+  // insert a newline in code blocks) before the state is handed out.
+  const actionBus = createActionBus();
+  for (const node of nodes.nodeList()) {
+    node.registerActions?.(actionBus);
+  }
+
   return {
     CRDTbinding,
-    // One bus per editor instance (handlers are per-instance, never global).
-    actionBus: createActionBus(),
+    actionBus,
     nodes,
     marks,
     theme,

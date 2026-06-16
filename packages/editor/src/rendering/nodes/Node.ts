@@ -18,6 +18,7 @@
  * and the geometry passes (caret/selection/hit-test) from ever disagreeing.
  */
 
+import type { ActionBus } from "../../action-bus";
 import type {
   InputCtx,
   OutputCtx,
@@ -205,6 +206,16 @@ export abstract class Node<B extends Block = Block> {
    * names the overlay itself, so the activation policy + overlay live host-side.
    */
   activate?(c: NodeActivateCtx): NodeActivation | null;
+
+  /**
+   * Optional: register this node's action-bus handlers for the instance. Called
+   * once at mount with the per-instance {@link ActionBus} (after the node and bus
+   * exist). This is how a node overrides or observes a built-in action for its
+   * own block type — e.g. CodeNode claims Enter (`SPLIT_BLOCK`) to insert a
+   * newline rather than split the block. The registry is per-editor-instance, so
+   * handlers never leak across editors on the same page.
+   */
+  registerActions?(bus: ActionBus): void;
 
   // ── Serialization facet ────────────────────────────────────────────────────
   // A node owns its own markdown/HTML/text round-trip, so a block type's

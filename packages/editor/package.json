@@ -33,6 +33,7 @@
     "vitest": "^4.1.8"
   },
   "dependencies": {
-    "defuddle": "^0.18.1"
+    "defuddle": "^0.18.1",
+    "lowlight": "^3.3.0"
   }
 }

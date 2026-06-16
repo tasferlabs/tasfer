@@ -45,9 +45,16 @@ export const DEFAULT_FONT_STYLES: FontStyles = {
   families: {
     default:
       'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    // Monospace stack for code blocks. Resolves to a system monospace face, so
+    // it measures and renders correctly without the host loading a web font.
+    monospace:
+      'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
   },
   defaultFamily: "default",
 };
+
+/** Font-family key code blocks render with. Present in {@link DEFAULT_FONT_STYLES}. */
+export const CODE_FONT_FAMILY = "monospace";
 
 /**
  * Neutral, opinion-free default palette. The editor ships these so it renders
@@ -89,6 +96,11 @@ export const DEFAULT_TOKENS: ThemeTokens = {
   unknownBlockBorder: "rgba(127,127,127,0.4)",
   unknownBlockText: "rgba(127,127,127,0.8)",
   mathErrorBackground: "rgba(128,128,128,0.15)",
+  codeKeyword: "#9333ea",
+  codeString: "#16a34a",
+  codeComment: "#6b7280",
+  codeNumber: "#c2410c",
+  codeFunction: "#2563eb",
 };
 
 // Default horizontal page padding. Mobile gets tighter gutters; both are
@@ -281,6 +293,28 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
         color: t.text,
         lineHeight: 1.6,
         paddingBottom: 6,
+      },
+      code: {
+        fontSize: 14,
+        fontWeight: "normal",
+        // Neutral base color for un-highlighted/plain code (punctuation,
+        // operators, identifiers). Token kinds override it via `syntax`.
+        color: t.foreground,
+        lineHeight: 1.5,
+        // Bottom inset INSIDE the background box (mirrors paddingTop). The
+        // block's trailing flow gap is added on top of this by the node.
+        paddingBottom: 12,
+        backgroundColor: t.codeBackground,
+        borderRadius: 6,
+        paddingTop: 12,
+        paddingX: 14,
+        syntax: {
+          keyword: t.codeKeyword,
+          string: t.codeString,
+          comment: t.codeComment,
+          number: t.codeNumber,
+          function: t.codeFunction,
+        },
       },
       line: {
         height: 32, // Total block height
@@ -552,7 +586,8 @@ export function getTextStyle(
     | "paragraph"
     | "bullet_list"
     | "numbered_list"
-    | "todo_list",
+    | "todo_list"
+    | "code",
 ) {
   if (blockType === "bullet_list") {
     return styles.blocks.bulletList;
@@ -560,6 +595,8 @@ export function getTextStyle(
     return styles.blocks.numberedList;
   } else if (blockType === "todo_list") {
     return styles.blocks.todoList;
+  } else if (blockType === "code") {
+    return styles.blocks.code;
   }
   return styles.blocks[blockType];
 }

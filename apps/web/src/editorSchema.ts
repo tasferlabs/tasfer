@@ -20,6 +20,7 @@ import {
   TextNode,
 } from "@cypherkit/editor";
 import { getPlatform } from "@/platform";
+import { CodeNode } from "@cypherkit/editor/nodes/CodeNode";
 
 /**
  * The app's math node: the built-in {@link MathNode} rendering, plus the
@@ -232,7 +233,13 @@ export function openLinkEditMenu(
   args: LinkEditOverlayData & { x: number; y: number },
 ): void {
   const { x, y, blockIndex, ...data } = args;
-  editor.openOverlay({ key: "link-edit", blockIndex, x, y, data: { blockIndex, ...data } });
+  editor.openOverlay({
+    key: "link-edit",
+    blockIndex,
+    x,
+    y,
+    data: { blockIndex, ...data },
+  });
 }
 
 /**
@@ -257,6 +264,7 @@ export const appSchema = new Schema(
     new CypherMathNode(),
     new TextNode(),
     new ListNode(),
+    new CodeNode(),
   ],
   [
     new StrongMark(),
